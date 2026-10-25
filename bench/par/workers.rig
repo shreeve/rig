@@ -1,0 +1,169 @@
+# par.workers against two hand-built forms of the same work (README.md):
+# uneven items, each checked by one of CHECKERS states, three ways.
+#
+# - `fixed`: each state's task takes a fixed quarter of the items, in
+#   program order, as a static assignment does.
+# - `chan`: the items, heaviest first, go into one `*Chan[Int]`, and each
+#   state's task takes them until the channel is empty, then gives back
+#   its state and what it made, which the caller puts in item order.
+# - `workers`: `par.workers(!states, ?order, ...)` over the same order.
+#
+# Each run is timed with the monotonic clock; the runs interleave, and
+# the fastest of REPS counts. Prints `NAME US CHECK` per form, and each
+# state's share of the work for the last run of each.
+
+use std.math
+use std.par
+use std.sort
+use std.time
+
+CHECKERS = 4
+ITEMS = 400
+REPS = 9
+UNIT = 20000
+
+obj Checker
+  work: Int = 0
+  cache: List[Int]
+
+fun new_checker() -> Checker
+  Checker(cache: List[Int]())
+
+# The weight of item `i`: one in twenty is heavy, and more so among the
+# first quarter, as a project's big files cluster.
+fun weight(i: Int) -> Int
+  return 60 + i % 7 if i % 20 == 3 or i < ITEMS / 4 and i % 5 == 0
+  1 + i % 5
+
+# Item `i`'s check: work in proportion to its weight.
+fun check(c: !Checker, i: Int, w: Int) -> Int
+  total = i
+  for k in 0..w * UNIT
+    total = (total + k * 7) % 1000003
+  c.work += w
+  !c.cache.push(total % 10)
+  total
+
+# What a `fixed` or `chan` task gives back: its state, and the items it
+# checked with each one's value.
+obj Part
+  checker: Checker
+  items: List[Int]
+  values: List[Int]
+
+fun fixed_part(c: Checker, lo: Int, hi: Int, weights: ?List[Int]) -> Part
+  new c = <c
+  items: List[Int] = List()
+  values: List[Int] = List()
+  for i in lo..hi
+    !items.push(i)
+    !values.push(check(!c, i, weights[i]))
+  Part(checker: <c, items: <items, values: <values)
+
+fun chan_part(c: Checker, queue: *Chan[Int], weights: ?List[Int]) -> Part
+  new c = <c
+  new queue = <queue
+  items: List[Int] = List()
+  values: List[Int] = List()
+  while true
+    taken = (!queue).recv() catch none
+    i = taken ?? break
+    !items.push(i)
+    !values.push(check(!c, i, weights[i]))
+  Part(checker: <c, items: <items, values: <values)
+
+fun checkers() -> List[Checker]
+  cs: List[Checker] = List()
+  for _ in 0..CHECKERS
+    !cs.push(new_checker())
+  cs
+
+# Gather the parts' values in item order, and their states' work.
+sub gather(parts: List[Part], out: !List[Int], work: !List[Int])
+  for p in parts
+    !work.push(p.checker.work)
+    for i, k in ?p.items
+      out[i] = p.values[k]
+
+fun run_fixed(weights: ?List[Int], work: !List[Int]) -> List[Int]
+  out: List[Int] = List()
+  for _ in 0..ITEMS
+    !out.push(0)
+  tasks: List[Task[Part]] = List()
+  per = ITEMS / CHECKERS
+  for k in 0..CHECKERS
+    !tasks.push(fixed_part(new_checker(), k * per, (k + 1) * per, weights)&)
+  parts: List[Part] = List()
+  for t in <tasks
+    !parts.push(>t)
+  gather(<parts, !out, !work)
+  out
+
+fun run_chan(weights: ?List[Int], order: ?List[Int], work: !List[Int]) -> List[Int]
+  out: List[Int] = List()
+  for _ in 0..ITEMS
+    !out.push(0)
+  queue = *Chan[Int](math.max(order.len, 1))
+  for i in order
+    !queue.send(i) catch print("the queue is full")
+  !queue.close()
+  tasks: List[Task[Part]] = List()
+  for _ in 0..CHECKERS
+    !tasks.push(chan_part(new_checker(), +queue, weights)&)
+  parts: List[Part] = List()
+  for t in <tasks
+    !parts.push(>t)
+  gather(<parts, !out, !work)
+  out
+
+fun run_workers(weights: ?List[Int], order: ?List[Int], work: !List[Int]) -> List[Int]
+  states = checkers()
+  got = par.workers(!states, order, |?weights, c, i| check(!c, i, weights[i]))
+  out: List[Int] = List()
+  for _ in 0..ITEMS
+    !out.push(0)
+  for i, k in ?order
+    out[i] = got[k]
+  for c in states
+    !work.push(c.work)
+  out
+
+fun sum(xs: ?List[Int]) -> Int
+  total = 0
+  for x in xs
+    total = (total + x) % 1000000007
+  total
+
+sub show(name: ?String, best: Int, digest: Int, work: ?List[Int])
+  print(name, best / 1000, digest, work)
+
+sub main()
+  weights: List[Int] = List()
+  order: List[Int] = List()
+  for i in 0..ITEMS
+    !weights.push(weight(i))
+    !order.push(i)
+  sort.sort_by(!order, |?weights, a, b| weights[a] > weights[b] or weights[a] == weights[b] and a < b)
+  best = List([0, 0, 0])
+  checks = List([0, 0, 0])
+  works: List[List[Int]] = List()
+  for _ in 0..3
+    !works.push(List[Int]())
+  for _ in 0..REPS
+    for form in 0..3
+      work: List[Int] = List()
+      t = time.now()
+      out = List[Int]()
+      if form == 0
+        out = run_fixed(?weights, !work)
+      else if form == 1
+        out = run_chan(?weights, ?order, !work)
+      else
+        out = run_workers(?weights, ?order, !work)
+      ns = t.elapsed()
+      best[form] = ns if best[form] == 0 or ns < best[form]
+      checks[form] = sum(?out)
+      works[form] = <work
+  show("fixed", best[0], checks[0], ?works[0])
+  show("chan", best[1], checks[1], ?works[1])
+  show("workers", best[2], checks[2], ?works[2])

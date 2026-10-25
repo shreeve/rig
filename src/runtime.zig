@@ -49,6 +49,8 @@ pub const isolateInto = tasks.isolateInto;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEach = tasks.parEach;
 pub const parEachInto = tasks.parEachInto;
+pub const parWorkers = tasks.parWorkers;
+pub const parWorkersInto = tasks.parWorkersInto;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
 

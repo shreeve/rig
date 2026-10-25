@@ -1058,6 +1058,108 @@ pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@T
     return parRunInto(true, xs.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
 }
 
+/// What `par.workers` gives for `f`: a List of each call's value, or
+/// nothing when `f` gives nothing, failing when `f` can.
+fn WorkersOut(comptime F: type) type {
+    const R = ReturnOf(F);
+    const fallible = @typeInfo(R) == .error_union;
+    const V = if (fallible) @typeInfo(R).error_union.payload else R;
+    const ok = if (V == void) void else List(V);
+    return if (fallible) WaitErr(&.{R})!ok else ok;
+}
+
+/// `par.workers(!states, ?items, f)`: one task for each state, the
+/// calling task among them, each calling `f(!s, x)` with its own state
+/// `s` on the next item `x` it takes, in the order of `items`, until
+/// none is left. A List of each call's value, in the order of the
+/// items, whichever task made it; nothing when `f` gives nothing. The
+/// first call to fail stops the tasks taking more and cancels them,
+/// and once all have ended, the call fails with its error, the values
+/// made dropped.
+pub fn parWorkers(states: anytype, items: anytype, f: anytype) WorkersOut(@TypeOf(f)) {
+    return parWorkersInto(states, items, f, rt.no_slot);
+}
+
+/// `parWorkers` where a failure's fields go into the caller's slot `out`.
+pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: anytype) WorkersOut(@TypeOf(f)) {
+    const F = @TypeOf(f);
+    const R = ReturnOf(F);
+    const fallible = @typeInfo(R) == .error_union;
+    const V = if (fallible) @typeInfo(R).error_union.payload else R;
+    const gives = V != void;
+    const n = items.len;
+    if (states.len == 0 and n > 0) @panic("par.workers has no states to take the items");
+    var out = if (gives) List(V).initCapacity(@intCast(n)) else {};
+    _ = &out;
+    const Ctx = struct {
+        items: @TypeOf(items),
+        f: F,
+        out: if (gives) []V else void,
+        made: if (marked) []bool else void,
+        next: std.atomic.Value(usize) = .init(0),
+        failed: std.atomic.Value(bool) = .init(false),
+        failure: anyerror = undefined,
+        failure_data: rt.ErrData = undefined,
+
+        const marked = fallible and gives and rt.needsDrop(V);
+        const Ctx = @This();
+
+        /// The worker of state `s`: the next item, until none is left
+        /// or a call has failed.
+        fn run(c: *Ctx, s: @TypeOf(&states[0])) void {
+            while (!c.failed.load(.acquire)) {
+                const i = c.next.fetchAdd(1, .monotonic);
+                if (i >= c.items.len) return;
+                const x = rt.lend(&c.items[i]);
+                if (comptime fallible) {
+                    // Each call fails into a slot of its own, which the
+                    // run keeps if it fails first.
+                    var slot: rt.ErrData = undefined;
+                    const v = c.f.call(rt.argsWithSlot(F, .{ s, x }, rt.failSlot(&slot))) catch |err| {
+                        if (c.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
+                            c.failure = err;
+                            c.failure_data = slot;
+                        } else rt.dropErrorData(err, &slot);
+                        return;
+                    };
+                    if (comptime gives) c.out[i] = v;
+                    if (comptime marked) c.made[i] = true;
+                } else if (comptime gives) {
+                    c.out[i] = c.f.call(.{ s, x });
+                } else c.f.call(.{ s, x });
+            }
+        }
+    };
+    const marked = Ctx.marked;
+    var ctx: Ctx = .{ .items = items, .f = f, .out = if (gives) out.buf.ptr[0..n] else {}, .made = undefined };
+    if (comptime marked) {
+        ctx.made = defaultAllocator().alloc(bool, n) catch oom();
+        @memset(ctx.made, false);
+    }
+    defer if (comptime marked) defaultAllocator().free(ctx.made);
+    if (states.len > 0) {
+        // The other states' tasks start first, so each takes items as
+        // soon as it runs; the calling task works with the first state.
+        const helpers = defaultAllocator().alloc(Task(void), states.len - 1) catch oom();
+        defer defaultAllocator().free(helpers);
+        for (helpers, states[1..]) |*t, *s| t.* = Task(void).spawn(Ctx.run, .{ &ctx, s });
+        Ctx.run(&ctx, &states[0]);
+        if (fallible and ctx.failed.load(.acquire)) for (helpers) |t| t.control.cancel();
+        for (helpers) |t| t.wait();
+    }
+    if (comptime fallible) if (ctx.failed.load(.acquire)) {
+        if (comptime @TypeOf(out_slot) == rt.ErrSlot) rt.putFields(out_slot, &ctx.failure_data) else rt.dropErrorData(ctx.failure, &ctx.failure_data);
+        if (comptime marked) for (ctx.out, ctx.made) |*v, m| if (m) dropElement(V, v);
+        if (comptime gives) rt.drop(&out);
+        // Every failure is `f`'s, or a wait's `task.Stop` in it.
+        return @errorCast(ctx.failure);
+    };
+    if (comptime gives) {
+        out.len = n;
+        return out;
+    }
+}
+
 /// A boundary a panic stops at: a call of `task.isolate(f)`, which runs
 /// `f` on a stack apart (`rt.sched.runApart`), and lists every task
 /// started under it, by `f` or by those tasks, until it ends. A panic in

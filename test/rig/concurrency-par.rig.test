@@ -268,3 +268,361 @@ fail "par generic instance stays on one thread", "`go[*Node]` cannot use `T = *N
   xs: List[*Node] = List()
   !xs.push(*Node(v: 1))
   print(go(?xs))
+
+test "par workers", seeds: 20, '''
+  100 0 198 9900
+  100 4950 3
+  [1, 4, 9]
+'''
+  # `par.workers` runs one task for each state, each calling the closure
+  # with its own state on the next item it takes, until none is left.
+  # The values come back in the order of the items, whichever task made
+  # each, and the states stay with the caller.
+  use std.par
+
+  obj Acc
+    n: Int = 0
+    sum: Int = 0
+
+  fun square(acc: !Acc, x: ?Int) -> Int
+    acc.n += 1
+    x * x
+
+  states = List([Acc(), Acc(), Acc()])
+  xs: List[Int] = List()
+  for i in 0..100
+    !xs.push(i)
+  ys = par.workers(!states, ?xs, |s, x|
+    s.n += 1
+    s.sum += x
+    x * 2
+  )
+  print(ys.len, ys[0], ys[99], ys.sum())
+  n = 0
+  sum = 0
+  for s in states
+    n += s.n
+    sum += s.sum
+  print(n, sum, states.len)
+  one = [Acc()]
+  print(par.workers(!one, ?[1, 2, 3], square))
+
+test "par workers gives nothing", seeds: 20, "4950 true"
+  # A closure that gives nothing makes a call that gives nothing: what
+  # each task does stays in its state.
+  use std.par
+
+  obj Sum
+    total: Int = 0
+    seen: List[Int]
+
+  states: List[Sum] = List()
+  for _ in 0..4
+    !states.push(Sum(seen: List[Int]()))
+  xs: List[Int] = List()
+  for i in 0..100
+    !xs.push(i)
+  par.workers(!states, ?xs, |s, x|
+    s.total += x
+    !s.seen.push(x)
+  )
+  total = 0
+  seen = 0
+  for s in states
+    total += s.total
+    seen += s.seen.len
+  print(total, seen == 100)
+
+test "par workers few items", seeds: 20, '''
+  [10, 20] 2
+  [] 0
+  []
+'''
+  # With more states than items, the tasks that find none left end at
+  # once; with no items, none is called.
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  states = List([Count(), Count(), Count(), Count(), Count()])
+  ys = par.workers(!states, ?[1, 2], |s, x|
+    s.n += 1
+    x * 10
+  )
+  n = 0
+  for s in states
+    n += s.n
+  print(ys, n)
+  no_items: List[Int] = List()
+  before = states[0].n + states[1].n
+  zs = par.workers(!states[..2], ?no_items, |s, x|
+    s.n += 100
+    x
+  )
+  print(zs, states[0].n + states[1].n - before)
+  empty: List[Count] = List()
+  print(par.workers(!empty, ?no_items, |s, x| x))
+
+test "par workers heavy first", seeds: 20, '''
+  60 36 true
+  1 2 3
+'''
+  # Items taken in the caller's order, heaviest first, balance an uneven
+  # load: each task takes the next item as it is free, so the busiest
+  # state does less than the one a fixed split of the same items gives
+  # every heavy item. A unit of work is a millisecond's sleep, while the
+  # other tasks run; the work each state did is counted, not timed.
+  use std.par
+  use std.time
+
+  obj Load
+    work: Int = 0
+
+  # Weights, heaviest first: four heavy items of 8, then light ones.
+  weights: List[Int] = List()
+  for _ in 0..4
+    !weights.push(8)
+  for _ in 0..28
+    !weights.push(1)
+  states = List([Load(), Load(), Load(), Load()])
+  got = par.workers(!states, ?weights, |s, w|
+    for _ in 0..w
+      time.sleep(time.MS)!
+    s.work += w
+    w
+  ) catch List[Int]()
+  most = 0
+  total = 0
+  for s in states
+    most = s.work if s.work > most
+    total += s.work
+  # A fixed split of 4 consecutive runs: the first takes all four heavy items.
+  fixed = 0
+  for k in 0..4
+    part = 0
+    for i in k * 8..(k + 1) * 8
+      part += weights[i]
+    fixed = part if part > fixed
+  print(total, fixed, most < fixed)
+  print(got[0] / 8, got[4] + 1, got[31] + 2)
+
+test "par workers fails", seeds: 20, '''
+  Bad.odd
+  0
+  ["n1", "n2", "n3"]
+'''
+  # A closure that can fail makes the call fail: the first failure stops
+  # the tasks taking more items, and cancels them; the values made are
+  # dropped, and the states stay with the caller.
+  use std.par
+  use std.task
+
+  error Bad
+    odd
+
+  obj Log
+    names: List[String]
+
+  fun name(log: !Log, n: Int) -> String!
+    return Bad.odd if n == 37
+    task.check()!
+    !log.names.push(String("n", n))
+    String("n", n)
+
+  states: List[Log] = List()
+  for _ in 0..3
+    !states.push(Log(names: List[String]()))
+  xs: List[Int] = List()
+  for i in 0..100
+    !xs.push(i)
+  r = par.workers(!states, ?xs, |s, x| name(!s, x)!) catch |e|
+    print(e)
+    List[String]()
+  print(r.len)
+  print(par.workers(!states, ?xs[1..4], |s, x| name(!s, x)!) catch List[String]())
+
+bomb "par workers no states", seeds: 20, "par.workers has no states to take the items"
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  states: List[Count] = List()
+  ys = par.workers(!states, ?[1, 2], |s, x| x)
+  print(ys)
+
+fail "par workers states write", "`par.workers` lends each task one state to write: lend the states so, `par.workers(!states, ...)`", errors: 1
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  states = List([Count()])
+  ys = par.workers(?states, ?[1, 2], |s, x| x)
+
+fail "par workers states move", "`par.workers` hands each of `!states` to a task that may run on another core, to write, and `*Count` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  states: List[*Count] = List()
+  !states.push(*Count())
+  ys = par.workers(!states, ?[1, 2], |s, x| x)
+
+fail "par workers items share", "`par.workers` hands the items of `?ts` to tasks that may run on other cores, to read, and `*Thing` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  use std.par
+
+  obj Thing
+    n: Int
+
+  obj Count
+    n: Int = 0
+
+  states = List([Count()])
+  ts: List[*Thing] = List()
+  !ts.push(*Thing(n: 1))
+  ns = par.workers(!states, ?ts, |s, t| t.n)
+
+fail "par workers values move", "`par.workers` gathers the values that tasks on other cores make, and `*Thing` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  use std.par
+
+  obj Thing
+    n: Int
+
+  obj Count
+    n: Int = 0
+
+  states = List([Count()])
+  hs = par.workers(!states, ?[1, 2], |s, x| *Thing(n: x))
+
+fail "par workers write capture", "`par.workers` calls the closure on several tasks at once, and `|!total|` lends `total` to write, which no two tasks may hold at once: keep what each task writes in its state, or gather what each call gives", errors: 1
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  states = List([Count()])
+  total = 0
+  par.workers(!states, ?[1, 2], |!total, s, x| total += x)
+
+fail "par workers named closure", "`par.workers` calls `add` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `par.workers(!states, ?items, |s, x| ...)`", errors: 1
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  states = List([Count()])
+  add = |s: !Count, x: ?Int| x + 1
+  ys = par.workers(!states, ?[1, 2], add)
+
+fail "par workers function takes two", "`par.workers` calls `double` with a task's state and one item at a time, and it takes 1 parameters", errors: 1
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  fun double(x: ?Int) -> Int
+    x * 2
+
+  states = List([Count()])
+  ys = par.workers(!states, ?[1, 2], double)
+
+fail "par workers takes three", "`par.workers` runs one task for each state, and takes the states, the items, and a function: `par.workers(!states, ?items, |s, x| ...)`", errors: 1
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  states = List([Count()])
+  ys = par.workers(!states, ?[1, 2], |s, x| x, limit: 2)
+
+fail "par named function takes the element", "`par.map` calls `name_len` with each element as `?Int`, and `name_len` takes `?String`", errors: 1
+  # A function's name is called with what the runtime passes: each
+  # element's view, or the value of a scalar's.
+  use std.par
+
+  fun name_len(s: ?String) -> Int
+    s.len
+
+  xs = List([1, 2])
+  print(par.map(?xs, name_len))
+
+fail "par workers function takes the state", "`par.workers` calls `step` with a task's state as `!Count` and each item as `?Int`, and `step` takes `?Count` and `?Int`", errors: 1
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  fun step(c: ?Count, x: ?Int) -> Int
+    x
+
+  states = List([Count()])
+  print(par.workers(!states, ?[1, 2], step))
+
+fail "par workers gives the state back", "`par.workers` gives back each call's value, and `!Acc` is a write view, which no value it gives back may hold: give a copy, `+s`, or a value made from it", errors: 1
+  # A task's state stays the task's: a write view of it given back
+  # would let the caller hold several at once.
+  use std.par
+
+  obj Acc
+    seen: List[Int]
+
+  states: List[Acc] = List()
+  !states.push(Acc(seen: List[Int]()))
+  items = List([1, 2, 3, 4])
+  ys = par.workers(!states, ?items, |s, x| s)
+
+test "par workers gives copies", seeds: 20, "4 [1] true"
+  use std.par
+
+  obj Acc
+    seen: List[Int]
+
+  states: List[Acc] = List()
+  !states.push(Acc(seen: List[Int]()))
+  items = List([1, 2, 3, 4])
+  ys = par.workers(!states, ?items, |s, x|
+    !s.seen.push(x)
+    +s
+  )
+  print(ys.len, ys[0].seen, states[0].seen.len == 4)
+
+fail "par workers function takes a scalar's write view", "`par.workers` calls `step` with a task's state as `!Int` and each item as `?Int`, and `step` takes `Int` and `Int`", errors: 1
+  use std.par
+
+  fun step(s: Int, x: Int) -> Int
+    s + x
+
+  ints = List([0, 0])
+  print(par.workers(!ints, ?[1, 2, 3], step))
+
+fail "par each function takes the write view", "`par.each` calls `show` with each element as `!Int`, and `show` takes `Int`", errors: 1
+  use std.par
+
+  sub show(x: Int)
+    print(x)
+
+  xs = List([1, 2, 3])
+  par.each(!xs, show)
+
+test "par workers in a function of views", seeds: 20, "[2, 3, 4] 3"
+  # The call stores no item in a state, so a function lent the states
+  # and the items keeps neither.
+  use std.par
+
+  obj Acc
+    n: Int = 0
+
+  fun run(states: ![]Acc, xs: ?List[Int]) -> List[Int]
+    par.workers(!states, ?xs, |s, x|
+      s.n += 1
+      x + 1
+    )
+
+  states = List([Acc(), Acc()])
+  xs = List([1, 2, 3])
+  ys = run(!states[..], ?xs)
+  !xs.push(4)
+  print(ys, states[0].n + states[1].n)

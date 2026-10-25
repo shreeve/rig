@@ -12856,7 +12856,8 @@ a frozen value holds only data that never changes, and `Counter` holds `*Cell[In
 
 `par.map(?xs, f)` and `par.each(!xs, f)` of `std.par`
 ([std.par](docs/STD.md#stdpar)) call `f` on each element of a List, an
-array, or a slice, on several tasks at once:
+array, or a slice, on several tasks at once, and `par.workers` gives
+each task a state of its own (below):
 
 - `par.map(?xs, f)` gives a `List` of each call's value, in the order of
   `xs`; `f` takes each element as `?T`.
@@ -12913,6 +12914,52 @@ sub main()
 
 ```error
 `par.each` calls the closure on several tasks at once, and `|!total|` lends `total` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+total|`
+```
+
+`par.workers(!states, ?items, f)` runs one task for each state, the
+calling task among them. Each task holds its own state, as `!S`, and
+calls `f(!s, x)` on the next item it takes, as `?T`, until none is
+left; the items are taken one at a time in their order, so a caller
+that puts the heaviest first balances an uneven load.
+
+- It gives a `List` of each call's value in the order of the items,
+  whichever task made each, or nothing when `f` gives nothing.
+- With more states than items, the tasks that find none left end at
+  once; with no states, items left untaken panic.
+- Failure and deadlines are as for `par.map`: the first failure stops
+  the tasks taking more items and cancels them, the values made are
+  dropped, and the states stay the caller's.
+
+`f` is as for `par.map`, and takes the state and the item. Each state
+goes to one task to write, so it must be sendable, as `par.each`'s
+elements; the items must sync, as `par.map`'s; the values must be
+sendable, and none is or holds a write view, which would reach a
+task's state after the task: `+s` gives a copy.
+
+```rig
+use std.par
+
+obj Tally
+  items: Int = 0
+  weight: Int = 0
+
+sub main()
+  states = List([Tally(), Tally(), Tally()])
+  sizes = List([9, 7, 4, 3, 2, 1])
+  print(par.workers(!states, ?sizes, |t, n|
+    t.items += 1
+    t.weight += n
+    n * 10
+  ))
+  total = 0
+  for t in states
+    total += t.weight
+  print(total)
+```
+
+```output
+[90, 70, 40, 30, 20, 10]
+26
 ```
 
 ---

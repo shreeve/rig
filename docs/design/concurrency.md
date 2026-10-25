@@ -244,6 +244,10 @@ no syntax:
 - `par.map(?xs, f, limit: n)` and `par.each(!xs, f, limit: n)` run a
   function over a list's elements, at most `n` at once. Use them in
   place of a loop of `&` over input of unbounded size.
+- `par.workers(!states, ?items, f)` runs a task for each state, which
+  calls `f(!s, x)` with its own state on the next item it takes until
+  none is left: work whose tasks each keep a cache or a checker, with
+  the heaviest items put first so the load evens out.
 
 ## Loans and structure
 
@@ -396,9 +400,9 @@ par.map(?docs, |!counts, d| tally(!counts, d))
 #   `|!counts|` lends `counts` to write, which no two tasks may hold at once
 ```
 
-The checker types `par.map`, `par.each`, and `http.serve` itself: each
-takes a closure written in the call, whose captures it sees, or a
-function's name. A general rule that reads the requirement from a
+The checker types `par.map`, `par.each`, `par.workers`, and
+`http.serve` itself: each takes a closure written in the call, whose
+captures it sees, or a function's name. A general rule that reads the requirement from a
 library's body is not built.
 
 A function value stored in a field and called from many tasks later is
@@ -638,7 +642,7 @@ restarted by a small parent) remains, as defence in depth.
 ## The library
 
 **First wave, shipped with tasks:**
-- `Tasks[T]`, `task.all`, `par.map`, and `par.each`;
+- `Tasks[T]`, `task.all`, `par.map`, `par.each`, and `par.workers`;
 - `time.sleep`, deadlines, and `time.within(d, || ...)`, a deadline over
   a block of calls;
 - `task.check()!` and `task.isolate`;

@@ -59,6 +59,12 @@ newest entry summarizes the latest rounds.
   can drop about 82 of its 111 `swap(!x.f, empty)` sites and 3
   optional fields kept only to be taken (its NEEDS 26). λRig has no
   fields, a gap formal/README.md records.
+- **`par.workers(!states, ?items, |s, x| ...)`** (decision 8c, approved
+  2026-10-25) is built: a task for each state, pulling items in the
+  caller's order, results in item order. It matches Trig's hand-built
+  channel loop for work-stealing checkers (Trig #207) in
+  [bench/par](bench/par/README.md), which Trig can swap for it once it
+  is on `main`.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

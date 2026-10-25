@@ -1784,8 +1784,8 @@ pub const Facts = struct {
     /// The calls of `task.all`, which wait for the tasks they take
     /// (`Checker.taskJoin`).
     task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    /// The calls of `par.map` and `par.each`, which run a function on
-    /// several tasks (`Checker.parCall`).
+    /// The calls of `par.map`, `par.each`, and `par.workers`, which run a
+    /// function on several tasks (`Checker.parCall`).
     par_calls: std.AutoHashMapUnmanaged(u64, ParCall) = .empty,
     /// `*Actor(x)` calls (`Checker.actorMake`) and method calls through
     /// an actor's handle (`Checker.actorCall`).
@@ -10043,9 +10043,10 @@ pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// read through a view by another thread while this one also reads it.
 pub const Crossing = enum { moves, shares };
 
-/// `par.map(?xs, f)`, which gives each call's value, or `par.each(!xs,
-/// f)`, which writes each element.
-pub const ParCall = enum { map, each };
+/// `par.map(?xs, f)`, which gives each call's value, `par.each(!xs, f)`,
+/// which writes each element, or `par.workers(!states, ?items, f)`,
+/// which gives each call's value, each task with a state of its own.
+pub const ParCall = enum { map, each, workers };
 
 /// Whether a value of `ty` meets `how` (`Crossing`): nothing it reaches
 /// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
