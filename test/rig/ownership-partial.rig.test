@@ -806,3 +806,309 @@ fail "partial parameter whole reject", "13:3: `p` is partly moved: `p.a` was mov
 
   sub main()
     print(param_whole(P(a: String("a"), b: String("b"))))
+
+test "partial optional parameter field moves", seeds: 20, '''
+  1 1
+  2
+  1
+  3
+  ab
+  2
+  0 2
+  true true
+  3 cd
+  2
+  5
+  1
+'''
+  # 14. An optional field of a binding that cannot be assigned (a parameter,
+  # a capture, a `=!` local) moves like a name, since nothing could see the
+  # `none` a take leaves: in an argument, an `if <p.f as t` with an else, a
+  # binding, a statement, a loop that breaks, a `match` arm, a task, a
+  # generic body, a `<@` method, a fixed local, and a `once` closure.
+  # oracle: by_arg accept
+  # oracle: by_if accept
+  # oracle: bound accept
+  # oracle: dropped accept
+  # oracle: looped accept
+  # oracle: matched accept
+  # oracle: generic accept
+  # oracle: Pair.drained accept
+  # oracle: fixed accept
+  # oracle: closed accept
+  obj Pair
+    name: String
+    tags: List[String]?
+
+    fun drained(<@) -> Int
+      count(<@tags) + @name.len
+
+  obj Two[T]
+    name: String
+    val: T?
+
+  enum E
+    a
+    b
+
+  fun count(tags: List[String]?) -> Int
+    if <tags as t
+      return t.len
+    0
+
+  fun run(k: once ?fun() -> Int) -> Int
+    k() + 1
+
+  fun mk(name: ?String, n: Int) -> Pair
+    tags = List[String]()
+    for _ in 0..n
+      !tags.push(String("t"))
+    Pair(name: String(name), tags: <tags)
+
+  fun by_arg(p: Pair) -> Int
+    count(<p.tags) + p.name.len
+
+  fun by_if(p: Pair) -> Int
+    if <p.tags as t
+      return t.len
+    else
+      return p.name.len
+
+  fun bound(p: Pair) -> Int
+    got = <p.tags
+    count(<got)
+
+  fun dropped(p: Pair) -> String
+    <p.tags
+    <p.name
+
+  fun looped(p: Pair) -> Int
+    n = 0
+    for i in 0..3
+      if i == 1
+        n += count(<p.tags)
+        break
+    n + p.name.len
+
+  fun matched(p: Pair, e: E) -> Int
+    match e
+      .a
+        count(<p.tags)
+      .b
+        p.name.len
+
+  fun tasked(p: Pair) -> Int
+    t = count(<p.tags)&
+    >t
+
+  fun generic[T](p: Two[T]) -> Bool
+    v = <p.val
+    v != none
+
+  sub fixed()
+    q =! mk("cd", 3)
+    print(count(<q.tags), q.name)
+
+  fun closed(p: Pair) -> Int
+    run(|<p| count(<p.tags))
+
+  sub main()
+    print(by_arg(Pair(name: String("a"), tags: List[String]())), by_if(Pair(name: String("b"), tags: none)))
+    print(by_if(mk("x", 2)))
+    print(bound(mk("x", 1)))
+    print(by_arg(mk("ab", 1)))
+    print(dropped(mk("ab", 1)))
+    print(looped(mk("y", 1)))
+    print(matched(mk("y", 0), E.a), matched(mk("yz", 0), E.b))
+    print(generic(Two(name: String("a"), val: String("x"))), generic(Two[Int](name: String("b"), val: 3)))
+    fixed()
+    print(tasked(mk("z", 2)))
+    print(mk("abc", 2).drained())
+    print(closed(mk("z", 0)))
+
+test "partial optional field of a parameter, Loco's case", '''
+  1 1
+'''
+  # 14. Loco's smallest case (Sums.add, walk): a field moved out as a call
+  # argument, and in an `if ... as`.
+  # oracle: by_arg accept
+  # oracle: by_if accept
+  obj Pair
+    name: String
+    tags: List[String]?
+
+  fun count(tags: List[String]?) -> Int
+    if <tags as t
+      return t.len
+    0
+
+  fun by_arg(p: Pair) -> Int
+    count(<p.tags) + p.name.len
+
+  fun by_if(p: Pair) -> Int
+    if <p.tags as t
+      return t.len + p.name.len
+    p.name.len
+
+  sub main()
+    print(by_arg(Pair(name: String("a"), tags: List[String]())), by_if(Pair(name: String("b"), tags: none)))
+
+test "partial optional field of an assignable binding takes", '''
+  0 true ab
+  0 true
+'''
+  # 14. A local that can be assigned, and a write view, keep the take, which
+  # leaves `none`.
+  # oracle: local accept
+  # oracle: through accept
+  obj Pair
+    name: String
+    tags: List[String]?
+
+  fun count(tags: List[String]?) -> Int
+    if <tags as t
+      return t.len
+    0
+
+  sub local()
+    p = Pair(name: String("ab"), tags: List[String]())
+    n = count(<p.tags)
+    print(n, p.tags == none, p.name)
+
+  fun through(p: !Pair) -> Int
+    count(<p.tags)
+
+  sub main()
+    local()
+    q = Pair(name: String("ab"), tags: List[String]())
+    print(through(!q), q.tags == none)
+
+fail "partial optional parameter field reject", "20:3: `p` is partly moved: `p.tags` was moved out; assign it first", "24:6: use of `p.tags` after move", "31:10: use of `p.tags` after move", "36:17: use of `p.tags` after move", "41:9: `p` is partly moved: `p.tags` was moved out; assign it first", errors: 5
+  # 14. A parameter's optional field moved out leaves the parameter partly
+  # moved, for good: it is not returned whole, the field is not read again,
+  # in an else branch or the loop's next turn, and no closure captures `p`.
+  # oracle: whole reject C1
+  # oracle: again reject C1
+  # oracle: in_else reject C1
+  # oracle: twice reject C1
+  # oracle: captured reject C1
+  obj Pair
+    name: String
+    tags: List[String]?
+
+  fun count(tags: List[String]?) -> Int
+    if <tags as t
+      return t.len
+    0
+
+  fun whole(p: Pair) -> Pair
+    print(count(<p.tags))
+    p
+
+  fun again(p: Pair) -> Int
+    got = <p.tags
+    if p.tags as _
+      return 1
+    count(<got)
+
+  fun in_else(p: Pair) -> Int
+    if <p.tags as t
+      return t.len
+    count(<p.tags)
+
+  fun twice(p: Pair) -> Int
+    n = 0
+    for _ in 0..3
+      n += count(<p.tags)
+    n
+
+  fun captured(p: Pair) -> Int
+    got = <p.tags
+    g = |<p| p.name.len
+    g() + count(<got)
+
+  sub main()
+    print(1)
+
+fail "partial optional parameter field closures reject", "16:19: cannot move a field out of captured `p`: the closure keeps what it captures for every call; write `+p` for a clone", "20:9: a `defer` body cannot move a field out of `p`; it runs when the scope exits", "24:15: use of `p.tags` after move", errors: 3
+  # 14. A closure called more than once moves no field of what it captured,
+  # deferred code moves none, and deferred code reads none moved out.
+  # oracle: many reject B3
+  # oracle: deferred reject B2
+  # oracle: read_late reject C1
+  obj Pair
+    name: String
+    tags: List[String]?
+
+  fun count(tags: List[String]?) -> Int
+    if <tags as t
+      return t.len
+    0
+
+  fun many(p: Pair) -> Int
+    g = |<p| count(<p.tags)
+    g()
+
+  fun deferred(p: Pair) -> Int
+    defer count(<p.tags)
+    p.name.len
+
+  fun read_late(p: Pair) -> Int
+    defer print(p.tags)
+    count(<p.tags)
+
+  sub main()
+    print(1)
+
+fail "partial optional parameter field drop body reject", "17:10: cannot move out of `f.tags`: `File` has a `drop` body, which expects every field; move `f` whole, or exchange the field: `old = swap(!f.tags, v)`", errors: 1
+  # 14. No field moves out of a type with a `drop` body.
+  # oracle: File.drop accept
+  # oracle: closing reject C3
+  obj File
+    name: String
+    tags: List[String]?
+
+    drop(!@)
+      print("close", @name)
+
+  fun count(tags: List[String]?) -> Int
+    if <tags as t
+      return t.len
+    0
+
+  fun closing(f: File) -> Int
+    count(<f.tags)
+
+  sub main()
+    print(1)
+
+fail "partial optional parameter field copies reject", "7:5: cannot take parameter `p`; parameters are immutable (bind a copy with `new p = p`, or take `p: !Pair` to write through to the caller)", errors: 1
+  # 14. An optional that copies is not moved, so a parameter's stays a take,
+  # which nothing can write.
+  obj Pair
+    n: Int?
+
+  fun copied(p: Pair) -> Int
+    (<p.n) ?? 0
+
+  sub main()
+    print(copied(Pair(n: 3)))
+
+fail "partial optional parameter field branch reject", "14:11: `<` here would copy `p.tags` out without moving it; move it inside the branch: `<p.tags`", errors: 1
+  # 14. A field that moves like a name is moved inside a branch, as a name
+  # is.
+  # oracle: branched reject C3
+  obj Pair
+    name: String
+    tags: List[String]?
+
+  fun count(tags: List[String]?) -> Int
+    if <tags as t
+      return t.len
+    0
+
+  fun branched(p: Pair, c: Bool) -> Int
+    count(<(p.tags if c else none))
+
+  sub main()
+    print(1)

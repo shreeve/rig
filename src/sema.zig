@@ -13327,8 +13327,9 @@ fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind
 // =============================================================================
 
 /// What `<e` does to its source (Core §5): `<` always leaves its source
-/// done, so a name is ended, an optional place is emptied to `none`, and
-/// any other place is rejected. Decided here, once, by a positive list
+/// done, so a name is ended, an optional place is emptied to `none`, a
+/// field of an object a binding owns moves like a name, and any other
+/// place is rejected. Decided here, once, by a positive list
 /// over `handsOver` and the operand's type and root, for every form that
 /// carries a move: `<e` wherever it stands, a `for x in <e` source, and
 /// each leaf of a branching operand (`moveLeaves`). The type checker
@@ -13342,10 +13343,12 @@ pub const MoveSource = enum {
     /// the closure keeps it for every call, so `<` cannot end it.
     capture,
     /// A field or element holding an optional, of a place (`<p.f`,
-    /// `<v[i]`, `<(!p).f`): it is emptied to `none`.
+    /// `<v[i]`, `<(!p).f`): it is emptied to `none`. Not a field of a
+    /// binding that cannot be assigned (`fixedOwner`), which is a `part`.
     optional_part,
-    /// Any other field or element of a place: it can be neither ended
-    /// nor emptied.
+    /// Any other field or element of a place: a field of an object a
+    /// binding owns moves like a name (the ownership checker decides
+    /// which); any other part can be neither ended nor emptied.
     part,
     /// A field or element of a branching value (`(a if c else b).f`),
     /// which may be a binding's: neither ended nor emptied.
@@ -13390,11 +13393,11 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
         }
     ];
     switch (sym.kind) {
-        .param, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
-        .capture => return if (e != .src) partSource(ctx, e) else if (ctx.isOnceCapture(ctx.symbolOf(root).?)) .binding else .capture,
+        .param, .generic_param => return if (e == .src) .binding else fieldSource(ctx, e, sym),
+        .capture => return if (e != .src) fieldSource(ctx, e, sym) else if (ctx.isOnceCapture(ctx.symbolOf(root).?)) .binding else .capture,
         .local => {
             if (sym.scope == module_scope) return .declared;
-            return if (e == .src) .binding else partSource(ctx, e);
+            return if (e == .src) .binding else fieldSource(ctx, e, sym);
         },
         .function, .@"extern" => return .declared,
         // `module.name`: a constant or function of the module, or a type
@@ -13486,6 +13489,48 @@ fn viewsOnlyMade(ctx: *const SemContext, v: Sexp) bool {
 fn partSource(ctx: *const SemContext, e: Sexp) MoveSource {
     const ty = ctx.typeOf(e) orelse return .part;
     return if (ctx.types.get(ty) == .optional) .optional_part else .part;
+}
+
+/// `<e` of a field path from binding `sym`: an optional field is taken,
+/// leaving `none`, unless `sym` owns its object and cannot be assigned
+/// (`fixedOwner`). Then nothing could write the field, so it moves like
+/// a name, as any other field does (Core §5).
+fn fieldSource(ctx: *const SemContext, e: Sexp, sym: Symbol) MoveSource {
+    const source = partSource(ctx, e);
+    if (source != .optional_part or !fixedOwner(ctx, e, sym)) return source;
+    return .part;
+}
+
+/// Whether `e`, an optional field path from binding `sym` whose value
+/// moves, is one a take could never empty, because the binding cannot be
+/// assigned: a parameter or capture that is not a write view, or a
+/// fixed local (`=!`) that is not a pattern's. Every step is a field of
+/// a value held by value, no view, handle, or slice, and no field a
+/// take could not write (read-only, or a type's named none). Decided
+/// here, once: such a `<e` moves the field (`moveSource`).
+fn fixedOwner(ctx: *const SemContext, e: Sexp, sym: Symbol) bool {
+    switch (sym.kind) {
+        .param, .capture => {},
+        .local => if (!sym.flags.fixed or sym.flags.pattern_bound or sym.flags.as_bound) return false,
+        else => return false,
+    }
+    if (isReadOrWriteView(ctx, sym.ty)) return false;
+    const ty = ctx.typeOf(e) orelse return false;
+    if (copies(ctx, ty) == .yes) return false;
+    var p = e;
+    while (p.isKind(.member)) {
+        if (ctx.readOnlyFieldOf(p) != null) return false;
+        const field = identAt(ctx.source, ir.Member.name(p)) orelse return false;
+        p = ir.Member.object(p);
+        const obj = ctx.typeOf(p) orelse return false;
+        switch (ctx.types.get(obj)) {
+            .read_view, .write_view, .shared, .weak, .slice, .string_view, .optional => return false,
+            else => {},
+        }
+        if (accessThroughShared(ctx, obj)) return false;
+        if (namedNoneOf(ctx, obj)) |n| if (std.mem.eql(u8, n.field, field)) return false;
+    }
+    return p == .src;
 }
 
 /// A type's member (`Color.red`, `Point.origin`): a function lives for

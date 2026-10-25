@@ -10884,10 +10884,10 @@ test "take hint applied", '''
   x = <h.o
   print(x == none)
 
-fail "take hint where take allowed", "12:7: `p.o` owns a `Bag?`, which can't be copied by `=`: write `+p.o` to clone it or `?p.o` to view it", "16:7: `rc.o` owns a `Bag?`, which can't be copied by `=`: write `+rc.o` to clone it or `?rc.o` to view it", "20:7: `h.o` owns a `Bag?`, which can't be copied by `=`: write `+h.o` to clone it or `?h.o` to view it", "25:7: `h.o` owns a `Bag?`, which can't be copied by `=`: write `<h.o` to take it out (leaving `none`), `+h.o` to clone it, or `?h.o` to view it", "29:7: `p.o` owns a `Bag?`, which can't be copied by `=`: write `<p.o` to take it out (leaving `none`), `+p.o` to clone it, or `?p.o` to view it", errors: 5
-  # The copy rejection offers `<p.o`, which takes an optional field out
-  # and leaves `none`, only where the take itself is accepted: not through
-  # a read view or a shared handle, nor out of a parameter, which is fixed.
+fail "take hint where take allowed", "12:7: `p.o` owns a `Bag?`, which can't be copied by `=`: write `+p.o` to clone it or `?p.o` to view it", "16:7: `rc.o` owns a `Bag?`, which can't be copied by `=`: write `+rc.o` to clone it or `?rc.o` to view it", "20:7: `h.o` owns a `Bag?`, which can't be copied by `=`: write `<h.o` to move it out, `+h.o` to clone it, or `?h.o` to view it", "25:7: `h.o` owns a `Bag?`, which can't be copied by `=`: write `<h.o` to take it out (leaving `none`), `+h.o` to clone it, or `?h.o` to view it", "29:7: `p.o` owns a `Bag?`, which can't be copied by `=`: write `<p.o` to take it out (leaving `none`), `+p.o` to clone it, or `?p.o` to view it", errors: 5
+  # The copy rejection offers `<p.o` to take an optional field out only
+  # where the take is accepted: not through a read view or a shared handle;
+  # out of a parameter, which is fixed, `<h.o` moves the field (Core §5).
 
   obj Bag
     items: List[Int]

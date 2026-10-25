@@ -21,9 +21,9 @@ pub const Rule = enum {
     /// s1: a bare name of an owner, handle, or write view never copies.
     C2,
     /// s2, §5: `<` leaves its source done: a whole binding moves,
-    /// `<p.f` takes an optional, a field of an object a local or
-    /// parameter owns moves like a name, and no other place is moved
-    /// out of.
+    /// `<p.f` takes an optional of a binding that can be assigned, a
+    /// field of an object a local or parameter owns moves like a name,
+    /// and no other place is moved out of.
     C3,
     /// s5, s6: no access conflicts with a live loan.
     C4,

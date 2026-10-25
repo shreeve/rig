@@ -3183,6 +3183,9 @@ const Lowerer = struct {
         }
         const p = try self.place(operand) orelse return try self.eval(operand, how, null);
         const info = try self.kinds.of(p.ty);
+        // Of a binding that cannot be assigned, nothing could see the
+        // `none` a take leaves, so an optional field moves like a name.
+        if (self.ctx.types.get(p.ty) == .optional and !info.kind.copies() and p.via == .own and !p.handle and self.unassignable(operand)) return try self.moveField(p, pos);
         if (self.ctx.types.get(p.ty) == .optional) {
             if (p.via == .read) return self.found(.C7, pos, "nothing is taken out through a read view", .{});
             // A part of a value made in the statement: nothing would see
@@ -3197,7 +3200,22 @@ const Lowerer = struct {
         return try self.moveField(p, pos);
     }
 
-    /// `<p.f` of a part that is neither optional nor copies (Core §5): a
+    /// Whether the binding field path `e` starts from cannot be assigned
+    /// (Core §6): a parameter, a capture, or a fixed binding that no
+    /// pattern binds.
+    fn unassignable(self: *Lowerer, e: Sexp) bool {
+        var r = e;
+        while (r.isKind(.member)) r = ir.Member.object(r);
+        if (r != .src or !e.isKind(.member)) return false;
+        const sym = self.ctx.symbols.items[self.ctx.symbolOf(r) orelse return false];
+        return switch (sym.kind) {
+            .param, .capture => true,
+            .local => sym.flags.fixed and !sym.flags.pattern_bound and !sym.flags.as_bound,
+            else => false,
+        };
+    }
+
+    /// `<p.f` of a part that is neither taken nor copies (Core §5): a
     /// field of an object a local or parameter owns moves like a name,
     /// leaving a hole (`core.Hole`) until it is assigned again. Owning
     /// rules out views, handles, boxes, elements, and an optional's

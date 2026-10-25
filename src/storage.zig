@@ -1488,12 +1488,13 @@ fn consumeName(ctx: *SemContext, node: Sexp) !void {
 }
 
 /// Record the field `<p.a.b` may move out of binding `p`
-/// (`SemContext.field_moves`): a path of fields from a binding, whose
-/// value is not optional (`<p.o` takes it, leaving `none`). Whether it
-/// moves is the ownership checker's decision.
+/// (`SemContext.field_moves`): a path of fields from a binding, which
+/// `<` does not take (`sema.moveSource`: `<p.o` of an optional field a
+/// take can empty leaves `none`). Whether it moves is the ownership
+/// checker's decision.
 fn consumeField(ctx: *SemContext, node: Sexp) !void {
     if (!node.isKind(.member)) return;
-    if (typeOf(ctx, node)) |t| if (ctx.types.get(t) == .optional) return;
+    if (sema.moveSource(ctx, node) == .optional_part) return;
     var fields: std.ArrayList([]const u8) = .empty;
     defer fields.deinit(ctx.allocator);
     var e = node;
