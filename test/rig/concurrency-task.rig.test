@@ -594,15 +594,28 @@ test "task hogs", release: true, '''
       return n
     fib(n - 1) + fib(n - 2)
 
+  # A cycle of two functions, which only one of checks.
+  fun up(n: Int) -> Int
+    if n < 2
+      return n
+    down(n - 1) + down(n - 2)
+
+  fun down(n: Int) -> Int
+    if n < 2
+      return n
+    up(n - 1) + up(n - 2)
+
   fun leaf(i: Int) -> Int
     i
 
   hogs = Tasks[Int]()
   for i in 0..32
-    if i % 2 == 0
+    if i % 3 == 0
       !hogs.add(spin(20000000 + i)&)
-    else
+    else if i % 3 == 1
       !hogs.add(fib(27)&)
+    else
+      !hogs.add(up(27)&)
   slices = Tasks[Int]()
   start = time.now()
   sum = 0
@@ -677,6 +690,41 @@ bomb "task stack overflow deep frames", "rig: stack overflow", prints: "before",
     print("before")
     t = start()&
     print(>t)
+
+code "task one check on a cycle of calls", '''
+  pub fn odd(n: i64) bool {
+      @setEvalBranchQuota(rig.eval_quota);
+      if (n == 0) {
+'''
+  # Every cycle of calls passes through a function that checks for work
+  # left waiting, and only those check: of `even` and `odd`, one
+  # (docs/internals/scheduler.md, "Yield checks").
+  fun even(n: Int) -> Bool
+    if n == 0
+      return true
+    odd(n - 1)
+
+  fun odd(n: Int) -> Bool
+    if n == 0
+      return false
+    even(n - 1)
+
+  t = even(10)&
+  print(>t)
+
+code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
+  # A loop counts a turn in its continue expression, so a turn that
+  # leaves the loop counts nothing.
+  fun find(xs: []Int, k: Int) -> Int
+    i = 0
+    while i < xs.len
+      if xs[i] == k
+        return i
+      i += 1
+    -1
+
+  t = find([1, 2, 3], 2)&
+  print(>t)
 
 code "task free spawns free", ".spawn(spin, "
   # A task given only what crosses cores starts free, to run on any

@@ -1252,6 +1252,13 @@ first step is on `main` (SPEC §18):
 - **Each worker on cache lines of its own:** no line holds two
   workers' fields (`sched.Worker`), so a yield takes about 5 ns on the
   Mac and 22 on pup's two hyperthreads, 45% and 12% less (bench/tasks).
+- **Fewer yield checks, the same bound:** a recursive check sits only
+  in the functions that cut every cycle of calls, a feedback vertex set
+  the compiler picks once (`inlining.Pass.cutCycles`), and a loop counts
+  a turn as the next one begins, so a turn that leaves the loop counts
+  nothing. A task that recurses still checks on every turn of any cycle.
+  Trig's checker keeps 387 of its 2,812 recursive checks; on ts-pattern
+  with one checker it runs 5% fewer instructions and 2% faster (pup).
 - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
   `task.select` commits exactly one of its arms (`tasks.Chan`,
   `selectArms`). `task.supervise(f, restarts:, per:)` runs a

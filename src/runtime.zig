@@ -350,7 +350,8 @@ const Control = tasks.Control;
 pub const tick_turns: u32 = 1024;
 
 /// A turn of a loop in a program that makes tasks, counted down in `n`,
-/// the count its outermost loop keeps: every `tick_turns` turns, on the
+/// the count its outermost loop keeps, as the next turn begins (in a
+/// Zig `while`'s continue expression): every `tick_turns` turns, on the
 /// scheduler, the task yields if other work waits for its worker
 /// (`sched.tick`), so a long loop never keeps that work waiting.
 pub inline fn turn(n: *u32) void {
@@ -363,7 +364,8 @@ pub inline fn turn(n: *u32) void {
     }
 }
 
-/// The entry of a recursive function in a program that makes tasks: on
+/// The entry of a function of a program that makes tasks that every
+/// cycle of calls passes through one of (`inlining.Pass.cutCycles`): on
 /// the scheduler, when work waits that no idle worker will take
 /// (`sched.waiting`), the first such call to see it yields to that work
 /// (`sched.tickCall`). Otherwise it is one load of a flag.

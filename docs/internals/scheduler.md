@@ -170,12 +170,26 @@ fails, and yields only when other work waits.
   own, which it and every loop inside it count down, and every 1,024
   turns of any of them calls the scheduler (`rig.turn`, `sched.tick`).
   So an inner loop that runs long between its outer loop's turns still
-  yields. The task yields when work waits for its worker (in its "run
+  yields. A turn is counted as it ends and the next begins, in a Zig
+  `while`'s continue expression, so a turn that leaves its loop counts
+  nothing: a probe of a `Map` that finds its key at once, or a scan
+  that returns at its first element, pays no check. Zig's own `for`,
+  which has no continue expression, counts as each turn's body starts. The task yields when work waits for its worker (in its "run
   next" slot, its ring, or the global queue) or for another busy one
   (the flag below).
-- **Recursion.** A function on a cycle of calls (`inlining.decide`)
+- **Recursion.** Every cycle of calls passes through a function that
   starts by reading one flag, `sched.waiting`, on a cache line of its
-  own. Work woken or made while every worker is busy sets it, and so
+  own. The compiler picks those functions once, as a feedback vertex
+  set of the program's calls (`inlining.Pass.cutCycles`): every
+  function that calls itself, then, while cycles remain among the
+  rest, the largest function on one, since a large body runs longest
+  each call and so checks least often; a function picked whose cycles
+  the others' checks already cover is dropped. So a task that
+  recurses reaches a check on every turn of any cycle, and between
+  two checks it makes at most one chain of calls that repeats no
+  function. In Trig's checker 387 of the 2,812 functions on cycles
+  check, and they take under a third of the calls a check in every
+  one of them did. Work woken or made while every worker is busy sets it, and so
   does a fiber that fills its worker's "run next" slot and runs on. The
   first check to see it clears it and yields to that work: its own
   worker's, or half of another busy worker's ring, stolen. A worker
@@ -203,10 +217,13 @@ worker takes about 1 ms, where it took 1.5 s. A recursive call's check
 reads only its flag, so a worker deep in recursion leaves its timers to
 the workers that sleep.
 
-The loop check costs a decrement and a branch per turn of any loop:
-within noise on `bench/tasks`. The recursion check is a load and
-a branch per call: free in any function that does work, but a
-function as small as `fib` runs about 1.5x slower with it.
+The loop check costs a decrement and a branch per turn of any loop
+after its first: within noise on `bench/tasks`. The recursion check is
+a load and a branch per call of a function that checks: free in any
+function that does work, but a function as small as `fib` runs about
+1.5x slower with it. On Trig (ts-pattern, one checker, on pup) the two
+take 5% fewer instructions than a check in every turn and every
+function on a cycle did, and the run is 2% faster.
 
 With every core busy with long loops, a task queued behind one on its
 worker waits for one slice of that loop, not all of it (`bench/tasks`
@@ -267,8 +284,8 @@ every time; the suite runs each concurrency case again under seeds 1 to
    its cancel on to the task it waits on, and the blocking pool, which
    `std.file` reads through.
 5. **Yield checks**: a countdown in each outermost loop, and a flag
-   read on entry to each recursive function, in programs that make
-   tasks (above).
+   read on entry to the functions that cut every cycle of calls, in
+   programs that make tasks (above).
 6. **The default**: every program that makes tasks runs on the
    scheduler, and Zig's `Threaded` backend no longer runs tasks.
 7. **Guards sized to the program**: each program's task guard from its

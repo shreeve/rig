@@ -242,6 +242,13 @@ const Pass = struct {
     next_index: u32 = 1,
     stack: std.ArrayList(u32) = .empty,
     cyclic: std.ArrayList(bool) = .empty,
+    /// Each node's strongly connected component, numbered as Tarjan's
+    /// search finishes them.
+    component: std.ArrayList(u32) = .empty,
+    components: u32 = 0,
+    /// The functions whose entry checks for waiting work: a set that cuts
+    /// every cycle of calls (`cutCycles`).
+    checked: []bool = &.{},
     // `uninline`: its steps, and the functions and groups it has yet to
     // visit.
     epoch: u32 = 0,
@@ -919,8 +926,10 @@ const Pass = struct {
             }
             for (self.stack.items[k..start]) |w| {
                 self.state(w).on_stack = false;
+                self.component.items[w] = self.components;
                 if (members > 1) self.cyclic.items[w] = true;
             }
+            self.components += 1;
             self.stack.shrinkRetainingCapacity(k);
         }
     }
@@ -928,11 +937,123 @@ const Pass = struct {
     fn findCycles(self: *Pass) !void {
         const n = self.fns.items.len + self.groups.items.len;
         try self.cyclic.appendNTimes(self.a, false, n);
+        try self.component.appendNTimes(self.a, 0, n);
         for (0..n) |v| if (self.state(@intCast(v)).index == 0) try self.strong(@intCast(v));
     }
 
     fn isCyclic(self: *const Pass, v: u32) bool {
         return self.cyclic.items[v];
+    }
+
+    /// The functions called on a cycle with function `v`: those of its
+    /// calls, and of the groups its calls reach, in its component.
+    fn cycleCallees(self: *Pass, v: u32, out: *std.ArrayList(u32)) !void {
+        out.clearRetainingCapacity();
+        const c = self.component.items[v];
+        for (self.owners.items[self.fns.items[v].owner].calls.items) |e| {
+            const one = [1]u32{e.callee};
+            const reached: []const u32 = if (e.callee & group_bit != 0) self.groups.items[e.callee & ~group_bit].members.items else &one;
+            for (reached) |t| if (self.cyclic.items[t] and self.component.items[t] == c) try out.append(self.a, t);
+        }
+    }
+
+    /// Choose the functions whose entry checks for waiting work
+    /// (`checked`): a set of functions on cycles of calls that every
+    /// cycle passes through, so a task that recurses reaches a check on
+    /// each turn of any cycle while the others go unchecked. A function
+    /// that calls itself is in it. Of the rest, the reductions of a
+    /// feedback vertex set drop a function no cycle is left through (one
+    /// no other calls, or that calls none, among those left), and while
+    /// cycles remain the largest function is taken: a large body runs
+    /// longer each call, so its check is the rarest. A function taken
+    /// that the others' checks already cover is dropped last.
+    fn cutCycles(self: *Pass) !void {
+        const nf = self.fns.items.len;
+        self.checked = try self.a.alloc(bool, nf);
+        @memset(self.checked, false);
+        const Set = std.AutoArrayHashMapUnmanaged(u32, void);
+        const succ = try self.a.alloc(Set, nf);
+        const pred = try self.a.alloc(Set, nf);
+        const callees = try self.a.alloc([]const u32, nf);
+        const alive = try self.a.alloc(bool, nf);
+        for (succ, pred, callees, alive) |*s, *p, *c, *l| {
+            s.* = .empty;
+            p.* = .empty;
+            c.* = &.{};
+            l.* = false;
+        }
+        var buf: std.ArrayList(u32) = .empty;
+        var work: std.ArrayList(u32) = .empty;
+        for (0..nf) |i| {
+            const v: u32 = @intCast(i);
+            if (!self.cyclic.items[v]) continue;
+            alive[v] = true;
+            try self.cycleCallees(v, &buf);
+            callees[v] = try self.a.dupe(u32, buf.items);
+            for (buf.items) |t| {
+                try succ[v].put(self.a, t, {});
+                try pred[t].put(self.a, v, {});
+            }
+            try work.append(self.a, v);
+        }
+        const Graph = struct {
+            succ: []Set,
+            pred: []Set,
+            alive: []bool,
+            work: *std.ArrayList(u32),
+            a: std.mem.Allocator,
+            fn remove(g: @This(), v: u32) !void {
+                g.alive[v] = false;
+                for (g.pred[v].keys()) |p| if (p != v) {
+                    _ = g.succ[p].swapRemove(v);
+                    try g.work.append(g.a, p);
+                };
+                for (g.succ[v].keys()) |s| if (s != v) {
+                    _ = g.pred[s].swapRemove(v);
+                    try g.work.append(g.a, s);
+                };
+                g.succ[v].clearRetainingCapacity();
+                g.pred[v].clearRetainingCapacity();
+            }
+        };
+        const g: Graph = .{ .succ = succ, .pred = pred, .alive = alive, .work = &work, .a = self.a };
+        var taken: std.ArrayList(u32) = .empty;
+        while (true) {
+            while (work.pop()) |v| {
+                if (!alive[v]) continue;
+                if (succ[v].contains(v)) {
+                    self.checked[v] = true;
+                    try g.remove(v);
+                } else if (succ[v].count() == 0 or pred[v].count() == 0) try g.remove(v);
+            }
+            var best: ?u32 = null;
+            for (alive, 0..) |l, i| if (l) {
+                if (best == null or self.fns.items[i].size > self.fns.items[best.?].size) best = @intCast(i);
+            };
+            const v = best orelse break;
+            self.checked[v] = true;
+            try taken.append(self.a, v);
+            try g.remove(v);
+        }
+        // Drop each function taken whose cycles the other checks cover.
+        const seen = try self.a.alloc(bool, nf);
+        var stack: std.ArrayList(u32) = .empty;
+        var k = taken.items.len;
+        while (k > 0) {
+            k -= 1;
+            const v = taken.items[k];
+            self.checked[v] = false;
+            @memset(seen, false);
+            stack.clearRetainingCapacity();
+            try stack.appendSlice(self.a, callees[v]);
+            const back = while (stack.pop()) |w| {
+                if (w == v) break true;
+                if (seen[w] or self.checked[w]) continue;
+                seen[w] = true;
+                try stack.appendSlice(self.a, callees[w]);
+            } else false;
+            if (back) self.checked[v] = true;
+        }
     }
 };
 
@@ -1016,6 +1137,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     // is not emitted.
     if (try pass.forcedCycles()) return;
     try pass.findCycles();
+    try pass.cutCycles();
     // A large frame found at an instance another module makes marks its
     // declaration in its own module (module ids count from 1).
     for (mods) |m| for (m.sema.large_foreign_frames.items) |fr| try sema.markLarge(&mods[fr.module - 1].sema.large_frames, allocator, fr.pos, fr.bytes);
@@ -1034,7 +1156,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     try pass.fit();
     for (pass.fns.items, 0..) |f, v| {
         if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});
-        if (pass.isCyclic(@intCast(v))) try mods[f.module].sema.recursive.put(allocator, f.pos, {});
+        if (pass.checked[v]) try mods[f.module].sema.entry_checks.put(allocator, f.pos, {});
     }
     // Every owner's account. An owner large with the calls inlined into it
     // is never inlined by Zig either: a function, a closure's body, or a
