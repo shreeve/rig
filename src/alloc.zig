@@ -82,10 +82,17 @@ const prefault_large: usize = 8 << 20;
 fn prefault(h: *const Heap, p: usize, len: usize) void {
     if (len == 0) return;
     if (!faultsAhead(h)) return;
-    if (builtin.os.tag == .linux) {
-        const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
-        std.posix.madvise(at, len, madv_populate_write) catch {};
-    }
+    populate(p, len);
+}
+
+/// Faults in the `len` bytes at `p`, page-aligned, in one call on Linux,
+/// as writing them would; elsewhere, or on a kernel without
+/// `MADV_POPULATE_WRITE`, nothing. A large table's growth uses it too
+/// (`table.zig`).
+pub fn populate(p: usize, len: usize) void {
+    if (builtin.os.tag != .linux) return;
+    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+    std.posix.madvise(at, len, madv_populate_write) catch {};
 }
 
 /// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has

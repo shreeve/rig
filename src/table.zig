@@ -11,7 +11,11 @@
 //!   `MAP_NORESERVE` and, on Linux, `MADV_NOHUGEPAGE`. The system gives
 //!   each page as zeros when it is first touched, so a slot never written
 //!   costs no memory. It is its own mapping, never one of `alloc.zig`'s
-//!   blocks, which are reused unzeroed and faulted in ahead.
+//!   blocks, which are reused unzeroed and faulted in ahead. On Linux a
+//!   table larger than a huge page (2 MiB) starts on a huge page's
+//!   boundary, and as pushes reach past its first 2 MiB each 2 MiB they
+//!   enter is faulted in at once, as one huge page where the system has
+//!   one (`Table.reach`); slots written by `t[s] = x` fault page by page.
 //! - **Made.** Any other `T`: `n` slots on the heap, each `T()`, dropped
 //!   all `n` when the table is, since `t[s] = x` may write past `len`.
 //! - **Committed.** A reserved table on a target with no lazily zeroed
@@ -95,12 +99,30 @@ fn reservePanic(bytes: usize) noreturn {
 
 const page = std.heap.page_size_min;
 
-/// `bytes` of address space, zero pages, none committed.
+/// A huge page on Linux, and the stretch of a large table a push faults
+/// in at once (`Table.reach`).
+const huge: usize = 2 << 20;
+
+/// `bytes` of address space, zero pages, none committed. On Linux the
+/// pages are small (`MADV_NOHUGEPAGE`): a huge page would commit 2 MiB at
+/// a table's first touch. A reservation larger than a huge page starts on
+/// a huge page's boundary, over-reserved by one and trimmed, so each
+/// stretch a push reaches can be one huge page.
 fn reserve(bytes: usize) [*]align(page) u8 {
-    const m = std.posix.mmap(null, bytes, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch reservePanic(bytes);
-    // A huge page would commit 2 MiB at a table's first touch.
-    if (builtin.os.tag == .linux) std.posix.madvise(m.ptr, m.len, std.posix.MADV.NOHUGEPAGE) catch {};
-    return m.ptr;
+    const linux = builtin.os.tag == .linux;
+    const large = linux and bytes > huge;
+    const span = if (large) bytes + huge else bytes;
+    const m = std.posix.mmap(null, span, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch reservePanic(bytes);
+    if (!linux) return m.ptr;
+    var p = m.ptr;
+    if (large) {
+        const head = std.mem.alignForward(usize, @intFromPtr(m.ptr), huge) - @intFromPtr(m.ptr);
+        if (head > 0) std.posix.munmap(@alignCast(m[0..head]));
+        if (head < huge) std.posix.munmap(@alignCast(m[head + bytes ..]));
+        p = @alignCast(m.ptr + head);
+    }
+    std.posix.madvise(p, bytes, std.posix.MADV.NOHUGEPAGE) catch {};
+    return p;
 }
 
 fn unreserve(p: [*]align(page) u8, bytes: usize) void {
@@ -127,6 +149,10 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         cap: if (how == .committed) usize else void = if (how == .committed) 0 else {},
         /// The leak checker's record of the mapping (`token`).
         token: if (how == .reserved and leak_checked) [*]u8 else void = undefined,
+        /// The `len` at which a push next faults in a stretch (`reach`):
+        /// the first slot that ends past what pushes have faulted in, or
+        /// `n`. A push's one test of its length is against it.
+        limit: if (reaches) u64 else void = if (reaches) @min(n, huge / @sizeOf(T)) else {},
 
         const Self = @This();
         pub const __rig_args = .{ T, n };
@@ -135,6 +161,9 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         pub const Index = Slot(n);
 
         const leak_checked = builtin.optimize == .debug;
+        /// Whether pushes fault in the table a stretch at a time: a
+        /// reserved table larger than a huge page, on Linux.
+        const reaches = how == .reserved and builtin.os.tag == .linux and bytes > huge and @sizeOf(T) > 0;
 
         /// `Table()`: `n` slots, each `T()`. A table made once its value
         /// is wanted, at run time: never a constant.
@@ -161,13 +190,34 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `n` are pushed. The slot is dropped first, as any store into a
         /// place drops what was there.
         pub fn push(self: *Self, value: T) Index {
-            if (self.len == n) fullPanic(n);
+            if (comptime reaches) {
+                if (self.len >= self.limit) self.reach();
+            } else if (self.len == n) fullPanic(n);
             const s: Index = @intCast(self.len);
             const p = self.slot(s);
             if (comptime rt.needsDrop(T)) rt.dropElement(T, p);
             p.* = value;
             self.len += 1;
             return s;
+        }
+
+        /// A push at `limit`: panics when all `n` are pushed; else the
+        /// 2 MiB stretch that holds the end of slot `len` is advised
+        /// `MADV_HUGEPAGE` and faulted in at once with
+        /// `MADV_POPULATE_WRITE` (`alloc.populate`), as pushing into it
+        /// page by page would fault it, and `limit` moves to its end. A
+        /// table's first 2 MiB stay small pages, faulted as touched, so a
+        /// small table commits only what it uses.
+        noinline fn reach(self: *Self) void {
+            @branchHint(.cold);
+            if (self.len == n) fullPanic(n);
+            const last = @as(usize, @intCast(self.len)) * @sizeOf(T) + @sizeOf(T) - 1;
+            const start = std.mem.alignBackward(usize, last, huge);
+            const end = @min(start + huge, bytes);
+            const stretch: [*]align(page) u8 = @ptrFromInt(@intFromPtr(self.slots) + start);
+            std.posix.madvise(stretch, end - start, std.posix.MADV.HUGEPAGE) catch {};
+            rt.fast_alloc.populate(@intFromPtr(stretch), end - start);
+            self.limit = @min(n, end / @sizeOf(T));
         }
 
         /// A slot's offset: below `n` by its type, which a debug build

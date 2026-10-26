@@ -196,6 +196,27 @@ test "table in an object and a large reserved table", '''
     print(st.types.len, st.types[t].flags)
     print(st.types[far].flags + st.types[far].data)
 
+test "table a large table pushed and written past its first stretches", '''
+  700000 699999 2099997
+  7 3000000
+'''
+  obj Ty
+    a: U32 = 0
+    b: U32 = 0
+    c: U32 = 0
+
+  N = 1 << 22
+
+  sub main()
+    t: Table[Ty, N] = Table()
+    last: Slot[N] = 0
+    for i in 0..700000
+      last = (!t).push(Ty(a: U32(i), b: U32(i * 3)))
+    if Slot[N].of(3000000) as far
+      t[far].c = 7
+      print(t.len, t[last].a, t[last].b)
+      print(t[far].c, Int(far))
+
 test "table slot of any value below n", '''
   none 3 none
 '''
