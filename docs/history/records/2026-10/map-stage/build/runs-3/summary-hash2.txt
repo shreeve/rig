@@ -1,0 +1,28 @@
+
+new-safe against base-safe
+       int insert       27225931.00 46158762.00  69.5% slower  ok
+       int hit          13872045.00 14612288.00  5.3% slower  ok
+       int miss         12128801.00 5627084.00  53.6% faster  ok
+       int iterate      1040819.00 11102717.00  966.7% slower  ok
+    string insert       44707054.00 46627064.00  4.3% slower  ok
+    string hit          32544851.00 32515473.00  0.1% faster  ok
+    string miss         18680134.00 18466510.00  1.1% faster  ok
+    string iterate      3427996.00 3390900.00  1.1% faster  ok
+      pair insert       33185356.00 64954640.00  95.7% slower  ok
+      pair hit          19103750.00 24536331.00  28.4% slower  ok
+      pair miss         14876943.00 8179773.00  45.0% faster  ok
+     small 4            2507990.00 1344175.00  46.4% faster  ok
+     small 8            2879672.00 1979741.00  31.3% faster  ok
+    string intern       12333359.00 12240174.00  0.8% faster  ok
+       int ensure-miss  27307255.00 50141369.00  83.6% slower  ok
+       int ensure-hit   15022191.00 18723044.00  24.6% slower  ok
+       int ensure_with-miss 29109263.00 51103370.00  75.6% slower  ok
+       int ensure_with-hit 14880053.00 17809821.00  19.7% slower  ok
+       int edit_put-miss 28421823.00 45455726.00  59.9% slower  ok
+       int edit_put-hit 17124264.00 17734865.00  3.6% slower  ok
+    string ensure-miss  45773938.00 45897802.00  0.3% slower  ok
+    string ensure-hit   38579976.00 38365602.00  0.6% faster  ok
+    string ensure_with-miss 47367298.00 47001622.00  0.8% faster  ok
+    string ensure_with-hit 39824736.00 37979185.00  4.6% faster  ok
+    string edit_put-miss 50171176.00 50373491.00  0.4% slower  ok
+    string edit_put-hit 39063260.00 36444936.00  6.7% faster  ok

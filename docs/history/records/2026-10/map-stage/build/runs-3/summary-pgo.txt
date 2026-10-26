@@ -1,0 +1,48 @@
+
+pgo-mitt-c1-warm
+  base-pgo n=10  time 0.027s cycles 0.0774G instr 0.1873G rss 34.1MB 
+  final3-pgo n=10  time 0.027s cycles 0.0756G instr 0.1913G rss 36.5MB  | time 0.0% faster, cycles 2.3% faster (median pair -2.0%), instr +2.12%, rss +6.9%
+
+pgo-neverthrow-c1-warm
+  base-pgo n=10  time 0.031s cycles 0.0884G instr 0.1997G rss 33.9MB 
+  final3-pgo n=10  time 0.031s cycles 0.0892G instr 0.2007G rss 36.1MB  | time 0.6% faster, cycles 1.0% slower (median pair +1.0%), instr +0.51%, rss +6.6%
+
+pgo-superstruct-c1-warm
+  base-pgo n=10  time 0.038s cycles 0.1268G instr 0.2478G rss 25.0MB 
+  final3-pgo n=10  time 0.037s cycles 0.1247G instr 0.2526G rss 26.7MB  | time 0.8% faster, cycles 1.7% faster (median pair +1.6%), instr +1.93%, rss +6.5%
+
+pgo-tiny-invariant-c1-warm
+  base-pgo n=10  time 0.088s cycles 0.2962G instr 0.8380G rss 55.4MB 
+  final3-pgo n=10  time 0.087s cycles 0.2985G instr 0.8733G rss 54.4MB  | time 0.9% faster, cycles 0.8% slower (median pair -0.4%), instr +4.21%, rss -2.0%
+
+pgo-ts-pattern-c1-cold
+  base-pgo n=10  time 1.088s cycles 4.3356G instr 8.5737G rss 310.2MB 
+  final3-pgo n=10  time 1.071s cycles 4.2438G instr 8.6598G rss 296.1MB  | time 1.6% faster, cycles 2.1% faster (median pair +1.4%), instr +1.00%, rss -4.5%
+
+pgo-ts-pattern-c1-warm
+  base-pgo n=10  time 0.988s cycles 3.8747G instr 8.5732G rss 310.2MB 
+  final3-pgo n=10  time 0.963s cycles 3.7618G instr 8.6596G rss 296.1MB  | time 2.5% faster, cycles 2.9% faster (median pair +2.2%), instr +1.01%, rss -4.5%
+
+pgo-ts-pattern-c4-cold
+  base-pgo n=10  time 0.534s cycles 6.2470G instr 9.0227G rss 361.8MB 
+  final3-pgo n=10  time 0.554s cycles 5.9621G instr 9.1544G rss 361.4MB  | time 3.8% slower, cycles 4.6% faster (median pair +2.6%), instr +1.46%, rss -0.1%
+
+pgo-ts-pattern-c4-warm
+  base-pgo n=10  time 0.563s cycles 6.4043G instr 9.0232G rss 361.7MB 
+  final3-pgo n=10  time 0.571s cycles 6.2013G instr 9.1550G rss 361.6MB  | time 1.5% slower, cycles 3.2% faster (median pair +2.3%), instr +1.46%, rss -0.0%
+
+pgo-zod3-c1-cold
+  base-pgo n=10  time 0.193s cycles 0.7172G instr 1.5078G rss 88.3MB 
+  final3-pgo n=10  time 0.189s cycles 0.7055G instr 1.5460G rss 92.7MB  | time 2.1% faster, cycles 1.6% faster (median pair +1.4%), instr +2.53%, rss +5.0%
+
+pgo-zod3-c1-warm
+  base-pgo n=10  time 0.187s cycles 0.7210G instr 1.5054G rss 88.3MB 
+  final3-pgo n=10  time 0.188s cycles 0.7111G instr 1.5458G rss 92.7MB  | time 0.5% slower, cycles 1.4% faster (median pair -0.2%), instr +2.69%, rss +5.0%
+
+pgo-zod3-c4-cold
+  base-pgo n=10  time 0.163s cycles 1.4232G instr 2.0701G rss 134.1MB 
+  final3-pgo n=10  time 0.162s cycles 1.4022G instr 2.1283G rss 134.8MB  | time 0.7% faster, cycles 1.5% faster (median pair +1.3%), instr +2.81%, rss +0.6%
+
+pgo-zod3-c4-warm
+  base-pgo n=10  time 0.155s cycles 1.4008G instr 2.0697G rss 134.2MB 
+  final3-pgo n=10  time 0.155s cycles 1.3392G instr 2.1263G rss 134.8MB  | time 0.5% faster, cycles 4.4% faster (median pair +1.1%), instr +2.73%, rss +0.5%

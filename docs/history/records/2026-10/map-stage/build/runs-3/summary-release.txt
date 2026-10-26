@@ -1,0 +1,32 @@
+
+ts-pattern-c1-cold
+  base     n=10  time 1.214s cycles 4.7970G instr 10.0176G rss 312.0MB 
+  final3   n=10  time 1.192s cycles 4.6775G instr 9.8766G rss 295.1MB  | time 1.8% faster, cycles 2.5% faster (median pair +2.4%), instr -1.41%, rss -5.4%
+
+ts-pattern-c1-warm
+  base     n=10  time 1.097s cycles 4.4951G instr 10.0139G rss 312.0MB 
+  final3   n=10  time 1.094s cycles 4.3608G instr 9.8761G rss 295.1MB  | time 0.3% faster, cycles 3.0% faster (median pair +2.4%), instr -1.38%, rss -5.4%
+
+ts-pattern-c4-cold
+  base     n=10  time 0.682s cycles 7.3885G instr 10.5332G rss 363.0MB 
+  final3   n=10  time 0.648s cycles 7.0561G instr 10.4279G rss 360.0MB  | time 5.0% faster, cycles 4.5% faster (median pair +4.2%), instr -1.00%, rss -0.8%
+
+ts-pattern-c4-warm
+  base     n=10  time 0.663s cycles 7.3410G instr 10.5339G rss 363.0MB 
+  final3   n=10  time 0.643s cycles 7.0907G instr 10.4284G rss 360.1MB  | time 3.0% faster, cycles 3.4% faster (median pair +3.6%), instr -1.00%, rss -0.8%
+
+zod3-c1-cold
+  base     n=10  time 0.211s cycles 0.8189G instr 1.8060G rss 90.0MB 
+  final3   n=10  time 0.212s cycles 0.8128G instr 1.8095G rss 92.3MB  | time 0.7% slower, cycles 0.7% faster (median pair +1.5%), instr +0.19%, rss +2.5%
+
+zod3-c1-warm
+  base     n=10  time 0.211s cycles 0.8189G instr 1.8025G rss 90.0MB 
+  final3   n=10  time 0.210s cycles 0.8141G instr 1.8094G rss 92.3MB  | time 0.4% faster, cycles 0.6% faster (median pair +0.4%), instr +0.39%, rss +2.5%
+
+zod3-c4-cold
+  base     n=10  time 0.177s cycles 1.6129G instr 2.4669G rss 135.9MB 
+  final3   n=10  time 0.181s cycles 1.6174G instr 2.4737G rss 134.5MB  | time 2.1% slower, cycles 0.3% slower (median pair +1.7%), instr +0.28%, rss -1.1%
+
+zod3-c4-warm
+  base     n=10  time 0.182s cycles 1.6094G instr 2.4649G rss 135.9MB 
+  final3   n=10  time 0.170s cycles 1.5226G instr 2.4717G rss 134.5MB  | time 6.7% faster, cycles 5.4% faster (median pair +3.2%), instr +0.27%, rss -1.1%
