@@ -156,6 +156,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Reads cost Trig fewer instructions** (1.5% fewer on ts-pattern
+  and zod3, 1.2-2.2% fewer cycles;
+  [records](docs/history/records/2026-10/perf-stage/table-reads.md)):
+  an inlined call's optional or fallible result is made a run-time
+  value in place rather than passed through `rig.rt`, whose memory
+  round trip stalled every `m.get(k) ?? x` (`rig.copiedOut` is inline
+  too), and a signed index is tested against a List's or slice's length
+  with one unsigned compare. A `rarely` function is `noinline`, out of
+  line as SPEC says, no longer left to LLVM.
 - **A function's name given to `par.map` or `par.each` is checked
   against what they pass:** each element's view, or the value of a
   scalar's read view; a write view as itself. `par.map(?xs, f)` with
