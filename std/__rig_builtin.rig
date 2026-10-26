@@ -465,35 +465,35 @@ pub obj Map[K: Hash, V]
   fun p_slot(?@, k: ?K, h: U64) -> Int?
     ctrl = ?@table.tags[..]
     ps = ?@ps[..]
-    mask = ps.len - 1
+    mask = ps.len -% 1
     tag = tag_of(h)
     i = Int(h & U64(mask))
     while true
       g = ctrl.read[Simd[U8, 16]](i)
       m = (g == tag).bits()
       while m != 0
-        s = (i + m.trailing_zeros()) & mask
+        s = (i +% m.trailing_zeros()) & mask
         return s if ps[s].key == k
         m &= m - 1
       return none if (g == 0).any()
-      i = (i + GROUP) & mask
+      i = (i +% GROUP) & mask
     none
 
   # The first free slot from the one `h` names; the table always has one.
   fun p_free(?@, h: U64) -> Int
     ctrl = ?@table.tags[..]
-    mask = @ps.len - 1
+    mask = @ps.len -% 1
     i = Int(h & U64(mask))
     while true
       m = (ctrl.read[Simd[U8, 16]](i) == 0).bits()
-      return (i + m.trailing_zeros()) & mask if m != 0
-      i = (i + GROUP) & mask
+      return (i +% m.trailing_zeros()) & mask if m != 0
+      i = (i +% GROUP) & mask
     -1
 
   # Set slot `s`'s control byte, and its copy past the end.
   sub p_ctrl(!@, s: Int, c: U8)
     @table.tags[s] = c
-    @table.tags[@ps.len + s] = c if s < GROUP - 1
+    @table.tags[@ps.len +% s] = c if s < GROUP - 1
 
   # Put the entry `e`, whose key is new and hashes to `h`, in the first
   # free slot from its own, and give the slot.
@@ -935,35 +935,35 @@ pub obj Set[K: Hash]
   fun p_slot(?@, k: ?K, h: U64) -> Int?
     ctrl = ?@table.tags[..]
     ps = ?@ps[..]
-    mask = ps.len - 1
+    mask = ps.len -% 1
     tag = tag_of(h)
     i = Int(h & U64(mask))
     while true
       g = ctrl.read[Simd[U8, 16]](i)
       m = (g == tag).bits()
       while m != 0
-        s = (i + m.trailing_zeros()) & mask
+        s = (i +% m.trailing_zeros()) & mask
         return s if ps[s] == k
         m &= m - 1
       return none if (g == 0).any()
-      i = (i + GROUP) & mask
+      i = (i +% GROUP) & mask
     none
 
   # The first free slot from the one `h` names; the table always has one.
   fun p_free(?@, h: U64) -> Int
     ctrl = ?@table.tags[..]
-    mask = @ps.len - 1
+    mask = @ps.len -% 1
     i = Int(h & U64(mask))
     while true
       m = (ctrl.read[Simd[U8, 16]](i) == 0).bits()
-      return (i + m.trailing_zeros()) & mask if m != 0
-      i = (i + GROUP) & mask
+      return (i +% m.trailing_zeros()) & mask if m != 0
+      i = (i +% GROUP) & mask
     -1
 
   # Set slot `s`'s control byte, and its copy past the end.
   sub p_ctrl(!@, s: Int, c: U8)
     @table.tags[s] = c
-    @table.tags[@ps.len + s] = c if s < GROUP - 1
+    @table.tags[@ps.len +% s] = c if s < GROUP - 1
 
   # Put the key `k`, which is new and hashes to `h`, in the first free
   # slot from its own.
