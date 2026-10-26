@@ -6269,6 +6269,26 @@ pub fn io() std.Io {
 
 var threaded: std.Io.Threaded = .init_single_threaded;
 
+/// End the process now with `status`, running nothing on the way out:
+/// `exit_group` on Linux, `_exit` where Zig links the C library (macOS).
+/// Every thread ends with it.
+fn endProcess(status: u8) noreturn {
+    if (builtin.link_libc) std.c._exit(status);
+    if (builtin.os.tag == .linux) std.os.linux.exit_group(status);
+    std.process.exit(status);
+}
+
+/// `os.exit(code)`: write out what `print` has buffered, then end the
+/// process with status `code` at once, from any task. No drop, `defer`,
+/// or leak check runs, and the program's other tasks end with it. A
+/// `code` outside 0..255 panics, as `fun main() -> Int`'s does.
+pub fn exitNow(code: Int) noreturn {
+    const status = exitStatus(code);
+    lockOutput();
+    flush();
+    endProcess(status);
+}
+
 /// `fun main() -> Int`: its result, which `finish` has already run after,
 /// as the process's exit status.
 pub fn exitStatus(n: Int) u8 {

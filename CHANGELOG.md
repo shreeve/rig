@@ -156,6 +156,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`os.exit(code)`:** ends the program now, from `main` or any task,
+  with `code` as its status: what `print` and `warn` wrote is flushed,
+  and no drop, `defer`, or leak check runs.
 - **A function's name given to `par.map` or `par.each` is checked
   against what they pass:** each element's view, or the value of a
   scalar's read view; a write view as itself. `par.map(?xs, f)` with

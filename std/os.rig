@@ -1,5 +1,5 @@
-# std.os: the process's arguments, environment, working directory, and
-# what its allocations come to.
+# std.os: the process's arguments, environment, working directory, what
+# its allocations come to, and ending it now.
 
 use std.file
 
@@ -41,6 +41,13 @@ extern zig "os.zig"
   # environment the process started with, which nothing in std changes
   # (a `set_env` would have to revisit this `Static`).
   pub fun env(name: ?String) -> Static?
+
+  # End the program now, with exit status `code` (0 to 255; another value
+  # panics), from `main` or from any task. What `print` and `warn` wrote
+  # is flushed first; then the process ends at once, and nothing else
+  # runs: no drop, `defer`, `errdefer`, or leak check, and the program's
+  # other tasks end with it, wherever they are.
+  pub sub exit(code: Int)
 
   # `memory()`'s parts.
   fun memory_live() -> Int

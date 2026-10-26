@@ -67,7 +67,9 @@ may also return one; a failure that leaves `main` prints
 `error: Set.name` and ends the program with status 1
 ([§13](#13-errors)). Everything `main` owns is dropped, its output
 flushed, and the leak check run before the program exits, unless it
-panics ([§17](#17-printing-and-stopping)). Only the
+panics ([§17](#17-printing-and-stopping)) or ends by `os.exit(code)`,
+which ends it at once from anywhere, running none of them
+([std.os](docs/STD.md#stdos)). Only the
 program calls `main`: Rig code cannot call it or use it as a value. The
 program's arguments and environment are read through
 [`std.os`](docs/STD.md#stdos).
