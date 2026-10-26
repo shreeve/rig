@@ -1,0 +1,67 @@
+== tasks main round 1 (load 2.86)
+        rig-fast          vs rig-fast
+spawn   66 ns/task        
+chain   98 ns/task        
+fanout  326.9 ms/run      
+yield   24 ns/yield       
+hog     141.13 us/step    
+memory  4.6 KiB/task      
+== tasks probe round 1 (load 3.11)
+        rig-fast          vs rig-fast
+spawn   65 ns/task        
+chain   95 ns/task        
+fanout  335.7 ms/run      
+yield   24 ns/yield       
+hog     142.93 us/step    
+memory  4.6 KiB/task      
+== http main round 1 (load 3.32)
+                 req/s       p50       p99 per idle conn
+rig-fast        180607     219 us    3509 us       8.6 KiB
+== http probe round 1 (load 3.60)
+                 req/s       p50       p99 per idle conn
+rig-fast        185032     214 us    3507 us       8.6 KiB
+== tasks main round 2 (load 4.16)
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   98 ns/task        
+fanout  345.8 ms/run      
+yield   24 ns/yield       
+hog     145.13 us/step    
+memory  4.6 KiB/task      
+== tasks probe round 2 (load 4.13)
+        rig-fast          vs rig-fast
+spawn   69 ns/task        
+chain   99 ns/task        
+fanout  370.4 ms/run      
+yield   25 ns/yield       
+hog     159.90 us/step    
+memory  4.6 KiB/task      
+== http main round 2 (load 4.34)
+                 req/s       p50       p99 per idle conn
+rig-fast        107953     391 us    4065 us       8.6 KiB
+== http probe round 2 (load 8.88)
+                 req/s       p50       p99 per idle conn
+rig-fast        109220     387 us    4038 us       8.6 KiB
+== tasks main round 3 (load 9.59)
+        rig-fast          vs rig-fast
+spawn   68 ns/task        
+chain   95 ns/task        
+fanout  336.8 ms/run      
+yield   24 ns/yield       
+hog     142.50 us/step    
+memory  4.6 KiB/task      
+== tasks probe round 3 (load 8.88)
+        rig-fast          vs rig-fast
+spawn   68 ns/task        
+chain   94 ns/task        
+fanout  346.9 ms/run      
+yield   25 ns/yield       
+hog     145.53 us/step    
+memory  4.6 KiB/task      
+== http main round 3 (load 8.13)
+                 req/s       p50       p99 per idle conn
+rig-fast        185403     213 us    3478 us       8.6 KiB
+== http probe round 3 (load 7.58)
+                 req/s       p50       p99 per idle conn
+rig-fast        183709     223 us    3504 us       8.6 KiB
+DONE
