@@ -1,0 +1,22 @@
+cand2 MEM shape=0 checker.CacheKey->U32 peak_bytes=15630550 top_map_peaks=7471127,3735575,1867799
+cand2 MEM shape=1 U32->U32 peak_bytes=36913548 top_map_peaks=67607,67607,67607
+cand2 MEM shape=2 checker.InstantiationKey->U32 peak_bytes=19136599 top_map_peaks=19136599,0,0
+cand2 MEM shape=3 checker.CachedTypeKey->U32 peak_bytes=5373975 top_map_peaks=5373975,0,0
+cand2 MEM shape=4 Set:checker.CacheKey->- peak_bytes=17102 top_map_peaks=15935,8143,879
+cand2 MEM shape=5 Set:U64->- peak_bytes=42007 top_map_peaks=42007,0,0
+cand2 MEM shape=6 U32->Int peak_bytes=11013 top_map_peaks=7319,7319,3671
+cand2 MEM shape=7 checker.InferenceKey->I32 peak_bytes=29207 top_map_peaks=29207,7319,7319
+cand2 MEM shape=8 Set:U32->- peak_bytes=97099 top_map_peaks=51223,51223,15823
+cand2 MEM shape=9 U32->checker.MappedSymbolLinks peak_bytes=2686999 top_map_peaks=2686999,0,0
+cand2 RESULT design=cand2 cycles=1120214950 instructions=2631557478 ns=294427019 mismatches=0 peak_bytes=79865469 end_bytes=0 peak_maps=118961 header_bytes=14275320 sink=21865960244443
+cand_nf2 MEM shape=0 checker.CacheKey->U32 peak_bytes=15630550 top_map_peaks=7471127,3735575,1867799
+cand_nf2 MEM shape=1 U32->U32 peak_bytes=27690940 top_map_peaks=51223,51223,51223
+cand_nf2 MEM shape=2 checker.InstantiationKey->U32 peak_bytes=19136599 top_map_peaks=19136599,0,0
+cand_nf2 MEM shape=3 checker.CachedTypeKey->U32 peak_bytes=4325399 top_map_peaks=4325399,0,0
+cand_nf2 MEM shape=4 Set:checker.CacheKey->- peak_bytes=12654 top_map_peaks=11839,6095,623
+cand_nf2 MEM shape=5 Set:U64->- peak_bytes=25623 top_map_peaks=25623,0,0
+cand_nf2 MEM shape=6 U32->Int peak_bytes=7941 top_map_peaks=5271,5271,2647
+cand_nf2 MEM shape=7 checker.InferenceKey->I32 peak_bytes=25111 top_map_peaks=25111,6295,6295
+cand_nf2 MEM shape=8 Set:U32->- peak_bytes=66283 top_map_peaks=34839,34839,11727
+cand_nf2 MEM shape=9 U32->checker.MappedSymbolLinks peak_bytes=2162711 top_map_peaks=2162711,0,0
+cand_nf2 RESULT design=cand_nf2 cycles=1067447275 instructions=2572921266 ns=294570821 mismatches=0 peak_bytes=69119645 end_bytes=0 peak_maps=118961 header_bytes=14275320 sink=21865960244443

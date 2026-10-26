@@ -1,0 +1,157 @@
+18657723 records, 212294 maps, 1 threads
+
+hit rate
+     get       3901059 of      9275857   42.1%
+     put        884097 of      5845746   15.1%
+  remove        278097 of       281886   98.7%
+
+ops per K/V type
+  Map checker.CacheKey -> U32: 8070970  (get 3304240  put 2291584  clear 2442586  new 70  drop 70  grow 32420)
+  Map U32 -> U32: 4084144  (get 2486301  put 1301031  remove 14  clear 205  new 118944  drop 118111  grow 59538)
+  Map checker.InstantiationKey -> U32: 1631040  (get 1210060  put 420969  new 1  drop 1  grow 9)
+  Map checker.CachedTypeKey -> U32: 1143778  (get 978649  put 165119  new 1  drop 1  grow 8)
+  Set checker.CacheKey -> -: 1106819  (get 276960  put 272762  remove 272762  clear 283466  new 4  drop 4  grow 861)
+  Set U64 -> -: 608776  (put 608770  new 1  drop 1  grow 4)
+  Map U32 -> Int: 547207  (get 251679  put 251744  new 17858  drop 17858  grow 8068)
+  Map checker.InferenceKey -> I32: 522177  (get 131203  put 251838  new 68612  drop 68612  grow 1912)
+  Set U32 -> -: 254739  (get 208872  put 35233  remove 5078  clear 72  new 2327  drop 2327  grow 830)
+  Map U32 -> checker.MappedSymbolLinks: 234995  (get 73560  put 161426  new 1  drop 1  grow 7)
+  Map checker.CachedSignatureKey -> U32: 62268  (get 36365  put 25895  new 1  drop 1  grow 6)
+  Map checker.PropertiesTypesKey -> U32: 46572  (get 44878  put 1687  new 1  drop 1  grow 5)
+  Map U32 -> checker.TypeAliasLinks: 43468  (get 42719  put 743  new 1  drop 1  grow 4)
+  Map U32 -> checker.SymbolReferenceLinks: 34457  (get 17225  put 17225  new 1  drop 1  grow 5)
+  Map checker.UnionOfUnionKey -> U32: 31719  (get 24158  put 7553  new 1  drop 1  grow 6)
+  Map U32 -> checker.VarianceLinks: 28812  (get 28755  put 53  new 1  drop 1  grow 2)
+  Map String -> U32: 28069  (get 10088  put 10088  new 3874  drop 3874  grow 145)
+  Map checker.SubstitutionTypeKey -> U32: 21463  (get 20002  put 1455  new 1  drop 1  grow 4)
+  Map checker.NodeRef -> checker.ArrayLiteralLinks: 20232  (get 18660  put 1566  new 1  drop 1  grow 4)
+  Map U32 -> checker.AliasSymbolLinks: 17739  (get 17576  put 158  new 1  drop 1  grow 3)
+  Map U64 -> U32: 17659  (get 17568  put 84  new 2  drop 2  grow 3)
+  Map checker.NodeRef -> checker.NodeLinks: 12533  (get 9843  put 2683  new 1  drop 1  grow 5)
+  Map Int -> checker.SourceFileLinks: 11095  (get 11019  put 72  new 1  drop 1  grow 2)
+  Map checker.CacheKey -> checker.InferMemoEntry: 10577  (get 10093  put 478  new 1  drop 1  grow 4)
+  Map checker.IterationTypesKey -> checker.IterationTypes: 8603  (get 8065  put 532  new 1  drop 1  grow 4)
+  Map checker.DiscriminatedContextualTypeKey -> U32: 8090  (get 6752  put 1332  new 1  drop 1  grow 4)
+  Map U32 -> checker.DeferredSymbolLinks: 7011  (get 264  put 6740  new 1  drop 1  grow 5)
+  Map U32 -> checker.NodeRef: 6512  (get 3851  put 2  remove 2607  new 26  drop 26)
+  Map String -> ast.SourceFileMetaData: 5433  (get 5256  put 172  new 1  drop 1  grow 3)
+  Map U64 -> checker.NodeRef: 5235  (get 5233  new 1  drop 1)
+  Map checker.SuggestionKey -> U32: 3103  (get 2711  put 387  new 1  drop 1  grow 3)
+  Map U32 -> printer.EmitNode: 2562  (get 1882  put 345  new 166  drop 166  grow 3)
+  Map String -> module.ModeAwareCache[module.ResolvedModule]: 2411  (get 2234  put 172  new 1  drop 1  grow 3)
+  Map checker.DiagnosticLocationKey -> rig.runtime.ListOf(u32,0): 2329  (get 1161  put 1160  new 2  drop 2  grow 4)
+  Map String -> Int: 1545  (get 1161  put 360  new 9  drop 9  grow 6)
+  Map Int -> Int: 1313  (get 1160  put 109  new 20  drop 20  grow 4)
+  Map String -> String: 1290  (get 1113  put 172  new 1  drop 1  grow 3)
+  Map Int -> rig.runtime.ListOf(u32,0): 1287  (put 1210  remove 72  new 1  drop 1  grow 3)
+  Set Int -> -: 1264  (get 50  put 50  remove 1160  new 1  drop 1  grow 2)
+  Map checker.CacheKey -> checker.TypeList: 1221  (get 807  put 409  new 1  drop 1  grow 3)
+  Map U32 -> printer.AutoGenerateInfo: 702  (get 436  new 133  drop 133)
+  Set String -> -: 600  (get 426  put 158  new 8  drop 8)
+  Map Int -> String: 579  (get 401  put 173  new 1  drop 1  grow 3)
+  Map U64 -> Bool: 540  (get 389  put 146  new 1  drop 1  grow 3)
+  Map String -> rig.runtime.ListOf(compiler.FileIncludeReason,0): 405  (put 400  new 1  drop 1  grow 3)
+  Map U32 -> checker.MarkedAssignmentSymbolLinks: 381  (get 368  put 11  new 1  drop 1)
+  Map String -> ast.File: 349  (put 172  remove 172  new 1  drop 1  grow 3)
+  Map U32 -> printer.AnyNode: 313  (get 129  put 20  new 82  drop 82)
+  Map String -> compiler.FileRefs: 304  (get 200  put 100  new 1  drop 1  grow 2)
+  Map checker.CompositeSymbolIdentity -> Int: 294  (get 68  put 136  new 45  drop 45)
+  Map U32 -> rig.runtime.ListOf(ast.Node,0): 258  (get 201  put 13  new 22  drop 22)
+  Map String -> compiler.LibFile: 250  (get 146  put 100  new 1  drop 1  grow 2)
+  Map checker.NodeRef -> checker.ComputedNameNodeLinks: 247  (get 175  put 68  new 1  drop 1  grow 2)
+  Map checker.CompositeTypeCacheIdentity -> checker.SerializedTypeEntry: 229  (get 11  put 11  clear 205  new 1  drop 1)
+  Map module.ModuleResolutionCacheKey -> module.ResolvedModule: 228  (get 183  put 41  new 1  drop 1  grow 2)
+  Map U32 -> rig.runtime.ListOf(u32,0): 225  (get 2  put 216  new 2  drop 2  grow 3)
+  Map String -> module.ModeAwareCache[module.ResolvedTypeReferenceDirective]: 178  (put 173  new 1  drop 1  grow 3)
+  Map checker.NodeRef -> checker.AssertionLinks: 167  (get 75  put 88  new 1  drop 1  grow 2)
+  Map U32 -> checker.ModuleSymbolLinks: 148  (get 72  put 72  new 1  drop 1  grow 2)
+  Map checker.FlowLoopKey -> U32: 119  (get 85  put 30  new 1  drop 1  grow 2)
+  Map checker.NodeRef -> checker.EnumMemberLinks: 108  (get 52  put 52  new 1  drop 1  grow 2)
+  Map checker.EnumLiteralKey -> U32: 108  (get 52  put 52  new 1  drop 1  grow 2)
+  Map String -> rig.runtime.ListOf(checker.SeenName,0): 92  (put 32  new 30  drop 30)
+  Map U32 -> checker.ExportTypeLinks: 75  (get 73  new 1  drop 1)
+  Set checker.VisitKey -> -: 65  (get 21  put 21  remove 21  new 1  drop 1)
+  Map U32 -> U64: 49  (get 23  put 23  new 1  drop 1  grow 1)
+  Map checker.AssignmentReducedKey -> U32: 49  (get 33  put 13  new 1  drop 1  grow 1)
+  Map U32 -> checker.ExportCollision: 41  (put 37  new 1  drop 1  grow 2)
+  Map checker.NarrowedTypeKey -> U32: 26  (get 18  put 6  new 1  drop 1)
+  Map String -> rig.runtime.ListOf(tspath.RootedDirectoryPath,0): 24  (get 20  new 2  drop 2)
+  Map U32 -> checker.InheritanceInfo: 20  (get 8  put 8  new 2  drop 2)
+  Map checker.ChainKey -> rig.runtime.ListOf(u32,0): 12  (get 6  put 4  new 1  drop 1)
+  Map U32 -> checker.ReverseMappedSymbolLinks: 7  (get 5  new 1  drop 1)
+  Map U32 -> rig.runtime.ListOf(checker.SpecifierCacheEntry,0): 7  (get 3  put 2  new 1  drop 1)
+  Map String -> rig.runtime.ListOf(rig.runtime.String,0): 4  (get 2  new 1  drop 1)
+  Map U64 -> rig.runtime.ListOf(u32,0): 3  (get 1  new 1  drop 1)
+
+ops per map (the 40 busiest)
+     14661 Map checker.InstantiationKey -> U32: 1631040  (get 1210060  put 420969  new 1  drop 1  grow 9)
+     14702 Map checker.CachedTypeKey -> U32: 1143778  (get 978649  put 165119  new 1  drop 1  grow 8)
+     14707 Map checker.CacheKey -> U32: 902647  (get 308526  put 244694  clear 345296  new 1  drop 1  grow 4129)
+     14706 Map checker.CacheKey -> U32: 878876  (get 237786  put 213370  clear 426090  new 1  drop 1  grow 1628)
+     14669 Map checker.CacheKey -> U32: 845631  (get 622742  put 222879  new 1  drop 1  grow 8)
+     14667 Set checker.CacheKey -> -: 787874  (get 200944  put 200422  remove 200422  clear 185870  new 1  drop 1  grow 214)
+     14701 Map checker.CacheKey -> U32: 643104  (get 227364  put 156358  clear 255138  new 1  drop 1  grow 4242)
+     14563 Set U64 -> -: 608776  (put 608770  new 1  drop 1  grow 4)
+     14710 Map checker.CacheKey -> U32: 605594  (get 183252  put 157298  clear 263579  new 1  drop 1  grow 1463)
+     15209 Map checker.CacheKey -> U32: 552641  (get 184808  put 160165  clear 206070  new 1  drop 1  grow 1596)
+     15215 Map checker.CacheKey -> U32: 543690  (get 220722  put 188089  clear 130701  new 1  drop 1  grow 4176)
+     15210 Map checker.CacheKey -> U32: 476004  (get 176352  put 141880  clear 154460  new 1  drop 1  grow 3310)
+     15216 Map checker.CacheKey -> U32: 472020  (get 184611  put 155812  clear 127377  new 1  drop 1  grow 4218)
+     25726 Map checker.CacheKey -> U32: 438817  (get 191255  put 162153  clear 82267  new 1  drop 1  grow 3140)
+     15214 Map checker.CacheKey -> U32: 404131  (get 144152  put 120618  clear 136529  new 1  drop 1  grow 2830)
+     15020 Map checker.CacheKey -> U32: 347282  (get 94325  put 83921  clear 168345  new 1  drop 1  grow 689)
+     14720 Set checker.CacheKey -> -: 301424  (get 72464  put 68829  remove 68829  clear 90654  new 1  drop 1  grow 646)
+        42 Map U32 -> U32: 286147  (get 286138  put 7  new 1  drop 1)
+     15299 Map U32 -> checker.MappedSymbolLinks: 234995  (get 73560  put 161426  new 1  drop 1  grow 7)
+     14564 Map U32 -> U32: 192676  (get 191128  put 1542  new 1  drop 1  grow 4)
+     25727 Map checker.CacheKey -> U32: 191676  (get 70395  put 65404  clear 55732  new 1  drop 1  grow 143)
+     14697 Map checker.CacheKey -> U32: 177642  (get 116764  put 60869  new 1  drop 1  grow 7)
+     14714 Map U32 -> U32: 175839  (get 175794  put 41  new 1  drop 1  grow 2)
+     14721 Map checker.CacheKey -> U32: 125119  (get 86638  put 38472  new 1  drop 1  grow 7)
+     14561 Map checker.CacheKey -> U32: 116890  (get 86499  put 30382  new 1  drop 1  grow 7)
+     14689 Set U32 -> -: 84069  (get 84067  new 1  drop 1)
+     14718 Set U32 -> -: 83189  (get 81352  put 1830  new 1  drop 1  grow 5)
+     26374 Map checker.CacheKey -> U32: 75142  (get 22065  put 21029  clear 31943  new 1  drop 1  grow 103)
+     14717 Map checker.CachedSignatureKey -> U32: 62268  (get 36365  put 25895  new 1  drop 1  grow 6)
+     14708 Map checker.CacheKey -> U32: 51750  (get 51542  put 203  new 1  drop 1  grow 3)
+     29213 Map checker.CacheKey -> U32: 51739  (get 18163  put 17077  clear 16451  new 1  drop 1  grow 46)
+     14703 Map checker.PropertiesTypesKey -> U32: 46572  (get 44878  put 1687  new 1  drop 1  grow 5)
+     14705 Map U32 -> checker.TypeAliasLinks: 43468  (get 42719  put 743  new 1  drop 1  grow 4)
+     14789 Map U32 -> U32: 42774  (get 42338  put 430  new 1  drop 1  grow 4)
+     14713 Map U32 -> U32: 37534  (get 37489  put 41  new 1  drop 1  grow 2)
+     14678 Map U32 -> checker.SymbolReferenceLinks: 34457  (get 17225  put 17225  new 1  drop 1  grow 5)
+     14752 Map checker.UnionOfUnionKey -> U32: 31719  (get 24158  put 7553  new 1  drop 1  grow 6)
+     29276 Map checker.CacheKey -> U32: 31063  (get 10375  put 9433  clear 11141  new 1  drop 1  grow 112)
+     14844 Map U32 -> checker.VarianceLinks: 28812  (get 28755  put 53  new 1  drop 1  grow 2)
+     29275 Map checker.CacheKey -> U32: 27113  (get 10386  put 9162  clear 7472  new 1  drop 1  grow 91)
+
+key width in bytes (get, put, remove)
+              1          2578    0.0%
+            2-3         10419    0.1%
+            4-7       4923049   32.0%
+           8-15       2296945   14.9%
+          16-31       8155801   52.9%
+          32-63          4144    0.0%
+         64-127         10553    0.1%
+
+length after each op
+              0       4379633   23.5%
+              1       1996773   10.7%
+            2-3       1901377   10.2%
+            4-7       1517736    8.1%
+           8-15        914375    4.9%
+          16-31        954139    5.1%
+          32-63       1169188    6.3%
+         64-127        189518    1.0%
+        128-255        115938    0.6%
+        256-511        179395    1.0%
+       512-1023        379980    2.0%
+      1024-2047        598202    3.2%
+      2048-4095        101080    0.5%
+      4096-8191        129686    0.7%
+     8192-16383        244360    1.3%
+    16384-32767        471047    2.5%
+    32768-65535        677041    3.6%
+   65536-131071       1159106    6.2%
+  131072-262143       1012146    5.4%
+  262144-524287        567003    3.0%

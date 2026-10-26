@@ -1,0 +1,25 @@
+99 runs, 0 dropped for a busy sibling
+
+all-safe2
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand         11        1053.4M        1928.3M     266.8     78.8     +76.4M       +85.2M      678.7M
+  cand2        11         928.6M        1912.8M     246.1     79.9     -48.5M       -27.0M      553.8M
+  cand_nf      11         993.8M        1883.6M     250.6     68.3     +16.7M       +40.2M      619.0M
+  cand_nf2     11         889.1M        1871.2M     228.6     69.1     -87.9M       -92.0M      514.4M
+  cand_nf_ph   11         947.9M        1725.8M     240.3     68.3     -29.1M       -14.6M      573.2M
+  cand_nf_sh   11         967.4M        1867.6M     250.0     77.3      -9.7M        +9.6M      592.6M
+  noop         11         374.8M         641.5M      86.9      0.0    -602.3M      -615.0M        0.0M
+  today        11         977.1M        2056.4M     248.3    103.0      +0.0M        +0.0M      602.3M
+  today_nf     11        1018.2M        2067.1M     262.5     93.3     +41.1M       +43.1M      643.4M
+88 runs, 0 dropped for a busy sibling
+
+pollute64M-2
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand         11        2255.6M        2163.6M     560.7     78.8    -119.5M       -33.1M     1033.9M
+  cand2        11        2172.7M        2148.2M     528.7     79.9    -202.4M      -177.6M      951.0M
+  cand_nf      11        2245.5M        2118.9M     543.5     68.3    -129.6M      -112.2M     1023.8M
+  cand_nf2     11        2146.9M        2106.5M     522.4     69.1    -228.2M      -244.3M      925.3M
+  cand_nf_ph   11        2253.8M        1997.3M     545.1     68.3    -121.3M       -67.7M     1032.1M
+  cand_nf_sh   11        2320.4M        2102.9M     565.8     77.3     -54.7M       -19.6M     1098.8M
+  noop         11        1221.7M         876.8M     290.1      0.0   -1153.4M     -1133.2M        0.0M
+  today        11        2375.1M        2327.9M     574.8    103.0      +0.0M        +0.0M     1153.4M

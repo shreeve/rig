@@ -1,0 +1,4 @@
+# started on Sun Oct 25 21:49:44 2026
+
+4787723115,,cpu_core/cycles/u,1185206520,99.00,,
+10550318752,,cpu_core/instructions/u,1185206520,99.00,,
