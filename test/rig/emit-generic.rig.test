@@ -590,3 +590,23 @@ test "generic view field subject", '''
   x = Opt.some(v: String("x"))
   y = Opt.some(v: String("y"))
   print(h(?x, ?y))
+
+code "generic plain passes each instance its bit", "pl(i64, true, n), \" \", pl(i64, false, n)"
+  # `pl[Int]` and `pl[?Int]` are one Zig type for `T`; the bit makes
+  # them two Zig instances.
+  fun pl[T](x: T) -> Bool
+    $plain(T)
+
+  n = 3
+  print(pl[Int](n), pl[?Int](?n))
+
+code "generic plain tests the bit the generic takes", "pub fn fill(comptime K: type, comptime __rig_plain_K: bool, xs: *rig.List(K)) void {"
+  sub fill[K](xs: !List[K])
+    if $plain(K) and xs.len > 0
+      k = xs[0]
+      !xs.push(k)
+
+  v: List[Int] = List()
+  !v.push(1)
+  fill(!v)
+  print(v.len)

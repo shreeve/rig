@@ -67,6 +67,11 @@ newest entry summarizes the latest rounds.
   channel loop for work-stealing checkers (Trig #207) in
   [bench/par](bench/par/README.md), which Trig can swap for it once it
   is on `main`.
+- **`$plain(T)` narrowing** (SPEC "Generic bodies") is built on the
+  branch `plain-narrow`, waiting on the owner's approval of its SPEC
+  paragraph: inside `if $plain(K)` a generic body may copy a `K`, which
+  the packed Map needs to fill its free slots. Sema decides plain once
+  per instance and emit passes it as a compile-time Bool.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

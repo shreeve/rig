@@ -4945,3 +4945,4 @@ test/reject/ownership/partial_optional_parameter_field_closures_reject.rig defer
 test/reject/ownership/partial_optional_parameter_field_closures_reject.rig read_late
 test/reject/ownership/partial_optional_parameter_field_drop_body_reject.rig closing
 test/reject/ownership/partial_optional_parameter_field_branch_reject.rig branched
+test/reject/ownership/generic_plain_joins_after_a_move_as_an_if_does.rig twice_or_move

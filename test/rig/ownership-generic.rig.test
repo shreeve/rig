@@ -822,3 +822,727 @@ fail "generic optional of a parameter keeps what its bounds say", "cannot return
     default_value
 
   print(1)
+
+test "generic plain fills free slots with a copy", "4 1"
+  # Inside `if $plain(K)`, `K` copies: an instance whose `K` is plain
+  # data compiles the branch, and `Slots[String]` compiles the body
+  # without it (SPEC "Generic bodies"; the packed Map's fill).
+  obj Slots[K]
+    es: List[K] = List()
+
+    sub fill(!@, n: Int)
+      if $plain(K)
+        if @es.len > 0
+          k = @es[0]
+          while @es.len < n
+            !@es.push(k)
+
+  a = Slots[Int]()
+  !a.es.push(7)
+  !a.fill(4)
+  b = Slots[String]()
+  !b.es.push(String("x"))
+  !b.fill(4)
+  print(a.es.len, b.es.len)
+
+test "generic plain copies made in the branch escape it", "2 1"
+  # Copies of `x` go into a List declared before the `if` and dropped
+  # after it, in every instance: only a plain instance puts them there.
+  fun keep[T](x: T) -> List[T]
+    out: List[T] = List()
+    if $plain(T)
+      !out.push(x)
+    !out.push(<x)
+    out
+
+  print(keep(3).len, keep(String("s")).len)
+
+test "generic plain narrows a closure made in the branch", '''
+  hook 3 3
+  1 0
+'''
+  # An owned closure made in the branch copies its captured `T` in its
+  # body, called past the branch: its body is narrowed too.
+  fun hook[T](x: T) -> Int
+    hooks: List[*sub()] = List()
+    if $plain(T)
+      f: *sub() = *|+x|
+        y = x
+        print("hook", y, x)
+      !hooks.push(<f)
+    for h in ?hooks
+      h()
+    hooks.len
+
+  print(hook(3), hook(String("s")))
+
+test "generic plain runs a defer in the branch where the branch ends", '''
+  in branch
+  deferred 3
+  after 3
+  after s
+'''
+  # A bounded `T` gains `Copy` in the branch, beside its bounds.
+  fun later[T: Print](x: T) -> Int
+    if $plain(T)
+      y = x
+      defer print("deferred", y)
+      print("in branch")
+    print("after", x)
+    0
+
+  _ = later(3)
+  _ = later(String("s"))
+
+fail "generic plain does not narrow the else", "`dup[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns", errors: 1
+  fun dup[T](x: T) -> Int
+    if $plain(T)
+      return 1
+    else
+      y = x
+      return 2
+
+  print(dup(3), dup(String("s")))
+
+test "generic plain makes a nested instance only where it holds", "2 1"
+  # `twice[T]` is made only by the instances that compile the branch,
+  # so `twice[String]`, which copies a `String`, is never made.
+  obj Pair[A, B]
+    first: A
+    second: B
+
+  fun twice[T](x: T) -> Pair[T, T]
+    Pair(first: x, second: x)
+
+  fun pair[T](x: T) -> Int
+    if $plain(T)
+      p = twice(x)
+      _ = p
+      return 2
+    1
+
+  print(pair(3), pair(String("s")))
+
+test "generic plain narrows the operands after it", "1 0 0"
+  # `$plain(T) and c`: the block runs only where both hold, and `c`
+  # only in plain instances.
+  fun first[T](xs: ?List[T], n: Int) -> Int
+    if $plain(T) and n > 0 and xs.len > 0
+      a = xs[0]
+      b = a
+      _ = b
+      return 1
+    0
+
+  v: List[Int] = List()
+  !v.push(1)
+  w: List[String] = List()
+  !w.push(String("s"))
+  print(first(?v, 1), first(?w, 1), first(?v, 0))
+
+fail "generic plain under not narrows nothing", "`swap_case[String]` cannot use `T = String`: the generic body copies a `T`", errors: 1
+  # Nor does its `else`: write the plain case first.
+  fun swap_case[T](x: T) -> Int
+    if not $plain(T)
+      return 1
+    else
+      y = x
+      _ = y
+      return 2
+
+  print(swap_case(3), swap_case(String("s")))
+
+fail "generic plain of a type that holds a parameter narrows nothing", "`boxed[String]` cannot use `T = String`: the generic body copies a `T`", errors: 1
+  # `$plain(Box[T])` asks about `Box[T]`; write `$plain(T)`.
+  obj Box[T]
+    v: T
+
+  fun boxed[T](x: T) -> Int
+    if $plain(Box[T])
+      b = Box(v: x)
+      c = b
+      _ = c
+      return 1
+    0
+
+  print(boxed(3), boxed(String("s")))
+
+test "generic plain narrows an associated type", "2 2"
+  use std.iter
+
+  obj Count
+    n: Int
+    hi: Int
+
+    fun next(!@) -> Int?
+      return none if @n >= @hi
+      @n += 1
+      @n
+
+  obj Words
+    i: Int
+
+    fun next(!@) -> String?
+      return none if @i >= 2
+      @i += 1
+      String("w")
+
+  fun twice_first[I: Iter](it: !I) -> Int
+    if $plain(I.Item)
+      if (!it).next() as x
+        a = x
+        b = x
+        _ = a
+        _ = b
+        return 2
+    iter.count(!it)
+
+  c = Count(n: 0, hi: 3)
+  w = Words(i: 0)
+  print(twice_first(!c), twice_first(!w))
+
+test "generic plain gives a pub generic Copy beside its bounds", '''
+  5 5
+  2 0
+'''
+  # A `pub` generic is checked by its bounds alone; in the branch its
+  # `T` also copies, so its instances need nothing more.
+  pub fun ends[T: Print](xs: ?List[T]) -> Int
+    if $plain(T)
+      if xs.len > 0
+        a = xs[0]
+        b = a
+        print(a, b)
+        return 2
+    0
+
+  v: List[Int] = List()
+  !v.push(5)
+  w: List[String] = List()
+  !w.push(String("s"))
+  print(ends(?v), ends(?w))
+
+test "generic plain copies a read view as a body copies one", "2 2"
+  # A read-view `T` copies outside any test: a copy needs plain data or
+  # a read view (SPEC "Generic bodies").
+  fun same2[T](x: T) -> Int
+    a = x
+    b = x
+    _ = a
+    _ = b
+    2
+
+  s = String("abc")
+  print(same2(?s), same2(3))
+
+test "generic plain of a known type", "true false false true true true false"
+  # Plain data provides `Copy` and `Owned`: a `Static` and a function
+  # value do, a `?String` and an owner do not.
+  enum Dir
+    up
+    down
+
+  fun inc(n: Int) -> Int
+    n + 1
+
+  type F = fun(Int) -> Int
+  print($plain(Int), $plain(String), $plain(?String), $plain(Static), $plain(Dir), $plain(F), $plain(List[Int]))
+
+fail "generic plain joins after a move as an if does", "use of `x` after move", errors: 1
+  # The branch copies `x`, which stays live after it in every instance;
+  # an `else` that moves it leaves it moved after the `if`.
+  sub twice_or_move[T](x: T, out: !List[T])
+    if $plain(T)
+      !out.push(x)
+    else
+      !out.push(<x)
+    !out.push(<x)
+
+  v: List[Int] = List()
+  twice_or_move(3, !v)
+  print(v.len)
+
+test "generic plain matches its bounded form", '''
+  hook 3 3
+  1 2
+'''
+  # The branch is checked as a body whose `T` is `T: Copy + Owned` is.
+  fun hook[T: Copy + Owned + Print](x: T) -> Int
+    hooks: List[*sub()] = List()
+    f: *sub() = *|+x|
+      y = x
+      print("hook", y, x)
+    !hooks.push(<f)
+    for h in ?hooks
+      h()
+    hooks.len
+
+  fun twice_first[I: Iter, I.Item: Copy + Owned](it: !I) -> Int
+    if (!it).next() as x
+      a = x
+      b = x
+      _ = a
+      _ = b
+      return 2
+    0
+
+  obj Count
+    n: Int
+
+    fun next(!@) -> Int?
+      @n += 1
+      @n
+
+  c = Count(n: 0)
+  print(hook(3), twice_first(!c))
+
+test "generic plain tells a Static from a viewed String", '''
+  ?String ?String Static
+  true false
+  kept lit
+  none
+'''
+  # A `Static` and a `?String` given as `T` are one Zig type, but the
+  # instance's bit tells them apart: the `?String`'s branch is not
+  # compiled, so no owned closure keeps a view of `s` past its drop.
+  fun name[T](x: T) -> ?String
+    $name(T)
+
+  fun pl[T](x: T) -> Bool
+    $plain(T)
+
+  fun later[T: Print](x: T) -> *sub()
+    if $plain(T)
+      return *|+x| print("kept", x)
+    *|| print("none")
+
+  s = String("abc")
+  a: Static = "lit"
+  f = later(a)
+  g = later(?s)
+  print(name(?s), name(a), $name(Static))
+  print(pl(a), pl(?s))
+  <s
+  f()
+  g()
+
+test "generic plain splits an instance a view shares with plain data", "true false false false true"
+  # `?Int` is lent as an `i64`, the Zig type of `Int`: each instance
+  # passes its own answer, so `pl[Int]` and `pl[?Int]` are two.
+  obj Box[T]
+    v: T
+
+  fun pl[T](x: T) -> Bool
+    $plain(T)
+
+  n = 3
+  b = true
+  print(pl[Int](n), pl[?Int](?n), pl[?Bool](?b), pl[Box[?Int]](Box(v: ?n)), pl[Box[Int]](Box(v: n)))
+
+test "generic plain keeps no view of a scalar past its loan", '''
+  none
+  kept 3
+  n 4
+'''
+  # `hold[?Int]` is not plain, so it compiles the body without the
+  # branch and keeps no view of `n`, which changes after.
+  fun hold[T: Print](x: T) -> *sub()
+    if $plain(T)
+      return *|+x| print("kept", x)
+    *|| print("none")
+
+  n = 3
+  f = hold[?Int](?n)
+  g = hold[Int](n)
+  n = 4
+  f()
+  g()
+  print("n", n)
+
+test "generic plain of an API object view is false", "false true"
+  api Shape
+    fun area(?@) -> Int
+
+  obj Sq: Shape
+    s: Int
+
+    fun area(?@) -> Int
+      @s * @s
+
+  fun pl[T](x: T) -> Bool
+    $plain(T)
+
+  q = Sq(s: 3)
+  v: ?{Shape} = ?q
+  print(pl(v), pl(q))
+
+test "generic plain escapes from the branch run clean", '''
+  hook 9
+  field true
+  defer 9
+  4 1
+'''
+  # The branch's copies leave it by an outer `T`, a List, a field, a
+  # capture, a defer, and `break` and `continue`, at `Int`; at `String`
+  # the branch is not there.
+  obj Holder[T]
+    last: T?
+
+  fun all[T: Print](x: T, xs: ?List[T]) -> List[T]
+    out: List[T] = List()
+    hooks: List[*sub()] = List()
+    h = Holder[T](last: none)
+    keep: T = <x
+    if $plain(T)
+      y = keep
+      !out.push(y)
+      h.last = y
+      f: *sub() = *|+y| print("hook", y)
+      !hooks.push(<f)
+      defer print("defer", y)
+      for e in xs
+        continue if out.len > 3
+        !out.push(e)
+        break if out.len > 2
+      for g in ?hooks
+        g()
+      print("field", h.last != none)
+    !out.push(<keep)
+    out
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  a = all(9, ?v)
+  w: List[String] = List()
+  !w.push(String("s"))
+  b = all(String("x"), ?w)
+  print(a.len, b.len)
+
+test "generic plain of an iterator's viewed item is false", "false true"
+  obj Views
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!@) -> (?Int)?
+      return none if @i >= @xs.len
+      @i += 1
+      ?@xs[@i - 1]
+
+  obj Count
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n >= 2
+      @n += 1
+      @n
+
+  fun item_plain[I: Iter](it: !I) -> Bool
+    $plain(I.Item)
+
+  v: List[Int] = List()
+  !v.push(5)
+  w = Views(xs: ?v, i: 0)
+  c = Count(n: 0)
+  print(item_plain(!w), item_plain(!c))
+
+test "generic plain copies a viewed element as a read view does", "ab 1"
+  # A read-view `T` copies where an element of `for x in ?v` is taken
+  # and where `as` unwraps a viewed optional, keeping its loans.
+  fun first[T](xs: ?List[T]) -> T?
+    for x in xs
+      return x
+    none
+
+  fun unwrap[T](o: ?(T?)) -> Int
+    if o as y
+      z = y
+      _ = z
+      return 1
+    0
+
+  s = String("ab")
+  v: List[?String] = List()
+  !v.push(?s)
+  o: (?String)? = ?s
+  r = first(?v)
+  print(r ?? "none", unwrap(?o))
+
+test "generic plain keeps a private T per instance", "true false"
+  # Narrowing adds to what `T` has: `x < y` stays an instance's question.
+  fun less[T](x: T, y: T) -> Bool
+    if $plain(T)
+      return x < y
+    false
+
+  print(less(1, 2), less(String("a"), String("b")))
+
+fail "generic plain checks the branch at plain instances", "`less[P]` cannot use `T = P`: the generic body applies `<` to `T`, which `P` does not support", errors: 1
+  # What the branch needs of a plain instance is checked there.
+  obj P
+    n: Int
+
+  fun less[T](x: T, y: T) -> Bool
+    if $plain(T)
+      return x < y
+    false
+
+  print(less(P(n: 1), P(n: 2)), less(String("a"), String("b")))
+
+fail "generic plain under bounds orders only by its bounds", "`T` is bounded by `Copy + Owned`, which does not give ordering comparison; add `Ord` to its bounds: `[T: Copy + Owned + Ord]`", errors: 1
+  # The bounded form keeps its bounds alone; narrowing never bounds `T`.
+  fun less[T: Copy + Owned](x: T, y: T) -> Bool
+    x < y
+
+  print(less(1, 2))
+
+test "generic plain narrows only a test in the and chain", "1"
+  # A test joined by `and` narrows what runs after it.
+  fun dup[T](x: T, c: Bool, d: Bool) -> Int
+    if $plain(T)
+      y = x
+      _ = y
+    if c and $plain(T) and d
+      y = x
+      _ = y
+    1
+
+  print(dup(String("s"), true, true))
+
+fail "generic plain under or narrows nothing", "`dup[String]` cannot use `T = String`: the generic body copies a `T`", errors: 1
+  # `($plain(T) or c) and d` holds for a `String` when `c` and `d` do.
+  fun dup[T](x: T, c: Bool, d: Bool) -> Int
+    if ($plain(T) or c) and d
+      y = x
+      _ = y
+    1
+
+  print(dup(1, true, true), dup(String("s"), true, true))
+
+fail "generic plain and then or narrows nothing", "`dup[String]` cannot use `T = String`: the generic body copies a `T`", errors: 1
+  fun dup[T](x: T, c: Bool, d: Bool) -> Int
+    if ($plain(T) and c) or d
+      y = x
+      _ = y
+    1
+
+  print(dup(1, true, true), dup(String("s"), true, true))
+
+fail "generic plain under two nots narrows nothing", "`dup[String]` cannot use `T = String`: the generic body copies a `T`", errors: 1
+  fun dup[T](x: T) -> Int
+    if not not $plain(T)
+      y = x
+      _ = y
+    1
+
+  print(dup(1), dup(String("s")))
+
+fail "generic plain in a ternary narrows nothing", "`dup[String]` cannot use `T = String`: the generic body copies a `T`", errors: 1
+  fun dup[T](x: T) -> Int
+    y = x if $plain(T) else <x
+    _ = y
+    1
+
+  print(dup(1), dup(String("s")))
+
+test "generic plain narrows else if, a guard, a while, and an arm", "1 2 3 0 1 2"
+  fun f[T](x: T, c: Bool) -> Int
+    if c
+      return 0
+    else if $plain(T)
+      y = x
+      _ = y
+      return 1
+    else
+      return 2
+
+  fun g[T](x: T, v: !List[T]) -> Int
+    !v.push(x) if $plain(T)
+    n = 0
+    while $plain(T) and n < 2
+      !v.push(x)
+      n += 1
+    v.len
+
+  fun h[T](x: T, n: Int) -> Int
+    match n
+      0 if $plain(T)
+        y = x
+        _ = y
+        return 1
+      _ => return 2
+
+  a: List[Int] = List()
+  b: List[String] = List()
+  print(f(3, false), f(String("s"), false), g(4, !a), g(String("t"), !b), h(5, 0), h(String("u"), 0))
+
+test "generic plain copies in the branch and moves after it", "2 1"
+  # The copy in the branch leaves `x` to move after it, in every instance.
+  fun keep[T](x: T) -> List[T]
+    out: List[T] = List()
+    if $plain(T)
+      y = x
+      !out.push(y)
+    !out.push(<x)
+    out
+
+  print(keep(3).len, keep(String("s")).len)
+
+test "generic plain meets a bound Copy and Owned give", "1 0 1 0"
+  # A bounded `T`, or a private one, is plain where the test held, so a
+  # call there meets `Copy + Owned`.
+  fun need[T: Copy + Owned](x: T) -> Int
+    1
+
+  fun call[T: Print](x: T) -> Int
+    if $plain(T)
+      return need(x)
+    0
+
+  fun call2[T](x: T) -> Int
+    if $plain(T)
+      return need(x)
+    0
+
+  print(call(3), call(String("s")), call2(4), call2(String("t")))
+
+test "generic plain passes through a wrapper", "3 1"
+  # `W[Int]` and `W[?Int]` are one Zig type but for the bit each passes
+  # its `Slots`.
+  obj Slots[K]
+    es: List[K] = List()
+
+    sub fill(!@, n: Int)
+      if $plain(K) and @es.len > 0
+        k = @es[0]
+        while @es.len < n
+          !@es.push(k)
+
+  obj W[V]
+    m: Slots[V]
+
+    sub put(!@, v: V)
+      !@m.es.push(<v)
+
+  fun fresh[V]() -> W[V]
+    m: Slots[V] = Slots()
+    W(m: <m)
+
+  n = 3
+  a = fresh[Int]()
+  !a.put(n)
+  !a.m.fill(3)
+  b = fresh[?Int]()
+  !b.put(?n)
+  !b.m.fill(3)
+  print(a.m.es.len, b.m.es.len)
+
+test "generic plain of a type built from a parameter", "true false true false false true false"
+  # A bit passed on is `$plain` of the argument, each parameter read as
+  # the caller's bit: `T?` and `Pair[T, Int]` are plain where `T` is,
+  # `?T` and `List[T]` never are.
+  obj Pair[A, B]
+    a: A
+    b: B
+
+  fun pl[T]() -> Bool
+    $plain(T)
+
+  fun of[T]() -> Bool
+    pl[T?]() and pl[Pair[T, Int]]()
+
+  fun views[T]() -> Bool
+    pl[?T]() or pl[List[T]]()
+
+  obj U unique
+    n: Int
+
+  print(of[Int](), of[String](), of[Bool](), views[Int](), views[String](), pl[Pair[Int, Bool]](), pl[U]())
+
+test "generic plain of a phantom parameter at a plain argument", "1 1 1 true true"
+  # A type that holds `T` in no field is plain whatever `T` is.
+  obj Tag[T]
+    n: Int
+
+  fun need[T: Copy + Owned](x: T) -> Int
+    1
+
+  fun pl[T](x: T) -> Bool
+    $plain(T)
+
+  fun via[T](n: Int) -> Bool
+    pl(Tag[T](n: n))
+
+  t = Tag[String](n: 1)
+  u = t
+  s: Static = "s"
+  print(need(u), need(s), u.n, pl(Tag[String](n: 1)), via[Int](1))
+
+fail "generic plain cannot pass a phantom owner's answer on", "`pl[Tag[String]]` tests `$plain` of its `T`", errors: 1
+  # `via[String]` would give `pl` its `T`'s bit, false, though
+  # `Tag[String]` is plain: the Zig could not tell.
+  obj Tag[T]
+    n: Int
+
+  fun pl[T](x: T) -> Bool
+    $plain(T)
+
+  fun via[T](n: Int) -> Bool
+    pl(Tag[T](n: n))
+
+  print(via[String](1))
+
+test "generic plain of an erased object is its box's", "8 8"
+  # An API object made in a generic body takes its table from its
+  # instance there.
+  api Sized
+    fun size(?@) -> Int
+
+  obj Box[T]: Sized
+    v: T
+
+    fun size(?@) -> Int
+      $size(T)
+
+  fun erase[T](x: T) -> ^{Sized}
+    ^Box(v: x)
+
+  n = 3
+  a = erase(n)
+  b = erase(?n)
+  print(a.size(), b.size())
+
+test "generic plain copies a composite of plain parameters", "3 2"
+  # The packed fill copies an `Entry[K, V]`; with both plain, it copies.
+  obj Entry[K, V]
+    key: K
+    val: V
+
+  pub fun spread[K: Copy + Owned, V: Copy + Owned](es: ?List[Entry[K, V]], n: Int) -> List[Entry[K, V]]
+    filler = es[0]
+    List.filled(n, filler)
+
+  fun spread_private[K, V](es: ?List[Entry[K, V]], n: Int) -> Int
+    if $plain(K) and $plain(V)
+      a = es[0]
+      b = a
+      c = a
+      _ = b
+      _ = c
+    n
+
+  v: List[Entry[Int, Bool]] = List()
+  !v.push(Entry(key: 1, val: true))
+  w: List[Entry[String, Bool]] = List()
+  !w.push(Entry(key: String("k"), val: true))
+  s = spread(?v, 3)
+  print(s.len, spread_private(?w, 2))
+
+test "generic plain slot sizes", "8 12 16 24 16 24"
+  # Free slots as `none` grow each slot by its optional's tag.
+  obj Entry[K, V]
+    key: K
+    val: V
+
+  print($size(Entry[U32, U32]), $size(Entry[U32, U32]?), $size(Entry[U64, U32]), $size(Entry[U64, U32]?), $size(Entry[U64, U64]), $size(Entry[U64, U64]?))

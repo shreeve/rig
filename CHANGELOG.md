@@ -156,6 +156,20 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`$plain(T)` narrows a generic body (SPEC "Generic bodies"):**
+  `$plain(T)` is whether `T` is plain data, known when the program
+  compiles. Where it is an operand of a condition's `and` chain (an
+  `if`, an `else if`, a `while`, or a statement's or arm's guard), the
+  code that runs once it has held is checked with `T` known to copy and
+  to hold no loan, and only the instances where `T` is plain compile
+  it: `if $plain(K)` lets a generic body copy a `K` that every other
+  instance never reaches. A generic that tests it takes each instance's
+  answer as a compile-time Bool, and every generic that builds it from
+  its own parameters passes the answer on, so `f[Int]` and `f[?Int]`
+  are two Zig instances there; a program that tests no `$plain` emits
+  the Zig it did. SPEC's copy rule says what the compiler already did:
+  where a body copies a `T`, every instance must be plain data or a read
+  view.
 - **Generic calls' messages name what they mean:** a conflict between
   the type expected of a call's result and an argument names "the type
   expected of the result", not "argument 0" (`s: String = apply(3, |x|

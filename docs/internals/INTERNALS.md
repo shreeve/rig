@@ -1660,7 +1660,8 @@ emitter ask these, never a predicate built for another question:
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or an object or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | moves (`moves` is not `no`): `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `resourceKind` | how a value that moves is held and dropped: a shared handle (`dropStrong`), a weak one (`dropWeak`), an optional, or a value `rig.drop` releases; null for one that copies. The storage plan records it for each binding and each value emit holds or discards (Storage facts) |
-| `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell and a Signal hold |
+| `holdsNoLoanButText` | copies and holds no view or function value (a `?String` aside): what a Cell and a Signal hold |
+| `isPlain` | provides `Copy` and `Owned`: plain data (Core §1), what `$plain(T)` answers |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address; the runtime's `ReadView(T)` holds a generic `?T` by the same rule, read off the Zig type, so a kind lowered to a struct (a `rig.ErrorValue`, `isErrorValueForm`) is lent by address |
 | `readsAsValue` | a scalar (`isScalar`) or a plain enum: an operator, generic inference, and a binding with no type read a read view of one as the value |
 | `isScalar` | a primitive that copies, or a vector: a method takes it by value, never by address |
@@ -2241,6 +2242,39 @@ as the generic at its own (`f[T]`), which expands to the same depths,
 so a chain of public generics is expanded once per link. One nesting
 ever deeper is reported where it is declared, since the instances that
 would show it are made in other modules.
+`$plain(T)` narrows (SPEC "Generic bodies"). Typecheck records, as it
+checks a condition of an `if`, a `while`, or a statement's or arm's
+guard, a `PlainRegion` for each `$plain(T)` operand of its `and` chain
+whose `T` is a type parameter or an associated type (`plainTest`): the
+operands after the test and the code the condition guards, by source
+position, each with the `T` it narrows. A requirement, a copy the
+ownership checker records, and a method call on a `T` made inside a
+region are checked only at an instance whose `T` is plain data
+(`sema.liveAt`, reading `plain_answers`, which `recordInstancePlain`
+fills for every instance); a generic use made inside one carries the
+region's parameters as its guard (`generic_uses_guard`,
+`generic_fn_uses_guard`), and `expand` makes it only where each is
+plain. Inside a region a `T` copies and holds no loan: a bounded or
+`pub` one meets `Copy`, `Owned`, and `Clone` (`narrowedAt`,
+`plainApis`), and the ownership checker copies a captured `T` there
+(`copiesNarrowed`). Plain is one fact, `sema.isPlain`: `Copy` and
+`Owned`, memoized per type. The Zig a generic emits cannot tell plain
+data from a view it shares a Zig type with (`?Int` is an `i64`, a
+`?String` and a `Static` are one slice), so the answer is passed in:
+`computePlainBits` marks each type parameter and associated type that
+takes it as a `comptime` Bool (`plain_bits`), one a body tests and each
+one an instance that takes a bit is spelled at from it, until nothing
+new appears. Emit writes the bit after the parameter and its witnesses
+(`__rig_plain_K`), and at each instance passes what `recordPlainFacts`
+recorded (`type_plain_bits`, `GenericCall.plain`, `plain_test_bits`):
+`true`, `false`, or the caller's own bits joined by `and`
+(`plainLeaves`), never computed from the Zig type. Zig compiles the
+guarded code only where the bit holds, since `x and false`, with
+`false` known when it compiles, is itself known then. Where a
+bit passed on through a type that holds a parameter in no field would
+differ from the instance's own answer (`Tag[T]` at an owning `T`), the
+instance is rejected (`plainBitsAgree`). A program that tests no
+`$plain` takes no bit, and its Zig is unchanged.
 A call through an API of a program's own (`t.look(?k)` on a bounded
 `T`, `c.look(?k)` on a type that provides it, `Keyed.look(?c, ?k)`)
 records an `ApiCall` once (`api_call_set`): the type that provides
@@ -2453,7 +2487,7 @@ every instance of it, written in a type or an expression, is made by
 `.simd`. Interning, substitution (`substituteType`), import, and the
 type's children follow `.array`'s. A vector is plain data (Core §1):
 `holdsIn` gives it `plain`, so every ownership fact (`copies`, `moves`,
-`isPlainData`, `readByAddress`, `dropRunsBody`, `isUnique`) answers as
+`holdsNoLoanButText`, `readByAddress`, `dropRunsBody`, `isUnique`) answers as
 for an `Int` with no rule of its own, and `TypeInfo.vector` records that
 a type holds one inline (`holdsVector`, which `$size`, `$align`, and
 `Requirement.sized` read).
@@ -5259,7 +5293,11 @@ closure (Core s9); and checks a generic body once, each type parameter
 owning and holding no view, with a copy of one left to each instance
 (SPEC "Generic bodies"), and a call of a generic function or type at
 type arguments of plain data, or of owners where the bodies it runs
-never copy a type parameter. Every element of a List, an array, or a
+never copy a type parameter. Where a `$plain(T)` operand of a
+condition's `and` chain has held, in the operands after it, the code
+the condition guards, and the closures made there, `T` is plain data
+(`Kinds.narrowed`), so a copy there asks nothing of an owner's instance
+and a call there at `T` is no call its instances run. Every element of a List, an array, or a
 slice is a place: what `push`, `insert`, a store, or a literal puts in
 a container joins the loans the container carries, an element read out
 of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the

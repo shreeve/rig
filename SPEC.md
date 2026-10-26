@@ -3040,7 +3040,7 @@ sub main()
 The body is ownership-checked once, for a `T` that may own a resource.
 A `T` that owns a resource moves where the body
 moves it, and is dropped where the body lets it go. Where the body
-copies a `T`, every instance must be plain data; the same holds where it
+copies a `T`, every instance must be plain data or a read view; the same holds where it
 takes (moves, drops, or returns) an element of a loop that does not
 consume its collection (`for x in ?v`), or unwraps a `T` out of a
 viewed optional with `as`, since the collection or the owner still
@@ -3094,6 +3094,62 @@ sub main()
 
 ```error
 cannot lend `v` to write while a read loan is live
+```
+
+`$plain(T)` is `true` where `T` is plain data ([CORE §1](docs/CORE.md#1-four-kinds-of-value)): it copies,
+owns nothing, and views nothing, as a type that provides both `Copy`
+and `Owned` does. Each instance answers it when the program compiles,
+so a generic body that tests it is two bodies. Where `T` is a type
+parameter or an associated type, and `$plain(T)` is an operand of a
+condition's `and` chain, the instances where `T` is plain compile the
+body as written. In them, what runs only once the test has held (the
+operands after it and the code the condition guards) is checked with
+`T` as it is elsewhere, and also known to copy and to hold no loan.
+What that code needs of an instance is checked at those instances
+alone. Every other instance compiles the body without that code, as if
+the test were `false`.
+
+```rig
+obj Slots[K]
+  es: List[K] = List()
+
+  sub fill(!@, n: Int)
+    if $plain(K) and @es.len > 0
+      k = @es[0]
+      while @es.len < n
+        !@es.push(k)
+
+sub main()
+  a = Slots[Int]()
+  !a.es.push(7)
+  !a.fill(4)
+  b = Slots[String]()
+  !b.es.push(String("x"))
+  !b.fill(4)
+  print(a.es.len, b.es.len, $plain(Int), $plain(?String))
+```
+
+```output
+4 1 true false
+```
+
+The `else` of such a test runs where `T` is not plain, so it is checked
+for every instance:
+
+```rig reject
+fun dup[T](x: T) -> Int
+  if $plain(T)
+    return 1
+  else
+    y = x
+    return 2
+
+sub main()
+  print(dup(3), dup(String("s")))
+```
+
+```error
+`dup[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns
 ```
 
 A declaration that makes a shared or weak
@@ -5523,8 +5579,9 @@ sub main()
 `$builtin(args)` calls a compiler builtin: the `$` touches its name, and
 the name its `(`, which a builtin always takes. Rig's own work anywhere:
 `$size(T)` and `$align(T)` are a type's size and alignment in bytes,
-`$name(T)` is its name, and `$type(x)`, only as the argument of one of
-these three, is the type of `x`. `$variants(T)` is the variants of a
+`$name(T)` is its name, `$plain(T)` is whether it is plain data
+([Generic bodies](#generic-bodies)), and `$type(x)`, only as the
+argument of one of these four, is the type of `x`. `$variants(T)` is the variants of a
 plain enum ([§3](#enums)). A type argument is written as one is
 in an expression (`List[Int]`, `?P`, `Int?`; a slice, array, or function
 type through a `type` alias).

@@ -852,3 +852,50 @@ fail "imported blocker names its own type", "8:15: `x` is lent to a task to read
 
     pub obj Pool
       pub t: Task[Res]?
+
+test "imported plain narrows another module's generic", "3 1 1 3 1 2 1"
+  # A generic that tests `$plain` in another module takes each instance's
+  # answer, and a generic here that builds it from its own parameters
+  # passes its own on (SPEC "Generic bodies").
+  use slots
+
+  obj W[V]
+    m: slots.Slots[V]
+
+  fun fresh[V]() -> W[V]
+    m: slots.Slots[V] = slots.Slots()
+    W(m: <m)
+
+  fun twice[T](x: T) -> Int
+    slots.spread(<x, 2).len
+
+  sub main()
+    a = slots.Slots[Int]()
+    !a.es.push(1)
+    !a.fill(3)
+    b = slots.Slots[String]()
+    !b.es.push(String("s"))
+    !b.fill(3)
+    n = 4
+    w = fresh[?Int]()
+    !w.m.es.push(?n)
+    !w.m.fill(3)
+    print(a.es.len, b.es.len, w.m.es.len, slots.spread(5, 3).len, slots.spread(String("x"), 3).len, twice(1), twice(String("y")))
+
+  file "slots.rig"
+    pub obj Slots[K]
+      pub es: List[K] = List()
+
+      pub sub fill(!@, n: Int)
+        if $plain(K) and @es.len > 0
+          k = @es[0]
+          while @es.len < n
+            !@es.push(k)
+
+    pub fun spread[T](x: T, n: Int) -> List[T]
+      out: List[T] = List()
+      if $plain(T)
+        while out.len < n - 1
+          !out.push(x)
+      !out.push(<x)
+      out
