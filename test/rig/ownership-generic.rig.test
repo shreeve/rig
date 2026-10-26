@@ -1479,7 +1479,7 @@ test "generic plain of a phantom parameter at a plain argument", "1 1 1 true tru
   s: Static = "s"
   print(need(u), need(s), u.n, pl(Tag[String](n: 1)), via[Int](1))
 
-fail "generic plain cannot pass a phantom owner's answer on", "`pl[Tag[String]]` tests `$plain` of its `T`", errors: 1
+fail "generic plain cannot pass a phantom owner's answer on", "`pl[Tag[String]]` cannot use `T = Tag[String]`: `$plain(Tag[T])` depends on more than whether `T` is plain", errors: 1
   # `via[String]` would give `pl` its `T`'s bit, false, though
   # `Tag[String]` is plain: the Zig could not tell.
   obj Tag[T]
@@ -1546,3 +1546,62 @@ test "generic plain slot sizes", "8 12 16 24 16 24"
     val: V
 
   print($size(Entry[U32, U32]), $size(Entry[U32, U32]?), $size(Entry[U64, U32]), $size(Entry[U64, U32]?), $size(Entry[U64, U64]), $size(Entry[U64, U64]?))
+
+test "generic plain of a value's type parameter narrows", "2 1"
+  # `$plain($type(x))` with `x: T` asks about `T`, and narrows as
+  # `$plain(T)` does.
+  fun keep[T](x: T) -> List[T]
+    out: List[T] = List()
+    if $plain($type(x))
+      !out.push(x)
+    !out.push(<x)
+    out
+
+  print(keep(3).len, keep(String("s")).len)
+
+test "generic plain of a value's associated type narrows", "2 2"
+  use std.iter
+
+  obj Count
+    n: Int
+    hi: Int
+
+    fun next(!@) -> Int?
+      return none if @n >= @hi
+      @n += 1
+      @n
+
+  obj Words
+    i: Int
+
+    fun next(!@) -> String?
+      return none if @i >= 2
+      @i += 1
+      String("w")
+
+  fun twice_first[I: Iter](it: !I) -> Int
+    if (!it).next() as x
+      if $plain($type(x))
+        a = x
+        b = x
+        _ = a
+        _ = b
+        return 2
+    1 + iter.count(!it)
+
+  c = Count(n: 0, hi: 3)
+  w = Words(i: 0)
+  print(twice_first(!c), twice_first(!w))
+
+test "generic plain of a value's known type is a constant", "true false"
+  # `$plain($type(x))` with `x` of a known type is that type's answer,
+  # and narrows nothing.
+  fun known[T](x: T, n: Int) -> Bool
+    s = String("s")
+    $plain($type(n)) and not $plain($type(s))
+
+  fun other[T](x: T) -> Bool
+    s = String("s")
+    $plain($type(s))
+
+  print(known(1, 2), other(3))

@@ -3598,11 +3598,16 @@ fn plainBitsAgree(ctx: *SemContext, callee_params: []const SymbolId, generic_arg
         if (i >= all.args.len or i >= generic_all.args.len or !needsPlainBit(ctx, p)) continue;
         if (!ctx.typeInfo(generic_all.args[i]).has_type_var or ctx.typeInfo(all.args[i]).has_type_var) continue;
         var bit = try plainLeaves(ctx, generic_all.args[i], &leaves);
+        var owner: ?SymbolId = null;
         if (bit) for (leaves.items) |l| {
-            if (!try paramPlain(ctx, l, subst.params, subst.args)) bit = false;
+            if (!try paramPlain(ctx, l, subst.params, subst.args)) {
+                bit = false;
+                owner = owner orelse l;
+            }
         };
         if (bit == try isPlain(ctx, all.args[i])) continue;
-        try ctx.err(site, "`{s}` tests `$plain` of its `{s}`, here `{s}`, which is plain data, but it is made from a generic body whose compiled code cannot tell: `{s}` holds a type parameter that is not plain data and that it keeps as no field; give `{s}` a type whose fields hold the parameter", .{ shown, ctx.symbols.items[p].name, try formatType(ctx, all.args[i]), try formatType(ctx, generic_all.args[i]), ctx.symbols.items[p].name });
+        const leaf = if (owner) |o| ctx.symbols.items[o].name else "its type parameters";
+        try ctx.err(site, "`{s}` cannot use `{s} = {s}`: `$plain({s})` depends on more than whether `{s}` is plain, so the generic body that makes it cannot pass the answer on", .{ shown, ctx.symbols.items[p].name, try formatType(ctx, all.args[i]), try formatType(ctx, generic_all.args[i]), leaf });
         return false;
     }
     return true;

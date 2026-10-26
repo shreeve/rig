@@ -7746,6 +7746,17 @@ pub const Emitter = struct {
         const of = if (args[0].isKind(.builtin) and ir.Builtin.args(args[0]).len >= 1) ir.Builtin.args(args[0])[0] else args[0];
         const ty = self.typeOf(of) orelse return self.unsupported(sexp, "an untyped `$plain` argument");
         const bit = self.facts.plainTestBit(ty) orelse return self.unsupported(sexp, "a `$plain` no check recorded");
+        // `$plain($type(x))` reads `x`, as `$size($type(x))` does, and is
+        // still known when Zig compiles.
+        if (!sameNode(of, args[0])) {
+            try self.w.writeAll("(@TypeOf(");
+            try self.emitBare(of);
+            try self.w.writeAll(") == @TypeOf(");
+            try self.emitBare(of);
+            try self.w.writeAll(") and ");
+            try self.writePlainBit(bit);
+            return self.w.writeAll(")");
+        }
         try self.writePlainBit(bit);
     }
 
