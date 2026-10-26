@@ -6,9 +6,9 @@
 # what a program does (test/cli/markers.sh reads the symbols of an
 # optimized build, and the limits `rig check` holds).
 
-code "markers each shape", "pub inline fn big(__rig_in_a: i64) i64 {", "pub inline fn get(", "pub inline fn larger(comptime T: type, ", "pub fn small(a: i64) i64 {", "pub noinline fn tiny(a: i64) i64 {", "pub noinline fn same(", /fn tiny\([^\n]*\n    @setEvalBranchQuota\(rig\.eval_quota\);\n/, /fn small\([^\n]*\n    @branchHint\(\.cold\);\n    @setEvalBranchQuota\(rig\.eval_quota\);\n/, /fn peek\([^\n]*\n *@branchHint\(\.cold\);\n/
+code "markers each shape", "pub inline fn big(__rig_in_a: i64) i64 {", "pub inline fn get(", "pub inline fn larger(comptime T: type, ", "pub noinline fn small(a: i64) i64 {", "pub noinline fn tiny(a: i64) i64 {", "pub noinline fn same(", /fn tiny\([^\n]*\n    @setEvalBranchQuota\(rig\.eval_quota\);\n/, /fn small\([^\n]*\n    @branchHint\(\.cold\);\n    @setEvalBranchQuota\(rig\.eval_quota\);\n/, /fn peek\([^\n]*\n *@branchHint\(\.cold\);\n/
   # `inline` over the size limit, of a generic type's method, and with a type
-  # parameter is `inline fn`; `rarely` is not inlined, and starts with the
+  # parameter is `inline fn`; `rarely` is `noinline`, and starts with the
   # cold hint; `called` is `noinline`, with no cold hint.
 
   inline fun big(a: Int) -> Int
@@ -301,7 +301,7 @@ code "markers json shape unmarked", "pub fn number(s: []const u8, i: i64) i64 {"
     s = "12 3 4.5 2e2 é"
     print(doc[true](s), doc[false](s))
 
-code "markers json shape marked", "pub inline fn number(__rig_in_s: []const u8, __rig_in_i: i64) i64 {", "pub fn utf8_text(s: []const u8, i: i64) i64 {", /fn utf8_text\([^\n]*\n    @branchHint\(\.cold\);\n/
+code "markers json shape marked", "pub inline fn number(__rig_in_s: []const u8, __rig_in_i: i64) i64 {", "pub noinline fn utf8_text(s: []const u8, i: i64) i64 {", /fn utf8_text\([^\n]*\n    @branchHint\(\.cold\);\n/
   # Marked, `number` is inlined into each instance, and `utf8_text` is
   # called, and cold.
 

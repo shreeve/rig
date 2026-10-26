@@ -4551,8 +4551,14 @@ symbols); a query that decides more than that is a recorded fact.
   no argument decides (`fun zero() -> Int  0`, one that ignores its
   parameters, or one that passes on another's) at compile time, and so a
   `const` bound to it, so `10 / z` would be a compile error in code that
-  never runs. `rig.rt` covers the whole result, an error or an optional
-  with its payload. The call graph holds every call emit makes: the `next`
+  never runs. `rig.rt` covers the whole result. An optional or fallible
+  result is instead bound to a `var` in place, `(__rig_rt_N: { var
+  __rig_v_N = f(x); _ = &__rig_v_N; break :__rig_rt_N __rig_v_N; })`,
+  which is as much a run-time value: passed to a function, a `?T` goes
+  through memory, and where it is a choice between a copy written field
+  by field and Zig's constant `null`, LLVM keeps that round trip, whose
+  whole-word load waits for both stores to reach the cache
+  (docs/history/records/2026-10/perf-stage/table-reads.md). The call graph holds every call emit makes: the `next`
   of a `for` over an iterator is a call in the tree by then (the rewrite of
   [Loops over an iterator](#loops-over-an-iterator)), and the only other
   user function emit calls on its own, a type's `drop` body, is not inlined.

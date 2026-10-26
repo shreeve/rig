@@ -1748,7 +1748,13 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    {s}{s};\n}}\n\n", .{ run, catches });
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
+        } else {
+            // `called` and `rarely` stay out of line (SPEC, "Function
+            // markers"): `noinline`, never left to LLVM, which inlines a
+            // cold function whose body is small enough.
+            const kept = marker == .called or marker == .rarely or self.facts.isLargeFrame(name_node);
+            try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (kept) "noinline " else "", ident(name) });
+        }
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll(if (self.fun.main_slot) "__rig_init: std.process.Init.Minimal, __out: rig.ErrSlot" else "__rig_init: std.process.Init.Minimal");
         try self.pushScope();
