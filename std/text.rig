@@ -527,8 +527,10 @@ pub obj Interner
   # The text of the id `id`, viewed where the table holds it.
   pub fun text(?@, id: U32) -> ?String from @
     i = Int(id)
+    # The end first, so `ends` is read through one pointer load.
+    end = Int(@ends[i])
     start = 0 if i == 0 else Int(@ends[i - 1])
-    ?@bytes[start..Int(@ends[i])]
+    ?@bytes[start..end]
 
   # Make room for `n` more strings whose text takes `bytes` bytes in all.
   pub sub reserve(!@, n: Int, bytes: Int = 0)

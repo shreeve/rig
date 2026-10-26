@@ -43,8 +43,7 @@ pub fn Slot(comptime n: u64) type {
 
 /// `Slot[n].of(i)`: the slot `i` names, or none unless `0 <= i < n`.
 pub fn slotOf(comptime n: u64, i: anytype) rt.Opt(Slot(n)) {
-    const v = std.math.cast(u64, i) orelse return rt.pack(rt.Opt(Slot(n)), null);
-    return rt.pack(rt.Opt(Slot(n)), if (v < n) @as(Slot(n), @intCast(v)) else null);
+    return rt.pack(rt.Opt(Slot(n)), if (rt.offsetBelow(i, n)) |v| @as(Slot(n), @intCast(v)) else null);
 }
 
 /// Whether the target gives a private anonymous mapping's pages as zeros
@@ -198,7 +197,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
 
         /// `i`, an integer, as a slot: tested `0 <= i < n`.
         pub inline fn index(i: anytype) Index {
-            return @intCast(rt.index(i, if (comptime n > std.math.maxInt(usize)) std.math.maxInt(usize) else @intCast(n)));
+            return @intCast(rt.indexBelow(i, comptime @min(n, std.math.maxInt(usize))));
         }
 
         /// `t[i]` with an integer `i`, or a slot under `RIG_NO_PROOFS`.

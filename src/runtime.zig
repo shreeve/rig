@@ -3312,11 +3312,35 @@ fn moduleOf(comptime name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 /// Convert a Rig index of any integer type to `usize`, panicking unless
-/// `0 <= i < len`.
-pub fn index(i: anytype, count: usize) usize {
+/// `0 <= i < count`. A count known at compile time, as an array's
+/// length is, takes the one compare of `offsetBelow`.
+pub fn index(i: anytype, count: anytype) usize {
+    if (comptime @TypeOf(count) == comptime_int) return indexBelow(i, count);
+    const n: usize = count;
     const idx = std.math.cast(usize, i) orelse indexPanic();
-    if (idx >= count) indexPanic();
+    if (idx >= n) indexPanic();
     return idx;
+}
+
+/// `index` against a compile-time `n`: one compare.
+pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
+    if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
+    // Exact: below `n`, which a `usize` holds.
+    return @truncate(offsetBelow(i, n) orelse indexPanic());
+}
+
+/// `i` as a `u64` when `0 <= i < n`, else null. A signed `i` read as
+/// unsigned is below `n` exactly when `0 <= i < n`, since a negative one
+/// reads as at least `2^63`: one compare where a sign test and a bound
+/// test make two. Above `2^63`, `n` takes both.
+pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        const u: u64 = @bitCast(@as(i64, i));
+        return if (u < n) u else null;
+    }
+    const v = std.math.cast(u64, i) orelse return null;
+    return if (v < n) v else null;
 }
 
 /// A float about to be converted to an integer type, panicking if it is
