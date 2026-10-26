@@ -190,6 +190,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `<@`) are names too. Nothing accepted before is rejected; the
   programs that moved a field out of an owned object, rejected before,
   now run.
+- **An optional field of a binding whose fields cannot be assigned
+  moves like a name (CORE §5):** `<p.tags` of a parameter, a capture, or a `=!`
+  local moves the field and leaves `p` partly moved, where it was
+  rejected as a take no one could write (``cannot take parameter `p` ``).
+  A local that can be assigned, and a write view, keep the take, which
+  leaves `none`. Only programs rejected before are accepted.
 - **A public generic states the `Print` of what its callees print:**
   `pub sub show[T](x: ?T)` passing `x` to a private generic that prints
   it is rejected, `` `pub sub show[T]` prints a `T`: write `[T:

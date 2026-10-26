@@ -58,7 +58,9 @@ newest entry summarizes the latest rounds.
   [partial-moves/](docs/history/records/2026-10/partial-moves/). Trig
   can drop about 82 of its 111 `swap(!x.f, empty)` sites and 3
   optional fields kept only to be taken (its NEEDS 26). λRig has no
-  fields, a gap formal/README.md records.
+  fields, a gap formal/README.md records. An optional field of a
+  parameter, capture, or `=!` local moves too (decision 14, for
+  Loco's `<o.by_file` and `<c.entries`); an assignable local's is taken.
 - **`par.workers(!states, ?items, |s, x| ...)`** (decision 8c, approved
   2026-10-25) is built: a task for each state, pulling items in the
   caller's order, results in item order. It matches Trig's hand-built

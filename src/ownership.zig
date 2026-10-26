@@ -98,9 +98,11 @@
 //!   holding a write view cannot be copied either, except as a call
 //!   argument (which lends it on for the call).
 //! * `<` always leaves its source done (`MoveSource`): `<x` ends a
-//!   binding, and `<p.f` or `<v[i]` of an optional empties it to `none`.
-//!   `<p.a` of any other field of an object a local or parameter owns
-//!   moves it as a name (Core §5): the var stays live, partly moved
+//!   binding, and `<p.f` or `<v[i]` of an optional empties it to `none`
+//!   where its binding can be assigned. `<p.a` of any other field of an
+//!   object a local or parameter owns, an optional one among them where
+//!   its fields cannot be assigned (a parameter, a capture, a `=!`
+//!   local), moves it as a name (Core §5): the var stays live, partly moved
 //!   (`Flow.parts`), and a use overlapping a moved path is rejected until
 //!   the path is assigned again; `p = x` assigns them all. Any other
 //!   field or element is rejected: one that copies would stay as it was,
@@ -3721,16 +3723,18 @@ pub const Checker = struct {
         const shown = if (leaf.source == .branch_part) self.spanText(place) else try self.placeText(place);
         const at_exit = top.isKind(.propagate) or top.isKind(.propagate_none);
         const ty = self.exprType(place);
+        // An optional field that moves like a name (`sema.moveSource`) is
+        // moved inside the branch, as a binding is.
+        const moves = leaf.source == .part and ty != null and self.typeData(ty.?) == .optional;
         switch (leaf.source) {
             .capture => try self.errAt(place, "`<` here would leave `{s}` as it was: the closure keeps its capture for every call; remove the `<` to copy it", .{shown}),
-            .binding, .optional_part => {
-                const verb = if (leaf.source == .binding) "move" else "take";
+            .declared => try self.errAt(place, "`<` here would leave `{s}` as it was: it lives for the whole program; remove the `<` to copy it", .{shown}),
+            else => if (moves or leaf.source == .binding or leaf.source == .optional_part) {
+                const verb = if (leaf.source == .optional_part) "take" else "move";
                 if (at_exit) {
                     try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it before the `?` or `!`: `(<{s}){s}`", .{ shown, verb, shown, if (top.isKind(.propagate)) "!" else "?" });
                 } else try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it inside the branch: `<{s}`", .{ shown, verb, shown });
-            },
-            .declared => try self.errAt(place, "`<` here would leave `{s}` as it was: it lives for the whole program; remove the `<` to copy it", .{shown}),
-            else => if (ty != null and (self.copies(ty) or self.refOfType(ty) == .read)) {
+            } else if (ty != null and (self.copies(ty) or self.refOfType(ty) == .read)) {
                 try self.errAt(place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
             } else if (leaf.source == .branch_part) {
                 try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `swap`", .{shown});
@@ -3866,7 +3870,8 @@ pub const Checker = struct {
     }
 
     /// `<p.f` of a field of an object a local or parameter owns, which
-    /// copies not and is not optional (Core §5, "A field of an owned
+    /// copies not and that `<` does not take (`sema.moveSource`: it takes
+    /// an optional of a binding that can be assigned) (Core §5, "A field of an owned
     /// object moves like a name"): `p.f` moves as a name does, and `p` is
     /// partly moved (`Flow.parts`) until the field is assigned again.
     /// Owning rules out views, handles, boxes, and elements, which
@@ -4314,9 +4319,12 @@ pub const Checker = struct {
         const is_name = aliased == .name;
         var fixes: std.ArrayList([]const u8) = .empty;
         // A name moves; a part moves out only from an optional, which
-        // `<` leaves `none`.
+        // `<` leaves `none`, unless nothing can assign its binding
+        // (`sema.moveSource`).
         if (is_name) {
             try fixes.append(a, try a.print("`<{s}` to move it", .{what}));
+        } else if (self.typeData(t) == .optional and if (part) |p| sema.moveSource(ctx, p) == .part else false) {
+            try fixes.append(a, try a.print("`<{s}` to move it out", .{what}));
         } else if (self.typeData(t) == .optional and !(if (part) |p| ctx.untakeableAt(p) else true)) {
             try fixes.append(a, try a.print("`<{s}` to take it out (leaving `none`)", .{what}));
         }

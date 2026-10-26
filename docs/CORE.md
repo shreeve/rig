@@ -1655,7 +1655,10 @@ down, unless a type on the way has a `drop` body. `<p.f` moves `p.f`
 as `<x` moves `x`, and a field that copies takes no `<`. `p.f = x`
 makes a local's field usable again. Where `p`'s scope ends, only the
 fields it still holds drop. Until every moved field is assigned again
-on every path, no use touches all of `p` except `p = x`. *(built)*
+on every path, no use touches all of `p` except `p = x`. An optional
+field is taken, leaving `none`, where `p.f = x` could assign it; of a
+parameter, a capture, or a `=!` local, where it could not, it moves
+like any other field. *(built)*
 
 ```rig
 obj Entry
