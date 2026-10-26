@@ -1258,6 +1258,55 @@ pub const Emitter = struct {
     /// W_T_Shape: type`.
     fn writeWitnessParams(self: *Emitter, sym: SymbolId) Error!void {
         for (self.facts.symbols.items[sym].user_apis) |api| try self.w.print(", comptime {s}: type", .{try self.witnessParamName(sym, api)});
+        for (try self.plainBitParams(sym)) |b| {
+            try self.w.writeAll(", comptime ");
+            try self.writePlainBitName(b);
+            try self.w.writeAll(": bool");
+        }
+    }
+
+    /// The bits type parameter `sym` takes after its witnesses: its own
+    /// instance's `$plain`, then each of its associated types', where one
+    /// takes a bit (`facts.needsPlainBit`).
+    fn plainBitParams(self: *Emitter, sym: SymbolId) Error![]const SymbolId {
+        var out: std.ArrayList(SymbolId) = .empty;
+        if (self.facts.needsPlainBit(sym)) try out.append(self.arena.allocator(), sym);
+        for (self.facts.symbols.items[sym].assoc) |assoc| {
+            if (self.facts.needsPlainBit(assoc)) try out.append(self.arena.allocator(), assoc);
+        }
+        return out.items;
+    }
+
+    /// `__rig_plain_T`, or `__rig_plain_I_Item` for an associated type:
+    /// the bit a generic takes of its parameter's `$plain`.
+    fn writePlainBitName(self: *Emitter, sym: SymbolId) Error!void {
+        const s = self.facts.symbols.items[sym];
+        if (s.assoc_of) |of| return self.w.print("__rig_plain_{s}_{s}", .{ self.facts.symbols.items[of.base].name, of.name });
+        try self.w.print("__rig_plain_{s}", .{s.name});
+    }
+
+    /// What `$plain` gives where the bits come from the generic's own:
+    /// `true`, `false`, or each leaf's bit joined by `and`.
+    fn writePlainBit(self: *Emitter, bit: facts.PlainBit) Error!void {
+        switch (bit) {
+            .known => |k| try self.w.writeAll(if (k) "true" else "false"),
+            .leaves => |ls| {
+                if (ls.len > 1) try self.w.writeAll("(");
+                for (ls, 0..) |l, i| {
+                    if (i > 0) try self.w.writeAll(" and ");
+                    try self.writePlainBitName(l);
+                }
+                if (ls.len > 1) try self.w.writeAll(")");
+            },
+        }
+    }
+
+    /// The bits `bits` passes after argument `arg` (`facts.PlainArg`).
+    fn writePlainArgs(self: *Emitter, bits: []const facts.PlainArg, arg: usize) Error!void {
+        for (bits) |b| if (b.arg == arg) {
+            try self.w.writeAll(", ");
+            try self.writePlainBit(b.bit);
+        };
     }
 
     /// Type parameter `sym`'s witnesses, which a body may not call
@@ -1267,6 +1316,20 @@ pub const Emitter = struct {
         for (self.facts.symbols.items[sym].user_apis) |api| {
             try self.writeIndent(depth);
             try self.w.print("_ = @TypeOf({s});\n", .{try self.witnessParamName(sym, api)});
+        }
+        const bits = try self.plainBitParams(sym);
+        for (bits) |b| {
+            try self.writeIndent(depth);
+            try self.w.writeAll("_ = @TypeOf(");
+            try self.writePlainBitName(b);
+            try self.w.writeAll(");\n");
+        }
+        // A body may read only the bit of a parameter it tests.
+        if (bits.len > 0) {
+            try self.writeIndent(depth);
+            try self.w.writeAll("_ = @TypeOf(");
+            try self.writeTypeParam(sym);
+            try self.w.writeAll(");\n");
         }
     }
 
@@ -1325,6 +1388,12 @@ pub const Emitter = struct {
 
     /// Type arguments `args`, each followed by the witnesses `ws` give it.
     fn writeArgsWithWitnesses(self: *Emitter, args: []const TypeId, ws: []const facts.ArgWitness) Error!void {
+        return self.writeArgsWithBits(args, ws, &.{});
+    }
+
+    /// `writeArgsWithWitnesses`, each argument's witnesses followed by
+    /// the bits `bits` passes after it.
+    fn writeArgsWithBits(self: *Emitter, args: []const TypeId, ws: []const facts.ArgWitness, bits: []const facts.PlainArg) Error!void {
         for (args, 0..) |arg, i| {
             if (i > 0) try self.w.writeAll(", ");
             try self.emitTypeTy(arg);
@@ -1332,15 +1401,17 @@ pub const Emitter = struct {
                 try self.w.writeAll(", ");
                 try self.writeWitness(aw.witness);
             };
+            try self.writePlainArgs(bits, i);
         }
     }
 
     /// The arguments of `ty`, an instance of generic type `sym`: with the
     /// witnesses its bounds take, so one Rig type is one Zig type.
     fn emitTypeArgs(self: *Emitter, ty: TypeId, sym: SymbolId, args: []const TypeId) Error!void {
-        if (!self.facts.takesWitnesses(sym)) return self.emitTypeList(args);
-        const ws = self.facts.typeWitnesses(ty) orelse return self.unsupported(.nil, "an instance of a generic type whose witnesses no check recorded");
-        try self.writeArgsWithWitnesses(args, ws);
+        const bits = self.facts.typePlainBits(ty);
+        if (!self.facts.takesWitnesses(sym) and bits.len == 0) return self.emitTypeList(args);
+        const ws = if (self.facts.takesWitnesses(sym)) self.facts.typeWitnesses(ty) orelse return self.unsupported(.nil, "an instance of a generic type whose witnesses no check recorded") else &.{};
+        try self.writeArgsWithBits(args, ws, bits);
     }
 
     /// The witness of each conformance this module writes: a namespace
@@ -7628,6 +7699,7 @@ pub const Emitter = struct {
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "variants")) return self.emitVariants(sexp);
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "name")) return self.emitNameQuery(sexp);
+        if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "plain")) return self.emitPlainTest(sexp);
         const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");
         try self.w.print("@{s}(", .{name});
@@ -7662,6 +7734,30 @@ pub const Emitter = struct {
             try self.w.print(".{f}", .{ident(f.name)});
         }
         try self.w.writeAll(" })");
+    }
+
+    /// `$plain(T)`: what the instance answers, as sema records it
+    /// (`facts.plainTestBit`): a constant, or the bits the generic takes,
+    /// which Zig knows when it compiles, so a condition that tests it
+    /// compiles its guarded code only where it holds.
+    fn emitPlainTest(self: *Emitter, sexp: Sexp) Error!void {
+        const args = ir.Builtin.args(sexp);
+        if (args.len != 1) return self.unsupported(sexp, "a `$plain` without one type argument");
+        const of = if (args[0].isKind(.builtin) and ir.Builtin.args(args[0]).len >= 1) ir.Builtin.args(args[0])[0] else args[0];
+        const ty = self.typeOf(of) orelse return self.unsupported(sexp, "an untyped `$plain` argument");
+        const bit = self.facts.plainTestBit(ty) orelse return self.unsupported(sexp, "a `$plain` no check recorded");
+        // `$plain($type(x))` reads `x`, as `$size($type(x))` does, and is
+        // still known when Zig compiles.
+        if (!sameNode(of, args[0])) {
+            try self.w.writeAll("(@TypeOf(");
+            try self.emitBare(of);
+            try self.w.writeAll(") == @TypeOf(");
+            try self.emitBare(of);
+            try self.w.writeAll(") and ");
+            try self.writePlainBit(bit);
+            return self.w.writeAll(")");
+        }
+        try self.writePlainBit(bit);
     }
 
     /// `$name(T)`: the type's name as sema's printer spells it, the
@@ -9295,6 +9391,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(", ");
                 try self.writeWitness(aw.witness);
             };
+            if (generic) |g| try self.writePlainArgs(g.plain, j);
         }
         return n;
     }

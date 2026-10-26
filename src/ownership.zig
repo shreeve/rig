@@ -879,6 +879,8 @@ pub const Checker = struct {
             if (r.item.len > 0) continue;
             const sym = ctx.symbols.items[r.param];
             if (!sema.checkedByBounds(sym)) continue;
+            // Where `$plain(T)` has held, a `T` copies and holds no loan.
+            if (sema.narrowedAt(ctx, 0, r.pos, r.param)) continue;
             const api: sema.Api = if (r.view) .Owned else .Copy;
             if (sema.boundApis(ctx, sym).contains(api)) continue;
             // A `pub` declaration's parameter: at the parameter, with the
@@ -912,9 +914,9 @@ pub const Checker = struct {
                     try self.err(f.site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value; take `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
                     continue;
                 }
-                try self.checkCopies(f.site, shown, param, arg);
-                try self.checkViews(f.site, shown, param, arg);
-                if (try self.checkItems(f.site, shown, param, arg)) if (f.via) |via| {
+                try self.checkCopies(f.site, shown, param, arg, f.inst.subst());
+                try self.checkViews(f.site, shown, param, arg, f.inst.subst());
+                if (try self.checkItems(f.site, shown, param, arg, f.inst.subst())) if (f.via) |via| {
                     const by = switch (via) {
                         .type => |t| try sema.formatTypeIn(ctx, self.arena(), t),
                         .func => |g| try sema.formatFnInstanceIn(ctx, self.arena(), g),
@@ -943,9 +945,10 @@ pub const Checker = struct {
                     try self.err(site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value", .{ shown, pname, aname });
                     continue;
                 }
-                try self.checkCopies(site, shown, param, arg);
-                try self.checkViews(site, shown, param, arg);
-                _ = try self.checkItems(site, shown, param, arg);
+                const subst: sema.TypeSubst = .{ .params = params, .args = pn.args };
+                try self.checkCopies(site, shown, param, arg, subst);
+                try self.checkViews(site, shown, param, arg, subst);
+                _ = try self.checkItems(site, shown, param, arg, subst);
             }
         }
     }
@@ -955,10 +958,11 @@ pub const Checker = struct {
     /// (`SemContext.item_views`), where a generic body holds a value of
     /// that associated type past a change of the `param` it came from
     /// (`PlainRequirement.item`). Whether it was reported.
-    fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!bool {
+    fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!bool {
         const ctx = self.sema orelse return false;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or r.item.len == 0) continue;
+            if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
             const assoc = for (ctx.symbols.items[param].assoc) |a| {
                 const of = ctx.symbols.items[a].assoc_of orelse continue;
                 if (std.mem.eql(u8, of.name, r.item)) break a;
@@ -978,12 +982,13 @@ pub const Checker = struct {
     /// An instance whose argument for `param` holds a view, or a `?String`,
     /// which may view a String, where a generic body stores a `param`
     /// where no loan is tracked.
-    fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!void {
+    fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!void {
         const ctx = self.sema orelse return;
         if (!self.mayCarryLoan(arg)) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or !r.view) continue;
+            if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
             const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a `?String` may view a String (a `Static` carries no loan)";
             try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, why });
             try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
@@ -993,12 +998,13 @@ pub const Checker = struct {
 
     /// An instance whose argument for `param` owns a resource, where a
     /// generic body copies a `param`.
-    fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!void {
+    fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!void {
         const ctx = self.sema orelse return;
         if (sema.moves(ctx, arg) != .yes) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or r.view or r.item.len > 0) continue;
+            if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
             if (sema.typeHasDropGlue(ctx, arg)) {
                 try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
             } else try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, and `{s}` is unique", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
@@ -4165,7 +4171,7 @@ pub const Checker = struct {
                 // a captured write view whose value its context reads (a
                 // closure's `Int` result), and a captured view passed to a
                 // call is lent for the call.
-                const copied = v.ref == .read or self.copies(v.ty) or self.readsThroughWriteView(v.ty) or (sink == .argument and v.ref != .none);
+                const copied = v.ref == .read or self.copies(v.ty) or self.readsThroughWriteView(v.ty) or (sink == .argument and v.ref != .none) or try self.copiesNarrowed(v.ty, pos);
                 if (v.capture_resource and !copied and v.ref == .write) {
                     try self.err(pos, "`{s}` is a write view the closure captures, and a {s} would hand it out of the closure at each call, though a write view has one holder; use it inside the closure instead", .{ name, sink.text() });
                     return;
@@ -7597,6 +7603,13 @@ pub const Checker = struct {
     fn copies(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         return sema.copies(ctx, ty orelse return false) == .yes;
+    }
+
+    /// A value of `ty` copies at `pos`, where `$plain` has held of each
+    /// type parameter it holds (`sema.copiesNarrowed`).
+    fn copiesNarrowed(self: *Checker, ty: ?TypeId, pos: u32) Error!bool {
+        const ctx = self.sema orelse return false;
+        return sema.copiesNarrowed(ctx, ty orelse return false, pos, self.arena());
     }
 
     /// A view whose value is copied out where its context reads it

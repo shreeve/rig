@@ -500,6 +500,9 @@ const Lowerer = struct {
     /// In a generic body: the generic functions it calls at its own type
     /// parameters, whose bodies its instances also run.
     t_calls: std.ArrayList(Callee) = .empty,
+    /// The condition `header` is reading, whose top `and` chain narrows
+    /// at a `$plain(T)` operand (`inChain`).
+    cond_root: Sexp = .nil,
     /// The module the body is in.
     module: ?*const lib.modules.Module = null,
     /// The result type the function or closure declares.
@@ -1302,7 +1305,9 @@ const Lowerer = struct {
         if (region) try self.pushRegion();
         if (held) |h| try self.bindHeld(ir.As.name(cond), h, self.optionalInner(h.ty));
         if (held_parts) |hp| try self.bindParts(ir.AsResults.names(cond).items(), hp);
+        const mark = try self.kinds.narrow(if (self.narrows(e, j == null)) try self.plainTests(cond) else &.{});
         if (j) |jv| try self.armValue(ir.If.then(e), how, jv) else try self.blockStmts(ir.If.then(e));
+        self.kinds.widen(mark);
         if (region) try self.popRegion(self.posOf(e));
         try self.goto(x);
         if (els != .nil) {
@@ -1322,8 +1327,10 @@ const Lowerer = struct {
         const els = ir.If.@"else"(e);
         if (els == .nil and j != null) return abstain("an `if` value without `else`");
         const el = if (els == .nil) x else try self.newBlock();
-        const pushed = try self.condChain(ir.If.cond(e), el);
+        const mark = self.kinds.narrowed.items.len;
+        const pushed = try self.condChain(ir.If.cond(e), el, self.narrows(e, j == null));
         if (j) |jv| try self.armValue(ir.If.then(e), how, jv) else try self.blockStmts(ir.If.then(e));
+        self.kinds.widen(mark);
         for (0..pushed) |_| try self.popRegion(self.posOf(e));
         try self.goto(x);
         if (els != .nil) {
@@ -1343,7 +1350,7 @@ const Lowerer = struct {
     /// and the body, which the caller pops; a part that fails leaves the
     /// regions opened so far and goes to `fail`. Returns how many it
     /// opened.
-    fn condChain(self: *Lowerer, cond: Sexp, fail: BlockId) Error!usize {
+    fn condChain(self: *Lowerer, cond: Sexp, fail: BlockId, narrowing: bool) Error!usize {
         const Parts = struct {
             list: std.ArrayList(Sexp) = .empty,
             a: std.mem.Allocator,
@@ -1375,6 +1382,9 @@ const Lowerer = struct {
                 try self.emit(.{ .pos = self.posOf(p), .what = .use, .uses = try self.one(h.v) });
                 matched = h;
             } else try self.header(p);
+            // The parts after a `$plain(T)`, and the body, run only where
+            // it held; the caller widens the kinds again.
+            if (narrowing and !rig.isAsPart(p)) _ = try self.kinds.narrow(try self.plainTests(p));
             const ok = try self.newBlock();
             const no = try self.newBlock();
             try self.branch(ok, no);
@@ -1708,6 +1718,8 @@ const Lowerer = struct {
             self.cur = body;
             try self.pushRegion();
             try self.bindPattern(pattern, h);
+            const mark = try self.kinds.narrow(if (guard != .nil) try self.plainTests(guard) else &.{});
+            defer self.kinds.widen(mark);
             if (guard != .nil) {
                 try self.header(guard);
                 const held_blk = try self.newBlock();
@@ -1787,8 +1799,72 @@ const Lowerer = struct {
     }
 
     /// A condition: its own statement, whose temporaries end with it.
+    /// Whether `if` `e` narrows what it guards at a `$plain(T)` test of
+    /// its condition (SPEC "Generic bodies"): an `if` or `elif` written
+    /// as one, or a statement's guard; a ternary does not.
+    fn narrows(self: *Lowerer, e: Sexp, statement: bool) bool {
+        if (statement and ir.If.@"else"(e) == .nil) return true;
+        const at = self.parser.span(e).start;
+        if (at + 2 > self.src.len or !std.mem.startsWith(u8, self.src[at..], "if")) return false;
+        return at + 2 == self.src.len or !(std.ascii.isAlphanumeric(self.src[at + 2]) or self.src[at + 2] == '_');
+    }
+
+    /// The type parameters and associated types the `$plain(T)` operands
+    /// of `cond`'s `and` chain test.
+    fn plainTests(self: *Lowerer, cond: Sexp) Error![]const SymbolId {
+        const Ops = struct {
+            l: *Lowerer,
+            out: std.ArrayList(SymbolId) = .empty,
+            pub fn part(v: *@This(), p: Sexp) Error!void {
+                try rig.eachGuardOperand(p, v, @This().operand);
+            }
+            fn operand(v: *@This(), o: Sexp) Error!void {
+                if (v.l.plainTestOf(o)) |sym| try v.out.append(v.l.a, sym);
+            }
+        };
+        var ops: Ops = .{ .l = self };
+        try rig.eachGuardPart(cond, &ops);
+        return ops.out.items;
+    }
+
+    /// `$plain(T)` of a type parameter or an associated type: `T`'s
+    /// symbol; null for any other expression.
+    fn plainTestOf(self: *Lowerer, e: Sexp) ?SymbolId {
+        if (!self.isPlainBuiltin(e)) return null;
+        const args = ir.Builtin.args(e);
+        if (args.len != 1) return null;
+        // `$plain($type(x))` asks about the type of `x`.
+        const of = if (args[0].isKind(.builtin) and ir.Builtin.args(args[0]).len == 1) ir.Builtin.args(args[0])[0] else args[0];
+        const ty = self.ctx.typeOf(of) orelse return null;
+        return switch (self.ctx.types.get(ty)) {
+            .type_var => |sym| sym,
+            else => null,
+        };
+    }
+
+    fn isPlainBuiltin(self: *Lowerer, e: Sexp) bool {
+        if (!e.isKind(.builtin)) return false;
+        const name = ir.Builtin.name(e);
+        return name == .src and std.mem.eql(u8, leafText(name, self.src), "plain");
+    }
+
+    /// Whether `e` is an `and` on the top chain of the condition being
+    /// read (`cond_root`).
+    fn inChain(self: *Lowerer, e: Sexp) bool {
+        return self.inChainFrom(self.cond_root, e);
+    }
+
+    fn inChainFrom(self: *Lowerer, n: Sexp, e: Sexp) bool {
+        if (!n.isKind(.@"and")) return false;
+        if (std.meta.eql(self.parser.span(n), self.parser.span(e))) return true;
+        return self.inChainFrom(ir.get(n, .left), e) or self.inChainFrom(ir.get(n, .right), e);
+    }
+
     fn header(self: *Lowerer, cond: Sexp) Error!void {
         try self.pushRegion();
+        const saved_root = self.cond_root;
+        defer self.cond_root = saved_root;
+        self.cond_root = cond;
         const c = try self.readOpt(cond);
         try self.emit(.{ .pos = self.posOf(cond), .what = .use, .uses = try self.list(c) });
         try self.popRegion(self.posOf(cond));
@@ -1836,10 +1912,12 @@ const Lowerer = struct {
         self.cur = b;
         try self.pushRegion();
         self.loops.items[self.loops.items.len - 1].cont_depth = self.regions.items.len;
+        const mark = try self.kinds.narrow(try self.plainTests(cond));
         try self.blockStmts(ir.While.body(s));
         try self.goto(st);
         self.cur = st;
         if (step != .nil) try self.stmt(step);
+        self.kinds.widen(mark);
         try self.popRegion(self.posOf(s));
         try self.goto(h);
         _ = self.loops.pop();
@@ -1866,7 +1944,8 @@ const Lowerer = struct {
         const els = ir.While.@"else"(s);
         const e = if (els == .nil) x else try self.newBlock();
         const base = self.regions.items.len;
-        const pushed = try self.condChain(ir.While.cond(s), e);
+        const mark = self.kinds.narrowed.items.len;
+        const pushed = try self.condChain(ir.While.cond(s), e, true);
         // A step that reads a binding of the condition runs in its scope,
         // after the body; any other runs once the bindings have ended,
         // where `continue` goes too (SPEC "Joined bindings").
@@ -1878,6 +1957,7 @@ const Lowerer = struct {
         try self.goto(st);
         self.cur = st;
         if (step != .nil) try self.stmt(step);
+        self.kinds.widen(mark);
         if (inside) for (0..pushed) |_| try self.popRegion(self.posOf(s));
         try self.goto(h);
         _ = self.loops.pop();
@@ -2482,6 +2562,11 @@ const Lowerer = struct {
                 const x = try self.newBlock();
                 try self.branch(r_blk, x);
                 self.cur = r_blk;
+                // In a condition's `and` chain, the operands after a
+                // `$plain(T)` run only where it held (SPEC "Generic
+                // bodies").
+                const mark = if (k == .@"and" and self.inChain(e)) try self.kinds.narrow(try self.plainTests(ir.get(e, .left))) else self.kinds.narrowed.items.len;
+                defer self.kinds.widen(mark);
                 const r = try self.eval(ir.get(e, .right), .read, null);
                 try self.emit(.{ .pos = pos, .what = .make, .uses = try self.list(r), .def = t });
                 try self.goto(x);
@@ -2528,7 +2613,10 @@ const Lowerer = struct {
                 try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .access = readAccess(p) });
                 return t;
             },
-            .builtin, .raw_block => return abstain("`raw`"),
+            // `$plain(T)`: a `Bool` each instance knows when it compiles,
+            // which views nothing.
+            .builtin => if (self.plainTestOf(e) != null or self.isPlainBuiltin(e)) return null else return abstain("`raw`"),
+            .raw_block => return abstain("`raw`"),
             .inst => return abstain("compile-time arguments"),
             .kwarg => return abstain("a keyword argument out of place"),
             .@"while", .@"for" => {
@@ -2982,6 +3070,8 @@ const Lowerer = struct {
             .planned = self.planned,
         };
         inner.kinds.generic = self.kinds.generic;
+        // A closure made where `$plain` narrowed runs only there.
+        try inner.kinds.narrowed.appendSlice(self.a, self.kinds.narrowed.items);
         inner.module = self.module;
         inner.runClosure(e) catch |err| switch (err) {
             error.Found => {},
@@ -4197,9 +4287,21 @@ const Lowerer = struct {
         }
         if (!owners and !own_params) return;
         const callee = self.calleeDecl(e) orelse return abstain("a generic instance at an owner of an unusual callee");
-        if (own_params) try self.t_calls.append(self.a, callee);
+        // A call in code `$plain` narrowed, at narrowed parameters, runs
+        // only in instances where they are plain data.
+        if (own_params and !try self.argsNarrowed(type_args)) try self.t_calls.append(self.a, callee);
         if (owners and !try copiesNoT(self.a, callee)) return abstain("a generic instance at an owner whose body copies a `T`");
         if (owners) try self.itemInstance(e, callee, type_args);
+    }
+
+    /// Whether every type argument that holds a type parameter holds only
+    /// narrowed ones (`Kinds.allNarrowed`).
+    fn argsNarrowed(self: *Lowerer, type_args: []const TypeId) Error!bool {
+        for (type_args) |t| {
+            if (t == sema.type_invalid or !self.ctx.typeInfo(t).has_type_var) continue;
+            if (!try self.kinds.allNarrowed(t)) return false;
+        }
+        return true;
     }
 
     /// A call of a generic body at an owner whose associated type may

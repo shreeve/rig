@@ -75,6 +75,8 @@ pub const CtVal = sema.cteval.CtVal;
 pub const CtResult = sema.cteval.Result;
 pub const CtHidden = sema.cteval.Hidden;
 pub const GenericCall = sema.GenericCall;
+pub const PlainBit = sema.PlainBit;
+pub const PlainArg = sema.PlainArg;
 pub const Use = sema.Use;
 pub const Header = sema.Header;
 pub const Storage = sema.Storage;
@@ -425,6 +427,21 @@ pub const Facts = struct {
     /// none, or one no check recorded.
     pub fn typeWitnesses(f: Facts, ty: TypeId) ?[]const ArgWitness {
         return f.c().type_witnesses.get(ty);
+    }
+    /// Whether type parameter `sym`, or an associated type, takes its
+    /// instance's `$plain` as a compile-time Bool (`sema.needsPlainBit`).
+    pub fn needsPlainBit(f: Facts, sym: SymbolId) bool {
+        return sema.needsPlainBit(f.c(), sym);
+    }
+    /// The bits an instance of a generic type passes after its arguments
+    /// (`sema.recordPlainFacts`); empty for one that passes none.
+    pub fn typePlainBits(f: Facts, ty: TypeId) []const PlainArg {
+        return f.c().type_plain_bits.get(ty) orelse &.{};
+    }
+    /// What `$plain` of `ty` gives where the module tests it
+    /// (`sema.recordPlainFacts`).
+    pub fn plainTestBit(f: Facts, ty: TypeId) ?PlainBit {
+        return f.c().plain_test_bits.get(ty);
     }
     /// Whether generic type `sym`'s parameters take witnesses: some bound
     /// names an API of a program's own.

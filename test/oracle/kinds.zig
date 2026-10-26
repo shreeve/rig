@@ -81,15 +81,49 @@ pub const Kinds = struct {
     /// carry a loan (SPEC "Generic bodies"). Without it a value of an
     /// associated type carries none, as a type parameter's does.
     item: ?sema.SymbolId = null,
+    /// In a generic body, the type parameters and associated types a
+    /// `$plain(T)` test has narrowed where the code being lowered runs
+    /// (SPEC "Generic bodies"): only the instances where each is plain
+    /// data run it, so there a `T` copies and holds no loan. `memo`
+    /// holds the kinds under this set (`narrow`).
+    narrowed: std.ArrayList(sema.SymbolId) = .empty,
 
     pub fn init(a: std.mem.Allocator, ctx: *const SemContext, planned: bool) Kinds {
         return .{ .a = a, .ctx = ctx, .planned = planned };
     }
 
+    /// Narrow `sym` too (`narrowed`), until `widen` gives back the set
+    /// before; returns the mark `widen` takes.
+    pub fn narrow(self: *Kinds, syms: []const sema.SymbolId) std.mem.Allocator.Error!usize {
+        const mark = self.narrowed.items.len;
+        for (syms) |s| if (std.mem.findScalar(sema.SymbolId, self.narrowed.items, s) == null) try self.narrowed.append(self.a, s);
+        if (self.narrowed.items.len != mark) self.memo.clearRetainingCapacity();
+        return mark;
+    }
+
+    pub fn widen(self: *Kinds, mark: usize) void {
+        if (self.narrowed.items.len == mark) return;
+        self.narrowed.shrinkRetainingCapacity(mark);
+        self.memo.clearRetainingCapacity();
+    }
+
+    /// Whether `ty` holds type parameters and `$plain` has narrowed every
+    /// one it reaches (`narrowed`).
+    pub fn allNarrowed(self: *Kinds, ty: TypeId) std.mem.Allocator.Error!bool {
+        if (self.narrowed.items.len == 0 or !self.ctx.typeInfo(ty).has_type_var) return false;
+        var reached: std.ArrayList(sema.SymbolId) = .empty;
+        defer reached.deinit(self.a);
+        try sema.reachedTypeVars(self.ctx, ty, &reached, self.a);
+        if (reached.items.len == 0) return false;
+        for (reached.items) |p| if (std.mem.findScalar(sema.SymbolId, self.narrowed.items, p) == null) return false;
+        return true;
+    }
+
     pub fn of(self: *Kinds, ty: TypeId) std.mem.Allocator.Error!Info {
         if (self.memo.get(ty)) |info| return info;
         var info = try self.ofType(ty);
-        if (self.item) |it| if (sema.reachesTypeVar(self.ctx, ty, it)) {
+        // A narrowed type's values are plain data's where the code runs.
+        if (self.item) |it| if (sema.reachesTypeVar(self.ctx, ty, it) and !try self.allNarrowed(ty)) {
             info.holds_views = true;
             info.holds_pointers = true;
         };
@@ -105,7 +139,20 @@ pub const Kinds = struct {
         // say (docs/design/apis.md, Stage 2): `Copy` copies, and with
         // `Owned` views nothing; without `Copy` it is an owner that the
         // body may not copy.
+        // A type parameter `$plain` has narrowed is plain data where the
+        // code runs (SPEC "Generic bodies").
         if (self.generic) switch (ctx.types.get(ty)) {
+            .type_var => |sym| if (std.mem.findScalar(sema.SymbolId, self.narrowed.items, sym) != null) return .{
+                .kind = .plain,
+                .holds_views = false,
+                .holds_pointers = false,
+                .drop_reads = false,
+                .unsupported = null,
+            },
+            else => {},
+        };
+        const narrowed = try self.allNarrowed(ty);
+        if (self.generic and !narrowed) switch (ctx.types.get(ty)) {
             .type_var => |sym| {
                 const bounds = sema.implied(ctx.symbols.items[sym].apis);
                 if (bounds.count() > 0) {
@@ -132,7 +179,7 @@ pub const Kinds = struct {
         // parameter's bounds say (an `E?` of an `E: Copy` copies): it
         // holds an `E` or nothing, so a bare use of it is a use of an `E`
         // (SPEC "Generic bodies").
-        const by_bounds: ?Kind = if (self.generic) switch (ctx.types.get(ty)) {
+        const by_bounds: ?Kind = if (self.generic and !narrowed) switch (ctx.types.get(ty)) {
             .optional => |inner| if (boundedVar(ctx, inner)) (try self.of(inner)).kind else null,
             else => null,
         } else null;
@@ -143,7 +190,7 @@ pub const Kinds = struct {
             // (Core §1): a declared one, and under the planned rule one
             // holding a Cell. So does an `error`, and a value holding
             // one (Core §2, "A failure moves its error").
-            else => if (ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell) or (self.generic and (ti.holds_type_var or ctx.types.get(ty) == .type_var)))
+            else => if (ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell) or (self.generic and !narrowed and (ti.holds_type_var or ctx.types.get(ty) == .type_var)))
                 .owning
             else if (ti.views.write)
                 .write_view
