@@ -1,0 +1,116 @@
+--- a/src/runtime.zig	2026-10-25 21:41:30.000000000 -0600
++++ b/src/runtime.zig	2026-10-25 21:45:05.480867017 -0600
+@@ -2681,6 +2681,7 @@
+                 self.buf = self.buf.ptr[0..comptime @min(max_len, std.math.maxInt(usize))];
+                 return;
+             }
++            ListProf.grew(@returnAddress(), self.buf.len, self.len, @sizeOf(T));
+             if (inline_len > 0 and self.buf.len == 0) {
+                 // Past its inline room: all of it to the heap.
+                 const buf = allocSlice(T, @max(want, 2 * inline_len));
+@@ -2891,6 +2892,7 @@
+         }
+ 
+         pub fn __rig_drop(self: *Self) void {
++            if (self.buf.len != 0 and @sizeOf(T) != 0) ListProf.dropped(self.len, self.buf.len);
+             self.clear();
+             if (inline_len == 0 or self.buf.len != 0) freeSlice(T, self.buf);
+             self.buf = &.{};
+@@ -6286,6 +6288,7 @@
+     const status = exitStatus(code);
+     lockOutput();
+     flush();
++    ListProf.report();
+     endProcess(status);
+ }
+ 
+@@ -6299,6 +6302,7 @@
+ /// drops: flush `print` output, then exit non-zero if anything leaked, so
+ /// a leaking program never passes.
+ pub fn finish() void {
++    ListProf.report();
+     if (map_trace) map_tracer.close();
+     if (makes_tasks) threaded.deinit();
+     releaseProcess();
+@@ -8432,3 +8436,81 @@
+     dropErrorData(error.Plain, &data);
+     try std.testing.expectEqual(@as(usize, 1), TestErrorGlue.drops.load(.seq_cst));
+ }
++
++// ---- temporary List growth profile (not for landing) ----
++pub const ListProf = struct {
++    const LP_N = 1 << 16;
++    const LpSite = struct { addr: usize = 0, grows: u64 = 0, firsts: u64 = 0, copied: u64 = 0, size: u64 = 0, drops: u64 = 0, len_sum: u64 = 0, cap_sum: u64 = 0 };
++    var lp_sites: [LP_N]LpSite = @splat(.{});
++    var lp_len_hist: [24]u64 = @splat(0);
++    var lp_cap_hist: [24]u64 = @splat(0);
++    var total_grows: u64 = 0;
++    var total_firsts: u64 = 0;
++    var total_copied: u64 = 0;
++    var total_drops: u64 = 0;
++    fn lpLpSite(addr: usize) *LpSite {
++        var h = (addr *% 0x9E3779B97F4A7C15) >> 48;
++        while (true) : (h = (h + 1) & (LP_N - 1)) {
++            const s = &lp_sites[h];
++            if (s.addr == addr) return s;
++            if (s.addr == 0) {
++                s.addr = addr;
++                return s;
++            }
++        }
++    }
++    fn lpBucket(n: usize) usize {
++        if (n == 0) return 0;
++        return @min(23, 64 - @clz(@as(u64, n)));
++    }
++    pub noinline fn grew(ret: usize, old_cap: usize, n: usize, size: usize) void {
++        const s = lpLpSite(ret);
++        s.grows += 1;
++        s.size = size;
++        total_grows += 1;
++        if (old_cap == 0) {
++            s.firsts += 1;
++            total_firsts += 1;
++        }
++        s.copied += n * size;
++        total_copied += n * size;
++    }
++    pub noinline fn dropped(n: usize, cap: usize) void {
++        const s = lpLpSite(@returnAddress());
++        s.drops += 1;
++        s.len_sum += n;
++        s.cap_sum += cap;
++        total_drops += 1;
++        lp_len_hist[lpBucket(n)] += 1;
++        lp_cap_hist[lpBucket(cap)] += 1;
++    }
++    fn lessFirsts(_: void, a: LpSite, b: LpSite) bool {
++        return a.firsts > b.firsts;
++    }
++    fn lessGrows(_: void, a: LpSite, b: LpSite) bool {
++        return (a.grows - a.firsts) > (b.grows - b.firsts);
++    }
++    fn lessDrops(_: void, a: LpSite, b: LpSite) bool {
++        return a.drops > b.drops;
++    }
++    fn lessCopied(_: void, a: LpSite, b: LpSite) bool {
++        return a.copied > b.copied;
++    }
++    pub fn report() void {
++        std.debug.print("listprof: grows {d} firsts {d} copied {d} B, drops-with-buffer {d}\n", .{ total_grows, total_firsts, total_copied, total_drops });
++        std.debug.print("listprof: len-at-drop hist (bucket = bit length):", .{});
++        for (lp_len_hist, 0..) |c, i| if (c > 0) std.debug.print(" {d}:{d}", .{ i, c });
++        std.debug.print("\nlistprof: cap-at-drop hist:", .{});
++        for (lp_cap_hist, 0..) |c, i| if (c > 0) std.debug.print(" {d}:{d}", .{ i, c });
++        std.debug.print("\n", .{});
++        const all = lp_sites[0..];
++        std.mem.sort(LpSite, all, {}, lessFirsts);
++        for (all[0..60]) |s| if (s.firsts > 0) std.debug.print("listprof first 0x{x} firsts {d} grows {d} copied {d} size {d}\n", .{ s.addr, s.firsts, s.grows, s.copied, s.size });
++        std.mem.sort(LpSite, all, {}, lessGrows);
++        for (all[0..40]) |s| if (s.grows > s.firsts) std.debug.print("listprof regrow 0x{x} firsts {d} grows {d} copied {d} size {d}\n", .{ s.addr, s.firsts, s.grows, s.copied, s.size });
++        std.mem.sort(LpSite, all, {}, lessCopied);
++        for (all[0..30]) |s| if (s.copied > 0) std.debug.print("listprof copied 0x{x} firsts {d} grows {d} copied {d} size {d}\n", .{ s.addr, s.firsts, s.grows, s.copied, s.size });
++        std.mem.sort(LpSite, all, {}, lessDrops);
++        for (all[0..60]) |s| if (s.drops > 0) std.debug.print("listprof drop 0x{x} drops {d} avglen {d} avgcap {d}\n", .{ s.addr, s.drops, s.len_sum / s.drops, s.cap_sum / s.drops });
++    }
++};
