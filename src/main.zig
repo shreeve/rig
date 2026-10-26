@@ -189,6 +189,16 @@ const Mode = enum {
             .fast => "-Ofast",
         };
     }
+
+    /// The flags after the mode's: a release build omits frame pointers,
+    /// which frees a register and a prologue in every function, unless
+    /// `RIG_FRAME_POINTERS=1` keeps them, for a profiler that walks frame
+    /// pointers (`perf record -g`). Zig's own unwinder reads the unwind
+    /// tables, which stay.
+    fn frameFlags(mode: Mode, env: Env) []const []const u8 {
+        if (mode == .debug or env.flag("RIG_FRAME_POINTERS")) return &.{};
+        return &.{"-fomit-frame-pointer"};
+    }
 };
 
 /// What `check --facts` prints: the IR's syntax facts, sema's, the
@@ -830,13 +840,14 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const zig = env.zig();
     const verb = if (opts.command == .build) "build-exe" else "run";
     const flag = opts.mode.zigFlag();
+    const frame = opts.mode.frameFlags(env);
     const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
     // The package's directory, and Zig's cache for building it, which
     // keeps each package's builds apart from every other package's.
     var dir: []const u8 = undefined;
     var zig_cache: []const u8 = undefined;
     if (env.get("RIG_BUILD_STORE")) |store| {
-        zig_cache = try storeEntry(allocator, io, store, &.{ zig, verb, flag, if (pkg.links_libc) "-lc" else "", root }, pkg.files.items);
+        zig_cache = try storeEntry(allocator, io, store, try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag }, frame, &.{ if (pkg.links_libc) "-lc" else "", root } }), pkg.files.items);
         dir = try std.fs.path.join(allocator, &.{ zig_cache, "package" });
         try writeFile(io, try std.fs.path.join(allocator, &.{ zig_cache, "used" }), "");
     } else {
@@ -860,12 +871,12 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     const relocs: []const []const u8 = if (opts.bolt) bolt.zig_args else &.{};
-    const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, relocs, dashes, program_args });
+    const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag }, frame, &.{ "--cache-dir", zig_cache, root_zig }, emit_bin, libc, relocs, dashes, program_args });
     if (opts.command == .build) {
         // `zig build-exe` keeps no cache of its own for an output it is
         // told to write: the same build again copies the executable the
         // last one kept (`keptBuild`), and Zig is not run.
-        const zig_args = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, libc, relocs });
+        const zig_args = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag }, frame, &.{ "--cache-dir", zig_cache, root_zig }, libc, relocs });
         const kept = try keptBuild(allocator, io, env, zig_cache, opts.mode, out, zig_args, pkg.files.items);
         if (kept) |k| if (reuseBuild(allocator, io, k, out)) {
             if (home) |h| recordSize(allocator, io, h, dir);
@@ -1099,6 +1110,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         hashPart(&inputs, f.contents);
     }
     for ([_][]const u8{ env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| hashPart(&inputs, part);
+    for (mode.frameFlags(env)) |part| hashPart(&inputs, part);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     inputs.final(&digest);
     const hex = std.fmt.bytesToHex(digest, .lower);
@@ -1134,7 +1146,9 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         const libc: []const []const u8 = if (links_libc) &.{"-lc"} else &.{};
         const zig_cache = if (store != null) home else try std.fs.path.join(allocator, &.{ dir, ".zig-cache" });
         const argv = try std.mem.concat(allocator, []const u8, &.{
-            &.{ env.zig(), "build-exe", mode.zigFlag(), "--cache-dir", zig_cache, try allocator.print("-femit-bin={s}", .{entry_bin}) },
+            &.{ env.zig(), "build-exe", mode.zigFlag() },
+            mode.frameFlags(env),
+            &.{ "--cache-dir", zig_cache, try allocator.print("-femit-bin={s}", .{entry_bin}) },
             libc,
             &.{ "--dep", emit.runtime_module, try allocator.print("-Mroot={s}", .{try std.fs.path.join(allocator, &.{ package_dir, "main.zig" })}), try allocator.print("-M{s}={s}", .{ emit.runtime_module, try std.fs.path.join(allocator, &.{ package_dir, emit.runtime_filename }) }) },
         });

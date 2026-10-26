@@ -31,6 +31,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Prefault by the heap that does the work | a heap faults in ahead while it has taken four times what the others have: Trig at one checker 2.1-2.9% faster, half the page faults; benches as before; Trig's teardown measured | [prefault-lead/](2026-10/prefault-lead/) |
 | Prefault by every large heap | a heap that has taken two segments (8 MB) also faults in ahead: Trig at four checkers 44% (ts-pattern) and 35% (zod3) fewer page faults, 5-6% more peak memory, zod3 4-6% faster; every bench heap stays at one segment, benches as before | [prefault-lead/](2026-10/prefault-lead/) |
 | The blocking pool's lock | a waiter reads before taking and never yields; the pool reads the clock outside its lock; loco and a two-core oversubscription measured against yielding and a parking lock | [pool-lock/](2026-10/pool-lock/) |
+| A hash given whole, and frame pointers (#682) | `Hasher.set` built and dropped: no gain on Trig, whose hot keys are packed ids that made ts-pattern 30 times slower when given unmixed; release builds omit frame pointers: Trig 2.5-2.9% fewer instructions and 1-2% faster, gsoc-2018 1-2% slower (code layout, accepted), `RIG_FRAME_POINTERS=1` for profiling with callers | [hash-set-fp/](2026-10/hash-set-fp/) |
 | The allocator's fast path | a small block taken and given back with no call, two always-true checks dropped with proofs: Trig 1.8-2.0% fewer instructions, walls and benches within noise; the small-block remap skip measured (0.35%) and dropped | [alloc-fast/](2026-10/alloc-fast/) |
 
 | Map quick items (2026-10-24) | a table that grows is made with its zeros at once: Trig 1.5% fewer instructions and cycles; a two-multiply hash for small multi-word keys probes as a random hash but saves only 0.5% of instructions, and 2× growth saves 5-6% of memory at 1.5-3.8% more cycles, so neither landed | [map-quick/](2026-10/map-quick/) |
@@ -190,6 +191,10 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [ctfun-build.md](2026-10/functions/ctfun-build.md): Compile-time functions v1: build report
 - [grammar-recommended.diff](2026-10/functions/grammar-recommended.diff)
 - [syntax-cost.md](2026-10/functions/syntax-cost.md): Compile-time functions and fun values in tasks: syntax and cost review
+
+### 2026-10/hash-set-fp/
+
+- [README.md](2026-10/hash-set-fp/README.md): A hash given whole, and frame pointers in release builds
 
 ### 2026-10/lazy-members/
 

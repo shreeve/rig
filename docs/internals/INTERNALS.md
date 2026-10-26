@@ -152,7 +152,20 @@ from those objects); each mode keeps its last build, and a Zig that
 cannot say what it is builds every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
 or `-Ofast` (`--release=fast`), and with `-lc` when a module
-declares an `extern`. `emit` prints the root module's Zig and names the
+declares an `extern`. A release build adds `-fomit-frame-pointer`
+(`Mode.frameFlags`): every function gets a register back and loses
+the instructions that save and set the frame pointer, about 3% of
+the instructions Trig runs. Nothing Rig reads needs them: a release
+panic prints its message and no trace, and Zig's unwinder, which a
+debug panic's trace, a heap profile's sites, and a leak trace use,
+reads the unwind tables (DWARF CFI on Linux, compact unwind on
+macOS), which every build keeps. A profiler that walks frame pointers
+loses each sample's callers without them: `perf record -g`, and
+macOS's `sample` and Instruments, since Apple's arm64 ABI keeps them.
+`perf record --call-graph dwarf` would read the tables instead, but
+`perf` 7.0 recovers no callers from a Zig executable
+that way, with frame pointers or without. `RIG_FRAME_POINTERS=1` at
+build time keeps them, for a profile with its callers. `emit` prints the root module's Zig and names the
 package directory on stderr; `build` names it when Zig fails. The
 package is the same in every mode, so `emit` takes none: a mode is
 only Zig's `-O` flag, which the runtime reads (`builtin.mode`) to
