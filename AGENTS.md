@@ -65,7 +65,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `src/emit.zig` | Zig code generation, one file per module |
 | `src/runtime.zig`, `sched.zig`, `tasks.zig`, `net.zig`, `alloc.zig` | the runtime, scheduler, tasks and actors, sockets, and the allocator of release builds (a heap per thread), embedded in `bin/rig` and written beside each program |
 | `src/main.zig`, `lsp.zig`, `editor.zig` | the CLI (`rig --help`), the language server, editor support |
-| `src/frames.zig`, `bolt.zig` | what `rig build` does to an executable: reads each function's frame to warn of one larger than a page, and lays it out again with BOLT (`--bolt`, Linux) |
+| `src/frames.zig`, `bolt.zig`, `pgo.zig` | what `rig build` does to an executable: reads each function's frame to warn of one larger than a page, lays it out again with BOLT (`--bolt`, Linux), and optimizes it by a profile (`--pgo`, Linux) |
 | `std/` | the standard library (`.rig`, with Zig shims), embedded in `bin/rig`; `std/__rig_builtin.rig` is the built-in `Map` and `Set`, which no program imports |
 | `test/rig/*.rig.test` | the behavior and rejection cases, one file per area |
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |

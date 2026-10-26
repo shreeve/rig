@@ -17,6 +17,7 @@ const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
 const inlining = @import("inlining.zig");
 const bolt = @import("bolt.zig");
+const pgo = @import("pgo.zig");
 const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
@@ -32,6 +33,7 @@ const usage =
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
     \\       rig build --release --bolt [options] <file.rig> -- <workload>
+    \\       rig build --release --pgo [options] <file.rig> -- <workload>
     \\       rig batch build [--release[=safe|fast]] <dir> <file.rig>...
     \\       rig batch run <dir> <n>
     \\       rig clean
@@ -102,6 +104,14 @@ const usage =
     \\                         perf2bolt, and llvm-bolt)
     \\  --bolt-profile=<file>  Keep BOLT's profile in <file>; with no
     \\                         workload, lay the build out by <file>
+    \\  --pgo                  Optimize the release build by LLVM's
+    \\                         profile-guided optimization, trained on
+    \\                         where <workload> (after `--`) runs it
+    \\                         (build; Linux, a program that links no C
+    \\                         library, with llvm-profdata and the
+    \\                         profile runtime of Zig's LLVM)
+    \\  --pgo-profile=<file>   Keep the profile in <file>; with no
+    \\                         workload, optimize the build by <file>
     \\  -h, --help             Show this help
     \\  -V, --version          Show the version
     \\
@@ -219,6 +229,9 @@ const Options = struct {
     /// `build --bolt` (src/bolt.zig): the workload is `program_args`.
     bolt: bool = false,
     bolt_profile: ?[]const u8 = null,
+    /// `build --pgo` (src/pgo.zig): the workload is `program_args`.
+    pgo: bool = false,
+    pgo_profile: ?[]const u8 = null,
     /// `rig check --tests`: check the program as `rig test` builds it.
     tests: bool = false,
     /// `rig run file.rig -- args...`: the program's own arguments.
@@ -370,7 +383,8 @@ pub fn main(init: std.process.Init) !void {
         .run, .build, .@"test" => {
             // Before the build, so a missing tool fails at once.
             const tools = if (opts.bolt) try bolt.Tools.find(allocator, io, env.get("PATH") orelse "/usr/bin:/bin", opts.program_args.len > 0) else null;
-            buildCommand(allocator, io, env, opts) catch |err| {
+            const pgo_tools = if (opts.pgo) try pgo.Tools.find(allocator, io, env.get("PATH") orelse "/usr/bin:/bin", env.zig(), opts.program_args.len > 0) else null;
+            buildCommand(allocator, io, env, opts, pgo_tools) catch |err| {
                 if (program_pending) notRun("{s}", .{@errorName(err)});
                 return err;
             };
@@ -389,6 +403,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var tasks = false;
     var lay_out = false;
     var bolt_profile: ?[]const u8 = null;
+    var profiled = false;
+    var pgo_profile: ?[]const u8 = null;
     var seed: ?u64 = null;
     var seeds: ?u64 = null;
     var tests = false;
@@ -397,7 +413,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (eql(arg, "--")) {
-            if (command != .run and !(command == .build and lay_out)) usageError("arguments after `--` are for the program `rig run` runs, or the workload of `rig build --bolt`", .{});
+            if (command != .run and !(command == .build and (lay_out or profiled))) usageError("arguments after `--` are for the program `rig run` runs, or the workload of `rig build --bolt` or `--pgo`", .{});
             program_args = args[i + 1 ..];
             break;
         }
@@ -437,6 +453,10 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             lay_out = true;
         } else if (std.mem.startsWith(u8, arg, "--bolt-profile=")) {
             bolt_profile = arg["--bolt-profile=".len..];
+        } else if (eql(arg, "--pgo")) {
+            profiled = true;
+        } else if (std.mem.startsWith(u8, arg, "--pgo-profile=")) {
+            pgo_profile = arg["--pgo-profile=".len..];
         } else if (eql(arg, "--tasks")) {
             tasks = true;
         } else if (eql(arg, "-o")) {
@@ -467,6 +487,11 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (lay_out and mode == .debug) usageError("`--bolt` lays out a release build: add `--release`", .{});
     if (bolt_profile != null and !lay_out) usageError("`--bolt-profile` goes with `--bolt`", .{});
     if (lay_out and program_args.len == 0 and bolt_profile == null) usageError("`--bolt` needs a workload after `--` (`rig build --release --bolt -o prog prog.rig -- ./prog input`), or a saved `--bolt-profile=FILE`", .{});
+    if (profiled and cmd != .build) usageError("`--pgo` applies to build", .{});
+    if (profiled and mode == .debug) usageError("`--pgo` optimizes a release build: add `--release`", .{});
+    if (pgo_profile != null and !profiled) usageError("`--pgo-profile` goes with `--pgo`", .{});
+    if (profiled and program_args.len == 0 and pgo_profile == null) usageError("`--pgo` needs a workload after `--` (`rig build --release --pgo -o prog prog.rig -- ./prog input`), or a saved `--pgo-profile=FILE`", .{});
+    if (lay_out and profiled and program_args.len == 0 and (bolt_profile == null or pgo_profile == null)) usageError("`--bolt` and `--pgo` together need a workload after `--`, or a saved profile for each", .{});
     if (tests and cmd != .check) usageError("`--tests` applies to check; `rig test` builds the tests already", .{});
     if (seed != null and cmd != .run and cmd != .@"test") usageError("`--seed` applies to run and test", .{});
     if (seeds != null and cmd != .@"test") usageError("`--seeds` applies to test", .{});
@@ -485,7 +510,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .bolt = lay_out, .bolt_profile = bolt_profile, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .bolt = lay_out, .bolt_profile = bolt_profile, .pgo = profiled, .pgo_profile = pgo_profile, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
 }
 
 /// `rig check --tasks`: each local task of the program's own modules,
@@ -818,7 +843,7 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 /// `rig run`, `build`, and `test`: emit the package and hand it to Zig.
 /// Zig's own errors name the emitted files; any other failure of `run`
 /// or `test` is the program's.
-fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
+fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options, pgo_tools: ?pgo.Tools) !void {
     // A caller's RIG_RUN_STARTED is cleared first, and created only once
     // the program has started, so it never outlives a failure.
     if (opts.command != .build) if (env.get(run_started_var)) |path| {
@@ -833,7 +858,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     program_pending = opts.command != .build;
     // A program `rig run` builds starts by creating the file
     // RIG_PROGRAM_STARTED names; `rig test`'s driver is its root instead.
-    var pkg = try emitPackage(allocator, env, &graph, .{ .hook = opts.command == .run });
+    var pkg = try emitPackage(allocator, env, &graph, .{ .hook = opts.command == .run, .pgo = opts.pgo });
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
 
@@ -871,6 +896,21 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     const relocs: []const []const u8 = if (opts.bolt) bolt.zig_args else &.{};
+    if (pgo_tools) |tools| {
+        if (pkg.links_libc) fatal("error: `--pgo` builds a program that links no C library, and Zig links this one with libc (-lc)", .{});
+        try pgo.build(allocator, io, tools, .{
+            .zig = zig,
+            .flags = try std.mem.concat(allocator, []const u8, &.{ &.{flag}, frame }),
+            .cache = zig_cache,
+            .root = root_zig,
+            .out = out,
+            .link = relocs,
+            .work = try std.fs.path.join(allocator, &.{ dir, "pgo" }),
+        }, opts.program_args, opts.pgo_profile);
+        if (home) |h| recordSize(allocator, io, h, dir);
+        warnFrames(allocator, io, &graph, out);
+        return;
+    }
     const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag }, frame, &.{ "--cache-dir", zig_cache, root_zig }, emit_bin, libc, relocs, dashes, program_args });
     if (opts.command == .build) {
         // `zig build-exe` keeps no cache of its own for an output it is
@@ -1649,6 +1689,9 @@ const PackageKind = struct {
     /// batch shares, which the package leaves out, and the batch's root
     /// declares the runtime's settings.
     batch: bool = false,
+    /// `rig build --pgo`: the root module asks the runtime to write the
+    /// profile as the program ends (src/pgo.zig).
+    pgo: bool = false,
 };
 
 /// Emit the runtime and every module. With `RIG_LEAK_TRACE` or
@@ -1701,9 +1744,10 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks or reads.any())) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or kind.pgo or tasks or reads.any())) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph), reads);
+            if (kind.pgo) try file_buffer.writer.writeAll("pub const __rig_pgo = true;\n");
         }
         // A program with error fields reads them through its glue.
         if (i == 0 and glue) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
@@ -2517,6 +2561,7 @@ test {
     _ = proofs;
     _ = lsp;
     _ = frames;
+    _ = pgo;
     _ = map_trace;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
