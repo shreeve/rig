@@ -20,6 +20,12 @@
 # of its key's hash with the high bit set (`tag_of`), so a probe compares
 # a key only when its tag matches, and `at[i]` is its entry's index. Taking an entry shifts the slots after it back, so the
 # table keeps no tombstones; growing it drops the entries taken.
+#
+# The hot path is inlined into the method that runs it: a lookup
+# (`find`), and an insert that needs no room made (`insert`), so their
+# state stays in the caller's registers and a key is never copied into a
+# call. Making room (`grow`, which compacts and rebuilds) is out of line
+# and cold.
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
@@ -49,17 +55,18 @@ obj Table
     @tags[i] = tag_of(h)
     @at[i] = U32(j)
 
-  # The first free slot from the one `h` names. Each pass is a loop
-  # whose test is the bounds test, so a step reads a tag with no other
-  # check; past both, -1 would fail the caller's bounds check.
+  # The first free slot from the one `h` names: one loop whose test is
+  # the bounds test, so a step reads a tag with no other check, and which
+  # wraps from the last slot to the first. The table is never full, so
+  # the loop never ends but by the return; -1 would fail the caller's
+  # bounds check.
   fun free_slot(?@, h: U64) -> Int
     ts = ?@tags[..]
-    i = Int(h & U64(ts.len - 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        return i if ts[i] == 0
-        i += 1
-      i = 0
+    i = Int(h & U64(ts.len -% 1))
+    while 0 <= i and i < ts.len
+      return i if ts[i] == 0
+      i += 1
+      i = 0 if i == ts.len
     -1
 
   # Empty the table, as `n` free slots: each List made anew, its zeros
@@ -129,7 +136,7 @@ pub obj Map[K: Hash, V]
     if @find(?k, h) as j
       <k
       return swap(!@es[j].value, <v)
-    !@add_entry(<k, <v, h)
+    !@insert(<k, <v, h)
     none
 
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
@@ -140,7 +147,7 @@ pub obj Map[K: Hash, V]
       <k
       <v
       return false
-    !@add_entry(<k, <v, h)
+    !@insert(<k, <v, h)
     true
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
@@ -209,13 +216,6 @@ pub obj Map[K: Hash, V]
     rarely
     !@insert(<k, <v, h)
     @es.len - 1
-
-  # Add the entry `k`, `v`, whose key is new and hashes to `h`: what
-  # `put`, `replace` and `put_new` call when the key is new; out of
-  # line, so a write inlined into its caller is the lookup and, on a hit,
-  # the overwrite, and hot, as a loop that puts new keys calls it each time.
-  called sub add_entry(!@, k: K, v: V, h: U64)
-    !@insert(<k, <v, h)
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
   # to read and its value to write, in order, and an entry it rejects is
@@ -307,9 +307,11 @@ pub obj Map[K: Hash, V]
 
   # The entry of the key `k`, whose hash is `h`, or `none`: in a small
   # Map, by the stored hashes in turn; in a larger one, by a probe of
-  # its table from the slot `h` names to the end, then from the start,
-  # each pass a loop whose test is the bounds test.
-  fun find(?@, k: ?K, h: U64) -> Int?
+  # its table from the slot `h` names, one loop whose test is the bounds
+  # test, wrapping from the last slot to the first. Inlined into each
+  # lookup and write, so the probe's state stays in its caller's
+  # registers.
+  inline fun find(?@, k: ?K, h: U64) -> Int?
     if @table.tags.len == 0
       if stores_hashes[K]()
         hs = ?@hs[..]
@@ -328,29 +330,33 @@ pub obj Map[K: Hash, V]
       return none
     ts = ?@table.tags[..]
     tag = tag_of(h)
-    i = Int(h & U64(ts.len - 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        t = ts[i]
-        return none if t == 0
-        if t == tag
-          j = Int(@table.at[i])
-          return j if @es[j].key == k
-        i += 1
-      i = 0
+    i = Int(h & U64(ts.len -% 1))
+    while 0 <= i and i < ts.len
+      t = ts[i]
+      return none if t == 0
+      if t == tag
+        j = Int(@table.at[i])
+        return j if @es[j].key == k
+      i += 1
+      i = 0 if i == ts.len
     none
 
-  # Add the entry `k`, `v`, whose key is new and hashes to `h`: the body
-  # of `add_new` and `add_made`.
-  sub insert(!@, k: K, v: V, h: U64)
-    if @table.tags.len == 0
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`: what a
+  # write does when its key is new, inlined into it, so an insert into
+  # room the Map has is a push and a slot, with no call and no copy of
+  # the key into one; making room is out of line (`grow`). A table's
+  # length is a count of bytes in memory, so its sums cannot wrap.
+  inline sub insert(!@, k: K, v: V, h: U64)
+    n = @table.tags.len
+    if n == 0
       !@grow() if @es.len >= SMALL
-    else if (@es.len + 1) * 5 > @table.tags.len * 4
+    else if (@es.len +% 1) *% 5 > n *% 4
       !@grow()
+    j = @es.len
     !@es.push(Entry(key: <k, value: <v))
     !@hs.push(h) if stores_hashes[K]()
     @len += 1
-    !@table.place(@es.len - 1, h) if @table.tags.len > 0
+    !@table.place(j, h) if @table.tags.len > 0
 
   # Make room for one more entry: drop the entries taken, and build the
   # table, or double it, when the entries left would fill more than two
@@ -446,7 +452,7 @@ pub obj Set[K: Hash]
   pub fun add(!@, k: K) -> Bool
     h = k.hash()
     return false if @find(?k, h) != none
-    !@add_new(<k, h)
+    !@insert(<k, h)
     true
 
   # Take the key `k` out and hand it back, or `none` when the Set has
@@ -494,7 +500,9 @@ pub obj Set[K: Hash]
   pub fun items(?@) -> Members[K] from @
     Members(set: ?@, next_at: 0)
 
-  fun find(?@, k: ?K, h: U64) -> Int?
+  # The key `k`, whose hash is `h`, or `none`, found as a Map's `find`
+  # finds an entry, and inlined as it is.
+  inline fun find(?@, k: ?K, h: U64) -> Int?
     if @table.tags.len == 0
       if stores_hashes[K]()
         hs = ?@hs[..]
@@ -511,29 +519,30 @@ pub obj Set[K: Hash]
       return none
     ts = ?@table.tags[..]
     tag = tag_of(h)
-    i = Int(h & U64(ts.len - 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        t = ts[i]
-        return none if t == 0
-        if t == tag
-          j = Int(@table.at[i])
-          return j if @ks[j] == k
-        i += 1
-      i = 0
+    i = Int(h & U64(ts.len -% 1))
+    while 0 <= i and i < ts.len
+      t = ts[i]
+      return none if t == 0
+      if t == tag
+        j = Int(@table.at[i])
+        return j if @ks[j] == k
+      i += 1
+      i = 0 if i == ts.len
     none
 
-  # Add the key `k`, which is new and hashes to `h`; out of line and hot,
-  # as a Map's `add_new` is.
-  called sub add_new(!@, k: K, h: U64)
-    if @table.tags.len == 0
+  # Add the key `k`, which is new and hashes to `h`, inlined into `add`
+  # as a Map's `insert` is into its writes; making room is out of line.
+  inline sub insert(!@, k: K, h: U64)
+    n = @table.tags.len
+    if n == 0
       !@grow() if @ks.len >= SMALL
-    else if (@ks.len + 1) * 5 > @table.tags.len * 4
+    else if (@ks.len +% 1) *% 5 > n *% 4
       !@grow()
+    j = @ks.len
     !@ks.push(<k)
     !@hs.push(h) if stores_hashes[K]()
     @len += 1
-    !@table.place(@ks.len - 1, h) if @table.tags.len > 0
+    !@table.place(j, h) if @table.tags.len > 0
 
   sub grow(!@)
     rarely
