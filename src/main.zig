@@ -299,6 +299,7 @@ const Env = struct {
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
+        if (env.get("RIG_TABLE_ARM")) |a| try w.print("pub const __rig_table_arm: u8 = {s};\n", .{a});
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
     }
 };
@@ -1701,7 +1702,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks or reads.any())) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or env.get("RIG_TABLE_ARM") != null or hook or tasks or reads.any())) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph), reads);
         }
