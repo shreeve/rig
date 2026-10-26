@@ -8494,9 +8494,27 @@ pub const Emitter = struct {
     /// `const` bound to it, so arithmetic on it would be folded where Rig
     /// specifies a check when the program runs. `rig.rt` keeps the
     /// whole result, error or optional included, a run-time value.
+    ///
+    /// An optional or fallible result is made a run-time value by a `var`
+    /// in place, not by `rig.rt`: Zig passes such a value to a function
+    /// through memory, and where it is a choice between a copy written
+    /// field by field (payload, then flag) and Zig's constant `null`,
+    /// LLVM keeps that round trip, whose whole-word load cannot be
+    /// forwarded from the two stores and waits for both to reach the
+    /// cache. An inline `rig.rt` would do the same, at four times the
+    /// compile time of a large program (records: perf-stage/table-reads.md).
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
         if (ir.Call.task(sexp) != .nil) return self.emitTask(sexp);
         if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
+        if (self.typeOf(sexp)) |ty| switch (self.facts.types.get(ty)) {
+            .optional, .fallible => {
+                const id = self.nextId();
+                try self.w.print("(__rig_rt_{d}: {{ var __rig_v_{d} = ", .{ id, id });
+                try self.emitCallPlain(sexp);
+                return self.w.print("; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id });
+            },
+            else => {},
+        };
         try self.w.writeAll("rig.rt(");
         try self.emitCallPlain(sexp);
         try self.w.writeAll(")");

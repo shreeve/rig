@@ -1406,29 +1406,10 @@ pub const eval_quota = std.math.maxInt(u32);
 
 /// `value`, as a run-time value: arithmetic on a compile-time constant
 /// read through this is checked when it runs, as Rig specifies, rather
-/// than folded by Zig at compile time.
-///
-/// An optional or an error union is made a run-time value by a `var`,
-/// inline, never by a call: Zig passes such a value to a function
-/// through memory, and when it is a choice between a copy written field
-/// by field (payload, then flag) and Zig's constant `null`, LLVM keeps
-/// the round trip, whose whole-word load cannot be forwarded from the
-/// two stores and waits for both to reach the cache. Every inlined call
-/// is read through `rt` (`emitCallDirect`), so every `?T` such a call
-/// gives paid that wait.
-pub inline fn rt(value: anytype) @TypeOf(value) {
-    switch (@typeInfo(@TypeOf(value))) {
-        .optional, .error_union => {
-            var v = value;
-            _ = &v;
-            return v;
-        },
-        else => return rtCall(value),
-    }
-}
-
-/// `rt` for every other value: a call, whose result is a run-time value.
-fn rtCall(value: anytype) @TypeOf(value) {
+/// than folded by Zig at compile time. An inlined call's optional or
+/// fallible result is made a run-time value in place instead
+/// (`emitCallDirect`), never passed through this.
+pub fn rt(value: anytype) @TypeOf(value) {
     return value;
 }
 
