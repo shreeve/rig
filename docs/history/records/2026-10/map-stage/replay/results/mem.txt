@@ -1,0 +1,55 @@
+today MEM shape=0 checker.CacheKey->U32 peak_bytes=19175232 top_map_peaks=11010048,2752512,2752512
+today MEM shape=1 U32->U32 peak_bytes=42671920 top_map_peaks=90112,90112,90112
+today MEM shape=2 checker.InstantiationKey->U32 peak_bytes=31457280 top_map_peaks=31457280,0,0
+today MEM shape=3 checker.CachedTypeKey->U32 peak_bytes=6815744 top_map_peaks=6815744,0,0
+today MEM shape=4 Set:checker.CacheKey->- peak_bytes=28096 top_map_peaks=21504,10752,672
+today MEM shape=5 Set:U64->- peak_bytes=43008 top_map_peaks=43008,0,0
+today MEM shape=6 U32->Int peak_bytes=12416 top_map_peaks=8704,8704,3712
+today MEM shape=7 checker.InferenceKey->I32 peak_bytes=43008 top_map_peaks=43008,10752,10752
+today MEM shape=8 Set:U32->- peak_bytes=122016 top_map_peaks=73728,57344,13312
+today MEM shape=9 U32->checker.MappedSymbolLinks peak_bytes=2752512 top_map_peaks=2752512,0,0
+today RESULT design=today cycles=1157998814 instructions=2798875743 ns=305187531 mismatches=0 peak_bytes=103028080 end_bytes=0 peak_maps=118961 header_bytes=12371944 sink=21865960244443
+today_nf MEM shape=0 checker.CacheKey->U32 peak_bytes=19175232 top_map_peaks=11010048,2752512,2752512
+today_nf MEM shape=1 U32->U32 peak_bytes=34595680 top_map_peaks=73728,73728,73728
+today_nf MEM shape=2 checker.InstantiationKey->U32 peak_bytes=31457280 top_map_peaks=31457280,0,0
+today_nf MEM shape=3 checker.CachedTypeKey->U32 peak_bytes=5767168 top_map_peaks=5767168,0,0
+today_nf MEM shape=4 Set:checker.CacheKey->- peak_bytes=22336 top_map_peaks=17472,8736,960
+today_nf MEM shape=5 Set:U64->- peak_bytes=26624 top_map_peaks=26624,0,0
+today_nf MEM shape=6 U32->Int peak_bytes=9344 top_map_peaks=6656,6656,2688
+today_nf MEM shape=7 checker.InferenceKey->I32 peak_bytes=38912 top_map_peaks=38912,9728,9728
+today_nf MEM shape=8 Set:U32->- peak_bytes=91888 top_map_peaks=57344,49152,9344
+today_nf MEM shape=9 U32->checker.MappedSymbolLinks peak_bytes=2228224 top_map_peaks=2228224,0,0
+today_nf RESULT design=today_nf cycles=1155073920 instructions=2891582049 ns=301259722 mismatches=0 peak_bytes=93341040 end_bytes=0 peak_maps=118961 header_bytes=12371944 sink=21865960244443
+cand MEM shape=0 checker.CacheKey->U32 peak_bytes=15608082 top_map_peaks=7471127,3735575,1867799
+cand MEM shape=1 U32->U32 peak_bytes=35918352 top_map_peaks=67607,67607,67607
+cand MEM shape=2 checker.InstantiationKey->U32 peak_bytes=19136599 top_map_peaks=19136599,0,0
+cand MEM shape=3 checker.CachedTypeKey->U32 peak_bytes=5373975 top_map_peaks=5373975,0,0
+cand MEM shape=4 Set:checker.CacheKey->- peak_bytes=17110 top_map_peaks=15935,8143,887
+cand MEM shape=5 Set:U64->- peak_bytes=42007 top_map_peaks=42007,0,0
+cand MEM shape=6 U32->Int peak_bytes=11013 top_map_peaks=7319,7319,3671
+cand MEM shape=7 checker.InferenceKey->I32 peak_bytes=29207 top_map_peaks=29207,7319,7319
+cand MEM shape=8 Set:U32->- peak_bytes=97099 top_map_peaks=51223,51223,15823
+cand MEM shape=9 U32->checker.MappedSymbolLinks peak_bytes=2686999 top_map_peaks=2686999,0,0
+cand RESULT design=cand cycles=1235155716 instructions=2645681621 ns=306879648 mismatches=0 peak_bytes=78847745 end_bytes=0 peak_maps=118961 header_bytes=14275320 sink=21865960244443
+cand_nf MEM shape=0 checker.CacheKey->U32 peak_bytes=15608082 top_map_peaks=7471127,3735575,1867799
+cand_nf MEM shape=1 U32->U32 peak_bytes=27001088 top_map_peaks=51223,51223,51223
+cand_nf MEM shape=2 checker.InstantiationKey->U32 peak_bytes=19136599 top_map_peaks=19136599,0,0
+cand_nf MEM shape=3 checker.CachedTypeKey->U32 peak_bytes=4325399 top_map_peaks=4325399,0,0
+cand_nf MEM shape=4 Set:checker.CacheKey->- peak_bytes=12662 top_map_peaks=11839,6095,631
+cand_nf MEM shape=5 Set:U64->- peak_bytes=25623 top_map_peaks=25623,0,0
+cand_nf MEM shape=6 U32->Int peak_bytes=7941 top_map_peaks=5271,5271,2647
+cand_nf MEM shape=7 checker.InferenceKey->I32 peak_bytes=25111 top_map_peaks=25111,6295,6295
+cand_nf MEM shape=8 Set:U32->- peak_bytes=66283 top_map_peaks=34839,34839,11727
+cand_nf MEM shape=9 U32->checker.MappedSymbolLinks peak_bytes=2162711 top_map_peaks=2162711,0,0
+cand_nf RESULT design=cand_nf cycles=1395359783 instructions=2583662532 ns=347925872 mismatches=0 peak_bytes=68314737 end_bytes=0 peak_maps=118961 header_bytes=14275320 sink=21865960244443
+cand_nf_sh MEM shape=0 checker.CacheKey->U32 peak_bytes=19989330 top_map_peaks=9568279,4784151,2392087
+cand_nf_sh MEM shape=1 U32->U32 peak_bytes=27001088 top_map_peaks=51223,51223,51223
+cand_nf_sh MEM shape=2 checker.InstantiationKey->U32 peak_bytes=23330903 top_map_peaks=23330903,0,0
+cand_nf_sh MEM shape=3 checker.CachedTypeKey->U32 peak_bytes=4325399 top_map_peaks=4325399,0,0
+cand_nf_sh MEM shape=4 Set:checker.CacheKey->- peak_bytes=17110 top_map_peaks=15935,8143,887
+cand_nf_sh MEM shape=5 Set:U64->- peak_bytes=25623 top_map_peaks=25623,0,0
+cand_nf_sh MEM shape=6 U32->Int peak_bytes=7941 top_map_peaks=5271,5271,2647
+cand_nf_sh MEM shape=7 checker.InferenceKey->I32 peak_bytes=37399 top_map_peaks=37399,9367,9367
+cand_nf_sh MEM shape=8 Set:U32->- peak_bytes=66283 top_map_peaks=34839,34839,11727
+cand_nf_sh MEM shape=9 U32->checker.MappedSymbolLinks peak_bytes=2162711 top_map_peaks=2162711,0,0
+cand_nf_sh RESULT design=cand_nf_sh cycles=1128625484 instructions=2579315644 ns=292062941 mismatches=0 peak_bytes=77300049 end_bytes=0 peak_maps=118961 header_bytes=14275320 sink=21865960244443
