@@ -24,6 +24,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | List length invariant (#538) | a List's length is below 2^62 by construction, so reading it makes no test: Trig 0.8-2.9% faster | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md) |
 | Table and Slot (#536) | indexes with no bounds test; about 3% on Trig's stores in a stand-in build (store indexes treated as proven; Trig has not migrated yet); two adversarial reviews | [table-slot/](2026-10/table-slot/) |
 | Proving away Rig's checks (2026-10-24) | the ceiling measured again after #538 and Trig's Table migration (7.4% on ts-pattern, index tests 5.9%); most of what is left is lookups by stored ids, which only index types remove; a ranked plan (`Span[n]` and more slot-typed stores first, then length arithmetic from `fits`), what LLVM folds by itself, and a build order | [perf-stage/checks.md](2026-10/perf-stage/checks.md) |
+| Spans and false-edge proofs (#686, #687, closed) | `Span[n]` (branch `span-type`) and guard facts on the false edge with proven offsets by bit cast (branch `proof-edges`), built and measured on Trig: both within the noise (ts-pattern 0.7% slower to 0.2% faster) and 0.01-0.25% more instructions; the index tests they remove are predicted, so removing them saves nothing | [perf-stage/proofs.md](2026-10/perf-stage/proofs.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Prefault by the heap that does the work | a heap faults in ahead while it has taken four times what the others have: Trig at one checker 2.1-2.9% faster, half the page faults; benches as before; Trig's teardown measured | [prefault-lead/](2026-10/prefault-lead/) |
@@ -203,6 +204,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 ### 2026-10/perf-stage/
 
 - [checks.md](2026-10/perf-stage/checks.md): Proving away Rig's checks: a survey and plan (2026-10-24)
+- [proofs.md](2026-10/perf-stage/proofs.md): Spans and false-edge proofs, built and measured (2026-10-25)
 
 ### 2026-10/perf-stage/checks-data/
 
