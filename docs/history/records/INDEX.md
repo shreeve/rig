@@ -26,6 +26,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Proving away Rig's checks (2026-10-24) | the ceiling measured again after #538 and Trig's Table migration (7.4% on ts-pattern, index tests 5.9%); most of what is left is lookups by stored ids, which only index types remove; a ranked plan (`Span[n]` and more slot-typed stores first, then length arithmetic from `fits`), what LLVM folds by itself, and a build order | [perf-stage/checks.md](2026-10/perf-stage/checks.md) |
 | Spans and false-edge proofs (#686, #687, closed) | `Span[n]` (branch `span-type`) and guard facts on the false edge with proven offsets by bit cast (branch `proof-edges`), built and measured on Trig: both within the noise (ts-pattern 0.7% slower to 0.2% faster) and 0.01-0.25% more instructions; the index tests they remove are predicted, so removing them saves nothing | [perf-stage/proofs.md](2026-10/perf-stage/proofs.md) |
 | Table and List reads inside Trig (2026-10-25) | a `Table` read is the bare load, a `List` read adds only a sign test; the cycles charged to them are the element loads' misses, which tsrs pays too. Kept: an inlined call's `?T` result made a run-time value in place, not through `rig.rt`'s memory round trip (34% fewer blocked loads), one compare for a signed index against a held length, and `rarely` `noinline`: 1.5% fewer instructions on ts-pattern and zod3, 1.2-2.2% fewer cycles | [perf-stage/table-reads.md](2026-10/perf-stage/table-reads.md) |
+| List growth on Trig (2026-10-25) | Rig's List already grows as `Vec` does (doubling from 4, a memcpy, an inlined compare-and-store push); most of Trig's "List" family is inlined push and load code that tsrs's breakdown counts under its checker. The cost left is 3.22M short-lived Lists (83% drop at three or fewer); a push's first buffer straight from the allocator, an inline small-block judgment, and `push` always inlined save 1.1% of ts-pattern's instructions and 2-4.5% of std.json's; Trig's sites listed | [perf-stage/list-grow.md](2026-10/perf-stage/list-grow.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Fast program exit (#680) | `os.exit(code)` taken; a release build's end of `main` skipping memory-only drops measured as noise on Trig (its stores drop inside its own functions), not taken | [fast-exit/](2026-10/fast-exit/) |
@@ -214,6 +215,23 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [checks.md](2026-10/perf-stage/checks.md): Proving away Rig's checks: a survey and plan (2026-10-24)
 - [proofs.md](2026-10/perf-stage/proofs.md): Spans and false-edge proofs, built and measured (2026-10-25)
 - [table-reads.md](2026-10/perf-stage/table-reads.md): Table and List reads inside Trig, measured, and two classes taken out (2026-10-25)
+- [list-grow.md](2026-10/perf-stage/list-grow.md): List growth on Trig, where it goes and what changed (2026-10-25)
+
+### 2026-10/perf-stage/list-grow-data/
+
+- [abk.sh](2026-10/perf-stage/list-grow-data/abk.sh)
+- [bench-mac-1.log](2026-10/perf-stage/list-grow-data/bench-mac-1.log)
+- [bench.sh](2026-10/perf-stage/list-grow-data/bench.sh)
+- [build.sh](2026-10/perf-stage/list-grow-data/build.sh)
+- [fam.py](2026-10/perf-stage/list-grow-data/fam.py)
+- [json-mac-2.log](2026-10/perf-stage/list-grow-data/json-mac-2.log)
+- [json-mac-3.log](2026-10/perf-stage/list-grow-data/json-mac-3.log)
+- [json-pup.txt](2026-10/perf-stage/list-grow-data/json-pup.txt)
+- [jsonab.sh](2026-10/perf-stage/list-grow-data/jsonab.sh)
+- [listprof.patch](2026-10/perf-stage/list-grow-data/listprof.patch)
+- [sites.txt](2026-10/perf-stage/list-grow-data/sites.txt)
+- [sum.py](2026-10/perf-stage/list-grow-data/sum.py)
+- [sym.sh](2026-10/perf-stage/list-grow-data/sym.sh)
 
 ### 2026-10/perf-stage/checks-data/
 
