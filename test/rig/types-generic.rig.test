@@ -164,6 +164,46 @@ fail "generic cell element per instance", "instantiates `Cell[fun(Int) -> Int]`:
   b: Wrap[fun(Int) -> Int] = Wrap(v: inc)
   print(b.peek())
 
+fail "a conflict with the expected result names the result", "5:13: conflicting types for `T` in the call to `apply`: `String` (the type expected of the result) and `Int` (argument 2); they must have one type", "7:12: conflicting types for `T` in the call to `apply`: `Float` (the type expected of the result) and `Int` (argument 2); convert argument 2 with `Float(...)`"
+  fun apply[T](n: Int, f: ?fun(Int) -> T) -> T
+    f(n)
+
+  # The expected result binds `T` first; the closure's result disagrees.
+  s: String = apply(3, |x| x + 1)
+  print(s)
+  f: Float = apply(3, |x| x + 1)
+  print(f)
+
+fail "a bracketed generic call is named as written", "10:1: fallible call to `id[Int]` must be wrapped with `!` (propagate) or `catch` (handle)", "11:5: `two[Int]` gives 2 results; bind each: `a, b = two[Int](3)`"
+  error E
+    bad
+
+  fun id[T](x: T) -> T!E
+    x
+
+  fun two[T](x: T) -> (T, T)
+    return x, x
+
+  id[Int](3)
+  a = two[Int](3)
+  print(a)
+
+fail "a bracketed generic call is named as written where it fails", "11:7: `id[Int]` may fail with `E`, which `F`, the error set `run` declares, does not hold"
+  error E
+    bad
+
+  error F
+    worse
+
+  fun id[T](x: T) -> T!E
+    x
+
+  sub run(n: Int)!F
+    v = id[Int](n)!
+    print(v)
+
+  run(3) catch |e| print(e)
+
 fail "generic closure arg inference", "15:7: cannot infer `T` for `g` from its arguments or the type expected of its result", "16:7: conflicting types for `T` in the call to `h`: `Int` (argument 1) and `Bool` (argument 2)", "17:7: conflicting types for `T` in the call to `both`: `Int` (argument 1) and `Bool` (argument 2)"
   # A closure literal passed to a generic function takes its parameter
   # types from what the other arguments bind, so a type parameter nothing

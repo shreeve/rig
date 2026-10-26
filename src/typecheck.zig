@@ -9200,7 +9200,8 @@ const Checker = struct {
             if (obj == .src) return sema.memberText(self.ctx.arena.allocator(), self.text(obj), name);
             return name;
         }
-        return "expression";
+        // Any other callee (`id[Int]`): as written.
+        return self.sourceText(callee);
     }
 
     fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
@@ -11286,7 +11287,8 @@ const Checker = struct {
         bound: []Bound,
         literals: std.ArrayList(LiteralBound) = .empty,
         /// The first argument whose type does not have the shape of the
-        /// type it fills (`?[3]Int` where `[]T` goes).
+        /// type it fills (`?[3]Int` where `[]T` goes), with the whole
+        /// parameter type and argument type.
         mismatch: ?struct { arg: u32, pattern: TypeId, actual: TypeId } = null,
         /// The type expected of the result does not have the declared
         /// result's shape.
@@ -11363,6 +11365,13 @@ const Checker = struct {
             const actual = try self.argType(value);
             if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
             try self.bindArg(&inf, pat, actual, @intCast(number), 0);
+            // A mismatch inside the argument's type names the whole
+            // parameter type and the whole argument type, as any call's
+            // mismatch does.
+            if (inf.mismatch) |*m| if (m.arg == number) {
+                m.pattern = pat;
+                m.actual = actual;
+            };
         }
         if (result) |r| {
             if (sema.containsPoison(self.ctx, r.expected)) inf.poisoned = true;
@@ -11589,19 +11598,32 @@ const Checker = struct {
         return if (r.path == path) r.ty else null;
     }
 
-    /// The two types of a conflict, in argument order.
-    fn conflictText(self: *Checker, b: Bound) Error!struct { first: []const u8, first_ty: TypeId, first_arg: u32, second: []const u8, second_arg: u32, later: TypeId } {
+    /// The two types of a conflict, in argument order, each with where
+    /// it came from: `argument 2`, or the type expected of the result
+    /// (argument 0, which comes first).
+    fn conflictText(self: *Checker, b: Bound) Error!struct { first: []const u8, first_ty: TypeId, first_arg: u32, first_from: []const u8, second: []const u8, second_arg: u32, second_from: []const u8, later: TypeId } {
         const b_first = b.arg < b.conflict_arg;
         const later = if (b_first) b.conflict else b.ty;
         const first_ty = if (b_first) b.ty else b.conflict;
+        const first_arg = @min(b.arg, b.conflict_arg);
+        const second_arg = @max(b.arg, b.conflict_arg);
         return .{
             .first = try self.tyName(first_ty),
             .first_ty = first_ty,
-            .first_arg = @min(b.arg, b.conflict_arg),
+            .first_arg = first_arg,
+            .first_from = try self.boundFrom(first_arg),
             .second = try self.tyName(later),
-            .second_arg = @max(b.arg, b.conflict_arg),
+            .second_arg = second_arg,
+            .second_from = try self.boundFrom(second_arg),
             .later = later,
         };
+    }
+
+    /// Where inference took a binding from, for messages: argument
+    /// `arg`, or for 0 the type expected of the result.
+    fn boundFrom(self: *Checker, arg: u32) Error![]const u8 {
+        if (arg == 0) return "the type expected of the result";
+        return self.ctx.arena.allocator().print("argument {d}", .{arg});
     }
 
     /// A generic function's type arguments, one per parameter in `own`,
@@ -11635,7 +11657,7 @@ const Checker = struct {
                 ok = false;
                 if (self.ctx.symbols.items[param].kind == .param) {
                     const c = try self.conflictText(b);
-                    try self.err(pos, "conflicting values for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d})", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg });
+                    try self.err(pos, "conflicting values for `{s}` in the call to `{s}`: `{s}` ({s}) and `{s}` ({s})", .{ pname, callee, c.first, c.first_from, c.second, c.second_from });
                     continue;
                 }
                 // The later argument's type is suggested, when the earlier
@@ -11647,13 +11669,15 @@ const Checker = struct {
                         try self.ctx.arena.allocator().print("give it in brackets: `{s}[{s}]{s}`", .{ callee, brackets, parens })
                     else
                         "give it in brackets, naming each array, slice, or function type in them with a `type` alias";
-                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); {s}", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, fix });
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` ({s}) and `{s}` ({s}); {s}", .{ pname, callee, c.first, c.first_from, c.second, c.second_from, fix });
                 } else if (sema.isNumeric(self.ctx, c.first_ty) and sema.isNumeric(self.ctx, c.later)) {
-                    // Convert the argument that is not a literal.
-                    const arg = if (literal) c.second_arg else c.first_arg;
-                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); convert argument {d} with `{s}(...)`", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, arg, if (literal) c.first else c.second });
+                    // Convert the argument that is not a literal; the
+                    // type expected of the result is not converted.
+                    const second = literal or c.first_arg == 0;
+                    const arg = if (second) c.second_arg else c.first_arg;
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` ({s}) and `{s}` ({s}); convert argument {d} with `{s}(...)`", .{ pname, callee, c.first, c.first_from, c.second, c.second_from, arg, if (second) c.first else c.second });
                 } else {
-                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); they must have one type", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg });
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` ({s}) and `{s}` ({s}); they must have one type", .{ pname, callee, c.first, c.first_from, c.second, c.second_from });
                 }
                 ok = false;
             } else if (try self.lentClosureBound(b.ty, pname, callee, pos) or !try self.valueBindingFits(param, b, callee, pos) or !try self.inferredTypeFits(b, args)) ok = false;
@@ -11682,7 +11706,7 @@ const Checker = struct {
     fn valueBindingFits(self: *Checker, param: SymbolId, b: Bound, callee: []const u8, pos: u32) Error!bool {
         const p = self.ctx.symbols.items[param];
         if (p.kind != .param or self.isPoison(p.ty)) return true;
-        const from = if (b.expected) "the type expected of the result" else try self.ctx.arena.allocator().print("argument {d}", .{b.arg});
+        const from = if (b.expected) "the type expected of the result" else try self.boundFrom(b.arg);
         switch (self.ctx.types.get(b.ty)) {
             .ct_value => |v| if (!sema.intFits(self.ctx, p.ty, v.int)) {
                 const name = try self.tyName(p.ty);
@@ -14787,7 +14811,7 @@ const Checker = struct {
                 continue;
             }
             const c = try self.conflictText(b);
-            try self.err(pos, "conflicting {s} for `{s}` in `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); name it (`{s}[...]`)", .{ if (self.ctx.symbols.items[p].kind == .param) "values" else "types", pname, sym.name, c.first, c.first_arg, c.second, c.second_arg, sym.name });
+            try self.err(pos, "conflicting {s} for `{s}` in `{s}`: `{s}` ({s}) and `{s}` ({s}); name it (`{s}[...]`)", .{ if (self.ctx.symbols.items[p].kind == .param) "values" else "types", pname, sym.name, c.first, c.first_from, c.second, c.second_from, sym.name });
             return null;
         }
         const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
