@@ -55,18 +55,17 @@ obj Table
     @tags[i] = tag_of(h)
     @at[i] = U32(j)
 
-  # The first free slot from the one `h` names: one loop whose test is
-  # the bounds test, so a step reads a tag with no other check, and which
-  # wraps from the last slot to the first. The table is never full, so
-  # the loop never ends but by the return; -1 would fail the caller's
-  # bounds check.
+  # The first free slot from the one `h` names. Each pass is a loop
+  # whose test is the bounds test, so a step reads a tag with no other
+  # check; past both, -1 would fail the caller's bounds check.
   fun free_slot(?@, h: U64) -> Int
     ts = ?@tags[..]
     i = Int(h & U64(ts.len -% 1))
-    while 0 <= i and i < ts.len
-      return i if ts[i] == 0
-      i += 1
-      i = 0 if i == ts.len
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        return i if ts[i] == 0
+        i += 1
+      i = 0
     -1
 
   # Empty the table, as `n` free slots: each List made anew, its zeros
@@ -307,10 +306,10 @@ pub obj Map[K: Hash, V]
 
   # The entry of the key `k`, whose hash is `h`, or `none`: in a small
   # Map, by the stored hashes in turn; in a larger one, by a probe of
-  # its table from the slot `h` names, one loop whose test is the bounds
-  # test, wrapping from the last slot to the first. Inlined into each
-  # lookup and write, so the probe's state stays in its caller's
-  # registers.
+  # its table from the slot `h` names to the end, then from the start,
+  # each pass a loop whose test is the bounds test, so a step reads a tag
+  # with no other check. Inlined into each lookup and write, so the
+  # probe's state stays in its caller's registers.
   inline fun find(?@, k: ?K, h: U64) -> Int?
     if @table.tags.len == 0
       if stores_hashes[K]()
@@ -331,14 +330,15 @@ pub obj Map[K: Hash, V]
     ts = ?@table.tags[..]
     tag = tag_of(h)
     i = Int(h & U64(ts.len -% 1))
-    while 0 <= i and i < ts.len
-      t = ts[i]
-      return none if t == 0
-      if t == tag
-        j = Int(@table.at[i])
-        return j if @es[j].key == k
-      i += 1
-      i = 0 if i == ts.len
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          j = Int(@table.at[i])
+          return j if @es[j].key == k
+        i += 1
+      i = 0
     none
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`: what a
@@ -520,14 +520,15 @@ pub obj Set[K: Hash]
     ts = ?@table.tags[..]
     tag = tag_of(h)
     i = Int(h & U64(ts.len -% 1))
-    while 0 <= i and i < ts.len
-      t = ts[i]
-      return none if t == 0
-      if t == tag
-        j = Int(@table.at[i])
-        return j if @ks[j] == k
-      i += 1
-      i = 0 if i == ts.len
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          j = Int(@table.at[i])
+          return j if @ks[j] == k
+        i += 1
+      i = 0
     none
 
   # Add the key `k`, which is new and hashes to `h`, inlined into `add`
