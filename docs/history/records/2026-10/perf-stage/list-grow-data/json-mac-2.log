@@ -1,0 +1,288 @@
+== json base round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3531 | 3595 |
+| twitterescaped | 562408 | 3174 | 3195 |
+| canada | 2251051 | 2036 | 2171 |
+| citm_catalog | 1727204 | 4237 | 4299 |
+| gsoc-2018 | 3327831 | 8335 | 8092 |
+| github_events | 65132 | 4212 | 4229 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3513 | 3569 |
+| twitterescaped | 562408 | 3158 | 3187 |
+| canada | 2251051 | 2045 | 2163 |
+| citm_catalog | 1727204 | 4210 | 4276 |
+| gsoc-2018 | 3327831 | 8178 | 8090 |
+| github_events | 65132 | 4135 | 4182 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3518 | 3595 |
+| twitterescaped | 562408 | 3142 | 3192 |
+| canada | 2251051 | 2053 | 2162 |
+| citm_catalog | 1727204 | 4212 | 4247 |
+| gsoc-2018 | 3327831 | 8207 | 8100 |
+| github_events | 65132 | 4135 | 4218 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3538 | 3621 |
+| twitterescaped | 562408 | 3160 | 3193 |
+| canada | 2251051 | 2035 | 2173 |
+| citm_catalog | 1727204 | 4278 | 4325 |
+| gsoc-2018 | 3327831 | 8361 | 8117 |
+| github_events | 65132 | 4208 | 4195 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3509 | 3612 |
+| twitterescaped | 562408 | 3160 | 3193 |
+| canada | 2251051 | 2019 | 2180 |
+| citm_catalog | 1727204 | 4239 | 4272 |
+| gsoc-2018 | 3327831 | 8263 | 8123 |
+| github_events | 65132 | 4212 | 4182 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3508 | 3586 |
+| twitterescaped | 562408 | 3178 | 3191 |
+| canada | 2251051 | 2043 | 2176 |
+| citm_catalog | 1727204 | 4204 | 4250 |
+| gsoc-2018 | 3327831 | 8263 | 8125 |
+| github_events | 65132 | 4155 | 4188 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 4
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3498 | 3575 |
+| twitterescaped | 562408 | 3170 | 3191 |
+| canada | 2251051 | 2040 | 2168 |
+| citm_catalog | 1727204 | 4236 | 4236 |
+| gsoc-2018 | 3327831 | 8223 | 8119 |
+| github_events | 65132 | 4132 | 4224 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 4
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3554 | 3622 |
+| twitterescaped | 562408 | 3182 | 3207 |
+| canada | 2251051 | 2023 | 2177 |
+| citm_catalog | 1727204 | 4261 | 4280 |
+| gsoc-2018 | 3327831 | 8349 | 8112 |
+| github_events | 65132 | 4206 | 4239 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 5
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3573 | 3621 |
+| twitterescaped | 562408 | 3218 | 3213 |
+| canada | 2251051 | 2014 | 2186 |
+| citm_catalog | 1727204 | 4271 | 4294 |
+| gsoc-2018 | 3327831 | 8379 | 8187 |
+| github_events | 65132 | 4214 | 4205 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 5
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3544 | 3598 |
+| twitterescaped | 562408 | 3163 | 3201 |
+| canada | 2251051 | 2056 | 2158 |
+| citm_catalog | 1727204 | 4263 | 4271 |
+| gsoc-2018 | 3327831 | 8225 | 8170 |
+| github_events | 65132 | 4181 | 4233 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 6
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3525 | 3608 |
+| twitterescaped | 562408 | 3181 | 3197 |
+| canada | 2251051 | 2035 | 2171 |
+| citm_catalog | 1727204 | 4250 | 4238 |
+| gsoc-2018 | 3327831 | 8235 | 8139 |
+| github_events | 65132 | 4157 | 4207 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 6
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3537 | 3633 |
+| twitterescaped | 562408 | 3196 | 3215 |
+| canada | 2251051 | 2032 | 2182 |
+| citm_catalog | 1727204 | 4251 | 4287 |
+| gsoc-2018 | 3327831 | 8312 | 8117 |
+| github_events | 65132 | 4210 | 4191 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 7
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3526 | 3636 |
+| twitterescaped | 562408 | 3184 | 3201 |
+| canada | 2251051 | 2046 | 2177 |
+| citm_catalog | 1727204 | 4227 | 4341 |
+| gsoc-2018 | 3327831 | 8324 | 8128 |
+| github_events | 65132 | 4198 | 4216 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 7
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3526 | 3588 |
+| twitterescaped | 562408 | 3168 | 3203 |
+| canada | 2251051 | 2049 | 2173 |
+| citm_catalog | 1727204 | 4184 | 4228 |
+| gsoc-2018 | 3327831 | 8224 | 8132 |
+| github_events | 65132 | 4225 | 4218 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 8
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3554 | 3587 |
+| twitterescaped | 562408 | 3173 | 3205 |
+| canada | 2251051 | 2047 | 2169 |
+| citm_catalog | 1727204 | 4244 | 4279 |
+| gsoc-2018 | 3327831 | 8253 | 8123 |
+| github_events | 65132 | 4158 | 4203 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 8
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3553 | 3635 |
+| twitterescaped | 562408 | 3185 | 3201 |
+| canada | 2251051 | 2041 | 2180 |
+| citm_catalog | 1727204 | 4208 | 4274 |
+| gsoc-2018 | 3327831 | 8351 | 8098 |
+| github_events | 65132 | 4191 | 4231 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 9
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3560 | 3599 |
+| twitterescaped | 562408 | 3185 | 3199 |
+| canada | 2251051 | 2029 | 2177 |
+| citm_catalog | 1727204 | 4250 | 4306 |
+| gsoc-2018 | 3327831 | 8321 | 8145 |
+| github_events | 65132 | 4193 | 4230 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 9
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3538 | 3618 |
+| twitterescaped | 562408 | 3184 | 3198 |
+| canada | 2251051 | 2047 | 2177 |
+| citm_catalog | 1727204 | 4232 | 4283 |
+| gsoc-2018 | 3327831 | 8159 | 8132 |
+| github_events | 65132 | 4178 | 4200 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 10
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3558 | 3586 |
+| twitterescaped | 562408 | 3182 | 3206 |
+| canada | 2251051 | 2054 | 2166 |
+| citm_catalog | 1727204 | 4244 | 4230 |
+| gsoc-2018 | 3327831 | 8244 | 8137 |
+| github_events | 65132 | 4192 | 4176 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 10
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3540 | 3606 |
+| twitterescaped | 562408 | 3178 | 3199 |
+| canada | 2251051 | 2027 | 2180 |
+| citm_catalog | 1727204 | 4237 | 4302 |
+| gsoc-2018 | 3327831 | 8382 | 8104 |
+| github_events | 65132 | 4238 | 4216 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 11
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3578 | 3649 |
+| twitterescaped | 562408 | 3182 | 3225 |
+| canada | 2251051 | 2047 | 2181 |
+| citm_catalog | 1727204 | 4331 | 4308 |
+| gsoc-2018 | 3327831 | 8390 | 8152 |
+| github_events | 65132 | 4190 | 4215 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 11
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3500 | 3581 |
+| twitterescaped | 562408 | 3182 | 3205 |
+| canada | 2251051 | 2063 | 2173 |
+| citm_catalog | 1727204 | 4260 | 4257 |
+| gsoc-2018 | 3327831 | 8195 | 8117 |
+| github_events | 65132 | 4168 | 4225 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 12
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3497 | 3605 |
+| twitterescaped | 562408 | 3162 | 3199 |
+| canada | 2251051 | 2042 | 2165 |
+| citm_catalog | 1727204 | 4214 | 4217 |
+| gsoc-2018 | 3327831 | 8252 | 8103 |
+| github_events | 65132 | 4141 | 4190 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 12
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3533 | 3624 |
+| twitterescaped | 562408 | 3159 | 3209 |
+| canada | 2251051 | 2045 | 2151 |
+| citm_catalog | 1727204 | 4269 | 4332 |
+| gsoc-2018 | 3327831 | 8304 | 8129 |
+| github_events | 65132 | 4223 | 4215 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.

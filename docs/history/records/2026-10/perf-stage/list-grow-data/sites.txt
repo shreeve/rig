@@ -1,0 +1,224 @@
+listprof: grows 4061238 firsts 3221355 copied 250136696 B, drops-with-buffer 3458890
+listprof: len-at-drop hist (bucket = bit length): 0:288267 1:1322258 2:1245559 3:237577 4:58795 5:24379 6:214179 7:3095 8:63226 9:658 10:361 11:185 12:183 13:33 14:56 15:9 16:28 17:10 18:19 19:2 20:7 21:1 22:3
+listprof: cap-at-drop hist: 1:5990 2:15157 3:2877399 4:134318 5:48642 6:186213 7:120947 8:68014 9:808 10:740 11:214 12:207 13:85 14:69 15:8 16:29 17:12 18:20 19:5 20:8 21:1 22:3 23:1
+== first firsts 326448 grows 326448 copied 0 size 4
+   checker.Checker.context_inferences checker.zig:38852
+   checker.Checker.inference_type_mapper_map checker.zig:41847
+   checker.Checker.mapper_map checker.zig:45756
+== first firsts 119645 grows 296247 copied 19073344 size 8
+   checker.Checker.table_entries checker.zig:2833
+== first firsts 117198 grows 234803 copied 18605616 size 12
+   __rig_std___rig_builtin.Map(u32,checker.ThisAssignmentDeclarationKind).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(u32,checker.ThisAssignmentDeclarationKind).add_entry __rig_std___rig_builtin.zig:316
+== first firsts 112641 grows 127043 copied 331216 size 4
+   checker.Checker.type_list_items checker.zig:75437
+   checker.Checker.create_union_or_intersection_property checker.zig:49685
+== first firsts 96910 grows 96910 copied 0 size 4
+   checker.Checker.add_mapped_members_for_key_type checker.zig:50360
+== first firsts 92182 grows 92190 copied 128 size 4
+   checker.Checker.type_parameter_contains_reference__struct_6580.__rig_invoke checker.zig:46779
+   ast.Ast.for_each_child ast.zig:485
+   checker.Checker.type_parameter_contains_reference checker.zig:46784
+== first firsts 88428 grows 88662 copied 1057440 size 4
+== first firsts 81541 grows 82502 copied 18400 size 4
+   checker.Checker.infer_types checker.zig:36832
+== first firsts 79278 grows 79356 copied 3296 size 4
+   checker.Checker.type_list_items checker.zig:75437
+   checker.Checker.instantiate_type_worker checker.zig:46454
+   checker.Checker.instantiate_type_with_alias checker.zig:46196
+== first firsts 68878 grows 68878 copied 0 size 4
+   checker.Checker.get_type_from_inference checker.zig:39213
+== first firsts 68612 grows 69889 copied 21744 size 4
+   checker.Checker.invoke_once checker.zig:37245
+== first firsts 68612 grows 73711 copied 891168 size 24
+   __rig_std___rig_builtin.Map(checker.InferenceKey,i32).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(checker.InferenceKey,i32).add_entry __rig_std___rig_builtin.zig:316
+== first firsts 68612 grows 69889 copied 21744 size 4
+   checker.Checker.invoke_once checker.zig:37246
+== first firsts 68612 grows 73711 copied 297056 size 8
+   __rig_std___rig_builtin.Map(checker.InferenceKey,i32).insert __rig_std___rig_builtin.zig:557
+   __rig_std___rig_builtin.Map(checker.InferenceKey,i32).add_entry __rig_std___rig_builtin.zig:316
+== first firsts 68062 grows 68062 copied 0 size 4
+   checker.Checker.get_cross_product_intersections checker.zig:44375
+== first firsts 67927 grows 68743 copied 16320 size 4
+   checker.Checker.new_inference_context checker.zig:38777
+   checker.Checker.get_conditional_type checker.zig:47909
+== first firsts 65282 grows 172992 copied 22880576 size 16
+   checker.Checker.sort_symbols_by_key checker.zig:82370
+== first firsts 62442 grows 62442 copied 0 size 4
+   checker.Checker.context_inferences checker.zig:38852
+   checker.Checker.get_conditional_type checker.zig:47915
+== first firsts 62334 grows 69278 copied 137152 size 4
+   checker.Checker.type_list_items checker.zig:75437
+   checker.Checker.create_type_reference_ex checker.zig:5737
+== first firsts 59916 grows 59916 copied 0 size 8
+   checker.Checker.add_declaration checker.zig:2752
+   checker.Checker.add_mapped_member_for_key_type checker.zig:50419
+   checker.Checker.add_mapped_members_for_key_type checker.zig:50366
+== first firsts 59750 grows 114704 copied 2900896 size 4
+   checker.Checker.get_named_members checker.zig:41937
+   checker.Checker.set_structured_type_members checker.zig:4204
+== first firsts 59474 grows 114564 copied 2908832 size 4
+   checker.Checker.get_named_members checker.zig:41948
+   checker.Checker.set_structured_type_members checker.zig:4204
+== first firsts 52093 grows 56555 copied 291648 size 16
+   checker.Checker.get_resolved_base_constraint checker.zig:47418
+== first firsts 37229 grows 37704 copied 33360 size 12
+   checker.Checker.element_info_list_items checker.zig:75737
+   checker.Checker.create_normalized_tuple_type_ex checker.zig:45064
+== first firsts 37093 grows 37568 copied 11120 size 4
+   checker.Checker.create_normalized_tuple_type_ex checker.zig:45121
+== first firsts 35500 grows 37989 copied 209184 size 12
+   checker.Checker.tuple_normalizer_add checker.zig:45284
+== first firsts 35500 grows 37989 copied 69728 size 4
+   checker.Checker.tuple_normalizer_add checker.zig:45283
+== first firsts 31097 grows 31334 copied 10864 size 4
+   checker.Checker.type_list_items checker.zig:75437
+   checker.Checker.get_intersection_type checker.zig:43829
+== first firsts 28884 grows 41446 copied 824320 size 16
+   checker.Checker.get_resolved_base_constraint checker.zig:47415
+== first firsts 27698 grows 27698 copied 0 size 4
+   checker.Checker.find_applicable_index_info checker.zig:48439
+== first firsts 26978 grows 28010 copied 25456 size 4
+   checker.Checker.create_union_or_intersection_property checker.zig:49896
+== first firsts 26861 grows 29486 copied 42096 size 4
+   checker.Checker.type_list_items checker.zig:75437
+   checker.Checker.get_type_with_this_argument checker.zig:47026
+== first firsts 26205 grows 26205 copied 0 size 8
+   checker.Checker.get_named_members checker.zig:41924
+   checker.Checker.set_structured_type_members checker.zig:4204
+== first firsts 26167 grows 78923 copied 2819248 size 4
+   checker.Checker.get_named_members checker.zig:41935
+   checker.Checker.set_structured_type_members checker.zig:4204
+== first firsts 26102 grows 26575 copied 15136 size 8
+   checker.Checker.create_union_or_intersection_property checker.zig:49867
+== first firsts 26102 grows 26575 copied 15136 size 8
+   checker.Checker.add_declaration checker.zig:2752
+   checker.Checker.create_union_or_intersection_property checker.zig:49911
+== first firsts 25549 grows 25549 copied 0 size 4
+   checker.Checker.get_optional_type checker.zig:12451
+== first firsts 24493 grows 24493 copied 0 size 4
+   checker.Checker.create_union_or_intersection_property checker.zig:49731
+== first firsts 24270 grows 24321 copied 816 size 4
+   checker.Checker.get_type_parameters_for_mapper checker.zig:39718
+== first firsts 22900 grows 22964 copied 3792 size 4
+   checker.Checker.type_list_items checker.zig:75437
+   checker.Checker.some_property_reduces_to_never checker.zig:49559
+   checker.Checker.get_reduced_type_worker checker.zig:42615
+== copied firsts 65282 grows 172992 copied 22880576 size 16
+   checker.Checker.sort_symbols_by_key checker.zig:82370
+== copied firsts 119645 grows 296247 copied 19073344 size 8
+   checker.Checker.table_entries checker.zig:2833
+== copied firsts 0 grows 14 copied 18726048 size 72
+   checker.Checker.new_inference_info checker.zig:39420
+   checker.Checker.new_inference_context checker.zig:38776
+   checker.Checker.get_conditional_type checker.zig:47909
+== copied firsts 117198 grows 234803 copied 18605616 size 12
+   __rig_std___rig_builtin.Map(u32,checker.ThisAssignmentDeclarationKind).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(u32,checker.ThisAssignmentDeclarationKind).add_entry __rig_std___rig_builtin.zig:316
+== copied firsts 2 grows 22 copied 16777984 size 32
+   __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).add_entry __rig_std___rig_builtin.zig:316
+== copied firsts 0 grows 12 copied 12579840 size 12
+   checker.Checker.new_shared_data_symbol checker.zig:53467
+   checker.Checker.instantiate_symbol checker.zig:46099
+== copied firsts 0 grows 12 copied 10894016 size 112
+   checker.Checker.new_inference_context_worker checker.zig:38840
+   checker.Checker.new_inference_context checker.zig:38780
+   checker.Checker.get_conditional_type checker.zig:47909
+== copied firsts 70 grows 337 copied 10825344 size 24
+   __rig_std___rig_builtin.Map(checker.CacheKey,u32).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(checker.CacheKey,u32).add_entry __rig_std___rig_builtin.zig:316
+== copied firsts 0 grows 1 copied 8388608 size 4
+   checker.Checker.new_type_list checker.zig:75419
+   checker.Checker.get_conditional_type_instantiation checker.zig:48290
+== copied firsts 0 grows 2 copied 7667712 size 104
+   checker.Checker.new_table checker.zig:2763
+   checker.Checker.resolve_mapped_type_members checker.zig:50284
+== copied firsts 0 grows 16 copied 7307232 size 4
+   checker.Checker.new_sym_list checker.zig:75469
+   checker.Checker.get_named_members checker.zig:41951
+   checker.Checker.set_structured_type_members checker.zig:4204
+== copied firsts 17859 grows 41114 copied 6226656 size 24
+   __rig_std___rig_builtin.Map(u32,i64).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(u32,i64).add_entry __rig_std___rig_builtin.zig:316
+== regrow firsts 119645 grows 296247 copied 19073344 size 8
+   checker.Checker.table_entries checker.zig:2833
+== regrow firsts 117198 grows 234803 copied 18605616 size 12
+   __rig_std___rig_builtin.Map(u32,checker.ThisAssignmentDeclarationKind).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(u32,checker.ThisAssignmentDeclarationKind).add_entry __rig_std___rig_builtin.zig:316
+== regrow firsts 65282 grows 172992 copied 22880576 size 16
+   checker.Checker.sort_symbols_by_key checker.zig:82370
+== regrow firsts 59474 grows 114564 copied 2908832 size 4
+   checker.Checker.get_named_members checker.zig:41948
+   checker.Checker.set_structured_type_members checker.zig:4204
+== regrow firsts 59750 grows 114704 copied 2900896 size 4
+   checker.Checker.get_named_members checker.zig:41937
+   checker.Checker.set_structured_type_members checker.zig:4204
+== regrow firsts 26167 grows 78923 copied 2819248 size 4
+   checker.Checker.get_named_members checker.zig:41935
+   checker.Checker.set_structured_type_members checker.zig:4204
+== regrow firsts 0 grows 38303 copied 2590944 size 8
+   checker.Checker.get_named_members checker.zig:41924
+   checker.Checker.set_structured_type_members checker.zig:4204
+== regrow firsts 17859 grows 41114 copied 6226656 size 24
+   __rig_std___rig_builtin.Map(u32,i64).insert __rig_std___rig_builtin.zig:555
+   __rig_std___rig_builtin.Map(u32,i64).add_entry __rig_std___rig_builtin.zig:316
+== regrow firsts 17849 grows 41091 copied 259168 size 1
+   checker.Checker.some_property_reduces_to_never checker.zig:49590
+   checker.Checker.get_reduced_type_worker checker.zig:42615
+== regrow firsts 17849 grows 41091 copied 1036672 size 4
+   checker.Checker.some_property_reduces_to_never checker.zig:49589
+   checker.Checker.get_reduced_type_worker checker.zig:42615
+== regrow firsts 112641 grows 127043 copied 331216 size 4
+   checker.Checker.type_list_items checker.zig:75437
+   checker.Checker.create_union_or_intersection_property checker.zig:49685
+== regrow firsts 28884 grows 41446 copied 824320 size 16
+   checker.Checker.get_resolved_base_constraint checker.zig:47415
+== drop drops 326448 avglen 2 avgcap 4
+   checker.Checker.inference_type_mapper_map checker.zig:41848
+   checker.Checker.mapper_map checker.zig:45756
+== drop drops 117198 avglen 11 avgcap 17
+== drop drops 113446 avglen 2 avgcap 5
+== drop drops 99441 avglen 1 avgcap 4
+   checker.Checker.type_parameter_contains_reference checker.zig:46771
+== drop drops 96910 avglen 1 avgcap 4
+   checker.Checker.add_mapped_members_for_key_type checker.zig:50356
+== drop drops 96752 avglen 1 avgcap 4
+== drop drops 85822 avglen 1 avgcap 4
+== drop drops 85754 avglen 13 avgcap 20
+   checker.Checker.get_named_members checker.zig:41907
+   checker.Checker.set_structured_type_members checker.zig:4204
+== drop drops 85641 avglen 13 avgcap 20
+   checker.Checker.get_named_members checker.zig:41909
+   checker.Checker.set_structured_type_members checker.zig:4204
+== drop drops 82409 avglen 1 avgcap 4
+== drop drops 81541 avglen 1 avgcap 4
+   checker.Checker.infer_types checker.zig:36827
+== drop drops 80977 avglen 2 avgcap 4
+   checker.Checker.get_resolved_base_constraint checker.zig:47410
+== drop drops 68878 avglen 1 avgcap 4
+   checker.Checker.get_type_from_inference checker.zig:39214
+== drop drops 68612 avglen 0 avgcap 4
+   checker.Checker.infer_types checker.zig:36827
+== drop drops 68612 avglen 0 avgcap 4
+   checker.Checker.infer_types checker.zig:36827
+== drop drops 68612 avglen 1 avgcap 4
+   checker.Checker.infer_types checker.zig:36827
+== drop drops 68612 avglen 1 avgcap 4
+   checker.Checker.infer_types checker.zig:36827
+== drop drops 68062 avglen 2 avgcap 4
+   checker.Checker.get_cross_product_intersections checker.zig:44372
+== drop drops 67834 avglen 2 avgcap 4
+   checker.Checker.create_union_or_intersection_property checker.zig:49686
+== drop drops 62442 avglen 1 avgcap 4
+   checker.Checker.get_conditional_type checker.zig:47916
+== drop drops 62334 avglen 1 avgcap 4
+   checker.Checker.create_type_reference_ex checker.zig:5738
+== drop drops 59750 avglen 9 avgcap 16
+   checker.Checker.get_named_members checker.zig:41911
+   checker.Checker.set_structured_type_members checker.zig:4204
+== drop drops 39919 avglen 4 avgcap 7
+   checker.Checker.sort_symbols_by_key checker.zig:82365
+== drop drops 39325 avglen 207 avgcap 207
+== drop drops 39325 avglen 207 avgcap 207

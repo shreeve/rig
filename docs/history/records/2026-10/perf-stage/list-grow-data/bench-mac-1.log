@@ -1,0 +1,480 @@
+== json base round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3512 | 3589 |
+| twitterescaped | 562408 | 3173 | 3196 |
+| canada | 2251051 | 2029 | 2167 |
+| citm_catalog | 1727204 | 4255 | 4228 |
+| gsoc-2018 | 3327831 | 8195 | 8044 |
+| github_events | 65132 | 4181 | 4191 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3525 | 3586 |
+| twitterescaped | 562408 | 3162 | 3188 |
+| canada | 2251051 | 2045 | 2152 |
+| citm_catalog | 1727204 | 4217 | 4214 |
+| gsoc-2018 | 3327831 | 8180 | 8008 |
+| github_events | 65132 | 4129 | 4201 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== hash base round 1
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         16.26           16.57   rig-fast 1.9% slower
+int     hit                             5.46            6.84   rig-fast 20.2% slower
+int     miss                            9.20            9.21   rig-fast 0.0% slower
+int     iterate                         0.58            0.61   rig-fast 5.3% slower
+string  insert                         29.60           27.69   rig-fast 6.9% faster
+string  hit                            16.76           13.25   rig-fast 26.5% faster
+string  miss                           14.20           13.82   rig-fast 2.7% faster
+string  iterate                         0.73            0.66   rig-fast 10.4% faster
+pair    insert                         21.44           21.11   rig-fast 1.6% faster
+pair    hit                             7.16            6.80   rig-fast 5.3% faster
+pair    miss                           11.14           10.84   rig-fast 2.8% faster
+small   4                               1.54            1.57   rig-fast 1.8% slower
+small   8                               2.16            2.34   rig-fast 7.8% slower
+string  intern                          9.17            8.61   rig-fast 6.5% faster
+int     ensure-miss                    16.89           15.72   rig-fast 7.4% faster
+int     ensure-hit                      5.51            5.42   rig-fast 1.7% faster
+int     ensure_with-miss               17.39           15.69   rig-fast 10.8% faster
+int     ensure_with-hit                 5.97            6.61   rig-fast 9.7% slower
+int     edit_put-miss                  17.14           17.17   rig-fast 0.2% slower
+int     edit_put-hit                    6.51            5.46   rig-fast 19.4% faster
+string  ensure-miss                    27.32           25.30   rig-fast 8.0% faster
+string  ensure-hit                     17.96           17.90   rig-fast 0.3% faster
+string  ensure_with-miss               28.52           27.66   rig-fast 3.1% faster
+string  ensure_with-hit                19.02           17.59   rig-fast 8.1% faster
+string  edit_put-miss                  31.25           28.94   rig-fast 8.0% faster
+string  edit_put-hit                   18.78           18.42   rig-fast 2.0% faster
+== hash br round 1
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         16.77           16.10   rig-fast 4.2% faster
+int     hit                             5.50            5.11   rig-fast 7.8% faster
+int     miss                            9.09            8.56   rig-fast 6.2% faster
+int     iterate                         0.62            0.57   rig-fast 8.4% faster
+string  insert                         30.32           26.73   rig-fast 13.4% faster
+string  hit                            17.21           13.13   rig-fast 31.1% faster
+string  miss                           14.67           13.95   rig-fast 5.2% faster
+string  iterate                         0.70            0.66   rig-fast 6.8% faster
+pair    insert                         22.15           21.34   rig-fast 3.8% faster
+pair    hit                             7.71            7.95   rig-fast 3.0% slower
+pair    miss                           11.11           10.36   rig-fast 7.3% faster
+small   4                               1.57            1.99   rig-fast 21.2% slower
+small   8                               2.31            2.42   rig-fast 4.9% slower
+string  intern                          9.49            8.21   rig-fast 15.5% faster
+int     ensure-miss                    17.02           15.28   rig-fast 11.4% faster
+int     ensure-hit                      5.68            5.34   rig-fast 6.3% faster
+int     ensure_with-miss               18.48           15.39   rig-fast 20.1% faster
+int     ensure_with-hit                 6.06            5.97   rig-fast 1.5% faster
+int     edit_put-miss                  17.86           17.72   rig-fast 0.8% faster
+int     edit_put-hit                    6.59            5.38   rig-fast 22.4% faster
+string  ensure-miss                    27.56           26.85   rig-fast 2.7% faster
+string  ensure-hit                     19.02           17.19   rig-fast 10.6% faster
+string  ensure_with-miss               28.96           28.40   rig-fast 2.0% faster
+string  ensure_with-hit                18.83           17.65   rig-fast 6.7% faster
+string  edit_put-miss                  31.54           28.87   rig-fast 9.3% faster
+string  edit_put-hit                   19.51           17.90   rig-fast 9.0% faster
+== json br round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3530 | 3583 |
+| twitterescaped | 562408 | 3179 | 3199 |
+| canada | 2251051 | 2041 | 2171 |
+| citm_catalog | 1727204 | 4200 | 4214 |
+| gsoc-2018 | 3327831 | 8173 | 8109 |
+| github_events | 65132 | 4147 | 4203 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3570 | 3623 |
+| twitterescaped | 562408 | 3188 | 3216 |
+| canada | 2251051 | 2040 | 2177 |
+| citm_catalog | 1727204 | 4236 | 4319 |
+| gsoc-2018 | 3327831 | 8373 | 8130 |
+| github_events | 65132 | 4216 | 4212 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== hash br round 2
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.32           15.00   rig-fast 2.2% faster
+int     hit                             5.34            6.95   rig-fast 23.1% slower
+int     miss                            8.45            8.45   rig-fast 0.0% faster
+int     iterate                         0.69            0.54   rig-fast 28.8% faster
+string  insert                         29.10           25.16   rig-fast 15.7% faster
+string  hit                            15.31           12.59   rig-fast 21.6% faster
+string  miss                           13.79           13.64   rig-fast 1.1% faster
+string  iterate                         0.77            0.66   rig-fast 15.8% faster
+pair    insert                         20.92           20.57   rig-fast 1.7% faster
+pair    hit                             7.73            6.85   rig-fast 12.8% faster
+pair    miss                           10.45           10.63   rig-fast 1.8% slower
+small   4                               1.62            1.57   rig-fast 2.9% faster
+small   8                               2.20            2.44   rig-fast 9.7% slower
+string  intern                          8.58            7.77   rig-fast 10.5% faster
+int     ensure-miss                    15.89           15.04   rig-fast 5.7% faster
+int     ensure-hit                      6.35            5.52   rig-fast 15.0% faster
+int     ensure_with-miss               17.63           14.50   rig-fast 21.6% faster
+int     ensure_with-hit                 5.55            5.42   rig-fast 2.4% faster
+int     edit_put-miss                  16.83           16.85   rig-fast 0.1% slower
+int     edit_put-hit                    7.01            5.18   rig-fast 35.4% faster
+string  ensure-miss                    27.59           24.09   rig-fast 14.5% faster
+string  ensure-hit                     18.63           15.12   rig-fast 23.2% faster
+string  ensure_with-miss               28.62           26.09   rig-fast 9.7% faster
+string  ensure_with-hit                17.96           16.79   rig-fast 7.0% faster
+string  edit_put-miss                  30.64           26.19   rig-fast 17.0% faster
+string  edit_put-hit                   18.75           15.10   rig-fast 24.1% faster
+== hash base round 2
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.94           15.16   rig-fast 5.2% faster
+int     hit                             5.20            5.14   rig-fast 1.2% faster
+int     miss                            8.62            8.37   rig-fast 3.0% faster
+int     iterate                         0.62            0.55   rig-fast 13.6% faster
+string  insert                         29.49           25.93   rig-fast 13.7% faster
+string  hit                            15.19           13.08   rig-fast 16.2% faster
+string  miss                           13.72           13.29   rig-fast 3.3% faster
+string  iterate                         0.72            0.62   rig-fast 15.6% faster
+pair    insert                         20.91           20.60   rig-fast 1.5% faster
+pair    hit                             6.87            7.34   rig-fast 6.5% slower
+pair    miss                           10.92           10.50   rig-fast 4.0% faster
+small   4                               1.53            1.76   rig-fast 13.4% slower
+small   8                               2.16            2.38   rig-fast 9.1% slower
+string  intern                          9.02            7.69   rig-fast 17.3% faster
+int     ensure-miss                    16.24           14.91   rig-fast 8.9% faster
+int     ensure-hit                      5.67            5.23   rig-fast 8.4% faster
+int     ensure_with-miss               17.12           14.99   rig-fast 14.2% faster
+int     ensure_with-hit                 5.57            5.33   rig-fast 4.6% faster
+int     edit_put-miss                  17.50           16.35   rig-fast 7.1% faster
+int     edit_put-hit                    6.31            6.72   rig-fast 6.0% slower
+string  ensure-miss                    27.50           24.72   rig-fast 11.2% faster
+string  ensure-hit                     18.49           14.68   rig-fast 25.9% faster
+string  ensure_with-miss               28.64           27.25   rig-fast 5.1% faster
+string  ensure_with-hit                19.08           16.06   rig-fast 18.8% faster
+string  edit_put-miss                  29.87           28.36   rig-fast 5.3% faster
+string  edit_put-hit                   18.01           16.82   rig-fast 7.1% faster
+== json base round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3557 | 3648 |
+| twitterescaped | 562408 | 3178 | 3218 |
+| canada | 2251051 | 2043 | 2182 |
+| citm_catalog | 1727204 | 4264 | 4265 |
+| gsoc-2018 | 3327831 | 8400 | 8130 |
+| github_events | 65132 | 4196 | 4225 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3578 | 3550 |
+| twitterescaped | 562408 | 3162 | 3207 |
+| canada | 2251051 | 2047 | 2190 |
+| citm_catalog | 1727204 | 4239 | 4217 |
+| gsoc-2018 | 3327831 | 8291 | 8115 |
+| github_events | 65132 | 4180 | 4181 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== hash base round 3
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         16.08           15.17   rig-fast 6.0% faster
+int     hit                             5.61            4.98   rig-fast 12.6% faster
+int     miss                            8.35            8.60   rig-fast 2.9% slower
+int     iterate                         0.61            0.54   rig-fast 13.1% faster
+string  insert                         29.29           25.49   rig-fast 14.9% faster
+string  hit                            15.98           13.81   rig-fast 15.8% faster
+string  miss                           13.58           13.48   rig-fast 0.8% faster
+string  iterate                         0.82            0.67   rig-fast 22.6% faster
+pair    insert                         20.44           20.53   rig-fast 0.4% slower
+pair    hit                             6.80            7.61   rig-fast 10.6% slower
+pair    miss                           10.93           10.72   rig-fast 1.9% faster
+small   4                               1.59            1.62   rig-fast 1.9% slower
+small   8                               2.21            2.48   rig-fast 11.0% slower
+string  intern                          8.48            7.55   rig-fast 12.3% faster
+int     ensure-miss                    15.97           15.79   rig-fast 1.2% faster
+int     ensure-hit                      5.54            5.25   rig-fast 5.6% faster
+int     ensure_with-miss               17.29           14.76   rig-fast 17.1% faster
+int     ensure_with-hit                 5.83            5.59   rig-fast 4.2% faster
+int     edit_put-miss                  16.95           16.88   rig-fast 0.4% faster
+int     edit_put-hit                    6.08            5.25   rig-fast 15.8% faster
+string  ensure-miss                    27.38           25.52   rig-fast 7.3% faster
+string  ensure-hit                     18.17           16.27   rig-fast 11.7% faster
+string  ensure_with-miss               28.81           27.57   rig-fast 4.5% faster
+string  ensure_with-hit                19.78           16.83   rig-fast 17.5% faster
+string  edit_put-miss                  30.14           28.09   rig-fast 7.3% faster
+string  edit_put-hit                   19.00           16.00   rig-fast 18.7% faster
+== hash br round 3
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.88           15.35   rig-fast 3.5% faster
+int     hit                             5.34            6.03   rig-fast 11.4% slower
+int     miss                            8.48            8.40   rig-fast 0.9% faster
+int     iterate                         0.62            0.52   rig-fast 20.7% faster
+string  insert                         28.60           25.88   rig-fast 10.5% faster
+string  hit                            14.83           13.86   rig-fast 7.0% faster
+string  miss                           13.57           14.18   rig-fast 4.2% slower
+string  iterate                         0.76            0.65   rig-fast 16.6% faster
+pair    insert                         20.85           20.90   rig-fast 0.2% slower
+pair    hit                             6.90            6.72   rig-fast 2.7% faster
+pair    miss                           10.90           11.00   rig-fast 0.8% slower
+small   4                               1.57            1.56   rig-fast 0.6% faster
+small   8                               2.26            2.48   rig-fast 8.8% slower
+string  intern                          9.29            7.84   rig-fast 18.5% faster
+int     ensure-miss                    16.84           15.25   rig-fast 10.5% faster
+int     ensure-hit                      5.39            5.16   rig-fast 4.5% faster
+int     ensure_with-miss               17.67           14.96   rig-fast 18.1% faster
+int     ensure_with-hit                 5.88            5.38   rig-fast 9.2% faster
+int     edit_put-miss                  17.73           17.10   rig-fast 3.7% faster
+int     edit_put-hit                    5.43            5.40   rig-fast 0.7% faster
+string  ensure-miss                    28.30           25.39   rig-fast 11.4% faster
+string  ensure-hit                     17.99           15.08   rig-fast 19.3% faster
+string  ensure_with-miss               29.18           27.22   rig-fast 7.2% faster
+string  ensure_with-hit                18.44           17.37   rig-fast 6.2% faster
+string  edit_put-miss                  30.39           27.42   rig-fast 10.8% faster
+string  edit_put-hit                   18.73           16.21   rig-fast 15.6% faster
+== json br round 4
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3502 | 3569 |
+| twitterescaped | 562408 | 3153 | 3188 |
+| canada | 2251051 | 2044 | 2157 |
+| citm_catalog | 1727204 | 4291 | 4243 |
+| gsoc-2018 | 3327831 | 8242 | 8118 |
+| github_events | 65132 | 4203 | 4204 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 4
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3506 | 3588 |
+| twitterescaped | 562408 | 3156 | 3192 |
+| canada | 2251051 | 2008 | 2163 |
+| citm_catalog | 1727204 | 4243 | 4217 |
+| gsoc-2018 | 3327831 | 8299 | 8111 |
+| github_events | 65132 | 4147 | 4198 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== hash br round 4
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.01           15.09   rig-fast 0.5% slower
+int     hit                             5.13            4.87   rig-fast 5.3% faster
+int     miss                            8.84            8.38   rig-fast 5.5% faster
+int     iterate                         0.62            0.54   rig-fast 14.9% faster
+string  insert                         24.75           23.21   rig-fast 6.7% faster
+string  hit                            13.22           12.51   rig-fast 5.6% faster
+string  miss                           13.29           13.33   rig-fast 0.3% slower
+string  iterate                         0.75            0.72   rig-fast 3.7% faster
+pair    insert                         19.46           19.93   rig-fast 2.4% slower
+pair    hit                             6.60            6.98   rig-fast 5.5% slower
+pair    miss                           11.28           10.69   rig-fast 5.5% faster
+small   4                               1.53            1.73   rig-fast 11.4% slower
+small   8                               2.23            2.37   rig-fast 5.8% slower
+string  intern                          8.38            7.33   rig-fast 14.4% faster
+int     ensure-miss                    15.97           14.68   rig-fast 8.8% faster
+int     ensure-hit                      5.40            5.21   rig-fast 3.8% faster
+int     ensure_with-miss               17.18           14.46   rig-fast 18.8% faster
+int     ensure_with-hit                 5.55            5.56   rig-fast 0.2% slower
+int     edit_put-miss                  16.71           16.36   rig-fast 2.1% faster
+int     edit_put-hit                    5.59            5.15   rig-fast 8.5% faster
+string  ensure-miss                    24.68           22.69   rig-fast 8.8% faster
+string  ensure-hit                     16.97           14.02   rig-fast 21.0% faster
+string  ensure_with-miss               26.73           24.76   rig-fast 8.0% faster
+string  ensure_with-hit                15.21           15.26   rig-fast 0.3% slower
+string  edit_put-miss                  28.36           26.59   rig-fast 6.6% faster
+string  edit_put-hit                   16.43           14.92   rig-fast 10.1% faster
+== hash base round 4
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.32           15.02   rig-fast 2.0% faster
+int     hit                             5.32            5.09   rig-fast 4.5% faster
+int     miss                            8.45            8.35   rig-fast 1.2% faster
+int     iterate                         0.64            0.50   rig-fast 28.4% faster
+string  insert                         27.36           24.51   rig-fast 11.6% faster
+string  hit                            14.97           12.84   rig-fast 16.6% faster
+string  miss                           13.36           13.15   rig-fast 1.6% faster
+string  iterate                         0.74            0.66   rig-fast 12.0% faster
+pair    insert                         20.23           20.13   rig-fast 0.5% faster
+pair    hit                             6.87            6.81   rig-fast 0.9% faster
+pair    miss                           10.95           10.43   rig-fast 5.0% faster
+small   4                               1.50            1.61   rig-fast 6.3% slower
+small   8                               2.14            2.54   rig-fast 16.0% slower
+string  intern                          8.55            7.60   rig-fast 12.6% faster
+int     ensure-miss                    15.78           14.66   rig-fast 7.7% faster
+int     ensure-hit                      5.43            5.28   rig-fast 2.9% faster
+int     ensure_with-miss               16.56           14.28   rig-fast 16.0% faster
+int     ensure_with-hit                 5.46            5.32   rig-fast 2.5% faster
+int     edit_put-miss                  16.51           16.69   rig-fast 1.1% slower
+int     edit_put-hit                    5.84            5.17   rig-fast 13.0% faster
+string  ensure-miss                    27.21           24.15   rig-fast 12.7% faster
+string  ensure-hit                     16.50           13.35   rig-fast 23.6% faster
+string  ensure_with-miss               27.75           25.94   rig-fast 7.0% faster
+string  ensure_with-hit                17.83           14.62   rig-fast 22.0% faster
+string  edit_put-miss                  30.28           26.34   rig-fast 14.9% faster
+string  edit_put-hit                   17.74           15.51   rig-fast 14.4% faster
+== json base round 5
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3547 | 3621 |
+| twitterescaped | 562408 | 3180 | 3197 |
+| canada | 2251051 | 2034 | 2182 |
+| citm_catalog | 1727204 | 4255 | 4303 |
+| gsoc-2018 | 3327831 | 8346 | 8106 |
+| github_events | 65132 | 4218 | 4211 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json br round 5
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3516 | 3601 |
+| twitterescaped | 562408 | 3167 | 3192 |
+| canada | 2251051 | 2040 | 2163 |
+| citm_catalog | 1727204 | 4207 | 4205 |
+| gsoc-2018 | 3327831 | 8201 | 8109 |
+| github_events | 65132 | 4139 | 4213 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== hash base round 5
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.80           15.81   rig-fast 0.1% slower
+int     hit                             5.41            5.06   rig-fast 7.0% faster
+int     miss                            8.17            9.02   rig-fast 9.4% slower
+int     iterate                         0.63            0.54   rig-fast 15.5% faster
+string  insert                         28.83           25.87   rig-fast 11.5% faster
+string  hit                            15.48           13.85   rig-fast 11.8% faster
+string  miss                           13.51           13.50   rig-fast 0.1% faster
+string  iterate                         0.89            0.70   rig-fast 26.2% faster
+pair    insert                         20.80           20.87   rig-fast 0.3% slower
+pair    hit                             7.30            7.57   rig-fast 3.5% slower
+pair    miss                           10.66           10.52   rig-fast 1.4% faster
+small   4                               1.56            1.74   rig-fast 10.4% slower
+small   8                               2.24            2.45   rig-fast 8.5% slower
+string  intern                          9.11            8.36   rig-fast 8.9% faster
+int     ensure-miss                    16.24           15.46   rig-fast 5.1% faster
+int     ensure-hit                      5.37            5.22   rig-fast 2.8% faster
+int     ensure_with-miss               17.32           15.34   rig-fast 12.9% faster
+int     ensure_with-hit                 5.78            6.79   rig-fast 14.8% slower
+int     edit_put-miss                  17.30           17.04   rig-fast 1.5% faster
+int     edit_put-hit                    5.37            5.38   rig-fast 0.3% slower
+string  ensure-miss                    27.60           25.27   rig-fast 9.2% faster
+string  ensure-hit                     17.50           15.71   rig-fast 11.4% faster
+string  ensure_with-miss               28.04           26.50   rig-fast 5.8% faster
+string  ensure_with-hit                18.09           15.76   rig-fast 14.8% faster
+string  edit_put-miss                  29.87           27.75   rig-fast 7.6% faster
+string  edit_put-hit                   19.39           15.51   rig-fast 25.1% faster
+== hash br round 5
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         16.39           14.95   rig-fast 9.6% faster
+int     hit                             6.26            5.11   rig-fast 22.4% faster
+int     miss                            8.72            8.44   rig-fast 3.3% faster
+int     iterate                         0.61            0.52   rig-fast 17.9% faster
+string  insert                         29.56           25.52   rig-fast 15.8% faster
+string  hit                            17.17           14.03   rig-fast 22.4% faster
+string  miss                           14.18           13.25   rig-fast 7.0% faster
+string  iterate                         0.74            0.72   rig-fast 2.8% faster
+pair    insert                         20.79           22.50   rig-fast 7.6% slower
+pair    hit                             7.50            8.09   rig-fast 7.3% slower
+pair    miss                           11.27           11.10   rig-fast 1.5% faster
+small   4                               1.53            1.82   rig-fast 15.8% slower
+small   8                               2.24            2.58   rig-fast 13.3% slower
+string  intern                          9.30            8.40   rig-fast 10.8% faster
+int     ensure-miss                    16.89           15.26   rig-fast 10.7% faster
+int     ensure-hit                      5.94            6.29   rig-fast 5.6% slower
+int     ensure_with-miss               17.55           15.50   rig-fast 13.2% faster
+int     ensure_with-hit                 6.75            5.47   rig-fast 23.4% faster
+int     edit_put-miss                  17.14           17.12   rig-fast 0.1% faster
+int     edit_put-hit                    5.91            5.99   rig-fast 1.4% slower
+string  ensure-miss                    28.88           25.51   rig-fast 13.2% faster
+string  ensure-hit                     19.01           14.43   rig-fast 31.8% faster
+string  ensure_with-miss               27.52           26.78   rig-fast 2.8% faster
+string  ensure_with-hit                18.89           16.33   rig-fast 15.7% faster
+string  edit_put-miss                  30.50           28.18   rig-fast 8.2% faster
+string  edit_put-hit                   17.91           16.06   rig-fast 11.5% faster
+== json br round 6
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3558 | 3615 |
+| twitterescaped | 562408 | 3152 | 3195 |
+| canada | 2251051 | 2049 | 2159 |
+| citm_catalog | 1727204 | 4262 | 4256 |
+| gsoc-2018 | 3327831 | 8214 | 8098 |
+| github_events | 65132 | 4175 | 4199 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 6
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3573 | 3618 |
+| twitterescaped | 562408 | 3182 | 3199 |
+| canada | 2251051 | 2045 | 2166 |
+| citm_catalog | 1727204 | 4260 | 4275 |
+| gsoc-2018 | 3327831 | 8317 | 8132 |
+| github_events | 65132 | 4187 | 4234 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== hash br round 6
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.56           14.67   rig-fast 6.1% faster
+int     hit                             5.24            5.28   rig-fast 0.9% slower
+int     miss                            8.75            8.46   rig-fast 3.4% faster
+int     iterate                         0.65            0.53   rig-fast 21.9% faster
+string  insert                         28.58           25.55   rig-fast 11.9% faster
+string  hit                            13.99           12.46   rig-fast 12.3% faster
+string  miss                           13.80           13.28   rig-fast 3.9% faster
+string  iterate                         0.71            0.66   rig-fast 7.5% faster
+pair    insert                         20.02           20.08   rig-fast 0.3% slower
+pair    hit                             6.78            6.80   rig-fast 0.4% slower
+pair    miss                           11.14           10.58   rig-fast 5.3% faster
+small   4                               1.53            1.76   rig-fast 13.2% slower
+small   8                               2.12            2.47   rig-fast 14.0% slower
+string  intern                          8.55            7.39   rig-fast 15.7% faster
+int     ensure-miss                    15.73           14.53   rig-fast 8.3% faster
+int     ensure-hit                      5.27            5.40   rig-fast 2.4% slower
+int     ensure_with-miss               16.64           14.69   rig-fast 13.3% faster
+int     ensure_with-hit                 5.53            5.32   rig-fast 3.8% faster
+int     edit_put-miss                  16.93           16.40   rig-fast 3.2% faster
+int     edit_put-hit                    5.67            5.21   rig-fast 8.9% faster
+string  ensure-miss                    26.80           24.30   rig-fast 10.3% faster
+string  ensure-hit                     17.72           15.12   rig-fast 17.2% faster
+string  ensure_with-miss               27.95           25.97   rig-fast 7.6% faster
+string  ensure_with-hit                17.70           15.21   rig-fast 16.4% faster
+string  edit_put-miss                  29.89           28.01   rig-fast 6.7% faster
+string  edit_put-hit                   17.68           15.40   rig-fast 14.8% faster
+== hash base round 6
+keys    op                    rig-safe ns/op  rig-fast ns/op   vs rig-safe
+int     insert                         15.30           14.67   rig-fast 4.3% faster
+int     hit                             5.19            4.99   rig-fast 4.0% faster
+int     miss                            8.59            8.67   rig-fast 0.9% slower
+int     iterate                         0.63            0.55   rig-fast 15.0% faster
+string  insert                         27.48           25.21   rig-fast 9.0% faster
+string  hit                            13.81           12.88   rig-fast 7.2% faster
+string  miss                           13.47           13.29   rig-fast 1.4% faster
+string  iterate                         0.79            0.70   rig-fast 13.6% faster
+pair    insert                         20.29           19.81   rig-fast 2.4% faster
+pair    hit                             6.71            7.14   rig-fast 6.1% slower
+pair    miss                           11.07           11.01   rig-fast 0.6% faster
+small   4                               1.57            1.71   rig-fast 8.5% slower
+small   8                               2.14            2.42   rig-fast 11.5% slower
+string  intern                          8.29            7.54   rig-fast 9.9% faster
+int     ensure-miss                    15.79           14.66   rig-fast 7.7% faster
+int     ensure-hit                      5.40            5.18   rig-fast 4.3% faster
+int     ensure_with-miss               16.79           15.00   rig-fast 11.9% faster
+int     ensure_with-hit                 5.56            5.62   rig-fast 1.1% slower
+int     edit_put-miss                  16.74           16.59   rig-fast 0.9% faster
+int     edit_put-hit                    5.59            5.16   rig-fast 8.4% faster
+string  ensure-miss                    26.47           24.20   rig-fast 9.4% faster
+string  ensure-hit                     18.31           15.61   rig-fast 17.3% faster
+string  ensure_with-miss               28.26           25.86   rig-fast 9.3% faster
+string  ensure_with-hit                17.21           18.14   rig-fast 5.2% slower
+string  edit_put-miss                  30.44           27.61   rig-fast 10.2% faster
+string  edit_put-hit                   18.44           14.30   rig-fast 29.0% faster
