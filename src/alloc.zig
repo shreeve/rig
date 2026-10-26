@@ -639,6 +639,16 @@ fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: us
     return largeSize(memory.len) == largeSize(new_len);
 }
 
+/// What `remap` does with a block of `len` bytes asked to become
+/// `new_len`, when either length is small: true when the class stays and
+/// the block keeps its place, false when it changes and the block must
+/// move. For two large lengths, null: only `remap` knows.
+pub inline fn smallInPlace(len: usize, new_len: usize, alignment: std.mem.Alignment) ?bool {
+    const new = classOf(new_len, alignment);
+    if (classOf(len, alignment)) |c| return new != null and new.? == c;
+    return if (new != null) false else null;
+}
+
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
     if (builtin.os.tag != .linux) return null;

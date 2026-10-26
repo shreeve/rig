@@ -2690,7 +2690,14 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 self.buf = buf;
                 return;
             }
-            self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len * 2));
+            // Doubling, from 4. A List's first buffer comes straight from
+            // the allocator, of a size known here when a push asks for it;
+            // a later one by `reallocSlice`.
+            if (self.buf.len == 0) {
+                self.buf = if (want <= 4) allocSlice(T, 4) else allocSlice(T, want);
+                return;
+            }
+            self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len *| 2));
         }
 
         /// `len <= buf.len` always holds. When the buffer is full, `grow`
@@ -4876,6 +4883,9 @@ fn ownAllocator() std.mem.Allocator {
 /// The allocator of release builds (`alloc.zig`).
 pub const fast_alloc = @import("alloc.zig");
 
+/// Whether every runtime allocation goes to `fast_alloc` itself.
+const own_fast = !leak_checked and !heap_profile;
+
 // Rig's own allocations skip the fill Zig's safe builds write over every
 // new, moved, and freed buffer (`std.mem.Allocator.alloc`, `realloc`,
 // `free`, `create`, `destroy` set the bytes to `undefined`, 0xAA): bounds
@@ -4911,7 +4921,14 @@ pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
     const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
     const old_bytes = std.mem.sliceAsBytes(old);
-    if (a.rawRemap(old_bytes, alignment, bytes, @returnAddress())) |p| return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+    // Rig's own allocator keeps a small block in place only within its
+    // class, which a List that doubles always leaves: judged here, with
+    // no call (`fast_alloc.smallInPlace`), and only two large blocks are
+    // left to `remap`.
+    const small = if (own_fast) fast_alloc.smallInPlace(old_bytes.len, bytes, alignment) else null;
+    if (small) |in_place| {
+        if (in_place) return old.ptr[0..n];
+    } else if (a.rawRemap(old_bytes, alignment, bytes, @returnAddress())) |p| return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
     const p = a.rawAlloc(bytes, alignment, @returnAddress()) orelse oom();
     const kept = @min(bytes, old_bytes.len);
     @memcpy(p[0..kept], old_bytes[0..kept]);

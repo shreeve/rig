@@ -1113,6 +1113,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   allocate and 26 to free on x86-64, where each took about 50. Trig checks ts-pattern
   at one checker with 1.8% fewer instructions (zod3 2.0%); its time
   moves within the run-to-run spread.
+- **List growth:** a List's first buffer, four slots when a push asks
+  for it, comes straight from the allocator, and a later one judges
+  inline whether a small block keeps its place (only within its size
+  class) rather than asking the allocator's `remap`. Trig checks
+  ts-pattern at one checker with 1.1% fewer instructions (zod3 0.7%),
+  the same page faults, and a time within the run-to-run spread.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig

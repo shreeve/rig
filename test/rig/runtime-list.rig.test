@@ -76,6 +76,51 @@ test "list clear reuse", release: true, '''
     break
   print(log.get())
 
+test "list clone", release: true, '''
+  0 0 1 0
+  1 1 2 0
+  5 5 6 10
+  1000 1000 1001 499500
+  [P(x: 1, y: 2)] [P(x: 9, y: 2)]
+  ["a", "b"] ["a", "b", "c"]
+  [1] [1, 2, 3] [1, 2, 3]
+'''
+  # `+v` is a List of its own, of plain or owned elements, whether they
+  # are on the heap or inline: changing the original leaves it as it was.
+
+  obj P
+    x: Int
+    y: Int
+
+  for n in [0, 1, 5, 1000]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(i)
+    w = +v
+    !v.push(7)
+    t = 0
+    for x in w
+      t += x
+    print(n, w.len, v.len, t)
+  ps: List[P] = List()
+  !ps.push(P(x: 1, y: 2))
+  qs = +ps
+  ps[0].x = 9
+  print(qs, ps)
+  ss: List[String] = List()
+  !ss.push(String("a"))
+  !ss.push(String("b"))
+  ts = +ss
+  !ss.push(String("c"))
+  print(ts, ss)
+  il: List[Int, inline: 2] = List()
+  !il.push(1)
+  jl = +il
+  !il.push(2)
+  !il.push(3)
+  kl = +il
+  print(jl, il, kl)
+
 test "list filled", release: true, '''
   [0, 0, 0] [1.0, 1.0] [255, 255, 255, 255]
   [Pair(a: 1, b: 2.5), Pair(a: 9, b: 2.5)]
