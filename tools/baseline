@@ -1,0 +1,61 @@
+#!/bin/bash
+# tools/baseline SHA: print the path of a `rig` built at commit SHA (any
+# name git knows: a hash, a branch, `origin/main`), building it the first
+# time into a cache keyed by the full hash, so a comparison against a
+# base commit never runs a stale bin/rig. The build is `zig build` (bin/rig,
+# ReleaseSafe) in a detached worktree in a temp dir, taken through
+# tools/heavy, and removed after. Nexus is -Dnexus=$NEXUS when NEXUS is
+# set, else nexus/bin/nexus in the nearest parent directory of this
+# checkout, as build.zig looks. The cache is rig-baseline/ in Rig's git
+# directory (tools/gitdir), which every worktree shares. Progress goes to
+# stderr; stdout is the path alone.
+set -euo pipefail
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+root=$(dirname "$here")
+if [[ $# -ne 1 || $1 == -h || $1 == --help ]]; then
+    sed -n '2,11s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+    exit 2
+fi
+G=$("$here/gitdir" tools/baseline) || exit 2
+sha=$(git --git-dir="$G" rev-parse --verify --quiet "$1^{commit}") || {
+    echo "tools/baseline: no commit \`$1\`" >&2
+    exit 2
+}
+cache=$G/rig-baseline/$sha
+if [[ -x $cache/rig ]]; then
+    echo "$cache/rig"
+    exit 0
+fi
+
+nexus=${NEXUS:-}
+if [[ -z $nexus ]]; then
+    d=$root
+    while [[ $d != / ]]; do
+        d=$(dirname "$d")
+        if [[ -x $d/nexus/bin/nexus ]]; then nexus=$d/nexus/bin/nexus; break; fi
+    done
+fi
+[[ -n $nexus && -x $nexus ]] || {
+    echo "tools/baseline: no Nexus: set NEXUS, or put nexus/bin/nexus in a parent directory of $root" >&2
+    exit 2
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/rig-baseline.XXXXXX")
+cleanup() {
+    git --git-dir="$G" worktree remove --force "$tmp/src" >/dev/null 2>&1 || true
+    rm -rf "$tmp"
+}
+trap cleanup EXIT
+echo "tools/baseline: building rig at ${sha:0:12} (once; then cached in $cache)" >&2
+git --git-dir="$G" worktree add --detach --quiet "$tmp/src" "$sha"
+(cd "$tmp/src" && "$here/heavy" zig build -Dnexus="$nexus") >"$tmp/build.log" 2>&1 || {
+    tail -20 "$tmp/build.log" >&2
+    echo "tools/baseline: the build at ${sha:0:12} failed" >&2
+    exit 1
+}
+# Another caller may have built the same commit meanwhile: either copy
+# serves, and the rename makes the cached rig whole or absent.
+mkdir -p "$cache"
+cp "$tmp/src/bin/rig" "$cache/rig.$$"
+mv -f "$cache/rig.$$" "$cache/rig"
+echo "$cache/rig"

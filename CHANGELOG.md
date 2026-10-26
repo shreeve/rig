@@ -1190,6 +1190,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   whose top level is Rig's. From a plain copy of Rig they stop with a
   message naming `GIT_DIR`, rather than keep a lock or a build store in
   a repository that encloses the copy.
+- **`tools/emit-diff BASE`** says whether `bin/rig` emits the same Zig
+  as a `rig` built at `BASE` for the examples, the benches, every std
+  module, and Trig; a change whose emit is identical skips its timing
+  round. **`tools/baseline SHA`** prints the path of a `rig` built at a
+  commit, built once and cached in the git directory.
 
 ### `std.json` (experimental)
 

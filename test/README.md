@@ -298,6 +298,18 @@ the one `tools/gitdir` finds; from a plain copy of Rig, matrix.py stops
 unless `GIT_DIR`, or both variables, are set. The suite's core runs
 the reference checker over its programs (`oracle.matrix`).
 
+## Whether a change changes emit
+
+```bash
+tools/emit-diff BASE
+```
+
+emits the examples, the benches, every std module, and Trig with a
+`rig` built at `BASE` (`tools/baseline`) and with `bin/rig`, and exits 0
+when every file is identical: such a change skips its timing round.
+[docs/internals/tests.md](../docs/internals/tests.md#emit-diffs) has the
+details.
+
 ## The reference ownership checker
 
 `test/oracle/` is a second ownership checker, built as `bin/rig-oracle`
@@ -324,8 +336,8 @@ writes, every module, the standard library's shims, and the runtime with
 its sanitizer, so a change that shows only in another module or in
 sanitized code is still seen. It lists each program whose output
 differs, with the sections that differ (`--keep` saves both outputs, and
-both packages for `pkg`), and exits 1 if any does. Build the old
-compiler from the base commit and copy `bin/rig` aside first. A
+both packages for `pkg`), and exits 1 if any does. `tools/baseline SHA`
+prints the path of the old compiler, built once at the base commit. A
 refactor's every difference is a planned rule or a fixed bug, and its
 pull request lists them.
 
