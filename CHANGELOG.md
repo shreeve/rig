@@ -1119,6 +1119,8 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   class) rather than asking the allocator's `remap`. Trig checks
   ts-pattern at one checker with 1.1% fewer instructions (zod3 0.7%),
   the same page faults, and a time within the run-to-run spread.
+  `push` is inlined at every call: std.json's parser, which called it,
+  runs 2 to 4.5% fewer instructions on five of its six files.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig

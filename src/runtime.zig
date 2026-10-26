@@ -2702,8 +2702,11 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         /// `len <= buf.len` always holds. When the buffer is full, `grow`
         /// leaves `len < buf.len`, so the slot at `len` exists, `len + 1`
-        /// cannot overflow, and the store needs no bounds check.
-        pub fn push(self: *Self, value: T) void {
+        /// cannot overflow, and the store needs no bounds check. Inlined
+        /// at every call, the growth left out of line: a compiler that
+        /// leaves it a call in a large function (std.json's parser) pays
+        /// a call per push.
+        pub inline fn push(self: *Self, value: T) void {
             if (self.len == self.mem().len) self.grow(self.len +% 1);
             const m = self.mem();
             invariant(self.len < m.len);
