@@ -105,7 +105,7 @@ const linux = builtin.os.tag == .linux;
 
 /// `bytes` of address space, zero pages, none committed.
 fn reserve(bytes: usize) [*]align(page) u8 {
-    const large = linux and arm >= 3 and bytes > huge;
+    const large = linux and (arm == 3 or arm == 4 or arm == 6) and bytes > huge;
     const span = if (large) bytes + huge else bytes;
     const m = std.posix.mmap(null, span, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch reservePanic(bytes);
     if (!linux) return m.ptr;
@@ -118,6 +118,10 @@ fn reserve(bytes: usize) [*]align(page) u8 {
     if (head > 0) std.posix.munmap(@alignCast(m[0..head]));
     if (head < huge) std.posix.munmap(@alignCast(m[head + bytes ..]));
     const p: [*]align(page) u8 = @alignCast(m.ptr + head);
+    if (arm == 6) {
+        std.posix.madvise(p, bytes, std.posix.MADV.NOHUGEPAGE) catch {};
+        return p;
+    }
     std.posix.madvise(p, huge, std.posix.MADV.NOHUGEPAGE) catch {};
     std.posix.madvise(@alignCast(p + huge), bytes - huge, std.posix.MADV.HUGEPAGE) catch {};
     return p;
@@ -149,6 +153,8 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         token: if (how == .reserved and leak_checked) [*]u8 else void = undefined,
         /// The first slot past the stretch faulted in so far (`reach`).
         high: if (grows) usize else void = if (grows) huge / @sizeOf(T) else {},
+        /// PROBE arms 5, 6: the first `len` at which a push takes the slow path.
+        limit: if (grows and arm >= 5) u64 else void = if (grows and arm >= 5) @min(n, huge / @sizeOf(T)) else {},
 
         const Self = @This();
         pub const __rig_args = .{ T, n };
@@ -158,7 +164,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
 
         const leak_checked = builtin.optimize == .debug;
         /// Whether a write past `high` faults in the next stretch.
-        const grows = how == .reserved and linux and bytes > huge and @sizeOf(T) > 0 and (arm == 1 or arm == 2 or arm == 4);
+        const grows = how == .reserved and linux and bytes > huge and @sizeOf(T) > 0 and (arm == 1 or arm == 2 or arm == 4 or arm == 5 or arm == 6);
 
         /// `Table()`: `n` slots, each `T()`. A table made once its value
         /// is wanted, at run time: never a constant.
@@ -185,7 +191,9 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `n` are pushed. The slot is dropped first, as any store into a
         /// place drops what was there.
         pub fn push(self: *Self, value: T) Index {
-            if (self.len == n) fullPanic(n);
+            if (comptime grows and arm >= 5) {
+                if (self.len >= self.limit) self.pushPast();
+            } else if (self.len == n) fullPanic(n);
             const s: Index = @intCast(self.len);
             if (comptime grows and arm == 2) if (s >= self.high) self.reach(s);
             const p = self.slot(s);
@@ -218,18 +226,26 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         pub inline fn slot(self: *Self, s: Index) *T {
             const i = offset(s);
             if (comptime how == .committed) if (i >= self.cap) self.grow(i);
-            if (comptime grows and arm != 2) if (i >= self.high) self.reach(i);
+            if (comptime grows and (arm == 1 or arm == 4)) if (i >= self.high) self.reach(i);
             return &self.slots[i];
         }
 
         /// A reserved table written at slot `i`, at or past `high`: the
         /// 2 MiB stretch that holds it faulted in at once, as writing it
         /// page by page would, and `high` moved past it.
+        noinline fn pushPast(self: *Self) void {
+            @branchHint(.cold);
+            if (self.len == n) fullPanic(n);
+            self.reach(@intCast(self.len));
+            self.limit = @min(n, self.high);
+        }
+
         noinline fn reach(self: *Self, i: usize) void {
             @branchHint(.cold);
             const off = i * @sizeOf(T);
             const start = std.mem.alignBackward(usize, off, huge);
             const end = @min(std.mem.alignForward(usize, off + @sizeOf(T), huge), bytes);
+            if (comptime arm == 6) std.posix.madvise(@ptrFromInt(@intFromPtr(self.slots) + start), end - start, std.posix.MADV.HUGEPAGE) catch {};
             rt.fast_alloc.populate(@intFromPtr(self.slots) + start, end - start);
             self.high = end / @sizeOf(T);
         }
