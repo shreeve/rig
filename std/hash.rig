@@ -7,12 +7,14 @@
 # which is unspecified: it changes as the table grows or rehashes.
 #
 # A table of `n` slots, a power of two, keeps one control byte a slot
-# and the slots themselves, each a key and its value held in place, or
-# `none`. A control byte is `EMPTY`, `DELETED` (a tombstone: a slot a
-# probe passes over), or, for a full slot, the top seven bits of its
-# key's hash (`tag_of`). The bytes after the `n` repeat the first ones,
-# so that 16 bytes read at any slot are the next 16 slots' bytes, as if
-# the table were a ring, and a table smaller than 16 repeats whole.
+# and the slots themselves. A control byte is `EMPTY` (0), `DELETED` (a
+# tombstone: a slot a probe passes over), or, for a full slot, its
+# key's `tag_of`: the top seven bits of the key's hash, with the high
+# bit set. The `GROUP` bytes after the `n` repeat the first ones, so
+# that 16 bytes read at any slot are the next 16 slots' bytes, as if the
+# table were a ring; a table smaller than 16 keeps its bytes from `n` to
+# 16 `EMPTY` and repeats itself from 16 on (`set_ctrl`).
+#
 # A key's hash picks its home slot by its low bits; a lookup reads the
 # 16 control bytes from there as one `Simd[U8, 16]`, compares each slot
 # whose byte matches the tag, and stops at a group that holds an `EMPTY`
@@ -20,9 +22,19 @@
 # last (triangular, which visits every group of the table). A table is
 # at most 7/8 full, counting tombstones; when an insert would pass that,
 # the table is rebuilt in place, its tombstones dropped, when its keys
-# fill at most half of it, and otherwise built anew twice as large. Taking a key leaves `EMPTY` where no probe could have
-# passed the slot (an `EMPTY` within the 16 bytes on both sides), and a
-# tombstone otherwise.
+# fill at most half of it, and otherwise built anew twice as large.
+# Taking a key leaves `EMPTY` where no probe could have passed the slot
+# (an `EMPTY` within the 16 bytes on both sides), and a tombstone
+# otherwise.
+#
+# Two layouts, picked by the key and value types when the program
+# compiles. When both are plain data (`$plain`), each slot is the entry
+# itself, a `Bucket` of key and value, and a free slot holds a copy of
+# some entry, which nothing reads: the control byte alone says whether a
+# slot is full, so a `Map[Int, Int]` slot takes 16 bytes. A lookup and
+# an insert into a table with room are inlined where they are called;
+# only growth is out of line. Otherwise each slot is an entry or `none`,
+# as an owning key or value needs.
 
 type Group = Simd[U8, 16]
 
@@ -31,21 +43,24 @@ GROUP = 16
 
 # The control byte of a slot that has never been full since the table
 # was built or rebuilt: a probe stops at a group that holds one.
-EMPTY: U8 = 0xFF
+EMPTY: U8 = 0
 
 # The control byte of a slot whose key was taken, which a probe passes
 # over and an insert may fill.
-DELETED: U8 = 0x80
+DELETED: U8 = 1
+
+# A control byte at least this is a full slot's.
+FULL: U8 = 0x80
 
 # The hash of a key, the one place a Map or Set hashes one.
-fun hash_of[K: Hash](k: ?K) -> U64
+inline fun hash_of[K: Hash](k: ?K) -> U64
   k.hash()
 
-# A full slot's control byte: the top seven bits of its key's hash. The
-# home slot is picked by the low bits, so keys probed from one group
-# still differ in their tags.
-fun tag_of(h: U64) -> U8
-  U8(h >> 57)
+# A full slot's control byte: the top seven bits of its key's hash, with
+# the high bit set. The home slot is picked by the low bits, so keys
+# probed from one group still differ in their tags.
+inline fun tag_of(h: U64) -> U8
+  U8(h >> 57) | FULL
 
 # How many keys a table of `n` slots holds before it grows: 7/8 of it,
 # or all but one slot below 16.
@@ -64,32 +79,37 @@ fun slots_for(want: Int) -> Int
     n *= 2
   n
 
-# Set slot `i`'s control byte to `c`, and the copies of it past the
-# table's `n` slots.
-sub set_ctrl(ctrl: ![]U8, n: Int, i: Int, c: U8)
+# Set slot `i`'s control byte to `c`, and its copy: past the table's
+# `mask + 1` slots for the first 16, from byte 16 on in a table under 16
+# slots, and the byte itself again otherwise.
+inline sub set_ctrl(ctrl: ![]U8, mask: Int, i: Int, c: U8)
   ctrl[i] = c
-  j = i + n
-  while j < n + GROUP : j += n
-    ctrl[j] = c
+  ctrl[((i -% GROUP) & mask) +% GROUP] = c
 
 # The first slot from `h`'s home, in probe order, that a new key may go
-# in: `EMPTY` or `DELETED`. The table is never full, so one is found.
-fun insert_slot(ctrl: []U8, mask: Int, h: U64) -> Int
-  pos = Int(h & U64(mask))
-  stride = 0
-  while true
-    if (ctrl.read[Group](pos) >= DELETED).first() as e
-      return (pos + e) & mask
-    stride += GROUP
-    pos = (pos + stride) & mask
+# in: `EMPTY` or `DELETED`. The table is never full, so one is found. In
+# a table under 16 slots the byte found may lie past its end, where the
+# slot it names is full; the first group then has a free slot.
+inline fun insert_slot(ctrl: []U8, mask: Int, h: U64) -> Int
+  # As in a Map's `p_find`: the tests prove the group reads in bounds.
+  if 0 <= mask and mask + 16 <= ctrl.len
+    pos = Int.wrap(h) & mask
+    stride = 0
+    while 0 <= pos and pos <= mask
+      m = (ctrl.read[Group](pos) < FULL).bits()
+      if m != 0
+        i = (pos +% m.trailing_zeros()) & mask
+        if ctrl[i] >= FULL
+          i = (ctrl.read[Group](0) < FULL).bits().trailing_zeros()
+        return i
+      stride +%= GROUP
+      pos = (pos +% stride) & mask
   -1
 
-# The bits of the full slots in the group at `at`, a multiple of 16,
-# of a table of `n` slots: below 16 slots, only the first `n` lanes.
-fun full_bits(ctrl: []U8, at: Int, n: Int) -> U64
-  b = (ctrl.read[Group](at) < DELETED).bits()
-  return b & ((U64(1) << U64(n)) - 1) if n < GROUP
-  b
+# The bits of the full slots in the group at `at`, a multiple of 16; a
+# table under 16 slots reads only `EMPTY` bytes past its end.
+inline fun full_bits(ctrl: []U8, at: Int) -> U64
+  (ctrl.read[Group](at) >= FULL).bits()
 
 # The control byte that slot `i` gets when its key is taken: `EMPTY`
 # when the 16 bytes before it or the 16 from it hold an `EMPTY` close
@@ -104,19 +124,32 @@ fun erased_ctrl(ctrl: []U8, mask: Int, i: Int) -> U8
   DELETED if lead + trail >= GROUP else EMPTY
 
 # Every full byte made `DELETED` and every `DELETED` one `EMPTY`, the
-# first step of rebuilding a table in place: a `DELETED` byte then marks
-# a key still to place.
+# first step of rebuilding a table of `n` slots in place: a `DELETED`
+# byte then marks a key still to place. The copies are made again.
 sub mark_for_rehash(ctrl: ![]U8, n: Int)
   for i in 0..n
-    ctrl[i] = EMPTY if ctrl[i] >= DELETED else DELETED
-  for j in n..n + GROUP
-    ctrl[j] = ctrl[j & (n - 1)]
+    ctrl[i] = DELETED if ctrl[i] >= FULL else EMPTY
+  if n < GROUP
+    for j in 0..n
+      ctrl[GROUP + j] = ctrl[j]
+  else
+    for j in 0..GROUP
+      ctrl[n + j] = ctrl[j]
 
 # Whether slots `i` and `j` lie in the same group of `h`'s probe, so a
 # key that hashes to `h` is found the same at either.
 fun same_group(i: Int, j: Int, mask: Int, h: U64) -> Bool
-  home = Int(h & U64(mask))
+  home = Int.wrap(h) & mask
   ((i - home) & mask) / GROUP == ((j - home) & mask) / GROUP
+
+# The slots a table grows to, from `n` with `len` keys, for `more` more:
+# `n` itself, rebuilt in place, while that leaves it at most half full;
+# else twice as large or more. 0 for a table rebuilt in place.
+fun grown_size(n: Int, len: Int, more: Int) -> Int
+  want = len + more
+  full = capacity_of(n)
+  return 0 if n > 0 and want <= full / 2
+  slots_for(want if want > full + 1 else full + 1)
 
 # A key and its value, where a Map's table holds them.
 obj Bucket[K, V]
@@ -128,12 +161,17 @@ obj Bucket[K, V]
 pub obj Map[K: Hash + Print, V: Print]: Print
   # How many entries the Map holds.
   pub ?len: Int = 0
-  # One byte a slot, then `GROUP` more repeating the first ones; empty
-  # with the slots.
+  # One byte a slot, then `GROUP` more (`set_ctrl`); empty with the
+  # slots.
   ctrl: List[U8] = List()
-  # The slots, a power of two of them, each an entry or `none`.
+  # The slots of a Map of plain keys and values: each an entry, a free
+  # one a copy of some entry.
+  ps: List[Bucket[K, V]] = List()
+  # The slots of any other Map, each an entry or `none`.
   slots: List[Bucket[K, V]?] = List()
-  # How many more keys may go into `EMPTY` slots before the table grows.
+  # How many more keys may go into `EMPTY` slots before the table grows;
+  # before a plain Map's table is built, less the slots `reserve` asked
+  # for.
   left: Int = 0
 
   # An empty Map, as `hash.Map[K, V]()` is, with room for `capacity`
@@ -146,14 +184,28 @@ pub obj Map[K: Hash + Print, V: Print]: Print
   # Make room for `n` more entries at once, so the next `n` puts of new
   # keys do not grow the table.
   pub sub reserve(!@, n: Int)
+    if $plain(K) and $plain(V)
+      if @ps.len == 0
+        size = slots_for(n)
+        @left = -size if -size < @left
+      else if n > @left
+        first = @ps[0]
+        !@p_grow(n, first)
+      return
     !@grow(n) if n > @left
 
   # Whether the Map holds the key `k`.
-  pub fun has(?@, k: ?K) -> Bool
+  pub inline fun has(?@, k: ?K) -> Bool
+    if $plain(K) and $plain(V)
+      return @p_find(k, hash_of(k)) >= 0
     @find(k, hash_of(k)) >= 0
 
   # The value of the key `k`, viewed where the Map holds it, or `none`.
-  pub fun get(?@, k: ?K) -> (?V)? from @
+  pub inline fun get(?@, k: ?K) -> (?V)? from @
+    if $plain(K) and $plain(V)
+      i = @p_find(k, hash_of(k))
+      return none if i < 0
+      return ?@ps[i].value
     i = @find(k, hash_of(k))
     if i >= 0
       if ?@slots[i] as b
@@ -162,7 +214,11 @@ pub obj Map[K: Hash + Print, V: Print]: Print
 
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
-  pub fun edit(!@, k: ?K) -> (!V)? from @
+  pub inline fun edit(!@, k: ?K) -> (!V)? from @
+    if $plain(K) and $plain(V)
+      i = @p_find(k, hash_of(k))
+      return none if i < 0
+      return !@ps[i].value
     i = @find(k, hash_of(k))
     if i >= 0
       if !@slots[i] as b
@@ -171,14 +227,30 @@ pub obj Map[K: Hash + Print, V: Print]: Print
 
   # Put `v` under `k`, inserting or overwriting; the old value is
   # dropped, and so is `k` when the key is there.
-  pub sub put(!@, k: K, v: V)
+  pub inline sub put(!@, k: K, v: V)
+    if $plain(K) and $plain(V)
+      h = hash_of(?k)
+      i = @p_probe(?k, h)
+      if i >= 0
+        @ps[i].value = v
+      else
+        _ = (!@).p_add(-1 - i, k, v, h)
+      return
     old = (!@).replace(<k, <v)
     <old
 
   # Put `v` under `k`, inserting or overwriting, and hand back the old
   # value, or `none` when `k` is new.
-  pub fun replace(!@, k: K, v: V) -> V?
+  pub inline fun replace(!@, k: K, v: V) -> V?
     h = hash_of(?k)
+    if $plain(K) and $plain(V)
+      i = @p_probe(?k, h)
+      if i >= 0
+        old = @ps[i].value
+        @ps[i].value = v
+        return old
+      _ = (!@).p_add(-1 - i, k, v, h)
+      return none
     i = @probe(?k, h)
     if i >= 0
       <k
@@ -188,8 +260,13 @@ pub obj Map[K: Hash + Print, V: Print]: Print
 
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
   # `k` and `v` are dropped.
-  pub fun put_new(!@, k: K, v: V) -> Bool
+  pub inline fun put_new(!@, k: K, v: V) -> Bool
     h = hash_of(?k)
+    if $plain(K) and $plain(V)
+      i = @p_probe(?k, h)
+      return false if i >= 0
+      _ = (!@).p_add(-1 - i, k, v, h)
+      return true
     i = @probe(?k, h)
     if i >= 0
       <k
@@ -200,8 +277,12 @@ pub obj Map[K: Hash + Print, V: Print]: Print
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
-  pub fun ensure(!@, k: K, v: V) -> !V from @, k, v
+  pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
     h = hash_of(?k)
+    if $plain(K) and $plain(V)
+      i = @p_probe(?k, h)
+      i = (!@).p_add(-1 - i, k, v, h) if i < 0
+      return !@ps[i].value
     i = @probe(?k, h)
     if i >= 0
       <k
@@ -213,8 +294,13 @@ pub obj Map[K: Hash + Print, V: Print]: Print
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
-  pub fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
+  pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     h = hash_of(?k)
+    if $plain(K) and $plain(V)
+      i = @p_probe(?k, h)
+      added = i < 0
+      i = (!@).p_add(-1 - i, k, v, h) if added
+      return !@ps[i].value, added
     i = @probe(?k, h)
     added = i < 0
     if i >= 0
@@ -227,8 +313,12 @@ pub obj Map[K: Hash + Print, V: Print]: Print
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
+  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
     h = hash_of(?k)
+    if $plain(K) and $plain(V)
+      i = @p_probe(?k, h)
+      i = (!@).p_add_made(-1 - i, k, make, h) if i < 0
+      return !@ps[i].value
     i = @probe(?k, h)
     if i >= 0
       <k
@@ -238,7 +328,12 @@ pub obj Map[K: Hash + Print, V: Print]: Print
 
   # Take the entry of the key `k` out: its value is handed back, and its
   # key dropped. `none` when the Map has no such key.
-  pub fun take(!@, k: ?K) -> V?
+  pub inline fun take(!@, k: ?K) -> V?
+    if $plain(K) and $plain(V)
+      i = @p_find(k, hash_of(k))
+      return none if i < 0
+      !@p_erase(i)
+      return @ps[i].value
     i = @find(k, hash_of(k))
     return none if i < 0
     !@erase(i)
@@ -250,6 +345,18 @@ pub obj Map[K: Hash + Print, V: Print]: Print
   # and its value to write, in table order, and an entry it rejects is
   # dropped then.
   pub sub retain(!@, f: ?fun(?K, !V) -> Bool)
+    if $plain(K) and $plain(V)
+      at = 0
+      while @len > 0 and at < @ps.len : at += GROUP
+        bits = full_bits(?@ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          i = at + bits.trailing_zeros()
+          key = @ps[i].key
+          value = @ps[i].value
+          keep = f(?key, !value)
+          @ps[i].value = value
+          !@p_erase(i) if not keep
+      return
     for i in 0..@slots.len
       keep = true
       if !@slots[i] as b
@@ -263,15 +370,16 @@ pub obj Map[K: Hash + Print, V: Print]: Print
   # The Map keeps its table, every slot free; a table with no entry and
   # no tombstone is left as it is.
   pub sub clear(!@)
-    n = @slots.len
-    return if @left == capacity_of(n)
-    at = 0
-    while @len > 0 and at < n : at += GROUP
-      bits = full_bits(?@ctrl[..], at, n)
-      while bits != 0 : bits &= bits - 1
-        gone = <@slots[at + bits.trailing_zeros()]
-        <gone
-        @len -= 1
+    n = @size()
+    return if n == 0 or @left == capacity_of(n)
+    if not ($plain(K) and $plain(V))
+      at = 0
+      while @len > 0 and at < n : at += GROUP
+        bits = full_bits(?@ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          gone = <@slots[at + bits.trailing_zeros()]
+          <gone
+          @len -= 1
     !@ctrl[..].fill(EMPTY)
     @left = capacity_of(n)
     @len = 0
@@ -291,6 +399,17 @@ pub obj Map[K: Hash + Print, V: Print]: Print
 
   # Call `f` with each key, in table order, and its value lent to write.
   pub sub update(!@, f: ?sub(?K, !V))
+    if $plain(K) and $plain(V)
+      at = 0
+      while at < @ps.len : at += GROUP
+        bits = full_bits(?@ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          i = at + bits.trailing_zeros()
+          key = @ps[i].key
+          value = @ps[i].value
+          f(?key, !value)
+          @ps[i].value = value
+      return
     for i in 0..@slots.len
       if !@slots[i] as b
         f(?b.key, !b.value)
@@ -299,14 +418,196 @@ pub obj Map[K: Hash + Print, V: Print]: Print
   sub print(?@, out: !Printer)
     !out.text("{")
     first = true
-    for i in 0..@slots.len
-      if ?@slots[i] as b
-        !out.text(", ") if not first
-        first = false
-        !out.value(?b.key)
-        !out.text(": ")
-        !out.value(?b.value)
+    if $plain(K) and $plain(V)
+      at = 0
+      while at < @ps.len : at += GROUP
+        bits = full_bits(?@ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          i = at + bits.trailing_zeros()
+          !out.text(", ") if not first
+          first = false
+          !out.value(?@ps[i].key)
+          !out.text(": ")
+          !out.value(?@ps[i].value)
+    else
+      for i in 0..@slots.len
+        if ?@slots[i] as b
+          !out.text(", ") if not first
+          first = false
+          !out.value(?b.key)
+          !out.text(": ")
+          !out.value(?b.value)
     !out.text("}")
+
+  # The slots of the table: 0 before it is built.
+  fun size(?@) -> Int
+    if $plain(K) and $plain(V)
+      return @ps.len
+    @slots.len
+
+  # A plain Map's slot of the key `k`, whose hash is `h`, or -1.
+  inline fun p_find(?@, k: ?K, h: U64) -> Int
+    ps = ?@ps[..]
+    ctrl = ?@ctrl[..]
+    mask = ps.len -% 1
+    # The control bytes are the slots and `GROUP` more, so this holds
+    # once the table is built, and it proves each group read below in
+    # bounds, with the loop's own test, which never fails.
+    if 0 <= mask and mask + 16 <= ctrl.len
+      tag = tag_of(h)
+      pos = Int.wrap(h) & mask
+      stride = 0
+      while 0 <= pos and pos <= mask
+        g = ctrl.read[Group](pos)
+        m = (g == tag).bits()
+        while m != 0 : m &= m - 1
+          i = (pos +% m.trailing_zeros()) & mask
+          return i if ps[i].key == k
+        return -1 if (g == EMPTY).any()
+        stride +%= GROUP
+        pos = (pos +% stride) & mask
+    -1
+
+  # A plain Map's slot of the key `k`, whose hash is `h`, when it holds
+  # `k`; otherwise -1 less the slot a new `k` would go in, found on the
+  # same probe: the first `EMPTY` or `DELETED` one (-1 less 0 before the
+  # table is built).
+  inline fun p_probe(?@, k: ?K, h: U64) -> Int
+    ps = ?@ps[..]
+    ctrl = ?@ctrl[..]
+    mask = ps.len -% 1
+    # As in `p_find`.
+    if 0 <= mask and mask + 16 <= ctrl.len
+      tag = tag_of(h)
+      pos = Int.wrap(h) & mask
+      stride = 0
+      free = -1
+      while 0 <= pos and pos <= mask
+        g = ctrl.read[Group](pos)
+        m = (g == tag).bits()
+        while m != 0 : m &= m - 1
+          i = (pos +% m.trailing_zeros()) & mask
+          return i if ps[i].key == k
+        if free < 0
+          f = (g < FULL).bits()
+          free = (pos +% f.trailing_zeros()) & mask if f != 0
+        if (g == EMPTY).any()
+          if ctrl[free] >= FULL
+            free = (ctrl.read[Group](0) < FULL).bits().trailing_zeros()
+          return -1 - free
+        stride +%= GROUP
+        pos = (pos +% stride) & mask
+    -1
+
+  # Put the new key `k`, hashing to `h`, and `v` in slot `at` of a plain
+  # Map, the one `p_probe` found, and give its slot. Inlined where it is
+  # called; when the table has to grow first, or is not built yet, the
+  # rest is out of line (`p_add_grown`).
+  inline fun p_add(!@, at: Int, k: K, v: V, h: U64) -> Int
+    if $plain(K) and $plain(V)
+      if @left <= 0
+        if @ps.len == 0 or @ctrl[at] == EMPTY
+          return (!@).p_add_grown(k, v, h)
+      @left -= 1 if @ctrl[at] == EMPTY
+      set_ctrl(!@ctrl[..], @ps.len -% 1, at, tag_of(h))
+      @ps[at] = Bucket(key: k, value: v)
+      @len += 1
+      return at
+    <k
+    <v
+    -1
+
+  # `p_add` with the value `make(k)`, made only now.
+  inline fun p_add_made(!@, at: Int, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
+    v = make(?k)
+    (!@).p_add(at, <k, <v, h)
+
+  # `p_add` when the table has to grow first: grow it, then put the
+  # entry in the first free slot from its home.
+  fun p_add_grown(!@, k: K, v: V, h: U64) -> Int
+    rarely
+    if $plain(K) and $plain(V)
+      e = Bucket(key: k, value: v)
+      !@p_grow(1, e)
+      mask = @ps.len - 1
+      i = insert_slot(?@ctrl[..], mask, h)
+      @left -= 1 if @ctrl[i] == EMPTY
+      set_ctrl(!@ctrl[..], mask, i, tag_of(h))
+      @ps[i] = e
+      @len += 1
+      return i
+    <k
+    <v
+    -1
+
+  # Make room in a plain Map for `more` more keys: build the table, at
+  # least as large as `reserve` asked; rebuild it in place; or build one
+  # twice as large or more, its control bytes and its slots each written
+  # in one fill (`filler` copied into every free slot), then each entry
+  # put in the first free slot from its home, in the order of the old
+  # slots.
+  sub p_grow(!@, more: Int, filler: Bucket[K, V])
+    rarely
+    if $plain(K) and $plain(V)
+      if @ps.len == 0
+        n = slots_for(@len + more)
+        n = -@left if -@left > n
+        @ctrl = List.filled(n + GROUP, EMPTY)
+        @ps = List.filled(n, filler)
+        @left = capacity_of(n)
+        return
+      n = grown_size(@ps.len, @len, more)
+      if n == 0
+        !@p_rehash()
+        return
+      old = swap(!@ps, List.filled(n, filler))
+      old_ctrl = swap(!@ctrl, List.filled(n + GROUP, EMPTY))
+      mask = n - 1
+      at = 0
+      while at < old.len : at += GROUP
+        bits = full_bits(?old_ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          e = old[at + bits.trailing_zeros()]
+          h = hash_of(?e.key)
+          j = insert_slot(?@ctrl[..], mask, h)
+          set_ctrl(!@ctrl[..], mask, j, tag_of(h))
+          @ps[j] = e
+      @left = capacity_of(n) - @len
+
+  # Rebuild a plain Map's table at its size, dropping its tombstones:
+  # each key marked `DELETED` placed again from its hash, swapping with a
+  # key not yet placed when it lands on one (hashbrown's
+  # `rehash_in_place`).
+  sub p_rehash(!@)
+    if $plain(K) and $plain(V)
+      n = @ps.len
+      mask = n - 1
+      mark_for_rehash(!@ctrl[..], n)
+      for i in 0..n
+        while @ctrl[i] == DELETED
+          h = hash_of(?@ps[i].key)
+          j = insert_slot(?@ctrl[..], mask, h)
+          if same_group(i, j, mask, h)
+            set_ctrl(!@ctrl[..], mask, i, tag_of(h))
+            break
+          was = @ctrl[j]
+          set_ctrl(!@ctrl[..], mask, j, tag_of(h))
+          e = @ps[j]
+          @ps[j] = @ps[i]
+          if was == EMPTY
+            set_ctrl(!@ctrl[..], mask, i, EMPTY)
+          else
+            @ps[i] = e
+      @left = capacity_of(n) - @len
+
+  # Free slot `i` of a plain Map: its control byte becomes `EMPTY` or a
+  # tombstone (`erased_ctrl`).
+  sub p_erase(!@, i: Int)
+    mask = @ps.len - 1
+    c = erased_ctrl(?@ctrl[..], mask, i)
+    @left += 1 if c == EMPTY
+    set_ctrl(!@ctrl[..], mask, i, c)
+    @len -= 1
 
   # The slot of the key `k`, whose hash is `h`, or -1.
   fun find(?@, k: ?K, h: U64) -> Int
@@ -314,13 +615,13 @@ pub obj Map[K: Hash + Print, V: Print]: Print
     return -1 if n == 0
     mask = n - 1
     tag = tag_of(h)
-    pos = Int(h & U64(mask))
+    pos = Int.wrap(h) & mask
     stride = 0
     while true
       g = @ctrl.read[Group](pos)
       m = (g == tag).bits()
       while m != 0 : m &= m - 1
-        i = (pos + m.trailing_zeros()) & mask
+        i = (pos +% m.trailing_zeros()) & mask
         if ?@slots[i] as b
           return i if b.key == k
       return -1 if (g == EMPTY).any()
@@ -337,20 +638,23 @@ pub obj Map[K: Hash + Print, V: Print]: Print
     return -1 if n == 0
     mask = n - 1
     tag = tag_of(h)
-    pos = Int(h & U64(mask))
+    pos = Int.wrap(h) & mask
     stride = 0
     free = -1
     while true
       g = @ctrl.read[Group](pos)
       m = (g == tag).bits()
       while m != 0 : m &= m - 1
-        i = (pos + m.trailing_zeros()) & mask
+        i = (pos +% m.trailing_zeros()) & mask
         if ?@slots[i] as b
           return i if b.key == k
       if free < 0
-        if (g >= DELETED).first() as e
-          free = (pos + e) & mask
-      return -1 - free if (g == EMPTY).any()
+        f = (g < FULL).bits()
+        free = (pos +% f.trailing_zeros()) & mask if f != 0
+      if (g == EMPTY).any()
+        if @ctrl[free] >= FULL
+          free = (@ctrl.read[Group](0) < FULL).bits().trailing_zeros()
+        return -1 - free
       stride += GROUP
       pos = (pos + stride) & mask
     -1
@@ -376,7 +680,7 @@ pub obj Map[K: Hash + Print, V: Print]: Print
       !@grow(1)
       i = insert_slot(?@ctrl[..], @slots.len - 1, h)
     @left -= 1 if @ctrl[i] == EMPTY
-    set_ctrl(!@ctrl[..], @slots.len, i, tag_of(h))
+    set_ctrl(!@ctrl[..], @slots.len - 1, i, tag_of(h))
     old = swap(!@slots[i], Bucket(key: <k, value: <v))
     <old
     @len += 1
@@ -387,50 +691,46 @@ pub obj Map[K: Hash + Print, V: Print]: Print
   sub erase(!@, i: Int)
     c = erased_ctrl(?@ctrl[..], @slots.len - 1, i)
     @left += 1 if c == EMPTY
-    set_ctrl(!@ctrl[..], @slots.len, i, c)
+    set_ctrl(!@ctrl[..], @slots.len - 1, i, c)
     @len -= 1
 
   # Make room for `more` keys: rebuild the table in place when that
   # leaves it at most half full, else build one twice as large or more.
   sub grow(!@, more: Int)
     rarely
-    want = @len + more
-    full = capacity_of(@slots.len)
-    if want <= full / 2
+    n = grown_size(@slots.len, @len, more)
+    if n == 0
       !@rehash()
     else
-      !@resize(want if want > full + 1 else full + 1)
+      !@resize(n)
 
-  # Move every entry into a new table with room for `want`, in the
-  # order of the old slots, each placed from its key's hash.
-  sub resize(!@, want: Int)
-    n = slots_for(want)
+  # Move every entry into a new table of `n` slots, in the order of the
+  # old slots, each placed from its key's hash.
+  sub resize(!@, n: Int)
     fresh: List[Bucket[K, V]?] = List(capacity: n)
     for _ in 0..n
       !fresh.push(none)
     old = swap(!@slots, <fresh)
-    @ctrl = List.filled(n + GROUP, EMPTY)
+    old_ctrl = swap(!@ctrl, List.filled(n + GROUP, EMPTY))
     mask = n - 1
-    for i in 0..old.len
-      if <old[i] as b
-        h = hash_of(?b.key)
-        j = insert_slot(?@ctrl[..], mask, h)
-        set_ctrl(!@ctrl[..], n, j, tag_of(h))
-        was = swap(!@slots[j], <b)
-        <was
+    at = 0
+    while at < old.len : at += GROUP
+      bits = full_bits(?old_ctrl[..], at)
+      while bits != 0 : bits &= bits - 1
+        if <old[at + bits.trailing_zeros()] as b
+          h = hash_of(?b.key)
+          j = insert_slot(?@ctrl[..], mask, h)
+          set_ctrl(!@ctrl[..], mask, j, tag_of(h))
+          was = swap(!@slots[j], <b)
+          <was
     @left = capacity_of(n) - @len
 
-  # Rebuild the table at its size, dropping its tombstones.
+  # Rebuild the table at its size, dropping its tombstones, as
+  # `p_rehash` does.
   sub rehash(!@)
-    mark_for_rehash(!@ctrl[..], @slots.len)
-    !@place()
-
-  # Place each key whose slot is marked `DELETED` again from its hash,
-  # in the table as it is, swapping with a key not yet placed when it
-  # lands on one (hashbrown's `rehash_in_place`).
-  sub place(!@)
     n = @slots.len
     mask = n - 1
+    mark_for_rehash(!@ctrl[..], n)
     for i in 0..n
       while @ctrl[i] == DELETED
         h: U64 = 0
@@ -438,19 +738,19 @@ pub obj Map[K: Hash + Print, V: Print]: Print
           h = hash_of(?b.key)
         j = insert_slot(?@ctrl[..], mask, h)
         if same_group(i, j, mask, h)
-          set_ctrl(!@ctrl[..], n, i, tag_of(h))
+          set_ctrl(!@ctrl[..], mask, i, tag_of(h))
           break
         was = @ctrl[j]
-        set_ctrl(!@ctrl[..], n, j, tag_of(h))
+        set_ctrl(!@ctrl[..], mask, j, tag_of(h))
         moving = <@slots[i]
         back = swap(!@slots[j], <moving)
         old = swap(!@slots[i], <back)
         <old
-        set_ctrl(!@ctrl[..], n, i, EMPTY) if was == EMPTY
+        set_ctrl(!@ctrl[..], mask, i, EMPTY) if was == EMPTY
     @left = capacity_of(n) - @len
 
-# A set of keys, in no order, laid out as a Map's table is with each
-# slot a key or `none`.
+# A set of keys, in no order, laid out as a Map's table is: each slot a
+# key, or, for a key that is not plain data, a key or `none`.
 #
 # `hash.Set[K]()` is an empty Set, which allocates nothing until the
 # first `add`.
@@ -458,6 +758,9 @@ pub obj Set[K: Hash + Print]: Print
   # How many keys the Set holds.
   pub ?len: Int = 0
   ctrl: List[U8] = List()
+  # The slots of a Set of plain keys, a free one a copy of some key.
+  ps: List[K] = List()
+  # The slots of any other Set.
   slots: List[K?] = List()
   left: Int = 0
 
@@ -470,15 +773,30 @@ pub obj Set[K: Hash + Print]: Print
   # Make room for `n` more keys at once, so the next `n` adds of new
   # keys do not grow the table.
   pub sub reserve(!@, n: Int)
+    if $plain(K)
+      if @ps.len == 0
+        size = slots_for(n)
+        @left = -size if -size < @left
+      else if n > @left
+        first = @ps[0]
+        !@p_grow(n, first)
+      return
     !@grow(n) if n > @left
 
   # Whether the Set holds the key `k`.
-  pub fun has(?@, k: ?K) -> Bool
+  pub inline fun has(?@, k: ?K) -> Bool
+    if $plain(K)
+      return @p_find(k, hash_of(k)) >= 0
     @find(k, hash_of(k)) >= 0
 
   # Add the key `k`: true when it is new; otherwise `k` is dropped.
-  pub fun add(!@, k: K) -> Bool
+  pub inline fun add(!@, k: K) -> Bool
     h = hash_of(?k)
+    if $plain(K)
+      i = @p_probe(?k, h)
+      return false if i >= 0
+      !@p_insert(-1 - i, k, h)
+      return true
     i = @probe(?k, h)
     if i >= 0
       <k
@@ -488,7 +806,12 @@ pub obj Set[K: Hash + Print]: Print
 
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
-  pub fun take(!@, k: ?K) -> K?
+  pub inline fun take(!@, k: ?K) -> K?
+    if $plain(K)
+      i = @p_find(k, hash_of(k))
+      return none if i < 0
+      !@p_erase(i)
+      return @ps[i]
     i = @find(k, hash_of(k))
     return none if i < 0
     !@erase(i)
@@ -497,6 +820,14 @@ pub obj Set[K: Hash + Print]: Print
   # Keep the keys for which `f` is true, in table order; a key it
   # rejects is dropped then.
   pub sub retain(!@, f: ?fun(?K) -> Bool)
+    if $plain(K)
+      at = 0
+      while @len > 0 and at < @ps.len : at += GROUP
+        bits = full_bits(?@ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          i = at + bits.trailing_zeros()
+          !@p_erase(i) if not f(?@ps[i])
+      return
     for i in 0..@slots.len
       keep = true
       if ?@slots[i] as k
@@ -509,15 +840,16 @@ pub obj Set[K: Hash + Print]: Print
   # Drop every key, as a Map's `clear` drops its entries. The Set keeps
   # its table, every slot free.
   pub sub clear(!@)
-    n = @slots.len
-    return if @left == capacity_of(n)
-    at = 0
-    while @len > 0 and at < n : at += GROUP
-      bits = full_bits(?@ctrl[..], at, n)
-      while bits != 0 : bits &= bits - 1
-        gone = <@slots[at + bits.trailing_zeros()]
-        <gone
-        @len -= 1
+    n = @size()
+    return if n == 0 or @left == capacity_of(n)
+    if not $plain(K)
+      at = 0
+      while @len > 0 and at < n : at += GROUP
+        bits = full_bits(?@ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          gone = <@slots[at + bits.trailing_zeros()]
+          <gone
+          @len -= 1
     !@ctrl[..].fill(EMPTY)
     @left = capacity_of(n)
     @len = 0
@@ -530,12 +862,163 @@ pub obj Set[K: Hash + Print]: Print
   sub print(?@, out: !Printer)
     !out.text("{")
     first = true
-    for i in 0..@slots.len
-      if ?@slots[i] as k
-        !out.text(", ") if not first
-        first = false
-        !out.value(k)
+    if $plain(K)
+      at = 0
+      while at < @ps.len : at += GROUP
+        bits = full_bits(?@ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          !out.text(", ") if not first
+          first = false
+          !out.value(?@ps[at + bits.trailing_zeros()])
+    else
+      for i in 0..@slots.len
+        if ?@slots[i] as k
+          !out.text(", ") if not first
+          first = false
+          !out.value(k)
     !out.text("}")
+
+  # The slots of the table: 0 before it is built.
+  fun size(?@) -> Int
+    if $plain(K)
+      return @ps.len
+    @slots.len
+
+  # As a Map's `p_find`.
+  inline fun p_find(?@, k: ?K, h: U64) -> Int
+    ps = ?@ps[..]
+    ctrl = ?@ctrl[..]
+    mask = ps.len -% 1
+    if 0 <= mask and mask + 16 <= ctrl.len
+      tag = tag_of(h)
+      pos = Int.wrap(h) & mask
+      stride = 0
+      while 0 <= pos and pos <= mask
+        g = ctrl.read[Group](pos)
+        m = (g == tag).bits()
+        while m != 0 : m &= m - 1
+          i = (pos +% m.trailing_zeros()) & mask
+          return i if ps[i] == k
+        return -1 if (g == EMPTY).any()
+        stride +%= GROUP
+        pos = (pos +% stride) & mask
+    -1
+
+  # As a Map's `p_probe`.
+  inline fun p_probe(?@, k: ?K, h: U64) -> Int
+    ps = ?@ps[..]
+    ctrl = ?@ctrl[..]
+    mask = ps.len -% 1
+    # As in `p_find`.
+    if 0 <= mask and mask + 16 <= ctrl.len
+      tag = tag_of(h)
+      pos = Int.wrap(h) & mask
+      stride = 0
+      free = -1
+      while 0 <= pos and pos <= mask
+        g = ctrl.read[Group](pos)
+        m = (g == tag).bits()
+        while m != 0 : m &= m - 1
+          i = (pos +% m.trailing_zeros()) & mask
+          return i if ps[i] == k
+        if free < 0
+          f = (g < FULL).bits()
+          free = (pos +% f.trailing_zeros()) & mask if f != 0
+        if (g == EMPTY).any()
+          if ctrl[free] >= FULL
+            free = (ctrl.read[Group](0) < FULL).bits().trailing_zeros()
+          return -1 - free
+        stride +%= GROUP
+        pos = (pos +% stride) & mask
+    -1
+
+  # As a Map's `p_add`.
+  inline sub p_insert(!@, at: Int, k: K, h: U64)
+    if $plain(K)
+      if @left <= 0
+        if @ps.len == 0 or @ctrl[at] == EMPTY
+          !@p_insert_grown(k, h)
+          return
+      @left -= 1 if @ctrl[at] == EMPTY
+      set_ctrl(!@ctrl[..], @ps.len -% 1, at, tag_of(h))
+      @ps[at] = k
+      @len += 1
+      return
+    <k
+
+  # As a Map's `p_add_grown`.
+  sub p_insert_grown(!@, k: K, h: U64)
+    rarely
+    if $plain(K)
+      !@p_grow(1, k)
+      mask = @ps.len - 1
+      i = insert_slot(?@ctrl[..], mask, h)
+      @left -= 1 if @ctrl[i] == EMPTY
+      set_ctrl(!@ctrl[..], mask, i, tag_of(h))
+      @ps[i] = k
+      @len += 1
+      return
+    <k
+
+  # As a Map's `p_grow`.
+  sub p_grow(!@, more: Int, filler: K)
+    rarely
+    if $plain(K)
+      if @ps.len == 0
+        n = slots_for(@len + more)
+        n = -@left if -@left > n
+        @ctrl = List.filled(n + GROUP, EMPTY)
+        @ps = List.filled(n, filler)
+        @left = capacity_of(n)
+        return
+      n = grown_size(@ps.len, @len, more)
+      if n == 0
+        !@p_rehash()
+        return
+      old = swap(!@ps, List.filled(n, filler))
+      old_ctrl = swap(!@ctrl, List.filled(n + GROUP, EMPTY))
+      mask = n - 1
+      at = 0
+      while at < old.len : at += GROUP
+        bits = full_bits(?old_ctrl[..], at)
+        while bits != 0 : bits &= bits - 1
+          k = old[at + bits.trailing_zeros()]
+          h = hash_of(?k)
+          j = insert_slot(?@ctrl[..], mask, h)
+          set_ctrl(!@ctrl[..], mask, j, tag_of(h))
+          @ps[j] = k
+      @left = capacity_of(n) - @len
+
+  # As a Map's `p_rehash`.
+  sub p_rehash(!@)
+    if $plain(K)
+      n = @ps.len
+      mask = n - 1
+      mark_for_rehash(!@ctrl[..], n)
+      for i in 0..n
+        while @ctrl[i] == DELETED
+          h = hash_of(?@ps[i])
+          j = insert_slot(?@ctrl[..], mask, h)
+          if same_group(i, j, mask, h)
+            set_ctrl(!@ctrl[..], mask, i, tag_of(h))
+            break
+          was = @ctrl[j]
+          set_ctrl(!@ctrl[..], mask, j, tag_of(h))
+          k = @ps[j]
+          @ps[j] = @ps[i]
+          if was == EMPTY
+            set_ctrl(!@ctrl[..], mask, i, EMPTY)
+          else
+            @ps[i] = k
+      @left = capacity_of(n) - @len
+
+  # As a Map's `p_erase`.
+  sub p_erase(!@, i: Int)
+    mask = @ps.len - 1
+    c = erased_ctrl(?@ctrl[..], mask, i)
+    @left += 1 if c == EMPTY
+    set_ctrl(!@ctrl[..], mask, i, c)
+    @len -= 1
 
   # The slot of the key `k`, whose hash is `h`, or -1.
   fun find(?@, k: ?K, h: U64) -> Int
@@ -543,13 +1026,13 @@ pub obj Set[K: Hash + Print]: Print
     return -1 if n == 0
     mask = n - 1
     tag = tag_of(h)
-    pos = Int(h & U64(mask))
+    pos = Int.wrap(h) & mask
     stride = 0
     while true
       g = @ctrl.read[Group](pos)
       m = (g == tag).bits()
       while m != 0 : m &= m - 1
-        i = (pos + m.trailing_zeros()) & mask
+        i = (pos +% m.trailing_zeros()) & mask
         if ?@slots[i] as s
           return i if s == k
       return -1 if (g == EMPTY).any()
@@ -564,20 +1047,23 @@ pub obj Set[K: Hash + Print]: Print
     return -1 if n == 0
     mask = n - 1
     tag = tag_of(h)
-    pos = Int(h & U64(mask))
+    pos = Int.wrap(h) & mask
     stride = 0
     free = -1
     while true
       g = @ctrl.read[Group](pos)
       m = (g == tag).bits()
       while m != 0 : m &= m - 1
-        i = (pos + m.trailing_zeros()) & mask
+        i = (pos +% m.trailing_zeros()) & mask
         if ?@slots[i] as s
           return i if s == k
       if free < 0
-        if (g >= DELETED).first() as e
-          free = (pos + e) & mask
-      return -1 - free if (g == EMPTY).any()
+        f = (g < FULL).bits()
+        free = (pos +% f.trailing_zeros()) & mask if f != 0
+      if (g == EMPTY).any()
+        if @ctrl[free] >= FULL
+          free = (@ctrl.read[Group](0) < FULL).bits().trailing_zeros()
+        return -1 - free
       stride += GROUP
       pos = (pos + stride) & mask
     -1
@@ -590,7 +1076,7 @@ pub obj Set[K: Hash + Print]: Print
       !@grow(1)
       i = insert_slot(?@ctrl[..], @slots.len - 1, h)
     @left -= 1 if @ctrl[i] == EMPTY
-    set_ctrl(!@ctrl[..], @slots.len, i, tag_of(h))
+    set_ctrl(!@ctrl[..], @slots.len - 1, i, tag_of(h))
     old = swap(!@slots[i], <k)
     <old
     @len += 1
@@ -598,42 +1084,40 @@ pub obj Set[K: Hash + Print]: Print
   sub erase(!@, i: Int)
     c = erased_ctrl(?@ctrl[..], @slots.len - 1, i)
     @left += 1 if c == EMPTY
-    set_ctrl(!@ctrl[..], @slots.len, i, c)
+    set_ctrl(!@ctrl[..], @slots.len - 1, i, c)
     @len -= 1
 
   sub grow(!@, more: Int)
     rarely
-    want = @len + more
-    full = capacity_of(@slots.len)
-    if want <= full / 2
+    n = grown_size(@slots.len, @len, more)
+    if n == 0
       !@rehash()
     else
-      !@resize(want if want > full + 1 else full + 1)
+      !@resize(n)
 
-  sub resize(!@, want: Int)
-    n = slots_for(want)
+  sub resize(!@, n: Int)
     fresh: List[K?] = List(capacity: n)
     for _ in 0..n
       !fresh.push(none)
     old = swap(!@slots, <fresh)
-    @ctrl = List.filled(n + GROUP, EMPTY)
+    old_ctrl = swap(!@ctrl, List.filled(n + GROUP, EMPTY))
     mask = n - 1
-    for i in 0..old.len
-      if <old[i] as k
-        h = hash_of(?k)
-        j = insert_slot(?@ctrl[..], mask, h)
-        set_ctrl(!@ctrl[..], n, j, tag_of(h))
-        was = swap(!@slots[j], <k)
-        <was
+    at = 0
+    while at < old.len : at += GROUP
+      bits = full_bits(?old_ctrl[..], at)
+      while bits != 0 : bits &= bits - 1
+        if <old[at + bits.trailing_zeros()] as k
+          h = hash_of(?k)
+          j = insert_slot(?@ctrl[..], mask, h)
+          set_ctrl(!@ctrl[..], mask, j, tag_of(h))
+          was = swap(!@slots[j], <k)
+          <was
     @left = capacity_of(n) - @len
 
   sub rehash(!@)
-    mark_for_rehash(!@ctrl[..], @slots.len)
-    !@place()
-
-  sub place(!@)
     n = @slots.len
     mask = n - 1
+    mark_for_rehash(!@ctrl[..], n)
     for i in 0..n
       while @ctrl[i] == DELETED
         h: U64 = 0
@@ -641,15 +1125,15 @@ pub obj Set[K: Hash + Print]: Print
           h = hash_of(k)
         j = insert_slot(?@ctrl[..], mask, h)
         if same_group(i, j, mask, h)
-          set_ctrl(!@ctrl[..], n, i, tag_of(h))
+          set_ctrl(!@ctrl[..], mask, i, tag_of(h))
           break
         was = @ctrl[j]
-        set_ctrl(!@ctrl[..], n, j, tag_of(h))
+        set_ctrl(!@ctrl[..], mask, j, tag_of(h))
         moving = <@slots[i]
         back = swap(!@slots[j], <moving)
         old = swap(!@slots[i], <back)
         <old
-        set_ctrl(!@ctrl[..], n, i, EMPTY) if was == EMPTY
+        set_ctrl(!@ctrl[..], mask, i, EMPTY) if was == EMPTY
     @left = capacity_of(n) - @len
 
 # The entries of a Map, in table order (`Map.items`): the full slots of
@@ -662,10 +1146,12 @@ pub obj Items[K: Hash + Print, V: Print]
   pub fun next(!@) -> Item[?K, ?V]? from @map
     while @bits == 0
       @at += GROUP
-      return none if @at >= @map.slots.len
-      @bits = full_bits(?@map.ctrl[..], @at, @map.slots.len)
+      return none if @at >= @map.size()
+      @bits = full_bits(?@map.ctrl[..], @at)
     i = @at + @bits.trailing_zeros()
     @bits &= @bits - 1
+    if $plain(K) and $plain(V)
+      return Item(key: ?@map.ps[i].key, value: ?@map.ps[i].value)
     if ?@map.slots[i] as b
       return Item(key: ?b.key, value: ?b.value)
     none
@@ -679,10 +1165,12 @@ pub obj Keys[K: Hash + Print, V: Print]
   pub fun next(!@) -> (?K)? from @map
     while @bits == 0
       @at += GROUP
-      return none if @at >= @map.slots.len
-      @bits = full_bits(?@map.ctrl[..], @at, @map.slots.len)
+      return none if @at >= @map.size()
+      @bits = full_bits(?@map.ctrl[..], @at)
     i = @at + @bits.trailing_zeros()
     @bits &= @bits - 1
+    if $plain(K) and $plain(V)
+      return ?@map.ps[i].key
     if ?@map.slots[i] as b
       return ?b.key
     none
@@ -696,10 +1184,12 @@ pub obj Values[K: Hash + Print, V: Print]
   pub fun next(!@) -> (?V)? from @map
     while @bits == 0
       @at += GROUP
-      return none if @at >= @map.slots.len
-      @bits = full_bits(?@map.ctrl[..], @at, @map.slots.len)
+      return none if @at >= @map.size()
+      @bits = full_bits(?@map.ctrl[..], @at)
     i = @at + @bits.trailing_zeros()
     @bits &= @bits - 1
+    if $plain(K) and $plain(V)
+      return ?@map.ps[i].value
     if ?@map.slots[i] as b
       return ?b.value
     none
@@ -713,10 +1203,12 @@ pub obj Members[K: Hash + Print]
   pub fun next(!@) -> (?K)? from @set
     while @bits == 0
       @at += GROUP
-      return none if @at >= @set.slots.len
-      @bits = full_bits(?@set.ctrl[..], @at, @set.slots.len)
+      return none if @at >= @set.size()
+      @bits = full_bits(?@set.ctrl[..], @at)
     i = @at + @bits.trailing_zeros()
     @bits &= @bits - 1
+    if $plain(K)
+      return ?@set.ps[i]
     if ?@set.slots[i] as k
       return ?k
     none

@@ -16,6 +16,9 @@ usage: bench/hash/bench-hash [options]
                     zig-fast   the same, -OReleaseFast
                     rust       bench/hash/map.rs, rustc -C opt-level=3: hashbrown,
                                with FxHasher; the sized rows only
+                    rust-mix   the same with Rig's Int hash (one full multiply,
+                               folded) for FxHasher, so keys land where
+                               std.hash puts them
   --reps N        runs per variant, interleaved across variants; the
                   fastest of each operation counts (default 9)
   --out DIR       keep the builds in DIR and reuse them; with
@@ -63,8 +66,9 @@ def build(v, out):
             with open(src, "w") as f:
                 f.write(text)
         subprocess.run([RIG, "build", flag, "-o", tmp, src], check=True, env=env)
-    elif v == "rust":
-        subprocess.run([RUSTC, "-C", "opt-level=3", "-o", tmp, os.path.join(HERE, "map.rs")], check=True)
+    elif v in ("rust", "rust-mix"):
+        cfg = ["--cfg", "mix"] if v == "rust-mix" else []
+        subprocess.run([RUSTC, "-C", "opt-level=3", *cfg, "-o", tmp, os.path.join(HERE, "map.rs")], check=True)
     else:
         mode = "-OReleaseSafe" if v == "zig-safe" else "-OReleaseFast"
         subprocess.run([ZIG, "build-exe", mode, os.path.join(HERE, "map.zig"), "-femit-bin=" + tmp,

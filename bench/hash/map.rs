@@ -21,8 +21,18 @@ impl Hasher for Fx {
             self.write_u64(u64::from_le_bytes(w));
         }
     }
+    #[cfg(not(mix))]
     fn write_u64(&mut self, x: u64) {
         self.0 = (self.0.rotate_left(5) ^ x).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    /// With `--cfg mix`: Rig's hash of an Int (`hashWord` in
+    /// src/runtime.zig), a full 64x64 multiply folded to 64 bits, so the
+    /// keys scatter as std.hash scatters them rather than in FxHash's
+    /// strides, which a prefetcher follows.
+    #[cfg(mix)]
+    fn write_u64(&mut self, x: u64) {
+        let p = ((x ^ 0x2d35_8dcc_aa6c_78a5) as u128) * 0x4b33_a62e_d433_d4a3u128;
+        self.0 = (p as u64) ^ ((p >> 64) as u64);
     }
     fn write_i64(&mut self, x: i64) {
         self.write_u64(x as u64);

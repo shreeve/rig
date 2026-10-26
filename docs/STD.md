@@ -1114,33 +1114,40 @@ sub main()
 4 true false {}
 ```
 
-A table holds `n` slots, a power of two, as two Lists: one control
-byte a slot, and the slots, each a `Bucket` of the key and its value
-held in place, or `none`. A control byte is free (`0xFF`), a tombstone
-(`0x80`), or, for a full slot, the top seven bits of its key's hash. A
-lookup hashes the key once, with `.hash()`; the hash's low bits pick a
-home slot, and the 16 control bytes from there are read as one
-`Simd[U8, 16]` and compared with the tag at once, so only a slot whose
-byte matches has its key compared. A probe stops at a group that holds
-a free byte, and otherwise steps to the group 16, 32, 48, ... slots on
-(triangular probing, which visits every group). The bytes after the
-last slot repeat the first 16, so a group read at any slot needs no
-wrap. A table is at most 7/8 full, counting tombstones; a smaller one,
-below 16 slots, all but one slot. Taking a key frees its slot when no
-probe could have passed it, and leaves a tombstone otherwise; when a
-put finds the table full, the table is rebuilt at its size if that
-leaves it at most half full, its tombstones dropped, and otherwise
-built anew at twice the size or more, each key placed again from its
-hash. Nothing is
-allocated until the first put; `clear` drops every entry and keeps the
-table.
+A table holds `n` slots, a power of two, and one control byte a slot.
+A control byte is free (0), a tombstone (1), or, for a full slot, the
+top seven bits of its key's hash with the high bit set. A lookup hashes
+the key once, with `.hash()`; the hash's low bits pick a home slot, and
+the 16 control bytes from there are read as one `Simd[U8, 16]` and
+compared with the tag at once, so only a slot whose byte matches has
+its key compared. A probe stops at a group that holds a free byte, and
+otherwise steps to the group 16, 32, 48, ... slots on (triangular
+probing, which visits every group). The 16 bytes after the last slot
+repeat the first 16, so a group read at any slot needs no wrap; a table
+under 16 slots keeps free bytes to 16 and repeats itself after them. A
+table is at most 7/8 full, counting tombstones; one below 16 slots, all
+but one slot. Taking a key frees its slot when no probe could have
+passed it, and leaves a tombstone otherwise; when a put finds the table
+full, the table is rebuilt at its size if that leaves it at most half
+full, its tombstones dropped, and otherwise built anew at twice the
+size or more, its control bytes written in one fill and each key placed
+again from its hash. Nothing is allocated until the first put; `clear`
+drops every entry and keeps the table.
 
-A slot is a `Bucket[K, V]?`, so where neither the key nor the value has
-a spare value for `none` (an address a String or List never holds), the
-slot holds a flag beside them: 24 bytes for an `Int` key and value,
-where hashbrown's is 16. A String key or value gives the optional its
-`none`, so a `hash.Map[String, Int]` slot is the 40 bytes of the
-String and the Int.
+Where the key and the value are both plain data (`$plain`, [SPEC
+"Generic bodies"](../SPEC.md#generic-bodies)), each slot is the entry
+itself, a `Bucket` of the key and the value, and a free slot holds a
+copy of some entry, which nothing reads: the control byte alone says
+whether a slot is full. A `hash.Map[Int, Int]` slot is 16 bytes, as
+hashbrown's is, and a `hash.Map[U32, U32]` slot 8. A lookup, and an
+insert into a table with room, are inlined where they are called; only
+building or growing the table is out of line. Any other `hash.Map`
+holds each slot as a `Bucket[K, V]?`, `none` when free, so that a key
+or value that owns memory is never copied: where neither has a spare
+value for `none` (an address a String or List never holds), the slot
+holds a flag beside them, and a String key gives the optional its
+`none`, so a `hash.Map[String, Int]` slot is the 40 bytes of the String
+and the Int. A `hash.Set` keeps its keys by the same rule.
 
 ## Map and Set
 

@@ -1281,6 +1281,75 @@ test "hash std churn", '''
     print(run_set(7, 6, 400, 0), run_set(8, 40, 4000, 0), run_set(9, 300, 6000, 50))
     print(steady(3), steady(10), steady(100), steady(900))
 
+test "hash std plain slots", '''
+  true true true true true
+  true true true
+  2 [1, 2] 0 {} 7
+'''
+  # A Map of plain keys and values keeps each entry in its slot, a free
+  # slot a copy of some entry. Held near one size, at sizes whose tables
+  # are under 16 slots and over, while 20,000 new keys go in and come
+  # out, its tombstones fill the table, which is rebuilt in place, and
+  # every live key stays found, for a Map and a Set of Int keys and of
+  # two-word object keys shaped as Trig's packed cache keys are. Room
+  # reserved before the first key is kept until the table is built.
+  use std.hash
+  use std.sort
+
+  obj Key
+    lo: U64
+    hi: U64
+
+  fun key(i: Int) -> Key
+    Key(lo: (U64(i >> 10) << 32) | U64(i & 1023), hi: 0xA5C4000000000000)
+
+  fun steady(live: Int) -> Bool
+    m = hash.Map[Int, Int]()
+    s = hash.Set[Key]()
+    w = hash.Map[Key, U32]()
+    for i in 0..20000
+      !m.put(i, i * 2)
+      _ = (!s).add(key(i))
+      !w.put(key(i), U32(i))
+      if i >= live
+        return false if (!m).take(i - live) != (i - live) * 2
+        return false if (!s).take(key(i - live)) == none
+        return false if (!w).take(key(i - live)) != U32(i - live)
+      if i % 499 == 0
+        lo = 0 if i < live else i - live + 1
+        for j in lo..i + 1
+          return false if (m.get(j) ?? -1) != j * 2 or not s.has(key(j)) or (w.get(key(j)) ?? 0) != U32(j)
+        if lo > 0
+          return false if m.has(lo - 1) or s.has(key(lo - 1)) or w.has(key(lo - 1))
+    m.len == live and s.len == live and w.len == live
+
+  fun reserved(n: Int) -> Bool
+    m = hash.Map[Int, Int].new(capacity: n)
+    !m.reserve(n)
+    for i in 0..n
+      !m.put(i, i)
+    for i in 0..n
+      return false if (m.get(i) ?? -1) != i
+    m.len == n
+
+  sub main()
+    print(steady(1), steady(3), steady(7), steady(13), steady(100))
+    print(reserved(10), reserved(14), reserved(1000))
+    m = hash.Map[Int, Int]()
+    !m.put(1, 10)
+    !m.put(2, 20)
+    !m.update(|k, v| v += k)
+    !m.retain(|k, v| v > 0)
+    ks: List[Int] = List()
+    for k in ?m.keys()
+      !ks.push(k)
+    sort.sort(!ks)
+    !m.clear()
+    s = hash.Set[Int]()
+    n = m.len
+    c = (!m).ensure_with(3, |k| k + 4)
+    print(ks.len, ks, n, s, c)
+
 test "hash std views", '''
   [5, 6, 7] 5 [3] 1
   true true 2
