@@ -45,6 +45,7 @@ zig run / zig build-exe            debug (leak-checked), safe, or fast
   ▼
 rig build        src/frames.zig    warns of a frame larger than a page
                  src/bolt.zig      lays the executable out by a workload (--bolt)
+                 src/pgo.zig       optimizes the executable by a workload's profile (--pgo)
 ```
 
 `src/main.zig` is the CLI; `rig --help` is its reference. `check` runs
@@ -228,6 +229,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/frames.zig` | the frame each function of a built executable reserves, read from its Mach-O or ELF symbols and prologues, for `rig build`'s warning of a frame larger than a page (`main.warnFrames`) |
 | `src/map_trace.zig` | `RIG_MAP_TRACE=1`: the built-in Map and Set, as emitted, made to record each operation ([The Map trace](#the-map-trace)) |
 | `src/bolt.zig` | `rig build --release --bolt`: lays the executable out again with LLVM's BOLT by where a workload runs it (Linux); deleting it and its flags removes the feature |
+| `src/pgo.zig`, `src/pgo_dump.c` | `rig build --release --pgo`: Zig's bitcode of the program compiled by `zig cc` with LLVM's counters, trained by a workload, and compiled again by the profile (Linux, no libc); `pgo_dump.c` writes the profile as the program ends, called by the runtime's `writeProfile` in a `--pgo` package only; deleting them, `writeProfile`, and the flags removes the feature |
 | `src/lsp.zig` | `rig lsp`, the language server: JSON-RPC on stdin and stdout, positions, and the diagnostics `rig check` gives, read through the same `ModuleGraph` |
 | `src/editor.zig` | what an editor shows of one file: the parse errors, the tokens the lexer wrapper classifies with the tree's declared names and sigils, the outline, and the folds, from the tolerant parse (`parseTolerant`, rig.grammar's `@repair`) |
 

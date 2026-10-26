@@ -6176,6 +6176,21 @@ fn faultAddress(info: *const std.posix.siginfo_t) usize {
 /// the runtime's tests), so no other program pays for the reading.
 const reads_start = builtin.is_test or (@hasDecl(root, "__rig_since_start") and root.__rig_since_start);
 
+/// Whether the program writes a profile as it ends: only one `rig build
+/// --pgo` builds (src/pgo.zig), whose root declares `__rig_pgo`. Both of
+/// its links define `__rig_pgo_dump`: its instrumented build the writer
+/// of LLVM's counts, its optimized build a function that does nothing.
+/// No other program has the call.
+const pgo = @hasDecl(root, "__rig_pgo") and root.__rig_pgo;
+
+/// Write the profile of LLVM's counters, in a `--pgo` program's
+/// instrumented build, at each way the process ends but a panic: the
+/// end of `main` (`finish`), `os.exit` (`endProcess`), and a closed
+/// stdout (`stdoutFailed`). The writer writes once.
+fn writeProfile() void {
+    @extern(*const fn () callconv(.c) void, .{ .name = "__rig_pgo_dump" })();
+}
+
 /// The monotonic clock's reading as `start` ran (`sinceStartNs`).
 var started_ns: i96 = 0;
 
@@ -6293,6 +6308,7 @@ var threaded: std.Io.Threaded = .init_single_threaded;
 /// `exit_group` on Linux, `_exit` where Zig links the C library (macOS).
 /// Every thread ends with it.
 fn endProcess(status: u8) noreturn {
+    if (pgo) writeProfile();
     if (builtin.link_libc) std.c._exit(status);
     if (builtin.os.tag == .linux) std.os.linux.exit_group(status);
     std.process.exit(status);
@@ -6319,6 +6335,7 @@ pub fn exitStatus(n: Int) u8 {
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    if (pgo) writeProfile();
     if (map_trace) map_tracer.close();
     if (makes_tasks) threaded.deinit();
     releaseProcess();
@@ -6600,6 +6617,7 @@ fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
 /// check runs.
 noinline fn stdoutFailed() noreturn {
     @branchHint(.cold);
+    if (pgo) writeProfile();
     const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
     if (err == error.BrokenPipe) {
         std.process.exit(if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) 1 else 0);

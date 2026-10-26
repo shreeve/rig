@@ -1184,6 +1184,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   executable out again with LLVM's BOLT, by a `perf` profile of the
   workload (Linux), and `--bolt-profile=FILE` keeps that profile or
   lays a later build out by it.
+- **PGO:** `rig build --release --pgo -- WORKLOAD` optimizes the
+  executable by LLVM's profile-guided optimization, trained on the
+  workload: Zig's bitcode of the program is compiled by `zig cc` with
+  LLVM's counters, the workload runs it, and the same bitcode is
+  compiled again by the merged profile and linked by Zig (Linux, a
+  program that links no C library, with `llvm-profdata` and the profile
+  runtime of Zig's LLVM). `--pgo-profile=FILE` keeps the profile or
+  builds by it; a profile of an older program is used for the functions
+  that did not change, and the build says how many did. Trig checks
+  ts-pattern 10% faster with 14% fewer instructions, trained on zod3,
+  and 5-9% faster than with BOLT alone. A build without `--pgo` is
+  unchanged.
 - **Compiler and tools:** a synthetic span outside its source reads as
   empty; the package cache and the build store have size caps;
   `src/parser.zig` is generated at build time from `rig.grammar`

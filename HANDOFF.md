@@ -255,7 +255,11 @@ store. On Trig's binder (checker.ts, x86), a 4-byte `Node?` measured
 
 Release builds on Linux can be laid out by a workload with BOLT,
 `rig build --release --bolt -- WORKLOAD`: 7.6 to 7.9% fewer cycles on
-Trig projects it was not trained on.
+Trig projects it was not trained on. They can also be optimized by
+LLVM's profile-guided optimization, `rig build --release --pgo --
+WORKLOAD`: Trig 10% faster with 14% fewer instructions on a project it
+was not trained on, and 5-9% faster than BOLT alone
+([record](docs/history/records/2026-10/perf-stage/pgo.md)).
 
 `std.terminal`, a terminal emulator library, matches Ghostty (pinned
 at `31bdcd5a7963`) on 416 recorded cases and its fuzzer, scrollback
