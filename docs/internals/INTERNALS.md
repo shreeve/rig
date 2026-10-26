@@ -4405,11 +4405,14 @@ symbols); a query that decides more than that is a recorded fact.
   read where `inlining.decide` collects the functions). Emit writes a
   `called` function `noinline fn`, so LLVM keeps every call a call too:
   each instance of a function with compile-time values is then a
-  function of its own. Emit starts a `rarely` function's body with
-  `@branchHint(.cold);`, before the evaluation budget, the one place Zig
-  takes the hint for a whole function: Zig 0.17 then gives the function
-  LLVM's `cold` attribute, so its callers lay out the call as the
-  unlikely path and LLVM does not inline it. A function with no marker
+  function of its own. Emit writes a `rarely` function `noinline fn`
+  too, and starts its body with `@branchHint(.cold);`, before the
+  evaluation budget, the one place Zig takes the hint for a whole
+  function: Zig 0.17 then gives the function LLVM's `cold` attribute, so
+  its callers lay out the call as the unlikely path. The `cold`
+  attribute alone does not keep it out of line: LLVM inlines a cold
+  function whose body is small enough, as a `rarely` byte read became
+  once its index took one compare. A function with no marker
   whose every path ends in a `panic` (`rig.alwaysPanics`: its last
   statement panics, or is an `if` with an `else` or a `match` whose
   branches all do, and nothing in it returns or passes a failure or a
@@ -4564,8 +4567,14 @@ symbols); a query that decides more than that is a recorded fact.
   no argument decides (`fun zero() -> Int  0`, one that ignores its
   parameters, or one that passes on another's) at compile time, and so a
   `const` bound to it, so `10 / z` would be a compile error in code that
-  never runs. `rig.rt` covers the whole result, an error or an optional
-  with its payload. The call graph holds every call emit makes: the `next`
+  never runs. `rig.rt` covers the whole result. An optional or fallible
+  result is instead bound to a `var` in place, `(__rig_rt_N: { var
+  __rig_v_N = f(x); _ = &__rig_v_N; break :__rig_rt_N __rig_v_N; })`,
+  which is as much a run-time value: passed to a function, a `?T` goes
+  through memory, and where it is a choice between a copy written field
+  by field and Zig's constant `null`, LLVM keeps that round trip, whose
+  whole-word load waits for both stores to reach the cache
+  (docs/history/records/2026-10/perf-stage/table-reads.md). The call graph holds every call emit makes: the `next`
   of a `for` over an iterator is a call in the tree by then (the rewrite of
   [Loops over an iterator](#loops-over-an-iterator)), and the only other
   user function emit calls on its own, a type's `drop` body, is not inlined.

@@ -1748,7 +1748,13 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    {s}{s};\n}}\n\n", .{ run, catches });
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
+        } else {
+            // `called` and `rarely` stay out of line (SPEC, "Function
+            // markers"): `noinline`, never left to LLVM, which inlines a
+            // cold function whose body is small enough.
+            const kept = marker == .called or marker == .rarely or self.facts.isLargeFrame(name_node);
+            try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (kept) "noinline " else "", ident(name) });
+        }
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll(if (self.fun.main_slot) "__rig_init: std.process.Init.Minimal, __out: rig.ErrSlot" else "__rig_init: std.process.Init.Minimal");
         try self.pushScope();
@@ -8494,9 +8500,27 @@ pub const Emitter = struct {
     /// `const` bound to it, so arithmetic on it would be folded where Rig
     /// specifies a check when the program runs. `rig.rt` keeps the
     /// whole result, error or optional included, a run-time value.
+    ///
+    /// An optional or fallible result is made a run-time value by a `var`
+    /// in place, not by `rig.rt`: Zig passes such a value to a function
+    /// through memory, and where it is a choice between a copy written
+    /// field by field (payload, then flag) and Zig's constant `null`,
+    /// LLVM keeps that round trip, whose whole-word load cannot be
+    /// forwarded from the two stores and waits for both to reach the
+    /// cache. An inline `rig.rt` would do the same, at four times the
+    /// compile time of a large program (records: perf-stage/table-reads.md).
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
         if (ir.Call.task(sexp) != .nil) return self.emitTask(sexp);
         if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
+        if (self.typeOf(sexp)) |ty| switch (self.facts.types.get(ty)) {
+            .optional, .fallible => {
+                const id = self.nextId();
+                try self.w.print("(__rig_rt_{d}: {{ var __rig_v_{d} = ", .{ id, id });
+                try self.emitCallPlain(sexp);
+                return self.w.print("; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id });
+            },
+            else => {},
+        };
         try self.w.writeAll("rig.rt(");
         try self.emitCallPlain(sexp);
         try self.w.writeAll(")");

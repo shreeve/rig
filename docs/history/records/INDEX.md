@@ -25,6 +25,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Table and Slot (#536) | indexes with no bounds test; about 3% on Trig's stores in a stand-in build (store indexes treated as proven; Trig has not migrated yet); two adversarial reviews | [table-slot/](2026-10/table-slot/) |
 | Proving away Rig's checks (2026-10-24) | the ceiling measured again after #538 and Trig's Table migration (7.4% on ts-pattern, index tests 5.9%); most of what is left is lookups by stored ids, which only index types remove; a ranked plan (`Span[n]` and more slot-typed stores first, then length arithmetic from `fits`), what LLVM folds by itself, and a build order | [perf-stage/checks.md](2026-10/perf-stage/checks.md) |
 | Spans and false-edge proofs (#686, #687, closed) | `Span[n]` (branch `span-type`) and guard facts on the false edge with proven offsets by bit cast (branch `proof-edges`), built and measured on Trig: both within the noise (ts-pattern 0.7% slower to 0.2% faster) and 0.01-0.25% more instructions; the index tests they remove are predicted, so removing them saves nothing | [perf-stage/proofs.md](2026-10/perf-stage/proofs.md) |
+| Table and List reads inside Trig (2026-10-25) | a `Table` read is the bare load, a `List` read adds only a sign test; the cycles charged to them are the element loads' misses, which tsrs pays too. Kept: an inlined call's `?T` result made a run-time value in place, not through `rig.rt`'s memory round trip (34% fewer blocked loads), one compare for a signed index against a held length, and `rarely` `noinline`: 1.5% fewer instructions on ts-pattern and zod3, 1.2-2.2% fewer cycles | [perf-stage/table-reads.md](2026-10/perf-stage/table-reads.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Fast program exit (#680) | `os.exit(code)` taken; a release build's end of `main` skipping memory-only drops measured as noise on Trig (its stores drop inside its own functions), not taken | [fast-exit/](2026-10/fast-exit/) |
@@ -212,6 +213,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [checks.md](2026-10/perf-stage/checks.md): Proving away Rig's checks: a survey and plan (2026-10-24)
 - [proofs.md](2026-10/perf-stage/proofs.md): Spans and false-edge proofs, built and measured (2026-10-25)
+- [table-reads.md](2026-10/perf-stage/table-reads.md): Table and List reads inside Trig, measured, and two classes taken out (2026-10-25)
 
 ### 2026-10/perf-stage/checks-data/
 
