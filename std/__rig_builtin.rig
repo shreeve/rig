@@ -509,10 +509,22 @@ pub obj Map[K: Hash, V]
     -1
 
   # Add the entry `k`, `v`, whose key is new and, once there is a table,
-  # hashes to `h`, and give its slot: before the table, at the end of
-  # the entries, unless they are `SMALL` or room was reserved, when the
-  # table is built first; out of line and hot, as `add_entry` is.
-  called fun p_add(!@, k: K, v: V, h: U64) -> Int
+  # hashes to `h`, and give its slot: into a table with room for it here,
+  # inlined into the write that missed, and anything else out of line
+  # (`p_add_rest`).
+  fun p_add(!@, k: K, v: V, h: U64) -> Int
+    if $plain(K) and $plain(V)
+      if @table.tags.len > 0 and @table.at.len < slots_cap(@ps.len)
+        return (!@).p_place(Pair(key: k, value: v), h)
+      return (!@).p_add_rest(k, v, h)
+    <k
+    <v
+    -1
+
+  # The rest of `p_add`: before the table, at the end of the entries,
+  # unless they are `SMALL` or room was reserved, when the table is built
+  # first; in a full table, after it grows. Out of line and hot.
+  called fun p_add_rest(!@, k: K, v: V, h: U64) -> Int
     if $plain(K) and $plain(V)
       e = Pair(key: k, value: v)
       if @table.tags.len == 0
@@ -966,8 +978,19 @@ pub obj Set[K: Hash]
     <k
 
   # Add the key `k`, which is new and, once there is a table, hashes to
-  # `h`, as a Map's `p_add` adds an entry.
-  called sub p_add(!@, k: K, h: U64)
+  # `h`, as a Map's `p_add` adds an entry: into a table with room here,
+  # anything else out of line.
+  sub p_add(!@, k: K, h: U64)
+    if $plain(K)
+      if @table.tags.len > 0 and @table.at.len < slots_cap(@ps.len)
+        !@p_place(k, h)
+        return
+      !@p_add_rest(k, h)
+      return
+    <k
+
+  # The rest of `p_add`, as a Map's `p_add_rest`.
+  called sub p_add_rest(!@, k: K, h: U64)
     if $plain(K)
       if @table.tags.len == 0
         if @hs.len == 0 and @ps.len < SMALL
