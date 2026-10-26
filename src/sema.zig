@@ -2529,6 +2529,13 @@ pub const GenericCall = struct {
     /// The witnesses its type arguments give the bounds that name APIs of
     /// a program's own, each after the argument it follows.
     witnesses: []const ArgWitness = &.{},
+    /// The type parameter each compile-time argument binds
+    /// (`symbol_invalid` for a value), whose instance's `$plain` follows
+    /// the argument and its witnesses where it takes one
+    /// (`needsPlainBit`).
+    params: []const SymbolId = &.{},
+    /// The bits the call passes (`recordPlainFacts`).
+    plain: []const PlainArg = &.{},
 };
 
 /// A generic function at particular type arguments: `params[i]` is
@@ -3265,6 +3272,342 @@ pub fn unnameable(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return null;
 }
 
+/// Code of a generic body that runs only once `$plain(T)` has held, with
+/// `param` the `T`: the operands of a condition's `and` chain after the
+/// test, or the code the condition guards (SPEC "Generic bodies"). The
+/// positions are in module `module_id`'s source, 0 for this one. In it a
+/// `T` is known to copy and to hold no loan, and an instance whose `T`
+/// is not plain data (`isPlain`) compiles none of it, so what it does is
+/// checked at the other instances alone (`liveAt`).
+pub const PlainRegion = struct {
+    start: u32,
+    end: u32,
+    param: SymbolId,
+    module_id: u32 = 0,
+};
+
+/// Whether `ty`, a type that holds no type parameter, is plain data
+/// (CORE §1): it copies, owns nothing, and views nothing, as a type that
+/// provides both `Copy` and `Owned` does. The one meaning of plain:
+/// what `$plain(T)` answers at each instance.
+pub fn isPlain(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
+    if (ctx.plain_answers.get(ty)) |known| return known;
+    const plain = !containsPoison(ctx, ty) and (try lacks(ctx, ty, .Copy)) == null and (try lacks(ctx, ty, .Owned)) == null;
+    try ctx.plain_answers.put(ctx.allocator, ty, plain);
+    return plain;
+}
+
+/// What `$plain` of a type gives in the Zig a generic emits: known, or
+/// whether each of its leaves is plain data, read from the bits the
+/// generic takes (`plainLeaves`). Recorded for emit (`recordPlainFacts`).
+pub const PlainBit = union(enum) {
+    known: bool,
+    /// Every one is a type parameter or an associated type that takes a
+    /// bit (`plain_bits`).
+    leaves: []const SymbolId,
+};
+
+/// A bit an instance passes after its argument `arg` and the witnesses
+/// that argument gives: `$plain` of the argument, or of one of its
+/// associated types, in the order the generic declares them
+/// (`needsPlainBit`).
+pub const PlainArg = struct { arg: u32, bit: PlainBit };
+
+/// `plainLeaves` of `ty` as the bit a generic passes on.
+pub fn plainBitOf(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!PlainBit {
+    var leaves: std.ArrayList(SymbolId) = .empty;
+    if (!try plainLeaves(ctx, ty, &leaves)) return .{ .known = false };
+    if (leaves.items.len == 0) return .{ .known = true };
+    return .{ .leaves = try ctx.arena.allocator().dupe(SymbolId, leaves.items) };
+}
+
+/// The bits an instance whose parameters `params` are `args` passes, after
+/// each argument (`PlainArg`); empty when no parameter takes one.
+pub fn plainArgs(ctx: *SemContext, params: []const SymbolId, args: []const TypeId) std.mem.Allocator.Error![]const PlainArg {
+    var out: std.ArrayList(PlainArg) = .empty;
+    for (params, 0..) |p, i| {
+        if (i >= args.len or p == symbol_invalid) continue;
+        if (needsPlainBit(ctx, p)) try out.append(ctx.arena.allocator(), .{ .arg = @intCast(i), .bit = try plainBitOf(ctx, args[i]) });
+        for (ctx.symbols.items[p].assoc) |assoc| {
+            if (!needsPlainBit(ctx, assoc)) continue;
+            const of = ctx.symbols.items[assoc].assoc_of.?;
+            const ty = if (containsPoison(ctx, args[i])) null else try assocType(ctx, args[i], of.api, of.name);
+            try out.append(ctx.arena.allocator(), .{ .arg = @intCast(i), .bit = if (ty) |t| try plainBitOf(ctx, t) else .{ .known = false } });
+        }
+    }
+    return out.items;
+}
+
+/// What emit reads of `$plain`, once the module is checked: the bits each
+/// generic type's instance (`type_plain_bits`) and each generic call
+/// (`GenericCall.plain`) passes, and what each tested type gives
+/// (`plain_test_bits`).
+fn recordPlainFacts(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.plain_tests.items) |ty| try ctx.plain_test_bits.put(ctx.allocator, ty, try plainBitOf(ctx, ty));
+    if (!ctx.uses_plain_bits) return;
+    var i: usize = 0;
+    while (i < ctx.types.items.items.len) : (i += 1) {
+        const ty: TypeId = @intCast(i);
+        const pn = switch (ctx.types.get(ty)) {
+            .parameterized_nominal => |pn| pn,
+            else => continue,
+        };
+        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const bits = try plainArgs(ctx, params, pn.args);
+        if (bits.len > 0) try ctx.type_plain_bits.put(ctx.allocator, ty, bits);
+    }
+    var it = ctx.facts.generic_calls.valueIterator();
+    while (it.next()) |call| call.plain = try plainArgs(ctx, call.params, call.type_args);
+}
+
+/// Record whether each instance's arguments are plain data, and their
+/// associated types (`plain_answers`, `plain_items`), which `liveAt`
+/// reads: the ownership checker's instance checks run after this module's
+/// check.
+fn recordInstancePlain(ctx: *SemContext) std.mem.Allocator.Error!void {
+    if (ctx.plain_regions.items.len == 0) return;
+    for (ctx.fn_instances.items) |f| try recordArgsPlain(ctx, f.inst.params, f.inst.args);
+    var it = ctx.instantiation_sites.keyIterator();
+    while (it.next()) |ty| {
+        const pn = switch (ctx.types.get(ty.*)) {
+            .parameterized_nominal => |pn| pn,
+            else => continue,
+        };
+        try recordArgsPlain(ctx, ctx.symbols.items[pn.sym].type_params orelse continue, pn.args);
+    }
+    for (ctx.body_reaches.items) |r| try recordArgsPlain(ctx, r.params, r.args);
+}
+
+fn recordArgsPlain(ctx: *SemContext, params: []const SymbolId, args: []const TypeId) std.mem.Allocator.Error!void {
+    for (params, 0..) |p, i| {
+        if (i >= args.len or p == symbol_invalid or ctx.typeInfo(args[i]).has_type_var) continue;
+        _ = try isPlain(ctx, args[i]);
+        for (ctx.symbols.items[p].assoc) |assoc| {
+            const of = ctx.symbols.items[assoc].assoc_of.?;
+            const ty = if (containsPoison(ctx, args[i])) null else try assocType(ctx, args[i], of.api, of.name);
+            try ctx.plain_items.put(ctx.allocator, .{ .assoc = assoc, .base = args[i] }, if (ty) |t| try isPlain(ctx, t) else false);
+        }
+    }
+}
+
+/// What `$plain` of `ty`, which may hold type parameters, is at an
+/// instance, as the instance's Zig answers it: false when no instance
+/// of it is plain, and otherwise whether every type parameter it reaches
+/// (`reachedTypeVars`) is, which `out` lists (none for a type plain in
+/// every instance). Each listed parameter takes its instance's answer as
+/// a compile-time Bool (`plain_bits`).
+pub fn plainLeaves(ctx: *SemContext, ty: TypeId, out: *std.ArrayList(SymbolId)) std.mem.Allocator.Error!bool {
+    out.clearRetainingCapacity();
+    if (!ctx.typeInfo(ty).has_type_var) return isPlain(ctx, ty);
+    const a = ctx.arena.allocator();
+    try reachedTypeVars(ctx, ty, out, a);
+    // Plain where each is: as it is where each is an `Int`.
+    const ints = try a.alloc(TypeId, out.items.len);
+    @memset(ints, ctx.types.int_id);
+    const skeleton = try substituteType(ctx, ty, .{ .params = out.items, .args = ints });
+    if (!ctx.typeInfo(skeleton).has_type_var and try isPlain(ctx, skeleton)) return true;
+    out.clearRetainingCapacity();
+    return false;
+}
+
+/// Whether type parameter `sym` (or an associated type) takes its
+/// instance's `$plain` as a compile-time Bool in the Zig its generic
+/// emits (`plain_bits`): in its own module's record, for another
+/// module's parameter.
+pub fn needsPlainBit(ctx: *const SemContext, sym: SymbolId) bool {
+    if (sym == symbol_invalid or sym >= ctx.symbols.items.len) return false;
+    const s = ctx.symbols.items[sym];
+    if (isProxy(s)) {
+        const foreign = ctx.foreign_semas.get(s.from.module_id) orelse return false;
+        return needsPlainBit(foreign, s.from.sym);
+    }
+    return ctx.plain_bits.contains(sym);
+}
+
+/// The parameters the regions of this module that hold `pos` narrow
+/// (`PlainRegion`), or null when none does.
+pub fn plainGuardAt(ctx: *SemContext, pos: u32) std.mem.Allocator.Error!?[]const SymbolId {
+    if (ctx.plain_regions.items.len == 0 or pos == 0) return null;
+    var out: std.ArrayList(SymbolId) = .empty;
+    for (ctx.plain_regions.items) |r| {
+        if (r.module_id != 0 or pos < r.start or pos >= r.end) continue;
+        if (std.mem.findScalar(SymbolId, out.items, r.param) == null) try out.append(ctx.arena.allocator(), r.param);
+    }
+    return if (out.items.len == 0) null else out.items;
+}
+
+/// Whether the code at `pos` in module `module_id` (0 for this one) is
+/// in a region that narrows `param` (`PlainRegion`): there a `T` copies
+/// and holds no loan.
+pub fn narrowedAt(ctx: *const SemContext, module_id: u32, pos: u32, param: SymbolId) bool {
+    for (ctx.plain_regions.items) |r| {
+        if (r.module_id == module_id and r.param == param and pos >= r.start and pos < r.end) return true;
+    }
+    return false;
+}
+
+/// What a narrowed `T` gives besides its bounds: `Copy` and `Owned`, and
+/// what they imply.
+pub fn plainApis() Apis {
+    var apis: Apis = .empty;
+    apis.insert(.Copy);
+    apis.insert(.Owned);
+    return implied(apis);
+}
+
+/// Whether every type parameter `ty` holds by value is narrowed at `pos`
+/// (`narrowedAt`), so a value of it copies there where it would in a
+/// plain instance: false for a type that holds none.
+pub fn copiesNarrowed(ctx: *const SemContext, ty: TypeId, pos: u32, a: std.mem.Allocator) std.mem.Allocator.Error!bool {
+    if (ctx.plain_regions.items.len == 0) return false;
+    if (copies(ctx, ty) != .depends) return false;
+    var held: std.ArrayList(SymbolId) = .empty;
+    try heldTypeVars(ctx, ty, &held, a);
+    if (held.items.len == 0) return false;
+    for (held.items) |p| if (!narrowedAt(ctx, 0, pos, p)) return false;
+    return true;
+}
+
+/// Whether the code at `pos` in module `module_id` (0 for this one) is
+/// compiled by the instance that binds `params` to `args`: every region
+/// holding it narrows a parameter whose argument is plain data, or one
+/// the instance does not bind, which the instance that binds it decides.
+pub fn liveAt(ctx: *const SemContext, module_id: u32, pos: u32, params: []const SymbolId, args: []const TypeId) std.mem.Allocator.Error!bool {
+    if (ctx.plain_regions.items.len == 0) return true;
+    for (ctx.plain_regions.items) |r| {
+        if (r.module_id != module_id or pos < r.start or pos >= r.end) continue;
+        if (!plainKnown(ctx, r.param, params, args)) return false;
+    }
+    return true;
+}
+
+/// `paramPlain` from what `recordInstancePlain` recorded; true where it
+/// recorded nothing.
+fn plainKnown(ctx: *const SemContext, param: SymbolId, params: []const SymbolId, args: []const TypeId) bool {
+    const subst: TypeSubst = .{ .params = params, .args = args };
+    if (subst.lookup(param)) |arg| return ctx.plain_answers.get(arg) orelse true;
+    const of = ctx.symbols.items[param].assoc_of orelse return true;
+    const base = subst.lookup(of.base) orelse return true;
+    return ctx.plain_items.get(.{ .assoc = param, .base = base }) orelse true;
+}
+
+/// Whether a use recorded under `guard` (the parameters narrowed where it
+/// is made; null for none) is made by the instance that binds `params` to
+/// `args` (`liveAt`).
+pub fn guardLive(ctx: *SemContext, guard: ?[]const SymbolId, params: []const SymbolId, args: []const TypeId) std.mem.Allocator.Error!bool {
+    for (guard orelse return true) |p| if (!try paramPlain(ctx, p, params, args)) return false;
+    return true;
+}
+
+/// Whether `param` is plain data where `params` are `args`: true when
+/// the instance does not bind it, or binds it to a type that still holds
+/// a type parameter, which a later instance decides.
+fn paramPlain(ctx: *SemContext, param: SymbolId, params: []const SymbolId, args: []const TypeId) std.mem.Allocator.Error!bool {
+    const arg = (TypeSubst{ .params = params, .args = args }).lookup(param) orelse
+        (try assocSubst(ctx, param, .{ .params = params, .args = args })) orelse return true;
+    if (ctx.typeInfo(arg).has_type_var) return true;
+    return isPlain(ctx, arg);
+}
+
+/// The guard of a use recorded at `site` (`plainGuardAt`), or, for one
+/// already recorded, what both leave narrowed: a use made in a region
+/// and outside one is made by every instance.
+fn meetGuards(ctx: *SemContext, old: ?[]const SymbolId, new: ?[]const SymbolId) std.mem.Allocator.Error!?[]const SymbolId {
+    const o = old orelse return null;
+    const n = new orelse return null;
+    var out: std.ArrayList(SymbolId) = .empty;
+    for (o) |p| if (std.mem.findScalar(SymbolId, n, p) != null) try out.append(ctx.arena.allocator(), p);
+    return if (out.items.len == 0) null else out.items;
+}
+
+/// Decide `plain_bits`: the type parameters, and associated types, whose
+/// instance's `$plain` the Zig a generic emits takes as a compile-time
+/// Bool. One a body tests takes one (`plain_tests`), and so does each a
+/// generic instance that takes a bit is spelled at (`Map[Int, V]` in
+/// `W[V]` gives `W`'s `V` one when `Map`'s `V` takes one), until nothing
+/// new appears. A type parameter of another module answers from that
+/// module's record.
+fn computePlainBits(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var leaves: std.ArrayList(SymbolId) = .empty;
+    defer leaves.deinit(ctx.allocator);
+    var changed = false;
+    for (ctx.plain_tests.items) |ty| {
+        _ = try plainLeaves(ctx, ty, &leaves);
+        for (leaves.items) |p| changed = (try markPlainBit(ctx, p)) or changed;
+    }
+    // Nothing to pass on unless a body here tests `$plain`, or a generic
+    // of another module takes a bit.
+    const foreign_bits = blk: {
+        var it = ctx.foreign_semas.iterator();
+        while (it.next()) |e| if (e.value_ptr.*.plain_bits.count() > 0) break :blk true;
+        break :blk false;
+    };
+    if (!changed and !foreign_bits) return;
+    ctx.uses_plain_bits = true;
+    while (true) {
+        changed = false;
+        var t: TypeId = 0;
+        while (t < ctx.types.items.items.len) : (t += 1) {
+            const pn = switch (ctx.types.get(t)) {
+                .parameterized_nominal => |pn| pn,
+                else => continue,
+            };
+            if (!ctx.typeInfo(t).has_type_var) continue;
+            const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+            changed = (try passPlainBits(ctx, params, pn.args, &leaves)) or changed;
+        }
+        for (ctx.generic_fn_uses.items) |use| {
+            changed = (try passPlainBits(ctx, use.ownParams(), use.ownArgs(), &leaves)) or changed;
+        }
+        if (!changed) break;
+    }
+}
+
+/// Mark the leaves of what `params` are given (`args`) that a bit each
+/// takes needs (`computePlainBits`). Whether one was new.
+fn passPlainBits(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, leaves: *std.ArrayList(SymbolId)) std.mem.Allocator.Error!bool {
+    var changed = false;
+    const all = try withAssoc(ctx, params, args);
+    for (all.params, 0..) |p, i| {
+        if (i >= all.args.len or !needsPlainBit(ctx, p)) continue;
+        _ = try plainLeaves(ctx, all.args[i], leaves);
+        for (leaves.items) |l| changed = (try markPlainBit(ctx, l)) or changed;
+    }
+    return changed;
+}
+
+fn markPlainBit(ctx: *SemContext, sym: SymbolId) std.mem.Allocator.Error!bool {
+    if (isProxy(ctx.symbols.items[sym])) return false;
+    return !(try ctx.plain_bits.getOrPut(ctx.allocator, sym)).found_existing;
+}
+
+/// An instance `callee_params` at `args` made from a body whose instance
+/// binds `subst`, where the body gives it `generic_args`: each parameter
+/// that takes a bit (`needsPlainBit`) is passed what `plainLeaves` makes
+/// of the body's bits, which must be the instance's own `$plain`. Where
+/// it is not (a parameter reached only through a type that holds it as
+/// no field, `Tag[T]` at a `T` that owns), the Zig would answer `false`
+/// where the program says `true`: reported at `site`. Whether it was.
+fn plainBitsAgree(ctx: *SemContext, callee_params: []const SymbolId, generic_args: []const TypeId, args: []const TypeId, subst: TypeSubst, site: u32, shown: []const u8) std.mem.Allocator.Error!bool {
+    if (callee_params.len == 0 or generic_args.len != args.len) return true;
+    const generic_all = try withAssoc(ctx, callee_params, generic_args);
+    const all = try withAssoc(ctx, callee_params, args);
+    var leaves: std.ArrayList(SymbolId) = .empty;
+    defer leaves.deinit(ctx.allocator);
+    for (all.params, 0..) |p, i| {
+        if (i >= all.args.len or i >= generic_all.args.len or !needsPlainBit(ctx, p)) continue;
+        if (!ctx.typeInfo(generic_all.args[i]).has_type_var or ctx.typeInfo(all.args[i]).has_type_var) continue;
+        var bit = try plainLeaves(ctx, generic_all.args[i], &leaves);
+        if (bit) for (leaves.items) |l| {
+            if (!try paramPlain(ctx, l, subst.params, subst.args)) bit = false;
+        };
+        if (bit == try isPlain(ctx, all.args[i])) continue;
+        try ctx.err(site, "`{s}` tests `$plain` of its `{s}`, here `{s}`, which is plain data, but it is made from a generic body whose compiled code cannot tell: `{s}` holds a type parameter that is not plain data and that it keeps as no field; give `{s}` a type whose fields hold the parameter", .{ shown, ctx.symbols.items[p].name, try formatType(ctx, all.args[i]), try formatType(ctx, generic_all.args[i]), ctx.symbols.items[p].name });
+        return false;
+    }
+    return true;
+}
+
 /// A generic body copies a value of a type parameter, found by the
 /// ownership checker: every instance's argument for it must own no
 /// resource.
@@ -3616,6 +3959,37 @@ pub const SemContext = struct {
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
+    /// The code generic bodies run only once `$plain(T)` has held
+    /// (`PlainRegion`): this module's, recorded as the conditions are
+    /// checked, and those of the proxies' bodies, imported with them.
+    plain_regions: std.ArrayList(PlainRegion) = .empty,
+    /// The types this module's bodies give `$plain`; the type parameters
+    /// one holds take their instance's answer (`computePlainBits`).
+    plain_tests: std.ArrayList(TypeId) = .empty,
+    /// This module's type parameters and associated types whose
+    /// instance's `$plain` its generics take as a compile-time Bool,
+    /// after the parameter and its witnesses (`computePlainBits`). Empty
+    /// for a program that tests no `$plain`, whose Zig takes none.
+    plain_bits: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// A generic here or in a module this one uses takes a bit
+    /// (`plain_bits`).
+    uses_plain_bits: bool = false,
+    /// Whether each type is plain data (`isPlain`), as it is asked.
+    plain_answers: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
+    /// Whether each associated type is plain data at an instance whose
+    /// base is a type (`recordInstancePlain`).
+    plain_items: std.AutoHashMapUnmanaged(ItemView, bool) = .empty,
+    /// The bits each generic type's instance passes after its arguments
+    /// (`recordPlainFacts`), for emit.
+    type_plain_bits: std.AutoHashMapUnmanaged(TypeId, []const PlainArg) = .empty,
+    /// What `$plain` of each tested type gives (`recordPlainFacts`).
+    plain_test_bits: std.AutoHashMapUnmanaged(TypeId, PlainBit) = .empty,
+    /// For each entry of `generic_uses`, the parameters narrowed where it
+    /// is made (`PlainRegion`), or null: an instance makes it only where
+    /// each is plain data (`guardLive`).
+    generic_uses_guard: std.ArrayList(?[]const SymbolId) = .empty,
+    /// The same for each entry of `generic_fn_uses`.
+    generic_fn_uses_guard: std.ArrayList(?[]const SymbolId) = .empty,
     /// The instances whose associated type may view memory its base owns
     /// (`assocViewsBase`): by the associated type and what its base is
     /// there, what the instance gives the associated type. The ownership
@@ -3834,6 +4208,15 @@ pub const SemContext = struct {
         self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
+        self.plain_regions.deinit(self.allocator);
+        self.plain_tests.deinit(self.allocator);
+        self.plain_bits.deinit(self.allocator);
+        self.plain_answers.deinit(self.allocator);
+        self.plain_items.deinit(self.allocator);
+        self.type_plain_bits.deinit(self.allocator);
+        self.plain_test_bits.deinit(self.allocator);
+        self.generic_uses_guard.deinit(self.allocator);
+        self.generic_fn_uses_guard.deinit(self.allocator);
         self.item_views.deinit(self.allocator);
         self.generic_methods.deinit(self.allocator);
         self.storage.deinit(self.allocator);
@@ -5107,18 +5490,33 @@ pub const SemContext = struct {
     /// any other place): one over type parameters is made where the
     /// method is reached (`generic_fn_uses_in`).
     pub fn recordFnInstanceIn(self: *SemContext, inst: FnInstance, site: u32, in: ?FnRef) !bool {
+        return self.recordFnInstanceGuarded(inst, site, in, try plainGuardAt(self, site));
+    }
+
+    /// `recordFnInstanceIn` of a use made under `guard`, the parameters
+    /// narrowed where it is made (`generic_fn_uses_guard`). One already
+    /// recorded keeps only what both narrow.
+    pub fn recordFnInstanceGuarded(self: *SemContext, inst: FnInstance, site: u32, in: ?FnRef, guard: ?[]const SymbolId) !bool {
         if (!argsHaveTypeVar(self, inst.args)) return self.recordInstanceOf(inst, site, null, false);
         const same: FnInstance.Context = .{};
-        for (self.generic_fn_uses.items, self.generic_fn_uses_in.items) |u, at| {
+        for (self.generic_fn_uses.items, self.generic_fn_uses_in.items, 0..) |u, at, i| {
             if (!same.eql(u, inst)) continue;
-            const old = at orelse return false;
+            const g = &self.generic_fn_uses_guard.items[i];
+            const old = at orelse {
+                g.* = try meetGuards(self, g.*, guard);
+                return false;
+            };
             const new = in orelse continue;
-            if (old.module == new.module and old.pos == new.pos) return false;
+            if (old.module == new.module and old.pos == new.pos) {
+                g.* = try meetGuards(self, g.*, guard);
+                return false;
+            }
         }
         const owned = try self.ownFnInstance(inst);
         try self.fn_instance_set.put(self.allocator, owned, {});
         try self.addGeneric(.fn_uses, owned);
         try self.generic_fn_uses_in.append(self.allocator, in);
+        try self.generic_fn_uses_guard.append(self.allocator, guard);
         return true;
     }
 
@@ -5136,6 +5534,7 @@ pub const SemContext = struct {
         for (inst.args) |a| if (self.typeInfo(a).has_type_var) {
             try self.addGeneric(.fn_uses, owned);
             try self.generic_fn_uses_in.append(self.allocator, null);
+            try self.generic_fn_uses_guard.append(self.allocator, null);
             return true;
         };
         try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site, .via = via, .through_api = through_api });
@@ -5193,15 +5592,29 @@ pub const SemContext = struct {
     /// any other place); one already there, made in the same place or in
     /// every instance, is not added again.
     pub fn addUse(self: *SemContext, ty: TypeId, in: ?FnRef, site: u32) !void {
-        for (self.generic_uses.items, self.generic_uses_in.items) |u, at| {
+        return self.addUseGuarded(ty, in, site, try plainGuardAt(self, site));
+    }
+
+    /// `addUse` of a use made under `guard` (`generic_uses_guard`); one
+    /// already recorded keeps only what both narrow.
+    pub fn addUseGuarded(self: *SemContext, ty: TypeId, in: ?FnRef, site: u32, guard: ?[]const SymbolId) !void {
+        for (self.generic_uses.items, self.generic_uses_in.items, 0..) |u, at, i| {
             if (u != ty) continue;
-            const old = at orelse return;
+            const g = &self.generic_uses_guard.items[i];
+            const old = at orelse {
+                g.* = try meetGuards(self, g.*, guard);
+                return;
+            };
             const new = in orelse continue;
-            if (old.module == new.module and old.pos == new.pos) return;
+            if (old.module == new.module and old.pos == new.pos) {
+                g.* = try meetGuards(self, g.*, guard);
+                return;
+            }
         }
         try self.addGeneric(.uses, ty);
         try self.generic_uses_in.append(self.allocator, in);
         try self.generic_uses_at.append(self.allocator, site);
+        try self.generic_uses_guard.append(self.allocator, guard);
     }
 
     /// Add `entry` to `list`, indexed by the type and integer parameters
@@ -5428,7 +5841,9 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try typecheck.checkFrames(&ctx);
     try checkUnreadLocals(&ctx);
     try typecheck.checkDeclaredApis(&ctx);
+    try computePlainBits(&ctx);
     try expandInstantiations(&ctx);
+    try recordInstancePlain(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
     if (@import("build_options").self_check or zig_builtin.is_test) {
         try checkBindingAccess(&ctx);
@@ -5440,6 +5855,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     timing.stop(opts.timing, .storage, t0);
     try indexAllMembers(&ctx);
     if (!ctx.hasErrors()) try recordTypeWitnesses(&ctx);
+    if (!ctx.hasErrors()) try recordPlainFacts(&ctx);
     return ctx;
 }
 
@@ -5694,6 +6110,9 @@ fn expandFnUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: Expand
     for (entries.items) |i| {
         const use = ctx.generic_fn_uses.items[i];
         if (!madeBy(item, ctx.generic_fn_uses_in.items[i])) continue;
+        // A call only code narrowed by `$plain` makes, in an instance that
+        // does not compile that code.
+        if (reached == null and !try guardLive(ctx, ctx.generic_fn_uses_guard.items[i], item.subst.params, item.subst.args)) continue;
         // A use over parameters this instance does not bind (a
         // generic method's own `U`, reached from its type's instance)
         // is made by the instances that bind them, as it is above.
@@ -5718,6 +6137,9 @@ fn expandFnUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: Expand
         // as the callee at its own does, which is kept once.
         if (reached != null and isRenaming(ctx, args)) try ownParamArgs(ctx, use.params, args);
         const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own, .shown = use.shown };
+        if (reached == null and ctx.uses_plain_bits) {
+            if (!try plainBitsAgree(ctx, use.ownParams(), use.ownArgs(), concrete.ownArgs(), item.subst, item.site, try formatFnInstance(ctx, concrete))) return true;
+        }
         if (reached) |r| {
             if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
         } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
@@ -5779,6 +6201,9 @@ fn expandUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandIt
         // instance of its type.
         if (!madeBy(item, ctx.generic_uses_in.items[i])) continue;
         if (reached != null and !usesOnlyParams(ctx, use, item.subst.params)) continue;
+        // A use only code narrowed by `$plain` makes, in an instance that
+        // does not compile that code.
+        if (reached == null and !try guardLive(ctx, ctx.generic_uses_guard.items[i], item.subst.params, item.subst.args)) continue;
         var concrete = try substituteType(ctx, use, item.subst);
         if (reached != null) if (typeItem(ctx, concrete)) |t| if (isRenaming(ctx, t.args)) {
             const args = try ctx.arena.allocator().alloc(TypeId, t.args.len);
@@ -5798,6 +6223,10 @@ fn expandUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandIt
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
+        if (reached == null and ctx.uses_plain_bits) {
+            const generic = ctx.types.get(use).parameterized_nominal;
+            if (!try plainBitsAgree(ctx, ctx.symbols.items[inst.sym].type_params orelse &.{}, generic.args, inst.args, item.subst, item.site, try formatType(ctx, concrete))) return true;
+        }
         const builtin = ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos;
         if (reached) |r| {
             if (builtin or (try r.types.getOrPut(ctx.allocator, concrete)).found_existing) continue;
@@ -6262,7 +6691,7 @@ pub const TypeInfo = packed struct(u30) {
     /// Is or holds inline a type declared `unique` (see `isUnique`).
     unique: bool = false,
     /// Holds no resource, marked view, or generic parameter. A struct with a
-    /// user `drop` can be plain and still have glue (see `isPlainData`).
+    /// user `drop` can be plain and still have glue (see `holdsNoLoanButText`).
     plain: bool = false,
     /// Holds a view, or a write view (see `Views`).
     views: Views = .{},
@@ -8291,6 +8720,12 @@ fn boundsHold(ctx: *SemContext, given_params: []const SymbolId, given_args: []co
             while (it.next()) |api| {
                 const lack = (try lacks(ctx, arg, api)) orelse continue;
                 const r = report orelse return false;
+                // A type parameter `$plain` has narrowed where the call is
+                // copies and holds no loan.
+                if (plainApis().contains(api)) switch (ctx.types.get(lack.ty)) {
+                    .type_var => |p| if (narrowedAt(ctx, 0, r.at, p)) continue,
+                    else => {},
+                };
                 if (try reportStatedLack(ctx, r.at, api, lack, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (r.of == .func) "calls" else "names", try rootName(ctx, r.of), sym.name, @tagName(api) }))) return false;
                 try reportLack(ctx, r.at, try rootName(ctx, r.of), sym.name, arg, api, lack);
                 return false;
@@ -11240,12 +11675,13 @@ pub fn holdsAnyError(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).any_error;
 }
 
-/// Plain data, Core §1's plain kind: a value that owns nothing and
-/// holds no `?T`, `!T`, slice, function value, or type parameter, but
-/// may hold a `?String`. It copies (`copies`), and carries no loan but a
-/// `?String`'s: what a `Cell` or `Signal` holds, and what an owned closure
-/// takes and returns (Core sentence 9).
-pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
+/// A value that owns nothing and holds no `?T`, `!T`, slice, function
+/// value, or type parameter, but may hold a `?String`. It copies
+/// (`copies`), and carries no loan but a `?String`'s: what a `Cell` or
+/// `Signal` holds, and what an owned closure takes and returns (Core
+/// sentence 9). Plain data, Core §1's kind, is `isPlain`, which admits a
+/// function value and no `?String`.
+pub fn holdsNoLoanButText(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
     return info.plain and !info.glue;
 }
@@ -12022,6 +12458,9 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
         try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .item = r.item, .module_id = if (r.module_id == 0) m else r.module_id });
     };
+    for (foreign.plain_regions.items) |r| if (r.param == origin.sym) {
+        try ctx.plain_regions.append(ctx.allocator, .{ .start = r.start, .end = r.end, .param = proxy, .module_id = if (r.module_id == 0) m else r.module_id });
+    };
     for (foreign.generic_methods.items) |c| if (c.param == origin.sym) {
         const args = try a.alloc(TypeId, c.args.len);
         for (c.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
@@ -12058,11 +12497,11 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         // A module-level function is named as this module would call
         // it: `lib.helper[T]`; a method keeps its bare name.
         const name = if (isModuleFunction(foreign, use)) try a.print("{s}.{s}", .{ foreign.name, use.name }) else use.name;
-        _ = try ctx.recordFnInstanceIn(.{ .name = name, .params = params, .args = args, .own = use.own, .shown = use.shown }, 0, foreign.generic_fn_uses_in.items[i]);
+        _ = try ctx.recordFnInstanceGuarded(.{ .name = name, .params = params, .args = args, .own = use.own, .shown = use.shown }, 0, foreign.generic_fn_uses_in.items[i], try importGuard(ctx, foreign.generic_fn_uses_guard.items[i], m));
     }
     for (foreign.paramEntries(.uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .uses, i)) continue;
-        try ctx.addUse(try importType(ctx, foreign, foreign.generic_uses.items[i], m), foreign.generic_uses_in.items[i], 0);
+        try ctx.addUseGuarded(try importType(ctx, foreign, foreign.generic_uses.items[i], m), foreign.generic_uses_in.items[i], 0, try importGuard(ctx, foreign.generic_uses_guard.items[i], m));
     }
     for (foreign.paramEntries(.reaches, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .reaches, i)) continue;
@@ -12084,6 +12523,15 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         for (c.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
         try ctx.addGeneric(.api_calls, .{ .recv = try importType(ctx, foreign, c.recv, m), .api = c.api, .method = c.method, .args = args, .slots = c.slots, .pos = c.pos, .module_id = if (c.module_id == 0) m else c.module_id });
     }
+}
+
+/// A guard of module `m`'s use (`generic_uses_guard`), its parameters
+/// made proxies here.
+fn importGuard(ctx: *SemContext, guard: ?[]const SymbolId, m: u32) std.mem.Allocator.Error!?[]const SymbolId {
+    const g = guard orelse return null;
+    const out = try ctx.arena.allocator().alloc(SymbolId, g.len);
+    for (g, out) |p, *o| o.* = try proxyOf(ctx, .{ .module_id = m, .sym = p });
+    return out;
 }
 
 /// Whether `use`, an instance over parameters in module `ctx`, is of a
@@ -15597,7 +16045,7 @@ test "type facts: unique reaches what holds it inline" {
         try std.testing.expectEqual(Answer.yes, moves(ctx, t));
         try std.testing.expectEqual(Answer.no, copies(ctx, t));
         try std.testing.expectEqual(Clone.no, cloneable(ctx, t));
-        try std.testing.expect(!isPlainData(ctx, t));
+        try std.testing.expect(!holdsNoLoanButText(ctx, t));
     }
     // A Cell, and what holds one inline, is unique, but owns nothing: an
     // array takes it. Behind a handle it is shared, not unique.

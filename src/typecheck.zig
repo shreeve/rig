@@ -250,6 +250,10 @@ const Checker = struct {
     logic_operands: [2]Sexp = .{ .nil, .nil },
     /// The condition of the `if` value being checked.
     ternary_cond: Sexp = .nil,
+    /// The condition being checked whose `and` chain narrows, at a
+    /// `$plain(T)` operand, what runs once the test has held
+    /// (`sema.PlainRegion`).
+    plain_cond: ?PlainCond = null,
     /// A call whose value a `!` written before it lends to write, with
     /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`), or the
     /// source of a `for` whose `!` is the loop's mode: a write method on
@@ -1103,7 +1107,7 @@ const Checker = struct {
                 if (try self.payloadViewTaken(name, "drop")) return;
                 // Plain data owns nothing, and ends a loan only when it
                 // may hold a view (a `?String` may view a String).
-                if (!self.isPoison(ty) and sema.isPlainData(self.ctx, ty) and !sema.mayHoldView(self.ctx, ty)) {
+                if (!self.isPoison(ty) and sema.holdsNoLoanButText(self.ctx, ty) and !sema.mayHoldView(self.ctx, ty)) {
                     try self.errAt(stmt, "`<{s}` drops nothing: `{s}` is plain data", .{ self.text(name), self.text(name) });
                 }
             },
@@ -1203,7 +1207,7 @@ const Checker = struct {
             const ty = try self.synthExpr(operand);
             // The operand's own error is the one reported.
             if (self.isPoison(ty)) return;
-            const owns_or_views = !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
+            const owns_or_views = !sema.holdsNoLoanButText(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
             const shown = try self.plainText(operand);
             // `<x` is offered only where it drops `x` (`sema.undroppable`,
             // by which the ownership checker rejects it).
@@ -2444,6 +2448,10 @@ const Checker = struct {
 
     const Position = enum { statement, value };
 
+    /// A condition whose `and` chain may narrow (`plain_cond`): its
+    /// operands, where it ends, and the code it guards.
+    const PlainCond = struct { operands: []const Sexp, end: u32, guarded: []const diag.Span };
+
     /// Returns the if's type in value position.
     fn checkIfValue(self: *Checker, node: Sexp, expected: ?TypeId, position: Position) Error!TypeId {
         const cond = ir.If.cond(node);
@@ -2456,9 +2464,15 @@ const Checker = struct {
         self.no_hold = saved_hold or position == .value;
         const saved_cond = self.ternary_cond;
         if (position == .value) self.ternary_cond = cond;
+        // An `if`, an `else if`, or a statement's guard narrows what it runs
+        // (`plainTest`); a ternary does not.
+        const saved_plain = self.plain_cond;
+        defer self.plain_cond = saved_plain;
+        self.plain_cond = if (self.isBlockIf(node) or (position == .statement and else_node == .nil)) try self.plainCondOf(cond, &.{then_node}) else null;
         if (!self.isBlockIf(node) and rig.bindsInCondition(cond)) {
             try self.checkExpr(cond, self.t().bool_id);
         } else try self.checkCondition(cond);
+        self.plain_cond = saved_plain;
         self.ternary_cond = saved_cond;
         self.no_hold = saved_hold;
         const then_ty = try self.branch(then_node, expected, position);
@@ -2970,7 +2984,10 @@ const Checker = struct {
         frame.part = .cond;
         const saved_hold = self.no_hold;
         self.no_hold = true;
+        const saved_plain = self.plain_cond;
+        self.plain_cond = try self.plainCondOf(cond, &.{ step, ir.While.body(node) });
         try self.checkCondition(cond);
+        self.plain_cond = saved_plain;
         self.no_hold = saved_hold;
         frame.part = .step;
         const call_step = step.isKind(.call) or (step.isKind(.propagate) and ir.Propagate.value(step).isKind(.call));
@@ -3755,7 +3772,10 @@ const Checker = struct {
                 } else if (pattern == .src) if (self.ctx.symbolOf(pattern)) |sym| try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = shown_subject, .kind = .match_read, .whole = true });
             }
             if (guard != .nil) {
+                const saved_plain = self.plain_cond;
+                self.plain_cond = try self.plainCondOf(guard, &.{ir.Arm.body(arm)});
                 try self.checkExpr(guard, self.t().bool_id);
+                self.plain_cond = saved_plain;
                 if (findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
                 if (self.guardWrite(guard, subject, pattern)) |w| try self.errAt(w, "a guard cannot change the value being matched: when it fails, a later arm matches the same value", .{});
             }
@@ -4064,7 +4084,7 @@ const Checker = struct {
         if (storage.headerPoints(self.ctx, storage.headerSubject(node))) return;
         try self.ctx.recordHeaderCopy(node);
         if (self.isPoison(bound)) return;
-        if (self.hands(subject).kind == .made and sema.isPlainData(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
+        if (self.hands(subject).kind == .made and sema.holdsNoLoanButText(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
         if (inIndex(subject, temp)) {
             try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", .{});
         } else if (inArgument(subject, temp)) {
@@ -4096,7 +4116,7 @@ const Checker = struct {
     fn viewsMatched(self: *Checker, binding: Sexp) bool {
         const sym = self.ctx.symbolOf(binding) orelse return false;
         const ty = self.ctx.symbols.items[sym].ty;
-        return !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
+        return !sema.holdsNoLoanButText(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
     }
 
     /// Whether `pattern` binds symbol `sym`.
@@ -11186,7 +11206,7 @@ const Checker = struct {
         };
         if (bad) return null;
         if (own.items.len == 0) {
-            if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args) });
+            if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args), .params = try self.ctParamSyms(f) });
             self.inst_own = .empty;
             self.inst_slots = &.{};
             return f;
@@ -11204,7 +11224,7 @@ const Checker = struct {
             return null;
         };
         const result = self.ctx.types.get(instance).function;
-        try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args) });
+        try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args), .params = try self.ctParamSyms(f) });
         self.inst_own = .{ .params = own.items, .args = own_args };
         self.inst_slots = own_slots.items;
         if (self.tentative == 0) {
@@ -11225,6 +11245,14 @@ const Checker = struct {
             _ = try self.ctx.recordFnInstanceIn(inst, pos, self.bodyRef());
         }
         return result;
+    }
+
+    /// The type parameter each compile-time slot of `f` declares
+    /// (`GenericCall.params`).
+    fn ctParamSyms(self: *Checker, f: FunctionType) Error![]const SymbolId {
+        const params = try self.ctx.arena.allocator().alloc(SymbolId, f.ct_params.len);
+        for (f.ct_params, params) |slot, *p| p.* = sema.typeParamOf(self.ctx, slot) orelse sema.symbol_invalid;
+        return params;
     }
 
     /// The witnesses a call's type arguments give the parameters of `f`
@@ -15474,7 +15502,7 @@ const Checker = struct {
         // views a copy, a local of the erasing block.
         const held = self.ctx.typeOf(lent) orelse actual;
         const copy = only_erase and ov.form == .read and switch (self.ctx.types.get(held)) {
-            .read_view => |inner| self.ctx.types.get(inner) == .type_var or sema.isPlainData(self.ctx, inner),
+            .read_view => |inner| self.ctx.types.get(inner) == .type_var or sema.holdsNoLoanButText(self.ctx, inner),
             else => false,
         };
         try self.ctx.recordErasure(e, .{ .api = ov.object.api, .from = reached, .view = view, .witness = witness, .form = ov.form, .copy = copy });
@@ -17806,7 +17834,7 @@ const Checker = struct {
             try self.errAt(arg, "type mismatch: expected `[]{s}`, got `{s}`", .{ try self.tyName(w), try self.tyName(ty) });
             return self.t().invalid_id;
         };
-        if (!sema.isPlainData(self.ctx, elem) or sema.mayHoldView(self.ctx, elem)) {
+        if (!sema.holdsNoLoanButText(self.ctx, elem) or sema.mayHoldView(self.ctx, elem)) {
             // The form that works: an empty List, then a push of each
             // element, made in the call where the literal makes them.
             const name = try self.tyName(elem);
@@ -17866,10 +17894,11 @@ const Checker = struct {
         floatFromInt,
         fromBackingInt,
         variants,
+        plain,
 
         fn isSafe(b: Builtin) bool {
             return switch (b) {
-                .size, .@"align", .name, .type, .variants => true,
+                .size, .@"align", .name, .type, .variants, .plain => true,
                 else => false,
             };
         }
@@ -17931,23 +17960,24 @@ const Checker = struct {
                 } else if (std.mem.eql(u8, name, "intFromFloat")) {
                     try self.err(pos, "builtin `$intFromFloat` is not supported; a float becomes an integer with `$trunc`", .{});
                 } else {
-                    try self.err(pos, "builtin `${s}` is not supported; the builtins are `$size`, `$align`, `$type`, `$name`, `$variants`, and, inside `raw`, `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`, `$floatFromInt`, `$fromBackingInt`", .{name});
+                    try self.err(pos, "builtin `${s}` is not supported; the builtins are `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`, and, inside `raw`, `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`, `$floatFromInt`, `$fromBackingInt`", .{name});
                 }
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             };
             if (builtin == .variants) break :blk try self.variantsOf(args, pos);
+            if (builtin == .plain) break :blk try self.plainTest(node, args, pos);
             const query = builtin.query();
             if (self.raw_depth == 0 and !builtin.isSafe()) {
                 if (query) |q| {
                     try self.zigQueryName(node, name, @tagName(q));
                 } else {
-                    try self.err(pos, "builtin `${s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `$size`, `$align`, `$type`, `$name`, `$variants`", .{name});
+                    try self.err(pos, "builtin `${s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`", .{name});
                 }
             }
             if (query) |q| switch (q) {
                 .type => {
-                    try self.err(pos, "`${s}` is only allowed as the argument of `$size`, `$align`, or `$name`", .{name});
+                    try self.err(pos, "`${s}` is only allowed as the argument of `$size`, `$align`, `$name`, or `$plain`", .{name});
                     try self.synthArgs(args);
                     break :blk self.t().invalid_id;
                 },
@@ -17987,6 +18017,56 @@ const Checker = struct {
         };
         if (expected) |e| if (!self.isPoison(ty) and !compatible(self.ctx, ty, e)) try self.mismatch(node, e, ty);
         return ty;
+    }
+
+    /// `$plain(T)`: whether `T` is plain data (`sema.isPlain`), a `Bool`
+    /// each instance answers when it compiles (`sema.plain_tests`); one
+    /// of a type that holds type parameters, from the bits its generic
+    /// takes. One of a type parameter or an associated type
+    /// that is an operand of the `and` chain of the condition being
+    /// checked narrows what runs once it has held (`plain_cond`).
+    fn plainTest(self: *Checker, node: Sexp, args: []const Sexp, pos: u32) Error!TypeId {
+        if (!(try self.builtinTypeArg("plain", args, pos))) return self.t().invalid_id;
+        const a = args[0];
+        const of = if (a.isKind(.builtin) and ir.Builtin.args(a).len >= 1) ir.Builtin.args(a)[0] else a;
+        const ty = self.ctx.typeOf(of) orelse return self.t().bool_id;
+        if (self.isPoison(ty)) return self.t().bool_id;
+        try self.ctx.plain_tests.append(self.ctx.allocator, ty);
+        const param = switch (self.ctx.types.get(ty)) {
+            .type_var => |sym| sym,
+            else => return self.t().bool_id,
+        };
+        const cond = self.plain_cond orelse return self.t().bool_id;
+        const operand = for (cond.operands) |o| {
+            if (sameNode(o, node)) break true;
+        } else false;
+        if (!operand) return self.t().bool_id;
+        const regions = &self.ctx.plain_regions;
+        const after = self.ctx.span(node).end;
+        if (after < cond.end) try regions.append(self.ctx.allocator, .{ .start = after, .end = cond.end, .param = param });
+        for (cond.guarded) |g| if (g.start < g.end) try regions.append(self.ctx.allocator, .{ .start = g.start, .end = g.end, .param = param });
+        return self.t().bool_id;
+    }
+
+    /// The condition `cond` whose `$plain(T)` operands narrow the code
+    /// `guarded` holds, as `plain_cond` (`plainTest`).
+    fn plainCondOf(self: *Checker, cond: Sexp, guarded: []const Sexp) Error!PlainCond {
+        const a = self.ctx.arena.allocator();
+        const Ops = struct {
+            list: std.ArrayList(Sexp) = .empty,
+            a: std.mem.Allocator,
+            pub fn part(v: *@This(), p: Sexp) Error!void {
+                try rig.eachGuardOperand(p, v, @This().operand);
+            }
+            fn operand(v: *@This(), o: Sexp) Error!void {
+                try v.list.append(v.a, o);
+            }
+        };
+        var ops: Ops = .{ .a = a };
+        try rig.eachGuardPart(cond, &ops);
+        const spans = try a.alloc(diag.Span, guarded.len);
+        for (guarded, spans) |g, *sp| sp.* = if (g == .nil) .{ .start = 0, .end = 0 } else self.ctx.span(g);
+        return .{ .operands = ops.list.items, .end = self.ctx.span(cond).end, .guarded = spans };
     }
 
     /// `$variants(T)`: every variant of plain enum `T`, in declaration
@@ -18060,7 +18140,7 @@ const Checker = struct {
                 const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
                 if (fb != tb) return "both must have the same size";
             },
-            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants => {},
+            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants, .plain => {},
         }
         return null;
     }
@@ -18091,7 +18171,7 @@ const Checker = struct {
         try self.requireNamed(name, ty, a);
         // A vector's size and alignment are the target's, so Rig gives
         // neither, nor those of a type that holds one inline.
-        if (!std.mem.eql(u8, name, "name")) {
+        if (!std.mem.eql(u8, name, "name") and !std.mem.eql(u8, name, "plain")) {
             if (sema.holdsVector(self.ctx, ty)) {
                 try self.err(pos, "`${s}` takes no type that holds a vector: `{s}` holds a `Simd`, whose size and alignment differ from target to target", .{ name, try self.tyName(ty) });
                 return false;
@@ -20088,6 +20168,7 @@ fn checkReaches(ctx: *SemContext) Error!void {
             if (req.index >= r.args.len) continue;
             const arg = r.args[req.index];
             if (sema.containsPoison(ctx, arg) or sema.containsTypeVar(ctx, arg)) continue;
+            if (!try sema.liveAt(ctx, req.module_id, req.pos, r.params, r.args)) continue;
             if (try satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, .{ .func = try sema.reachInstance(ctx, r) });
             try reportTaskReq(ctx, req, r.site, inst, ctx.symbols.items[req.param].name, arg);
@@ -20116,6 +20197,8 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
         const on = reqs.getPtr(param) orelse continue;
         for (on.items) |r| {
             const req = ctx.generic_requirements.items[r];
+            // What code this instance does not compile needs (`sema.liveAt`).
+            if (!try sema.liveAt(ctx, req.module_id, req.pos, params, args)) continue;
             if (try satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, of);
             const pname = ctx.symbols.items[param].name;
@@ -20210,6 +20293,8 @@ fn checkMethodCalls(ctx: *SemContext, subst: TypeSubst, own: []const SymbolId, a
         }
         const arg = subst.lookup(c.param).?;
         if (sema.containsPoison(ctx, arg)) continue;
+        // A call in code this instance does not compile (`sema.liveAt`).
+        if (!try sema.liveAt(ctx, c.module_id, c.pos, subst.params, subst.args)) continue;
         if (!try checkMethodCall(ctx, c, subst, arg, at, of)) return false;
     }
     return true;
@@ -20503,6 +20588,8 @@ fn checkBoundedBodies(ctx: *SemContext) Error!void {
         if (!sema.checkedByBounds(sym)) continue;
         const api = apiOf(r.req) orelse continue;
         if (sema.boundApis(ctx, sym).contains(api)) continue;
+        // Where `$plain(T)` has held, a `T` copies and holds no loan.
+        if (sema.plainApis().contains(api) and sema.narrowedAt(ctx, 0, r.pos, r.param)) continue;
         if (try sema.reportStated(ctx, r.pos, r.param, api, r.op)) continue;
         try reportUnbounded(ctx, r.pos, r.param, api, try a.print("{s}", .{r.req.describe()}));
     }
