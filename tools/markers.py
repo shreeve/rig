@@ -213,12 +213,12 @@ def text():
         "# optimized build, and the limits `rig check` holds).\n\n",
         case("code \"markers each shape\", "
              "\"pub inline fn big(__rig_in_a: i64) i64 {\", \"pub inline fn get(\", \"pub inline fn larger(comptime T: type, \", "
-             "\"pub fn small(a: i64) i64 {\", \"pub noinline fn tiny(a: i64) i64 {\", \"pub noinline fn same(\", "
+             "\"pub noinline fn small(a: i64) i64 {\", \"pub noinline fn tiny(a: i64) i64 {\", \"pub noinline fn same(\", "
              f"/fn tiny\\([^\\n]*\\n    {quota}\\n/, "
              f"/fn small\\([^\\n]*\\n    {cold}\\n    {quota}\\n/, "
              f"/fn peek\\([^\\n]*\\n *{cold}\\n/",
              ["`inline` over the size limit, of a generic type's method, and with a type",
-              "parameter is `inline fn`; `rarely` is not inlined, and starts with the",
+              "parameter is `inline fn`; `rarely` is `noinline`, and starts with the",
               "cold hint; `called` is `noinline`, with no cold hint."], SHAPES),
         case("code \"markers none, the compiler's rule decides\", "
              "\"pub fn big(a: i64) i64 {\", \"pub inline fn small(\", \"pub fn larger(comptime T: type, \", "
@@ -235,7 +235,7 @@ def text():
              ["std.json's shape: `doc[dense]` is one Zig function of two instances,",
               "each calling `number`, over the size limit, and rarely `utf8_text`."], DOC),
         case("code \"markers json shape marked\", "
-             "\"pub inline fn number(__rig_in_s: []const u8, __rig_in_i: i64) i64 {\", \"pub fn utf8_text(s: []const u8, i: i64) i64 {\", "
+             "\"pub inline fn number(__rig_in_s: []const u8, __rig_in_i: i64) i64 {\", \"pub noinline fn utf8_text(s: []const u8, i: i64) i64 {\", "
              f"/fn utf8_text\\([^\\n]*\\n    {cold}\\n/",
              ["Marked, `number` is inlined into each instance, and `utf8_text` is",
               "called, and cold."], MARKED),

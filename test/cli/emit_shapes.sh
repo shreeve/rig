@@ -45,7 +45,7 @@ sub main()
   print(x)
 EOF
 out=$("$RIG" emit fallible.rig 2>/dev/null) || fail "rig emit fallible.rig"
-expect_has "$out" 'try rig.rt(bar(__out))' "propagate, lending the slot"
+expect_has "$out" 'try (__rig_rt_1: { var __rig_v_1 = bar(__out); _ = &__rig_v_1; break :__rig_rt_1 __rig_v_1; })' "propagate, lending the slot, its result a run-time value in place"
 expect_has "$out" 'pub inline fn foo(__out: rig.ErrSlot) anyerror!i64' "fallible return type, with the slot"
 expect_has "$out" 'rig.onOwnStack(__rig_fail_main, .{__rig_init})' "fallible main"
 expect_has "$out" 'fn __rig_run_main(__rig_init: std.process.Init.Minimal, __out: rig.ErrSlot) anyerror!void' "fallible main body"
