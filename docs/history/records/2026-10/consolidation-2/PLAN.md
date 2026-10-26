@@ -110,7 +110,7 @@ docs/internals/backlog.md.
 | 39 | `tools/emit-diff BASE`: diff the emitted Zig of examples, benches, std and Trig against a base commit, so a change whose emit is identical skips the timing round | errors track (R2.5) | tool |
 | 40 | the suite writes `examples/json_tour.rig.debug/` into the tree (a program whose sets carry fields is built alone, beside its source, since R4); give it a temp dir | errors track | done (a36f7fb18: an example run outside its pack builds under .zig-cache/rig-tests/given/) |
 | 41 | `tools/baseline SHA`: a cached `rig` build at a commit, so an emit diff never runs a stale `bin/rig` | errors track | tool |
-| 42 | a unit test that every runtime call of a Rig function value goes through `argsWithSlot`, like the `@constCast` test; R2.5's review found `select` missing it, and main had the same bug for arms that fail with any error | errors track (R2.5 review) | bug class, first |
+| 42 | a unit test that every runtime call of a Rig function value goes through `argsWithSlot`, like the `@constCast` test; R2.5's review found `select` missing it, and main had the same bug for arms that fail with any error | errors track (R2.5 review) | bug class, first: #692 (no misses today) |
 | 43 | a message calls the result "argument 0" when type arguments conflict with the expected result type | errors track | message |
 | 44 | a bracketed generic call (`id[Int](n)!`) is named `` `expression` `` in messages | errors track | message |
 | 45 | a generic mismatch names the inner types ("expected `Int!E`, got `Int`") while the non-generic message names the whole function types; make them one form | errors track | message |
