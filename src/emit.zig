@@ -11175,6 +11175,97 @@ test "emit and the runtime cast no constness away" {
     try std.testing.expect(std.mem.indexOf(u8, runtime_source[of_fn..end], cast) != null);
 }
 
+// A Rig function value, a `FnRef` view or an owned `Closure`, of a
+// function that may fail takes the slot its failure's fields go in, last
+// (`emitCallableTy`), and a call that leaves it out fails in Zig in every
+// program that reaches it. So every call the runtime makes of one,
+// `f.call(...)` or `f.invoke(...)`, builds its arguments with
+// `rig.argsWithSlot`, or is listed below with the reason it passes no
+// slot: most sit in the branch of a `fallible` test whose function cannot
+// fail, and so takes none. A new call is neither until it is decided, and
+// a listed call that changes or goes away fails too. Test blocks are not
+// read.
+test "every runtime call of a function value passes the slot it takes" {
+    const Listed = struct { file: []const u8, call: []const u8, why: []const u8 };
+    const no_fail = "the branch whose function cannot fail, which takes no slot";
+    const method = "an actor's method by name, not a function value: emit gives its arguments, slot and all";
+    const listed = [_]Listed{
+        .{ .file = "runtime.zig", .call = "return c.invoke(argsFor(n, args))", .why = "`FnRef.ofClosure` passes on the arguments its view was called with, the slot among them where the closure takes one" },
+        .{ .file = "runtime.zig", .call = "cb.value.invoke(.{})", .why = "a Signal's subscriber is a `*sub()`, which cannot fail" },
+        .{ .file = "runtime.zig", .call = "} else acc = f.call(.{ acc, lend(x) })", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "} else c.out[i] = c.f.call(.{rt.lend(&c.xs[i])})", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "else c.f.call(.{&c.xs[i]})", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "c.out[i] = c.f.call(.{ s, x })", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "} else c.f.call(.{ s, x })", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "self.value = self.make.?.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
+        .{ .file = "tasks.zig", .call = "const value = make.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
+        .{ .file = "tasks.zig", .call = "c.result = c.actor.invoke(name, c.args)", .why = method },
+        .{ .file = "tasks.zig", .call = "return self.invoke(name, args)", .why = method },
+        .{ .file = "tasks.zig", .call = "return @TypeOf(box.value).call(box, name, args)", .why = method },
+        .{ .file = "tasks.zig", .call = "return @TypeOf(b.value).call(b, name, a)", .why = "an actor's method by name, run as a task where it takes no slot (`takesSlot`)" },
+        .{ .file = "tasks.zig", .call = "return @TypeOf(b.value).call(b, name, a ++ .{slot})", .why = "an actor's method by name, run as a task and given the task's slot" },
+        .{ .file = "net.zig", .call = "return t.f.call(.{t.req})", .why = "`http.serve`'s handler is a `?fun(?Request) -> Response`, which cannot fail" },
+    };
+    const Source = struct { file: []const u8, text: []const u8 };
+    const sources = [_]Source{
+        .{ .file = "runtime.zig", .text = runtime_source },
+        .{ .file = "tasks.zig", .text = tasks_source },
+        .{ .file = "sched.zig", .text = sched_source },
+        .{ .file = "alloc.zig", .text = alloc_source },
+        .{ .file = "net.zig", .text = net_source },
+        .{ .file = "table.zig", .text = table_source },
+    };
+    var used: [listed.len]u32 = @splat(0);
+    var unlisted: u32 = 0;
+    var through_slot: u32 = 0;
+    for (sources) |src| {
+        var line_no: u32 = 0;
+        var in_test = false;
+        var lines = std.mem.splitScalar(u8, src.text, '\n');
+        while (lines.next()) |line| {
+            line_no += 1;
+            if (in_test) {
+                in_test = !std.mem.eql(u8, line, "}");
+                continue;
+            }
+            if (std.mem.startsWith(u8, line, "test \"")) {
+                in_test = true;
+                continue;
+            }
+            const code = std.mem.trimStart(u8, line, " ");
+            if (std.mem.startsWith(u8, code, "//")) continue;
+            for ([_][]const u8{ ".call(", ".invoke(" }) |pat| {
+                var at: usize = 0;
+                while (std.mem.indexOfPos(u8, line, at, pat)) |i| : (at = i + pat.len) {
+                    const rest = line[i + pat.len ..];
+                    if (std.mem.startsWith(u8, rest, "rt.argsWithSlot(") or std.mem.startsWith(u8, rest, "argsWithSlot(")) {
+                        through_slot += 1;
+                        continue;
+                    }
+                    const k = for (listed, 0..) |l, k| {
+                        if (!std.mem.eql(u8, l.file, src.file)) continue;
+                        const j = std.mem.indexOf(u8, line, l.call) orelse continue;
+                        if (j <= i and i < j + l.call.len) break k;
+                    } else {
+                        std.debug.print("src/{s}:{d}: a call of a function value neither builds its arguments with `rig.argsWithSlot` nor is listed: {s}\n", .{ src.file, line_no, code });
+                        unlisted += 1;
+                        continue;
+                    };
+                    used[k] += 1;
+                }
+            }
+        }
+    }
+    for (listed, used) |l, n| if (n != 1) {
+        std.debug.print("src/{s}: the listed call `{s}` is made {d} times, not once\n", .{ l.file, l.call, n });
+        unlisted += 1;
+    };
+    try std.testing.expectEqual(0, unlisted);
+    // The scan sees the calls that pass a slot: par.map, par.each,
+    // par.workers, reduce, isolate, and select.
+    try std.testing.expect(through_slot >= 7);
+}
+
 /// How many levels of optional `ty` has.
 fn optionalDepth(types: *const facts.TypeStore, ty: TypeId) u32 {
     var n: u32 = 0;
