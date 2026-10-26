@@ -24,6 +24,9 @@ raw run is in [replay/results/](replay/results/).
   lower bound does not clear it. Its gain is about half of design.md's
   220-350M estimate. Real Trig decides (bench-plan gate 4), and the stage
   is worth building only with the two fixes and without the flag.
+- **A dense index with no free slots (`dense2`) saves nothing**: about
+  1.5% of ts-pattern slower, warm and cold. Its section below has the
+  numbers.
 
 ## How it was measured
 
@@ -247,6 +250,61 @@ Peak bytes of the maps' own buffers, from `--mem` runs
   256 slots through `clear` and zeroes their control bytes (`cand_nf3`)
   was slower in a single run (935M against 909M).
 
+## A dense bound with no free slots (`dense2`)
+
+Packed slots need a free slot to hold a value nothing reads, which safe
+generic Rig cannot make yet. `dense2` needs none: today's dense entries
+exactly as they are (`value: V?` included, the hashes beside keys over 8
+bytes, the same small path), with today's index replaced by Swiss control
+bytes probed 16 at a time and a 4-byte entry number in each slot, filled
+to 7/8 and doubled, a first table of 32 slots, and a rebuild that walks
+the old index in memory order after one fill of the control bytes.
+`dense2e` is the same, rebuilt by walking the entries in order as today
+does. Every run had 0 mismatches.
+
+pup core 8, sibling 9 idle, one binary for every design, fastest of 11
+warm and 7 cold (`--pollute 65536`), with the median of the paired
+per-round differences; 17 of 310 runs were dropped for a busy sibling
+([summary-3.txt](replay/results/summary-3.txt)):
+
+| Design | Warm cycles | Cold cycles | Warm instr. | Peak MB | Warm vs today (median) | Cold vs today (median) |
+|---|---:|---:|---:|---:|---:|---:|
+| today | 935.8M | 2,285.2M | 2,056M | 103.0 | | |
+| dense2 | 1,002.3M | 2,356.0M | 2,112M | 83.6 | +66.5M (+44.9M) | +70.8M (+21.6M) |
+| dense2e | 938.4M | 2,544.8M | 2,085M | 83.6 | +2.5M (-7.2M) | +259.6M (+239.7M) |
+| tuned, no flag (`cand_nf2`) | 898.6M | 1,991.7M | 1,871M | 69.1 | -37.2M (-64.5M) | -293.5M (-298.0M) |
+| noop | 342.9M | 1,163.4M | 558M | 0 | | |
+
+Placed as above (today less noop is 592.9M warm and 1,121.7M cold here,
+so Trig's 947M lies 0.67 of the way):
+
+| Design | Interpolated | Share of ts-pattern |
+|---|---:|---:|
+| dense2 | +69M (slower) | **1.5% slower** |
+| dense2e | +175M (slower) | 3.7% slower |
+| cand_nf2 | -209M | 4.4% faster |
+
+- **dense2 saves nothing**, warm or cold, by fastest or by median, so
+  it is under the 1% bar and is not built. It is slower on each hot type
+  alone but the instantiation cache (CacheKey -> U32 +0.9M, U32 -> U32
+  +21.5M, InstantiationKey -> U32 -11.6M, CachedTypeKey -> U32 +4.8M,
+  warm).
+- **Why.** A hit now waits on three loads in a row: the group of control
+  bytes, then the slot's entry number (its address comes from the
+  group's match), then the entry. Today's tag and entry number load
+  together, since both addresses come from the hash. The group probe
+  saves instructions only where today's probes were long, and the
+  instructions rise overall (2,112M against 2,056M), since a group
+  match, a mask walk, and the mirror cost more than today's one or two
+  tag compares at under half full.
+- **Memory** falls 103.0 MB to 83.6 MB ([mem3.txt](replay/results/mem3.txt)):
+  the index at 7/8 rather than 20-80%. The tuned packed design keeps
+  its lead (69.1 MB) and is the only one here that saves cycles.
+- **Rebuild order.** For dense entries, walking the old index in memory
+  order costs 64M warm against walking the entries: it reads each
+  entry (or hash) at random. Walking the entries is faster warm and far
+  slower cold, so neither order rescues the dense index.
+
 ## Reproducing it
 
 On pup, from a copy of Rig:
@@ -264,5 +322,6 @@ replay/summarize.py all.txt
 ```
 
 [campaign.sh](replay/campaign.sh) and [campaign2.sh](replay/campaign2.sh)
-are the two runs whose numbers appear above. The traces themselves, about
+are the two runs whose numbers appear above, and
+[campaign3.sh](replay/campaign3.sh) the dense2 run. The traces themselves, about
 0.9 GB each, stay on pup in /zfs/worktrees/rig/map-replay/.replay/traces.

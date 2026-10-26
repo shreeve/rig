@@ -1,0 +1,49 @@
+310 runs, 17 dropped for a busy sibling
+
+all-safe3
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand_nf2     11         898.6M        1871.2M     233.1     69.1     -37.2M       -64.5M      555.7M
+  dense2       11        1002.3M        2112.1M     251.0     83.6     +66.5M       +44.9M      659.4M
+  dense2e      11         938.4M        2084.8M     241.1     83.6      +2.5M        -7.2M      595.4M
+  noop         11         342.9M         558.2M      83.9      0.0    -592.9M      -636.4M        0.0M
+  today        11         935.8M        2056.4M     248.8    103.0      +0.0M        +0.0M      592.9M
+
+pollute64M-3
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand_nf2      7        1991.7M        2106.5M     513.3     69.1    -293.5M      -298.0M      828.2M
+  dense2        7        2356.0M        2329.3M     585.4     83.6     +70.8M       +21.6M     1192.6M
+  dense2e       7        2544.8M        2302.0M     603.7     83.6    +259.6M      +239.7M     1381.3M
+  noop          7        1163.4M         811.6M     288.4      0.0   -1121.7M     -1105.7M        0.0M
+  today         7        2285.2M        2327.9M     556.6    103.0      +0.0M        +0.0M     1121.7M
+
+shape0-3
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand_nf2      9         306.0M         646.8M      82.1     17.5     -22.0M       -21.6M      168.4M
+  dense2        9         328.9M         769.2M      87.1     17.5      +0.9M        +7.2M      191.2M
+  dense2e      10         308.8M         763.2M      84.0     17.5     -19.1M        -0.1M      171.2M
+  noop         10         137.6M         240.8M      33.7      0.0    -190.4M      -190.0M        0.0M
+  today        10         328.0M         744.9M      84.3     19.2      +0.0M        +0.0M      190.4M
+
+shape1-3
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand_nf2      9         164.5M         526.4M      51.1     27.7      +6.0M        +8.2M      116.4M
+  dense2        8         180.0M         545.5M      53.3     34.5     +21.5M       +16.8M      131.9M
+  dense2e      10         167.2M         535.7M      53.0     34.5      +8.7M        +2.6M      119.1M
+  noop          9          48.1M         124.4M      14.4      0.0    -110.4M      -117.4M        0.0M
+  today         9         158.5M         526.5M      51.7     42.7      +0.0M        +0.0M      110.4M
+
+shape2-3
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand_nf2     11         129.7M         254.7M      43.2     28.8     -16.7M       -11.8M       99.3M
+  dense2       11         134.8M         272.3M      41.2     23.6     -11.6M        -4.4M      104.4M
+  dense2e      11         125.1M         267.2M      39.4     23.6     -21.3M       -19.4M       94.6M
+  noop         11          30.4M          58.6M       7.8      0.0    -116.0M      -120.2M        0.0M
+  today        11         146.4M         261.2M      42.9     31.5      +0.0M        +0.0M      116.0M
+
+shape3-3
+  design        n   cycles (min)    instr (min)  ms (min)  peak MB   vs today  median diff   less noop
+  cand_nf2     11          66.5M         137.6M      22.5      6.6      -1.5M        -3.9M       46.5M
+  dense2       11          72.8M         147.7M      23.7      5.5      +4.8M        +4.9M       52.8M
+  dense2e      11          68.2M         144.8M      21.6      5.5      +0.3M        -2.4M       48.3M
+  noop         11          20.0M          37.0M       5.3      0.0     -48.0M       -51.3M        0.0M
+  today        11          68.0M         142.0M      21.9      6.8      +0.0M        +0.0M       48.0M

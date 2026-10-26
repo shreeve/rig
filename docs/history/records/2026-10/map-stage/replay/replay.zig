@@ -25,7 +25,10 @@
 //! each hash (the bound on a whole hash); `cand2` and `cand_nf2` add the
 //! two fixes the first replay called for (a first table of 32 slots and a
 //! rebuild in memory order, `CandCfg.tuned`); `cand_nf3` also keeps a small
-//! table through `clear`; `noop` is the loop alone.
+//! table through `clear`; `dense2` keeps today's dense entries behind a
+//! Swiss index (the bound that needs no free slots), and `dense2e` is it
+//! rebuilt by walking the entries rather than the old index; `noop` is
+//! the loop alone.
 //!
 //! The replayed K/V types (`shapes`) are plain data of at most 24 bytes
 //! with entries of at most 32, so every replayed map is packed under the
@@ -959,6 +962,297 @@ fn Cand(comptime K: type, comptime V: type, comptime cfg: CandCfg) type {
 }
 
 // ---------------------------------------------------------------------------
+// dense2: today's dense entries behind a Swiss index
+// ---------------------------------------------------------------------------
+
+/// The slots a dense2 index needs for `want` entries: a power of two, at
+/// least 32, at most 7/8 full.
+fn slotsFor32(want: usize) usize {
+    var n: usize = 32;
+    while (capacityOf(n) < want) n *= 2;
+    return n;
+}
+
+/// `walk_entries` rebuilds by walking the entries in order (as today
+/// does) rather than the old index in memory order.
+const Dense2Cfg = struct { walk_entries: bool = false };
+
+/// Today's dense entries, exactly as today (`Entry{key, value: V?}`, the
+/// hashes beside them for keys over 8 bytes, the same small path of 8
+/// entries), with today's index replaced by Swiss control bytes (0 free,
+/// 0x01 taken, top 7 hash bits | 0x80 full, 15 mirrored) probed 16 at a
+/// time, a 4-byte entry number in each slot, at most 7/8 full counting
+/// taken slots, doubled (or rebuilt at its size when half its full bytes
+/// are taken), a first table of 32 slots, and a rebuild that walks the
+/// old index in memory order with the control bytes written in one fill.
+fn Dense2(comptime K: type, comptime V: type, comptime cfg: Dense2Cfg) type {
+    return struct {
+        const Self = @This();
+        const stores_hashes = @sizeOf(K) > 8;
+        const Entry = struct { key: K, value: ?V };
+
+        len: usize = 0,
+        es: List(Entry) = .{},
+        hs: List(u64) = .{},
+        /// `slots + 15` control bytes once the index is built, else empty.
+        ctrl: List(u8) = .{},
+        /// Each slot's entry number.
+        at: List(u32) = .{},
+        /// Full and taken slots.
+        used: usize = 0,
+        /// The index's slots (a power of two), 0 in the small path.
+        slots: usize = 0,
+
+        inline fn live(self: *const Self, j: usize) bool {
+            return self.es.items()[j].value != null;
+        }
+        inline fn valPtr(self: *const Self, j: usize) *V {
+            return &(self.es.items()[j].value.?);
+        }
+        inline fn hashAt(self: *const Self, j: usize) u64 {
+            if (stores_hashes) return self.hs.items()[j];
+            return self.es.items()[j].key.hash();
+        }
+
+        inline fn findSmall(self: *const Self, k: K, h: u64) ?usize {
+            if (stores_hashes) {
+                const hs = self.hs.items();
+                var j: usize = 0;
+                while (j < hs.len) : (j += 1) {
+                    if (hs[j] == h and self.live(j)) {
+                        if (self.es.items()[j].key.eql(k)) return j;
+                    }
+                }
+            } else {
+                const es = self.es.items();
+                var j: usize = 0;
+                while (j < es.len) : (j += 1) {
+                    if (es[j].key.eql(k)) {
+                        if (self.live(j)) return j;
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// The slot whose entry holds `k`, or null.
+        inline fn findSlot(self: *const Self, k: K, h: u64) ?usize {
+            const ctrl = self.ctrl.items();
+            const at = self.at.buf;
+            const es = self.es.buf;
+            const mask = self.slots - 1;
+            const tag = tagOf(h);
+            var pos: usize = @intCast(h & mask);
+            while (true) {
+                const g = groupAt(ctrl, pos);
+                var m = matchBits(g, tag);
+                while (m != 0) {
+                    const s = (pos + @ctz(m)) & mask;
+                    if (es[at[s]].key.eql(k)) return s;
+                    m &= m - 1;
+                }
+                if (matchBits(g, 0) != 0) return null;
+                pos = (pos + GROUP) & mask;
+            }
+        }
+
+        inline fn find(self: *const Self, k: K, h: u64) ?usize {
+            if (self.slots == 0) return self.findSmall(k, h);
+            if (self.findSlot(k, h)) |s| return self.at.buf[s];
+            return null;
+        }
+
+        inline fn get(self: *const Self, k: K, _: u64) ?*V {
+            const h = k.hash();
+            if (self.find(k, h)) |j| return self.valPtr(j);
+            return null;
+        }
+
+        inline fn put(self: *Self, k: K, v: V, _: u64) bool {
+            const h = k.hash();
+            if (self.find(k, h)) |j| {
+                self.valPtr(j).* = v;
+                return true;
+            }
+            self.addEntry(k, v, h);
+            return false;
+        }
+
+        noinline fn addEntry(self: *Self, k: K, v: V, h: u64) void {
+            self.insert(k, v, h);
+        }
+
+        fn insert(self: *Self, k: K, v: V, h: u64) void {
+            if (self.slots == 0) {
+                if (self.es.len >= SMALL) self.grow();
+            } else if (self.used + 1 > capacityOf(self.slots)) self.grow();
+            self.es.push(.{ .key = k, .value = v });
+            if (stores_hashes) self.hs.push(h);
+            self.len += 1;
+            if (self.slots > 0) self.place(self.es.len - 1, h);
+        }
+
+        inline fn setCtrl(self: *Self, s: usize, c: u8) void {
+            const ctrl = self.ctrl.items();
+            ctrl[s] = c;
+            if (s < GROUP - 1) ctrl[self.slots + s] = c;
+        }
+
+        inline fn freeSlot(self: *const Self, h: u64) usize {
+            const ctrl = self.ctrl.items();
+            const mask = self.slots - 1;
+            var pos: usize = @intCast(h & mask);
+            while (true) {
+                const m = matchBits(groupAt(ctrl, pos), 0);
+                if (m != 0) return (pos + @ctz(m)) & mask;
+                pos = (pos + GROUP) & mask;
+            }
+        }
+
+        inline fn place(self: *Self, j: usize, h: u64) void {
+            const s = self.freeSlot(h);
+            self.setCtrl(s, tagOf(h));
+            self.at.buf[s] = @intCast(j);
+            self.used += 1;
+        }
+
+        noinline fn grow(self: *Self) void {
+            if (self.slots == 0) {
+                if (self.len < self.es.len) self.compact(null);
+                if (self.len < SMALL) return;
+                self.buildIndex(slotsFor32(self.len + 1));
+                return;
+            }
+            if (self.len + 1 <= capacityOf(self.slots) / 2) self.rebuild(self.slots) else self.rebuild(self.slots * 2);
+        }
+
+        /// Drop the entries taken, keeping the rest in order, in place;
+        /// `remap`, when given, gets each old entry's new number.
+        fn compact(self: *Self, remap: ?[]u32) void {
+            const es = self.es.items();
+            var w: usize = 0;
+            for (0..es.len) |j| {
+                if (es[j].value != null) {
+                    if (remap) |r| r[j] = @intCast(w);
+                    es[w] = es[j];
+                    if (stores_hashes) self.hs.items()[w] = self.hs.items()[j];
+                    w += 1;
+                }
+            }
+            self.es.len = w;
+            if (stores_hashes) self.hs.len = w;
+        }
+
+        /// The first index, of `n` slots, from the small path's entries.
+        fn buildIndex(self: *Self, n: usize) void {
+            if (self.len < self.es.len) self.compact(null);
+            self.ctrl.reserveTotal(n + GROUP - 1);
+            self.ctrl.len = n + GROUP - 1;
+            @memset(self.ctrl.items(), 0);
+            self.at.reserveTotal(n);
+            self.at.len = n;
+            self.slots = n;
+            self.used = 0;
+            for (0..self.es.len) |j| self.place(j, self.hashAt(j));
+        }
+
+        /// The index built anew with `n` slots: the control bytes in one
+        /// fill, then the old index walked in memory order, each full
+        /// slot's entry placed again (renumbered if entries were taken).
+        fn rebuild(self: *Self, n: usize) void {
+            const old_ctrl = self.ctrl;
+            const old_at = self.at;
+            const old_slots = self.slots;
+            var remap: []u32 = &.{};
+            const compacted = self.len < self.es.len;
+            if (compacted) {
+                remap = allocSlice(u32, self.es.len);
+                self.compact(remap);
+            }
+            self.ctrl = List(u8).filled(n + GROUP - 1, 0);
+            self.at = List(u32).withCapacity(n);
+            self.at.len = n;
+            self.slots = n;
+            self.used = 0;
+            if (cfg.walk_entries) {
+                for (0..self.es.len) |j| self.place(j, self.hashAt(j));
+            } else {
+                const oc = old_ctrl.items();
+                const oa = old_at.items();
+                for (0..old_slots) |s| {
+                    if (oc[s] < 0x80) continue;
+                    const j: usize = if (compacted) remap[oa[s]] else oa[s];
+                    self.place(j, self.hashAt(j));
+                }
+            }
+            if (compacted) freeSlice(u32, remap);
+            var oc2 = old_ctrl;
+            var oa2 = old_at;
+            oc2.free();
+            oa2.free();
+        }
+
+        fn take(self: *Self, k: K, _: u64) bool {
+            const h = k.hash();
+            if (self.slots == 0) {
+                if (self.findSmall(k, h)) |j| {
+                    self.len -= 1;
+                    self.es.items()[j].value = null;
+                    return true;
+                }
+                return false;
+            }
+            if (self.findSlot(k, h)) |s| {
+                const j = self.at.buf[s];
+                self.len -= 1;
+                self.setCtrl(s, TAKEN);
+                self.es.items()[j].value = null;
+                return true;
+            }
+            return false;
+        }
+
+        fn clear(self: *Self) void {
+            self.es.len = 0;
+            self.hs.len = 0;
+            self.ctrl.len = 0;
+            self.at.len = 0;
+            self.used = 0;
+            self.slots = 0;
+            self.len = 0;
+        }
+
+        fn reserve(self: *Self, n: usize) void {
+            self.es.reserveTotal(self.es.len + n);
+            if (stores_hashes) self.hs.reserveTotal(self.hs.len + n);
+            const want = self.len + n;
+            if (want <= SMALL) return;
+            const size = slotsFor32(want);
+            if (self.slots == 0) {
+                self.buildIndex(size);
+            } else if (size > self.slots) self.rebuild(size);
+        }
+
+        /// As the candidate's: room for the entries today's table holds
+        /// at 2/5 full.
+        fn explicitRebuild(self: *Self, slots: usize) void {
+            self.reserve((slots * 2 / 5) -| self.len);
+        }
+
+        fn deinit(self: *Self) void {
+            self.es.free();
+            self.hs.free();
+            self.ctrl.free();
+            self.at.free();
+        }
+
+        fn bytes(self: *const Self) usize {
+            return self.es.bytes() + self.hs.bytes() + self.ctrl.bytes() + self.at.bytes();
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
 // The trace
 // ---------------------------------------------------------------------------
 
@@ -1020,7 +1314,7 @@ fn shapeByName(k: []const u8, v: []const u8, kind: []const u8) ?u16 {
 /// the candidate as design.md has it (`cand`), without the flag
 /// (`cand_nf`), with the hash kept in the slot as well (`cand_nf_sh`),
 /// and with each operation's hash given (`cand_nf_ph`, a bound).
-const Design = enum { today, today_nf, cand, cand_nf, cand_nf_sh, cand_nf_ph, cand_nf2, cand_nf3, cand2, noop, none };
+const Design = enum { today, today_nf, cand, cand_nf, cand_nf_sh, cand_nf_ph, cand_nf2, cand_nf3, cand2, dense2, dense2e, noop, none };
 
 /// A map that does nothing: the replay loop's own cost, decoding each
 /// operation, building its key, and checking its result, which it reads
@@ -1069,6 +1363,8 @@ fn MapOf(comptime d: Design, comptime s: Shape) type {
         .cand_nf2 => Cand(K, V, .{ .flag = false, .tuned = true }),
         .cand_nf3 => Cand(K, V, .{ .flag = false, .tuned = true, .keep_clear = true }),
         .cand2 => Cand(K, V, .{ .tuned = true }),
+        .dense2 => Dense2(K, V, .{}),
+        .dense2e => Dense2(K, V, .{ .walk_entries = true }),
         .noop => Noop(K, V),
     };
 }
