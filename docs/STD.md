@@ -1273,24 +1273,45 @@ sub main()
 `Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
 ```
 
-The entries are kept in one List, in order, each with its key's hash
-beside it, so no key is hashed twice: not when the table grows, nor
-when an entry is taken. A key of 8 bytes or fewer (an `Int`, a `U32`
-id, an enum, a `Symbol`) keeps no hash: it hashes in a few steps and
-compares in one, so a small Map compares keys, and a table hashes a key
-again where it needs one, 8 bytes an entry fewer. A Map or Set builds a table when it first
+A Map whose key and value are both plain data, with a slot of the two
+of at most 32 bytes (a `Map[U32, U32]`, a `Map[Int, Int]`, an object of
+numbers to a `U32`), keeps each entry in the slot of its table that its
+key's hash picks. Up to 8 entries it keeps them in order with no table,
+and a lookup compares the keys, with no hash. Then the table is a power
+of two of slots, at least 32, at most seven eighths full: each slot holds
+a key and its value, and a control byte beside it says whether the slot
+is free, taken, or full, and when full holds the top seven bits of its
+key's hash. A lookup reads the 16 control bytes from the key's slot on
+at once, compares only the keys whose bytes match, and stops at a group
+that holds a free byte, so the key and the value it finds are where the
+hash first points. The order is a List of the slots in the order the
+keys were first put in. Taking an entry marks its slot taken until the
+table is next built: at twice its size, or at its size when half its
+entries are taken, from the old slots in memory order, every key hashed
+again, the order compacted. A free slot holds a copy of some entry,
+which nothing reads. Walking such a Map reads its slots in that order,
+scattered through the table, so walking a large one costs more than
+walking a dense one. A Set of plain keys of at most 32 bytes keeps its
+keys so.
+
+Every other Map keeps its entries in one List, in order, each with its
+key's hash beside it, so no key is hashed twice: not when the table
+grows, nor when an entry is taken. A key of 8 bytes or fewer keeps no
+hash: it hashes in a few steps and compares in one, so a small Map
+compares keys, and a table hashes a key again where it needs one, 8
+bytes an entry fewer. Such a Map or Set builds a table when it first
 holds more than 8 entries, or when `reserve` makes room for more, and
-keeps it until `clear`; until then, a lookup compares the stored
-hashes in turn, then the key where one matches. The table is
-open-addressed and probed linearly, at most four fifths full; each
-slot holds a one-byte tag, the top seven bits of its key's hash, and
-the index of its entry, so a probe compares a key only when the tag
-matches, and a key that is not there is found missing from the tags
-alone. A Map's entry holds its key and an optional value (for a
-`Map[U32, U32]`, a `U32` and a `U32?`), and its hash, a `U64`, is kept
-in a List beside the entries; taking one empties its value in place,
-and the next growth drops the entry, key and all, keeping the rest in
-order. A Set's key is optional, and taking one hands it back. The seed
+keeps it until `clear`; until then, a lookup compares the stored hashes
+in turn, then the key where one matches. The table is open-addressed
+and probed linearly, at most four fifths full; each slot holds a
+one-byte tag, the top seven bits of its key's hash, and the index of
+its entry, so a probe compares a key only when the tag matches, and a
+key that is not there is found missing from the tags alone. A Map's
+entry holds its key and an optional value (for a `Map[String, U32]`, a
+`String` and a `U32?`), and its hash, a `U64`, is kept in a List beside
+the entries; taking one empties its value in place, and the next growth
+drops the entry, key and all, keeping the rest in order. A Set's key is
+optional, and taking one hands it back. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 

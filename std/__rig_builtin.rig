@@ -229,7 +229,7 @@ pub obj Map[K: Hash, V]
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
-  pub fun ensure(!@, k: K, v: V) -> !V from @, k, v
+  pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
     if $plain(K) and $plain(V) and packs[K, V]()
       ph = @p_hash(?k)
       s = 0
@@ -255,7 +255,7 @@ pub obj Map[K: Hash, V]
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
-  pub fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
+  pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     if $plain(K) and $plain(V) and packs[K, V]()
       ph = @p_hash(?k)
       s = 0
@@ -284,7 +284,7 @@ pub obj Map[K: Hash, V]
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
+  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
     if $plain(K) and $plain(V) and packs[K, V]()
       ph = @p_hash(?k)
       s = 0
@@ -387,7 +387,7 @@ pub obj Map[K: Hash, V]
   # `i` is not below `len`. One step while no entry has been taken since
   # the entries were last compacted, as the Map grows; until then, it
   # counts the entries before it.
-  pub fun at(?@, i: Int) -> (?K, ?V)? from @
+  pub inline fun at(?@, i: Int) -> (?K, ?V)? from @
     return none if i < 0 or i >= @len
     if $plain(K) and $plain(V) and packs[K, V]()
       s = i
@@ -1247,7 +1247,7 @@ pub obj Values[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!@) -> (?V)? from @map
+  pub inline fun next(!@) -> (?V)? from @map
     if $plain(K) and $plain(V) and packs[K, V]()
       while @next_at < @map.p_order_len()
         s = @map.p_live(@next_at)

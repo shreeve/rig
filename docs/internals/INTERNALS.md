@@ -4996,6 +4996,40 @@ scheduler works, and what it costs, is in [scheduler.md](scheduler.md);
 why the model is what it is, in
 [docs/design/concurrency.md](../design/concurrency.md).
 
+### The built-in Map's layout
+
+The built-in Map and Set are std/__rig_builtin.rig, safe Rig over
+Lists; nothing in the compiler knows their layout but the runtime's
+printer (`writeMap`, `writeSet`, and `SlotOrder`, which read the fields
+by name). A Map is `len` and five Lists, 128 bytes: `es`, `hs`, the
+`Table` (`tags`, `at`), and `ps`. Each instance takes one of two layouts,
+by a test every method makes first, `$plain(K) and $plain(V) and
+packs[K, V]()`: each instance answers it when the program compiles (SPEC,
+"Generic bodies"), so the other layout's code is not in that instance.
+
+| Field | Dense entries (every other Map) | Entries in slots (plain K and V, a `Pair` of at most 32 bytes) |
+|---|---|---|
+| `es` | the entries in order, `Entry(key, value: V?)` | empty |
+| `hs` | each entry's hash, for keys over 8 bytes | empty, or the one size `reserve` asked for before the first entry |
+| `ps` | empty | up to `SMALL` entries in order; then the slots, `Pair(key, value)` |
+| `table.tags` | a tag a slot (0 free, `tag_of` full) | a control byte a slot (0 free, `TAKEN`, `tag_of` full), then the first `GROUP - 1` again |
+| `table.at` | each slot's entry index | the slot of each entry put in since the table was built, in order |
+
+In slots, a lookup reads `Simd[U8, 16]` from the control bytes at the
+key's home slot, matches the tag, and compares the keys of the matching
+lanes (`bits`, `trailing_zeros`); a group with a free byte ends a miss.
+A take marks the slot `TAKEN` and leaves its key and value, which
+`table.at` still names, and no insert reuses a taken slot, so the order
+never names a slot another key now holds. Taken slots count toward the
+7/8; `p_grow` builds the table again at its size when half its entries
+are taken, else at twice it. `p_rebuild` fills the new slots and
+control bytes at once, places each full old slot in memory order, records
+where each went, and rewrites the order through that, leaving the taken
+ones out; a free slot holds a copy of the first old slot, which the
+`$plain` test lets the body copy. `clear` keeps every List's memory and
+returns to the small path. Printing, iteration, `at`, `update`, and
+`retain` walk `table.at` and skip the slots no longer full.
+
 ### The Map trace
 
 `RIG_MAP_TRACE=1` at build time records each operation on a built-in
@@ -5013,7 +5047,8 @@ before the trace existed.
 The traced operations: `has`, `get`, and `edit` are lookups; `replace`
 (which `put` calls), `put_new`, the three `ensure`s, and a Set's `add`
 are puts; then `take`, `clear`, `rebuild` (a growth or a `reserve`
-that builds the table anew), and `retain`. A Map gets its id, from 1,
+that builds the table anew; `p_build` and `p_rebuild` for a Map that
+keeps its entries in slots), and `retain`. A Map gets its id, from 1,
 with a `new` record, before its first traced operation; the id is
 stored in the Map, so it follows the Map as it moves. A Map only read
 so far, through a read-only pointer, is known by its address until its

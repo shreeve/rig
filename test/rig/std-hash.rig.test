@@ -170,15 +170,17 @@ test "hash churn", '''
   print(run(5, 40, 3000, 100), run(6, 9, 3000, 9))
   print(run_set(7, 6, 400, 0), run_set(8, 40, 4000, 0), run_set(9, 300, 6000, 50))
 
-test "hash churn wide keys", "true true true"
-  # The churn above with a key of 16 bytes, which a Map and a Set keep the
-  # hash of (a key of 8 bytes or fewer they hash again): puts, takes and
-  # gets against a reference, across a small Map and a table, and a Set
-  # the same way.
+test "hash churn big entries", "true true true"
+  # A Map of plain data whose slot would take more than 32 bytes keeps its
+  # entries dense, as one of owning keys does: puts, takes, and gets
+  # against a reference, each walk in order, across a small Map and a
+  # table.
 
-  obj Wide
-    k: Int
-    tag: Int
+  obj Big
+    a: Int
+    b: Int
+    c: Int
+    d: Int
 
   obj Rand
     s: U64
@@ -187,34 +189,43 @@ test "hash churn wide keys", "true true true"
       @s = @s *% 6364136223846793005 +% 1442695040888963407
       Int((@s >> 33) % U64(n))
 
-  fun wide(k: Int) -> Wide
-    Wide(k: k, tag: k ^ 7)
-
   fun run(seed: U64, span: Int, steps: Int) -> Bool
     r = Rand(s: seed)
-    m: Map[Wide, Int] = Map()
-    s: Set[Wide] = Set()
+    m: Map[Int, Big] = Map()
     ref: List[Int] = List()
+    order: List[Int] = List()
     for _ in 0..span
       !ref.push(-1)
     for step in 0..steps
       k = (!r).next(span)
       if (!r).next(3) < 2
-        !m.put(wide(k), step)
-        _ = (!s).add(wide(k))
+        !order.push(k) if ref[k] < 0
+        !m.put(k, Big(a: step, b: k, c: 0, d: step))
         ref[k] = step
       else
-        got = (!m).take(wide(k)) ?? -1
+        got = -1
+        if (!m).take(k) as v
+          got = v.a
         return false if got != ref[k]
-        _ = (!s).take(wide(k))
+        if ref[k] >= 0
+          at = 0
+          while order[at] != k
+            at += 1
+          _ = (!order).remove(at)
         ref[k] = -1
       live = 0
       for x in 0..span
-        want = ref[x]
-        live += 1 if want >= 0
-        return false if (m.get(wide(x)) ?? -1) != want
-        return false if s.has(wide(x)) != (want >= 0)
-      return false if m.len != live or s.len != live
+        live += 1 if ref[x] >= 0
+        got = -1
+        if m.get(x) as v
+          got = v.a
+        return false if got != ref[x]
+      return false if m.len != live
+      i = 0
+      for e in ?m.items()
+        return false if i >= order.len or e.key != order[i] or e.value.b != e.key
+        i += 1
+      return false if i != order.len
     true
 
   print(run(1, 6, 300), run(2, 40, 2000), run(3, 300, 3000))
@@ -317,6 +328,55 @@ test "hash churn small slots", "true true true true"
     true
 
   print(run(1, 6, 400), run(2, 70, 4000), run(3, 200, 6000), run(4, 1000, 3000))
+
+test "hash churn wide keys", "true true true"
+  # The churn above with a key of 16 bytes, an object of two words, whose
+  # Map and Set keep their entries in slots and hash a key again where
+  # they need its hash: puts, takes and gets against a reference, across
+  # a small Map and a table, and a Set the same way.
+
+  obj Wide
+    k: Int
+    tag: Int
+
+  obj Rand
+    s: U64
+
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
+
+  fun wide(k: Int) -> Wide
+    Wide(k: k, tag: k ^ 7)
+
+  fun run(seed: U64, span: Int, steps: Int) -> Bool
+    r = Rand(s: seed)
+    m: Map[Wide, Int] = Map()
+    s: Set[Wide] = Set()
+    ref: List[Int] = List()
+    for _ in 0..span
+      !ref.push(-1)
+    for step in 0..steps
+      k = (!r).next(span)
+      if (!r).next(3) < 2
+        !m.put(wide(k), step)
+        _ = (!s).add(wide(k))
+        ref[k] = step
+      else
+        got = (!m).take(wide(k)) ?? -1
+        return false if got != ref[k]
+        _ = (!s).take(wide(k))
+        ref[k] = -1
+      live = 0
+      for x in 0..span
+        want = ref[x]
+        live += 1 if want >= 0
+        return false if (m.get(wide(x)) ?? -1) != want
+        return false if s.has(wide(x)) != (want >= 0)
+      return false if m.len != live or s.len != live
+    true
+
+  print(run(1, 6, 300), run(2, 40, 2000), run(3, 300, 3000))
 
 test "hash compound keys", '''
   10 5 false
@@ -662,6 +722,55 @@ fail "hash retain no map", "cannot lend `m` to write while a read loan is live"
   !m.put(1, 1)
   !m.retain(|?m, k, v| m.len > 1)
   print(m.len)
+
+test "hash slots in order", '''
+  21 1 none 99
+  3 1
+  117 39
+  {0, 5, 15, 20, 25, 30, 35, 40, 45, 50, 55} 11
+  {1: 2, 3: 4}
+  {} 0
+  1200 499
+  0 false
+  {3} true
+'''
+  # A Map and a Set that keep their entries in slots, with room reserved
+  # before the first entry, taken entries, a key put again, and a clear:
+  # `at`, the walks, and printing go in the order the keys were put in.
+
+  m = Map[Int, Int].new(capacity: 100)
+  for i in 0..40
+    !m.put(i * 3, i)
+  for i in 0..40
+    _ = (!m).take(i * 6)
+  !m.put(0, 99)
+  print(m.len, m.get(3), m.get(6), m.get(0))
+  if m.at(0) as k, v
+    print(k, v)
+  if m.at(19) as k, v
+    print(k, v)
+  s = Set[U32]()
+  for i in 0..12
+    _ = (!s).add(U32(i * 5))
+  _ = (!s).take(U32(10))
+  print(s, s.len)
+  small = Map[U32, U32]()
+  !small.put(U32(1), U32(2))
+  !small.put(U32(3), U32(4))
+  print(small)
+  !small.clear()
+  print(small, small.len)
+  n = 0
+  for k in ?m.keys()
+    n += k
+  t = 0
+  for v in ?m.values()
+    t += v
+  print(n, t)
+  r = Set[Int].new(capacity: 50)
+  print(r.len, r.has(3))
+  _ = (!r).add(3)
+  print(r, r.has(3))
 
 test "hash write drops", '''
   0 true
