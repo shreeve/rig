@@ -361,7 +361,7 @@ pub obj Map[K: Hash, V]
   # Take the entry of the key `k` out: its value is handed back. Its key
   # is dropped when the entries are next compacted, as the Map grows,
   # or with the Map. `none` when the Map has no such key.
-  pub fun take(!@, k: ?K) -> V?
+  pub inline fun take(!@, k: ?K) -> V?
     if $plain(K) and $plain(V) and packs[K, V]()
       if @p_find(k, @p_hash(k)) as s
         return (!@).p_take(s)
@@ -565,6 +565,19 @@ pub obj Map[K: Hash, V]
   fun p_order_len(?@) -> Int
     @ps.len if @table.tags.len == 0 else @table.at.len
 
+  # The slot of the next entry in order from the `at`-th on, `at` moved
+  # past it, or -1 past the last: what the iterators walk.
+  fun p_next(?@, at: !Int) -> Int
+    if @table.tags.len == 0
+      return -1 if at >= @ps.len
+      at += 1
+      return at - 1
+    while at < @table.at.len
+      s = Int(@table.at[at])
+      at += 1
+      return s if @table.tags[s] >= 0x80
+    -1
+
   # The table with room for one more entry: twice the size, or the same
   # size when half the entries it was filled with are taken.
   sub p_grow(!@)
@@ -606,7 +619,6 @@ pub obj Map[K: Hash, V]
       filler = @ps[0]
       old = swap(!@ps, List.filled(n, filler))
       old_ctrl = swap(!@table.tags, List.filled(n + GROUP - 1, U8(0)))
-      old_at = swap(!@table.at, List(capacity: @len + 1))
       went = List.filled(old.len, U32(0))
       for s in 0..old.len
         if old_ctrl[s] >= 0x80
@@ -616,9 +628,11 @@ pub obj Map[K: Hash, V]
           !@p_ctrl(t, tag_of(h))
           @ps[t] = e
           went[s] = U32(t)
-      for i in 0..old_at.len
-        s = Int(old_at[i])
-        !@table.at.push(went[s]) if old_ctrl[s] >= 0x80
+      order: List[U32] = List(capacity: slots_cap(n))
+      for i in 0..@table.at.len
+        s = Int(@table.at[i])
+        !order.push(went[s]) if old_ctrl[s] >= 0x80
+      @table.at = <order
 
   # `reserve` for a Map that keeps its entries in slots: the table built,
   # or grown, for `n` more; a Map with no entry yet keeps the size in
@@ -837,7 +851,7 @@ pub obj Set[K: Hash]
 
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
-  pub fun take(!@, k: ?K) -> K?
+  pub inline fun take(!@, k: ?K) -> K?
     if $plain(K) and set_packs[K]()
       if @p_find(k, @p_hash(k)) as s
         return (!@).p_take(s)
@@ -992,6 +1006,19 @@ pub obj Set[K: Hash]
   fun p_order_len(?@) -> Int
     @ps.len if @table.tags.len == 0 else @table.at.len
 
+  # The slot of the next key in order from the `at`-th on, as a Map's
+  # `p_next`.
+  fun p_next(?@, at: !Int) -> Int
+    if @table.tags.len == 0
+      return -1 if at >= @ps.len
+      at += 1
+      return at - 1
+    while at < @table.at.len
+      s = Int(@table.at[at])
+      at += 1
+      return s if @table.tags[s] >= 0x80
+    -1
+
   # The table with room for one more key, as a Map's `p_grow`.
   sub p_grow(!@)
     rarely
@@ -1031,7 +1058,6 @@ pub obj Set[K: Hash]
       filler = @ps[0]
       old = swap(!@ps, List.filled(n, filler))
       old_ctrl = swap(!@table.tags, List.filled(n + GROUP - 1, U8(0)))
-      old_at = swap(!@table.at, List(capacity: @len + 1))
       went = List.filled(old.len, U32(0))
       for s in 0..old.len
         if old_ctrl[s] >= 0x80
@@ -1041,9 +1067,11 @@ pub obj Set[K: Hash]
           !@p_ctrl(t, tag_of(h))
           @ps[t] = k
           went[s] = U32(t)
-      for i in 0..old_at.len
-        s = Int(old_at[i])
-        !@table.at.push(went[s]) if old_ctrl[s] >= 0x80
+      order: List[U32] = List(capacity: slots_cap(n))
+      for i in 0..@table.at.len
+        s = Int(@table.at[i])
+        !order.push(went[s]) if old_ctrl[s] >= 0x80
+      @table.at = <order
 
   # `reserve` for a Set that keeps its keys in slots, as a Map's.
   sub p_reserve(!@, n: Int)
@@ -1209,12 +1237,10 @@ pub obj Items[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!@) -> Item[?K, ?V]? from @map
+  pub inline fun next(!@) -> Item[?K, ?V]? from @map
     if $plain(K) and $plain(V) and packs[K, V]()
-      while @next_at < @map.p_order_len()
-        s = @map.p_live(@next_at)
-        @next_at += 1
-        return Item(key: ?@map.ps[s].key, value: ?@map.ps[s].value) if s >= 0
+      s = @map.p_next(!@next_at)
+      return Item(key: ?@map.ps[s].key, value: ?@map.ps[s].value) if s >= 0
       return none
     while @next_at < @map.es.len
       j = @next_at
@@ -1229,12 +1255,10 @@ pub obj Keys[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!@) -> (?K)? from @map
+  pub inline fun next(!@) -> (?K)? from @map
     if $plain(K) and $plain(V) and packs[K, V]()
-      while @next_at < @map.p_order_len()
-        s = @map.p_live(@next_at)
-        @next_at += 1
-        return ?@map.ps[s].key if s >= 0
+      s = @map.p_next(!@next_at)
+      return ?@map.ps[s].key if s >= 0
       return none
     while @next_at < @map.es.len
       j = @next_at
@@ -1249,10 +1273,8 @@ pub obj Values[K, V]
 
   pub inline fun next(!@) -> (?V)? from @map
     if $plain(K) and $plain(V) and packs[K, V]()
-      while @next_at < @map.p_order_len()
-        s = @map.p_live(@next_at)
-        @next_at += 1
-        return ?@map.ps[s].value if s >= 0
+      s = @map.p_next(!@next_at)
+      return ?@map.ps[s].value if s >= 0
       return none
     while @next_at < @map.es.len
       j = @next_at
@@ -1267,12 +1289,10 @@ pub obj Members[K]
   set: ?Set[K]
   next_at: Int
 
-  pub fun next(!@) -> (?K)? from @set
+  pub inline fun next(!@) -> (?K)? from @set
     if $plain(K) and set_packs[K]()
-      while @next_at < @set.p_order_len()
-        s = @set.p_live(@next_at)
-        @next_at += 1
-        return ?@set.ps[s] if s >= 0
+      s = @set.p_next(!@next_at)
+      return ?@set.ps[s] if s >= 0
       return none
     while @next_at < @set.ks.len
       j = @next_at
