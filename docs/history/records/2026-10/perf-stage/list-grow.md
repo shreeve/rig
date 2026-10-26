@@ -244,3 +244,43 @@ of six. v1 and v2 are folded into it; v3 (slower) is not kept. Open:
 gsoc-2018 on pup read 1.3 to 1.5% slower in one loaded set of 25
 rounds, with 2% fewer instructions, where the Mac reads it 0.4% faster;
 an exclusive pup run would settle it.
+
+## On main after #696 (2026-10-26)
+
+Rebased onto `91802aaf5` (#696: `copiedOut` inline, optional results
+bound in place). Pup with no release build running, load 1 to 1.5,
+core 8 (9 idle), interleaved, fastest of 10:
+
+| project | build | task-clock | user cycles | instructions | page faults |
+|---|---|---:|---:|---:|---:|
+| ts-pattern | main | 1,047.2 ms | 4,511.1M | 10,097.1M | 42,681 |
+| | branch | 1,049.1 ms | 4,516.4M | 10,001.8M | 42,682 |
+| zod3 | main | 195.2 ms | 824.0M | 1,826.7M | 9,148 |
+| | branch | 191.5 ms | 807.7M | 1,816.9M | 9,148 |
+
+On top of #696 the branch saves 0.94% of ts-pattern's instructions
+(0.95% in a second count, 10,101.1M to 10,004.4M) and 0.54% of zod3's,
+under the 1% bar; times are the same.
+
+std.json, the same conditions, 25 rounds for the four cases that read
+slower in 10 (`jsonab2.sh`), against main: twitter, twitterescaped,
+citm_catalog and github_events rig-fast 1.3 to 3.7% faster; canada
+rig-fast 1.3% faster; gsoc-2018 rig-safe 1.2% faster, github_events
+rig-safe 3.7% faster; **gsoc-2018 rig-fast 1.0% slower** (cycles 1.7%
+more, instructions 2.05% fewer) and **canada rig-safe 2.0% slower**
+(cycles 2.4% more, instructions 0.14% more). The Mac at load 1.7 to 2.6
+reads the branch faster on all 12 (0.2 to 7.7%, `json-mac-4`).
+
+Each loser has one cause, found by building the two commits apart
+(`g2`, the growth change alone; `p2`, the inlined `push` alone):
+
+| case | g2 | p2 |
+|---|---|---|
+| gsoc-2018 rig-fast | 1.6% slower, cycles 2.5% more, same instructions | 0.4% slower |
+| canada rig-safe | same | 2.3% slower, cycles 2.3% more |
+
+gsoc-2018's is placement: the growth change alone runs the same
+instructions and moves the parser's functions. canada's is the inlined
+`push`: `json.Doc.document` grows from 0x1dbe to 0x1e9b bytes and its
+number loop is scheduled differently. A cold hint on `push`'s growth
+branch (`@branchHint(.cold)`), inlined or not, changes no instruction.
