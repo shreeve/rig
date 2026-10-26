@@ -20,6 +20,27 @@
 # of its key's hash with the high bit set (`tag_of`), so a probe compares
 # a key only when its tag matches, and `at[i]` is its entry's index. Taking an entry shifts the slots after it back, so the
 # table keeps no tombstones; growing it drops the entries taken.
+#
+# A Map whose key and value are plain data, and whose `Pair` of them
+# takes at most `SLOT_BYTES`, keeps its entries in its table's slots
+# instead (`in_slots`), where the hash puts them: `ps` is the slots,
+# `table.tags` their control bytes and `table.at` the order. Up to
+# `SMALL` entries `ps` holds them in order and a lookup compares keys,
+# with no hash. Then each slot of a power of two of them, at least 32,
+# is a `Pair`; a free one holds a copy of some entry, which nothing
+# reads. A slot's control byte is 0 when it is free, `TAKEN` once its
+# entry is taken, and its key's `tag_of` when it holds one, and the
+# first `GROUP - 1` bytes are repeated after the last, so a probe reads
+# the `GROUP` control bytes from the key's slot on at once, with no wrap,
+# and compares only the keys whose tags match, stopping at a group that
+# holds a free byte. `table.at` lists the slot of each entry put in, in
+# order; a taken slot stays taken until the table is next built, so no
+# later key takes it. The table is at most 7/8 full, counting the taken
+# slots, and is built anew at twice its size, or at its size when half
+# its entries are taken, from the old slots in memory order, every key
+# hashed again. A Pair of at most `DENSE_BYTES` stays in the entries
+# until the Map holds `DENSE_UNTIL` of them (`slots_from`). A Set keeps
+# its keys so by the same rules.
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
@@ -73,6 +94,56 @@ obj Table
 fun stores_hashes[K]() -> Bool
   $size(K) > 8
 
+# The most bytes a slot that holds an entry may take (`packs`).
+SLOT_BYTES = 32
+
+# A Map or Set whose slot takes at most this many bytes keeps its
+# entries as one whose slots would not, until it holds `DENSE_UNTIL`.
+DENSE_BYTES = 8
+DENSE_UNTIL = 64
+
+# The control bytes a probe reads at once.
+GROUP = 16
+
+# The control byte of a slot whose entry is taken.
+TAKEN: U8 = 0x01
+
+# A slot of a Map that keeps its entries in its slots: a key and its
+# value.
+obj Pair[K, V]
+  key: K
+  value: V
+
+# Whether a Map of `K` to `V` whose key and value are plain data keeps
+# its entries in its slots: when a slot of the two takes at most
+# `SLOT_BYTES`.
+fun packs[K, V]() -> Bool
+  $size(Pair[K, V]) <= SLOT_BYTES
+
+# The entries such a Map holds before it moves them into slots: 0, or
+# `DENSE_UNTIL` for a slot of at most `DENSE_BYTES`.
+fun slots_from[K, V]() -> Int
+  DENSE_UNTIL if $size(Pair[K, V]) <= DENSE_BYTES else 0
+
+# As `packs` and `slots_from`, for a Set, whose slot is its key.
+fun set_packs[K]() -> Bool
+  $size(K) <= SLOT_BYTES
+
+fun set_slots_from[K]() -> Int
+  DENSE_UNTIL if $size(K) <= DENSE_BYTES else 0
+
+# How many of a table's `n` slots may be full or taken: 7/8.
+fun slots_cap(n: Int) -> Int
+  n - n / 8
+
+# The slots a table of slots needs to hold `want` entries: a power of
+# two, at least 32, at most 7/8 full.
+fun slots_for(want: Int) -> Int
+  n = 32
+  while slots_cap(n) < want
+    n *= 2
+  n
+
 # `Map[K, V]()` is an empty Map, which allocates nothing until the
 # first `put`.
 pub obj Map[K: Hash, V]
@@ -81,6 +152,8 @@ pub obj Map[K: Hash, V]
   es: List[Entry[K, V]] = List()
   hs: List[U64] = List()
   table: Table = Table()
+  # The entries of a Map that keeps them in its slots (`in_slots`).
+  ps: List[Pair[K, V]] = List()
 
   # An empty Map, as `Map[K, V]()` is, with room for `capacity` entries.
   pub fun new(capacity: Int = 0) -> Map[K, V]
@@ -91,6 +164,9 @@ pub obj Map[K: Hash, V]
   # Make room for `n` more entries at once: the entries and the table
   # are sized for them, so the next `n` puts of new keys grow neither.
   pub sub reserve(!@, n: Int)
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      !@p_reserve(n)
+      return
     !@es.reserve(n)
     !@hs.reserve(n) if stores_hashes[K]()
     want = @es.len + n
@@ -100,10 +176,16 @@ pub obj Map[K: Hash, V]
 
   # Whether the Map holds the key `k`.
   pub fun has(?@, k: ?K) -> Bool
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      return @p_find(k, @p_hash(k)) != none
     @find(k, k.hash()) != none
 
   # The value of the key `k`, viewed where the Map holds it, or `none`.
   pub fun get(?@, k: ?K) -> (?V)? from @
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      if @p_find(k, @p_hash(k)) as s
+        return ?@ps[s].value
+      return none
     if @find(k, k.hash()) as j
       return ?@es[j].value
     none
@@ -111,6 +193,10 @@ pub obj Map[K: Hash, V]
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
   pub fun edit(!@, k: ?K) -> (!V)? from @
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      if @p_find(k, @p_hash(k)) as s
+        return !@ps[s].value
+      return none
     if @find(k, k.hash()) as j
       if !@es[j].value as v
         return v
@@ -125,6 +211,14 @@ pub obj Map[K: Hash, V]
   # Put `v` under `k`, inserting or overwriting, and hand back the old
   # value, or `none` when `k` is new.
   pub fun replace(!@, k: K, v: V) -> V?
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      ph = @p_hash(?k)
+      if @p_find(?k, ph) as s
+        old = @ps[s].value
+        @ps[s].value = v
+        return old
+      !@p_add(k, v, ph)
+      return none
     h = k.hash()
     if @find(?k, h) as j
       <k
@@ -135,6 +229,11 @@ pub obj Map[K: Hash, V]
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
   # `k` and `v` are dropped.
   pub fun put_new(!@, k: K, v: V) -> Bool
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      ph = @p_hash(?k)
+      return false if @p_find(?k, ph) != none
+      !@p_add(k, v, ph)
+      return true
     h = k.hash()
     if @find(?k, h) != none
       <k
@@ -146,12 +245,25 @@ pub obj Map[K: Hash, V]
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
   pub fun ensure(!@, k: K, v: V) -> !V from @, k, v
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      ph = @p_hash(?k)
+      s = 0
+      if @p_find(?k, ph) as at
+        s = at
+      else
+        s = (!@).p_add(k, v, ph)
+      return !@ps[s].value
     h = k.hash()
     j = 0
     if @find(?k, h) as at
       <k
       <v
       j = at
+    else if @slots_due()
+      s = (!@).add_moved(<k, <v)
+      while true
+        if (!@).p_value(s) as w
+          return w
     else
       j = (!@).add_new(<k, <v, h)
     # The entry at `j` holds a value, so the loop returns at once; it
@@ -164,6 +276,16 @@ pub obj Map[K: Hash, V]
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
   pub fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      ph = @p_hash(?k)
+      s = 0
+      found = false
+      if @p_find(?k, ph) as at
+        s = at
+        found = true
+      else
+        s = (!@).p_add(k, v, ph)
+      return !@ps[s].value, not found
     h = k.hash()
     j = 0
     added = false
@@ -171,6 +293,11 @@ pub obj Map[K: Hash, V]
       <k
       <v
       j = at
+    else if @slots_due()
+      s = (!@).add_moved(<k, <v)
+      while true
+        if (!@).p_value(s) as w
+          return w, true
     else
       j = (!@).add_new(<k, <v, h)
       added = true
@@ -183,11 +310,27 @@ pub obj Map[K: Hash, V]
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
   pub fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      ph = @p_hash(?k)
+      s = 0
+      if @p_find(?k, ph) as at
+        s = at
+      else
+        s = (!@).p_add_made(k, make, ph)
+      # As below, the slot holds a value, so the loop returns at once.
+      while true
+        if (!@).p_value(s) as w
+          return w
     h = k.hash()
     j = 0
     if @find(?k, h) as at
       <k
       j = at
+    else if @slots_due()
+      s = (!@).add_moved_made(<k, make)
+      while true
+        if (!@).p_value(s) as w
+          return w
     else
       j = (!@).add_made(<k, make, h)
     # As in `ensure`, the entry at `j` holds a value.
@@ -222,6 +365,9 @@ pub obj Map[K: Hash, V]
   # dropped then, not left for compaction as `take` leaves a key. The
   # entries stay in the Lists the Map has, so they keep their room.
   pub sub retain(!@, f: ?fun(?K, !V) -> Bool)
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      !@p_retain(f)
+      return
     back: List[Entry[K, V]] = List(capacity: @es.len)
     back_hs: List[U64] = List(capacity: @es.len)
     while (!@es).pop() as e
@@ -246,6 +392,10 @@ pub obj Map[K: Hash, V]
   # is dropped when the entries are next compacted, as the Map grows,
   # or with the Map. `none` when the Map has no such key.
   pub fun take(!@, k: ?K) -> V?
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      if @p_find(k, @p_hash(k)) as s
+        return (!@).p_take(s)
+      return none
     h = k.hash()
     if @find(k, h) as j
       @len -= 1
@@ -257,6 +407,7 @@ pub obj Map[K: Hash, V]
   pub sub clear(!@)
     !@es.clear()
     !@hs.clear()
+    !@ps.clear()
     !@table.tags.clear()
     !@table.at.clear()
     @len = 0
@@ -268,6 +419,19 @@ pub obj Map[K: Hash, V]
   # counts the entries before it.
   pub fun at(?@, i: Int) -> (?K, ?V)? from @
     return none if i < 0 or i >= @len
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      s = i
+      if @table.tags.len > 0
+        if @len == @table.at.len
+          s = Int(@table.at[i])
+        else
+          n = 0
+          for o in 0..@table.at.len
+            s = @p_live(o)
+            if s >= 0
+              break if n == i
+              n += 1
+      return ?@ps[s].key, ?@ps[s].value
     j = i
     if @len < @es.len
       j = 0
@@ -298,12 +462,296 @@ pub obj Map[K: Hash, V]
   # Call `f` with each key, in order, and its value lent to write. Each
   # value is out of its entry while `f` has it.
   pub sub update(!@, f: ?sub(?K, !V))
+    if $plain(K) and $plain(V) and packs[K, V]() and @in_slots()
+      !@p_update(f)
+      return
     for j in 0..@es.len
       held = <@es[j].value
       if !held as v
         f(?@es[j].key, !v)
       old = swap(!@es[j].value, <held)
       <old
+
+  # Whether the Map keeps its entries in its slots: once it holds any
+  # there, or from the start where `slots_from` is 0. Read only where
+  # `packs` holds.
+  fun in_slots(?@) -> Bool
+    @ps.len > 0 or slots_from[K, V]() == 0
+
+  # Whether a Map of entries kept as a dense List must move them into
+  # slots before it adds one more: it holds `slots_from` of them.
+  fun slots_due(?@) -> Bool
+    if $plain(K) and $plain(V) and packs[K, V]()
+      return slots_from[K, V]() > 0 and @len >= slots_from[K, V]()
+    false
+
+  # Move the entries, in order, from the dense List into a table of
+  # slots, which then keeps them.
+  sub to_slots(!@)
+    rarely
+    if $plain(K) and $plain(V)
+      live: List[Pair[K, V]] = List(capacity: @len)
+      for j in 0..@es.len
+        if @es[j].value as v
+          !live.push(Pair(key: @es[j].key, value: v))
+      @es = List()
+      @hs = List()
+      @table = Table()
+      !@p_fill(slots_for(live.len + 1), live[0])
+      for i in 0..live.len
+        e = live[i]
+        !@p_place(e, e.key.hash())
+
+  # Move the entries into slots, then add `k`, `v` there, whose key is
+  # new, and give its slot: what an `ensure` adds when it is due.
+  fun add_moved(!@, k: K, v: V) -> Int
+    rarely
+    !@to_slots()
+    h = k.hash()
+    (!@).p_add(<k, <v, h)
+
+  # `add_moved` with the value `make(k)`, made only now.
+  fun add_moved_made(!@, k: K, make: ?fun(?K) -> V) -> Int keeps make
+    rarely
+    v = make(?k)
+    (!@).add_moved(<k, <v)
+
+  # The hash a lookup in slots needs: none before the table is built.
+  fun p_hash(?@, k: ?K) -> U64
+    return 0 if @table.tags.len == 0
+    k.hash()
+
+  # The slot of the key `k` (`h` its hash once there is a table), or
+  # `none`: before the table, by comparing the keys in turn.
+  fun p_find(?@, k: ?K, h: U64) -> Int?
+    if @table.tags.len == 0
+      ps = ?@ps[..]
+      j = 0
+      while 0 <= j and j < ps.len
+        return j if ps[j].key == k
+        j += 1
+      return none
+    @p_slot(k, h)
+
+  # The slot of the key `k`, which hashes to `h`, in the table: a group
+  # of `GROUP` control bytes at a time from the slot `h` names, each key
+  # whose tag matches compared, until a group holds a free byte.
+  fun p_slot(?@, k: ?K, h: U64) -> Int?
+    ctrl = ?@table.tags[..]
+    ps = ?@ps[..]
+    mask = ps.len - 1
+    tag = tag_of(h)
+    i = Int(h & U64(mask))
+    while true
+      g = ctrl.read[Simd[U8, 16]](i)
+      m = (g == tag).bits()
+      while m != 0
+        s = (i + m.trailing_zeros()) & mask
+        return s if ps[s].key == k
+        m &= m - 1
+      return none if (g == 0).any()
+      i = (i + GROUP) & mask
+    none
+
+  # The first free slot from the one `h` names; the table always has one.
+  fun p_free(?@, h: U64) -> Int
+    ctrl = ?@table.tags[..]
+    mask = @ps.len - 1
+    i = Int(h & U64(mask))
+    while true
+      m = (ctrl.read[Simd[U8, 16]](i) == 0).bits()
+      return (i + m.trailing_zeros()) & mask if m != 0
+      i = (i + GROUP) & mask
+    -1
+
+  # Set slot `s`'s control byte, and its copy past the end.
+  sub p_ctrl(!@, s: Int, c: U8)
+    @table.tags[s] = c
+    @table.tags[@ps.len + s] = c if s < GROUP - 1
+
+  # Put the entry `e`, whose key is new and hashes to `h`, in the first
+  # free slot from its own, and give the slot.
+  fun p_place(!@, e: Pair[K, V], h: U64) -> Int
+    if $plain(K) and $plain(V)
+      s = @p_free(h)
+      !@p_ctrl(s, tag_of(h))
+      @ps[s] = e
+      !@table.at.push(U32(s))
+      @len += 1
+      return s
+    <e
+    -1
+
+  # Add the entry `k`, `v`, whose key is new and, once there is a table,
+  # hashes to `h`, and give its slot: before the table, at the end of
+  # the entries, unless they are `SMALL` or room was reserved, when the
+  # table is built first; out of line and hot, as `add_entry` is.
+  called fun p_add(!@, k: K, v: V, h: U64) -> Int
+    if $plain(K) and $plain(V)
+      e = Pair(key: k, value: v)
+      if @table.tags.len == 0
+        if @hs.len == 0 and @ps.len < SMALL
+          !@ps.push(e)
+          @len += 1
+          return @ps.len - 1
+        n = 32
+        if @hs.len > 0
+          n = Int(@hs[0])
+          !@hs.clear()
+        !@p_build(n, e)
+        return (!@).p_place(e, k.hash())
+      !@p_grow() if @table.at.len >= slots_cap(@ps.len)
+      return (!@).p_place(e, h)
+    <k
+    <v
+    -1
+
+  # `p_add` with the value `make(k)`, made only now.
+  fun p_add_made(!@, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
+    rarely
+    v = make(?k)
+    (!@).p_add(<k, <v, h)
+
+  # The value in slot `s`, lent to write.
+  fun p_value(!@, s: Int) -> (!V)? from @
+    !@ps[s].value
+
+  # Take the entry in slot `s` out, handing back its value: before the
+  # table, the entries after it move down one; in it, the slot is taken.
+  fun p_take(!@, s: Int) -> V?
+    if $plain(K) and $plain(V)
+      @len -= 1
+      if @table.tags.len == 0
+        e = (!@ps).remove(s)
+        return e.value
+      !@p_ctrl(s, TAKEN)
+      return @ps[s].value
+    none
+
+  # The slot of the entry `o`-th in order, or -1 once it is taken.
+  fun p_live(?@, o: Int) -> Int
+    return o if @table.tags.len == 0
+    s = Int(@table.at[o])
+    s if @table.tags[s] >= 0x80 else -1
+
+  # How many entries `p_live` counts through: those put in since the
+  # table was last built, taken ones too.
+  fun p_order_len(?@) -> Int
+    @ps.len if @table.tags.len == 0 else @table.at.len
+
+  # The table with room for one more entry: twice the size, or the same
+  # size when half the entries it was filled with are taken.
+  sub p_grow(!@)
+    rarely
+    n = @ps.len
+    !@p_rebuild(n if @len + 1 <= slots_cap(n) / 2 else n * 2)
+
+  # Make the slots `n` copies of `filler`, every one free, and the
+  # order empty.
+  sub p_fill(!@, n: Int, filler: Pair[K, V])
+    if $plain(K) and $plain(V)
+      !@ps.clear()
+      !@ps.resize(n, filler)
+      !@table.tags.clear()
+      !@table.tags.resize(n + GROUP - 1, U8(0))
+      !@table.at.clear()
+      @len = 0
+
+  # Build the table, of `n` slots, from the entries before it, which keep
+  # their order; `filler` fills the free slots.
+  sub p_build(!@, n: Int, filler: Pair[K, V])
+    rarely
+    if $plain(K) and $plain(V)
+      small: List[Pair[K, V], inline: 8] = List()
+      for i in 0..@ps.len
+        !small.push(@ps[i])
+      !@p_fill(n, filler)
+      for i in 0..small.len
+        e = small[i]
+        !@p_place(e, e.key.hash())
+
+  # The table built anew with `n` slots: the control bytes in one fill,
+  # then the old slots in memory order, each entry put in the first free
+  # slot from its own and where it went kept, then the order rewritten
+  # through that, the taken entries left out.
+  sub p_rebuild(!@, n: Int)
+    rarely
+    if $plain(K) and $plain(V)
+      filler = @ps[0]
+      old = swap(!@ps, List.filled(n, filler))
+      old_ctrl = swap(!@table.tags, List.filled(n + GROUP - 1, U8(0)))
+      old_at = swap(!@table.at, List(capacity: @len + 1))
+      went = List.filled(old.len, U32(0))
+      for s in 0..old.len
+        if old_ctrl[s] >= 0x80
+          e = old[s]
+          h = e.key.hash()
+          t = @p_free(h)
+          !@p_ctrl(t, tag_of(h))
+          @ps[t] = e
+          went[s] = U32(t)
+      for i in 0..old_at.len
+        s = Int(old_at[i])
+        !@table.at.push(went[s]) if old_ctrl[s] >= 0x80
+
+  # `reserve` for a Map that keeps its entries in slots: the table built,
+  # or grown, for `n` more; a Map with no entry yet keeps the size in
+  # `hs`, its one use there, and builds the table with its first entry.
+  sub p_reserve(!@, n: Int)
+    want = @len + n
+    if want <= SMALL
+      !@ps.reserve(n)
+      return
+    size = slots_for(want)
+    if @table.tags.len == 0
+      if $plain(K) and $plain(V)
+        if @ps.len > 0
+          first = @ps[0]
+          !@p_build(size, first)
+        else
+          !@hs.clear()
+          !@hs.push(U64(size))
+          !@ps.reserve(size)
+    else if size > @ps.len
+      !@p_rebuild(size)
+
+  # `retain` for a Map that keeps its entries in slots: each entry in
+  # order given to `f`, and the table built again, at its size, from the
+  # ones it keeps.
+  sub p_retain(!@, f: ?fun(?K, !V) -> Bool)
+    if $plain(K) and $plain(V)
+      kept: List[Pair[K, V]] = List(capacity: @len)
+      for o in 0..@p_order_len()
+        s = @p_live(o)
+        if s >= 0
+          key = @ps[s].key
+          value = @ps[s].value
+          !kept.push(Pair(key: key, value: value)) if f(?key, !value)
+      n = @ps.len if @table.tags.len > 0 else 0
+      !@ps.clear()
+      !@table.tags.clear()
+      !@table.at.clear()
+      @len = 0
+      if n == 0
+        for i in 0..kept.len
+          !@ps.push(kept[i])
+        @len = kept.len
+      else if kept.len > 0
+        !@p_fill(n, kept[0])
+        for i in 0..kept.len
+          e = kept[i]
+          !@p_place(e, e.key.hash())
+
+  # `update` for a Map that keeps its entries in slots: each value out
+  # of its slot while `f` has it.
+  sub p_update(!@, f: ?sub(?K, !V))
+    if $plain(K) and $plain(V)
+      for o in 0..@p_order_len()
+        s = @p_live(o)
+        if s >= 0
+          v = @ps[s].value
+          f(?@ps[s].key, !v)
+          @ps[s].value = v
 
   # The entry of the key `k`, whose hash is `h`, or `none`: in a small
   # Map, by the stored hashes in turn; in a larger one, by a probe of
@@ -343,6 +791,11 @@ pub obj Map[K: Hash, V]
   # Add the entry `k`, `v`, whose key is new and hashes to `h`: the body
   # of `add_new` and `add_made`.
   sub insert(!@, k: K, v: V, h: U64)
+    if @slots_due()
+      !@to_slots()
+      if $plain(K) and $plain(V)
+        !@p_add(k, v, k.hash())
+        return
     if @table.tags.len == 0
       !@grow() if @es.len >= SMALL
     else if (@es.len + 1) * 5 > @table.tags.len * 4
@@ -421,6 +874,8 @@ pub obj Set[K: Hash]
   ks: List[K?] = List()
   hs: List[U64] = List()
   table: Table = Table()
+  # The keys of a Set that keeps them in its slots (`in_slots`).
+  ps: List[K] = List()
 
   # An empty Set, as `Set[K]()` is, with room for `capacity` keys.
   pub fun new(capacity: Int = 0) -> Set[K]
@@ -431,6 +886,9 @@ pub obj Set[K: Hash]
   # Make room for `n` more keys at once: the keys and the table are
   # sized for them, so the next `n` adds of new keys grow neither.
   pub sub reserve(!@, n: Int)
+    if $plain(K) and set_packs[K]() and @in_slots()
+      !@p_reserve(n)
+      return
     !@ks.reserve(n)
     !@hs.reserve(n) if stores_hashes[K]()
     want = @ks.len + n
@@ -440,10 +898,17 @@ pub obj Set[K: Hash]
 
   # Whether the Set holds the key `k`.
   pub fun has(?@, k: ?K) -> Bool
+    if $plain(K) and set_packs[K]() and @in_slots()
+      return @p_find(k, @p_hash(k)) != none
     @find(k, k.hash()) != none
 
   # Add the key `k`: true when it is new; otherwise `k` is dropped.
   pub fun add(!@, k: K) -> Bool
+    if $plain(K) and set_packs[K]() and @in_slots()
+      ph = @p_hash(?k)
+      return false if @p_find(?k, ph) != none
+      !@p_add(k, ph)
+      return true
     h = k.hash()
     return false if @find(?k, h) != none
     !@add_new(<k, h)
@@ -452,6 +917,10 @@ pub obj Set[K: Hash]
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
   pub fun take(!@, k: ?K) -> K?
+    if $plain(K) and set_packs[K]() and @in_slots()
+      if @p_find(k, @p_hash(k)) as s
+        return (!@).p_take(s)
+      return none
     h = k.hash()
     if @find(k, h) as j
       @len -= 1
@@ -463,6 +932,9 @@ pub obj Set[K: Hash]
   # dropped then. The keys stay in the Lists the Set has, so they keep
   # their room.
   pub sub retain(!@, f: ?fun(?K) -> Bool)
+    if $plain(K) and set_packs[K]() and @in_slots()
+      !@p_retain(f)
+      return
     back: List[K] = List(capacity: @len)
     back_hs: List[U64] = List(capacity: @len)
     while (!@ks).pop() as slot
@@ -485,6 +957,7 @@ pub obj Set[K: Hash]
   pub sub clear(!@)
     !@ks.clear()
     !@hs.clear()
+    !@ps.clear()
     !@table.tags.clear()
     !@table.at.clear()
     @len = 0
@@ -493,6 +966,232 @@ pub obj Set[K: Hash]
   # Set holds it.
   pub fun items(?@) -> Members[K] from @
     Members(set: ?@, next_at: 0)
+
+  # Whether the Set keeps its keys in its slots, as a Map's `in_slots`.
+  fun in_slots(?@) -> Bool
+    @ps.len > 0 or set_slots_from[K]() == 0
+
+  # Whether the Set must move its keys into slots before it adds one.
+  fun slots_due(?@) -> Bool
+    if $plain(K) and set_packs[K]()
+      return set_slots_from[K]() > 0 and @len >= set_slots_from[K]()
+    false
+
+  # Move the keys, in order, from the dense List into a table of slots.
+  sub to_slots(!@)
+    rarely
+    if $plain(K)
+      live: List[K] = List(capacity: @len)
+      for j in 0..@ks.len
+        if @ks[j] as k
+          !live.push(k)
+      @ks = List()
+      @hs = List()
+      @table = Table()
+      !@p_fill(slots_for(live.len + 1), live[0])
+      for i in 0..live.len
+        k = live[i]
+        !@p_place(k, k.hash())
+
+  # The hash a lookup in slots needs: none before the table is built.
+  fun p_hash(?@, k: ?K) -> U64
+    return 0 if @table.tags.len == 0
+    k.hash()
+
+  # The slot of the key `k`, as a Map's `p_find`.
+  fun p_find(?@, k: ?K, h: U64) -> Int?
+    if @table.tags.len == 0
+      ps = ?@ps[..]
+      j = 0
+      while 0 <= j and j < ps.len
+        return j if ps[j] == k
+        j += 1
+      return none
+    @p_slot(k, h)
+
+  # The slot of the key `k`, which hashes to `h`, in the table, probed
+  # as a Map's `p_slot` is.
+  fun p_slot(?@, k: ?K, h: U64) -> Int?
+    ctrl = ?@table.tags[..]
+    ps = ?@ps[..]
+    mask = ps.len - 1
+    tag = tag_of(h)
+    i = Int(h & U64(mask))
+    while true
+      g = ctrl.read[Simd[U8, 16]](i)
+      m = (g == tag).bits()
+      while m != 0
+        s = (i + m.trailing_zeros()) & mask
+        return s if ps[s] == k
+        m &= m - 1
+      return none if (g == 0).any()
+      i = (i + GROUP) & mask
+    none
+
+  # The first free slot from the one `h` names; the table always has one.
+  fun p_free(?@, h: U64) -> Int
+    ctrl = ?@table.tags[..]
+    mask = @ps.len - 1
+    i = Int(h & U64(mask))
+    while true
+      m = (ctrl.read[Simd[U8, 16]](i) == 0).bits()
+      return (i + m.trailing_zeros()) & mask if m != 0
+      i = (i + GROUP) & mask
+    -1
+
+  # Set slot `s`'s control byte, and its copy past the end.
+  sub p_ctrl(!@, s: Int, c: U8)
+    @table.tags[s] = c
+    @table.tags[@ps.len + s] = c if s < GROUP - 1
+
+  # Put the key `k`, which is new and hashes to `h`, in the first free
+  # slot from its own.
+  sub p_place(!@, k: K, h: U64)
+    if $plain(K)
+      s = @p_free(h)
+      !@p_ctrl(s, tag_of(h))
+      @ps[s] = k
+      !@table.at.push(U32(s))
+      @len += 1
+      return
+    <k
+
+  # Add the key `k`, which is new and, once there is a table, hashes to
+  # `h`, as a Map's `p_add` adds an entry.
+  called sub p_add(!@, k: K, h: U64)
+    if $plain(K)
+      if @table.tags.len == 0
+        if @hs.len == 0 and @ps.len < SMALL
+          !@ps.push(k)
+          @len += 1
+          return
+        n = 32
+        if @hs.len > 0
+          n = Int(@hs[0])
+          !@hs.clear()
+        !@p_build(n, k)
+        !@p_place(k, k.hash())
+        return
+      !@p_grow() if @table.at.len >= slots_cap(@ps.len)
+      !@p_place(k, h)
+      return
+    <k
+
+  # Take the key in slot `s` out and hand it back.
+  fun p_take(!@, s: Int) -> K?
+    if $plain(K)
+      @len -= 1
+      if @table.tags.len == 0
+        return (!@ps).remove(s)
+      !@p_ctrl(s, TAKEN)
+      return @ps[s]
+    none
+
+  # The slot of the key `o`-th in order, or -1 once it is taken.
+  fun p_live(?@, o: Int) -> Int
+    return o if @table.tags.len == 0
+    s = Int(@table.at[o])
+    s if @table.tags[s] >= 0x80 else -1
+
+  # How many keys `p_live` counts through.
+  fun p_order_len(?@) -> Int
+    @ps.len if @table.tags.len == 0 else @table.at.len
+
+  # The table with room for one more key, as a Map's `p_grow`.
+  sub p_grow(!@)
+    rarely
+    n = @ps.len
+    !@p_rebuild(n if @len + 1 <= slots_cap(n) / 2 else n * 2)
+
+  # Make the slots `n` copies of `filler`, every one free.
+  sub p_fill(!@, n: Int, filler: K)
+    if $plain(K)
+      !@ps.clear()
+      !@ps.resize(n, filler)
+      !@table.tags.clear()
+      !@table.tags.resize(n + GROUP - 1, U8(0))
+      !@table.at.clear()
+      @len = 0
+      return
+    <filler
+
+  # Build the table, of `n` slots, from the keys before it.
+  sub p_build(!@, n: Int, filler: K)
+    rarely
+    if $plain(K)
+      small: List[K, inline: 8] = List()
+      for i in 0..@ps.len
+        !small.push(@ps[i])
+      !@p_fill(n, filler)
+      for i in 0..small.len
+        k = small[i]
+        !@p_place(k, k.hash())
+      return
+    <filler
+
+  # The table built anew with `n` slots, as a Map's `p_rebuild`.
+  sub p_rebuild(!@, n: Int)
+    rarely
+    if $plain(K)
+      filler = @ps[0]
+      old = swap(!@ps, List.filled(n, filler))
+      old_ctrl = swap(!@table.tags, List.filled(n + GROUP - 1, U8(0)))
+      old_at = swap(!@table.at, List(capacity: @len + 1))
+      went = List.filled(old.len, U32(0))
+      for s in 0..old.len
+        if old_ctrl[s] >= 0x80
+          k = old[s]
+          h = k.hash()
+          t = @p_free(h)
+          !@p_ctrl(t, tag_of(h))
+          @ps[t] = k
+          went[s] = U32(t)
+      for i in 0..old_at.len
+        s = Int(old_at[i])
+        !@table.at.push(went[s]) if old_ctrl[s] >= 0x80
+
+  # `reserve` for a Set that keeps its keys in slots, as a Map's.
+  sub p_reserve(!@, n: Int)
+    want = @len + n
+    if want <= SMALL
+      !@ps.reserve(n)
+      return
+    size = slots_for(want)
+    if @table.tags.len == 0
+      if $plain(K)
+        if @ps.len > 0
+          first = @ps[0]
+          !@p_build(size, first)
+        else
+          !@hs.clear()
+          !@hs.push(U64(size))
+          !@ps.reserve(size)
+    else if size > @ps.len
+      !@p_rebuild(size)
+
+  # `retain` for a Set that keeps its keys in slots.
+  sub p_retain(!@, f: ?fun(?K) -> Bool)
+    if $plain(K)
+      kept: List[K] = List(capacity: @len)
+      for o in 0..@p_order_len()
+        s = @p_live(o)
+        if s >= 0
+          k = @ps[s]
+          !kept.push(k) if f(?k)
+      n = @ps.len if @table.tags.len > 0 else 0
+      !@ps.clear()
+      !@table.tags.clear()
+      !@table.at.clear()
+      @len = 0
+      if n == 0
+        for i in 0..kept.len
+          !@ps.push(kept[i])
+        @len = kept.len
+      else if kept.len > 0
+        !@p_fill(n, kept[0])
+        for i in 0..kept.len
+          k = kept[i]
+          !@p_place(k, k.hash())
 
   fun find(?@, k: ?K, h: U64) -> Int?
     if @table.tags.len == 0
@@ -526,6 +1225,11 @@ pub obj Set[K: Hash]
   # Add the key `k`, which is new and hashes to `h`; out of line and hot,
   # as a Map's `add_new` is.
   called sub add_new(!@, k: K, h: U64)
+    if @slots_due()
+      !@to_slots()
+      if $plain(K)
+        !@p_add(k, k.hash())
+        return
     if @table.tags.len == 0
       !@grow() if @ks.len >= SMALL
     else if (@ks.len + 1) * 5 > @table.tags.len * 4
@@ -616,6 +1320,12 @@ pub obj Items[K, V]
   next_at: Int
 
   pub fun next(!@) -> Item[?K, ?V]? from @map
+    if $plain(K) and $plain(V) and packs[K, V]() and @map.in_slots()
+      while @next_at < @map.p_order_len()
+        s = @map.p_live(@next_at)
+        @next_at += 1
+        return Item(key: ?@map.ps[s].key, value: ?@map.ps[s].value) if s >= 0
+      return none
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -630,6 +1340,12 @@ pub obj Keys[K, V]
   next_at: Int
 
   pub fun next(!@) -> (?K)? from @map
+    if $plain(K) and $plain(V) and packs[K, V]() and @map.in_slots()
+      while @next_at < @map.p_order_len()
+        s = @map.p_live(@next_at)
+        @next_at += 1
+        return ?@map.ps[s].key if s >= 0
+      return none
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -642,6 +1358,12 @@ pub obj Values[K, V]
   next_at: Int
 
   pub fun next(!@) -> (?V)? from @map
+    if $plain(K) and $plain(V) and packs[K, V]() and @map.in_slots()
+      while @next_at < @map.p_order_len()
+        s = @map.p_live(@next_at)
+        @next_at += 1
+        return ?@map.ps[s].value if s >= 0
+      return none
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -656,6 +1378,12 @@ pub obj Members[K]
   next_at: Int
 
   pub fun next(!@) -> (?K)? from @set
+    if $plain(K) and set_packs[K]() and @set.in_slots()
+      while @next_at < @set.p_order_len()
+        s = @set.p_live(@next_at)
+        @next_at += 1
+        return ?@set.ps[s] if s >= 0
+      return none
     while @next_at < @set.ks.len
       j = @next_at
       @next_at += 1

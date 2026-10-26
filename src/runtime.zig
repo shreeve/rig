@@ -7263,7 +7263,8 @@ fn isBuiltin(comptime T: type, comptime head: []const u8) bool {
 /// A Map as `{"a": 1, "b": 2}`: each entry it holds, in the order its
 /// key was first put in, its key and value each as an element of a List
 /// prints; `{}` when empty. A taken entry (its value `none`, its key
-/// kept until the entries are compacted) is not shown.
+/// kept until the entries are compacted) is not shown. A Map that keeps
+/// its entries in its slots (`ps`) is read in the order `slotOrder` gives.
 fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
     try w.writeAll("{");
     var n: usize = 0;
@@ -7274,6 +7275,15 @@ fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
         try writeValue(w, v, false);
         n += 1;
     };
+    var it = slotOrder(&map);
+    while (it.next()) |s| {
+        const e = map.ps.items()[s];
+        if (n > 0) try w.writeAll(", ");
+        try writeValue(w, e.key, false);
+        try w.writeAll(": ");
+        try writeValue(w, e.value, false);
+        n += 1;
+    }
     try w.writeAll("}");
 }
 
@@ -7287,7 +7297,46 @@ fn writeSet(w: *std.Io.Writer, set: anytype) std.Io.Writer.Error!void {
         try writeValue(w, k, false);
         n += 1;
     };
+    var it = slotOrder(&set);
+    while (it.next()) |s| {
+        if (n > 0) try w.writeAll(", ");
+        try writeValue(w, set.ps.items()[s], false);
+        n += 1;
+    }
     try w.writeAll("}");
+}
+
+/// The slots of a built-in Map or Set that keeps its entries in them
+/// (`ps`, std/__rig_builtin.rig), in the order the entries were put in:
+/// before its table, `ps` in order; then the slots `table.at` lists
+/// whose control byte says they are full (`0x80` set). Empty for one
+/// that keeps them in its dense List.
+fn SlotOrder(comptime M: type) type {
+    return struct {
+        map: *const M,
+        i: usize = 0,
+
+        fn next(self: *@This()) ?usize {
+            if (self.map.ps.len == 0) return null;
+            const tags = self.map.table.tags.items();
+            if (tags.len == 0) {
+                if (self.i >= self.map.ps.len) return null;
+                self.i += 1;
+                return self.i - 1;
+            }
+            const listed = self.map.table.at.items();
+            while (self.i < listed.len) {
+                const s: usize = listed[self.i];
+                self.i += 1;
+                if (tags[s] >= 0x80) return s;
+            }
+            return null;
+        }
+    };
+}
+
+fn slotOrder(map: anytype) SlotOrder(@TypeOf(map.*)) {
+    return .{ .map = map };
 }
 
 pub fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {
