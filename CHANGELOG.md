@@ -170,6 +170,19 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   the Zig it did. SPEC's copy rule says what the compiler already did:
   where a body copies a `T`, every instance must be plain data or a read
   view.
+- **A Map of plain keys and values keeps its entries in its slots**
+  ([records](docs/history/records/2026-10/map-stage/build.md)): a Map
+  whose key and value are plain data, a slot of the two of at most 32
+  bytes, and a Set of such keys, keep each entry in the table slot its
+  hash picks, with Swiss control bytes read 16 at a time, at most 7/8
+  full, and the order a List of slot numbers; up to 8 entries are
+  compared in order with no hash. Order, printing, and every member are
+  as before; every other Map keeps its dense entries. On Trig,
+  ts-pattern takes 2.5-4.5% fewer cycles with 5.4% less peak memory at
+  one checker; zod3 is within noise with 2.5% more; bench/hash's
+  million-key Int and pair rows are 70-96% slower to insert and about
+  ten times as slow to walk, its misses 45-54% faster and its small maps
+  31-46% faster.
 - **Generic calls' messages name what they mean:** a conflict between
   the type expected of a call's result and an argument names "the type
   expected of the result", not "argument 0" (`s: String = apply(3, |x|

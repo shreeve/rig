@@ -1,0 +1,26 @@
+
+mitt-c1-warm
+  base     n=10  time 0.032s cycles 0.0926G instr 0.2356G rss 35.9MB 
+  final3   n=10  time 0.031s cycles 0.0918G instr 0.2383G rss 36.2MB  | time 1.6% faster, cycles 0.9% faster (median pair -2.8%), instr +1.18%, rss +0.9%
+
+neverthrow-c1-warm
+  base     n=10  time 0.034s cycles 0.1017G instr 0.2481G rss 35.5MB 
+  final3   n=10  time 0.034s cycles 0.1045G instr 0.2503G rss 36.1MB  | time 0.0% faster, cycles 2.8% slower (median pair +1.0%), instr +0.90%, rss +1.5%
+
+r3-ts-pattern
+  base     n=6   time 1.079s cycles 4.5042G instr 10.0176G rss 312.0MB 
+  final2   n=6   time 1.044s cycles 4.3707G instr 9.9423G rss 295.0MB  | time 3.3% faster, cycles 3.0% faster (median pair +2.6%), instr -0.75%, rss -5.4%
+  final3   n=6   time 1.042s cycles 4.3609G instr 9.8726G rss 295.1MB  | time 3.5% faster, cycles 3.2% faster (median pair +3.0%), instr -1.45%, rss -5.4%
+
+r3-zod3
+  base     n=6   time 0.205s cycles 0.8158G instr 1.8060G rss 90.0MB 
+  final2   n=6   time 0.202s cycles 0.7929G instr 1.8251G rss 92.2MB  | time 1.7% faster, cycles 2.8% faster (median pair +2.5%), instr +1.06%, rss +2.4%
+  final3   n=6   time 0.205s cycles 0.8017G instr 1.8062G rss 92.3MB  | time 0.0% faster, cycles 1.7% faster (median pair +2.1%), instr +0.01%, rss +2.5%
+
+superstruct-c1-warm
+  base     n=10  time 0.039s cycles 0.1350G instr 0.2884G rss 26.6MB 
+  final3   n=10  time 0.041s cycles 0.1361G instr 0.2896G rss 26.4MB  | time 3.3% slower, cycles 0.8% slower (median pair -1.4%), instr +0.41%, rss -0.6%
+
+tiny-invariant-c1-warm
+  base     n=10  time 0.101s cycles 0.3531G instr 0.9830G rss 57.2MB 
+  final3   n=10  time 0.100s cycles 0.3419G instr 1.0067G rss 53.9MB  | time 0.9% faster, cycles 3.2% faster (median pair +1.6%), instr +2.41%, rss -5.7%

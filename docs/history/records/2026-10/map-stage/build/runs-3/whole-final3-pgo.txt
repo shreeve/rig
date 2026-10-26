@@ -1,0 +1,14 @@
+total 8621M (18000 samples, 81 unresolved)
+| Pattern | M | share | load | store | reload | spill | branch | call | callee save | callee restore |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| checker code | 3443 | 39.9% | 296 | 33 | 143 | 149 | 364 | 27 | 255 | 145 |
+| Table read/write | 945 | 11.0% | 518 | 12 | 12 | 10 | 6 | 0 | 0 | 0 |
+| List op | 848 | 9.8% | 325 | 105 | 91 | 36 | 8 | 1 | 9 | 12 |
+| Map/Set | 673 | 7.8% | 139 | 42 | 66 | 16 | 54 | 3 | 12 | 15 |
+| bounds test | 456 | 5.3% | 211 | 0 | 7 | 0 | 24 | 0 | 0 | 0 |
+| allocator | 300 | 3.5% | 15 | 77 | 0 | 0 | 1 | 1 | 19 | 3 |
+| runtime: maskBitsCast | 266 | 3.1% | 2 | 0 | 3 | 0 | 0 | 0 | 0 | 0 |
+| parse/bind code | 240 | 2.8% | 31 | 4 | 8 | 6 | 34 | 1 | 5 | 4 |
+| runtime: ? | 228 | 2.6% | 40 | 0 | 34 | 31 | 6 | 0 | 0 | 3 |
+| yield check | 180 | 2.1% | 0 | 0 | 1 | 4 | 7 | 0 | 0 | 0 |
+| hash mix | 138 | 1.6% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |

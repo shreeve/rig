@@ -67,11 +67,14 @@ newest entry summarizes the latest rounds.
   channel loop for work-stealing checkers (Trig #207) in
   [bench/par](bench/par/README.md), which Trig can swap for it once it
   is on `main`.
-- **`$plain(T)` narrowing** (SPEC "Generic bodies") is built on the
-  branch `plain-narrow`, waiting on the owner's approval of its SPEC
-  paragraph: inside `if $plain(K)` a generic body may copy a `K`, which
-  the packed Map needs to fill its free slots. Sema decides plain once
-  per instance and emit passes it as a compile-time Bool.
+- **The Map stage** (branch `map-stage`, a draft PR): a Map or Set of
+  plain keys and values, a slot of at most 32 bytes, keeps its entries
+  in Swiss-probed slots, filled by the `$plain(T)` narrowing of #701.
+  It makes ts-pattern 2.5-4.5% faster in cycles with 5.4% less RSS, but
+  leaves zod3's cycles within noise with 2.5% more RSS (5.0% with PGO),
+  and bench/hash's million-key Int rows 70-96% slower to insert and 10
+  times as slow to walk. It waits on the owner's call on those
+  ([records](docs/history/records/2026-10/map-stage/build.md)).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

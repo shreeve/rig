@@ -5026,7 +5026,10 @@ are taken, else at twice it. `p_rebuild` fills the new slots and
 control bytes at once, places each full old slot in memory order, records
 where each went, and rewrites the order through that, leaving the taken
 ones out; a free slot holds a copy of the first old slot, which the
-`$plain` test lets the body copy. `clear` keeps every List's memory and
+`$plain` test lets the body copy. A lookup (`p_find`, `p_slot`) and
+an insert into a table with room (`p_add`, `p_place`) are inlined into
+the write that calls them; the small path, the first table, and growth
+(`p_add_rest`, `p_build`, `p_rebuild`) are out of line. `clear` keeps every List's memory and
 returns to the small path. Printing, iteration, `at`, `update`, and
 `retain` walk `table.at` and skip the slots no longer full.
 

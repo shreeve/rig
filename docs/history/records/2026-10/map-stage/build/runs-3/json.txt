@@ -1,0 +1,14 @@
+rig-safe
+  twitter          n=818    main     227.9 us  map-stage     240.2 us  5.4% slower  ok
+  twitterescaped   n=945    main     240.2 us  map-stage     241.7 us  0.6% slower  ok
+  canada           n=145    main    1834.6 us  map-stage    1836.3 us  0.1% slower  ok
+  citm_catalog     n=449    main     618.8 us  map-stage     614.3 us  0.7% faster  ok
+  gsoc-2018        n=373    main     583.8 us  map-stage     590.9 us  1.2% slower  ok
+  github_events    n=7553   main      20.3 us  map-stage      20.2 us  0.4% faster  ok
+rig-fast
+  twitter          n=1007   main     213.9 us  map-stage     211.5 us  1.1% faster  ok
+  twitterescaped   n=1020   main     220.3 us  map-stage     220.2 us  0.0% faster  ok
+  canada           n=166    main    1743.3 us  map-stage    1740.1 us  0.2% faster  ok
+  citm_catalog     n=489    main     587.0 us  map-stage     583.5 us  0.6% faster  ok
+  gsoc-2018        n=409    main     545.4 us  map-stage     540.6 us  0.9% faster  ok
+  github_events    n=8082   main      18.8 us  map-stage      18.7 us  0.3% faster  ok
