@@ -313,6 +313,23 @@ fail "a set parameter in a function value's type", "a function that fails with `
 
   print(0)
 
+fail "a callback that cannot fail, to a generic and a plain function", "14:16: type mismatch: expected `?fun(Int) -> Int!E`, got `fun(Int) -> Int`", "15:16: type mismatch: expected `?fun(Int) -> Int!Wide`, got `fun(Int) -> Int`"
+  # Both messages name the whole parameter and argument types.
+  error Wide
+    big(n: Int)
+
+  fun g(n: Int) -> Int
+    n
+
+  fun first[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  fun plain(n: Int, f: ?fun(Int) -> Int!Wide) -> Int!Wide
+    f(n)!
+
+  print(first(3, g) catch 0)
+  print(plain(3, g) catch 0)
+
 fail "two callbacks of different sets", "conflicting types for `E` in the call to `two`: `A` (argument 2) and `B` (argument 3)"
   error A
     x

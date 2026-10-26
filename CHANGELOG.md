@@ -156,6 +156,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Generic calls' messages name what they mean:** a conflict between
+  the type expected of a call's result and an argument names "the type
+  expected of the result", not "argument 0" (`s: String = apply(3, |x|
+  x + 1)`), and a numeric one converts the argument, not "argument 0";
+  a bracketed generic call is named as written (`` `id[Int]` ``, not
+  `` `expression` ``); and an argument whose type differs from a generic
+  parameter's inside it names both whole types, as for any call
+  ("expected `?fun(Int) -> Int!E`, got `fun(Int) -> Int`", not
+  "expected `Int!E`, got `Int`").
 - **`os.exit(code)`:** ends the program now, from `main` or any task,
   with `code` as its status: what `print` and `warn` wrote is flushed,
   and no drop, `defer`, or leak check runs.
@@ -1181,6 +1190,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   whose top level is Rig's. From a plain copy of Rig they stop with a
   message naming `GIT_DIR`, rather than keep a lock or a build store in
   a repository that encloses the copy.
+- **`tools/emit-diff BASE`** says whether `bin/rig` emits the same Zig
+  as a `rig` built at `BASE` for the examples, the benches, every std
+  module, and Trig; a change whose emit is identical skips its timing
+  round. **`tools/baseline SHA`** prints the path of a `rig` built at a
+  commit, built once and cached in the git directory.
 
 ### `std.json` (experimental)
 

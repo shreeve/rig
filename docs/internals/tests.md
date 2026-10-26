@@ -276,6 +276,29 @@ on its first line (`written by tools/NAME.py`), and a core job,
 `generated.<file>`, runs the tool's `--check`, which fails when the file
 is not what the tool would write now.
 
+## Emit diffs
+
+`tools/emit-diff BASE` says whether the compiler in `bin/rig` writes the
+same Zig as a compiler built at commit `BASE` (`origin/main`, say). It
+emits each program twice, with `rig emit` into temp directories (every
+module's Zig and the runtime): `examples/*.rig`, every Rig program under
+`bench/`, a program that uses every std module both commits have, and
+Trig (`src/` with `tools/trig/main.rig`, copied from `$TRIG`, default
+`~/Data/Code/trig`, which it only reads). It prints `identical` and
+exits 0, or names each file that differs with its lines added and
+removed, a runtime file once for all the programs that carry it, and
+the directory holding both emits, and exits 1. A change whose emit is
+identical cannot change how fast these programs run, so it skips its
+timing round.
+
+The base compiler comes from `tools/baseline SHA`, which prints the path
+of a `rig` built at that commit. It builds one the first time, in a
+detached worktree in a temp dir, through `tools/heavy`, with Nexus from
+`$NEXUS` or the nearest parent directory's `nexus/bin/nexus`, and keeps
+it in `rig-baseline/<full hash>/` in the repository's git directory,
+where every worktree finds it: a comparison never runs a stale
+`bin/rig`, and only the first one at a commit builds (about a minute).
+
 ## The reference ownership checker
 
 `test/oracle/` is a second ownership checker, written from
