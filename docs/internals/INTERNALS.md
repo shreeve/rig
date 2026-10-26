@@ -4392,11 +4392,14 @@ symbols); a query that decides more than that is a recorded fact.
   read where `inlining.decide` collects the functions). Emit writes a
   `called` function `noinline fn`, so LLVM keeps every call a call too:
   each instance of a function with compile-time values is then a
-  function of its own. Emit starts a `rarely` function's body with
-  `@branchHint(.cold);`, before the evaluation budget, the one place Zig
-  takes the hint for a whole function: Zig 0.17 then gives the function
-  LLVM's `cold` attribute, so its callers lay out the call as the
-  unlikely path and LLVM does not inline it. A function with no marker
+  function of its own. Emit writes a `rarely` function `noinline fn`
+  too, and starts its body with `@branchHint(.cold);`, before the
+  evaluation budget, the one place Zig takes the hint for a whole
+  function: Zig 0.17 then gives the function LLVM's `cold` attribute, so
+  its callers lay out the call as the unlikely path. The `cold`
+  attribute alone does not keep it out of line: LLVM inlines a cold
+  function whose body is small enough, as a `rarely` byte read became
+  once its index took one compare. A function with no marker
   whose every path ends in a `panic` (`rig.alwaysPanics`: its last
   statement panics, or is an `if` with an `else` or a `match` whose
   branches all do, and nothing in it returns or passes a failure or a
