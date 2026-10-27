@@ -9,9 +9,9 @@
 # in. A Map whose keys and values are plain data keeps each as an
 # `Entry`, a key and a value and nothing else (16 bytes for
 # `Map[Int, Int]`); any other keeps each as a `Held`, which also holds
-# its key's hash, or `none` once taken. A take marks its entry gone in
-# `gone`, one bit an entry, so the order of the rest survives every
-# take; a walk passes the gone entries by runs. The gone entries are
+# its key's hash, or `none` once taken. A take drops its key at once and
+# marks its entry gone in `gone`, one bit an entry, so the order of the
+# rest survives every take; a walk passes the gone entries by runs. The gone entries are
 # dropped from the List (compacted) only when it is full and a quarter
 # of it is gone, when the index grows, or when a take empties the Map.
 #
@@ -19,12 +19,15 @@
 # byte an entry, lane `i` entry `i`'s (0 when gone or not written), and
 # a lookup is one 16-lane match of its key's tag. A small Map writes up
 # to `SMALL_LANES` entries, so a turnover compacts once every `SMALL`
-# takes. At the next live key it builds its `Index`, which finds an
-# entry from then on: groups of 16 tag bytes (15 tags and an overflow
+# takes. At the next live key it builds its index (in `Table`), which
+# finds an entry from then on: groups of 16 tag bytes (15 tags and an overflow
 # byte), and beside them 16 32-bit entry indexes a group. A key's group
 # is its hash's high bits and its tag the low byte (`tag_of`), never 0,
-# which marks a free lane. A probe matches the tag over the group's 15
-# lanes and compares a key only where the tag matches; it walks on from
+# which marks a free lane. A probe matches the tag over the group's 16
+# bytes and compares a key only where the tag matches (lane 15, the
+# overflow byte, names `NO_ENTRY`, which the entry's test rejects). The
+# group and lane indexes are masked, so they make no bounds test; only
+# the entry index read from the index is tested. A probe walks on from
 # the group (triangular) only while the group's overflow byte has the
 # bit of the tag's class (`class_bit`), which an insert sets in each
 # full group it passes. A take frees its lane and, where that bit is
@@ -34,7 +37,9 @@
 # The hot path is inlined into the method that runs it: a lookup
 # (`probe`), and an insert that needs no room made (`insert`), so their
 # state stays in the caller's registers and a key is never copied into a
-# call. Making room (`grow`) is out of line and cold.
+# call. A lookup's walk past its home group (`walk_far`) and making room
+# (`grow`) are out of line and cold. The design and its measurements are
+# bench/hash's `zig-ordered` (docs/history/records/2026-10/hash-race/).
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]

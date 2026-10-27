@@ -1939,3 +1939,19 @@ test "bit methods read through a call's write view", '''
   f: List[Float] = List()
   !f.push(1.5)
   print(fs(!f, 0).to_bits(), fs(!f, 0).fraction(), fs(!f, 0).exponent())
+
+test "simd module constant as a field default", "[0, 0, 7, 0]", known: true
+  # A field whose default is a module constant holding a vector passes
+  # `rig check`, but the emitted default is a run-time value, which Zig
+  # rejects ("struct field default value must be comptime-known").
+
+  type Quad = Simd[U8, 4]
+
+  NONE = Quad.splat(0)
+
+  obj Box
+    v: Quad = NONE
+
+  b = Box()
+  b.v = b.v.with(2, 7)
+  b.v

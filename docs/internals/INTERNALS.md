@@ -5043,8 +5043,10 @@ pass; none uses `raw`.
   `$plain`. A Set holds `ks: List[K]` or `es: List[HeldKey[K]?]`.
 - **`Table`**, what both keep beside the entries: the index (`tags`, a
   `List[Simd[U8, 16]]`, a group each, and `at`, a `List[U32]` of 16
-  entry indexes a group), `shift`, `limit`, the gone bits (`gone`, its
-  first word inside the Map), `dead`, `room`, and `small`.
+  entry indexes a group), `shift`, `limit`, the gone bits (`gone`), the
+  entries' `room`, and `small`. How many entries are gone is the
+  entries written less the live ones (`dead`). A Map is 176 bytes; its
+  first put makes room for 4 entries, doubling to 32 while small.
 - **Small.** Up to 16 live entries, and 32 written, there is no index:
   `small: [32]U8` holds entry `i`'s tag at lane `i`, 0 when gone, and a
   lookup is one or two 16-lane matches (`m.lanes()`). Its tags are its
