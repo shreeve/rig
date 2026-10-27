@@ -2143,6 +2143,75 @@ test "string add shapes", '''
   !t.add(?s[..])
   print(t)
 
+test "string inline boundaries", '''
+  22 23 24 25
+  abcdefghijklmnopqrstuvwxy
+  key12345 a-much-longer-key-of-text9876543210
+  key12345 short 5
+  item0 item99 100
+  2000 0
+  7 1999
+  true false true
+  key12345-more 13
+'''
+  # A String keeps up to 23 bytes inline and more on the heap: lengths
+  # across the edge, numbers written in, clones, a clear then short text,
+  # Strings in a growing List and as Map keys, order, and a String built
+  # from itself.
+  s = String()
+  lens: List[Int] = List()
+  for i in 0..25
+    !s.push(U8(97 + i % 26))
+    !lens.push(s.len) if i >= 21
+  print(lens[0], lens[1], lens[2], lens[3])
+  print(s)
+  a = String("key", 12345)
+  b = String("a-much-longer-key-of-text", 9876543210)
+  print(a, b)
+  c = +a
+  d = +b
+  !d.clear()
+  !d.add("short")
+  print(c, d, d.len)
+  xs: List[String] = List()
+  for i in 0..100
+    !xs.push(String("item", i))
+  print(xs[0], xs[99], xs.len)
+  m: Map[String, Int] = Map()
+  for i in 0..1000
+    !m.put(String("k", i), i)
+    !m.put(String("a-long-key-number-", i, "-with-padding"), -i)
+  sum = 0
+  for i in 0..1000
+    sum += m.get(String("k", i)) ?? 0
+    sum += m.get(String("a-long-key-number-", i, "-with-padding")) ?? 0
+  print(m.len, sum)
+  taken = (!m).take(String("k", 7)) ?? -1
+  print(taken, m.len)
+  e = String("key12345")
+  print(a == e, a < b, String("zz") > String("a-much-longer-key"))
+  a = String(a, "-more")
+  print(a, a.len)
+
+test "string writes an enum's own print once", '''
+  printed
+  72
+'''
+  # A short String written with a value whose type prints itself runs
+  # that print once, however long its text, though numbers, Bools, and
+  # plain enums are first written on the stack and again if they do not
+  # fit.
+  enum Color: Print
+    red
+    green
+
+    sub print(?@, out: !Printer)
+      print("printed")
+      !out.text("a-color-name-that-is-very-long-indeed-more-than-sixty-four-bytes-of-it")
+
+  s = String("c=", Color.red)
+  print(s.len)
+
 test "string push boundaries", release: true, '''
   true
   120860

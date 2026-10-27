@@ -130,7 +130,7 @@ since) is not repeated.
 | `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
-| `String` | owned, growable text: bytes on the heap, UTF-8 by convention ([§10](#string)) | `rig.String` |
+| `String` | owned, growable text, UTF-8 by convention: up to 23 bytes held inline, more on the heap ([§10](#string)) | `rig.String` |
 | `?String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([strings](#strings)) | `[]const u8` |
 | `Static` | text that lives for the whole program: a string literal, or text derived only from literals; plain data that carries no loan ([Static](#static)) | `[]const u8` |
 | `Symbol` | a name the program writes, `:width`; plain data, 4 bytes ([Symbols](#symbols)) | an `enum(u32)` |
@@ -9187,7 +9187,8 @@ sub main()
 
 ### String
 
-`String` is owned, growable text: bytes on the heap, UTF-8 by convention,
+`String` is owned, growable text, UTF-8 by convention: up to 23 bytes
+held in the String itself, with no allocation, and more on the heap,
 released when the String is dropped. It is an owning value, so a bare
 name moves nothing: `<t` moves it and `+t` copies its bytes into a new
 String. A `?String` is the view of text; a String is where text is built.

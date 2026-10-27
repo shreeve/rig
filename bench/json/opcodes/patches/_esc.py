@@ -1,6 +1,6 @@
 """Escaped strings: the text between escapes copied as it is scanned, a
-block at a time (`String` write window: store a whole block into reserved
-room, keep its first k bytes), instead of a scan (`plain`) and then a
+block at a time (`String.pushKeep`: store a whole block, keep its first k
+bytes), instead of a scan (`plain`) and then a
 `String.add` of the run. A run that meets a byte of 0x80 or more, or the
 input's last block, goes the old way from there."""
 import os, re, sys
@@ -14,17 +14,14 @@ COPY16 = r'''
 inline fn copyPlain(out: *rig.String, s: []const u8, at: i64) i64 {
     var i: i64 = at;
     const n: i64 = rig.lenOf(s);
-    const l = &out.list;
     while (i + 16 <= n) : (i += 16) {
         const v = rig.simdRead(@Vector(16, u8), s, i, rig.Endian.little);
-        out.reserve(16);
-        const dst: *align(1) @Vector(16, u8) = @ptrCast(l.items.ptr + l.items.len);
-        dst.* = v;
+        // A whole block stored, its first k bytes kept (`String.pushKeep`).
         if (rig.maskFirst(special(v))) |k| {
-            l.items.len += @intCast(k);
+            out.pushKeep(@Vector(16, u8), v, k, rig.Endian.little);
             return i + k;
         }
-        l.items.len += 16;
+        out.pushKeep(@Vector(16, u8), v, 16, rig.Endian.little);
     }
     return i;
 }
@@ -37,19 +34,16 @@ COPY8 = r'''
 inline fn copyPlain(out: *rig.String, s: []const u8, at: i64) i64 {
     var i: i64 = at;
     const n: i64 = rig.lenOf(s);
-    const l = &out.list;
     while (i + 8 <= n) : (i += 8) {
         const w = rig.readInt(u64, s, i, .little);
-        out.reserve(8);
-        const dst: *align(1) u64 = @ptrCast(l.items.ptr + l.items.len);
-        dst.* = w;
+        // A whole word stored, its first k bytes kept (`String.pushKeep`).
         const m = special64(w);
         if (m != 0) {
             const k = first_marked64(m);
-            l.items.len += @intCast(k);
+            out.pushKeep(u64, w, k, rig.Endian.little);
             return i + k;
         }
-        l.items.len += 8;
+        out.pushKeep(u64, w, 8, rig.Endian.little);
     }
     return i;
 }

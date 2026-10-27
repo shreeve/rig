@@ -46,10 +46,11 @@ pub fn guarded(s: []const u8) []const u8 {
 }
 
 pub fn exact(s: []const u8) rig.String {
-    var t: rig.String = .{};
-    t.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), s.len) catch @panic("out of memory");
-    t.list.appendSliceAssumeCapacity(s);
-    return t;
+    var list: std.ArrayList(u8) = .empty;
+    list.ensureTotalCapacityPrecise(rig.defaultAllocator(), s.len) catch @panic("out of memory");
+    list.appendSliceAssumeCapacity(s);
+    // On the heap however short, so its last byte ends the buffer.
+    return rig.String.fromList(list);
 }
 
 pub fn past_end(s: []const u8) i64 {

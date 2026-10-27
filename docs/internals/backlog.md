@@ -6,6 +6,24 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
 [HANDOFF](../../HANDOFF.md), and the areas that need care in
 [weak-spots](weak-spots.md).
 
+- Speed, from the hash race (docs/history/records/2026-10/hash-race/,
+  measured on the Mac and pup; each is to be built, not only noted):
+  - Rig's allocator (`src/alloc.zig`) reuses a freed block over 32 KiB
+    only at the same size, up to 16 MiB in all. A growing table asks
+    for a larger block each time and faults fresh pages in, so the
+    hash race's big-value inserts take 1.75 times malloc's time on
+    pup. Reuse a freed large block for any request it fits.
+  - Rig's allocator asks for no huge pages. On pup they are worth about
+    11% on the 4M-key rows. Ask for them on Linux for blocks of 2 MiB
+    or more, once Trig's peak memory is measured with them (the panel's
+    decision 11).
+  - The text hash is Wyhash. A foldhash-style path for text up to 32
+    bytes is one multiply cheaper, and changes `.hash()` for text (the
+    panel's decision 8: built if measured faster).
+  - The ordered `Map`/`Set` rewrite and the unordered `HashMap`/`HashSet`,
+    from the Zig tables the hash race is growing (`bench/hash`), with
+    the three things Rig must emit for them: a mask's lanes
+    (`m.lanes()`), the masked-index proof, and `prefetch`.
 - A known over-strict rejection: what a call stores from a view reached
   through a lent read view should carry that view's loans, not a loan
   on the holder (Core sentence 7). `hold(!@, c: ?Cursor)` storing

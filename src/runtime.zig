@@ -646,8 +646,8 @@ pub const NicheAt = struct {
     }
 };
 
-/// `T`'s niche, or null: a non-null pointer (a handle, a box, a String's
-/// or List's buffer, a slice, a function), a `Bool`'s byte, a plain
+/// `T`'s niche, or null: a non-null pointer (a handle, a box, a List's
+/// buffer, a slice, a function), a String's last word (`String.niche`), a `Bool`'s byte, a plain
 /// enum's spare tag values, or a field's or element's niche. Of a
 /// struct's fields, the one with the most spare values, then the first.
 /// A field's type or default names an optional outside any function, so
@@ -663,6 +663,7 @@ pub fn nicheOf(comptime T: type) ?NicheAt {
         .@"struct" => |s| blk: {
             if (s.layout == .@"packed") break :blk null;
             if (@hasDecl(T, "__rig_none_field")) break :blk namedNiche(T);
+            if (T == String) break :blk String.niche;
             // A niche optional's own niche is the next value free in its
             // payload's (`T??`, or a `T?` field).
             if (@hasDecl(T, "__rig_niche")) {
@@ -1686,7 +1687,7 @@ pub fn eql(a: anytype, b: anytype) bool {
         return eql(x, y);
     }
     // A String compares with a String or a `?String` by its bytes.
-    if (comptime isString(A) or isString(B)) return std.mem.eql(u8, stringBytes(a), stringBytes(b));
+    if (comptime isString(A) or isString(B)) return std.mem.eql(u8, textOf(&a), textOf(&b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
@@ -1738,20 +1739,34 @@ fn isString(comptime T: type) bool {
     };
 }
 
-/// The bytes of a `String`, a viewed, boxed, or shared `String`, or a `?String`.
+/// The bytes of text held where `p` points: a `String`, a viewed, boxed,
+/// or shared `String`, or a `?String`. A String's bytes may be inside it
+/// (`String.isInline`), so they are read where the String is, never
+/// from a copy of it.
+pub fn textOf(p: anytype) []const u8 {
+    const X = @typeInfo(@TypeOf(p)).pointer.child;
+    if (comptime !isString(X)) return p.*;
+    if (comptime X == String) return p.bytes();
+    if (comptime @typeInfo(X) == .pointer) return textOf(p.*);
+    if (comptime @hasDecl(X, "__rig_box")) return textOf(p.value);
+    if (comptime @hasDecl(X, "__rig_shared")) return textOf(&p.value);
+    @compileError("not text: " ++ @typeName(X));
+}
+
+/// The bytes of `x`: a `?String`, or a pointer to a `String`, a boxed or
+/// shared `String`, or a view of one. A String itself is given by its
+/// address (`textOf`), since its bytes may be inside it.
 pub fn stringBytes(x: anytype) []const u8 {
     const X = @TypeOf(x);
     if (comptime !isString(X)) return x;
-    if (comptime @typeInfo(X) == .pointer) return stringBytes(x.*);
-    if (comptime @hasDecl(X, "__rig_box")) return stringBytes(x.value.*);
-    if (comptime @hasDecl(X, "__rig_shared")) return stringBytes(x.value);
-    return x.list.items;
+    if (comptime @typeInfo(X) != .pointer) @compileError("the bytes of a " ++ @typeName(X) ++ " held by value: take them from its address (`textOf`)");
+    return textOf(x);
 }
 
 /// Whether text `x` (`stringBytes`) has the bytes of `lit`: a string
 /// pattern's test.
 pub fn textIs(x: anytype, lit: []const u8) bool {
-    return std.mem.eql(u8, stringBytes(x), lit);
+    return std.mem.eql(u8, textOf(&x), lit);
 }
 
 /// Whether `==`, hashing, and cloning reach a field of type `F` through
@@ -1809,7 +1824,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             return true;
         },
         .@"struct" => |s| {
-            if (@hasDecl(T, "__rig_string")) return std.mem.eql(u8, a.list.items, b.list.items);
+            if (@hasDecl(T, "__rig_string")) return std.mem.eql(u8, (&a).bytes(), (&b).bytes());
             inline for (s.field_names, s.field_types) |name, F| if (!(if (comptime outOfLine(F)) @call(.never_inline, eqlAs, .{ F, @field(a, name), @field(b, name) }) else eqlAs(F, @field(a, name), @field(b, name)))) return false;
             return true;
         },
@@ -1838,7 +1853,7 @@ pub fn hash(x: anytype) u64 {
 /// `hash` of a value of type `T`.
 pub fn hashAs(comptime T: type, x: T) u64 {
     if (comptime ownsApi(T, "__rig_own_hash")) return T.__rig_own_hash(&x);
-    if (comptime isString(T)) return hashBytes(stringBytes(x));
+    if (comptime isString(T)) return hashBytes(textOf(&x));
     if (comptime isOptStruct(T)) return if (some(x)) |v| hashAs(Payload(T), v) else hash_none;
     switch (@typeInfo(T)) {
         .optional => |o| return if (x) |v| hashAs(o.child, v) else hash_none,
@@ -2035,7 +2050,7 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     const B = @TypeOf(b);
     // Text orders by its bytes, a String, a view of one, or a `?String`;
     // a view held as a pointer orders as the value it reaches.
-    if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
+    if (comptime isString(A) or isString(B)) return std.mem.order(u8, textOf(&a), textOf(&b)).compare(op);
     // A frozen value's handles order by what they reach, as they compare.
     if (comptime isCountedPointer(A) and isCountedPointer(B)) return compare(a.value, op, b.value);
     if (comptime isValuePointer(A)) return compare(a.*, op, b);
@@ -2062,7 +2077,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         .greater => .gt,
     };
     if (comptime isStringView(T)) return std.mem.order(u8, a, b);
-    if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
+    if (comptime isString(T)) return std.mem.order(u8, textOf(&a), textOf(&b));
     if (comptime isCountedPointer(T)) return order(a.value, b.value);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return if (some(b) == null) .eq else .lt;
@@ -3217,13 +3232,29 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 // String
 // -----------------------------------------------------------------------------
 
-/// `String`: owned, growable bytes, UTF-8 by convention. `String(a, b)` and
-/// `!t.add(a, b)` write each value as `print` does at the top level
-/// (`writeValue`), with no separators; a `?String` taken from a `String` views
-/// its buffer, which the ownership checker keeps from changing while a
-/// view is in use.
-pub const String = struct {
-    list: std.ArrayList(u8) = .empty,
+/// `String`: owned, growable bytes, UTF-8 by convention, up to 23 of them
+/// inline and more on the heap. `String(a, b)` and `!t.add(a, b)` write
+/// each value as `print` does at the top level (`writeValue`), with no
+/// separators. A `?String` taken from a `String` views its bytes where the
+/// String is, which the ownership checker keeps from moving or changing
+/// while a view is in use.
+pub const String = extern struct {
+    /// The two forms, told apart by the top bit of the first byte (`tag`):
+    /// - inline: `tag | length` in the first byte, then up to
+    ///   `inline_max` bytes in the String itself;
+    /// - on the heap: the capacity shifted up a byte, so the first byte is
+    ///   0, then a pointer and a length. The capacity is never 0 and stays
+    ///   below 2^56.
+    /// So the first word is never 0, which is the String's niche (`niche`).
+    /// The empty String is the inline form of no bytes. All zero bytes
+    /// read as empty too (the heap form with no buffer), but that is the
+    /// niche: an optional holding it is `none`, as a null buffer was.
+    w: [3]usize = .{ tag, 0, 0 },
+
+    comptime {
+        std.debug.assert(@sizeOf(String) == 24 and builtin.cpu.arch.endian() == .little);
+        std.debug.assert(@as(String, .{}).isInline());
+    }
 
     /// Printed as its bytes (`writeValue`), compared by them (`eql`).
     pub const __rig_string = {};
@@ -3231,6 +3262,98 @@ pub const String = struct {
     pub const empty: String = .{};
     /// The value a table's slot starts as (`table.defaultOf`).
     pub const __rig_default: String = .{};
+
+    /// The value the first word never holds: 0 (`nicheOf`), so testing a
+    /// String-holding optional for `none` is one compare with zero.
+    pub const niche: NicheAt = .{ .offset = 0, .Word = usize, .value = 0, .spare = 1 };
+
+    /// The most bytes a String holds inline.
+    pub const inline_max = 23;
+    const tag: u8 = 0x80;
+
+    /// The heap form, as typed words: its pointer read as one, with no
+    /// conversion from an integer (which a safe build checks for null).
+    /// Read only once the first word says the heap form holds a buffer.
+    const Heap = extern struct { cap8: usize, ptr: [*]u8, len: usize };
+
+    inline fn heap(self: *String) *Heap {
+        return @ptrCast(self);
+    }
+
+    inline fn heapConst(self: *const String) *const Heap {
+        return @ptrCast(self);
+    }
+
+    inline fn raw(self: *String) *[24]u8 {
+        return @ptrCast(&self.w);
+    }
+
+    inline fn rawConst(self: *const String) *const [24]u8 {
+        return @ptrCast(&self.w);
+    }
+
+    /// Whether the bytes are in the String itself.
+    pub inline fn isInline(self: *const String) bool {
+        return self.w[0] & tag != 0;
+    }
+
+    inline fn len(self: *const String) usize {
+        const w0 = self.w[0];
+        invariant(w0 & tag == 0 or w0 & 0x7F <= inline_max);
+        return if (w0 & tag != 0) w0 & 0x7F else self.w[2];
+    }
+
+    /// Where `n` more bytes go when the String is on the heap with room
+    /// for them: the fast path of every append, which reads the first
+    /// word once for both its form and its capacity. Null when it is
+    /// inline, or must grow. The length comes back too, so the append
+    /// sets the new one from it rather than reading it again after its
+    /// store, which may alias it.
+    const Room = struct { at: [*]u8, used: usize };
+
+    inline fn heapRoom(self: *String, n: usize) ?Room {
+        const w0 = self.w[0];
+        if (w0 & tag != 0) return null;
+        const used = self.w[2];
+        if ((w0 >> 8) -% used < n) return null;
+        return .{ .at = self.heap().ptr + used, .used = used };
+    }
+
+    inline fn cap(self: *const String) usize {
+        return if (self.isInline()) inline_max else self.w[0] >> 8;
+    }
+
+    /// Whether the String holds a heap buffer.
+    inline fn onHeap(self: *const String) bool {
+        return !self.isInline() and self.w[0] != 0;
+    }
+
+    /// The first byte of the buffer, inline or on the heap; only where the
+    /// String has room for one (`cap() > 0`).
+    inline fn buf(self: *String) [*]u8 {
+        return if (self.isInline()) self.raw()[1..] else self.heap().ptr;
+    }
+
+    inline fn setLen(self: *String, n: usize) void {
+        if (self.isInline()) self.raw()[0] = tag | @as(u8, @intCast(n)) else self.w[2] = n;
+    }
+
+    /// The heap buffer, all its capacity: empty for the inline form.
+    inline fn heapSlice(self: *String) []u8 {
+        if (!self.onHeap()) return &.{};
+        return self.heap().ptr[0 .. self.w[0] >> 8];
+    }
+
+    inline fn setHeap(self: *String, b: []u8, n: usize) void {
+        std.debug.assert(b.len > 0 and b.len < 1 << 56);
+        self.w = .{ b.len *% 256, @intFromPtr(b.ptr), n };
+    }
+
+    /// Set the inline form to the `n` bytes of `b`, `n <= inline_max`.
+    inline fn setInline(self: *String, b: []const u8) void {
+        self.raw()[0] = tag | @as(u8, @intCast(b.len));
+        @memcpy(self.raw()[1..][0..b.len], b);
+    }
 
     /// `String(a, b, ...)`.
     pub inline fn of(pieces: anytype) String {
@@ -3261,59 +3384,112 @@ pub const String = struct {
     inline fn addValue(self: *String, value: anytype) void {
         const P = @TypeOf(value);
         if (comptime isStringView(P)) return self.appendBytes(value);
-        if (comptime P == String or isStringPlace(P)) return self.appendBytes(value.list.items);
+        if (comptime P == String) return self.appendBytes(value.bytes());
+        if (comptime isStringPlace(P)) return self.appendBytes(value.bytes());
         self.addValueOf(value);
     }
 
+    /// A value written by its type's writer. A number, a Bool, or an enum
+    /// without a `print` of its own is written into a buffer on the stack first, so a short String it
+    /// lengthens stays inline; it runs no code of the program's, so
+    /// writing it again, when it does not fit, does nothing twice. Any
+    /// other value is written once, by a writer over the heap buffer.
     noinline fn addValueOf(self: *String, value: anytype) void {
+        if (comptime writesPurely(@TypeOf(value))) {
+            var small: [64]u8 = undefined;
+            var fixed: std.Io.Writer = .fixed(&small);
+            if (writeValue(&fixed, value, true)) |_| {
+                return self.appendBytes(fixed.buffered());
+            } else |_| {}
+        }
         // The writer grows this String's bytes, which a heap profile
         // counts as the String's own growth does: as `u8`s.
         if (heap_profile) HeapProfile.within(u8);
         defer if (heap_profile) HeapProfile.leave();
-        var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
-        defer self.list = out.toArrayList();
+        if (!self.onHeap()) self.grow(inline_max + 1 - @min(self.len(), inline_max));
+        const n = self.len();
+        var list: std.ArrayList(u8) = .empty;
+        list.items = self.heapSlice()[0..n];
+        list.capacity = self.cap();
+        var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &list);
+        defer {
+            list = out.toArrayList();
+            if (list.capacity == 0) self.* = .empty else self.setHeap(list.allocatedSlice(), list.items.len);
+        }
         writeValue(&out.writer, value, true) catch oom();
     }
 
-    // The list's `items.len <= capacity` always holds, so every append
-    // below tests the room once, grows when short, and then stores
-    // through `items.ptr` at `items.len`: the slot is inside the
-    // capacity by construction, and the new length cannot overflow
-    // because it is at most the capacity. Debug builds check both (`invariant`).
+    /// Whether a value of `T` is written by the runtime alone, with no
+    /// method of the program's (`addValueOf`).
+    fn writesPurely(comptime T: type) bool {
+        return switch (@typeInfo(T)) {
+            .int, .comptime_int, .float, .comptime_float, .bool => true,
+            // An enum with a `print` of its own runs the program's code.
+            .@"enum" => !ownsApi(T, "__rig_own_print"),
+            else => false,
+        };
+    }
+
+    // `len() <= cap()` always holds, so every append below tests the room
+    // once, grows when short, and then stores through `buf()` at `len()`:
+    // the slot is inside the capacity by construction, and the new length
+    // cannot overflow because it is at most the capacity. Debug builds
+    // check both (`invariant`).
 
     /// `!t.push(b)`: append one byte.
     pub fn push(self: *String, b: u8) void {
-        const l = &self.list;
-        if (l.items.len == l.capacity) self.grow(1);
-        invariant(l.items.len < l.capacity);
-        l.items.ptr[l.items.len] = b;
-        l.items.len +%= 1;
+        if (self.heapRoom(1)) |r| {
+            r.at[0] = b;
+            self.w[2] = r.used +% 1;
+            return;
+        }
+        self.pushSlow(b);
+    }
+
+    noinline fn pushSlow(self: *String, b: u8) void {
+        const used = self.len();
+        if (used == self.cap()) self.grow(1);
+        invariant(used < self.cap());
+        self.buf()[used] = b;
+        self.setLen(used +% 1);
     }
 
     /// `!t.reserve(n)`: room for `n` more bytes; the length is unchanged.
     pub fn reserve(self: *String, n: Int) void {
         const extra = std.math.cast(usize, n) orelse @panic("negative size");
-        const l = &self.list;
-        if (l.capacity -% l.items.len < extra) self.grow(extra);
-        invariant(l.capacity -% l.items.len >= extra);
+        if (self.cap() -% self.len() < extra) self.grow(extra);
+        invariant(self.cap() -% self.len() >= extra);
     }
 
     /// `!t.push[T, e](v)`: append the bytes of the integer `v`, in byte
     /// order `endian`, in one write.
     pub fn pushInt(self: *String, comptime T: type, value: T, comptime endian: Endian) void {
         const n = @divExact(@bitSizeOf(T), 8);
-        const l = &self.list;
-        const used = l.items.len;
-        if (l.capacity -% used < n) self.grow(n);
-        invariant(l.capacity -% used >= n);
         const Bits = @Int(.unsigned, @bitSizeOf(T));
-        const raw: Bits = @bitCast(value);
+        const raw_bits: Bits = @bitCast(value);
+        const v = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw_bits) else raw_bits;
+        if (self.heapRoom(n)) |r| {
+            const slot: *align(1) Bits = @ptrCast(r.at);
+            slot.* = v;
+            self.w[2] = r.used +% n;
+            return;
+        }
+        self.pushIntSlow(T, value, endian);
+    }
+
+    noinline fn pushIntSlow(self: *String, comptime T: type, value: T, comptime endian: Endian) void {
+        const n = @divExact(@bitSizeOf(T), 8);
+        const used = self.len();
+        if (self.cap() -% used < n) self.grow(n);
+        invariant(self.cap() -% used >= n);
+        const Bits = @Int(.unsigned, @bitSizeOf(T));
+        const raw_bits: Bits = @bitCast(value);
         // One store of the whole integer, through an unaligned pointer
-        // at `used`; `used + n <= capacity` puts all `n` bytes inside
-        // the allocation, and keeps `used + n` from overflowing.
-        const dst: *align(1) Bits = @ptrCast(l.items.ptr + used);
-        dst.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw;
-        l.items.len = used +% n;
+        // at `used`; `used + n <= cap()` puts all `n` bytes inside the
+        // buffer, and keeps `used + n` from overflowing.
+        const dst: *align(1) Bits = @ptrCast(self.buf() + used);
+        dst.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw_bits) else raw_bits;
+        self.setLen(used +% n);
     }
 
     /// `!t.push(v, keep: k)` of a vector of bytes, and
@@ -3324,18 +3500,39 @@ pub const String = struct {
     /// spare capacity that no String operation reads. Panics unless
     /// `0 <= k <= @sizeOf(T)`.
     pub fn pushKeep(self: *String, comptime T: type, value: T, count: Int, comptime endian: Endian) void {
-        const is_vector = @typeInfo(T) == .vector;
-        const n = if (is_vector) @typeInfo(T).vector.len else @sizeOf(T);
+        const n = comptime keepWidth(T);
         const k = std.math.cast(usize, count) orelse keepPanic(count, n);
         if (k > n) keepPanic(count, n);
-        const l = &self.list;
-        const used = l.items.len;
-        if (l.capacity -% used < n) self.grow(n);
-        invariant(l.capacity -% used >= n);
-        // One store of all `n` bytes at `used`, through an unaligned
-        // pointer; `used + n <= capacity` puts them inside the allocation.
-        const dst = l.items.ptr + used;
-        if (comptime is_vector) {
+        // On the heap with room, the store goes straight in (`heapRoom`),
+        // small enough to inline into a scanning loop; otherwise room is
+        // made out of line first.
+        if (self.heapRoom(n)) |r| {
+            storeKeep(T, r.at, value, endian);
+            self.w[2] = r.used +% k;
+            return;
+        }
+        self.pushKeepSlow(T, value, k, endian);
+    }
+
+    noinline fn pushKeepSlow(self: *String, comptime T: type, value: T, k: usize, comptime endian: Endian) void {
+        const n = comptime keepWidth(T);
+        const used = self.len();
+        if (self.cap() -% used < n) self.grow(n);
+        invariant(self.cap() -% used >= n);
+        storeKeep(T, self.buf() + used, value, endian);
+        self.setLen(used +% k);
+    }
+
+    /// How many bytes `pushKeep` stores for a `T`.
+    fn keepWidth(comptime T: type) usize {
+        return if (@typeInfo(T) == .vector) @typeInfo(T).vector.len else @sizeOf(T);
+    }
+
+    /// One store of all of `value`'s bytes at `dst`, through an unaligned
+    /// pointer; the caller has made room for them.
+    inline fn storeKeep(comptime T: type, dst: [*]u8, value: T, comptime endian: Endian) void {
+        const n = comptime keepWidth(T);
+        if (comptime @typeInfo(T) == .vector) {
             if (comptime wideVector(T, n)) {
                 const p: *align(1) T = @ptrCast(dst);
                 p.* = value;
@@ -3347,7 +3544,6 @@ pub const String = struct {
             const p: *align(1) T = @ptrCast(dst);
             p.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(value) else value;
         }
-        l.items.len = used +% k;
     }
 
     noinline fn keepPanic(count: Int, n: usize) noreturn {
@@ -3356,54 +3552,148 @@ pub const String = struct {
     }
 
     /// Append `bytes_`, which does not alias this String's buffer.
-    fn appendBytes(self: *String, bytes_: []const u8) void {
-        const l = &self.list;
-        const used = l.items.len;
-        if (l.capacity -% used < bytes_.len) self.grow(bytes_.len);
-        invariant(l.capacity -% used >= bytes_.len);
-        @memcpy((l.items.ptr + used)[0..bytes_.len], bytes_);
-        l.items.len = used +% bytes_.len;
+    pub fn appendBytes(self: *String, bytes_: []const u8) void {
+        // An empty String may hold no buffer at all (`buf`).
+        if (bytes_.len == 0) return;
+        if (self.heapRoom(bytes_.len)) |r| {
+            @memcpy(r.at[0..bytes_.len], bytes_);
+            self.w[2] = r.used +% bytes_.len;
+            return;
+        }
+        self.appendSlow(bytes_);
     }
 
+    noinline fn appendSlow(self: *String, bytes_: []const u8) void {
+        const used = self.len();
+        if (self.cap() -% used < bytes_.len) self.grow(bytes_.len);
+        invariant(self.cap() -% used >= bytes_.len);
+        @memcpy((self.buf() + used)[0..bytes_.len], bytes_);
+        self.setLen(used +% bytes_.len);
+    }
+
+    /// Room for `extra` more bytes: inline while they fit there, else a
+    /// heap buffer of at least 32 bytes, half again as large as before.
     noinline fn grow(self: *String, extra: usize) void {
-        const l = &self.list;
-        const want = std.math.add(usize, l.items.len, extra) catch oom();
-        if (want <= l.capacity) return;
-        const used = l.items.len;
-        const buf = reallocSlice(u8, l.allocatedSlice(), @max(want, 16, l.capacity +| l.capacity / 2));
-        l.items = buf[0..used];
-        l.capacity = buf.len;
+        const used = self.len();
+        const want = std.math.add(usize, used, extra) catch oom();
+        if (want <= self.cap()) return;
+        if (want <= inline_max) {
+            // Only a heap String too short for `want` gets here; its bytes
+            // move inline and its buffer goes.
+            var held: [inline_max]u8 = undefined;
+            const old = self.heapSlice();
+            @memcpy(held[0..used], old[0..used]);
+            freeSlice(u8, old);
+            self.setInline(held[0..used]);
+            return;
+        }
+        const size = @max(want, 32, self.cap() +| self.cap() / 2);
+        if (self.isInline()) {
+            const b = allocSlice(u8, size);
+            @memcpy(b[0..used], self.raw()[1..][0..used]);
+            self.setHeap(b, used);
+        } else self.setHeap(reallocSlice(u8, self.heapSlice(), size), used);
     }
 
     /// `!t.clear()`: empty, keeping the buffer.
     pub fn clear(self: *String) void {
-        self.list.items.len = 0;
+        self.setLen(0);
     }
 
     /// The bytes, as a `?String`: `?t[..]`, `?t` where a `?String` goes.
-    pub fn bytes(self: String) []const u8 {
-        return self.list.items;
+    /// Taken from where the String is, since inline bytes are inside it.
+    /// Branch-free, so a compare or a hash pays no misprediction for a
+    /// mix of short and long text: the address and length are each a
+    /// select. A String of all zero bytes (no buffer) gives its own
+    /// address and no bytes.
+    pub fn bytes(self: *const String) []const u8 {
+        const w0 = self.w[0];
+        const in_line = w0 & tag != 0;
+        const n: usize = if (in_line) w0 & 0x7F else self.w[2];
+        invariant(!in_line or n <= inline_max);
+        // A String of all zero bytes is the heap form with no buffer and
+        // no length, so its pointer is never used; it is taken as the
+        // inline one's, which is never null.
+        const here: [*]const u8 = self.rawConst()[1..];
+        const p: [*]const u8 = if (in_line or w0 == 0) here else self.heapConst().ptr;
+        return p[0..n];
     }
 
     /// `t.len`, which needs no test (`heldLen`).
     pub fn length(self: String) Int {
-        return heldLen(self.list.items.len);
+        return heldLen(self.len());
     }
 
-    /// `+t`: a new String holding the same bytes.
-    pub fn clone(self: String) String {
+    /// `+t`: a new String holding the same bytes, inline when they fit.
+    pub fn clone(self: *const String) String {
         var t: String = .empty;
-        if (self.list.items.len == 0) return t;
-        const buf = allocSlice(u8, self.list.items.len);
-        @memcpy(buf, self.list.items);
-        t.list.items = buf;
-        t.list.capacity = buf.len;
+        const b = self.bytes();
+        if (b.len == 0) return t;
+        if (b.len <= inline_max) {
+            t.setInline(b);
+            return t;
+        }
+        const h = allocSlice(u8, b.len);
+        @memcpy(h, b);
+        t.setHeap(h, b.len);
         return t;
     }
 
+    /// A String that takes the bytes of `list`, which it now owns.
+    pub fn fromList(list: std.ArrayList(u8)) String {
+        var t: String = .empty;
+        if (list.capacity == 0) return t;
+        var l = list;
+        t.setHeap(l.allocatedSlice(), l.items.len);
+        return t;
+    }
+
+    /// Room for `extra` more bytes on the heap, and its free part: for a
+    /// reader that writes straight into the buffer (`std.file`, `net`),
+    /// then `commit`s what it wrote.
+    /// Grown as `grow` grows, by half again, so a reader that asks a
+    /// little at a time copies each byte a bounded number of times.
+    pub fn spareHeap(self: *String, extra: usize) []u8 {
+        const used = self.len();
+        if (!self.onHeap() or self.cap() - used < extra) {
+            const want = std.math.add(usize, used, extra) catch oom();
+            const size = @max(want, 32, self.cap() +| self.cap() / 2);
+            if (self.onHeap()) {
+                self.setHeap(reallocSlice(u8, self.heapSlice(), size), used);
+            } else {
+                const b = allocSlice(u8, size);
+                @memcpy(b[0..used], self.bytes());
+                self.setHeap(b, used);
+            }
+        }
+        return self.heapSlice()[used..];
+    }
+
+    /// Count `n` more bytes, written into what `spareHeap` gave.
+    pub fn commit(self: *String, n: usize) void {
+        std.debug.assert(self.onHeap() and self.w[2] + n <= self.cap());
+        self.w[2] +%= n;
+    }
+
+    /// Give back room the bytes do not use: inline when they fit there,
+    /// else a heap buffer of exactly their length.
+    pub fn fit(self: *String) void {
+        if (!self.onHeap() or self.cap() == self.w[2]) return;
+        const n = self.w[2];
+        if (n <= inline_max) {
+            var held: [inline_max]u8 = undefined;
+            const old = self.heapSlice();
+            @memcpy(held[0..n], old[0..n]);
+            freeSlice(u8, old);
+            self.setInline(held[0..n]);
+            return;
+        }
+        self.setHeap(reallocSlice(u8, self.heapSlice(), n), n);
+    }
+
     pub fn __rig_drop(self: *String) void {
-        freeSlice(u8, self.list.allocatedSlice());
-        self.list = .empty;
+        freeSlice(u8, self.heapSlice());
+        self.* = .empty;
     }
 };
 
@@ -4109,7 +4399,7 @@ pub const Order = enum {
 pub fn orderOf(a: anytype, b: anytype) Order {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
-    if (comptime isString(A) or isString(B)) return fromMath(std.mem.order(u8, stringBytes(a), stringBytes(b)));
+    if (comptime isString(A) or isString(B)) return fromMath(std.mem.order(u8, textOf(&a), textOf(&b)));
     if (comptime isValuePointer(A)) return orderOf(a.*, b);
     if (comptime isValuePointer(B)) return orderOf(a, b.*);
     const T = @TypeOf(a, b);
@@ -5563,7 +5853,7 @@ pub const MapTraceKey = struct {
     /// order, an optional its value (nothing when `none`), a view what
     /// it views, and a tagged union its tag and then its payload.
     fn bytesOf(self: *MapTraceKey, comptime T: type, x: T) void {
-        if (comptime isString(T)) return self.add(stringBytes(x));
+        if (comptime isString(T)) return self.add(textOf(&x));
         if (comptime isOptStruct(T)) return if (some(x)) |v| self.bytesOf(Payload(T), v);
         switch (@typeInfo(T)) {
             .optional => |o| if (x) |v| self.bytesOf(o.child, v),
@@ -7008,7 +7298,7 @@ noinline fn outLine(text: []const u8) void {
 /// bytes, anything else by the one writer of its type.
 inline fn outValue(value: anytype) void {
     if (comptime isStringView(@TypeOf(value))) return outBytes(value);
-    if (comptime isStringPlace(@TypeOf(value))) return outBytes(value.list.items);
+    if (comptime isStringPlace(@TypeOf(value))) return outBytes(value.bytes());
     outValueOf(value);
 }
 
@@ -7409,7 +7699,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
             // An API object prints its hidden value as that value prints
             // in its place, as a box does.
             if (@hasDecl(T, "__rig_api_object")) return value.__rig_print(w, top);
-            if (@hasDecl(T, "__rig_string")) return writeValue(w, value.list.items, top);
+            if (@hasDecl(T, "__rig_string")) return writeValue(w, (&value).bytes(), top);
             // A mask prints as the array of its lanes, as a vector does.
             if (@hasDecl(T, "__rig_mask")) return writeValue(w, maskArray(value), top);
         },

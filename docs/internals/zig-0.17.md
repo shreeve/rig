@@ -355,8 +355,8 @@ test "Writer.Allocating" {
 `written()` returns a view of the current contents; the slice is
 invalid after the next write. `toOwnedSlice()` hands the bytes over and
 resets the writer. `.fromArrayList(gpa, &list)` and `toArrayList()`
-move the bytes in and out of an `ArrayList(u8)` (`rig.String` appends
-that way). For small strings, `gpa.print(fmt, args)` returns a new
+move the bytes in and out of an `ArrayList(u8)` (`rig.String` writes a
+long value that way, once its bytes are on the heap). For small strings, `gpa.print(fmt, args)` returns a new
 `[]u8` directly, and `list.print(gpa, fmt, args)` appends formatted
 text to an `ArrayList(u8)`.
 

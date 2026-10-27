@@ -136,7 +136,7 @@ box's value in place.
 | `^x` | `rig.Box(T).init(x)` | one allocation |
 | `*x` | `rig.shared(x)` | one allocation |
 | `+h` of a handle | `h.cloneStrong()` | a count bump |
-| `List`, `String` | `rig.List`, `rig.String` | a buffer, grown as needed |
+| `List`, `String` | `rig.List`, `rig.String` | a buffer, grown as needed; none for text of 23 bytes or fewer |
 | the end of a scope | a `defer` that drops | the free, or a count drop |
 
 A count changes only where `*x` or `+x` is written, and a view is never

@@ -246,9 +246,9 @@ pub fn local_port(fd: i64) i64 {
 pub fn read_from(fd: i64, reg: i64, into: *rig.String, max: i64) Error!i64 {
     const want: usize = @intCast(@max(max, 0));
     if (want == 0) return 0;
-    into.list.ensureUnusedCapacity(rig.defaultAllocator(), want) catch rig.oom();
-    const n = try readSome(@intCast(fd), reg, into.list.unusedCapacitySlice()[0..want], .{});
-    into.list.items.len += n;
+    const spare = into.spareHeap(want);
+    const n = try readSome(@intCast(fd), reg, spare[0..want], .{});
+    into.commit(n);
     return @intCast(n);
 }
 
@@ -320,8 +320,9 @@ fn copyRead(from: anytype, dest: []u8) anyerror!usize {
     if (@hasField(@TypeOf(from.*), "reg")) return readSome(@intCast(@field(from, "fd")), @field(from, "reg"), dest, .{});
     var got = try fileRead(@field(from, "fd"), dest.len);
     defer rig.dropElement(rig.String, &got);
-    @memcpy(dest[0..got.list.items.len], got.list.items);
-    return got.list.items.len;
+    const b = got.bytes();
+    @memcpy(dest[0..b.len], b);
+    return b.len;
 }
 
 fn copyWrite(to: anytype, bytes: []const u8) anyerror!void {
@@ -415,13 +416,13 @@ fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
         }
     }
     var s: rig.String = .empty;
-    s.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), want) catch rig.oom();
+    const spare = s.spareHeap(want);
     while (true) {
-        const rc = sys.read(fd, s.list.items.ptr, want);
+        const rc = sys.read(fd, spare.ptr, want);
         switch (posix.errno(rc)) {
             .SUCCESS => {
-                s.list.items.len = @intCast(rc);
-                if (s.list.items.len < want) s.list.shrinkAndFreePrecise(rig.defaultAllocator(), s.list.items.len) catch rig.oom();
+                s.commit(@intCast(rc));
+                s.fit();
                 return s;
             },
             .INTR => stopped() catch |err| {
@@ -638,12 +639,18 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
         if (head.expect != null) request.head.expect = "100-continue";
         var buf: [4096]u8 = undefined;
         const r = request.readerExpectContinue(&buf) catch return .close;
-        r.appendRemaining(gpa, &@field(req, "body").list, .limited(@intCast(max_body + 1))) catch |err| switch (err) {
-            error.StreamTooLong => return refuse(request, .payload_too_large, "content too large\n"),
-            // The client closed, or sent a body that does not parse, or
-            // took too long.
-            else => return .close,
+        var body: std.ArrayList(u8) = .empty;
+        r.appendRemaining(gpa, &body, .limited(@intCast(max_body + 1))) catch |err| {
+            body.deinit(gpa);
+            switch (err) {
+                error.StreamTooLong => return refuse(request, .payload_too_large, "content too large\n"),
+                // The client closed, or sent a body that does not parse, or
+                // took too long.
+                else => return .close,
+            }
         };
+        @field(req, "body") = rig.String.fromList(body);
+        @field(req, "body").fit();
     }
     // A request with no body to send never needs `100 Continue`.
     request.head.expect = null;
@@ -660,9 +667,9 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     };
     defer rig.drop(&resp);
     const status: u10 = @intCast(rig.unsigned(std.math.clamp(@field(resp, "status"), 100, 999)));
-    const kind = @field(resp, "type").list.items;
+    const kind = @field(resp, "type").bytes();
     const headers = [_]std.http.Header{.{ .name = "content-type", .value = kind }};
-    request.respond(@field(resp, "body").list.items, .{
+    request.respond(@field(resp, "body").bytes(), .{
         .status = @enumFromInt(status),
         .keep_alive = head.keep_alive,
         .extra_headers = if (kind.len > 0) &headers else &.{},
@@ -682,7 +689,7 @@ fn refuse(request: *std.http.Server.Request, status: std.http.Status, body: []co
 /// A fresh String of `bytes`.
 fn fresh(bytes: []const u8) rig.String {
     var s: rig.String = .empty;
-    s.list.appendSlice(rig.defaultAllocator(), bytes) catch rig.oom();
+    s.appendBytes(bytes);
     return s;
 }
 
