@@ -9,6 +9,10 @@
 # worktrees'.
 G=$("$(dirname "${BASH_SOURCE[0]}")/gitdir" tools/heavy) || exit 2
 L=$G/rig-heavy.lock
+# Under a holder of this lock (tools/heavy tools/baseline, whose build
+# asks for it again), the command runs at once: waiting would wait on
+# itself.
+if [[ ${RIG_HEAVY_HELD:-} == "$L" ]]; then exec "$@"; fi
 Q=$L.q
 mkdir -p "$Q"
 T="$Q/$(perl -MTime::HiRes=time -e 'printf "%d", time*1e9')-$$"
@@ -31,4 +35,4 @@ done
 echo $$ >"$L/pid"
 rm -f "$T"
 trap '[[ "$(cat "$L/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$L"' EXIT
-"$@"
+RIG_HEAVY_HELD=$L "$@"
