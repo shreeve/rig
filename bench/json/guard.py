@@ -37,6 +37,10 @@ def main():
     if sys.platform != "darwin":
         sys.exit("guard: instruction counts come from macOS's /usr/bin/time -l")
     update = "--update" in sys.argv[1:]
+    missing = [f for f in FILES if not os.path.exists(os.path.join(DATA, f + ".json"))]
+    if missing:
+        sys.exit("guard: %s not found in %s; fetch them once with tools/fetch-json-data.sh"
+                 % (", ".join(f + ".json" for f in missing), os.path.relpath(DATA, ROOT)))
     with tempfile.TemporaryDirectory() as out:
         subprocess.run([os.path.join(HERE, "bench-json"), "--out", out, "--build-only",
                         "--variants", "rig-safe", "--files", ",".join(FILES)], check=True)

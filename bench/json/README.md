@@ -48,7 +48,10 @@ bench/json/guard.py --update   # new baseline
 ```
 
 It runs on the Mac. It builds `rig-safe` for the six
-corpus files and counts instructions retired per byte. These counts
+corpus files and counts instructions retired per byte. The files are
+fetched, not tracked: a fresh checkout runs `tools/fetch-json-data.sh`
+once first (see [Data](#data)), and the guard says so when they are
+missing. These counts
 don't move with the machine's load, so it can run on a busy machine.
 Any file more than 2% above its baseline in `guard.txt` fails the guard.
 A change meant to move the counts, such as a faster parser or a new Zig,
