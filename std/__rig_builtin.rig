@@ -21,11 +21,11 @@
 # a key only when its tag matches, and `at[i]` is its entry's index. Taking an entry shifts the slots after it back, so the
 # table keeps no tombstones; growing it drops the entries taken.
 #
-# The hot path is inlined into the method that runs it: a lookup
-# (`find`), and an insert that needs no room made (`insert`), so their
-# state stays in the caller's registers and a key is never copied into a
-# call. Making room (`grow`, which compacts and rebuilds) is out of line
-# and cold.
+# The hot path is inlined into the method that runs it: a lookup of a
+# key of plain data (`find`), and an insert that needs no room made
+# (`insert`), so their state stays in the caller's registers and a key is
+# never copied into a call. Making room (`grow`, which compacts and
+# rebuilds) is out of line and cold.
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
@@ -308,9 +308,52 @@ pub obj Map[K: Hash, V]
   # Map, by the stored hashes in turn; in a larger one, by a probe of
   # its table from the slot `h` names to the end, then from the start,
   # each pass a loop whose test is the bounds test, so a step reads a tag
-  # with no other check. Inlined into each lookup and write, so the
-  # probe's state stays in its caller's registers.
+  # with no other check. A key of plain data is probed inline (`probe`),
+  # in each lookup and write, so the probe's state stays in its caller's
+  # registers. Any other key, a String's, is hashed and compared by
+  # calls, around which an inlined probe spills that state to the stack
+  # at every lookup, so it is probed by `find_far`, which LLVM inlines or
+  # calls as it judges.
   inline fun find(?@, k: ?K, h: U64) -> Int?
+    return @probe(k, h) if $plain(K)
+    @find_far(k, h)
+
+  # `find` for a key that is not plain data: `probe`'s body, written
+  # again, since a function that only called it would be small enough
+  # for the program-wide inliner to inline.
+  fun find_far(?@, k: ?K, h: U64) -> Int?
+    if @table.tags.len == 0
+      if stores_hashes[K]()
+        hs = ?@hs[..]
+        j = 0
+        while 0 <= j and j < hs.len
+          if hs[j] == h and @es[j].value != none
+            return j if @es[j].key == k
+          j += 1
+      else
+        es = ?@es[..]
+        j = 0
+        while 0 <= j and j < es.len
+          if es[j].key == k
+            return j if es[j].value != none
+          j += 1
+      return none
+    ts = ?@table.tags[..]
+    tag = tag_of(h)
+    i = Int(h & U64(ts.len -% 1))
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          j = Int(@table.at[i])
+          return j if @es[j].key == k
+        i += 1
+      i = 0
+    none
+
+  # `find` for a key of plain data, inlined.
+  inline fun probe(?@, k: ?K, h: U64) -> Int?
     if @table.tags.len == 0
       if stores_hashes[K]()
         hs = ?@hs[..]
@@ -501,8 +544,44 @@ pub obj Set[K: Hash]
     Members(set: ?@, next_at: 0)
 
   # The key `k`, whose hash is `h`, or `none`, found as a Map's `find`
-  # finds an entry, and inlined as it is.
+  # finds an entry: inline for a key of plain data (`probe`), and by
+  # `find_far` for any other.
   inline fun find(?@, k: ?K, h: U64) -> Int?
+    return @probe(k, h) if $plain(K)
+    @find_far(k, h)
+
+  # `find` for a key that is not plain data, as a Map's `find_far`.
+  fun find_far(?@, k: ?K, h: U64) -> Int?
+    if @table.tags.len == 0
+      if stores_hashes[K]()
+        hs = ?@hs[..]
+        j = 0
+        while 0 <= j and j < hs.len
+          if hs[j] == h
+            return j if @ks[j] == k
+          j += 1
+      else
+        j = 0
+        while 0 <= j and j < @ks.len
+          return j if @ks[j] == k
+          j += 1
+      return none
+    ts = ?@table.tags[..]
+    tag = tag_of(h)
+    i = Int(h & U64(ts.len -% 1))
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          j = Int(@table.at[i])
+          return j if @ks[j] == k
+        i += 1
+      i = 0
+    none
+
+  # `find` for a key of plain data, inlined.
+  inline fun probe(?@, k: ?K, h: U64) -> Int?
     if @table.tags.len == 0
       if stores_hashes[K]()
         hs = ?@hs[..]
