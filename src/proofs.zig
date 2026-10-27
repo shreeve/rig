@@ -20,7 +20,12 @@
 //!   (`rig.lenOf`: by construction, or tested);
 //! - `eq(n, s)`: `n == s.len`, after `n = s.len`;
 //! - `upto(d, f, h)`: `0 <= d.f <= h`, after `d = g(...)` where `g`
-//!   bounds the field `f` of its result.
+//!   bounds the field `f` of its result;
+//! - `nonempty(s)`: `1 <= s.len`, from a guard `s.len > 0`.
+//!
+//! A mask `m` is `s.len - 1` (or `-% 1`) under `nonempty(s)`, or a binding
+//! with `nonneg(m)`: `e & m` is then `0 <= e & m <= m`, whatever `e` is,
+//! so an index `s[e & m]` and a binding `i = e & m` have the room `m` has.
 //!
 //! What a function bounds of its result (`sema.ResultBound`) is found
 //! first, for every function of the module, from its return values:
@@ -109,6 +114,14 @@ const Fact = union(enum) {
     fits: Place,
     eq: Eq,
     upto: Upto,
+    nonempty: Place,
+};
+
+/// A mask `m` of `e & m` (`Pass.maskOf`): an own `Int` binding, or `s.len
+/// - 1` (or `s.len -% 1`) of a place, written where it is used.
+const Mask = union(enum) {
+    sym: SymbolId,
+    len_less_one: Place,
 };
 
 /// A fact, and the flag it holds under: 0 for a fact of every path, or
@@ -214,7 +227,7 @@ const State = struct {
     /// it added anything.
     fn put(st: *State, a: std.mem.Allocator, fact: Fact, flag: NodeKey) std.mem.Allocator.Error!bool {
         switch (fact) {
-            .nonneg, .fits, .eq => if (st.holds(fact, flag)) return false,
+            .nonneg, .fits, .eq, .nonempty => if (st.holds(fact, flag)) return false,
             .upto => |nu| for (st.facts.items) |*e| if (e.flag == flag and e.fact == .upto and sameUpto(e.fact.upto, nu.d, nu.name)) {
                 if (nu.hi >= e.fact.upto.hi) return false;
                 e.fact.upto.hi = nu.hi;
@@ -302,6 +315,9 @@ const Effect = struct {
     /// A store into an element of a List binding (`v[j] = x`, `v[j].f =
     /// x`) changes elements, never the List's length.
     keeps_list_len: bool,
+    /// `i = e & m`: the mask of every such write of `i` (`maskWrite`),
+    /// null when one write of `i` is another shape or another mask.
+    mask: ?Mask = null,
 };
 
 /// The writes inside a construct, merged by binding; `all` for a `raw`
@@ -315,6 +331,7 @@ const Kills = struct {
             x.keeps_nonneg = x.keeps_nonneg and e.keeps_nonneg;
             x.keeps_len = x.keeps_len and e.keeps_len;
             x.keeps_list_len = x.keeps_list_len and e.keeps_list_len;
+            if (x.mask == null or e.mask == null or !std.meta.eql(x.mask.?, e.mask.?)) x.mask = null;
             return;
         };
         try k.effects.append(a, e);
@@ -342,6 +359,7 @@ const Kills = struct {
             },
             .eq => |e| k.effectOn(e.n) != null or k.movesLen(e.s),
             .upto => |u| k.effectOn(u.d) != null,
+            .nonempty => |s| k.movesLen(s),
         };
     }
 
@@ -636,13 +654,62 @@ const Pass = struct {
     // ------------------------------------------------------------------
 
     /// What the write at `node` does to the facts about `w.sym`.
-    fn effectOf(p: *const Pass, node: Sexp, w: sema.WriteSite) Effect {
+    fn effectOf(p: *Pass, node: Sexp, w: sema.WriteSite) Error!Effect {
         return .{
             .sym = w.sym,
             .keeps_nonneg = p.isAdditive(node, w),
             .keeps_len = w.kind == .lend_write or w.kind == .elem_store,
             .keeps_list_len = w.kind == .elem_store and storesElement(node, w.sym, p.ctx),
+            .mask = try p.maskWrite(node, w),
         };
+    }
+
+    /// The mask of `i = e & m`, an assignment of `i`: its right operand,
+    /// else its left, that is an own `Int` binding other than `i`, or
+    /// `s.len - 1` (`maskOperand`). Whether the mask holds is a fact of
+    /// where the write runs, which the loop that keeps `i`'s facts asks
+    /// (`keepMasked`).
+    fn maskWrite(p: *Pass, node: Sexp, w: sema.WriteSite) Error!?Mask {
+        if (w.kind != .assign or !node.isKind(.set)) return null;
+        if (rig.bindingKindOf(ir.Set.op(node)).operator() != null) return null;
+        const target = ir.Set.target(node);
+        if (target != .src or p.ctx.symbolOf(target) != w.sym) return null;
+        const value = ir.Set.value(node);
+        if (!value.isKind(.@"&") or p.ctx.typeOf(value) != p.ctx.types.int_id) return null;
+        for ([_]Sexp{ ir.get(value, .right), ir.get(value, .left) }) |op| {
+            if (try p.maskOperand(op)) |m| {
+                if (m == .sym and m.sym == w.sym) continue;
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /// An operand that may be a mask: an own `Int` binding, or `s.len -
+    /// 1` or `s.len -% 1` of a place (`lenPlace`).
+    fn maskOperand(p: *Pass, e: Sexp) Error!?Mask {
+        if (p.intLocal(e)) |m| return .{ .sym = m };
+        if (!e.isKind(.@"-") and !e.isKind(.@"-%")) return null;
+        if ((p.intLiteral(ir.get(e, .right)) orelse return null) != 1) return null;
+        const s = (try p.lenOf(ir.get(e, .left))) orelse return null;
+        return .{ .len_less_one = s };
+    }
+
+    /// The mask of `e & m` (either way round, the right operand first),
+    /// of type `Int`, that holds on every path: a binding `m` with `0 <=
+    /// m`, or `s.len - 1` under `nonempty(s)`. Then `0 <= e & m <= m`,
+    /// whatever `e` is: the sign bit of `m` is clear, and an `&` sets no
+    /// bit `m` does not.
+    fn maskOf(p: *Pass, e: Sexp, st: *const State) Error!?Mask {
+        if (!e.isKind(.@"&") or p.ctx.typeOf(e) != p.ctx.types.int_id) return null;
+        for ([_]Sexp{ ir.get(e, .right), ir.get(e, .left) }) |op| {
+            const m = (try p.maskOperand(op)) orelse continue;
+            if (switch (m) {
+                .sym => |sym| st.has(.{ .nonneg = sym }),
+                .len_less_one => |s| st.has(.{ .nonempty = s }),
+            }) return m;
+        }
+        return null;
     }
 
     /// `i += c` or `i = i + c`, `c` a literal `>= 0`.
@@ -682,7 +749,7 @@ const Pass = struct {
                 out.all = true;
             };
         };
-        if (p.ctx.writeSiteOf(node)) |w| try out.add(p.a, p.effectOf(node, w));
+        if (p.ctx.writeSiteOf(node)) |w| try out.add(p.a, try p.effectOf(node, w));
         for (node.items()) |c| try p.collectKills(c, out);
     }
 
@@ -808,8 +875,13 @@ const Pass = struct {
         switch (node.kind() orelse return) {
             .index => {
                 const s = (try p.lenPlace(ir.Index.object(node))) orelse return;
-                const ix = p.indexOf(ir.Index.index(node)) orelse return;
-                try p.recordProof(node, st, .{ .range = .{ .i = ix.i, .c = ix.c, .s = s, .width = 1 } }, true);
+                const index = ir.Index.index(node);
+                if (p.indexOf(index)) |ix| return p.recordProof(node, st, .{ .range = .{ .i = ix.i, .c = ix.c, .s = s, .width = 1 } }, true);
+                // `s[e & m]`: `0 <= e & m <= m`, so the room `m` has.
+                switch ((try p.maskOf(index, st)) orelse return) {
+                    .sym => |m| try p.recordProof(node, st, .{ .range = .{ .i = m, .c = 0, .s = s, .width = 1 } }, true),
+                    .len_less_one => |t| try p.record(node, .{ .lower = true, .upper = std.meta.eql(t, s) }, null),
+                }
             },
             .call => {
                 const b = (try p.byteAccess(node)) orelse return;
@@ -840,9 +912,19 @@ const Pass = struct {
 
     /// G1: a guard part, on its true edge. `e` is a comparison; either
     /// way round, `i < b`, `i <= b`, `i + k < b`, `i + k <= b`, and
-    /// `0 <= i`, `0 < i`. A bound `s.len` was read, so G4 gives `fits(s)`.
+    /// `0 <= i`, `0 < i`; and `0 < s.len`, `c <= s.len` with a literal
+    /// `c >= 1`, and `s.len != 0`, which give `nonempty(s)`. A bound
+    /// `s.len` was read, so G4 gives `fits(s)`.
     fn genGuard(p: *Pass, e: Sexp, out: *State) Error!void {
         const kind = e.kind() orelse return;
+        if (kind == .@"!=") {
+            const l = ir.get(e, .left);
+            const r = ir.get(e, .right);
+            const len = if (p.intLiteral(r) == 0) l else if (p.intLiteral(l) == 0) r else return;
+            const s = (try p.lenOf(len)) orelse return;
+            try out.add(p.a, .{ .fits = s }, 0);
+            return out.add(p.a, .{ .nonempty = s }, 0);
+        }
         const strict, const swap = switch (kind) {
             .@"<" => .{ true, false },
             .@"<=" => .{ false, false },
@@ -855,6 +937,11 @@ const Pass = struct {
         if (swap) std.mem.swap(Sexp, &lo, &hi);
         // `0 <= i`, `0 < i`.
         if (p.intLiteral(lo)) |z| if (z == 0) if (p.intLocal(hi)) |i| return out.add(p.a, .{ .nonneg = i }, 0);
+        // `0 < s.len`, `c <= s.len` (`c >= 1`).
+        if (p.intLiteral(lo)) |z| if (strict or z >= 1) if (try p.lenOf(hi)) |s| {
+            try out.add(p.a, .{ .fits = s }, 0);
+            return out.add(p.a, .{ .nonempty = s }, 0);
+        };
         const b = (try p.boundOf(hi)) orelse return;
         if (b == .len) try out.add(p.a, .{ .fits = b.len }, 0);
         const i: SymbolId, const k: u64 = if (p.intLocal(lo)) |i|
@@ -910,6 +997,31 @@ const Pass = struct {
             try out.add(p.a, .{ .fits = s }, 0);
             return out.add(p.a, .{ .eq = .{ .n = i, .s = s } }, 0);
         }
+        // `i = e & m`: `0 <= i <= m`, so `i` has the room `m` has.
+        if (try p.maskOf(value, before)) |mk| switch (mk) {
+            .sym => |m| if (m != i) {
+                try out.add(p.a, .{ .nonneg = i }, 0);
+                for (before.facts.items) |f| if (f.fact == .below and f.fact.below.i == m) {
+                    const b = f.fact.below.b;
+                    if (b == .int and b.int == i) continue;
+                    try out.add(p.a, .{ .below = .{ .i = i, .k = f.fact.below.k, .b = b } }, f.flag);
+                };
+                return;
+            },
+            .len_less_one => |s| {
+                try out.add(p.a, .{ .nonneg = i }, 0);
+                try out.add(p.a, .{ .fits = s }, 0);
+                return out.add(p.a, .{ .below = .{ .i = i, .k = 1, .b = .{ .len = s } } }, 0);
+            },
+        };
+        // `m = s.len - 1` (or `-% 1`): `m + 1 <= s.len`, an empty `s` too
+        // (`-1 + 1 <= 0`), and `0 <= m` under `nonempty(s)`.
+        if (!value.isKind(.@"&")) if (try p.maskOperand(value)) |mk| if (mk == .len_less_one) {
+            const s = mk.len_less_one;
+            if (before.has(.{ .nonempty = s })) try out.add(p.a, .{ .nonneg = i }, 0);
+            try out.add(p.a, .{ .fits = s }, 0);
+            return out.add(p.a, .{ .below = .{ .i = i, .k = 1, .b = .{ .len = s } } }, 0);
+        };
         if (p.intLocal(value)) |j| if (j != i) if (before.nonnegFlag(j)) |flag| try out.add(p.a, .{ .nonneg = i }, flag);
     }
 
@@ -1060,7 +1172,7 @@ const Pass = struct {
         const before = try st.clone(p.a);
         try p.addMade(st, &made, &k);
         if (!root.isKind(.set)) return;
-        if (p.ctx.writeSiteOf(root)) |w| try p.applyEffect(st, p.effectOf(root, w));
+        if (p.ctx.writeSiteOf(root)) |w| try p.applyEffect(st, try p.effectOf(root, w));
         var stored: State = .{};
         try p.genStore(root, &before, &stored);
         try p.addMade(st, &stored, &k);
@@ -1208,6 +1320,7 @@ const Pass = struct {
         const kills = try p.killsOf(node);
         var head = try st.clone(p.a);
         applyKills(&head, &kills);
+        try p.keepMasked(st, &kills, &head);
         try p.loops.append(p.a, .{ .node = node.list.id, .depth = p.depth });
         const frame = p.loops.items.len - 1;
         var t = try head.clone(p.a);
@@ -1227,13 +1340,45 @@ const Pass = struct {
         st.dead = false;
     }
 
+    /// What a loop keeps of a binding `i` every write of which in it is
+    /// `i = e & m`, with one mask `m` that holds at every step (in
+    /// `head`, `L`): `0 <= i`, and `i + k <= b` with no more room than `m`
+    /// has, each if it held as the loop starts (`entry`). Each write makes
+    /// them again, and nothing else in the loop writes `i`, `m`, or `b`.
+    fn keepMasked(p: *Pass, entry: *const State, kills: *const Kills, head: *State) Error!void {
+        if (kills.all) return;
+        for (kills.effects.items) |e| {
+            const mk = e.mask orelse continue;
+            if (!switch (mk) {
+                .sym => |m| head.has(.{ .nonneg = m }),
+                .len_less_one => |s| head.has(.{ .nonempty = s }),
+            }) continue;
+            for (entry.facts.items) |f| {
+                if (f.flag != 0) continue;
+                switch (f.fact) {
+                    .nonneg => |j| if (j == e.sym) try head.add(p.a, f.fact, 0),
+                    .below => |b| if (b.i == e.sym) {
+                        const room: u64 = switch (mk) {
+                            .sym => |m| head.belowK(m, b.b, 0) orelse continue,
+                            .len_less_one => |s| if (b.b == .len and std.meta.eql(b.b.len, s)) 1 else continue,
+                        };
+                        try head.add(p.a, .{ .below = .{ .i = e.sym, .k = @min(b.k, room), .b = b.b } }, 0);
+                    },
+                    else => {},
+                }
+            }
+        }
+    }
+
     /// `for`: its source unit once, then the body each iteration from `L`.
     /// A `for` binding gets no facts.
     fn walkFor(p: *Pass, node: Sexp, source_node: Sexp, body: Sexp, else_b: Sexp, st: *State) Error!void {
         const kills = try p.killsOf(node);
         var head = try st.clone(p.a);
         try p.walkUnit(source_node, .source, &head);
+        const entry = try head.clone(p.a);
         applyKills(&head, &kills);
+        try p.keepMasked(&entry, &kills, &head);
         var b = try head.clone(p.a);
         try p.rangeFacts(node, source_node, &head, &kills, &b);
         try p.walkBranch(body, &b);

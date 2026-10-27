@@ -56,17 +56,17 @@ obj Table
     @tags[i] = tag_of(h)
     @at[i] = U32(j)
 
-  # The first free slot from the one `h` names. Each pass is a loop
-  # whose test is the bounds test, so a step reads a tag with no other
-  # check; past both, -1 would fail the caller's bounds check.
+  # The first free slot from the one `h` names, stepping on under the
+  # table's mask, so a step reads a tag with no other check; with no
+  # table, -1, which fails the caller's bounds check.
   fun free_slot(?@, h: U64) -> Int
     ts = ?@tags[..]
-    i = Int(h & U64(ts.len -% 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        return i if ts[i] == 0
-        i += 1
-      i = 0
+    if ts.len > 0
+      mask = ts.len -% 1
+      i = Int.wrap(h) & mask
+      while ts[i] != 0
+        i = (i + 1) & mask
+      return i
     -1
 
   # Empty the table, as `n` free slots: each List made anew, its zeros
@@ -323,41 +323,39 @@ pub obj Map[K: Hash, V]
       old = swap(!@es[j].value, <held)
       <old
 
-  # The entry of the key `k`, whose hash is `h`, or `none`: in a small
-  # Map, by the stored hashes in turn; in a larger one, by a probe of
-  # its table from the slot `h` names to the end, then from the start,
-  # each pass a loop whose test is the bounds test, so a step reads a tag
-  # with no other check. Inlined into each lookup and write, so the
-  # probe's state stays in its caller's registers.
+  # The entry of the key `k`, whose hash is `h`, or `none`: in a larger
+  # Map, by a probe of its table from the slot `h` names, stepping on
+  # under the table's mask, so a step reads a tag with no other check;
+  # in a small one, by the stored hashes in turn. Inlined into each
+  # lookup and write, so the probe's state stays in its caller's
+  # registers.
   inline fun find(?@, k: ?K, h: U64) -> Int?
-    if @table.tags.len == 0
-      if stores_hashes[K]()
-        hs = ?@hs[..]
-        j = 0
-        while 0 <= j and j < hs.len
-          if hs[j] == h and @es[j].value != none
-            return j if @es[j].key == k
-          j += 1
-      else
-        es = ?@es[..]
-        j = 0
-        while 0 <= j and j < es.len
-          if es[j].key == k
-            return j if es[j].value != none
-          j += 1
-      return none
     ts = ?@table.tags[..]
-    tag = tag_of(h)
-    i = Int(h & U64(ts.len -% 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
+    if ts.len > 0
+      tag = tag_of(h)
+      mask = ts.len -% 1
+      i = Int.wrap(h) & mask
+      while true
         t = ts[i]
         return none if t == 0
         if t == tag
           j = Int(@table.at[i])
           return j if @es[j].key == k
-        i += 1
-      i = 0
+        i = (i + 1) & mask
+    if stores_hashes[K]()
+      hs = ?@hs[..]
+      j = 0
+      while 0 <= j and j < hs.len
+        if hs[j] == h and @es[j].value != none
+          return j if @es[j].key == k
+        j += 1
+    else
+      es = ?@es[..]
+      j = 0
+      while 0 <= j and j < es.len
+        if es[j].key == k
+          return j if es[j].value != none
+        j += 1
     none
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`: what a
@@ -522,32 +520,30 @@ pub obj Set[K: Hash]
   # The key `k`, whose hash is `h`, or `none`, found as a Map's `find`
   # finds an entry, and inlined as it is.
   inline fun find(?@, k: ?K, h: U64) -> Int?
-    if @table.tags.len == 0
-      if stores_hashes[K]()
-        hs = ?@hs[..]
-        j = 0
-        while 0 <= j and j < hs.len
-          if hs[j] == h
-            return j if @ks[j] == k
-          j += 1
-      else
-        j = 0
-        while 0 <= j and j < @ks.len
-          return j if @ks[j] == k
-          j += 1
-      return none
     ts = ?@table.tags[..]
-    tag = tag_of(h)
-    i = Int(h & U64(ts.len -% 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
+    if ts.len > 0
+      tag = tag_of(h)
+      mask = ts.len -% 1
+      i = Int.wrap(h) & mask
+      while true
         t = ts[i]
         return none if t == 0
         if t == tag
           j = Int(@table.at[i])
           return j if @ks[j] == k
-        i += 1
-      i = 0
+        i = (i + 1) & mask
+    if stores_hashes[K]()
+      hs = ?@hs[..]
+      j = 0
+      while 0 <= j and j < hs.len
+        if hs[j] == h
+          return j if @ks[j] == k
+        j += 1
+    else
+      j = 0
+      while 0 <= j and j < @ks.len
+        return j if @ks[j] == k
+        j += 1
     none
 
   # Add the key `k`, which is new and hashes to `h`, inlined into `add`
