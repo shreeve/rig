@@ -131,6 +131,12 @@ Other:
 43. A write view re-pointed inside a `match` arm at the payload the arm
     binds (`w = !p[0..1]` in `.has(p)` of `match !o`) is rejected: the
     binding ends with the arm. Write through `p` inside the arm instead.
+44. *Unsound:* a closure parameter given `!?String` by the type the
+    closure is checked against, as `|k, v|` passed to `update` or
+    `retain` of a `Map[K, ?String]`, is rejected, as a written
+    `!?String` is: the body could store the key's view in a value that
+    outlives it. Leave the parameter out (`|k| ...`) or name it `_`,
+    hold the values as `String`, or walk the Map with `items`.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -169,6 +175,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   30.7 bytes an entry on the Mac. In bench/hash, 108 of 130 rows on the
   Mac and 109 of 114 on pup are faster than before
   ([map-builtin.md](docs/history/records/2026-10/hash-race/map-builtin.md)).
+- **`Map.ensure_by` checks its key**: the key `key(k)` makes must
+  equal `k`, and one that differs panics, rather than leaving two equal
+  keys in the Map.
 - **The built-in Map and Set take zig-ordered's design**
   (std/prelude.rig, still safe Rig): the entries in one List in first-put
   order, with no optional for plain keys and values (16 bytes for a

@@ -18437,6 +18437,13 @@ const Checker = struct {
                 };
             } else if (given) |g| {
                 pty = g;
+                // A parameter's type is checked as a written one is,
+                // though the closure's type gave it; `_` binds nothing
+                // to write through.
+                if (sema.writesTextView(self.ctx, g) and !std.mem.eql(u8, name, "_")) {
+                    try self.errAt(pn, "closure parameter `{s}` is a `{s}`, from the closure's type `{s}`; " ++ sema.write_text_view, .{ name, try self.tyName(g), try self.tyName(expected orelse g) });
+                    pty = self.t().invalid_id;
+                }
             } else if (want == null and !self.under_poison and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }

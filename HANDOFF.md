@@ -78,6 +78,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A closure's stores in a generic body's values** (soundness, an
+  ownership rule for the owner): a closure given `!?String` by its type
+  is rejected, and `Map.ensure_by` panics on a key other than `k`, but
+  a closure that stores its key's view in a `(?String)?` or
+  `List[?String]` value through `update` is still accepted, by the
+  oracle too. Two `known: true` cases in
+  `test/rig/ownership-generic.rig.test`; docs/internals/backlog.md has
+  the fix proposed.
 - **The consolidation round** ran on 2026-10-23
   ([PLAN.md](docs/history/records/2026-10/consolidation/PLAN.md)); what
   it landed, measured, and left is in

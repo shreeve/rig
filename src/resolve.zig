@@ -3882,10 +3882,10 @@ pub const TypeResolver = struct {
                             else => .element,
                         };
                         if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
-                        // Nothing lends a `?String` place to write: it holds a read
-                        // view of text, pointed elsewhere by assigning to it.
+                        // Nothing lends a `?String` place to write
+                        // (`sema.writesTextView`).
                         if (head == .write_view and inner == t.string_view_id) {
-                            try self.ctx.errAt(sexp, "`!?String` cannot be written: a `?String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `String` to change text in place", .{});
+                            try self.ctx.errAt(sexp, sema.write_text_view, .{});
                             return t.invalid_id;
                         }
                         // `?fun(...)` written as such is a callable

@@ -122,14 +122,19 @@ pub obj Map[K: Hash, V]
   # to put only when `k` is new, so a count by a viewed key,
   # `(!m).ensure_by(word, |w| +w, 0) += 1`, makes no key for a word
   # already there. When `k` is there, `key` is not called and `v` is
-  # dropped. The Map keeps `key`, as `ensure_with` keeps `make`.
+  # dropped. The Map keeps `key`, as `ensure_with` keeps `make`. The key
+  # `key(k)` makes must equal `k`, or the Map would hold another key
+  # where `k` was looked up, perhaps one it holds already: a key that
+  # differs panics.
   pub inline fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
     j = 0
     if @t.find(k) as at
       <v
       j = at
     else
-      j = (!@t).insert_new(key(k), <v)
+      made = key(k)
+      panic("Map: `ensure_by`'s `key(k)` made a key other than `k`") if made != k
+      j = (!@t).insert_new(<made, <v)
       @len += 1
     (!@t).value_mut(j)
 

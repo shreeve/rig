@@ -374,7 +374,16 @@ fail "hash ensure by view keys stay lent", "cannot lend `buf` to write while a r
   !buf.clear()
   print(m)
 
-fail "hash get keeps lent", "cannot lend `m` to write while a read loan is live"
+bomb "hash ensure by key other than k", "Map: `ensure_by`'s `key(k)` made a key other than `k`"
+  # The key `key(k)` makes must equal `k`: one that differs, here a key
+  # the Map holds already, would leave two equal keys in it.
+
+  m = Map[String, Int].new()
+  !m.put(String("b"), 1)
+  (!m).ensure_by("a", |s| String("b"), 5) += 0
+  print(m)
+
+fail "hash get keeps lent","cannot lend `m` to write while a read loan is live"
   # The view `get` returns is `from @`: it keeps the Map lent to read,
   # so the Map cannot be written while the view lives.
 

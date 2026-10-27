@@ -7862,6 +7862,23 @@ pub const heap_stacked_rule = "a value is held one way on the heap, as `^T` (one
 /// it would make.
 pub const heap_stacked = "`{s}` stacks one heap holding on another; " ++ heap_stacked_rule;
 
+/// The diagnostic for a write view of a `?String` (`writesTextView`).
+pub const write_text_view = "`!?String` cannot be written: a `?String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `String` to change text in place";
+
+/// Whether `ty` is a write view of a `?String`, or an optional of one.
+/// Nothing lends a `?String` place to write: it holds a read view of
+/// text, pointed elsewhere by assigning to it. So no parameter has this
+/// type, written (`v: !?String`) or taken from the type a closure is
+/// checked against (`|k, v|` given `?sub(?K, !V)` with `V = ?String`),
+/// which would let the body store a view where the ownership checker
+/// cannot see it.
+pub fn writesTextView(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(unwrapOptionals(ctx, ty))) {
+        .write_view => |inner| inner == ctx.types.string_view_id,
+        else => false,
+    };
+}
+
 /// The diagnostic for a box of a function value.
 pub const boxed_function = "`^` boxes a value; a function has no box (`^fun` is reserved), so pass the function, or own a closure with `*|...| body`";
 
