@@ -156,6 +156,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A view of a generic `as` binding views the optional:** in a generic
+  body, `if o as x` and `while o as x` over a view of a `T?` (`o: ?T?`,
+  `?h.item`, `?xs[0]`, `?@item`) bind `x` to the value inside where it
+  stands, so `return ?x` from a function `from o` views the caller's
+  value. It was a copy the body made, which the view outlived: an
+  object's fields read back as garbage once the stack was reused.
 - **The prelude:** the built-in Map and Set are written in
   `std/prelude.rig`, module `std.prelude`, which every program has with
   no `use`; error messages and profiles name it so. `use std.prelude` is

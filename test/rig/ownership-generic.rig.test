@@ -126,6 +126,156 @@ fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while it is
   t: String? = String("x")
   print(clear(!t))
 
+test "generic as lends on the value inside a viewed optional", '''
+  11 22 276
+  11 22 276
+  short 276
+  a-long-string-on-the-heap-for-sure 276
+  7 3
+  1 2 276
+  1 2 276
+  held 276
+  3 4 276
+  el 276
+  11 22 276
+  nest 276
+  11 22 276
+'''
+  # `?x` of `if o as x` or `while o as x` over a `?T?` views the `T` in
+  # the optional, `from o`, for a `T` held by pointer or by copy: never a
+  # copy the binding made, which ends with the body. `deep` writes over
+  # the stack the body's frame held.
+  obj P
+    a: Int
+    b: Int
+    c: List[Int]
+
+  obj Holder[T]
+    item: T?
+
+    fun get(?@) -> (?T)? from @
+      if ?@item as x
+        return ?x
+      none
+
+  fun inside[T](o: ?(T?)) -> (?T)? from o
+    if o as x
+      return ?x
+    none
+
+  fun first[T](o: ?(T?)) -> (?T)? from o
+    while o as x
+      return ?x
+    none
+
+  fun peek[T](h: ?Holder[T]) -> (?T)? from h
+    if ?h.item as x
+      return ?x
+    none
+
+  fun head[T](xs: ?List[T?]) -> (?T)? from xs
+    if ?xs[0] as x
+      return ?x
+    none
+
+  fun nested[T](o: ?((T?)?)) -> (?T)? from o
+    if o as x
+      if ?x as y
+        return ?y
+    none
+
+  fun both[T](o: ?(T?), p: ?(T?)) -> (?T)? from o
+    if o as x and p as y
+      return ?x
+    none
+
+  fun deep(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    return a[n % 8] if n == 0
+    deep(n - 1) + a[n % 8]
+
+  o: P? = P(a: 11, b: 22, c: List())
+  s: String? = String("short")
+  l: String? = String("a-long-string-on-the-heap-for-sure")
+  i: Int? = 7
+  if inside(?o) as v
+    k = deep(20)
+    print(v.a, v.b, k)
+  if first(?o) as v
+    k = deep(20)
+    print(v.a, v.b, k)
+  if inside(?s) as v
+    k = deep(20)
+    print(v, k)
+  if first(?l) as v
+    k = deep(20)
+    print(v, k)
+  if inside(?i) as v
+    if first(?i) as w
+      print(v, w - 4)
+  h = Holder[P](item: P(a: 1, b: 2, c: List()))
+  if h.get() as v
+    k = deep(20)
+    print(v.a, v.b, k)
+  if peek(?h) as v
+    k = deep(20)
+    print(v.a, v.b, k)
+  hs = Holder[String](item: String("held"))
+  if peek(?hs) as v
+    k = deep(20)
+    print(v, k)
+  xs: List[P?] = List()
+  !xs.push(P(a: 3, b: 4, c: List()))
+  if head(?xs) as v
+    k = deep(20)
+    print(v.a, v.b, k)
+  ys: List[String?] = List()
+  !ys.push(String("el"))
+  if head(?ys) as v
+    k = deep(20)
+    print(v, k)
+  n: (P?)? = P(a: 11, b: 22, c: List())
+  if nested(?n) as v
+    k = deep(20)
+    print(v.a, v.b, k)
+  ns: (String?)? = String("nest")
+  if nested(?ns) as v
+    k = deep(20)
+    print(v, k)
+  if both(?o, ?o) as v
+    k = deep(20)
+    print(v.a, v.b, k)
+
+test "generic as lends on through a write view", "5 22 276"
+  # `?o` of a write view `!T?` opens the optional as a read view of it
+  # does; `!o as x` lends the value inside to write.
+  obj P
+    a: Int
+    b: Int
+    c: List[Int]
+
+  fun inside[T](o: !(T?)) -> (!T)? from o
+    if !o as x
+      return !x
+    none
+
+  fun read[T](o: !(T?)) -> (?T)? from o
+    if ?o as x
+      return ?x
+    none
+
+  fun deep(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    return a[n % 8] if n == 0
+    deep(n - 1) + a[n % 8]
+
+  o: P? = P(a: 11, b: 22, c: List())
+  if inside(!o) as v
+    v.a = 5
+  if read(!o) as v
+    k = deep(20)
+    print(v.a, v.b, k)
+
 test "generic loop reads a slice's elements where they stand", '''
   a
   b
