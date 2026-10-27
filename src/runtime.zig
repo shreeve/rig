@@ -3323,8 +3323,16 @@ pub fn index(i: anytype, count: usize) usize {
 /// table's is: one compare.
 pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
     if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
-    // Exact: below `n`, which a `usize` holds.
-    return @truncate(offsetBelow(i, n) orelse indexPanic());
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        // One compare, as `offsetBelow` makes it.
+        const u: u64 = @bitCast(@as(i64, i));
+        if (u >= n) indexPanic();
+        // Exact: below `n`, which a `usize` holds.
+        return @truncate(u);
+    }
+    // An unsigned `i` has no sign to test: `index`'s one compare.
+    return index(i, n);
 }
 
 /// `i` as a `u64` when `0 <= i < n`, else null. A signed `i` read as
