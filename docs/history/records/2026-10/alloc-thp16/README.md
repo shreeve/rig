@@ -90,8 +90,13 @@ record.
 **Time and instructions.** Instructions within 0.1% either way. Walls
 0.7 to 1.1% faster without perf and 0.6% slower to 2.0% faster under it,
 all within the run-to-run spread; ts-pattern's minor faults 1.7% fewer
-at one checker. On Trig the change neither clears the speed bar nor
-costs anything; the case for it is bench/hash's rows, below.
+at one checker. Against the speed bar of more than 1.5% faster (#727;
+a gain of 1.5 to 2% counts only over 20 interleaved rounds or more,
+with cycles backing it), only zod3 at one checker under perf moves that
+far (2.0% faster, 20 rounds), and the same case without perf is 1.1%
+faster; cycles were not measured, and no Trig gain is claimed. On Trig
+the change neither clears the bar nor costs anything; the case for it
+is bench/hash's rows, below.
 
 ## bench/hash
 
