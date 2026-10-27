@@ -5122,6 +5122,9 @@ pub const TaskState = struct {
     /// Set while a panic stops the tasks of an isolate on this fiber: a
     /// panic then ends the program.
     unwinding: bool = false,
+    /// Set while the task is an actor's runner, where a panic in a method
+    /// stops (`tasks.panicStops`).
+    runner: bool = false,
 };
 
 threadlocal var thread_task: TaskState = .{};
@@ -7108,16 +7111,29 @@ pub fn passPanic() noreturn {
 /// where it came from, when it ends the program.
 pub fn passPanicFrom(what: []const u8) noreturn {
     @branchHint(.cold);
-    if (tasks.actorsDie()) {
-        leaveFrames();
-        sched.abandonDetached();
+    if (!panicEnds()) {
+        if (tasks.actorsDie()) {
+            leaveFrames();
+            sched.abandonDetached();
+        }
+        if (panicBoundary()) |iso| tasks.panicked(iso);
     }
-    if (panicBoundary()) |iso| tasks.panicked(iso);
     panicAfterFlush(what, @returnAddress());
+}
+
+/// Whether a panic here ends the program: it stops at no actor's runner
+/// and no isolate.
+fn panicEnds() bool {
+    return !tasks.panicStops() and panicBoundary() == null;
 }
 
 fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
     @branchHint(.cold);
+    // A panic that ends the program takes the report before its actors
+    // die: an actor's death answers the calls queued on it, and a caller
+    // that panics at that answer, on another worker, must not be the one
+    // reported.
+    if (panicEnds()) beginPanic();
     // A panic in an actor's method, on its runner, stops there, once it
     // is reported: the actor dies, and so does the call that waits on it.
     if (tasks.actorsDie()) {
@@ -7126,7 +7142,6 @@ fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
         sched.abandonDetached();
     }
     if (panicBoundary()) |iso| isolatedPanic(iso, msg, first_trace_addr orelse @returnAddress());
-    beginPanic();
     {
         var buf: [256]u8 = undefined;
         const ls = std.debug.lockStderr(&buf);

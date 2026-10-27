@@ -2353,9 +2353,8 @@ pub const Held = struct {
     held_by: *std.atomic.Value(?*Held),
     /// The method it runs.
     doing: *const Label,
-    /// A panic on the fiber: the actor dies (`tasks.actorsDie`); true
-    /// when the fiber is the actor's runner, where the panic stops.
-    die: *const fn (*Held) bool,
+    /// A panic on the fiber: the actor dies (`tasks.actorsDie`).
+    die: *const fn (*Held) void,
     next: ?*Held,
     /// The fiber, and what it waits on, while it blocks (`block`).
     fiber: *Fiber = undefined,
@@ -2374,8 +2373,9 @@ fn unlockGraph() void {
 }
 
 /// The running fiber blocks on `b` until `unblock`: publish it, and walk
-/// the chain of waits from it. One that comes back here is a deadlock,
-/// which panics naming its calls.
+/// the chain of waits from it. One that can never end, by coming back
+/// here or by leading into a cycle of other waits, is a deadlock, which
+/// panics naming the calls of its cycle.
 pub fn block(b: *const Blocked) void {
     if (!watched) return;
     const f = current() orelse return;
@@ -2433,7 +2433,8 @@ const Walk = struct {
     /// The waits on the way from `me`'s, by depth, and where each leads.
     path: [max_steps]*const Blocked = undefined,
     steps: [max_steps]Step = undefined,
-    /// The first way found back to `me`, to name the cycle.
+    /// The first cycle found, to name: back to `me`, or among the waits
+    /// `me`'s leads into.
     cycle: [max_steps]Step = undefined,
     n: usize = 0,
     /// What the walk read, to check it still holds once it is done.
@@ -2460,7 +2461,15 @@ const Walk = struct {
     /// comes back to it, and every wait on the way blocks.
     fn stuck(w: *Walk, b: *const Blocked, depth: usize) bool {
         if (depth == max_steps) return false;
-        for (w.path[0..depth]) |p| if (p == b) return true;
+        for (w.path[0..depth], 0..) |p, i| if (p == b) {
+            // The waits from `i` on make a cycle; when it does not pass
+            // through `me`, `me` waits on it all the same.
+            if (w.n == 0) {
+                w.n = depth - i;
+                @memcpy(w.cycle[0..w.n], w.steps[i..depth]);
+            }
+            return true;
+        };
         w.path[depth] = b;
         switch (b.*) {
             .task => |h| {

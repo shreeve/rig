@@ -1173,6 +1173,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A match on an element:** `match v[0]` with an arm that reads no
   binding, such as `_ => 1`, compiles for Lists and Tables, as a value
   and as a statement; it failed in the Zig it emitted.
+- **Deadlock reports under load:** a deadlock found in an actor's method
+  run inline is reported as the deadlock. A caller of the actor it ends,
+  panicking at that end on another worker, could be reported in its
+  place. A call that waits into a cycle it is not on names that cycle;
+  its report failed with an index out of bounds in the runtime.
 - **A closure literal given to an actor:** a method call through an
   actor's handle, waited on or run as a task, rejects a closure literal
   argument, as a task's call does: the actor runs it on a task of its
