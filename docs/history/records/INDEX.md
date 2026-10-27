@@ -232,6 +232,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [chains.py](2026-10/perf-stage/bounds-enum-data/chains.py)
 - [pprof.sh](2026-10/perf-stage/bounds-enum-data/pprof.sh)
 - [sites.py](2026-10/perf-stage/bounds-enum-data/sites.py)
+- [bench.sh](2026-10/perf-stage/bounds-enum-data/bench.sh)
+- [hashab.sh](2026-10/perf-stage/bounds-enum-data/hashab.sh)
+- [jsonab.sh](2026-10/perf-stage/bounds-enum-data/jsonab.sh)
+- [v.c](2026-10/perf-stage/bounds-enum-data/v.c)
+- [w.c](2026-10/perf-stage/bounds-enum-data/w.c)
 
 ### 2026-10/perf-stage/list-grow-data/
 

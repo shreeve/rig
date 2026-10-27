@@ -27,7 +27,7 @@ The hot sites, from the report's binary:
 
 | site | instructions | Rust's |
 |---|---|---|
-| `List` element, signed index (`heldIndex`) | `cmp len(%r),%idx; jae panic`: one fused compare and branch, the length a load beside the pointer's | the same, for `v[i]` on a `Vec` field |
+| `List` element, signed index (`heldIndex`, before #708) | `cmp len(%r),%idx; jae panic`: one fused compare and branch, the length a load beside the pointer's | the same, for `v[i]` on a `Vec` field |
 | `List` element, `U32` index (`heldIndex` falls back to `index`) | the same: the cast is a zero extension already made | the same |
 | `Table[T, 1<<28]` element by a computed `Int` known non-negative (the array mapper's `start + k`) | `cmp $0x10000000,%r12; jae panic`: no load | none (a slice iterator) |
 | `Table` element by a computed `Int` of unknown sign (`x - y - 1`, `get_type_of_symbol`, `set_structured_type_members`) | `add; js panic; cmp $0x4000000; jae panic`: **two tests** | one |
@@ -98,8 +98,10 @@ loads. Nothing is changed here.
   instruction. `Table`'s `atInt`, `constSlotInt` and `slotInt`,
   `Slot[n].of`, a vector's lane, and an array's element (emit writes
   `rig.indexBelow` where it wrote `rig.index` with the array's length)
-  use it. `rig.index` keeps the two tests for a count known only at run
-  time; a held length takes `heldIndex`'s one compare, as before.
+  use it. An unsigned index goes through `rig.index` as before, so its
+  code does not change. `rig.index` keeps the two tests for a count
+  known only at run time, a List's length among them (#708 took back
+  `heldIndex`'s one compare there, since it made std.json slower).
 - `text.Interner.text` reads the end of its string first, so `ends` is
   reached through one pointer load (the second test stays: LLVM does
   not derive `i - 1 < len` from `i < len` and `i != 0`).
@@ -133,9 +135,76 @@ cycles, the same time. zod3: 0.98% and 0.76% fewer instructions,
 cycles 0.36% fewer and 1.2% more, time within 1.3% either way. Under
 the bar (more than 2% faster, or at least 1% fewer instructions).
 
-BENCHES
+These builds predate #708, which took back `heldIndex`'s one compare
+for a signed index against a List's length: base and new both had it.
 
-## 5. What would reach the rest
+**std.json, instructions per byte** (`bench/json/guard.py`, Mac,
+rig-safe, twice each, on main `e0537c884` after #708, against this
+branch rebased on it):
+
+| file | main | branch |
+|---|---:|---:|
+| twitter | 7.8762, 7.8762 | 7.8761, 7.8743 |
+| twitterescaped | 9.3679, 9.3654 | 9.3650, 9.3639 |
+| canada | 16.1474, 16.1464 | 16.1457, 16.1442 |
+| citm_catalog | 8.0332, 8.0336 | 8.0338, 8.0324 |
+| gsoc-2018 | 3.4409, 3.4390 | 3.4381, 3.4375 |
+| github_events | 7.0067, 7.0061 | 7.0071, 7.0075 |
+
+The same to 0.05% on every file. A first version that sent an
+unsigned index through `offsetBelow`'s optional too made twitterescaped
+0.55% more (9.698 to 9.751, before the rebase): the `\uXXXX` hex table's
+base was recomputed in `Doc.escaped` for a register LLVM spent
+differently. An unsigned index now goes through `index` as before, and
+twitterescaped's rig-safe program is the same machine code as main's.
+
+std.json's time (pup core 8, fastest of 20 and of 30, 50 parses a run,
+before the rebase and the unsigned fix): rig-fast runs the same
+instructions on every file. The largest time difference, gsoc-2018
+rig-fast, read 2.3% and 2.1% slower, with the same instructions and
+cycles 1-2% more. Its program differs from base's in six instructions
+of one function, and it has the same section sizes. That is placement.
+pup was loaded (2.5-6) by other agents' builds.
+
+**bench/hash** (pup core 8, fastest of 6 rounds, before the rebase):
+the Map's emitted Zig is the same in both builds (only `std.text`,
+`std.utf8` and the runtime differ). Its rows read 16% faster to 16%
+slower in both directions. string `ensure_with` hit was 11-16% slower
+in both variants, and int and string hits 8-11% faster. With identical
+Map code, that is load and placement, not the change.
+
+## 5. The array mapper's loop: the test before the loop?
+
+loop-hoist (#706) found that `mapper_map`'s search loop reloads the
+Table's base mostly because of the index test: the `start + k < 2^28`
+panic leaves the loop before the load, so the load is not sure to run.
+Could the test be made once, before the loop, on its whole range?
+
+- **Not as one test.** The loop can return at `k` before reaching a
+  `start + k` past `2^28`, so testing `start + count <= 2^28` up front
+  would panic where the program does not. Only versioning keeps the
+  meaning: a copy of the loop with no test, run when the range test
+  passes, and the tested loop otherwise.
+- **LLVM does not version it, and does not use a test written by
+  hand.** In C through `zig cc -O3`, a loop of this shape guarded by
+  `start >= 0 && n >= 0 && start <= 2^28 - n` still tests `start + k`
+  and reloads the base in both copies (`v.c`). Neither
+  constraint elimination nor IndVarSimplify drops the test, and IRCE,
+  the pass made for this, is not in the pipeline.
+- **Loading the base before the test does not help either.** With
+  `restrict` and the load written first, LLVM sinks it back after the
+  test (`w.c`).
+- **Rig cannot version it today.** The proof pass works on one body,
+  and the index is made inside `type_at` (`@store.type_lists[Int(list.start)
+  + k]`), a callee inlined only by Zig. Versioning across that call is
+  checks.md §4.6's affine loop flags, extended through inlined calls.
+  It is a compiler feature, not a runtime change.
+- **What reaches it now is the type of the list.** As a span whose
+  `start + count <= n` holds by construction (#686's `Span[n]`, or a
+  view of a Table's slots), the only test left is `k < count`, which is
+  the loop's own condition and folds.
+
+## 6. What would reach the rest
 
 The tests left are each one compare; what removes them is fewer
 tests, not cheaper ones:
