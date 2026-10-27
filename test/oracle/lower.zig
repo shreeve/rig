@@ -3673,11 +3673,12 @@ const Lowerer = struct {
                     },
                     .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => all_read = true,
                 } else all_read = true;
-                // `get`, `pop`, and `remove` hand back an element of a List:
-                // a value it held, which carries the loans the List's
-                // elements carry, and no loan on the List (Core s7: a view
-                // reached through another carries that view's loans).
-                const elem_method = self.isList(recv_ty) and for ([_][]const u8{ "get", "pop", "remove" }) |m| {
+                // `get`, `pop`, `remove`, and `swap_remove` hand back an
+                // element of a List: a value it held, which carries the
+                // loans the List's elements carry, and no loan on the List
+                // (Core s7: a view reached through another carries that
+                // view's loans).
+                const elem_method = self.isList(recv_ty) and for ([_][]const u8{ "get", "pop", "remove", "swap_remove" }) |m| {
                     if (std.mem.eql(u8, m, leafText(ir.Member.name(callee), self.src))) break true;
                 } else false;
                 switch (recv_mode) {

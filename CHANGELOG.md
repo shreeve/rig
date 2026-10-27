@@ -156,6 +156,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Removing from a List in one step:** `(!v).swap_remove(i)` hands
+  over the element at `i` and moves the last element into its place,
+  where `remove(i)` moves every element after `i`: on a List of 100,000
+  elements, 4-5 ns against 63 microseconds to take the first. The order
+  of what is left changes.
 - **Hashing objects of integers:** an object whose parts are integers,
   plain enums and Bools hashes its words two at a time, one folded
   multiply a pair, as foldhash and abseil do, where it took two
