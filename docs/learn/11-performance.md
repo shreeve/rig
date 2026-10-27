@@ -328,6 +328,35 @@ sub main()
 time. Vectors are plain data, so they cost the ownership checker
 nothing.
 
+To visit every match rather than the first, walk the mask's true
+lanes, lowest first:
+
+```rig
+type Block = Simd[U8, 16]
+
+sub main()
+  text = "a,b,,c,d,e,f,g,h"
+  commas = text.read[Block](0) == 0x2C
+  for k in commas.lanes()
+    break if k > 8
+    print("comma at", k)
+```
+
+```output
+comma at 1
+comma at 3
+comma at 4
+comma at 6
+comma at 8
+```
+
+`lanes()` gives an iterator, so `break` and `continue` work as in any
+loop. The compiler holds the lanes in one register, in the form the
+target reaches fastest (one bit a lane from `pmovmskb` on x86, the
+nibble mask from `shrn` on ARM), and each lane costs a count of
+trailing zeros and a clear of the lowest bit: what a hash table's group
+probe written by hand in Zig or C does.
+
 ## Calling C, and Zig
 
 `extern fun` declares a C function, and a call to one needs a `raw`

@@ -1129,7 +1129,16 @@ lanes. `m.first()` is the index of the first true lane, an `Int?`: `none`
 when no lane is true. It is the way to find a lane after a test, and the
 one to write: `if hits.first() as k` tests and locates in one step, where
 `hits.any()` then `hits.bits()` reduces the mask twice. On a 16-lane mask
-it is a single crossing from the vector to a register on ARM. `m.any()` and
+it is a single crossing from the vector to a register on ARM.
+`m.lanes()` gives each true lane in turn, lowest first, as an `Int`:
+`for k in m.lanes()` walks them, `break` stops the walk, and the
+iterator it gives (a `Lanes`, an iterator as [`for`](#for) walks one) holds only the
+lanes not yet given, so a second loop over it resumes. The compiler picks
+how the lanes are held for the target, so each lane is a count of
+trailing zeros and a clear of the lowest bit in one register: on x86
+`pmovmskb`, on ARM the nibble mask of 16 lanes (`shrn`) and the bytes of
+8, where `bits()` would gather one bit a lane. It is the way to visit
+every match of a comparison. `m.any()` and
 `m.all()` reduce a mask to a `Bool`, `m.not()` flips every lane (as
 `v.not()` flips every bit of an integer vector), and `m.select(a, b)`
 is the vector whose lane `i` is `a`'s where `m`'s is true and `b`'s
@@ -1218,12 +1227,16 @@ sub main()
   m = v < 0
   print(v * 2, v +% 1, m, m.bits(), m.select(-v, v))
   print(v[1], v.with(0, 9), (v == 3).any(), (v != 0).all())
+  for k in (s.read[Block](0) == QUOTE).lanes()
+    print("quote at", k)
 ```
 
 ```output
 4 7 9 33
 [2, -4, 6, -8] [2, -1, 4, -3] [false, true, false, true] 10 [1, 2, 3, 4]
 -2 [9, -2, 3, -4] true true
+quote at 4
+quote at 7
 ```
 
 ```rig reject
@@ -8498,7 +8511,8 @@ are reserved, as `Actor` is, which [§18](#actors) describes.
 Other built-in types are named with no import, as these are, and are
 written in Rig: `Map[K: Hash, V]` and `Set[K: Hash]`, with the types
 their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
-([docs/STD.md](docs/STD.md#map-and-set)), and
+([docs/STD.md](docs/STD.md#map-and-set)), `Lanes`, the iterator of a
+mask's true lanes ([Vectors](#vectors)), and
 `Order`, `Hasher`, and `Printer` ([Own meanings](#own-meanings)). Their
 names are not reserved: a module that declares a type of its own of one
 of these names hides the built-in one.

@@ -2633,6 +2633,25 @@ is the idiom for testing and locating at once; `hits.any()` followed by
 `hits.bits()` reduces the mask twice. In a release build the 16-lane scan
 loop is `cmeq`, `orr`, `shrn`, `fmov`, `cbz`.
 
+`m.lanes()` is an iterator, so a `for` over it is the iterator loop
+([Loops over an iterator](#loops-over-an-iterator)) and no pass has a
+form of its own for it. Its type is `Lanes`, written in Rig in
+std/prelude.rig: a `U64` of bits, lane `k` at bit `k << shift`, and a
+`next` that gives `ctz >> shift` and clears the lowest bit. Typecheck
+gives the call that type (`Checker.lanesType`, the prelude's `Lanes`
+through the hidden import the Parser wrapper adds to each file that
+names a member `lanes`, `Parser.lanesMembers`) and records it as the
+elem call `.lanes`; emit writes `rig.maskTrueLanes(Lanes, m)`, and the
+runtime picks the form: on NEON the nibble mask of 16 lanes with one
+bit kept a nibble (shift 2) and the bytes of 8 with one bit kept a byte
+(shift 3), which skip the constant and the `addv` of `bits()`;
+`bits()` itself (shift 0) for every other mask and target. `shift` is a
+constant where `next` is inlined, so a lane is `ctz`, `sub`, `ands`,
+`b.ne` on Apple M5 (`rbit` and `clz` for `ctz` on M1), the shift folded
+into the add that uses the lane, and `tzcnt`, `blsr`, `jne` on
+x86-64-v3; the mask stays in a general register and nothing is stored
+(`test/cli/mask_lanes.sh` reads each target's assembly).
+
 The `simd` cases of `test/rig/types-simd.rig.test` hold the
 behavior and rejections, including every block offset from 0 to 130
 against a scan byte by byte.

@@ -2107,7 +2107,7 @@ pub const builtin_binding_name = "__rig_prelude";
 /// The built-in types written in Rig, in `std/prelude.rig`: a
 /// program names them with no import, and its own declaration of one
 /// hides it.
-pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Item", "Items", "Keys", "Values", "Members" };
+pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Item", "Items", "Keys", "Values", "Members", "Lanes" };
 
 /// Whether `leaf` is the hidden name of the module of the built-in types
 /// written in Rig (`Parser.builtinRefs`).
@@ -3342,6 +3342,11 @@ pub const Parser = struct {
         }
         var firsts: std.ArrayList(u32) = .empty;
         const out = try self.rewriteBuiltin(module, &hidden, &firsts);
+        // `m.lanes()` of a mask gives the prelude's `Lanes`, so a file that
+        // names a member `lanes` uses the prelude too; the prelude itself,
+        // which declares every built-in type, does not.
+        const prelude = std.mem.allEqual(bool, &hidden, true);
+        if (!prelude) try self.lanesMembers(out, &firsts);
         if (firsts.items.len == 0) return out;
         // One `use` of the module in each file that names a built-in
         // type, at the first name there.
@@ -3391,6 +3396,24 @@ pub const Parser = struct {
         }
         const out = copy orelse return node;
         return .{ .list = parser.List.withId(out, node.list.id) };
+    }
+
+    /// Adds to `firsts` the position of the first member named `lanes` in
+    /// each file that has one and no other name of a built-in type
+    /// (`builtinRefs`).
+    fn lanesMembers(self: *Parser, node: Sexp, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!void {
+        if (node != .list) return;
+        if (node.isKind(.member)) {
+            const name = ir.Member.name(node);
+            if (name == .src and !isHiddenLeaf(name) and std.mem.eql(u8, leafText(self.base.source, name.src), "lanes")) {
+                const file = self.fileAt(name.src.pos);
+                const seen = for (firsts.items) |p| {
+                    if (self.fileAt(p) == file) break true;
+                } else false;
+                if (!seen) try firsts.append(self.allocator(), name.src.pos);
+            }
+        }
+        for (node.items()) |c| try self.lanesMembers(c, firsts);
     }
 
     /// The file of a module of several files that `pos` is in: how many

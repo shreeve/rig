@@ -4748,6 +4748,35 @@ pub inline fn maskFirst(m: anytype) ?i64 {
     return @ctz(bits);
 }
 
+/// `m.lanes()`: the iterator `L` (the prelude's `Lanes`) of the true lanes
+/// of mask `m`. It holds one bit per true lane, lane `k` at bit
+/// `k << shift`, in the form the target reaches fastest, so each step is
+/// a count of trailing zeros, a shift by a constant, and a clear of the
+/// lowest bit, all in one register. On NEON a 16-lane mask is its nibble
+/// mask (`cmeq`, `shrn`, `fmov`) with one bit kept per nibble (shift 2),
+/// and an 8-lane mask its bytes (`cmeq`, `fmov`) with one bit kept per
+/// byte (shift 3), where `bits()` would gather each lane's bit with a
+/// constant and a reduction (`addv`); every other mask is `bits()` (shift
+/// 0): one `pmovmskb` per 16 lanes on x86, `i8x16.bitmask` on WASM SIMD,
+/// NEON's pairwise adds for 32 and 64 lanes. Every form gives the same
+/// lanes (`test "maskTrueLanes: every form agrees"`).
+pub inline fn maskTrueLanes(comptime L: type, m: anytype) L {
+    const n = maskLen(@TypeOf(m));
+    if (comptime n == 16 and neonIntrinsics()) return .{ .bits = laneNibbles(maskBytes(m)), .shift = 2 };
+    if (comptime n == 8 and neonIntrinsics()) return .{ .bits = laneBytes(maskBytes(m)), .shift = 3 };
+    return .{ .bits = maskBits(m), .shift = 0 };
+}
+
+/// A 16-lane mask's bytes as one bit per lane, lane `k` at bit `4k`.
+inline fn laneNibbles(bytes: @Vector(16, u8)) u64 {
+    return nibbleMask(bytes) & 0x1111_1111_1111_1111;
+}
+
+/// An 8-lane mask's bytes as one bit per lane, lane `k` at bit `8k`.
+inline fn laneBytes(bytes: @Vector(8, u8)) u64 {
+    return @as(u64, @bitCast(bytes)) & 0x0101_0101_0101_0101;
+}
+
 /// A 16-byte mask (0xFF or 0 per byte) as 4 bits per byte in a `u64`,
 /// lane `i` at bits `4i..4i+3`: a narrowing shift right by 4 (`shrn`)
 /// and one `fmov`.
@@ -7669,6 +7698,32 @@ const DropOrder = struct {
         self.n.* += 1;
     }
 };
+
+test "maskTrueLanes: every form agrees" {
+    const L = struct {
+        bits: u64,
+        shift: i64,
+        fn walk(it: @This()) u64 {
+            var r: u64 = 0;
+            var b = it.bits;
+            while (b != 0) : (b &= b - 1) r |= @as(u64, 1) << @intCast(@ctz(b) >> @intCast(it.shift));
+            return r;
+        }
+    };
+    var prng = std.Random.DefaultPrng.init(0x1a5e);
+    const r = prng.random();
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+        for (0..200) |_| {
+            var lanes: [n]bool = undefined;
+            for (&lanes) |*l| l.* = r.boolean();
+            const w = maskOf(Mask(n), lanes);
+            const want = maskBitsCast(n, lanes);
+            try testing.expectEqual(want, maskTrueLanes(L, w).walk());
+            if (n == 16) try testing.expectEqual(want, (L{ .bits = laneNibbles(maskBytes(w)), .shift = 2 }).walk());
+            if (n == 8) try testing.expectEqual(want, (L{ .bits = laneBytes(maskBytes(w)), .shift = 3 }).walk());
+        }
+    }
+}
 
 test "maskBits: every form agrees" {
     @setEvalBranchQuota(10_000);

@@ -2385,6 +2385,7 @@ pub const Use = enum {
 /// `Status.from_text(word)` (`num` the enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
+/// `m.lanes()` (whose `elem` is the iterator it gives),
 /// `v.array()`, `v.with(i, x)`, `m.select(a, b)`, whose `num` is the
 /// mask and `elem` the lane type of the vector it gives, `t.lookup(idx)`,
 /// whose `num` is the index vector's type and `elem` its lane type, and
@@ -2422,6 +2423,9 @@ pub const ElemOp = enum {
     splat,
     bits,
     first,
+    /// `m.lanes()`: an iterator of the true lanes of mask `num`, lowest
+    /// first, as `Int`s; `elem` is its type, the prelude's `Lanes`.
+    lanes,
     any,
     all,
     array,
@@ -2445,7 +2449,7 @@ pub const ElemOp = enum {
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => false,
         };
     }
 
@@ -2463,7 +2467,7 @@ pub const ElemOp = enum {
     /// it reads its receiver and arguments, and makes a new value.
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
-            .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
+            .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag => true,
             .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .sum => false,
         };
     }

@@ -118,6 +118,13 @@ A new session, human or agent, takes these steps in order:
   approved, are #726, measured again on Trig's memory
   ([alloc-large/](docs/history/records/2026-10/alloc-large/),
   [alloc-thp16/](docs/history/records/2026-10/alloc-thp16/)).
+  The first compiler piece the race needs, `for k in m.lanes()` (the
+  panel's work order, step 4, approved 2026-10-27), walks a mask's true
+  lanes in each target's form, the nibble mask on ARM and `pmovmskb` on
+  x86, at four or five instructions a lane (`test/cli/mask_lanes.sh`).
+  Its lane-range fact for the proof pass (`0 <= k < n`, so `[n]T`
+  indexed by `k` needs no test) waits for the masked-index proof in
+  `src/proofs.zig`.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
