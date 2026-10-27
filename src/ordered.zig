@@ -190,6 +190,15 @@ fn Ordered(comptime K: type, comptime V: type) type {
             }
         }
 
+        /// Write lane `lane` of the 16 tags `grp` as `x`: the 16 written
+        /// whole from a register, so the next lookup's load of them takes
+        /// them from the store, where a byte's store would stall it.
+        inline fn writeLane(grp: *Group, lane: usize, x: u8) void {
+            const ids: @Vector(16, u8) = std.simd.iota(u8, 16);
+            const v: @Vector(16, u8) = grp.*;
+            grp.* = @select(u8, ids == @as(@Vector(16, u8), @splat(@intCast(lane))), @as(@Vector(16, u8), @splat(x)), v);
+        }
+
         inline fn lowBits(n: usize) u64 {
             return if (n >= 64) ~@as(u64, 0) else (@as(u64, 1) << @intCast(n)) - 1;
         }
@@ -310,11 +319,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 const free = match(grp, 0);
                 if (free != 0) {
                     const lane = firstLane(free);
-                    grp[lane] = tag;
+                    writeLane(grp, lane, tag);
                     self.slots[g][lane] = @intCast(j);
                     return;
                 }
-                grp[15] |= classBit(tag);
+                writeLane(grp, 15, grp[15] | classBit(tag));
                 step += 1;
                 g = (g + step) & mask;
             }
@@ -462,6 +471,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.max_load = maxLoad(self.groups);
         }
 
+        /// Write lane `i` of a small table's tags (`writeLane`).
+        inline fn setSmallTag(self: *Self, i: usize, tag: u8) void {
+            writeLane(self.small_tags[i & 16 ..][0..16], i & 15, tag);
+        }
+
         // finding ///////////////////////////////////////////////////////////
 
         const Found = struct { g: usize, lane: usize, j: usize };
@@ -556,7 +570,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 const j: usize = self.len;
                 if (j < self.cap and j < small_lanes and self.live < small) {
                     self.entries[j] = makeEntry(k, v, h);
-                    self.small_tags[j] = tagOf(h);
+                    self.setSmallTag(j, tagOf(h));
                     self.len = @intCast(j + 1);
                     self.live += 1;
                     return j;
@@ -575,7 +589,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             const free = match(grp, 0);
             if (free != 0) {
                 const lane = firstLane(free);
-                grp[lane] = tagOf(h);
+                writeLane(grp, lane, tagOf(h));
                 self.slots[g][lane] = @intCast(j);
             } else self.placePast(g, tagOf(h), j);
             return j;
@@ -624,12 +638,12 @@ fn Ordered(comptime K: type, comptime V: type) type {
             if (self.groups == 0) {
                 if (self.cap == 0) return null;
                 const i = self.findSmall(k, h) orelse return null;
-                self.small_tags[i] = 0;
+                self.setSmallTag(i, 0);
                 return i;
             }
             const f = self.findIndexed(k, h, true) orelse return null;
             const grp = &self.tags[f.g];
-            grp[f.lane] = 0;
+            writeLane(grp, f.lane, 0);
             if (grp[15] & classBit(tagOf(h)) != 0) self.max_load -= 1;
             return f.j;
         }
