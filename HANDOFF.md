@@ -101,14 +101,16 @@ A new session, human or agent, takes these steps in order:
   is on `main` (#701): inside `if $plain(K)` a generic body may copy a
   `K`. Sema decides plain once per instance and emit passes it as a
   compile-time Bool; the oracle knows the rule.
-- **`std.hash`** (#685, draft): `hash.Map` and `hash.Set`, unordered,
-  laid out as a SwissTable (16-tag groups, 7/8 full, one inlined
-  probe), whose slots hold the entry itself where the key and value are
-  plain. With Trig's hot caches on it, Trig is 1.0-4.1% faster and
-  ts-pattern's peak memory 3.8% lower; zod3's is 2.7-3.2% higher, from
-  old tables that copying growth frees and the heap keeps. The owner
-  approved landing it; a fix for that memory is being measured first
-  ([record](docs/history/records/2026-10/std-hash/plain-slots.md)).
+- **The hash race:** `bench/hash` times both Rig maps against the
+  fastest tables in C++, Rust, Zig and Go, with random keys and on one
+  shared hash. The goal is first place, with an ordered and an unordered
+  family of Map and Set (owner, 2026-10-27). Today boost and ankerl
+  lead; Rig's maps win only large builds. The study's plan: first the
+  ordered Map over a group index, then an unordered `std.hash` over
+  boost's groups
+  ([hash-race/](docs/history/records/2026-10/hash-race/)). #685's
+  SwissTable `std.hash` is archived as `archive/std-hash`, its members
+  and tests kept for the rebuild.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
