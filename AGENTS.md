@@ -222,7 +222,7 @@ until its rule is built. docs/internals/tests.md has the rest.
   worth the code every later change carries. A small gain woven
   through the compiler does not clear that bar; a large one in code
   that can be cut out in one step, as `src/bolt.zig` can, does. On
-  Trig the bar is more than 2% faster, or at least 1% fewer
+  Trig the bar is more than 1.5% faster, or at least 1% fewer
   instructions on one checker, with peak memory no higher (memory from
   a larger executable excepted); a change under it waits as a draft to
   be measured stacked with others.
@@ -238,8 +238,10 @@ until its rule is built. docs/internals/tests.md has the rest.
   Report results as they are, with numbers ("12% faster", never "+12%").
 - **Speed:** measure time, interleaved, fastest of N; fewer instructions
   can be slower, and moving code shifts a hot loop by 5-7% on Apple
-  cores, so `bench/`'s instruction guards cannot judge one. A change
-  within 2% is noise ([RIG-NOTES](docs/history/rig-notes.md)).
+  cores, so `bench/`'s instruction guards cannot judge one. One
+  comparison within 2% is noise ([RIG-NOTES](docs/history/rig-notes.md));
+  a gain of 1.5 to 2% counts only when it holds over at least 20
+  interleaved rounds, with cycles backing the time.
 - **Concurrency** cases run under `seeds: 20`, deterministic schedules
   that fail the same way twice.
 - **Messages to the owner** are short, with decisions as a numbered list
