@@ -835,6 +835,39 @@ test "hash own map", "2 0"
     s: Set[Int] = Set()
     print(m.n, s.len)
 
+test "hash prelude beside a program's own", '''
+  {"a": 42} 7
+'''
+  # A program's own module named `prelude`, with a type named `Map`, is
+  # its own: the built-in Map and Set stay reachable beside it.
+
+  use prelude
+
+  sub main()
+    m = Map[String, Int]()
+    !m.put(String("a"), prelude.greet())
+    p = prelude.make(7)
+    print(m, p.n)
+
+  file "prelude.rig"
+    pub fun greet() -> Int
+      42
+
+    pub obj Map
+      pub n: Int
+
+    pub fun make(n: Int) -> Map
+      Map(n: n)
+
+fail "hash prelude needs no use", "4:1: every program has `std.prelude`, its `Map` and `Set`, already: remove the `use`"
+  # The prelude, which holds Map and Set, is every program's: importing
+  # it is rejected.
+
+  use std.prelude
+
+  sub main()
+    print(1)
+
 fail "hash no module", "3:1: the standard library has no module `hash`"
   # Map and Set need no import, and no module holds them.
 

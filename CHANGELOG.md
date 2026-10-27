@@ -156,6 +156,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The prelude:** the built-in Map and Set are written in
+  `std/prelude.rig`, module `std.prelude`, which every program has with
+  no `use`; error messages and profiles name it so. `use std.prelude` is
+  rejected with the reason, and a program's own module named `prelude`
+  stays its own.
 - **Runs of lines for tasks, and counting by a viewed key:**
   `text.chunks(s, n)` cuts text into at most `n` runs of whole lines, to
   hand to `par.workers` a run at a time rather than a line at a time,

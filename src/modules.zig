@@ -341,7 +341,7 @@ pub const ModuleGraph = struct {
         const comps = named.comps;
         const name = comps[comps.len - 1];
         const alias = ir.Use.alias(decl);
-        const local_name = if (alias == .nil) name else rig.leafText(importer.source, alias.src);
+        const local_name = if (builtin) rig.builtin_binding_name else if (alias == .nil) name else rig.leafText(importer.source, alias.src);
         const at = importer.parser.span(decl);
         const file = sema.fileIndex(importer.parts, at.start);
 
@@ -349,6 +349,11 @@ pub const ModuleGraph = struct {
             try self.errorAt(id, at, "module names starting with `{s}` are reserved for the compiler", .{reserved_prefix});
             return .failed;
         };
+        // The prelude is every program's, and its names need no import.
+        if (!builtin and in_std and comps.len == 1 and std.mem.eql(u8, comps[0], rig.builtin_module_name)) {
+            try self.errorAt(id, at, "every program has `std.{s}`, its `Map` and `Set`, already: remove the `use`", .{rig.builtin_module_name});
+            return .failed;
+        }
         const dotted = try std.mem.join(a, ".", comps);
         // The standard library is self-contained: it never reaches a
         // program's files, whatever their names.
@@ -402,9 +407,13 @@ pub const ModuleGraph = struct {
             while (node.isKind(.member)) : (node = ir.Member.object(node)) try names.append(a, rig.leafText(source, ir.Member.name(node).src));
             try names.append(a, rig.leafText(source, node.src));
             std.mem.reverse([]const u8, names.items);
-            const builtin = rig.isBuiltinModuleLeaf(path);
-            const in_std = builtin or (names.items.len > 1 and std.mem.eql(u8, names.items[0], "std"));
-            return .{ .comps = if (builtin or !in_std) names.items else names.items[1..], .in_std = in_std, .builtin = builtin };
+            if (rig.isBuiltinModuleLeaf(path)) {
+                const comps = try a.alloc([]const u8, 1);
+                comps[0] = rig.builtin_module_name;
+                return .{ .comps = comps, .in_std = true, .builtin = true };
+            }
+            const in_std = names.items.len > 1 and std.mem.eql(u8, names.items[0], "std");
+            return .{ .comps = if (!in_std) names.items else names.items[1..], .in_std = in_std, .builtin = false };
         }
     };
 

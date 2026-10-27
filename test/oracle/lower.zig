@@ -330,7 +330,7 @@ fn moduleById(id: u32) ?*const lib.modules.Module {
 }
 
 /// Whether symbol `sym_id` of `ctx` is one of the built-in types written
-/// in Rig (`std/__rig_builtin.rig`: `Map`, `Set`, their entries, and
+/// in Rig (`std/prelude.rig`: `Map`, `Set`, their entries, and
 /// their iterators), which the oracle checks as it checks a List: by
 /// what their methods' signatures say (`from`, `keeps`, and the types
 /// that say what a call may store), never by their bodies.

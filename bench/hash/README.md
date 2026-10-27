@@ -1,6 +1,6 @@
 # Hash map benchmark
 
-Times the built-in Map (`std/__rig_builtin.rig`) and std.hash's
+Times the built-in Map (`std/prelude.rig`) and std.hash's
 unordered Map (`std/hash.rig`) against the fastest hash tables in four
 languages:
 

@@ -92,7 +92,7 @@ done
 rm -f rig-map-trace.bin rig-map-trace.bin.types
 RIG_OUT_DIR=$PWD/out "$RIG" build --release -o prog ops.rig >/dev/null 2>&1 || fail "rig build ops.rig"
 mv prog plain
-cp out/__rig_main.zig plain.zig && cp out/__rig_std___rig_builtin.zig plain_builtin.zig
+cp out/__rig_main.zig plain.zig && cp out/__rig_std_prelude.zig plain_builtin.zig
 RIG_MAP_TRACE=0 RIG_OUT_DIR=$PWD/out "$RIG" build --release -o prog ops.rig >/dev/null 2>&1 || fail "RIG_MAP_TRACE=0 rig build ops.rig"
 mv prog zero
 out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n4000 20' "the plain program runs"
@@ -100,6 +100,6 @@ out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n4000 20' "the plain program
 grep -q "__rig_map_trace" plain.zig && fail "the root module declares no trace"
 grep -q "__rig_trace\|mapTrace" plain_builtin.zig && fail "the built-in Map has no trace without the flag"
 cmp -s plain.zig out/__rig_main.zig || fail "RIG_MAP_TRACE=0 emits the root module as no flag does"
-cmp -s plain_builtin.zig out/__rig_std___rig_builtin.zig || fail "RIG_MAP_TRACE=0 emits the built-in Map as no flag does"
+cmp -s plain_builtin.zig out/__rig_std_prelude.zig || fail "RIG_MAP_TRACE=0 emits the built-in Map as no flag does"
 cmp -s plain zero || fail "RIG_MAP_TRACE=0 builds the program no flag does"
 exit 0
