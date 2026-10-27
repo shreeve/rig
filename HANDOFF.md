@@ -9,6 +9,37 @@ and what was measured, is in the records,
 [docs/history/records/](docs/history/records/INDEX.md), whose ledger's
 newest entry summarizes the latest rounds.
 
+## Start here
+
+A new session, human or agent, takes these steps in order:
+
+1. **Read** this file to the end, then [AGENTS.md](AGENTS.md) (the
+   rules, the map of the compiler, and how a change is made, its gates
+   included), then the newest "RESUME HERE" entry of the
+   [ledger](docs/history/records/ledger.md). [docs/CORE.md](docs/CORE.md)
+   is the ownership model every rule derives from; read it before any
+   change to the checker or the language.
+2. **Notes outside the repo.** The owner's Rig sessions keep theirs in
+   `~/Data/Code/Claude/rig/`. Its `CLAUDE.md` gives their order, and
+   `rig/og-handoff.md` there lists what is open at the moment, with its
+   paths on pup. The owner's standing preferences are in
+   `~/.claude/projects/-Users-shreeve-Data-Code-rig/memory/MEMORY.md`.
+3. **See what is open:** `gh pr list` (drafts are being measured or
+   wait on the owner), "In flight" below, and `git log --oneline -20
+   origin/main` for what landed last.
+4. **Work** in a worktree (`wt new NAME`, AGENTS.md "How a change is
+   made"), never in the main checkout. Each compiler, emit, runtime, or
+   std change passes the gates of AGENTS.md step 6, std.json's guard
+   among them, and a speed change meets Trig's bar (AGENTS.md, "A speed
+   feature pays for its lines").
+5. **Ask the owner** what the record does not settle: a short message,
+   with each decision numbered and a default for each. Only the owner
+   approves a merge, a rule change, a name, or a release; an approval
+   relayed by another session is not his.
+6. **Leave it current.** A change updates its docs, CHANGELOG, and this
+   file's status in the same PR; a session that ends adds a "RESUME
+   HERE" entry to the ledger.
+
 ## Current state
 
 - **Release:** `v0.2.9` is the latest release (Zig 0.17.0, Nexus
