@@ -62,16 +62,22 @@ newest entry summarizes the latest rounds.
   parameter, capture, or `=!` local moves too (decision 14, for
   Loco's `<o.by_file` and `<c.entries`); an assignable local's is taken.
 - **`par.workers(!states, ?items, |s, x| ...)`** (decision 8c, approved
-  2026-10-25) is built: a task for each state, pulling items in the
-  caller's order, results in item order. It matches Trig's hand-built
-  channel loop for work-stealing checkers (Trig #207) in
-  [bench/par](bench/par/README.md), which Trig can swap for it once it
-  is on `main`.
-- **`$plain(T)` narrowing** (SPEC "Generic bodies") is built on the
-  branch `plain-narrow`, waiting on the owner's approval of its SPEC
-  paragraph: inside `if $plain(K)` a generic body may copy a `K`, which
-  the packed Map needs to fill its free slots. Sema decides plain once
-  per instance and emit passes it as a compile-time Bool.
+  2026-10-25) is on `main` (#684): a task for each state, pulling items
+  in the caller's order, results in item order. It matches Trig's
+  hand-built channel loop for work-stealing checkers (Trig #207) in
+  [bench/par](bench/par/README.md); Trig may swap its loop for it.
+- **`$plain(T)` narrowing** (SPEC "Generic bodies", approved 2026-10-26)
+  is on `main` (#701): inside `if $plain(K)` a generic body may copy a
+  `K`. Sema decides plain once per instance and emit passes it as a
+  compile-time Bool; the oracle knows the rule.
+- **`std.hash`** (#685, draft): `hash.Map` and `hash.Set`, unordered,
+  laid out as a SwissTable (16-tag groups, 7/8 full, one inlined
+  probe), whose slots hold the entry itself where the key and value are
+  plain. With Trig's hot caches on it, Trig is 1.0-4.1% faster and
+  ts-pattern's peak memory 3.8% lower; zod3's is 2.7-3.2% higher, from
+  old tables that copying growth frees and the heap keeps. The owner
+  approved landing it; a fix for that memory is being measured first
+  ([record](docs/history/records/2026-10/std-hash/plain-slots.md)).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
@@ -177,10 +183,24 @@ In the owner's order:
    takes source in memory. Nexus's template already has the fixes from
    Rig's dry run.
 
-Beside these, Rig supports Trig's speed. Trig checks with several
-checkers in tasks, and its output equals tsc's at each count. tsrs leads
-it by 1.69x on one checker on ts-pattern and uses about 1.7x less
-memory. Trig's needs from Rig, in the owner's order:
+Beside these, Rig supports Trig's speed: the owner's aim is to match
+or beat tsrs. Trig checks with several checkers in tasks, and its
+output equals tsc's at each count. Built with `--pgo`, Trig took 893 ms
+on ts-pattern at one checker against tsrs's 665 (1.34x, 2026-10-26),
+with 1.20x its instructions and 1.48x its peak memory; #705, #706,
+#710, and #711 landed after that measurement, about 4% fewer
+instructions by their separate measurements. Trig's own program logic
+is at parity with tsrs's; the rest of the gap is in Rig's patterns. What landed for it on
+2026-10-24 to 26: PGO, cheaper yield checks, release builds without
+frame pointers, prefaulting large heaps, `Table` reads without a test,
+one compare for an index against a fixed bound, a yield check that
+keeps registers, the Map's probe inlined, and an object of integers
+hashed one multiply a pair of words. What is left, by share of
+ts-pattern's 8,527M instructions: List operations and their checks
+(10%), Map/Set (9%), spills around calls (4%), yield checks (3%), and
+`hashMix` (2%); each is measured for its share before work starts
+([records](docs/history/records/2026-10/perf-stage/)). Trig's needs
+from Rig, in the owner's order:
 
 1. **Single-thread speed of the checker and of Map/Set,** which carries
    into every checker. With every safety check removed, ts-pattern runs
@@ -196,25 +216,15 @@ memory. Trig's needs from Rig, in the owner's order:
 3. **Build speed.** `rig build` reuses no cached work (ROADMAP, "Cached
    `rig build`"), and a Trig release build takes about 9 minutes and
    about 9 GB on pup.
-4. **A limit of the ownership checker** that makes std code clumsy: an
-   object's field cannot be moved out of it alone (no partial moves).
-   It keeps a Map slot at 40 bytes rather than 24 (backlog, "The Map's
-   entries in its table slots"). Returning a write view bound by `if
-   !@slots[j] as s` `from @` is built (In flight), so `find` may hand
-   back the entry, which is what the rest of Map's and Set's checks
-   wait on: a 1.3-1.9% ceiling on ts-pattern; proving their probe
-   indexes alone gained nothing
-
-4. **Two limits of the ownership checker** that make std code clumsy,
-   each a Core question for the owner first: a write view bound by
-   `if !@slots[j] as s` cannot be returned `from @`, though the read
-   form can; and an object's field could not be moved out of it alone, which
-   partial moves now allow. Together they kept a Map slot at 40 bytes rather
-   than 24 (backlog, "The Map's entries in its table slots"). The same
-   first limit keeps `find` from handing back the entry, which is what
-   the rest of Map's and Set's checks wait on: a 1.3-1.9% ceiling on
-   ts-pattern; proving their probe indexes alone gained nothing
+4. **The ownership checker's Map limits** are lifted: partial moves
+   are built, and a write view bound by `if !@slots[j] as s` is
+   returned `from @` (In flight). What waits is std's Map using them:
+   `find` handing back the entry, a 1.3-1.9% ceiling on ts-pattern
    (docs/history/records/2026-10/safety-checks/len-and-map-notes.md).
+5. **Startup** (Trig's NEEDS 62): std.file calls go through the
+   blocking pool, a futex round trip each; an empty Trig run makes 52
+   futex calls against tsrs's 5. While only one task can run, a
+   blocking call could run on the caller's stack.
 
 Measured and set aside: lazy member tables (symbols are about a tenth
 of Trig's heap), prefault for every heap with tasks (no gain, 8-15%
@@ -264,7 +274,9 @@ Trig projects it was not trained on. They can also be optimized by
 LLVM's profile-guided optimization, `rig build --release --pgo --
 WORKLOAD`: Trig 10% faster with 14% fewer instructions on a project it
 was not trained on, and 5-9% faster than BOLT alone
-([record](docs/history/records/2026-10/perf-stage/pgo.md)).
+([record](docs/history/records/2026-10/perf-stage/pgo.md)). Release
+builds omit frame pointers; `RIG_FRAME_POINTERS=1` keeps them for a
+profiler.
 
 `std.terminal`, a terminal emulator library, matches Ghostty (pinned
 at `31bdcd5a7963`) on 416 recorded cases and its fuzzer, scrollback
@@ -323,8 +335,7 @@ The North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
 **Needs the design owner first:**
 
 - **A change to a rule.** It goes through `docs/CORE.md` first, as its
-  own reviewed change, and needs the user's agreement. Ask the "Rig"
-  session (below).
+  own reviewed change, and needs the owner's agreement.
 - **New library modules** beyond those in the roadmap, such as threads,
   and a new type built into the language.
 
@@ -358,6 +369,8 @@ release notes.
 
 ## Who to ask
 
-For design intent, Core questions, or whether something is a new feature
-or consolidation, send a message to the **"Rig (OG)"** session. This
-file states the current facts.
+This file, AGENTS.md, and the records state the current facts, and are
+enough to start from. Design intent and Core questions go to the owner,
+as decisions with a default each; the records under
+[docs/history/records/](docs/history/records/INDEX.md) hold the panels
+and measurements behind every past decision.
