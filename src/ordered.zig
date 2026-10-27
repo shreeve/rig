@@ -297,9 +297,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// A new index of `groups` free groups, in place of the old.
         fn newIndex(self: *Self, groups: usize) void {
+            // The old index is freed first: the new one is filled from
+            // the entries, so the two never need to live at once.
+            self.freeIndex();
             const b = rt.allocSlice(u64, indexWords(groups));
             @memset(b, 0);
-            self.freeIndex();
             self.slots = @ptrCast(b.ptr);
             self.tags = @ptrCast(b.ptr + 8 * groups);
             self.groups = @intCast(groups);
