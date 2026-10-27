@@ -75,7 +75,7 @@ newest entry summarizes the latest rounds.
 - **std.hash** (`hash.Map`, `hash.Set`, unordered, hashbrown's layout):
   draft #685, owner-approved as a std module 2026-10-25. Plain keys and
   values sit in their slots, the probe is inlined, large tables grow in
-  place, and objects of integers hash one multiply a pair. Trig's caches
+  place (pair hashing landed apart, #711). Trig's caches
   on it: ts-pattern 2.2-4.1% faster with less memory; zod3 1.0-3.5%
   faster with 2.7-3.2% more peak RSS (its instantiation table just
   doubled), so the bar's "RSS no higher" is not met there
