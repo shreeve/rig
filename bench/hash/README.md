@@ -6,7 +6,9 @@ languages:
 
 | Variant | Table | Hash | Source |
 |---|---|---|---|
-| `zig-*` | Zig's `std.HashMap` (`AutoHashMapUnmanaged`, `StringHashMapUnmanaged`), from `smp_allocator` as a Rig program allocates | Zig's | `map.zig` |
+| `zig-*` | Zig's `std.HashMap` (`AutoHashMapUnmanaged`, `StringHashMapUnmanaged`) | Zig's | `map.zig` on `table_std.zig` |
+| `zig-foa` | a port of boost's `unordered_flat_map` to Zig, the base of Rig's `HashMap` | Rig's Int hash, Wyhash for text | `map.zig` on `foa.zig` |
+| `zig-dense` | a port of ankerl's `unordered_dense` 5.3.3 to Zig, the base of Rig's ordered `Map` | Rig's Int hash, Wyhash for text | `map.zig` on `dense.zig` |
 | `rust` | Rust's `HashMap`, which is hashbrown | FxHasher, written out (no crate) | `map.rs` |
 | `hashbrown` | the hashbrown crate, SwissTable | foldhash, its default | `rust/` |
 | `indexmap` | the indexmap crate: entries in a dense `Vec` in insertion order, a hashbrown table of indices; a remove is `swap_remove` | foldhash | `rust/` |
@@ -43,18 +45,25 @@ needs a `bin/rig` whose std has std.hash, so it is not in `--all`. A
 build kept in `--out` is reused, so variants built by different `rig`s
 (`RIG=... --build-only --variants hash-fast`) can be timed together.
 
-The sized rows (`int16`, `int1000`, `int100000`, `int4000000`) time
-Int keys at four sizes, 4,000,000 operations a row, reported per
-operation: insert puts the keys into empty maps (a million keys a
-batch: 62,500 maps of 16, 1,000 of 1,000, 10 of 100,000, or one of
-4,000,000), remove takes each back out, hit and miss look keys up in
-one map of that size, and iterate walks it. The keys are `i * MUL`, and
-each loop takes them in order. The random rows (`rnd16` ... `rnd4000000`)
-time the same operations on random 64-bit keys (splitmix64 of 0, 1,
-...), read from arrays made before the timing, and look the hits up in
-an order shuffled once (Fisher-Yates, seeded alike in every program).
-So no hash gains from the keys' stride, and no map gains from meeting
-its entries in the order it stores them. Every variant times both sets.
+Every contestant times the rows in [WORKLOADS.md](WORKLOADS.md), which
+says exactly what each does; `rust/src/main.rs` is the reference, and the
+checksums of every variant must agree:
+
+| Rows | What they time |
+|---|---|
+| `int16` ... `int4000000` | insert, remove, hit, miss, iterate on keys `i * MUL`, in order: the first round's rows, kept as they were |
+| `rnd16` ... `rnd4000000` | the same on random 64-bit keys, hits in shuffled order, at eight sizes: 16, 24, 1,000, 1,500, 100,000, 150,000, 3,000,000, 4,000,000, so each table is caught at more than one fill |
+| `lat16` ... `lat4000000` | one lookup at a time, each key the value the last one found: latency, where the other rows let a core overlap lookups |
+| `churn16` ... `churn4000000` | a map of a fixed size turned over, a remove and an insert a step, for tombstones and drift |
+| `mix16` ... `mix4000000` | lookups half of which hit, in an order no predictor learns |
+| `str16` ... `str1000000` | text keys of 7 to 27 bytes, moved into the map and found by equal texts made apart: insert, remove, hit, miss |
+| `big16` ... `big1000000` | a value of 64 bytes: insert, remove, hit, iterate |
+
+The `int` rows are not for judging tables: FxHash keeps their keys'
+stride, and their in-order lookups hand a dense map its entries in
+sequence; the scoreboard leaves them out. `--mem` adds each variant's
+peak memory per entry for one map of 4,000,000 Int keys, from two runs
+of its program (`mem` and `mem0`, the keys alone), read by `wait4`.
 
 Then the Rig and Zig programs insert a million
 keys into an empty map, look each up, look up a million they do not
@@ -65,7 +74,20 @@ also times the three ways to write the value under a key whether or
 not it is new (`ensure`, `ensure_with`, and `edit` then `put`), on
 misses and on hits, which Zig's has no rows for.
 
-The runs are interleaved and the fastest of each operation counts. Each
+Every Zig contestant allocates from libc's `malloc`, as the C++ and Rust
+ones do, so a row times the table and not the allocator. Every
+contestant builds for the CPU it runs on, as `rig` and `zig` do by
+default: C++ (and abseil's library) with `-mcpu=native` on Arm and
+`-march=native` on x86, Rust with `-C target-cpu=native`, and Go with
+`GOARM64=v8.5` or `GOAMD64=v3`.
+
+The runs are interleaved and the fastest of each operation counts. A
+variant whose first run takes more than a minute runs only once, and
+the report says so: Zig's `std.HashMap` takes minutes on the churn
+rows, where the tombstones its removes leave pile up (91 µs a step at
+100,000 keys, against hashbrown's 7.5 ns). Each
 program prints `KEYS OP NS CHECK` per operation, and the checksums of
 every variant must agree. The report gives each row's fastest variant
-and compares every variant with `--base` (default: the first Zig one).
+and compares every variant with `--base` (default: the first Zig one),
+then a scoreboard: first places by variant over the rows every variant
+times, the `int` rows left out.

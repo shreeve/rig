@@ -16,6 +16,7 @@
 
 use std.time
 use std.text
+use std.os
 
 N = 1000000
 
@@ -23,6 +24,7 @@ type IntMap = Map[Int, Int]
 type StringMap = Map[String, Int]
 type PairMap = Map[Pair, Int]
 type TextMap = Map[String, String]
+type BigMap = Map[Int, Big]
 
 called sub ints(n: Int)
   m = IntMap.new()
@@ -387,15 +389,244 @@ called sub sized(s: Int)
       sum += e.value
   print(name, "iterate", t.elapsed() * N / total, sum)
 
+# `text_of(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by the
+# part after `#`.
+fun text_of(n: Int) -> String
+  String(U64.wrap(scatter(n)) >> (n % 48), "#", n)
+
+# A value of eight Ints (`big`).
+obj Big
+  a: Int
+  b: Int
+  c: Int
+  d: Int
+  e: Int
+  f: Int
+  g: Int
+  h: Int
+
+# `big(i)`: eight Ints from `i`.
+fun big(i: Int) -> Big
+  Big(a: i, b: i + 1, c: i + 2, d: i + 3, e: i + 4, f: i + 5, g: i + 6, h: i + 7)
+
+# The Ints `0..n` in a List.
+fun upto(n: Int) -> List[Int]
+  xs: List[Int] = List(capacity: n)
+  for i in 0..n
+    !xs.push(i)
+  xs
+
+# One lookup at a time, each waiting for the last: the Map is one cycle
+# through its keys, in shuffled order. Each key `scatter(i)` is put in
+# order of `i`, with the key after it in the cycle as its value, so a Map
+# that keeps its entries in order meets them out of order.
+called sub latency(s: Int)
+  total = 4 * N
+  p = upto(s)
+  shuffle(!p)
+  m = IntMap()
+  next = upto(s)
+  for t in 0..s
+    next[p[t]] = p[(t + 1) % s]
+  for i in 0..s
+    !m.put(scatter(i), scatter(next[i]))
+  key = scatter(p[0])
+  t = time.now()
+  for _ in 0..total
+    if m.get(key) as v
+      key = v
+  print(String("lat", s), "chain", t.elapsed() * N / total, key)
+
+# A Map of `s` keys turned over: each step takes the oldest key and puts
+# a new one.
+called sub churn(s: Int)
+  total = 4 * N
+  turns = total / 2
+  ks: List[Int] = List(capacity: s + turns)
+  for n in 0..s + turns
+    !ks.push(scatter(n))
+  m = IntMap()
+  for i in 0..s
+    !m.put(ks[i], i)
+  check = 0
+  t = time.now()
+  for i in 0..turns
+    check +%= (!m).take(ks[i]) ?? 0
+    !m.put(ks[s + i], s + i)
+  print(String("churn", s), "turnover", t.elapsed() * N / total, check)
+
+# Lookups that hit half the time, in shuffled order.
+called sub mixed(s: Int)
+  total = 4 * N
+  m = IntMap()
+  for i in 0..s
+    !m.put(scatter(i), i)
+  look: List[Int] = List(capacity: s)
+  for i in 0..s
+    !look.push(scatter(i) if i % 2 == 0 else scatter(8 * N + i))
+  shuffle(!look)
+  sum = 0
+  t = time.now()
+  for _ in 0..total / s
+    for key in look
+      if m.get(key) as v
+        sum += v
+  print(String("mix", s), "half", t.elapsed() * N / total, sum)
+
+# Text keys, each moved into the Map and found by an equal text made
+# apart; a million operations a row.
+called sub strings_sized(s: Int)
+  k = N / s if s < N else 1
+  reps = N / (k * s)
+  name = String("str", s)
+  ins = 0
+  rem = 0
+  check = 0
+  for _ in 0..reps
+    put: List[String] = List(capacity: k * s)
+    take: List[String] = List(capacity: k * s)
+    for n in 0..k * s
+      !put.push(text_of(n))
+      !take.push(text_of(n))
+    maps: List[StringMap] = List(capacity: k)
+    for _ in 0..k
+      !maps.push(StringMap())
+    t = time.now()
+    j = 0
+    i = 0
+    for key in <put
+      (!maps[j]).put(<key, i)
+      i += 1
+      if i == s
+        i = 0
+        j += 1
+    ins += t.elapsed()
+    t = time.now()
+    j = 0
+    i = 0
+    for key in ?take
+      check += (!maps[j]).take(key) ?? 0
+      i += 1
+      if i == s
+        i = 0
+        j += 1
+    rem += t.elapsed()
+  print(name, "insert", ins, reps * k * s)
+  print(name, "remove", rem, check)
+  m = StringMap()
+  for i in 0..s
+    !m.put(text_of(i), i)
+  order = upto(s)
+  shuffle(!order)
+  hit: List[String] = List(capacity: s)
+  miss: List[String] = List(capacity: s)
+  for i in 0..s
+    !hit.push(text_of(order[i]))
+    !miss.push(text_of(8 * N + i))
+  sum = 0
+  t = time.now()
+  for _ in 0..N / s
+    for key in ?hit
+      if m.get(key) as v
+        sum += v
+  print(name, "hit", t.elapsed(), sum)
+  found = 0
+  t = time.now()
+  for _ in 0..N / s
+    for key in ?miss
+      found += 1 if m.has(key)
+  print(name, "miss", t.elapsed(), found)
+
+# `random`'s insert, remove, hit, and iterate with a value of eight Ints.
+called sub bigs(s: Int)
+  total = 4 * N
+  k = N / s if s < N else 1
+  reps = total / (k * s)
+  name = String("big", s)
+  ks: List[Int] = List(capacity: k * s)
+  for n in 0..k * s
+    !ks.push(scatter(n))
+  ins = 0
+  rem = 0
+  check = 0
+  for _ in 0..reps
+    maps: List[BigMap] = List(capacity: k)
+    for _ in 0..k
+      !maps.push(BigMap())
+    t = time.now()
+    for j in 0..k
+      m = !maps[j]
+      base = j * s
+      for i in 0..s
+        !m.put(ks[base + i], big(i))
+    ins += t.elapsed()
+    t = time.now()
+    for j in 0..k
+      m = !maps[j]
+      base = j * s
+      for i in 0..s
+        if (!m).take(ks[base + i]) as v
+          check += v.h
+    rem += t.elapsed()
+  print(name, "insert", ins * N / total, reps * k * s)
+  print(name, "remove", rem * N / total, check)
+  m = BigMap()
+  for i in 0..s
+    !m.put(ks[i], big(i))
+  hit: List[Int] = List(capacity: s)
+  for i in 0..s
+    !hit.push(ks[i])
+  shuffle(!hit)
+  sum = 0
+  t = time.now()
+  for _ in 0..total / s
+    for key in hit
+      if m.get(key) as v
+        sum += v.h
+  print(name, "hit", t.elapsed() * N / total, sum)
+  sum = 0
+  t = time.now()
+  for _ in 0..total / s
+    for e in ?m.items()
+      sum += e.value.a
+  print(name, "iterate", t.elapsed() * N / total, sum)
+
+# `mem`: one Map of 4,000,000 keys, for its peak memory; `mem0`: the
+# keys alone, the baseline.
+sub memory(with_map: Bool)
+  n = 4000000
+  ks: List[Int] = List(capacity: n)
+  for i in 0..n
+    !ks.push(scatter(i))
+  if not with_map
+    print("mem0", n, "len", ks.len)
+    return
+  m = IntMap()
+  for i in 0..n
+    !m.put(ks[i], i)
+  print("mem", n, "len", m.len)
+
 sub main()
+  args = os.args()
+  if args.len > 1
+    memory(args[1] == "mem")
+    return
   sized(16)
   sized(1000)
   sized(100000)
   sized(4000000)
-  random(16)
-  random(1000)
-  random(100000)
-  random(4000000)
+  for s in [16, 24, 1000, 1500, 100000, 150000, 3000000, 4000000]
+    random(s)
+  for s in [16, 1000, 100000, 4000000]
+    latency(s)
+  for s in [16, 1000, 100000, 4000000]
+    churn(s)
+  for s in [16, 1000, 100000, 4000000]
+    mixed(s)
+  for s in [16, 1000, 100000, 1000000]
+    strings_sized(s)
+  for s in [16, 1000, 100000, 1000000]
+    bigs(s)
   ints(N)
   strings(N)
   pairs(N)

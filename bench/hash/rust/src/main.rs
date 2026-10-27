@@ -38,16 +38,32 @@ type S = BuildHasherDefault<Mix>;
 type S = foldhash::fast::FixedState;
 
 #[cfg(not(feature = "indexmap"))]
-type Map = hashbrown::HashMap<i64, i64, S>;
+type MapOf<K, V, H> = hashbrown::HashMap<K, V, H>;
 #[cfg(feature = "indexmap")]
-type Map = indexmap::IndexMap<i64, i64, S>;
+type MapOf<K, V, H> = indexmap::IndexMap<K, V, H>;
+
+type Map = MapOf<i64, i64, S>;
+/// A value of eight integers (`big`).
+type BigMap = MapOf<i64, [i64; 8], S>;
+/// Text keys hash with foldhash in every variant: `mix` is a hash of
+/// integers.
+type StrMap = MapOf<String, i64, foldhash::fast::FixedState>;
 
 #[cfg(not(feature = "indexmap"))]
-fn remove(m: &mut Map, k: &i64) -> Option<i64> {
+fn remove<V>(m: &mut MapOf<i64, V, S>, k: &i64) -> Option<V> {
     m.remove(k)
 }
 #[cfg(feature = "indexmap")]
-fn remove(m: &mut Map, k: &i64) -> Option<i64> {
+fn remove<V>(m: &mut MapOf<i64, V, S>, k: &i64) -> Option<V> {
+    m.swap_remove(k)
+}
+
+#[cfg(not(feature = "indexmap"))]
+fn remove_str(m: &mut StrMap, k: &str) -> Option<i64> {
+    m.remove(k)
+}
+#[cfg(feature = "indexmap")]
+fn remove_str(m: &mut StrMap, k: &str) -> Option<i64> {
     m.swap_remove(k)
 }
 
@@ -209,11 +225,237 @@ fn random(s: i64) {
     out(&name, "iterate", scale(t.elapsed().as_nanos()), sum);
 }
 
+/// `text(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by
+/// the part after `#`.
+fn text(n: i64) -> String {
+    format!("{}#{}", (scatter(n) as u64) >> (n % 48), n)
+}
+
+/// `big(i)`: eight integers from `i`.
+fn big(i: i64) -> [i64; 8] {
+    [i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7]
+}
+
+/// One lookup at a time, each waiting for the last: the map is one
+/// cycle through its keys, in shuffled order. Each key `scatter(i)` is
+/// put in order of `i`, with the key after it in the cycle as its value,
+/// so a map that keeps its entries in order meets them out of order.
+fn latency(s: i64) {
+    let total = 4 * N;
+    let p = shuffled((0..s).collect());
+    let mut m = Map::default();
+    let mut next = vec![0i64; s as usize];
+    for t in 0..s as usize {
+        next[p[t] as usize] = p[(t + 1) % s as usize];
+    }
+    for i in 0..s {
+        m.insert(scatter(i), scatter(next[i as usize]));
+    }
+    let mut key = scatter(p[0]);
+    let t = Instant::now();
+    for _ in 0..total {
+        key = m[&key];
+    }
+    out(&format!("lat{s}"), "chain", t.elapsed().as_nanos() * N as u128 / total as u128, key);
+}
+
+/// A map of `s` keys turned over: each step removes the oldest key and
+/// inserts a new one.
+fn churn(s: i64) {
+    let total = 4 * N;
+    let turns = total / 2;
+    let keys: Vec<i64> = (0..s + turns).map(scatter).collect();
+    let mut m = Map::default();
+    for i in 0..s {
+        m.insert(keys[i as usize], i);
+    }
+    let mut check = 0i64;
+    let t = Instant::now();
+    for i in 0..turns {
+        check = check.wrapping_add(remove(&mut m, &keys[i as usize]).unwrap_or(0));
+        m.insert(keys[(s + i) as usize], s + i);
+    }
+    out(&format!("churn{s}"), "turnover", t.elapsed().as_nanos() * N as u128 / total as u128, check);
+    black_box(&m);
+}
+
+/// Lookups that hit half the time, in shuffled order.
+fn mixed(s: i64) {
+    let total = 4 * N;
+    let mut m = Map::default();
+    for i in 0..s {
+        m.insert(scatter(i), i);
+    }
+    let look = shuffled((0..s).map(|i| if i % 2 == 0 { scatter(i) } else { scatter(8 * N + i) }).collect());
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..total / s {
+        for key in black_box(&look) {
+            if let Some(v) = m.get(key) {
+                sum += v;
+            }
+        }
+    }
+    out(&format!("mix{s}"), "half", t.elapsed().as_nanos() * N as u128 / total as u128, sum);
+}
+
+/// Text keys, each moved into the map and found by an equal text made
+/// apart; a million operations a row.
+fn strings(s: i64) {
+    let k = if s < N { N / s } else { 1 };
+    let reps = N / (k * s);
+    let name = format!("str{s}");
+    let (mut ins, mut rem, mut check) = (0u128, 0u128, 0i64);
+    for _ in 0..reps {
+        let mut put: Vec<String> = (0..k * s).map(text).collect();
+        let take: Vec<String> = (0..k * s).map(text).collect();
+        let mut maps: Vec<StrMap> = (0..k).map(|_| StrMap::default()).collect();
+        let t = Instant::now();
+        let mut put_at = put.drain(..);
+        for m in maps.iter_mut() {
+            for i in 0..s {
+                m.insert(put_at.next().unwrap(), i);
+            }
+        }
+        ins += t.elapsed().as_nanos();
+        drop(put_at);
+        let t = Instant::now();
+        for (m, ks) in maps.iter_mut().zip(take.chunks(s as usize)) {
+            for key in ks {
+                check += remove_str(m, key).unwrap_or(0);
+            }
+        }
+        rem += t.elapsed().as_nanos();
+        black_box(&maps);
+    }
+    out(&name, "insert", ins, reps * k * s);
+    out(&name, "remove", rem, check);
+    let mut m = StrMap::default();
+    for i in 0..s {
+        m.insert(text(i), i);
+    }
+    let hit: Vec<String> = shuffled((0..s).collect()).into_iter().map(text).collect();
+    let miss: Vec<String> = (0..s).map(|i| text(8 * N + i)).collect();
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..N / s {
+        for key in black_box(&hit) {
+            if let Some(v) = m.get(key.as_str()) {
+                sum += v;
+            }
+        }
+    }
+    out(&name, "hit", t.elapsed().as_nanos(), sum);
+    let mut found = 0i64;
+    let t = Instant::now();
+    for _ in 0..N / s {
+        for key in black_box(&miss) {
+            if m.contains_key(key.as_str()) {
+                found += 1;
+            }
+        }
+    }
+    out(&name, "miss", t.elapsed().as_nanos(), found);
+}
+
+/// `random`'s insert, remove, hit and iterate with a value of eight
+/// integers.
+fn bigs(s: i64) {
+    let total = 4 * N;
+    let k = if s < N { N / s } else { 1 };
+    let reps = total / (k * s);
+    let name = format!("big{s}");
+    let keys: Vec<i64> = (0..k * s).map(scatter).collect();
+    let (mut ins, mut rem, mut check) = (0u128, 0u128, 0i64);
+    for _ in 0..reps {
+        let mut maps: Vec<BigMap> = (0..k).map(|_| BigMap::default()).collect();
+        let t = Instant::now();
+        for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
+            for (i, &key) in ks.iter().enumerate() {
+                m.insert(key, big(i as i64));
+            }
+        }
+        ins += t.elapsed().as_nanos();
+        let t = Instant::now();
+        for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
+            for key in ks {
+                if let Some(v) = remove(m, key) {
+                    check += v[7];
+                }
+            }
+        }
+        rem += t.elapsed().as_nanos();
+        black_box(&maps);
+    }
+    let scale = |ns: u128| ns * N as u128 / total as u128;
+    out(&name, "insert", scale(ins), reps * k * s);
+    out(&name, "remove", scale(rem), check);
+    let mut m = BigMap::default();
+    for (i, &key) in keys[..s as usize].iter().enumerate() {
+        m.insert(key, big(i as i64));
+    }
+    let hit = shuffled(keys[..s as usize].to_vec());
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..total / s {
+        for key in black_box(&hit) {
+            if let Some(v) = m.get(key) {
+                sum += v[7];
+            }
+        }
+    }
+    out(&name, "hit", scale(t.elapsed().as_nanos()), sum);
+    sum = 0;
+    let t = Instant::now();
+    for _ in 0..total / s {
+        for v in black_box(&m).values() {
+            sum += v[0];
+        }
+    }
+    out(&name, "iterate", scale(t.elapsed().as_nanos()), sum);
+}
+
+/// `mem`: one map of 4,000,000 keys, for its peak memory; `mem0`: the
+/// keys alone, the baseline.
+fn memory(with_map: bool) {
+    let n = 4_000_000i64;
+    let keys: Vec<i64> = (0..n).map(scatter).collect();
+    if !with_map {
+        println!("mem0 {n} len {}", black_box(&keys).len());
+        return;
+    }
+    let mut m = Map::default();
+    for (i, &key) in keys.iter().enumerate() {
+        m.insert(key, i as i64);
+    }
+    println!("mem {n} len {}", black_box(&m).len());
+}
+
 fn main() {
+    match std::env::args().nth(1).as_deref() {
+        Some("mem") => return memory(true),
+        Some("mem0") => return memory(false),
+        _ => {}
+    }
     for s in [16, 1000, 100_000, 4_000_000] {
         sized(s);
     }
-    for s in [16, 1000, 100_000, 4_000_000] {
+    for s in [16, 24, 1000, 1500, 100_000, 150_000, 3_000_000, 4_000_000] {
         random(s);
+    }
+    for s in [16, 1000, 100_000, 4_000_000] {
+        latency(s);
+    }
+    for s in [16, 1000, 100_000, 4_000_000] {
+        churn(s);
+    }
+    for s in [16, 1000, 100_000, 4_000_000] {
+        mixed(s);
+    }
+    for s in [16, 1000, 100_000, 1_000_000] {
+        strings(s);
+    }
+    for s in [16, 1000, 100_000, 1_000_000] {
+        bigs(s);
     }
 }
