@@ -218,11 +218,13 @@ expect_has "$lib" 'pub inline fn edit(' "Map.edit"
 out=$(rig run ensure.rig 2>&1) || fail "rig run ensure.rig: $out"
 expect_eq "$out" "9 2" "ensure.rig"
 
-# A Map's or Set's write method that is inlined into its caller holds no
-# loop, through any inline function it calls: the path that adds a new
-# key is a call (`add_entry`, `add_new`), so a hot loop of hits keeps its
-# layout. `ensure`'s `while (true)`, which stands where an unwrap that
-# traps would (std/__rig_builtin.rig), returns on its first pass.
+# A Map's or Set's write method is inlined into its caller with its
+# lookup (`find`) and an insert into room (`insert`), so the only loops
+# it holds, through any inline function it calls, are the probes of the
+# table (`find`, and `Table.free_slot`'s for an insert): making room is a
+# call (`grow`, noinline and cold). `ensure`'s `while (true)`, which
+# stands where an unwrap that traps would (std/__rig_builtin.rig),
+# returns on its first pass.
 cat >writes.rig <<'RIG'
 
 fun one(k: ?Int) -> Int
@@ -251,7 +253,7 @@ expect_eq "$out" "2 true 4 true 7 3 0" "writes.rig"
 python3 - "$RIG_OUT_DIR"/programs/writes/__rig_std___rig_builtin.zig <<'PY' || fail "an inlined write method holds a loop"
 import re, sys
 src = open(sys.argv[1]).read().splitlines()
-fns, struct, i = {}, None, 0
+fns, noinline, struct, i = {}, {}, None, 0
 while i < len(src):
     m = re.match(r'^(?:pub )?(?:fn (\w+)\(.*\) type \{|const (\w+) = struct \{)', src[i])
     if m:
@@ -265,6 +267,7 @@ while i < len(src):
             body.append(src[i])
             i += 1
         fns[(struct, m.group(3))] = (m.group(2) == 'inline ', body)
+        noinline[(struct, m.group(3))] = m.group(2) == 'noinline '
     i += 1
 
 def loops(struct, name, seen):
@@ -274,14 +277,15 @@ def loops(struct, name, seen):
     inline, body = fns[(struct, name)]
     if not inline:
         return []
-    found = [f'{struct}.{name}: {l.strip()}' for l in body if re.search(r'\b(while|for) \(', l) and 'while (true)' not in l]
+    probe = name in ('find', 'free_slot')
+    found = [f'{struct}.{name}: {l.strip()}' for l in body if not probe and re.search(r'\b(while|for) \(', l) and 'while (true)' not in l]
     for line in body:
         for c in re.finditer(r'\bself(?:\.table)?\.(\w+)\(', line):
             for s in (struct, 'Table'):
                 found += loops(s, c.group(1), seen)
     return found
 
-bad = []
+bad = [f'{s}.grow is not noinline' for s in ('Map', 'Set') if noinline.get((s, 'grow')) is not True]
 for struct, names in {'Map': ['put', 'replace', 'put_new', 'ensure', 'ensure_with', 'edit', 'take'], 'Set': ['add', 'take']}.items():
     for n in names:
         if (struct, n) not in fns:

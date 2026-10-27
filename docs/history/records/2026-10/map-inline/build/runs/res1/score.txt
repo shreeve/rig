@@ -1,0 +1,8 @@
+ts-pattern   main1   wall   912.4 ms  instr   8.69G  rss  296 MB  faults  41041
+ts-pattern   inl1    wall   903.3 ms  instr   8.54G  rss  296 MB  faults  41045
+ts-pattern   main4   wall   502.1 ms  instr   9.13G  rss  339 MB  faults  48957
+ts-pattern   inl4    wall   496.0 ms  instr   8.99G  rss  339 MB  faults  48961
+zod3         main1   wall   189.1 ms  instr   1.52G  rss   88 MB  faults   9832
+zod3         inl1    wall   185.8 ms  instr   1.51G  rss   89 MB  faults   9831
+zod3         main4   wall   153.8 ms  instr   2.08G  rss  134 MB  faults  19225
+zod3         inl4    wall   149.3 ms  instr   2.05G  rss  135 MB  faults  19223

@@ -1,0 +1,12 @@
+== base-pgo
+samples 17437, in Map/Set code 1978
+dynamic, M instructions per run: other 703, pop 12, push 39, reload 38, spill 190 | all 983
+static, instructions: other 77297, pop 2215, push 2504, reload 6966, spill 3484
+    188.4M  checker.Checker.instantiate_type_with_alias
+    184.9M  __rig_std___rig_builtin.Map(checker.CacheKey,u32).add_entry
+     67.1M  checker.Checker.is_related_to_ex
+     60.6M  __rig_std___rig_builtin.Map(u32,u32).add_entry
+     41.8M  checker.Checker.get_conditional_type_worker
+     41.3M  __rig_std___rig_builtin.Map(checker.InstantiationKey,u32).add_entry
+     34.3M  checker.Checker.resolve_structured_type_members_worker
+     29.3M  __rig_std___rig_builtin.Map(u32,u32).grow

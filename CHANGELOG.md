@@ -187,6 +187,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **`os.exit(code)`:** ends the program now, from `main` or any task,
   with `code` as its status: what `print` and `warn` wrote is flushed,
   and no drop, `defer`, or leak check runs.
+- **A Map's lookup and an insert into room are inlined** (Trig's PGO
+  build 1.4-1.7% fewer instructions, about 1% faster; release 3.0-3.5%
+  fewer; [records](docs/history/records/2026-10/map-inline/README.md)):
+  `find` and `insert` are `inline` in Map and Set, so a probe keeps its
+  state in its caller's registers and an insert copies no key into a
+  call, and only making room (`grow`) is a call. The Map's spills and
+  reloads in Trig fell from 412M to 47M instructions a run.
 - **Reads cost Trig fewer instructions** (1.5% fewer on ts-pattern
   and zod3, 1.2-2.2% fewer cycles;
   [records](docs/history/records/2026-10/perf-stage/table-reads.md)):
