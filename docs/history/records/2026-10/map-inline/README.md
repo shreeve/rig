@@ -3,11 +3,14 @@
 Branch `map-inline`. It keeps today's layout: dense entries, stored
 hashes, and the `Table` of tags and entry indexes. It changes only how
 Map's and Set's code is cut into functions (std/__rig_builtin.rig).
-The owner decides whether it lands: it misses the bar's letter on RSS
-and on two bench/hash rows (Verdict). The scripts are in
+The owner decides whether it lands: Rig (OG) accepted its RSS, which is
+mapped text, not heap, but it misses "no bench/hash row slower" on two
+String rows in Zig's safe mode (Verdict). A candidate fix, measured and
+not kept, is under "The split". Trig (fork)'s cross-check of the same
+pair is [crosscheck.md](crosscheck.md). The scripts are in
 [build/](build/), and every raw run is in `build/runs/res1` (first
-campaign, spills, scoreboard, bench/hash) and `build/runs/res3` (the
-PGO builds timed again on a quiet pup).
+campaign, spills, scoreboard, bench/hash), `build/runs/res3` (the PGO
+builds timed again on a quiet pup), and `build/runs/res4` (the split).
 
 ## Verdict
 
@@ -20,9 +23,11 @@ PGO builds timed again on a quiet pup).
   quiet pup it is 0.6-6.9% faster in wall time in all eight
   configurations, with 0.6-3.0% fewer cycles. Trig (fork)'s scoreboard
   method gives 1.0-2.9% faster.
-- **It does not clear "more than 2% faster"** except at four checkers,
-  cold (ts-pattern 6.9%, zod3 2.4%). It clears "at least 1% fewer
-  instructions with time no worse".
+- **It does not clear "more than 2% faster".** It clears "at least 1%
+  fewer instructions with time no worse": no worse, about 1% faster,
+  which is what both harnesses agree on (Trig (fork)'s wall times,
+  ts-pattern 1.4% faster to 0.9% slower and zod3 0.9% faster to 2.7%
+  slower over 25 rounds, are within its noise).
 - **Peak RSS is 0.1-0.3% higher (0.3-0.6 MB).** The anonymous memory is
   the same; the text the binary maps grows by 0.2-0.3 MB, since the PGO
   build's text is 669 KB (4.0%) larger, and page faults are equal. By
@@ -186,16 +191,37 @@ for each lookup and reloads them around each compare.
 (Int, pair, Trig's keys) makes no such call, so its probe keeps its
 state in registers.
 
-A candidate, not committed: `find` probes inline only where
-`$plain(K)`, and calls `find_far`, a copy of the probe left to LLVM as
-main's `find` is, for other keys. `string_ensure` then compiles to
-main's code exactly, and the plain keys' code to map-inline's. It is not
-yet timed on pup.
+## The split, measured and not kept
+
+`find` probed inline only where `$plain(K)`, and called `find_far`, a
+copy of the probe left to LLVM as main's `find` is, for any other key
+(branch `map-inline`, 7ef78dcf0, with cfec72ce8 for the Map trace's
+head). In x86 code cross-built on the Mac, `string_ensure` then compiled
+to main's code exactly. On pup (`res4`, quiet, PGO fastest of 10,
+bench/hash fastest of 21) it did not pay:
+
+| | map-inline (kept) | with the split |
+|---|---|---|
+| PGO instructions | 1.45-1.68% fewer | 1.28-1.60% fewer |
+| PGO wall | 0.4-1.9% faster; zod3 4c warm 2.5% slower | 0.1-1.7% faster; zod3 4c warm 2.2% slower |
+| PGO peak RSS | 0.1-0.3% higher | 0.9-2.7% higher |
+| file-backed RSS, ts-pattern and zod3 | 10.3 to 10.6 MB, 10.2 to 10.35 MB | 10.3 to 13.4 MB, 10.2 to 12.65 MB |
+| Map spills and reloads (main 412M) | 47M | 27M |
+| bench/hash safe: String `ensure`-hit, `ensure_with`-hit | 6.5% and 6.5% slower | 3.3% and 5.9% slower |
+| bench/hash safe: String `edit_put`-hit | 2.8% faster | 1.8% slower |
+
+The split's text is smaller (17.29 MB against 17.48), but its PGO build
+maps 3 MB more of it, as `newb-pgo`'s did: a `find` left to LLVM moves
+PGO's layout. The String rows vary 5-10% between rounds on main too
+(29.2 to 46.9 ms over 21 rounds), and with the split their code is
+main's, so what is left is likely placement.
 
 ## Gates
 
 - `tools/heavy swarm test/rig.rip all -q -w 3`: green, 10,589 jobs; the
   oracle files unchanged.
+- `bench/json/guard.py` on the Mac, on current main (after #708): every
+  file at or under guard.txt (below).
 - `zig build test` on pup: Debug, ReleaseSafe, and ReleaseFast pass.
 - loco's light gate: GREEN (122 runs, 0 differ).
 - `tools/emit-diff origin/main`: 6 of 30 programs differ, in
