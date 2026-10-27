@@ -104,10 +104,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         cap: u32 = 0,
         /// Entries written, gone or not.
         len: u32 = 0,
-        /// Entries not gone.
+        /// Entries not gone; `len - live` are gone.
         live: u32 = 0,
-        /// Entries gone: `len - live`.
-        dead: u32 = 0,
         groups: u32 = 0,
         /// The live entries the index takes before it grows: 7/8 of its
         /// tag lanes, less one for each take from a lane a probe may walk
@@ -243,8 +241,23 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.cap = @intCast(new_cap);
         }
 
+        /// Whether entry `j` is gone: its bit in `gone`; in a small table,
+        /// whose gone bits stay clear, its tag is 0.
         inline fn isGone(self: *const Self, j: usize) bool {
+            if (self.groups == 0) return self.small_tags[j] == 0;
             return (self.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
+        }
+
+        /// Word `w` of the gone bits of the entries written: in a small
+        /// table, the lanes of its tags that are 0, below `len`.
+        inline fn goneWord(self: *const Self, w: usize) u64 {
+            if (self.groups == 0) {
+                if (w > 0) return 0;
+                const v: @Vector(small_lanes, u8) = self.small_tags;
+                const zero: u32 = @bitCast(v == @as(@Vector(small_lanes, u8), @splat(0)));
+                return zero & lowBits(self.len);
+            }
+            return self.gone[w];
         }
 
         // the index's block /////////////////////////////////////////////////
@@ -317,7 +330,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// order; the gone entries are dropped from the array first.
         noinline fn rebuild(self: *Self, groups: usize) void {
             if (rt.map_trace) self.trace_rebuilds +%= 1;
-            if (self.dead != 0) self.moveLive(null);
+            if (self.len != self.live) self.moveLive(null);
             self.newIndex(groups);
             self.fill();
         }
@@ -363,7 +376,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
         fn moveLive(self: *Self, before: ?[]u32) void {
             const n: usize = self.len;
             const es = self.entries;
-            const gone = self.gone;
             const words = goneWords(n);
             var dst: usize = 0;
             var dropped: u32 = 0;
@@ -371,7 +383,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 if (before) |b| b[w] = dropped;
                 const base = w * 64;
                 const lim = @min(64, n - base);
-                const g = gone[w];
+                const g = self.goneWord(w);
                 if (g == 0) {
                     if (dst != base) std.mem.copyForwards(E, es[dst .. dst + lim], es[base .. base + lim]);
                     dst += lim;
@@ -384,9 +396,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
                     }
                 }
             }
-            if (before == null) @memset(gone[0..words], 0);
+            if (before == null and self.groups != 0) @memset(self.gone[0..words], 0);
             self.len = @intCast(dst);
-            self.dead = 0;
         }
 
         /// Compact the entries under the same index: move the live ones
@@ -416,14 +427,15 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// A small table's live entries moved down, and their tags with
         /// them.
         fn compactSmall(self: *Self) void {
+            const n: usize = self.len;
+            self.moveLive(null);
             var d: usize = 0;
-            for (0..self.len) |i| {
+            for (0..n) |i| {
                 if (self.small_tags[i] == 0) continue;
                 self.small_tags[d] = self.small_tags[i];
                 d += 1;
             }
             @memset(self.small_tags[d..], 0);
-            self.moveLive(null);
         }
 
         /// Room for one more entry, and room in the index for it.
@@ -432,7 +444,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 self.rebuild(@max(groupsFor(@as(usize, self.live) + 1), self.groups));
             }
             if (self.len == self.cap) {
-                if (self.dead != 0 and self.dead >= self.cap / 4) {
+                const dead = self.len - self.live;
+                if (dead != 0 and dead >= self.cap / 4) {
                     self.compact();
                 } else {
                     self.resizeEntries(2 * @as(usize, self.cap));
@@ -443,12 +456,13 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// Empty the table, keeping its memory and its index: taking the
         /// last live entry.
         fn reset(self: *Self) void {
-            if (self.cap != 0) @memset(self.gone[0..goneWords(self.len)], 0);
+            const n: usize = self.len;
             self.len = 0;
             self.live = 0;
-            self.dead = 0;
-            // A small table's tags are 0 already: each take cleared its own.
+            // A small table's tags are 0 already, each take having cleared
+            // its own, and its gone bits stay clear.
             if (self.groups == 0) return;
+            @memset(self.gone[0..goneWords(n)], 0);
             const t: [*]u8 = @ptrCast(self.tags);
             @memset(t[0 .. 16 * @as(usize, self.groups)], 0);
             self.max_load = maxLoad(self.groups);
@@ -624,13 +638,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 var n = j;
                 while (self.isGone(n - 1)) {
                     n -= 1;
-                    self.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
-                    self.dead -= 1;
+                    if (self.groups != 0) self.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
                 }
                 self.len = @intCast(n);
-            } else {
+            } else if (self.groups != 0) {
                 self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
-                self.dead += 1;
             }
         }
 
@@ -772,7 +784,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// `holes(?@) -> Bool`: whether an entry written is gone.
         pub inline fn holes(self: *const Self) bool {
-            return self.dead != 0;
+            return self.len != self.live;
         }
 
         /// `live_from(?@, j: Int) -> Int`: the first live entry from `j`
@@ -782,7 +794,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             var j: usize = @intCast(from);
             while (j < n) {
                 const w = j >> 6;
-                const live_bits = ~self.gone[w] >> @intCast(j & 63);
+                const live_bits = ~self.goneWord(w) >> @intCast(j & 63);
                 if (live_bits != 0) {
                     j += @ctz(live_bits);
                     return @intCast(@min(j, n));
@@ -799,7 +811,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             var j: usize = @intCast(from);
             while (j < n) {
                 const w = j >> 6;
-                const gone_bits = self.gone[w] >> @intCast(j & 63);
+                const gone_bits = self.goneWord(w) >> @intCast(j & 63);
                 if (gone_bits != 0) {
                     j += @ctz(gone_bits);
                     return @intCast(@min(j, n));
@@ -813,12 +825,12 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// `0 <= i < count`: `i` while none is gone; else counted 64 at a
         /// time.
         pub fn nth(self: *const Self, i: i64) i64 {
-            if (self.dead == 0) return i;
+            if (self.len == self.live) return i;
             const n: usize = self.len;
             var left: usize = @intCast(i);
             var w: usize = 0;
             while (w * 64 < n) : (w += 1) {
-                var live_bits = ~self.gone[w] & lowBits(n - w * 64);
+                var live_bits = ~self.goneWord(w) & lowBits(n - w * 64);
                 const c: usize = @popCount(live_bits);
                 if (left < c) {
                     while (left > 0) : (left -= 1) live_bits &= live_bits - 1;
@@ -854,10 +866,10 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 if (keep) continue;
                 rt.dropElement(V, &e.value);
                 rt.dropElement(K, &e.key);
-                if (self.groups == 0) self.small_tags[j] = 0;
-                self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
+                if (self.groups == 0) {
+                    self.small_tags[j] = 0;
+                } else self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
                 self.live -= 1;
-                self.dead += 1;
                 removed = true;
             }
             if (removed) {
@@ -894,7 +906,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.freeIndex();
             self.len = 0;
             self.live = 0;
-            self.dead = 0;
             self.max_load = 0;
             @memset(&self.small_tags, 0);
         }
@@ -971,7 +982,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// tag; every group it walked past marks its class; no lane names
         /// a gone entry; the gone bits lie below `len`.
         fn verify(self: *const Self) !void {
-            if (self.live + self.dead != self.len or self.len > self.cap) return error.Corrupt;
+            if (self.live > self.len or self.len > self.cap) return error.Corrupt;
             if (self.cap == 0) return;
             var gone_count: usize = 0;
             for (0..goneWords(self.cap)) |w| {
@@ -979,7 +990,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 gone_count += @popCount(g);
                 if (g != 0 and w * 64 + 64 - @clz(g) > self.len) return error.Corrupt;
             }
-            if (gone_count != self.dead) return error.Corrupt;
+            if (gone_count != (if (self.groups == 0) 0 else self.len - self.live)) return error.Corrupt;
             if (self.len != 0 and self.isGone(self.len - 1)) return error.Corrupt;
             if (self.groups == 0) {
                 if (self.len > small_lanes or self.live > small) return error.Corrupt;
