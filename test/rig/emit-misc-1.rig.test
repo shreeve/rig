@@ -15,6 +15,16 @@ bomb "array index out of bounds", "index out of bounds"
   i = three()
   print(xs[i])
 
+bomb "array index negative in a release build", "index out of bounds", release: true
+  # A negative index reads as unsigned past the length: one compare
+  # catches both ends.
+
+  fun minus_one() -> Int
+    -1
+
+  xs = [1, 2, 3]
+  print(xs[minus_one()])
+
 test "array literal index", "20"
   # `[a, b, c]` is an array literal; `xs[i]` reads an element (bounds-checked).
 

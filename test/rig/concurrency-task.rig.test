@@ -726,6 +726,168 @@ code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
   t = find([1, 2, 3], 2)&
   print(>t)
 
+test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
+  # Loops over a List and a Table lent to several tasks at once, long
+  # enough to pass many yield checks, with `continue`, `return`, a loop
+  # value's `break` and `else`, a nested loop, and small and negative
+  # bounds.
+  fun make(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    for i in 0..n
+      !xs.push(i * 7 % 1000)
+    xs
+
+  fun fill(n: Int) -> Table[Int, 4096]
+    t: Table[Int, 4096] = Table()
+    for i in 0..n
+      !t.push(i % 13)
+    t
+
+  fun scan(xs: ?List[Int], t: ?Table[Int, 4096]) -> Int
+    total = 0
+    for i in 0..xs.len
+      continue if i % 3 == 0
+      total += xs[i] * t[i]
+    total
+
+  fun find(xs: ?List[Int], k: Int) -> Int
+    for i in 0..xs.len
+      return i if xs[i] == k
+    -1
+
+  fun first(xs: ?List[Int], k: Int) -> Int
+    at = for i in 1000..xs.len
+      break i if xs[i] == k
+    else
+      -1
+    at
+
+  fun nested(n: Int) -> Int
+    count = 0
+    for i in 0..n
+      for j in i..n
+        count += 1 if (i + j) % 5 == 0
+    count
+
+  fun small() -> Int
+    total = 0
+    for b in U8(0)..U8(255)
+      total += Int(b)
+    for i in -3000..-500
+      total += i % 7
+    total
+
+  xs = make(3000)
+  t = fill(3000)
+  a = scan(?xs, ?t)&
+  b = scan(?xs, ?t)&
+  c = find(?xs, 993)&
+  d = first(?xs, 993)&
+  e = first(?xs, 1)&
+  f = nested(300)&
+  g = small()&
+  print(>a, >b, >c, >d, >e, >f, >g)
+
+test "task loops over lent containers released", seeds: 20, release: true, "6100091 999 9030"
+  # The same, built for release, where the yield checks keep the
+  # registers the loops hold their values in.
+  fun make(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    for i in 0..n
+      !xs.push(i * 7 % 1000)
+    xs
+
+  fun fill(n: Int) -> Table[Int, 4096]
+    t: Table[Int, 4096] = Table()
+    for i in 0..n
+      !t.push(i % 13)
+    t
+
+  fun scan(xs: ?List[Int], t: ?Table[Int, 4096]) -> Int
+    total = 0
+    for i in 0..xs.len
+      continue if i % 3 == 0
+      total += xs[i] * t[i]
+    total
+
+  fun find(xs: ?List[Int], k: Int) -> Int
+    for i in 0..xs.len
+      return i if xs[i] == k
+    -1
+
+  fun nested(n: Int) -> Int
+    count = 0
+    for i in 0..n
+      for j in i..n
+        count += 1 if (i + j) % 5 == 0
+    count
+
+  xs = make(3000)
+  t = fill(3000)
+  a = scan(?xs, ?t)&
+  c = find(?xs, 993)&
+  f = nested(300)&
+  print(>a, >c, >f)
+
+fail "task loan holds across yields", "15:11: cannot lend `xs` to write while a read loan is live"
+  # A task reading a List in a loop holds its loan across every yield
+  # check, so no task may write the List until it is done.
+  sub grow(xs: !List[Int])
+    !xs.push(1)
+
+  fun sum(xs: ?List[Int]) -> Int
+    total = 0
+    for i in 0..xs.len
+      total += xs[i]
+    total
+
+  xs: List[Int] = List()
+  !xs.push(0)
+  s = sum(?xs)&
+  t = grow(!xs)&
+  print(>s)
+  >t
+
+test "task yield keeps registers", seeds: 20, release: true, "62493449 8377345"
+  # A loop's yield check calls the scheduler through a function that
+  # keeps every register (`rig.callKeeping`), so the values a loop holds
+  # in registers, integers, floats and vectors, come through every yield
+  # to another task as they were.
+  fun mix(n: Int, k: Int) -> Int
+    a = k
+    b = k * 3
+    c = k * 5
+    d = k * 7
+    e = k * 11
+    f = k * 13
+    g = k * 17
+    h = k * 19
+    x = Float(k) / 3.0
+    y = Float(k) / 7.0
+    v = Simd[Int, 4].splat(k)
+    for i in 0..n
+      a = (a * 31 + i) % 1000003
+      b = (b * 37 + a) % 1000033
+      c = (c * 41 + b) % 1000037
+      d = (d * 43 + c) % 1000039
+      e = (e * 47 + d) % 1000081
+      f = (f * 53 + e) % 1000099
+      g = (g * 59 + f) % 1000117
+      h = (h * 61 + g) % 1000121
+      x = x * 0.999 + 1.0
+      y = y * 0.998 + 2.0
+      v = (v *% 3 ^ Simd[Int, 4].splat(i)) & Simd[Int, 4].splat(1048575)
+    a + b + c + d + e + f + g + h + Int(x * 1000.0) + Int(y * 1000.0) + v[0] + v[1] + v[2] + v[3]
+
+  ts = Tasks[Int]()
+  for k in 1..9
+    !ts.add(mix(50000, k)&)
+  rs = >ts
+  total = 0
+  for r in rs
+    total += r
+  print(total, mix(50000, 1))
+
 code "task free spawns free", ".spawn(spin, "
   # A task given only what crosses cores starts free, to run on any
   # worker (test/cli/task_spread.sh checks that it does).

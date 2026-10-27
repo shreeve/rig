@@ -203,6 +203,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   too), and a signed index is tested against a List's or slice's length
   with one unsigned compare. A `rarely` function is `noinline`, out of
   line as SPEC says, no longer left to LLVM.
+- **A signed index against a compile-time bound is one compare**
+  (Trig PGO 0.5-0.7% fewer instructions, 1.5-1.7% with #706's yield check;
+  [records](docs/history/records/2026-10/perf-stage/bounds-enum.md)):
+  a `Table` read by an `Int`, `Slot[n].of(i)`, an array's element, and a
+  vector's lane test `i` as unsigned against `n`, which a negative `i`
+  always fails, where a sign test and a bound test made two.
 - **A function's name given to `par.map` or `par.each` is checked
   against what they pass:** each element's view, or the value of a
   scalar's read view; a write view as itself. `par.map(?xs, f)` with
@@ -1368,6 +1374,16 @@ first step is on `main` (SPEC §18):
   nothing. A task that recurses still checks on every turn of any cycle.
   Trig's checker keeps 387 of its 2,812 recursive checks; on ts-pattern
   with one checker it runs 5% fewer instructions and 2% faster (pup).
+- **A yield check costs no registers:** in an optimized build for
+  x86_64 or aarch64, a loop's turn check and a recursive function's
+  entry check call the scheduler through a function that saves and
+  restores every register a call may change (`rig.callKeeping`), so the
+  code around a check no longer keeps its values in registers a call
+  preserves for the sake of a call it rarely makes. The call may still
+  read and write any memory. Trig built with `--pgo` runs 0.8-0.9%
+  fewer instructions on ts-pattern and zod3 (1.9% in a plain release
+  build), in about the same time
+  ([records](docs/history/records/2026-10/perf-stage/loop-hoist.md)).
 - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
   `task.select` commits exactly one of its arms (`tasks.Chan`,
   `selectArms`). `task.supervise(f, restarts:, per:)` runs a

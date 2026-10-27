@@ -362,7 +362,7 @@ pub inline fn turn(n: *u32) void {
     if (n.* == 0) {
         @branchHint(.unlikely);
         n.* = tick_turns;
-        sched.tick();
+        callKeeping(tickC);
     }
 }
 
@@ -375,9 +375,210 @@ pub inline fn tickCall() void {
     if (!scheduled or @inComptime()) return;
     if (sched.waiting.load(.monotonic) != 0) {
         @branchHint(.unlikely);
-        sched.tickCall();
+        callKeeping(tickCallC);
     }
 }
+
+fn tickC() callconv(.c) void {
+    sched.tick();
+}
+
+fn tickCallC() callconv(.c) void {
+    sched.tickCall();
+}
+
+/// Whether a yield check calls the scheduler through `Keeping`: an
+/// optimized build for x86_64 (System V) or aarch64, with no registers
+/// beyond those `Keeping` saves (AVX-512's are; APX's and SVE's are not;
+/// SME's are used only by code that enters streaming mode, never by
+/// Zig's).
+const keeps_registers = builtin.optimize != .debug and switch (builtin.cpu.arch) {
+    .x86_64 => builtin.os.tag != .windows and builtin.os.tag != .uefi and
+        !std.Target.x86.featureSetHas(builtin.cpu.features, .egpr),
+    .aarch64 => builtin.os.tag != .windows and
+        !std.Target.aarch64.featureSetHas(builtin.cpu.features, .sve),
+    else => false,
+};
+
+/// Call `f` from a yield check's cold path so that its caller keeps every
+/// register: `f` is called through `Keeping(f).call`, which saves each
+/// register a call may change and restores it after. The check is in a
+/// loop or at a function's entry, and a call there would otherwise make
+/// the code around it keep its values in registers a call preserves, or
+/// on the stack, though the call is rare. The `asm` still tells LLVM
+/// that the call may read and write any memory, which it may: other
+/// tasks run. It first steps over the red zone below the stack pointer,
+/// where the caller may keep values; on aarch64 it keeps the link
+/// register, which `bl` writes.
+inline fn callKeeping(comptime f: fn () callconv(.c) void) void {
+    if (comptime !keeps_registers) return f();
+    switch (builtin.cpu.arch) {
+        .x86_64 => asm volatile (
+            \\ leaq -128(%%rsp), %%rsp
+            \\ callq %[call:P]
+            \\ leaq 128(%%rsp), %%rsp
+            :
+            : [call] "X" (&Keeping(f).call),
+            : .{ .rflags = true, .memory = true }),
+        .aarch64 => asm volatile (
+            \\ sub sp, sp, #144
+            \\ str x30, [sp]
+            \\ bl %[call]
+            \\ ldr x30, [sp]
+            \\ add sp, sp, #144
+            :
+            : [call] "X" (&Keeping(f).call),
+            : .{ .nzcv = true, .memory = true }),
+        else => comptime unreachable,
+    }
+}
+
+/// `f` behind a function that saves every register the C calling
+/// convention lets `f` change, aligns the stack, calls `f`, and restores
+/// them (`callKeeping`): on x86_64 the integer registers a call may
+/// change and every vector register the target has (`xmm`, `ymm`, or
+/// `zmm` with the AVX-512 masks); on aarch64 x0-x18 (not the platform
+/// register x18 on Darwin) and all of q0-q31.
+fn Keeping(comptime f: fn () callconv(.c) void) type {
+    return struct {
+        fn call() callconv(.naked) void {
+            switch (builtin.cpu.arch) {
+                .x86_64 => asm volatile (
+                    \\ pushq %%rbp
+                    \\ movq %%rsp, %%rbp
+                    \\ pushq %%rax
+                    \\ pushq %%rcx
+                    \\ pushq %%rdx
+                    \\ pushq %%rsi
+                    \\ pushq %%rdi
+                    \\ pushq %%r8
+                    \\ pushq %%r9
+                    \\ pushq %%r10
+                    \\ pushq %%r11
+                    \\ andq $-64, %%rsp
+                ++ x86_vectors.save ++
+                    \\ callq %[f:P]
+                ++ x86_vectors.restore ++
+                    \\ leaq -72(%%rbp), %%rsp
+                    \\ popq %%r11
+                    \\ popq %%r10
+                    \\ popq %%r9
+                    \\ popq %%r8
+                    \\ popq %%rdi
+                    \\ popq %%rsi
+                    \\ popq %%rdx
+                    \\ popq %%rcx
+                    \\ popq %%rax
+                    \\ popq %%rbp
+                    \\ retq
+                    :
+                    : [f] "X" (&f),
+                ),
+                .aarch64 => asm volatile (
+                    \\ stp x29, x30, [sp, #-16]!
+                    \\ mov x29, sp
+                    \\ sub sp, sp, #672
+                    \\ stp x0, x1, [sp, #0]
+                    \\ stp x2, x3, [sp, #16]
+                    \\ stp x4, x5, [sp, #32]
+                    \\ stp x6, x7, [sp, #48]
+                    \\ stp x8, x9, [sp, #64]
+                    \\ stp x10, x11, [sp, #80]
+                    \\ stp x12, x13, [sp, #96]
+                    \\ stp x14, x15, [sp, #112]
+                    \\ stp x16, x17, [sp, #128]
+                ++ aarch64_x18.save ++
+                    \\ stp q0, q1, [sp, #160]
+                    \\ stp q2, q3, [sp, #192]
+                    \\ stp q4, q5, [sp, #224]
+                    \\ stp q6, q7, [sp, #256]
+                    \\ stp q8, q9, [sp, #288]
+                    \\ stp q10, q11, [sp, #320]
+                    \\ stp q12, q13, [sp, #352]
+                    \\ stp q14, q15, [sp, #384]
+                    \\ stp q16, q17, [sp, #416]
+                    \\ stp q18, q19, [sp, #448]
+                    \\ stp q20, q21, [sp, #480]
+                    \\ stp q22, q23, [sp, #512]
+                    \\ stp q24, q25, [sp, #544]
+                    \\ stp q26, q27, [sp, #576]
+                    \\ stp q28, q29, [sp, #608]
+                    \\ stp q30, q31, [sp, #640]
+                    \\ bl %[f]
+                    \\ ldp q0, q1, [sp, #160]
+                    \\ ldp q2, q3, [sp, #192]
+                    \\ ldp q4, q5, [sp, #224]
+                    \\ ldp q6, q7, [sp, #256]
+                    \\ ldp q8, q9, [sp, #288]
+                    \\ ldp q10, q11, [sp, #320]
+                    \\ ldp q12, q13, [sp, #352]
+                    \\ ldp q14, q15, [sp, #384]
+                    \\ ldp q16, q17, [sp, #416]
+                    \\ ldp q18, q19, [sp, #448]
+                    \\ ldp q20, q21, [sp, #480]
+                    \\ ldp q22, q23, [sp, #512]
+                    \\ ldp q24, q25, [sp, #544]
+                    \\ ldp q26, q27, [sp, #576]
+                    \\ ldp q28, q29, [sp, #608]
+                    \\ ldp q30, q31, [sp, #640]
+                ++ aarch64_x18.restore ++
+                    \\ ldp x0, x1, [sp, #0]
+                    \\ ldp x2, x3, [sp, #16]
+                    \\ ldp x4, x5, [sp, #32]
+                    \\ ldp x6, x7, [sp, #48]
+                    \\ ldp x8, x9, [sp, #64]
+                    \\ ldp x10, x11, [sp, #80]
+                    \\ ldp x12, x13, [sp, #96]
+                    \\ ldp x14, x15, [sp, #112]
+                    \\ ldp x16, x17, [sp, #128]
+                    \\ mov sp, x29
+                    \\ ldp x29, x30, [sp], #16
+                    \\ ret
+                    :
+                    : [f] "X" (&f),
+                ),
+                else => comptime unreachable,
+            }
+        }
+    };
+}
+
+/// What `Keeping` writes to save and restore x18, which Darwin reserves
+/// and which is any other aarch64 system's to use as a scratch register.
+const aarch64_x18: struct { save: []const u8, restore: []const u8 } = if (builtin.os.tag.isDarwin())
+    .{ .save = "\n", .restore = "\n" }
+else
+    .{ .save = "\n str x18, [sp, #144]\n", .restore = "\n ldr x18, [sp, #144]\n" };
+
+/// What `Keeping` writes to save and restore the x86_64 vector
+/// registers below a 64-byte-aligned stack pointer: `zmm0`-`zmm31` and
+/// the masks `k0`-`k7` with AVX-512, else `ymm0`-`ymm15` with AVX, else
+/// `xmm0`-`xmm15`.
+const x86_vectors: struct { save: []const u8, restore: []const u8 } = blk: {
+    if (builtin.cpu.arch != .x86_64) break :blk .{ .save = "", .restore = "" };
+    @setEvalBranchQuota(200_000);
+    const has = std.Target.x86.featureSetHas;
+    const fs = builtin.cpu.features;
+    const avx512 = has(fs, .avx512f);
+    const count: usize = if (avx512) 32 else 16;
+    const width: usize = if (avx512) 64 else if (has(fs, .avx)) 32 else 16;
+    const reg = if (avx512) "zmm" else if (width == 32) "ymm" else "xmm";
+    const move = if (avx512) "vmovdqu64" else if (width == 32) "vmovdqu" else "movdqu";
+    const masks: usize = if (avx512) 8 * 8 else 0;
+    const kmove = if (has(fs, .avx512bw)) "kmovq" else "kmovw";
+    const size = std.mem.alignForward(usize, count * width + masks, 64);
+    var save: []const u8 = std.fmt.comptimePrint("\n subq ${d}, %%rsp\n", .{size});
+    var restore: []const u8 = "\n";
+    for (0..count) |i| {
+        save = save ++ std.fmt.comptimePrint(" {s} %%{s}{d}, {d}(%%rsp)\n", .{ move, reg, i, i * width });
+        restore = restore ++ std.fmt.comptimePrint(" {s} {d}(%%rsp), %%{s}{d}\n", .{ move, i * width, reg, i });
+    }
+    if (avx512) for (0..8) |i| {
+        save = save ++ std.fmt.comptimePrint(" {s} %%k{d}, {d}(%%rsp)\n", .{ kmove, i, count * width + i * 8 });
+        restore = restore ++ std.fmt.comptimePrint(" {s} {d}(%%rsp), %%k{d}\n", .{ kmove, count * width + i * 8, i });
+    };
+    break :blk .{ .save = save, .restore = restore };
+};
 // The scheduler, which runs tasks as fibers (`sched.zig`).
 pub const sched = @import("sched.zig");
 // Sockets and the HTTP server (`net.zig`).
@@ -3312,11 +3513,41 @@ fn moduleOf(comptime name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 /// Convert a Rig index of any integer type to `usize`, panicking unless
-/// `0 <= i < len`.
+/// `0 <= i < count`.
 pub fn index(i: anytype, count: usize) usize {
     const idx = std.math.cast(usize, i) orelse indexPanic();
     if (idx >= count) indexPanic();
     return idx;
+}
+
+/// `index` against a compile-time `n`, as an array's length or a
+/// table's is: one compare.
+pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
+    if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        // One compare, as `offsetBelow` makes it.
+        const u: u64 = @bitCast(@as(i64, i));
+        if (u >= n) indexPanic();
+        // Exact: below `n`, which a `usize` holds.
+        return @truncate(u);
+    }
+    // An unsigned `i` has no sign to test: `index`'s one compare.
+    return index(i, n);
+}
+
+/// `i` as a `u64` when `0 <= i < n`, else null. A signed `i` read as
+/// unsigned is below `n` exactly when `0 <= i < n`, since a negative one
+/// reads as at least `2^63`: one compare where a sign test and a bound
+/// test make two. Above `2^63`, `n` takes both.
+pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        const u: u64 = @bitCast(@as(i64, i));
+        return if (u < n) u else null;
+    }
+    const v = std.math.cast(u64, i) orelse return null;
+    return if (v < n) v else null;
 }
 
 /// A float about to be converted to an integer type, panicking if it is
@@ -3959,14 +4190,14 @@ fn lanesInOrder(v: anytype, comptime endian: Endian) @TypeOf(v) {
 /// `v[i]`: lane `i` of a vector, with `i` checked as an index is.
 pub fn lane(v: anytype, i: anytype) LaneOf(@TypeOf(v)) {
     const lanes = vectorArray(v);
-    return lanes[index(i, lanes.len)];
+    return lanes[indexBelow(i, lanes.len)];
 }
 
 /// `v.with(i, x)`: a copy of `v` whose lane `i` is `x`, with `i` checked
 /// as an index is.
 pub fn withLane(v: anytype, i: anytype, x: LaneOf(@TypeOf(v))) @TypeOf(v) {
     var lanes = vectorArray(v);
-    lanes[index(i, lanes.len)] = x;
+    lanes[indexBelow(i, lanes.len)] = x;
     if (comptime isWideMask(@TypeOf(v))) return maskOf(@TypeOf(v), lanes);
     return lanes;
 }

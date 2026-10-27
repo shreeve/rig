@@ -1,0 +1,512 @@
+diff --git i/src/emit.zig w/src/emit.zig
+index 2b8bfa740..647f6de6d 100644
+--- i/src/emit.zig
++++ w/src/emit.zig
+@@ -499,6 +499,14 @@ pub const Emitter = struct {
+     /// check for work left waiting (`rig.tickCall`), so no task keeps
+     /// the others waiting for long.
+     yield_checks: bool = false,
++    /// EXPERIMENT.
++    noalias_reads: bool = false,
++    /// EXPERIMENT: loops count no turns.
++    no_turns: bool = false,
++    /// EXPERIMENT: no noalias.
++    no_noalias: bool = false,
++    /// EXPERIMENT: range loops count turns one at a time.
++    no_chunks: bool = false,
+     /// While a `T!E`'s error set is written: the Zig set of its codes,
+     /// never the `rig.ErrorValue` a value of it is.
+     error_codes: bool = false,
+@@ -754,11 +762,18 @@ pub const Emitter = struct {
+                 continue;
+             }
+             const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
+-            if (self.facts.types.get(f.returns) == .fallible) {
++            // A parameter that is the only path to what it points at is
++            // `noalias` in the function's Rig type (`emitParamTypes`),
++            // which the Zig function's own type lacks: a wrapper of the
++            // Rig type calls it, as it does a fallible one.
++            const exclusive = !self.no_noalias and for (f.params) |p| {
++                if (self.facts.exclusiveParam(p)) break true;
++            } else false;
++            if (self.facts.types.get(f.returns) == .fallible or exclusive) {
+                 try self.w.print("pub fn {f}(", .{ident(self.srcText(name))});
+                 for (f.params, 0..) |p, i| {
+                     if (i > 0) try self.w.writeAll(", ");
+-                    try self.w.print("__rig_a{d}: ", .{i});
++                    try self.w.print("{s}__rig_a{d}: ", .{ if (!self.no_noalias and self.facts.exclusiveParam(p)) "noalias " else "", i });
+                     try self.emitTypeTy(p);
+                 }
+                 // Zig fails with codes alone, but takes the slot a
+@@ -1917,7 +1932,8 @@ pub const Emitter = struct {
+     fn emitParam(self: *Emitter, p: Sexp, ct: bool) Error!void {
+         const local = self.localOf(facts.syntax.paramNameNode(p).?).?;
+         const name = if (local.param_name.len > 0) local.param_name else local.zig_name;
+-        try self.w.print("{s}{s}: ", .{ if (ct) "comptime " else "", name });
++        const only_path = !ct and local.ty != null and !self.no_noalias and (self.facts.exclusiveParam(local.ty.?) or (self.noalias_reads and self.readOnlyParam(local.ty.?)));
++        try self.w.print("{s}{s}: ", .{ if (ct) "comptime " else if (only_path) "noalias " else "", name });
+         if (self.facts.symbols.items[local.sym].kind == .generic_param) {
+             try self.w.writeAll("type");
+             return self.writeWitnessParams(local.sym);
+@@ -1925,6 +1941,17 @@ pub const Emitter = struct {
+         try self.emitTypeTy(local.ty.?);
+     }
+ 
++    /// EXPERIMENT: a read view held as a pointer to what no shared handle changes.
++    fn readOnlyParam(self: *Emitter, ty: TypeId) bool {
++        const inner = switch (self.facts.types.get(ty)) {
++            .read_view => |inner| inner,
++            else => return false,
++        };
++        if (self.facts.callableFn(ty) != null or self.facts.objectView(ty) != null or self.genericReadView(ty) != null) return false;
++        if (!self.readViewIsPtr(inner)) return false;
++        return self.facts.readOnlyExp(ty, inner);
++    }
++
+     /// A method's self: `?@`, `!@`, or `<@`.
+     fn isReceiverParam(self: *Emitter, p: Sexp) bool {
+         return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "@");
+@@ -3887,7 +3914,7 @@ pub const Emitter = struct {
+         // still reaches a yield check.
+         const outer_turns = self.fun.turns;
+         defer self.fun.turns = outer_turns;
+-        if (self.yield_checks) {
++        if (self.yield_checks and !self.no_turns) {
+             if (self.fun.loops == 0 or outer_turns == null) {
+                 try self.openLoopBlock(&lp);
+                 lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
+@@ -4181,31 +4208,45 @@ pub const Emitter = struct {
+             }
+         }
+         defer if (mark) |m| self.hoisted.shrinkRetainingCapacity(m);
++        // Writing an array's elements in place iterates through a pointer.
++        const array_ptr = by_ptr and !is_list and src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
++        // A loop over a slice runs its turns in runs up to the next yield
++        // check, as a range loop does (`emitRangeFor`): the slice is held,
++        // and each run is a Zig `for` over a part of it with no check in
++        // it, inside a `while` that a `break` leaves.
++        const runs: ?[]const u8 = if (lp.turns) |n| (if (!owned and !self.no_chunks and (is_list or array_ptr or self.walksSlice(src_ty))) n else null) else null;
++        const run_id = self.nextId();
++        const all = try self.fmt("__rig_all_{d}", .{run_id});
++        const at = try self.fmt("__rig_at_{d}", .{run_id});
++        const stop = try self.fmt("__rig_stop_{d}", .{run_id});
++        if (runs != null) {
++            try self.openLoopBlock(lp);
++            try self.writeIndent(self.indent);
++            try self.w.print("const {s} = ", .{all});
++            try self.emitForSource(sexp, owned, taken, array_ptr, is_list, src_ty, mode);
++            try self.w.writeAll(";\n");
++            try self.line("var {s}: usize = 0;", .{at});
++        }
+         try self.startLoopLine(lp);
+         try self.pushScope();
+         const l = try self.openLabeled(lp.loop);
+-        // Zig's `for` has no continue expression: each turn's body
+-        // counts it.
+-        lp.top_turn = true;
+-        try self.w.writeAll("for (");
+-        // Writing an array's elements in place iterates through a pointer.
+-        const array_ptr = by_ptr and !is_list and src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
+-        if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
+-            // A place reached through temporaries is walked where it is.
+-            try self.emitSubjectPtr(source, mode == .write);
+-            if (!array_ptr) try self.w.writeAll(".*");
+-        } else if (array_ptr) try self.emitAddressOf(source) else {
+-            const h = try self.openHeader(source);
+-            try self.emitExpr(source);
+-            try self.closeHeader(h);
++        if (runs) |n| {
++            try self.w.print("while ({s} < {s}.len) ", .{ at, all });
++            try self.openBrace();
++            try self.line("const {s} = rig.turnStop({s}, {s}.len, {s});", .{ stop, at, all, n });
++            try self.writeIndent(self.indent);
++            try self.w.print("for ({s}[{s}..{s}]", .{ all, at, stop });
++        } else {
++            // Zig's `for` has no continue expression: each turn's body
++            // counts it.
++            lp.top_turn = true;
++            try self.w.writeAll("for (");
++            try self.emitForSource(sexp, owned, taken, array_ptr, is_list, src_ty, mode);
+         }
+-        if (is_list) try self.w.writeAll(".items()");
+-        // `for b in ?t` walks the bytes of a String, boxed or not.
+-        if (src_ty) |t| if (self.stringReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
+         const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
+         // An index nobody reads needs no counter.
+         const indexed = self.loopIndex(sexp) != null;
+-        try self.w.writeAll(if (indexed) ", 0..) |" else ") |");
++        if (indexed) try self.w.print(", {s}..) |", .{if (runs != null) at else "0"}) else try self.w.writeAll(") |");
+         var elem_name: []const u8 = "_";
+         var bytes_of: []const u8 = "";
+         var bytes_name: []const u8 = "";
+@@ -4223,10 +4264,46 @@ pub const Emitter = struct {
+         if (bytes_of.len > 0) try self.line("const {s} = {s}.bytes();", .{ bytes_name, bytes_of });
+         try self.bindLoopIndex(sexp, counter);
+         try self.closeLoopBody(lp, body, ir.For.body(sexp));
++        if (runs) |n| {
++            try self.w.writeAll("\n");
++            try self.line("rig.turnsRan(&{s}, {s}, {s});", .{ n, at, stop });
++            try self.line("{s} = {s};", .{ at, stop });
++            try self.closeBrace();
++        }
+         try self.closeLabeled(l);
+         try self.popScope();
+     }
+ 
++    /// What a `for` over a sequence walks (`emitFor`): the array it took,
++    /// the place its header reaches, an array's address, or the source's
++    /// value; a List's or Table's items, or a String's bytes.
++    fn emitForSource(self: *Emitter, sexp: Sexp, owned: bool, taken: []const u8, array_ptr: bool, is_list: bool, src_ty: ?TypeId, mode: anytype) Error!void {
++        const source = ir.For.source(sexp);
++        if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
++            // A place reached through temporaries is walked where it is.
++            try self.emitSubjectPtr(source, mode == .write);
++            if (!array_ptr) try self.w.writeAll(".*");
++        } else if (array_ptr) try self.emitAddressOf(source) else {
++            const h = try self.openHeader(source);
++            try self.emitExpr(source);
++            try self.closeHeader(h);
++        }
++        if (is_list) try self.w.writeAll(".items()");
++        // `for b in ?t` walks the bytes of a String, boxed or not.
++        if (src_ty) |t| if (self.stringReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
++    }
++
++    /// Whether a `for` over a value of type `src_ty` walks a slice: a
++    /// slice, text, or a String's bytes.
++    fn walksSlice(self: *Emitter, src_ty: ?TypeId) bool {
++        const t = src_ty orelse return false;
++        if (self.stringReach(t) != null) return true;
++        return switch (self.facts.types.get(self.peelViews(t))) {
++            .slice, .string_view, .static => true,
++            else => false,
++        };
++    }
++
+     /// `for x in <v`: the List (or the array, `array`) is consumed; each
+     /// element is handed to `x`, which owns it for one iteration.
+     /// Elements a `break` or `return` leaves behind are dropped with it.
+@@ -4301,17 +4378,39 @@ pub const Emitter = struct {
+         if (more.len > 0) {
+             try self.w.print("while ({s}) ", .{more});
+             try self.writeStep(lp, try self.fmt("{s} = {s} < {s}; {s} +%= 1;", .{ more, counter, end, counter }));
++        } else if (if (self.no_chunks) null else lp.turns) |n| {
++            // The turns run in runs up to the next yield check, each a
++            // loop of its own with no check in it (`rig.turnStop`,
++            // `rig.turnsRan`); a `break` leaves the outer loop.
++            const from = try self.fmt("__rig_from_{d}", .{id});
++            const stop = try self.fmt("__rig_stop_{d}", .{id});
++            try self.w.print("while ({s} < {s}) ", .{ counter, end });
++            try self.openBrace();
++            try self.line("const {s} = {s};", .{ from, counter });
++            try self.line("const {s} = rig.turnStop({s}, {s}, {s});", .{ stop, counter, end, n });
++            try self.writeIndent(self.indent);
++            try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, stop, counter });
++            try self.emitRangeBody(sexp, lp, sym, int_ty, binding, counter);
++            try self.w.writeAll("\n");
++            try self.line("rig.turnsRan(&{s}, {s}, {s});", .{ n, from, stop });
++            try self.closeBrace();
++            return self.closeLabeled(l);
+         } else {
+             try self.w.print("while ({s} < {s}) ", .{ counter, end });
+             try self.writeStep(lp, try self.fmt("{s} += 1", .{counter}));
+         }
++        try self.emitRangeBody(sexp, lp, sym, int_ty, binding, counter);
++        try self.closeLabeled(l);
++    }
++
++    /// The body of range loop `sexp`, its binding the counter's value.
++    fn emitRangeBody(self: *Emitter, sexp: Sexp, lp: *Loop, sym: ?SymbolId, int_ty: TypeId, binding: Sexp, counter: []const u8) Error!void {
+         const body = try self.openLoopBody(lp);
+         if (sym) |s| if (self.usage.used.contains(s)) {
+             const stored = try self.declare(.{ .sym = s, .ty = int_ty }, self.srcText(binding));
+             try self.line("const {s} = {s};", .{ stored.zig_name, counter });
+         };
+         try self.closeLoopBody(lp, body, ir.For.body(sexp));
+-        try self.closeLabeled(l);
+     }
+ 
+     // -------------------------------------------------------------------------
+@@ -10470,7 +10569,7 @@ pub const Emitter = struct {
+             .type_var => |sym_id| try self.writeTypeParam(sym_id),
+             .function => |f| {
+                 try self.w.writeAll("*const fn (");
+-                try self.emitTypeList(f.params);
++                try self.emitParamTypes(f.params);
+                 // A function that may fail with fields takes the slot they
+                 // go in, last (`emitCallableTy`).
+                 if (self.failsWithFields(f.returns)) try self.w.writeAll(if (f.params.len > 0) ", rig.ErrSlot" else "rig.ErrSlot");
+@@ -10487,6 +10586,17 @@ pub const Emitter = struct {
+         }
+     }
+ 
++    /// A function type's parameter types, each the only path to what it
++    /// points at marked `noalias`, as the function's own declaration
++    /// marks it (`emitParam`), so its Zig type is the declaration's.
++    fn emitParamTypes(self: *Emitter, params: []const TypeId) Error!void {
++        for (params, 0..) |p, i| {
++            if (i > 0) try self.w.writeAll(", ");
++            if (!self.no_noalias and self.facts.exclusiveParam(p)) try self.w.writeAll("noalias ");
++            try self.emitTypeTy(p);
++        }
++    }
++
+     /// A built-in type, which needs no type store.
+     fn emitBuiltinTy(self: *Emitter, t: facts.Type) Error!void {
+         switch (t) {
+diff --git i/src/facts.zig w/src/facts.zig
+index 73908c754..71310cd25 100644
+--- i/src/facts.zig
++++ w/src/facts.zig
+@@ -1069,6 +1069,15 @@ pub const Facts = struct {
+     pub fn viewHeldAsPointer(f: Facts, ty: TypeId) bool {
+         return sema.viewHeldAsPointer(f.c(), ty);
+     }
++    /// Whether a parameter of this type is the only path to what it
++    /// points at while the call runs (`sema.exclusiveParam`).
++    pub fn exclusiveParam(f: Facts, ty: TypeId) bool {
++        return sema.exclusiveParam(f.c(), ty);
++    }
++    /// EXPERIMENT.
++    pub fn readOnlyExp(f: Facts, ty: TypeId, inner: TypeId) bool {
++        return !sema.containsTypeVar(f.c(), ty) and !sema.containsPoison(f.c(), ty) and !sema.changesByMark(f.c(), inner);
++    }
+     /// Whether a read view of `inner` is a copy, not an address
+     /// (`sema.lendByValue`).
+     pub fn lendByValue(f: Facts, inner: TypeId) bool {
+diff --git i/src/main.zig w/src/main.zig
+index 4f8c01134..798d96949 100644
+--- i/src/main.zig
++++ w/src/main.zig
+@@ -1726,6 +1726,10 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
+         em.no_proofs = env.flag("RIG_NO_PROOFS");
+         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
+         em.yield_checks = tasks;
++        em.noalias_reads = env.flag("RIG_NOALIAS_READS");
++        em.no_turns = env.flag("RIG_NO_TURNS");
++        em.no_noalias = env.flag("RIG_NO_NOALIAS");
++        em.no_chunks = env.flag("RIG_NO_CHUNKS");
+         em.runtime_import = runtime_import;
+         em.file = try packageFile(allocator, graph, m);
+         // A debug build of the compiler checks that emit writes the units
+diff --git i/src/runtime.zig w/src/runtime.zig
+index 2f7fb5fc6..8164a4a23 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -366,6 +366,37 @@ pub inline fn turn(n: *u32) void {
+     }
+ }
+ 
++/// Where the next run of a range loop's turns stops, from `i` toward
++/// `end` (`i < end`), in a program that makes tasks: after the turns
++/// left of `n`, or at `end` if that comes first. The loop runs those
++/// turns as a loop of its own with no yield check in it, then counts
++/// them all at once (`turnsRan`), so that inner loop calls nothing the
++/// body does not, and LLVM may keep in registers what it reads there.
++/// With no scheduler the run is the whole range.
++pub inline fn turnStop(i: anytype, end: @TypeOf(i), n: u32) @TypeOf(i) {
++    if (!scheduled or @inComptime()) return end;
++    const T = @TypeOf(i);
++    const U = @Int(.unsigned, @bitSizeOf(T));
++    const left: U = @bitCast(end -% i);
++    const k: U = if (left < n) left else @intCast(n);
++    return i +% @as(T, @bitCast(k));
++}
++
++/// The turns a range loop ran from `from` to `stop` (`turnStop`),
++/// counted down in `n` together: when they use up the count, the task
++/// yields if other work waits for its worker, as `turn` does.
++pub inline fn turnsRan(n: *u32, from: anytype, stop: @TypeOf(from)) void {
++    if (!scheduled or @inComptime()) return;
++    const U = @Int(.unsigned, @bitSizeOf(@TypeOf(from)));
++    const k: U = @bitCast(stop -% from);
++    n.* -|= @intCast(k);
++    if (n.* == 0) {
++        @branchHint(.unlikely);
++        n.* = tick_turns;
++        sched.tick();
++    }
++}
++
+ /// The entry of a function of a program that makes tasks that every
+ /// cycle of calls passes through one of (`inlining.Pass.cutCycles`): on
+ /// the scheduler, when work waits that no idle worker will take
+diff --git i/src/sema.zig w/src/sema.zig
+index b8072dddb..357854220 100644
+--- i/src/sema.zig
++++ w/src/sema.zig
+@@ -10183,6 +10183,26 @@ pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
+     };
+ }
+ 
++/// Whether a parameter of type `ty` is the only path to the memory it
++/// points at while the call runs, which emit tells Zig with `noalias`
++/// (LLVM may then keep what it read there across a call that cannot
++/// reach that memory, such as a yield check's): a write view, held as
++/// a Zig pointer, of a value that does not change through a shared
++/// handle (`changesByMark`). A write lend is exclusive (Core §2): while
++/// it lasts no other loan, task, or handle reaches the value, so every
++/// access during the call goes through this pointer or one made from
++/// it. A Cell or Signal is written through any handle to it, so it is
++/// left out, as is a view whose type depends on a type parameter.
++pub fn exclusiveParam(ctx: *const SemContext, ty: TypeId) bool {
++    const inner = switch (ctx.types.get(ty)) {
++        .write_view => |inner| inner,
++        else => return false,
++    };
++    if (containsTypeVar(ctx, ty) or containsPoison(ctx, ty)) return false;
++    if (objectView(ctx, ty) != null or writeSliceElem(ctx, ty) != null) return false;
++    return !changesByMark(ctx, inner);
++}
++
+ /// One machine word, which every change to it replaces at once: an
+ /// `Int`, a `Bool`, a `Float`, or a plain enum.
+ pub fn isWordValue(ctx: *const SemContext, ty: TypeId) bool {
+diff --git i/test/rig/concurrency-task.rig.test w/test/rig/concurrency-task.rig.test
+index e227f119a..51b5656b4 100644
+--- i/test/rig/concurrency-task.rig.test
++++ w/test/rig/concurrency-task.rig.test
+@@ -726,6 +726,143 @@ code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
+   t = find([1, 2, 3], 2)&
+   print(>t)
+ 
++code "task range turns run in runs", "rig.turnStop("
++  # A range loop runs its turns in runs up to the next yield check, each
++  # a loop of its own with no check in it, and counts each run's turns
++  # at once (`rig.turnStop`, `rig.turnsRan`): LLVM may keep what the
++  # body reads in registers across a run.
++  fun find(xs: ?List[Int], k: Int) -> Int
++    for i in 0..xs.len
++      return i if xs[i] == k
++    -1
++
++  xs: List[Int] = List()
++  !xs.push(2)
++  t = find(?xs, 2)&
++  print(>t)
++
++test "task range runs", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
++  # Range loops over a List and a Table lent to several tasks at once,
++  # long enough to cross many runs of turns, with `continue`, `return`,
++  # a loop value's `break` and `else`, a nested range, and small and
++  # negative bounds, give what one turn at a time gives.
++  fun make(n: Int) -> List[Int]
++    xs: List[Int] = List()
++    for i in 0..n
++      !xs.push(i * 7 % 1000)
++    xs
++
++  fun fill(n: Int) -> Table[Int, 4096]
++    t: Table[Int, 4096] = Table()
++    for i in 0..n
++      !t.push(i % 13)
++    t
++
++  fun scan(xs: ?List[Int], t: ?Table[Int, 4096]) -> Int
++    total = 0
++    for i in 0..xs.len
++      continue if i % 3 == 0
++      total += xs[i] * t[i]
++    total
++
++  fun find(xs: ?List[Int], k: Int) -> Int
++    for i in 0..xs.len
++      return i if xs[i] == k
++    -1
++
++  fun first(xs: ?List[Int], k: Int) -> Int
++    at = for i in 1000..xs.len
++      break i if xs[i] == k
++    else
++      -1
++    at
++
++  fun nested(n: Int) -> Int
++    count = 0
++    for i in 0..n
++      for j in i..n
++        count += 1 if (i + j) % 5 == 0
++    count
++
++  fun small() -> Int
++    total = 0
++    for b in U8(0)..U8(255)
++      total += Int(b)
++    for i in -3000..-500
++      total += i % 7
++    total
++
++  xs = make(3000)
++  t = fill(3000)
++  a = scan(?xs, ?t)&
++  b = scan(?xs, ?t)&
++  c = find(?xs, 993)&
++  d = first(?xs, 993)&
++  e = first(?xs, 1)&
++  f = nested(300)&
++  g = small()&
++  print(>a, >b, >c, >d, >e, >f, >g)
++
++test "task range runs released", seeds: 20, release: true, "6100091 999 9030"
++  # The same, built for release, where LLVM keeps the List's and the
++  # Table's reads in registers across a run.
++  fun make(n: Int) -> List[Int]
++    xs: List[Int] = List()
++    for i in 0..n
++      !xs.push(i * 7 % 1000)
++    xs
++
++  fun fill(n: Int) -> Table[Int, 4096]
++    t: Table[Int, 4096] = Table()
++    for i in 0..n
++      !t.push(i % 13)
++    t
++
++  fun scan(xs: ?List[Int], t: ?Table[Int, 4096]) -> Int
++    total = 0
++    for i in 0..xs.len
++      continue if i % 3 == 0
++      total += xs[i] * t[i]
++    total
++
++  fun find(xs: ?List[Int], k: Int) -> Int
++    for i in 0..xs.len
++      return i if xs[i] == k
++    -1
++
++  fun nested(n: Int) -> Int
++    count = 0
++    for i in 0..n
++      for j in i..n
++        count += 1 if (i + j) % 5 == 0
++    count
++
++  xs = make(3000)
++  t = fill(3000)
++  a = scan(?xs, ?t)&
++  c = find(?xs, 993)&
++  f = nested(300)&
++  print(>a, >c, >f)
++
++fail "task range loan holds across yields", "15:11: cannot lend `xs` to write while a read loan is live"
++  # A task reading a List in a range loop holds its loan across every
++  # yield check, so no task may write the List until it is done.
++  sub grow(xs: !List[Int])
++    !xs.push(1)
++
++  fun sum(xs: ?List[Int]) -> Int
++    total = 0
++    for i in 0..xs.len
++      total += xs[i]
++    total
++
++  xs: List[Int] = List()
++  !xs.push(0)
++  s = sum(?xs)&
++  t = grow(!xs)&
++  print(>s)
++  >t
++
+ code "task free spawns free", ".spawn(spin, "
+   # A task given only what crosses cores starts free, to run on any
+   # worker (test/cli/task_spread.sh checks that it does).

@@ -212,6 +212,23 @@ bomb "table index by Int past n", "index out of bounds"
   i = 4
   print(t[i])
 
+bomb "table index by a negative Int", "index out of bounds", release: true
+  t: Table[Int, 4] = Table()
+  i = 2
+  print(t[i - 3])
+
+bomb "table index by an Int past n in a release build", "index out of bounds", release: true
+  t: Table[Int, 4] = Table()
+  i = 2
+  print(t[i + 2])
+
+test "table slot of any value below n in a release build", release: true, '''
+  none 3 none none none 5
+'''
+  i = 0
+  big = Slot[1 << 62].of(i - 1)
+  print(Slot[4].of(i - 1), Slot[4].of(i + 3), Slot[4].of(i + 4), Slot[4].of(Int.min + i), big, Slot[1 << 62].of(i + 5))
+
 fail "table a slot is not made from a number", "a `Slot[8]` is made by `push`, by `Slot[8].of(i)`, or by a literal below 8"
   s = Slot[8](3)
   print(s)

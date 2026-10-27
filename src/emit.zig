@@ -7110,7 +7110,7 @@ pub const Emitter = struct {
             if (!as_place) self.read_place = true;
             try self.emitIndexBase(base, base_ty, .address);
             self.read_place = saved_read;
-            try self.w.writeAll(")[rig.index(");
+            try self.w.writeAll(")[rig.indexBelow(");
             self.place_chain = false;
             try self.emitBare(index);
             try self.w.writeAll(", ");
@@ -7130,7 +7130,7 @@ pub const Emitter = struct {
         if (isNonNegativeIntLiteral(self.source, index)) {
             try self.emitExpr(index);
         } else {
-            try self.w.writeAll("rig.index(");
+            try self.w.writeAll("rig.indexBelow(");
             try self.emitBare(index);
             try self.w.writeAll(", ");
             try self.emitTypeTy(n);

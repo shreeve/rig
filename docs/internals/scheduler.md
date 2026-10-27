@@ -206,6 +206,21 @@ fails, and yields only when other work waits.
   line, so it never sets the flag, and busy tasks do not keep yielding
   to each other.
 
+**A check costs the code around it no registers.** In an optimized
+build for x86_64 (System V) or aarch64, both checks call the scheduler
+through a function that saves every register a call may change,
+calls it, and restores them (`rig.callKeeping`, `Keeping`): the
+integer registers, and every vector register the target has. A plain
+call, rare as it is, made the code around it keep each value live
+across the check in a register a call preserves, saved on entry and
+restored on return, or on the stack: a small function with a search
+loop saved and restored four registers on every call on x86_64, six on
+aarch64, and now saves none. The `asm` that
+makes the call steps over the red zone and still tells LLVM that the
+call may read and write any memory, as it may, since other tasks run;
+it changes only which registers survive it. A debug build, and any
+other target, calls the scheduler plainly.
+
 A loop's check also keeps its worker's timers and descriptors going
 while it computes (`sched.serviceBusy`): it wakes the fibers whose
 timers are due on its worker, and looks at its worker's poller at most
