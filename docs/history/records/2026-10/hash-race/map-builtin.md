@@ -34,6 +34,18 @@ in Rig).
   30.7 without.
 - **Drops** run the last entry first, its value before its key, as a
   List and an object drop.
+- **Decision 10, the entry index's bounds test, is left out of release
+  builds.** The table is trusted runtime code, as a List is, and
+  zig-ordered.md §12 measured the test at 2-7% of the lookup rows, past
+  decision 10's 2%. Every read of an entry the index, a small table's
+  tags, or the prelude names goes through `entryOf`, which in a debug
+  build (`rig run`, and most of the suite) tests that the entry was
+  written and, for the prelude's reads, is not gone, and panics if
+  not; in a release build it is the read alone, so the release rows
+  above are unchanged by it.
+- **`reserve` tests the 2^32 - 1 entry limit first**, before it builds
+  an index: `Map.new(5000000000)` panics with nothing allocated
+  (`test/rig/std-hash.rig.test`, "hash reserve past the entry limit").
 
 ## Trig, pup, 20 interleaved rounds, one checker
 

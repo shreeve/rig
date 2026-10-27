@@ -5078,6 +5078,10 @@ across modules, and only std.prelude's scope names them.
   table find a key, and say which entries are gone. The first put
   makes room for 4 entries. An indexed table makes its gone bits, one
   an entry, at the first take that leaves a hole.
+- **Entry reads** go through `entryOf`: in a debug build it tests the
+  entry index against the entries written (and, for the prelude's
+  reads, that the entry is live), and in a release build it is the
+  read alone (the panel's decision 10, record map-builtin.md).
 - **Tag writes** write the 16 tags whole from a register
   (`writeLane`): a byte's store into them stalled the next lookup's
   vector load of the same 16 bytes, on x86 most of all.

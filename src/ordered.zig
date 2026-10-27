@@ -213,10 +213,30 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// whose size is a whole number of entries, and the gone bits, if
         /// any, sized to match.
         fn resizeEntries(self: *Self, new_cap: usize) void {
-            if (new_cap > max_entries) @panic(if (is_set) "a Set holds at most 4294967295 keys" else "a Map holds at most 4294967295 entries");
+            if (new_cap > max_entries) tooMany();
             self.entries = (if (self.cap == 0) rt.allocSlice(E, new_cap) else rt.reallocSlice(E, self.entries[0..self.cap], new_cap)).ptr;
             self.cap = @intCast(new_cap);
             if (self.gone_words != 0) self.sizeGone();
+        }
+
+        noinline fn tooMany() noreturn {
+            @branchHint(.cold);
+            @panic(if (is_set) "a Set holds at most 4294967295 keys" else "a Map holds at most 4294967295 entries");
+        }
+
+        /// Entry `j`, which an index, a small table's tags, or a caller
+        /// names. The index and the tags name only entries written, and
+        /// the prelude only those the table gave it, so release builds
+        /// test nothing; a debug build, which `rig run` and the suite
+        /// make, tests that `j` is written and, where `live`, not gone,
+        /// so a bug in the table panics there rather than reading past
+        /// the entries (the panel's decision 10).
+        inline fn entryOf(self: *const Self, j: usize, comptime live: bool) *E {
+            if (builtin.mode == .debug) {
+                if (j >= self.len) @panic("ordered: an entry index past the entries written");
+                if (live and self.isGone(j)) @panic("ordered: an entry index names a gone entry");
+            }
+            return &self.entries[j];
         }
 
         /// The gone bits sized for `cap` entries, the new words clear.
@@ -489,14 +509,14 @@ fn Ordered(comptime K: type, comptime V: type) type {
             var m = matchAll(self.small_tags[0..16], tag);
             while (m != 0) : (m &= m - 1) {
                 const i = firstLane(m);
-                if (keyMatch(&self.entries[i], k, h)) return i;
+                if (keyMatch(self.entryOf(i, false), k, h)) return i;
             }
             if (self.len > 16) {
                 @branchHint(.unlikely);
                 m = matchAll(self.small_tags[16..32], tag);
                 while (m != 0) : (m &= m - 1) {
                     const i = 16 + firstLane(m);
-                    if (keyMatch(&self.entries[i], k, h)) return i;
+                    if (keyMatch(self.entryOf(i, false), k, h)) return i;
                 }
             }
             return null;
@@ -504,7 +524,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// The probe from group `start`, `step` groups walked.
         inline fn probeFrom(self: *const Self, k: KeyView, h: u64, tag: u8, start: usize, start_step: usize) ?Found {
-            const es = self.entries;
             const mask = @as(usize, self.groups) - 1;
             const bit = classBit(tag);
             var g = start;
@@ -515,7 +534,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 while (m != 0) : (m &= m - 1) {
                     const lane = firstLane(m);
                     const j: usize = self.slots[g][lane];
-                    if (keyMatch(&es[j], k, h)) return .{ .g = g, .lane = lane, .j = j };
+                    if (keyMatch(self.entryOf(j, false), k, h)) return .{ .g = g, .lane = lane, .j = j };
                 }
                 if (grp[15] & bit == 0) return null;
                 step += 1;
@@ -543,7 +562,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             while (m != 0) : (m &= m - 1) {
                 const lane = firstLane(m);
                 const j: usize = self.slots[g][lane];
-                if (keyMatch(&self.entries[j], k, h)) return .{ .g = g, .lane = lane, .j = j };
+                if (keyMatch(self.entryOf(j, false), k, h)) return .{ .g = g, .lane = lane, .j = j };
             }
             if (grp[15] & classBit(tag) != 0) {
                 @branchHint(.unlikely);
@@ -685,17 +704,17 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// `key(?@, j: Int) -> ?K`.
         pub inline fn key(self: *const Self, j: i64) KeyView {
-            return rt.lend(&self.entries[@intCast(j)].key);
+            return rt.lend(&self.entryOf(@intCast(j), true).key);
         }
 
         /// `value(?@, j: Int) -> ?V`.
         pub inline fn value(self: *const Self, j: i64) rt.ReadView(V) {
-            return rt.lend(&self.entries[@intCast(j)].value);
+            return rt.lend(&self.entryOf(@intCast(j), true).value);
         }
 
         /// `value_mut(!@, j: Int) -> !V`.
         pub inline fn value_mut(self: *Self, j: i64) *V {
-            return &self.entries[@intCast(j)].value;
+            return &self.entryOf(@intCast(j), true).value;
         }
 
         /// `put(!@, k: K, v: V) -> Bool`: `v` under `k`; a key already
@@ -940,6 +959,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
         pub fn reserve(self: *Self, n: i64) void {
             if (n <= 0) return;
             const more: usize = @intCast(n);
+            // The limit first: past it, the index would be built and
+            // zeroed before the entries' growth traps.
+            if (@as(usize, self.len) + more > max_entries) tooMany();
             const want = @as(usize, self.live) + more;
             if (want > small) {
                 const g = groupsFor(want);
