@@ -749,9 +749,10 @@ sign -1
 - `rarely`, alone as the first line of a function's body, a branch of
   `if` or `match`, a `catch` handler, or a loop's body, says the block
   rarely runs, so the code around it is laid out for the case that does
-  not, and a function so marked stays out of line: `fun utf8_text(s:
-  ?String, i: Int) -> Int` with `rarely` as its body's first line
-  ([SPEC](SPEC.md#rarely)).
+  not: a function so marked is cold and stays out of line (`fun
+  utf8_text(s: ?String, i: Int) -> Int` with `rarely` as its body's
+  first line), and any other block so marked is unlikely and stays
+  near ([SPEC](SPEC.md#rarely)).
 
 A definition without its parameter list is rejected, with the header
 to write:

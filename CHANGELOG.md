@@ -202,6 +202,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`rarely` in a branch is unlikely:** a `rarely` that starts a branch,
+  a `catch` handler, or a loop's body emits Zig's unlikely hint, which
+  keeps the block near and lays out the code around it for the path
+  that skips it; a `rarely` that starts a function's body still emits
+  the cold hint, which moves the function out of line.
 - **A frozen value's allocation has no weak count.** A `*Frozen[T]`
   holds a strong count and the value, 8 bytes less than before, and its
   last drop is one atomic decrement that frees the allocation, as a

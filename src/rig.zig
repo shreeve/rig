@@ -136,6 +136,15 @@ pub fn markNode(fun_or_sub: Sexp) Sexp {
     return if (startsRarely(body)) ir.Block.stmts(body)[0] else fun_or_sub;
 }
 
+/// The `rarely` that starts the body of the `fun` or `sub`, or nil. It
+/// makes the function cold, whatever its header's marker; a `rarely`
+/// that starts a branch, a `catch` handler, or a loop's body makes it
+/// unlikely.
+pub fn funRarely(fun_or_sub: Sexp) Sexp {
+    const body = ir.get(fun_or_sub, .body);
+    return if (startsRarely(body)) ir.Block.stmts(body)[0] else .nil;
+}
+
 /// Whether `body`, a block, starts with `rarely`: it rarely runs.
 pub fn startsRarely(body: Sexp) bool {
     if (!body.isKind(.block)) return false;
@@ -3533,7 +3542,8 @@ pub const Parser = struct {
 
     /// A `rarely` that starts the body of a function, a branch of `if` or
     /// `match`, a `catch` handler, or a loop marks it: the block rarely
-    /// runs, and emit starts its branch with Zig's cold hint.
+    /// runs. Emit starts a function with Zig's cold hint, and any other
+    /// block with its unlikely hint (`funRarely`).
     fn placeRarely(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
         const bodies: [2]Sexp = switch (node.kind() orelse return) {
             .fun, .sub => .{ ir.get(node, .body), .nil },

@@ -1883,10 +1883,13 @@ a function takes one marker
 A block whose first line is `rarely` rarely runs: the body of a
 function or `sub`, a branch of `if` or `else`, a `match` arm, a `catch`
 handler, or a loop's body. The code around it is laid out for the case
-that does not run it (the branch starts with Zig's cold hint), and
-nothing else changes: `rarely` asks for a speed, as a marker does, and
-never changes what the program means. A function whose body starts with
-`rarely` is rarely called, so it stays out of line and is cold.
+that does not run it, and nothing else changes: `rarely` asks for a
+speed, as a marker does, and never changes what the program means. A
+function whose body starts with `rarely` is rarely called, so it stays
+out of line and is cold: Zig's cold hint moves it away from its
+callers' code. Any other block that starts with `rarely` is unlikely:
+Zig's unlikely hint keeps the block near and lays out the code around
+it for the path that skips it.
 `rarely` is a word only alone on its line; anywhere else it is a name.
 
 ```rig

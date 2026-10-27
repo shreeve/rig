@@ -1120,6 +1120,7 @@ pub const syntax = struct {
     pub const eachGuardPart = rig.eachGuardPart;
     pub const eachGuardOperand = rig.eachGuardOperand;
     pub const leavesBody = rig.leavesBody;
+    pub const funRarely = rig.funRarely;
     pub const contains = storage.contains;
     pub const isStringLiteralText = sema.isStringLiteralText;
     pub const SingleQuoted = sema.SingleQuoted;

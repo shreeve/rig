@@ -2611,21 +2611,54 @@ test "rarely blocks", '''
       rarely
       print(s - 6)
 
-code "rarely emits the cold hint", /fn report\([^\n]*\n *@branchHint\(\.cold\);/, "rig.cold();"
-  # A function whose body starts with `rarely` starts with Zig's cold hint;
-  # a branch's `rarely` calls `rig.cold`, which puts the hint in the branch.
+code "rarely emits the cold hint in a function", /fn report\([^\n]*\n *@branchHint\(\.cold\);\n *@setEvalBranchQuota\(rig\.eval_quota\);\n *rig\.cold\(\);/, /fn hot\([^\n]*\n[^\n]*rig\.rt\([^\n]*\n *rig\.cold\(\);/, /^(?![\s\S]*rig\.unlikely\(\))/
+  # A function whose body starts with `rarely` starts with Zig's cold
+  # hint, and its `rarely` calls `rig.cold`, under any header marker.
   fun report(n: Int) -> Int
     rarely
     0 - n
 
-  fun size(n: Int) -> Int
+  inline fun hot(n: Int) -> Int
+    rarely
+    n + 1
+
+  sub main()
+    print(report(1), hot(3))
+
+code "rarely emits the unlikely hint in a branch", /if \([^\n]*\) \{\n *rig\.unlikely\(\);\n *return 1;/, /\} else \{\n *rig\.unlikely\(\);/, /else => __rig_blk_\d+: \{\n *rig\.unlikely\(\);\n *break :__rig_blk_\d+ 7;/, /catch [^\n]*\{\n *rig\.unlikely\(\);\n *break :__rig_blk_\d+ 0;/, /while \(true\) \{\n *if \(!\(k > 100\)\) break;\n *\{\n *rig\.unlikely\(\);/, /^(?![\s\S]*rig\.cold\(\))/, /^(?![\s\S]*@branchHint\(\.cold\))/
+  # A `rarely` that starts a branch of `if` or `else`, a `match` arm, a
+  # `catch` handler, or a loop's body calls `rig.unlikely`, which puts
+  # Zig's unlikely hint in it; no function is cold.
+  error Bad
+    no
+
+  fun get(n: Int) -> Int!
+    return Bad.no if n == 9
+    n
+
+  fun size(a: Int) -> Int
+    n = a
     if n > 5
       rarely
       return 1
-    2
+    else
+      rarely
+      n = n + 1
+    m = match n
+      1 => 2
+      _
+        rarely
+        7
+    k = get(m) catch |_|
+      rarely
+      0
+    while k > 100
+      rarely
+      k -= 1
+    k
 
   sub main()
-    print(report(1), size(3))
+    print(size(3))
 
 fail "rarely after the first line", "4:3: `rarely` is the first line of the block it marks"
   # `rarely` marks the block it starts.

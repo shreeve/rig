@@ -313,6 +313,9 @@ const FunState = struct {
     /// panics): its body starts with `@branchHint(.cold)`, which Zig
     /// takes only as the first statement.
     cold: bool = false,
+    /// The `rarely` that starts the function's body (`rig.funRarely`):
+    /// it writes the cold hint, and any other `rarely` the unlikely one.
+    rarely: Sexp = .nil,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
     /// The witness parameters of a method under bounds on its type's
@@ -1790,7 +1793,7 @@ pub const Emitter = struct {
         // A function that always panics is cold, as a `rarely` one is,
         // so a call of it is laid out off the path that does not.
         const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .entry_check = entry_check };
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .rarely = facts.syntax.funRarely(node), .entry_check = entry_check };
         // `main` holds the slot its failure's fields go in.
         // (A `main` that declares no failure but uses `!` fails with any
         // error.)
@@ -2621,8 +2624,9 @@ pub const Emitter = struct {
             .drop => try self.emitDrop(sexp),
             // An empty block: a statement wherever Zig wants one.
             .pass => try self.w.writeAll("{}"),
-            // `rarely`: the branch it starts is cold (`rig.cold`).
-            .rarely => try self.w.writeAll("rig.cold();"),
+            // `rarely`: the function it starts is cold (`rig.cold`), and
+            // any other block it starts unlikely (`rig.unlikely`).
+            .rarely => try self.w.writeAll(if (self.fun.rarely == .list and self.fun.rarely.list.id == sexp.list.id) "rig.cold();" else "rig.unlikely();"),
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),
