@@ -163,6 +163,20 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## RESUME HERE (2026-10-26): the speed stage against tsrs
+
+**Landed on main (8ddac7fb6), 2026-10-24 to 26.** Each change to the compiler, runtime, or std passed Rig's full suite and Trig's light gate; since #708, each also shows std.json's guard.
+- Speed: #677 (cheaper yield checks), #678 (prefault large heaps; zod3 4-6% faster at four checkers), #696 (`Table` reads without a test), #698 (`rig build --release --pgo`; Trig about 10% faster, 13-15% fewer instructions), release builds without frame pointers (1-2%), #705 (one compare for a signed index against a fixed bound) with #706 (a yield check that keeps registers; together 1.6% fewer instructions, ts-pattern 1.0-2.5% faster), #710 (the Map's probe inlined; 1.5-1.7% fewer instructions, Map spills 412M to 47M), #711 (an object of integers hashed one multiply a pair of words; 1.0-1.2% fewer instructions).
+- Language: #684 (`par.workers`), #688 (a parameter's optional field moves, CORE §5), #680 (`os.exit`, CORE), #701 (`$plain(T)` narrowing, SPEC "Generic bodies").
+- Records of what was measured and not taken: huge pages and Table prefault (#679, #699), List growth (#700), the packed Map and its replay (#694, #695, #703), inline-when-idle (#691), Span[n] and guard facts (#690).
+- #708 reverted one commit of #696 that made std.json 3.5-3.8% more instructions per byte (bisect in #707); the guard is a gate since (AGENTS.md step 6).
+
+**Measured.** Trig `--pgo` against shipped tsrs on pup, before #705-#711: ts-pattern at one checker 893 against 665 ms (1.34x; 1.76x at the stage's start), instructions 1.20x, peak memory 1.48x; zod3 1.39x. Trig's own logic is at parity (1,466M against 1,396M cycles); the rest is Rig's patterns. After #710, by share of ts-pattern's 8,527M instructions: List operations 10%, Map/Set 9%, spills 4%, yield checks 3%, `hashMix` 2%. The index tests already cost one compare each, as Rust's do; their count is the gap (2026-10/perf-stage/bounds-enum.md).
+
+**Decisions (the owner).** Match or beat tsrs, every win measured on Trig (2026-10-24). PGO built (2026-10-25). The `$plain(T)` paragraph and its panel's defaults (2026-10-26, 2026-10/core-plain records). hash.Map and hash.Set stay in std.hash (2026-10-25). #705 with #706, #710 with its slower String safe-mode rows noted, #711, and std.hash with zod3's 3% memory (2026-10-26).
+
+**Next.** #685 (std.hash) after its freed-table memory fix and Trig's light gate; then Trig moves its hot caches onto it. Then the leads above by share, and Trig's NEEDS 62 (blocking calls on the caller's stack while one task can run). HANDOFF.md has the state.
+
 ## RESUME HERE (2026-10-23): errors with data done; the consolidation round next
 
 **Landed on main (463de5898), #548-#569.** Each passed Rig's full suite, and each change to the compiler, runtime, or std passed Trig's light gate before merging.
