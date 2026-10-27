@@ -22,8 +22,9 @@ pub const Text = struct {
     }
 };
 
-/// libc's `malloc`, as the C++ and Rust contestants allocate from.
-pub const allocator = std.heap.c_allocator;
+/// The allocator map.zig times with (the module `alloc`): libc's
+/// `malloc` unless bench-hash names another.
+pub const allocator = @import("alloc").allocator;
 
 /// The `Auto` and `String` of a port's `HashMap(K, V, Context)`.
 pub fn Tables(comptime impl: type) type {

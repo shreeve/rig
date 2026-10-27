@@ -485,8 +485,10 @@ called sub strings_sized(s: Int)
   for _ in 0..reps
     put: List[String] = List(capacity: k * s)
     take: List[String] = List(capacity: k * s)
+    # Each List in its own pass, as map.rs makes them.
     for n in 0..k * s
       !put.push(text_of(n))
+    for n in 0..k * s
       !take.push(text_of(n))
     maps: List[StringMap] = List(capacity: k)
     for _ in 0..k
@@ -522,6 +524,7 @@ called sub strings_sized(s: Int)
   miss: List[String] = List(capacity: s)
   for i in 0..s
     !hit.push(text_of(order[i]))
+  for i in 0..s
     !miss.push(text_of(8 * N + i))
   sum = 0
   t = time.now()

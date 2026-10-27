@@ -9,6 +9,10 @@ languages:
 | `zig-*` | Zig's `std.HashMap` (`AutoHashMapUnmanaged`, `StringHashMapUnmanaged`) | Zig's | `map.zig` on `table_std.zig` |
 | `zig-foa` | a port of boost's `unordered_flat_map` to Zig, the base of Rig's `HashMap` | Rig's Int hash, Wyhash for text | `map.zig` on `foa.zig` |
 | `zig-dense` | a port of ankerl's `unordered_dense` 5.3.3 to Zig, the base of Rig's ordered `Map` | Rig's Int hash, Wyhash for text | `map.zig` on `dense.zig` |
+| `zig-hash`, `zig-ordered` | the designs Rig's `HashMap` and ordered `Map` will take, grown from the ports | Rig's Int hash, Wyhash for text | `map.zig` on `hash.zig`, `ordered.zig` |
+| `zig-hash-checked`, `zig-ordered-checked` | the same with the bounds tests safe Rig keeps put back: what Rig must prove away | the same | `.checked = true` |
+| `zig-hash` | the design Rig's unordered `HashMap` will take, grown from `zig-foa` | its own: one multiply for an Int, folded multiplies for text up to 32 bytes (Wyhash above) | `map.zig` on `hash.zig` |
+| `zig-ordered` | the design Rig's ordered `Map` will take: dense entries in insertion order, an index of tags and 32-bit entry indexes | Rig's Int hash, Wyhash for text | `map.zig` on `ordered.zig` |
 | `rust` | Rust's `HashMap`, which is hashbrown | FxHasher, written out (no crate) | `map.rs` |
 | `hashbrown` | the hashbrown crate, SwissTable | foldhash, its default | `rust/` |
 | `indexmap` | the indexmap crate: entries in a dense `Vec` in insertion order, a hashbrown table of indices; a remove is `swap_remove` | foldhash | `rust/` |
@@ -75,7 +79,22 @@ not it is new (`ensure`, `ensure_with`, and `edit` then `put`), on
 misses and on hits, which Zig's has no rows for.
 
 Every Zig contestant allocates from libc's `malloc`, as the C++ and Rust
-ones do, so a row times the table and not the allocator. Every
+ones do, so a row times the table and not the allocator. Go allocates
+from its own heap and collects garbage while it runs. A variant may name
+another allocator after a colon, to race allocators under one table:
+`zig-foa:smp` (Zig's `smp_allocator`), `zig-foa:rig` (Rig's release
+allocator, `src/alloc.zig`), `zig-foa:arena` (an `ArenaAllocator` over
+`page_allocator`, freed after each row), and `zig-foa:mimalloc`
+(mimalloc, pinned by `fetch-deps`); and any variant as `:thp`
+(`boost:thp`), the same program run with
+`GLIBC_TUNABLES=glibc.malloc.hugetlb=1`, so that on Linux glibc's
+`malloc` asks for transparent huge pages. The map.zig allocator is the
+module `alloc` (`alloc/*.zig`). None of these is in `--all`.
+
+Every program hides from the optimizer what each round of a row reads,
+the keys or the map, as Rust's `black_box` does (`opaque` in map.cc,
+`hide` in map.zig), so no round's work is hoisted out of the loop or
+merged with another's; the checksums show the work was done. Every
 contestant builds for the CPU it runs on, as `rig` and `zig` do by
 default: C++ (and abseil's library) with `-mcpu=native` on Arm and
 `-march=native` on x86, Rust with `-C target-cpu=native`, and Go with
@@ -90,4 +109,5 @@ program prints `KEYS OP NS CHECK` per operation, and the checksums of
 every variant must agree. The report gives each row's fastest variant
 and compares every variant with `--base` (default: the first Zig one),
 then a scoreboard: first places by variant over the rows every variant
-times, the `int` rows left out.
+times, the `int` rows left out. `--spread PCT` lists each row whose runs of a
+variant spread more than PCT%, to run again.

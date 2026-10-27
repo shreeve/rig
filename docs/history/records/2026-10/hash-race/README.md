@@ -167,3 +167,38 @@ against hashbrown's 7.5 ns, from tombstones; Zig's std says so at
 Raw reports: [mac-v2.txt](mac-v2.txt), [pup-v2.txt](pup-v2.txt).
 Next: `zig-hash` and `zig-ordered`, grown from the ports to take first
 place on both machines, and then Rig's maps rewritten to emit them.
+
+## Third round (2026-10-27): the Rig designs
+
+Two Zig tables grown from the ports race with every contestant:
+- [zig-hash](zig-hash.md) (`bench/hash/hash.zig`), the design of Rig's
+  unordered `HashMap`;
+- [zig-ordered](zig-ordered.md) (`bench/hash/ordered.zig`), the design of
+  Rig's ordered `Map`.
+
+Each also races "checked", with the bounds tests safe Rig keeps put back.
+The harness allocates each Zig text once, as the others do.
+
+First places over the 84 rows every contestant times, fastest of five,
+`int` rows left out:
+
+| | Mac | pup |
+|---|---|---|
+| zig-hash | 25 | 18 |
+| zig-ordered | 11 | 11 |
+| zig-hash-checked | 6 | 9 |
+| zig-ordered-checked | 6 | 9 |
+| Rig's designs, in all | 48 | 47 |
+| Rust std + FxHash | 8 | 12 |
+| ankerl (both builds and the port) | 11 | 15 |
+| abseil, boost | 4, 1 | 2, 3 |
+| Rig's current Map | 3 | 2 |
+
+Peak memory for 4M Int keys: zig-ordered 37.1 bytes an entry on the Mac
+and 26.6 on pup, the least of all 21 contestants on both. Rig's current
+Map rose from 39.7 to 51.0 on the Mac with #725 (a kept freed table);
+Rig - Merges has the cause and a fix for the owner (branch `alloc-peak`).
+
+The checked variants cost 13-20% on zig-hash's lookups and 2-7% on
+zig-ordered's: what the masked-index proof (#729) and the Map rewrite
+must buy back. Raw: [mac-v3.txt](mac-v3.txt), [pup-v3.txt](pup-v3.txt).
