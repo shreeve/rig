@@ -2706,10 +2706,8 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
         pub fn get(self: *const Self, i: Int) Opt(T) {
-            // One compare, as `heldIndex` makes it: a negative `i` reads
-            // as at least `2^63`, past any `len`.
-            const u: u64 = @bitCast(i);
-            return pack(Opt(T), if (u < self.len) self.memConst()[@truncate(u)] else null);
+            const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
+            return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
         }
 
         /// `v[i]`: the element at `i`; panics when out of range. One test,
@@ -2734,7 +2732,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `i` as a slot of the live elements, panicking unless `0 <= i <
         /// len`; inside the buffer by `len <= buf.len`.
         inline fn indexOf(self: *const Self, i: anytype) usize {
-            const idx = heldIndex(i, self.len);
+            const idx = index(i, self.len);
             invariant(idx < self.memConst().len);
             return idx;
         }
@@ -3321,20 +3319,6 @@ pub fn index(i: anytype, count: usize) usize {
     return idx;
 }
 
-/// `index` against a held length (`heldLen`), at most `max_len`: a
-/// signed `i` read as unsigned is below the length exactly when `0 <= i
-/// < count`, since a negative one reads as at least `2^63`. One compare
-/// where `index` makes two.
-pub inline fn heldIndex(i: anytype, count: usize) usize {
-    const info = @typeInfo(@TypeOf(i));
-    if (comptime info != .int or info.int.signedness != .signed or info.int.bits > 64) return index(i, count);
-    invariant(@as(u64, count) <= max_len);
-    const u: u64 = @bitCast(@as(i64, i));
-    if (u >= count) indexPanic();
-    // Exact: `u < count`, a `usize`.
-    return @truncate(u);
-}
-
 /// A float about to be converted to an integer type, panicking if it is
 /// NaN, which `@trunc`'s own range check does not catch.
 pub fn notNan(x: anytype) @TypeOf(x) {
@@ -3469,14 +3453,12 @@ fn Elems(comptime P: type) type {
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
 /// once; panics when out of range.
 pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
-    if (comptime lenHeld(@TypeOf(items))) return items.ptr[heldIndex(i, items.len)];
     return items[index(i, items.len)];
 }
 
 /// `s[i] = x` through a `![]T`: the slot at `i`, with `s` evaluated
 /// once; panics when out of range. Read-only for a read-only slice.
 pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
-    if (comptime lenHeld(@TypeOf(items))) return &items.ptr[heldIndex(i, items.len)];
     return &items[index(i, items.len)];
 }
 
