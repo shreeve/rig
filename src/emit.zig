@@ -8489,6 +8489,14 @@ pub const Emitter = struct {
                 if (args.len == 1) try self.emitBare(ir.get(args[0], .value)) else try self.w.writeAll("0");
                 return self.w.writeAll(")");
             },
+            // `rig.prefetch(elems, i)`: element `i` asked for.
+            .prefetch => {
+                try self.w.writeAll("rig.prefetch(");
+                try self.emitElems(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")");
+            },
             // `rig.orderOf(a, b)`: an `Order` (`Checker.orderCall`).
             .order => {
                 try self.w.writeAll("rig.orderOf(");

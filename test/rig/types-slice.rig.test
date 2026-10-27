@@ -476,3 +476,107 @@ fail "slice sum start", "`sum` takes only a starting value, by name: `xs.sum(sta
 fail "slice sum reads", "`sum` only reads its elements; remove the `!`", errors: 1
   xs = [1, 2]
   print(!xs.sum())
+
+test "slice prefetch", '''
+  55 9 4 20
+  next 3
+  ok
+'''
+  # `xs.prefetch(i)` asks for element `i` of a List, an array, or a slice
+  # ahead of its read, and does nothing a program can see for an `i` out
+  # of range: below 0, or at `len` or past it. Its index is evaluated as
+  # any argument is.
+  sub warm[T](xs: ?List[T], i: Int)
+    xs.prefetch(i)
+
+  fun walk(xs: []Int, ahead: Int) -> Int
+    t = 0
+    for i in 0..xs.len
+      xs.prefetch(i + ahead)
+      t += xs[i]
+    t
+
+  obj Table
+    slots: List[Int]
+
+    fun look(?@, i: Int) -> Int
+      @slots.prefetch(i)
+      @slots[i]
+
+  fun next(n: Int) -> Int
+    print("next", n)
+    n
+
+  fun make() -> List[Int]
+    List([1, 2, 3])
+
+  a = [1, 2, 3, 4]
+  xs = List[Int]()
+  for i in 0..11
+    !xs.push(i)
+  names = List[String]()
+  !names.push(String("x"))
+  empty = List[String]()
+  for i in [-1, 0, 3, 4, 10, 11, 100, Int.min, Int.max]
+    a.prefetch(i)
+    xs.prefetch(i)
+    ?a[1..].prefetch(i)
+    ?xs[2..5].prefetch(i)
+    empty.prefetch(i)
+    warm(?names, i)
+    warm(?xs, i)
+  a.prefetch(U8(255))
+  xs.prefetch(U64.max)
+  xs.prefetch(I8(-1))
+  make().prefetch(1)
+  t = Table(slots: List([7, 8, 9]))
+  print(walk(?xs, 8), t.look(2), a[3], walk(?a, -3) * 2)
+  xs.prefetch(next(3))
+  print("ok")
+
+code "slice prefetch emits", "rig.prefetch(xs.items(), i)", "rig.prefetch(&a, 2)", "rig.prefetch(s, i + 4)"
+  fun f(s: []Int, i: Int) -> Int
+    s.prefetch(i + 4)
+    s[i]
+
+  xs = List([1, 2, 3])
+  a = [1, 2, 3]
+  i = 1
+  xs.prefetch(i)
+  a.prefetch(2)
+  print(f(?a, i))
+
+fail "slice prefetch rejects", "3:3: no method `prefetch` on type `Map`", "4:12: an index must be an integer; got `Float`", "`prefetch` takes one argument, the index of the element to fetch; got 2 arguments", "6:1: `prefetch` only reads its elements; remove the `!`", "7:7: `prefetch` is a method of `[3]Int`, only called: `xs.prefetch(i)`", "`prefetch` takes no compile-time arguments", "`prefetch` asks for an element of a List, an array, or a slice, and `Static` is text", errors: 7
+  m = Map[Int, Int]()
+  a = [1, 2, 3]
+  m.prefetch(0)
+  a.prefetch(1.5)
+  a.prefetch(0, 1)
+  !a.prefetch(0)
+  f = a.prefetch
+  a.prefetch[Int](0)
+  "abc".prefetch(0)
+
+test "slice prefetch kernels", "45 12", release: true
+  # The kernels test/cli/prefetch.sh reads the assembly of: `warm` is one
+  # prefetch and no test, and `sum_ahead` reads each element `keys` names,
+  # asking for the one 8 lookups ahead.
+  pub sub warm(xs: []Int, i: Int)
+    xs.prefetch(i)
+
+  pub fun sum_ahead(xs: []Int, keys: []Int) -> Int
+    t = 0
+    for j in 0..keys.len
+      if j + 8 < keys.len
+        xs.prefetch(keys[j + 8])
+      t += xs[keys[j]]
+    t
+
+  xs = List[Int]()
+  keys = List[Int]()
+  for i in 0..10
+    !xs.push(i)
+    !keys.push(9 - i)
+  warm(?xs, 3)
+  warm(?xs, 30)
+  print(sum_ahead(?xs, ?keys), sum_ahead(?xs, ?keys[..3]) - 12)

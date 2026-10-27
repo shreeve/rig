@@ -2370,8 +2370,9 @@ pub const Use = enum {
 
 /// A built-in method on the elements of a slice, an array, a List, or a
 /// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `xs.sum()`
-/// and `xs.sum(start: n)` of numbers (`elem` their type), and on
-/// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`
+/// and `xs.sum(start: n)` of numbers (`elem` their type), `xs.prefetch(i)`,
+/// and on bytes `buf.read[U16, .big](at)` and
+/// `!buf.write[U32, .little](at, v)`
 /// (`num` a number type or a vector of numbers);
 /// and the methods of an integer's bits: `x.not()`, the complement of an
 /// integer or a `Bool`, or lane by lane of a vector, and
@@ -2443,13 +2444,16 @@ pub const ElemOp = enum {
     /// `xs.sum()`, `xs.sum(start: n)`: the elements of a slice, an array,
     /// or a List of numbers added in order to `start`, `0` by default.
     sum,
+    /// `xs.prefetch(i)`: a hint that element `i` of a slice, an array, or
+    /// a List will be read soon, which a program cannot see, for any `i`.
+    prefetch,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => false,
         };
     }
 
@@ -2468,7 +2472,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .sum => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .sum, .prefetch => false,
         };
     }
 };

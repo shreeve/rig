@@ -4050,6 +4050,29 @@ pub fn sum(items: anytype, from: std.meta.Elem(@TypeOf(items))) std.meta.Elem(@T
     return total;
 }
 
+/// `xs.prefetch(i)`: asks the data cache for element `i` of `items`, to
+/// be read soon (`@prefetch`: a read, kept at every level). It does
+/// nothing a program can see, for any `i`: the address is made from
+/// integers, never a pointer out of bounds, and Zig defines a prefetch of
+/// any address, which no target faults on. So it takes no range test:
+/// one `prfm` on arm64 and one `prefetcht0` on x86-64
+/// (test/cli/prefetch.sh), which bench/prefetch measured as fast as the
+/// tested form or faster. Only an index wider than a `usize` that no
+/// `usize` holds is dropped.
+pub inline fn prefetch(items: anytype, i: anytype) void {
+    const E = std.meta.Elem(@TypeOf(items));
+    const xs: []const E = items;
+    const I = @TypeOf(i);
+    const k: usize = if (comptime I == comptime_int or @bitSizeOf(I) > @bitSizeOf(usize))
+        std.math.cast(usize, i) orelse return
+    else if (comptime @typeInfo(I).int.signedness == .signed)
+        @bitCast(@as(isize, i))
+    else
+        i;
+    const addr: *allowzero const u8 = @ptrFromInt(@intFromPtr(xs.ptr) +% k *% @sizeOf(E));
+    @prefetch(addr, .{ .rw = .read, .locality = 3, .cache = .data });
+}
+
 /// `xs.reduce(start, f)`: the running value, `first`, passed with
 /// each element in order, lent, to `f`, which gives the next; the last.
 /// A fallible `f` makes it fallible, failing with `f`'s first failure.
@@ -7698,6 +7721,17 @@ const DropOrder = struct {
         self.n.* += 1;
     }
 };
+
+test "prefetch: any index, in range or not" {
+    var a = [_]u64{ 1, 2, 3 };
+    for ([_]i64{ -1, 0, 2, 3, std.math.minInt(i64), std.math.maxInt(i64) }) |i| prefetch(&a, i);
+    prefetch(@as([]const u64, &a), @as(u8, 255));
+    prefetch(&a, 2);
+    prefetch(&a, -5);
+    prefetch(&a, @as(i128, std.math.maxInt(i128)));
+    prefetch(@as([]const u64, &.{}), @as(i64, 0));
+    try testing.expectEqual(@as(u64, 6), a[0] + a[1] + a[2]);
+}
 
 test "maskTrueLanes: every form agrees" {
     const L = struct {
