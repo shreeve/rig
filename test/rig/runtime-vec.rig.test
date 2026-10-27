@@ -120,6 +120,64 @@ test "vec insert remove", '''
   y = (!boxes).remove(0)
   print("unboxed", y.n, boxes.len)
 
+test "vec swap remove", '''
+  20 [10, 40, 30]
+  30 [10, 40]
+  10 [40]
+  40 []
+  took 1 [4, 2, 3]
+  drop 1
+  took 3 [4, 2]
+  drop 3
+  shared 7 1
+  drop 7
+  drop 2
+  drop 4
+'''
+  # `(!v).swap_remove(i)` hands the element at `i` over and moves the
+  # last element into its place, so one element moves, not the rest:
+  # the order of what is left changes. Removing the last element moves
+  # nothing. An owning element moves out, and the List drops what is
+  # left.
+
+  obj B
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  v = List[Int]([10, 20, 30, 40])
+  a = (!v).swap_remove(1)
+  print(a, v)
+  b = (!v).swap_remove(v.len - 1)
+  print(b, v)
+  c = (!v).swap_remove(0)
+  print(c, v)
+  d = (!v).swap_remove(0)
+  print(d, v)
+
+  bs = List[B]()
+  for n in 1..5
+    !bs.push(B(n: n))
+  took = (!bs).swap_remove(0)
+  print("took", took.n, [bs[0].n, bs[1].n, bs[2].n])
+  <took
+  last = (!bs).swap_remove(2)
+  print("took", last.n, [bs[0].n, bs[1].n])
+  <last
+
+  hs = List[*B]()
+  !hs.push(*B(n: 7))
+  h = (!hs).swap_remove(0)
+  print("shared", h.n, hs.len + 1)
+
+bomb "vec swap remove empty", "index out of bounds"
+  # `swap_remove` takes an index of an element; on an empty List it
+  # panics.
+
+  v: List[Int] = List()
+  print((!v).swap_remove(0))
+
 test "vec len through views", '''
   2 2 10
   0

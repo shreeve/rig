@@ -3076,6 +3076,17 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return value;
         }
 
+        /// `(!v).swap_remove(i)`: hand over the element at `i` and move the
+        /// last element into its place, so one element moves, not the rest.
+        pub fn swap_remove(self: *Self, i: Int) T {
+            const idx = index(i, self.len);
+            const m = self.mem();
+            const value = m[idx];
+            self.len -= 1;
+            m[idx] = m[self.len];
+            return value;
+        }
+
         /// `for x in <v`: the List's elements, each handed over in order.
         pub const IntoIter = struct {
             list: Self,
