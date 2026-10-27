@@ -589,11 +589,18 @@ const table_zig = @import("table.zig");
 pub const Table = table_zig.Table;
 pub const SlotOf = table_zig.Slot;
 pub const slotOf = table_zig.slotOf;
+
+// The table behind `Map` and `Set` (`ordered.zig`): the built-ins
+// `OrderedMap[K, V]` and `OrderedSet[K]`.
+const ordered_zig = @import("ordered.zig");
+pub const OrderedMap = ordered_zig.OrderedMap;
+pub const OrderedSet = ordered_zig.OrderedSet;
 pub const httpServe = net.serve;
 
 test {
     _ = sched;
     _ = fast_alloc;
+    _ = ordered_zig;
 }
 
 // -----------------------------------------------------------------------------
@@ -1315,7 +1322,7 @@ fn clonesErased(comptime T: type) bool {
         .optional => |o| clonesErased(o.child),
         .array => |a| clonesErased(a.child),
         .@"struct" => |s| blk: {
-            if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box") or @hasDecl(T, "__rig_api_shared") or @hasDecl(T, "__rig_api_weak")) break :blk true;
+            if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_ordered") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box") or @hasDecl(T, "__rig_api_shared") or @hasDecl(T, "__rig_api_weak")) break :blk true;
             if (@hasDecl(T, "__rig_drop")) break :blk false;
             inline for (s.field_types) |F| if (!clonesErased(F)) break :blk false;
             break :blk true;
@@ -2346,7 +2353,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             return out;
         },
         .@"struct" => |s| {
-            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_ordered") or @hasDecl(T, "__rig_error_value")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
             if (comptime @hasDecl(T, "__rig_api_box")) return value.clone();
             if (comptime @hasDecl(T, "__rig_api_shared")) return value.cloneStrong();
@@ -5171,7 +5178,7 @@ const heap_sites = heap_profile and @hasDecl(root, "__rig_heap_sites") and root.
 /// Built with `RIG_MAP_TRACE=1`, the root module declares
 /// `__rig_map_trace`, and every operation on a built-in Map or Set writes
 /// a record of it (`mapTraceOp`).
-const map_trace = @hasDecl(root, "__rig_map_trace") and root.__rig_map_trace;
+pub const map_trace = @hasDecl(root, "__rig_map_trace") and root.__rig_map_trace;
 
 // Tasks. A program that makes tasks (`f(x)&`) declares `__rig_tasks` in
 // its root module, and runs them on the scheduler (`sched.zig`): fibers
@@ -7654,20 +7661,13 @@ fn isBuiltin(comptime T: type, comptime head: []const u8) bool {
 
 /// A Map as `{"a": 1, "b": 2}`: each entry it holds, in the order its
 /// key was first put in, its key and value each as an element of a List
-/// prints; `{}` when empty. A Map keeps its entries in one of two Lists
-/// (std/prelude.rig): `ps`, plain entries, whose gone ones its table
-/// marks (`entryGone`), or `es`, each entry `none` once taken.
+/// prints; `{}` when empty. Its entries are its table's, `t`
+/// (`ordered.zig`), which says which are live.
 fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
     try w.writeAll("{");
     var n: usize = 0;
-    for (map.ps.items(), 0..) |e, j| if (!entryGone(&map.table, j)) {
-        if (n > 0) try w.writeAll(", ");
-        try writeValue(w, e.key, false);
-        try w.writeAll(": ");
-        try writeValue(w, e.value, false);
-        n += 1;
-    };
-    for (map.es.items()) |slot| if (some(slot)) |e| {
+    for (0..map.t.len) |j| if (map.t.isLive(j)) {
+        const e = map.t.entryAt(j);
         if (n > 0) try w.writeAll(", ");
         try writeValue(w, e.key, false);
         try w.writeAll(": ");
@@ -7678,31 +7678,16 @@ fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
 }
 
 /// A Set as `{1, 2}`: each key it holds, in the order it was first
-/// added, as an element of a List prints; `{}` when empty. Its keys are
-/// in `ks` or `es`, as a Map's entries are.
+/// added, as an element of a List prints; `{}` when empty.
 fn writeSet(w: *std.Io.Writer, set: anytype) std.Io.Writer.Error!void {
     try w.writeAll("{");
     var n: usize = 0;
-    for (set.ks.items(), 0..) |k, j| if (!entryGone(&set.table, j)) {
+    for (0..set.t.len) |j| if (set.t.isLive(j)) {
         if (n > 0) try w.writeAll(", ");
-        try writeValue(w, k, false);
-        n += 1;
-    };
-    for (set.es.items()) |slot| if (some(slot)) |e| {
-        if (n > 0) try w.writeAll(", ");
-        try writeValue(w, e.key, false);
+        try writeValue(w, set.t.entryAt(j).key, false);
         n += 1;
     };
     try w.writeAll("}");
-}
-
-/// Whether entry `j` of a Map or Set, whose table is `table`, is gone: in
-/// a small one (no index), its tag is 0; else its bit in `gone` is set.
-fn entryGone(table: anytype, j: usize) bool {
-    if (table.tags.len == 0) return table.small[j] == 0;
-    const gone = table.gone.items();
-    const w = j >> 6;
-    return w < gone.len and (gone[w] >> @intCast(j & 63)) & 1 != 0;
 }
 
 pub fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {
