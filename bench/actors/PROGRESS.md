@@ -24,6 +24,8 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-22 | #552: each worker on cache lines of its own | rig-fast | 5.1 ns | 29 ns | 0.9 ns |
 | 2026-10-23 | main before #581, interleaved | rig-fast | 5.0 ns | 40 ns | 1.0 ns |
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set | rig-fast | 5.0 ns | 40 ns | 0.9 ns |
+| 2026-10-27 | main 54a7158b5 before #725, interleaved | rig-fast | 5.0 ns | 26 ns | 0.8 ns |
+| 2026-10-27 | #725: a freed large block serves any request it fits | rig-fast | 5.0 ns | 25 ns | 0.8 ns |
 
 ## x86-64 (pup)
 
@@ -54,3 +56,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-25 | #677: fewer yield checks (pup cores 6,7) | rig-fast | 13 ns | 16 ns | 11 ns |
 | 2026-10-25 | main 99dcccf13 (before #677 and #683), interleaved (pup cores 6,7) | rig-fast | 12 ns | 15 ns | 11 ns |
 | 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 12 ns | 15 ns | 11 ns |
+| 2026-10-27 | main 54a7158b5 before #725, interleaved (pup cores 6,7) | rig-fast | 11 ns | 15 ns | 10 ns |
+| 2026-10-27 | #725: a freed large block serves any request it fits (pup cores 6,7) | rig-fast | 11 ns | 15 ns | 10 ns |

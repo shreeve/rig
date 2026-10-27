@@ -21,6 +21,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-22 | #552: each worker on cache lines of its own | rig-fast | 172733 | 360 us | 817 us | 16.6 KiB |
 | 2026-10-23 | main before #581, interleaved | rig-fast | 180389 | 322 us | 1248 us | 16.6 KiB |
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set | rig-fast | 181146 | 295 us | 1797 us | 16.6 KiB |
+| 2026-10-27 | main 54a7158b5 before #725, interleaved | rig-fast | 171133 | 365 us | 660 us | 16.6 KiB |
+| 2026-10-27 | #725: a freed large block serves any request it fits | rig-fast | 175673 | 351 us | 659 us | 16.6 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 
@@ -46,6 +48,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-25 | #677: fewer yield checks (pup cores 6,7) | rig-fast | 186094 | 208 us | 3502 us | 8.6 KiB |
 | 2026-10-25 | main 99dcccf13 (before #677 and #683), interleaved (pup cores 6,7) | rig-fast | 196161 | 193 us | 3461 us | 8.6 KiB |
 | 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 195093 | 215 us | 3482 us | 8.6 KiB |
+| 2026-10-27 | main 54a7158b5 before #725, interleaved (pup cores 6,7) | rig-fast | 196316 | 201 us | 3448 us | 8.6 KiB |
+| 2026-10-27 | #725: a freed large block serves any request it fits (pup cores 6,7) | rig-fast | 201191 | 198 us | 3434 us | 8.6 KiB |
 
 The "buffers held only per request" rows (#402) ran on a build that
 pinned every task to the worker that made it, a slip of #401 that #405
