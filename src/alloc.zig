@@ -11,10 +11,13 @@
 //! keeps the rest of it apart (`takeKept`), so a list that grows, a
 //! buffer used again, and tables built and dropped again and again do
 //! not map and unmap memory each time. It keeps them while what it holds
-//! in large blocks, handed out and kept, is no more than the most it has
-//! handed out at once and `keep_large` more (`keepBound`), so keeping
-//! never raises that peak. Segments are never returned to the system:
-//! memory freed stays for reuse. On Linux,
+//! in large blocks, handed out and kept, is no more than its settled
+//! peak, the most it has had handed out just after a free, and
+//! `keep_large` more (`keepBound`). So a growth's moment, the old block
+//! and the new one handed out together, does not raise what it may keep,
+//! and a table that grows does not leave the block it grew from
+//! resident. Segments are never returned to the system: memory freed
+//! stays for reuse. On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`),
@@ -218,7 +221,8 @@ pub const Heap = struct {
     large_held: [large_words]u64 = @splat(0),
     large_bytes: usize = 0,
     /// The bytes of the large blocks this heap has handed out and not
-    /// had back, and the most they have come to (`keepBound`).
+    /// had back, and the most they have been just after a free, its
+    /// settled peak (`keepBound`).
     large_live: usize = 0,
     large_peak: usize = 0,
     /// What this thread counted and has not yet added to the program's
@@ -363,14 +367,19 @@ fn minLarge() usize {
 const move_large: usize = 1 << 20;
 
 /// The most bytes of freed large blocks a heap keeps: as many as leave
-/// what it holds in large blocks, handed out and kept, no more than the
-/// most it has handed out at once and `keep_large`. A free or a reuse
-/// leaves what it holds as it was, so only new pages can pass the bound
-/// (`trimKept`), and keeping never raises the heap's peak: a program
-/// that builds and drops its tables again and again takes their pages
-/// from its own, up to what it once held.
+/// what it holds in large blocks, handed out and kept, within its
+/// settled peak and `keep_large` more. A growth maps the new block, mostly
+/// untouched, before it frees the old one, whose pages are resident;
+/// the peak, counted only after a free, leaves that moment out, so the
+/// old block is kept only within `keep_large`. A table built and dropped
+/// counts its whole size, since its last growth's free leaves it handed
+/// out: a program that builds and drops its tables again and again takes
+/// their pages from its own. A free or a reuse leaves what the heap holds
+/// as it was, so only new pages can pass the bound (`trimKept`); while
+/// they take it past its settled peak, it keeps no more than
+/// `keep_large`.
 fn keepBound(h: *const Heap) usize {
-    return h.large_peak - h.large_live + keep_large;
+    return (h.large_peak -| h.large_live) + keep_large;
 }
 
 fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
@@ -428,10 +437,11 @@ fn adviseHuge(p: usize, len: usize) void {
     std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
 }
 
-/// `size` more bytes of large blocks handed out.
+/// `size` more bytes of large blocks handed out. The settled peak is
+/// raised by a free (`freeLarge`), not here, so a block handed out
+/// before the one it replaces is freed does not count twice.
 fn lent(h: *Heap, size: usize) void {
     h.large_live += size;
-    h.large_peak = @max(h.large_peak, h.large_live);
 }
 
 /// A kept block for `size` bytes, best fit by bucket: the first of the
@@ -523,8 +533,10 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     mustOwn(h);
     const size = largeSize(len);
     // A block another heap handed out, freed here, counts against this
-    // heap's bound as a new one would.
+    // heap's bound as a new one would. What stays handed out after the
+    // free is the settled peak's measure.
     h.large_live -|= size;
+    h.large_peak = @max(h.large_peak, h.large_live);
     if (h.large_bytes + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
     keepPiece(h, @intFromPtr(p), size);
 }
@@ -990,11 +1002,58 @@ test "a freed large block serves a smaller request and keeps the rest, and a tab
     // What it holds stays within the most it handed out, and
     // `keep_large`.
     try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
-    // A block larger than any kept takes new pages and gives back kept
-    // ones past the bound.
+    // A block larger than any kept takes new pages, past the settled
+    // peak, and gives back kept ones past the bound: no more than
+    // `keep_large` stay.
     const huge = allocLarge(&h, 64 * mib).?;
-    try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
+    try std.testing.expect(h.large_bytes <= keepBound(&h));
+    try std.testing.expect(h.large_bytes <= keep_large);
     freeLarge(&h, huge, 64 * mib);
+    trimAllForTest(&h);
+}
+
+test "a block grown as a List grows it, to past `keep_large`, keeps no more than `keep_large` of the blocks it grew from" {
+    var h = testHeap();
+    const mib: usize = 1 << 20;
+    // Each growth takes a block twice the size and frees the old one,
+    // whose pages stay resident while the new one, mostly untouched, is
+    // filled: the heap keeps no more of them than `keep_large`.
+    var len: usize = mib;
+    var p = allocLarge(&h, len).?;
+    while (len < 64 * mib) : (len *= 2) {
+        const q = allocLarge(&h, 2 * len).?;
+        freeLarge(&h, p, len);
+        p = q;
+        try std.testing.expect(h.large_bytes <= keep_large);
+    }
+    // Dropped, the last block is kept: it is what the heap held at its
+    // settled peak.
+    freeLarge(&h, p, len);
+    try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
+    try std.testing.expect(h.large_bytes > keep_large);
+    trimAllForTest(&h);
+}
+
+test "tables grown past `keep_large` in all, dropped, and built again take no new pages" {
+    var h = testHeap();
+    // 48 tables, each grown from 128 KiB to 512 KiB, all held at once
+    // (24 MiB), then dropped: built again the same way, they take their
+    // pages from what the heap kept.
+    var tables: [48][*]u8 = undefined;
+    for (0..2) |round| {
+        const taken = h.taken;
+        for (&tables) |*t| {
+            var len: usize = 128 << 10;
+            t.* = allocLarge(&h, len).?;
+            while (len < 512 << 10) : (len *= 2) {
+                const q = allocLarge(&h, 2 * len).?;
+                freeLarge(&h, t.*, len);
+                t.* = q;
+            }
+        }
+        if (round == 1) try std.testing.expectEqual(taken, h.taken);
+        for (tables) |t| freeLarge(&h, t, 512 << 10);
+    }
     trimAllForTest(&h);
 }
 
