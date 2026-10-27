@@ -1131,7 +1131,9 @@ passed it, and leaves a tombstone otherwise; when a put finds the table
 full, the table is rebuilt at its size if that leaves it at most half
 full, its tombstones dropped, and otherwise built anew at twice the
 size or more, its control bytes written in one fill and each key placed
-again from its hash. Nothing is allocated until the first put; `clear`
+again from its hash; a table of a megabyte or more is lengthened where it
+lies and its keys placed again in it, so the old and the new table are
+never held at once. Nothing is allocated until the first put; `clear`
 drops every entry and keeps the table.
 
 Where the key and the value are both plain data (`$plain`, [SPEC

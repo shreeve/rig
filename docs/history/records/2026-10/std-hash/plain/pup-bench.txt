@@ -1,0 +1,47 @@
+keys       op                        hash         map        rust     rustmix
+int16      insert                   31.44       14.82       34.21       33.60  map 52.9% faster  rust 8.8% slower  rustmix 6.9% slower
+int16      remove                   12.92       14.68       11.97        8.97  map 13.6% slower  rust 7.4% faster  rustmix 30.6% faster
+int16      hit                       1.71        1.72        1.31        1.75  map 0.6% slower  rust 23.7% faster  rustmix 2.1% slower
+int16      miss                      1.42        1.34        1.41        1.53  map 5.6% faster  rust 0.4% faster  rustmix 7.6% slower
+int16      iterate                   0.48        0.44        0.51        0.51  map 8.2% faster  rust 7.1% slower  rustmix 7.1% slower
+int1000    insert                   22.90       18.41       22.31       26.81  map 19.6% faster  rust 2.6% faster  rustmix 17.1% slower
+int1000    remove                   12.94       20.27        3.94       11.77  map 56.7% slower  rust 69.5% faster  rustmix 9.0% faster
+int1000    hit                       1.64        1.84        1.25        1.54  map 11.9% slower  rust 23.5% faster  rustmix 5.8% faster
+int1000    miss                      1.42        1.57        1.03        1.83  map 10.8% slower  rust 27.5% faster  rustmix 28.9% slower
+int1000    iterate                   0.47        0.43        0.62        0.51  map 9.1% faster  rust 32.7% slower  rustmix 7.9% slower
+int100000  insert                   26.60       25.53       16.00       19.81  map 4.0% faster  rust 39.8% faster  rustmix 25.5% faster
+int100000  remove                   23.46       41.11       11.19       17.49  map 75.2% slower  rust 52.3% faster  rustmix 25.5% faster
+int100000  hit                       3.41       10.52        2.38        3.26  map 208.9% slower  rust 30.0% faster  rustmix 4.2% faster
+int100000  miss                      6.04       17.40        1.67        6.40  map 188.0% slower  rust 72.4% faster  rustmix 5.9% slower
+int100000  iterate                   0.94        0.50        0.61        0.92  map 46.9% faster  rust 35.3% faster  rustmix 1.6% faster
+int4000000 insert                   59.39       42.37       43.15       50.43  map 28.7% faster  rust 27.4% faster  rustmix 15.1% faster
+int4000000 remove                   43.66       85.05       13.04       33.71  map 94.8% slower  rust 70.1% faster  rustmix 22.8% faster
+int4000000 hit                      22.09       24.38        9.54       22.31  map 10.4% slower  rust 56.8% faster  rustmix 1.0% slower
+int4000000 miss                      9.49       16.26        4.09        9.26  map 71.4% slower  rust 56.9% faster  rustmix 2.3% faster
+int4000000 iterate                   2.67        1.09        1.95        3.29  map 59.1% faster  rust 27.2% faster  rustmix 23.1% slower
+int        insert                   48.88       28.76           -           -  map 41.2% faster
+int        hit                      17.40       11.21           -           -  map 35.6% faster
+int        miss                      4.48       13.75           -           -  map 206.7% slower
+int        iterate                   2.38        0.97           -           -  map 59.3% faster
+string     insert                  176.73       45.11           -           -  map 74.5% faster
+string     hit                      56.97       25.11           -           -  map 55.9% faster
+string     miss                     16.70       18.98           -           -  map 13.7% slower
+string     iterate                   4.28        1.72           -           -  map 59.8% faster
+pair       insert                   51.20       33.10           -           -  map 35.3% faster
+pair       hit                      23.98       13.06           -           -  map 45.5% faster
+pair       miss                      8.78       14.51           -           -  map 65.3% slower
+small      4                         2.43        2.47           -           -  map 1.8% slower
+small      8                         2.42        3.23           -           -  map 33.4% slower
+string     intern                   13.28       13.47           -           -  map 1.4% slower
+int        ensure-miss              50.45       30.40           -           -  map 39.7% faster
+int        ensure-hit               23.63       12.29           -           -  map 48.0% faster
+int        ensure_with-miss         46.87       34.02           -           -  map 27.4% faster
+int        ensure_with-hit          20.48       13.42           -           -  map 34.4% faster
+int        edit_put-miss            49.49       31.91           -           -  map 35.5% faster
+int        edit_put-hit             21.36       10.47           -           -  map 51.0% faster
+string     ensure-miss             172.14       46.27           -           -  map 73.1% faster
+string     ensure-hit               76.01       35.99           -           -  map 52.7% faster
+string     ensure_with-miss        210.04       50.92           -           -  map 75.8% faster
+string     ensure_with-hit         136.86       30.25           -           -  map 77.9% faster
+string     edit_put-miss           233.72       52.34           -           -  map 77.6% faster
+string     edit_put-hit            137.63       27.30           -           -  map 80.2% faster

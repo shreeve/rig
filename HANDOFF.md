@@ -73,11 +73,13 @@ newest entry summarizes the latest rounds.
   the packed Map needs to fill its free slots. Sema decides plain once
   per instance and emit passes it as a compile-time Bool.
 - **std.hash** (`hash.Map`, `hash.Set`, unordered, hashbrown's layout):
-  built, beside the ordered Map. On Trig's hot caches it moves
-  ts-pattern within noise and zod3 1-2.5% slower with 10% more memory
-  ([records](docs/history/records/2026-10/std-hash/)); Trig decides
-  whether to adopt it. Its growth writes every free slot (no
-  `List.filled(n, none)` for an owning type) and rehashes every key.
+  draft #685, owner-approved as a std module 2026-10-25. Plain keys and
+  values sit in their slots, the probe is inlined, large tables grow in
+  place, and objects of integers hash one multiply a pair. Trig's caches
+  on it: ts-pattern 2.2-4.1% faster with less memory; zod3 1.0-3.5%
+  faster with 2.7-3.2% more peak RSS (its instantiation table just
+  doubled), so the bar's "RSS no higher" is not met there
+  ([records](docs/history/records/2026-10/std-hash/plain-slots.md)).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

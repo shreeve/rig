@@ -19,8 +19,9 @@ labs = [l for l, _ in vs]
 print('%-10s %-18s' % ('keys', 'op') + ''.join('%12s' % l for l in labs))
 for row in order:
     b = best[row]; base = b[labs[0]]
-    out = '%-10s %-18s' % row + ''.join('%12.2f' % (b[l] / 1e6) for l in labs)
+    out = '%-10s %-18s' % row + ''.join(('%12.2f' % (b[l] / 1e6)) if l in b else '%12s' % '-' for l in labs)
     for l in labs[1:]:
+        if l not in b: continue
         d = b[l] / base - 1
         out += '  %s %.1f%% %s' % (l, abs(d) * 100, 'slower' if d > 0 else 'faster')
     print(out)

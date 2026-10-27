@@ -1163,7 +1163,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   and Set's members and ownership less `at`. `use std.hash` leaves `Map`
   and `Set` the built-in ordered ones. On `bench/hash` a miss is 1.6 to
   3.9 times as fast as Map's at 100,000 keys and up, and an insert 1.15
-  to 3.4 times as slow (docs/history/records/2026-10/std-hash/).
+  to 3.4 times as slow (docs/history/records/2026-10/std-hash/). Where
+  the key and value are plain data, each slot is the entry itself (16
+  bytes for `Int` to `Int`), the lookup and the insert into a table with
+  room are inlined, and a table of a megabyte or more grows in place:
+  Trig's caches on it check ts-pattern 2.2-4.1% faster with 1.7-3.8% less
+  memory (std-hash/plain-slots.md).
+- **Hashing objects of integers:** an object whose parts are integers,
+  plain enums and Bools hashes its words two at a time, one folded
+  multiply a pair, as foldhash and abseil do, where it took two
+  multiplies a word: Trig's two-word cache keys hash in one, and Trig
+  runs 0.9-1.2% fewer instructions with its ordered Maps alone.
 - **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
   to 1024) inside the List value itself and allocates only once it
   holds more, when they all move to the heap, so a short-lived List of
