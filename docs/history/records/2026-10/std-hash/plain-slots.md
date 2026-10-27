@@ -131,3 +131,35 @@ hits 15-20% slower than hashbrown's there.
   5.8 ns against 5.2 dependent and 0.95 against 0.52 ns throughput for a
   two-word key; a key type's own cheaper `hash_into` on a CacheKey-shaped
   bench gained 2-4%.
+
+## Next: zod3's memory (2026-10-26, late; unfinished)
+
+- **Unmapping test.** A Rig whose allocator keeps no freed large blocks
+  (`keep_large = 0`, pup `rig3/`, release builds): h4 against base, zod3
+  RSS 0.8% higher (it was 3.2%), ts-pattern 4.6% lower. So most of
+  zod3's extra RSS is old tables freed by copying growth and held in
+  the heap's 16 MiB cache. `keep_large = 0` itself is no fix: base's
+  zod3 ran about 25% slower with it.
+- **(a) In-place growth from 64 KiB.** Below 1 MiB, `List.resize`
+  copies (alloc, copy, free), so it needs the allocator's `move_large`
+  lowered too. `rig4/` is rig2 with `move_large = 64 << 10`, and
+  `std-ip2/hash.rig` has `LARGE = 64 << 10`. On bench/hash (`hbG` against
+  `hbF`) only the 100,000-key insert moved, 17.8% slower; other rows
+  were within 3%.
+- **Still building at handoff:** PGO Trig `packs/bm-pgo` (rig4, Trig as
+  is) and `packs/hm-pgo` (rig4, the hash.Map switch). Logs are
+  `packs/{bm,hm}-pgo/build.log`; each is done when it prints "built in".
+
+To finish, on pup in `/zfs/worktrees/rig/std-hash`:
+
+    for p in zod3 ts-pattern; do for ck in 1 4; do
+      sh trigbench.sh $p-c$ck 10 $p $ck warm base2-pgo h4-pgo bm-pgo hm-pgo > res/m-$p-c$ck.txt
+      python3 sum.py res/m-$p-c$ck.txt base2-pgo:h4-pgo bm-pgo:hm-pgo base2-pgo:bm-pgo
+    done; done
+
+If hm against bm leaves zod3's RSS even and the times hold, apply
+`move_large = 64 << 10` (src/alloc.zig) and `LARGE = 64 << 10`
+(std/hash.rig) to the branch. Re-run std.json (`jsonbuild.sh` and
+`jsonbench.py`) and bench/hash, since `move_large` is a change to the
+whole allocator. Otherwise land #685 as it is: the owner approved it
+with the 3%.
