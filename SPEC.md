@@ -8534,8 +8534,8 @@ These built-in types are part of the language's substrate. Their names
 are reserved, as `Actor` is, which [§18](#actors) describes.
 
 Other built-in types are named with no import, as these are, and are
-written in Rig: `Map[K: Hash, V]` and `Set[K: Hash]`, with the types
-their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
+declared in Rig: `Map[K: Hash, V]` and `Set[K: Hash]`, whose entries a
+table built into the compiler holds, with the types their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
 ([docs/STD.md](docs/STD.md#map-and-set)), `Lanes`, the iterator of a
 mask's true lanes ([Vectors](#vectors)), and
 `Order`, `Hasher`, and `Printer` ([Own meanings](#own-meanings)). Their

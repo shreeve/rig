@@ -610,7 +610,7 @@ says the policy, which is what happens when the key is there already.
 put. `replace` hands back the old value, and `take` removes the key and
 hands back its value. `ensure` is one more answer.
 
-The mechanics come from the signature in `std/prelude.rig`, where Map is written: `sub put(!@, k:
+The mechanics come from the signature in `std/prelude.rig`, where Map is declared: `sub put(!@, k:
 K, v: V)`. The `!@` is why the call is `!m.put(...)`, and `k: K` takes
 its argument, which is why a named `name` is written `<name`. Leave out
 the mark and the error says what to write:
