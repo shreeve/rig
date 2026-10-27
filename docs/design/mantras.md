@@ -131,9 +131,10 @@ quiet window, interleaved, fastest of N. Between two at parity, the
 cleaner code or algorithm wins; a swap usually is the cleaner one, since
 it removes a duplicate. A loss goes to the owner with its numbers and a
 fix, never swapped in quietly. A new optimization lands only if it wins
-by more than 2% on what it targets, with cycles backing the time, and
-loses nothing beyond 2% elsewhere: a change within 2% is noise, and is
-dropped.
+by more than 1.5% on what it targets, with cycles backing the time, and
+loses nothing beyond 2% elsewhere. One comparison within 2% is noise,
+so a win of 1.5 to 2% counts only when it holds over at least 20
+interleaved rounds; anything less is dropped.
 
 **Measure time, not instruction counts.** Fewer instructions can run
 slower; only time decides.
