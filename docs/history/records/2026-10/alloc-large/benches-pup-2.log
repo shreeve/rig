@@ -1,0 +1,210 @@
+== tasks base round 1
+        rig-fast          vs rig-fast
+spawn   60 ns/task        
+chain   86 ns/task        
+fanout  309.8 ms/run      
+yield   22 ns/yield       
+hog     131.65 us/step    
+memory  4.6 KiB/task      
+== tasks reuse round 1
+        rig-fast          vs rig-fast
+spawn   61 ns/task        
+chain   85 ns/task        
+fanout  310.0 ms/run      
+yield   21 ns/yield       
+hog     131.06 us/step    
+memory  4.6 KiB/task      
+== actors base round 1
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors reuse round 1
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net base round 1
+         rig-fast      vs rig-fast
+pingpong 5.09 us/trip  
+echo     3.91 us/trip  
+connect  30.67 us/conn 
+== net reuse round 1
+         rig-fast      vs rig-fast
+pingpong 5.00 us/trip  
+echo     3.90 us/trip  
+connect  31.13 us/conn 
+== http base round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        196316     203 us    3448 us       8.6 KiB
+== http reuse round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        198540     203 us    3473 us       8.6 KiB
+== tasks reuse round 2
+        rig-fast          vs rig-fast
+spawn   61 ns/task        
+chain   87 ns/task        
+fanout  310.3 ms/run      
+yield   22 ns/yield       
+hog     132.44 us/step    
+memory  4.6 KiB/task      
+== tasks base round 2
+        rig-fast          vs rig-fast
+spawn   61 ns/task        
+chain   86 ns/task        
+fanout  311.2 ms/run      
+yield   22 ns/yield       
+hog     132.20 us/step    
+memory  4.6 KiB/task      
+== actors reuse round 2
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors base round 2
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net reuse round 2
+         rig-fast      vs rig-fast
+pingpong 5.04 us/trip  
+echo     3.84 us/trip  
+connect  30.08 us/conn 
+== net base round 2
+         rig-fast      vs rig-fast
+pingpong 5.10 us/trip  
+echo     3.79 us/trip  
+connect  28.97 us/conn 
+== http reuse round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        201191     204 us    3434 us       8.6 KiB
+== http base round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        190807     207 us    3495 us       8.6 KiB
+== tasks base round 3
+        rig-fast          vs rig-fast
+spawn   63 ns/task        
+chain   89 ns/task        
+fanout  314.2 ms/run      
+yield   23 ns/yield       
+hog     133.84 us/step    
+memory  4.6 KiB/task      
+== tasks reuse round 3
+        rig-fast          vs rig-fast
+spawn   64 ns/task        
+chain   91 ns/task        
+fanout  311.7 ms/run      
+yield   23 ns/yield       
+hog     135.15 us/step    
+memory  4.6 KiB/task      
+== actors base round 3
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors reuse round 3
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net base round 3
+         rig-fast      vs rig-fast
+pingpong 5.28 us/trip  
+echo     4.06 us/trip  
+connect  30.54 us/conn 
+== net reuse round 3
+         rig-fast      vs rig-fast
+pingpong 5.24 us/trip  
+echo     4.05 us/trip  
+connect  30.09 us/conn 
+== http base round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        185933     219 us    3513 us       8.6 KiB
+== http reuse round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        190507     202 us    3483 us       8.6 KiB
+== tasks reuse round 4
+        rig-fast          vs rig-fast
+spawn   65 ns/task        
+chain   92 ns/task        
+fanout  333.2 ms/run      
+yield   23 ns/yield       
+hog     139.45 us/step    
+memory  4.6 KiB/task      
+== tasks base round 4
+        rig-fast          vs rig-fast
+spawn   65 ns/task        
+chain   92 ns/task        
+fanout  330.4 ms/run      
+yield   23 ns/yield       
+hog     139.48 us/step    
+memory  4.6 KiB/task      
+== actors reuse round 4
+         rig-fast    vs rig-fast
+solo     12 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors base round 4
+         rig-fast    vs rig-fast
+solo     12 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== net reuse round 4
+         rig-fast      vs rig-fast
+pingpong 5.18 us/trip  
+echo     4.10 us/trip  
+connect  32.59 us/conn 
+== net base round 4
+         rig-fast      vs rig-fast
+pingpong 5.30 us/trip  
+echo     4.08 us/trip  
+connect  31.32 us/conn 
+== http reuse round 4
+                 req/s       p50       p99 per idle conn
+rig-fast        189610     198 us    3532 us       8.6 KiB
+== http base round 4
+                 req/s       p50       p99 per idle conn
+rig-fast        191398     201 us    3509 us       8.6 KiB
+== tasks base round 5
+        rig-fast          vs rig-fast
+spawn   64 ns/task        
+chain   90 ns/task        
+fanout  325.6 ms/run      
+yield   24 ns/yield       
+hog     136.09 us/step    
+memory  4.6 KiB/task      
+== tasks reuse round 5
+        rig-fast          vs rig-fast
+spawn   68 ns/task        
+chain   94 ns/task        
+fanout  335.4 ms/run      
+yield   23 ns/yield       
+hog     139.71 us/step    
+memory  4.6 KiB/task      
+== actors base round 5
+         rig-fast    vs rig-fast
+solo     12 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors reuse round 5
+         rig-fast    vs rig-fast
+solo     12 ns/call  
+contend  15 ns/call  
+spread   11 ns/call  
+== net base round 5
+         rig-fast      vs rig-fast
+pingpong 5.18 us/trip  
+echo     3.92 us/trip  
+connect  31.51 us/conn 
+== net reuse round 5
+         rig-fast      vs rig-fast
+pingpong 5.29 us/trip  
+echo     4.15 us/trip  
+connect  33.18 us/conn 
+== http base round 5
+                 req/s       p50       p99 per idle conn
+rig-fast        191023     210 us    3476 us       8.6 KiB
+== http reuse round 5
+                 req/s       p50       p99 per idle conn
+rig-fast        191890     201 us    3446 us       8.6 KiB

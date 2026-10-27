@@ -1,0 +1,210 @@
+== tasks base round 1
+        rig-fast          vs rig-fast
+spawn   112 ns/task       
+chain   45 ns/task        
+fanout  87.2 ms/run       
+yield   5 ns/yield        
+hog     93.01 us/step     
+memory  17.1 KiB/task     
+== tasks reuse round 1
+        rig-fast          vs rig-fast
+spawn   112 ns/task       
+chain   44 ns/task        
+fanout  83.5 ms/run       
+yield   5 ns/yield        
+hog     110.92 us/step    
+memory  17.1 KiB/task     
+== actors base round 1
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  28 ns/call  
+spread   0.9 ns/call 
+== actors reuse round 1
+         rig-fast    vs rig-fast
+solo     5.0 ns/call 
+contend  30 ns/call  
+spread   0.8 ns/call 
+== net base round 1
+         rig-fast      vs rig-fast
+pingpong 14.98 us/trip 
+echo     5.99 us/trip  
+connect  49.54 us/conn 
+== net reuse round 1
+         rig-fast      vs rig-fast
+pingpong 14.88 us/trip 
+echo     5.95 us/trip  
+connect  51.09 us/conn 
+== http base round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        169790     368 us     685 us      16.6 KiB
+== http reuse round 1
+dial: dial tcp 127.0.0.1:58844: connect: can't assign requested address
+bench-http: the idle connections did not open
+== tasks reuse round 2
+        rig-fast          vs rig-fast
+spawn   113 ns/task       
+chain   44 ns/task        
+fanout  85.1 ms/run       
+yield   5 ns/yield        
+hog     150.44 us/step    
+memory  17.1 KiB/task     
+== tasks base round 2
+        rig-fast          vs rig-fast
+spawn   117 ns/task       
+chain   45 ns/task        
+fanout  85.2 ms/run       
+yield   5 ns/yield        
+hog     97.78 us/step     
+memory  17.1 KiB/task     
+== actors reuse round 2
+         rig-fast    vs rig-fast
+solo     5.0 ns/call 
+contend  27 ns/call  
+spread   0.9 ns/call 
+== actors base round 2
+         rig-fast    vs rig-fast
+solo     5.0 ns/call 
+contend  26 ns/call  
+spread   0.8 ns/call 
+== net reuse round 2
+         rig-fast      vs rig-fast
+pingpong 15.10 us/trip 
+echo     5.96 us/trip  
+connect  51.86 us/conn 
+== net base round 2
+         rig-fast      vs rig-fast
+pingpong 14.96 us/trip 
+echo     5.96 us/trip  
+connect  50.26 us/conn 
+== http reuse round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        175673     351 us     832 us      16.6 KiB
+== http base round 2
+dial: dial tcp 127.0.0.1:58865: connect: can't assign requested address
+bench-http: the idle connections did not open
+== tasks base round 3
+        rig-fast          vs rig-fast
+spawn   117 ns/task       
+chain   47 ns/task        
+fanout  85.4 ms/run       
+yield   5 ns/yield        
+hog     81.34 us/step     
+memory  17.1 KiB/task     
+== tasks reuse round 3
+        rig-fast          vs rig-fast
+spawn   112 ns/task       
+chain   45 ns/task        
+fanout  84.8 ms/run       
+yield   5 ns/yield        
+hog     79.83 us/step     
+memory  17.1 KiB/task     
+== actors base round 3
+         rig-fast    vs rig-fast
+solo     5.0 ns/call 
+contend  29 ns/call  
+spread   0.9 ns/call 
+== actors reuse round 3
+         rig-fast    vs rig-fast
+solo     5.0 ns/call 
+contend  25 ns/call  
+spread   0.9 ns/call 
+== net base round 3
+         rig-fast      vs rig-fast
+pingpong 15.53 us/trip 
+echo     6.01 us/trip  
+connect  50.54 us/conn 
+== net reuse round 3
+         rig-fast      vs rig-fast
+pingpong 15.08 us/trip 
+echo     5.92 us/trip  
+connect  51.93 us/conn 
+== http base round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        171133     365 us     660 us      16.6 KiB
+== http reuse round 3
+dial: dial tcp 127.0.0.1:60698: connect: can't assign requested address
+bench-http: the idle connections did not open
+== tasks reuse round 4
+        rig-fast          vs rig-fast
+spawn   113 ns/task       
+chain   44 ns/task        
+fanout  85.4 ms/run       
+yield   5 ns/yield        
+hog     109.79 us/step    
+memory  17.1 KiB/task     
+== tasks base round 4
+        rig-fast          vs rig-fast
+spawn   111 ns/task       
+chain   45 ns/task        
+fanout  85.4 ms/run       
+yield   5 ns/yield        
+hog     103.26 us/step    
+memory  17.1 KiB/task     
+== actors reuse round 4
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  28 ns/call  
+spread   0.9 ns/call 
+== actors base round 4
+         rig-fast    vs rig-fast
+solo     5.0 ns/call 
+contend  28 ns/call  
+spread   0.9 ns/call 
+== net reuse round 4
+         rig-fast      vs rig-fast
+pingpong 14.82 us/trip 
+echo     5.96 us/trip  
+connect  49.98 us/conn 
+== net base round 4
+         rig-fast      vs rig-fast
+pingpong 15.04 us/trip 
+echo     5.96 us/trip  
+connect  50.48 us/conn 
+== http reuse round 4
+                 req/s       p50       p99 per idle conn
+rig-fast        172230     363 us     659 us      16.6 KiB
+== http base round 4
+dial: dial tcp 127.0.0.1:60731: connect: can't assign requested address
+bench-http: the idle connections did not open
+== tasks base round 5
+        rig-fast          vs rig-fast
+spawn   119 ns/task       
+chain   44 ns/task        
+fanout  83.7 ms/run       
+yield   5 ns/yield        
+hog     93.00 us/step     
+memory  17.1 KiB/task     
+== tasks reuse round 5
+        rig-fast          vs rig-fast
+spawn   122 ns/task       
+chain   45 ns/task        
+fanout  85.5 ms/run       
+yield   5 ns/yield        
+hog     75.66 us/step     
+memory  17.1 KiB/task     
+== actors base round 5
+         rig-fast    vs rig-fast
+solo     5.0 ns/call 
+contend  28 ns/call  
+spread   0.9 ns/call 
+== actors reuse round 5
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  26 ns/call  
+spread   0.9 ns/call 
+== net base round 5
+         rig-fast      vs rig-fast
+pingpong 14.72 us/trip 
+echo     5.96 us/trip  
+connect  49.67 us/conn 
+== net reuse round 5
+         rig-fast      vs rig-fast
+pingpong 14.90 us/trip 
+echo     6.03 us/trip  
+connect  51.68 us/conn 
+== http base round 5
+                 req/s       p50       p99 per idle conn
+rig-fast        169520     367 us     697 us      16.6 KiB
+== http reuse round 5
+dial: dial tcp 127.0.0.1:60757: connect: can't assign requested address
+bench-http: the idle connections did not open

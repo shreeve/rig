@@ -19,6 +19,8 @@ moves up into its table).
 | 2026-10-22 | #552: each worker on cache lines of its own | rig-fast | 14.39 us | 5.96 us | 50.33 us |
 | 2026-10-23 | main before #581, interleaved | rig-fast | 13.55 us | 5.89 us | 48.89 us |
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set | rig-fast | 13.55 us | 5.93 us | 49.56 us |
+| 2026-10-27 | main 54a7158b5 before #725, interleaved | rig-fast | 14.72 us | 5.96 us | 49.54 us |
+| 2026-10-27 | #725: a freed large block serves any request it fits | rig-fast | 14.82 us | 5.92 us | 49.98 us |
 
 ## x86-64 (pup)
 
@@ -45,3 +47,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-25 | #677: fewer yield checks (pup cores 6,7) | rig-fast | 5.59 us | 4.03 us | 31.85 us |
 | 2026-10-25 | main 99dcccf13 (before #677 and #683), interleaved (pup cores 6,7) | rig-fast | 5.16 us | 3.95 us | 29.93 us |
 | 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 5.07 us | 3.94 us | 29.77 us |
+| 2026-10-27 | main 54a7158b5 before #725, interleaved (pup cores 6,7) | rig-fast | 5.09 us | 3.79 us | 28.97 us |
+| 2026-10-27 | #725: a freed large block serves any request it fits (pup cores 6,7) | rig-fast | 5.00 us | 3.84 us | 30.08 us |

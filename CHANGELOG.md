@@ -1173,6 +1173,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   allocate and 26 to free on x86-64, where each took about 50. Trig checks ts-pattern
   at one checker with 1.8% fewer instructions (zod3 2.0%); its time
   moves within the run-to-run spread.
+- **Release allocator:** a freed block over 32 KiB serves any later
+  request it fits, the smallest kept block that does, with the rest kept
+  apart, where it served only a request of its own size; and a heap
+  keeps freed blocks while what it holds in large blocks, handed out and
+  kept, is no more than the most it has handed out at once and 16 MiB,
+  where it kept 16 MiB. bench/hash's big-value inserts on pup run 17 to
+  65% faster (1.36 times malloc's time, from 1.76), on the Mac 9 to
+  46%. Trig's peak memory is 1.0 to 3.0% lower on ts-pattern and zod3,
+  its instructions and time unchanged. Huge pages for blocks of 2 MiB
+  or more were measured and left out: they raised ts-pattern's peak
+  memory by 1.3 to 2.0%.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig

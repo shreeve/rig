@@ -1,0 +1,117 @@
+keys       op                     zig-foa:rigmain  zig-foa:rigreuse    zig-foa:rigthp    zig-foa:malloc   fastest        vs zig-foa:rigmain (ns/op)
+int16      insert                            8.24              8.08              8.15              8.79   zig-foa:rigreuse zig-foa:rigreuse 1.9% faster, zig-foa:rigthp 1.0% faster, zig-foa:malloc 6.3% slower
+int16      remove                            6.82              6.78              6.82              6.78   zig-foa:malloc zig-foa:rigreuse 0.7% faster, zig-foa:rigthp 0.1% faster, zig-foa:malloc 0.7% faster
+int16      hit                               1.45              1.47              1.46              1.46   zig-foa:rigmain zig-foa:rigreuse 0.9% slower, zig-foa:rigthp 0.6% slower, zig-foa:malloc 0.2% slower
+int16      miss                              1.43              2.04              2.03              1.20   zig-foa:malloc zig-foa:rigreuse 29.7% slower, zig-foa:rigthp 29.6% slower, zig-foa:malloc 19.1% faster
+int16      iterate                           0.65              0.63              0.64              0.66   zig-foa:rigreuse zig-foa:rigreuse 2.8% faster, zig-foa:rigthp 2.5% faster, zig-foa:malloc 1.2% slower
+int1000    insert                           15.65             15.67             15.60             14.39   zig-foa:malloc zig-foa:rigreuse 0.1% slower, zig-foa:rigthp 0.3% faster, zig-foa:malloc 8.8% faster
+int1000    remove                            5.17              5.21              5.09              4.97   zig-foa:malloc zig-foa:rigreuse 0.9% slower, zig-foa:rigthp 1.5% faster, zig-foa:malloc 4.0% faster
+int1000    hit                               1.57              1.56              1.56              1.55   zig-foa:malloc zig-foa:rigreuse 0.6% faster, zig-foa:rigthp 0.1% faster, zig-foa:malloc 1.1% faster
+int1000    miss                              1.37              1.37              1.37              1.34   zig-foa:malloc zig-foa:rigreuse 0.1% faster, zig-foa:rigthp 0.5% faster, zig-foa:malloc 2.7% faster
+int1000    iterate                           0.56              0.57              0.56              0.56   zig-foa:malloc zig-foa:rigreuse 2.8% slower, zig-foa:rigthp 1.0% slower, zig-foa:malloc 0.5% faster
+int100000  insert                           13.49             12.20             11.74             11.31   zig-foa:malloc zig-foa:rigreuse 10.5% faster, zig-foa:rigthp 14.9% faster, zig-foa:malloc 19.3% faster
+int100000  remove                            8.64              7.26              4.95              8.04   zig-foa:rigthp zig-foa:rigreuse 19.0% faster, zig-foa:rigthp 74.7% faster, zig-foa:malloc 7.4% faster
+int100000  hit                               2.80              2.70              2.52              2.95   zig-foa:rigthp zig-foa:rigreuse 3.7% faster, zig-foa:rigthp 11.1% faster, zig-foa:malloc 5.2% slower
+int100000  miss                              3.00              2.98              3.00              3.01   zig-foa:rigreuse zig-foa:rigreuse 0.4% faster, zig-foa:rigthp 0.0% faster, zig-foa:malloc 0.3% slower
+int100000  iterate                           0.95              0.93              0.94              1.02   zig-foa:rigreuse zig-foa:rigreuse 2.5% faster, zig-foa:rigthp 0.9% faster, zig-foa:malloc 6.7% slower
+int4000000 insert                           36.27             35.06             25.72             36.47   zig-foa:rigthp zig-foa:rigreuse 3.5% faster, zig-foa:rigthp 41.0% faster, zig-foa:malloc 0.6% slower
+int4000000 remove                           24.56             24.52             23.04             24.95   zig-foa:rigthp zig-foa:rigreuse 0.2% faster, zig-foa:rigthp 6.6% faster, zig-foa:malloc 1.6% slower
+int4000000 hit                              16.81             16.84             15.48             17.12   zig-foa:rigthp zig-foa:rigreuse 0.2% slower, zig-foa:rigthp 8.6% faster, zig-foa:malloc 1.8% slower
+int4000000 miss                              5.60              5.27              4.97              5.72   zig-foa:rigthp zig-foa:rigreuse 6.1% faster, zig-foa:rigthp 12.5% faster, zig-foa:malloc 2.1% slower
+int4000000 iterate                           2.53              2.53              2.42              2.54   zig-foa:rigthp zig-foa:rigreuse 0.1% faster, zig-foa:rigthp 4.4% faster, zig-foa:malloc 0.3% slower
+rnd16      insert                            6.83              6.85              6.73              7.09   zig-foa:rigthp zig-foa:rigreuse 0.2% slower, zig-foa:rigthp 1.6% faster, zig-foa:malloc 3.6% slower
+rnd16      remove                            6.87              6.84              6.82              6.83   zig-foa:rigthp zig-foa:rigreuse 0.4% faster, zig-foa:rigthp 0.6% faster, zig-foa:malloc 0.5% faster
+rnd16      hit                               1.36              1.41              1.69              1.37   zig-foa:rigmain zig-foa:rigreuse 3.5% slower, zig-foa:rigthp 19.9% slower, zig-foa:malloc 1.1% slower
+rnd16      miss                              1.22              1.22              1.21              1.22   zig-foa:rigthp zig-foa:rigreuse 0.3% slower, zig-foa:rigthp 0.5% faster, zig-foa:malloc 0.2% slower
+rnd16      iterate                           0.66              0.66              0.67              0.88   zig-foa:rigreuse zig-foa:rigreuse 1.3% faster, zig-foa:rigthp 0.1% slower, zig-foa:malloc 24.2% slower
+rnd24      insert                            6.54              6.45              6.43              6.80   zig-foa:rigthp zig-foa:rigreuse 1.4% faster, zig-foa:rigthp 1.7% faster, zig-foa:malloc 3.8% slower
+rnd24      remove                            6.68              6.65              6.68              6.68   zig-foa:rigreuse zig-foa:rigreuse 0.5% faster, zig-foa:rigthp 0.1% slower, zig-foa:malloc 0.0% slower
+rnd24      hit                               1.56              1.56              1.56              1.48   zig-foa:malloc zig-foa:rigreuse 0.1% slower, zig-foa:rigthp 0.0% faster, zig-foa:malloc 5.1% faster
+rnd24      miss                              1.47              1.48              1.47              1.47   zig-foa:rigthp zig-foa:rigreuse 0.4% slower, zig-foa:rigthp 0.4% faster, zig-foa:malloc 0.3% faster
+rnd24      iterate                           0.54              0.54              0.54              0.61   zig-foa:rigmain zig-foa:rigreuse 0.1% slower, zig-foa:rigthp 0.1% slower, zig-foa:malloc 11.3% slower
+rnd1000    insert                           14.43             14.63             14.73             14.92   zig-foa:rigmain zig-foa:rigreuse 1.4% slower, zig-foa:rigthp 2.0% slower, zig-foa:malloc 3.2% slower
+rnd1000    remove                            4.77              5.17              4.88              5.07   zig-foa:rigmain zig-foa:rigreuse 7.6% slower, zig-foa:rigthp 2.2% slower, zig-foa:malloc 5.9% slower
+rnd1000    hit                               1.45              1.45              1.46              1.48   zig-foa:rigmain zig-foa:rigreuse 0.3% slower, zig-foa:rigthp 0.8% slower, zig-foa:malloc 2.1% slower
+rnd1000    miss                              1.43              1.43              1.43              1.48   zig-foa:rigmain zig-foa:rigreuse 0.2% slower, zig-foa:rigthp 0.2% slower, zig-foa:malloc 3.8% slower
+rnd1000    iterate                           0.57              0.58              0.58              0.66   zig-foa:rigmain zig-foa:rigreuse 0.5% slower, zig-foa:rigthp 1.4% slower, zig-foa:malloc 12.9% slower
+rnd1500    insert                           11.09             10.91             11.04             11.12   zig-foa:rigreuse zig-foa:rigreuse 1.6% faster, zig-foa:rigthp 0.4% faster, zig-foa:malloc 0.3% slower
+rnd1500    remove                            4.18              4.33              4.40              4.25   zig-foa:rigmain zig-foa:rigreuse 3.4% slower, zig-foa:rigthp 5.1% slower, zig-foa:malloc 1.6% slower
+rnd1500    hit                               1.62              1.63              1.67              1.62   zig-foa:rigmain zig-foa:rigreuse 0.3% slower, zig-foa:rigthp 2.8% slower, zig-foa:malloc 0.2% slower
+rnd1500    miss                              1.49              1.50              1.58              1.53   zig-foa:rigmain zig-foa:rigreuse 0.4% slower, zig-foa:rigthp 5.7% slower, zig-foa:malloc 2.2% slower
+rnd1500    iterate                           0.54              0.54              0.55              0.55   zig-foa:rigreuse zig-foa:rigreuse 1.2% faster, zig-foa:rigthp 0.8% slower, zig-foa:malloc 1.3% slower
+rnd100000  insert                           12.82             11.68             11.69             11.26   zig-foa:malloc zig-foa:rigreuse 9.8% faster, zig-foa:rigthp 9.7% faster, zig-foa:malloc 13.9% faster
+rnd100000  remove                            8.49              8.11              8.35              8.08   zig-foa:malloc zig-foa:rigreuse 4.7% faster, zig-foa:rigthp 1.7% faster, zig-foa:malloc 5.0% faster
+rnd100000  hit                               2.92              2.89              3.20              3.19   zig-foa:rigreuse zig-foa:rigreuse 1.1% faster, zig-foa:rigthp 8.7% slower, zig-foa:malloc 8.5% slower
+rnd100000  miss                              3.18              3.20              3.18              3.12   zig-foa:malloc zig-foa:rigreuse 0.5% slower, zig-foa:rigthp 0.1% slower, zig-foa:malloc 1.8% faster
+rnd100000  iterate                           0.97              0.95              0.98              0.89   zig-foa:malloc zig-foa:rigreuse 2.0% faster, zig-foa:rigthp 1.3% slower, zig-foa:malloc 8.7% faster
+rnd150000  insert                           15.54             12.37             12.46             12.51   zig-foa:rigreuse zig-foa:rigreuse 25.6% faster, zig-foa:rigthp 24.7% faster, zig-foa:malloc 24.2% faster
+rnd150000  remove                           10.73             10.06             12.14             12.64   zig-foa:rigreuse zig-foa:rigreuse 6.6% faster, zig-foa:rigthp 11.7% slower, zig-foa:malloc 15.2% slower
+rnd150000  hit                               2.84              2.81              2.71              2.87   zig-foa:rigthp zig-foa:rigreuse 0.8% faster, zig-foa:rigthp 4.5% faster, zig-foa:malloc 1.2% slower
+rnd150000  miss                              1.80              1.80              1.79              1.83   zig-foa:rigthp zig-foa:rigreuse 0.3% slower, zig-foa:rigthp 0.3% faster, zig-foa:malloc 1.5% slower
+rnd150000  iterate                           1.31              1.30              1.31              1.18   zig-foa:malloc zig-foa:rigreuse 0.7% faster, zig-foa:rigthp 0.1% faster, zig-foa:malloc 11.3% faster
+rnd3000000 insert                           18.92             12.78             12.02             18.19   zig-foa:rigthp zig-foa:rigreuse 48.1% faster, zig-foa:rigthp 57.4% faster, zig-foa:malloc 4.0% faster
+rnd3000000 remove                           16.16             16.16             15.59             17.28   zig-foa:rigthp zig-foa:rigreuse 0.0% slower, zig-foa:rigthp 3.6% faster, zig-foa:malloc 6.5% slower
+rnd3000000 hit                              12.67             12.58             12.02             12.64   zig-foa:rigthp zig-foa:rigreuse 0.7% faster, zig-foa:rigthp 5.4% faster, zig-foa:malloc 0.2% faster
+rnd3000000 miss                              4.65              4.65              4.23              4.72   zig-foa:rigthp zig-foa:rigreuse 0.0% faster, zig-foa:rigthp 9.8% faster, zig-foa:malloc 1.4% slower
+rnd3000000 iterate                           1.21              1.22              1.09              1.20   zig-foa:rigthp zig-foa:rigreuse 1.3% slower, zig-foa:rigthp 10.7% faster, zig-foa:malloc 1.1% faster
+rnd4000000 insert                           35.95             33.44             24.59             35.15   zig-foa:rigthp zig-foa:rigreuse 7.5% faster, zig-foa:rigthp 46.2% faster, zig-foa:malloc 2.3% faster
+rnd4000000 remove                           22.69             22.58             21.13             24.39   zig-foa:rigthp zig-foa:rigreuse 0.5% faster, zig-foa:rigthp 7.4% faster, zig-foa:malloc 7.0% slower
+rnd4000000 hit                              17.32             17.11             16.09             17.23   zig-foa:rigthp zig-foa:rigreuse 1.2% faster, zig-foa:rigthp 7.6% faster, zig-foa:malloc 0.5% faster
+rnd4000000 miss                              5.34              5.35              4.74              5.38   zig-foa:rigthp zig-foa:rigreuse 0.1% slower, zig-foa:rigthp 12.7% faster, zig-foa:malloc 0.7% slower
+rnd4000000 iterate                           2.51              2.51              2.41              2.48   zig-foa:rigthp zig-foa:rigreuse 0.1% faster, zig-foa:rigthp 4.2% faster, zig-foa:malloc 1.5% faster
+lat16      chain                             6.08              6.07              6.08              6.11   zig-foa:rigreuse zig-foa:rigreuse 0.1% faster, zig-foa:rigthp 0.0% slower, zig-foa:malloc 0.5% slower
+lat1000    chain                             6.14              6.13              6.14              6.17   zig-foa:rigreuse zig-foa:rigreuse 0.1% faster, zig-foa:rigthp 0.0% slower, zig-foa:malloc 0.5% slower
+lat100000  chain                            12.33             11.88             10.69             12.17   zig-foa:rigthp zig-foa:rigreuse 3.7% faster, zig-foa:rigthp 15.3% faster, zig-foa:malloc 1.3% faster
+lat4000000 chain                           149.00            147.16            145.74            147.98   zig-foa:rigthp zig-foa:rigreuse 1.2% faster, zig-foa:rigthp 2.2% faster, zig-foa:malloc 0.7% faster
+churn16    turnover                          6.38              6.35              6.22              6.37   zig-foa:rigthp zig-foa:rigreuse 0.6% faster, zig-foa:rigthp 2.7% faster, zig-foa:malloc 0.2% faster
+churn1000  turnover                          3.59              3.53              3.53              3.61   zig-foa:rigthp zig-foa:rigreuse 1.5% faster, zig-foa:rigthp 1.6% faster, zig-foa:malloc 0.7% slower
+churn100000 turnover                         15.20             15.33             14.98             15.50   zig-foa:rigthp zig-foa:rigreuse 0.9% slower, zig-foa:rigthp 1.5% faster, zig-foa:malloc 2.0% slower
+churn4000000 turnover                         22.11             22.17             20.88             21.03   zig-foa:rigthp zig-foa:rigreuse 0.2% slower, zig-foa:rigthp 5.9% faster, zig-foa:malloc 5.1% faster
+mix16      half                              1.34              1.32              1.34              1.46   zig-foa:rigreuse zig-foa:rigreuse 2.0% faster, zig-foa:rigthp 0.5% faster, zig-foa:malloc 7.9% slower
+mix1000    half                              1.34              1.29              1.31              1.48   zig-foa:rigreuse zig-foa:rigreuse 3.9% faster, zig-foa:rigthp 2.3% faster, zig-foa:malloc 9.4% slower
+mix100000  half                              7.64              7.57              7.35              7.81   zig-foa:rigthp zig-foa:rigreuse 0.9% faster, zig-foa:rigthp 4.0% faster, zig-foa:malloc 2.3% slower
+mix4000000 half                             16.15             15.88             14.83             16.59   zig-foa:rigthp zig-foa:rigreuse 1.7% faster, zig-foa:rigthp 8.9% faster, zig-foa:malloc 2.7% slower
+str16      insert                           15.67             15.78             15.71             32.39   zig-foa:rigmain zig-foa:rigreuse 0.7% slower, zig-foa:rigthp 0.2% slower, zig-foa:malloc 51.6% slower
+str16      remove                           11.67             12.10             12.17             26.87   zig-foa:rigmain zig-foa:rigreuse 3.5% slower, zig-foa:rigthp 4.1% slower, zig-foa:malloc 56.6% slower
+str16      hit                               5.08              5.03              5.08              4.93   zig-foa:malloc zig-foa:rigreuse 0.9% faster, zig-foa:rigthp 0.0% slower, zig-foa:malloc 3.0% faster
+str16      miss                              3.02              3.01              2.96              2.98   zig-foa:rigthp zig-foa:rigreuse 0.3% faster, zig-foa:rigthp 1.9% faster, zig-foa:malloc 1.1% faster
+str1000    insert                           29.68             22.25             22.35             28.88   zig-foa:rigreuse zig-foa:rigreuse 33.4% faster, zig-foa:rigthp 32.8% faster, zig-foa:malloc 2.8% faster
+str1000    remove                           14.76             14.90             14.47             27.67   zig-foa:rigthp zig-foa:rigreuse 1.0% slower, zig-foa:rigthp 2.0% faster, zig-foa:malloc 46.7% slower
+str1000    hit                               6.28              6.33              6.24              6.34   zig-foa:rigthp zig-foa:rigreuse 0.8% slower, zig-foa:rigthp 0.7% faster, zig-foa:malloc 0.8% slower
+str1000    miss                              3.37              3.38              3.37              3.33   zig-foa:malloc zig-foa:rigreuse 0.6% slower, zig-foa:rigthp 0.1% slower, zig-foa:malloc 1.1% faster
+str100000  insert                           42.10             36.22             35.74             45.92   zig-foa:rigthp zig-foa:rigreuse 16.2% faster, zig-foa:rigthp 17.8% faster, zig-foa:malloc 8.3% slower
+str100000  remove                           37.71             35.19             35.39             54.80   zig-foa:rigreuse zig-foa:rigreuse 7.2% faster, zig-foa:rigthp 6.6% faster, zig-foa:malloc 31.2% slower
+str100000  hit                              42.47             41.89             41.66             46.93   zig-foa:rigthp zig-foa:rigreuse 1.4% faster, zig-foa:rigthp 2.0% faster, zig-foa:malloc 9.5% slower
+str100000  miss                             14.88             14.48             14.99             13.94   zig-foa:malloc zig-foa:rigreuse 2.8% faster, zig-foa:rigthp 0.7% slower, zig-foa:malloc 6.8% faster
+str1000000 insert                           98.52             71.90             72.23             97.40   zig-foa:rigreuse zig-foa:rigreuse 37.0% faster, zig-foa:rigthp 36.4% faster, zig-foa:malloc 1.1% faster
+str1000000 remove                           70.64             71.77             67.92             91.67   zig-foa:rigthp zig-foa:rigreuse 1.6% slower, zig-foa:rigthp 4.0% faster, zig-foa:malloc 22.9% slower
+str1000000 hit                              75.68             74.88             72.54             79.11   zig-foa:rigthp zig-foa:rigreuse 1.1% faster, zig-foa:rigthp 4.3% faster, zig-foa:malloc 4.3% slower
+str1000000 miss                             14.48             14.29             14.01             18.57   zig-foa:rigthp zig-foa:rigreuse 1.3% faster, zig-foa:rigthp 3.3% faster, zig-foa:malloc 22.0% slower
+big16      insert                           21.73             21.55             21.51             13.39   zig-foa:malloc zig-foa:rigreuse 0.9% faster, zig-foa:rigthp 1.0% faster, zig-foa:malloc 62.3% faster
+big16      remove                           17.88             18.05             17.79             14.15   zig-foa:malloc zig-foa:rigreuse 1.0% slower, zig-foa:rigthp 0.5% faster, zig-foa:malloc 26.3% faster
+big16      hit                               1.33              1.35              1.36              1.37   zig-foa:rigmain zig-foa:rigreuse 2.0% slower, zig-foa:rigthp 2.9% slower, zig-foa:malloc 3.1% slower
+big16      iterate                           0.64              0.64              0.65              0.76   zig-foa:rigreuse zig-foa:rigreuse 0.1% faster, zig-foa:rigthp 1.6% slower, zig-foa:malloc 15.7% slower
+big1000    insert                           44.11             26.93             26.47             26.84   zig-foa:rigthp zig-foa:rigreuse 63.8% faster, zig-foa:rigthp 66.6% faster, zig-foa:malloc 64.3% faster
+big1000    remove                            8.97              9.07              8.66              9.03   zig-foa:rigthp zig-foa:rigreuse 1.1% slower, zig-foa:rigthp 3.5% faster, zig-foa:malloc 0.7% slower
+big1000    hit                               1.57              1.50              1.55              1.52   zig-foa:rigreuse zig-foa:rigreuse 4.2% faster, zig-foa:rigthp 1.0% faster, zig-foa:malloc 3.4% faster
+big1000    iterate                           0.60              0.64              0.61              0.65   zig-foa:rigmain zig-foa:rigreuse 6.0% slower, zig-foa:rigthp 0.5% slower, zig-foa:malloc 7.7% slower
+big100000  insert                           41.52             26.53             24.40             23.72   zig-foa:malloc zig-foa:rigreuse 56.5% faster, zig-foa:rigthp 70.1% faster, zig-foa:malloc 75.0% faster
+big100000  remove                           20.62             20.93             20.45             20.85   zig-foa:rigthp zig-foa:rigreuse 1.5% slower, zig-foa:rigthp 0.8% faster, zig-foa:malloc 1.1% slower
+big100000  hit                               4.98              5.34              4.56              5.02   zig-foa:rigthp zig-foa:rigreuse 6.8% slower, zig-foa:rigthp 9.2% faster, zig-foa:malloc 0.9% slower
+big100000  iterate                           1.42              1.47              1.40              1.43   zig-foa:rigthp zig-foa:rigreuse 3.4% slower, zig-foa:rigthp 1.7% faster, zig-foa:malloc 0.7% slower
+big1000000 insert                           91.63             82.98             52.40             44.11   zig-foa:malloc zig-foa:rigreuse 10.4% faster, zig-foa:rigthp 74.9% faster, zig-foa:malloc 107.7% faster
+big1000000 remove                           24.94             25.01             23.62             24.43   zig-foa:rigthp zig-foa:rigreuse 0.2% slower, zig-foa:rigthp 5.6% faster, zig-foa:malloc 2.1% faster
+big1000000 hit                              19.22             19.13             19.36             19.16   zig-foa:rigreuse zig-foa:rigreuse 0.5% faster, zig-foa:rigthp 0.7% slower, zig-foa:malloc 0.3% faster
+big1000000 iterate                           5.65              5.70              5.56              5.62   zig-foa:rigthp zig-foa:rigreuse 0.8% slower, zig-foa:rigthp 1.7% faster, zig-foa:malloc 0.5% faster
+
+first places over 84 rows every variant times (the int rows left out):
+  zig-foa:rigthp    40
+  zig-foa:rigreuse   17
+  zig-foa:rigmain   14
+  zig-foa:malloc    13
+
+memory: peak bytes per entry, one map of 4,000,000 Int keys (16 bytes of key and value)
+  zig-foa:malloc     50.3
+  zig-foa:rigmain    54.7
+  zig-foa:rigreuse    54.7
+  zig-foa:rigthp     54.8

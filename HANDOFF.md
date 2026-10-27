@@ -111,7 +111,12 @@ A new session, human or agent, takes these steps in order:
   on x86; `zig-hash` and `zig-ordered` are being grown from them. The
   panel's twelve decisions are approved
   ([hash-race/](docs/history/records/2026-10/hash-race/)). #685's
-  SwissTable `std.hash` is archived as `archive/std-hash`.
+  SwissTable `std.hash` is archived as `archive/std-hash`. Of the
+  allocator's two gaps the race found, large blocks reused by fit are
+  #725; huge pages from 2 MiB (decision 11) raised Trig's peak memory
+  and were left out, and from 16 MiB, measured even on Trig's memory,
+  wait on the owner
+  ([alloc-large/](docs/history/records/2026-10/alloc-large/)).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
