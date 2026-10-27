@@ -28,6 +28,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | List growth on Trig (2026-10-25) | Rig's List already grows as `Vec` does (doubling from 4, a memcpy, an inlined compare-and-store push); most of Trig's "List" family is inlined push and load code that tsrs's breakdown counts under its checker. The cost left is 3.22M short-lived Lists (83% drop at three or fewer); a first buffer straight from the allocator, an inline small-block judgment, and an always-inlined `push` saved 0.94% of ts-pattern's instructions on top of #696, under the bar, and made two std.json programs slower (placement; the inlined push), so #697 was closed; Trig's scratch-list sites listed | [perf-stage/list-grow.md](2026-10/perf-stage/list-grow.md) |
 | Table and List reads inside Trig (2026-10-25) | a `Table` read is the bare load, a `List` read adds only a sign test; the cycles charged to them are the element loads' misses, which tsrs pays too. Kept: an inlined call's `?T` result made a run-time value in place, not through `rig.rt`'s memory round trip (34% fewer blocked loads), one compare for a signed index against a held length, and `rarely` `noinline`: 1.5% fewer instructions on ts-pattern and zod3, 1.2-2.2% fewer cycles | [perf-stage/table-reads.md](2026-10/perf-stage/table-reads.md) |
 | std.json's instruction guard (2026-10-26) | main failed the guard by 2.9-3.1%; bisected to 22bf02111 of #696 (one unsigned compare for a signed index against a held length): 3.5-3.8% more instructions per byte on twitter, twitterescaped and github_events, and twitter 2.0-4.2% slower; the guard was not refreshed | [json-guard/](2026-10/json-guard/) |
+| Bounds tests and enum conversion in Trig (2026-10-26) | each index test is Rust's one compare and branch; the cycles the disassembly diff charged to them (row 4, and row 8's `fromInt`) are load misses landing on the next instruction, as PEBS shows; one shape made two tests, a signed index against a compile-time bound (`Table`, arrays, `Slot[n].of`), now one compare: Trig PGO 0.5-0.7% fewer instructions alone (under the bar), 1.5-1.7% with #706; std.json's instructions per byte unchanged | [perf-stage/bounds-enum.md](2026-10/perf-stage/bounds-enum.md) |
 | Profile-guided optimization (2026-10-25) | LLVM PGO through Zig's bitcode and `zig cc`, trained away from the project timed: Trig 10% faster with 14% fewer instructions on ts-pattern and zod3, 5-9% faster than BOLT alone, BOLT on top adding nothing; built as `rig build --release --pgo`, with a freestanding profile writer the runtime calls in `--pgo` packages only | [perf-stage/pgo.md](2026-10/perf-stage/pgo.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
@@ -221,6 +222,21 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [list-grow.md](2026-10/perf-stage/list-grow.md): List growth on Trig, where it goes, what was built, and why it closed (2026-10-25)
 - [table-reads.md](2026-10/perf-stage/table-reads.md): Table and List reads inside Trig, measured, and two classes taken out (2026-10-25)
 - [pgo.md](2026-10/perf-stage/pgo.md): Profile-guided optimization, measured and built (2026-10-25)
+- [bounds-enum.md](2026-10/perf-stage/bounds-enum.md): Bounds tests and checked enum conversion in Trig, what they execute, and the one two-test shape made one (2026-10-26)
+
+### 2026-10/perf-stage/bounds-enum-data/
+
+- [ab.sh](2026-10/perf-stage/bounds-enum-data/ab.sh)
+- [buildtrig.sh](2026-10/perf-stage/bounds-enum-data/buildtrig.sh)
+- [census.py](2026-10/perf-stage/bounds-enum-data/census.py)
+- [chains.py](2026-10/perf-stage/bounds-enum-data/chains.py)
+- [pprof.sh](2026-10/perf-stage/bounds-enum-data/pprof.sh)
+- [sites.py](2026-10/perf-stage/bounds-enum-data/sites.py)
+- [bench.sh](2026-10/perf-stage/bounds-enum-data/bench.sh)
+- [hashab.sh](2026-10/perf-stage/bounds-enum-data/hashab.sh)
+- [jsonab.sh](2026-10/perf-stage/bounds-enum-data/jsonab.sh)
+- [v.c](2026-10/perf-stage/bounds-enum-data/v.c)
+- [w.c](2026-10/perf-stage/bounds-enum-data/w.c)
 
 ### 2026-10/perf-stage/list-grow-data/
 

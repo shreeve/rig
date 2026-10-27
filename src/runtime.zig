@@ -3312,11 +3312,41 @@ fn moduleOf(comptime name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 /// Convert a Rig index of any integer type to `usize`, panicking unless
-/// `0 <= i < len`.
+/// `0 <= i < count`.
 pub fn index(i: anytype, count: usize) usize {
     const idx = std.math.cast(usize, i) orelse indexPanic();
     if (idx >= count) indexPanic();
     return idx;
+}
+
+/// `index` against a compile-time `n`, as an array's length or a
+/// table's is: one compare.
+pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
+    if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        // One compare, as `offsetBelow` makes it.
+        const u: u64 = @bitCast(@as(i64, i));
+        if (u >= n) indexPanic();
+        // Exact: below `n`, which a `usize` holds.
+        return @truncate(u);
+    }
+    // An unsigned `i` has no sign to test: `index`'s one compare.
+    return index(i, n);
+}
+
+/// `i` as a `u64` when `0 <= i < n`, else null. A signed `i` read as
+/// unsigned is below `n` exactly when `0 <= i < n`, since a negative one
+/// reads as at least `2^63`: one compare where a sign test and a bound
+/// test make two. Above `2^63`, `n` takes both.
+pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        const u: u64 = @bitCast(@as(i64, i));
+        return if (u < n) u else null;
+    }
+    const v = std.math.cast(u64, i) orelse return null;
+    return if (v < n) v else null;
 }
 
 /// A float about to be converted to an integer type, panicking if it is
@@ -3959,14 +3989,14 @@ fn lanesInOrder(v: anytype, comptime endian: Endian) @TypeOf(v) {
 /// `v[i]`: lane `i` of a vector, with `i` checked as an index is.
 pub fn lane(v: anytype, i: anytype) LaneOf(@TypeOf(v)) {
     const lanes = vectorArray(v);
-    return lanes[index(i, lanes.len)];
+    return lanes[indexBelow(i, lanes.len)];
 }
 
 /// `v.with(i, x)`: a copy of `v` whose lane `i` is `x`, with `i` checked
 /// as an index is.
 pub fn withLane(v: anytype, i: anytype, x: LaneOf(@TypeOf(v))) @TypeOf(v) {
     var lanes = vectorArray(v);
-    lanes[index(i, lanes.len)] = x;
+    lanes[indexBelow(i, lanes.len)] = x;
     if (comptime isWideMask(@TypeOf(v))) return maskOf(@TypeOf(v), lanes);
     return lanes;
 }
