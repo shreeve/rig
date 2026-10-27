@@ -1,0 +1,12 @@
+rig-safe
+Traceback (most recent call last):
+  File "/zfs/worktrees/rig/map-inline/jsonbench.py", line 17, in <module>
+    ns, _ = run(a, 10)
+            ~~~^^^^^^^
+  File "/zfs/worktrees/rig/map-inline/jsonbench.py", line 11, in run
+    out = subprocess.run(["taskset", "-c", "8", exe, str(n)], capture_output=True, text=True, check=True).stdout.split()
+          ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 578, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['taskset', '-c', '8', '/zfs/worktrees/rig/map-inline/json/base/twitter-rig-safe/prog', '10']' returned non-zero exit status 127.
