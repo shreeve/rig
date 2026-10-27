@@ -155,7 +155,7 @@ saturate, stopping at the type's limits.
 
 **Vectors.** `Simd[U8, 16]` holds 16 lanes, operated on together:
 `v + 1` and `v == q` work lane by lane, a comparison gives a mask
-(`Simd[Bool, 16]`), and `m.first()` (the first true lane, `Int?`), `m.bits()`, `m.any()`, or `m.all()` reduce it.
+(`Simd[Bool, 16]`), and `m.first()` (the first true lane, `Int?`), `m.bits()`, `m.any()`, or `m.all()` reduce it; `for k in m.lanes()` visits each true lane.
 A vector copies like an `Int`, and `v[i]` reads a lane. `v >> 4` shifts
 every lane, `t.lookup(idx)` looks each lane of `idx` up in a table `t`
 of 16, 32, or 64 bytes, and `cur.lag[1](prev)` sees each lane's neighbour one lane

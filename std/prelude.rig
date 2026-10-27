@@ -1,4 +1,5 @@
-# The built-in Map and Set, hash tables written in Rig over Lists, that
+# The built-in types written in Rig: `Lanes`, the iterator of a mask's
+# true lanes (at the end), and the Map and Set, hash tables over Lists, that
 # keep their entries in the order they were first put in. A key is any
 # value `.hash()` takes:
 # what `==` compares, less a float and what holds one. Text keys hash
@@ -691,3 +692,18 @@ pub obj Members[K]
       if k as kk
         return kk
     none
+
+# The true lanes of a mask, lowest first (`m.lanes()`). `bits` holds a
+# bit for each lane not yet given, lane `k` at bit `k << shift`, in the
+# form the target reduces a mask to fastest, which the compiler picks
+# (`rig.maskTrueLanes`); `shift` is a constant of that form, so a step is
+# a count of trailing zeros, a shift, and a clear of the lowest bit.
+pub obj Lanes
+  bits: U64
+  shift: Int
+
+  pub fun next(!@) -> Int?
+    return none if @bits == 0
+    k = @bits.trailing_zeros() >> @shift
+    @bits &= @bits -% 1
+    k

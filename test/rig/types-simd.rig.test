@@ -364,6 +364,178 @@ fail "simd first is rejected", "6:9: `first` is a method of a mask, `Simd[Bool, 
   k: Int = m.first()
   print(k)
 
+test "simd lanes", '''
+  0 2 5 15 |  | 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+  1 2 7 | 1 | 1 2 3
+  0 31 32 63 | 17
+  3 12 0 22
+  5 -1
+  0 0 0 0 0 0
+'''
+  # `m.lanes()` gives the true lanes of a mask, lowest first, as `Int`s:
+  # an iterator, so a loop may stop and another resume it, std.iter takes
+  # it, and a loop over it has a value. Every lane count agrees with
+  # `bits()` on random masks.
+
+  use std.iter
+
+  fun shown[n: Int](m: Simd[Bool, n]) -> String
+    out = String()
+    for k in m.lanes()
+      !out.add(" " if out.len > 0 else "", k)
+    out
+
+  fun first_of(it: !Lanes) -> Int
+    (!it).next() ?? -1
+
+  fun agree[n: Int](seed: U64) -> Int
+    x = seed
+    wrong = 0
+    for _ in 0..300
+      v = Simd[U8, n].splat(0)
+      for i in 0..n
+        x ^= x <<% 13
+        x ^= x >> 7
+        x ^= x <<% 17
+        v = v.with(i, U8(x & 3))
+      m = v == 0
+      got: U64 = 0
+      last = -1
+      for k in m.lanes()
+        wrong += 1 if k <= last or k >= n
+        last = k
+        got |= U64(1) << k
+      wrong += 1 if got != m.bits()
+    wrong
+
+  sub main()
+    v = Simd[U8, 16]([1, 2, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])
+    print(shown(v == 1), "|", shown(v == 9), "|", shown(v < 9))
+    print(shown(Simd[U8, 8]([0, 3, 3, 0, 0, 0, 0, 3]) == 3), "|", shown(Simd[I64, 2]([4, 5]) > 4), "|", shown(Simd[F32, 4]([1.0, 2.0, 3.0, 4.0]) >= 2.0))
+    w = Simd[U8, 64].splat(0).with(0, 1).with(31, 1).with(32, 1).with(63, 1)
+    print(shown(w == 1), "|", shown(Simd[U8, 32].splat(7).with(17, 0) == 0))
+    it = (v < 2).lanes()
+    for k in !it
+      break if k == 2
+    rest = (v == 1).lanes()
+    print(first_of(!it), iter.count(!it), iter.count(!it), iter.sum(!rest) ?? 0)
+    found = for k in (v == 1).lanes()
+      break k if k > 3
+    else
+      -1
+    missing = for k in (v == 1).lanes()
+      break k if k > 15
+    else
+      -1
+    print(found, missing)
+    print(agree[2](1), agree[4](2), agree[8](3), agree[16](4), agree[32](5), agree[64](6))
+
+test "simd lanes break", "3 2"
+  # A `break` out of a loop over lanes leaves the rest, and a `continue`
+  # goes on to the next lane; nothing is held, so nothing leaks.
+
+  v = Simd[U8, 16].splat(5).with(3, 1).with(9, 1).with(12, 1)
+  first = -1
+  for k in (v == 1).lanes()
+    first = k
+    break
+  odd = 0
+  for k in (v == 1).lanes()
+    continue if k % 2 == 0
+    odd += 1
+  for _ in (v == 7).lanes()
+    odd += 100
+  print(first, odd)
+
+code "simd lanes walks the target's form", "rig.maskTrueLanes(", ".Lanes, rig.mask(v == ", "@\"for iterator\".next()"
+  v = Simd[U8, 16].splat(3).with(2, 1)
+  for k in (v == 1).lanes()
+    print(k)
+
+fail "simd lanes is rejected", "5:12: `lanes` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`", "7:19: `lanes` takes no arguments; got 1 argument", "9:10: type mismatch: expected `Int`, got `Lanes`", "10:6: only the standard library's module `std.prelude` can construct `std.prelude.Lanes`", errors: 4
+  # `lanes` is a mask's, takes no arguments, gives an iterator, not an
+  # index, and only a mask makes one.
+
+  v = Simd[U8, 4].splat(1)
+  for k in v.lanes()
+    print(k)
+  for k in (v == 1).lanes(2)
+    print(k)
+  x: Int = (v == 1).lanes()
+  it = Lanes(bits: 3, shift: 0)
+  print(x, it)
+
+test "simd lanes beside names of its own", "0 2\n2 3"
+  # A module's own `Lanes`, and a method of its own named `lanes`, leave
+  # a mask's `lanes()` as it is.
+
+  obj Lanes
+    n: Int
+
+  obj Road
+    w: Int
+
+    fun lanes(?@) -> Int
+      @w
+
+  sub main()
+    v = Simd[U8, 4]([1, 2, 1, 4])
+    out = String()
+    for k in (v == 1).lanes()
+      !out.add(" " if out.len > 0 else "", k)
+    print(out)
+    print(Lanes(n: 2).n, Road(w: 3).lanes())
+
+test "mask lanes kernels", "693 693 693 693 693", release: true
+  # The kernels test/cli/mask_lanes.sh reads the assembly of: each walks
+  # the lanes of each group equal to `tag` and adds up their positions;
+  # `bits16` is the same walk written with `bits()`.
+
+  pub fun lanes16(s: ?String, tag: U8) -> Int
+    t = 0
+    i = 0
+    while i + 16 <= s.len : i += 16
+      for k in (s.read[Simd[U8, 16]](i) == tag).lanes()
+        t += i + k
+    t
+
+  pub fun bits16(s: ?String, tag: U8) -> Int
+    t = 0
+    i = 0
+    while i + 16 <= s.len : i += 16
+      m = (s.read[Simd[U8, 16]](i) == tag).bits()
+      while m != 0 : m &= m -% 1
+        t += i + m.trailing_zeros()
+    t
+
+  pub fun lanes8(s: ?String, tag: U8) -> Int
+    t = 0
+    i = 0
+    while i + 8 <= s.len : i += 8
+      for k in (s.read[Simd[U8, 8]](i) == tag).lanes()
+        t += i + k
+    t
+
+  pub fun lanes32(s: ?String, tag: U8) -> Int
+    t = 0
+    i = 0
+    while i + 32 <= s.len : i += 32
+      for k in (s.read[Simd[U8, 32]](i) == tag).lanes()
+        t += i + k
+    t
+
+  pub fun lanes64(s: ?String, tag: U8) -> Int
+    t = 0
+    i = 0
+    while i + 64 <= s.len : i += 64
+      for k in (s.read[Simd[U8, 64]](i) == tag).lanes()
+        t += i + k
+    t
+
+  sub main()
+    s = "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc"
+    print(lanes16(s, 'a'), bits16(s, 'a'), lanes8(s, 'a'), lanes32(s, 'a'), lanes64(s, 'a'))
+
 bomb "simd fold array add panics", "integer overflow", release: true
   # A vector made of constants (array) is a run-time value:
   # a lane that overflows panics when the program runs.

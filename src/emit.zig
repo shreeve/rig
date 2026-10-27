@@ -8298,6 +8298,15 @@ pub const Emitter = struct {
                 try self.emitBare(args[0]);
                 return self.w.writeAll(")))");
             },
+            // `rig.maskTrueLanes(Lanes, m)`: the prelude's iterator, holding
+            // the bits of `m` in the form the runtime picks for the target.
+            .lanes => {
+                try self.w.writeAll("rig.maskTrueLanes(");
+                try self.emitTypeTy(ec.elem);
+                try self.w.writeAll(", ");
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")");
+            },
             // `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`,
             // `rig.maskAll(m)`: the runtime lowers each per target.
             .bits, .first, .any, .all => {

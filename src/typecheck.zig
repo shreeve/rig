@@ -7688,7 +7688,7 @@ const Checker = struct {
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
                     .sum => "xs.sum()",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -10447,7 +10447,8 @@ const Checker = struct {
     /// The methods of a vector (docs/SPEC.md, "Vectors"), which read the
     /// receiver as a value and make a new one: `m.bits()`, a `U64` whose
     /// bit `i` is lane `i` of mask `m`; `m.first()`, the index of its first
-    /// true lane, or `none`; `m.any()` and `m.all()`;
+    /// true lane, or `none`; `m.lanes()`, an iterator of its true lanes;
+    /// `m.any()` and `m.all()`;
     /// `m.select(a, b)`, lane `i` of `a` where `m`'s is true and of `b`
     /// where it is false; `v.array()`, the lanes as a `[n]T`; and
     /// `v.with(i, x)`, a copy of `v` whose lane `i` is `x`; `t.lookup(idx)`,
@@ -10459,7 +10460,7 @@ const Checker = struct {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
         if (!op.isSimd() or op == .splat) return null;
         const vt = sema.unwrapViews(self.ctx, obj_ty);
-        const mask_op = op == .bits or op == .first or op == .any or op == .all or op == .select;
+        const mask_op = op == .bits or op == .first or op == .lanes or op == .any or op == .all or op == .select;
         if (mask_op and v.elem != self.t().bool_id) return try self.badCall(args, pos, "`{s}` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `{s}`", .{ method, try self.tyName(vt) });
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "reads `self` as a value");
         _ = try self.readThrough(obj, obj_ty, vt);
@@ -10485,6 +10486,11 @@ const Checker = struct {
         const result: TypeId = switch (op) {
             .bits => try self.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } }),
             .first => try self.ctx.intern(.{ .optional = self.t().int_id }),
+            .lanes => blk: {
+                const lanes = (try self.lanesType(pos)) orelse return self.t().invalid_id;
+                elem = lanes;
+                break :blk lanes;
+            },
             .any, .all => self.t().bool_id,
             .array => try self.ctx.intern(.{ .array = .{ .elem = v.elem, .len = v.len } }),
             .with => vt,
@@ -10508,6 +10514,20 @@ const Checker = struct {
             try self.checkExpr(args[1], v.elem);
         }
         return result;
+    }
+
+    /// The prelude's `Lanes`, the iterator `m.lanes()` gives: imported
+    /// under the hidden name every file that calls a `lanes` method uses
+    /// (`Parser.builtinRefs`), or the prelude's own.
+    fn lanesType(self: *Checker, pos: u32) Error!?TypeId {
+        for (self.ctx.imports) |imp| {
+            if (!std.mem.eql(u8, imp.local_name, rig.builtin_binding_name)) continue;
+            const id = imp.sema.moduleMember("Lanes") orelse break;
+            return try self.ctx.intern(.{ .imported_nominal = .{ .module_id = imp.module_id, .sym_id = id } });
+        }
+        if (std.mem.eql(u8, self.ctx.name, "std." ++ rig.builtin_module_name)) if (self.ctx.moduleMember("Lanes")) |id| return try self.ctx.intern(.{ .nominal = id });
+        try self.err(pos, "`lanes` gives the built-in `Lanes`, which this module cannot reach", .{});
+        return null;
     }
 
     /// `t.lookup(idx)`: a table `t` of 16, 32, or 64 `U8` lanes, and indexes
@@ -13724,14 +13744,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -13746,7 +13766,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
         }
         return self.t().void_id;
     }

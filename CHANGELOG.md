@@ -156,6 +156,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A mask's true lanes:** `for k in m.lanes()` visits each true lane of
+  a mask `Simd[Bool, n]`, lowest first, as an `Int`. `lanes()` gives the
+  prelude's `Lanes`, an iterator, so `break`, `continue`, a resumed
+  loop, and std.iter work on it. The compiler holds the lanes in the
+  form the target reaches fastest: one bit a lane from `pmovmskb` on
+  x86 and WASM, and on ARM the nibble mask of 16 lanes (`cmeq`, `shrn`,
+  `fmov`) and the bytes of 8 (`cmeq`, `fmov`), with no reduction or
+  constant load. Each lane is a count of trailing zeros, a clear of the
+  lowest bit, and the branch back: four instructions on Apple M5 and
+  x86-64-v3, five on Apple M1 and baseline x86-64
+  (`test/cli/mask_lanes.sh`).
 - **A view of a generic `as` binding views the optional:** in a generic
   body, `if o as x` and `while o as x` over a view of a `T?` (`o: ?T?`,
   `?h.item`, `?xs[0]`, `?@item`) bind `x` to the value inside where it
