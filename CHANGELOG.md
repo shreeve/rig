@@ -156,6 +156,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Hashing objects of integers:** an object whose parts are integers,
+  plain enums and Bools hashes its words two at a time, one folded
+  multiply a pair, as foldhash and abseil do, where it took two
+  multiplies a word: Trig's two-word cache keys hash in one, its
+  three-word instantiation keys in two
+  (docs/history/records/2026-10/pair-hash/).
 - **`$plain(T)` narrows a generic body (SPEC "Generic bodies"):**
   `$plain(T)` is whether `T` is plain data, known when the program
   compiles. Where it is an operand of a condition's `and` chain (an
