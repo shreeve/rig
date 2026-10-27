@@ -11,6 +11,7 @@ items, with their probe cases, are in
 
 ## Language
 
+- **Iterator chains** ([design/iterators.md](design/iterators.md), approved 2026-10-27): `xs.map(f).filter(g).sum()`, `take`, `skip`, `enumerate`, `zip`, and the consumers `sum`, `count`, `reduce`, `collect`, `any`, `all`, `find`, `min`, `max`, each chain fused into the `for` loop it means; read chains first; built after the Swisstable Map and Set lands.
 - **More compile-time values on generic types**: `Bool` and enum value parameters (`obj Ring[T, n: Int]` takes integers only).
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `?String`).
