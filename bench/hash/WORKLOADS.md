@@ -24,8 +24,9 @@ check.
 - A line is `KEYS OP NS CHECK`. NS is the time of the whole loop in
   nanoseconds, scaled to a million operations: `ns * N / ops`. CHECK is
   an integer every contestant must print alike; sums wrap at 64 bits.
-- Arrays of keys, values and lookups are made before the timing starts;
-  a map is made empty before it, and dropped after it.
+- Arrays of keys, values and lookups are made before the timing starts,
+  each in a pass of its own (so one array's texts sit together in
+  memory); a map is made empty before it, and dropped after it.
 
 ## Rows
 

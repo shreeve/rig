@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fetch the C++ and Go contestants bench/hash/bench-hash times, each
+# Fetch the C++ contestants bench/hash/bench-hash times, and mimalloc
+# for its `:mimalloc` variants, each
 # pinned to a release tag, into bench/hash/upstream/, which git ignores,
 # and build abseil into upstream/libabsl.a with the machine's clang++.
 # A source already present at its tag is not fetched again. The Rust
@@ -16,6 +17,7 @@ case $(uname -m) in arm64|aarch64) NATIVE=-mcpu=native ;; *) NATIVE=-march=nativ
 ABSEIL=20260817.0
 BOOST=boost-1.92.0
 DENSE=v5.3.3
+MIMALLOC=v3.5.3
 # boost::unordered and the boost libraries its headers include.
 BOOST_LIBS="unordered assert config container_hash core describe mp11 predef static_assert throw_exception type_traits"
 
@@ -38,6 +40,7 @@ clone() {
 
 clone https://github.com/abseil/abseil-cpp "$ABSEIL" "$UP/abseil-cpp"
 clone https://github.com/martinus/unordered_dense "$DENSE" "$UP/unordered_dense"
+clone https://github.com/microsoft/mimalloc "$MIMALLOC" "$UP/mimalloc"
 for m in $BOOST_LIBS; do
     clone "https://github.com/boostorg/$m" "$BOOST" "$UP/boost/$m"
 done
@@ -60,4 +63,4 @@ if [[ ! -f $UP/libabsl.a || $UP/libabsl.a -ot $UP/abseil-cpp/.git/HEAD || ! -f $
     ar rcs "$UP/libabsl.a.new" "$obj"/*.o
     mv "$UP/libabsl.a.new" "$UP/libabsl.a"
 fi
-echo "bench/hash/upstream: abseil $ABSEIL, $BOOST, unordered_dense $DENSE"
+echo "bench/hash/upstream: abseil $ABSEIL, $BOOST, unordered_dense $DENSE, mimalloc $MIMALLOC"

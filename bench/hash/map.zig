@@ -13,9 +13,11 @@ const std = @import("std");
 /// bench-hash as the module `table`.
 const table = @import("table");
 
-/// Every Zig contestant allocates from libc's `malloc`, as the C++ and
-/// Rust ones do, so a row times the table, not the allocator.
-const gpa = table.allocator;
+/// The allocator, the module `alloc` bench-hash names: libc's `malloc`
+/// by default, as the C++ and Rust contestants allocate from, so a row
+/// times the table, not the allocator; another for `VARIANT:ALLOC`.
+const alloc = @import("alloc");
+const gpa = alloc.allocator;
 const mul: i64 = -7046029254386353131;
 
 fn now(io: std.Io) std.Io.Clock.Timestamp {
@@ -28,6 +30,30 @@ fn since(io: std.Io, t: std.Io.Clock.Timestamp) i96 {
 
 fn out(keys: []const u8, op: []const u8, ns: i96, check: i64) void {
     std.debug.print("{s} {s} {d} {d}\n", .{ keys, op, ns, check });
+}
+
+/// `x`, hidden from the optimizer, as map.cc's `opaque` and Rust's
+/// `black_box` hide it: a round's keys, or the map it walks, cannot be
+/// proved the last round's, so no round's work is hoisted or merged.
+inline fn hide(x: anytype) @TypeOf(x) {
+    return asm volatile (""
+        : [ret] "=r" (-> @TypeOf(x)),
+        : [x] "0" (x),
+    );
+}
+
+/// Keeps what `p` points at, as map.cc's `keep`: the stores made into it
+/// must be made.
+inline fn keep(p: anytype) void {
+    asm volatile (""
+        :
+        : [p] "r" (p),
+        : .{ .memory = true });
+}
+
+/// Gives back what a row's arena holds, for an allocator that has one.
+fn rowDone() void {
+    if (@hasDecl(alloc, "reset")) alloc.reset();
 }
 
 fn ints(io: std.Io, n: i64) !void {
@@ -227,6 +253,7 @@ fn sized(io: std.Io, s: i64) !void {
             };
         }
         rem += since(io, t);
+        keep(maps.ptr);
         for (maps) |*m| m.deinit(gpa);
     }
     out(name, "insert", @divTrunc(ins * n, total), reps * k * s);
@@ -241,7 +268,7 @@ fn sized(io: std.Io, s: i64) !void {
     r = 0;
     while (r < rounds) : (r += 1) {
         i = 0;
-        while (i < s) : (i += 1) if (m.get(i *% mul)) |v| {
+        while (i < s) : (i += 1) if (m.get(hide(i) *% mul)) |v| {
             sum += v;
         };
     }
@@ -251,7 +278,7 @@ fn sized(io: std.Io, s: i64) !void {
     r = 0;
     while (r < rounds) : (r += 1) {
         i = s;
-        while (i < 2 * s) : (i += 1) if (m.contains(i *% mul)) {
+        while (i < 2 * s) : (i += 1) if (m.contains(hide(i) *% mul)) {
             found += 1;
         };
     }
@@ -260,7 +287,7 @@ fn sized(io: std.Io, s: i64) !void {
     t = now(io);
     r = 0;
     while (r < rounds) : (r += 1) {
-        var it = m.iterator();
+        var it = hide(&m).iterator();
         while (it.next()) |e| sum += e.value_ptr.*;
     }
     out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
@@ -320,6 +347,7 @@ fn random(io: std.Io, s: i64) !void {
             };
         }
         rem += since(io, t);
+        keep(maps.ptr);
         for (maps) |*m| m.deinit(gpa);
     }
     out(name, "insert", @divTrunc(ins * n, total), reps * k * s);
@@ -338,7 +366,7 @@ fn random(io: std.Io, s: i64) !void {
     var t = now(io);
     r = 0;
     while (r < rounds) : (r += 1) {
-        for (hit) |x| if (m.get(x)) |v| {
+        for (hide(hit.ptr)[0..su]) |x| if (m.get(x)) |v| {
             sum += v;
         };
     }
@@ -347,7 +375,7 @@ fn random(io: std.Io, s: i64) !void {
     t = now(io);
     r = 0;
     while (r < rounds) : (r += 1) {
-        for (miss) |x| if (m.contains(x)) {
+        for (hide(miss.ptr)[0..su]) |x| if (m.contains(x)) {
             found += 1;
         };
     }
@@ -356,7 +384,7 @@ fn random(io: std.Io, s: i64) !void {
     t = now(io);
     r = 0;
     while (r < rounds) : (r += 1) {
-        var it = m.iterator();
+        var it = hide(&m).iterator();
         while (it.next()) |e| sum += e.value_ptr.*;
     }
     out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
@@ -430,7 +458,9 @@ fn churn(io: std.Io, s: i64) !void {
         if (m.fetchRemove(keys[@intCast(i)])) |e| check +%= e.value;
         try m.put(gpa, keys[@intCast(s + i)], s + i);
     }
-    out(name, "turnover", @divTrunc(since(io, t) * n, total), check);
+    const ns = since(io, t);
+    keep(&m);
+    out(name, "turnover", @divTrunc(ns * n, total), check);
 }
 
 /// Lookups that hit half the time, in shuffled order.
@@ -455,7 +485,7 @@ fn mixed(io: std.Io, s: i64) !void {
     const t = now(io);
     var r: i64 = 0;
     while (r < @divTrunc(total, s)) : (r += 1) {
-        for (look) |x| if (m.get(x)) |v| {
+        for (hide(look.ptr)[0..su]) |x| if (m.get(x)) |v| {
             sum += v;
         };
     }
@@ -498,10 +528,10 @@ fn texts(io: std.Io, s: i64) !void {
         defer gpa.free(put);
         const take = try gpa.alloc([]u8, @intCast(k * s));
         defer freeTexts(take);
-        for (put, take, 0..) |*a, *b, i| {
-            a.* = try text(@intCast(i));
-            b.* = try text(@intCast(i));
-        }
+        // Each array in its own pass, as map.rs makes them, so one
+        // array's texts sit together in memory.
+        for (put, 0..) |*a, i| a.* = try text(@intCast(i));
+        for (take, 0..) |*b, i| b.* = try text(@intCast(i));
         for (maps) |*m| m.* = .empty;
         var t = now(io);
         for (maps, 0..) |*m, j| {
@@ -516,6 +546,7 @@ fn texts(io: std.Io, s: i64) !void {
             };
         }
         rem += since(io, t);
+        keep(maps.ptr);
         for (maps) |*m| freeStrMap(m);
     }
     out(name, "insert", ins, reps * k * s);
@@ -530,15 +561,13 @@ fn texts(io: std.Io, s: i64) !void {
     defer freeTexts(hit);
     const miss = try gpa.alloc([]u8, su);
     defer freeTexts(miss);
-    for (hit, miss, order, 0..) |*h, *x, o, j| {
-        h.* = try text(o);
-        x.* = try text(8 * n + @as(i64, @intCast(j)));
-    }
+    for (hit, order) |*h, o| h.* = try text(o);
+    for (miss, 0..) |*x, j| x.* = try text(8 * n + @as(i64, @intCast(j)));
     var sum: i64 = 0;
     var t = now(io);
     r = 0;
     while (r < @divTrunc(n, s)) : (r += 1) {
-        for (hit) |x| if (m.get(x)) |v| {
+        for (hide(hit.ptr)[0..su]) |x| if (m.get(x)) |v| {
             sum += v;
         };
     }
@@ -547,7 +576,7 @@ fn texts(io: std.Io, s: i64) !void {
     t = now(io);
     r = 0;
     while (r < @divTrunc(n, s)) : (r += 1) {
-        for (miss) |x| if (m.contains(x)) {
+        for (hide(miss.ptr)[0..su]) |x| if (m.contains(x)) {
             found += 1;
         };
     }
@@ -588,6 +617,7 @@ fn bigs(io: std.Io, s: i64) !void {
             };
         }
         rem += since(io, t);
+        keep(maps.ptr);
         for (maps) |*m| m.deinit(gpa);
     }
     out(name, "insert", @divTrunc(ins * n, total), reps * k * s);
@@ -603,7 +633,7 @@ fn bigs(io: std.Io, s: i64) !void {
     var t = now(io);
     r = 0;
     while (r < rounds) : (r += 1) {
-        for (hit) |x| if (m.getPtr(x)) |v| {
+        for (hide(hit.ptr)[0..su]) |x| if (m.getPtr(x)) |v| {
             sum += v[7];
         };
     }
@@ -612,7 +642,7 @@ fn bigs(io: std.Io, s: i64) !void {
     t = now(io);
     r = 0;
     while (r < rounds) : (r += 1) {
-        var it = m.valueIterator();
+        var it = hide(&m).valueIterator();
         while (it.next()) |v| sum += v[0];
     }
     out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
@@ -633,6 +663,7 @@ fn memory(with_map: bool) !void {
     var m: table.Auto(i64, i64) = .empty;
     defer m.deinit(gpa);
     for (keys, 0..) |x, i| try m.put(gpa, x, @intCast(i));
+    keep(&m);
     std.debug.print("mem {d} len {d}\n", .{ n, m.count() });
 }
 
@@ -645,13 +676,34 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
     const n: usize = 1_000_000;
     const io = std.Io.Threaded.global_single_threaded.io();
-    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try sized(io, s);
-    for ([_]i64{ 16, 24, 1000, 1500, 100_000, 150_000, 3_000_000, 4_000_000 }) |s| try random(io, s);
-    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try latency(io, s);
-    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try churn(io, s);
-    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try mixed(io, s);
-    for ([_]i64{ 16, 1000, 100_000, 1_000_000 }) |s| try texts(io, s);
-    for ([_]i64{ 16, 1000, 100_000, 1_000_000 }) |s| try bigs(io, s);
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| {
+        try sized(io, s);
+        rowDone();
+    }
+    for ([_]i64{ 16, 24, 1000, 1500, 100_000, 150_000, 3_000_000, 4_000_000 }) |s| {
+        try random(io, s);
+        rowDone();
+    }
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| {
+        try latency(io, s);
+        rowDone();
+    }
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| {
+        try churn(io, s);
+        rowDone();
+    }
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| {
+        try mixed(io, s);
+        rowDone();
+    }
+    for ([_]i64{ 16, 1000, 100_000, 1_000_000 }) |s| {
+        try texts(io, s);
+        rowDone();
+    }
+    for ([_]i64{ 16, 1000, 100_000, 1_000_000 }) |s| {
+        try bigs(io, s);
+        rowDone();
+    }
     // The rows only Rig and Zig's own HashMap time.
     if (!table.is_std) return;
     try ints(io, @intCast(n));

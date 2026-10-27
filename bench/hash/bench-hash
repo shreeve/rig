@@ -37,12 +37,26 @@ usage: bench/hash/bench-hash [options]
                   Rig's Int hash, so the tables race on the same hash. All
                   but rig-*, hash-*, and zig-* time the sized rows only.
                   The C++ ones need bench/hash/fetch-deps run once.
+                  A variant may name an allocator after a colon, to race
+                  allocators under one table (`zig-foa:smp`):
+                    :malloc    libc's malloc, what every Zig variant uses
+                    :smp       Zig's std.heap.smp_allocator
+                    :rig       Rig's release allocator, src/alloc.zig
+                    :arena     an ArenaAllocator over page_allocator, freed
+                               after each row
+                    :mimalloc  mimalloc, pinned by fetch-deps
+                  (those for zig-* only), and for any variant
+                    :thp       the same program run with
+                               GLIBC_TUNABLES=glibc.malloc.hugetlb=1, so
+                               glibc's malloc asks for transparent huge pages
   --all           every variant above but the safe ones and hash-* (which
                   needs a `rig` whose std has std.hash; add it with --variants)
   --mem           also each variant's peak memory per entry for one map
                   of 4,000,000 Int keys (with --reps 0, only that)
   --reps N        runs per variant, interleaved across variants; the
                   fastest of each operation counts (default 9)
+  --spread PCT    also list each row whose runs of one variant spread more
+                  than PCT% ((slowest - fastest) / fastest), to run again
   --out DIR       keep the builds in DIR and reuse them; with
   --build-only    build and stop, and later
   --time-only     time what DIR holds
@@ -87,13 +101,44 @@ ALL = ["rig-fast", "zig-fast", "rust", "rust-mix", "hashbrown", "hashbrown-mix",
 ALL += [v for v, f in (("zig-foa", "foa.zig"), ("zig-dense", "dense.zig"), ("zig-hash", "hash.zig"),
                        ("zig-ordered", "ordered.zig")) if os.path.exists(os.path.join(HERE, f))]
 N = 1_000_000
+# The allocators a Zig variant can name after a colon: the module `alloc`
+# map.zig allocates from.
+ZIG_ALLOCS = {"malloc": os.path.join(HERE, "alloc", "malloc.zig"), "smp": os.path.join(HERE, "alloc", "smp.zig"),
+              "rig": os.path.join(ROOT, "src", "alloc.zig"), "arena": os.path.join(HERE, "alloc", "arena.zig"),
+              "mimalloc": os.path.join(HERE, "alloc", "mimalloc.zig")}
+# What a `:thp` variant runs with: glibc's malloc madvises its heap and
+# its mmapped blocks MADV_HUGEPAGE (glibc 2.35 or later), for THP in
+# madvise mode.
+THP_ENV = {"GLIBC_TUNABLES": "glibc.malloc.hugetlb=1"}
+
+
+def split(v):
+    """A variant's program and its allocator (None: the program's own)."""
+    base, _, a = v.partition(":")
+    if a and a != "thp" and (a not in ZIG_ALLOCS or not base.startswith("zig-")):
+        sys.exit(f"{v}: :{a} is not an allocator bench-hash knows for {base}")
+    return base, a or None
+
+
+def exe_of(v, out):
+    """The program a variant runs: a `:thp` variant runs its base's."""
+    base, a = split(v)
+    return os.path.join(out, base if a == "thp" else v)
+
+
+def env_of(v):
+    return dict(os.environ, **THP_ENV) if split(v)[1] == "thp" else None
 
 
 def build(v, out):
+    base, a = split(v)
+    if a == "thp":
+        return build(base, out)
     exe = os.path.join(out, v)
     if os.path.exists(exe):
         return exe
     tmp = exe + ".new"
+    v = base
     if v.startswith("rig-") or v.startswith("hash-"):
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
         flag = "--release" if v.endswith("-safe") else "--release=fast"
@@ -135,9 +180,18 @@ def build(v, out):
         table = {"zig-foa": "table_foa.zig", "zig-dense": "table_dense.zig", "zig-hash": "table_hash.zig",
                  "zig-ordered": "table_ordered.zig"}.get(v, "table_std.zig")
         mode = "-OReleaseSafe" if v == "zig-safe" else "-OReleaseFast"
-        subprocess.run([ZIG, "build-exe", mode, "--dep", "table", "-Mroot=" + os.path.join(HERE, "map.zig"),
-                        "-Mtable=" + os.path.join(HERE, table), "-lc", "-femit-bin=" + tmp,
-                        "--cache-dir", os.path.join(out, "zig-cache")], check=True)
+        # The allocator is the module `alloc`, which map.zig and the
+        # table both import; mimalloc's C is built into it, optimized as
+        # its CMake release build is.
+        c = []
+        if a == "mimalloc":
+            mi = os.path.join(UP, "mimalloc")
+            if not os.path.exists(mi):
+                sys.exit(f"{v}:mimalloc: run bench/hash/fetch-deps first")
+            c = ["-cflags", "-O3", "-DNDEBUG", "--", "-I", os.path.join(mi, "include"), os.path.join(mi, "src", "static.c")]
+        subprocess.run([ZIG, "build-exe", mode, "--dep", "table", "--dep", "alloc", "-Mroot=" + os.path.join(HERE, "map.zig"),
+                        "--dep", "alloc", "-Mtable=" + os.path.join(HERE, table), *c, "-Malloc=" + ZIG_ALLOCS[a or "malloc"],
+                        "-lc", "-femit-bin=" + tmp, "--cache-dir", os.path.join(out, "zig-cache")], check=True)
     os.rename(tmp, exe)
     return exe
 
@@ -147,8 +201,8 @@ def build(v, out):
 SLOW = 60
 
 
-def run(exe):
-    p = subprocess.run([exe], check=True, capture_output=True, text=True)
+def run(exe, env=None):
+    p = subprocess.run([exe], check=True, capture_output=True, text=True, env=env)
     rows = {}
     for line in (p.stdout + p.stderr).splitlines():
         keys, op, ns, check = line.split()
@@ -156,9 +210,9 @@ def run(exe):
     return rows
 
 
-def peak(exe, arg):
+def peak(exe, arg, env=None):
     """The peak resident memory, in bytes, of `exe arg`."""
-    p = subprocess.Popen([exe, arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    p = subprocess.Popen([exe, arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     _, status, use = os.wait4(p.pid, 0)
     if status != 0:
         sys.exit(f"{exe} {arg}: exit status {status}")
@@ -173,7 +227,7 @@ def memory(variants, exes, reps):
     least = {}
     for _ in range(max(reps, 1)):
         for v in variants:
-            b = (peak(exes[v], "mem") - peak(exes[v], "mem0")) / n
+            b = (peak(exes[v], "mem", env_of(v)) - peak(exes[v], "mem0", env_of(v))) / n
             least[v] = min(b, least.get(v, b))
     print(f"\nmemory: peak bytes per entry, one map of {n:,} Int keys (16 bytes of key and value)")
     for v in sorted(variants, key=least.get):
@@ -203,12 +257,13 @@ def main():
     ap.add_argument("--build-only", action="store_true")
     ap.add_argument("--time-only", action="store_true")
     ap.add_argument("--mem", action="store_true")
+    ap.add_argument("--spread", type=float)
     a = ap.parse_args()
     variants = ALL if a.all else a.variants.split(",")
     out = a.out or tempfile.mkdtemp(prefix="bench-hash.")
     os.makedirs(out, exist_ok=True)
     try:
-        exes = {v: (os.path.join(out, v) if a.time_only else build(v, out)) for v in variants}
+        exes = {v: (exe_of(v, out) if a.time_only else build(v, out)) for v in variants}
         if a.build_only:
             return
         if a.reps == 0:
@@ -216,6 +271,7 @@ def main():
                 memory(variants, exes, 1)
             return
         best = {v: {} for v in variants}
+        worst = {v: {} for v in variants}
         checks = {}
         slow = set()
         for rep in range(a.reps):
@@ -223,10 +279,11 @@ def main():
                 if v in slow:
                     continue
                 began = time.monotonic()
-                for k, (ns, check) in run(exes[v]).items():
+                for k, (ns, check) in run(exes[v], env_of(v)).items():
                     if checks.setdefault(k, check) != check:
                         sys.exit(f"{v}: {k[0]} {k[1]} checksum {check}, expected {checks[k]}")
                     best[v][k] = min(ns, best[v].get(k, ns))
+                    worst[v][k] = max(ns, worst[v].get(k, ns))
                 if rep == 0 and time.monotonic() - began > SLOW:
                     slow.add(v)
         base = a.base or next((v for v in variants if v.startswith("zig-")), variants[0])
@@ -249,6 +306,13 @@ def main():
             print(f"\n{v} ran once: its first run took over {SLOW} s")
         if len(variants) > 1:
             scoreboard(variants, best)
+        if a.spread is not None:
+            wide = [(v, k, (worst[v][k] - best[v][k]) / max(best[v][k], 1) * 100)
+                    for v in variants if v not in slow for k in best[v]]
+            wide = [x for x in wide if x[2] > a.spread]
+            print(f"\nruns that spread more than {a.spread:g}% (of {a.reps}): {len(wide)}")
+            for v, k, pct in wide:
+                print(f"  {v:15} {k[0]:12} {k[1]:10} {best[v][k] / N:8.2f} {worst[v][k] / N:8.2f}  {pct:5.1f}%")
         if a.mem:
             memory(variants, exes, a.reps)
     finally:
