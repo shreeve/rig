@@ -2,7 +2,7 @@
   "name": "vscode-rig",
   "displayName": "Rig Language",
   "description": "Syntax highlighting and the language server for Rig (.rig) files.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "rig-lang",
   "license": "MIT",
   "repository": {
