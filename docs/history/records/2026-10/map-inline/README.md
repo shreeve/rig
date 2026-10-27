@@ -221,7 +221,10 @@ main's, so what is left is likely placement.
 - `tools/heavy swarm test/rig.rip all -q -w 3`: green, 10,589 jobs; the
   oracle files unchanged.
 - `bench/json/guard.py` on the Mac, on current main (after #708): every
-  file at or under guard.txt (below).
+  file under guard.txt, as instructions per byte: twitter 7.8738
+  (0.8% fewer), twitterescaped 9.3666 (0.6%), canada 16.1443 (0.1%),
+  citm_catalog 8.0338 (0.4%), gsoc-2018 3.4388 (0.7%), github_events
+  7.0053 (0.7%).
 - `zig build test` on pup: Debug, ReleaseSafe, and ReleaseFast pass.
 - loco's light gate: GREEN (122 runs, 0 differ).
 - `tools/emit-diff origin/main`: 6 of 30 programs differ, in
