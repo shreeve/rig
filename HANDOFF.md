@@ -72,7 +72,9 @@ A new session, human or agent, takes these steps in order:
   loco built with that Rig, its output identical to the Rust loc's.
   Trig's full suites run on both mains on pup every four
   hours or on demand (`tools/full-main`); the last result is in
-  `/zfs/trig-pup/full/LATEST`. No case is marked `known: true`: no bug is open.
+  `/zfs/trig-pup/full/LATEST`. One case is marked `known: true`: a
+  module constant holding a vector passes as a field default and then
+  fails in Zig (`test/rig/types-simd.rig.test`).
 
 ## In flight
 
@@ -128,6 +130,14 @@ A new session, human or agent, takes these steps in order:
   prefetch instruction with no range test, since a prefetch of any
   address does nothing a program can see, so it needs no proof
   (bench/prefetch).
+  The built-in `Map` and `Set` are rewritten on `zig-ordered`'s design
+  in safe Rig (std/prelude.rig; INTERNALS, "The built-in Map and Set"):
+  Trig 4-6% fewer cycles and lower peak memory on pup; the rows that
+  trail main, in-cache hits, the latency chains, 4M inserts, and text
+  removes, are in
+  [map-rewrite-rig.md](docs/history/records/2026-10/hash-race/map-rewrite-rig.md).
+  Porting the table into the runtime as Zig instead waits on the owner:
+  `extern zig` takes no generic functions and no Zig-defined types.
 - **Masked indexes** (`src/proofs.zig`): `s[e & m]` with `m = s.len -% 1`
   under a guard `s.len > 0` makes no bounds test, ready for the Map
   rewrite. The built-in Map, Set, and Interner keep their two guarded

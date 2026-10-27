@@ -1,92 +1,389 @@
-# The built-in types written in Rig: `Lanes`, the iterator of a mask's
-# true lanes (at the end), and the Map and Set, hash tables over Lists, that
-# keep their entries in the order they were first put in. A key is any
-# value `.hash()` takes:
-# what `==` compares, less a float and what holds one. Text keys hash
-# and compare by their bytes, so a `Map[String, V]` finds a key from a
-# `Static` or a `?String` as well as from a String.
+# The built-in types written in Rig: the Map and Set, hash tables that
+# keep their entries in the order they were first put in, and `Lanes`,
+# the iterator of a mask's true lanes (at the end). A key is any value
+# `.hash()` takes: what `==` compares, less a float and what holds one.
+# Text keys hash and compare by their bytes, so a `Map[String, V]` finds
+# a key from a `Static` or a `?String` as well as from a String.
 #
-# The entries are kept in a List, in order; a taken entry's value is
-# `none` (a Set's key), and its key stays until the List is next
-# compacted. Each entry's hash is kept beside it, so no key is hashed
-# twice, unless the key takes 8 bytes or fewer (`stores_hashes`), which
-# hash in a few steps and compare in one: such a Map keeps no hashes,
-# compares keys where it would compare hashes, and hashes a key again
-# where it needs one. A Map or Set builds a `Table` when it first holds more than
-# `SMALL` entries, or when `reserve` makes room for more, and keeps it
-# until `clear`; until then a lookup compares the stored hashes in
-# turn. The `Table` finds an entry: open-addressed, a power of two of slots probed
-# linearly, at most four fifths full. A key's slot is picked by its
-# hash's low bits; `tags[i]` is 0 for a free slot, or the top seven bits
-# of its key's hash with the high bit set (`tag_of`), so a probe compares
-# a key only when its tag matches, and `at[i]` is its entry's index. Taking an entry shifts the slots after it back, so the
-# table keeps no tombstones; growing it drops the entries taken.
+# The entries lie in one List, in the order their keys were first put
+# in. A Map whose keys and values are plain data keeps each as an
+# `Entry`, a key and a value and nothing else (16 bytes for
+# `Map[Int, Int]`); any other keeps each as a `Held`, which also holds
+# its key's hash, or `none` once taken. A take drops its key at once and
+# marks its entry gone in `gone`, one bit an entry, so the order of the
+# rest survives every take; a walk passes the gone entries by runs. The gone entries are
+# dropped from the List (compacted) only when it is full and a quarter
+# of it is gone, when the index grows, or when a take empties the Map.
+#
+# Up to `SMALL` live entries a Map has no index: `small` holds a tag
+# byte an entry, lane `i` entry `i`'s (0 when gone or not written), and
+# a lookup is one 16-lane match of its key's tag. A small Map writes up
+# to `SMALL_LANES` entries, so a turnover compacts once every `SMALL`
+# takes. At the next live key it builds its index (in `Table`), which
+# finds an entry from then on: groups of 16 tag bytes (15 tags and an overflow
+# byte), and beside them 16 32-bit entry indexes a group. A key's group
+# is its hash's high bits and its tag the low byte (`tag_of`), never 0,
+# which marks a free lane. A probe matches the tag over the group's 16
+# bytes and compares a key only where the tag matches (lane 15, the
+# overflow byte, names `NO_ENTRY`, which the entry's test rejects). The
+# group and lane indexes are masked, so they make no bounds test; only
+# the entry index read from the index is tested. A probe walks on from
+# the group (triangular) only while the group's overflow byte has the
+# bit of the tag's class (`class_bit`), which an insert sets in each
+# full group it passes. A take frees its lane and, where that bit is
+# set, lowers `limit` by one, so no tombstone piles up: a rebuild that
+# drift forces sizes the index at most 0.6 full.
 #
 # The hot path is inlined into the method that runs it: a lookup
-# (`find`), and an insert that needs no room made (`insert`), so their
+# (`probe`), and an insert that needs no room made (`insert`), so their
 # state stays in the caller's registers and a key is never copied into a
-# call. Making room (`grow`, which compacts and rebuilds) is out of line
-# and cold.
+# call. A lookup's walk past its home group (`walk_far`) and making room
+# (`grow`) are out of line and cold. The design and its measurements are
+# bench/hash's `zig-ordered` (docs/history/records/2026-10/hash-race/).
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
   pub key: K
   pub value: V
 
-# A key and its value, `none` once the entry is taken; the key stays
-# until the entries are next compacted.
+# An entry of a Map whose keys and values are plain data.
 obj Entry[K, V]
   key: K
-  value: V?
+  value: V
 
-# Entries a Map or Set holds before it builds a table: up to
-# this many, a lookup compares the stored hashes of the entries in turn.
-SMALL = 8
+# An entry of any other Map, `none` once taken: its key, its value, and
+# its key's hash.
+obj Held[K, V]
+  key: K
+  value: V
+  hash: U64
 
-# The slots that find the entries of a Map or Set once it
-# holds more than `SMALL` of them: none before that.
+# A key of a Set whose keys are not plain data, `none` once taken, and
+# its hash.
+obj HeldKey[K]
+  key: K
+  hash: U64
+
+type Group = Simd[U8, 16]
+
+# A group with every lane free.
+NO_TAGS = Group.splat(0)
+
+# The lanes of a group that hold tags: lane 15 is its overflow byte,
+# whose entry index is `NO_ENTRY`, so a probe that matches it finds no
+# entry there and needs no mask.
+TAG_LANES = Simd[Bool, 16]([true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false])
+
+# Each lane's own index, to write one lane of a group in a register:
+# `(LANE_IDS == l).select(x, grp)`, where `grp.with(l, x)` would go
+# through memory.
+LANE_IDS = Group([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+
+# The entry index of a lane that names none: past every entry.
+NO_ENTRY = U32.max
+
+# Live entries a Map or Set holds before it builds its index.
+SMALL = 16
+
+# Entries a small Map or Set may have written, gone or not.
+SMALL_LANES = 32
+
+# The room a Map or Set makes for its entries at its first put.
+FIRST_ROOM = 4
+
+# The most entries a Map or Set holds: an entry index is 32 bits.
+MAX_ENTRIES = 4294967295
+
+# A used lane's tag: the hash's low byte, 0 made 1, since 0 is a free
+# lane. A key's group is picked by the hash's high bits, so keys of one
+# group still differ in their tags.
+inline fun tag_of(h: U64) -> U8
+  t = U8.wrap(h)
+  1 if t == 0 else t
+
+# The bit of a tag's class in a group's overflow byte.
+inline fun class_bit(tag: U8) -> U8
+  U8(1) <<% (tag & 7)
+
+# The groups an index needs to hold `n` live entries at most 0.6 full:
+# a power of two, at least 2.
+fun groups_for(n: Int) -> Int
+  g = 2
+  while 9 * g < n
+    g *= 2
+  g
+
+# The low `n` bits, `0 <= n`.
+inline fun low_bits(n: Int) -> U64
+  return U64.max if n >= 64
+  (U64(1) <<% (n & 63)) -% 1
+
+# What a Map or Set keeps beside its entries, whatever they hold: which
+# are gone, the room they have, and what finds them, `small` or the
+# index. A method that needs the entries' count takes it as `n`.
 obj Table
-  tags: List[U8] = List()
+  # The index: `tags`, a group of 16 tag bytes each, and `at`, 16 entry
+  # indexes a group, lane `l` of group `g` at `16 * g + l`. Empty while
+  # the Map is small.
+  tags: List[Group] = List()
   at: List[U32] = List()
+  # The hash's shift right that leaves its group: 64 less the bits of
+  # the group count.
+  shift: U8 = 63
+  # The live entries the Map takes before it grows its index: 7/8 of
+  # its tag lanes, less one for each take from a lane a probe may walk
+  # past; `SMALL` while it is small.
+  limit: U32 = 16
+  # Bit `j & 63` of word `j >> 6` is set when entry `j` is gone; empty
+  # until the first take that leaves a hole. A small Map keeps none: its
+  # tags say which entries are gone (0). How many are gone is the
+  # entries written less the live ones (`Map.dead`).
+  gone: List[U64] = List()
+  # The entries the List has room for, as the Map counts it.
+  room: U32 = 0
+  # A small Map's tags: lane `i` is entry `i`'s, 0 when it is gone or
+  # not written.
+  small: [32]U8 = [32 of 0]
 
-  # Point a free slot at entry `j`, whose key hashes to `h`. The table
-  # is never full, so the probe always finds one.
-  sub place(!@, j: Int, h: U64)
-    i = @free_slot(h)
-    @tags[i] = tag_of(h)
-    @at[i] = U32(j)
+  # Empty the index, as `groups` groups of free lanes.
+  sub reset(!@, groups: Int)
+    @tags = List.filled(groups, NO_TAGS)
+    @at = List.filled(groups * 16, NO_ENTRY)
+    @shift = U8.wrap(1 + groups.leading_zeros())
+    @limit = U32.wrap(groups * 15 * 7 / 8)
 
-  # The first free slot from the one `h` names. Each pass is a loop
-  # whose test is the bounds test, so a step reads a tag with no other
-  # check; past both, -1 would fail the caller's bounds check.
-  fun free_slot(?@, h: U64) -> Int
-    ts = ?@tags[..]
-    i = Int(h & U64(ts.len -% 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        return i if ts[i] == 0
-        i += 1
-      i = 0
-    -1
+  # Record entry `j`, just written, whose key hashes to `h`: its lane in
+  # a small Map's tags, or in the index the first free lane of its home
+  # group, inline, or one past it.
+  inline sub note(!@, j: Int, h: U64)
+    ts = !@tags[..]
+    sl = !@at[..]
+    if ts.len > 0 and sl.len > 0
+      mask = ts.len -% 1
+      g = Int.wrap(h >> (@shift & 63)) & mask
+      grp = ts[g]
+      if ((grp == 0) & TAG_LANES).first() as lane
+        ts[g] = (LANE_IDS == U8.wrap(lane)).select(tag_of(h), grp)
+        sl[(g *% 16 +% lane) & (sl.len -% 1)] = U32.wrap(j)
+        return
+      !@place_past(j, h)
+      return
+    @small[j] = tag_of(h)
 
-  # Empty the table, as `n` free slots: each List made anew, its zeros
-  # written at once.
-  sub reset(!@, n: Int)
-    @tags = List.filled(n, U8(0))
-    @at = List.filled(n, U32(0))
+  # Point the first free lane from `h`'s home group on at entry `j`,
+  # marking the class of its tag in each full group passed. The index
+  # is never full, so the walk finds one.
+  sub place_past(!@, j: Int, h: U64)
+    tag = tag_of(h)
+    bit = class_bit(tag)
+    ts = !@tags[..]
+    sl = !@at[..]
+    if ts.len > 0 and sl.len > 0
+      mask = ts.len -% 1
+      g = Int.wrap(h >> (@shift & 63)) & mask
+      step = 0
+      while step <= mask
+        grp = ts[g]
+        if ((grp == 0) & TAG_LANES).first() as lane
+          ts[g] = (LANE_IDS == U8.wrap(lane)).select(tag, grp)
+          sl[(g *% 16 +% lane) & (sl.len -% 1)] = U32.wrap(j)
+          return
+        ts[g] = grp.with(15, grp[15] | bit)
+        step += 1
+        g = (g +% step) & mask
+    panic("Map: no free lane in its index")
 
-# Whether a Map or Set of keys `K` keeps each key's hash: not for a key
-# of 8 bytes or fewer, which hashes in a few steps and compares in one.
-fun stores_hashes[K]() -> Bool
-  $size(K) > 8
+  # Free the lane of a key found at `s` (a lane of the index, or in a
+  # small Map an entry), whose hash is `h`, and give its entry. Freeing a
+  # lane a probe may have walked past lowers the limit by one.
+  inline fun unlink(!@, s: Int, h: U64) -> Int
+    if @tags.len == 0
+      @small[s] = 0
+      return s
+    ts = !@tags[..]
+    sl = ?@at[..]
+    j = -1
+    if ts.len > 0 and sl.len > 0
+      g = (s >> 4) & (ts.len -% 1)
+      grp = ts[g]
+      ts[g] = (LANE_IDS == U8.wrap(s & 15)).select(0, grp)
+      @limit -%= 1 if grp[15] & class_bit(tag_of(h)) != 0
+      j = Int(sl[s & (sl.len -% 1)])
+    j
+
+  # Mark entry `j` gone, its lane already freed.
+  inline sub mark(!@, j: Int)
+    if @tags.len > 0
+      w = j >> 6
+      !@gone.resize((Int(@room) + 63) >> 6, 0) if w >= @gone.len
+      @gone[w] |= U64(1) <<% (j & 63)
+
+  # Whether entry `j` is gone.
+  inline fun is_gone(?@, j: Int) -> Bool
+    return @small[j] == 0 if @tags.len == 0
+    w = j >> 6
+    w < @gone.len and (@gone[w] >> (j & 63)) & 1 != 0
+
+  # Word `w` of the gone bits of the `n` entries written: in a small Map,
+  # the lanes of its tags that are 0, below `n`.
+  fun word(?@, w: Int, n: Int) -> U64
+    if @tags.len == 0
+      return 0 if w > 0
+      low = (@small.read[Group](0) == 0).bits()
+      high = (@small.read[Group](16) == 0).bits()
+      return (low | (high <<% 16)) & low_bits(n)
+    @gone[w] if w < @gone.len else U64(0)
+
+  # The entries left when entry `j`, the last of them, is cut off with
+  # the gone entries just before it, whose bits are cleared.
+  fun cut(!@, j: Int) -> Int
+    n = j
+    while n > 0 and @is_gone(n - 1)
+      n -= 1
+      @gone[n >> 6] &= (U64(1) <<% (n & 63)).not() if @tags.len > 0
+    n
+
+  # Forget every entry, keeping the memory and the index: what taking
+  # the last live entry does.
+  sub empty(!@)
+    !@gone.clear()
+    @small = [32 of 0]
+    if @tags.len > 0
+      !@tags[..].fill(NO_TAGS)
+      @limit = U32.wrap(@tags.len * 15 * 7 / 8)
+
+  # Forget every entry and the index, keeping the memory: `clear`. A
+  # small Map writes at most `SMALL_LANES` entries.
+  sub clear(!@)
+    !@tags.clear()
+    !@at.clear()
+    @limit = 16
+    !@gone.clear()
+    @small = [32 of 0]
+    @room = 32 if Int(@room) > SMALL_LANES
+
+  # What to do to make room for one more entry, of `n` written and
+  # `live` live: 1 to build or grow the index (`groups_for` gives its
+  # size), 2 to compact the entries, 3 to make room for more, 0 when
+  # there is room. Each step is asked again after the one before.
+  fun next_step(?@, n: Int, live: Int) -> Int
+    if @tags.len == 0
+      return 1 if live >= SMALL
+      return 0 if n < Int(@room)
+      return 3 if Int(@room) < SMALL_LANES
+      return 2
+    return 1 if live >= Int(@limit)
+    return 0 if n < Int(@room)
+    dead = n - live
+    return 2 if dead > 0 and dead >= Int(@room) / 4
+    3
+
+  # The groups the index grows to, for `live` live entries: for a small
+  # Map, sized for the entries' next room, so the index is at most 0.6
+  # full until the Map passes it; else at most 0.6 full, and never
+  # smaller than it is.
+  fun grown(?@, live: Int) -> Int
+    return groups_for(2 * Int(@room)) if @tags.len == 0
+    g = groups_for(live + 1)
+    @tags.len if g < @tags.len else g
+
+  # The room after the next step up from `room`.
+  fun next_room(?@) -> Int
+    return FIRST_ROOM if @room == 0
+    if @tags.len == 0 and 2 * Int(@room) > SMALL_LANES
+      return SMALL_LANES
+    2 * Int(@room)
+
+  # The count of gone entries before each word of `gone`, for the `n`
+  # entries written, to number the lanes again after a compaction; none
+  # for a small Map.
+  fun ranks(?@, n: Int) -> List[Int]
+    return List() if @tags.len == 0
+    words = (n + 63) >> 6
+    before = List[Int].filled(words, 0)
+    count = 0
+    for w in 0..words
+      before[w] = count
+      count += @gone[w].count_ones() if w < @gone.len
+    before
+
+  # After the entries are compacted: in a small Map, its tags moved
+  # down with them; else every used lane numbered again, entry `j`
+  # moving down by the gone entries before it, `before[w]` for those
+  # before word `w` and the gone bits below it in that word. Then no
+  # entry is gone.
+  sub compacted(!@, n: Int, before: ?List[Int])
+    if @tags.len == 0
+      d = 0
+      for i in 0..n
+        t = @small[i]
+        if t != 0
+          @small[d] = t
+          d += 1
+      for i in d..SMALL_LANES
+        @small[i] = 0
+    else
+      for g in 0..@tags.len
+        for lane in ((@tags[g] != 0) & TAG_LANES).lanes()
+          s = g * 16 + lane
+          j = Int(@at[s])
+          w = j >> 6
+          below = @gone[w] & low_bits(j & 63) if w < @gone.len else U64(0)
+          @at[s] = U32.wrap(j - before[w] - below.count_ones())
+    !@gone.clear()
+
+  # The first entry from `j` on, of the `n` written, that is live; `n`
+  # when none is. Called once a run, so a walk's step stays short.
+  called fun live_from(?@, j: Int, n: Int) -> Int
+    i = j
+    while i < n
+      w = i >> 6
+      bits = @word(w, n).not() >> (i & 63)
+      if bits != 0
+        i += bits.trailing_zeros()
+        return i if i < n else n
+      i = (w + 1) * 64
+    n
+
+  # The first entry from `j` on, of the `n` written, that is gone; `n`
+  # when none is.
+  called fun gone_from(?@, j: Int, n: Int) -> Int
+    i = j
+    while i < n
+      w = i >> 6
+      bits = @word(w, n) >> (i & 63)
+      if bits != 0
+        i += bits.trailing_zeros()
+        return i if i < n else n
+      i = (w + 1) * 64
+    n
+
+  # The index of the `i`th live entry of the `n` written, counting from
+  # 0, found 64 entries at a time.
+  fun nth_live(?@, i: Int, n: Int) -> Int
+    left = i
+    w = 0
+    while w * 64 < n
+      live = @word(w, n).not() & low_bits(n - w * 64)
+      c = live.count_ones()
+      if left < c
+        while left > 0
+          live &= live -% 1
+          left -= 1
+        return w * 64 + live.trailing_zeros()
+      left -= c
+      w += 1
+    n
 
 # `Map[K, V]()` is an empty Map, which allocates nothing until the
 # first `put`.
 pub obj Map[K: Hash, V]
   # How many entries the Map holds.
   pub ?len: Int = 0
-  es: List[Entry[K, V]] = List()
-  hs: List[U64] = List()
+  # The entries of a Map of plain keys and values.
+  ps: List[Entry[K, V]] = List()
+  # The entries of any other Map, each `none` once taken.
+  es: List[Held[K, V]?] = List()
   table: Table = Table()
 
   # An empty Map, as `Map[K, V]()` is, with room for `capacity` entries.
@@ -95,53 +392,67 @@ pub obj Map[K: Hash, V]
     !m.reserve(capacity) if capacity > 0
     m
 
-  # Make room for `n` more entries at once: the entries and the table
+  # Make room for `n` more entries at once: the entries and the index
   # are sized for them, so the next `n` puts of new keys grow neither.
   pub sub reserve(!@, n: Int)
-    !@es.reserve(n)
-    !@hs.reserve(n) if stores_hashes[K]()
-    want = @es.len + n
+    return if n <= 0
+    want = @len + n
     if want > SMALL
-      size = table_size(want, @table.tags.len)
-      !@rebuild(size) if size > @table.tags.len
+      groups = groups_for(want)
+      !@rebuild(groups * 16) if groups > @table.tags.len
+    else if @table.tags.len == 0 and @written() + n > SMALL_LANES
+      !@compact()
+    !@make_room(@written() + n)
 
   # Whether the Map holds the key `k`.
-  pub fun has(?@, k: ?K) -> Bool
+  pub inline fun has(?@, k: ?K) -> Bool
     @find(k, k.hash()) != none
 
   # The value of the key `k`, viewed where the Map holds it, or `none`.
-  pub fun get(?@, k: ?K) -> (?V)? from @
+  pub inline fun get(?@, k: ?K) -> (?V)? from @
     if @find(k, k.hash()) as j
-      return ?@es[j].value
+      if $plain(K) and $plain(V)
+        return ?@ps[j].value
+      if ?@es[j] as e
+        return ?e.value
     none
 
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
-  pub fun edit(!@, k: ?K) -> (!V)? from @
+  pub inline fun edit(!@, k: ?K) -> (!V)? from @
     if @find(k, k.hash()) as j
-      if !@es[j].value as v
-        return v
+      if $plain(K) and $plain(V)
+        return !@ps[j].value
+      if !@es[j] as e
+        return !e.value
     none
 
   # Put `v` under `k`, inserting or overwriting; the old value is
   # dropped. A key already there keeps its place, and `k` is dropped.
-  pub sub put(!@, k: K, v: V)
+  pub inline sub put(!@, k: K, v: V)
     old = (!@).replace(<k, <v)
     <old
 
   # Put `v` under `k`, inserting or overwriting, and hand back the old
   # value, or `none` when `k` is new.
-  pub fun replace(!@, k: K, v: V) -> V?
+  pub inline fun replace(!@, k: K, v: V) -> V?
     h = k.hash()
     if @find(?k, h) as j
       <k
-      return swap(!@es[j].value, <v)
+      if $plain(K) and $plain(V)
+        old = @ps[j].value
+        @ps[j].value = v
+        return old
+      if !@es[j] as e
+        return swap(!e.value, <v)
+      <v
+      return none
     !@insert(<k, <v, h)
     none
 
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
   # `k` and `v` are dropped.
-  pub fun put_new(!@, k: K, v: V) -> Bool
+  pub inline fun put_new(!@, k: K, v: V) -> Bool
     h = k.hash()
     if @find(?k, h) != none
       <k
@@ -152,7 +463,7 @@ pub obj Map[K: Hash, V]
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
-  pub fun ensure(!@, k: K, v: V) -> !V from @, k, v
+  pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
     h = k.hash()
     j = 0
     if @find(?k, h) as at
@@ -161,16 +472,12 @@ pub obj Map[K: Hash, V]
       j = at
     else
       j = (!@).add_new(<k, <v, h)
-    # The entry at `j` holds a value, so the loop returns at once; it
-    # stands where an unwrap that traps would (docs/internals/backlog.md).
-    while true
-      if !@es[j].value as w
-        return w
+    (!@).value_at(j)
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
-  pub fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
+  pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     h = k.hash()
     j = 0
     added = false
@@ -181,15 +488,12 @@ pub obj Map[K: Hash, V]
     else
       j = (!@).add_new(<k, <v, h)
       added = true
-    # As in `ensure`, the entry at `j` holds a value.
-    while true
-      if !@es[j].value as w
-        return w, added
+    return (!@).value_at(j), added
 
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
+  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
     h = k.hash()
     j = 0
     if @find(?k, h) as at
@@ -197,17 +501,14 @@ pub obj Map[K: Hash, V]
       j = at
     else
       j = (!@).add_made(<k, make, h)
-    # As in `ensure`, the entry at `j` holds a value.
-    while true
-      if !@es[j].value as w
-        return w
+    (!@).value_at(j)
 
   # As `ensure`, with the key viewed, not given: `key(k)` makes the key
   # to put only when `k` is new, so a count by a viewed key,
   # `(!m).ensure_by(word, |w| +w, 0) += 1`, makes no key for a word
   # already there. When `k` is there, `key` is not called and `v` is
   # dropped. The Map keeps `key`, as `ensure_with` keeps `make`.
-  pub fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
+  pub inline fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
     h = k.hash()
     j = 0
     if @find(k, h) as at
@@ -215,10 +516,17 @@ pub obj Map[K: Hash, V]
       j = at
     else
       j = (!@).add_new(key(k), <v, h)
-    # As in `ensure`, the entry at `j` holds a value.
+    (!@).value_at(j)
+
+  # The value of entry `j`, which is live, lent to write.
+  inline fun value_at(!@, j: Int) -> !V from @
+    if $plain(K) and $plain(V)
+      return !@ps[j].value
+    # The entry at `j` holds a value, so the loop returns at once; it
+    # stands where an unwrap that traps would (docs/internals/backlog.md).
     while true
-      if !@es[j].value as w
-        return w
+      if !@es[j] as e
+        return !e.value
 
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
   # value `make(k)`, and give its index; out of line, as `add_new`.
@@ -226,225 +534,344 @@ pub obj Map[K: Hash, V]
     rarely
     v = make(?k)
     !@insert(<k, <v, h)
-    @es.len - 1
+    @written() - 1
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`, and give
   # its index; out of line, so a lookup that finds its key stays short.
   fun add_new(!@, k: K, v: V, h: U64) -> Int
     rarely
     !@insert(<k, <v, h)
-    @es.len - 1
+    @written() - 1
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
   # to read and its value to write, in order, and an entry it rejects is
-  # dropped then, not left for compaction as `take` leaves a key. The
-  # entries stay in the Lists the Map has, so they keep their room.
+  # dropped then. The entries stay in the List the Map has, so they keep
+  # their room.
   pub sub retain(!@, f: ?fun(?K, !V) -> Bool)
-    back: List[Entry[K, V]] = List(capacity: @es.len)
-    back_hs: List[U64] = List(capacity: @es.len)
-    while (!@es).pop() as e
-      !back.push(<e)
-      !back_hs.push((!@hs).pop() ?? 0)
-    @len = 0
-    while (!back).pop() as popped
-      new e = <popped
-      h = (!back_hs).pop() ?? 0
-      keep = false
-      if !e.value as v
-        keep = f(?e.key, !v)
-      if keep
-        !@es.push(<e)
-        !@hs.push(h) if stores_hashes[K]()
-        @len += 1
+    was = @len
+    for j in 0..@written()
+      if $plain(K) and $plain(V)
+        if not @table.is_gone(j)
+          v = @ps[j].value
+          keep = f(?@ps[j].key, !v)
+          @ps[j].value = v
+          !@reject(j) if not keep
       else
-        <e
-    !@rebuild(@table.tags.len) if @table.tags.len > 0
+        if <@es[j] as held
+          new e = <held
+          if f(?e.key, !e.value)
+            old = swap(!@es[j], <e)
+            <old
+          else
+            <e
+            !@reject(j)
+    !@reindex() if @len < was
 
-  # Take the entry of the key `k` out: its value is handed back. Its key
-  # is dropped when the entries are next compacted, as the Map grows,
-  # or with the Map. `none` when the Map has no such key.
-  pub fun take(!@, k: ?K) -> V?
+  # Take the entry of the key `k` out: its value is handed back, and its
+  # key dropped. `none` when the Map has no such key.
+  pub inline fun take(!@, k: ?K) -> V?
     h = k.hash()
-    if @find(k, h) as j
-      @len -= 1
-      !@unlink(j, h) if @table.tags.len > 0
-      return <@es[j].value
+    if @probe[true](k, h) as s
+      j = (!@table).unlink(s, h)
+      if $plain(K) and $plain(V)
+        v = @ps[j].value
+        !@drop_entry(j)
+        return v
+      if <@es[j] as e
+        !@drop_entry(j)
+        return <e.value
     none
 
   # Drop every entry. The Map keeps the memory it has.
   pub sub clear(!@)
+    !@ps.clear()
     !@es.clear()
-    !@hs.clear()
-    !@table.tags.clear()
-    !@table.at.clear()
+    !@table.clear()
     @len = 0
 
   # The entry at index `i` in the order the keys were first put in: its
   # key and its value, each viewed where the Map holds it, or `none` when
-  # `i` is not below `len`. One step while no entry has been taken since
-  # the entries were last compacted, as the Map grows; until then, it
-  # counts the entries before it.
+  # `i` is not below `len`. One step while no entry is gone; otherwise
+  # it counts the live entries before it, 64 at a time.
   pub fun at(?@, i: Int) -> (?K, ?V)? from @
     return none if i < 0 or i >= @len
     j = i
-    if @len < @es.len
-      j = 0
-      n = 0
-      while j < @es.len
-        if @es[j].value != none
-          break if n == i
-          n += 1
-        j += 1
-    v: (?V)? = ?@es[j].value
-    if v as vv
-      return ?@es[j].key, vv
+    j = @table.nth_live(i, @written()) if @dead() > 0
+    if $plain(K) and $plain(V)
+      return ?@ps[j].key, ?@ps[j].value
+    if ?@es[j] as e
+      return ?e.key, ?e.value
     none
 
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.
   pub fun items(?@) -> Items[K, V] from @
-    Items(map: ?@, next_at: 0)
+    Items(map: ?@, next_at: 0, end: @first_end(), holes: @dead() > 0)
 
   # The keys, in order, each viewed where the Map holds it.
   pub fun keys(?@) -> Keys[K, V] from @
-    Keys(map: ?@, next_at: 0)
+    Keys(map: ?@, next_at: 0, end: @first_end(), holes: @dead() > 0)
 
   # The values, in order, each viewed where the Map holds it.
   pub fun values(?@) -> Values[K, V] from @
-    Values(map: ?@, next_at: 0)
+    Values(map: ?@, next_at: 0, end: @first_end(), holes: @dead() > 0)
 
-  # Call `f` with each key, in order, and its value lent to write. Each
-  # value is out of its entry while `f` has it.
+  # Call `f` with each key, in order, and its value lent to write.
   pub sub update(!@, f: ?sub(?K, !V))
-    for j in 0..@es.len
-      held = <@es[j].value
-      if !held as v
-        f(?@es[j].key, !v)
-      old = swap(!@es[j].value, <held)
-      <old
-
-  # The entry of the key `k`, whose hash is `h`, or `none`: in a small
-  # Map, by the stored hashes in turn; in a larger one, by a probe of
-  # its table from the slot `h` names to the end, then from the start,
-  # each pass a loop whose test is the bounds test, so a step reads a tag
-  # with no other check. Inlined into each lookup and write, so the
-  # probe's state stays in its caller's registers.
-  inline fun find(?@, k: ?K, h: U64) -> Int?
-    if @table.tags.len == 0
-      if stores_hashes[K]()
-        hs = ?@hs[..]
-        j = 0
-        while 0 <= j and j < hs.len
-          if hs[j] == h and @es[j].value != none
-            return j if @es[j].key == k
-          j += 1
+    for j in 0..@written()
+      if $plain(K) and $plain(V)
+        if not @table.is_gone(j)
+          v = @ps[j].value
+          f(?@ps[j].key, !v)
+          @ps[j].value = v
       else
-        es = ?@es[..]
-        j = 0
-        while 0 <= j and j < es.len
-          if es[j].key == k
-            return j if es[j].value != none
-          j += 1
-      return none
-    ts = ?@table.tags[..]
+        if <@es[j] as held
+          new e = <held
+          f(?e.key, !e.value)
+          old = swap(!@es[j], <e)
+          <old
+
+  # The entries written, gone or not.
+  inline fun written(?@) -> Int
+    if $plain(K) and $plain(V)
+      return @ps.len
+    @es.len
+
+  # The entries gone, written but not live.
+  inline fun dead(?@) -> Int
+    @written() - @len
+
+  # The end of a walk's first run: every entry when none is gone, and
+  # otherwise none, so the walk finds its runs.
+  inline fun first_end(?@) -> Int
+    @written() if @dead() == 0 else 0
+
+  # Whether entry `j`'s key is `k`, whose hash is `h`.
+  # The test of `j` against the entries is the bounds test of `j` a read
+  # would make, so a lane that names no entry (`NO_ENTRY`) is no match.
+  inline fun same(?@, j: Int, k: ?K, h: U64) -> Bool
+    if $plain(K) and $plain(V)
+      return j < @ps.len and @ps[j].key == k
+    if j < @es.len
+      if ?@es[j] as e
+        return e.hash == h and e.key == k
+    false
+
+  # The entry of the key `k`, whose hash is `h`, or `none`.
+  inline fun find(?@, k: ?K, h: U64) -> Int?
+    @probe[false](k, h)
+
+  # The key `k`, whose hash is `h`, found: its lane in the index when
+  # `slot` (in a small Map, its entry), else its entry; or `none`. The
+  # home group's tags are matched at once, its lane line prefetched with
+  # them; a walk past it (`walk`) is rare. Inlined into each lookup and
+  # write, so the probe's state stays in its caller's registers.
+  inline fun probe[slot: Bool](?@, k: ?K, h: U64) -> Int?
     tag = tag_of(h)
-    i = Int(h & U64(ts.len -% 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        t = ts[i]
-        return none if t == 0
-        if t == tag
-          j = Int(@table.at[i])
-          return j if @es[j].key == k
-        i += 1
-      i = 0
+    ts = ?@table.tags[..]
+    sl = ?@table.at[..]
+    if ts.len > 0 and sl.len > 0
+      mask = ts.len -% 1
+      g = Int.wrap(h >> (@table.shift & 63)) & mask
+      sl.prefetch(g *% 16)
+      grp = ts[g]
+      for lane in (grp == tag).lanes()
+        s = (g *% 16 +% lane) & (sl.len -% 1)
+        j = Int(sl[s])
+        if @same(j, k, h)
+          return s if slot else j
+      if grp[15] & class_bit(tag) != 0
+        rarely
+        # A take keeps the walk inline: a call in it would cost its
+        # prologue more saved registers than the walk costs.
+        return @walk[true](k, h, g) if slot
+        return @walk_far(k, h, g)
+      return none
+    for i in (@table.small.read[Group](0) == tag).lanes()
+      return i if @same(i, k, h)
+    if @written() > 16
+      rarely
+      for i in (@table.small.read[Group](16) == tag).lanes()
+        return i + 16 if @same(i + 16, k, h)
     none
+
+  # The walk of the index past the home group `home` of the key `k`,
+  # whose hash is `h`: the groups after it, in triangular steps, until
+  # one has the key or does not mark its tag's class. What `probe` gives.
+  inline fun walk[slot: Bool](?@, k: ?K, h: U64, home: Int) -> Int?
+    tag = tag_of(h)
+    bit = class_bit(tag)
+    ts = ?@table.tags[..]
+    sl = ?@table.at[..]
+    if ts.len > 0 and sl.len > 0
+      mask = ts.len -% 1
+      step = 1
+      g = (home +% 1) & mask
+      while step <= mask
+        grp = ts[g]
+        for lane in (grp == tag).lanes()
+          s = (g *% 16 +% lane) & (sl.len -% 1)
+          j = Int(sl[s])
+          if @same(j, k, h)
+            return s if slot else j
+        return none if grp[15] & bit == 0
+        step += 1
+        g = (g +% step) & mask
+    none
+
+  # A lookup's walk past the home group, out of line and cold, so the
+  # lookup's own loop keeps its state in registers.
+  fun walk_far(?@, k: ?K, h: U64, home: Int) -> Int?
+    rarely
+    @walk[false](k, h, home)
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`: what a
   # write does when its key is new, inlined into it, so an insert into
-  # room the Map has is a push and a slot, with no call and no copy of
-  # the key into one; making room is out of line (`grow`). A table's
-  # length is a count of bytes in memory, so its sums cannot wrap.
+  # room the Map has is a push and a lane, with no call and no copy of
+  # the key into one; making room is out of line (`grow`).
   inline sub insert(!@, k: K, v: V, h: U64)
-    n = @table.tags.len
-    if n == 0
-      !@grow() if @es.len >= SMALL
-    else if (@es.len +% 1) *% 5 > n *% 4
-      !@grow()
-    j = @es.len
-    !@es.push(Entry(key: <k, value: <v))
-    !@hs.push(h) if stores_hashes[K]()
+    !@grow() if @written() >= Int(@table.room) or @len >= Int(@table.limit)
+    j = @written()
+    if $plain(K) and $plain(V)
+      !@ps.push(Entry(key: k, value: v))
+    else
+      !@es.push(Held(key: <k, value: <v, hash: h))
     @len += 1
-    !@table.place(j, h) if @table.tags.len > 0
+    !@table.note(j, h)
 
-  # Make room for one more entry: drop the entries taken, and build the
-  # table, or double it, when the entries left would fill more than two
-  # fifths of it. A Map that has not held more than `SMALL` entries
-  # keeps no table.
+  # Entry `j`, whose lane is freed, leaves the live entries: marked
+  # gone; or cut off, with the gone entries before it, when it is the
+  # last written; or, when it is the last live entry, the Map emptied.
+  inline sub drop_entry(!@, j: Int)
+    @len -= 1
+    if @len == 0
+      !@empty()
+    else if j + 1 == @written()
+      !@cut(j)
+    else
+      !@table.mark(j)
+
+  # Entry `j`, which `retain` dropped, marked gone, and its tag freed in
+  # a small Map; the index is built again after.
+  sub reject(!@, j: Int)
+    @len -= 1
+    !@table.mark(j)
+    @table.small[j] = 0 if @table.tags.len == 0
+
+  # The index built again after `retain`, or a small Map compacted.
+  sub reindex(!@)
+    if @table.tags.len > 0
+      !@rebuild(@table.tags.len * 16)
+    else
+      !@compact()
+
+  # Cut the entries off from `j`, the last written, with the gone
+  # entries just before it; called, as it walks them.
+  called sub cut(!@, j: Int)
+    n = (!@table).cut(j)
+    if $plain(K) and $plain(V)
+      !@ps.keep(n)
+    else
+      !@es.keep(n)
+
+  # Empty the Map when its last live entry is taken, keeping its memory
+  # and its index.
+  sub empty(!@)
+    !@ps.clear()
+    !@es.clear()
+    !@table.empty()
+
+  # Make room for one more entry (`Table.next_step`): build or grow the
+  # index, compact the entries, or make room for more, until there is
+  # room.
   sub grow(!@)
     rarely
-    !@compact() if @len < @es.len
-    return if @table.tags.len == 0 and @len < SMALL
-    !@rebuild(table_size(@len + 1, @table.tags.len))
+    while true
+      step = @table.next_step(@written(), @len)
+      return if step == 0
+      if step == 1
+        !@rebuild(@table.grown(@len) * 16)
+      else if step == 2
+        !@compact()
+      else
+        !@make_room(@table.next_room())
 
-  # Drop the entries taken, keeping the rest in order: every entry is
-  # popped off the end and the live ones pushed back the other way, so
-  # each moves whole.
+  # Room for `total` entries in all.
+  sub make_room(!@, total: Int)
+    return if total <= Int(@table.room)
+    panic("a Map holds at most 4294967295 entries") if total > MAX_ENTRIES
+    if $plain(K) and $plain(V)
+      !@ps.reserve(total - @ps.len)
+    else
+      !@es.reserve(total - @es.len)
+    @table.room = U32.wrap(total)
+
+  # Drop the gone entries, keeping the rest in order, under the same
+  # index, which is numbered again with no hash and no probe.
   sub compact(!@)
-    back: List[Entry[K, V]] = List(capacity: @es.len)
-    back_hs: List[U64] = List(capacity: @es.len)
-    while (!@es).pop() as e
-      h = (!@hs).pop() ?? 0
-      if e.value != none
-        !back.push(<e)
-        !back_hs.push(h)
-    while (!back).pop() as e
-      !@es.push(<e)
-      !@hs.push((!back_hs).pop() ?? 0) if stores_hashes[K]()
+    n = @written()
+    before = @table.ranks(n)
+    !@move_live()
+    !@table.compacted(n, ?before)
 
-  # The table built anew with `n` slots, once the entries taken are
-  # dropped, each entry's slot placed again from its stored hash.
+  # Move the live entries down, in order, over the gone ones, found 64
+  # at a time by the gone bits, and cut the List after them. The gone
+  # bits are left for the caller.
+  sub move_live(!@)
+    n = @written()
+    dst = 0
+    w = 0
+    while w * 64 < n
+      live = @table.word(w, n).not() & low_bits(n - w * 64)
+      while live != 0
+        j = w * 64 + live.trailing_zeros()
+        live &= live -% 1
+        if dst != j
+          if $plain(K) and $plain(V)
+            @ps[dst] = @ps[j]
+          else
+            moved = <@es[j]
+            old = swap(!@es[dst], <moved)
+            <old
+        dst += 1
+      w += 1
+    if $plain(K) and $plain(V)
+      !@ps.keep(dst)
+    else
+      !@es.keep(dst)
+
+  # The index built anew with `n` lanes, `n / 16` groups, once the gone
+  # entries are dropped, each entry's lane placed again from its hash.
   sub rebuild(!@, n: Int)
-    !@compact() if @len < @es.len
-    !@table.reset(n)
-    for j in 0..@es.len
-      h = @hash_at(j)
-      !@table.place(j, h)
+    if @dead() > 0
+      !@move_live()
+      !@table.gone.clear()
+    !@table.reset(n >> 4)
+    for j in 0..@written()
+      !@table.note(j, @hash_at(j))
 
-  # The hash of entry `j`'s key: the one kept beside it, or, where the
-  # Map keeps none (`stores_hashes`), the key hashed again.
+  # The hash of entry `j`'s key: the one kept with it, or, for plain
+  # data, the key hashed again.
   fun hash_at(?@, j: Int) -> U64
-    return @hs[j] if stores_hashes[K]()
-    @es[j].key.hash()
+    if $plain(K) and $plain(V)
+      return @ps[j].key.hash()
+    if ?@es[j] as e
+      return e.hash
+    0
 
-  # Free the slot of entry `j`, whose key hashes to `h`, shifting back
-  # each slot after it that would otherwise no longer be found from where
-  # its key hashes to (`hash_at`), so the table keeps no tombstones.
-  sub unlink(!@, j: Int, h: U64)
-    mask = @table.tags.len - 1
-    hole = Int(h & U64(mask))
-    while @table.tags[hole] == 0 or @table.at[hole] != U32(j)
-      hole = (hole + 1) & mask
-    s = (hole + 1) & mask
-    while 0 <= s and s < @table.tags.len and @table.tags[s] != 0
-      home = Int(@hash_at(Int(@table.at[s])) & U64(mask))
-      if ((s - home) & mask) >= ((s - hole) & mask)
-        @table.tags[hole] = @table.tags[s]
-        @table.at[hole] = @table.at[s]
-        hole = s
-      s = (s + 1) & mask
-    @table.tags[hole] = 0
-
-# A set of keys, kept in the order they were first added. Its keys are
-# held as a Map's entries are, each a `K?` that is `none` once taken.
+# A set of keys, kept in the order they were first added, held as a
+# Map's entries are: each key alone when it is plain data, and otherwise
+# a `HeldKey`, `none` once taken.
 #
 # `Set[K]()` is an empty Set, which allocates nothing until the
 # first `add`.
 pub obj Set[K: Hash]
   # How many keys the Set holds.
   pub ?len: Int = 0
-  ks: List[K?] = List()
-  hs: List[U64] = List()
+  # The keys of a Set of plain keys.
+  ks: List[K] = List()
+  # The keys of any other Set, each `none` once taken.
+  es: List[HeldKey[K]?] = List()
   table: Table = Table()
 
   # An empty Set, as `Set[K]()` is, with room for `capacity` keys.
@@ -453,244 +880,359 @@ pub obj Set[K: Hash]
     !s.reserve(capacity) if capacity > 0
     s
 
-  # Make room for `n` more keys at once: the keys and the table are
+  # Make room for `n` more keys at once: the keys and the index are
   # sized for them, so the next `n` adds of new keys grow neither.
   pub sub reserve(!@, n: Int)
-    !@ks.reserve(n)
-    !@hs.reserve(n) if stores_hashes[K]()
-    want = @ks.len + n
+    return if n <= 0
+    want = @len + n
     if want > SMALL
-      size = table_size(want, @table.tags.len)
-      !@rebuild(size) if size > @table.tags.len
+      groups = groups_for(want)
+      !@rebuild(groups * 16) if groups > @table.tags.len
+    else if @table.tags.len == 0 and @written() + n > SMALL_LANES
+      !@compact()
+    !@make_room(@written() + n)
 
   # Whether the Set holds the key `k`.
-  pub fun has(?@, k: ?K) -> Bool
+  pub inline fun has(?@, k: ?K) -> Bool
     @find(k, k.hash()) != none
 
   # Add the key `k`: true when it is new; otherwise `k` is dropped.
-  pub fun add(!@, k: K) -> Bool
+  pub inline fun add(!@, k: K) -> Bool
     h = k.hash()
-    return false if @find(?k, h) != none
+    if @find(?k, h) != none
+      <k
+      return false
     !@insert(<k, h)
     true
 
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
-  pub fun take(!@, k: ?K) -> K?
+  pub inline fun take(!@, k: ?K) -> K?
     h = k.hash()
-    if @find(k, h) as j
-      @len -= 1
-      !@unlink(j, h) if @table.tags.len > 0
-      return <@ks[j]
+    if @probe[true](k, h) as s
+      j = (!@table).unlink(s, h)
+      if $plain(K)
+        key = @ks[j]
+        !@drop_entry(j)
+        return key
+      if <@es[j] as e
+        !@drop_entry(j)
+        return <e.key
     none
 
   # Keep the keys for which `f` is true, in order; a key it rejects is
-  # dropped then. The keys stay in the Lists the Set has, so they keep
+  # dropped then. The keys stay in the List the Set has, so they keep
   # their room.
   pub sub retain(!@, f: ?fun(?K) -> Bool)
-    back: List[K] = List(capacity: @len)
-    back_hs: List[U64] = List(capacity: @len)
-    while (!@ks).pop() as slot
-      h = (!@hs).pop() ?? 0
-      if <slot as k
-        !back.push(<k)
-        !back_hs.push(h)
-    @len = 0
-    while (!back).pop() as k
-      h = (!back_hs).pop() ?? 0
-      if f(?k)
-        !@ks.push(<k)
-        !@hs.push(h) if stores_hashes[K]()
-        @len += 1
+    was = @len
+    for j in 0..@written()
+      if $plain(K)
+        !@reject(j) if not @table.is_gone(j) and not f(?@ks[j])
       else
-        <k
-    !@rebuild(@table.tags.len) if @table.tags.len > 0
+        keep = true
+        if ?@es[j] as e
+          keep = f(?e.key)
+        if not keep
+          gone = <@es[j]
+          <gone
+          !@reject(j)
+    !@reindex() if @len < was
 
   # Drop every key. The Set keeps the memory it has.
   pub sub clear(!@)
     !@ks.clear()
-    !@hs.clear()
-    !@table.tags.clear()
-    !@table.at.clear()
+    !@es.clear()
+    !@table.clear()
     @len = 0
 
   # The keys, in the order they were first added, each viewed where the
   # Set holds it.
   pub fun items(?@) -> Members[K] from @
-    Members(set: ?@, next_at: 0)
+    Members(set: ?@, next_at: 0, end: @written() if @dead() == 0 else 0, holes: @dead() > 0)
 
-  # The key `k`, whose hash is `h`, or `none`, found as a Map's `find`
-  # finds an entry, and inlined as it is.
+  # The keys written, gone or not.
+  inline fun written(?@) -> Int
+    if $plain(K)
+      return @ks.len
+    @es.len
+
+  # The keys gone, written but not live.
+  inline fun dead(?@) -> Int
+    @written() - @len
+
+  # Whether key `j` is `k`, whose hash is `h`.
+  inline fun same(?@, j: Int, k: ?K, h: U64) -> Bool
+    if $plain(K)
+      return j < @ks.len and @ks[j] == k
+    if j < @es.len
+      if ?@es[j] as e
+        return e.hash == h and e.key == k
+    false
+
+  # The key `k`, whose hash is `h`, found as a Map's `find` finds an
+  # entry, and inlined as it is.
   inline fun find(?@, k: ?K, h: U64) -> Int?
-    if @table.tags.len == 0
-      if stores_hashes[K]()
-        hs = ?@hs[..]
-        j = 0
-        while 0 <= j and j < hs.len
-          if hs[j] == h
-            return j if @ks[j] == k
-          j += 1
-      else
-        j = 0
-        while 0 <= j and j < @ks.len
-          return j if @ks[j] == k
-          j += 1
-      return none
-    ts = ?@table.tags[..]
+    @probe[false](k, h)
+
+  # The key `k`, whose hash is `h`, found as a Map's `probe` finds it.
+  inline fun probe[slot: Bool](?@, k: ?K, h: U64) -> Int?
     tag = tag_of(h)
-    i = Int(h & U64(ts.len -% 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        t = ts[i]
-        return none if t == 0
-        if t == tag
-          j = Int(@table.at[i])
-          return j if @ks[j] == k
-        i += 1
-      i = 0
+    ts = ?@table.tags[..]
+    sl = ?@table.at[..]
+    if ts.len > 0 and sl.len > 0
+      mask = ts.len -% 1
+      g = Int.wrap(h >> (@table.shift & 63)) & mask
+      sl.prefetch(g *% 16)
+      grp = ts[g]
+      for lane in (grp == tag).lanes()
+        s = (g *% 16 +% lane) & (sl.len -% 1)
+        j = Int(sl[s])
+        if @same(j, k, h)
+          return s if slot else j
+      if grp[15] & class_bit(tag) != 0
+        rarely
+        # A take keeps the walk inline: a call in it would cost its
+        # prologue more saved registers than the walk costs.
+        return @walk[true](k, h, g) if slot
+        return @walk_far(k, h, g)
+      return none
+    for i in (@table.small.read[Group](0) == tag).lanes()
+      return i if @same(i, k, h)
+    if @written() > 16
+      rarely
+      for i in (@table.small.read[Group](16) == tag).lanes()
+        return i + 16 if @same(i + 16, k, h)
     none
+
+  # The walk of the index past the home group `home` of the key `k`,
+  # whose hash is `h`: the groups after it, in triangular steps, until
+  # one has the key or does not mark its tag's class. What `probe` gives.
+  inline fun walk[slot: Bool](?@, k: ?K, h: U64, home: Int) -> Int?
+    tag = tag_of(h)
+    bit = class_bit(tag)
+    ts = ?@table.tags[..]
+    sl = ?@table.at[..]
+    if ts.len > 0 and sl.len > 0
+      mask = ts.len -% 1
+      step = 1
+      g = (home +% 1) & mask
+      while step <= mask
+        grp = ts[g]
+        for lane in (grp == tag).lanes()
+          s = (g *% 16 +% lane) & (sl.len -% 1)
+          j = Int(sl[s])
+          if @same(j, k, h)
+            return s if slot else j
+        return none if grp[15] & bit == 0
+        step += 1
+        g = (g +% step) & mask
+    none
+
+  # A lookup's walk past the home group, out of line and cold, so the
+  # lookup's own loop keeps its state in registers.
+  fun walk_far(?@, k: ?K, h: U64, home: Int) -> Int?
+    rarely
+    @walk[false](k, h, home)
 
   # Add the key `k`, which is new and hashes to `h`, inlined into `add`
   # as a Map's `insert` is into its writes; making room is out of line.
   inline sub insert(!@, k: K, h: U64)
-    n = @table.tags.len
-    if n == 0
-      !@grow() if @ks.len >= SMALL
-    else if (@ks.len +% 1) *% 5 > n *% 4
-      !@grow()
-    j = @ks.len
-    !@ks.push(<k)
-    !@hs.push(h) if stores_hashes[K]()
+    !@grow() if @written() >= Int(@table.room) or @len >= Int(@table.limit)
+    j = @written()
+    if $plain(K)
+      !@ks.push(k)
+    else
+      !@es.push(HeldKey(key: <k, hash: h))
     @len += 1
-    !@table.place(j, h) if @table.tags.len > 0
+    !@table.note(j, h)
+
+  # Key `j`, whose lane is freed, leaves the live keys, as a Map's
+  # entry does (`Map.drop_entry`).
+  inline sub drop_entry(!@, j: Int)
+    @len -= 1
+    if @len == 0
+      !@empty()
+    else if j + 1 == @written()
+      !@cut(j)
+    else
+      !@table.mark(j)
+
+  # Key `j`, which `retain` dropped, marked gone, as in a Map.
+  sub reject(!@, j: Int)
+    @len -= 1
+    !@table.mark(j)
+    @table.small[j] = 0 if @table.tags.len == 0
+
+  # The index built again after `retain`, or a small Set compacted.
+  sub reindex(!@)
+    if @table.tags.len > 0
+      !@rebuild(@table.tags.len * 16)
+    else
+      !@compact()
+
+  called sub cut(!@, j: Int)
+    n = (!@table).cut(j)
+    if $plain(K)
+      !@ks.keep(n)
+    else
+      !@es.keep(n)
+
+  sub empty(!@)
+    !@ks.clear()
+    !@es.clear()
+    !@table.empty()
 
   sub grow(!@)
     rarely
-    !@compact() if @len < @ks.len
-    return if @table.tags.len == 0 and @len < SMALL
-    !@rebuild(table_size(@len + 1, @table.tags.len))
+    while true
+      step = @table.next_step(@written(), @len)
+      return if step == 0
+      if step == 1
+        !@rebuild(@table.grown(@len) * 16)
+      else if step == 2
+        !@compact()
+      else
+        !@make_room(@table.next_room())
 
-  # Drop the keys taken, keeping the rest in order, in the Lists the Set
-  # has, so they keep the room they have: every key is popped off the
-  # end and the live ones pushed back the other way.
+  sub make_room(!@, total: Int)
+    return if total <= Int(@table.room)
+    panic("a Set holds at most 4294967295 keys") if total > MAX_ENTRIES
+    if $plain(K)
+      !@ks.reserve(total - @ks.len)
+    else
+      !@es.reserve(total - @es.len)
+    @table.room = U32.wrap(total)
+
   sub compact(!@)
-    back: List[K] = List(capacity: @len)
-    back_hs: List[U64] = List(capacity: @len)
-    while (!@ks).pop() as slot
-      h = (!@hs).pop() ?? 0
-      if <slot as k
-        !back.push(<k)
-        !back_hs.push(h)
-    while (!back).pop() as k
-      !@ks.push(<k)
-      !@hs.push((!back_hs).pop() ?? 0) if stores_hashes[K]()
+    n = @written()
+    before = @table.ranks(n)
+    !@move_live()
+    !@table.compacted(n, ?before)
 
-  # The table built anew with `n` slots, once the keys taken are
-  # dropped, each key's slot placed again from its stored hash.
+  sub move_live(!@)
+    n = @written()
+    dst = 0
+    w = 0
+    while w * 64 < n
+      live = @table.word(w, n).not() & low_bits(n - w * 64)
+      while live != 0
+        j = w * 64 + live.trailing_zeros()
+        live &= live -% 1
+        if dst != j
+          if $plain(K)
+            @ks[dst] = @ks[j]
+          else
+            moved = <@es[j]
+            old = swap(!@es[dst], <moved)
+            <old
+        dst += 1
+      w += 1
+    if $plain(K)
+      !@ks.keep(dst)
+    else
+      !@es.keep(dst)
+
+  # The index built anew with `n` lanes, as a Map's is.
   sub rebuild(!@, n: Int)
-    !@compact() if @len < @ks.len
-    !@table.reset(n)
-    for j in 0..@ks.len
-      h = @hash_at(j)
-      !@table.place(j, h)
+    if @dead() > 0
+      !@move_live()
+      !@table.gone.clear()
+    !@table.reset(n >> 4)
+    for j in 0..@written()
+      !@table.note(j, @hash_at(j))
 
-  # The hash of key `j`: the one kept beside it, or, where the Set keeps
-  # none (`stores_hashes`), the key hashed again.
   fun hash_at(?@, j: Int) -> U64
-    return @hs[j] if stores_hashes[K]()
-    key: (?K)? = ?@ks[j]
-    if key as k
-      return k.hash()
+    if $plain(K)
+      return @ks[j].hash()
+    if ?@es[j] as e
+      return e.hash
     0
 
-  # Free the slot of key `j`, which hashes to `h`, shifting back each slot
-  # after it that would otherwise no longer be found from where its key
-  # hashes to (`hash_at`), so the table keeps no tombstones.
-  sub unlink(!@, j: Int, h: U64)
-    mask = @table.tags.len - 1
-    hole = Int(h & U64(mask))
-    while @table.tags[hole] == 0 or @table.at[hole] != U32(j)
-      hole = (hole + 1) & mask
-    s = (hole + 1) & mask
-    while 0 <= s and s < @table.tags.len and @table.tags[s] != 0
-      home = Int(@hash_at(Int(@table.at[s])) & U64(mask))
-      if ((s - home) & mask) >= ((s - hole) & mask)
-        @table.tags[hole] = @table.tags[s]
-        @table.at[hole] = @table.at[s]
-        hole = s
-      s = (s + 1) & mask
-    @table.tags[hole] = 0
-
-# The slots a table needs to hold `want` entries at most two fifths
-# full: a power of two, at least 16, and at least `now`.
-fun table_size(want: Int, now: Int) -> Int
-  n = 16 if now < 16 else now
-  while want * 5 > n * 2
-    n *= 2
-  n
-
-# A used slot's tag: the top seven bits of the key's hash, with the high
-# bit set (a free slot's tag is 0). The bits that pick a slot are the
-# hash's low bits under the table's mask, fewer than 57 in any table
-# memory can hold, so they never reach the tag's: keys whose slots are
-# near one another still differ in their tags. Were the two to overlap,
-# the keys probed from one slot would share a tag, and every probe would
-# compare keys.
-fun tag_of(h: U64) -> U8
-  U8(h >> 57) | 0x80
-
-# The entries of a Map, in order (`Map.items`).
+# The entries of a Map, in order (`Map.items`): the live entries from
+# `next_at` to `end` are a run, and the next run is found when it ends.
+# With no `holes`, as the walk starts, the first run is every entry, so
+# a walk is one counted loop.
 pub obj Items[K, V]
   map: ?Map[K, V]
   next_at: Int
+  end: Int
+  holes: Bool
 
-  pub fun next(!@) -> Item[?K, ?V]? from @map
-    while @next_at < @map.es.len
-      j = @next_at
-      @next_at += 1
-      v: (?V)? = ?@map.es[j].value
-      if v as vv
-        return Item(key: ?@map.es[j].key, value: vv)
+  pub inline fun next(!@) -> Item[?K, ?V]? from @map
+    if @next_at >= @end
+      return none if not @holes
+      @next_at = @map.table.live_from(@next_at, @map.written())
+      @end = @map.table.gone_from(@next_at, @map.written())
+      return none if @next_at >= @end
+    j = @next_at
+    @next_at += 1
+    if $plain(K) and $plain(V)
+      return Item(key: ?@map.ps[j].key, value: ?@map.ps[j].value)
+    if ?@map.es[j] as e
+      return Item(key: ?e.key, value: ?e.value)
     none
 
 # The keys of a Map, in order (`Map.keys`).
 pub obj Keys[K, V]
   map: ?Map[K, V]
   next_at: Int
+  end: Int
+  holes: Bool
 
-  pub fun next(!@) -> (?K)? from @map
-    while @next_at < @map.es.len
-      j = @next_at
-      @next_at += 1
-      return ?@map.es[j].key if @map.es[j].value != none
+  pub inline fun next(!@) -> (?K)? from @map
+    if @next_at >= @end
+      return none if not @holes
+      @next_at = @map.table.live_from(@next_at, @map.written())
+      @end = @map.table.gone_from(@next_at, @map.written())
+      return none if @next_at >= @end
+    j = @next_at
+    @next_at += 1
+    if $plain(K) and $plain(V)
+      return ?@map.ps[j].key
+    if ?@map.es[j] as e
+      return ?e.key
     none
 
 # The values of a Map, in order (`Map.values`).
 pub obj Values[K, V]
   map: ?Map[K, V]
   next_at: Int
+  end: Int
+  holes: Bool
 
-  pub fun next(!@) -> (?V)? from @map
-    while @next_at < @map.es.len
-      j = @next_at
-      @next_at += 1
-      v: (?V)? = ?@map.es[j].value
-      if v as vv
-        return vv
+  pub inline fun next(!@) -> (?V)? from @map
+    if @next_at >= @end
+      return none if not @holes
+      @next_at = @map.table.live_from(@next_at, @map.written())
+      @end = @map.table.gone_from(@next_at, @map.written())
+      return none if @next_at >= @end
+    j = @next_at
+    @next_at += 1
+    if $plain(K) and $plain(V)
+      return ?@map.ps[j].value
+    if ?@map.es[j] as e
+      return ?e.value
     none
 
-# The keys of a Set, in order (`Set.items`).
+# The keys of a Set, in order (`Set.items`), by runs as a Map's.
 pub obj Members[K]
   set: ?Set[K]
   next_at: Int
+  end: Int
+  holes: Bool
 
-  pub fun next(!@) -> (?K)? from @set
-    while @next_at < @set.ks.len
-      j = @next_at
-      @next_at += 1
-      k: (?K)? = ?@set.ks[j]
-      if k as kk
-        return kk
+  pub inline fun next(!@) -> (?K)? from @set
+    if @next_at >= @end
+      return none if not @holes
+      @next_at = @set.table.live_from(@next_at, @set.written())
+      @end = @set.table.gone_from(@next_at, @set.written())
+      return none if @next_at >= @end
+    j = @next_at
+    @next_at += 1
+    if $plain(K)
+      return ?@set.ks[j]
+    if ?@set.es[j] as e
+      return ?e.key
     none
 
 # The true lanes of a mask, lowest first (`m.lanes()`). `bits` holds a

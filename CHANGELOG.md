@@ -156,6 +156,23 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The built-in Map and Set take zig-ordered's design**
+  (std/prelude.rig, still safe Rig): the entries in one List in first-put
+  order, with no optional for plain keys and values (16 bytes for a
+  `Map[Int, Int]`); up to 16 entries a tag byte each inside the Map, and
+  past that an index of 16-byte tag groups (15 tags and an overflow
+  byte) beside 32-bit entry indexes, matched a group at once by
+  `m.lanes()`, its group and lane indexes masked so they make no test.
+  A take drops its key at once and marks the entry gone, so the order
+  holds; the gone entries are compacted only when the List is full and
+  a quarter gone, as the index grows, or when the last is taken, and a
+  walk passes them by runs. Every member, the order, and printing are
+  unchanged. On pup, Trig takes 6.0% fewer cycles on ts-pattern and
+  4.4% fewer on zod3, with 0.2% and 1.4% more instructions, and peak
+  memory 8.0% and 2.8% lower. A Map is 176 bytes, and holds 4,000,000
+  Int keys in 32.8 bytes an entry on the Mac (51.0 before; zig-ordered
+  37.1). A Map holds at most 4,294,967,295 entries.
+
 - **Masked indexes are proven:** `s[e & m]`, where `m` is `s.len -% 1`
   (or `s.len - 1`) taken inside a guard `s.len > 0`, or any `Int` known
   not negative whose room below `s.len` is known, makes no bounds test,

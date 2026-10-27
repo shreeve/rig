@@ -221,8 +221,9 @@ expect_eq "$out" "9 2" "ensure.rig"
 # A Map's or Set's write method is inlined into its caller with its
 # lookup (`find`) and an insert into room (`insert`), so the only loops
 # it holds, through any inline function it calls, are the probes of the
-# table (`find`, and `Table.free_slot`'s for an insert): making room is a
-# call (`grow`, noinline and cold). `ensure`'s `while (true)`, which
+# index (`probe`): placing a key past its home group (`place_past`),
+# cutting off the last entries (`cut`), and making room (`grow`, noinline
+# and cold) are calls. `ensure`'s `while (true)`, which
 # stands where an unwrap that traps would (std/prelude.rig),
 # returns on its first pass.
 cat >writes.rig <<'RIG'
@@ -277,7 +278,7 @@ def loops(struct, name, seen):
     inline, body = fns[(struct, name)]
     if not inline:
         return []
-    probe = name in ('find', 'free_slot')
+    probe = name in ('find', 'probe')
     found = [f'{struct}.{name}: {l.strip()}' for l in body if not probe and re.search(r'\b(while|for) \(', l) and 'while (true)' not in l]
     for line in body:
         for c in re.finditer(r'\bself(?:\.table)?\.(\w+)\(', line):
