@@ -4825,7 +4825,7 @@ pub const Emitter = struct {
         // A `?String` views the bytes of the text matched.
         if (t == self.facts.types.string_view_id) {
             const stored = try self.declare(payloadPointee(local, false), self.srcText(pattern));
-            return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt("rig.stringBytes({s})", .{subj}), .field = "" }});
+            return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt("rig.textOf(&{s})", .{subj}), .field = "" }});
         }
         const by_addr = try self.need(self.facts.catchAllCaptured(pattern), pattern);
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));

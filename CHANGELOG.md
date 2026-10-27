@@ -1206,6 +1206,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A match on an element:** `match v[0]` with an arm that reads no
   binding, such as `_ => 1`, compiles for Lists and Tables, as a value
   and as a statement; it failed in the Zig it emitted.
+- **Short text is held inline:** a `String` keeps up to 23 bytes inside
+  itself, in the same 24 bytes, and longer text on the heap. Short text
+  makes no allocation and frees none: `String("key", 12345)`, a short
+  clone, and a number written in (formatted on the stack unless its
+  type prints itself). A lookup finds short bytes with no pointer to
+  chase. On bench/hash's random text keys, a Map's inserts are 68-123%
+  faster, takes 94-217%, and hits and misses at 100,000 keys and up
+  40-109%; small maps of short keys are up to 23% slower on hits, where
+  each read of the bytes tests which form the String has. A String's
+  optional stays its size (the first word is never 0).
 - **Deadlock reports under load:** a deadlock found in an actor's method
   run inline is reported as the deadlock. A caller of the actor it ends,
   panicking at that end on another worker, could be reported in its

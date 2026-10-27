@@ -6,7 +6,7 @@ const rig = @import("../runtime.zig");
 
 fn fresh(bytes: []const u8) rig.String {
     var s: rig.String = .empty;
-    s.list.appendSlice(rig.defaultAllocator(), bytes) catch rig.oom();
+    s.appendBytes(bytes);
     return s;
 }
 

@@ -126,7 +126,9 @@ fn readHere(path: []const u8) FileError!?rig.String {
         if (spare.len > 0) list.items.len += n else list.appendSlice(gpa, probe[0..n]) catch rig.oom();
     }
     if (list.capacity != list.items.len) list.shrinkAndFreePrecise(gpa, list.items.len) catch rig.oom();
-    return .{ .list = list };
+    var s = rig.String.fromList(list);
+    s.fit();
+    return s;
 }
 
 /// Write `data` as the whole file at `path`, creating it or emptying it
@@ -330,7 +332,7 @@ fn entriesHere(path: []const u8) FileError!?Entries {
         names: []rig.String,
         codes: []i64,
         pub fn lessThan(s: @This(), a: usize, b: usize) bool {
-            return std.mem.order(u8, s.names[a].list.items, s.names[b].list.items) == .gt;
+            return std.mem.order(u8, s.names[a].bytes(), s.names[b].bytes()) == .gt;
         }
         pub fn swap(s: @This(), a: usize, b: usize) void {
             std.mem.swap(rig.String, &s.names[a], &s.names[b]);
@@ -414,9 +416,10 @@ pub fn read_from(fd: i64, into: *rig.String, max: i64) Error!i64 {
     if (want == 0) return 0;
     var got = try rig.net.fileRead(fd, want);
     defer rig.dropElement(rig.String, &got);
-    const n = got.list.items.len;
-    // Into a String with no buffer yet, the read's own is taken, not copied.
-    if (into.list.capacity == 0) std.mem.swap(rig.String, into, &got) else into.list.appendSlice(rig.defaultAllocator(), got.list.items) catch rig.oom();
+    const n = got.bytes().len;
+    // Into an empty String, the read's own bytes are taken, not copied;
+    // what `into` held goes with `got`.
+    if (into.bytes().len == 0) std.mem.swap(rig.String, into, &got) else into.appendBytes(got.bytes());
     return @intCast(n);
 }
 
@@ -443,6 +446,6 @@ pub fn close(fd: i64) void {
 /// A fresh String of `bytes`.
 fn fresh(bytes: []const u8) rig.String {
     var s: rig.String = .empty;
-    s.list.appendSlice(rig.defaultAllocator(), bytes) catch rig.oom();
+    s.appendBytes(bytes);
     return s;
 }

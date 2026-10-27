@@ -89,8 +89,8 @@ space of one thing. No word means two things.
 
 ## Text that owns, views, and lasts
 
-Text has three types. A `String` **owns** its bytes on the heap and
-frees them when it drops. A `?String` is a **view** of bytes someone
+Text has three types. A `String` **owns** its bytes: up to 23 inside
+it, more on the heap, which it frees when it drops. A `?String` is a **view** of bytes someone
 else owns. A `Static` is text that lives for the whole program: a
 string literal is one.
 

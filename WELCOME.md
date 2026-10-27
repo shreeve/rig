@@ -331,7 +331,7 @@ whether it checks for leaks. The main correspondences:
 | Rig | Zig |
 |---|---|
 | `Int`, `U8`, `Float`, `?String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
-| `String` | `rig.String`, a growable byte buffer the runtime frees |
+| `String` | `rig.String`, 24 bytes holding up to 23 of text inline, else a growable buffer the runtime frees |
 | `obj`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@backingInt(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
