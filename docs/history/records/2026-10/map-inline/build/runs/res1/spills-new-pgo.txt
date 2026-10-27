@@ -1,0 +1,12 @@
+== new-pgo
+samples 17192, in Map/Set code 1383
+dynamic, M instructions per run: other 646, pop 2, push 5, reload 23, spill 10 | all 686
+static, instructions: other 136918, pop 1415, push 1589, reload 11679, spill 5942
+    201.0M  checker.Checker.instantiate_type_with_alias
+     68.5M  checker.Checker.is_related_to_ex
+     58.5M  checker.Checker.resolve_structured_type_members_worker
+     33.7M  checker.Checker.get_conditional_type_worker
+     29.8M  __rig_std___rig_builtin.Map(u32,u32).grow
+     26.3M  checker.Checker.add_mapped_members_for_key_type
+     18.4M  checker.Checker.create_union_or_intersection_property
+     18.4M  __rig_std___rig_builtin.Map(checker.CachedTypeKey,u32).put
