@@ -1094,7 +1094,9 @@ which provides `Num`. `iter.sum` of an iterator of text is rejected:
 ## Map and Set
 
 `Map[K: Hash, V]` and `Set[K: Hash]` are built in, named with no
-import: hash tables written in Rig over Lists. Iteration is in the order keys were first put in, as in Python,
+import: hash tables declared in Rig (std/prelude.rig) whose entries
+the compiler's own ordered table holds, as the runtime holds a List's.
+Iteration is in the order keys were first put in, as in Python,
 Ruby, and JavaScript: `put` on a key already there keeps its place, and
 `take` keeps the rest in order. A key is any value `x.hash()` takes
 ([SPEC §5](../SPEC.md#operators)): what `==` compares, less a `Float`

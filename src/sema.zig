@@ -3772,6 +3772,10 @@ pub const SemContext = struct {
     /// that names one (`Type.slot`).
     table_sym_id: SymbolId = symbol_invalid,
     slot_sym_id: SymbolId = symbol_invalid,
+    /// `OrderedMap[K, V]` and `OrderedSet[K]`: the tables behind `Map`
+    /// and `Set`, which only std.prelude names (`resolve.registerOrdered`).
+    ordered_map_sym_id: SymbolId = symbol_invalid,
+    ordered_set_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
     order_sym_id: SymbolId = symbol_invalid,
@@ -6819,8 +6823,8 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // value), whose release drops it.
     // A task owns its running call, and its drop waits for it.
     // A table owns its slots' memory, and drops each slot.
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id or id == ctx.table_sym_id) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.table_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.frozen_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id or id == ctx.table_sym_id or isOrderedTable(ctx, id)) c.glue = true;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.table_sym_id or isOrderedTable(ctx, id) or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.frozen_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -7265,7 +7269,14 @@ pub fn swapsTwoPlaces(ctx: *const SemContext, arg: Sexp, ty: ?TypeId) bool {
 /// a `^T` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
 /// `T` inline, and a `Signal[T]` its value and a pending one.)
 fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.list_sym_id or sym == ctx.box_sym_id or sym == ctx.table_sym_id;
+    return sym == ctx.list_sym_id or sym == ctx.box_sym_id or sym == ctx.table_sym_id or isOrderedTable(ctx, sym);
+}
+
+/// `OrderedMap[K, V]` or `OrderedSet[K]`, the tables behind `Map` and
+/// `Set`: held as a List is, its entries on the heap, owning each key
+/// and value (`resolve.registerOrdered`).
+pub fn isOrderedTable(ctx: *const SemContext, sym: SymbolId) bool {
+    return sym != symbol_invalid and (sym == ctx.ordered_map_sym_id or sym == ctx.ordered_set_sym_id);
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
@@ -7476,7 +7487,7 @@ fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Alloca
         .array => |arr| try out.append(a, arr.elem),
         .simd => |v| try out.append(a, v.elem),
         .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id or pn.sym == ctx.table_sym_id) {
+        .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) {
             // A List, a table, and a box are sized without what they hold.
         } else if (pn.sym == ctx.signal_sym_id) {
             try out.append(a, pn.args[0]);
@@ -7535,6 +7546,10 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             24
         else if (pn.sym == ctx.table_sym_id)
             16
+        else if (isOrderedTable(ctx, pn.sym))
+            // `ordered.zig`'s table: four pointers, six counts, its shift
+            // and flag, and 32 tag bytes on a 16-byte line.
+            96
         else if (pn.sym == ctx.box_sym_id)
             8
         else if (pn.sym == ctx.signal_sym_id) blk: {
@@ -7696,7 +7711,7 @@ pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
         const depth: u32 = switch (ctx.types.get(done.ty)) {
             .optional, .array, .simd, .nominal => deepest +| 1,
             // A List, a table, and a box hold their elements apart.
-            .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id or pn.sym == ctx.table_sym_id) 0 else deepest +| 1,
+            .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) 0 else deepest +| 1,
             // Measured where it is declared (`checkTypeSizes`).
             .imported_nominal => |in| blk: {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk 1;
@@ -11614,6 +11629,19 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
     o.stores &= ~o.lent | named;
 }
 
+/// The origins of a function of type `f` declared with no `from` and no
+/// `keeps`: its signature's (`defaultOrigins`), keeping no lent
+/// parameter. What the built-in tables' members declare
+/// (`resolve.registerOrdered`).
+pub fn signatureOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionType) std.mem.Allocator.Error!Origins {
+    var o = try defaultOrigins(ctx, a, f);
+    for (f.params, 0..) |p, i| {
+        if (lentParam(ctx, p)) o.lent |= paramBit(i);
+    }
+    o.stores &= ~o.lent;
+    return o;
+}
+
 /// Set the origins of every function and method this module declares
 /// (`defaultOrigins`); the built-in generics' methods keep every
 /// argument's loans.
@@ -11835,6 +11863,10 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: ?*const SymPath) bool 
             // A task's drop waits for its call, which uses the loans the
             // task keeps (CORE sentence 6).
             if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk true;
+            // A Map's or Set's table drops in the runtime, which the
+            // checker does not see, so it counts as running a body, as
+            // a type declared in another module with glue does.
+            if (isOrderedTable(ctx, pn.sym)) break :blk true;
             for (pn.args) |a| if (runsDropBody(ctx, a, path)) break :blk true;
             break :blk fieldsRunDropBody(ctx, pn.sym, path);
         },
@@ -12076,6 +12108,10 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
+            if (isOrderedTable(ctx, pn.sym)) {
+                for (pn.args) |a| if (!deepCloneable(ctx, a, frame, seen)) break :blk false;
+                break :blk true;
+            }
             // A table is never cloned: a copy of a reserved one would
             // touch every page.
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.table_sym_id) break :blk false;

@@ -218,14 +218,10 @@ expect_has "$lib" 'pub inline fn edit(' "Map.edit"
 out=$(rig run ensure.rig 2>&1) || fail "rig run ensure.rig: $out"
 expect_eq "$out" "9 2" "ensure.rig"
 
-# A Map's or Set's write method is inlined into its caller with its
-# lookup (`find`) and an insert into room (`insert`), so the only loops
-# it holds, through any inline function it calls, are the probes of the
-# index (`probe`): placing a key past its home group (`place_past`),
-# cutting off the last entries (`cut`), and making room (`grow`, noinline
-# and cold) are calls. `ensure`'s `while (true)`, which
-# stands where an unwrap that traps would (std/prelude.rig),
-# returns on its first pass.
+# A Map's or Set's write method is inlined into its caller, a call of
+# its table's member, which is inline too (src/ordered.zig): the method
+# holds no loop, and the table's slow paths (making room, a walk past
+# the home group, an insert past it) are out of line.
 cat >writes.rig <<'RIG'
 
 fun one(k: ?Int) -> Int
@@ -251,10 +247,10 @@ RIG
 emit writes.rig >/dev/null
 out=$(rig run writes.rig 2>&1) || fail "rig run writes.rig: $out"
 expect_eq "$out" "2 true 4 true 7 3 0" "writes.rig"
-python3 - "$RIG_OUT_DIR"/programs/writes/__rig_std_prelude.zig <<'PY' || fail "an inlined write method holds a loop"
+python3 - "$RIG_OUT_DIR"/programs/writes/__rig_std_prelude.zig "$RIG_OUT_DIR"/programs/writes/rig/ordered.zig <<'PY' || fail "an inlined write method holds a loop"
 import re, sys
 src = open(sys.argv[1]).read().splitlines()
-fns, noinline, struct, i = {}, {}, None, 0
+fns, struct, i = {}, None, 0
 while i < len(src):
     m = re.match(r'^(?:pub )?(?:fn (\w+)\(.*\) type \{|const (\w+) = struct \{)', src[i])
     if m:
@@ -268,33 +264,24 @@ while i < len(src):
             body.append(src[i])
             i += 1
         fns[(struct, m.group(3))] = (m.group(2) == 'inline ', body)
-        noinline[(struct, m.group(3))] = m.group(2) == 'noinline '
     i += 1
-
-def loops(struct, name, seen):
-    if (struct, name) in seen or (struct, name) not in fns:
-        return []
-    seen.add((struct, name))
-    inline, body = fns[(struct, name)]
-    if not inline:
-        return []
-    probe = name in ('find', 'probe')
-    found = [f'{struct}.{name}: {l.strip()}' for l in body if not probe and re.search(r'\b(while|for) \(', l) and 'while (true)' not in l]
-    for line in body:
-        for c in re.finditer(r'\bself(?:\.table)?\.(\w+)\(', line):
-            for s in (struct, 'Table'):
-                found += loops(s, c.group(1), seen)
-    return found
-
-bad = [f'{s}.grow is not noinline' for s in ('Map', 'Set') if noinline.get((s, 'grow')) is not True]
+bad = []
 for struct, names in {'Map': ['put', 'replace', 'put_new', 'ensure', 'ensure_with', 'edit', 'take'], 'Set': ['add', 'take']}.items():
     for n in names:
         if (struct, n) not in fns:
             bad.append(f'no {struct}.{n}')
             continue
-        if not fns[(struct, n)][0]:
+        inline, body = fns[(struct, n)]
+        if not inline:
             bad.append(f'{struct}.{n} is not inlined')
-        bad += loops(struct, n, set())
+        bad += [f'{struct}.{n}: {l.strip()}' for l in body if re.search(r'\b(while|for) \(', l)]
+table = open(sys.argv[2]).read()
+for n in ['find', 'put', 'replace', 'put_new', 'ensure', 'take', 'add', 'value_mut']:
+    if not re.search(r'pub inline fn ' + n + r'\(', table):
+        bad.append(f'the table\'s {n} is not inline')
+for n in ['reserveOne', 'insertSmallSlow', 'probePastHome', 'placePast', 'addNew', 'rebuild']:
+    if not re.search(r'noinline fn ' + n + r'\(', table):
+        bad.append(f'the table\'s {n} is not out of line')
 if bad:
     print('\n'.join(bad))
     sys.exit(1)

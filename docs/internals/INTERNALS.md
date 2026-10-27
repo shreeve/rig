@@ -5028,60 +5028,78 @@ why the model is what it is, in
 
 ### The built-in Map and Set
 
-`Map[K, V]` and `Set[K]` are written in Rig, in std/prelude.rig, on the
-design of bench/hash's `zig-ordered` (bench/hash/ordered.zig, and
-docs/history/records/2026-10/hash-race/zig-ordered.md for each choice
-and its measurement). Every member is ordinary Rig, checked by every
-pass; none uses `raw`.
+`Map[K, V]` and `Set[K]` are declared in Rig, in std/prelude.rig, and
+their entries are held by two compiler built-ins, `OrderedMap[K, V]`
+and `OrderedSet[K]`, registered by `resolve.registerOrdered` as `List`
+is and held by the runtime as `rig.OrderedMap(K, V)` and
+`rig.OrderedSet(K)` (src/ordered.zig, written beside the runtime as
+`rig/ordered.zig`). Every module registers both, so their symbols agree
+across modules, and only std.prelude's scope names them.
 
-- **Entries.** One List, in first-put order. A Map whose keys and
-  values are plain data (`$plain`) keeps `ps: List[Entry[K, V]]`, a key
-  and a value and nothing else; any other keeps `es: List[Held[K, V]?]`,
-  each with its key's hash and `none` once taken, whose `?` costs no
-  byte where `K` or `V` holds a pointer (a niche). Both fields are in
-  every instance, one always empty: a field's type cannot follow
-  `$plain`. A Set holds `ks: List[K]` or `es: List[HeldKey[K]?]`.
-- **`Table`**, what both keep beside the entries: the index (`tags`, a
-  `List[Simd[U8, 16]]`, a group each, and `at`, a `List[U32]` of 16
-  entry indexes a group), `shift`, `limit`, the gone bits (`gone`), the
-  entries' `room`, and `small`. How many entries are gone is the
-  entries written less the live ones (`dead`). A Map is 176 bytes; its
-  first put makes room for 4 entries, doubling to 32 while small.
-- **Small.** Up to 16 live entries, and 32 written, there is no index:
-  `small: [32]U8` holds entry `i`'s tag at lane `i`, 0 when gone, and a
-  lookup is one or two 16-lane matches (`m.lanes()`). Its tags are its
-  gone bits too. The 17th live key builds the index, sized for the
-  entries' next room.
-- **Lookup** (`probe`, inlined): the group is `h >> shift`, the tag the
-  low byte made nonzero (`tag_of`). The group and lane indexes are
-  masked by their Lists' lengths less one, which the masked-index proof
-  takes, so they make no test. The entry index read from `at` is tested
-  against the entries (`same`), which is also what rejects lane 15,
-  the overflow byte, whose index is `NO_ENTRY`: no mask is spent on it.
-  The walk past the home group is a cold call in a lookup (`walk_far`),
-  so the lookup's loop keeps its state in registers on x86, and inline
-  in a take.
-- **Writes.** A lane is written in a register, `(LANE_IDS ==
-  l).select(x, grp)`, then the group stored whole: `grp.with(l, x)`
-  would go through memory and stall the next lookup's load. An insert
-  into room the Map has is inline (`insert`, `Table.note`); `grow` is
-  out of line and cold, asking `Table.next_step` until there is room.
-- **Take** frees the lane, lowers `limit` where the group marks the
-  tag's class (boost's anti-drift), drops the key, and marks the entry
-  gone; the last entry written is cut off instead, and the last live
-  one empties the Map, keeping its memory and index.
+- **The face.** `Map` is an object with two fields, `pub ?len: Int`
+  and `t: OrderedMap[K, V]`. Every public member keeps its declaration,
+  `from` and `keeps` included, so typecheck, the ownership checker, and
+  the oracle (`rigBuiltin`, which reads a Map's calls by their
+  signatures) see what a program sees; each body asks the table, and
+  each write sets `len` from what the table reports. `Item`, `Items`,
+  `Keys`, `Values`, and `Members` stay prelude objects; an iterator
+  holds `?Map[K, V]` and steps by the table's `live_from` and
+  `gone_from`.
+- **The table's members** are lowered as any built-in method is, `?K`
+  a `rig.ReadView(K)`, `!V` a `*V`, `T?` a `rig.Opt(T)`, a closure view
+  a `rig.FnRef`, which `update` and `retain` call. Each has the origins
+  of a Rig declaration of its signature with no `from` or `keeps`
+  (`sema.signatureOrigins`): a reader's result views only the table, a
+  writer stores the keys and values it takes, and nothing keeps a
+  closure. `ensure_with` calls `make` in the prelude (`add_made`), so
+  the Map keeps `make` as its declaration says.
+- **Facts.** The tables are heap built-ins (`sema.isOrderedTable`, in
+  `isHeapBuiltin`): glue and not plain, their entries behind them, a
+  deep clone where every parameter clones, and 96 bytes; a `Map` is
+  112. A table counts as running a drop body (`runsDropBody`), as a
+  type with glue declared in another module does, so a view a Map
+  holds of a value dropped before it is rejected as before.
+- **Hash and `==`.** The table hashes with `rig.hash` and compares with
+  `rig.eql` (an integer, `Bool`, or plain enum with Zig's `==`), what
+  `.hash()` and `==` emit, so a key hashes and compares as a program's
+  own `hash_into` and `==` say, and a `?String` finds a `String` key.
+- **Layout** (bench/hash's `zig-ordered`; docs/history/records/2026-10/hash-race/
+  zig-ordered.md for each choice and its measurement): the entries in
+  one block of whole entries, in first-put order, `{key, value}` and,
+  for a key over 8 bytes, its hash. The index is one block of 80 bytes
+  a group, sizes Rig's allocator holds exactly: first the slots, a
+  64-byte line of 16 `u32` entry indexes a group, so a group's slots
+  are one line on x86, then the tags, 16 bytes a group (15 tags and an
+  overflow byte). A key's group is its hash's high bits, its tag the
+  low byte made nonzero; a probe matches the tag over the group,
+  prefetches the group's slot line, and walks on, out of line in a
+  lookup, only while the overflow byte marks the tag's class. Up to 16
+  live entries (and 32 written) there is no index: 32 tag bytes in the
+  table find a key, and say which entries are gone. The first put
+  makes room for 4 entries. An indexed table makes its gone bits, one
+  an entry, at the first take that leaves a hole.
+- **Entry reads** go through `entryOf`: in a debug build it tests the
+  entry index against the entries written (and, for the prelude's
+  reads, that the entry is live), and in a release build it is the
+  read alone (the panel's decision 10, record map-builtin.md).
+- **Tag writes** write the 16 tags whole from a register
+  (`writeLane`): a byte's store into them stalled the next lookup's
+  vector load of the same 16 bytes, on x86 most of all.
+- **Take** frees the lane, lowers the maximum load where the group
+  marks the tag's class, drops the key, hands the value back, and marks
+  the entry gone; the last entry written is cut off instead, and the
+  last live one empties the table, keeping its memory and its index.
 - **Compaction** runs only when the entries fill their room and a
-  quarter is gone, or as the index grows. Under the same index the
-  live entries move down a word of gone bits at a time and each lane
-  is numbered again by its entry's rank (`Table.ranks`,
-  `Table.compacted`), with no hash and no probe.
-- **Walks** go by runs: an iterator with no `holes` when it starts is
-  one counted loop; otherwise each run's ends are found by counts of
-  trailing zeros over the gone words (`live_from`, `gone_from`, called
-  once a run).
+  quarter is gone, or as the index grows; under the same index the
+  live entries move down and each lane is renumbered by its entry's
+  rank, with no hash and no probe. A new index is made after the old
+  is freed, filled from the entries.
+- **Drops** run the last entry first, its value before its key, as a
+  List drops its elements and an object its fields; `+m` clones each
+  live entry in order (`clone`, through `rig.cloneValue`).
 
-The runtime prints a Map or Set (`writeMap`, `writeSet`) from the same
-fields, and the Map trace wraps its methods by name.
+The runtime prints a Map or Set (`writeMap`, `writeSet`) from its
+table's live entries.
 
 ### The Map trace
 
@@ -5092,15 +5110,18 @@ module, as `RIG_HEAP_PROFILE` declares its own, and `src/map_trace.zig`
 rewrites the Zig emitted for std/prelude.rig: each traced method
 of `Map` and `Set` becomes `__rig_untraced_NAME`, and a method of the
 old name and type calls it and records the call (`rig.mapTraceOp`),
-and each type gets a field `__rig_trace`, its id. A build without the
+and each type gets a field `__rig_trace`, its id. A traced build's
+table counts the times it builds its index anew (`traceRebuilds`),
+and a traced method whose call moved the count records a `grow` with
+the index's lanes before its own record. A build without the
 flag never reaches that file, and the runtime's trace code is behind
 the declaration, so its Zig and its machine code are those of a build
 before the trace existed.
 
-The traced operations: `has`, `get`, and `edit` are lookups; `replace`
-(which `put` calls), `put_new`, the three `ensure`s, and a Set's `add`
-are puts; then `take`, `clear`, `rebuild` (a growth or a `reserve`
-that builds the table anew), and `retain`. A Map gets its id, from 1,
+The traced operations: `has`, `get`, and `edit` are lookups; `put`,
+`replace`, `put_new`, the three `ensure`s, and a Set's `add` are puts;
+then `take`, `clear`, a `grow` (an index built anew, by a write or a
+`reserve`), and `retain`. A Map gets its id, from 1,
 with a `new` record, before its first traced operation; the id is
 stored in the Map, so it follows the Map as it moves. A Map only read
 so far, through a read-only pointer, is known by its address until its

@@ -64,6 +64,10 @@ pub const net_source = @embedFile("net.zig");
 /// Tables (`src/table.zig`), written beside the runtime.
 pub const table_filename = "rig/table.zig";
 pub const table_source = @embedFile("table.zig");
+/// The table behind `Map` and `Set` (`src/ordered.zig`), written beside
+/// the runtime.
+pub const ordered_filename = "rig/ordered.zig";
+pub const ordered_source = @embedFile("ordered.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.
@@ -11349,6 +11353,9 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "tasks.zig", .call = "return @TypeOf(b.value).call(b, name, a)", .why = "an actor's method by name, run as a task where it takes no slot (`takesSlot`)" },
         .{ .file = "tasks.zig", .call = "return @TypeOf(b.value).call(b, name, a ++ .{slot})", .why = "an actor's method by name, run as a task and given the task's slot" },
         .{ .file = "net.zig", .call = "return t.f.call(.{t.req})", .why = "`http.serve`'s handler is a `?fun(?Request) -> Response`, which cannot fail" },
+        .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`Map.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
+        .{ .file = "ordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`Set.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },
+        .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&e.key), &e.value })", .why = "`Map.retain`'s `f` is a `?fun(?K, !V) -> Bool`, which cannot fail" },
     };
     const Source = struct { file: []const u8, text: []const u8 };
     const sources = [_]Source{
@@ -11358,6 +11365,7 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "alloc.zig", .text = alloc_source },
         .{ .file = "net.zig", .text = net_source },
         .{ .file = "table.zig", .text = table_source },
+        .{ .file = "ordered.zig", .text = ordered_source },
     };
     var used: [listed.len]u32 = @splat(0);
     var unlisted: u32 = 0;
