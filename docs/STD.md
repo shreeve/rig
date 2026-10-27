@@ -1396,6 +1396,12 @@ pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
 length saved earlier.
 
+`xs.prefetch(i)` asks for element `i` of a List, an array, or a slice
+ahead of its read, and does nothing a program can see: an `i` out of
+range is no error ([SPEC](../SPEC.md#slices)). It pays where the core
+cannot overlap the misses on its own, as when each lookup ends in a
+branch on what it read: bench/prefetch measures it.
+
 `List.filled(n, x)` makes a List of `n` copies of `x`, and
 `!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or
 shrinks it to `n` as `keep` does; a negative `n` panics. Each copies

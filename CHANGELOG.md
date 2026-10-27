@@ -156,6 +156,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Prefetch:** `xs.prefetch(i)` asks for element `i` of a List, an
+  array, or a slice ahead of its read. It reads `xs` for the call and
+  does nothing a program can see: an `i` out of range does nothing and
+  never panics. It is one prefetch instruction, `prfm pldl1keep` on ARM
+  and `prefetcht0` on x86, with no range test (`test/cli/prefetch.sh`),
+  and nothing where a target has none. In bench/prefetch, lookups into
+  a 256 MiB List that branch on what they read take 7.8 ns with it, 64
+  lookups ahead, and 47 ns without it on Apple M5; 11.3 and 73 ns on
+  pup.
 - **A mask's true lanes:** `for k in m.lanes()` visits each true lane of
   a mask `Simd[Bool, n]`, lowest first, as an `Int`. `lanes()` gives the
   prelude's `Lanes`, an iterator, so `break`, `continue`, a resumed

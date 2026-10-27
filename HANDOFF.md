@@ -124,7 +124,10 @@ A new session, human or agent, takes these steps in order:
   x86, at four or five instructions a lane (`test/cli/mask_lanes.sh`).
   Its lane-range fact for the proof pass (`0 <= k < n`, so `[n]T`
   indexed by `k` needs no test) waits for the masked-index proof in
-  `src/proofs.zig`.
+  `src/proofs.zig`. The next, `xs.prefetch(i)` (step 3), is one
+  prefetch instruction with no range test, since a prefetch of any
+  address does nothing a program can see, so it needs no proof
+  (bench/prefetch).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

@@ -950,6 +950,31 @@ sub main()
 6 16 3.75 5
 ```
 
+One asks for them: `xs.prefetch(i)` tells the processor that element
+`i` of a `[]T`, an array, or a List will be read soon, so its cache line
+is on the way before the read that needs it. It reads `xs` for the call
+and nothing a program can see changes: `i` is any integer, and one out
+of range, negative or at `xs.len` or past it, does nothing, and never
+panics. It is one prefetch instruction for a read (`prfm` on ARM,
+`prefetcht0` on x86), with no range test, and nothing on a target that
+has none.
+
+```rig
+sub main()
+  xs = List[Int]()
+  for i in 0..8
+    !xs.push(i * i)
+  t = 0
+  for i in 0..xs.len
+    xs.prefetch(i + 4)
+    t += xs[i]
+  print(t)
+```
+
+```output
+140
+```
+
 Another folds them: `xs.reduce(start, f)` passes the running value,
 `start` first, and each element in order, lent as `?T`, to `f`, which
 gives the next; it gives the last, or `start` when there are none. A

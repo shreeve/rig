@@ -1,0 +1,66 @@
+# Random lookups into Lists far larger than the caches, with and without
+# `xs.prefetch(i)` of a later lookup's index some lookups ahead: the
+# nanoseconds a lookup, the fastest of several rounds, the forms
+# interleaved. A lookup's index is its key hashed and masked, as a hash
+# table's slot is. `flat` folds in the element it reads, so the core
+# overlaps the misses of many lookups on its own; `branchy` takes a loop
+# whose length the element sets, as a Map's probe stops where its tags
+# say, so each mispredicted exit throws away the loads begun past it.
+# bench/prefetch/README.md has the numbers.
+use std.time
+use std.random
+
+SLOTS = 1 << 25
+LOOKUPS = 1 << 24
+ROUNDS = 5
+AHEAD = [0, 8, 16, 64]
+
+fun slot(k: Int) -> Int
+  Int.wrap((U64.wrap(k) *% 0x9E37_79B9_7F4A_7C15) >> 20) & (SLOTS - 1)
+
+fun flat(xs: []Int, keys: []Int, d: Int) -> Int
+  t = 0
+  for j in 0..keys.len
+    if d > 0 and j + d < keys.len
+      xs.prefetch(slot(keys[j + d]))
+    t ^= xs[slot(keys[j])]
+  t
+
+fun branchy(xs: []Int, keys: []Int, d: Int) -> Int
+  t = 0
+  for j in 0..keys.len
+    if d > 0 and j + d < keys.len
+      xs.prefetch(slot(keys[j + d]))
+    v = xs[slot(keys[j])]
+    while v & 3 != 0
+      v >>= 2
+      t += 1
+  t
+
+sub main()
+  r = random.Random.seeded(7)
+  xs = List[Int]()
+  for _ in 0..SLOTS
+    !xs.push((!r).int(0, Int.max))
+  keys = List[Int]()
+  for _ in 0..LOOKUPS
+    !keys.push((!r).int(0, Int.max))
+  n = AHEAD.len
+  best = [8 of Int.max]
+  want = [flat(?xs, ?keys, 0), branchy(?xs, ?keys, 0)]
+  for _ in 0..ROUNDS
+    for k in 0..2 * n
+      start = time.now()
+      t = 0
+      if k < n
+        t = flat(?xs, ?keys, AHEAD[k])
+      else
+        t = branchy(?xs, ?keys, AHEAD[k - n])
+      ns = start.elapsed()
+      if t != want[k / n]
+        panic("a different total")
+      if ns < best[k]
+        best[k] = ns
+  names = ["flat", "branchy"]
+  for k in 0..2 * n
+    print(names[k / n], "ahead", AHEAD[k % n], "ns a lookup", Float(best[k]) / Float(LOOKUPS))

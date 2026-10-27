@@ -7688,6 +7688,7 @@ const Checker = struct {
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
                     .sum => "xs.sum()",
+                    .prefetch => "xs.prefetch(i)",
                     .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
@@ -12672,7 +12673,7 @@ const Checker = struct {
         if (std.mem.eql(u8, method, "reduce")) if (try self.reduceCall(obj, obj_ty, pos, args, ct)) |ty| return self.noteMethod(callee, .read, ty);
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| {
             const reads = switch (std.meta.stringToEnum(sema.ElemOp, method) orelse .copy) {
-                .read, .sum => true,
+                .read, .sum, .prefetch => true,
                 else => false,
             };
             return self.noteMethod(callee, if (reads) .read else .write, ty);
@@ -13707,7 +13708,8 @@ const Checker = struct {
 
     /// `copy`, `fill`, and `swap`: built-in methods on the elements of a
     /// slice, an array, or a List, which write them in place; `sum`,
-    /// which reads them (`sumCall`); and `read` and `write` on bytes
+    /// which reads them (`sumCall`); `prefetch`, which asks for one
+    /// (`prefetchCall`); and `read` and `write` on bytes
     /// (`bytesCall`). Null when `method` is none of them or the receiver
     /// has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
@@ -13729,6 +13731,7 @@ const Checker = struct {
             return try self.skipCall(args);
         }
         if (op == .sum) return try self.sumCall(callee, obj, obj_ty, peeled, elem, pos, args, ct);
+        if (op == .prefetch) return try self.prefetchCall(callee, obj, obj_ty, peeled, elem, pos, args, ct);
         if (op == .read or op == .write) return try self.bytesCall(callee, obj, obj_ty, elem, len, op, pos, args, ct);
         if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
         if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
@@ -13744,14 +13747,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -13766,7 +13769,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => unreachable,
         }
         return self.t().void_id;
     }
@@ -13878,6 +13881,29 @@ const Checker = struct {
         if (self.isTemporary(obj)) try self.lendTemp(obj);
         if (args.len == 1) try self.checkExpr(ir.get(args[0], .value), elem);
         return elem;
+    }
+
+    /// `xs.prefetch(i)`: a hint that element `i` of a slice, an array, or a
+    /// List will be read soon, which does nothing a program can see, so
+    /// its index is any integer, never checked against the length. It
+    /// reads its receiver for the call and gives nothing.
+    fn prefetchCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, peeled: TypeId, elem: TypeId, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        switch (self.ctx.types.get(peeled)) {
+            .string_view, .static => return self.badCall(args, obj, "`prefetch` asks for an element of a List, an array, or a slice, and `{s}` is text", .{try self.tyName(obj_ty)}),
+            else => {},
+        }
+        if (ct) |b| return self.badCall(args, b, "`prefetch` takes no compile-time arguments", .{});
+        if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, "prefetch", "only reads its elements");
+        if (args.len != 1 or args[0].isKind(.kwarg)) {
+            return self.badCall(args, pos, "`prefetch` takes one argument, the index of the element to fetch; got {d} argument{s}", .{ args.len, if (args.len == 1) "" else "s" });
+        }
+        const recv = try self.ctx.intern(.{ .read_view = peeled });
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ recv, self.t().int_id }), .returns = self.t().void_id, .is_sub = true });
+        try self.ctx.recordElemCall(callee, .{ .op = .prefetch, .elem = elem });
+        // `mk().prefetch(i)` reads a temporary, dropped when its statement ends.
+        if (self.isTemporary(obj)) try self.lendTemp(obj);
+        try self.checkIndexArg(args[0], null);
+        return self.t().void_id;
     }
 
     /// `bytes.read[T, e](at)` and `!bytes.write[T, e](at, v)`: the integer
