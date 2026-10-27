@@ -197,7 +197,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   with one unsigned compare. A `rarely` function is `noinline`, out of
   line as SPEC says, no longer left to LLVM.
 - **A signed index against a compile-time bound is one compare**
-  (Trig 0.5-1.0% fewer instructions;
+  (Trig PGO 0.5-0.7% fewer instructions, 1.5-1.7% with #706's yield check;
   [records](docs/history/records/2026-10/perf-stage/bounds-enum.md)):
   a `Table` read by an `Int`, `Slot[n].of(i)`, an array's element, and a
   vector's lane test `i` as unsigned against `n`, which a negative `i`

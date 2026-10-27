@@ -17,9 +17,10 @@ which charge a load's cache miss to the instructions that follow it,
 and a test is usually the first instruction to use a loaded index. One
 shape did cost an extra instruction: a signed index against a bound
 known at compile time (a `Table`, an array, `Slot[n].of`) made a sign
-test and a bound test. That is now one compare. Trig: 0.5% fewer
-instructions on ts-pattern and 0.8-1.0% on zod3, times within the
-noise: under the bar.
+test and a bound test. That is now one compare. Trig PGO on main
+after #708: 0.5-0.7% fewer instructions on ts-pattern and zod3, under
+the bar alone; with #706's yield check, 1.5-1.7% fewer, and ts-pattern
+1.0-2.5% faster. std.json's instructions per byte are unchanged.
 
 ## 1. What a test executes (Trig PGO, pup, x86-64)
 
@@ -134,6 +135,27 @@ ts-pattern: 0.48% and 0.55% fewer instructions, 0.41% and 0.52% fewer
 cycles, the same time. zod3: 0.98% and 0.76% fewer instructions,
 cycles 0.36% fewer and 1.2% more, time within 1.3% either way. Under
 the bar (more than 2% faster, or at least 1% fewer instructions).
+
+**Again on main after #708** (main `e0537c884`; this branch rebased on
+it; and the branch with #706, loop-hoist's yield check that keeps
+every register, merged in). The same Trig, pup quiet (load 0.1-1.9),
+core 8, two runs of 10 rounds, all three interleaved:
+
+| project | build | task-clock | user cycles | instructions |
+|---|---|---:|---:|---:|
+| ts-pattern | main | 892.6, 883.5 ms | 3,847.00M, 3,818.43M | 8,718.61M, 8,719.09M |
+| | branch | 888.9, 876.8 ms | 3,829.72M, 3,789.85M | 8,673.24M, 8,670.08M |
+| | branch + #706 | 870.2, 874.3 ms | 3,750.35M, 3,773.28M | 8,574.98M, 8,578.93M |
+| zod3 | main | 166.8, 166.6 ms | 691.02M, 687.98M | 1,522.98M, 1,519.08M |
+| | branch | 167.2, 166.2 ms | 691.37M, 688.16M | 1,512.61M, 1,512.07M |
+| | branch + #706 | 168.0, 166.6 ms | 695.73M, 689.08M | 1,499.56M, 1,495.04M |
+
+The branch alone: ts-pattern 0.52-0.56% fewer instructions, 0.4-0.8%
+faster, 0.45-0.75% fewer cycles; zod3 0.46-0.68% fewer instructions,
+the same time. Under the bar alone. With #706: ts-pattern 1.61-1.65%
+fewer instructions, 1.0-2.5% faster, 1.2-2.5% fewer cycles; zod3
+1.54-1.58% fewer instructions, the same time (0.7% slower in one run).
+Together they clear the bar on instructions.
 
 These builds predate #708, which took back `heldIndex`'s one compare
 for a signed index against a List's length: base and new both had it.
