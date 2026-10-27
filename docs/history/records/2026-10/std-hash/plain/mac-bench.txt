@@ -1,0 +1,47 @@
+keys    op                   hash-fast ns/op      rust ns/op  rust-mix ns/op  rig-fast ns/op   vs hash-fast
+int16   insert                         23.90           15.95           17.66            8.82   rust 49.8% faster, rust-mix 35.4% faster, rig-fast 171.1% faster
+int16   remove                         10.06            4.58            5.68            9.60   rust 119.9% faster, rust-mix 77.0% faster, rig-fast 4.8% faster
+int16   hit                             1.16            0.80            0.96            0.96   rust 45.4% faster, rust-mix 20.8% faster, rig-fast 21.4% faster
+int16   miss                            0.87            0.75            0.73            0.82   rust 15.2% faster, rust-mix 18.7% faster, rig-fast 5.3% faster
+int16   iterate                         0.51            0.42            0.42            0.46   rust 20.5% faster, rust-mix 19.8% faster, rig-fast 9.0% faster
+int1000 insert                         18.43            5.60           13.77           10.88   rust 229.3% faster, rust-mix 33.9% faster, rig-fast 69.5% faster
+int1000 remove                          5.40            2.66            5.11           11.12   rust 103.1% faster, rust-mix 5.6% faster, rig-fast 51.4% slower
+int1000 hit                             1.25            0.85            1.08            1.24   rust 46.8% faster, rust-mix 15.7% faster, rig-fast 0.9% faster
+int1000 miss                            1.26            0.64            1.02            1.55   rust 96.8% faster, rust-mix 23.8% faster, rig-fast 18.8% slower
+int1000 iterate                         0.52            0.53            0.56            0.47   rust 1.2% slower, rust-mix 7.1% slower, rig-fast 11.8% faster
+int100000 insert                         12.88            4.23           10.01           13.20   rust 204.4% faster, rust-mix 28.7% faster, rig-fast 2.4% slower
+int100000 remove                         10.96            2.42            7.41           20.79   rust 352.2% faster, rust-mix 48.0% faster, rig-fast 47.3% slower
+int100000 hit                             1.48            1.18            1.60            4.21   rust 25.6% faster, rust-mix 7.9% slower, rig-fast 64.9% slower
+int100000 miss                            2.79            0.54            5.36            9.77   rust 413.6% faster, rust-mix 48.0% slower, rig-fast 71.5% slower
+int100000 iterate                         0.75            0.57            1.18            0.48   rust 31.7% faster, rust-mix 35.9% slower, rig-fast 56.4% faster
+int4000000 insert                         25.40            9.53           19.17           17.62   rust 166.4% faster, rust-mix 32.5% faster, rig-fast 44.2% faster
+int4000000 remove                         15.17            5.21           10.20           30.12   rust 191.3% faster, rust-mix 48.7% faster, rig-fast 49.6% slower
+int4000000 hit                             7.57            4.37            7.71            7.93   rust 73.2% faster, rust-mix 1.8% slower, rig-fast 4.5% slower
+int4000000 miss                            3.23            1.20            2.48            8.96   rust 169.2% faster, rust-mix 30.5% faster, rig-fast 63.9% slower
+int4000000 iterate                         1.65            0.57            2.01            0.49   rust 189.3% faster, rust-mix 17.9% slower, rig-fast 236.5% faster
+int     insert                         22.02               -               -           14.56   rig-fast 51.3% faster
+int     hit                             5.20               -               -            5.18   rig-fast 0.4% faster
+int     miss                            2.35               -               -            8.32   rig-fast 71.8% slower
+int     iterate                         1.63               -               -            0.52   rig-fast 213.4% faster
+string  insert                         65.97               -               -           25.90   rig-fast 154.7% faster
+string  hit                            20.66               -               -           12.85   rig-fast 60.8% faster
+string  miss                            6.57               -               -           13.31   rig-fast 50.7% slower
+string  iterate                         1.73               -               -            0.62   rig-fast 178.2% faster
+pair    insert                         25.83               -               -           18.53   rig-fast 39.4% faster
+pair    hit                             6.62               -               -            5.92   rig-fast 11.9% faster
+pair    miss                            2.67               -               -            8.71   rig-fast 69.4% slower
+small   4                               1.62               -               -            1.59   rig-fast 2.0% faster
+small   8                               1.62               -               -            2.47   rig-fast 34.4% slower
+string  intern                          7.51               -               -            7.89   rig-fast 4.8% slower
+int     ensure-miss                    22.49               -               -           15.77   rig-fast 42.6% faster
+int     ensure-hit                      7.18               -               -            5.59   rig-fast 28.3% faster
+int     ensure_with-miss               22.33               -               -           17.02   rig-fast 31.1% faster
+int     ensure_with-hit                 6.99               -               -            5.89   rig-fast 18.7% faster
+int     edit_put-miss                  23.01               -               -           16.74   rig-fast 37.4% faster
+int     edit_put-hit                    7.84               -               -            5.50   rig-fast 42.5% faster
+string  ensure-miss                    66.63               -               -           25.01   rig-fast 166.5% faster
+string  ensure-hit                     26.74               -               -           14.26   rig-fast 87.6% faster
+string  ensure_with-miss               82.14               -               -           25.90   rig-fast 217.1% faster
+string  ensure_with-hit                43.94               -               -           15.53   rig-fast 183.0% faster
+string  edit_put-miss                  92.55               -               -           27.40   rig-fast 237.7% faster
+string  edit_put-hit                   43.77               -               -           16.21   rig-fast 170.0% faster

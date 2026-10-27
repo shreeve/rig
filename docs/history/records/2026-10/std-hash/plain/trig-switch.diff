@@ -1,0 +1,100 @@
+--- trig/src/checker/checker.rig	2026-10-26 15:35:04.000000000 -0600
++++ trig-h/src/checker/checker.rig	2026-10-26 17:36:55.844949862 -0600
+@@ -4,6 +4,7 @@
+ # Workarounds name the NEEDS.md item they stand in for:
+ #   NEEDS 42 (an entry at an index of a Map): a table's entries are copied
+ #     into a List to be walked while the checker writes (`table_entries`).
++use std.hash
+ use std.sort
+ use std.text as stdtext
+ use ast
+@@ -76,7 +77,7 @@
+   pub instantiation_count: U32 = 0
+   pub instantiation_stack: List[TypeId] = List()
+   pub active_mappers: List[MapperId] = List()                              # Go `activeMappers`
+-  pub active_type_mappers_caches: List[Map[CacheKey, TypeId]] = List()       # Go `activeTypeMappersCaches`: the first `active_mappers.len`; the cleared maps past them kept in place for reuse
++  pub active_type_mappers_caches: List[hash.Map[CacheKey, TypeId]] = List()       # Go `activeTypeMappersCaches`: the first `active_mappers.len`; the cleared maps past them kept in place for reuse
+   pub conditional_flow_steps: List[List[U32]] = List()  # by page of 256 node ids: `conditional_flow_step`'s answers, or 0
+   pub conditional_constraint_depth: U32 = 0
+   pub inline_level: Int = 0
+@@ -239,8 +240,8 @@
+   pub bigint_literal_types: Map[U64, TypeId] = Map[U64, TypeId]()                    # by LiteralValue.bits
+   pub enum_literal_types: Map[EnumLiteralKey, TypeId] = Map[EnumLiteralKey, TypeId]()
+   pub enum_nan_literal_types: Map[Sym, TypeId] = Map[Sym, TypeId]()
+-  pub indexed_access_types: Map[CacheKey, TypeId] = Map[CacheKey, TypeId]()
+-  pub template_literal_type_cache: Map[CacheKey, TypeId] = Map[CacheKey, TypeId]()            # Go `templateLiteralTypes`, whose Rig name is the accessor of `TemplateLiteralType.types`
++  pub indexed_access_types: hash.Map[CacheKey, TypeId] = hash.Map[CacheKey, TypeId]()
++  pub template_literal_type_cache: hash.Map[CacheKey, TypeId] = hash.Map[CacheKey, TypeId]()            # Go `templateLiteralTypes`, whose Rig name is the accessor of `TemplateLiteralType.types`
+   pub string_mapping_types: Map[StringMappingKey, TypeId] = Map[StringMappingKey, TypeId]()
+   pub substitution_types: Map[SubstitutionTypeKey, TypeId] = Map[SubstitutionTypeKey, TypeId]()             # Go `substitutionTypes`
+   pub unique_es_symbol_types: Map[Sym, TypeId] = Map[Sym, TypeId]()
+@@ -254,12 +255,12 @@
+   pub async_builtin_iterator_types: TypeList = TypeList()  # Go `asyncIterationTypesResolver.getGlobalBuiltinIteratorTypes`, as core.Memoize keeps it
+   pub async_builtin_iterator_types_done: Bool = false
+   pub undefined_properties: Map[ast.Atom, Sym] = Map[ast.Atom, Sym]()
+-  pub error_types: Map[CacheKey, TypeId] = Map[CacheKey, TypeId]()
+-  pub tuple_types: Map[CacheKey, TypeId] = Map[CacheKey, TypeId]()
+-  pub union_types: Map[CacheKey, TypeId] = Map[CacheKey, TypeId]()
++  pub error_types: hash.Map[CacheKey, TypeId] = hash.Map[CacheKey, TypeId]()
++  pub tuple_types: hash.Map[CacheKey, TypeId] = hash.Map[CacheKey, TypeId]()
++  pub union_types: hash.Map[CacheKey, TypeId] = hash.Map[CacheKey, TypeId]()
+   pub union_of_union_types: Map[UnionOfUnionKey, TypeId] = Map[UnionOfUnionKey, TypeId]()
+-  pub intersection_types: Map[CacheKey, TypeId] = Map[CacheKey, TypeId]()
+-  pub instantiations: Map[InstantiationKey, TypeId] = Map[InstantiationKey, TypeId]()            # Go `ObjectType.instantiations`, `TypeAliasLinks.instantiations`, `ConditionalRoot.instantiations`
++  pub intersection_types: hash.Map[CacheKey, TypeId] = hash.Map[CacheKey, TypeId]()
++  pub instantiations: hash.Map[InstantiationKey, TypeId] = hash.Map[InstantiationKey, TypeId]()            # Go `ObjectType.instantiations`, `TypeAliasLinks.instantiations`, `ConditionalRoot.instantiations`
+   pub has_instantiations: Set[U64] = Set[U64]()             # the owners whose Go `instantiations` map is made: a type (its id) or an alias symbol or root (`INSTANTIATIONS_*`)
+   pub global_resolved: List[U32] = List()                  # Go's memoized `getGlobal*` resolvers: each one's value, by `GlobalResolver`
+   pub global_resolved_types: List[TypeId] = List()         # the same, of the resolvers that give a type
+@@ -287,7 +288,7 @@
+   pub lent_relaters: List[LentRelater] = List()   # PORT: the relaters Go's TypeComparer closures hold (relater.rig, lend_relater)
+   pub relater_lends: U32 = 0                    # PORT: the count of lend_relater's lends, which names each
+   pub constituent_maps: List[Map[TypeId, TypeId]] = List()        # Go `UnionType.constituentMap`, by union_constituent_map less one
+-  pub relation_results: List[Map[CacheKey, U32]] = List()        # Go's relations' `results`, by relation_index, made on first write
++  pub relation_results: List[hash.Map[CacheKey, U32]] = List()        # Go's relations' `results`, by relation_index, made on first write
+   pub contextual_infos: List[ContextualInfo] = List()   # Go `contextualInfos`
+   pub inference_context_infos: List[InferenceContextInfo] = List()   # Go `inferenceContextInfos`
+   pub inference_contexts: List[InferenceContext] = List()   # Go's *InferenceContext values, by InferenceId (0 is nil)
+--- trig/src/checker/relater.rig	2026-10-26 15:35:04.000000000 -0600
++++ trig-h/src/checker/relater.rig	2026-10-26 17:36:55.845644533 -0600
+@@ -1,4 +1,5 @@
+ # tsc's checker (docs/checker/TYPES.md): functions of Go's relater.go.
++use std.hash
+ use ast
+ use core
+ use diagnostics
+@@ -37,7 +38,7 @@
+ # Go: checker/relater.go:106 Relation.set
+ pub sub Checker.relation_set(!@, relation: Relation, key: CacheKey, result: U32)
+   while @relation_results.len < 5
+-    !@relation_results.push(Map[CacheKey, U32]())
++    !@relation_results.push(hash.Map[CacheKey, U32]())
+   !@relation_results[relation_index(relation)].put(key, result)
+ 
+ # Go: checker/relater.go:113 Relation.size
+@@ -1662,7 +1663,7 @@
+   pub related_info: List[DiagId] = List()
+   pub chains: List[ErrorChain] = List()
+   pub maybe_keys: List[CacheKey] = List()
+-  pub maybe_keys_set: Set[CacheKey] = Set[CacheKey]()
++  pub maybe_keys_set: hash.Set[CacheKey] = hash.Set[CacheKey]()
+   pub source_stack: List[TypeId] = List()
+   pub target_stack: List[TypeId] = List()
+   pub maybe_count: Int = 0
+--- trig/src/checker/members.rig	2026-10-26 15:35:04.000000000 -0600
++++ trig-h/src/checker/members.rig	2026-10-26 17:36:55.846348413 -0600
+@@ -1,4 +1,5 @@
+ # tsc's checker (docs/checker/TYPES.md): functions of Go's checker.go.
++use std.hash
+ use ast
+ use core
+ use diagnostics
+@@ -3044,7 +3045,7 @@
+ # the next push to its depth, where Go appends a new map.
+ pub sub Checker.push_active_mapper(!@, mapper: MapperId)
+   !@active_mappers.push(mapper)
+-  !@active_type_mappers_caches.push(Map[CacheKey, TypeId]()) if @active_type_mappers_caches.len < @active_mappers.len
++  !@active_type_mappers_caches.push(hash.Map[CacheKey, TypeId]()) if @active_type_mappers_caches.len < @active_mappers.len
+ 
+ # Go: checker/checker.go:22687 popActiveMapper
+ pub sub Checker.pop_active_mapper(!@)

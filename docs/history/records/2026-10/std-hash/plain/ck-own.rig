@@ -1,0 +1,40 @@
+use std.hash
+use std.time
+
+obj Key: Hash
+  lo: U64
+  hi: U64
+
+  sub hash_into(?@, h: !Hasher)
+    !h.add(@lo ^ (@hi *% 0x9E3779B97F4A7C15))
+
+obj Rand
+  s: U64
+
+  fun next(!@) -> U64
+    @s = @s *% 6364136223846793005 +% 1442695040888963407
+    @s >> 33
+
+type M = hash.Map[Key, U32]
+
+# Trig's relation cache pattern: get, and put on a miss, over keys drawn
+# from a pool so about 70% are hits.
+called fun work(m: !M, n: Int, pool: U64) -> Int
+  r = Rand(s: 7)
+  hits = 0
+  for i in 0..n
+    a = (!r).next() % pool
+    b = (!r).next() % pool
+    k = Key(lo: (a << 32) | b, hi: U64(i & 3))
+    if m.get(k) as v
+      hits += Int(v)
+    else
+      !m.put(k, U32(i & 0xFFFF))
+  hits
+
+sub main()
+  for _ in 0..3
+    m = M()
+    t = time.now()
+    h = work(!m, 4000000, 600)
+    print("ns/op", Float(t.elapsed()) / 4000000.0, h, m.len)

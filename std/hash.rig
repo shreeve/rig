@@ -136,6 +136,22 @@ sub mark_for_rehash(ctrl: ![]U8, n: Int)
     for j in 0..GROUP
       ctrl[n + j] = ctrl[j]
 
+# A table's slots, in bytes, from which it grows in place: its Lists
+# are lengthened (a block this large moves its pages, so the old and the
+# new table are never held at once) and its keys placed again where
+# they lie, as a rebuild at its size does. A smaller table is built
+# anew, which is faster.
+LARGE = 1 << 20
+
+# The control bytes of a table of `old` slots lengthened for `n`, every
+# new byte `EMPTY`, and the old copies of the first 16 too, where slots
+# of the larger table now lie: the rebuild in place (`mark_for_rehash`)
+# then reads only the old slots' bytes.
+sub widen(ctrl: !List[U8], old: Int, n: Int)
+  !ctrl.resize(n + GROUP, EMPTY)
+  for j in old..old + GROUP
+    ctrl[j] = EMPTY
+
 # Whether slots `i` and `j` lie in the same group of `h`'s probe, so a
 # key that hashes to `h` is found the same at either.
 fun same_group(i: Int, j: Int, mask: Int, h: U64) -> Bool
@@ -560,6 +576,11 @@ pub obj Map[K: Hash + Print, V: Print]: Print
       if n == 0
         !@p_rehash()
         return
+      if $size(Bucket[K, V]) * @ps.len >= LARGE
+        widen(!@ctrl, @ps.len, n)
+        !@ps.resize(n, filler)
+        !@p_rehash()
+        return
       old = swap(!@ps, List.filled(n, filler))
       old_ctrl = swap(!@ctrl, List.filled(n + GROUP, EMPTY))
       mask = n - 1
@@ -973,6 +994,11 @@ pub obj Set[K: Hash + Print]: Print
         return
       n = grown_size(@ps.len, @len, more)
       if n == 0
+        !@p_rehash()
+        return
+      if $size(K) * @ps.len >= LARGE
+        widen(!@ctrl, @ps.len, n)
+        !@ps.resize(n, filler)
         !@p_rehash()
         return
       old = swap(!@ps, List.filled(n, filler))
