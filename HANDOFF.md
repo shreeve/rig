@@ -125,6 +125,11 @@ A new session, human or agent, takes these steps in order:
   Its lane-range fact for the proof pass (`0 <= k < n`, so `[n]T`
   indexed by `k` needs no test) waits for the masked-index proof in
   `src/proofs.zig`.
+- **Masked indexes** (`src/proofs.zig`): `s[e & m]` with `m = s.len -% 1`
+  under a guard `s.len > 0` makes no bounds test, and the built-in Map,
+  Set, and Interner probe slot `(home +% d) & mask` in one loop. The
+  lane fact for `for k in m.lanes()` indexing a `[n]T` is not built:
+  an array index has no proven form in emit yet.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
