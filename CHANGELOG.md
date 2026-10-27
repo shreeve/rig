@@ -156,6 +156,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Masked indexes are proven:** `s[e & m]`, where `m` is `s.len -% 1`
+  (or `s.len - 1`) taken inside a guard `s.len > 0`, or any `Int` known
+  not negative whose room below `s.len` is known, makes no bounds test,
+  for any `e`, a negative one too; and a loop whose every write of `i`
+  is `i = e & m` keeps `0 <= i < s.len` at every step, so a probe of
+  slot `(home +% d) & mask` is tested nowhere
+  (docs/internals/INTERNALS.md, "Proven checks").
 - **Prefetch:** `xs.prefetch(i)` asks for element `i` of a List, an
   array, or a slice ahead of its read. It reads `xs` for the call and
   does nothing a program can see: an `i` out of range does nothing and

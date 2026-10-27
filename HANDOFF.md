@@ -128,6 +128,14 @@ A new session, human or agent, takes these steps in order:
   prefetch instruction with no range test, since a prefetch of any
   address does nothing a program can see, so it needs no proof
   (bench/prefetch).
+- **Masked indexes** (`src/proofs.zig`): `s[e & m]` with `m = s.len -% 1`
+  under a guard `s.len > 0` makes no bounds test, ready for the Map
+  rewrite. The built-in Map, Set, and Interner keep their two guarded
+  passes: probing `(home +% d) & mask` made Trig run 1.15% fewer
+  instructions and most bench/hash rows faster, but `lat16 chain` 20-50%
+  slower (PR #729 has the numbers). The lane fact for `for k in
+  m.lanes()` indexing a `[n]T` is not built: an array index has no
+  proven form in emit yet.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

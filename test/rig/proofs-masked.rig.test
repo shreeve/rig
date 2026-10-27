@@ -1,0 +1,179 @@
+# proofs: masked indexes, `s[e & m]` with `m` a length less one
+# (docs/internals/INTERNALS.md, "Proven checks").
+
+test "mask index", "[3, 4, 1]", release: true
+  # `m = xs.len -% 1` inside `xs.len > 0` is `0 <= m < xs.len`, and so is
+  # `h & m` for any `h`, a negative one too.
+
+  fun slot(xs: []Int, h: Int) -> Int
+    if xs.len > 0
+      m = xs.len -% 1
+      return xs[h & m] # proves: index lower upper
+    0
+
+  xs = [1, 2, 3, 4]
+  print([slot(xs[..], 6), slot(xs[..], -1), slot(xs[..], 4)])
+
+test "mask index inline", "[3, 4]", release: true
+  # The mask written where it is used: `h & (xs.len -% 1)`.
+
+  fun slot(xs: []Int, h: Int) -> Int
+    if 0 < xs.len
+      return xs[h & (xs.len -% 1)] # proves: index lower upper
+    0
+
+  xs = [1, 2, 3, 4]
+  print([slot(xs[..], 6), slot(xs[..], -1)])
+
+test "mask index checked sub", "3", release: true
+  # `xs.len - 1` is the same mask, and `xs.len != 0` the same guard.
+
+  fun slot(xs: []Int, h: Int) -> Int
+    if xs.len != 0
+      m = xs.len - 1
+      return xs[m & h] # proves: index lower upper
+    0
+
+  xs = [1, 2, 3, 4]
+  print(slot(xs[..], 6))
+
+test "mask index list", "30", release: true
+  # A List binding's length bounds its mask as a slice's does.
+
+  fun slot(xs: ?List[Int], h: Int) -> Int
+    if xs.len >= 1
+      m = xs.len -% 1
+      i = h & m
+      return xs[i] # proves: index lower upper
+    0
+
+  xs: List[Int] = List()
+  for v in [10, 20, 30, 40]
+    !xs.push(v)
+  print(slot(xs, 6))
+
+test "mask probe", "[5, 0, -1]", release: true
+  # A probe loop: the mask is taken once, and every write of `i` in the
+  # loop is `i = e & mask`, so `0 <= i < ts.len` holds at every step.
+
+  fun probe(ts: []U8, h: U64, t: U8) -> Int
+    if ts.len > 0
+      mask = ts.len -% 1
+      i = Int.wrap(h) & mask
+      n = 0
+      while n < ts.len
+        return i if ts[i] == t # proves: index lower upper
+        i = (i + 1) & mask # proves: + no_overflow
+        n += 1
+    -1
+
+  ts: [8]U8 = [9, 0, 0, 0, 0, 7, 0, 0]
+  print([probe(ts[..], 13, 7), probe(ts[..], 0xFFFF_FFFF_FFFF_FFFF, 9), probe(ts[..], 3, 1)])
+
+code "mask probe emit", "rig.atProven(ts, i, .both)"
+  fun probe(ts: []U8, h: U64, t: U8) -> Int
+    if ts.len > 0
+      mask = ts.len -% 1
+      i = Int.wrap(h) & mask
+      while true
+        return i if ts[i] == t
+        i = (i + 1) & mask
+    -1
+
+  ts: [4]U8 = [1, 2, 3, 4]
+  print(probe(ts[..], 6, 1))
+
+code "mask index inline emit", "rig.atProven(xs, h & (@as(i64, rig.lenOf(xs)) -% 1), .both)"
+  fun slot(xs: []Int, h: Int) -> Int
+    if xs.len > 0
+      return xs[h & (xs.len -% 1)]
+    0
+
+  xs = [1, 2, 3, 4]
+  print(slot(xs[..], 6))
+
+bomb "mask maybe empty", "index out of bounds", release: true
+  # No guard shows `xs.len > 0`: an empty `xs` makes the mask -1, all ones,
+  # and `h & m` is `h`.
+
+  fun slot(xs: []Int, h: Int) -> Int
+    m = xs.len -% 1
+    xs[h & m] # keeps: index lower upper
+
+  xs: [0]Int = []
+  print(slot(xs[..], 5))
+
+bomb "mask other list", "index out of bounds", release: true
+  # The mask is of `ys`, not of the `xs` indexed: only the sign is known.
+
+  fun pick(xs: []Int, ys: []Int, h: Int) -> Int
+    if ys.len > 0
+      m = ys.len -% 1
+      return xs[h & m] # keeps: index upper
+    0
+
+  print(pick([1, 2][..], [1, 2, 3, 4][..], 3))
+
+bomb "mask list shrinks", "index out of bounds", release: true
+  # A write of `xs` between the mask and its use ends what the mask
+  # showed of `xs.len`.
+
+  fun shrink(h: Int) -> Int
+    xs: List[Int] = List()
+    for v in [1, 2, 3, 4]
+      !xs.push(v)
+    if xs.len > 0
+      m = xs.len -% 1
+      !xs.keep(2)
+      return xs[h & m] # keeps: index upper
+    0
+
+  print(shrink(3))
+
+bomb "mask list emptied", "index out of bounds", release: true
+  # A write of `xs` between the guard and the mask ends `xs.len > 0`: the
+  # mask may be -1.
+
+  fun empty(h: Int) -> Int
+    xs: List[Int] = List()
+    !xs.push(1)
+    if xs.len > 0
+      !xs.keep(0)
+      m = xs.len -% 1
+      return xs[h & m] # keeps: index lower upper
+    0
+
+  print(empty(3))
+
+bomb "mask probe unmasked step", "index out of bounds", release: true
+  # A write of `i` in the loop that is not masked: `i` may pass the end.
+
+  fun walk(ts: []U8, h: Int) -> Int
+    n = 0
+    if ts.len > 0
+      mask = ts.len -% 1
+      i = h & mask
+      while n < 3
+        n += Int(ts[i]) # keeps: index upper
+        i += 1
+    n
+
+  ts: [2]U8 = [1, 1]
+  print(walk(ts[..], 0))
+
+bomb "mask probe mask grows", "index out of bounds", release: true
+  # The mask is written in the loop: what it showed ends there.
+
+  fun walk(ts: []U8, h: Int) -> Int
+    n = 0
+    if ts.len > 0
+      mask = ts.len -% 1
+      i = h & mask
+      while n < 3
+        n += Int(ts[i]) # keeps: index upper
+        mask = mask * 2 + 1
+        i = (i + 1) & mask
+    n
+
+  ts: [2]U8 = [1, 1]
+  print(walk(ts[..], 0))
