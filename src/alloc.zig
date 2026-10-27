@@ -360,12 +360,13 @@ fn minLarge() usize {
 /// system would fault in afresh.
 const move_large: usize = 1 << 20;
 
-/// What a heap keeps of freed large blocks: whatever leaves what it
-/// holds in large blocks, handed out and kept, no more than the most it
-/// has handed out at once, and `keep_large` more. Keeping never raises
-/// that peak; a program that builds and drops its tables again and
-/// again takes their pages from its own, and one that has given back
-/// what it held reuses it, up to what it once held.
+/// The most bytes of freed large blocks a heap keeps: as many as leave
+/// what it holds in large blocks, handed out and kept, no more than the
+/// most it has handed out at once and `keep_large`. A free or a reuse
+/// leaves what it holds as it was, so only new pages can pass the bound
+/// (`trimKept`), and keeping never raises the heap's peak: a program
+/// that builds and drops its tables again and again takes their pages
+/// from its own, up to what it once held.
 fn keepBound(h: *const Heap) usize {
     return h.large_peak - h.large_live + keep_large;
 }
@@ -458,9 +459,9 @@ fn keepPiece(h: *Heap, p: usize, len: usize) void {
 /// Give kept blocks back to the system until the heap keeps no more
 /// than `keepBound`, after it has taken new pages for a block no kept
 /// one fitted: the smallest block that alone brings it within the
-/// bound, or else the largest, and again. The blocks kept longest are
-/// a program's largest, its tables built again, which cost the most
-/// pages to fault in afresh.
+/// bound, or else the largest, and again. So the heap keeps its largest
+/// blocks, a program's tables built again, which cost the most pages
+/// to fault in afresh.
 fn trimKept(h: *Heap) void {
     while (h.large_bytes > keepBound(h)) {
         const over = h.large_bytes - keepBound(h);
