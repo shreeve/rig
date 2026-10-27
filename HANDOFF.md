@@ -101,16 +101,17 @@ A new session, human or agent, takes these steps in order:
   is on `main` (#701): inside `if $plain(K)` a generic body may copy a
   `K`. Sema decides plain once per instance and emit passes it as a
   compile-time Bool; the oracle knows the rule.
-- **The hash race:** `bench/hash` times both Rig maps against the
-  fastest tables in C++, Rust, Zig and Go, with random keys and on one
-  shared hash. The goal is first place, with an ordered and an unordered
-  family of Map and Set (owner, 2026-10-27). Today boost and ankerl
-  lead; Rig's maps win only large builds. The study's plan: first the
-  ordered Map over a group index, then an unordered `std.hash` over
-  boost's groups
+- **The hash race:** `bench/hash` races both Rig maps against abseil,
+  boost, ankerl, hashbrown, indexmap, Rust std, Zig and Go on every row
+  of `bench/hash/WORKLOADS.md`, all built for the CPU they run on. The
+  goal is first place, with two families: the ordered `Map`/`Set` and
+  an unordered `HashMap`/`HashSet` (working names). The owner's plan:
+  win in Zig first, then make Rig emit that Zig. Faithful Zig ports of
+  boost and ankerl (`zig-foa`, `zig-dense`) lead on the Mac and trail
+  on x86; `zig-hash` and `zig-ordered` are being grown from them. The
+  panel's twelve decisions are approved
   ([hash-race/](docs/history/records/2026-10/hash-race/)). #685's
-  SwissTable `std.hash` is archived as `archive/std-hash`, its members
-  and tests kept for the rebuild.
+  SwissTable `std.hash` is archived as `archive/std-hash`.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
