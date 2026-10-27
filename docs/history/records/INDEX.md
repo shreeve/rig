@@ -29,6 +29,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Table and List reads inside Trig (2026-10-25) | a `Table` read is the bare load, a `List` read adds only a sign test; the cycles charged to them are the element loads' misses, which tsrs pays too. Kept: an inlined call's `?T` result made a run-time value in place, not through `rig.rt`'s memory round trip (34% fewer blocked loads), one compare for a signed index against a held length, and `rarely` `noinline`: 1.5% fewer instructions on ts-pattern and zod3, 1.2-2.2% fewer cycles | [perf-stage/table-reads.md](2026-10/perf-stage/table-reads.md) |
 | std.json's instruction guard (2026-10-26) | main failed the guard by 2.9-3.1%; bisected to 22bf02111 of #696 (one unsigned compare for a signed index against a held length): 3.5-3.8% more instructions per byte on twitter, twitterescaped and github_events, and twitter 2.0-4.2% slower; the guard was not refreshed | [json-guard/](2026-10/json-guard/) |
 | Bounds tests and enum conversion in Trig (2026-10-26) | each index test is Rust's one compare and branch; the cycles the disassembly diff charged to them (row 4, and row 8's `fromInt`) are load misses landing on the next instruction, as PEBS shows; one shape made two tests, a signed index against a compile-time bound (`Table`, arrays, `Slot[n].of`), now one compare: Trig PGO 0.5-0.7% fewer instructions alone (under the bar), 1.5-1.7% with #706; std.json's instructions per byte unchanged | [perf-stage/bounds-enum.md](2026-10/perf-stage/bounds-enum.md) |
+| Table reads in loops and yield checks (2026-10-26) | a Table's base is reloaded in a loop because the index test before it leaves the loop and Zig gives LLVM no `dereferenceable`, as much as because of the yield call; `noalias` on views gains nothing on Trig today (0.2% fewer instructions), and running range loops' turns in runs is worse (2.8-3.9% more); built: the yield checks call the scheduler through a function that keeps every register: Trig release 1.9% fewer instructions, with PGO 0.8-0.9% fewer and time within the noise, under the bar | [perf-stage/loop-hoist.md](2026-10/perf-stage/loop-hoist.md) |
 | Profile-guided optimization (2026-10-25) | LLVM PGO through Zig's bitcode and `zig cc`, trained away from the project timed: Trig 10% faster with 14% fewer instructions on ts-pattern and zod3, 5-9% faster than BOLT alone, BOLT on top adding nothing; built as `rig build --release --pgo`, with a freestanding profile writer the runtime calls in `--pgo` packages only | [perf-stage/pgo.md](2026-10/perf-stage/pgo.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
@@ -237,6 +238,17 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [jsonab.sh](2026-10/perf-stage/bounds-enum-data/jsonab.sh)
 - [v.c](2026-10/perf-stage/bounds-enum-data/v.c)
 - [w.c](2026-10/perf-stage/bounds-enum-data/w.c)
+- [loop-hoist.md](2026-10/perf-stage/loop-hoist.md): Table reads in loops, and what a yield check costs (2026-10-26)
+
+### 2026-10/perf-stage/loop-hoist-data/
+
+- [bench-tasks-ab.py](2026-10/perf-stage/loop-hoist-data/bench-tasks-ab.py)
+- [build.sh](2026-10/perf-stage/loop-hoist-data/build.sh)
+- [licm-index-test.zig](2026-10/perf-stage/loop-hoist-data/licm-index-test.zig)
+- [licm-no-index-test.zig](2026-10/perf-stage/loop-hoist-data/licm-no-index-test.zig)
+- [licm-runs.zig](2026-10/perf-stage/loop-hoist-data/licm-runs.zig)
+- [noalias-and-runs.patch](2026-10/perf-stage/loop-hoist-data/noalias-and-runs.patch)
+- [time.sh](2026-10/perf-stage/loop-hoist-data/time.sh)
 
 ### 2026-10/perf-stage/list-grow-data/
 
