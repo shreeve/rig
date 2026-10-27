@@ -1,5 +1,8 @@
 # Hash race: where Rig's maps stand against the fastest tables (2026-10-27)
 
+The first round is below. The second round, its panel, and the Zig
+ports follow under "Second round".
+
 The owner's goal (2026-10-26): "the FASTEST POSSIBLE implementation of
 this algorithm. We want Rig to start out in FIRST PLACE", with existing
 map code free to change. He wants two families, ordered and unordered
@@ -106,3 +109,61 @@ it on every row.
 
 Its §6 lists the owner's decisions. Two harness gaps remain from §5:
 a dependent-chain latency row, and a churn row.
+
+## Second round (2026-10-27)
+
+**Fixed.** Every contestant times the rows of bench/hash/WORKLOADS.md:
+random keys at eight sizes, a latency chain, churn, half-hit lookups,
+text keys, 64-byte values, and peak memory. Three fairness fixes came
+out of building it:
+- **The latency chain** no longer visits keys in the order they were
+  put. A dense map had walked its entries in sequence, which made Rig
+  look 2x faster.
+- **Every contestant builds for the CPU it runs on.** C++ and Rust had
+  been on a baseline instruction set, while Rig and Zig were native. With
+  that fixed, Rig's Map takes 3 first places on the Mac, not the 14 the
+  one-round data showed (that data is kept as
+  [panel/mac-v2-baseline-isa.txt](panel/mac-v2-baseline-isa.txt)).
+- **Zig contestants allocate from malloc,** as C++ and Rust do.
+
+[panel/](panel/) has the three experts' reports and the twelve decisions
+the owner approved.
+
+**Two faithful Zig ports** race beside the originals, with the same
+hash: `zig-foa` (boost's unordered_flat_map) and `zig-dense` (ankerl's
+unordered_dense 5.3.3). First places over the 84 rows every contestant
+times, fastest of five, `int` rows left out:
+
+| | Mac | pup |
+|---|---|---|
+| the two ports, first among all but Rig | 39 | 17 |
+| zig-dense | 18 (first) | 9 |
+| zig-foa | 16 | 6 |
+| Rust std + FxHash | 11 | 16 (first) |
+| ankerl (own hash) | 3 | 14 |
+| Rig's current Map | 2 | 3 |
+
+So the ports lead on the Mac and trail on x86. The rows they lose on
+the Mac:
+- text keys, up to 3.6x behind: C++ keeps short strings in the slot,
+  while Rig's `String` and the ports keep their bytes on the heap, and
+  their text hash is Wyhash;
+- small hits, up to 1.5x behind FxHash's single multiply;
+- small latency, 1.8x behind Zig's scalar probe;
+- hits at 3M-4M keys, 1.2x behind abseil's prefetch.
+
+Peak memory per entry, 4M Int keys:
+
+| | Mac | pup |
+|---|---|---|
+| Rig's Map | 39.7 (least) | 38.3 |
+| zig-dense | 55.8 | 27.5 (least) |
+| hashbrown | 71.4 | 53.5 |
+
+Zig's `std.HashMap` collapses under churn, 91 us a step at 100,000 keys
+against hashbrown's 7.5 ns, from tombstones; Zig's std says so at
+`rehash`.
+
+Raw reports: [mac-v2.txt](mac-v2.txt), [pup-v2.txt](pup-v2.txt).
+Next: `zig-hash` and `zig-ordered`, grown from the ports to take first
+place on both machines, and then Rig's maps rewritten to emit them.
