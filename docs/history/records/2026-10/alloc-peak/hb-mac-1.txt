@@ -1,0 +1,58 @@
+| bytes an entry, 4M Int keys | pre | main | fix |
+|---|---:|---:|---:|
+| peak RSS, mem less mem0 | 39.7 | 51.0 | 39.5 |
+
+| rows | n | main | fix |
+|---|---:|---:|---:|
+| Int: insert, remove, turnover | 26 | 0.963 | 1.009 |
+| Int: lookups, iterate | 43 | 0.994 | 1.003 |
+| Int: 3M and 4M rows | 18 | 0.987 | 1.002 |
+| Text: insert, remove | 9 | 0.959 | 1.009 |
+| Text: hit, miss | 18 | 0.959 | 1.001 |
+| Big values: insert | 4 | 0.811 | 1.030 |
+| Big values: other | 12 | 0.983 | 1.004 |
+| All | 130 | 0.972 | 1.005 |
+
+| row (ns) | pre | main | fix |
+|---|---:|---:|---:|
+| int4000000 insert | 14.23 | 13.94 | 14.16 |
+| int4000000 remove | 30.01 | 29.72 | 29.89 |
+| int4000000 hit | 6.80 | 6.73 | 6.78 |
+| int4000000 miss | 8.19 | 8.29 | 8.35 |
+| int4000000 iterate | 0.46 | 0.46 | 0.46 |
+| rnd4000000 insert | 14.33 | 13.08 | 14.42 |
+| rnd4000000 remove | 31.27 | 31.37 | 31.30 |
+| rnd4000000 hit | 13.14 | 13.24 | 13.21 |
+| rnd4000000 miss | 8.89 | 8.93 | 8.84 |
+| rnd4000000 iterate | 0.47 | 0.47 | 0.47 |
+| lat4000000 chain | 149.05 | 148.53 | 149.14 |
+| churn4000000 turnover | 38.20 | 38.11 | 38.43 |
+| mix4000000 half | 15.30 | 14.82 | 15.57 |
+| big16 insert | 8.88 | 8.82 | 8.94 |
+| big16 remove | 9.87 | 9.85 | 9.83 |
+| big16 hit | 0.91 | 0.91 | 0.92 |
+| big16 iterate | 0.46 | 0.45 | 0.45 |
+| big1000 insert | 13.34 | 10.00 | 13.27 |
+| big1000 remove | 12.45 | 12.00 | 12.47 |
+| big1000 hit | 1.08 | 1.13 | 1.12 |
+| big1000 iterate | 0.46 | 0.46 | 0.46 |
+| big100000 insert | 17.17 | 12.22 | 19.10 |
+| big100000 remove | 24.15 | 24.15 | 24.31 |
+| big100000 hit | 5.97 | 6.09 | 5.99 |
+| big100000 iterate | 0.64 | 0.64 | 0.64 |
+| big1000000 insert | 18.36 | 15.00 | 18.59 |
+| big1000000 remove | 23.71 | 22.55 | 23.71 |
+| big1000000 hit | 11.49 | 9.81 | 11.43 |
+| big1000000 iterate | 0.98 | 0.98 | 0.99 |
+
+rows slower than pre by more than 3%:
+  main lat16 chain 1.84 -> 2.28 (24.3% slower)
+  main big1000 hit 1.08 -> 1.13 (4.2% slower)
+  fix rnd100000 insert 11.54 -> 13.04 (12.9% slower)
+  fix rnd150000 insert 11.24 -> 12.99 (15.6% slower)
+  fix lat16 chain 1.84 -> 2.20 (19.6% slower)
+  fix churn1000 turnover 8.69 -> 9.24 (6.4% slower)
+  fix str100000 insert 50.05 -> 53.09 (6.1% slower)
+  fix big1000 hit 1.08 -> 1.12 (3.5% slower)
+  fix big100000 insert 17.17 -> 19.10 (11.3% slower)
+  fix string intern 7.16 -> 7.39 (3.3% slower)

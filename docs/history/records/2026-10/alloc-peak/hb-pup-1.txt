@@ -1,0 +1,85 @@
+| bytes an entry, 4M Int keys | pre | main | fix | peakfree |
+|---|---:|---:|---:|---:|
+| peak RSS, mem less mem0 | 38.3 | 38.3 | 38.3 | 38.3 |
+
+| rows | n | main | fix | peakfree |
+|---|---:|---:|---:|---:|
+| Int: insert, remove, turnover | 26 | 0.988 | 0.999 | 0.963 |
+| Int: lookups, iterate | 43 | 0.984 | 0.992 | 0.978 |
+| Int: 3M and 4M rows | 18 | 0.922 | 0.925 | 0.918 |
+| Text: insert, remove | 9 | 0.883 | 0.975 | 0.905 |
+| Text: hit, miss | 18 | 0.985 | 1.013 | 0.979 |
+| Big values: insert | 4 | 0.784 | 0.963 | 0.784 |
+| Big values: other | 12 | 0.980 | 0.987 | 0.980 |
+| All | 130 | 0.962 | 0.984 | 0.955 |
+
+| row (ns) | pre | main | fix | peakfree |
+|---|---:|---:|---:|---:|
+| int4000000 insert | 30.04 | 25.91 | 24.80 | 25.15 |
+| int4000000 remove | 67.66 | 61.25 | 63.24 | 63.26 |
+| int4000000 hit | 17.30 | 16.47 | 16.63 | 16.62 |
+| int4000000 miss | 12.02 | 12.24 | 11.62 | 11.58 |
+| int4000000 iterate | 1.07 | 0.98 | 0.96 | 0.96 |
+| rnd4000000 insert | 30.32 | 23.71 | 25.81 | 23.70 |
+| rnd4000000 remove | 69.49 | 62.19 | 65.47 | 64.22 |
+| rnd4000000 hit | 32.30 | 29.31 | 30.50 | 29.19 |
+| rnd4000000 miss | 11.96 | 11.92 | 11.58 | 11.56 |
+| rnd4000000 iterate | 1.06 | 0.94 | 0.95 | 0.93 |
+| lat4000000 chain | 260.49 | 244.38 | 248.69 | 246.86 |
+| churn4000000 turnover | 79.93 | 73.06 | 74.78 | 74.04 |
+| mix4000000 half | 26.23 | 26.03 | 25.08 | 25.56 |
+| big16 insert | 15.62 | 16.26 | 15.98 | 16.28 |
+| big16 remove | 14.45 | 14.78 | 14.45 | 14.41 |
+| big16 hit | 1.59 | 1.57 | 1.59 | 1.59 |
+| big16 iterate | 0.48 | 0.48 | 0.47 | 0.48 |
+| big1000 insert | 29.62 | 17.21 | 29.84 | 17.09 |
+| big1000 remove | 22.11 | 21.84 | 22.11 | 21.69 |
+| big1000 hit | 2.00 | 1.90 | 2.02 | 1.96 |
+| big1000 iterate | 0.52 | 0.52 | 0.52 | 0.52 |
+| big100000 insert | 30.84 | 26.56 | 32.85 | 26.63 |
+| big100000 remove | 54.58 | 54.86 | 52.95 | 54.85 |
+| big100000 hit | 9.15 | 8.63 | 9.20 | 9.04 |
+| big100000 iterate | 1.06 | 1.06 | 1.06 | 1.06 |
+| big1000000 insert | 36.87 | 26.68 | 28.85 | 26.76 |
+| big1000000 remove | 47.03 | 43.91 | 45.02 | 43.62 |
+| big1000000 hit | 26.24 | 24.77 | 24.48 | 23.65 |
+| big1000000 iterate | 3.15 | 3.11 | 3.07 | 3.12 |
+
+rows slower than pre by more than 3%:
+  main int16 insert 10.73 -> 11.16 (4.1% slower)
+  main int16 miss 1.26 -> 1.40 (11.7% slower)
+  main int16 iterate 0.44 -> 0.47 (6.8% slower)
+  main int1000 miss 1.52 -> 1.62 (6.7% slower)
+  main rnd16 insert 9.79 -> 10.20 (4.3% slower)
+  main rnd16 iterate 0.44 -> 0.46 (4.1% slower)
+  main rnd24 hit 1.71 -> 1.84 (7.7% slower)
+  main rnd24 iterate 0.43 -> 0.49 (14.0% slower)
+  main rnd1500 hit 1.84 -> 2.12 (15.3% slower)
+  main rnd150000 miss 4.34 -> 4.81 (10.8% slower)
+  main mix16 half 1.18 -> 1.58 (34.8% slower)
+  main mix1000 half 1.39 -> 1.87 (33.9% slower)
+  main str16 miss 3.09 -> 3.37 (9.4% slower)
+  main str1000000 miss 23.36 -> 25.42 (8.8% slower)
+  main big16 insert 15.62 -> 16.26 (4.1% slower)
+  main string hit 16.16 -> 16.93 (4.8% slower)
+  main string ensure_with-hit 25.05 -> 27.99 (11.7% slower)
+  main string edit_put-hit 19.13 -> 24.12 (26.1% slower)
+  fix int100000 remove 28.62 -> 29.61 (3.5% slower)
+  fix rnd1500 hit 1.84 -> 1.92 (4.3% slower)
+  fix rnd100000 insert 19.59 -> 21.59 (10.2% slower)
+  fix rnd150000 insert 20.55 -> 22.83 (11.1% slower)
+  fix str100000 insert 39.20 -> 42.43 (8.2% slower)
+  fix big100000 insert 30.84 -> 32.85 (6.5% slower)
+  fix string hit 16.16 -> 17.31 (7.1% slower)
+  fix int ensure-hit 8.13 -> 8.59 (5.6% slower)
+  fix string ensure-hit 27.56 -> 28.95 (5.1% slower)
+  fix string ensure_with-hit 25.05 -> 31.61 (26.2% slower)
+  fix string edit_put-hit 19.13 -> 26.07 (36.2% slower)
+  peakfree rnd100000 iterate 0.46 -> 0.53 (13.3% slower)
+  peakfree mix16 half 1.18 -> 1.22 (3.5% slower)
+  peakfree str16 miss 3.09 -> 3.18 (3.2% slower)
+  peakfree str1000000 miss 23.36 -> 24.07 (3.0% slower)
+  peakfree big16 insert 15.62 -> 16.28 (4.2% slower)
+  peakfree string hit 16.16 -> 16.79 (3.9% slower)
+  peakfree string ensure_with-hit 25.05 -> 28.44 (13.5% slower)
+  peakfree string edit_put-hit 19.13 -> 23.34 (22.0% slower)

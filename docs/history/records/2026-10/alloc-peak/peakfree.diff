@@ -1,0 +1,27 @@
+--- a/src/alloc.zig
++++ b/src/alloc.zig
+@@ -370,7 +370,7 @@
+ /// that builds and drops its tables again and again takes their pages
+ /// from its own, up to what it once held.
+ fn keepBound(h: *const Heap) usize {
+-    return h.large_peak - h.large_live + keep_large;
++    return (h.large_peak -| h.large_live) + keep_large;
+ }
+ 
+ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
+@@ -431,7 +431,6 @@
+ /// `size` more bytes of large blocks handed out.
+ fn lent(h: *Heap, size: usize) void {
+     h.large_live += size;
+-    h.large_peak = @max(h.large_peak, h.large_live);
+ }
+ 
+ /// A kept block for `size` bytes, best fit by bucket: the first of the
+@@ -525,6 +524,7 @@
+     // A block another heap handed out, freed here, counts against this
+     // heap's bound as a new one would.
+     h.large_live -|= size;
++    h.large_peak = @max(h.large_peak, h.large_live);
+     if (h.large_bytes + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
+     keepPiece(h, @intFromPtr(p), size);
+ }

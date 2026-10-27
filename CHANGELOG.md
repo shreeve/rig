@@ -1220,6 +1220,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   36%). Trig's peak memory on ts-pattern is 0.4% higher at one checker
   (296.2 MB against 295.0) and the same at four, zod3's the same; its
   time and instructions are unchanged. Other systems are unchanged.
+- **Release allocator:** a heap keeps freed large blocks within its
+  settled peak, the most it has had handed out just after a free, and
+  16 MiB, where the peak was the most handed out at any moment. That
+  counted a growth's new block, mostly untouched, beside the old one,
+  so a table that grew left the block it grew from resident:
+  bench/hash's 4M-key map takes 39.5 bytes an entry on the Mac, from
+  51.0 (39.7 before the bound). Tables built and dropped again and
+  again still take their pages from what the heap kept, and bench/hash
+  runs at its speed (all rows within 0.3%). Trig's time, instructions
+  and peak memory are unchanged.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig

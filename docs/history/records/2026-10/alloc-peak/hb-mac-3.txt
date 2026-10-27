@@ -1,0 +1,55 @@
+| bytes an entry, 4M Int keys | main | final |
+|---|---:|---:|
+| peak RSS, mem less mem0 | 51.0 | 39.5 |
+
+| rows | n | final |
+|---|---:|---:|
+| Int: insert, remove, turnover | 26 | 1.000 |
+| Int: lookups, iterate | 43 | 1.001 |
+| Int: 3M and 4M rows | 18 | 1.007 |
+| Text: insert, remove | 9 | 0.999 |
+| Text: hit, miss | 18 | 1.010 |
+| Big values: insert | 4 | 1.009 |
+| Big values: other | 12 | 1.005 |
+| All | 130 | 1.003 |
+
+| row (ns) | main | final |
+|---|---:|---:|
+| int4000000 insert | 13.91 | 14.07 |
+| int4000000 remove | 29.58 | 29.63 |
+| int4000000 hit | 6.66 | 6.66 |
+| int4000000 miss | 8.30 | 8.12 |
+| int4000000 iterate | 0.46 | 0.46 |
+| rnd4000000 insert | 12.90 | 13.27 |
+| rnd4000000 remove | 31.00 | 31.00 |
+| rnd4000000 hit | 13.01 | 13.04 |
+| rnd4000000 miss | 8.69 | 8.57 |
+| rnd4000000 iterate | 0.47 | 0.46 |
+| lat4000000 chain | 145.40 | 146.09 |
+| churn4000000 turnover | 38.14 | 38.13 |
+| mix4000000 half | 14.84 | 15.10 |
+| big16 insert | 8.80 | 8.77 |
+| big16 remove | 9.83 | 9.82 |
+| big16 hit | 0.88 | 0.92 |
+| big16 iterate | 0.45 | 0.45 |
+| big1000 insert | 9.96 | 10.01 |
+| big1000 remove | 11.99 | 12.00 |
+| big1000 hit | 1.09 | 1.10 |
+| big1000 iterate | 0.46 | 0.45 |
+| big100000 insert | 12.19 | 12.24 |
+| big100000 remove | 23.90 | 23.88 |
+| big100000 hit | 5.98 | 6.02 |
+| big100000 iterate | 0.64 | 0.64 |
+| big1000000 insert | 15.19 | 15.67 |
+| big1000000 remove | 22.65 | 22.54 |
+| big1000000 hit | 9.66 | 9.70 |
+| big1000000 iterate | 0.99 | 0.99 |
+
+rows slower than main by more than 3%:
+  final rnd150000 miss 2.68 -> 3.10 (15.8% slower)
+  final rnd3000000 insert 11.02 -> 11.60 (5.3% slower)
+  final str100000 insert 15.79 -> 16.41 (4.0% slower)
+  final big16 hit 0.88 -> 0.92 (3.7% slower)
+  final big1000000 insert 15.19 -> 15.67 (3.2% slower)
+  final string ensure_with-miss 17.36 -> 19.29 (11.1% slower)
+  final string edit_put-miss 17.59 -> 19.63 (11.5% slower)
