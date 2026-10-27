@@ -144,6 +144,21 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   back to `edit`'s caller (`from @`), which the checker accepts (CORE
   sentence 7), and a field moved out of its object alone (partial
   moves). A layout to try again starts from that.
+- Remote frees batched per owning heap, as Linux 7.4's slab sheaves
+  and snmalloc do. Today each free of a block another heap owns
+  (`src/alloc.zig`) is one compare-and-swap onto that heap's remote
+  list; a batch would gather a chain per owner and push it with one.
+  Measure first, on a multi-checker Trig run: how many frees are
+  remote, and the share of time those compare-and-swaps take. Source:
+  Rig (fork)'s errors-track handoff.
+- Active workers tracked, rather than every worker scanned, as Linux
+  7.4's workqueue flush does. `src/sched.zig` walks all workers in
+  `earliestDue`, `claimWaiting` and `takeWaiting`, `busyDescriptors`
+  and `serviceAll`, stealing, and the check for any work; a bitmask of
+  the active ones, or one shared earliest deadline, would replace the
+  walks. It matters only at 64 or more cores. Measure first, on such a
+  machine: the share of a scheduler-bound bench's time those scans
+  take. Source: Rig (fork)'s errors-track handoff.
 - An unwrap of an optional that traps when it is `none`. The built-in Map's
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.
