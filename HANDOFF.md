@@ -109,6 +109,13 @@ A new session, human or agent, takes these steps in order:
   old tables that copying growth frees and the heap keeps. The owner
   approved landing it; a fix for that memory is being measured first
   ([record](docs/history/records/2026-10/std-hash/plain-slots.md)).
+- **The hash race:** `bench/hash` times both Rig maps against the
+  fastest tables in C++, Rust, Zig and Go, with random keys and on one
+  shared hash. The goal is first place, with an ordered and an unordered
+  family of Map and Set. Today boost and ankerl lead; Rig's maps win only
+  large builds. The study's plan: the ordered Map over a group index,
+  std.hash over boost's groups. The plan and the owner's decisions are in
+  [hash-race/](docs/history/records/2026-10/hash-race/).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

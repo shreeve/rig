@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Fetch the C++ and Go contestants bench/hash/bench-hash times, each
+# pinned to a release tag, into bench/hash/upstream/, which git ignores,
+# and build abseil into upstream/libabsl.a with the machine's clang++.
+# A source already present at its tag is not fetched again. The Rust
+# crates are pinned in bench/hash/rust/Cargo.lock and fetched by cargo.
+#
+# Usage: bench/hash/fetch-deps
+set -euo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+UP="$HERE/upstream"
+CXX=${CXX:-clang++}
+ABSEIL=20260817.0
+BOOST=boost-1.92.0
+DENSE=v5.3.3
+# boost::unordered and the boost libraries its headers include.
+BOOST_LIBS="unordered assert config container_hash core describe mp11 predef static_assert throw_exception type_traits"
+
+mkdir -p "$UP/boost"
+
+# clone <url> <tag> <dir>
+clone() {
+    local url=$1 tag=$2 dir=$3
+    # A commit can carry several tags (a boost library unchanged since an
+    # earlier release), so ask whether this one is among them.
+    if [[ -d $dir/.git ]] && git -C "$dir" tag --points-at HEAD | grep -qx "$tag"; then
+        return 0
+    fi
+    if [[ -e $dir ]]; then
+        echo "$dir exists but is not $tag; move it aside" >&2
+        return 1
+    fi
+    git -c advice.detachedHead=false clone -q --depth 1 -b "$tag" "$url" "$dir"
+}
+
+clone https://github.com/abseil/abseil-cpp "$ABSEIL" "$UP/abseil-cpp"
+clone https://github.com/martinus/unordered_dense "$DENSE" "$UP/unordered_dense"
+for m in $BOOST_LIBS; do
+    clone "https://github.com/boostorg/$m" "$BOOST" "$UP/boost/$m"
+done
+
+# abseil as its CMake build ships it (sampling compiled in, off at run
+# time), less tests and benchmarks: every library the hash table links.
+if [[ ! -f $UP/libabsl.a || $UP/libabsl.a -ot $UP/abseil-cpp/.git/HEAD ]]; then
+    obj="$UP/absl-obj"
+    mkdir -p "$obj"
+    (cd "$UP/abseil-cpp" &&
+        find absl/base absl/hash absl/container absl/synchronization absl/time absl/debugging \
+             absl/strings absl/numeric absl/profiling absl/types absl/crc absl/utility absl/memory \
+             -name '*.cc' |
+        grep -v -E '_test|test_|_benchmark|benchmark_|mock|_testing|testutil|fuzz|gtest|print_hash_of|/tests?/|_win\.cc' |
+        sort |
+        xargs -P "$(getconf _NPROCESSORS_ONLN)" -I{} sh -c \
+            'o="$1/$(echo "$2" | tr / _).o"; [ -f "$o" ] || "$3" -std=c++20 -O3 -DNDEBUG -I. -c "$2" -o "$o"' \
+            _ "$obj" {} "$CXX")
+    ar rcs "$UP/libabsl.a.new" "$obj"/*.o
+    mv "$UP/libabsl.a.new" "$UP/libabsl.a"
+fi
+echo "bench/hash/upstream: abseil $ABSEIL, $BOOST, unordered_dense $DENSE"

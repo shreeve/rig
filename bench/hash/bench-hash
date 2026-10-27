@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Time the built-in Map against Zig's std.HashMap.
+"""Time the built-in Map and std.hash's Map against the fastest hash
+tables in Zig, Rust, C++, and Go.
 
 usage: bench/hash/bench-hash [options]
    or, to time on a quiet machine:
@@ -9,15 +10,39 @@ usage: bench/hash/bench-hash [options]
   --variants a,b  what to build and time (default: rig-safe,zig-safe):
                     rig-safe   bench/hash/map.rig, rig build --release (Zig's safe mode)
                     rig-fast   the same, rig build --release=fast
+                    hash-safe  map.rig with its Map aliases made `hash.Map` (std.hash)
+                    hash-fast  the same, rig build --release=fast
                     zig-safe   bench/hash/map.zig, -OReleaseSafe
                     zig-fast   the same, -OReleaseFast
+                    rust       bench/hash/map.rs, rustc -C opt-level=3: hashbrown,
+                               with FxHasher; the sized rows only
+                    rust-mix   the same with Rig's Int hash (one full multiply,
+                               folded) for FxHasher, so keys land where
+                               std.hash puts them
+                    hashbrown  bench/hash/rust, the hashbrown crate with foldhash
+                    indexmap   the same, the indexmap crate (insertion-ordered)
+                    absl       bench/hash/map.cc, absl::flat_hash_map, absl::Hash
+                    boost      the same, boost::unordered_flat_map, boost::hash
+                    dense      the same, ankerl::unordered_dense::map, its wyhash
+                    go         bench/hash/map.go, Go's built-in map, its own hash
+                  and each but go with `-mix` (`absl-mix` ...): its table with
+                  Rig's Int hash, so the tables race on the same hash. All
+                  but rig-*, hash-*, and zig-* time the sized rows only.
+                  The C++ ones need bench/hash/fetch-deps run once.
+  --all           every variant above but the safe ones and hash-* (which
+                  needs a `rig` whose std has std.hash; add it with --variants)
   --reps N        runs per variant, interleaved across variants; the
                   fastest of each operation counts (default 9)
   --out DIR       keep the builds in DIR and reuse them; with
   --build-only    build and stop, and later
   --time-only     time what DIR holds
 
-Each program puts a million keys into an empty map (insert), looks each
+Each program first times Int keys at sizes 16, 1,000, 100,000, and
+4,000,000 (`int16` ...): insert puts the keys into empty maps (a million
+keys a batch, so 62,500 maps of 16), remove takes them back out, hit and
+miss look keys up in one map of that size, and iterate walks it, each
+row 4,000,000 operations and reported per operation; `rnd16` ... time
+the same on random 64-bit keys, looked up in shuffled order. Then each puts a million keys into an empty map (insert), looks each
 up (hit), looks up a million keys it does not hold (miss), and walks
 the map (iterate), for Int keys (scattered by a multiply) and String
 keys ("key" and a number), and, with no walk, for keys of two words
@@ -25,14 +50,23 @@ keys ("key" and a number), and, with no walk, for keys of two words
 N keys whether or not each is new, three ways (`ensure`, `ensure_with`,
 `edit` then `put`), on misses and on hits; Zig has no such rows. It
 prints `KEYS OP NS CHECK` per operation; the checksums must agree. The report compares each variant with the
-first Zig one, as "N% faster" or "N% slower".
+first Zig one (or --base V), as "N% faster" or "N% slower", and names
+the fastest.
 """
-import argparse, os, shutil, subprocess, sys, tempfile
+import argparse, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 ZIG = os.environ.get("ZIG", "zig")
+RUSTC = os.environ.get("RUSTC", "rustc")
+CARGO = os.environ.get("CARGO", "cargo")
+CXX = os.environ.get("CXX", "clang++")
+GO = os.environ.get("GO", "go")
+UP = os.path.join(HERE, "upstream")
+CXX_TABLES = {"absl": "ABSL", "boost": "BOOST", "dense": "DENSE"}
+ALL = ["rig-fast", "zig-fast", "rust", "rust-mix", "hashbrown", "hashbrown-mix",
+       "indexmap", "indexmap-mix", "absl", "absl-mix", "boost", "boost-mix", "dense", "dense-mix", "go"]
 N = 1_000_000
 
 
@@ -41,10 +75,41 @@ def build(v, out):
     if os.path.exists(exe):
         return exe
     tmp = exe + ".new"
-    if v.startswith("rig-"):
+    if v.startswith("rig-") or v.startswith("hash-"):
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
-        flag = "--release" if v == "rig-safe" else "--release=fast"
-        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "map.rig")], check=True, env=env)
+        flag = "--release" if v.endswith("-safe") else "--release=fast"
+        src = os.path.join(HERE, "map.rig")
+        if v.startswith("hash-"):
+            # The same program with each `type X = Map[...]` alias made
+            # `hash.Map[...]`, so every row but interning times std.hash.
+            text = re.sub(r"^type (\w+) = Map\[", r"type \1 = hash.Map[", open(src).read(), flags=re.M)
+            text = re.sub(r"^use std\.text$", "use std.text\nuse std.hash", text, count=1, flags=re.M)
+            src = os.path.join(out, "map-hash.rig")
+            with open(src, "w") as f:
+                f.write(text)
+        subprocess.run([RIG, "build", flag, "-o", tmp, src], check=True, env=env)
+    elif v in ("rust", "rust-mix"):
+        cfg = ["--cfg", "mix"] if v == "rust-mix" else []
+        subprocess.run([RUSTC, "-C", "opt-level=3", *cfg, "-o", tmp, os.path.join(HERE, "map.rs")], check=True)
+    elif v.split("-")[0] in ("hashbrown", "indexmap"):
+        feats = [f for f in ("indexmap" if v.startswith("indexmap") else None, "mix" if v.endswith("-mix") else None) if f]
+        target = os.path.join(out, "cargo-" + v)
+        subprocess.run([CARGO, "build", "-q", "--release", "--locked", *(["--features", ",".join(feats)] if feats else [])],
+                       check=True, cwd=os.path.join(HERE, "rust"), env=dict(os.environ, CARGO_TARGET_DIR=target))
+        shutil.copy(os.path.join(target, "release", "map"), tmp)
+    elif v.split("-")[0] in CXX_TABLES:
+        if not os.path.exists(os.path.join(UP, "libabsl.a")):
+            sys.exit(f"{v}: run bench/hash/fetch-deps first")
+        inc = [os.path.join(UP, "unordered_dense", "include"), os.path.join(UP, "abseil-cpp")]
+        boost = os.path.join(UP, "boost")
+        inc += [os.path.join(boost, m, "include") for m in sorted(os.listdir(boost))]
+        defs = ["-DTABLE_" + CXX_TABLES[v.split("-")[0]]] + (["-DMIX"] if v.endswith("-mix") else [])
+        libs = ["-framework", "CoreFoundation"] if sys.platform == "darwin" else ["-lpthread"]
+        subprocess.run([CXX, "-std=c++20", "-O3", "-DNDEBUG", *defs, *("-I" + i for i in inc),
+                        os.path.join(HERE, "map.cc"), os.path.join(UP, "libabsl.a"), *libs, "-o", tmp], check=True)
+    elif v == "go":
+        subprocess.run([GO, "build", "-o", tmp, "map.go"], check=True, cwd=HERE,
+                       env=dict(os.environ, GOCACHE=os.path.join(out, "go-cache")))
     else:
         mode = "-OReleaseSafe" if v == "zig-safe" else "-OReleaseFast"
         subprocess.run([ZIG, "build-exe", mode, os.path.join(HERE, "map.zig"), "-femit-bin=" + tmp,
@@ -65,12 +130,14 @@ def run(exe):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--variants", default="rig-safe,zig-safe")
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--base")
     ap.add_argument("--reps", type=int, default=9)
     ap.add_argument("--out")
     ap.add_argument("--build-only", action="store_true")
     ap.add_argument("--time-only", action="store_true")
     a = ap.parse_args()
-    variants = a.variants.split(",")
+    variants = ALL if a.all else a.variants.split(",")
     out = a.out or tempfile.mkdtemp(prefix="bench-hash.")
     os.makedirs(out, exist_ok=True)
     try:
@@ -85,20 +152,22 @@ def main():
                     if checks.setdefault(k, check) != check:
                         sys.exit(f"{v}: {k[0]} {k[1]} checksum {check}, expected {checks[k]}")
                     best[v][k] = min(ns, best[v].get(k, ns))
-        base = next((v for v in variants if v.startswith("zig-")), variants[0])
-        print(f"{'keys':7} {'op':20} " + " ".join(f"{v + ' ns/op':>15}" for v in variants) + f"   vs {base}")
+        base = a.base or next((v for v in variants if v.startswith("zig-")), variants[0])
+        w = max(15, *(len(v) + 1 for v in variants))
+        print(f"{'keys':10} {'op':20} " + " ".join(f"{v:>{w}}" for v in variants) + f"   {'fastest':14} vs {base} (ns/op)")
         # Every row any variant prints, in the order they were met; a row
         # only Rig times (the write rows) shows `-` for Zig.
         rows = list(dict.fromkeys(k for v in variants for k in best[v]))
         for k in rows:
-            cols = " ".join(f"{best[v][k] / N:15.2f}" if k in best[v] else f"{'-':>15}" for v in variants)
+            cols = " ".join(f"{best[v][k] / N:{w}.2f}" if k in best[v] else f"{'-':>{w}}" for v in variants)
+            fastest = min((v for v in variants if k in best[v]), key=lambda v: best[v][k])
             notes = []
             for v in variants:
                 if v == base or k not in best[base] or k not in best[v]:
                     continue
                 r = best[base][k] / best[v][k]
                 notes.append(f"{v} {abs(r - 1) * 100:.1f}% {'faster' if r >= 1 else 'slower'}")
-            print(f"{k[0]:7} {k[1]:20} {cols}   {', '.join(notes)}")
+            print(f"{k[0]:10} {k[1]:20} {cols}   {fastest:14} {', '.join(notes)}")
     finally:
         if not a.out:
             shutil.rmtree(out, ignore_errors=True)

@@ -21,3 +21,5 @@ bench/json/cbench/*.o
 .swarm/
 *.rig.debug/
 *.rig.release/
+bench/hash/upstream/
+bench/hash/rust/target/
