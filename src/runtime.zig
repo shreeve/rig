@@ -7654,32 +7654,55 @@ fn isBuiltin(comptime T: type, comptime head: []const u8) bool {
 
 /// A Map as `{"a": 1, "b": 2}`: each entry it holds, in the order its
 /// key was first put in, its key and value each as an element of a List
-/// prints; `{}` when empty. A taken entry (its value `none`, its key
-/// kept until the entries are compacted) is not shown.
+/// prints; `{}` when empty. A Map keeps its entries in one of two Lists
+/// (std/prelude.rig): `ps`, plain entries, whose gone ones its table
+/// marks (`entryGone`), or `es`, each entry `none` once taken.
 fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
     try w.writeAll("{");
     var n: usize = 0;
-    for (map.es.items()) |e| if (some(e.value)) |v| {
+    for (map.ps.items(), 0..) |e, j| if (!entryGone(&map.table, j)) {
         if (n > 0) try w.writeAll(", ");
         try writeValue(w, e.key, false);
         try w.writeAll(": ");
-        try writeValue(w, v, false);
+        try writeValue(w, e.value, false);
+        n += 1;
+    };
+    for (map.es.items()) |slot| if (some(slot)) |e| {
+        if (n > 0) try w.writeAll(", ");
+        try writeValue(w, e.key, false);
+        try w.writeAll(": ");
+        try writeValue(w, e.value, false);
         n += 1;
     };
     try w.writeAll("}");
 }
 
 /// A Set as `{1, 2}`: each key it holds, in the order it was first
-/// added, as an element of a List prints; `{}` when empty.
+/// added, as an element of a List prints; `{}` when empty. Its keys are
+/// in `ks` or `es`, as a Map's entries are.
 fn writeSet(w: *std.Io.Writer, set: anytype) std.Io.Writer.Error!void {
     try w.writeAll("{");
     var n: usize = 0;
-    for (set.ks.items()) |slot| if (some(slot)) |k| {
+    for (set.ks.items(), 0..) |k, j| if (!entryGone(&set.table, j)) {
         if (n > 0) try w.writeAll(", ");
         try writeValue(w, k, false);
         n += 1;
     };
+    for (set.es.items()) |slot| if (some(slot)) |e| {
+        if (n > 0) try w.writeAll(", ");
+        try writeValue(w, e.key, false);
+        n += 1;
+    };
     try w.writeAll("}");
+}
+
+/// Whether entry `j` of a Map or Set, whose table is `table`, is gone: in
+/// a small one (no index), its tag is 0; else its bit in `gone` is set.
+fn entryGone(table: anytype, j: usize) bool {
+    if (table.tags.len == 0) return table.small[j] == 0;
+    const gone = table.gone.items();
+    const w = j >> 6;
+    return w < gone.len and (gone[w] >> @intCast(j & 63)) & 1 != 0;
 }
 
 pub fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {

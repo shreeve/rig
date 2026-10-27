@@ -66,8 +66,8 @@ const Traced = struct {
 };
 
 const traced = [_]Traced{
-    .{ .head = "pub fn Map(comptime K: type, comptime V: type) type {\n", .value = "V", .methods = &map_methods },
-    .{ .head = "pub fn Set(comptime K: type) type {\n", .value = "void", .methods = &set_methods },
+    .{ .head = "pub fn Map(comptime K: type, comptime __rig_plain_K: bool, comptime V: type, comptime __rig_plain_V: bool) type {\n", .value = "V", .methods = &map_methods },
+    .{ .head = "pub fn Set(comptime K: type, comptime __rig_plain_K: bool) type {\n", .value = "void", .methods = &set_methods },
 };
 
 pub const Error = error{ OutOfMemory, WriteFailed, MapTraceDrift };
