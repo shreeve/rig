@@ -85,17 +85,16 @@ fn Ordered(comptime K: type, comptime V: type) type {
         else
             struct { key: K, value: V };
 
-        const ealign = @max(@alignOf(E), 8);
-        /// A unit of the entries' block, aligned for the entries and the
-        /// gone words after them.
-        const Unit = struct { bytes: [ealign]u8 align(ealign) };
 
         /// A view of a key, as a lookup takes it (`?K`).
         const KeyView = rt.ReadView(K);
 
-        /// The entries, `cap` of them, and then the gone bits; undefined
-        /// while `cap` is 0.
+        /// The entries, `cap` of them; undefined while `cap` is 0.
         entries: [*]E = undefined,
+        /// A bit an entry, set when it is gone: `gone_words` words, made
+        /// at the first take that leaves a hole in an indexed table, and
+        /// sized for `cap` from then on. A small table keeps none: its
+        /// tags say which entries are gone.
         gone: [*]u64 = undefined,
         /// The index: `groups` groups of tags, and their slots; undefined
         /// while `groups` is 0. `tags` starts the index's block.
@@ -107,6 +106,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// Entries not gone; `len - live` are gone.
         live: u32 = 0,
         groups: u32 = 0,
+        gone_words: u32 = 0,
         /// The live entries the index takes before it grows: 7/8 of its
         /// tag lanes, less one for each take from a lane a probe may walk
         /// past.
@@ -200,52 +200,43 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return (n + 63) / 64;
         }
 
-        fn goneOffset(cap: usize) usize {
-            return std.mem.alignForward(usize, cap * @sizeOf(E), 8);
-        }
-
-        fn blockUnits(cap: usize) usize {
-            return (goneOffset(cap) + goneWords(cap) * 8 + ealign - 1) / ealign;
-        }
-
-        fn entryBlock(self: *const Self) []Unit {
-            const p: [*]Unit = @ptrCast(@alignCast(self.entries));
-            return p[0..blockUnits(self.cap)];
-        }
-
-        fn goneAt(p: [*]Unit, cap: usize) [*]u64 {
-            const b: [*]u8 = @ptrCast(p);
-            return @ptrCast(@alignCast(b + goneOffset(cap)));
-        }
-
-        /// Room for `new_cap` entries; the gone bits move to the block's
-        /// new end.
+        /// Room for `new_cap` entries: the entries alone in their block,
+        /// whose size is a whole number of entries, and the gone bits, if
+        /// any, sized to match.
         fn resizeEntries(self: *Self, new_cap: usize) void {
             if (new_cap > max_entries) @panic(if (is_set) "a Set holds at most 4294967295 keys" else "a Map holds at most 4294967295 entries");
-            const old_words = goneWords(self.cap);
-            const new_words = goneWords(new_cap);
-            if (self.cap == 0) {
-                const b = rt.allocSlice(Unit, blockUnits(new_cap));
-                self.entries = @ptrCast(b.ptr);
-                self.gone = goneAt(b.ptr, new_cap);
-                @memset(self.gone[0..new_words], 0);
-            } else {
-                const b = rt.reallocSlice(Unit, self.entryBlock(), blockUnits(new_cap));
-                const old_gone = goneAt(b.ptr, self.cap);
-                const new_gone = goneAt(b.ptr, new_cap);
-                std.mem.copyBackwards(u64, new_gone[0..old_words], old_gone[0..old_words]);
-                @memset(new_gone[old_words..new_words], 0);
-                self.entries = @ptrCast(b.ptr);
-                self.gone = new_gone;
-            }
+            self.entries = (if (self.cap == 0) rt.allocSlice(E, new_cap) else rt.reallocSlice(E, self.entries[0..self.cap], new_cap)).ptr;
             self.cap = @intCast(new_cap);
+            if (self.gone_words != 0) self.sizeGone();
+        }
+
+        /// The gone bits sized for `cap` entries, the new words clear.
+        fn sizeGone(self: *Self) void {
+            const old: usize = self.gone_words;
+            const new = goneWords(self.cap);
+            if (new <= old) return;
+            self.gone = (if (old == 0) rt.allocSlice(u64, new) else rt.reallocSlice(u64, self.gone[0..old], new)).ptr;
+            @memset(self.gone[old..new], 0);
+            self.gone_words = @intCast(new);
+        }
+
+        /// Mark entry `j` of an indexed table gone, making its gone bits
+        /// at the first.
+        inline fn markGone(self: *Self, j: usize) void {
+            if (self.gone_words == 0) self.sizeGone();
+            self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
+        }
+
+        /// Clear the gone bits of the first `n` entries.
+        fn clearGone(self: *Self, n: usize) void {
+            if (self.gone_words != 0) @memset(self.gone[0..@min(goneWords(n), self.gone_words)], 0);
         }
 
         /// Whether entry `j` is gone: its bit in `gone`; in a small table,
         /// whose gone bits stay clear, its tag is 0.
         inline fn isGone(self: *const Self, j: usize) bool {
             if (self.groups == 0) return self.small_tags[j] == 0;
-            return (self.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
+            return self.gone_words != 0 and (self.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
         }
 
         /// Word `w` of the gone bits of the entries written: in a small
@@ -257,17 +248,18 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 const zero: u32 = @bitCast(v == @as(@Vector(small_lanes, u8), @splat(0)));
                 return zero & lowBits(self.len);
             }
-            return self.gone[w];
+            return if (w < self.gone_words) self.gone[w] else 0;
         }
 
         // the index's block /////////////////////////////////////////////////
 
         /// The index's block, in words: the tags, 16 bytes a group, then
-        /// the slots from the next 64-byte line, a line a group. Its
-        /// alignment is a word's, which Rig's allocator serves from its
-        /// size classes (a wider one goes the slow way).
+        /// the slots, 64 bytes a group, 80 bytes a group in all, a size
+        /// Rig's allocator holds exactly. Its alignment is a word's, which
+        /// the allocator serves from its size classes (a wider one goes
+        /// the slow way).
         fn indexWords(groups: usize) usize {
-            return (16 * groups + 64 + 64 * groups) / 8;
+            return 10 * groups;
         }
 
         fn indexBlock(self: *const Self) []u64 {
@@ -298,7 +290,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             @memset(b, 0);
             self.freeIndex();
             self.tags = @ptrCast(b.ptr);
-            self.slots = @ptrFromInt(std.mem.alignForward(usize, @intFromPtr(b.ptr) + 16 * groups, 64));
+            self.slots = @ptrCast(b.ptr + 2 * groups);
             self.groups = @intCast(groups);
             self.shift = @intCast(@as(u32, 64) - std.math.log2_int(usize, groups));
             self.max_load = maxLoad(groups);
@@ -396,7 +388,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                     }
                 }
             }
-            if (before == null and self.groups != 0) @memset(self.gone[0..words], 0);
+            if (before == null) self.clearGone(n);
             self.len = @intCast(dst);
         }
 
@@ -421,7 +413,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                     sl[lane] = @intCast(j - before[w] - @popCount(below));
                 }
             }
-            @memset(gone[0..words], 0);
+            self.clearGone(words * 64);
         }
 
         /// A small table's live entries moved down, and their tags with
@@ -462,7 +454,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             // A small table's tags are 0 already, each take having cleared
             // its own, and its gone bits stay clear.
             if (self.groups == 0) return;
-            @memset(self.gone[0..goneWords(n)], 0);
+            self.clearGone(n);
             const t: [*]u8 = @ptrCast(self.tags);
             @memset(t[0 .. 16 * @as(usize, self.groups)], 0);
             self.max_load = maxLoad(self.groups);
@@ -574,8 +566,22 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.entries[j] = makeEntry(k, v, h);
             self.len = @intCast(j + 1);
             self.live += 1;
-            self.place(self.home(h), tagOf(h), j);
+            // The home group's first free lane, inline; a full home group
+            // walks on out of line.
+            const g = self.home(h);
+            const grp = &self.tags[g];
+            const free = match(grp, 0);
+            if (free != 0) {
+                const lane = firstLane(free);
+                grp[lane] = tagOf(h);
+                self.slots[g][lane] = @intCast(j);
+            } else self.placePast(g, tagOf(h), j);
             return j;
+        }
+
+        noinline fn placePast(self: *Self, g: usize, tag: u8, j: usize) void {
+            @branchHint(.unlikely);
+            self.place(g, tag, j);
         }
 
         /// A small table's first entry; one whose array is full, given
@@ -642,7 +648,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 }
                 self.len = @intCast(n);
             } else if (self.groups != 0) {
-                self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
+                self.markGone(j);
             }
         }
 
@@ -868,7 +874,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 rt.dropElement(K, &e.key);
                 if (self.groups == 0) {
                     self.small_tags[j] = 0;
-                } else self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
+                } else self.markGone(j);
                 self.live -= 1;
                 removed = true;
             }
@@ -902,7 +908,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// entries' memory.
         pub fn clear(self: *Self) void {
             self.dropLive();
-            if (self.cap != 0) @memset(self.gone[0..goneWords(self.cap)], 0);
+            self.clearGone(self.cap);
             self.freeIndex();
             self.len = 0;
             self.live = 0;
@@ -947,7 +953,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// entries' block and the index freed.
         pub fn __rig_drop(self: *Self) void {
             self.dropLive();
-            if (self.cap != 0) rt.freeSlice(Unit, self.entryBlock());
+            if (self.cap != 0) rt.freeSlice(E, self.entries[0..self.cap]);
+            if (self.gone_words != 0) rt.freeSlice(u64, self.gone[0..self.gone_words]);
             self.freeIndex();
             self.* = .{};
         }
@@ -985,7 +992,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             if (self.live > self.len or self.len > self.cap) return error.Corrupt;
             if (self.cap == 0) return;
             var gone_count: usize = 0;
-            for (0..goneWords(self.cap)) |w| {
+            for (0..self.gone_words) |w| {
                 const g = self.gone[w];
                 gone_count += @popCount(g);
                 if (g != 0 and w * 64 + 64 - @clz(g) > self.len) return error.Corrupt;
