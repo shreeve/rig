@@ -188,7 +188,12 @@ until its rule is built. docs/internals/tests.md has the rest.
    runs its tests, and compares its output with the Rust loc's on
    several trees, ending GREEN or RED. A change to tools, tests, or
    docs alone needs neither light gate, and its PR says so. A change to the
-   runtime or scheduler is also checked on pup (below).
+   runtime or scheduler is also checked on pup (below). A change to the
+   compiler, emit, the runtime, or std also shows std.json's numbers in
+   its PR: `bench/json/guard.py`, run with the branch's `bin/rig` on
+   `PATH` (after `tools/fetch-json-data.sh` once), within 2% of
+   `guard.txt` on all six files. std.json may never get slower, and a
+   gain on Trig alone does not show that it did not.
 7. **PR,** opened early as a draft whose body is a checklist of the
    steps, the gates among them; `gh pr ready` when done. Commit only
    when the owner asks.
@@ -216,7 +221,11 @@ until its rule is built. docs/internals/tests.md has the rest.
   measured on a real program (Trig) on runs it was not trained on, is
   worth the code every later change carries. A small gain woven
   through the compiler does not clear that bar; a large one in code
-  that can be cut out in one step, as `src/bolt.zig` can, does.
+  that can be cut out in one step, as `src/bolt.zig` can, does. On
+  Trig the bar is more than 2% faster, or at least 1% fewer
+  instructions on one checker, with peak memory no higher (memory from
+  a larger executable excepted); a change under it waits as a draft to
+  be measured stacked with others.
 - **One vocabulary.** *You lend a view; the compiler remembers the
   loan*: lend is the act, view the value handed over, loan the owner's
   record. Never "borrow". A Rig `obj` is an "object", never a "struct".
