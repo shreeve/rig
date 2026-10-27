@@ -1340,7 +1340,10 @@ So `for x in v` is `for x in ?v`; `match b` on a `^E` is `match ?b`
 and `match h` on a `*E` is `match ?h`, whose payloads view the value
 the box or handle holds (the lend table, Core §4); `if o as x` over an
 owning optional place is `if ?o as x`, with `x: ?T`, while an optional
-of plain data binds a copy; and `match mk(7).e` holds `mk(7)` in a
+of plain data binds a copy; over a generic view of an optional (`o:
+?T?`), `x` points at the value inside (`rig.someViewed`), where it
+stands or, for an instance whose view copies, in the capture, so `?x`
+views the optional's own value, `from o`; and `match mk(7).e` holds `mk(7)` in a
 hidden `var` for the whole match, so each payload views it there and
 but none moves out of it. A branch is a value, never a place (Core
 §3), so a header that reads one in place lends it, and each leaf is

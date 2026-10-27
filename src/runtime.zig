@@ -1424,6 +1424,27 @@ pub fn viewed(comptime T: type, view: ReadView(T)) Reached(T) {
     return if (comptime ReadView(T) == T) view else view.*;
 }
 
+/// The value inside the optional `O` a read view of it reaches, or
+/// null: what `if o as x` and `while o as x` capture over a generic
+/// view (`ReadView`). It is the address of the value inside where the
+/// view is a pointer, and else the value, a copy that owns nothing;
+/// `someViewedPtr` gives the address the binding holds from either.
+pub inline fn someViewed(comptime O: type, view: ReadView(O)) ?SomeViewed(O) {
+    if (comptime ReadView(O) == O) return some(view);
+    return somePtr(view);
+}
+
+fn SomeViewed(comptime O: type) type {
+    return if (ReadView(O) == O) Payload(O) else *const Payload(O);
+}
+
+/// The address of the value inside an optional that `someViewed` gave,
+/// held where `p` points: the value where it stands, or the capture's
+/// copy of it.
+pub inline fn someViewedPtr(comptime O: type, p: *const SomeViewed(O)) *const Payload(O) {
+    return if (comptime ReadView(O) == O) p else p.*;
+}
+
 /// Fill hidden storage whose scope has ended with `0xAA` under the
 /// sanitizer, so a view that outlives it reads garbage, not a stale
 /// value; nothing otherwise.

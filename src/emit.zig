@@ -5147,7 +5147,7 @@ pub const Emitter = struct {
     /// `copy`: a viewed binding of a copy of the value inside, which the
     /// header captures by value (`Facts.copiesHeader`), held in a local.
     /// `value`: `tmp` holds the optional's payload itself, not a pointer to it.
-    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false, value: bool = false, held: bool = false };
+    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false, value: bool = false, viewed: ?TypeId = null };
 
     /// `payloadLocal` for a binding used in `used_in`, or anywhere when
     /// it is `.nil`.
@@ -5326,23 +5326,25 @@ pub const Emitter = struct {
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
         // Over a generic view of an optional (`rig.ReadView`), the value
-        // inside is read through `rig.viewed` and captured as a copy that
-        // owns nothing, as a `for` binds an element it reads.
+        // inside is opened through `rig.someViewed`, and the binding
+        // points at it (`rig.someViewedPtr`): where it stands when the
+        // view is a pointer, else in the capture, a copy that owns
+        // nothing. A view of the binding then views the optional's value.
         if (try self.viewsOptionalValue(value)) if (self.genericReadView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value"))) |viewed| {
-            try self.w.writeAll(if (routed) "(rig.some(" else "(");
+            try self.w.writeAll("(rig.someViewed(");
+            try self.emitTypeTy(viewed);
+            try self.w.writeAll(", ");
             const h = try self.openHeader(value);
-            try self.writeViewedOpen(viewed);
             try self.emitWriteViewPtr(value);
-            try self.w.writeAll(")");
             try self.closeHeader(h);
-            try self.w.writeAll(if (routed) ")) " else ") ");
+            try self.w.writeAll(")) ");
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
-            const tmp = try self.hiddenStorage(cond, .as_value, .copy, .next);
+            const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
             try self.w.print("|{s}| ", .{tmp});
-            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .held = true } };
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .viewed = viewed } };
         };
         // Over a view of an optional, a viewed binding points into it.
         if ((try self.viewsOptionalValue(value)) and copies) {
@@ -5453,7 +5455,11 @@ pub const Emitter = struct {
         const inner = self.optionalInner(ir.As.value(o.cond));
         const bytes = if (inner) |i| self.facts.viewsStringBytes(i, ty) else false;
         const through_ptr = bytes and self.facts.types.get(inner.?) == .write_view and !o.value;
-        if (o.held) return self.line("const {s} = {s};", .{ local.zig_name, o.tmp });
+        // Over a generic view, the binding points at the value inside.
+        if (o.viewed) |viewed| {
+            local.is_ptr = true;
+            return self.line("const {s} = rig.someViewedPtr({s}, &{s});", .{ local.zig_name, try self.typeText(viewed), o.tmp });
+        }
         if (o.copy) {
             const copy = try self.hiddenStorage(o.cond, .as_copy, .copy, .{ .copy_of = o.tmp });
             try self.line("var {s} = {s};", .{ copy, o.tmp });
