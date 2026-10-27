@@ -557,7 +557,8 @@ run. A cycle of waiting calls is a deadlock.
   method's fiber blocks leads on to that fiber's wait.
 - So the call that would close a cycle finds it, even when two cores
   close it at once, and panics naming it:
-  `Bank.pay -> Ledger.post -> Bank.balance`. A deadlock is a bug, and
+  `Bank.pay -> Ledger.post -> Bank.balance`. A call that waits into a
+  cycle it is not on finds and names the same cycle. A deadlock is a bug, and
   Rig's bugs panic, so actor calls stay infallible. The panic unwinds
   to the nearest boundary, so it fails one request, not the server,
   once a panic in an actor's method fails its caller (Failure).
@@ -608,7 +609,10 @@ boundary. Three things are boundaries:
   A method run on the actor's own task stops the panic there; one run
   inline panics in the caller as it stands, ending every actor the
   caller runs a method of. A queued or later call to an actor that has
-  died panics in its caller, naming the method that ended it.
+  died panics in its caller, naming the method that ended it. A panic
+  that ends the program is the one it reports: it takes the report
+  before the actors it ends answer their callers, whose own panics wait
+  for it.
 
 Why this is sound without a runtime that knows the heap: loans point only
 from tasks into their owners, never the other way. So when a boundary's

@@ -1964,19 +1964,17 @@ pub fn Actor(comptime T: type) type {
 
         /// A panic on a fiber that runs a method inline: the actor dies,
         /// and the panic goes on to the fiber's own boundary.
-        fn dieInline(h: *rt.sched.Held) bool {
+        fn dieInline(h: *rt.sched.Held) void {
             heldBy(h).kill(h.doing);
-            return false;
         }
 
         /// A panic in the runner: the actor dies, the runner's handle
-        /// goes, and the panic stops here.
-        fn dieRunner(h: *rt.sched.Held) bool {
+        /// goes, and the panic stops here (`TaskState.runner`).
+        fn dieRunner(h: *rt.sched.Held) void {
             const self = heldBy(h);
             self.kill(h.doing);
             const box: *rt.Shared(Self) = @fieldParentPtr("value", self);
             box.dropStrong();
-            return true;
         }
 
         /// A call of method `name` found the actor dead.
@@ -2134,7 +2132,11 @@ pub fn Actor(comptime T: type) type {
             const f = rt.sched.current().?;
             var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = undefined, .die = dieRunner, .next = f.held };
             f.held = &held;
-            defer f.held = held.next;
+            f.state.runner = true;
+            defer {
+                f.held = held.next;
+                f.state.runner = false;
+            }
             while (true) {
                 self.lock.lock();
                 const m = self.first orelse {
@@ -2200,11 +2202,20 @@ const dead: u8 = 4;
 pub fn actorsDie() bool {
     if (!rt.scheduled) return false;
     const f = rt.sched.current() orelse return false;
-    var stop = false;
+    const stop = panicStops();
     var at = f.held;
     f.held = null;
-    while (at) |h| : (at = h.next) stop = h.die(h) or stop;
+    while (at) |h| : (at = h.next) h.die(h);
     return stop;
+}
+
+/// Whether a panic on the running fiber stops at an actor's runner the
+/// fiber is, before any actor dies (`actorsDie`). A runner marks its
+/// task once as it starts, so a call made inline pays nothing for this.
+pub fn panicStops() bool {
+    if (!rt.scheduled) return false;
+    const f = rt.sched.current() orelse return false;
+    return f.state.runner;
 }
 
 /// Whether the running task's stack has room for an actor's method run
