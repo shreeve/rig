@@ -3312,17 +3312,15 @@ fn moduleOf(comptime name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 /// Convert a Rig index of any integer type to `usize`, panicking unless
-/// `0 <= i < count`. A count known at compile time, as an array's
-/// length is, takes the one compare of `offsetBelow`.
-pub fn index(i: anytype, count: anytype) usize {
-    if (comptime @TypeOf(count) == comptime_int) return indexBelow(i, count);
-    const n: usize = count;
+/// `0 <= i < count`.
+pub fn index(i: anytype, count: usize) usize {
     const idx = std.math.cast(usize, i) orelse indexPanic();
-    if (idx >= n) indexPanic();
+    if (idx >= count) indexPanic();
     return idx;
 }
 
-/// `index` against a compile-time `n`: one compare.
+/// `index` against a compile-time `n`, as an array's length or a
+/// table's is: one compare.
 pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
     if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
     // Exact: below `n`, which a `usize` holds.
@@ -3983,14 +3981,14 @@ fn lanesInOrder(v: anytype, comptime endian: Endian) @TypeOf(v) {
 /// `v[i]`: lane `i` of a vector, with `i` checked as an index is.
 pub fn lane(v: anytype, i: anytype) LaneOf(@TypeOf(v)) {
     const lanes = vectorArray(v);
-    return lanes[index(i, lanes.len)];
+    return lanes[indexBelow(i, lanes.len)];
 }
 
 /// `v.with(i, x)`: a copy of `v` whose lane `i` is `x`, with `i` checked
 /// as an index is.
 pub fn withLane(v: anytype, i: anytype, x: LaneOf(@TypeOf(v))) @TypeOf(v) {
     var lanes = vectorArray(v);
-    lanes[index(i, lanes.len)] = x;
+    lanes[indexBelow(i, lanes.len)] = x;
     if (comptime isWideMask(@TypeOf(v))) return maskOf(@TypeOf(v), lanes);
     return lanes;
 }
