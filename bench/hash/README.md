@@ -9,6 +9,8 @@ languages:
 | `zig-*` | Zig's `std.HashMap` (`AutoHashMapUnmanaged`, `StringHashMapUnmanaged`) | Zig's | `map.zig` on `table_std.zig` |
 | `zig-foa` | a port of boost's `unordered_flat_map` to Zig, the base of Rig's `HashMap` | Rig's Int hash, Wyhash for text | `map.zig` on `foa.zig` |
 | `zig-dense` | a port of ankerl's `unordered_dense` 5.3.3 to Zig, the base of Rig's ordered `Map` | Rig's Int hash, Wyhash for text | `map.zig` on `dense.zig` |
+| `zig-hash`, `zig-ordered` | the designs Rig's `HashMap` and ordered `Map` will take, grown from the ports | Rig's Int hash, Wyhash for text | `map.zig` on `hash.zig`, `ordered.zig` |
+| `zig-hash-checked`, `zig-ordered-checked` | the same with the bounds tests safe Rig keeps put back: what Rig must prove away | the same | `.checked = true` |
 | `zig-hash` | the design Rig's unordered `HashMap` will take, grown from `zig-foa` | its own: one multiply for an Int, folded multiplies for text up to 32 bytes (Wyhash above) | `map.zig` on `hash.zig` |
 | `zig-ordered` | the design Rig's ordered `Map` will take: dense entries in insertion order, an index of tags and 32-bit entry indexes | Rig's Int hash, Wyhash for text | `map.zig` on `ordered.zig` |
 | `rust` | Rust's `HashMap`, which is hashbrown | FxHasher, written out (no crate) | `map.rs` |

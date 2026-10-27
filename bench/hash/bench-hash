@@ -22,6 +22,9 @@ usage: bench/hash/bench-hash [options]
                                unordered HashMap will take, grown from zig-foa
                     zig-ordered map.zig on bench/hash/ordered.zig: the design
                                Rig's ordered Map will take
+                    zig-hash-checked, zig-ordered-checked
+                               the same with the bounds tests safe Rig keeps
+                               put back (`.checked = true`)
                     rust       bench/hash/map.rs, rustc -C opt-level=3: hashbrown,
                                with FxHasher; the sized rows only
                     rust-mix   the same with Rig's Int hash (one full multiply,
@@ -99,7 +102,8 @@ ALL = ["rig-fast", "zig-fast", "rust", "rust-mix", "hashbrown", "hashbrown-mix",
        "indexmap", "indexmap-mix", "absl", "absl-mix", "boost", "boost-mix", "dense", "dense-mix", "go"]
 # The Zig ports race once their sources are there.
 ALL += [v for v, f in (("zig-foa", "foa.zig"), ("zig-dense", "dense.zig"), ("zig-hash", "hash.zig"),
-                       ("zig-ordered", "ordered.zig")) if os.path.exists(os.path.join(HERE, f))]
+                       ("zig-hash-checked", "hash.zig"), ("zig-ordered", "ordered.zig"),
+                       ("zig-ordered-checked", "ordered.zig")) if os.path.exists(os.path.join(HERE, f))]
 N = 1_000_000
 # The allocators a Zig variant can name after a colon: the module `alloc`
 # map.zig allocates from.
@@ -178,7 +182,8 @@ def build(v, out):
         # map.zig times the table its module `table` names: Zig's own
         # HashMap, or a port.
         table = {"zig-foa": "table_foa.zig", "zig-dense": "table_dense.zig", "zig-hash": "table_hash.zig",
-                 "zig-ordered": "table_ordered.zig"}.get(v, "table_std.zig")
+                 "zig-ordered": "table_ordered.zig", "zig-hash-checked": "table_hash_checked.zig",
+                 "zig-ordered-checked": "table_ordered_checked.zig"}.get(v, "table_std.zig")
         mode = "-OReleaseSafe" if v == "zig-safe" else "-OReleaseFast"
         # The allocator is the module `alloc`, which map.zig and the
         # table both import; mimalloc's C is built into it, optimized as

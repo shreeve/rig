@@ -394,7 +394,12 @@ fn random(io: std.Io, s: i64) !void {
 /// the part after `#`, in an allocation of its own.
 fn text(n: i64) ![]u8 {
     const shift: u6 = @intCast(@mod(n, 48));
-    return std.fmt.allocPrint(gpa, "{d}#{d}", .{ @as(u64, @bitCast(scatter(n))) >> shift, n });
+    // Formatted on the stack, then allocated once at its length, as
+    // map.rs's `format!` and map.cc's `std::string` make one block a text;
+    // an `allocPrint` grows and shrinks its buffer, which scatters them.
+    var buf: [48]u8 = undefined;
+    const t = try std.fmt.bufPrint(&buf, "{d}#{d}", .{ @as(u64, @bitCast(scatter(n))) >> shift, n });
+    return gpa.dupe(u8, t);
 }
 
 /// `big(i)`: eight integers from `i`.
