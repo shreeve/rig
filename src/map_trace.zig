@@ -37,7 +37,7 @@ const map_methods = [_]Method{
     .{ .name = "has", .arity = 2, .op = "get", .key = true, .hit = found },
     .{ .name = "get", .arity = 2, .op = "get", .key = true, .hit = found },
     .{ .name = "edit", .arity = 2, .op = "get", .key = true, .hit = found },
-    // `put` calls `replace`, which records it.
+    .{ .name = "put", .arity = 3, .op = "put", .key = true, .hit = kept },
     .{ .name = "replace", .arity = 3, .op = "put", .key = true, .hit = kept },
     .{ .name = "put_new", .arity = 3, .op = "put", .key = true, .hit = kept },
     .{ .name = "ensure", .arity = 3, .op = "put", .key = true, .hit = kept },
@@ -45,7 +45,7 @@ const map_methods = [_]Method{
     .{ .name = "ensure_with", .arity = 3, .op = "put", .key = true, .hit = kept },
     .{ .name = "take", .arity = 2, .op = "remove", .key = true, .hit = fell },
     .{ .name = "clear", .arity = 1, .op = "clear" },
-    .{ .name = "rebuild", .arity = 2, .op = "grow", .extra = "@intCast(a1)" },
+    .{ .name = "reserve", .arity = 2, .op = "reserve" },
     .{ .name = "retain", .arity = 2, .op = "retain" },
 };
 
@@ -54,7 +54,7 @@ const set_methods = [_]Method{
     .{ .name = "add", .arity = 2, .op = "put", .key = true, .hit = kept },
     .{ .name = "take", .arity = 2, .op = "remove", .key = true, .hit = fell },
     .{ .name = "clear", .arity = 1, .op = "clear" },
-    .{ .name = "rebuild", .arity = 2, .op = "grow", .extra = "@intCast(a1)" },
+    .{ .name = "reserve", .arity = 2, .op = "reserve" },
     .{ .name = "retain", .arity = 2, .op = "retain" },
 };
 
@@ -66,8 +66,8 @@ const Traced = struct {
 };
 
 const traced = [_]Traced{
-    .{ .head = "pub fn Map(comptime K: type, comptime __rig_plain_K: bool, comptime V: type, comptime __rig_plain_V: bool) type {\n", .value = "V", .methods = &map_methods },
-    .{ .head = "pub fn Set(comptime K: type, comptime __rig_plain_K: bool) type {\n", .value = "void", .methods = &set_methods },
+    .{ .head = "pub fn Map(comptime K: type, comptime V: type) type {\n", .value = "V", .methods = &map_methods },
+    .{ .head = "pub fn Set(comptime K: type) type {\n", .value = "void", .methods = &set_methods },
 };
 
 pub const Error = error{ OutOfMemory, WriteFailed, MapTraceDrift };
@@ -114,7 +114,9 @@ fn drift(what: *[]const u8, missing: []const u8) error{MapTraceDrift} {
 
 /// `NAME` of the type's old signature, which names the Map to the trace
 /// (a Map it has not seen gets its id), calls `__rig_untraced_NAME`, and
-/// records the call.
+/// records the call: first a `grow` when its table built its index anew
+/// during it (`traceRebuilds`), with the index's lanes. A `reserve` is
+/// recorded only by its `grow`.
 fn writeWrapper(w: *std.Io.Writer, m: Method, value: []const u8) std.Io.Writer.Error!void {
     try w.print("\n        pub inline fn {s}(self: rig.MapTraceParam(__rig_untraced_{s}, 0)", .{ m.name, m.name });
     for (1..m.arity) |i| try w.print(", a{d}: rig.MapTraceParam(__rig_untraced_{s}, {d})", .{ i, m.name, i });
@@ -122,10 +124,12 @@ fn writeWrapper(w: *std.Io.Writer, m: Method, value: []const u8) std.Io.Writer.E
     try w.print("            rig.mapTraceSee(K, {s}, self);\n", .{value});
     if (std.mem.indexOf(u8, m.hit, "before") != null) try w.writeAll("            const before = self.len;\n");
     if (m.key) try w.writeAll("            const key = rig.mapTraceKey(K, a1);\n");
+    try w.writeAll("            const builds = self.t.traceRebuilds();\n");
     try w.print("            const r = self.__rig_untraced_{s}(", .{m.name});
     for (1..m.arity) |i| try w.print("{s}a{d}", .{ if (i > 1) ", " else "", i });
     try w.writeAll(");\n");
-    try w.print("            rig.mapTraceOp(K, {s}, self, .{s}, {s}, {s}, {s});\n", .{ value, m.op, if (m.key) "key" else ".{}", m.hit, m.extra });
+    try w.print("            if (self.t.traceRebuilds() != builds) rig.mapTraceOp(K, {s}, self, .grow, .{{}}, false, self.t.traceSlots());\n", .{value});
+    if (!std.mem.eql(u8, m.op, "reserve")) try w.print("            rig.mapTraceOp(K, {s}, self, .{s}, {s}, {s}, {s});\n", .{ value, m.op, if (m.key) "key" else ".{}", m.hit, m.extra });
     try w.writeAll("            return r;\n        }\n");
 }
 
@@ -143,7 +147,8 @@ test "instrument renames each traced method and wraps it" {
     var what: []const u8 = "";
     const out = try instrument(a, src.written(), &what);
     try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, out, "__rig_trace: u32 = 0,"));
-    try std.testing.expectEqual(@as(usize, map_methods.len + set_methods.len), std.mem.count(u8, out, "rig.mapTraceOp("));
+    // Each records its own op, but a `reserve`, and a `grow` when it moved.
+    try std.testing.expectEqual(@as(usize, 2 * (map_methods.len + set_methods.len) - 2), std.mem.count(u8, out, "rig.mapTraceOp("));
     try std.testing.expect(std.mem.indexOf(u8, out, "fn __rig_untraced_ensure_with(") != null);
     // A method the module no longer emits stops the build.
     try std.testing.expectError(error.MapTraceDrift, instrument(a, "pub fn Map(comptime K: type, comptime V: type) type {\n}\n", &what));
