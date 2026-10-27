@@ -7,6 +7,7 @@ decided and what was measured. Records are history: each keeps its date
 and is not updated after the fact, and none is run as a doc test.
 
 - [ledger.md](ledger.md): the work log; its newest "RESUME HERE" entry is the summary of record.
+- [archive-tags.md](archive-tags.md): work kept as `archive/*` tags rather than branches: what each holds, what was decided, and its records.
 - `2026-10/`: the rounds of 2026-10-21 and 22, by topic (below).
 - `revamp/`: the records of the revamp rounds before them (reports, designs, studies), as they were kept in `.git/revamp/`.
 

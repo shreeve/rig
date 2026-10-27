@@ -163,6 +163,15 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## 2026-10-27: branches cleared; kept work as archive tags
+
+The owner asked for every branch that had landed to go, and for work worth keeping to be tags rather than branches.
+- Deleted 26 branches with their worktrees: 19 already in main, and 7 superseded (pool-lock and its variants b and d, which #683's variant c replaced; panel688a/b/c, drafts of #688; obj-tail, a duplicate of #631).
+- Archived 9 as `archive/*` tags on GitHub and deleted their branches: span-type, proof-edges, inline-idle (closed by the owner, kept for reference) and the map, table, and List speed work Rig - Swiss is reading for the hash map's next design (map-stage, map-inline, list-grow, table-prefault, table-prefault-arm6, probe-sweep). [archive-tags.md](archive-tags.md) lists every archive tag.
+- Branches left: main, std-hash (#685, open), hash-race (Rig - Swiss's harness), and the desktop app's session branches.
+- pup: removed 22 copies of old branches from /zfs/worktrees/rig (about 17 GB); the copies in use or touched that day stay.
+- Lesson: an unmerged branch is rarely work waiting to land. Read its PR's closing comment and its records first; most were measurement variants, panel drafts, or work the owner closed after measuring, and a draft that landed may have done so from another branch (#688 from param-opt-move, #710 from map-inline-asis).
+
 ## RESUME HERE (2026-10-26): the speed stage against tsrs
 
 **Landed on main (8ddac7fb6), 2026-10-24 to 26.** Each change to the compiler, runtime, or std passed Rig's full suite and Trig's light gate; since #708, each also shows std.json's guard.
