@@ -1,11 +1,11 @@
 # Iterator chains: `map`, `filter`, and a consumer, as one loop
 
-*Proposed (2026-10-27); not built. The owner chose fused chains
-(decision 1) the same day.* This page proposes how Rig writes
-Rust's `nums.iter().map(|n| n * n).sum()`, gives the reasons and the
+*Approved (2026-10-27); not built.* Chains are built after the
+Swisstable Map and Set lands. This page says how Rig writes Rust's
+`nums.iter().map(|n| n * n).sum()`, gives the reasons and the
 measurements, and ends with the owner's decisions. Its `rig pending`
-examples show the rules as proposed; each turns into an ordinary
-example as it is built.
+examples show the decided rules; each turns into an ordinary example
+as it is built.
 
 ## Today
 
@@ -232,18 +232,17 @@ the consumer; it is checked and emitted as that loop.* No sentence of
 CORE changes. SPEC gains a section after "`for`", STD lists the stages
 and consumers, and docs/learn gets an example.
 
-## Decisions for the owner
+## Decisions
 
-Each has a default.
+The owner approved each on 2026-10-27.
 
 1. **Fused chains, not adapter values.** Build chains as loops now; make
-   a chain a value only when a program needs one. *Approved by the
-   owner, 2026-10-27.*
+   a chain a value only when a program needs one. *Approved.*
 2. **No `.iter()`.** Stages are methods on every `for` source.
-   *Default: yes.*
+   *Approved.*
 3. **The first set.** Stages `map`, `filter`, `take`, `skip`,
    `enumerate`, `zip`; consumers `sum`, `count`, `reduce`, `collect`,
-   `any`, `all`, `find`, `min`, `max`. *Default: that set.*
+   `any`, `all`, `find`, `min`, `max`. *Approved: that set.*
 4. **The consumer that makes a List.** Candidates, each shown in a
    declaration, an error message, and a sentence of prose:
    - `collect()`, Rust's and Java's word: `fun collect(chain) -> List[T]`,
@@ -255,12 +254,12 @@ Each has a default.
      List[T]`, "end it with a consumer (`.to_list()`)", "`to_list`
      makes the one List".
 
-   *Default: `collect()`.*
+   *Approved: `collect()`.*
 5. **Read chains first.** A chain whose source is written (`for x in
    !xs.filter(f)`) or moved (`<xs.map(f)`) waits for a program that
-   needs it. *Default: yes.*
+   needs it. *Approved.*
 6. **Rule 4 per instance is its own change.** It is needed by any
-   adapter a program writes, not by chains. *Default: build it when a
-   program writes one, with the `from @field` review's tests.*
+   adapter a program writes, not by chains. *Approved: build it when
+   a program writes one, with the `from @field` review's tests.*
 7. **When.** After the Swisstable Map and Set lands, as the next
-   language feature (one at a time). *Default: yes.*
+   language feature (one at a time). *Approved.*
