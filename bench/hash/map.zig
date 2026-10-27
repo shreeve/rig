@@ -1,13 +1,21 @@
 //! Zig's std.HashMap timed as bench/hash/map.rig times the built-in Map:
 //! `std.AutoHashMapUnmanaged(i64, i64)` and `std.StringHashMapUnmanaged(i64)`,
-//! with Rig's allocator. Each String key is built as Rig builds
+//! or a port named by the module `table`, allocating from libc's `malloc`.
+//! Each String key is built as Rig builds
 //! `String("key", i)`, by an `std.Io.Writer.Allocating` over an
 //! `ArrayList(u8)`, so its bytes sit in an allocation of the same size
 //! and both maps read keys from memory laid out alike. Prints
 //! `KEYS OP NS CHECK` per line.
 const std = @import("std");
+/// The table every row but the first round's Rig-and-Zig rows (ints,
+/// strings, pairs, small, intern) times: `table_std.zig`, Zig's own
+/// HashMap, or a port (`table_foa.zig`, `table_dense.zig`), named by
+/// bench-hash as the module `table`.
+const table = @import("table");
 
-const gpa = std.heap.smp_allocator; // what a Rig program allocates from
+/// Every Zig contestant allocates from libc's `malloc`, as the C++ and
+/// Rust ones do, so a row times the table, not the allocator.
+const gpa = table.allocator;
 const mul: i64 = -7046029254386353131;
 
 fn now(io: std.Io) std.Io.Clock.Timestamp {
@@ -194,7 +202,7 @@ fn sized(io: std.Io, s: i64) !void {
     const reps: i64 = @divTrunc(total, k * s);
     var name_buf: [32]u8 = undefined;
     const name = try std.fmt.bufPrint(&name_buf, "int{d}", .{s});
-    const Map = std.AutoHashMapUnmanaged(i64, i64);
+    const Map = table.Auto(i64, i64);
     const maps = try gpa.alloc(Map, @intCast(k));
     defer gpa.free(maps);
     var ins: i96 = 0;
@@ -288,7 +296,7 @@ fn random(io: std.Io, s: i64) !void {
     const su: usize = @intCast(s);
     var name_buf: [32]u8 = undefined;
     const name = try std.fmt.bufPrint(&name_buf, "rnd{d}", .{s});
-    const Map = std.AutoHashMapUnmanaged(i64, i64);
+    const Map = table.Auto(i64, i64);
     const keys = try gpa.alloc(i64, @intCast(k * s));
     defer gpa.free(keys);
     for (keys, 0..) |*x, i| x.* = scatter(@intCast(i));
@@ -354,18 +362,298 @@ fn random(io: std.Io, s: i64) !void {
     out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
 }
 
+/// `text(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by
+/// the part after `#`, in an allocation of its own.
+fn text(n: i64) ![]u8 {
+    const shift: u6 = @intCast(@mod(n, 48));
+    return std.fmt.allocPrint(gpa, "{d}#{d}", .{ @as(u64, @bitCast(scatter(n))) >> shift, n });
+}
+
+/// `big(i)`: eight integers from `i`.
+fn big(i: i64) [8]i64 {
+    return .{ i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7 };
+}
+
+/// `0, 1, ..., s - 1`, shuffled.
+fn shuffled(s: usize) ![]i64 {
+    const v = try gpa.alloc(i64, s);
+    for (v, 0..) |*x, i| x.* = @intCast(i);
+    shuffle(v);
+    return v;
+}
+
+/// One lookup at a time, each waiting for the last: the map is one
+/// cycle through its keys, in shuffled order.
+fn latency(io: std.Io, s: i64) !void {
+    const n: i64 = 1_000_000;
+    const total: i64 = 4 * n;
+    const su: usize = @intCast(s);
+    var name_buf: [32]u8 = undefined;
+    const name = try std.fmt.bufPrint(&name_buf, "lat{d}", .{s});
+    const p = try shuffled(su);
+    defer gpa.free(p);
+    var m: table.Auto(i64, i64) = .empty;
+    defer m.deinit(gpa);
+    // Each key `scatter(i)` is put in order of `i`, with the key after it
+    // in the cycle as its value, so a map that keeps its entries in order
+    // meets them out of order.
+    const next = try gpa.alloc(i64, su);
+    defer gpa.free(next);
+    for (0..su) |t| next[@intCast(p[t])] = p[(t + 1) % su];
+    for (0..su) |i| try m.put(gpa, scatter(@intCast(i)), scatter(next[i]));
+    var x = scatter(p[0]);
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < total) : (r += 1) x = m.get(x).?;
+    out(name, "chain", @divTrunc(since(io, t) * n, total), x);
+}
+
+/// A map of `s` keys turned over: each step removes the oldest key and
+/// inserts a new one.
+fn churn(io: std.Io, s: i64) !void {
+    const n: i64 = 1_000_000;
+    const total: i64 = 4 * n;
+    const turns: i64 = @divTrunc(total, 2);
+    const su: usize = @intCast(s);
+    var name_buf: [32]u8 = undefined;
+    const name = try std.fmt.bufPrint(&name_buf, "churn{d}", .{s});
+    const keys = try gpa.alloc(i64, @intCast(s + turns));
+    defer gpa.free(keys);
+    for (keys, 0..) |*x, i| x.* = scatter(@intCast(i));
+    var m: table.Auto(i64, i64) = .empty;
+    defer m.deinit(gpa);
+    for (keys[0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
+    var check: i64 = 0;
+    const t = now(io);
+    var i: i64 = 0;
+    while (i < turns) : (i += 1) {
+        if (m.fetchRemove(keys[@intCast(i)])) |e| check +%= e.value;
+        try m.put(gpa, keys[@intCast(s + i)], s + i);
+    }
+    out(name, "turnover", @divTrunc(since(io, t) * n, total), check);
+}
+
+/// Lookups that hit half the time, in shuffled order.
+fn mixed(io: std.Io, s: i64) !void {
+    const n: i64 = 1_000_000;
+    const total: i64 = 4 * n;
+    const su: usize = @intCast(s);
+    var name_buf: [32]u8 = undefined;
+    const name = try std.fmt.bufPrint(&name_buf, "mix{d}", .{s});
+    var m: table.Auto(i64, i64) = .empty;
+    defer m.deinit(gpa);
+    var i: i64 = 0;
+    while (i < s) : (i += 1) try m.put(gpa, scatter(i), i);
+    const look = try gpa.alloc(i64, su);
+    defer gpa.free(look);
+    for (look, 0..) |*x, j| {
+        const ji: i64 = @intCast(j);
+        x.* = if (@mod(ji, 2) == 0) scatter(ji) else scatter(8 * n + ji);
+    }
+    shuffle(look);
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < @divTrunc(total, s)) : (r += 1) {
+        for (look) |x| if (m.get(x)) |v| {
+            sum += v;
+        };
+    }
+    out(name, "half", @divTrunc(since(io, t) * n, total), sum);
+}
+
+const StrMap = table.String(i64);
+
+/// Frees a map of texts and the keys it owns.
+fn freeStrMap(m: *StrMap) void {
+    var it = m.keyIterator();
+    while (it.next()) |k| gpa.free(k.*);
+    m.deinit(gpa);
+}
+
+/// Frees an array of texts.
+fn freeTexts(v: [][]u8) void {
+    for (v) |x| gpa.free(x);
+    gpa.free(v);
+}
+
+/// Text keys, each moved into the map, which frees it, and found by an
+/// equal text made apart; a million operations a row.
+fn texts(io: std.Io, s: i64) !void {
+    const n: i64 = 1_000_000;
+    const k: i64 = if (s < n) @divTrunc(n, s) else 1;
+    const reps: i64 = @divTrunc(n, k * s);
+    const su: usize = @intCast(s);
+    var name_buf: [32]u8 = undefined;
+    const name = try std.fmt.bufPrint(&name_buf, "str{d}", .{s});
+    const maps = try gpa.alloc(StrMap, @intCast(k));
+    defer gpa.free(maps);
+    var ins: i96 = 0;
+    var rem: i96 = 0;
+    var check: i64 = 0;
+    var r: i64 = 0;
+    while (r < reps) : (r += 1) {
+        // The map takes each key of `put`; only the array is freed after.
+        const put = try gpa.alloc([]u8, @intCast(k * s));
+        defer gpa.free(put);
+        const take = try gpa.alloc([]u8, @intCast(k * s));
+        defer freeTexts(take);
+        for (put, take, 0..) |*a, *b, i| {
+            a.* = try text(@intCast(i));
+            b.* = try text(@intCast(i));
+        }
+        for (maps) |*m| m.* = .empty;
+        var t = now(io);
+        for (maps, 0..) |*m, j| {
+            for (put[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
+        }
+        ins += since(io, t);
+        t = now(io);
+        for (maps, 0..) |*m, j| {
+            for (take[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
+                gpa.free(e.key);
+                check += e.value;
+            };
+        }
+        rem += since(io, t);
+        for (maps) |*m| freeStrMap(m);
+    }
+    out(name, "insert", ins, reps * k * s);
+    out(name, "remove", rem, check);
+    var m: StrMap = .empty;
+    defer freeStrMap(&m);
+    var i: i64 = 0;
+    while (i < s) : (i += 1) try m.put(gpa, try text(i), i);
+    const order = try shuffled(su);
+    defer gpa.free(order);
+    const hit = try gpa.alloc([]u8, su);
+    defer freeTexts(hit);
+    const miss = try gpa.alloc([]u8, su);
+    defer freeTexts(miss);
+    for (hit, miss, order, 0..) |*h, *x, o, j| {
+        h.* = try text(o);
+        x.* = try text(8 * n + @as(i64, @intCast(j)));
+    }
+    var sum: i64 = 0;
+    var t = now(io);
+    r = 0;
+    while (r < @divTrunc(n, s)) : (r += 1) {
+        for (hit) |x| if (m.get(x)) |v| {
+            sum += v;
+        };
+    }
+    out(name, "hit", since(io, t), sum);
+    var found: i64 = 0;
+    t = now(io);
+    r = 0;
+    while (r < @divTrunc(n, s)) : (r += 1) {
+        for (miss) |x| if (m.contains(x)) {
+            found += 1;
+        };
+    }
+    out(name, "miss", since(io, t), found);
+}
+
+/// `random`'s insert, remove, hit and iterate with a value of eight
+/// integers.
+fn bigs(io: std.Io, s: i64) !void {
+    const n: i64 = 1_000_000;
+    const total: i64 = 4 * n;
+    const k: i64 = if (s < n) @divTrunc(n, s) else 1;
+    const reps: i64 = @divTrunc(total, k * s);
+    const su: usize = @intCast(s);
+    var name_buf: [32]u8 = undefined;
+    const name = try std.fmt.bufPrint(&name_buf, "big{d}", .{s});
+    const Map = table.Auto(i64, [8]i64);
+    const keys = try gpa.alloc(i64, @intCast(k * s));
+    defer gpa.free(keys);
+    for (keys, 0..) |*x, i| x.* = scatter(@intCast(i));
+    const maps = try gpa.alloc(Map, @intCast(k));
+    defer gpa.free(maps);
+    var ins: i96 = 0;
+    var rem: i96 = 0;
+    var check: i64 = 0;
+    var r: i64 = 0;
+    while (r < reps) : (r += 1) {
+        for (maps) |*m| m.* = .empty;
+        var t = now(io);
+        for (maps, 0..) |*m, j| {
+            for (keys[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, big(@intCast(i)));
+        }
+        ins += since(io, t);
+        t = now(io);
+        for (maps, 0..) |*m, j| {
+            for (keys[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
+                check += e.value[7];
+            };
+        }
+        rem += since(io, t);
+        for (maps) |*m| m.deinit(gpa);
+    }
+    out(name, "insert", @divTrunc(ins * n, total), reps * k * s);
+    out(name, "remove", @divTrunc(rem * n, total), check);
+    var m: Map = .empty;
+    defer m.deinit(gpa);
+    for (keys[0..su], 0..) |x, i| try m.put(gpa, x, big(@intCast(i)));
+    const hit = try gpa.dupe(i64, keys[0..su]);
+    defer gpa.free(hit);
+    shuffle(hit);
+    const rounds = @divTrunc(total, s);
+    var sum: i64 = 0;
+    var t = now(io);
+    r = 0;
+    while (r < rounds) : (r += 1) {
+        for (hit) |x| if (m.getPtr(x)) |v| {
+            sum += v[7];
+        };
+    }
+    out(name, "hit", @divTrunc(since(io, t) * n, total), sum);
+    sum = 0;
+    t = now(io);
+    r = 0;
+    while (r < rounds) : (r += 1) {
+        var it = m.valueIterator();
+        while (it.next()) |v| sum += v[0];
+    }
+    out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
+}
+
+/// `mem`: one map of 4,000,000 keys, for its peak memory; `mem0`: the
+/// keys alone, the baseline.
+fn memory(with_map: bool) !void {
+    const n: usize = 4_000_000;
+    const keys = try gpa.alloc(i64, n);
+    defer gpa.free(keys);
+    for (keys, 0..) |*x, i| x.* = scatter(@intCast(i));
+    if (!with_map) {
+        std.mem.doNotOptimizeAway(keys.ptr);
+        std.debug.print("mem0 {d} len {d}\n", .{ n, keys.len });
+        return;
+    }
+    var m: table.Auto(i64, i64) = .empty;
+    defer m.deinit(gpa);
+    for (keys, 0..) |x, i| try m.put(gpa, x, @intCast(i));
+    std.debug.print("mem {d} len {d}\n", .{ n, m.count() });
+}
+
 pub fn main(init: std.process.Init.Minimal) !void {
-    _ = init;
+    var args = init.args.iterate();
+    _ = args.skip();
+    if (args.next()) |a| {
+        if (std.mem.eql(u8, a, "mem")) return memory(true);
+        if (std.mem.eql(u8, a, "mem0")) return memory(false);
+    }
     const n: usize = 1_000_000;
     const io = std.Io.Threaded.global_single_threaded.io();
-    try sized(io, 16);
-    try sized(io, 1000);
-    try sized(io, 100_000);
-    try sized(io, 4_000_000);
-    try random(io, 16);
-    try random(io, 1000);
-    try random(io, 100_000);
-    try random(io, 4_000_000);
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try sized(io, s);
+    for ([_]i64{ 16, 24, 1000, 1500, 100_000, 150_000, 3_000_000, 4_000_000 }) |s| try random(io, s);
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try latency(io, s);
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try churn(io, s);
+    for ([_]i64{ 16, 1000, 100_000, 4_000_000 }) |s| try mixed(io, s);
+    for ([_]i64{ 16, 1000, 100_000, 1_000_000 }) |s| try texts(io, s);
+    for ([_]i64{ 16, 1000, 100_000, 1_000_000 }) |s| try bigs(io, s);
+    // The rows only Rig and Zig's own HashMap time.
+    if (!table.is_std) return;
     try ints(io, @intCast(n));
     try strings(io, n);
     try pairs(io, @intCast(n));
