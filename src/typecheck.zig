@@ -11279,14 +11279,50 @@ const Checker = struct {
         return sema.usesParams(self.ctx, f.returns, &params);
     }
 
+    /// Where inside an argument's type `bindArg` found a type
+    /// parameter: the steps down from the argument's whole type, each a
+    /// function type's parameter or result or a generic type's
+    /// argument. A conflict inside one argument names each side by them
+    /// (`whereText`).
+    const Where = struct {
+        const cap = 4;
+        const Step = struct { kind: enum(u8) { param, result, type_arg }, index: u8 = 0, count: u8 = 0 };
+        len: u8 = 0,
+        /// Deeper than `cap` steps: not named.
+        deep: bool = false,
+        steps: [cap]Step = undefined,
+
+        fn with(w: Where, step: Step) Where {
+            var next = w;
+            if (w.len == cap) {
+                next.deep = true;
+            } else {
+                next.steps[w.len] = step;
+                next.len += 1;
+            }
+            return next;
+        }
+
+        fn eql(a: Where, b: Where) bool {
+            if (a.len != b.len or a.deep != b.deep) return false;
+            for (a.steps[0..a.len], b.steps[0..b.len]) |x, y| {
+                if (x.kind != y.kind or x.index != y.index) return false;
+            }
+            return true;
+        }
+    };
+
     /// What the arguments of a call say about one type parameter: the
     /// type the first non-literal argument gives it, and the first
-    /// argument that gives it another.
+    /// argument that gives it another, each with where inside its
+    /// argument it was found.
     const Bound = struct {
         ty: TypeId = sema.type_invalid,
         arg: u32 = 0,
+        at: Where = .{},
         conflict: TypeId = sema.type_invalid,
         conflict_arg: u32 = 0,
+        conflict_at: Where = .{},
         /// `ty` is the one the call's expected type gives.
         expected: bool = false,
         /// The type the expected type gives, where an argument gave
@@ -11326,6 +11362,8 @@ const Checker = struct {
         poisoned: bool = false,
         /// How many held places `bindArg` is inside (`Bound.held`).
         exact: u8 = 0,
+        /// Where inside the argument `bindArg` is matching.
+        at: Where = .{},
         /// `bindArg` is matching the `T` of a `?T` against a `?String`.
         viewing: bool = false,
         /// `bindArg` is matching a closure literal, whose failure binds
@@ -11628,9 +11666,12 @@ const Checker = struct {
 
     /// The two types of a conflict, in argument order, each with where
     /// it came from: `argument 2`, or the type expected of the result
-    /// (argument 0, which comes first).
-    fn conflictText(self: *Checker, b: Bound) Error!struct { first: []const u8, first_ty: TypeId, first_arg: u32, first_from: []const u8, second: []const u8, second_arg: u32, second_from: []const u8, later: TypeId } {
-        const b_first = b.arg < b.conflict_arg;
+    /// (argument 0, which comes first). Two from one argument, in the
+    /// order they were found, also say where inside it: `the parameter
+    /// of argument 1` and `the result of argument 1`.
+    fn conflictText(self: *Checker, b: Bound) Error!struct { first: []const u8, first_ty: TypeId, first_arg: u32, first_from: []const u8, second: []const u8, second_arg: u32, second_from: []const u8, later: TypeId, one_arg: bool } {
+        const one_arg = b.arg == b.conflict_arg and !b.at.deep and !b.conflict_at.deep and !b.at.eql(b.conflict_at);
+        const b_first = b.arg < b.conflict_arg or one_arg;
         const later = if (b_first) b.conflict else b.ty;
         const first_ty = if (b_first) b.ty else b.conflict;
         const first_arg = @min(b.arg, b.conflict_arg);
@@ -11639,12 +11680,33 @@ const Checker = struct {
             .first = try self.tyName(first_ty),
             .first_ty = first_ty,
             .first_arg = first_arg,
-            .first_from = try self.boundFrom(first_arg),
+            .first_from = if (one_arg) try self.whereText(b.arg, b.at) else try self.boundFrom(first_arg),
             .second = try self.tyName(later),
             .second_arg = second_arg,
-            .second_from = try self.boundFrom(second_arg),
+            .second_from = if (one_arg) try self.whereText(b.arg, b.conflict_at) else try self.boundFrom(second_arg),
             .later = later,
+            .one_arg = one_arg,
         };
+    }
+
+    /// Where inside argument `arg` (`boundFrom`) a binding was found,
+    /// innermost first: `the result of argument 1`, `parameter 2 of the
+    /// result of argument 1`, `type argument 2 of argument 1`.
+    fn whereText(self: *Checker, arg: u32, at: Where) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        var i = at.len;
+        while (i > 0) {
+            i -= 1;
+            const step = at.steps[i];
+            switch (step.kind) {
+                .param => if (step.count == 1) try out.appendSlice(a, "the parameter of ") else try out.print(a, "parameter {d} of ", .{step.index + 1}),
+                .result => try out.appendSlice(a, "the result of "),
+                .type_arg => if (step.count == 1) try out.appendSlice(a, "the type argument of ") else try out.print(a, "type argument {d} of ", .{step.index + 1}),
+            }
+        }
+        try out.appendSlice(a, try self.boundFrom(arg));
+        return out.items;
     }
 
     /// Where inference took a binding from, for messages: argument
@@ -11698,7 +11760,7 @@ const Checker = struct {
                     else
                         "give it in brackets, naming each array, slice, or function type in them with a `type` alias";
                     try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` ({s}) and `{s}` ({s}); {s}", .{ pname, callee, c.first, c.first_from, c.second, c.second_from, fix });
-                } else if (sema.isNumeric(self.ctx, c.first_ty) and sema.isNumeric(self.ctx, c.later)) {
+                } else if (!c.one_arg and sema.isNumeric(self.ctx, c.first_ty) and sema.isNumeric(self.ctx, c.later)) {
                     // Convert the argument that is not a literal; the
                     // type expected of the result is not converted.
                     const second = literal or c.first_arg == 0;
@@ -11883,6 +11945,7 @@ const Checker = struct {
                 if (b.ty == sema.type_invalid) {
                     b.ty = value;
                     b.arg = arg;
+                    b.at = inf.at;
                     b.text_view = inf.viewing;
                 } else if (b.ty == value) {
                     if (!inf.viewing) b.text_view = false;
@@ -11891,10 +11954,12 @@ const Checker = struct {
                 } else if (b.text_view and value == self.t().string_id) {
                     b.ty = value;
                     b.arg = arg;
+                    b.at = inf.at;
                     b.text_view = false;
                 } else if (b.ty != value and b.conflict == sema.type_invalid) {
                     b.conflict = value;
                     b.conflict_arg = arg;
+                    b.conflict_at = inf.at;
                 }
             },
             // A value where a `T?` goes is lifted; a value where a view
@@ -11960,9 +12025,11 @@ const Checker = struct {
                 if (b.ty == sema.type_invalid) {
                     b.ty = actual;
                     b.arg = arg;
+                    b.at = inf.at;
                 } else if (b.ty != actual and b.conflict == sema.type_invalid) {
                     b.conflict = actual;
                     b.conflict_arg = arg;
+                    b.conflict_at = inf.at;
                 }
             },
             .slot => |p| if (at == .slot) {
@@ -11973,7 +12040,12 @@ const Checker = struct {
             .parameterized_nominal => |pn| if (self.sameGeneric(at, pn.sym)) |held| {
                 inf.exact += 1;
                 defer inf.exact -= 1;
-                for (pn.args, held.args) |pa, aa| try self.bindArg(inf, pa, aa, arg, depth + 1);
+                const outer = inf.at;
+                defer inf.at = outer;
+                for (pn.args, held.args, 0..) |pa, aa, k| {
+                    inf.at = outer.with(.{ .kind = .type_arg, .index = @intCast(@min(k, 255)), .count = @intCast(@min(pn.args.len, 255)) });
+                    try self.bindArg(inf, pa, aa, arg, depth + 1);
+                }
             } else self.noteMismatch(inf, pattern, actual, arg),
             // What a callable view lends: a closure's, a function's,
             // or an owned closure's function type.
@@ -11985,7 +12057,13 @@ const Checker = struct {
             .function => |pf| if (at == .function and at.function.params.len == pf.params.len) {
                 inf.exact += 1;
                 defer inf.exact -= 1;
-                for (pf.params, at.function.params) |pp, ap| try self.bindArg(inf, pp, ap, arg, depth + 1);
+                const outer = inf.at;
+                defer inf.at = outer;
+                for (pf.params, at.function.params, 0..) |pp, ap, k| {
+                    inf.at = outer.with(.{ .kind = .param, .index = @intCast(@min(k, 255)), .count = @intCast(@min(pf.params.len, 255)) });
+                    try self.bindArg(inf, pp, ap, arg, depth + 1);
+                }
+                inf.at = outer.with(.{ .kind = .result });
                 try self.bindReturns(inf, pf.returns, at.function.returns, arg, depth + 1);
             } else self.noteMismatch(inf, pattern, actual, arg),
             else => {},
@@ -12040,9 +12118,11 @@ const Checker = struct {
         if (b.ty == sema.type_invalid) {
             b.ty = a;
             b.arg = arg;
+            b.at = inf.at;
         } else if (b.ty != a and b.conflict == sema.type_invalid) {
             b.conflict = a;
             b.conflict_arg = arg;
+            b.conflict_at = inf.at;
         }
     }
 
@@ -12080,9 +12160,11 @@ const Checker = struct {
         if (b.ty == sema.type_invalid) {
             b.ty = actual;
             b.arg = arg;
+            b.at = inf.at;
         } else if (b.ty != actual and b.conflict == sema.type_invalid) {
             b.conflict = actual;
             b.conflict_arg = arg;
+            b.conflict_at = inf.at;
         }
     }
 

@@ -178,7 +178,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `` `expression` ``); and an argument whose type differs from a generic
   parameter's inside it names both whole types, as for any call
   ("expected `?fun(Int) -> Int!E`, got `fun(Int) -> Int`", not
-  "expected `Int!E`, got `Int`").
+  "expected `Int!E`, got `Int`"). A conflict inside one argument says
+  where in it each type came from: `ap(h, 3)` of an `h: fun(Int) ->
+  String` reads "`Int` (the parameter of argument 1) and `String` (the
+  result of argument 1)", not "`String` (argument 1) and `Int`
+  (argument 1)", and a numeric one no longer offers to convert the
+  argument.
 - **`os.exit(code)`:** ends the program now, from `main` or any task,
   with `code` as its status: what `print` and `warn` wrote is flushed,
   and no drop, `defer`, or leak check runs.
