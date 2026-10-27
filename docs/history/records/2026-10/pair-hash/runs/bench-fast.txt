@@ -1,0 +1,27 @@
+keys       op                        main        pair
+int        insert                   24.92       26.73  pair 7.3% slower
+int        hit                      11.93       11.49  pair 3.7% faster
+int        miss                     10.97       11.77  pair 7.3% slower
+int        iterate                   1.10        1.05  pair 5.1% faster
+string     insert                   38.33       39.23  pair 2.4% slower
+string     hit                      26.45       23.35  pair 11.7% faster
+string     miss                     17.01       17.28  pair 1.6% slower
+string     iterate                   1.80        1.80  pair 0.0% slower
+pair       insert                   31.64       30.22  pair 4.5% faster
+pair       hit                      15.97       13.24  pair 17.1% faster
+pair       miss                     14.23       13.10  pair 7.9% faster
+small      4                         2.78        2.79  pair 0.2% slower
+small      8                         3.45        3.23  pair 6.4% faster
+string     intern                   11.14       11.23  pair 0.8% slower
+int        ensure-miss              26.39       26.54  pair 0.6% slower
+int        ensure-hit               12.48       12.40  pair 0.6% faster
+int        ensure_with-miss         26.96       27.20  pair 0.9% slower
+int        ensure_with-hit          12.88       12.65  pair 1.8% faster
+int        edit_put-miss            26.29       26.27  pair 0.1% faster
+int        edit_put-hit             12.59       13.63  pair 8.3% slower
+string     ensure-miss              39.73       39.74  pair 0.0% slower
+string     ensure-hit               32.08       30.41  pair 5.2% faster
+string     ensure_with-miss         41.17       42.03  pair 2.1% slower
+string     ensure_with-hit          27.37       25.03  pair 8.6% faster
+string     edit_put-miss            45.94       45.65  pair 0.6% faster
+string     edit_put-hit             28.39       27.93  pair 1.6% faster
