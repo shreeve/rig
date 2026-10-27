@@ -2075,7 +2075,7 @@ const HiddenName = enum(u16) {
             .discard => "_",
             .u8 => "U8",
             .wait => "wait",
-            .builtin_module => builtin_module_name,
+            .builtin_module => builtin_binding_name,
         };
     }
 };
@@ -2094,11 +2094,17 @@ pub fn isWaitMember(member: Sexp) bool {
     return name == .src and name.src.id == hidden_id_base + @intFromEnum(HiddenName.wait);
 }
 
-/// The name the module of the built-in types written in Rig has, which
-/// no program can import: names starting `__rig` are the compiler's.
-pub const builtin_module_name = "__rig_builtin";
+/// The name of the module of the built-in types written in Rig, the
+/// prelude: every program has it, so none imports it (`use std.prelude`
+/// is rejected).
+pub const builtin_module_name = "prelude";
 
-/// The built-in types written in Rig, in `std/__rig_builtin.rig`: a
+/// The name every program's hidden import of the prelude binds, which
+/// no program can write: names starting `__rig` are the compiler's, so
+/// a program's own `prelude` never meets it.
+pub const builtin_binding_name = "__rig_prelude";
+
+/// The built-in types written in Rig, in `std/prelude.rig`: a
 /// program names them with no import, and its own declaration of one
 /// hides it.
 pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Item", "Items", "Keys", "Values", "Members" };
@@ -3311,7 +3317,7 @@ pub const Parser = struct {
 
     /// A name of a built-in type written in Rig (`builtin_type_names`),
     /// where it refers to the type, is that type of the hidden module
-    /// that declares them, `__rig_builtin.Map`, and each file that names
+    /// that declares them, `__rig_prelude.Map`, and each file that names
     /// one uses that module, so the passes after the wrapper read it as
     /// any imported type. A module that declares a name of its own, or
     /// imports a module under it, keeps its own.
@@ -3347,7 +3353,7 @@ pub const Parser = struct {
     }
 
     /// `node` with each name of a built-in type that refers to it made
-    /// `__rig_builtin.Name` (`builtinRefs`). A declaration's own name, a
+    /// `__rig_prelude.Name` (`builtinRefs`). A declaration's own name, a
     /// member's name, a field's, a binding's, and a parameter's are names
     /// of their own, and stay. `firsts` gets the position of the first
     /// such name of each file.
@@ -3409,7 +3415,7 @@ pub const Parser = struct {
         return true;
     }
 
-    /// `leaf` as `__rig_builtin.Name` when it names a built-in type its
+    /// `leaf` as `__rig_prelude.Name` when it names a built-in type its
     /// module does not hide.
     fn builtinRef(self: *Parser, leaf: Sexp, hidden: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
         const text = leafText(self.base.source, leaf.src);

@@ -7571,12 +7571,12 @@ fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
     }
 }
 
-/// Whether `T` is the built-in type of std/__rig_builtin.rig whose
+/// Whether `T` is the built-in type of std/prelude.rig whose
 /// recorded spelling (`__rig_name`) starts `head`, `"Map["` or `"Set["`.
 fn isBuiltin(comptime T: type, comptime head: []const u8) bool {
     if (!@hasDecl(T, "__rig_name")) return false;
     const name = T.__rig_name;
-    return std.mem.eql(u8, name.module, "std.__rig_builtin") and std.mem.eql(u8, name.name[0], head);
+    return std.mem.eql(u8, name.module, "std.prelude") and std.mem.eql(u8, name.name[0], head);
 }
 
 /// A Map as `{"a": 1, "b": 2}`: each entry it holds, in the order its

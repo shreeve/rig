@@ -1,5 +1,5 @@
 //! `RIG_MAP_TRACE=1` at build time: the built-in Map and Set, as emitted
-//! from std/__rig_builtin.rig, made to record each of their operations
+//! from std/prelude.rig, made to record each of their operations
 //! (`rig.mapTraceOp` in the runtime; docs/internals/INTERNALS.md, "The
 //! Map trace"). Each traced method is renamed `__rig_untraced_NAME`, and
 //! a method of its old name and type calls it and records what it did;
@@ -72,7 +72,7 @@ const traced = [_]Traced{
 
 pub const Error = error{ OutOfMemory, WriteFailed, MapTraceDrift };
 
-/// The Zig of module std.__rig_builtin, `zig`, with its Map and Set
+/// The Zig of module std.prelude, `zig`, with its Map and Set
 /// traced. On `error.MapTraceDrift`, `what` says what it did not find.
 pub fn instrument(a: std.mem.Allocator, zig: []const u8, what: *[]const u8) Error![]const u8 {
     var text = zig;

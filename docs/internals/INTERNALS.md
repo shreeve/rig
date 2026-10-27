@@ -5002,7 +5002,7 @@ why the model is what it is, in
 Map or Set, so a program's real stream of them can be replayed against
 another design. `rig build` then declares `__rig_map_trace` in the root
 module, as `RIG_HEAP_PROFILE` declares its own, and `src/map_trace.zig`
-rewrites the Zig emitted for std/__rig_builtin.rig: each traced method
+rewrites the Zig emitted for std/prelude.rig: each traced method
 of `Map` and `Set` becomes `__rig_untraced_NAME`, and a method of the
 old name and type calls it and records the call (`rig.mapTraceOp`),
 and each type gets a field `__rig_trace`, its id. A build without the
