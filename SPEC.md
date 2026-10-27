@@ -442,7 +442,10 @@ a `?String` is that `?String` (`?s`). `+s` of a `?String` copies its
 bytes into a new `String`. A `?String` is a view, so nothing lends a
 `?String` place to write, `swap` of one included: assign
 to the place to point it at other text, or hold a `String` to change text
-in place.
+in place. No parameter is a `!?String`, whether written so or given by
+the type a closure is checked against (`|k, v|` where `update`'s
+`?sub(?K, !V)` goes, at `V = ?String`); a closure leaves such a
+parameter out, or names it `_`.
 
 #### Static
 

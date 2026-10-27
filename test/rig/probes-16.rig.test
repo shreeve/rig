@@ -2016,7 +2016,7 @@ test "rev240-m03 value kinds", '''
   y = (!views).ensure(?a, ?c)
   print(y)
   _ = (!views).put_new(?c, ?a)
-  !views.retain(|k, v| k.len == 5)
+  !views.retain(|k| k.len == 5)
   for e in ?views.items()
     print(e.key, e.value)
 

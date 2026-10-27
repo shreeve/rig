@@ -1755,3 +1755,28 @@ test "generic plain of a value's known type is a constant", "true false"
     $plain($type(s))
 
   print(known(1, 2), other(3))
+
+fail "closure stores its parameter's view in a generic body's value", "stores a view of `k`", known: true
+  # A generic body tracks no view a value of a type parameter holds, so
+  # `update`'s call of `f(?key, !value)` cannot see `f` store the key's
+  # view in a `(?String)?` value; the value then outlives the key. The
+  # closure stores what its type cannot show (SPEC "Generic bodies").
+
+  s = String("x")
+  m = Map[String, (?String)?]()
+  !m.put(String("a-long-key-on-the-heap-0123456789"), ?s)
+  !m.update(|k, v| v = k)
+  if (!m).take("a-long-key-on-the-heap-0123456789") as v
+    junk = String("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")
+    if v as w
+      print(w, junk.len)
+
+fail "closure pushes its parameter's view in a generic body's value", "stores a view of `k`", known: true
+  # The same, through a List of views the value holds.
+
+  m = Map[String, List[?String]]()
+  !m.put(String("a-long-key-on-the-heap-0123456789"), List[?String]())
+  !m.update(|k, v| !v.push(k))
+  if (!m).take("a-long-key-on-the-heap-0123456789") as v
+    junk = String("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")
+    print(v[0], junk.len)

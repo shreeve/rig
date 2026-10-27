@@ -657,6 +657,51 @@ fail "write view of string type", "5:14: `!?String` cannot be written", "8:15: `
 
   pass
 
+fail "write view of string type from a closure's type", "9:15: closure parameter `v` is a `!?String`, from the closure's type `sub(?String, !?String)`; `!?String` cannot be written"
+  # A closure's parameter takes its type from the type it is checked
+  # against, `update`'s `?sub(?K, !V)` here, and is checked as a written
+  # one is: a `!?String` would let the body store a view of the key where
+  # the Map's value outlives it.
+
+  s = String("x")
+  m = Map[String, ?String]()
+  !m.put(String("a-long-key-on-the-heap-0123456789"), ?s)
+  !m.update(|k, v| v = k)
+  if (!m).take("a-long-key-on-the-heap-0123456789") as v
+    junk = String("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")
+    print(v, junk.len)
+
+fail "write view of string type from retain's type", "7:15: closure parameter `v` is a `!?String`, from the closure's type `fun(?String, !?String) -> Bool`", errors: 1
+  # `retain`'s `?fun(?K, !V) -> Bool` gives the same parameter. One left
+  # out, or named `_`, binds nothing to write through.
+
+  s = String("x")
+  m = Map[String, ?String]()
+  !m.put(String("k"), ?s)
+  !m.retain(|k, v| true)
+  !m.retain(|k| true)
+  !m.retain(|k, _| true)
+  print(m.len)
+
+fail "write view of string type from a generic object's member", "15:10: closure parameter `v` is a `!?String`, from the closure's type `sub(!?String)`", "16:11: closure parameter `v` is a `(!?String)?`", errors: 2
+  # A program's own generic member gives the same parameter, and an
+  # optional of one.
+
+  obj Box[V]
+    v: V
+
+    sub each(!@, f: ?sub(!V))
+      f(!@v)
+
+    sub maybe(!@, f: ?sub((!V)?))
+      f(!@v)
+
+  s = String("x")
+  b = Box[?String](v: ?s)
+  !b.each(|v| print(v))
+  !b.maybe(|v| print(1))
+  print(b.v)
+
 test "write view param replaces value", '''
   1
   20
