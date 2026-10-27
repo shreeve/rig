@@ -156,6 +156,19 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Map and Set hold their entries in a table built into the compiler**,
+  `OrderedMap[K, V]` and `OrderedSet[K]`, which only std/prelude.rig
+  names: bench/hash's `zig-ordered` in the runtime (src/ordered.zig),
+  as a List's buffer is. `Map` and `Set` keep every declaration in the
+  prelude, so every member, its ownership, the order, printing, and
+  every diagnostic a test names are unchanged; a message about a Map's
+  `==` or `.hash()` names its field `t` where it named `ps`. On pup,
+  Trig takes 2.9% fewer cycles on ts-pattern and 3.6% fewer on zod3,
+  with 2.2% and 3.1% fewer instructions, and peak memory 0.55% higher
+  and 0.8% lower. A Map is 112 bytes (176 before), and holds 4,000,000 Int keys in
+  30.7 bytes an entry on the Mac. In bench/hash, 108 of 130 rows on the
+  Mac and 109 of 114 on pup are faster than before
+  ([map-builtin.md](docs/history/records/2026-10/hash-race/map-builtin.md)).
 - **The built-in Map and Set take zig-ordered's design**
   (std/prelude.rig, still safe Rig): the entries in one List in first-put
   order, with no optional for plain keys and values (16 bytes for a

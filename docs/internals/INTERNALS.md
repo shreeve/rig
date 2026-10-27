@@ -5056,7 +5056,7 @@ across modules, and only std.prelude's scope names them.
 - **Facts.** The tables are heap built-ins (`sema.isOrderedTable`, in
   `isHeapBuiltin`): glue and not plain, their entries behind them, a
   deep clone where every parameter clones, and 96 bytes; a `Map` is
-  104. A table counts as running a drop body (`runsDropBody`), as a
+  112. A table counts as running a drop body (`runsDropBody`), as a
   type with glue declared in another module does, so a view a Map
   holds of a value dropped before it is rejected as before.
 - **Hash and `==`.** The table hashes with `rig.hash` and compares with
@@ -5065,16 +5065,22 @@ across modules, and only std.prelude's scope names them.
   own `hash_into` and `==` say, and a `?String` finds a `String` key.
 - **Layout** (bench/hash's `zig-ordered`; docs/history/records/2026-10/hash-race/
   zig-ordered.md for each choice and its measurement): the entries in
-  one block, in first-put order, `{key, value}` and, for a key over 8
-  bytes, its hash, then a gone bit an entry. The index is groups of 16
-  tag bytes (15 tags and an overflow byte), four groups to a 64-byte
-  line, then a line of 16 `u32` entry indexes a group. A key's group
-  is its hash's high bits, its tag the low byte made nonzero; a probe
-  matches the tag over the group, prefetches the group's index line,
-  and walks on, out of line in a lookup, only while the overflow byte
-  marks the tag's class. Up to 16 live entries (and 32 written) there
-  is no index: 32 tag bytes in the table find a key. The first put
-  makes room for 4 entries.
+  one block of whole entries, in first-put order, `{key, value}` and,
+  for a key over 8 bytes, its hash. The index is one block of 80 bytes
+  a group, sizes Rig's allocator holds exactly: first the slots, a
+  64-byte line of 16 `u32` entry indexes a group, so a group's slots
+  are one line on x86, then the tags, 16 bytes a group (15 tags and an
+  overflow byte). A key's group is its hash's high bits, its tag the
+  low byte made nonzero; a probe matches the tag over the group,
+  prefetches the group's slot line, and walks on, out of line in a
+  lookup, only while the overflow byte marks the tag's class. Up to 16
+  live entries (and 32 written) there is no index: 32 tag bytes in the
+  table find a key, and say which entries are gone. The first put
+  makes room for 4 entries. An indexed table makes its gone bits, one
+  an entry, at the first take that leaves a hole.
+- **Tag writes** write the 16 tags whole from a register
+  (`writeLane`): a byte's store into them stalled the next lookup's
+  vector load of the same 16 bytes, on x86 most of all.
 - **Take** frees the lane, lowers the maximum load where the group
   marks the tag's class, drops the key, hands the value back, and marks
   the entry gone; the last entry written is cut off instead, and the
@@ -5082,7 +5088,8 @@ across modules, and only std.prelude's scope names them.
 - **Compaction** runs only when the entries fill their room and a
   quarter is gone, or as the index grows; under the same index the
   live entries move down and each lane is renumbered by its entry's
-  rank, with no hash and no probe.
+  rank, with no hash and no probe. A new index is made after the old
+  is freed, filled from the entries.
 - **Drops** run the last entry first, its value before its key, as a
   List drops its elements and an object its fields; `+m` clones each
   live entry in order (`clone`, through `rig.cloneValue`).

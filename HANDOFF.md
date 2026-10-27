@@ -136,8 +136,14 @@ A new session, human or agent, takes these steps in order:
   trail main, in-cache hits, the latency chains, 4M inserts, and text
   removes, are in
   [map-rewrite-rig.md](docs/history/records/2026-10/hash-race/map-rewrite-rig.md).
-  Porting the table into the runtime as Zig instead waits on the owner:
-  `extern zig` takes no generic functions and no Zig-defined types.
+  The owner then made their table a compiler built-in (2026-10-27):
+  `Map` and `Set` stay declared in the prelude over `OrderedMap[K, V]`
+  and `OrderedSet[K]`, the prototype ported into src/ordered.zig
+  (INTERNALS, "The built-in Map and Set"); Trig 2.9-3.6% fewer cycles
+  than #735 on pup
+  ([map-builtin.md](docs/history/records/2026-10/hash-race/map-builtin.md)).
+  `HashMap` and `HashSet` (names confirmed by the owner) follow from
+  `zig-hash` the same way.
 - **Masked indexes** (`src/proofs.zig`): `s[e & m]` with `m = s.len -% 1`
   under a guard `s.len > 0` makes no bounds test, ready for the Map
   rewrite. The built-in Map, Set, and Interner keep their two guarded
