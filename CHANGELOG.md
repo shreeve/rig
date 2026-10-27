@@ -156,6 +156,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Masked indexes are proven:** `s[e & m]`, where `m` is `s.len -% 1`
+  (or `s.len - 1`) taken inside a guard `s.len > 0`, or any `Int` known
+  not negative whose room below `s.len` is known, makes no bounds test,
+  for any `e`, a negative one too; and a loop whose every write of `i`
+  is `i = e & m` keeps `0 <= i < s.len` at every step. The built-in Map
+  and Set, and std.text's Interner, probe their tables so: one loop
+  reading slot `(home +% d) & mask` for `d` counting up, where each
+  probe was two passes each guarded by `0 <= i and i < ts.len` (docs/internals/INTERNALS.md,
+  "Proven checks").
 - **A mask's true lanes:** `for k in m.lanes()` visits each true lane of
   a mask `Simd[Bool, n]`, lowest first, as an `Int`. `lanes()` gives the
   prelude's `Lanes`, an iterator, so `break`, `continue`, a resumed

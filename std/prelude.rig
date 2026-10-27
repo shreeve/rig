@@ -56,16 +56,20 @@ obj Table
     @tags[i] = tag_of(h)
     @at[i] = U32(j)
 
-  # The first free slot from the one `h` names, stepping on under the
-  # table's mask, so a step reads a tag with no other check; with no
-  # table, -1, which fails the caller's bounds check.
+  # The first free slot from the one `h` names: slot `(home +% d) & mask`
+  # for `d` counting up, which needs no bounds check and leaves only the
+  # count's add between one step and the next; with no table, -1, which
+  # fails the caller's bounds check.
   fun free_slot(?@, h: U64) -> Int
     ts = ?@tags[..]
     if ts.len > 0
       mask = ts.len -% 1
-      i = Int.wrap(h) & mask
+      home = Int.wrap(h)
+      d = 0
+      i = home & mask
       while ts[i] != 0
-        i = (i + 1) & mask
+        d +%= 1
+        i = (home +% d) & mask
       return i
     -1
 
@@ -324,9 +328,9 @@ pub obj Map[K: Hash, V]
       <old
 
   # The entry of the key `k`, whose hash is `h`, or `none`: in a larger
-  # Map, by a probe of its table from the slot `h` names, stepping on
-  # under the table's mask, so a step reads a tag with no other check;
-  # in a small one, by the stored hashes in turn. Inlined into each
+  # Map, by a probe of its table from the slot `h` names, as `free_slot`
+  # probes, so a step reads a tag with no other check; in a small one,
+  # by the stored hashes in turn. Inlined into each
   # lookup and write, so the probe's state stays in its caller's
   # registers.
   inline fun find(?@, k: ?K, h: U64) -> Int?
@@ -334,14 +338,16 @@ pub obj Map[K: Hash, V]
     if ts.len > 0
       tag = tag_of(h)
       mask = ts.len -% 1
-      i = Int.wrap(h) & mask
+      home = Int.wrap(h)
+      d = 0
       while true
+        i = (home +% d) & mask
         t = ts[i]
         return none if t == 0
         if t == tag
           j = Int(@table.at[i])
           return j if @es[j].key == k
-        i = (i + 1) & mask
+        d +%= 1
     if stores_hashes[K]()
       hs = ?@hs[..]
       j = 0
@@ -524,14 +530,16 @@ pub obj Set[K: Hash]
     if ts.len > 0
       tag = tag_of(h)
       mask = ts.len -% 1
-      i = Int.wrap(h) & mask
+      home = Int.wrap(h)
+      d = 0
       while true
+        i = (home +% d) & mask
         t = ts[i]
         return none if t == 0
         if t == tag
           j = Int(@table.at[i])
           return j if @ks[j] == k
-        i = (i + 1) & mask
+        d +%= 1
     if stores_hashes[K]()
       hs = ?@hs[..]
       j = 0

@@ -571,14 +571,16 @@ pub obj Interner
     if ts.len > 0
       tag = id_tag_of(h)
       mask = ts.len -% 1
-      i = Int.wrap(h) & mask
+      home = Int.wrap(h)
+      d = 0
       while true
+        i = (home +% d) & mask
         t = ts[i]
         return none if t == 0
         if t == tag
           id = @table.at[i]
           return id if @text(id) == s
-        i = (i + 1) & mask
+        d +%= 1
     hs = ?@hs[..]
     j = 0
     while 0 <= j and j < hs.len
@@ -609,16 +611,20 @@ obj IdTable
     @tags[i] = id_tag_of(h)
     @at[i] = U32(j)
 
-  # The first free slot from the one `h` names, stepping on under the
-  # table's mask, so a step reads a tag with no other check; with no
-  # table, -1, which fails the caller's bounds check.
+  # The first free slot from the one `h` names: slot `(home +% d) & mask`
+  # for `d` counting up, which needs no bounds check and leaves only the
+  # count's add between one step and the next; with no table, -1, which
+  # fails the caller's bounds check.
   fun free_slot(?@, h: U64) -> Int
     ts = ?@tags[..]
     if ts.len > 0
       mask = ts.len -% 1
-      i = Int.wrap(h) & mask
+      home = Int.wrap(h)
+      d = 0
+      i = home & mask
       while ts[i] != 0
-        i = (i + 1) & mask
+        d +%= 1
+        i = (home +% d) & mask
       return i
     -1
 

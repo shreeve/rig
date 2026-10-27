@@ -1892,10 +1892,10 @@ a held receiver or argument, a hoisted value), every write it runs is in
 `K(u)`, and no fact `u` makes is visible to its own checks. A unit
 nested in `u` starts from `E - K(u)` too.
 
-**Facts.** The pass tracks five facts, about bindings, by symbol:
+**Facts.** The pass tracks six facts, about bindings, by symbol:
 `nonneg(i)`, `0 <= i`; `below(i, k, b)`, `i + k <= b` exactly;
-`fits(s)`, `s.len <= 2^62 - 1`; `eq(n, s)`, `n == s.len`; and
-`upto(d, f, h)`, `0 <= d.f <= h`. `i` and
+`fits(s)`, `s.len <= 2^62 - 1`; `eq(n, s)`, `n == s.len`;
+`upto(d, f, h)`, `0 <= d.f <= h`; and `nonempty(s)`, `1 <= s.len`. `i` and
 `n` are locals or parameters of type `Int` of the body being walked (not
 a capture, a view, or a field); a bound `b` is `len(s)` or `int(n)`,
 where `s` is a place: such a binding of type `?String`, `[]T`, or
@@ -1903,18 +1903,25 @@ where `s` is a place: such a binding of type `?String`, `[]T`, or
 path `d.f.g` from such a binding `d`, an object or a view of one,
 through fields that hold objects by value, to a `List[T]`; `d` is
 such a binding of an object type, held by value; `k` and `h` are at most
-`2^62`. Each list below is positive: a shape not on it makes
+`2^62`. A *mask* `m` of `e & m` (or `m & e`, of type `Int`) is an `Int`
+binding `m` with `nonneg(m)`, or `s.len - 1` (or `s.len -% 1`) written
+there under `nonempty(s)`: then `0 <= e & m <= m` whatever `e` is, a
+negative one too, since the sign bit of `m` is clear and an `&` sets no
+bit `m` does not. No power of two is needed for that, only for the
+spread of a hash. Each list below is positive: a shape not on it makes
 nothing and proves nothing. A unit makes its facts on its exit, each
 only if nothing in `K(u)` names it; then an assignment's store applies,
 and then what the store makes.
 
 | Unit | Makes, on its exit |
 |---|---|
-| a guard part, on its true edge | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; each either way round. `b` is written `s.len` (which also gives `fits(s)`: a length read, `rig.lenOf`, is at most `max_len`) or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
+| a guard part, on its true edge | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; `0 < s.len`, `c <= s.len` with a literal `c >= 1`, or `s.len != 0`: `nonempty(s)` and `fits(s)`; each either way round. `b` is written `s.len` (which also gives `fits(s)`: a length read, `rig.lenOf`, is at most `max_len`) or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
 | `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)`, `T` concrete: the check ran | `nonneg(i)`, `below(i, width, len(s))`, before the store |
 | `x = s[i + c]`, `c` a literal: the check ran | `below(i, c + 1, len(s))`, before the store |
 | `i = c` with a literal `c`, `i = j` with `nonneg(j)`, `i = Int(u)` of an unsigned `u` | `nonneg(i)`, after the store |
 | `n = s.len` | `nonneg(n)`, `fits(s)`, and `eq(n, s)`, after the store |
+| `m = s.len - 1` or `m = s.len -% 1` | `below(m, 1, len(s))`, which holds for an empty `s` too (`-1 + 1 <= 0`), and `fits(s)`; with `nonempty(s)` before it, `nonneg(m)`; after the store |
+| `i = e & m`, `m` a mask (not `i`) | `nonneg(i)`, and `below(i, k, b)` for each `below(m, k, b)` (`i <= m`), after the store; for the mask `s.len - 1`, `below(i, 1, len(s))` and `fits(s)` |
 | `d = g(...)`, `g` a function that bounds fields of its result | `upto(d, f, h)` for each field `f` that `g` bounds by `h`, after the store |
 
 With `eq(n, s)` held, `below(i, k, int(n))` also gives `below(i, k,
@@ -1928,6 +1935,7 @@ is part of its unit, and makes nothing.
 |---|---|
 | `s[i]`, read or a place | `lower` under `nonneg(i)`; `upper` under `below(i, k, len(s))`, `k >= 1` |
 | `s[i + c]` or `s[c + i]`, `c` a literal | `lower` under `nonneg(i)` (the add is tested, or proven, before the index is); `upper` under `below(i, k, len(s))`, `k >= c + 1` |
+| `s[e & m]`, `m` a mask | `lower`; `upper` under `below(m, k, len(s))`, `k >= 1`, or for the mask `s.len - 1` of the same `s` |
 | `s.read[T, e](i)`, `!s.write[T, e](i, v)`, on the callee | the same, with `k >= $size(T)`: the width of a number `T`, or `n` times the width of `E` for a `Simd[E, n]` of numbers with a known `n` (a vector's bytes are tested as an integer's of that size) |
 | `i + c`, and the `set` of `i += c`, `0 < c <= 2^62` a literal | `no_overflow` under `below(i, k, b)` with `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` and `fits(s)` (`i + c <= 2^62 - 1 + c`) |
 | `i + x`, and the `set` of `i += x`, `x` an `Int` with `0 <= x <= h`: `d.f` under `upto(d, f, h)`, or `g(...).f` or `g(...)` where `g` bounds that field or its result by `h` | as `i + max(h, 1)`: `i + x <= i + max(h, 1)` |
@@ -1967,7 +1975,7 @@ ends every fact naming the binding it writes, but `i += c` and
 `s[j] = x`, or `!s.write` of a slice view `s` keeps `len(s)`, `fits(s)`,
 and `eq(_, s)`, since writing through a view changes elements, never its
 length; and `v[j] = x` or `v[j].f = x` of a List binding `v` keeps
-`len(v)`, an element store. A write of `d` ends every fact about a
+`len(v)`, an element store. `nonempty(s)` ends where `len(s)` does. A write of `d` ends every fact about a
 field path from `d`. A `raw` block ends every fact, and nothing in it is proven. A
 write view made before a guard and used after it makes the guard's read
 of what it views a rejection (Core sentences 5 and 6), so in an accepted
@@ -1980,8 +1988,8 @@ a fact emit and the ownership checker read too:
 |---|---|
 | block | its statements in order; at its end, the kills of its `defer`s |
 | `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
-| `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
-| `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration); any other `for` binding gets no facts |
+| `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant, and `i`'s `nonneg(i)` and `below(i, k, b)` from `E` when every write of `i` in the loop is `i = e & m` with one mask `m` that holds in `L` (the `below` with no more room than `m` has in `L`, or 1 for `s.len - 1`): each write makes them again, and the loop writes neither `m` nor `b`; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
+| `for` | the source unit; then `L` as for `while`, a masked `i` kept as there, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration); any other `for` binding gets no facts |
 | statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
 | `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
 | `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, `continue`, or `panic` statement nothing is reached |

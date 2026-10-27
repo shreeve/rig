@@ -10,7 +10,7 @@
 //! (`SemContext.recordProven`). Emit omits those tests; a debug build
 //! still makes each one, as an assertion of the proof.
 //!
-//! The pass tracks five facts about bindings, by symbol:
+//! The pass tracks six facts about bindings, by symbol:
 //!
 //! - `nonneg(i)`: `0 <= i`;
 //! - `below(i, k, b)`: `i + k <= b`, exactly, where the bound `b` is
