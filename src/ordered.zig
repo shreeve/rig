@@ -97,7 +97,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// tags say which entries are gone.
         gone: [*]u64 = undefined,
         /// The index: `groups` groups of tags, and their slots; undefined
-        /// while `groups` is 0. `tags` starts the index's block.
+        /// while `groups` is 0. `slots` starts the index's block.
         tags: [*]Group = undefined,
         slots: [*]Slots = undefined,
         cap: u32 = 0,
@@ -253,17 +253,19 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         // the index's block /////////////////////////////////////////////////
 
-        /// The index's block, in words: the tags, 16 bytes a group, then
-        /// the slots, 64 bytes a group, 80 bytes a group in all, a size
+        /// The index's block, in words: the slots, a 64-byte line a group,
+        /// then the tags, 16 bytes a group, 80 bytes a group in all, a size
         /// Rig's allocator holds exactly. Its alignment is a word's, which
-        /// the allocator serves from its size classes (a wider one goes
-        /// the slow way).
+        /// the allocator serves from its size classes (a wider one goes the
+        /// slow way); a block of four groups or more starts a line there,
+        /// as a large one starts a page, so each group's slots are one
+        /// line, which a lookup prefetches with its tags.
         fn indexWords(groups: usize) usize {
             return 10 * groups;
         }
 
         fn indexBlock(self: *const Self) []u64 {
-            const p: [*]u64 = @ptrCast(@alignCast(self.tags));
+            const p: [*]u64 = @ptrCast(@alignCast(self.slots));
             return p[0..indexWords(self.groups)];
         }
 
@@ -289,8 +291,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
             const b = rt.allocSlice(u64, indexWords(groups));
             @memset(b, 0);
             self.freeIndex();
-            self.tags = @ptrCast(b.ptr);
-            self.slots = @ptrCast(b.ptr + 2 * groups);
+            self.slots = @ptrCast(b.ptr);
+            self.tags = @ptrCast(b.ptr + 8 * groups);
             self.groups = @intCast(groups);
             self.shift = @intCast(@as(u32, 64) - std.math.log2_int(usize, groups));
             self.max_load = maxLoad(groups);
