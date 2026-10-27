@@ -1637,6 +1637,7 @@ pub fn hashAs(comptime T: type, x: T) u64 {
             return h;
         },
         .@"struct" => |st| {
+            if (comptime wordCount(T)) |n| return hashWords(n, wordsOf(T, n, x));
             var h: u64 = hash_seed;
             inline for (st.field_names, st.field_types) |name, F| h = hashMix(h, if (comptime outOfLine(F)) @call(.never_inline, hashAs, .{ F, @field(x, name) }) else hashAs(F, @field(x, name)));
             return h;
@@ -1655,6 +1656,85 @@ pub fn hashAs(comptime T: type, x: T) u64 {
         else => @compileError("rig.hash: no `.hash()` of " ++ @typeName(T)),
     }
 }
+
+/// How many 64-bit words an object of type `T` hashes as when each
+/// part it holds by value, through objects nested in it, is an integer
+/// of at most 64 bits, a plain enum, or a `Bool`, and none of them gives
+/// `==` or a hash of its own (`ownsApi`); `null` for any other `T`, and
+/// for an object with no part or more than 16 words.
+fn wordCount(comptime T: type) ?usize {
+    const n = leafWords(T) orelse return null;
+    return if (n == 0 or n > 16) null else n;
+}
+
+fn leafWords(comptime T: type) ?usize {
+    if (ownsApi(T, "__rig_own_hash") or ownsApi(T, "__rig_own_eq")) return null;
+    return switch (@typeInfo(T)) {
+        .int => |i| if (i.bits <= 64) 1 else null,
+        .bool, .@"enum" => 1,
+        .@"struct" => |st| blk: {
+            if (isOptStruct(T) or isString(T) or @hasDecl(T, "__rig_string")) break :blk null;
+            var n: usize = 0;
+            for (st.field_types) |F| n += leafWords(F) orelse break :blk null;
+            break :blk n;
+        },
+        else => null,
+    };
+}
+
+/// The words of `x`, an object `wordCount` counts `n` words in: each
+/// part's value, in field order, as `hashInt` reads an integer (a signed
+/// one sign-extended), so values `rig.eql` calls equal give equal words.
+inline fn wordsOf(comptime T: type, comptime n: usize, x: T) [n]u64 {
+    var w: [n]u64 = undefined;
+    var next: usize = 0;
+    putWords(T, x, &w, &next);
+    return w;
+}
+
+inline fn putWords(comptime T: type, x: T, w: []u64, next: *usize) void {
+    switch (@typeInfo(T)) {
+        .int => {
+            w[next.*] = hashWordOf(x);
+            next.* += 1;
+        },
+        .bool => {
+            w[next.*] = @intFromBool(x);
+            next.* += 1;
+        },
+        .@"enum" => {
+            w[next.*] = hashWordOf(@intFromEnum(x));
+            next.* += 1;
+        },
+        .@"struct" => |st| inline for (st.field_names, st.field_types) |name, F| putWords(F, @field(x, name), w, next),
+        else => unreachable,
+    }
+}
+
+/// An integer of at most 64 bits as one word, as `hashInt` reads it.
+inline fn hashWordOf(x: anytype) u64 {
+    const info = @typeInfo(@TypeOf(x)).int;
+    return if (info.signedness == .signed) @bitCast(@as(i64, x)) else x;
+}
+
+/// `n` words hashed two at a time, each pair by one folded multiply of
+/// the first (with the hash so far) by the second, as foldhash's
+/// `write_u128` and abseil's pair `Mix` combine 128 bits; an odd last
+/// word as `hashWord` takes one. One word hashes as `hashWord` hashes it.
+inline fn hashWords(comptime n: usize, w: [n]u64) u64 {
+    var h: u64 = hash_seed;
+    comptime var i: usize = 0;
+    inline while (i + 1 < n) : (i += 2) h = foldMul(w[i] ^ h, w[i + 1] ^ hash_pair);
+    if (n % 2 == 1) h = foldMul(w[n - 1] ^ h, hash_mul);
+    return h;
+}
+
+inline fn foldMul(a: u64, b: u64) u64 {
+    const p = @as(u128, a) * b;
+    return @as(u64, @truncate(p)) ^ @as(u64, @truncate(p >> 64));
+}
+
+const hash_pair: u64 = 0x9e3779b97f4a7c15;
 
 const hash_seed: u64 = 0x2d358dccaa6c78a5;
 const hash_none: u64 = 0x8bb84b93962eacc9;

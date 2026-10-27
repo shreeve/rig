@@ -733,6 +733,50 @@ test "hash built in", '''
   print(m.get("a"), s.has(2))
   print($name(Map[String, Int]))
 
+test "hash word keys", '''
+  true true
+  20000 20000 3 true
+'''
+  # An object whose parts are integers, plain enums, and Bools, nested or
+  # not, hashes its words two at a time, one multiply a pair: equal keys
+  # hash alike, a signed part as its value whatever its width, and keys
+  # that differ only in one part or by swapped parts hash apart.
+
+  enum Tint
+    red
+    green
+    blue
+
+  obj Inner
+    x: U8
+    y: I64
+
+  obj Key
+    a: I32
+    b: Bool
+    c: Tint
+    d: Inner
+
+  obj Two
+    lo: U64
+    hi: U64
+
+  k1 = Key(a: -5, b: true, c: .green, d: Inner(x: 7, y: -1))
+  k2 = Key(a: -5, b: true, c: .green, d: Inner(x: 7, y: -1))
+  m = Map[Key, Int]()
+  !m.put(k1, 1)
+  print(k1.hash() == k2.hash(), (m.get(k2) ?? 0) == 1)
+  seen = Set[U64]()
+  packed = Set[U64]()
+  for i in 0..20000
+    _ = (!seen).add(Two(lo: U64(i), hi: 0).hash())
+    _ = (!packed).add(Two(lo: (U64(i % 100) << 32) | U64(i / 100), hi: 7).hash())
+  swapped = Set[U64]()
+  _ = (!swapped).add(Two(lo: 1, hi: 2).hash())
+  _ = (!swapped).add(Two(lo: 2, hi: 1).hash())
+  _ = (!swapped).add(Two(lo: 1, hi: 3).hash())
+  print(seen.len, packed.len, swapped.len, Two(lo: 0, hi: 0).hash() != Two(lo: 0, hi: 1).hash())
+
 test "hash own map", "2 0"
   # A module's own `Map` hides the built-in one; `Set` stays built in.
 
