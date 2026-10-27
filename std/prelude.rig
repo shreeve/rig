@@ -84,7 +84,7 @@ SMALL = 16
 SMALL_LANES = 32
 
 # The room a Map or Set makes for its entries at its first put.
-FIRST_ROOM = 16
+FIRST_ROOM = 4
 
 # The most entries a Map or Set holds: an entry index is 32 bits.
 MAX_ENTRIES = 4294967295
@@ -124,20 +124,18 @@ obj Table
   at: List[U32] = List()
   # The hash's shift right that leaves its group: 64 less the bits of
   # the group count.
-  shift: Int = 63
+  shift: U8 = 63
   # The live entries the Map takes before it grows its index: 7/8 of
   # its tag lanes, less one for each take from a lane a probe may walk
   # past; `SMALL` while it is small.
-  limit: Int = SMALL
+  limit: U32 = 16
   # Bit `j & 63` of word `j >> 6` is set when entry `j` is gone; empty
-  # until the first take that leaves a hole. A small Map keeps none:
-  # its tags say which entries are gone (0), so a take allocates
-  # nothing.
+  # until the first take that leaves a hole. A small Map keeps none: its
+  # tags say which entries are gone (0). How many are gone is the
+  # entries written less the live ones (`Map.dead`).
   gone: List[U64] = List()
-  # How many entries are gone.
-  dead: Int = 0
   # The entries the List has room for, as the Map counts it.
-  room: Int = 0
+  room: U32 = 0
   # A small Map's tags: lane `i` is entry `i`'s, 0 when it is gone or
   # not written.
   small: [32]U8 = [32 of 0]
@@ -146,8 +144,8 @@ obj Table
   sub reset(!@, groups: Int)
     @tags = List.filled(groups, NO_TAGS)
     @at = List.filled(groups * 16, NO_ENTRY)
-    @shift = 1 + groups.leading_zeros()
-    @limit = groups * 15 * 7 / 8
+    @shift = U8.wrap(1 + groups.leading_zeros())
+    @limit = U32.wrap(groups * 15 * 7 / 8)
 
   # Record entry `j`, just written, whose key hashes to `h`: its lane in
   # a small Map's tags, or in the index the first free lane of its home
@@ -197,18 +195,22 @@ obj Table
     if @tags.len == 0
       @small[s] = 0
       return s
-    g = s >> 4
-    grp = @tags[g]
-    @tags[g] = (LANE_IDS == U8.wrap(s & 15)).select(0, grp)
-    @limit -= 1 if grp[15] & class_bit(tag_of(h)) != 0
-    Int(@at[s])
+    ts = !@tags[..]
+    sl = ?@at[..]
+    j = -1
+    if ts.len > 0 and sl.len > 0
+      g = (s >> 4) & (ts.len -% 1)
+      grp = ts[g]
+      ts[g] = (LANE_IDS == U8.wrap(s & 15)).select(0, grp)
+      @limit -%= 1 if grp[15] & class_bit(tag_of(h)) != 0
+      j = Int(sl[s & (sl.len -% 1)])
+    j
 
   # Mark entry `j` gone, its lane already freed.
   inline sub mark(!@, j: Int)
-    @dead += 1
     if @tags.len > 0
       w = j >> 6
-      !@gone.resize((@room + 63) >> 6, 0) if w >= @gone.len
+      !@gone.resize((Int(@room) + 63) >> 6, 0) if w >= @gone.len
       @gone[w] |= U64(1) <<% (j & 63)
 
   # Whether entry `j` is gone.
@@ -234,29 +236,26 @@ obj Table
     while n > 0 and @is_gone(n - 1)
       n -= 1
       @gone[n >> 6] &= (U64(1) <<% (n & 63)).not() if @tags.len > 0
-      @dead -= 1
     n
 
   # Forget every entry, keeping the memory and the index: what taking
   # the last live entry does.
   sub empty(!@)
     !@gone.clear()
-    @dead = 0
     @small = [32 of 0]
     if @tags.len > 0
       !@tags[..].fill(NO_TAGS)
-      @limit = @tags.len * 15 * 7 / 8
+      @limit = U32.wrap(@tags.len * 15 * 7 / 8)
 
   # Forget every entry and the index, keeping the memory: `clear`. A
   # small Map writes at most `SMALL_LANES` entries.
   sub clear(!@)
     !@tags.clear()
     !@at.clear()
-    @limit = SMALL
+    @limit = 16
     !@gone.clear()
-    @dead = 0
     @small = [32 of 0]
-    @room = SMALL_LANES if @room > SMALL_LANES
+    @room = 32 if Int(@room) > SMALL_LANES
 
   # What to do to make room for one more entry, of `n` written and
   # `live` live: 1 to build or grow the index (`groups_for` gives its
@@ -265,12 +264,13 @@ obj Table
   fun next_step(?@, n: Int, live: Int) -> Int
     if @tags.len == 0
       return 1 if live >= SMALL
-      return 0 if n < @room
-      return 3 if @room < SMALL_LANES
+      return 0 if n < Int(@room)
+      return 3 if Int(@room) < SMALL_LANES
       return 2
-    return 1 if live >= @limit
-    return 0 if n < @room
-    return 2 if @dead > 0 and @dead >= @room / 4
+    return 1 if live >= Int(@limit)
+    return 0 if n < Int(@room)
+    dead = n - live
+    return 2 if dead > 0 and dead >= Int(@room) / 4
     3
 
   # The groups the index grows to, for `live` live entries: for a small
@@ -278,16 +278,16 @@ obj Table
   # full until the Map passes it; else at most 0.6 full, and never
   # smaller than it is.
   fun grown(?@, live: Int) -> Int
-    return groups_for(2 * @room) if @tags.len == 0
+    return groups_for(2 * Int(@room)) if @tags.len == 0
     g = groups_for(live + 1)
     @tags.len if g < @tags.len else g
 
   # The room after the next step up from `room`.
   fun next_room(?@) -> Int
     return FIRST_ROOM if @room == 0
-    if @tags.len == 0 and 2 * @room > SMALL_LANES
+    if @tags.len == 0 and 2 * Int(@room) > SMALL_LANES
       return SMALL_LANES
-    2 * @room
+    2 * Int(@room)
 
   # The count of gone entries before each word of `gone`, for the `n`
   # entries written, to number the lanes again after a compaction; none
@@ -326,7 +326,6 @@ obj Table
           below = @gone[w] & low_bits(j & 63) if w < @gone.len else U64(0)
           @at[s] = U32.wrap(j - before[w] - below.count_ones())
     !@gone.clear()
-    @dead = 0
 
   # The first entry from `j` on, of the `n` written, that is live; `n`
   # when none is. Called once a run, so a walk's step stays short.
@@ -592,7 +591,7 @@ pub obj Map[K: Hash, V]
   pub fun at(?@, i: Int) -> (?K, ?V)? from @
     return none if i < 0 or i >= @len
     j = i
-    j = @table.nth_live(i, @written()) if @table.dead > 0
+    j = @table.nth_live(i, @written()) if @dead() > 0
     if $plain(K) and $plain(V)
       return ?@ps[j].key, ?@ps[j].value
     if ?@es[j] as e
@@ -602,15 +601,15 @@ pub obj Map[K: Hash, V]
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.
   pub fun items(?@) -> Items[K, V] from @
-    Items(map: ?@, next_at: 0, end: @first_end())
+    Items(map: ?@, next_at: 0, end: @first_end(), holes: @dead() > 0)
 
   # The keys, in order, each viewed where the Map holds it.
   pub fun keys(?@) -> Keys[K, V] from @
-    Keys(map: ?@, next_at: 0, end: @first_end())
+    Keys(map: ?@, next_at: 0, end: @first_end(), holes: @dead() > 0)
 
   # The values, in order, each viewed where the Map holds it.
   pub fun values(?@) -> Values[K, V] from @
-    Values(map: ?@, next_at: 0, end: @first_end())
+    Values(map: ?@, next_at: 0, end: @first_end(), holes: @dead() > 0)
 
   # Call `f` with each key, in order, and its value lent to write.
   pub sub update(!@, f: ?sub(?K, !V))
@@ -633,10 +632,14 @@ pub obj Map[K: Hash, V]
       return @ps.len
     @es.len
 
+  # The entries gone, written but not live.
+  inline fun dead(?@) -> Int
+    @written() - @len
+
   # The end of a walk's first run: every entry when none is gone, and
   # otherwise none, so the walk finds its runs.
   inline fun first_end(?@) -> Int
-    @written() if @table.dead == 0 else 0
+    @written() if @dead() == 0 else 0
 
   # Whether entry `j`'s key is `k`, whose hash is `h`.
   # The test of `j` against the entries is the bounds test of `j` a read
@@ -722,7 +725,7 @@ pub obj Map[K: Hash, V]
   # room the Map has is a push and a lane, with no call and no copy of
   # the key into one; making room is out of line (`grow`).
   inline sub insert(!@, k: K, v: V, h: U64)
-    !@grow() if @written() >= @table.room or @len >= @table.limit
+    !@grow() if @written() >= Int(@table.room) or @len >= Int(@table.limit)
     j = @written()
     if $plain(K) and $plain(V)
       !@ps.push(Entry(key: k, value: v))
@@ -790,13 +793,13 @@ pub obj Map[K: Hash, V]
 
   # Room for `total` entries in all.
   sub make_room(!@, total: Int)
-    return if total <= @table.room
+    return if total <= Int(@table.room)
     panic("a Map holds at most 4294967295 entries") if total > MAX_ENTRIES
     if $plain(K) and $plain(V)
       !@ps.reserve(total - @ps.len)
     else
       !@es.reserve(total - @es.len)
-    @table.room = total
+    @table.room = U32.wrap(total)
 
   # Drop the gone entries, keeping the rest in order, under the same
   # index, which is numbered again with no hash and no probe.
@@ -835,10 +838,9 @@ pub obj Map[K: Hash, V]
   # The index built anew with `n` lanes, `n / 16` groups, once the gone
   # entries are dropped, each entry's lane placed again from its hash.
   sub rebuild(!@, n: Int)
-    if @table.dead > 0
+    if @dead() > 0
       !@move_live()
       !@table.gone.clear()
-      @table.dead = 0
     !@table.reset(n >> 4)
     for j in 0..@written()
       !@table.note(j, @hash_at(j))
@@ -941,13 +943,17 @@ pub obj Set[K: Hash]
   # The keys, in the order they were first added, each viewed where the
   # Set holds it.
   pub fun items(?@) -> Members[K] from @
-    Members(set: ?@, next_at: 0, end: @written() if @table.dead == 0 else 0)
+    Members(set: ?@, next_at: 0, end: @written() if @dead() == 0 else 0, holes: @dead() > 0)
 
   # The keys written, gone or not.
   inline fun written(?@) -> Int
     if $plain(K)
       return @ks.len
     @es.len
+
+  # The keys gone, written but not live.
+  inline fun dead(?@) -> Int
+    @written() - @len
 
   # Whether key `j` is `k`, whose hash is `h`.
   inline fun same(?@, j: Int, k: ?K, h: U64) -> Bool
@@ -1026,7 +1032,7 @@ pub obj Set[K: Hash]
   # Add the key `k`, which is new and hashes to `h`, inlined into `add`
   # as a Map's `insert` is into its writes; making room is out of line.
   inline sub insert(!@, k: K, h: U64)
-    !@grow() if @written() >= @table.room or @len >= @table.limit
+    !@grow() if @written() >= Int(@table.room) or @len >= Int(@table.limit)
     j = @written()
     if $plain(K)
       !@ks.push(k)
@@ -1084,13 +1090,13 @@ pub obj Set[K: Hash]
         !@make_room(@table.next_room())
 
   sub make_room(!@, total: Int)
-    return if total <= @table.room
+    return if total <= Int(@table.room)
     panic("a Set holds at most 4294967295 keys") if total > MAX_ENTRIES
     if $plain(K)
       !@ks.reserve(total - @ks.len)
     else
       !@es.reserve(total - @es.len)
-    @table.room = total
+    @table.room = U32.wrap(total)
 
   sub compact(!@)
     n = @written()
@@ -1123,10 +1129,9 @@ pub obj Set[K: Hash]
 
   # The index built anew with `n` lanes, as a Map's is.
   sub rebuild(!@, n: Int)
-    if @table.dead > 0
+    if @dead() > 0
       !@move_live()
       !@table.gone.clear()
-      @table.dead = 0
     !@table.reset(n >> 4)
     for j in 0..@written()
       !@table.note(j, @hash_at(j))
@@ -1140,14 +1145,17 @@ pub obj Set[K: Hash]
 
 # The entries of a Map, in order (`Map.items`): the live entries from
 # `next_at` to `end` are a run, and the next run is found when it ends.
+# With no `holes`, as the walk starts, the first run is every entry, so
+# a walk is one counted loop.
 pub obj Items[K, V]
   map: ?Map[K, V]
   next_at: Int
   end: Int
+  holes: Bool
 
   pub inline fun next(!@) -> Item[?K, ?V]? from @map
     if @next_at >= @end
-      return none if @map.table.dead == 0
+      return none if not @holes
       @next_at = @map.table.live_from(@next_at, @map.written())
       @end = @map.table.gone_from(@next_at, @map.written())
       return none if @next_at >= @end
@@ -1164,10 +1172,11 @@ pub obj Keys[K, V]
   map: ?Map[K, V]
   next_at: Int
   end: Int
+  holes: Bool
 
   pub inline fun next(!@) -> (?K)? from @map
     if @next_at >= @end
-      return none if @map.table.dead == 0
+      return none if not @holes
       @next_at = @map.table.live_from(@next_at, @map.written())
       @end = @map.table.gone_from(@next_at, @map.written())
       return none if @next_at >= @end
@@ -1184,10 +1193,11 @@ pub obj Values[K, V]
   map: ?Map[K, V]
   next_at: Int
   end: Int
+  holes: Bool
 
   pub inline fun next(!@) -> (?V)? from @map
     if @next_at >= @end
-      return none if @map.table.dead == 0
+      return none if not @holes
       @next_at = @map.table.live_from(@next_at, @map.written())
       @end = @map.table.gone_from(@next_at, @map.written())
       return none if @next_at >= @end
@@ -1204,10 +1214,11 @@ pub obj Members[K]
   set: ?Set[K]
   next_at: Int
   end: Int
+  holes: Bool
 
   pub inline fun next(!@) -> (?K)? from @set
     if @next_at >= @end
-      return none if @set.table.dead == 0
+      return none if not @holes
       @next_at = @set.table.live_from(@next_at, @set.written())
       @end = @set.table.gone_from(@next_at, @set.written())
       return none if @next_at >= @end

@@ -5026,6 +5026,61 @@ scheduler works, and what it costs, is in [scheduler.md](scheduler.md);
 why the model is what it is, in
 [docs/design/concurrency.md](../design/concurrency.md).
 
+### The built-in Map and Set
+
+`Map[K, V]` and `Set[K]` are written in Rig, in std/prelude.rig, on the
+design of bench/hash's `zig-ordered` (bench/hash/ordered.zig, and
+docs/history/records/2026-10/hash-race/zig-ordered.md for each choice
+and its measurement). Every member is ordinary Rig, checked by every
+pass; none uses `raw`.
+
+- **Entries.** One List, in first-put order. A Map whose keys and
+  values are plain data (`$plain`) keeps `ps: List[Entry[K, V]]`, a key
+  and a value and nothing else; any other keeps `es: List[Held[K, V]?]`,
+  each with its key's hash and `none` once taken, whose `?` costs no
+  byte where `K` or `V` holds a pointer (a niche). Both fields are in
+  every instance, one always empty: a field's type cannot follow
+  `$plain`. A Set holds `ks: List[K]` or `es: List[HeldKey[K]?]`.
+- **`Table`**, what both keep beside the entries: the index (`tags`, a
+  `List[Simd[U8, 16]]`, a group each, and `at`, a `List[U32]` of 16
+  entry indexes a group), `shift`, `limit`, the gone bits (`gone`, its
+  first word inside the Map), `dead`, `room`, and `small`.
+- **Small.** Up to 16 live entries, and 32 written, there is no index:
+  `small: [32]U8` holds entry `i`'s tag at lane `i`, 0 when gone, and a
+  lookup is one or two 16-lane matches (`m.lanes()`). Its tags are its
+  gone bits too. The 17th live key builds the index, sized for the
+  entries' next room.
+- **Lookup** (`probe`, inlined): the group is `h >> shift`, the tag the
+  low byte made nonzero (`tag_of`). The group and lane indexes are
+  masked by their Lists' lengths less one, which the masked-index proof
+  takes, so they make no test. The entry index read from `at` is tested
+  against the entries (`same`), which is also what rejects lane 15,
+  the overflow byte, whose index is `NO_ENTRY`: no mask is spent on it.
+  The walk past the home group is a cold call in a lookup (`walk_far`),
+  so the lookup's loop keeps its state in registers on x86, and inline
+  in a take.
+- **Writes.** A lane is written in a register, `(LANE_IDS ==
+  l).select(x, grp)`, then the group stored whole: `grp.with(l, x)`
+  would go through memory and stall the next lookup's load. An insert
+  into room the Map has is inline (`insert`, `Table.note`); `grow` is
+  out of line and cold, asking `Table.next_step` until there is room.
+- **Take** frees the lane, lowers `limit` where the group marks the
+  tag's class (boost's anti-drift), drops the key, and marks the entry
+  gone; the last entry written is cut off instead, and the last live
+  one empties the Map, keeping its memory and index.
+- **Compaction** runs only when the entries fill their room and a
+  quarter is gone, or as the index grows. Under the same index the
+  live entries move down a word of gone bits at a time and each lane
+  is numbered again by its entry's rank (`Table.ranks`,
+  `Table.compacted`), with no hash and no probe.
+- **Walks** go by runs: an iterator with no `holes` when it starts is
+  one counted loop; otherwise each run's ends are found by counts of
+  trailing zeros over the gone words (`live_from`, `gone_from`, called
+  once a run).
+
+The runtime prints a Map or Set (`writeMap`, `writeSet`) from the same
+fields, and the Map trace wraps its methods by name.
+
 ### The Map trace
 
 `RIG_MAP_TRACE=1` at build time records each operation on a built-in

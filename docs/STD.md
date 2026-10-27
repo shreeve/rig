@@ -1120,13 +1120,13 @@ a Set.
 | `(!m).ensure_with(k, make)` | `fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped. The Map keeps `make`, since the value it makes may view what `make` captured: `make` may read a field of the Map's owner other than the Map, and a capture of the owner itself is rejected |
 | `(!m).ensure_by(k, key, v)` | `fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key` | as `ensure`, with the key viewed: `key(k)` makes the key to put only when `k` is new, so a count by a viewed key, `(!m).ensure_by(word, \|w\| +w, 0) += 1`, makes no key for a word already there; otherwise `key` is not called and `v` is dropped. Where a key may view memory (`Map[?String, V]`), the Map keeps `k` lent; a key that owns its memory, a String or an Int, keeps nothing, though a named `k` is written `?k` |
 | `w, added = (!m).ensure_added(k, v)` | `fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
-| `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry was taken since the entries were last compacted; else it counts the entries before |
-| `(!m).take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
+| `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry is gone since the entries were last compacted; else it counts the live entries before it, 64 at a time |
+| `(!m).take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped at once |
 | `!m.clear()` | `sub clear(!@)` | drops every entry |
 | `?m.items()` | `fun items(?@) -> Items[K, V] from @` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) views `m` (`next(!@) -> Item[?K, ?V]? from @map`), and keeps it lent to read while it lives |
 | `?m.keys()`, `?m.values()` | `fun keys(?@) -> Keys[K, V] from @` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!@, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
-| `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
+| `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then |
 
 `Set[K]` has `Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
@@ -1307,24 +1307,23 @@ sub main()
 `Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
 ```
 
-The entries are kept in one List, in order, each with its key's hash
-beside it, so no key is hashed twice: not when the table grows, nor
-when an entry is taken. A key of 8 bytes or fewer (an `Int`, a `U32`
-id, an enum, a `Symbol`) keeps no hash: it hashes in a few steps and
-compares in one, so a small Map compares keys, and a table hashes a key
-again where it needs one, 8 bytes an entry fewer. A Map or Set builds a table when it first
-holds more than 8 entries, or when `reserve` makes room for more, and
-keeps it until `clear`; until then, a lookup compares the stored
-hashes in turn, then the key where one matches. The table is
-open-addressed and probed linearly, at most four fifths full; each
-slot holds a one-byte tag, the top seven bits of its key's hash, and
-the index of its entry, so a probe compares a key only when the tag
-matches, and a key that is not there is found missing from the tags
-alone. A Map's entry holds its key and an optional value (for a
-`Map[U32, U32]`, a `U32` and a `U32?`), and its hash, a `U64`, is kept
-in a List beside the entries; taking one empties its value in place,
-and the next growth drops the entry, key and all, keeping the rest in
-order. A Set's key is optional, and taking one hands it back. The seed
+The entries are kept in one List, in the order their keys were first
+put in. When the keys and values are plain data, an entry is the key
+and the value and nothing else (16 bytes for a `Map[Int, Int]`), and a
+key is hashed again where the index is rebuilt; otherwise an entry
+also keeps its key's hash, so a String is hashed once, and is `none`
+once taken. Taking an entry drops its key at once, hands back its
+value, and marks the entry gone, so the rest keep their order; the gone
+entries are dropped from the List only when it is full and a quarter
+of it is gone, when the index grows, or when the last entry is taken,
+and a walk passes them by runs. Up to 16 entries a Map or Set has no
+index: a tag byte for each entry, kept in the Map itself, finds a key by
+one 16-byte compare. Past that, an index of groups of 16 tag bytes (15
+tags and a byte of overflow marks) and beside them 16 32-bit entry
+indexes a group finds it: a lookup compares its key's tag with a whole
+group at once and compares a key only where a tag matches, and a key
+that is not there is found missing from the tags alone, nearly always
+in one group. A Map or Set holds at most 4,294,967,295 entries. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 
