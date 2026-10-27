@@ -21,6 +21,8 @@ moves up into its table).
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set | rig-fast | 13.55 us | 5.93 us | 49.56 us |
 | 2026-10-27 | main 54a7158b5 before #725, interleaved | rig-fast | 14.72 us | 5.96 us | 49.54 us |
 | 2026-10-27 | #725: a freed large block serves any request it fits | rig-fast | 14.82 us | 5.92 us | 49.98 us |
+| 2026-10-27 | main 967e1ac11 before #726, interleaved | rig-fast | 14.69 us | 5.96 us | 45.19 us |
+| 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (Linux only) | rig-fast | 14.81 us | 5.92 us | 48.47 us |
 
 ## x86-64 (pup)
 
@@ -49,3 +51,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 5.07 us | 3.94 us | 29.77 us |
 | 2026-10-27 | main 54a7158b5 before #725, interleaved (pup cores 6,7) | rig-fast | 5.09 us | 3.79 us | 28.97 us |
 | 2026-10-27 | #725: a freed large block serves any request it fits (pup cores 6,7) | rig-fast | 5.00 us | 3.84 us | 30.08 us |
+| 2026-10-27 | main 967e1ac11 before #726, interleaved (pup cores 6,7) | rig-fast | 4.93 us | 3.59 us | 28.10 us |
+| 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (pup cores 6,7) | rig-fast | 4.99 us | 3.62 us | 28.89 us |

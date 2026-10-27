@@ -1,0 +1,115 @@
+keys       op                     zig-foa:rigmain  zig-foa:rigmain2  zig-foa:rigthp16   fastest        vs zig-foa:rigmain (ns/op)
+int16      insert                            8.00              7.93              7.95   zig-foa:rigmain2 zig-foa:rigmain2 1.0% faster, zig-foa:rigthp16 0.6% faster
+int16      remove                            6.80              6.73              6.76   zig-foa:rigmain2 zig-foa:rigmain2 1.1% faster, zig-foa:rigthp16 0.7% faster
+int16      hit                               1.39              1.39              1.40   zig-foa:rigmain2 zig-foa:rigmain2 0.0% faster, zig-foa:rigthp16 0.4% slower
+int16      miss                              1.92              1.92              1.10   zig-foa:rigthp16 zig-foa:rigmain2 0.0% slower, zig-foa:rigthp16 73.5% faster
+int16      iterate                           0.59              0.59              0.57   zig-foa:rigthp16 zig-foa:rigmain2 0.8% slower, zig-foa:rigthp16 2.6% faster
+int1000    insert                           15.15             15.16             15.16   zig-foa:rigmain zig-foa:rigmain2 0.0% slower, zig-foa:rigthp16 0.0% slower
+int1000    remove                            5.20              5.02              4.99   zig-foa:rigthp16 zig-foa:rigmain2 3.6% faster, zig-foa:rigthp16 4.2% faster
+int1000    hit                               1.51              1.51              1.50   zig-foa:rigthp16 zig-foa:rigmain2 0.3% slower, zig-foa:rigthp16 0.5% faster
+int1000    miss                              1.29              1.29              1.26   zig-foa:rigthp16 zig-foa:rigmain2 0.1% faster, zig-foa:rigthp16 2.6% faster
+int1000    iterate                           0.52              0.54              0.52   zig-foa:rigmain zig-foa:rigmain2 2.1% slower, zig-foa:rigthp16 0.1% slower
+int100000  insert                           11.74             11.86             11.68   zig-foa:rigthp16 zig-foa:rigmain2 1.0% slower, zig-foa:rigthp16 0.5% faster
+int100000  remove                            5.57              5.79              5.90   zig-foa:rigmain zig-foa:rigmain2 3.8% slower, zig-foa:rigthp16 5.6% slower
+int100000  hit                               2.63              2.65              2.64   zig-foa:rigmain zig-foa:rigmain2 0.8% slower, zig-foa:rigthp16 0.3% slower
+int100000  miss                              2.85              2.85              2.85   zig-foa:rigmain zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 0.0% slower
+int100000  iterate                           0.91              0.91              0.86   zig-foa:rigthp16 zig-foa:rigmain2 0.4% faster, zig-foa:rigthp16 5.7% faster
+int4000000 insert                           35.61             35.44             25.49   zig-foa:rigthp16 zig-foa:rigmain2 0.5% faster, zig-foa:rigthp16 39.7% faster
+int4000000 remove                           25.06             24.89             23.98   zig-foa:rigthp16 zig-foa:rigmain2 0.7% faster, zig-foa:rigthp16 4.5% faster
+int4000000 hit                              17.14             16.87             15.43   zig-foa:rigthp16 zig-foa:rigmain2 1.6% faster, zig-foa:rigthp16 11.1% faster
+int4000000 miss                              5.63              5.25              4.53   zig-foa:rigthp16 zig-foa:rigmain2 7.2% faster, zig-foa:rigthp16 24.4% faster
+int4000000 iterate                           2.52              2.51              2.35   zig-foa:rigthp16 zig-foa:rigmain2 0.2% faster, zig-foa:rigthp16 7.3% faster
+rnd16      insert                            6.82              6.73              6.85   zig-foa:rigmain2 zig-foa:rigmain2 1.3% faster, zig-foa:rigthp16 0.5% slower
+rnd16      remove                            6.83              6.84              6.85   zig-foa:rigmain zig-foa:rigmain2 0.2% slower, zig-foa:rigthp16 0.2% slower
+rnd16      hit                               1.31              1.34              1.31   zig-foa:rigmain zig-foa:rigmain2 2.0% slower, zig-foa:rigthp16 0.2% slower
+rnd16      miss                              1.11              1.11              1.11   zig-foa:rigmain2 zig-foa:rigmain2 0.2% faster, zig-foa:rigthp16 0.5% slower
+rnd16      iterate                           0.61              0.60              0.58   zig-foa:rigthp16 zig-foa:rigmain2 1.2% faster, zig-foa:rigthp16 5.1% faster
+rnd24      insert                            6.61              6.58              6.56   zig-foa:rigthp16 zig-foa:rigmain2 0.4% faster, zig-foa:rigthp16 0.7% faster
+rnd24      remove                            6.76              6.78              6.77   zig-foa:rigmain zig-foa:rigmain2 0.2% slower, zig-foa:rigthp16 0.2% slower
+rnd24      hit                               1.48              1.48              1.48   zig-foa:rigmain2 zig-foa:rigmain2 0.0% faster, zig-foa:rigthp16 0.2% slower
+rnd24      miss                              1.35              1.36              1.37   zig-foa:rigmain zig-foa:rigmain2 0.6% slower, zig-foa:rigthp16 1.3% slower
+rnd24      iterate                           0.50              0.50              0.50   zig-foa:rigthp16 zig-foa:rigmain2 0.1% faster, zig-foa:rigthp16 0.2% faster
+rnd1000    insert                           14.64             14.66             14.65   zig-foa:rigmain zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 0.1% slower
+rnd1000    remove                            4.99              4.93              4.82   zig-foa:rigthp16 zig-foa:rigmain2 1.1% faster, zig-foa:rigthp16 3.5% faster
+rnd1000    hit                               1.40              1.40              1.39   zig-foa:rigthp16 zig-foa:rigmain2 0.0% faster, zig-foa:rigthp16 0.3% faster
+rnd1000    miss                              1.35              1.34              1.33   zig-foa:rigthp16 zig-foa:rigmain2 0.3% faster, zig-foa:rigthp16 1.1% faster
+rnd1000    iterate                           0.54              0.54              0.57   zig-foa:rigmain2 zig-foa:rigmain2 0.2% faster, zig-foa:rigthp16 5.3% slower
+rnd1500    insert                           10.74             10.73             10.75   zig-foa:rigmain2 zig-foa:rigmain2 0.1% faster, zig-foa:rigthp16 0.2% slower
+rnd1500    remove                            4.16              4.15              3.90   zig-foa:rigthp16 zig-foa:rigmain2 0.4% faster, zig-foa:rigthp16 6.8% faster
+rnd1500    hit                               1.56              1.53              1.52   zig-foa:rigthp16 zig-foa:rigmain2 2.2% faster, zig-foa:rigthp16 2.7% faster
+rnd1500    miss                              1.34              1.36              1.39   zig-foa:rigmain zig-foa:rigmain2 1.3% slower, zig-foa:rigthp16 3.3% slower
+rnd1500    iterate                           0.50              0.50              0.51   zig-foa:rigmain zig-foa:rigmain2 0.3% slower, zig-foa:rigthp16 2.5% slower
+rnd100000  insert                           11.48             11.31             11.35   zig-foa:rigmain2 zig-foa:rigmain2 1.5% faster, zig-foa:rigthp16 1.2% faster
+rnd100000  remove                            6.18              6.06              6.14   zig-foa:rigmain2 zig-foa:rigmain2 2.0% faster, zig-foa:rigthp16 0.6% faster
+rnd100000  hit                               2.80              2.83              2.82   zig-foa:rigmain zig-foa:rigmain2 1.1% slower, zig-foa:rigthp16 0.5% slower
+rnd100000  miss                              2.97              2.96              2.90   zig-foa:rigthp16 zig-foa:rigmain2 0.5% faster, zig-foa:rigthp16 2.6% faster
+rnd100000  iterate                           0.90              0.89              0.87   zig-foa:rigthp16 zig-foa:rigmain2 1.3% faster, zig-foa:rigthp16 3.3% faster
+rnd150000  insert                           12.04             12.08             11.97   zig-foa:rigthp16 zig-foa:rigmain2 0.3% slower, zig-foa:rigthp16 0.6% faster
+rnd150000  remove                            5.98              6.07              5.90   zig-foa:rigthp16 zig-foa:rigmain2 1.6% slower, zig-foa:rigthp16 1.3% faster
+rnd150000  hit                               2.87              2.86              2.71   zig-foa:rigthp16 zig-foa:rigmain2 0.3% faster, zig-foa:rigthp16 5.9% faster
+rnd150000  miss                              1.73              1.73              1.70   zig-foa:rigthp16 zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 1.9% faster
+rnd150000  iterate                           1.19              1.24              1.16   zig-foa:rigthp16 zig-foa:rigmain2 3.9% slower, zig-foa:rigthp16 2.4% faster
+rnd3000000 insert                           12.54             12.62             11.80   zig-foa:rigthp16 zig-foa:rigmain2 0.6% slower, zig-foa:rigthp16 6.3% faster
+rnd3000000 remove                           16.32             16.23             15.50   zig-foa:rigthp16 zig-foa:rigmain2 0.5% faster, zig-foa:rigthp16 5.3% faster
+rnd3000000 hit                              12.45             12.71             11.80   zig-foa:rigthp16 zig-foa:rigmain2 2.0% slower, zig-foa:rigthp16 5.5% faster
+rnd3000000 miss                              4.63              4.63              4.24   zig-foa:rigthp16 zig-foa:rigmain2 0.0% slower, zig-foa:rigthp16 9.1% faster
+rnd3000000 iterate                           1.22              1.22              1.06   zig-foa:rigthp16 zig-foa:rigmain2 0.4% faster, zig-foa:rigthp16 15.0% faster
+rnd4000000 insert                           33.50             33.46             24.45   zig-foa:rigthp16 zig-foa:rigmain2 0.1% faster, zig-foa:rigthp16 37.0% faster
+rnd4000000 remove                           22.74             22.61             21.20   zig-foa:rigthp16 zig-foa:rigmain2 0.6% faster, zig-foa:rigthp16 7.2% faster
+rnd4000000 hit                              17.56             17.82             15.58   zig-foa:rigthp16 zig-foa:rigmain2 1.4% slower, zig-foa:rigthp16 12.7% faster
+rnd4000000 miss                              5.36              5.35              4.68   zig-foa:rigthp16 zig-foa:rigmain2 0.3% faster, zig-foa:rigthp16 14.7% faster
+rnd4000000 iterate                           2.51              2.51              2.36   zig-foa:rigthp16 zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 6.3% faster
+lat16      chain                             6.07              6.08              6.08   zig-foa:rigmain zig-foa:rigmain2 0.0% slower, zig-foa:rigthp16 0.0% slower
+lat1000    chain                             6.14              6.14              6.14   zig-foa:rigmain zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 0.1% slower
+lat100000  chain                            12.22             11.93             12.04   zig-foa:rigmain2 zig-foa:rigmain2 2.5% faster, zig-foa:rigthp16 1.5% faster
+lat4000000 chain                           146.90            147.87            137.06   zig-foa:rigthp16 zig-foa:rigmain2 0.7% slower, zig-foa:rigthp16 7.2% faster
+churn16    turnover                          6.33              6.29              6.19   zig-foa:rigthp16 zig-foa:rigmain2 0.7% faster, zig-foa:rigthp16 2.3% faster
+churn1000  turnover                          3.27              3.31              3.31   zig-foa:rigmain zig-foa:rigmain2 1.3% slower, zig-foa:rigthp16 1.1% slower
+churn100000 turnover                         14.97             14.87             15.06   zig-foa:rigmain2 zig-foa:rigmain2 0.6% faster, zig-foa:rigthp16 0.6% slower
+churn4000000 turnover                         22.17             22.22             20.68   zig-foa:rigthp16 zig-foa:rigmain2 0.2% slower, zig-foa:rigthp16 7.2% faster
+mix16      half                              1.28              1.31              1.31   zig-foa:rigmain zig-foa:rigmain2 1.9% slower, zig-foa:rigthp16 1.9% slower
+mix1000    half                              1.21              1.26              1.54   zig-foa:rigmain zig-foa:rigmain2 4.0% slower, zig-foa:rigthp16 21.3% slower
+mix100000  half                              7.23              7.21              7.26   zig-foa:rigmain2 zig-foa:rigmain2 0.3% faster, zig-foa:rigthp16 0.4% slower
+mix4000000 half                             15.99             15.76             15.21   zig-foa:rigthp16 zig-foa:rigmain2 1.5% faster, zig-foa:rigthp16 5.1% faster
+str16      insert                           16.63             16.42             16.42   zig-foa:rigmain2 zig-foa:rigmain2 1.3% faster, zig-foa:rigthp16 1.3% faster
+str16      remove                           11.41             11.33             11.40   zig-foa:rigmain2 zig-foa:rigmain2 0.6% faster, zig-foa:rigthp16 0.1% faster
+str16      hit                               4.74              4.74              4.73   zig-foa:rigthp16 zig-foa:rigmain2 0.0% faster, zig-foa:rigthp16 0.3% faster
+str16      miss                              2.78              2.76              2.74   zig-foa:rigthp16 zig-foa:rigmain2 0.6% faster, zig-foa:rigthp16 1.5% faster
+str1000    insert                           21.59             21.55             21.51   zig-foa:rigthp16 zig-foa:rigmain2 0.2% faster, zig-foa:rigthp16 0.4% faster
+str1000    remove                           14.08             14.02             14.01   zig-foa:rigthp16 zig-foa:rigmain2 0.4% faster, zig-foa:rigthp16 0.5% faster
+str1000    hit                               5.99              6.00              5.89   zig-foa:rigthp16 zig-foa:rigmain2 0.2% slower, zig-foa:rigthp16 1.5% faster
+str1000    miss                              3.16              3.15              3.12   zig-foa:rigthp16 zig-foa:rigmain2 0.5% faster, zig-foa:rigthp16 1.4% faster
+str100000  insert                           28.41             28.62             29.26   zig-foa:rigmain zig-foa:rigmain2 0.7% slower, zig-foa:rigthp16 2.9% slower
+str100000  remove                           22.24             22.27             21.54   zig-foa:rigthp16 zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 3.3% faster
+str100000  hit                              39.06             39.33             39.00   zig-foa:rigthp16 zig-foa:rigmain2 0.7% slower, zig-foa:rigthp16 0.2% faster
+str100000  miss                             14.52             14.06             14.20   zig-foa:rigmain2 zig-foa:rigmain2 3.2% faster, zig-foa:rigthp16 2.3% faster
+str1000000 insert                           69.86             70.18             69.23   zig-foa:rigthp16 zig-foa:rigmain2 0.5% slower, zig-foa:rigthp16 0.9% faster
+str1000000 remove                           66.41             66.45             63.58   zig-foa:rigthp16 zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 4.4% faster
+str1000000 hit                              72.24             72.74             71.41   zig-foa:rigthp16 zig-foa:rigmain2 0.7% slower, zig-foa:rigthp16 1.2% faster
+str1000000 miss                             14.30             14.34             14.10   zig-foa:rigthp16 zig-foa:rigmain2 0.2% slower, zig-foa:rigthp16 1.5% faster
+big16      insert                           22.76             22.79             23.65   zig-foa:rigmain zig-foa:rigmain2 0.1% slower, zig-foa:rigthp16 3.8% slower
+big16      remove                           18.03             18.06             18.06   zig-foa:rigmain zig-foa:rigmain2 0.2% slower, zig-foa:rigthp16 0.2% slower
+big16      hit                               1.31              1.40              1.42   zig-foa:rigmain zig-foa:rigmain2 5.9% slower, zig-foa:rigthp16 7.6% slower
+big16      iterate                           0.60              0.61              0.62   zig-foa:rigmain zig-foa:rigmain2 0.9% slower, zig-foa:rigthp16 2.4% slower
+big1000    insert                           27.97             27.04             27.09   zig-foa:rigmain2 zig-foa:rigmain2 3.4% faster, zig-foa:rigthp16 3.3% faster
+big1000    remove                            9.21              9.15              8.91   zig-foa:rigthp16 zig-foa:rigmain2 0.7% faster, zig-foa:rigthp16 3.4% faster
+big1000    hit                               1.48              1.48              1.49   zig-foa:rigmain zig-foa:rigmain2 0.4% slower, zig-foa:rigthp16 0.5% slower
+big1000    iterate                           0.59              0.59              0.58   zig-foa:rigthp16 zig-foa:rigmain2 0.5% faster, zig-foa:rigthp16 2.4% faster
+big100000  insert                           26.37             26.18             25.64   zig-foa:rigthp16 zig-foa:rigmain2 0.7% faster, zig-foa:rigthp16 2.9% faster
+big100000  remove                           20.18             19.65             19.43   zig-foa:rigthp16 zig-foa:rigmain2 2.7% faster, zig-foa:rigthp16 3.9% faster
+big100000  hit                               5.28              4.98              4.88   zig-foa:rigthp16 zig-foa:rigmain2 6.0% faster, zig-foa:rigthp16 8.1% faster
+big100000  iterate                           1.39              1.40              1.37   zig-foa:rigthp16 zig-foa:rigmain2 0.5% slower, zig-foa:rigthp16 1.7% faster
+big1000000 insert                           82.32             82.52             52.73   zig-foa:rigthp16 zig-foa:rigmain2 0.2% slower, zig-foa:rigthp16 56.1% faster
+big1000000 remove                           25.36             25.43             24.25   zig-foa:rigthp16 zig-foa:rigmain2 0.3% slower, zig-foa:rigthp16 4.6% faster
+big1000000 hit                              20.81             20.05             18.85   zig-foa:rigthp16 zig-foa:rigmain2 3.8% faster, zig-foa:rigthp16 10.4% faster
+big1000000 iterate                           5.96              5.82              5.69   zig-foa:rigthp16 zig-foa:rigmain2 2.4% faster, zig-foa:rigthp16 4.7% faster
+
+first places over 84 rows every variant times (the int rows left out):
+  zig-foa:rigthp16   51
+  zig-foa:rigmain   19
+  zig-foa:rigmain2   14
+
+memory: peak bytes per entry, one map of 4,000,000 Int keys (16 bytes of key and value)
+  zig-foa:rigmain2    54.7
+  zig-foa:rigmain    54.7
+  zig-foa:rigthp16    54.8

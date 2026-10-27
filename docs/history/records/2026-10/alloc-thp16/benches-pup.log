@@ -1,0 +1,210 @@
+== tasks main round 1
+        rig-fast          vs rig-fast
+spawn   60 ns/task        
+chain   87 ns/task        
+fanout  310.1 ms/run      
+yield   22 ns/yield       
+hog     131.33 us/step    
+memory  4.6 KiB/task      
+== tasks thp16 round 1
+        rig-fast          vs rig-fast
+spawn   60 ns/task        
+chain   86 ns/task        
+fanout  310.2 ms/run      
+yield   22 ns/yield       
+hog     131.29 us/step    
+memory  4.6 KiB/task      
+== actors main round 1
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors thp16 round 1
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net main round 1
+         rig-fast      vs rig-fast
+pingpong 4.99 us/trip  
+echo     3.70 us/trip  
+connect  28.49 us/conn 
+== net thp16 round 1
+         rig-fast      vs rig-fast
+pingpong 4.99 us/trip  
+echo     3.72 us/trip  
+connect  28.89 us/conn 
+== http main round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        204270     189 us    3460 us       8.6 KiB
+== http thp16 round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        207334     190 us    3414 us       8.6 KiB
+== tasks thp16 round 2
+        rig-fast          vs rig-fast
+spawn   63 ns/task        
+chain   86 ns/task        
+fanout  310.1 ms/run      
+yield   22 ns/yield       
+hog     131.54 us/step    
+memory  4.6 KiB/task      
+== tasks main round 2
+        rig-fast          vs rig-fast
+spawn   62 ns/task        
+chain   86 ns/task        
+fanout  310.2 ms/run      
+yield   21 ns/yield       
+hog     130.86 us/step    
+memory  4.6 KiB/task      
+== actors thp16 round 2
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors main round 2
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net thp16 round 2
+         rig-fast      vs rig-fast
+pingpong 5.01 us/trip  
+echo     3.73 us/trip  
+connect  29.44 us/conn 
+== net main round 2
+         rig-fast      vs rig-fast
+pingpong 4.93 us/trip  
+echo     3.59 us/trip  
+connect  28.10 us/conn 
+== http thp16 round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        206866     185 us    3428 us       8.6 KiB
+== http main round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        208635     179 us    3423 us       8.6 KiB
+== tasks main round 3
+        rig-fast          vs rig-fast
+spawn   60 ns/task        
+chain   86 ns/task        
+fanout  310.2 ms/run      
+yield   22 ns/yield       
+hog     131.19 us/step    
+memory  4.6 KiB/task      
+== tasks thp16 round 3
+        rig-fast          vs rig-fast
+spawn   61 ns/task        
+chain   88 ns/task        
+fanout  310.2 ms/run      
+yield   22 ns/yield       
+hog     130.98 us/step    
+memory  4.6 KiB/task      
+== actors main round 3
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors thp16 round 3
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net main round 3
+         rig-fast      vs rig-fast
+pingpong 4.96 us/trip  
+echo     3.66 us/trip  
+connect  28.85 us/conn 
+== net thp16 round 3
+         rig-fast      vs rig-fast
+pingpong 5.01 us/trip  
+echo     3.68 us/trip  
+connect  29.10 us/conn 
+== http main round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        208586     182 us    3426 us       8.6 KiB
+== http thp16 round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        207057     220 us    3381 us       8.6 KiB
+== tasks thp16 round 4
+        rig-fast          vs rig-fast
+spawn   61 ns/task        
+chain   85 ns/task        
+fanout  310.2 ms/run      
+yield   22 ns/yield       
+hog     130.64 us/step    
+memory  4.6 KiB/task      
+== tasks main round 4
+        rig-fast          vs rig-fast
+spawn   63 ns/task        
+chain   87 ns/task        
+fanout  310.0 ms/run      
+yield   22 ns/yield       
+hog     131.41 us/step    
+memory  4.6 KiB/task      
+== actors thp16 round 4
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors main round 4
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net thp16 round 4
+         rig-fast      vs rig-fast
+pingpong 5.02 us/trip  
+echo     3.62 us/trip  
+connect  28.97 us/conn 
+== net main round 4
+         rig-fast      vs rig-fast
+pingpong 4.97 us/trip  
+echo     3.63 us/trip  
+connect  28.90 us/conn 
+== http thp16 round 4
+                 req/s       p50       p99 per idle conn
+rig-fast        210404     177 us    3405 us       8.6 KiB
+== http main round 4
+                 req/s       p50       p99 per idle conn
+rig-fast        209107     181 us    3391 us       8.6 KiB
+== tasks main round 5
+        rig-fast          vs rig-fast
+spawn   61 ns/task        
+chain   86 ns/task        
+fanout  310.2 ms/run      
+yield   21 ns/yield       
+hog     131.31 us/step    
+memory  4.6 KiB/task      
+== tasks thp16 round 5
+        rig-fast          vs rig-fast
+spawn   61 ns/task        
+chain   86 ns/task        
+fanout  310.3 ms/run      
+yield   21 ns/yield       
+hog     130.97 us/step    
+memory  4.6 KiB/task      
+== actors main round 5
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== actors thp16 round 5
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  15 ns/call  
+spread   10 ns/call  
+== net main round 5
+         rig-fast      vs rig-fast
+pingpong 5.01 us/trip  
+echo     3.66 us/trip  
+connect  29.38 us/conn 
+== net thp16 round 5
+         rig-fast      vs rig-fast
+pingpong 5.05 us/trip  
+echo     3.66 us/trip  
+connect  29.06 us/conn 
+== http main round 5
+                 req/s       p50       p99 per idle conn
+rig-fast        209739     183 us    3424 us       8.6 KiB
+== http thp16 round 5
+                 req/s       p50       p99 per idle conn
+rig-fast        209187     182 us    3417 us       8.6 KiB

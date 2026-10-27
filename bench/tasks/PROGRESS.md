@@ -41,6 +41,8 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set | rig-fast | 79 ns | 44 ns | 76.4 ms | 5 ns | 53.21 us | 17.1 KiB |
 | 2026-10-27 | main 54a7158b5 before #725, interleaved | rig-fast | 111 ns | 44 ns | 83.7 ms | 5 ns | 81.34 us | 17.1 KiB |
 | 2026-10-27 | #725: a freed large block serves any request it fits | rig-fast | 112 ns | 44 ns | 83.5 ms | 5 ns | 75.66 us | 17.1 KiB |
+| 2026-10-27 | main 967e1ac11 before #726, interleaved | rig-fast | 109 ns | 42 ns | 81.8 ms | 5 ns | 87.38 us | 17.1 KiB |
+| 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (Linux only) | rig-fast | 96 ns | 43 ns | 82.5 ms | 5 ns | 81.33 us | 17.1 KiB |
 
 ## x86-64 (pup)
 
@@ -82,3 +84,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 63 ns | 87 ns | 310.0 ms | 24 ns | 134.40 us | 4.6 KiB |
 | 2026-10-27 | main 54a7158b5 before #725, interleaved (pup cores 6,7) | rig-fast | 60 ns | 86 ns | 309.8 ms | 22 ns | 131.65 us | 4.6 KiB |
 | 2026-10-27 | #725: a freed large block serves any request it fits (pup cores 6,7) | rig-fast | 61 ns | 85 ns | 310.0 ms | 21 ns | 131.06 us | 4.6 KiB |
+| 2026-10-27 | main 967e1ac11 before #726, interleaved (pup cores 6,7) | rig-fast | 60 ns | 86 ns | 310.0 ms | 21 ns | 130.86 us | 4.6 KiB |
+| 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (pup cores 6,7) | rig-fast | 60 ns | 85 ns | 310.1 ms | 21 ns | 130.64 us | 4.6 KiB |
