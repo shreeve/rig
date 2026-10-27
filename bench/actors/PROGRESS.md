@@ -26,6 +26,8 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set | rig-fast | 5.0 ns | 40 ns | 0.9 ns |
 | 2026-10-27 | main 54a7158b5 before #725, interleaved | rig-fast | 5.0 ns | 26 ns | 0.8 ns |
 | 2026-10-27 | #725: a freed large block serves any request it fits | rig-fast | 5.0 ns | 25 ns | 0.8 ns |
+| 2026-10-27 | main 967e1ac11 before #726, interleaved | rig-fast | 5.0 ns | 25 ns | 0.8 ns |
+| 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (Linux only) | rig-fast | 5.0 ns | 25 ns | 0.8 ns |
 
 ## x86-64 (pup)
 
@@ -58,3 +60,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 12 ns | 15 ns | 11 ns |
 | 2026-10-27 | main 54a7158b5 before #725, interleaved (pup cores 6,7) | rig-fast | 11 ns | 15 ns | 10 ns |
 | 2026-10-27 | #725: a freed large block serves any request it fits (pup cores 6,7) | rig-fast | 11 ns | 15 ns | 10 ns |
+| 2026-10-27 | main 967e1ac11 before #726, interleaved (pup cores 6,7) | rig-fast | 11 ns | 15 ns | 10 ns |
+| 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (pup cores 6,7) | rig-fast | 11 ns | 15 ns | 10 ns |

@@ -17,7 +17,9 @@
 //! memory freed stays for reuse. On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
-//! worth, faults in at once the memory it is about to fill (`prefault`).
+//! worth, faults in at once the memory it is about to fill (`prefault`),
+//! and a new large block of 16 MiB or more asks for huge pages
+//! (`huge_large`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -378,12 +380,52 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
         lent(h, size);
         return p;
     }
-    const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
+    const got = mapLarge(size) orelse return null;
+    if (size >= huge_large) adviseHuge(got, size);
     h.took(size);
     lent(h, size);
     trimKept(h);
-    prefault(h, @intFromPtr(got.ptr), likelyFilled(size - size / 4));
-    return got.ptr;
+    prefault(h, got, likelyFilled(size - size / 4));
+    return @ptrFromInt(got);
+}
+
+/// A new large block of at least this many bytes is mapped, on Linux,
+/// aligned to `huge_page` and advised for transparent huge pages
+/// (`adviseHuge`), and so is a block grown to it by `mremap`: its pages
+/// fault in 2 MiB at a time, a trap and a TLB entry each. Smaller blocks,
+/// and blocks taken from those kept, stay as they are: huge pages for
+/// every new block of 2 MiB or more raise Trig's peak memory, and from
+/// 16 MiB they do not (docs/history/records/2026-10/alloc-thp16/).
+const huge_large: usize = 16 << 20;
+
+/// A transparent huge page on Linux.
+const huge_page: usize = 2 << 20;
+
+/// `size` new bytes from the system: on Linux, from `huge_large`,
+/// aligned to `huge_page` (as the system often maps them already).
+fn mapLarge(size: usize) ?usize {
+    const got = mapPages(size) orelse return null;
+    if (builtin.os.tag != .linux or size < huge_large or got % huge_page == 0) return got;
+    unmapLarge(got, size);
+    const raw = mapPages(size + huge_page) orelse return null;
+    const p = std.mem.alignForward(usize, raw, huge_page);
+    if (p > raw) unmapLarge(raw, p - raw);
+    unmapLarge(p + size, raw + huge_page - p);
+    return p;
+}
+
+fn mapPages(size: usize) ?usize {
+    const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
+    return @intFromPtr(got.ptr);
+}
+
+/// Ask Linux to back the `len` bytes at `p` with transparent huge pages,
+/// where it is set to do so for a range that asks (`madvise` mode). A
+/// system that cannot leaves them as they are.
+fn adviseHuge(p: usize, len: usize) void {
+    if (builtin.os.tag != .linux) return;
+    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+    std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
 }
 
 /// `size` more bytes of large blocks handed out.
@@ -763,8 +805,14 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     const old_size = largeSize(memory.len);
     const new_size = largeSize(new_len);
     const linux = std.os.linux;
-    const rc = linux.mremap(@alignCast(memory.ptr), old_size, new_size, .{ .MAYMOVE = true }, null);
-    if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) return null;
+    // A block grown to `huge_large` moves to pages aligned for huge ones.
+    const to = if (new_size >= huge_large) mapLarge(new_size) orelse return null else 0;
+    const rc = linux.mremap(@alignCast(memory.ptr), old_size, new_size, .{ .MAYMOVE = true, .FIXED = to != 0 }, if (to != 0) @ptrFromInt(to) else null);
+    if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) {
+        if (to != 0) unmapLarge(to, new_size);
+        return null;
+    }
+    if (to != 0) adviseHuge(rc, new_size);
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
     h.took(new_size - old_size);
@@ -948,6 +996,68 @@ test "a freed large block serves a smaller request and keeps the rest, and a tab
     try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
     freeLarge(&h, huge, 64 * mib);
     trimAllForTest(&h);
+}
+
+test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them, and a smaller one does not" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var h = testHeap();
+    const mib: usize = 1 << 20;
+    const big = allocLarge(&h, 16 * mib).?;
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(big) % huge_page);
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(big)));
+    const small = allocLarge(&h, 8 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
+    freeLarge(&h, big, 16 * mib);
+    freeLarge(&h, small, 8 * mib);
+    trimAllForTest(&h);
+    // A block of 8 MiB, new, grown by `mremap` to 32 MiB.
+    trimAllForTest(heap().?);
+    const a = allocator;
+    const m = try a.alloc(u8, 8 * mib);
+    @memset(m, 7);
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(m.ptr)));
+    const g = a.remap(m, 32 * mib).?;
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.ptr) % huge_page);
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(g.ptr)));
+    try std.testing.expectEqual(@as(u8, 7), g[8 * mib - 1]);
+    a.free(g);
+}
+
+/// Whether the mapping that holds `p` asks for huge pages: its `VmFlags`
+/// in /proc/self/smaps name `hg`.
+fn advisedHugeForTest(p: usize) !bool {
+    // A file of /proc reads as empty to a reader that trusts its size,
+    // so it is read to its end here.
+    const linux = std.os.linux;
+    const fd: i32 = @intCast(@as(isize, @bitCast(linux.open("/proc/self/smaps", .{}, 0))));
+    if (fd < 0) return error.NoSmaps;
+    defer _ = linux.close(fd);
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(std.testing.allocator);
+    while (true) {
+        try buf.ensureUnusedCapacity(std.testing.allocator, 64 << 10);
+        const n: isize = @bitCast(linux.read(fd, buf.unusedCapacitySlice().ptr, buf.unusedCapacitySlice().len));
+        if (n < 0) return error.NoSmaps;
+        if (n == 0) break;
+        buf.items.len += @intCast(n);
+    }
+    const smaps = buf.items;
+    var lines = std.mem.splitScalar(u8, smaps, '\n');
+    var inside = false;
+    while (lines.next()) |line| {
+        if (std.mem.indexOfScalar(u8, line, '-')) |dash| if (std.mem.indexOfScalar(u8, line, ' ')) |sp| if (dash < sp) {
+            const lo = std.fmt.parseInt(usize, line[0..dash], 16) catch continue;
+            const hi = std.fmt.parseInt(usize, line[dash + 1 .. sp], 16) catch continue;
+            inside = lo <= p and p < hi;
+            continue;
+        };
+        if (inside and std.mem.startsWith(u8, line, "VmFlags:")) {
+            var flags = std.mem.tokenizeScalar(u8, line["VmFlags:".len..], ' ');
+            while (flags.next()) |f| if (std.mem.eql(u8, f, "hg")) return true;
+            return false;
+        }
+    }
+    return error.NoMapping;
 }
 
 /// Give back every block `h` keeps.

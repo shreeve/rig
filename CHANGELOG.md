@@ -1184,6 +1184,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   its instructions and time unchanged. Huge pages for blocks of 2 MiB
   or more were measured and left out: they raised ts-pattern's peak
   memory by 1.3 to 2.0%.
+- **Release allocator:** on Linux, a large block of 16 MiB or more
+  that a heap maps afresh, or that `mremap` grows to that size, is
+  aligned to 2 MiB and asks for transparent huge pages
+  (`MADV_HUGEPAGE`); smaller blocks and blocks reused from those a heap
+  keeps are left as they are. On pup, bench/hash's 3M and 4M-key rows
+  run 11% faster and its big-value inserts 10% faster (`big1000000`
+  36%). Trig's peak memory on ts-pattern is 0.4% higher at one checker
+  (296.2 MB against 295.0) and the same at four, zod3's the same; its
+  time and instructions are unchanged. Other systems are unchanged.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig
