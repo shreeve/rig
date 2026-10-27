@@ -1,6 +1,7 @@
 # Iterator chains: `map`, `filter`, and a consumer, as one loop
 
-*Proposed (2026-10-27); not built.* This page proposes how Rig writes
+*Proposed (2026-10-27); not built. The owner chose fused chains
+(decision 1) the same day.* This page proposes how Rig writes
 Rust's `nums.iter().map(|n| n * n).sum()`, gives the reasons and the
 measurements, and ends with the owner's decisions. Its `rig pending`
 examples show the rules as proposed; each turns into an ordinary
@@ -236,7 +237,8 @@ and consumers, and docs/learn gets an example.
 Each has a default.
 
 1. **Fused chains, not adapter values.** Build chains as loops now; make
-   a chain a value only when a program needs one. *Default: yes.*
+   a chain a value only when a program needs one. *Approved by the
+   owner, 2026-10-27.*
 2. **No `.iter()`.** Stages are methods on every `for` source.
    *Default: yes.*
 3. **The first set.** Stages `map`, `filter`, `take`, `skip`,
