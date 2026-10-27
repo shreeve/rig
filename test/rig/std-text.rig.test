@@ -84,6 +84,40 @@ fail "text bytes is rejected", "3:21: integer value `300` does not fit in `U8` (
 
   print(text.is_digit(300))
 
+test "text chunks", '''
+  2 ["a\nbb\nccc\ndddd\n", "eeeee\n"] true
+  1 ["a\nbb\nccc\ndddd\neeeee\n"] true
+  5 ["a\n", "bb\n", "ccc\n", "dddd\n", "eeeee\n"] true
+  1 ["one long line"] true
+  2 ["x\r\ny\r\n", "z"] true
+  0 [] true
+  3 3 true
+'''
+  # Runs of whole lines, at most `n`, which join back into the text; a
+  # long line makes its run longer, and fewer.
+
+  texts = ["a\nbb\nccc\ndddd\neeeee\n", "a\nbb\nccc\ndddd\neeeee\n", "a\nbb\nccc\ndddd\neeeee\n", "one long line", "x\r\ny\r\nz", ""]
+  counts = [2, 1, 99, 4, 3, 3]
+  for s, i in texts
+    runs = text.chunks(s, counts[i])
+    joined = String()
+    for r in ?runs
+      !joined.add(r)
+    print(runs.len, runs, joined == s)
+  log = String()
+  for k in 0..300
+    !log.add("line ", k, "\n")
+  runs = text.chunks(?log, 3)
+  whole = 0
+  for r in ?runs
+    whole += 1 if text.ends_with(r, "\n") else 0
+  print(runs.len, whole, runs[0].len + runs[1].len + runs[2].len == log.len)
+
+bomb "text chunks of no runs panics", "text.chunks: the count of runs is not positive"
+  # `chunks` cuts text into at least one run.
+
+  print(text.chunks("a\nb\n", 0))
+
 bomb "text char boundary negative panics", "text.char_boundary: the index is out of bounds"
   # A negative byte index is outside the text.
 

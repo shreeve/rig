@@ -327,6 +327,53 @@ fail "hash ensure with no map", "cannot lend `m` to write while a read loan is l
   v = (!m).ensure_with(1, |?m, k| m.len + k)
   v += 1
 
+test "hash ensure by", '''
+  {"to": 2, "be": 2, "or": 1, "not": 1} 4
+  {"to": 2, "be": 1}
+  10 [3, 13, 23, 33]
+'''
+  # `ensure_by` takes the key viewed and makes the key to put with `key`
+  # only when it is new: four words make four keys. A buffer cleared and
+  # refilled each time counts too, since a String key is a clone that
+  # views nothing. Values that own memory are made, kept, and dropped
+  # clean.
+
+  fun keyed(s: ?String, made: !Int) -> String
+    made += 1
+    +s
+
+  made = 0
+  counts = Map[String, Int].new()
+  for w in ["to", "be", "or", "not", "to", "be"]
+    (!counts).ensure_by(w, |!made, s| keyed(s, !made), 0) += 1
+  print(counts, made)
+
+  m = Map[String, Int].new()
+  buf = String()
+  for w in ["to", "be", "to"]
+    !buf.clear()
+    !buf.add(w)
+    (!m).ensure_by(?buf, |s| +s, 0) += 1
+  print(m)
+
+  sq = Map[Int, List[Int]].new()
+  for i in 0..40
+    k = i % 10
+    l = (!sq).ensure_by(?k, |n| n, List[Int]())
+    !l.push(i)
+  if sq.get(3) as l
+    print(sq.len, l)
+
+fail "hash ensure by view keys stay lent", "cannot lend `buf` to write while a read loan is live"
+  # A Map of view keys keeps what `key` made from the viewed key, so the
+  # buffer stays lent while the Map is used.
+
+  m = Map[?String, Int].new()
+  buf = String("to")
+  (!m).ensure_by(?buf, |s| s, 0) += 1
+  !buf.clear()
+  print(m)
+
 fail "hash get keeps lent", "cannot lend `m` to write while a read loan is live"
   # The view `get` returns is `from @`: it keeps the Map lent to read,
   # so the Map cannot be written while the view lives.

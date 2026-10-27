@@ -14,6 +14,10 @@ pub fn empty_separator() void {
     @panic("text.split: the separator is empty");
 }
 
+pub fn bad_run_count() void {
+    @panic("text.chunks: the count of runs is not positive");
+}
+
 pub fn find(s: []const u8, pat: []const u8) ?i64 {
     return @intCast(std.mem.find(u8, s, pat) orelse return null);
 }
