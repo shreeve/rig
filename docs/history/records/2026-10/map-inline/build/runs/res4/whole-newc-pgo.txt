@@ -1,0 +1,48 @@
+total 8504M (17164 samples, 53 unresolved)
+| Pattern | M | share | load | store | reload | spill | branch | call | callee save | callee restore |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| checker code | 3443 | 40.5% | 309 | 33 | 169 | 129 | 409 | 23 | 219 | 138 |
+| Table read/write | 1031 | 12.1% | 522 | 22 | 12 | 20 | 10 | 0 | 0 | 0 |
+| List op | 888 | 10.4% | 335 | 121 | 67 | 38 | 9 | 1 | 15 | 12 |
+| Map/Set | 741 | 8.7% | 95 | 13 | 30 | 11 | 77 | 0 | 1 | 2 |
+| bounds test | 440 | 5.2% | 204 | 0 | 13 | 0 | 28 | 0 | 0 | 0 |
+| allocator | 296 | 3.5% | 10 | 76 | 0 | 0 | 0 | 0 | 13 | 4 |
+| hash mix | 227 | 2.7% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| parse/bind code | 226 | 2.7% | 31 | 3 | 5 | 10 | 23 | 1 | 7 | 8 |
+| yield check | 208 | 2.4% | 0 | 0 | 0 | 0 | 4 | 0 | 0 | 0 |
+| runtime: ? | 176 | 2.1% | 16 | 0 | 32 | 23 | 5 | 0 | 0 | 3 |
+| zig std: enums.zig | 136 | 1.6% | 1 | 0 | 0 | 0 | 21 | 0 | 0 | 0 |
+| zig std: mem.zig | 88 | 1.0% | 33 | 22 | 5 | 1 | 5 | 0 | 1 | 0 |
+| runtime: rt | 82 | 1.0% | 24 | 0 | 3 | 19 | 0 | 0 | 0 | 0 |
+| zig std: atomic.zig | 76 | 0.9% | 76 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| zig std: memcpy.zig | 63 | 0.7% | 31 | 22 | 0 | 0 | 0 | 0 | 0 | 0 |
+| clone/drop | 51 | 0.6% | 13 | 5 | 17 | 3 | 0 | 0 | 3 | 0 |
+| trig other: lexer.zig | 39 | 0.5% | 7 | 11 | 1 | 0 | 4 | 0 | 0 | 0 |
+| rig std: sort | 37 | 0.4% | 0 | 0 | 3 | 4 | 3 | 0 | 1 | 1 |
+| rig std: text | 35 | 0.4% | 4 | 0 | 1 | 3 | 3 | 0 | 0 | 1 |
+| runtime: viewed | 33 | 0.4% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| zig std: math.zig | 29 | 0.3% | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| runtime: eqlAs | 28 | 0.3% | 12 | 0 | 5 | 0 | 0 | 0 | 0 | 0 |
+| zig std: Allocator.zig | 14 | 0.2% | 0 | 0 | 2 | 0 | 1 | 4 | 0 | 0 |
+| zig std: wyhash.zig | 14 | 0.2% | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| runtime: reallocSlice | 13 | 0.2% | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
+| runtime: call | 9 | 0.1% | 0 | 1 | 0 | 0 | 2 | 2 | 0 | 0 |
+| runtime: eql | 7 | 0.1% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| trig other: tspath.zig | 7 | 0.1% | 2 | 0 | 3 | 3 | 0 | 0 | 0 | 0 |
+| zig std: compiler_rt.zig | 6 | 0.1% | 3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| runtime: rem | 6 | 0.1% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| runtime: packOneStore | 5 | 0.1% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| runtime: allocSlice | 5 | 0.1% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| runtime: appendBytes | 4 | 0.1% | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
+| runtime: constSlotProven | 4 | 0.1% | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| zig std: Writer.zig | 4 | 0.0% | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| runtime: next | 4 | 0.0% | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| runtime: unwrap | 3 | 0.0% | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
+| runtime: of | 3 | 0.0% | 0 | 0 | 1 | 1 | 1 | 0 | 0 | 0 |
+| runtime: lend | 3 | 0.0% | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| zig std: stack_probe.zig | 2 | 0.0% | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 |
+| runtime: elemPtr | 1 | 0.0% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| trig other: jsnum.zig | 1 | 0.0% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| rig std: utf8 | 1 | 0.0% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| trig other: core.zig | 1 | 0.0% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| rig std: slices | 1 | 0.0% | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |

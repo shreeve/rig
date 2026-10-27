@@ -19,6 +19,7 @@ tmp=$(mktemp -d)
 n=$(echo $names | wc -w)
 r=1
 while [ $r -le $rounds ]; do
+  QLOG=${QLOG:-$W/res/quiet.log} sh $W/quiet.sh
   set -- $names
   k=$(( (r - 1) % n )); while [ $k -gt 0 ]; do x=$1; shift; set -- "$@" $x; k=$((k - 1)); done
   for b in "$@"; do
