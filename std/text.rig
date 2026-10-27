@@ -204,6 +204,27 @@ pub obj Lines
 pub fun lines(s: ?String) -> Lines
   Lines(rest: s)
 
+# `s` cut into at most `n` runs of whole lines, in order, each about
+# `s.len / n` bytes and ending with its line's ending, to hand out to
+# tasks: `runs = text.chunks(?log, 32)`, then `par.workers(!states,
+# ?runs, f)`. Each run views `s`, and together they are `s`. A line
+# longer than a run's share makes its run longer, and fewer. "" has no
+# runs. Panics unless `n` is positive.
+pub fun chunks(s: ?String, n: Int) -> List[?String] from s
+  if n <= 0
+    bad_run_count()
+  runs = List[?String]()
+  rest = s
+  size = s.len / n + 1
+  while rest.len > size
+    if find(rest[size..], "\n") as nl
+      !runs.push(rest[..size + nl + 1])
+      rest = rest[size + nl + 1..]
+    else
+      break
+  !runs.push(rest) if rest.len > 0
+  runs
+
 # The words of a `?String`, which `words` gives, in order:
 # `for word in text.words(s)`.
 pub obj Words
@@ -430,6 +451,9 @@ pub fun to_lower(b: U8) -> U8
 extern zig "text.zig"
   # Panics: `split`'s separator is empty.
   sub empty_separator()
+
+  # Panics: `chunks` is asked for no runs.
+  sub bad_run_count()
 
   # The index of the first occurrence of `pat` in `s`, or `none`; 0 when
   # `pat` is "".

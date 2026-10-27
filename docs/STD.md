@@ -636,6 +636,39 @@ a time, so a caller that puts the heaviest first gets an even load. The
 states stay the caller's, so it reads them afterwards; each goes to one
 task, so it must be sendable.
 
+Taking an item costs far more than a small item's work: a task that
+counts the users of a log line by line spends its time taking lines.
+Hand out runs of items instead, a few for each task, and let each call
+walk its run. `text.chunks` cuts text into runs of whole lines:
+
+```rig
+use std.par
+use std.text
+
+sub tally(seen: !Map[String, Int], lines: ?String)
+  for line in text.lines(lines)
+    (!seen).ensure_by(line, |s| +s, 0) += 1
+
+sub main()
+  log = String()
+  for i in 0..1000
+    !log.add("user", i % 3, "\n")
+  states = List[Map[String, Int]]()
+  for _ in 0..2
+    !states.push(Map[String, Int]())
+  runs = text.chunks(?log, 8)
+  par.workers(!states, ?runs, |seen, run| tally(!seen, run))
+  total = Map[String, Int]()
+  for seen in ?states
+    for e in ?seen.items()
+      (!total).ensure_by(e.key, |s| +s, 0) += e.value
+  print(runs.len, total.len, total.get("user0"), total.get("user2"))
+```
+
+```output
+8 3 334 333
+```
+
 ```rig
 use std.par
 
@@ -1085,6 +1118,7 @@ a Set.
 | `(!m).put_new(k, v)` | `fun put_new(!@, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
 | `(!m).ensure(k, v)` | `fun ensure(!@, k: K, v: V) -> !V from @, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
 | `(!m).ensure_with(k, make)` | `fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped. The Map keeps `make`, since the value it makes may view what `make` captured: `make` may read a field of the Map's owner other than the Map, and a capture of the owner itself is rejected |
+| `(!m).ensure_by(k, key, v)` | `fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key` | as `ensure`, with the key viewed: `key(k)` makes the key to put only when `k` is new, so a count by a viewed key, `(!m).ensure_by(word, \|w\| +w, 0) += 1`, makes no key for a word already there; otherwise `key` is not called and `v` is dropped. Where a key may view memory (`Map[?String, V]`), the Map keeps `k` lent; a key that owns its memory, a String or an Int, keeps nothing, though a named `k` is written `?k` |
 | `w, added = (!m).ensure_added(k, v)` | `fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
 | `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry was taken since the entries were last compacted; else it counts the entries before |
 | `(!m).take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
@@ -1682,6 +1716,7 @@ functions return.
 | `cut(s: ?String, sep: ?String) -> Cut? from s` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
 | `split(s: ?String, sep: ?String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
 | `lines(s: ?String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
+| `chunks(s: ?String, n: Int) -> List[?String] from s` | `s` cut into at most `n` runs of whole lines, in order, each about `s.len / n` bytes and ending with its line's ending, to hand out to tasks ([std.par](#stdpar)); together they are `s`, a line longer than a run's share makes its run longer and the runs fewer, and `""` has none; panics unless `n` is positive |
 | `words(s: ?String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
 | `chars(s: ?String) -> Chars` | the chars of `s`, each a `?String` viewing its bytes in `s` ([below](#chars)) |
 | `char_count(s: ?String) -> Int` | how many chars `s` holds |

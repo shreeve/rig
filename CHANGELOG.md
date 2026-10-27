@@ -156,6 +156,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Runs of lines for tasks, and counting by a viewed key:**
+  `text.chunks(s, n)` cuts text into at most `n` runs of whole lines, to
+  hand to `par.workers` a run at a time rather than a line at a time,
+  and `(!m).ensure_by(k, key, v)` is `ensure` with the key viewed, its
+  key made by `key` only when it is new: `(!m).ensure_by(word, |w| +w,
+  0) += 1`. STD's `std.par` says why a task should take runs.
 - **Hashing objects of integers:** an object whose parts are integers,
   plain enums and Bools hashes its words two at a time, one folded
   multiply a pair, as foldhash and abseil do, where it took two

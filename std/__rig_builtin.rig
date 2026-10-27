@@ -201,6 +201,24 @@ pub obj Map[K: Hash, V]
       if !@es[j].value as w
         return w
 
+  # As `ensure`, with the key viewed, not given: `key(k)` makes the key
+  # to put only when `k` is new, so a count by a viewed key,
+  # `(!m).ensure_by(word, |w| +w, 0) += 1`, makes no key for a word
+  # already there. When `k` is there, `key` is not called and `v` is
+  # dropped. The Map keeps `key`, as `ensure_with` keeps `make`.
+  pub fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
+    h = k.hash()
+    j = 0
+    if @find(k, h) as at
+      <v
+      j = at
+    else
+      j = (!@).add_new(key(k), <v, h)
+    # As in `ensure`, the entry at `j` holds a value.
+    while true
+      if !@es[j].value as w
+        return w
+
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
   # value `make(k)`, and give its index; out of line, as `add_new`.
   fun add_made(!@, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
