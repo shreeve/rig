@@ -27,6 +27,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Spans and false-edge proofs (#686, #687, closed) | `Span[n]` (branch `span-type`) and guard facts on the false edge with proven offsets by bit cast (branch `proof-edges`), built and measured on Trig: both within the noise (ts-pattern 0.7% slower to 0.2% faster) and 0.01-0.25% more instructions; the index tests they remove are predicted, so removing them saves nothing | [perf-stage/proofs.md](2026-10/perf-stage/proofs.md) |
 | List growth on Trig (2026-10-25) | Rig's List already grows as `Vec` does (doubling from 4, a memcpy, an inlined compare-and-store push); most of Trig's "List" family is inlined push and load code that tsrs's breakdown counts under its checker. The cost left is 3.22M short-lived Lists (83% drop at three or fewer); a first buffer straight from the allocator, an inline small-block judgment, and an always-inlined `push` saved 0.94% of ts-pattern's instructions on top of #696, under the bar, and made two std.json programs slower (placement; the inlined push), so #697 was closed; Trig's scratch-list sites listed | [perf-stage/list-grow.md](2026-10/perf-stage/list-grow.md) |
 | Table and List reads inside Trig (2026-10-25) | a `Table` read is the bare load, a `List` read adds only a sign test; the cycles charged to them are the element loads' misses, which tsrs pays too. Kept: an inlined call's `?T` result made a run-time value in place, not through `rig.rt`'s memory round trip (34% fewer blocked loads), one compare for a signed index against a held length, and `rarely` `noinline`: 1.5% fewer instructions on ts-pattern and zod3, 1.2-2.2% fewer cycles | [perf-stage/table-reads.md](2026-10/perf-stage/table-reads.md) |
+| Table reads in loops and yield checks (2026-10-26) | a Table's base is reloaded in a loop because the index test before it leaves the loop and Zig gives LLVM no `dereferenceable`, as much as because of the yield call; `noalias` on views gains nothing on Trig today (0.2% fewer instructions), and running range loops' turns in runs is worse (2.8-3.9% more); built: the yield checks call the scheduler through a function that keeps every register: Trig release 1.9% fewer instructions, with PGO 0.8-0.9% fewer and time within the noise, under the bar | [perf-stage/loop-hoist.md](2026-10/perf-stage/loop-hoist.md) |
 | Profile-guided optimization (2026-10-25) | LLVM PGO through Zig's bitcode and `zig cc`, trained away from the project timed: Trig 10% faster with 14% fewer instructions on ts-pattern and zod3, 5-9% faster than BOLT alone, BOLT on top adding nothing; built as `rig build --release --pgo`, with a freestanding profile writer the runtime calls in `--pgo` packages only | [perf-stage/pgo.md](2026-10/perf-stage/pgo.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
@@ -220,6 +221,17 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [list-grow.md](2026-10/perf-stage/list-grow.md): List growth on Trig, where it goes, what was built, and why it closed (2026-10-25)
 - [table-reads.md](2026-10/perf-stage/table-reads.md): Table and List reads inside Trig, measured, and two classes taken out (2026-10-25)
 - [pgo.md](2026-10/perf-stage/pgo.md): Profile-guided optimization, measured and built (2026-10-25)
+- [loop-hoist.md](2026-10/perf-stage/loop-hoist.md): Table reads in loops, and what a yield check costs (2026-10-26)
+
+### 2026-10/perf-stage/loop-hoist-data/
+
+- [bench-tasks-ab.py](2026-10/perf-stage/loop-hoist-data/bench-tasks-ab.py)
+- [build.sh](2026-10/perf-stage/loop-hoist-data/build.sh)
+- [licm-index-test.zig](2026-10/perf-stage/loop-hoist-data/licm-index-test.zig)
+- [licm-no-index-test.zig](2026-10/perf-stage/loop-hoist-data/licm-no-index-test.zig)
+- [licm-runs.zig](2026-10/perf-stage/loop-hoist-data/licm-runs.zig)
+- [noalias-and-runs.patch](2026-10/perf-stage/loop-hoist-data/noalias-and-runs.patch)
+- [time.sh](2026-10/perf-stage/loop-hoist-data/time.sh)
 
 ### 2026-10/perf-stage/list-grow-data/
 
