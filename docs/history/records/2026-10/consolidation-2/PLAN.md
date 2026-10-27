@@ -114,6 +114,7 @@ docs/internals/backlog.md.
 | 43 | a message calls the result "argument 0" when type arguments conflict with the expected result type | errors track | #693 |
 | 44 | a bracketed generic call (`id[Int](n)!`) is named `` `expression` `` in messages | errors track | #693 |
 | 45 | a generic mismatch names the inner types ("expected `Int!E`, got `Int`") while the non-generic message names the whole function types; make them one form | errors track | #693 |
+| 46 | a conflict inside one argument names both sides alike ("`Int` (argument 1) and `String` (argument 1)", `ap(h, 3)`); say where in the argument each came from | #693 | #704 |
 
 Stage 4's associated types in braces (`^{Source[Item: Int]}`) wait for
 a program that needs them: a ROADMAP line.

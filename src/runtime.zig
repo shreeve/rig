@@ -2907,10 +2907,8 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
         pub fn get(self: *const Self, i: Int) Opt(T) {
-            // One compare, as `heldIndex` makes it: a negative `i` reads
-            // as at least `2^63`, past any `len`.
-            const u: u64 = @bitCast(i);
-            return pack(Opt(T), if (u < self.len) self.memConst()[@truncate(u)] else null);
+            const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
+            return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
         }
 
         /// `v[i]`: the element at `i`; panics when out of range. One test,
@@ -2935,7 +2933,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `i` as a slot of the live elements, panicking unless `0 <= i <
         /// len`; inside the buffer by `len <= buf.len`.
         inline fn indexOf(self: *const Self, i: anytype) usize {
-            const idx = heldIndex(i, self.len);
+            const idx = index(i, self.len);
             invariant(idx < self.memConst().len);
             return idx;
         }
@@ -3515,25 +3513,41 @@ fn moduleOf(comptime name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 /// Convert a Rig index of any integer type to `usize`, panicking unless
-/// `0 <= i < len`.
+/// `0 <= i < count`.
 pub fn index(i: anytype, count: usize) usize {
     const idx = std.math.cast(usize, i) orelse indexPanic();
     if (idx >= count) indexPanic();
     return idx;
 }
 
-/// `index` against a held length (`heldLen`), at most `max_len`: a
-/// signed `i` read as unsigned is below the length exactly when `0 <= i
-/// < count`, since a negative one reads as at least `2^63`. One compare
-/// where `index` makes two.
-pub inline fn heldIndex(i: anytype, count: usize) usize {
+/// `index` against a compile-time `n`, as an array's length or a
+/// table's is: one compare.
+pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
+    if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
     const info = @typeInfo(@TypeOf(i));
-    if (comptime info != .int or info.int.signedness != .signed or info.int.bits > 64) return index(i, count);
-    invariant(@as(u64, count) <= max_len);
-    const u: u64 = @bitCast(@as(i64, i));
-    if (u >= count) indexPanic();
-    // Exact: `u < count`, a `usize`.
-    return @truncate(u);
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        // One compare, as `offsetBelow` makes it.
+        const u: u64 = @bitCast(@as(i64, i));
+        if (u >= n) indexPanic();
+        // Exact: below `n`, which a `usize` holds.
+        return @truncate(u);
+    }
+    // An unsigned `i` has no sign to test: `index`'s one compare.
+    return index(i, n);
+}
+
+/// `i` as a `u64` when `0 <= i < n`, else null. A signed `i` read as
+/// unsigned is below `n` exactly when `0 <= i < n`, since a negative one
+/// reads as at least `2^63`: one compare where a sign test and a bound
+/// test make two. Above `2^63`, `n` takes both.
+pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
+        const u: u64 = @bitCast(@as(i64, i));
+        return if (u < n) u else null;
+    }
+    const v = std.math.cast(u64, i) orelse return null;
+    return if (v < n) v else null;
 }
 
 /// A float about to be converted to an integer type, panicking if it is
@@ -3670,14 +3684,12 @@ fn Elems(comptime P: type) type {
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
 /// once; panics when out of range.
 pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
-    if (comptime lenHeld(@TypeOf(items))) return items.ptr[heldIndex(i, items.len)];
     return items[index(i, items.len)];
 }
 
 /// `s[i] = x` through a `![]T`: the slot at `i`, with `s` evaluated
 /// once; panics when out of range. Read-only for a read-only slice.
 pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
-    if (comptime lenHeld(@TypeOf(items))) return &items.ptr[heldIndex(i, items.len)];
     return &items[index(i, items.len)];
 }
 
@@ -4178,14 +4190,14 @@ fn lanesInOrder(v: anytype, comptime endian: Endian) @TypeOf(v) {
 /// `v[i]`: lane `i` of a vector, with `i` checked as an index is.
 pub fn lane(v: anytype, i: anytype) LaneOf(@TypeOf(v)) {
     const lanes = vectorArray(v);
-    return lanes[index(i, lanes.len)];
+    return lanes[indexBelow(i, lanes.len)];
 }
 
 /// `v.with(i, x)`: a copy of `v` whose lane `i` is `x`, with `i` checked
 /// as an index is.
 pub fn withLane(v: anytype, i: anytype, x: LaneOf(@TypeOf(v))) @TypeOf(v) {
     var lanes = vectorArray(v);
-    lanes[index(i, lanes.len)] = x;
+    lanes[indexBelow(i, lanes.len)] = x;
     if (comptime isWideMask(@TypeOf(v))) return maskOf(@TypeOf(v), lanes);
     return lanes;
 }

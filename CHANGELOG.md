@@ -178,7 +178,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `` `expression` ``); and an argument whose type differs from a generic
   parameter's inside it names both whole types, as for any call
   ("expected `?fun(Int) -> Int!E`, got `fun(Int) -> Int`", not
-  "expected `Int!E`, got `Int`").
+  "expected `Int!E`, got `Int`"). A conflict inside one argument says
+  where in it each type came from: `ap(h, 3)` of an `h: fun(Int) ->
+  String` reads "`Int` (the parameter of argument 1) and `String` (the
+  result of argument 1)", not "`String` (argument 1) and `Int`
+  (argument 1)", and a numeric one no longer offers to convert the
+  argument.
 - **`os.exit(code)`:** ends the program now, from `main` or any task,
   with `code` as its status: what `print` and `warn` wrote is flushed,
   and no drop, `defer`, or leak check runs.
@@ -191,6 +196,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   too), and a signed index is tested against a List's or slice's length
   with one unsigned compare. A `rarely` function is `noinline`, out of
   line as SPEC says, no longer left to LLVM.
+- **A signed index against a compile-time bound is one compare**
+  (Trig PGO 0.5-0.7% fewer instructions, 1.5-1.7% with #706's yield check;
+  [records](docs/history/records/2026-10/perf-stage/bounds-enum.md)):
+  a `Table` read by an `Int`, `Slot[n].of(i)`, an array's element, and a
+  vector's lane test `i` as unsigned against `n`, which a negative `i`
+  always fails, where a sign test and a bound test made two.
 - **A function's name given to `par.map` or `par.each` is checked
   against what they pass:** each element's view, or the value of a
   scalar's read view; a write view as itself. `par.map(?xs, f)` with

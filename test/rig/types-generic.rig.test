@@ -174,6 +174,30 @@ fail "a conflict with the expected result names the result", "5:13: conflicting 
   f: Float = apply(3, |x| x + 1)
   print(f)
 
+fail "a conflict inside one argument says where in it", "20:7: conflicting types for `T` in the call to `ap`: `Int` (the parameter of argument 1) and `String` (the result of argument 1); they must have one type", "21:7: conflicting types for `T` in the call to `ap`: `I32` (the parameter of argument 1) and `Int` (the result of argument 1); they must have one type", "22:7: conflicting types for `T` in the call to `same`: `Int` (type argument 1 of argument 1) and `String` (type argument 2 of argument 1); they must have one type"
+  # Both types come from argument 1, so each says where inside it: a
+  # numeric pair has no argument to convert.
+  fun h(n: Int) -> String
+    String("x")
+
+  fun fi(n: I32) -> Int
+    Int(n)
+
+  fun ap[T](f: ?fun(T) -> T, x: T) -> T
+    f(x)
+
+  obj Pair[A, B]
+    a: A
+    b: B
+
+  fun same[T](p: ?Pair[T, T]) -> Int
+    0
+
+  q = Pair(a: 1, b: String("s"))
+  print(ap(h, 3))
+  print(ap(fi, 3))
+  print(same(?q))
+
 fail "a bracketed generic call is named as written", "10:1: fallible call to `id[Int]` must be wrapped with `!` (propagate) or `catch` (handle)", "11:5: `two[Int]` gives 2 results; bind each: `a, b = two[Int](3)`"
   error E
     bad

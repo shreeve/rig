@@ -197,6 +197,10 @@ def main():
     os.makedirs(tmp, exist_ok=True)
     try:
         zig = zig_wrapper(tmp)
+        missing = [f for f in files if not os.path.exists(os.path.join(DATA, f + ".json"))]
+        if missing:
+            sys.exit("bench-json: %s not found in %s; fetch them once with tools/fetch-json-data.sh"
+                     % (", ".join(f + ".json" for f in missing), os.path.relpath(DATA, ROOT)))
         data = {f: open(os.path.join(DATA, f + ".json"), "rb").read() for f in files}
         exes = {}
         for f in files:
