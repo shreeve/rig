@@ -1,0 +1,12 @@
+== newc-pgo
+samples 17217, in Map/Set code 1435
+dynamic, M instructions per run: other 682, pop 1, push 1, reload 17, spill 10 | all 711
+static, instructions: other 118478, pop 1505, push 1709, reload 8939, spill 4989
+    202.6M  checker.Checker.instantiate_type_with_alias
+     85.2M  checker.Checker.is_related_to_ex
+     62.9M  checker.Checker.resolve_structured_type_members_worker
+     34.7M  checker.Checker.get_conditional_type_worker
+     28.7M  __rig_std___rig_builtin.Map(u32,true,u32).grow
+     19.3M  checker.Checker.add_mapped_members_for_key_type
+     16.8M  checker.Checker.get_reduced_type_worker
+     16.8M  __rig_std___rig_builtin.Map(checker.FlowLoopKey,true,u32).grow
