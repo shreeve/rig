@@ -93,6 +93,7 @@ pub const ArgSlot = sema.ArgSlot;
 pub const Instance = sema.Instance;
 pub const HandsKind = sema.Hands.Kind;
 pub const LeafStep = storage.LeafStep;
+pub const TakeFrom = storage.TakeFrom;
 pub const MatchMode = storage.MatchMode;
 pub const ReceiverHold = storage.ReceiverHold;
 pub const ArgumentHold = storage.ArgumentHold;
@@ -642,6 +643,11 @@ pub const Facts = struct {
     /// walked it.
     pub fn leafStep(f: Facts, e: Sexp) ?LeafStep {
         return storage.decided(f.c(), e, .leaf_step);
+    }
+    /// Where `o ?? d` copies its payload out from (`storage.takeFrom`, a
+    /// recorded decision); null when it was never decided.
+    pub fn takeFrom(f: Facts, e: Sexp) ?TakeFrom {
+        return storage.decided(f.c(), e, .take_from);
     }
     /// Whether `e` is reached where its leaves are (`storage.reachesLeaf`,
     /// a recorded decision); null when it was never decided.

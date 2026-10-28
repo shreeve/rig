@@ -1765,7 +1765,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `whole`, `payload` | `__rig_whole`, `__rig_payload` | what an arm captures: the value `match <x` takes, or a variant's payload | owned, pointer, or copy | arm |
 | `as_value`, `as_copy` | `__rig_opt`, `__rig_opt_N_v` | what `if … as` or `while … as` captures, and a mutable copy its binding views | pointer, copy, or owned | body |
 | `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
-| `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
+| `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`), or the payload `o ?? d` copies out where it is (`storage.takeFrom`) | pointer | expression |
 | `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
 | `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
@@ -1773,7 +1773,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
 | `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
-| `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
+| `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`), or the optional made here whose payload `o ?? d` copies out (`takeFrom`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
 holds a copy of a value still held where it was, so a view of the
@@ -4351,6 +4351,28 @@ symbols); a query that decides more than that is a recorded fact.
   one integer and stores that. The type and its layout stay Zig's `?T`;
   a runtime test checks that Zig's own `?T` has that layout.
 
+  A payload taken out of an optional is copied once, from where the
+  optional holds it, when the payload is held whole in memory (an
+  object, an array, a String). `rig.some(o) orelse d` would copy it into
+  a Zig `?T` and out again, and on x86 the loads that read such copies
+  back wait on the stores that wrote them: Trig's 288-byte `Relater`,
+  popped from a pool, spent 2% of its checker's cycles there
+  (docs/history/records/2026-10/perf-stage/memory-traffic.md). A
+  recorded decision, `storage.takeFrom`, says where the copy comes
+  from:
+
+  | Rig | Emitted |
+  |---|---|
+  | `o ?? d`, `o` a place or a value made here | `(if (rig.somePtr(&o)) \|p\| p.* else d)`: `o` where it is, or Zig's temporary of it (a `zig_temp` fact); `(if (o) \|*p\| p.* else d)` for a Zig `?T` |
+  | `xs.pop() ?? d` | `(if (xs.popAt()) \|p\| p.* else d)`: the element in the slot the pop leaves, copied before anything changes the List |
+  | `if xs.pop() as v`, `while xs.pop() as v` | `if (xs.popAt()) \|p\| { var v = p.*; ... }`: the capture holds the slot's address (`as_value`, a pointer) |
+
+  The payload moves as it did, copied out whole, and the ownership
+  checker walks the same program; only the copies Zig made in between
+  are gone. `rig.rt` and `rig.take` of such a value cost no copy: the
+  optimizer passes it where it lies (`test/rig/types-optional.rig.test`,
+  `optional pop taken in place`).
+
   An object with a niche holds `none` in it ([The runtime](#the-runtime),
   `Niche`): a word of its bytes that no value of it holds, chosen at
   compile time from its fields by `rig.nicheOf` (a String's, List's,
@@ -5001,7 +5023,7 @@ reviewed.
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `swap`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `$name(T)` of a type that holds a type parameter. Emit writes such a `$name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which the case `type names` of `test/rig/types-misc-2.rig.test` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
-| `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `popAt` removes the last element and gives its address in the slot it leaves, which `xs.pop() ?? d` and `xs.pop() as v` copy it out of (`storage.takeFrom`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `Table(T, n)`, `SlotOf(n)`, `slotOf` (`table.zig`) | `Table[T, n]` and `Slot[n]` ([Tables](#tables)): `init` reserves the slots (`MAP_NORESERVE`, `MADV_NOHUGEPAGE` on Linux, its own mapping, never one of `alloc.zig`'s blocks) or makes them, by `fillsWithZeros`, the mirror of `sema.tableFill`; `at`, `slot`, and `constSlot` take a slot with no test (asserted in a debug build, as a proven test is), and `atInt`, `slotInt`, `constSlotInt` test an integer against `n`; `push` panics when all `n` are pushed; dropping a made table drops all `n` slots. Where the system gives no lazily zeroed pages, or under `RIG_TABLE_FALLBACK`, a reserved table is committed as it is written, and a read past what is held reads a zero `T` |
 | `InlineList(T, n)` | `List[T, inline: n]`: the same List (`ListOf(T, n)`, of which `List(T)` is `ListOf(T, 0)`), whose first `n` elements live in its own `inline_buf`, with `buf` empty, until a push past them moves them all to the heap. Every member reaches the elements through `mem` (`memConst` through a `*const`), so a List with no inline room compiles as it did; `items` through a `*const` gives `[]const T` for an inline List, since its elements are then in the value. The checker keeps `inline_len` in the instance type (`sema.ParamNominal`), a type of its own, and keeps the instance a call names as the type of the List it makes (`typecheck.inlineResult`) |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |

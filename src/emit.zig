@@ -5155,7 +5155,9 @@ pub const Emitter = struct {
     /// `copy`: a viewed binding of a copy of the value inside, which the
     /// header captures by value (`Facts.copiesHeader`), held in a local.
     /// `value`: `tmp` holds the optional's payload itself, not a pointer to it.
-    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false, value: bool = false, viewed: ?TypeId = null };
+    /// `slot`: `tmp` is the address of the slot a pop vacates
+    /// (`storage.takeFrom`), which the binding copies the payload out of.
+    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false, value: bool = false, viewed: ?TypeId = null, slot: bool = false };
 
     /// `payloadLocal` for a binding used in `used_in`, or anywhere when
     /// it is `.nil`.
@@ -5403,6 +5405,25 @@ pub const Emitter = struct {
             try self.w.print("|{s}{s}| ", .{ if (routed) "" else "*", tmp });
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
+        // `xs.pop() as v`: the payload is copied once, out of the slot the
+        // pop leaves (`storage.takeFrom`).
+        if (try self.need(self.facts.takeFrom(cond), cond) == .slot) {
+            try self.w.writeAll("(");
+            try self.emitMemberNamed(self.facts.calleeOf(value), "popAt");
+            try self.w.writeAll("()) ");
+            if (self.facts.storageOf(cond, .as_value) == null) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
+            try self.w.print("|{s}| ", .{tmp});
+            // A resource is owned by the binding, or dropped at once by
+            // `as _` (the plan records the capture of no other `_`); a
+            // copy is the binding's own.
+            if (sym == null) return .{ .optional = .{ .cond = cond, .name = .nil, .tmp = tmp, .slot = true } };
+            if (self.holdOf(sym.?) != null) return .{ .optional = .{ .cond = cond, .name = name, .tmp = tmp, .slot = true } };
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .slot = true } };
+        }
         try self.w.writeAll(if (routed) "(rig.some(" else "(");
         if (points) {
             try self.emitSubjectPtr(value, false);
@@ -5493,7 +5514,8 @@ pub const Emitter = struct {
     /// The owning local of a resource bound by `as`, dropped at the end
     /// of the body unless it is moved out.
     fn bindOptionalResource(self: *Emitter, o: OptionalBinding) Error!void {
-        if (o.name == .nil) return self.line("rig.discard({s});", .{o.tmp});
+        const at = if (o.slot) ".*" else "";
+        if (o.name == .nil) return self.line("rig.discard({s}{s});", .{ o.tmp, at });
         const sym = self.facts.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
         const kind = self.holdOf(sym) orelse return self.unsupported(o.name, "an owned `as` binding that holds nothing");
@@ -5504,7 +5526,7 @@ pub const Emitter = struct {
             .guard = self.resourceGuard(sym),
         }, self.srcText(o.name));
         const is_var = kind == .value or kind == .optional;
-        try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", local.zig_name, o.tmp });
+        try self.line("{s} {s} = {s}{s};", .{ if (is_var) "var" else "const", local.zig_name, o.tmp, at });
         try self.writeIndent(self.indent);
         try self.emitGuard(local);
         try self.w.writeAll("\n");
@@ -6638,6 +6660,10 @@ pub const Emitter = struct {
                 // Where the fallback is itself a `T?`, so is the value:
                 // both sides are tested, and the result packed.
                 const packed_into = self.optionalFallback(sexp);
+                switch (try self.need(self.facts.takeFrom(sexp), sexp)) {
+                    .value => {},
+                    .held, .slot => |from| return self.emitTakenPayload(sexp, from),
+                }
                 if (packed_into) |o| {
                     try self.w.writeAll("rig.pack(");
                     try self.emitTypeTy(o);
@@ -7661,6 +7687,35 @@ pub const Emitter = struct {
             }
         }
         try self.w.writeAll("return null");
+    }
+
+    /// `o ?? d` that copies its payload out from where it is
+    /// (`facts.takeFrom`), once: `(if (rig.somePtr(&o)) |p| p.* else d)`
+    /// from the optional where it is held (`emitPayloadHolder`), or
+    /// `(if (xs.popAt()) |p| p.* else d)` from the slot `xs.pop()`
+    /// vacates.
+    fn emitTakenPayload(self: *Emitter, e: Sexp, from: facts.TakeFrom) Error!void {
+        const left = ir.@"??".left(e);
+        const p = try self.hiddenStorage(e, .leaf, .pointer, .next);
+        var by_ptr = false;
+        switch (from) {
+            .value => return self.unsupported(e, "a payload taken by value where it is"),
+            .slot => {
+                try self.w.writeAll("(if (");
+                try self.emitMemberNamed(self.facts.calleeOf(left), "popAt");
+                try self.w.writeAll("()) ");
+            },
+            .held => {
+                const routed = self.routedOptional(self.typeOf(left));
+                by_ptr = !routed;
+                try self.w.writeAll(if (routed) "(if (rig.somePtr(&" else "(if (");
+                try self.emitPayloadHolder(left);
+                try self.w.writeAll(if (routed) ")) " else ") ");
+            },
+        }
+        try self.w.print("|{s}{s}| {s}.* else ", .{ if (by_ptr) "*" else "", p, p });
+        try self.emitValue(ir.@"??".right(e), true);
+        try self.w.writeAll(")");
     }
 
     /// `holder`, the operand of `a ?? b` or `a catch b` (`form`): as it

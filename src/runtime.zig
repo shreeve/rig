@@ -3081,6 +3081,16 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return slot_;
         }
 
+        /// Remove the last element and give its address in the slot it
+        /// leaves, or null when there is none: what `xs.pop() ?? d` copies
+        /// the element out of, once, before anything changes the List
+        /// (`storage.takeFrom`). The caller owns the element.
+        pub inline fn popAt(self: *Self) ?*T {
+            if (self.len == 0) return null;
+            self.len -= 1;
+            return &self.mem()[self.len];
+        }
+
         /// Remove and return the last element; the caller owns it.
         pub fn pop(self: *Self) Opt(T) {
             if (self.len == 0) return pack(Opt(T), null);

@@ -2329,6 +2329,10 @@ pub const Question = enum(u8) {
     /// held and dropped when nothing takes it, or null when it owns
     /// nothing (`storage.dropKind`).
     drop_kind,
+    /// Of `o ?? d`, or an `as` condition: where it copies the payload it
+    /// gives out from, by address where the optional holds it
+    /// (`storage.takeFrom`).
+    take_from,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.

@@ -544,3 +544,197 @@ fail "optional named none declarations", "4:3: an object names its none by its o
 
   sub main()
     print(1)
+
+code "optional pop taken in place", "(if (pool.popAt()) |__rig_leaf_", ".* else Big{", "(if (rig.somePtr(&", "|__rig_leaf_"
+  # `xs.pop() ?? d` copies the element out of the slot the pop leaves,
+  # once, and `f() ?? d` out of the optional where Zig holds it, not
+  # through a Zig `?T` and out of it again.
+  obj Big
+    a: List[Int] = List()
+    n: Int = 0
+    m: Int = 0
+
+  fun find(k: Int) -> Big?
+    return none if k < 2
+    Big(n: k)
+
+  pool: List[Big] = List()
+  !pool.push(Big(n: 3))
+  b = (!pool).pop() ?? Big()
+  c = find(5) ?? Big(n: 1)
+  print(b.n + c.n)
+
+test "optional payload taken in place", '''
+  3 0 1
+  5 1
+  7 9 7
+  4 -1
+  hi none
+  3 0
+'''
+  # A payload taken by `??` from a List's pop, a call, or a place, with
+  # resources inside, a fallback that leaves, and a pool reused: each
+  # value owned once, dropped once.
+  obj Big
+    a: List[Int] = List()
+    s: String = String()
+    n: Int = 0
+
+  obj Plain
+    x: Int = 0
+    y: Int = 0
+    z: Int = 0
+
+  fun find(k: Int) -> Big?
+    return none if k < 2
+    b = Big(n: k)
+    !b.a.push(k)
+    b
+
+  fun first(xs: !List[Big]) -> Int
+    b = (!xs).pop() ?? return -1
+    b.n
+
+  obj Pool
+    free: List[Big] = List()
+
+  fun Pool.get(!@) -> Big
+    (!@free).pop() ?? Big()
+
+  sub Pool.put(!@, b: Big)
+    new b = <b
+    !b.a.clear()
+    b.n = 0
+    !@free.push(<b)
+
+  pool: List[Big] = List()
+  b = Big(n: 3)
+  !b.a.push(1)
+  !pool.push(<b)
+  x = (!pool).pop() ?? Big()
+  y = (!pool).pop() ?? Big()
+  print(x.n, y.n, x.a.len)
+  c = find(5) ?? Big(n: 1)
+  d = find(1) ?? Big(n: 1)
+  print(c.n, d.n)
+  p = Plain(x: 7)
+  o: Plain? = p
+  q = o ?? Plain(x: 9)
+  r: Plain? = none
+  print(q.x, (r ?? Plain(x: 9)).x, (o ?? Plain()).x)
+  xs: List[Big] = List()
+  !xs.push(Big(n: 4))
+  print(first(!xs), first(!xs))
+  ss: List[String] = List()
+  !ss.push(String("hi"))
+  t = (!ss).pop() ?? String("none")
+  u = (!ss).pop() ?? String("none")
+  print(t, u)
+  pl = Pool()
+  for i in 0..3
+    g = (!pl).get()
+    !g.a.push(i)
+    g.n = i
+    !g.s.add("x")
+    !pl.put(<g)
+  h = (!pl).get()
+  print(h.s.len, h.n)
+
+code "optional pop bound in place", "if (xs.popAt()) |__rig_opt_", "var b = __rig_opt_", "const p = __rig_opt_"
+  # `if xs.pop() as v` and `while xs.pop() as v` bind the element by
+  # copying it once out of the slot the pop leaves.
+  obj Big
+    a: List[Int] = List()
+    n: Int = 0
+
+  obj Plain
+    x: Int = 0
+    y: Int = 0
+
+  xs: List[Big] = List()
+  !xs.push(Big(n: 2))
+  if (!xs).pop() as b
+    print(b.n)
+  ps: List[Plain] = List()
+  !ps.push(Plain(x: 3))
+  if (!ps).pop() as p
+    print(p.x)
+
+test "optional pop bound in place", '''
+  3 1
+  dropped
+  1
+  empty
+  6
+  one
+  b
+  a
+'''
+  # The element a pop hands to `as`, owned or plain, used, discarded, or
+  # in a `while`: each owned once, dropped once.
+  obj Big
+    a: List[Int] = List()
+    s: String = String()
+    n: Int = 0
+
+  obj Plain
+    x: Int = 0
+    y: Int = 0
+    z: Int = 0
+
+  xs: List[Big] = List()
+  for i in 0..4
+    b = Big(n: i)
+    !b.a.push(i)
+    !xs.push(<b)
+  if (!xs).pop() as b
+    print(b.n, b.a.len)
+  if (!xs).pop() as _
+    print("dropped")
+  t = 0
+  while (!xs).pop() as c
+    t += c.n
+  print(t)
+  if (!xs).pop() as d
+    print(d.n)
+  else
+    print("empty")
+  ps: List[Plain] = List()
+  !ps.push(Plain(x: 5))
+  !ps.push(Plain(x: 6))
+  if (!ps).pop() as p
+    print(p.x)
+  if (!ps).pop() as _
+    print("one")
+  while (!ps).pop() as q
+    print(q.x)
+  ss: List[String] = List()
+  !ss.push(String("a"))
+  !ss.push(String("b"))
+  while (!ss).pop() as s
+    print(s)
+
+test "optional pop bound in place drops at the body's end", '''
+  body 2
+  drop 2
+  drop 1
+  gone 1
+  end
+'''
+  # An unused binding of an element a pop hands over owns it to the end
+  # of the body, and `as _` drops it at once.
+  obj N
+    id: Int
+    a: List[Int] = List()
+
+    drop(!@)
+      print("drop", @id)
+
+  xs: List[N] = List()
+  !xs.push(N(id: 1))
+  !xs.push(N(id: 2))
+  if (!xs).pop() as v
+    print("body", 2)
+  if (!xs).pop() as _
+    print("gone", 1)
+  print("end")

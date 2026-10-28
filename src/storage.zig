@@ -501,6 +501,87 @@ fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
     };
 }
 
+/// Where `o ?? d`, or the binding of `xs.pop() as v`, copies the payload
+/// out from (`takeFrom`).
+pub const TakeFrom = enum {
+    /// `rig.some(o) orelse d`: the payload as a value, which Zig copies
+    /// into a `?T` and again out of it.
+    value,
+    /// `if (rig.somePtr(&o)) |p| p.* else d`: from where the optional is,
+    /// a place or the Zig temporary of a value made here.
+    held,
+    /// `if (xs.popAt()) |p| p.* else d` for `xs.pop() ?? d`: from the
+    /// List's slot the pop vacates, which nothing writes before the copy.
+    slot,
+};
+
+/// Where `o ?? d` (`e`) copies its payload out from: the List slot of
+/// `xs.pop()`, or the optional where it is held, so a large payload is
+/// copied once, not into a `?T` and out of it. Only a payload held as a
+/// whole in memory, as `reachesLeaf` reads one (an object, an array, a
+/// String), of an optional that is no view, given as the `??`'s value
+/// (not lifted into an optional fallback, nor copied out of a view).
+/// The optional is reached as a payload holder is (`leafStep`): a value
+/// made here that no slot keeps, or a place that is no move. The payload
+/// is copied out whole, as by value: what the ownership checker walks
+/// is the same. Of an `as` condition, where its binding copies the
+/// payload from (`asTakeFrom`).
+pub fn takeFrom(ctx: *const SemContext, e: Sexp) TakeFrom {
+    return decide(ctx, e, .take_from);
+}
+
+fn decideTakeFrom(ctx: *const SemContext, e: Sexp) TakeFrom {
+    if (e.isKind(.as)) return asTakeFrom(ctx, e);
+    if (!e.isKind(.@"??") or ctx.copiesPayload(e)) return .value;
+    const left = ir.@"??".left(e);
+    const result = typeOf(ctx, e) orelse return .value;
+    const payload = heldPayload(ctx, left) orelse return .value;
+    if (payload != result) return .value;
+    if (isListPop(ctx, left)) return .slot;
+    if (left.isKind(.move)) return .value;
+    return switch (leafStep(ctx, left)) {
+        .made => if (ctx.dropsTemp(left)) .value else .held,
+        .place => .held,
+        else => .value,
+    };
+}
+
+/// Where `if xs.pop() as v` and `while xs.pop() as v` (`cond`) bind
+/// the payload from: the slot the pop vacates, copied once into the
+/// binding, for a payload `takeFrom` copies by address. Any other `as`
+/// binds the payload as it does (`Emitter.emitOptionalHead`).
+fn asTakeFrom(ctx: *const SemContext, cond: Sexp) TakeFrom {
+    const value = ir.As.value(cond);
+    if (ctx.headerOf(cond) != null or sema.firstStmtTemp(ctx, value) != null) return .value;
+    if (viewsOptionalValue(ctx, value) or optionalBindsStringBytes(ctx, cond)) return .value;
+    const payload = heldPayload(ctx, value) orelse return .value;
+    if (ctx.symbolOf(ir.As.name(cond))) |sym| if (known(ctx, ctx.symbols.items[sym].ty) != payload) return .value;
+    return if (isListPop(ctx, value)) .slot else .value;
+}
+
+/// The payload of `o`, an optional that is no view, when it is held as a
+/// whole in memory, as `reachesLeaf` reads one: an object, an array, or
+/// a String.
+fn heldPayload(ctx: *const SemContext, o: Sexp) ?TypeId {
+    const payload = switch (ctx.types.get(typeOf(ctx, o) orelse return null)) {
+        .optional => |inner| inner,
+        else => return null,
+    };
+    return switch (ctx.types.get(payload)) {
+        .string, .array, .nominal, .parameterized_nominal, .imported_nominal => payload,
+        else => null,
+    };
+}
+
+/// Whether `e` is `xs.pop()` of a List held where it is (not in a Cell).
+fn isListPop(ctx: *const SemContext, e: Sexp) bool {
+    if (!e.isKind(.call) or ir.Call.args(e).len != 0) return false;
+    const callee = ctx.calleeOf(e);
+    if (!callee.isKind(.member) or !std.mem.eql(u8, srcText(ctx, ir.Member.name(callee)), "pop")) return false;
+    const t = typeOf(ctx, ir.Member.object(callee)) orelse return false;
+    return isListTy(ctx, t) and !isCellListTy(ctx, t);
+}
+
 /// Whether a header over `e` (a `match` subject, a `for` source, an
 /// `as` value) that makes statement temporaries yields the address of
 /// what `e` reaches, not its value: the block that ends the temporaries
@@ -1285,6 +1366,7 @@ pub fn Answer(comptime q: sema.Question) type {
         .set_order => SetOrder,
         .step_point => StepPoint,
         .drop_kind => ?sema.ResourceKind,
+        .take_from => TakeFrom,
     };
 }
 
@@ -1328,6 +1410,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .step_point => Node.of(decideStepPoint),
         .fills_in_place => Node.of(decideFillsInPlace),
         .drop_kind => Node.of(decideDropKind),
+        .take_from => Node.of(decideTakeFrom),
     };
 }
 
@@ -1674,8 +1757,24 @@ const Planner = struct {
                 try p.condition(ir.While.cond(e));
             },
             .@"catch" => if (p.isUsed(ir.Catch.name(e))) try p.record(e, .error_value, .owned, .handler),
+            .@"??" => try p.takenPayload(e),
             .share => if (ir.Share.operand(e).isKind(.lambda)) try p.record(ir.Share.operand(e), .closure_env, .owned, .expression),
             else => {},
+        }
+    }
+
+    /// `o ?? d` that copies its payload out by address (`takeFrom`): the
+    /// address it captures, and the Zig temporary of an optional made
+    /// here, whose payload it is.
+    fn takenPayload(p: *Planner, e: Sexp) !void {
+        switch (takeFrom(p.ctx, e)) {
+            .value => {},
+            .slot => try p.record(e, .leaf, .pointer, .expression),
+            .held => {
+                try p.record(e, .leaf, .pointer, .expression);
+                const left = ir.@"??".left(e);
+                if (leafStep(p.ctx, left) == .made) try p.record(left, .zig_temp, .owned, .statement);
+            },
         }
     }
 
@@ -1748,6 +1847,13 @@ const Planner = struct {
             return;
         }
         if (value.isKind(.move)) try p.header(value) else try p.subjectHeader(value);
+        // A payload bound from the slot a pop vacates: the slot's address
+        // is captured, and the binding copies it out.
+        if (takeFrom(ctx, cond) == .slot) {
+            const owned = if (heldPayload(ctx, value)) |t| owns(ctx, t) else false;
+            if (used or owned) try p.record(cond, .as_value, .pointer, .body);
+            return;
+        }
         const sym = ctx.symbolOf(name);
         const ty: ?TypeId = if (sym) |s| known(ctx, ctx.symbols.items[s].ty) else if (typeOf(ctx, value)) |t| switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
             .optional => |inner| inner,
