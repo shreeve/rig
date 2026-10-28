@@ -263,4 +263,6 @@ design's `bench-hash-*-one-block.txt`).
 
 ## Gates
 
-GATES_PLACEHOLDER
+Rig's full suite (10,792 cases) and proofs (5,271) green on the Mac,
+the oracle quiet; Trig's light gate GREEN at e680b48fb (45 s); loco's
+light gate GREEN (122 runs, none differ).
