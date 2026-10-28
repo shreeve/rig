@@ -624,6 +624,19 @@ const Tail = struct {
 
 const PlainRequirement = sema.PlainRequirement;
 
+/// A call of a method of a generic type (`Checker.method_calls`): where
+/// it is, the method it reaches, the receiver's type and the arguments
+/// it gives the type's parameters, and the method of a generic type the
+/// call is made in, if any.
+const MethodCall = struct {
+    pos: u32,
+    target: sema.FnRef,
+    recv: TypeId,
+    params: []const SymbolId,
+    args: []const TypeId,
+    scope: ?u32,
+};
+
 // =============================================================================
 // Checker
 // =============================================================================
@@ -641,6 +654,10 @@ pub const Checker = struct {
     fn_depth: u32 = 0,
     source: []const u8,
     sema: ?*const sema.SemContext = null,
+    /// The same context, through which the instance check of a function
+    /// value's type (`PlainRequirement.callable`) makes the type at the
+    /// instance's arguments; nothing else is written through it.
+    interner: ?*sema.SemContext = null,
     diagnostics: std.ArrayList(Diagnostic) = .empty,
 
     vars: std.ArrayList(Var) = .empty,
@@ -662,6 +679,18 @@ pub const Checker = struct {
     /// The struct or enum whose members are being walked: the owner of a
     /// method (`declOrigins`).
     decl_owner: ?SymbolId = null,
+    /// The method of a generic type being walked, by its name's position
+    /// (`PlainRequirement.method`).
+    method_pos: ?u32 = null,
+    /// A call of a function value is storing what it is passed through
+    /// one of its write arguments (`genericStoreIn`): the value's type,
+    /// where the call is, and that argument's own loans, which are the
+    /// path, not something stored.
+    held_store: ?struct { callable: TypeId, pos: u32, own: []const Loan } = null,
+    /// The calls of methods of generic types this module makes, whose
+    /// bodies' requirements are checked at the receiver's type
+    /// (`checkMethodCalls`).
+    method_calls: std.ArrayList(MethodCall) = .empty,
     /// The current read match arm's hidden var (`Var.arm_of`), made when
     /// a binding first needs it.
     arm_var: ?VarId = null,
@@ -817,9 +846,10 @@ pub const Checker = struct {
         return c;
     }
 
-    pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, ctx: *const sema.SemContext) Error!Checker {
+    pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, ctx: *sema.SemContext) Error!Checker {
         var c = try init(allocator, source);
         c.sema = ctx;
+        c.interner = ctx;
         return c;
     }
 
@@ -835,6 +865,7 @@ pub const Checker = struct {
         self.vars.deinit(self.gpa);
         self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
+        self.method_calls.deinit(self.gpa);
         self.items_seen.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
         self.part_temps.deinit(self.gpa);
@@ -861,6 +892,7 @@ pub const Checker = struct {
 
     pub fn check(self: *Checker, sexp: Sexp) Error!void {
         try self.walkDecl(sexp);
+        try self.checkMethodCalls();
         self.own_plain_reqs = self.plain_reqs.items.len;
         try self.checkBoundedCopies();
         if (self.sema) |ctx| for (ctx.plain_reqs.items) |r| {
@@ -876,7 +908,9 @@ pub const Checker = struct {
         const ctx = self.sema orelse return;
         const a = self.arena();
         for (self.plain_reqs.items[0..self.own_plain_reqs]) |r| {
-            if (r.item.len > 0) continue;
+            // A function value's requirement is no bound's: each instance,
+            // or each call of the method, answers it (`checkCallables`).
+            if (r.item.len > 0 or r.callable != null) continue;
             const sym = ctx.symbols.items[r.param];
             if (!sema.checkedByBounds(sym)) continue;
             // Where `$plain(T)` has held, a `T` copies and holds no loan.
@@ -916,6 +950,7 @@ pub const Checker = struct {
                 }
                 try self.checkCopies(f.site, shown, param, arg, f.inst.subst());
                 try self.checkViews(f.site, shown, param, arg, f.inst.subst());
+                try self.checkCallables(f.site, shown, param, arg, f.inst.subst(), false);
                 if (try self.checkItems(f.site, shown, param, arg, f.inst.subst())) if (f.via) |via| {
                     const by = switch (via) {
                         .type => |t| try sema.formatTypeIn(ctx, self.arena(), t),
@@ -948,6 +983,7 @@ pub const Checker = struct {
                 const subst: sema.TypeSubst = .{ .params = params, .args = pn.args };
                 try self.checkCopies(site, shown, param, arg, subst);
                 try self.checkViews(site, shown, param, arg, subst);
+                try self.checkCallables(site, shown, param, arg, subst, true);
                 _ = try self.checkItems(site, shown, param, arg, subst);
             }
         }
@@ -996,6 +1032,154 @@ pub const Checker = struct {
         }
     }
 
+    /// An instance whose argument for `param` can hold a view, where a
+    /// generic body gives a function value a view of memory the body
+    /// owns and may put it in a `param` the body holds by value
+    /// (`PlainRequirement.callable`): refused where the function value's
+    /// type, at the instance, may keep the view there. At a type's
+    /// instance (`at_type`), a requirement a method's body makes is left
+    /// to each call of the method (`checkMethodCalls`).
+    fn checkCallables(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst, at_type: bool) Error!void {
+        if (!self.mayCarryLoan(arg)) return;
+        for (self.plain_reqs.items) |r| {
+            if (r.param != param or r.callable == null) continue;
+            if (at_type and r.method != null) continue;
+            if (try self.callableRefuses(r, subst)) |inst| {
+                try self.reportCallable(site, shown, r, arg, inst);
+                return;
+            }
+        }
+    }
+
+    /// The type of requirement `r`'s function value at `subst`, when that
+    /// instance refuses it: one that, at its arguments, may keep a lent
+    /// argument's view in what it writes (its default origins, Core
+    /// sentence 7), or, for a result the body holds, gives a result that
+    /// can hold a view, its own or an argument's. Null where it does not,
+    /// or where the type still names a parameter another instance binds.
+    fn callableRefuses(self: *Checker, r: PlainRequirement, subst: sema.TypeSubst) Error!?TypeId {
+        const ctx = self.sema orelse return null;
+        const interner = self.interner orelse return null;
+        if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) return null;
+        const inst = try sema.substituteType(interner, r.callable.?, subst);
+        if (ctx.typeInfo(inst).has_type_var or sema.containsPoison(ctx, inst)) return null;
+        const f = sema.calledFn(ctx, inst) orelse return null;
+        if (r.in_result) return if (sema.mayHoldView(ctx, f.returns)) inst else null;
+        // The views it is passed, not the function values: what one of
+        // those holds is its own (Core sentence 7).
+        var lent: sema.ParamMask = 0;
+        for (f.params, 0..) |pt, i| if (sema.lentParam(ctx, pt) and sema.calledFn(ctx, pt) == null) {
+            lent |= sema.paramBit(i);
+        };
+        var scratch = std.heap.ArenaAllocator.init(self.gpa);
+        defer scratch.deinit();
+        const o = try sema.defaultOrigins(ctx, scratch.allocator(), f);
+        return if (o.stores & lent != 0) inst else null;
+    }
+
+    /// `shown` cannot use `param = arg` (requirement `r`): at `site`, with
+    /// a note at the body's call. `inst` is the function value's type
+    /// there.
+    fn reportCallable(self: *Checker, site: u32, shown: []const u8, r: PlainRequirement, arg: TypeId, inst: TypeId) Error!void {
+        const ctx = self.sema orelse return;
+        const a = self.arena();
+        const pname = ctx.symbols.items[r.param].name;
+        const aname = try sema.formatTypeIn(ctx, a, arg);
+        const fname = try sema.formatTypeIn(ctx, a, inst);
+        if (r.in_result) {
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body holds as a `{s}` what a `{s}` gives when passed a view, and tracks no loan in it, but a `{s}` can hold a view; use a `{s}` that owns what it holds", .{ shown, pname, aname, pname, fname, aname, pname });
+            try self.noteIn(r.module_id, r.pos, "the body holds the result as a `{s}` here", .{pname});
+        } else {
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body passes a `{s}` a view beside a write view of a `{s}` it holds, whose loans it does not track, and a `{s}` can hold the view; use a `{s}` that owns what it holds", .{ shown, pname, aname, fname, pname, aname, pname });
+            try self.noteIn(r.module_id, r.pos, "the body passes the views here", .{});
+        }
+    }
+
+    /// The function value's type `callable` must keep no view of memory
+    /// the body owns in a value of a type parameter's type, at each
+    /// instance (`PlainRequirement.callable`): through what it writes, or,
+    /// `in_result`, through its result, which the body holds as one.
+    /// Recorded on the type parameters that hold the view: those of its
+    /// write parameters' types, or of its result's.
+    fn requireCallable(self: *Checker, pos: u32, callable: TypeId, in_result: bool) Error!void {
+        const ctx = self.sema orelse return;
+        if (!ctx.typeInfo(callable).has_type_var) return;
+        const f = sema.calledFn(ctx, callable) orelse return;
+        var held: std.ArrayList(SymbolId) = .empty;
+        if (in_result) {
+            try sema.reachedTypeVars(ctx, f.returns, &held, self.arena());
+        } else for (f.params) |pt| {
+            if (self.carriesWriteView(pt)) try sema.reachedTypeVars(ctx, pt, &held, self.arena());
+        }
+        for (held.items) |param| {
+            const req: PlainRequirement = .{ .param = param, .pos = pos, .callable = callable, .in_result = in_result, .method = self.method_pos };
+            if (self.hasRequirement(req)) continue;
+            try self.plain_reqs.append(self.gpa, req);
+        }
+    }
+
+    fn hasRequirement(self: *const Checker, req: PlainRequirement) bool {
+        for (self.plain_reqs.items) |r| {
+            if (r.param == req.param and r.pos == req.pos and r.callable == req.callable and r.in_result == req.in_result and r.method == req.method and r.module_id == 0) return true;
+        }
+        return false;
+    }
+
+    /// Each call of a method of a generic type (`method_calls`) meets what
+    /// the method's body requires of a function value's type
+    /// (`PlainRequirement.callable`, with `method`), at the arguments the
+    /// receiver's type gives: refused there, or, where those arguments
+    /// are a generic body's own parameters, required of that body in
+    /// turn. Repeated until no call adds a requirement, as one method
+    /// calls another.
+    fn checkMethodCalls(self: *Checker) Error!void {
+        const ctx = self.sema orelse return;
+        var reported: std.AutoHashMapUnmanaged(u32, void) = .empty;
+        defer reported.deinit(self.gpa);
+        var changed = true;
+        var rounds: u32 = 0;
+        while (changed and rounds < 16) : (rounds += 1) {
+            changed = false;
+            var ci: usize = 0;
+            while (ci < self.method_calls.items.len) : (ci += 1) {
+                const mc = self.method_calls.items[ci];
+                const subst: sema.TypeSubst = .{ .params = mc.params, .args = mc.args };
+                const own_len = self.plain_reqs.items.len;
+                const total = own_len + ctx.plain_reqs.items.len;
+                var ri: usize = 0;
+                while (ri < total) : (ri += 1) {
+                    const r = if (ri < own_len) self.plain_reqs.items[ri] else ctx.plain_reqs.items[ri - own_len];
+                    if (ri >= own_len and r.module_id == 0) continue;
+                    const m = r.method orelse continue;
+                    const callable = r.callable orelse continue;
+                    const module = if (r.module_id == 0) ctx.module_id else r.module_id;
+                    if (m != mc.target.pos or module != mc.target.module) continue;
+                    const arg = subst.lookup(r.param) orelse continue;
+                    if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
+                    const interner = self.interner orelse return;
+                    const inst = try sema.substituteType(interner, callable, subst);
+                    if (sema.containsPoison(ctx, inst)) continue;
+                    if (ctx.typeInfo(inst).has_type_var) {
+                        // The caller's own parameters: its instances answer.
+                        const saved = self.method_pos;
+                        defer self.method_pos = saved;
+                        self.method_pos = mc.scope;
+                        const before = self.plain_reqs.items.len;
+                        try self.requireCallable(mc.pos, inst, r.in_result);
+                        if (self.plain_reqs.items.len > before) changed = true;
+                        continue;
+                    }
+                    if (!self.mayCarryLoan(arg)) continue;
+                    if (reported.contains(mc.pos)) continue;
+                    if (try self.callableRefuses(r, subst)) |at| {
+                        try reported.put(self.gpa, mc.pos, {});
+                        try self.reportCallable(mc.pos, try sema.formatTypeIn(ctx, self.arena(), mc.recv), r, arg, at);
+                    }
+                }
+            }
+        }
+    }
+
     /// An instance whose argument for `param` owns a resource, where a
     /// generic body copies a `param`.
     fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!void {
@@ -1003,7 +1187,7 @@ pub const Checker = struct {
         if (sema.moves(ctx, arg) != .yes) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
-            if (r.param != param or r.view or r.item.len > 0) continue;
+            if (r.param != param or r.view or r.item.len > 0 or r.callable != null) continue;
             if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
             if (sema.typeHasDropGlue(ctx, arg)) {
                 try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
@@ -2070,7 +2254,15 @@ pub const Checker = struct {
                 for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walkDecl(c);
                 for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walkDecl(c);
             },
-            .fun, .sub => try self.walkFun(ir.get(sexp, .name), sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
+            .fun, .sub => {
+                // A method of a generic type: what its body requires of a
+                // function value is checked at each call of it.
+                const saved = self.method_pos;
+                defer self.method_pos = saved;
+                const name = ir.get(sexp, .name);
+                if (self.fn_depth == 0) self.method_pos = if (self.genericOwner() and name == .src) name.src.pos else null;
+                try self.walkFun(name, sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body));
+            },
             .drop_decl => try self.walkFun(.nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
             .@"struct", .@"enum", .errors, .generic_struct => {
                 const saved = self.decl_owner;
@@ -2093,6 +2285,13 @@ pub const Checker = struct {
             },
             else => try self.walkStmt(sexp),
         }
+    }
+
+    /// Whether the members being walked are a generic type's.
+    fn genericOwner(self: *const Checker) bool {
+        const ctx = self.sema orelse return false;
+        const owner = self.decl_owner orelse return false;
+        return ctx.symbols.items[owner].type_params != null;
     }
 
     /// Walk a function, method, drop body or test body. `tparams`: its
@@ -5114,6 +5313,13 @@ pub const Checker = struct {
             if (self.errors_found == callee_found) try self.holdRead(callee, .callee);
         }
 
+        // A call of a function value whose type names a type parameter:
+        // what the value may keep of a view of memory the body owns, put
+        // in a value of a type parameter's type, each instance answers
+        // (`requireCallable`).
+        const value_ty = try self.calledValueType(node, callee, field_call);
+        if (callee.isKind(.member) and !field_call) try self.noteMethodCall(node, callee);
+
         // `print`, `String(...)`, and `!t.add(...)` only read their
         // arguments, and hold none of them past the call: a String keeps
         // their text, not them.
@@ -5216,6 +5422,12 @@ pub const Checker = struct {
         }
         result = try self.valueUnion(result, carried);
         from_args = try self.valueUnion(from_args, carried);
+        // A table's `update` and `retain` lend their own entries to the
+        // function value they are given (`Field.lends_entries`).
+        if (callee.isKind(.member) and !field_call and self.lendsEntries(callee)) for (args) |a| {
+            const t = self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a) orelse continue;
+            if (self.sema) |ctx| if (sema.calledFn(ctx, t) != null) try self.requireCallable(self.startOf(node), t, false);
+        };
         // What the call keeps by its callee's `keeps`, for a conflict's note.
         if (params) |p| if (p.origins.stores & p.origins.lent != 0) {
             const write_recv = if (recv_mode == .write) recv_root else null;
@@ -5263,14 +5475,37 @@ pub const Checker = struct {
             // write loans of what reached it (a parameter's own, a write
             // view's) writes nothing.
             if (callee.isKind(.member) and self.mayWrite(self.exprType(ir.Member.object(callee)))) try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
+            // The loans of the function values the call is passed are
+            // theirs, not views it is given (`heldStore`).
+            var passed_fns: Value = .{};
+            if (value_ty != null) for (args, arg_values) |a, v| {
+                const t = self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a) orelse continue;
+                if (self.sema) |ctx| if (sema.calledFn(ctx, t) != null) {
+                    passed_fns = try self.valueUnion(passed_fns, v);
+                };
+            };
             for (args, arg_values) |a, v| {
-                if (self.mayWrite(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
+                if (!self.mayWrite(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) continue;
+                const saved_held = self.held_store;
+                defer self.held_store = saved_held;
+                self.held_store = if (value_ty) |t| .{ .callable = t, .pos = self.startOf(node), .own = (try self.valueUnion(v, passed_fns)).loans } else null;
+                try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
             }
         }
 
         // The views passed to the call end when it returns, unless its
         // result can carry them.
         if (!self.mayCarryLoan(self.exprType(node))) {
+            // A function value's result, held as a value of a type
+            // parameter's type, given a view of memory the body owns: each
+            // instance's must hold no view, the value's own or the
+            // argument's, so what the value holds is not kept here.
+            if (value_ty) |t| if (self.genericType(self.exprType(node)) and self.viewsOwned(carried)) {
+                try self.requireCallable(self.startOf(node), t, true);
+                self.taintGeneric(self.exprType(node), carried);
+                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+                return .{};
+            };
             self.taintGeneric(self.exprType(node), if (field_call) from_args else result);
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
@@ -7749,6 +7984,7 @@ pub const Checker = struct {
                 try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, c.name, c.name });
                 return;
             };
+            try self.heldStore(id, stored, true);
             var out: std.ArrayList(Loan) = .empty;
             for (stored.loans) |l| if (l.root != id and !self.isLocalLoan(l)) try out.append(self.arena(), l);
             self.recordStore(id, out.items, pos);
@@ -7762,9 +7998,117 @@ pub const Checker = struct {
             try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`, a `{s}`: a generic body tracks no view a value of a type parameter holds", .{ self.vars.items[l.root].name, c.name, shown });
             return;
         };
+        if (c.ref == .none) try self.heldStore(id, stored, false);
         for (self.flows.items[id].loans) |l| {
             if (l.kind == .write and l.root != id) try self.genericStoreIn(l.root, stored, pos, depth + 1);
         }
+    }
+
+    /// A call of a function value (`held_store`) may store the loans in
+    /// `stored` in what var `id` leads to, a value of a type parameter's
+    /// type whose loans the body does not track: where one is not the
+    /// write argument's own, and is on memory the body owns (any, for a
+    /// value the body holds; for a lent parameter, the parameter itself
+    /// or a value of the body's), each instance's type of the function
+    /// value must keep none there (`requireCallable`). A lent parameter
+    /// keeps the loans on the caller's other values its signature says.
+    fn heldStore(self: *Checker, id: VarId, stored: Value, lent: bool) Error!void {
+        const hs = self.held_store orelse return;
+        for (stored.loans) |l| {
+            if (containsLoan(hs.own, l)) continue;
+            if (lent and l.root != id and !self.isLocalLoan(l)) continue;
+            return self.requireCallable(hs.pos, hs.callable, false);
+        }
+    }
+
+    /// Whether `v` carries a loan on memory the body owns: a value of its
+    /// own, a parameter it was given by value, or self's storage.
+    fn viewsOwned(self: *Checker, v: Value) bool {
+        for (v.loans) |l| if (self.ownsLoan(l, 0)) return true;
+        return false;
+    }
+
+    /// Whether loan `l` is on memory the body owns (`viewsOwned`).
+    fn ownsLoan(self: *Checker, l: Loan, depth: u32) bool {
+        if (l.ext or self.isGlobal(l.root)) return false;
+        if (l.frame) return true;
+        return self.ownsVar(l.root, depth);
+    }
+
+    /// Whether var `id` is memory the body owns: self's storage, a value
+    /// of its own, or a parameter given by value. A lent parameter is the
+    /// caller's; a loop element that views its collection's slot, and a
+    /// local view, are what they view.
+    fn ownsVar(self: *Checker, id: VarId, depth: u32) bool {
+        const r = self.vars.items[id];
+        if (r.kind == .param and std.mem.eql(u8, r.name, "@")) return true;
+        if (r.kind == .param and r.ref != .none) return false;
+        if (self.isGlobal(id)) return false;
+        if (depth > 8) return true;
+        if (r.elem_of) |c| if (r.elem_view or r.loop_view) return self.ownsVar(c, depth + 1);
+        const ctx = self.sema orelse return true;
+        const viewing = r.ref != .none or if (r.ty) |t| sema.lentParam(ctx, t) else false;
+        if (!viewing) return true;
+        for (self.varValue(id).loans) |m| if (self.ownsLoan(m, depth + 1)) return true;
+        return false;
+    }
+
+    /// The type of the function call `node` calls, when it names a type
+    /// parameter of the body: a function value's (a parameter, local,
+    /// capture, or field holding one, or a closure called where it is
+    /// written), or a generic function's signature at the call's type
+    /// arguments; null for a method.
+    fn calledValueType(self: *Checker, node: Sexp, callee: Sexp, field_call: bool) Error!?TypeId {
+        const ctx = self.sema orelse return null;
+        if (callee.isKind(.member) and !field_call) return null;
+        if (callee == .src) if (ctx.symbolOf(callee)) |id| if (ctx.symbols.items[id].kind == .function) {
+            // A named function: generic, at the body's own parameters.
+            const gc = ctx.genericCallOf(node) orelse return null;
+            const interner = self.interner orelse return null;
+            const ty = try sema.substituteType(interner, ctx.symbols.items[id].ty, .{ .params = gc.params, .args = gc.type_args });
+            if (!ctx.typeInfo(ty).has_type_var or sema.calledFn(ctx, ty) == null) return null;
+            return ty;
+        };
+        if (ctx.callTargetOf(node)) |t| if (t == .function) return null;
+        const ty = self.exprType(callee) orelse return null;
+        if (!ctx.typeInfo(ty).has_type_var) return null;
+        _ = sema.calledFn(ctx, ty) orelse return null;
+        return ty;
+    }
+
+    /// Whether method call `callee` reaches a built-in table's method
+    /// that lends its entries to a function value (`Field.lends_entries`).
+    fn lendsEntries(self: *const Checker, callee: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        const recv = self.pointee(self.exprType(unsigiled(ir.Member.object(callee)))) orelse return false;
+        const pn = switch (ctx.types.get(recv)) {
+            .parameterized_nominal => |pn| pn,
+            else => return false,
+        };
+        if (!sema.isHashTable(ctx, pn.sym)) return false;
+        const name = self.text(ir.Member.name(callee));
+        for (ctx.symbols.items[pn.sym].fields orelse &.{}) |f| {
+            if (f.is_method and std.mem.eql(u8, f.name, name)) return f.lends_entries;
+        }
+        return false;
+    }
+
+    /// Record call `node` of a Rig method on a value of a generic type's
+    /// instance (`method_calls`), whose body's requirements of function
+    /// values its type's arguments answer (`checkMethodCalls`).
+    fn noteMethodCall(self: *Checker, node: Sexp, callee: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        const target = switch (ctx.callTargetOf(node) orelse return) {
+            .function => |f| f,
+            .none => return,
+        };
+        const recv = self.pointee(self.exprType(unsigiled(ir.Member.object(callee)))) orelse return;
+        const pn = switch (ctx.types.get(recv)) {
+            .parameterized_nominal => |pn| pn,
+            else => return,
+        };
+        const params = ctx.symbols.items[pn.sym].type_params orelse return;
+        try self.method_calls.append(self.gpa, .{ .pos = self.startOf(node), .target = target, .recv = recv, .params = params, .args = pn.args, .scope = self.method_pos });
     }
 
     /// Whether `ty` holds a type parameter by value and so may hold a view

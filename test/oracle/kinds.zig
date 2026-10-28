@@ -721,11 +721,16 @@ pub const Reach = struct {
     const Found = struct { owned: bool = false, viewed: bool = false };
 
     fn walk(self: *Reach, ctx: *const SemContext, holder: TypeId, t: Targets) std.mem.Allocator.Error!Found {
+        return self.walkAt(ctx, holder, t, null);
+    }
+
+    /// `walk`, with the type parameters `holder` names bound by `subst`.
+    fn walkAt(self: *Reach, ctx: *const SemContext, holder: TypeId, t: Targets, subst: ?*const Subst) std.mem.Allocator.Error!Found {
         var r: Found = .{};
         if (!t.any and !t.bytes and t.types.items.len == 0 and t.elems.items.len == 0) return r;
         var work: std.ArrayList(Node) = .empty;
         var seen: std.StringHashMapUnmanaged(void) = .empty;
-        try work.append(self.a, .{ .ctx = ctx, .ty = holder });
+        try work.append(self.a, .{ .ctx = ctx, .ty = holder, .subst = subst });
         while (work.pop()) |popped| {
             const n = bound(popped);
             const hit = anything(n) or t.any or blk: {
@@ -790,17 +795,26 @@ pub const Reach = struct {
     /// write view, which the call may put any value of its slots' types
     /// in.
     pub fn stores(self: *Reach, ctx: *const SemContext, params: []const TypeId, i: usize) std.mem.Allocator.Error!bool {
+        return self.storesAt(ctx, params, i, &.{}, ctx, &.{});
+    }
+
+    /// `stores`, where the type parameters `tparams` the parameters name
+    /// are `args`, types of `args_ctx`: a generic declaration's signature
+    /// at one of its instances.
+    pub fn storesAt(self: *Reach, ctx: *const SemContext, params: []const TypeId, i: usize, tparams: []const sema.SymbolId, args_ctx: *const SemContext, args: []const TypeId) std.mem.Allocator.Error!bool {
+        const at: Subst = .{ .params = tparams, .args = args, .ctx = args_ctx, .outer = null };
+        const subst: ?*const Subst = if (tparams.len > 0) &at else null;
         var t: Targets = .{};
-        for (params) |p| try self.writable(ctx, p, &t);
-        return (try self.walk(ctx, params[i], t)).viewed;
+        for (params) |p| try self.writable(ctx, p, &t, subst);
+        return (try self.walkAt(ctx, params[i], t, subst)).viewed;
     }
 
     /// Add to `t` what views held in memory a value of `ty` reaches past
     /// a write view point into.
-    fn writable(self: *Reach, ctx: *const SemContext, ty: TypeId, t: *Targets) std.mem.Allocator.Error!void {
+    fn writable(self: *Reach, ctx: *const SemContext, ty: TypeId, t: *Targets, subst: ?*const Subst) std.mem.Allocator.Error!void {
         var work: std.ArrayList(Node) = .empty;
         var seen: std.StringHashMapUnmanaged(void) = .empty;
-        try work.append(self.a, .{ .ctx = ctx, .ty = ty });
+        try work.append(self.a, .{ .ctx = ctx, .ty = ty, .subst = subst });
         while (work.pop()) |popped| {
             const n = bound(popped);
             if (anything(n)) {

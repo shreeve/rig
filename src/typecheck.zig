@@ -18440,8 +18440,14 @@ const Checker = struct {
                 // A parameter's type is checked as a written one is,
                 // though the closure's type gave it; `_` binds nothing
                 // to write through.
-                if (sema.writesTextView(self.ctx, g) and !std.mem.eql(u8, name, "_")) {
-                    try self.errAt(pn, "closure parameter `{s}` is a `{s}`, from the closure's type `{s}`; " ++ sema.write_text_view, .{ name, try self.tyName(g), try self.tyName(expected orelse g) });
+                if (sema.writesView(self.ctx, g) and !std.mem.eql(u8, name, "_")) {
+                    const viewed = sema.viewWritten(self.ctx, g);
+                    if (viewed == self.t().string_view_id) {
+                        try self.errAt(pn, "closure parameter `{s}` is a `{s}`, from the closure's type `{s}`; " ++ sema.write_text_view, .{ name, try self.tyName(g), try self.tyName(expected orelse g) });
+                    } else {
+                        const shown = try self.tyName(viewed);
+                        try self.errAt(pn, "closure parameter `{s}` is a `{s}`, from the closure's type `{s}`; " ++ sema.write_read_view, .{ name, try self.tyName(g), try self.tyName(expected orelse g), shown, shown });
+                    }
                     pty = self.t().invalid_id;
                 }
             } else if (want == null and !self.under_poison and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
@@ -20517,6 +20523,11 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
         // the function; through a write view, the function's own `keeps`
         // says what may be stored.
         if (c.owned_recv and m.field.origins.stores & m.field.origins.lent != 0) break :blk try a.print("and `{s}` keeps a view of an argument in `{s}`, a `{s}` the body holds, whose loans it does not track", .{ owner, c.recv, pname });
+        // Its result may view `x` itself, a `T` the body holds, or an
+        // argument: held as a value of a type parameter's type, which can
+        // hold a view at this instance, the view is one no loan tracks.
+        if (c.owned_recv and c.result == .ty and sema.containsTypeVar(ctx, c.result.ty) and m.field.origins.result & m.field.origins.lent != 0 and sema.mayHoldView(ctx, result.?))
+            break :blk try a.print("and `{s}` gives a view of `{s}` or an argument, which the body holds as a `{s}`, whose loans it does not track", .{ owner, c.recv, try sema.formatType(ctx, c.result.ty) });
         if (m.field.owner_bounds.len > 0) break :blk try a.print("and `{s}` is declared under a bound on its type's parameters, which a call on a `{s}` with no bound does not state", .{ owner, pname });
         if (sema.isGenericFn(ctx, m.fn_ty)) break :blk try a.print("and `{s}` takes compile-time parameters of its own, which a call on a `{s}` does not give", .{ owner, pname });
         const params = m.fn_ty.params[1..];

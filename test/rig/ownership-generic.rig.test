@@ -1756,11 +1756,11 @@ test "generic plain of a value's known type is a constant", "true false"
 
   print(known(1, 2), other(3))
 
-fail "closure stores its parameter's view in a generic body's value", "stores a view of `k`", known: true
+fail "closure stores its parameter's view in a generic body's value", "9:2: `Map[String, (?String)?]` cannot use `V = (?String)?`: the generic body passes a `?sub(?String, !(?String)?)` a view beside a write view of a `V` it holds, whose loans it does not track, and a `(?String)?` can hold the view; use a `V` that owns what it holds"
   # A generic body tracks no view a value of a type parameter holds, so
   # `update`'s call of `f(?key, !value)` cannot see `f` store the key's
-  # view in a `(?String)?` value; the value then outlives the key. The
-  # closure stores what its type cannot show (SPEC "Generic bodies").
+  # view in a `(?String)?` value; the value would outlive the key. The
+  # instance is refused (SPEC "Generic bodies").
 
   s = String("x")
   m = Map[String, (?String)?]()
@@ -1771,7 +1771,7 @@ fail "closure stores its parameter's view in a generic body's value", "stores a 
     if v as w
       print(w, junk.len)
 
-fail "closure pushes its parameter's view in a generic body's value", "stores a view of `k`", known: true
+fail "closure pushes its parameter's view in a generic body's value", "5:2: `Map[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes"
   # The same, through a List of views the value holds.
 
   m = Map[String, List[?String]]()
@@ -1780,3 +1780,338 @@ fail "closure pushes its parameter's view in a generic body's value", "stores a 
   if (!m).take("a-long-key-on-the-heap-0123456789") as v
     junk = String("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")
     print(v[0], junk.len)
+
+fail "generic value refused even for a harmless closure", "`Map[String, (?String)?]` cannot use `V = (?String)?`"
+  # The instance is refused whatever the closure does: the body's call
+  # could store the key's view, and the closure is not looked into.
+
+  m = Map[String, (?String)?]()
+  !m.put(String("a"), none)
+  !m.update(|k, v| v = none)
+  print(m.len)
+
+fail "generic value through retain", "`Map[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes a `?fun(?String, !List[?String]) -> Bool`"
+  m = Map[String, List[?String]]()
+  !m.put(String("a"), List())
+  !m.retain(|k, v|
+    !v.push(k)
+    true
+  )
+  print(m.len)
+
+fail "generic value through ensure_with's result", "`Map[String, (?String)?]` cannot use `V = (?String)?`: the generic body holds as a `V` what a `?fun(?String) -> (?String)?` gives when passed a view"
+  # `make(?k)` is held as the Map's value; `|k| k` gives the key's view.
+
+  m = Map[String, (?String)?]()
+  _ = (!m).ensure_with(String("a"), |k| k)
+  print(m.len)
+
+fail "generic value through ensure_with's captured result", "`Map[String, (?String)?]` cannot use `V = (?String)?`: the generic body holds as a `V`"
+  # What `make` captured may be in its result too: a `V` that can hold
+  # a view is refused, so `ensure_with` keeps nothing of `make`.
+
+  m = Map[String, (?String)?]()
+  s = String("captured")
+  _ = (!m).ensure_with(String("a"), |?s, k| s)
+  print(m.len)
+
+fail "generic value through HashMap", "`HashMap[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes", "`HashMap[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes a `?fun", "`HashMap[String, (?String)?]` cannot use `V = (?String)?`: the generic body holds", errors: 3
+  m = HashMap[String, List[?String]]()
+  !m.put(String("a"), List())
+  !m.update(|k, v| !v.push(k))
+  !m.retain(|k, v|
+    !v.push(k)
+    true
+  )
+  h = HashMap[String, (?String)?]()
+  _ = (!h).ensure_with(String("a"), |k| k)
+  print(m.len, h.len)
+
+fail "generic value through a named function that keeps", "`Map[String, List[?String]]` cannot use `V = List[?String]`"
+  # A named function declared `keeps` is a function value of the type
+  # `update` takes: the type, not the function, decides.
+
+  sub put_view(k: ?String, v: !List[?String]) keeps k
+    !v.push(k)
+
+  m = Map[String, List[?String]]()
+  !m.put(String("a"), List())
+  !m.update(put_view)
+  print(m.len)
+
+fail "generic value through an owned closure", "`Map[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes a `?sub(?String, !List[?String])`"
+  m = Map[String, List[?String]]()
+  !m.put(String("a"), List())
+  g: *sub(?String, !List[?String]) = *|k, v| !v.push(k)
+  !m.update(g)
+  print(m.len)
+
+fail "generic value forwarded through another generic", "`fwd[String, List[?String]]` cannot use `V = List[?String]`"
+  sub fwd[K: Hash, V](m: !Map[K, V], f: ?sub(?K, !V))
+    !m.update(f)
+
+  m = Map[String, List[?String]]()
+  !m.put(String("a"), List())
+  fwd(!m, |k, v| !v.push(k))
+  print(m.len)
+
+fail "generic value in a method's element", "13:2: `Pairs[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes", "8:5: the body passes the views here"
+  # Self's storage holds a `V` by value: the view of `@ks[0]` the call
+  # may put in `@vs[0]` is untracked.
+
+  obj Pairs[K, V]
+    ks: List[K]
+    vs: List[V]
+    sub upd(!@, f: ?sub(?K, !V))
+      f(?@ks[0], !@vs[0])
+
+  p = Pairs[String, List[?String]](ks: List(), vs: List())
+  !p.ks.push(String("a"))
+  !p.vs.push(List())
+  !p.upd(|k, v| !v.push(k))
+  print(p.vs.len)
+
+fail "generic value through a generic function that keeps", "`Pairs[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes a `sub(?String, !List[?String], ?sub(?String, !List[?String]))`"
+  # `apply` keeps `k` in `v`, which its caller tracks; here both are
+  # self's own storage, which the body does not track.
+
+  sub apply[A, B](k: ?A, v: !B, f: ?sub(?A, !B)) keeps k
+    f(k, !v)
+
+  obj Pairs[K, V]
+    ks: List[K]
+    vs: List[V]
+    sub upd(!@, f: ?sub(?K, !V))
+      apply(?@ks[0], !@vs[0], f)
+
+  p = Pairs[String, List[?String]](ks: List(), vs: List())
+  !p.ks.push(String("a"))
+  !p.vs.push(List())
+  !p.upd(|k, v| !v.push(k))
+  print(p.vs.len)
+
+fail "generic value in a method's field", "`Pair[String, (?String)?]` cannot use `V = (?String)?`"
+  obj Pair[K, V]
+    k: K
+    v: V
+    sub upd(!@, f: ?sub(?K, !V))
+      f(?@k, !@v)
+
+  p = Pair[String, (?String)?](k: String("a"), v: none)
+  !p.upd(|k, v| v = k)
+  print(1)
+
+fail "generic value in a local", "`mk[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes"
+  # A body's own locals: the view of `a` that `f` may put in `b` would
+  # leave with `b`.
+
+  fun mk[K, V](k: K, v: V, f: ?sub(?K, !V)) -> V
+    a = <k
+    b = <v
+    f(?a, !b)
+    b
+
+  r = mk(String("a"), List[?String](), |k, v| !v.push(k))
+  print(r.len)
+
+fail "generic value from a local into self", "`Pairs[List[?String]]` cannot use `V = List[?String]`"
+  obj Pairs[V]
+    vs: List[V]
+    sub upd(!@, f: ?sub(?String, !V))
+      s = String("local")
+      f(?s, !@vs[0])
+
+  p = Pairs[List[?String]](vs: List())
+  !p.vs.push(List())
+  !p.upd(|k, v| !v.push(k))
+  print(p.vs.len)
+
+fail "generic value from a lent parameter through a local into self", "`Pairs[List[?String]]` cannot use `V = List[?String]`"
+  # `b` is the body's own: what `f` puts in it is not tracked, though
+  # it views the caller's `xs`, and `b` then goes into self.
+
+  obj Pairs[V]
+    vs: List[V]
+    sub upd(!@, xs: ?List[String], v: V, f: ?sub(?String, !V))
+      b = <v
+      f(?xs[0], !b)
+      !@vs.push(<b)
+
+  p = Pairs[List[?String]](vs: List())
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  !p.upd(?xs, List(), |k, v| !v.push(k))
+  print(p.vs.len)
+
+fail "generic value through a field holding an owned closure", "`Pairs[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes a `*sub(?String, !List[?String])`"
+  obj Pairs[K, V]
+    ks: List[K]
+    vs: List[V]
+    f: *sub(?K, !V)
+    sub upd(!@)
+      g = +@f
+      g(?@ks[0], !@vs[0])
+
+  p = Pairs[String, List[?String]](ks: List(), vs: List(), f: *|k, v| !v.push(k))
+  !p.ks.push(String("a"))
+  !p.vs.push(List())
+  !p.upd()
+  print(p.vs.len)
+
+fail "generic value through two write views", "`Two[Node]` cannot use `V = Node`: the generic body passes a `?sub(!Node, !Node)` a view beside a write view"
+  # A write view is a view too: `f` may store a view of `y` in `x`.
+
+  obj Node
+    name: String
+    refs: List[?String]
+
+  obj Two[V]
+    a: V
+    b: V
+    sub both(!@, f: ?sub(!V, !V))
+      f(!@a, !@b)
+
+  t = Two[Node](a: Node(name: String("a"), refs: List()), b: Node(name: String("b"), refs: List()))
+  !t.both(|x, y| !x.refs.push(?y.name))
+  print(t.a.refs.len)
+
+fail "generic value from a result kept in self", "`Pairs[String, (?String)?]` cannot use `V = (?String)?`: the generic body holds as a `V`"
+  # `keeps f` keeps what `f` holds, not the view of `@ks[0]` its result
+  # may carry into `@vs`.
+
+  obj Pairs[K, V]
+    ks: List[K]
+    vs: List[V]
+    sub mk(!@, f: ?fun(?K) -> V) keeps f
+      !@vs.push(f(?@ks[0]))
+
+  p = Pairs[String, (?String)?](ks: List(), vs: List())
+  !p.ks.push(String("a"))
+  !p.mk(|k| k)
+  print(p.vs.len)
+
+fail "generic value from a parameter given by value", "`key_of[?String, Person]` cannot use `K = ?String`: the generic body holds as a `K` what a `?fun(?Person) -> ?String` gives when passed a view"
+  # `item` is the body's: a key that views it would outlive it.
+
+  obj Person
+    name: String
+
+  fun key_of[K, V](item: V, id: ?fun(?V) -> K) -> K
+    key = id(?item)
+    key
+
+  k = key_of(Person(name: String("a")), |p| ?p.name)
+  print(k)
+
+fail "generic value from a method's result that views self", "`Pairs[Name, ?String]` cannot use `K = Name`: the generic body calls `@ks[0].view()`, and `Name.view` gives a view of `@ks[0]` or an argument, which the body holds as a `V`"
+  obj Name
+    s: String
+    fun view(?@) -> ?String
+      ?@s
+
+  obj Pairs[K, V]
+    ks: List[K]
+    vs: List[V]
+    sub mk(!@)
+      !@vs.push(@ks[0].view())
+
+  p = Pairs[Name, ?String](ks: List(), vs: List())
+  !p.ks.push(Name(s: String("a")))
+  !p.mk()
+  print(p.vs.len)
+
+fail "generic value of an API object", "`Map[String, ^{Shown}?]` cannot use `V = ^{Shown}?`"
+  api Shown
+    fun show(?@) -> Int
+
+  obj Ref: Shown
+    s: ?String
+    fun show(?@) -> Int
+      @s.len
+
+  type Box = ^{Shown}
+
+  m = Map[String, Box?]()
+  !m.put(String("a"), none)
+  !m.update(|k, v| v = ^Ref(s: k))
+  print(m.len)
+
+fail "generic value of a generic object", "`Map[String, Wrap[List[?String]]]` cannot use `V = Wrap[List[?String]]`"
+  obj Wrap[T]
+    inner: T
+
+  m = Map[String, Wrap[List[?String]]]()
+  !m.put(String("a"), Wrap(inner: List()))
+  !m.update(|k, v| !v.inner.push(k))
+  print(m.len)
+
+fail "generic value of an enum payload", "`Map[String, Slot]` cannot use `V = Slot`"
+  enum Slot
+    empty
+    full(s: ?String)
+
+  m = Map[String, Slot]()
+  !m.put(String("a"), .empty)
+  !m.update(|k, v| v = .full(s: k))
+  print(m.len)
+
+fail "generic value of optionals of a view", "`Map[String, ((?String)?)?]` cannot use `V = ((?String)?)?`"
+  m = Map[String, ((?String)?)?]()
+  !m.put(String("a"), none)
+  !m.update(|k, v| v = k)
+  print(m.len)
+
+test "generic value that owns what it holds", "a a 2 1"
+  # A `V` that can hold no view is accepted: `String`, `Int`.
+
+  m = Map[String, String]()
+  !m.put(String("a"), String(""))
+  !m.update(|k, v| v = +k)
+  n = Map[String, Int]()
+  !n.put(String("ab"), 0)
+  !n.update(|k, v| v += k.len)
+  !n.retain(|k, v| v > 0)
+  _ = (!n).ensure_with(String("c"), |k| k.len)
+  h = HashMap[String, String]()
+  _ = (!h).ensure_with(String("a"), |k| +k)
+  !h.update(|k, v| v = +k)
+  print(m.get("a"), h.get("a"), n.get("ab"), n.get("c"))
+
+test "generic value whose key views", "3"
+  # A `V` the key's view cannot be held in: `?sub(?String, !Int)` keeps
+  # nothing, though `K` is a view.
+
+  s = String("abc")
+  m = Map[?String, Int]()
+  !m.put(?s, 0)
+  !m.update(|k, v| v = k.len)
+  print(m.get(?s))
+
+test "generic value from a lent parameter's element", "a-long-text-on-the-heap-0123456789"
+  # Views of what the caller lent are tracked: `keeps xs` keeps it.
+
+  obj P[V]
+    vs: List[V]
+    sub fill(!@, xs: []String, f: ?fun(?String) -> V) keeps xs, f
+      for x in xs
+        !@vs.push(f(?x))
+
+  src = [String("a-long-text-on-the-heap-0123456789")]
+  p = P[?String](vs: List())
+  !p.fill(?src[..], |s| s)
+  print(p.vs[0])
+
+test "generic value as a sort key that views", "al"
+  # `sort_by_key`'s keys view elements of the List it was lent.
+
+  use std.sort
+
+  obj Person
+    name: String
+    age: Int
+
+  v: List[Person] = List()
+  !v.push(Person(name: String("bo"), age: 3))
+  !v.push(Person(name: String("al"), age: 4))
+  sort.sort_by_key(!v, |p| ?p.name)
+  print(v[0].name)

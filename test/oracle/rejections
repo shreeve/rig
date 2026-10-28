@@ -4866,6 +4866,7 @@ doc/CORE/7e4508021a4e main
 doc/CORE/c2f3cd1128fd main
 doc/SPEC/134cff7eedf6 main
 doc/SPEC/7e4508021a4e main
+doc/SPEC/4a3263554222 main
 test/reject/ownership/apis_object_the_API's_keeps,_not_the_implementation's.rig hook
 test/reject/ownership/apis_object_the_API's_keeps,_not_the_implementation's.rig local
 test/reject/ownership/apis_object_box_keeps_through_a_call.rig main
@@ -4947,3 +4948,15 @@ test/reject/ownership/partial_optional_parameter_field_closures_reject.rig read_
 test/reject/ownership/partial_optional_parameter_field_drop_body_reject.rig closing
 test/reject/ownership/partial_optional_parameter_field_branch_reject.rig branched
 test/reject/ownership/generic_plain_joins_after_a_move_as_an_if_does.rig twice_or_move
+test/reject/ownership/closure_stores_its_parameter's_view_in_a_generic_body's_value.rig main
+test/reject/ownership/closure_pushes_its_parameter's_view_in_a_generic_body's_value.rig main
+test/reject/ownership/generic_value_refused_even_for_a_harmless_closure.rig main
+test/reject/ownership/generic_value_through_retain.rig main
+test/reject/ownership/generic_value_through_ensure_with's_result.rig main
+test/reject/ownership/generic_value_through_ensure_with's_captured_result.rig main
+test/reject/ownership/generic_value_through_HashMap.rig main
+test/reject/ownership/generic_value_through_a_named_function_that_keeps.rig main
+test/reject/ownership/generic_value_through_an_owned_closure.rig main
+test/reject/ownership/generic_value_of_an_API_object.rig main
+test/reject/ownership/generic_value_of_an_enum_payload.rig main
+test/reject/ownership/generic_value_of_optionals_of_a_view.rig main

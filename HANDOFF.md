@@ -78,14 +78,17 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **A closure's stores in a generic body's values** (soundness, an
-  ownership rule for the owner): a closure given `!?String` by its type
-  is rejected, and `Map.ensure_by` panics on a key other than `k`, but
-  a closure that stores its key's view in a `(?String)?` or
-  `List[?String]` value through `update` is still accepted, by the
-  oracle too. Two `known: true` cases in
-  `test/rig/ownership-generic.rig.test`; docs/internals/backlog.md has
-  the fix proposed.
+- **A generic body's own values hold no untracked view** (SPEC
+  "Generic bodies", approved 2026-10-27): an instance whose type
+  argument can hold the view a body could put in a `T` it holds is
+  refused at the call or type that makes it, `update`, `retain`, and
+  `ensure_with` of a Map or HashMap at a value type that can hold a
+  view among them; `ensure_with` keeps nothing of `make`, and `!?T` is
+  rejected as `!?String` is. The oracle refuses the three Map calls
+  alike and abstains at a program's own generics, as at any instance
+  at a view. Deferred by the owner: accepting a closure that stores
+  nothing (docs/internals/backlog.md); records in
+  `~/Data/Code/Claude/rig/rig/generic-rule/`.
 - **The consolidation round** ran on 2026-10-23
   ([PLAN.md](docs/history/records/2026-10/consolidation/PLAN.md)); what
   it landed, measured, and left is in
