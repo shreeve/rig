@@ -215,6 +215,11 @@ assignment with stealing is 14-16% faster than its Go order at four
 is allowed in Go mode, and on CHECKERS.md's list of what Trig may take
 while staying exact: a parallel parse and bind (its item 2), checkers
 made in their tasks (3), teardown by exit (4), and single-thread speed.
+Trig's opt-in `TRIG_CHECKERS=dynamic` (one queue, heaviest file first;
+not tsc's output in general) measures how much of the 98 ms a queue
+takes back; its timing (`dynamic.sh`) waited behind Trig's full suite
+and had not run when this record was written. Its output will be in
+`/zfs/worktrees/rig/scaling-2/dynamic.txt` on pup.
 
 ## 4. What changed since 2026-10-24
 
@@ -289,6 +294,8 @@ output, so it belongs to a later canonical mode.
 5. `rig.alloc.remap` at four checkers: is moving growth worth its TLB
    shootdowns once other threads run, or should a large block grow in
    reserved address space?
-6. #754 at many checkers: should Table huge pages wait for a larger
+6. How close does `TRIG_CHECKERS=dynamic` come to tsrs's default mode
+   at four checkers (`dynamic.sh`, not yet run cleanly)?
+7. #754 at many checkers: should Table huge pages wait for a larger
    size, or count against a budget, so memory does not grow 10 MB a
    checker?

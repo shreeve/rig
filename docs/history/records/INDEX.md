@@ -341,7 +341,6 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [counters.sh](2026-10/perf-stage/scaling-2-data/counters.sh)
 - [counters.txt](2026-10/perf-stage/scaling-2-data/counters.txt)
 - [dynamic.sh](2026-10/perf-stage/scaling-2-data/dynamic.sh)
-- [dynamic.txt](2026-10/perf-stage/scaling-2-data/dynamic.txt)
 - [extdiag.txt](2026-10/perf-stage/scaling-2-data/extdiag.txt)
 - [memory.txt](2026-10/perf-stage/scaling-2-data/memory.txt)
 - [mm-summary.txt](2026-10/perf-stage/scaling-2-data/mm-summary.txt)
