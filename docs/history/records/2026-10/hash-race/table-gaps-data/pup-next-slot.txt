@@ -1,0 +1,137 @@
+keys       op                          rig-hash        zig-hash        rig-fast     zig-ordered   fastest        vs zig-hash (ns/op)
+int16      insert                          6.36            7.37            6.29            6.34   rig-fast       rig-hash 15.9% faster, rig-fast 17.2% faster, zig-ordered 16.2% faster
+int16      remove                          4.69            4.72            5.25            7.19   rig-hash       rig-hash 0.7% faster, rig-fast 10.2% slower, zig-ordered 34.4% slower
+int16      hit                             1.16            1.28            1.28            1.35   rig-hash       rig-hash 9.9% faster, rig-fast 0.1% slower, zig-ordered 5.7% slower
+int16      miss                            0.89            0.98            0.89            0.90   rig-fast       rig-hash 9.8% faster, rig-fast 10.0% faster, zig-ordered 9.0% faster
+int16      iterate                         0.56            0.66            0.21            0.21   rig-fast       rig-hash 17.0% faster, rig-fast 208.0% faster, zig-ordered 206.0% faster
+int1000    insert                         12.79           11.94           10.82           13.13   rig-fast       rig-hash 6.7% slower, rig-fast 10.3% faster, zig-ordered 9.1% slower
+int1000    remove                          3.98            3.97            6.16            5.86   zig-hash       rig-hash 0.3% slower, rig-fast 35.6% slower, zig-ordered 32.3% slower
+int1000    hit                             1.13            1.22            1.64            1.70   rig-hash       rig-hash 8.0% faster, rig-fast 25.4% slower, zig-ordered 27.8% slower
+int1000    miss                            0.91            0.97            1.56            1.61   rig-hash       rig-hash 6.8% faster, rig-fast 37.4% slower, zig-ordered 39.6% slower
+int1000    iterate                         0.54            0.63            0.21            0.21   rig-fast       rig-hash 16.9% faster, rig-fast 200.5% faster, zig-ordered 200.4% faster
+int100000  insert                          9.27            9.16           11.90            9.37   zig-hash       rig-hash 1.2% slower, rig-fast 23.0% slower, zig-ordered 2.2% slower
+int100000  remove                          7.82            7.44            8.75            8.11   zig-hash       rig-hash 4.9% slower, rig-fast 15.1% slower, zig-ordered 8.3% slower
+int100000  hit                             2.09            2.28            2.83            2.95   rig-hash       rig-hash 9.2% faster, rig-fast 19.4% slower, zig-ordered 22.5% slower
+int100000  miss                            1.38            1.45            3.32            3.34   rig-hash       rig-hash 5.4% faster, rig-fast 56.2% slower, zig-ordered 56.4% slower
+int100000  iterate                         0.63            0.62            0.24            0.22   zig-ordered    rig-hash 1.2% slower, rig-fast 157.5% faster, zig-ordered 182.6% faster
+int4000000 insert                         22.70           35.04           31.15           36.69   rig-hash       rig-hash 54.4% faster, rig-fast 12.5% faster, zig-ordered 4.5% slower
+int4000000 remove                         19.25           22.38           26.54           28.59   rig-hash       rig-hash 16.3% faster, rig-fast 15.7% slower, zig-ordered 21.7% slower
+int4000000 hit                            13.19           15.53           15.91           18.08   rig-hash       rig-hash 17.7% faster, rig-fast 2.4% slower, zig-ordered 14.1% slower
+int4000000 miss                            1.57            2.59            9.86           12.42   rig-hash       rig-hash 65.3% faster, rig-fast 73.7% slower, zig-ordered 79.1% slower
+int4000000 iterate                         2.22            2.35            0.66            0.71   rig-fast       rig-hash 5.6% faster, rig-fast 255.3% faster, zig-ordered 232.2% faster
+rnd16      insert                          6.61            7.07            6.15            5.35   zig-ordered    rig-hash 7.0% faster, rig-fast 14.9% faster, zig-ordered 32.1% faster
+rnd16      remove                          5.68            5.80            5.42            7.60   rig-fast       rig-hash 2.1% faster, rig-fast 6.9% faster, zig-ordered 23.7% slower
+rnd16      hit                             1.04            1.11            1.21            1.27   rig-hash       rig-hash 7.2% faster, rig-fast 8.2% slower, zig-ordered 12.4% slower
+rnd16      miss                            0.90            1.00            0.77            0.82   rig-fast       rig-hash 10.6% faster, rig-fast 29.6% faster, zig-ordered 21.5% faster
+rnd16      iterate                         0.56            0.70            0.21            0.21   rig-fast       rig-hash 24.4% faster, rig-fast 227.8% faster, zig-ordered 227.6% faster
+rnd24      insert                          6.51            6.94            9.59            9.73   rig-hash       rig-hash 6.6% faster, rig-fast 27.6% slower, zig-ordered 28.7% slower
+rnd24      remove                          5.70            5.80            4.64            6.93   rig-fast       rig-hash 1.7% faster, rig-fast 25.1% faster, zig-ordered 16.3% slower
+rnd24      hit                             1.09            1.15            1.54            1.65   rig-hash       rig-hash 6.0% faster, rig-fast 25.1% slower, zig-ordered 29.9% slower
+rnd24      miss                            0.89            0.97            1.32            1.40   rig-hash       rig-hash 8.9% faster, rig-fast 26.2% slower, zig-ordered 30.5% slower
+rnd24      iterate                         0.52            0.63            0.21            0.21   rig-fast       rig-hash 20.0% faster, rig-fast 197.0% faster, zig-ordered 194.9% faster
+rnd1000    insert                         14.62           14.65           10.26           12.52   rig-fast       rig-hash 0.2% faster, rig-fast 42.8% faster, zig-ordered 17.0% faster
+rnd1000    remove                          4.91            4.65            5.84            5.99   zig-hash       rig-hash 5.2% slower, rig-fast 20.3% slower, zig-ordered 22.3% slower
+rnd1000    hit                             1.18            1.23            1.59            1.61   rig-hash       rig-hash 4.6% faster, rig-fast 22.5% slower, zig-ordered 23.4% slower
+rnd1000    miss                            0.98            1.06            1.39            1.44   rig-hash       rig-hash 7.5% faster, rig-fast 24.0% slower, zig-ordered 26.7% slower
+rnd1000    iterate                         0.54            0.54            0.21            0.21   rig-fast       rig-hash 1.3% faster, rig-fast 158.2% faster, zig-ordered 154.4% faster
+rnd1500    insert                         11.19           11.21            9.84           10.49   rig-fast       rig-hash 0.2% faster, rig-fast 14.0% faster, zig-ordered 6.9% faster
+rnd1500    remove                          4.39            4.18            6.32            6.55   zig-hash       rig-hash 4.9% slower, rig-fast 33.9% slower, zig-ordered 36.2% slower
+rnd1500    hit                             1.31            1.29            1.85            1.89   zig-hash       rig-hash 1.2% slower, rig-fast 30.2% slower, zig-ordered 31.8% slower
+rnd1500    miss                            1.05            1.13            1.49            1.64   rig-hash       rig-hash 8.1% faster, rig-fast 24.0% slower, zig-ordered 31.0% slower
+rnd1500    iterate                         0.52            0.53            0.21            0.21   zig-ordered    rig-hash 0.3% faster, rig-fast 145.8% faster, zig-ordered 146.9% faster
+rnd100000  insert                         11.72           11.69           11.85            9.44   zig-ordered    rig-hash 0.2% slower, rig-fast 1.3% slower, zig-ordered 23.9% faster
+rnd100000  remove                          9.36            9.40            8.54            8.19   zig-ordered    rig-hash 0.5% faster, rig-fast 10.1% faster, zig-ordered 14.8% faster
+rnd100000  hit                             2.49            2.76            3.92            3.85   rig-hash       rig-hash 11.1% faster, rig-fast 29.6% slower, zig-ordered 28.2% slower
+rnd100000  miss                            2.53            2.65            3.20            3.36   rig-hash       rig-hash 4.4% faster, rig-fast 17.3% slower, zig-ordered 21.1% slower
+rnd100000  iterate                         0.93            0.86            0.23            0.22   zig-ordered    rig-hash 7.4% slower, rig-fast 270.5% faster, zig-ordered 289.0% faster
+rnd150000  insert                         12.46           12.90           13.31            9.63   zig-ordered    rig-hash 3.5% faster, rig-fast 3.1% slower, zig-ordered 33.9% faster
+rnd150000  remove                         11.78           12.74            8.76            7.19   zig-ordered    rig-hash 8.2% faster, rig-fast 45.5% faster, zig-ordered 77.2% faster
+rnd150000  hit                             2.10            2.55            3.59            4.05   rig-hash       rig-hash 21.3% faster, rig-fast 28.9% slower, zig-ordered 37.1% slower
+rnd150000  miss                            1.56            1.67            2.22            2.24   rig-hash       rig-hash 7.1% faster, rig-fast 25.1% slower, zig-ordered 25.6% slower
+rnd150000  iterate                         1.18            1.12            0.29            0.29   zig-ordered    rig-hash 5.6% slower, rig-fast 282.4% faster, zig-ordered 292.0% faster
+rnd3000000 insert                         13.81           19.62           15.91           18.99   rig-hash       rig-hash 42.1% faster, rig-fast 23.3% faster, zig-ordered 3.3% faster
+rnd3000000 remove                         14.45           15.12           17.01           20.22   rig-hash       rig-hash 4.6% faster, rig-fast 11.2% slower, zig-ordered 25.2% slower
+rnd3000000 hit                            10.44           11.60           19.31           21.32   rig-hash       rig-hash 11.2% faster, rig-fast 39.9% slower, zig-ordered 45.6% slower
+rnd3000000 miss                            3.99            4.63            8.77            7.77   rig-hash       rig-hash 15.9% faster, rig-fast 47.2% slower, zig-ordered 40.5% slower
+rnd3000000 iterate                         1.05            1.24            0.50            0.53   rig-fast       rig-hash 17.7% faster, rig-fast 148.8% faster, zig-ordered 132.3% faster
+rnd4000000 insert                         25.22           37.43           28.75           36.09   rig-hash       rig-hash 48.4% faster, rig-fast 30.2% faster, zig-ordered 3.7% faster
+rnd4000000 remove                         19.50           20.92           27.60           30.18   rig-hash       rig-hash 7.3% faster, rig-fast 24.2% slower, zig-ordered 30.7% slower
+rnd4000000 hit                            14.12           16.10           26.01           28.63   rig-hash       rig-hash 14.1% faster, rig-fast 38.1% slower, zig-ordered 43.7% slower
+rnd4000000 miss                            4.71            5.05           11.80           12.54   rig-hash       rig-hash 7.2% faster, rig-fast 57.2% slower, zig-ordered 59.7% slower
+rnd4000000 iterate                         2.42            2.50            0.66            0.70   rig-fast       rig-hash 3.3% faster, rig-fast 280.8% faster, zig-ordered 258.1% faster
+lat16      chain                           5.15            5.14            4.78            4.85   rig-fast       rig-hash 0.1% slower, rig-fast 7.5% faster, zig-ordered 6.0% faster
+lat1000    chain                           5.20            5.24            6.73            6.84   rig-hash       rig-hash 0.8% faster, rig-fast 22.2% slower, zig-ordered 23.4% slower
+lat100000  chain                          10.91           10.94           17.69           17.77   rig-hash       rig-hash 0.3% faster, rig-fast 38.2% slower, zig-ordered 38.4% slower
+lat4000000 chain                         150.94          158.40          275.74          292.38   rig-hash       rig-hash 4.9% faster, rig-fast 42.6% slower, zig-ordered 45.8% slower
+churn16    turnover                        5.38            5.61            4.32            5.31   rig-fast       rig-hash 4.4% faster, rig-fast 29.9% faster, zig-ordered 5.7% faster
+churn1000  turnover                        3.91            3.42            5.64            5.79   zig-hash       rig-hash 12.6% slower, rig-fast 39.4% slower, zig-ordered 41.0% slower
+churn100000 turnover                        4.35            4.24            5.63            5.74   zig-hash       rig-hash 2.4% slower, rig-fast 24.7% slower, zig-ordered 26.1% slower
+churn4000000 turnover                       17.06           19.48           28.92           28.22   rig-hash       rig-hash 14.2% faster, rig-fast 32.6% slower, zig-ordered 31.0% slower
+mix16      half                            0.92            1.02            0.88            0.98   rig-fast       rig-hash 10.9% faster, rig-fast 15.5% faster, zig-ordered 4.1% faster
+mix1000    half                            0.93            1.02            1.42            1.42   rig-hash       rig-hash 9.5% faster, rig-fast 28.4% slower, zig-ordered 28.4% slower
+mix100000  half                            6.56            6.63            7.79            7.70   rig-hash       rig-hash 1.0% faster, rig-fast 14.9% slower, zig-ordered 13.9% slower
+mix4000000 half                           13.19           14.62           24.79           24.70   rig-hash       rig-hash 10.8% faster, rig-fast 41.0% slower, zig-ordered 40.8% slower
+str16      insert                         22.93           23.36           16.16           14.18   zig-ordered    rig-hash 1.9% faster, rig-fast 44.6% faster, zig-ordered 64.8% faster
+str16      remove                         12.24           15.63            9.24           15.37   rig-fast       rig-hash 27.7% faster, rig-fast 69.1% faster, zig-ordered 1.7% faster
+str16      hit                             3.76            3.99            5.14            5.00   rig-hash       rig-hash 6.4% faster, rig-fast 22.3% slower, zig-ordered 20.1% slower
+str16      miss                            1.77            2.14            2.76            2.83   rig-hash       rig-hash 21.4% faster, rig-fast 22.3% slower, zig-ordered 24.3% slower
+str1000    insert                         23.86           23.23           16.31           25.64   rig-fast       rig-hash 2.6% slower, rig-fast 42.4% faster, zig-ordered 9.4% slower
+str1000    remove                         14.67           21.55           12.93           19.94   rig-fast       rig-hash 46.9% faster, rig-fast 66.6% faster, zig-ordered 8.1% faster
+str1000    hit                             3.53            3.80            6.80            6.61   rig-hash       rig-hash 7.8% faster, rig-fast 44.1% slower, zig-ordered 42.4% slower
+str1000    miss                            2.47            2.82            3.47            3.56   rig-hash       rig-hash 14.1% faster, rig-fast 18.7% slower, zig-ordered 20.8% slower
+str100000  insert                         23.22           21.42           23.71           23.22   zig-hash       rig-hash 7.8% slower, rig-fast 9.7% slower, zig-ordered 7.8% slower
+str100000  remove                         34.25           38.54           18.89           24.87   rig-fast       rig-hash 12.5% faster, rig-fast 104.0% faster, zig-ordered 55.0% faster
+str100000  hit                            12.68           12.45           21.16           20.03   zig-hash       rig-hash 1.8% slower, rig-fast 41.2% slower, zig-ordered 37.9% slower
+str100000  miss                            5.01            5.62            6.46            6.79   rig-hash       rig-hash 12.2% faster, rig-fast 13.0% slower, zig-ordered 17.2% slower
+str1000000 insert                         48.65           51.99           38.33           44.77   rig-fast       rig-hash 6.9% faster, rig-fast 35.6% faster, zig-ordered 16.1% faster
+str1000000 remove                         53.81           87.46           49.78           45.68   zig-ordered    rig-hash 62.5% faster, rig-fast 75.7% faster, zig-ordered 91.4% faster
+str1000000 hit                            47.26           50.34           98.80          102.32   rig-hash       rig-hash 6.5% faster, rig-fast 49.0% slower, zig-ordered 50.8% slower
+str1000000 miss                            7.25            8.36           10.36           11.10   rig-hash       rig-hash 15.4% faster, rig-fast 19.3% slower, zig-ordered 24.7% slower
+big16      insert                         20.02           14.46           12.58            8.48   zig-ordered    rig-hash 27.8% slower, rig-fast 14.9% faster, zig-ordered 70.5% faster
+big16      remove                         15.11           14.33            6.16            8.97   rig-fast       rig-hash 5.2% slower, rig-fast 132.5% faster, zig-ordered 59.9% faster
+big16      hit                             1.32            1.15            1.20            1.47   zig-hash       rig-hash 12.6% slower, rig-fast 3.7% slower, zig-ordered 21.6% slower
+big16      iterate                         0.56            0.56            0.21            0.21   rig-fast       rig-hash 0.4% faster, rig-fast 166.0% faster, zig-ordered 165.2% faster
+big1000    insert                         22.70           26.60           13.90           16.25   rig-fast       rig-hash 17.1% faster, rig-fast 91.4% faster, zig-ordered 63.7% faster
+big1000    remove                          8.36            8.25            7.74            6.00   zig-ordered    rig-hash 1.3% slower, rig-fast 6.6% faster, zig-ordered 37.5% faster
+big1000    hit                             1.35            1.32            1.71            1.71   zig-hash       rig-hash 2.1% slower, rig-fast 22.8% slower, zig-ordered 22.8% slower
+big1000    iterate                         0.56            0.59            0.26            0.26   rig-fast       rig-hash 4.8% faster, rig-fast 129.3% faster, zig-ordered 125.3% faster
+big100000  insert                         27.66           23.24           24.29           18.04   zig-ordered    rig-hash 16.0% slower, rig-fast 4.3% slower, zig-ordered 28.8% faster
+big100000  remove                         19.28           16.97           11.13           10.50   zig-ordered    rig-hash 12.0% slower, rig-fast 52.4% faster, zig-ordered 61.7% faster
+big100000  hit                             4.17            4.14            4.98            6.29   zig-hash       rig-hash 0.6% slower, rig-fast 16.8% slower, zig-ordered 34.1% slower
+big100000  iterate                         1.28            1.29            0.81            0.83   rig-fast       rig-hash 0.5% faster, rig-fast 58.7% faster, zig-ordered 55.9% faster
+big1000000 insert                         53.22           86.57           33.60           47.99   rig-fast       rig-hash 62.7% faster, rig-fast 157.6% faster, zig-ordered 80.4% faster
+big1000000 remove                         21.47           21.73           20.98           18.58   zig-ordered    rig-hash 1.2% faster, rig-fast 3.6% faster, zig-ordered 17.0% faster
+big1000000 hit                            16.56           17.87           22.74           24.48   rig-hash       rig-hash 7.9% faster, rig-fast 21.4% slower, zig-ordered 27.0% slower
+big1000000 iterate                         6.07            5.87            2.72            2.82   rig-fast       rig-hash 3.3% slower, rig-fast 115.9% faster, zig-ordered 108.2% faster
+int        insert                         15.58               -           18.64               -   rig-hash       
+int        hit                             9.68               -            8.26               -   rig-fast       
+int        miss                            1.09               -            5.20               -   rig-hash       
+int        iterate                         1.99               -            0.66               -   rig-fast       
+string     insert                         45.82               -           32.01               -   rig-fast       
+string     hit                            28.68               -           26.63               -   rig-fast       
+string     miss                            8.92               -           10.51               -   rig-hash       
+string     iterate                         4.82               -            1.97               -   rig-fast       
+pair       insert                         28.92               -           24.11               -   rig-fast       
+pair       hit                            16.70               -            8.35               -   rig-fast       
+pair       miss                            1.47               -            4.41               -   rig-hash       
+small      4                               1.92               -            2.00               -   rig-hash       
+small      8                               1.92               -            2.00               -   rig-hash       
+string     intern                         10.19               -            9.60               -   rig-fast       
+int        ensure-miss                    22.00               -           17.47               -   rig-fast       
+int        ensure-hit                     14.66               -            7.29               -   rig-fast       
+int        ensure_with-miss               21.85               -           18.67               -   rig-fast       
+int        ensure_with-hit                11.85               -            7.09               -   rig-fast       
+int        edit_put-miss                  15.60               -           17.84               -   rig-hash       
+int        edit_put-hit                    9.24               -            7.65               -   rig-fast       
+string     ensure-miss                    60.11               -           29.43               -   rig-fast       
+string     ensure-hit                     40.29               -           47.60               -   rig-hash       
+string     ensure_with-miss               71.64               -           35.42               -   rig-fast       
+string     ensure_with-hit                58.30               -           47.11               -   rig-fast       
+string     edit_put-miss                  69.79               -           33.60               -   rig-fast       
+string     edit_put-hit                   57.58               -           44.39               -   rig-fast       
+
+first places over 84 rows every variant times (the int rows left out):
+  rig-hash          34
+  rig-fast          25
+  zig-ordered       15
+  zig-hash          10
