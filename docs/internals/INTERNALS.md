@@ -5145,8 +5145,9 @@ unspecified (SPEC §10, STD).
   checker and the oracle treat the two alike. `at` is left out. The
   iterators `HashItems`, `HashKeys`, `HashValues`, and `HashMembers`
   hold `?HashMap[K, V]` (`?HashSet[K]`), a group, and that group's full
-  lanes not yet given: a step clears one bit, and the table's
-  `group_count`, `full_lanes`, and `slot_at` find the next group.
+  lanes not yet given, and a step is one call of the table's
+  `next_slot`, which clears a lane's bit or moves to the next group
+  in the runtime, with no checked arithmetic in the walk.
 - **The table's members** have the origins of their signatures
   (`sema.signatureOrigins`), as the ordered table's do, but `get` and
   `edit`, which hand back the value's view where the lookup found its

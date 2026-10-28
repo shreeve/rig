@@ -526,20 +526,16 @@ pub obj HashSet[K: Hash]
     HashMembers(set: ?@, group: -1, lanes: 0)
 
 # The entries of a HashMap (`HashMap.items`), group by group: `lanes`
-# holds the full lanes of `group` not yet given, so a step within a group
-# clears one bit.
+# holds the full lanes of `group` not yet given, which the table's
+# `next_slot` steps.
 pub obj HashItems[K, V]
   map: ?HashMap[K, V]
   group: Int
   lanes: Int
 
   pub inline fun next(!@) -> Item[?K, ?V]? from @map
-    while @lanes == 0
-      @group += 1
-      return none if @group >= @map.t.group_count()
-      @lanes = @map.t.full_lanes(@group)
-    j = @map.t.slot_at(@group, @lanes)
-    @lanes &= @lanes - 1
+    j = @map.t.next_slot(!@group, !@lanes)
+    return none if j < 0
     Item(key: ?@map.t.key(j), value: ?@map.t.value(j))
 
 # The keys of a HashMap (`HashMap.keys`).
@@ -549,12 +545,8 @@ pub obj HashKeys[K, V]
   lanes: Int
 
   pub inline fun next(!@) -> (?K)? from @map
-    while @lanes == 0
-      @group += 1
-      return none if @group >= @map.t.group_count()
-      @lanes = @map.t.full_lanes(@group)
-    j = @map.t.slot_at(@group, @lanes)
-    @lanes &= @lanes - 1
+    j = @map.t.next_slot(!@group, !@lanes)
+    return none if j < 0
     ?@map.t.key(j)
 
 # The values of a HashMap (`HashMap.values`).
@@ -564,12 +556,8 @@ pub obj HashValues[K, V]
   lanes: Int
 
   pub inline fun next(!@) -> (?V)? from @map
-    while @lanes == 0
-      @group += 1
-      return none if @group >= @map.t.group_count()
-      @lanes = @map.t.full_lanes(@group)
-    j = @map.t.slot_at(@group, @lanes)
-    @lanes &= @lanes - 1
+    j = @map.t.next_slot(!@group, !@lanes)
+    return none if j < 0
     ?@map.t.value(j)
 
 # The keys of a HashSet (`HashSet.items`).
@@ -579,12 +567,8 @@ pub obj HashMembers[K]
   lanes: Int
 
   pub inline fun next(!@) -> (?K)? from @set
-    while @lanes == 0
-      @group += 1
-      return none if @group >= @set.t.group_count()
-      @lanes = @set.t.full_lanes(@group)
-    j = @set.t.slot_at(@group, @lanes)
-    @lanes &= @lanes - 1
+    j = @set.t.next_slot(!@group, !@lanes)
+    return none if j < 0
     ?@set.t.key(j)
 
 # The true lanes of a mask, lowest first (`m.lanes()`). `bits` holds a
