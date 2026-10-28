@@ -1,0 +1,45 @@
+tsrs mem split: parse end
+  thread arenas: 2 arenas, 16.0 MiB capacity, 7.6 MiB used, unused resident 1.4 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 16.0 MiB in chunks
+  heap (allocator walk): 84 pages, 2.1 MiB initialized blocks, 1.2 MiB live blocks, 2.2 MiB resident in the pages' areas
+  status: VmRSS 21.8 MiB, VmHWM 21.8 MiB, RssAnon 12.3 MiB, RssFile 9.5 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 9.0, 8.0
+    thread stacks: 3, 0.1, 0.0
+    heap and other anonymous: 23, 2.5, 0.0
+    file-backed: 24, 10.2, 0.0
+    total: 21.8 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+    stacks of 512 MiB: 1, 0.0 MiB resident
+  split MiB: arena used 7.6 + arena unused resident 1.4 + arena other (regions, untouched used) 0.0 | heap live 1.2 + heap retained 1.3 (in pages 1.0, outside pages 0.3) | stacks 0.1 | file 10.2 | = 21.8
+tsrs mem split: check end
+  thread arenas: 2 arenas, 192.0 MiB capacity, 128.0 MiB used, unused resident 1.0 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 192.0 MiB in chunks
+  heap (allocator walk): 521 pages, 60.1 MiB initialized blocks, 56.0 MiB live blocks, 57.8 MiB resident in the pages' areas
+  checker stacks (own mincore): 1 threads, 0.1 MiB resident
+  status: VmRSS 205.4 MiB, VmHWM 205.4 MiB, RssAnon 193.8 MiB, RssFile 11.6 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 129.0, 128.0
+    thread stacks: 3, 0.1, 0.0
+    heap and other anonymous: 23, 63.9, 0.0
+    file-backed: 24, 12.3, 0.0
+    total: 205.4 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+    stacks of 512 MiB: 1, 0.1 MiB resident
+  split MiB: arena used 128.0 + arena unused resident 1.0 + arena other (regions, untouched used) 0.0 | heap live 56.0 + heap retained 8.0 (in pages 1.8, outside pages 6.2) | stacks 0.1 | file 12.3 | = 205.4
+tsrs mem split: exit
+  thread arenas: 2 arenas, 192.0 MiB capacity, 128.0 MiB used, unused resident 1.0 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 192.0 MiB in chunks
+  heap (allocator walk): 520 pages, 60.0 MiB initialized blocks, 56.0 MiB live blocks, 57.6 MiB resident in the pages' areas
+  status: VmRSS 205.5 MiB, VmHWM 205.5 MiB, RssAnon 193.7 MiB, RssFile 11.8 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 129.0, 128.0
+    thread stacks: 2, 0.0, 0.0
+    heap and other anonymous: 21, 64.0, 0.0
+    file-backed: 24, 12.5, 0.0
+    total: 205.5 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+  split MiB: arena used 128.0 + arena unused resident 1.0 + arena other (regions, untouched used) 0.0 | heap live 56.0 + heap retained 8.0 (in pages 1.7, outside pages 6.3) | stacks 0.0 | file 12.5 | = 205.5

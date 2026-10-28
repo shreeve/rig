@@ -32,6 +32,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Hash race (2026-10-27) | bench/hash races Rig's maps against abseil, boost, ankerl, hashbrown, indexmap, Rust std, Zig and Go on random keys, latency, churn, text and big values, built native; faithful Zig ports of boost and ankerl lead on the Mac and trail on x86; a three-expert panel's twelve decisions are approved; Zig's std.HashMap collapses under churn; the built-in Map rewritten in Rig on zig-ordered's design, Trig 4-6% fewer cycles ([map-rewrite-rig.md](2026-10/hash-race/map-rewrite-rig.md)); then its table made a compiler built-in, the prototype in the runtime, Trig 2.9-3.6% fewer cycles more ([map-builtin.md](2026-10/hash-race/map-builtin.md)), and its soundness review ([map-builtin-review.md](2026-10/hash-race/map-builtin-review.md)); where Trig stands against tsrs after both, 1.29× on ts-pattern and 1.37× on zod3 at one checker, with the profile by share ([tsrs-standing.md](2026-10/hash-race/tsrs-standing.md)); the unordered HashMap and HashSet built the same way on zig-hash ([hashmap-builtin.md](2026-10/hash-race/hashmap-builtin.md)); the gaps to the prototypes closed at the edges: `String(...)` allocated once, HashMap walks by `next_slot`, the inserts left to the allocator ([table-gaps.md](2026-10/hash-race/table-gaps.md)) | [hash-race/](2026-10/hash-race/) |
 | Bounds tests and enum conversion in Trig (2026-10-26) | each index test is Rust's one compare and branch; the cycles the disassembly diff charged to them (row 4, and row 8's `fromInt`) are load misses landing on the next instruction, as PEBS shows; one shape made two tests, a signed index against a compile-time bound (`Table`, arrays, `Slot[n].of`), now one compare: Trig PGO 0.5-0.7% fewer instructions alone (under the bar), 1.5-1.7% with #706; std.json's instructions per byte unchanged | [perf-stage/bounds-enum.md](2026-10/perf-stage/bounds-enum.md) |
 | Table reads in loops and yield checks (2026-10-26) | a Table's base is reloaded in a loop because the index test before it leaves the loop and Zig gives LLVM no `dereferenceable`, as much as because of the yield call; `noalias` on views gains nothing on Trig today (0.2% fewer instructions), and running range loops' turns in runs is worse (2.8-3.9% more); built: the yield checks call the scheduler through a function that keeps every register: Trig release 1.9% fewer instructions, with PGO 0.8-0.9% fewer and time within the noise, under the bar | [perf-stage/loop-hoist.md](2026-10/perf-stage/loop-hoist.md) |
+| Memory traffic, Trig against tsrs (2026-10-28) | Trig and tsrs miss L1 and L2 alike; Trig has 1.9× tsrs's L3 misses, 3.2× its STLB misses and 2.2× its faults. Map indexes take a third of its L3 and half its STLB misses, Tables a quarter and a third, and 81% of its faults, where tsrs keeps the same data in one arena on huge pages. By bytes Trig allocates about what tsrs does (the "6.4×" was instructions); 81% of its blocks are copies of stored lists. Ceilings: Tables faulted in 64 KiB ahead, 2.7% fewer cycles and 64% fewer faults, for 0.6-2.0% more memory; the Relater copied in place, 2.0% fewer user cycles; huge pages for large indexes, 24% fewer STLB misses and no cycles. Ranked Rig-side requirements and Trig-side findings | [perf-stage/memory-traffic.md](2026-10/perf-stage/memory-traffic.md) |
 | Profile-guided optimization (2026-10-25) | LLVM PGO through Zig's bitcode and `zig cc`, trained away from the project timed: Trig 10% faster with 14% fewer instructions on ts-pattern and zod3, 5-9% faster than BOLT alone, BOLT on top adding nothing; built as `rig build --release --pgo`, with a freestanding profile writer the runtime calls in `--pgo` packages only | [perf-stage/pgo.md](2026-10/perf-stage/pgo.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
@@ -247,6 +248,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [v.c](2026-10/perf-stage/bounds-enum-data/v.c)
 - [w.c](2026-10/perf-stage/bounds-enum-data/w.c)
 - [loop-hoist.md](2026-10/perf-stage/loop-hoist.md): Table reads in loops, and what a yield check costs (2026-10-26)
+- [memory-traffic.md](2026-10/perf-stage/memory-traffic.md): Where Trig's memory traffic comes from, against tsrs, and what Rig can remove (2026-10-28)
 
 ### 2026-10/perf-stage/loop-hoist-data/
 
@@ -257,6 +259,27 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [licm-runs.zig](2026-10/perf-stage/loop-hoist-data/licm-runs.zig)
 - [noalias-and-runs.patch](2026-10/perf-stage/loop-hoist-data/noalias-and-runs.patch)
 - [time.sh](2026-10/perf-stage/loop-hoist-data/time.sh)
+
+### 2026-10/perf-stage/memory-traffic-data/
+
+- [alloc-trace.diff](2026-10/perf-stage/memory-traffic-data/alloc-trace.diff)
+- [cat.py](2026-10/perf-stage/memory-traffic-data/cat.py)
+- [cmds.sh](2026-10/perf-stage/memory-traffic-data/cmds.sh)
+- [counts-raw.tsv](2026-10/perf-stage/memory-traffic-data/counts-raw.tsv)
+- [counts.sh](2026-10/perf-stage/memory-traffic-data/counts.sh)
+- [csum.py](2026-10/perf-stage/memory-traffic-data/csum.py)
+- [faults.sh](2026-10/perf-stage/memory-traffic-data/faults.sh)
+- [ipattr.py](2026-10/perf-stage/memory-traffic-data/ipattr.py)
+- [layout.py](2026-10/perf-stage/memory-traffic-data/layout.py)
+- [memtrace.py](2026-10/perf-stage/memory-traffic-data/memtrace.py)
+- [mkx.py](2026-10/perf-stage/memory-traffic-data/mkx.py)
+- [pebs.sh](2026-10/perf-stage/memory-traffic-data/pebs.sh)
+- [report.py](2026-10/perf-stage/memory-traffic-data/report.py)
+- [setup.sh](2026-10/perf-stage/memory-traffic-data/setup.sh)
+- [xsum.py](2026-10/perf-stage/memory-traffic-data/xsum.py)
+- [xtime-raw.tsv](2026-10/perf-stage/memory-traffic-data/xtime-raw.tsv)
+- [xtime.sh](2026-10/perf-stage/memory-traffic-data/xtime.sh)
+- `out/`: the summaries each script wrote; `tsrs/`: tsrs's mimalloc statistics and memory split
 
 ### 2026-10/perf-stage/list-grow-data/
 
