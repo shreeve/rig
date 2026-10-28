@@ -299,3 +299,64 @@ output, so it belongs to a later canonical mode.
 7. #754 at many checkers: should Table huge pages wait for a larger
    size, or count against a budget, so memory does not grow 10 MB a
    checker?
+
+## 7. The panel's answers, and what they correct
+
+Two experts judged the record: Rig's runtime and memory
+([scaling-2-panel/runtime.md](scaling-2-panel/runtime.md)), and Trig's
+parallel design ([scaling-2-panel/trig.md](scaling-2-panel/trig.md),
+with its data and scripts beside it). Three of the record's findings do
+not hold:
+
+- **Checker 0 is not Trig-slow (item 2, question 1).** Shipped tsrs in
+  "Go order" partitions a different program: Trig's has three esnext
+  libraries tsrs's lacks, so the two checker 0s held different files.
+  Timed on the same partitions by tsrs's own per-file CPU, the heaviest
+  checkers at four cost the same (371 against 369 ms). On one thread
+  checker 0's heavy tests run 1.22-1.23× tsrs, the libraries and `src/`
+  1.40×: the work every checker repeats is the slower part.
+- **The shootdowns are not `mremap`'s (item 4, question 5).** Sorted by
+  kernel stack, about 1,230 of the check phase's 1,400 TLB flushes come
+  from writing a Table slot first read while empty (the zero page
+  replaced); `rig.alloc.remap` makes 148. All of them together cost about
+  3 ms at four checkers, `mremap`'s share about 0.4 ms. `mremap` stays:
+  it lowered peak memory 2.8%.
+- **Exit without freeing saves 5-8 ms at four, not 12-14.** The drops
+  take 13.5 ms, but the kernel then needs 6.5 ms more to tear the process
+  down (tsrs 7-8 ms), pages the drops would otherwise have given back.
+
+Answered:
+
+- **The unattributed 0-14 ms is noise:** tsrs's own four-checker median
+  moved from 394 to 425 ms between sessions.
+- **Four to eight checkers is the partition,** not the runtime or memory
+  bandwidth: CPU work grows alike in both, cycles per instruction stay
+  flat. At eight Trig's heaviest checker is 2.0× the mean on ts-pattern
+  and 2.26× on zod3 (tsrs's own assignment 1.50× and 1.40×); given
+  Trig's partition, tsrs's heaviest takes 19% and 43% longer. The real
+  gap at eight is about 1.4×, not 1.64×.
+- **#754's 10 MB a checker** is mostly one sparse Table per checker that
+  reserves 1,280 MiB and writes a page every 80 MiB. A size cap misses
+  it, and an 8 MiB cap nearly triples one-checker Table faults: no cap;
+  Trig indexes that Table densely.
+- **A parallel front end is now worth its lines.** The libraries are 34
+  of the 43 ms of parse (lib.dom about 24): parse each file in its own
+  task as soon as its path is known, lib.dom first; the loader's walk and
+  the bind stay serial in file order (names and class ids are numbered in
+  it), which keeps tsc's order exact; make each checker in its own task.
+
+The fixes, corrected, by milliseconds at four checkers:
+
+| fix | owner | saves | the owner's approval |
+|---|---|---|---|
+| Parse in tasks, checkers made in their tasks | Trig, on Rig's tasks as they are | 15-18 ms on each (ts-pattern 3%, zod3 10%) | no |
+| Parse and bind faster on one thread (lib.dom the floor) | Trig | up to 8-10 ms | no |
+| A release build skips the memory-only drops at `main`'s end (no `drop` body, no handle); debug, `RIG_SANITIZE` and the leak check unchanged | Rig, then Trig keeps the program and checkers owned by `main` | 5-8 ms | yes (a drop rule) |
+| Write a Table slot before it is first read | Trig, or Rig fills Tables ahead | about 3 ms | no |
+| `get_source_file_for_resolved_module` by the path index, not a scan | Trig | 2-4 ms with the repeated library work | no |
+| Index the sparse Table densely | Trig | most of #754's 10 MB a checker | no |
+| Grow large blocks without `mremap` | Rig | about 0.4 ms: not worth it | |
+
+Debug aids for Trig to port now: dump each file's checker, read an
+assignment from a file, per-file check time. A fairer comparison adds a
+column of tsrs run on Trig's partition (`--checkerAssignment file:`).
