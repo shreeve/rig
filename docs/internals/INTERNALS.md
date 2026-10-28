@@ -3208,6 +3208,34 @@ or an owned closure, which carry no loan (`checkViews`). A call site sees the
 instance's signature, so moves, lends, and the loans a result carries
 are checked there with the real types.
 
+A function value's call is judged per instance too, keyed by its type
+(`PlainRequirement.callable`). Where a call of a function value whose
+type names a type parameter is given a write view of a `T` the body
+holds beside another view, and `genericStoreIn` drops a loan the store
+carries on that place itself or on memory the body owns (`heldStore`;
+a loan on another lent parameter stays tracked, recorded where a lent
+parameter takes it and tainted where a value of the body's does), or
+where the call's result is held as a `T` and carries a loan on memory
+the body owns (a local, a parameter given by value, self's storage, a
+loop element of a collection it owns: `viewsOwned`),
+`requireCallable` records the value's type on the type parameters of
+its write parameters or of its result. `checkCallables` substitutes an
+instance's arguments into the type (through `interner`, the same
+`SemContext`) and refuses the instance where its default origins
+(`sema.defaultOrigins`) store a lent parameter, or, for a result, where
+the result can hold a view. Then the value's own loans need no `keeps`:
+a result that can hold none carries none. A built-in table's `update`
+and `retain` record it at their call (`Field.lends_entries`). A
+requirement a method of a generic type makes (`method`) is checked at
+each call of the method (`method_calls`, `checkMethodCalls`), with the
+receiver's type's arguments, not at each instance of the type, so a
+`Map[String, (?String)?]` is refused only where `update`, `retain`, or
+`ensure_with` is called on one; at a caller's own parameters it becomes
+the caller's requirement, until no call adds one. A method of the type
+argument whose result views self or an argument, held as a `T` the
+body holds, is refused by typecheck (`checkMethodCall`), beside one
+that keeps an argument's view.
+
 A value of an associated type (`S.Item`) is judged per instance too.
 A module-level function whose calls give one (`noteItems`) is walked
 again for each such associated type, as at an instance whose `S.Item`
@@ -5051,8 +5079,11 @@ across modules, and only std.prelude's scope names them.
   of a Rig declaration of its signature with no `from` or `keeps`
   (`sema.signatureOrigins`): a reader's result views only the table, a
   writer stores the keys and values it takes, and nothing keeps a
-  closure. `ensure_with` calls `make` in the prelude (`add_made`), so
-  the Map keeps `make` as its declaration says.
+  closure. `update` and `retain` lend their own entries to the closure
+  (`Field.lends_entries`), which makes the requirement a Rig body that
+  did so would (`PlainRequirement.callable`). `ensure_with` calls
+  `make` in the prelude (`add_made`), whose result held as a `V` makes
+  the same requirement, so the Map keeps nothing of `make`.
 - **Facts.** The tables are heap built-ins (`sema.isHashTable`, in
   `isHeapBuiltin`): glue and not plain, their entries behind them, a
   deep clone where every parameter clones, and 96 bytes; a `Map` is

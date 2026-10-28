@@ -137,6 +137,26 @@ Other:
     `!?String` is: the body could store the key's view in a value that
     outlives it. Leave the parameter out (`|k| ...`) or name it `_`,
     hold the values as `String`, or walk the Map with `items`.
+45. *Unsound:* a generic body's value that it holds by value tracks no
+    view, so an instance whose type argument can hold the view the body
+    could put in one is refused (SPEC "Generic bodies"):
+    - `update`, `retain`, and `ensure_with` of a `Map` or `HashMap`
+      whose value type can hold the key's view: `(?String)?`,
+      `List[?String]`, `?String` (`retain(|k| ...)` too), an object, an
+      enum, or an API object that holds a `?String`, even with a closure
+      that stores nothing. Hold a value that owns what it holds, or walk
+      `items`;
+    - a program's own generic body that gives a function value (a
+      closure, a named function, an owned closure, one held in a field)
+      a write view of a `T` it holds beside another view, or holds as a
+      `T` a function value's result given a view of its own memory (a
+      local, a parameter given by value, self's storage), at an
+      instance whose `T` can hold the view; and one that holds as a `T`
+      the result of a type argument's method that views self or an
+      argument. Give the instance a type that owns what it holds.
+46. A write view of a read view, `!?T` (`!?List[Int]`, `!?Int`), is
+    rejected as `!?String` is, written or given by the type a closure
+    is checked against (`update` of a `Map[K, ?List[Int]]`).
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -162,6 +182,22 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A generic body's own values hold no untracked view.** A `T` the
+  body holds by value carries no loan it tracks, so an instance whose
+  type argument can hold the view the body could put in one is refused
+  at the call or type that makes it, with a note at the body line:
+  where a function value is given a write view of one beside another
+  view, where the body holds as one a function value's result given a
+  view of memory it owns, and where a type argument's method gives a
+  view of self or an argument held as one. The function value's type at
+  the instance decides (`sema.defaultOrigins`), so `update` of a
+  `Map[?String, Int]` passes. A method's requirement is checked at each
+  call of it, so a `Map[String, (?String)?]` is refused only where
+  `update`, `retain`, or `ensure_with` is called on one, and
+  `ensure_with` keeps nothing of `make`. The oracle refuses those three
+  calls alike. A write view of any read view, `!?T`, is rejected as
+  `!?String` is, which also ends the Zig a closure's `!?List[Int]`
+  parameter could not compile.
 - **`HashMap[K, V]` and `HashSet[K]`**, built in beside `Map` and `Set`:
   hash tables whose iteration order is unspecified, with every member
   of `Map` and `Set`, declared as theirs are, but `Map.at`. Their

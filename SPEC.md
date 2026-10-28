@@ -3009,10 +3009,32 @@ reached through a `T`. The body's ownership check treats the call as a
 call of a function value with no `from` or `keeps`: its result may
 carry the loans of self and of every view argument, and a call that
 writes self may store in it what any argument views. A `T` the body
-holds by value carries no loans it tracks, so an instance whose method
-keeps an argument's view in one (`keeps`) is refused; through a write
-view, `!T`, the function's own `keeps` says what may be stored. Every method is
-within that, so an instance needs no second check.
+holds by value, in a local, a parameter it owns, or self's storage,
+carries no loans it tracks. So wherever the body could put a view into
+one, its type argument must hold no view. That happens where a method of
+the instance keeps an argument's view in it, or gives a result that
+views its self or an argument (as its `from` says). It happens where a
+function value is given a write view of one beside another view, read
+or write. And it happens where the body holds as one a function value's
+result from a call given a view of memory the body owns. An instance
+whose type argument can hold the view, one that is not `Owned`, is
+refused at the call or type that makes it, with a note at the body
+line; the function value's type at the instance decides, so a
+`Map[?String, Int]`'s `update` passes, since an `Int` holds no view. A
+view the body was lent stays tracked as any lent view is: through a
+write view, `!T`, the function's own `keeps` says what may be stored.
+Every method is within that, so an instance needs no second check.
+
+```rig reject
+sub main()
+  m = Map[String, (?String)?]()
+  !m.put(String("a"), none)
+  !m.update(|k, v| v = k)
+```
+
+```error
+`Map[String, (?String)?]` cannot use `V = (?String)?`: the generic body passes a `?sub(?String, !(?String)?)` a view beside a write view of a `V` it holds, whose loans it does not track, and a `(?String)?` can hold the view; use a `V` that owns what it holds
+```
 
 ```rig
 obj Square

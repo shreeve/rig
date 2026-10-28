@@ -683,6 +683,26 @@ fail "write view of string type from retain's type", "7:15: closure parameter `v
   !m.retain(|k, _| true)
   print(m.len)
 
+fail "write view of a read view", "4:13: `!?List[Int]` cannot be written: a `?List[Int]` is a read view, which nothing lends to write", "7:15: `!?Int` cannot be written", errors: 2
+  # The same for any read view: assigning to the place points it
+  # elsewhere, and nothing lends it to write.
+
+  sub show(v: !?List[Int])
+    print(v.len)
+
+  sub maybe(v: (!?Int)?)
+    pass
+
+  pass
+
+fail "write view of a read view from a closure's type", "5:15: closure parameter `v` is a `!?List[Int]`, from the closure's type `sub(?String, !?List[Int])`; `!?List[Int]` cannot be written"
+  xs = [1, 2]
+  l: List[Int] = List()
+  m = Map[String, ?List[Int]]()
+  !m.put(String("a"), ?l)
+  !m.update(|k, v| print(v.len))
+  print(xs.len)
+
 fail "write view of string type from a generic object's member", "15:10: closure parameter `v` is a `!?String`, from the closure's type `sub(!?String)`", "16:11: closure parameter `v` is a `(!?String)?`", errors: 2
   # A program's own generic member gives the same parameter, and an
   # optional of one.

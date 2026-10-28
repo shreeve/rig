@@ -105,7 +105,7 @@ pub obj Map[K: Hash, V]
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
+  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k
     j = 0
     if @t.find(?k) as at
       <k
@@ -117,7 +117,7 @@ pub obj Map[K: Hash, V]
   # Add the entry of `k`, whose key is new, with the value `make(k)`, and
   # give its index; out of line, so a lookup that finds its key stays
   # short.
-  fun add_made(!@, k: K, make: ?fun(?K) -> V) -> Int keeps make
+  fun add_made(!@, k: K, make: ?fun(?K) -> V) -> Int
     rarely
     v = make(?k)
     @len += 1
@@ -127,10 +127,10 @@ pub obj Map[K: Hash, V]
   # to put only when `k` is new, so a count by a viewed key,
   # `(!m).ensure_by(word, |w| +w, 0) += 1`, makes no key for a word
   # already there. When `k` is there, `key` is not called and `v` is
-  # dropped. The Map keeps `key`, as `ensure_with` keeps `make`. The key
-  # `key(k)` makes must equal `k`, or the Map would hold another key
-  # where `k` was looked up, perhaps one it holds already: a key that
-  # differs panics.
+  # dropped. The Map keeps `key`, since the key it makes may view what
+  # `key` captured. The key `key(k)` makes must equal `k`, or the Map
+  # would hold another key where `k` was looked up, perhaps one it holds
+  # already: a key that differs panics.
   pub inline fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
     j = 0
     if @t.find(k) as at
@@ -397,7 +397,7 @@ pub obj HashMap[K: Hash, V]
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
+  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k
     j = 0
     if @t.find(?k) as at
       <k
@@ -409,7 +409,7 @@ pub obj HashMap[K: Hash, V]
   # Add the entry of `k`, whose key is new, with the value `make(k)`, and
   # give its slot; out of line, so a lookup that finds its key stays
   # short.
-  fun add_made(!@, k: K, make: ?fun(?K) -> V) -> Int keeps make
+  fun add_made(!@, k: K, make: ?fun(?K) -> V) -> Int
     rarely
     v = make(?k)
     @len += 1
@@ -419,10 +419,10 @@ pub obj HashMap[K: Hash, V]
   # to put only when `k` is new, so a count by a viewed key,
   # `(!m).ensure_by(word, |w| +w, 0) += 1`, makes no key for a word
   # already there. When `k` is there, `key` is not called and `v` is
-  # dropped. The HashMap keeps `key`, as `ensure_with` keeps `make`. The
-  # key `key(k)` makes must equal `k`, or the HashMap would hold another
-  # key where `k` was looked up, perhaps one it holds already: a key
-  # that differs panics.
+  # dropped. The HashMap keeps `key`, since the key it makes may view
+  # what `key` captured. The key `key(k)` makes must equal `k`, or the
+  # HashMap would hold another key where `k` was looked up, perhaps one
+  # it holds already: a key that differs panics.
   pub inline fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
     j = 0
     if @t.find(k) as at

@@ -1070,6 +1070,12 @@ pub const Field = struct {
     origins: Origins = .{},
     /// A built-in method: what it needs of its type's parameter `T`.
     needs: ?*const Needs = null,
+    /// A built-in table's method that calls its function value argument
+    /// with a view of each key it holds and its value lent to write
+    /// (`update`, `retain`): an instance whose value type can hold the
+    /// view is refused, as for a Rig body that does it (SPEC "Generic
+    /// bodies", `PlainRequirement.callable`).
+    lends_entries: bool = false,
     /// A plain enum's variant: its integer value, declared or implicit.
     value: ?Wide = null,
     /// A field or method declared `pub`, which other modules may use.
@@ -3642,6 +3648,20 @@ pub const PlainRequirement = struct {
     /// from, which views it in an instance whose associated type may view
     /// memory its base owns (`SemContext.item_views`), and only there.
     item: []const u8 = "",
+    /// Not a copy: a call of a function value of this type, in the
+    /// body's terms, is given a view of memory the body owns and may put
+    /// it in a `param` the body holds by value, whose loans it does not
+    /// track (SPEC "Generic bodies"). An instance is refused where the
+    /// type, at its arguments, may keep a lent argument's view in what it
+    /// writes (`sema.defaultOrigins`), or, `in_result`, where its result
+    /// can hold a view.
+    callable: ?TypeId = null,
+    in_result: bool = false,
+    /// The method of a generic type whose body makes the requirement, by
+    /// its declaration's position (a call's `CallTarget`): checked at
+    /// each call of the method, where the receiver's type gives the
+    /// arguments, not at each instance of the type.
+    method: ?u32 = null,
     /// The module whose source `pos` is in; 0 for this one.
     module_id: u32 = 0,
 };
@@ -7876,21 +7896,30 @@ pub const heap_stacked_rule = "a value is held one way on the heap, as `^T` (one
 /// it would make.
 pub const heap_stacked = "`{s}` stacks one heap holding on another; " ++ heap_stacked_rule;
 
-/// The diagnostic for a write view of a `?String` (`writesTextView`).
+/// The diagnostic for a write view of a `?String` (`writesView`).
 pub const write_text_view = "`!?String` cannot be written: a `?String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `String` to change text in place";
 
-/// Whether `ty` is a write view of a `?String`, or an optional of one.
-/// Nothing lends a `?String` place to write: it holds a read view of
-/// text, pointed elsewhere by assigning to it. So no parameter has this
-/// type, written (`v: !?String`) or taken from the type a closure is
-/// checked against (`|k, v|` given `?sub(?K, !V)` with `V = ?String`),
-/// which would let the body store a view where the ownership checker
-/// cannot see it.
-pub fn writesTextView(ctx: *const SemContext, ty: TypeId) bool {
+/// The diagnostic for a write view of any other read view, `!?T`
+/// (`writesView`), given `?T`.
+pub const write_read_view = "`!{s}` cannot be written: a `{s}` is a read view, which nothing lends to write; assign to the place to point it elsewhere, or hold the value to change it in place";
+
+/// Whether `ty` is a write view of a read view (`!?String`, `!?T`), or
+/// an optional of one. Nothing lends a read view's place to write: it
+/// holds a view that only reads, pointed elsewhere by assigning to it.
+/// So no parameter has this type, written (`v: !?String`) or taken from
+/// the type a closure is checked against (`|k, v|` given `?sub(?K, !V)`
+/// with `V = ?String` or `?List[Int]`), which would let the body store a
+/// view where the ownership checker cannot see it.
+pub fn writesView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(unwrapOptionals(ctx, ty))) {
-        .write_view => |inner| inner == ctx.types.string_view_id,
+        .write_view => |inner| inner == ctx.types.string_view_id or ctx.types.get(inner) == .read_view,
         else => false,
     };
+}
+
+/// The read view a write view `writesView` refuses views: `?String` or `?T`.
+pub fn viewWritten(ctx: *const SemContext, ty: TypeId) TypeId {
+    return ctx.types.get(unwrapOptionals(ctx, ty)).write_view;
 }
 
 /// The diagnostic for a box of a function value.
@@ -12536,7 +12565,8 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id, .body = r.body, .index = r.index });
     };
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
-        try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .item = r.item, .module_id = if (r.module_id == 0) m else r.module_id });
+        const callable: ?TypeId = if (r.callable) |t| try importType(ctx, foreign, t, m) else null;
+        try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .item = r.item, .callable = callable, .in_result = r.in_result, .method = r.method, .module_id = if (r.module_id == 0) m else r.module_id });
     };
     for (foreign.plain_regions.items) |r| if (r.param == origin.sym) {
         try ctx.plain_regions.append(ctx.allocator, .{ .start = r.start, .end = r.end, .param = proxy, .module_id = if (r.module_id == 0) m else r.module_id });

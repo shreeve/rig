@@ -1950,7 +1950,8 @@ test "rev240-m03 value kinds", '''
   6 ["a", "al", "alph", "alpha", "beta", "alp"]
 '''
   # ensure, ensure_with, put_new, and retain with boxed, shared, enum, and
-  # view values and keys, crossing the small-map limit.
+  # view values and keys (no retain of views), crossing the small-map
+  # limit.
 
   obj Node
     name: String
@@ -2016,7 +2017,8 @@ test "rev240-m03 value kinds", '''
   y = (!views).ensure(?a, ?c)
   print(y)
   _ = (!views).put_new(?c, ?a)
-  !views.retain(|k| k.len == 5)
+  # No `retain` here: at a `V` that can hold a view it is refused (SPEC
+  # "Generic bodies").
   for e in ?views.items()
     print(e.key, e.value)
 

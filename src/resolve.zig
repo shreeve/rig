@@ -3882,10 +3882,15 @@ pub const TypeResolver = struct {
                             else => .element,
                         };
                         if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
-                        // Nothing lends a `?String` place to write
-                        // (`sema.writesTextView`).
+                        // Nothing lends a read view's place to write
+                        // (`sema.writesView`).
                         if (head == .write_view and inner == t.string_view_id) {
                             try self.ctx.errAt(sexp, sema.write_text_view, .{});
+                            return t.invalid_id;
+                        }
+                        if (head == .write_view and self.ctx.types.get(inner) == .read_view) {
+                            const shown = try sema.formatType(self.ctx, inner);
+                            try self.ctx.errAt(sexp, sema.write_read_view, .{ shown, shown });
                             return t.invalid_id;
                         }
                         // `?fun(...)` written as such is a callable
@@ -5227,8 +5232,8 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
             try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v }, int),
             try tableMethod(ctx, "insert_new", .write, &.{ write_self, k, v }, int),
             try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_v),
-            try tableMethod(ctx, "update", .write, &.{ write_self, update_f }, void_id),
-            try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id),
+            try lendsEntries(try tableMethod(ctx, "update", .write, &.{ write_self, update_f }, void_id)),
+            try lendsEntries(try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id)),
         });
     } else {
         const opt_k = try ctx.intern(.{ .optional = k });
@@ -5284,6 +5289,16 @@ fn tableMethod(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, par
     defer scratch.deinit();
     f.origins = try sema.signatureOrigins(ctx, scratch.allocator(), ctx.types.get(f.ty).function);
     return f;
+}
+
+/// `f`, which calls its function value with a view of each key and the
+/// key's value lent to write, both the table's own (`Field.lends_entries`):
+/// as a Rig body that did so, it refuses an instance whose value type
+/// can hold the key's view (SPEC "Generic bodies").
+fn lendsEntries(f: Field) Error!Field {
+    var out = f;
+    out.lends_entries = true;
+    return out;
 }
 
 /// `f` with its result's origin narrowed to self, as `from @` narrows a

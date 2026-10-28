@@ -2263,7 +2263,7 @@ fail "write view param stores local view", "cannot store a view of `x` through `
   # A value stored through a `!T` parameter lands in the caller's binding,
   # so it may not lend the function's own locals.
 
-  sub keep(p: !?Int)
+  sub keep(p: !(?Int)?)
     x = 5
     p = ?x
 

@@ -189,23 +189,15 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
   `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
   a capture and a field lend, like `!c`, lend what the handle holds.
-- **A closure stores a view in a generic body's value** (soundness).
-  `!m.update(|k, v| v = k)` on a `Map[String, (?String)?]`, or
-  `|k, v| !v.push(k)` on a `Map[String, List[?String]]`, stores the
-  key's view in the value; `take` then frees the key while the value
-  views it. A generic body tracks no view a `V` holds, so `update`'s
-  call `f(?key, !value)` cannot see the store, and the closure's type
-  (`sub(?String, !(?String)?)`, a function type's default origins)
-  allows it. The oracle accepts both too. Two cases in
-  `test/rig/ownership-generic.rig.test` are `known: true`. A fix would
-  refuse, as SPEC "Generic bodies" refuses a method that keeps an
-  argument's view in a `T`, a closure that stores a parameter's view
-  where the callee's declared type has a type parameter: an ownership
-  rule, for the owner.
-- **A write view of a read view read in a closure** emits Zig that does
-  not compile. `!m.update(|k, v| print(v.len))` on a
-  `Map[String, ?List[Int]]` gives `v` the type `!?List[Int]`, and its
-  `.len` reads a `**const ListOf` as a List.
+- **A closure that stores nothing, at a value type that can hold a
+  view** (deferred by the owner). `!m.update(|k, v| v = none)` on a
+  `Map[String, (?String)?]` is refused with its instance (SPEC "Generic
+  bodies"): the rule reads the function value's type, not the closure.
+  A refinement would check a closure literal's body, or a declared
+  function's, at each call, and discharge the requirement where it
+  stores and gives no view of a parameter; it would accept that call,
+  `retain(|k| k.len == 5)` on a `Map[?String, ?String]`, and
+  `update(|k, v| v = "lit")`.
 
 Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before

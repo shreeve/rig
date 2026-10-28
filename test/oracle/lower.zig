@@ -343,6 +343,17 @@ fn rigBuiltin(ctx: *const sema.SemContext, sym_id: SymbolId) bool {
     return std.mem.eql(u8, home.name, "std." ++ lib.rig.builtin_module_name);
 }
 
+/// The function type a value of `ty`, a type of `ctx`, calls: a
+/// function's, a callable view's, or an owned closure's.
+fn fnTypeIn(ctx: *const sema.SemContext, ty: TypeId) ?sema.FunctionType {
+    var t = ty;
+    while (true) switch (ctx.types.get(t)) {
+        .function => |f| return f,
+        .callable, .read_view, .shared => |inner| t = inner,
+        else => return null,
+    };
+}
+
 /// The context of the module that declares `sym`, whose IR holds its
 /// clauses (`from`, `keeps`): a symbol another module's declaration
 /// stands for (a `use`d function, or a generic type such as `Map`) is
@@ -3011,12 +3022,7 @@ const Lowerer = struct {
 
     /// The function type a callee value of type `ty` calls.
     fn fnTypeOf(self: *Lowerer, ty: TypeId) ?sema.FunctionType {
-        var t = ty;
-        while (true) switch (self.ctx.types.get(t)) {
-            .function => |f| return f,
-            .callable, .read_view, .shared => |inner| t = inner,
-            else => return null,
-        };
+        return fnTypeIn(self.ctx, ty);
     }
 
     /// A closure literal (Core §7): each capture in order, as its sigil
@@ -3646,6 +3652,7 @@ const Lowerer = struct {
                 const recv_ty = try self.typeOf(recv_obj);
                 cell_store = self.isCell(recv_ty);
                 if (fn_params) |fp| {
+                    try self.entryViews(callee, recv_ty, fp);
                     shapes = try self.shapesOf(fp.ctx, if (fp.ctx == self.ctx) try self.instParams(recv_ty, fp.params) else fp.params);
                     // A call on a type parameter's value is a call of a
                     // function value: what its type could hold, it may
@@ -4479,6 +4486,41 @@ const Lowerer = struct {
         /// `keeps` (SPEC "Generic bodies").
         type_param: bool = false,
     };
+
+    /// A Map's or HashMap's `update` and `retain` call their function
+    /// value with a view of each key the Map owns beside the key's value
+    /// lent to write, and its `ensure_with` keeps as the value what its
+    /// function value gives when passed a view of the key (SPEC "Generic
+    /// bodies"). At an instance whose value type may keep that view, the
+    /// Map would hold a view of itself (Core §5): rejected at the call.
+    fn entryViews(self: *Lowerer, callee: Sexp, recv_ty: TypeId, fp: MethodParams) Error!void {
+        const pn = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
+            .parameterized_nominal => |pn| pn,
+            else => return,
+        };
+        if (!rigBuiltin(self.ctx, pn.sym)) return;
+        const sym = self.ctx.symbols.items[pn.sym];
+        if (!std.mem.eql(u8, sym.name, "Map") and !std.mem.eql(u8, sym.name, "HashMap")) return;
+        const name = leafText(ir.Member.name(callee), self.src);
+        const lends = std.mem.eql(u8, name, "update") or std.mem.eql(u8, name, "retain");
+        if (!lends and !std.mem.eql(u8, name, "ensure_with")) return;
+        // At a generic body's own parameters, each instance answers.
+        for (pn.args) |arg| if (self.ctx.typeInfo(arg).has_type_var) return;
+        // The type's parameters as the signature's context names them.
+        const home = if (fp.ctx == self.ctx) sym else if (sema.isProxy(sym)) fp.ctx.symbols.items[sym.from.sym] else return;
+        const tps = home.type_params orelse return;
+        for (fp.full.params) |pt| {
+            const f = fnTypeIn(fp.ctx, pt) orelse continue;
+            var reach: kinds.Reach = .{ .a = self.a };
+            const keeps = if (lends) f.params.len > 1 and try reach.storesAt(fp.ctx, f.params, 0, tps, self.ctx, pn.args) else switch (fp.ctx.types.get(f.returns)) {
+                .type_var => |v| for (tps, 0..) |tp, i| {
+                    if (tp == v and i < pn.args.len) break (try self.kinds.of(pn.args[i])).holds_views;
+                } else false,
+                else => false,
+            };
+            if (keeps) return self.found(.C9, self.posOf(callee), "`{s}` gives a function value a view of a key it owns, which a value of `{s}` may keep (SPEC \"Generic bodies\")", .{ name, try sema.formatTypeIn(self.ctx, self.a, recv_ty) });
+        }
+    }
 
     /// A callee's declared signature (`receiver`: a method's, called on
     /// a value, whose receiver is its first parameter).
