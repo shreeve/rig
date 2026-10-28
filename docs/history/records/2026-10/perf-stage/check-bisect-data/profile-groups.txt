@@ -1,0 +1,9 @@
+| group | main.syms share | li.syms share | all.syms share | li.syms cycles saved, % of base | all.syms cycles saved, % of base |
+|---|---|---|---|---|---|
+| checker | 87.2% | 86.4% | 86.1% | 4.04% | 6.57% |
+| runtime | 4.6% | 5.1% | 5.1% | -0.21% | -0.10% |
+| other | 2.9% | 3.0% | 2.8% | 0.01% | 0.22% |
+| ast | 2.6% | 2.8% | 2.9% | -0.08% | -0.12% |
+| map | 2.0% | 2.0% | 2.2% | 0.06% | -0.11% |
+| binder | 0.5% | 0.5% | 0.6% | 0.01% | -0.07% |
+| unknown | 0.2% | 0.3% | 0.2% | -0.06% | -0.04% |

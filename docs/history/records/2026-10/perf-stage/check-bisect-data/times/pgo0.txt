@@ -1,0 +1,21 @@
+ts-pattern round=1 v=pgo-main ns=1326277243 cycles=3772379132 total_cycles=6322130564 instructions=8153388459 rss_kb=268392 exit=2 load=1.07
+ts-pattern round=1 v=main ns=1290782476 cycles=4324038700 total_cycles=6139708383 instructions=9264934721 rss_kb=266840 exit=2 load=1.07
+ts-pattern round=2 v=pgo-main ns=1021269289 cycles=3791361493 total_cycles=4857685302 instructions=8153170898 rss_kb=268388 exit=2 load=1.14
+ts-pattern round=2 v=main ns=1393513251 cycles=4500730325 total_cycles=6635698929 instructions=9265117083 rss_kb=266848 exit=2 load=1.14
+ts-pattern round=3 v=main ns=1291750770 cycles=4458215064 total_cycles=6154993715 instructions=9265291801 rss_kb=266848 exit=2 load=1.14
+ts-pattern round=3 v=pgo-main ns=1073170939 cycles=3832834973 total_cycles=5098731222 instructions=8153816729 rss_kb=268392 exit=2 load=1.14
+ts-pattern round=4 v=main ns=1147403554 cycles=4364201546 total_cycles=5462343994 instructions=9264935452 rss_kb=266844 exit=2 load=1.21
+ts-pattern round=4 v=pgo-main ns=1149752548 cycles=3926536740 total_cycles=5464312801 instructions=8153298241 rss_kb=268392 exit=2 load=1.21
+ts-pattern round=5 v=pgo-main ns=937398646 cycles=3793733260 total_cycles=4454642282 instructions=8153165793 rss_kb=268396 exit=2 load=1.21
+ts-pattern round=5 v=main ns=1036439524 cycles=4371793404 total_cycles=4928021177 instructions=9264936116 rss_kb=266784 exit=2 load=1.21
+zod3 round=1 v=main ns=187396660 cycles=774610242 total_cycles=875781703 instructions=1679756738 rss_kb=92628 exit=2 load=1.21
+zod3 round=1 v=pgo-main ns=163684930 cycles=675741034 total_cycles=771875478 instructions=1429791205 rss_kb=93200 exit=2 load=1.21
+zod3 round=2 v=main ns=183359029 cycles=768561739 total_cycles=865709679 instructions=1679572609 rss_kb=92628 exit=2 load=1.21
+zod3 round=2 v=pgo-main ns=163437245 cycles=675957671 total_cycles=770119964 instructions=1429826166 rss_kb=93204 exit=2 load=1.28
+zod3 round=3 v=pgo-main ns=163743109 cycles=678311673 total_cycles=772779741 instructions=1429743063 rss_kb=93204 exit=2 load=1.28
+zod3 round=3 v=main ns=181549758 cycles=761907613 total_cycles=857451885 instructions=1679560968 rss_kb=92628 exit=2 load=1.28
+zod3 round=4 v=pgo-main ns=165452674 cycles=687129975 total_cycles=780655686 instructions=1429791305 rss_kb=93200 exit=2 load=1.28
+zod3 round=4 v=main ns=184889554 cycles=773905978 total_cycles=870710210 instructions=1679789160 rss_kb=92624 exit=2 load=1.28
+zod3 round=5 v=main ns=185262357 cycles=777252683 total_cycles=874282718 instructions=1679791859 rss_kb=92628 exit=2 load=1.28
+zod3 round=5 v=pgo-main ns=164746821 cycles=681729001 total_cycles=776865670 instructions=1429776012 rss_kb=93200 exit=2 load=1.28
+# done 11:16:17

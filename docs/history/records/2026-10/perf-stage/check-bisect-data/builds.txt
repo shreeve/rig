@@ -1,0 +1,30 @@
+06:01:59 main ceil FAILED
+06:15:43 base -Osafe exit=0 in 824 s
+06:28:02 main -Osafe exit=0 in 731 s
+06:42:02 li -Osafe exit=0 in 840 s
+06:56:51 all -Osafe exit=0 in 889 s
+07:11:02 ti -Osafe exit=0 in 850 s
+07:24:28 sl -Osafe exit=0 in 797 s
+07:37:30 ov -Osafe exit=0 in 782 s
+07:52:19 cast -Osafe exit=0 in 883 s
+08:07:42 zsafe -Osafe exit=0 in 923 s
+08:33:43 li-checker -Osafe exit=0 in 1561 s
+08:49:04 null1 -Osafe exit=0 in 916 s
+09:02:09 li-store -Osafe exit=0 in 784 s
+09:15:05 li-members -Osafe exit=0 in 776 s
+09:28:19 li-ast -Osafe exit=0 in 785 s
+09:41:35 li-other -Osafe exit=0 in 786 s
+09:54:45 li-acc -Osafe exit=0 in 790 s
+10:07:44 null2 -Osafe exit=0 in 779 s
+10:21:08 ti-store -Osafe exit=0 in 804 s
+10:43:57 pgo pgo-main exit=0 made=no in 1369 s
+11:08:08 pgo pgo-li exit=0 made=yes in 1451 s
+11:21:22 zig-checker -Osafe exit=0 in 794 s
+11:34:25 zig-acc -Osafe exit=0 in 783 s
+11:47:26 full -Osafe exit=0 in 781 s
+12:00:52 zrest -Osafe exit=0 in 806 s
+12:25:10 pgo pgo-ov exit=0 made=yes in 1458 s
+12:38:41 li-accast -Osafe exit=0 in 792 s
+13:03:02 pgo pgo-accast exit=0 made=yes in 1461 s
+13:16:39 zig-map -Osafe exit=0 in 788 s
+13:29:57 zig-rt -Osafe exit=0 in 797 s
