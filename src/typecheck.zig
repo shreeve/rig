@@ -5552,7 +5552,7 @@ const Checker = struct {
         if (!sema.ownerWidened(self.ctx, param)) return false;
         const api = apiOf(req) orelse return false;
         if (ownershipApi(api)) return false;
-        if (!sema.boundApis(self.ctx, self.ctx.symbols.items[param]).contains(api)) {
+        if (!boundsGive(self.ctx, self.ctx.symbols.items[param], req, api)) {
             try reportUnbounded(self.ctx, pos, param, api, try self.ctx.arena.allocator().print("{s}", .{req.describe()}));
         }
         return true;
@@ -7680,7 +7680,7 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and op != .hash and op != .order) {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and !op.isFloat() and op != .hash and op != .order) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
@@ -7689,7 +7689,7 @@ const Checker = struct {
                     .write => "!xs.write[U32, .little](at, v)",
                     .sum => "xs.sum()",
                     .prefetch => "xs.prefetch(i)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .min, .max, .clamp, .total_order => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -10178,6 +10178,36 @@ const Checker = struct {
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{value}), .returns = result, .is_sub = false });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = value });
         return result;
+    }
+
+    /// The methods of a float that compare it, `F32`'s as `Float`'s:
+    /// `x.min(y)` and `x.max(y)`, the smaller and the larger, where a NaN
+    /// loses to a number (IEEE 754 minimumNumber and maximumNumber, as
+    /// Zig's `@min` and `@max`); `x.clamp(lo, hi)`, `x` limited to
+    /// `lo..hi`; and `x.total_order(?y)`, the `Order` of IEEE 754
+    /// totalOrder, which orders every float, NaN too. Null when `method`
+    /// is none of them or the receiver is not a float.
+    fn floatCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
+        if (!op.isFloat()) return null;
+        var value = sema.unwrapViews(self.ctx, obj_ty);
+        if (value == self.t().float_literal_id) value = self.t().float_id;
+        if (self.ctx.types.get(value) != .float) return null;
+        if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
+        if (op == .total_order) {
+            const order_ty = try self.ctx.intern(.{ .nominal = self.ctx.order_sym_id });
+            const view = try self.ctx.intern(.{ .read_view = value });
+            try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ view, view }), .returns = order_ty, .is_sub = false });
+            try self.checkArgs(args, .{ .params = try self.ctx.dupeIds(&.{view}), .returns = order_ty, .is_sub = false }, .{ .names = &.{"other"} }, method, pos, .{ .receiver = true, .origins = .{ .result = 0, .stores = 0 }, .declared = &.{view} });
+            try self.ctx.recordElemCall(callee, .{ .op = op, .elem = order_ty, .num = value });
+            return order_ty;
+        }
+        const params: []const TypeId = if (op == .clamp) &.{ value, value } else &.{value};
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(if (op == .clamp) &.{ value, value, value } else &.{ value, value }), .returns = value, .is_sub = false });
+        try self.checkArgs(args, .{ .params = try self.ctx.dupeIds(params), .returns = value, .is_sub = false }, .{}, method, pos, .{ .receiver = true, .origins = .{ .result = 0, .stores = 0 }, .declared = params });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = value, .num = value });
+        return value;
     }
 
     /// The unsigned integer type as wide as a float of `info`.
@@ -12680,6 +12710,7 @@ const Checker = struct {
         }
         if (try self.stringCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .write, ty);
         if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
+        if (ct == null) if (try self.floatCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         if (try self.simdCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.hash()`, unless the type declares a `hash` of its own.
@@ -13714,7 +13745,7 @@ const Checker = struct {
     /// has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
-        if (op.isBits() or op.isSimd() or op.isTypeFn() or op == .hash or op == .order) return null;
+        if (op.isBits() or op.isSimd() or op.isTypeFn() or op.isFloat() or op == .hash or op == .order) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -13747,14 +13778,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .min, .max, .clamp, .total_order, .sum, .prefetch => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .min, .max, .clamp, .total_order, .sum, .prefetch => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -13769,7 +13800,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .min, .max, .clamp, .total_order, .sum, .prefetch => unreachable,
         }
         return self.t().void_id;
     }
@@ -20606,6 +20637,14 @@ fn reachedValue(ctx: *const SemContext, ty: TypeId) TypeId {
     }
 }
 
+/// Whether the bounds of `sym` give what `req` needs, `api`: the API
+/// itself, or for the comparison operators `Num`, since every number
+/// orders by `<`, a float as IEEE 754 says (a NaN beside anything false).
+fn boundsGive(ctx: *SemContext, sym: sema.Symbol, req: Requirement, api: sema.Api) bool {
+    const apis = sema.boundApis(ctx, sym);
+    return apis.contains(api) or (req == .ordered and apis.contains(.Num));
+}
+
 fn ownershipApi(api: sema.Api) bool {
     return switch (api) {
         .Copy, .Clone, .Owned, .Sends, .Syncs => true,
@@ -20733,7 +20772,7 @@ fn checkBoundedBodies(ctx: *SemContext) Error!void {
         const sym = ctx.symbols.items[r.param];
         if (!sema.checkedByBounds(sym)) continue;
         const api = apiOf(r.req) orelse continue;
-        if (sema.boundApis(ctx, sym).contains(api)) continue;
+        if (boundsGive(ctx, sym, r.req, api)) continue;
         // Where `$plain(T)` has held, a `T` copies and holds no loan.
         if (sema.plainApis().contains(api) and sema.narrowedAt(ctx, 0, r.pos, r.param)) continue;
         if (try sema.reportStated(ctx, r.pos, r.param, api, r.op)) continue;

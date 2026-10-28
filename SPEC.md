@@ -3342,7 +3342,7 @@ capital letter and a value parameter with a lowercase one.
 | `Hash` | `.hash()`; implies `Eq` |
 | `Ord` | `<`, `<=`, `>`, `>=`; implies `Eq` |
 | `Print` | `print` and text building |
-| `Num`, `Integer`, `Signed` | arithmetic; `%`, bits, and shifts; negation. `Integer` and `Signed` imply `Num` |
+| `Num`, `Integer`, `Signed` | arithmetic and `<`, `<=`, `>`, `>=` (IEEE 754's for a float); `%`, bits, and shifts; negation. `Integer` and `Signed` imply `Num` |
 
 The first five are facts of a type's parts, which no type declares;
 `Copy` never implies `Owned`, so a Cell's element needs `Copy + Owned`.
@@ -3362,7 +3362,7 @@ payload's fields, each of which must be ordered. A type's header names
 
 A body may do with a bounded `T` what its bounds name and no more: copy
 a `T: Copy`, clone a `T: Clone` (`+x` of a `T`, a `?T`, or a `T?`, as
-each instance clones it), compare a `T: Ord`, hash a `T: Hash`, and
+each instance clones it), compare a `T: Ord` or a `T: Num`, hash a `T: Hash`, and
 call no method on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Sends` or `Syncs` does not cross to another
@@ -5516,6 +5516,44 @@ sub main()
 
 ```error
 `&&` is not a Rig operator; use `and`
+```
+
+### Floats in order
+
+Floats order as IEEE 754 says: a NaN is neither below, above, nor equal
+to any float, itself included, so `<`, `<=`, `>`, `>=`, and `==` beside
+a NaN are false. A float's own methods compare it where a NaN must
+have a place. `x.min(y)` and `x.max(y)` are the smaller and the larger,
+where a NaN loses to a number (IEEE 754's minimumNumber and
+maximumNumber), so neither depends on which side a NaN is on; of `0.0`
+and `-0.0`, either may come back. `x.clamp(lo, hi)` is `lo` below
+`lo`, `hi` above `hi`, and `x` otherwise, a NaN `x` included; it panics
+when `hi < lo` or a bound is a NaN. `x.total_order(?y)` is the `Order`
+of IEEE 754's totalOrder, Rust's `f64::total_cmp`, which places every
+float: `-NaN`, `-inf`, the negative numbers, `-0.0`, `0.0`, the
+positive numbers, `inf`, `NaN`. `Float.nan()` is a positive NaN; one an
+operation makes, `0.0 / 0.0`, may carry either sign, as the target
+gives it. Floats that may hold a NaN sort by it, with the NaNs last:
+`sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`. All four take
+and give the receiver's float type, `Float` or `F32`.
+
+```rig
+use std.sort
+
+sub main()
+  nan = Float.nan()
+  inf = Float.inf()
+  print(nan < 1.0, 1.0 < nan, nan == nan, 2.5.min(nan), nan.max(-1.0), 7.5.clamp(0.0, 5.0))
+  print(nan.total_order(?inf), (-0.0).total_order(?0.0), 1.0.total_order(?1.0))
+  xs = [2.0, nan, -0.0, -inf, 0.0, 1.5]
+  sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)
+  print(xs)
+```
+
+```output
+false false false 2.5 -1.0 5.0
+.greater .less .equal
+[-inf, -0.0, 0.0, 1.5, 2.0, nan]
 ```
 
 ### Block expressions

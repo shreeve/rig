@@ -59,7 +59,7 @@ checked for its type, as any generic call is.
 
 | Function | Result |
 |---|---|
-| `abs[T: Signed + Ord](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
+| `abs[T: Signed](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
 | `min[T: Ord](a: T, b: T) -> T`, `max[T: Ord](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
 | `clamp[T: Ord](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
@@ -89,6 +89,10 @@ true true
 ```
 
 The Float constants NaN and infinity, and `frexp` (`fraction` and `exponent`), are methods of the number types, not of this module: `Float.nan()`, `Float.inf()`, `x.fraction()`, `x.exponent()` ([SPEC](../SPEC.md#numeric-conversions)).
+A float's comparisons are its own methods too: `x.min(y)` and
+`x.max(y)`, where a NaN loses to a number, `x.clamp(lo, hi)`, and
+`x.total_order(?y)`, IEEE 754's total order, which places every float,
+NaN too ([SPEC](../SPEC.md#floats-in-order)).
 
 Float functions, from Zig's. They follow IEEE 754: a result out of
 range is an infinity, and an undefined one (the square root of a

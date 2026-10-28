@@ -182,6 +182,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Floats have methods that compare them.** `x.min(y)` and `x.max(y)`
+  give the smaller and the larger float, and a NaN loses to a number
+  on either side. `x.clamp(lo, hi)` limits `x` to `lo..hi`.
+  `x.total_order(?y)` is the `Order` of IEEE 754's totalOrder, which
+  places every float, NaN too, so floats that may hold a NaN sort with
+  `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`. A `T: Num`
+  (and so a `T: Integer` or `T: Signed`) is compared with `<`, `<=`,
+  `>`, and `>=` as a number is, and `math.abs` takes `T: Signed`.
+  This prepares the change that takes `Ord` from floats, whose NaN has
+  no order (SPEC "Floats in order").
+
 - **A generic body's own values hold no untracked view.** A `T` the
   body holds by value carries no loan it tracks, so an instance whose
   type argument can hold the view the body could put in one is refused

@@ -8,7 +8,7 @@ pub E = 2.718281828459045
 # a type's minimum integer, whose magnitude the type does not hold. A
 # Float's zero comes back as +0.0, and a NaN stays one. (`x - x` is the
 # zero or NaN `x` is, with no sign.)
-pub fun abs[T: Signed + Ord](x: T) -> T
+pub fun abs[T: Signed](x: T) -> T
   x if x > 0 else (-x if x < 0 else x - x)
 
 # The smaller of `a` and `b`, by `<`; `a` when they are equal.
