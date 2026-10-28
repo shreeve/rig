@@ -68,6 +68,10 @@ pub const table_source = @embedFile("table.zig");
 /// the runtime.
 pub const ordered_filename = "rig/ordered.zig";
 pub const ordered_source = @embedFile("ordered.zig");
+/// The table behind `HashMap` and `HashSet` (`src/unordered.zig`),
+/// written beside the runtime.
+pub const unordered_filename = "rig/unordered.zig";
+pub const unordered_source = @embedFile("unordered.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.
@@ -11356,6 +11360,9 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`Map.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`Set.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&e.key), &e.value })", .why = "`Map.retain`'s `f` is a `?fun(?K, !V) -> Bool`, which cannot fail" },
+        .{ .file = "unordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`HashMap.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
+        .{ .file = "unordered.zig", .call = "f.call(.{ rt.lend(&e.key), &e.value })", .why = "`HashMap.retain`'s `f` is a `?fun(?K, !V) -> Bool`, which cannot fail" },
+        .{ .file = "unordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`HashSet.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },
     };
     const Source = struct { file: []const u8, text: []const u8 };
     const sources = [_]Source{
@@ -11366,6 +11373,7 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "net.zig", .text = net_source },
         .{ .file = "table.zig", .text = table_source },
         .{ .file = "ordered.zig", .text = ordered_source },
+        .{ .file = "unordered.zig", .text = unordered_source },
     };
     var used: [listed.len]u32 = @splat(0);
     var unlisted: u32 = 0;

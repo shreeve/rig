@@ -1081,6 +1081,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
             }
         }
 
+        /// The entries a walk for printing passes (`isLive`, `entryAt`).
+        pub fn walkEnd(self: *const Self) usize {
+            return self.len;
+        }
+
         /// Whether entry `j`, below `written`, is live: what printing
         /// walks.
         pub fn isLive(self: *const Self, j: usize) bool {
