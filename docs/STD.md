@@ -1329,6 +1329,89 @@ in one group. A Map or Set holds at most 4,294,967,295 entries. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 
+## HashMap and HashSet
+
+`HashMap[K: Hash, V]` and `HashSet[K: Hash]` are built in beside `Map`
+and `Set`, named with no import: hash tables declared in Rig
+(std/prelude.rig) whose entries the compiler's own unordered table
+holds. **Their iteration order is unspecified**: a walk gives each
+entry once, in an order that depends on the keys, the target (it
+differs between arm64 and x86-64), and what was put and taken before,
+and that a program must not rely on. Where order is not needed they
+are faster than a `Map`, most at takes, at a Map turned over, at misses,
+and at large sizes; a `Map` stays the default, and walks faster.
+
+A HashMap has every member of a Map, each declared as the Map's is,
+with the same ownership, but `at`, which reads entries by an order a
+HashMap does not keep: `HashMap[K, V]()` and `new(capacity: n)`,
+`reserve(n)`, the field `len`, `has`, `get`, `edit`, `put`, `replace`,
+`put_new`, `ensure`, `ensure_added`, `ensure_with`, `ensure_by` (whose
+`key(k)` must equal `k`, or it panics), `take`, `clear`, `items` (each
+an `Item[?K, ?V]`, from a `HashItems[K, V]`), `keys` (`HashKeys`),
+`values` (`HashValues`), `update`, and `retain`, which keeps the
+entries `f` is true for. A HashSet has every member of a Set: `new`,
+`reserve`, `len`, `has`, `add`, `take`, `retain`, `clear`, and `items`
+(`HashMembers[K]`). Keys are what a Map takes, and hash and compare
+alike; `+m` clones each key and value. `print` writes a HashMap as
+`{"a": 1}` and a HashSet as `{1}`, the entries in the table's order.
+
+```rig
+
+use std.sort
+
+sub main()
+  ages = HashMap[String, Int]()
+  !ages.put(String("ada"), 36)
+  !ages.put(String("bo"), 5)
+  !ages.put(String("ada"), 37)
+  _ = (!ages).take("bo")
+  if (!ages).edit("ada") as a
+    a += 1
+  print(ages.len, ages.get("ada"), ages.get("bo"), ages)
+  seen = HashSet[Int]()
+  for n in [3, 1, 3, 2]
+    _ = (!seen).add(n)
+  order: List[Int] = List()
+  for n in ?seen.items()
+    !order.push(n)
+  sort.sort(!order)
+  print(seen.len, order)
+```
+
+```output
+1 38 none {"ada": 38}
+3 [1, 2, 3]
+```
+
+HashMap and HashSet have no `at`, since an unordered table has no
+stable position:
+
+```rig reject
+
+sub main()
+  m = HashMap[String, Int]()
+  print(m.at(0))
+```
+
+```error
+no method `at` on type `HashMap`
+```
+
+A HashMap's entries sit in slots, in groups of 7 on arm64 and 15 on
+x86-64, each group with a word of one tag byte a slot and a byte of
+overflow marks: a lookup compares its key's tag with the whole group
+at once, compares a key only where a tag matches, and finds a key that
+is not there missing from the tags, nearly always in its first group.
+Taking an entry frees its slot, so a turnover leaves nothing behind; a
+table that drifts from turnover is rebuilt at most half full (0.6 on
+x86-64). An `Int`
+key is hashed by one multiply, text by folded multiplies up to 32
+bytes, and any other key as `.hash()` hashes it; a key over 8 bytes
+keeps its hash in its slot, so growth hashes no key again. The first
+`put` makes room for 21 entries (29 on x86-64), and the table doubles
+when it is four fifths full (seven eighths on x86-64). A HashMap or
+HashSet holds at most 4,294,967,295 entries.
+
 ## Order, Hasher, and Printer
 
 Three built-in types serve a type's own ordering, hashing, and printing

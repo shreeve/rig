@@ -595,12 +595,19 @@ pub const slotOf = table_zig.slotOf;
 const ordered_zig = @import("ordered.zig");
 pub const OrderedMap = ordered_zig.OrderedMap;
 pub const OrderedSet = ordered_zig.OrderedSet;
+
+// The table behind `HashMap` and `HashSet` (`unordered.zig`): the
+// built-ins `UnorderedMap[K, V]` and `UnorderedSet[K]`.
+const unordered_zig = @import("unordered.zig");
+pub const UnorderedMap = unordered_zig.UnorderedMap;
+pub const UnorderedSet = unordered_zig.UnorderedSet;
 pub const httpServe = net.serve;
 
 test {
     _ = sched;
     _ = fast_alloc;
     _ = ordered_zig;
+    _ = unordered_zig;
 }
 
 // -----------------------------------------------------------------------------
@@ -1322,7 +1329,7 @@ fn clonesErased(comptime T: type) bool {
         .optional => |o| clonesErased(o.child),
         .array => |a| clonesErased(a.child),
         .@"struct" => |s| blk: {
-            if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_ordered") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box") or @hasDecl(T, "__rig_api_shared") or @hasDecl(T, "__rig_api_weak")) break :blk true;
+            if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_ordered") or @hasDecl(T, "__rig_unordered") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box") or @hasDecl(T, "__rig_api_shared") or @hasDecl(T, "__rig_api_weak")) break :blk true;
             if (@hasDecl(T, "__rig_drop")) break :blk false;
             inline for (s.field_types) |F| if (!clonesErased(F)) break :blk false;
             break :blk true;
@@ -2353,7 +2360,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             return out;
         },
         .@"struct" => |s| {
-            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_ordered") or @hasDecl(T, "__rig_error_value")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_ordered") or @hasDecl(T, "__rig_unordered") or @hasDecl(T, "__rig_error_value")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
             if (comptime @hasDecl(T, "__rig_api_box")) return value.clone();
             if (comptime @hasDecl(T, "__rig_api_shared")) return value.cloneStrong();
@@ -7518,8 +7525,8 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         .@"struct" => {
             if (@hasDecl(T, "__rig_print")) return value.__rig_print(w);
-            if (comptime isBuiltin(T, "Map[")) return writeMap(w, value);
-            if (comptime isBuiltin(T, "Set[")) return writeSet(w, value);
+            if (comptime isBuiltin(T, "Map[") or isBuiltin(T, "HashMap[")) return writeMap(w, value);
+            if (comptime isBuiltin(T, "Set[") or isBuiltin(T, "HashSet[")) return writeSet(w, value);
             try w.print("{s}(", .{rigTypeName(T)});
             try writeFields(w, value);
             try w.writeAll(")");
@@ -7660,13 +7667,14 @@ fn isBuiltin(comptime T: type, comptime head: []const u8) bool {
 }
 
 /// A Map as `{"a": 1, "b": 2}`: each entry it holds, in the order its
-/// key was first put in, its key and value each as an element of a List
-/// prints; `{}` when empty. Its entries are its table's, `t`
-/// (`ordered.zig`), which says which are live.
+/// key was first put in (a HashMap's in its table's order), its key and
+/// value each as an element of a List prints; `{}` when empty. Its
+/// entries are its table's, `t` (`ordered.zig`, `unordered.zig`), which
+/// says which are live.
 fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
     try w.writeAll("{");
     var n: usize = 0;
-    for (0..map.t.len) |j| if (map.t.isLive(j)) {
+    for (0..map.t.walkEnd()) |j| if (map.t.isLive(j)) {
         const e = map.t.entryAt(j);
         if (n > 0) try w.writeAll(", ");
         try writeValue(w, e.key, false);
@@ -7678,11 +7686,12 @@ fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
 }
 
 /// A Set as `{1, 2}`: each key it holds, in the order it was first
-/// added, as an element of a List prints; `{}` when empty.
+/// added (a HashSet's in its table's order), as an element of a List
+/// prints; `{}` when empty.
 fn writeSet(w: *std.Io.Writer, set: anytype) std.Io.Writer.Error!void {
     try w.writeAll("{");
     var n: usize = 0;
-    for (0..set.t.len) |j| if (set.t.isLive(j)) {
+    for (0..set.t.walkEnd()) |j| if (set.t.isLive(j)) {
         if (n > 0) try w.writeAll(", ");
         try writeValue(w, set.t.entryAt(j).key, false);
         n += 1;

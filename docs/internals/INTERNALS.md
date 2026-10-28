@@ -5030,7 +5030,7 @@ why the model is what it is, in
 
 `Map[K, V]` and `Set[K]` are declared in Rig, in std/prelude.rig, and
 their entries are held by two compiler built-ins, `OrderedMap[K, V]`
-and `OrderedSet[K]`, registered by `resolve.registerOrdered` as `List`
+and `OrderedSet[K]`, registered by `resolve.registerTables` as `List`
 is and held by the runtime as `rig.OrderedMap(K, V)` and
 `rig.OrderedSet(K)` (src/ordered.zig, written beside the runtime as
 `rig/ordered.zig`). Every module registers both, so their symbols agree
@@ -5053,7 +5053,7 @@ across modules, and only std.prelude's scope names them.
   writer stores the keys and values it takes, and nothing keeps a
   closure. `ensure_with` calls `make` in the prelude (`add_made`), so
   the Map keeps `make` as its declaration says.
-- **Facts.** The tables are heap built-ins (`sema.isOrderedTable`, in
+- **Facts.** The tables are heap built-ins (`sema.isHashTable`, in
   `isHeapBuiltin`): glue and not plain, their entries behind them, a
   deep clone where every parameter clones, and 96 bytes; a `Map` is
   112. A table counts as running a drop body (`runsDropBody`), as a
@@ -5100,6 +5100,59 @@ across modules, and only std.prelude's scope names them.
 
 The runtime prints a Map or Set (`writeMap`, `writeSet`) from its
 table's live entries.
+
+### The built-in HashMap and HashSet
+
+`HashMap[K, V]` and `HashSet[K]` are built as `Map` and `Set` are, over
+the unordered tables `UnorderedMap[K, V]` and `UnorderedSet[K]`
+(`resolve.registerTables`; `rig.UnorderedMap(K, V)`, src/unordered.zig,
+written beside the runtime as `rig/unordered.zig`). Their order is
+unspecified (SPEC §10, STD).
+
+- **The face.** `HashMap` is `pub ?len: Int` and `t: UnorderedMap[K,
+  V]`; each public member is declared exactly as `Map`'s, so every
+  checker and the oracle treat the two alike. `at` is left out. The
+  iterators `HashItems`, `HashKeys`, `HashValues`, and `HashMembers`
+  hold `?HashMap[K, V]` (`?HashSet[K]`), a group, and that group's full
+  lanes not yet given: a step clears one bit, and the table's
+  `group_count`, `full_lanes`, and `slot_at` find the next group.
+- **The table's members** have the origins of their signatures
+  (`sema.signatureOrigins`), as the ordered table's do, but `get` and
+  `edit`, which hand back the value's view where the lookup found its
+  slot: `fromSelf` narrows their result to self, as `from @` narrows a
+  Rig declaration's, since the key is only hashed and compared. A slot
+  index the table hands out (`find`, `ensure`, `insert_new`) names its
+  slot until the next write.
+- **Facts.** As the ordered tables' (`sema.isHashTable`), at 48 bytes
+  (`isUnorderedTable`); a `HashMap` is 56.
+- **Hash and `==`** (the panel's decisions 7 and 8, inside the table):
+  an integer key of up to 64 bits by one multiply, a `String` or
+  `?String` by folded multiplies up to 32 bytes (Wyhash above) and
+  compared by words, any other key by `rig.hash` and `rig.eql`. The hash
+  is rotated left a byte: its top byte is the tag, the bits below the
+  home group.
+- **Layout** (bench/hash's `zig-hash`, with its defaults;
+  docs/history/records/2026-10/hash-race/zig-hash.md): boost's FOA, the
+  slots in groups and beside them a metadata word a group, a tag a slot
+  and an overflow byte, in one block. Groups are 7 slots and 8 bytes on
+  arm64 (`cmeq.8b`, a byte a lane), maximum load 0.8, at least 4 groups;
+  15 and 16 on x86-64 (`pcmpeqb`, `pmovmskb`), 0.875, at least 2. A
+  lookup peels its home group, prefetches the group's first slot line
+  inside the tag-match branch for slots of 32 bytes or fewer, reads the
+  overflow byte only on the way to a miss, and walks on by quadratic
+  probing. An insert is one pass. A take writes 0 to its tag and lowers
+  the maximum load where the group marks the tag's class; a rehash that
+  drift forces sizes the table to at most 0.5 full (0.6 on x86-64). A
+  key over 8 bytes keeps its hash in its slot.
+- **Slot reads** go through `slotAt`: in a debug build it tests that
+  the index is a slot and names a full one; in a release build it is
+  the read alone, as the ordered table's `entryOf` is.
+- **The limit** of 2^32 - 1 entries is tested by `reserve` before it
+  allocates and by growth.
+
+The runtime prints a HashMap or HashSet with `writeMap` and `writeSet`,
+in slot order (`walkEnd`, `isLive`, `entryAt`, which both tables give).
+`RIG_MAP_TRACE` instruments `Map` and `Set` only.
 
 ### The Map trace
 

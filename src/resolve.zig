@@ -4929,7 +4929,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    try registerOrdered(ctx, module_scope);
+    try registerTables(ctx, module_scope);
 
     // `^T`: one T on the heap, owned by the box. Its fields and methods
     // are reached through it; `unbox` moves the value out. No name
@@ -5177,36 +5177,48 @@ fn method(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: 
     return .{ .name = name, .ty = ty, .decl_pos = builtin_pos, .is_method = true, .receiver = receiver, .needs = needs };
 }
 
-/// `OrderedMap[K, V]` and `OrderedSet[K]`: the tables behind `Map` and
-/// `Set` (src/ordered.zig), whose members std/prelude.rig's `Map` and
-/// `Set` call. Every module registers them, so their symbols are the
-/// same in each, and only std.prelude's scope names them: no program
-/// writes either. Each member's origins are those a Rig declaration of
-/// its signature with no `from` or `keeps` would have
+/// The tables behind `Map` and `Set` (src/ordered.zig), `OrderedMap[K,
+/// V]` and `OrderedSet[K]`, and behind `HashMap` and `HashSet`
+/// (src/unordered.zig), `UnorderedMap[K, V]` and `UnorderedSet[K]`, whose
+/// members std/prelude.rig's types call. Every module registers them, so
+/// their symbols are the same in each, and only std.prelude's scope
+/// names them: no program writes one. Each member's origins are those a
+/// Rig declaration of its signature with no `from` or `keeps` would have
 /// (`sema.signatureOrigins`), so a wrapper of the same signature passes
 /// on exactly what it does.
-fn registerOrdered(ctx: *SemContext, module_scope: ScopeId) Error!void {
+fn registerTables(ctx: *SemContext, module_scope: ScopeId) Error!void {
+    ctx.ordered_map_sym_id = try registerTable(ctx, module_scope, "OrderedMap", true, true);
+    ctx.ordered_set_sym_id = try registerTable(ctx, module_scope, "OrderedSet", false, true);
+    ctx.unordered_map_sym_id = try registerTable(ctx, module_scope, "UnorderedMap", true, false);
+    ctx.unordered_set_sym_id = try registerTable(ctx, module_scope, "UnorderedSet", false, false);
+}
+
+/// One table (`registerTables`): a Map's, of keys and values, or a Set's,
+/// of keys; walked in order by runs (`ordered`), or slot by slot.
+fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_map: bool, ordered: bool) Error!SymbolId {
     const named: ?ScopeId = if (ctx.is_std and std.mem.eql(u8, ctx.name, "std." ++ rig.builtin_module_name)) module_scope else null;
     const int = ctx.types.int_id;
     const opt_int = try ctx.intern(.{ .optional = int });
     const boolean = ctx.types.bool_id;
     const void_id = ctx.types.void_id;
-    {
-        const g = try addGeneric(ctx, named, module_scope, "OrderedMap", &.{ "K", "V" });
-        ctx.ordered_map_sym_id = g.sym;
-        const k = g.params[0];
+    const g = try addGeneric(ctx, named, module_scope, name, if (is_map) &.{ "K", "V" } else &.{"K"});
+    const k = g.params[0];
+    const read_self = try ctx.intern(.{ .read_view = g.self_ty });
+    const write_self = try ctx.intern(.{ .write_view = g.self_ty });
+    const read_k = try ctx.intern(.{ .read_view = k });
+    var fields: std.ArrayList(Field) = .empty;
+    defer fields.deinit(ctx.allocator);
+    const a = ctx.allocator;
+    try fields.append(a, try tableMethod(ctx, "find", .read, &.{ read_self, read_k }, opt_int));
+    try fields.append(a, try tableMethod(ctx, "key", .read, &.{ read_self, int }, read_k));
+    if (is_map) {
         const v = g.params[1];
-        const read_self = try ctx.intern(.{ .read_view = g.self_ty });
-        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
-        const read_k = try ctx.intern(.{ .read_view = k });
         const read_v = try ctx.intern(.{ .read_view = v });
         const write_v = try ctx.intern(.{ .write_view = v });
         const opt_v = try ctx.intern(.{ .optional = v });
         const update_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{ read_k, write_v }), .returns = void_id, .is_sub = true } }));
         const retain_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{ read_k, write_v }), .returns = boolean, .is_sub = false } }));
-        try setFields(ctx, g.sym, &.{
-            try tableMethod(ctx, "find", .read, &.{ read_self, read_k }, opt_int),
-            try tableMethod(ctx, "key", .read, &.{ read_self, int }, read_k),
+        try fields.appendSlice(a, &.{
             try tableMethod(ctx, "value", .read, &.{ read_self, int }, read_v),
             try tableMethod(ctx, "value_mut", .write, &.{ write_self, int }, write_v),
             try tableMethod(ctx, "put", .write, &.{ write_self, k, v }, boolean),
@@ -5215,53 +5227,77 @@ fn registerOrdered(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v }, int),
             try tableMethod(ctx, "insert_new", .write, &.{ write_self, k, v }, int),
             try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_v),
-            try tableMethod(ctx, "count", .read, &.{read_self}, int),
-            try tableMethod(ctx, "written", .read, &.{read_self}, int),
-            try tableMethod(ctx, "holes", .read, &.{read_self}, boolean),
-            try tableMethod(ctx, "live_from", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, "gone_from", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, "nth", .read, &.{ read_self, int }, int),
             try tableMethod(ctx, "update", .write, &.{ write_self, update_f }, void_id),
             try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id),
-            try tableMethod(ctx, "clear", .write, &.{write_self}, void_id),
-            try tableMethod(ctx, "reserve", .write, &.{ write_self, int }, void_id),
         });
-    }
-    {
-        const g = try addGeneric(ctx, named, module_scope, "OrderedSet", &.{"K"});
-        ctx.ordered_set_sym_id = g.sym;
-        const k = g.params[0];
-        const read_self = try ctx.intern(.{ .read_view = g.self_ty });
-        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
-        const read_k = try ctx.intern(.{ .read_view = k });
+    } else {
         const opt_k = try ctx.intern(.{ .optional = k });
         const retain_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{read_k}), .returns = boolean, .is_sub = false } }));
-        try setFields(ctx, g.sym, &.{
-            try tableMethod(ctx, "find", .read, &.{ read_self, read_k }, opt_int),
-            try tableMethod(ctx, "key", .read, &.{ read_self, int }, read_k),
+        try fields.appendSlice(a, &.{
             try tableMethod(ctx, "add", .write, &.{ write_self, k }, boolean),
             try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_k),
-            try tableMethod(ctx, "count", .read, &.{read_self}, int),
+            try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id),
+        });
+    }
+    try fields.append(a, try tableMethod(ctx, "count", .read, &.{read_self}, int));
+    if (is_map) {
+        // A lookup that hands back the value's view at once, so the entry
+        // it found is read where it was found, in either table: declared
+        // as a Rig `fun get(?@, k: ?K) -> (?V)? from @` would be
+        // (`fromSelf`, whose comment says why that is sound).
+        const v = g.params[1];
+        const opt_read_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .read_view = v }) });
+        const opt_write_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .write_view = v }) });
+        try fields.appendSlice(a, &.{
+            try fromSelf(try tableMethod(ctx, "get", .read, &.{ read_self, read_k }, opt_read_v)),
+            try fromSelf(try tableMethod(ctx, "edit", .write, &.{ write_self, read_k }, opt_write_v)),
+        });
+    }
+    if (ordered) {
+        try fields.appendSlice(a, &.{
             try tableMethod(ctx, "written", .read, &.{read_self}, int),
             try tableMethod(ctx, "holes", .read, &.{read_self}, boolean),
             try tableMethod(ctx, "live_from", .read, &.{ read_self, int }, int),
             try tableMethod(ctx, "gone_from", .read, &.{ read_self, int }, int),
             try tableMethod(ctx, "nth", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id),
-            try tableMethod(ctx, "clear", .write, &.{write_self}, void_id),
-            try tableMethod(ctx, "reserve", .write, &.{ write_self, int }, void_id),
+        });
+    } else {
+        try fields.appendSlice(a, &.{
+            try tableMethod(ctx, "group_count", .read, &.{read_self}, int),
+            try tableMethod(ctx, "full_lanes", .read, &.{ read_self, int }, int),
+            try tableMethod(ctx, "slot_at", .read, &.{ read_self, int, int }, int),
         });
     }
+    try fields.appendSlice(a, &.{
+        try tableMethod(ctx, "clear", .write, &.{write_self}, void_id),
+        try tableMethod(ctx, "reserve", .write, &.{ write_self, int }, void_id),
+    });
+    try setFields(ctx, g.sym, fields.items);
+    return g.sym;
 }
 
-/// A member of `OrderedMap` or `OrderedSet`, with the origins of its
-/// signature (`registerOrdered`).
+/// A member of a table, with the origins of its signature
+/// (`registerTables`).
 fn tableMethod(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: []const TypeId, returns: TypeId) Error!Field {
     var f = try method(ctx, name, receiver, params, returns, null);
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     f.origins = try sema.signatureOrigins(ctx, scratch.allocator(), ctx.types.get(f.ty).function);
     return f;
+}
+
+/// `f` with its result's origin narrowed to self, as `from @` narrows a
+/// Rig declaration's (`registerTable`): the `get` and `edit` of both the
+/// ordered and the unordered table. Sound only because each runtime's
+/// `get` and `edit` (src/ordered.zig, src/unordered.zig) hash the key
+/// and compare it, and never return or store it or anything reached
+/// through it; a runtime that returned something reached through `k`
+/// would make the narrowing unsound.
+fn fromSelf(f: Field) Error!Field {
+    var out = f;
+    out.origins.result &= sema.paramBit(0);
+    out.origins.declared = true;
+    return out;
 }
 
 fn setFields(ctx: *SemContext, sym: SymbolId, fields: []const Field) Error!void {

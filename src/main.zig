@@ -1139,6 +1139,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
         .{ .path = emit.table_filename, .contents = emit.table_source },
         .{ .path = emit.ordered_filename, .contents = emit.ordered_source },
+        .{ .path = emit.unordered_filename, .contents = emit.unordered_source },
         .{ .path = "main.zig", .contents = root.written() },
     } });
     try writePackage(allocator, io, dir, &.{.{ .path = "programs", .contents = list.written() }});
@@ -1711,6 +1712,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try files.append(allocator, .{ .path = emit.alloc_filename, .contents = emit.alloc_source });
         try files.append(allocator, .{ .path = emit.table_filename, .contents = emit.table_source });
         try files.append(allocator, .{ .path = emit.ordered_filename, .contents = emit.ordered_source });
+        try files.append(allocator, .{ .path = emit.unordered_filename, .contents = emit.unordered_source });
     }
 
     var root_source: []const u8 = "";

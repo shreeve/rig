@@ -150,8 +150,17 @@ A new session, human or agent, takes these steps in order:
   (INTERNALS, "The built-in Map and Set"); Trig 2.9-3.6% fewer cycles
   than #735 on pup
   ([map-builtin.md](docs/history/records/2026-10/hash-race/map-builtin.md)).
-  `HashMap` and `HashSet` (names confirmed by the owner) follow from
-  `zig-hash` the same way.
+  `HashMap` and `HashSet` (names confirmed by the owner) are built the
+  same way over `UnorderedMap[K, V]` and `UnorderedSet[K]`, `zig-hash`
+  ported into src/unordered.zig (INTERNALS, "The built-in HashMap and
+  HashSet"): Map's members but `at`, order unspecified; 60 of
+  bench/hash's 104 rows on the Mac and 77 on pup within 5% of zig-hash
+  or faster
+  ([hashmap-builtin.md](docs/history/records/2026-10/hash-race/hashmap-builtin.md)).
+  Open: the iterator names (`HashItems` and the rest) are the owner's to
+  confirm; text-key rows trail zig-hash 1.2-2.6 times, as the Map's
+  trail zig-ordered (a String key's slot is 40 bytes, with no
+  prefetch).
 - **Masked indexes** (`src/proofs.zig`): `s[e & m]` with `m = s.len -% 1`
   under a guard `s.len > 0` makes no bounds test, ready for the Map
   rewrite. The built-in Map, Set, and Interner keep their two guarded
