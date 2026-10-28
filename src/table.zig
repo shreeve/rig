@@ -9,7 +9,8 @@
 //! - **Reserved.** `T` is plain data whose default is all zero bytes: one
 //!   private anonymous mapping of `n * @sizeOf(T)` bytes, made with
 //!   `MAP_NORESERVE`; on Linux its first 2 MiB keep small pages and the
-//!   rest asks for huge ones (`reserve`). The system gives
+//!   rest asks for huge ones while the system has free 2 MiB blocks to
+//!   spare (`reserve`). The system gives
 //!   each page as zeros when it is first touched, so a slot never written
 //!   costs no memory. It is its own mapping, never one of `alloc.zig`'s
 //!   blocks, which are reused unzeroed and faulted in ahead.
@@ -104,11 +105,15 @@ const huge: usize = 2 << 20;
 /// for huge pages: a table that grows past 2 MiB is faulted in 2 MiB at a
 /// time, one fault and one TLB entry where 512 small pages each take
 /// their own, at the cost of the part of its last huge page not yet
-/// written (docs/history/records/2026-10/perf-stage/fault-ahead/).
+/// written (docs/history/records/2026-10/perf-stage/fault-ahead/). It
+/// asks only while the system has free 2 MiB blocks to spare
+/// (`alloc.zig`'s `hugeFree`), tested once, here: a table grown after
+/// memory fragments faults in through the compactor, as every range that
+/// asks does (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
 fn reserve(bytes: usize) [*]align(page) u8 {
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
     const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
-    if (builtin.os.tag != .linux or bytes <= huge) {
+    if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
         const m = std.posix.mmap(null, bytes, prot, flags, -1, 0) catch reservePanic(bytes);
         if (builtin.os.tag == .linux) std.posix.madvise(m.ptr, m.len, std.posix.MADV.NOHUGEPAGE) catch {};
         return m.ptr;

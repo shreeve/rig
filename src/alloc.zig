@@ -24,7 +24,8 @@
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`)
 //! and asks for huge pages for each new segment, and a new large block
-//! of 16 MiB or more asks for huge pages (`huge_large`).
+//! of 16 MiB or more asks for huge pages (`huge_large`), each while the
+//! system has free 2 MiB blocks to spare (`hugeFree`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -436,12 +437,78 @@ fn mapPages(size: usize) ?usize {
 }
 
 /// Ask Linux to back the `len` bytes at `p` with transparent huge pages,
-/// where it is set to do so for a range that asks (`madvise` mode). A
-/// system that cannot leaves them as they are.
+/// where it is set to do so for a range that asks (`madvise` mode), while
+/// it has free 2 MiB blocks to spare (`hugeFree`). A system that cannot
+/// leaves them as they are.
 fn adviseHuge(p: usize, len: usize) void {
     if (builtin.os.tag != .linux) return;
+    if (!hugeFree()) return;
     const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
     std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
+}
+
+/// The free blocks of 2 MiB or more that Linux must have, more than
+/// this many, before Rig asks it for huge pages (`hugeFree`).
+const huge_spare: usize = 128;
+
+/// Whether Linux has more than `huge_spare` free blocks of 2 MiB or more
+/// (`/proc/buddyinfo`), the test made before every request for huge pages
+/// (`adviseHuge` here, a Table's `reserve` in `table.zig`). Under the
+/// default `defrag` setting, `madvise`, a fault in a range that asked for
+/// huge pages finds a free 2 MiB block or compacts memory to make one, in
+/// the fault; with none free the compaction mostly fails, a fault costs
+/// 2 to 60 times a small page's, and Trig ran 34 to 41% slower than with
+/// no huge pages (docs/history/records/2026-10/perf-stage/
+/// thp-fragmented.md). The file is read each time, never kept: it is read
+/// once for each new segment, new large block of `huge_large`, and
+/// reserved Table, 55 times on Trig's ts-pattern, and a reading kept
+/// would be out of date as memory fragments. A file that cannot be read
+/// asks for none.
+pub noinline fn hugeFree() bool {
+    @branchHint(.cold);
+    if (builtin.os.tag != .linux) return false;
+    if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text) > huge_spare;
+    const linux = std.os.linux;
+    const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    if (@as(isize, @bitCast(rc)) < 0) return false;
+    const fd: linux.fd_t = @intCast(rc);
+    defer _ = linux.close(fd);
+    // A line per zone of each node, about 100 bytes: a host of 10 nodes
+    // fits. A reading cut short counts fewer blocks, never more.
+    var buf: [4096]u8 = undefined;
+    var len: usize = 0;
+    while (len < buf.len) {
+        const r: isize = @bitCast(linux.read(fd, buf[len..].ptr, buf.len - len));
+        if (r < 0) return false;
+        if (r == 0) break;
+        len += @intCast(r);
+    }
+    return freeHugeBlocks(buf[0..len]) > huge_spare;
+}
+
+/// What a test reads in place of /proc/buddyinfo.
+var buddyinfo_for_test: ?[]const u8 = null;
+
+/// The free blocks of 2 MiB in a reading of /proc/buddyinfo: each line
+/// is `Node N, zone NAME` and a count of free blocks for each order from
+/// 0 (4 KiB); a block of order 9 is 2 MiB and one of order 9 + k holds
+/// 2^k of them. The `DMA` zone's are left out, as no user page is taken
+/// from it.
+fn freeHugeBlocks(text: []const u8) usize {
+    var blocks: usize = 0;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        var words = std.mem.tokenizeScalar(u8, line, ' ');
+        // The four words before the counts.
+        var order: isize = -4;
+        while (words.next()) |w| : (order += 1) {
+            if (order == -1 and std.mem.eql(u8, w, "DMA")) break;
+            if (order < 9) continue;
+            const c = std.fmt.parseUnsigned(usize, w, 10) catch break;
+            blocks +|= std.math.shlExact(usize, c, @intCast(order - 9)) catch std.math.maxInt(usize);
+        }
+    }
+    return blocks;
 }
 
 /// `size` more bytes of large blocks handed out. The settled peak is
@@ -1103,8 +1170,10 @@ test "tables grown past `keep_large` in all, dropped, and built again take no ne
     trimAllForTest(&h);
 }
 
-test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them, and a smaller one does not" {
+test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them while 2 MiB blocks are free, and a smaller one does not" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+    buddyinfo_for_test = buddyinfo_plenty;
+    defer buddyinfo_for_test = null;
     var h = testHeap();
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
@@ -1168,8 +1237,10 @@ test "on Linux a large block from 64 KiB that no kept block fits grows by moving
     trimAllForTest(h);
 }
 
-test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them, and one of a heap that does not keeps small pages" {
+test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them while 2 MiB blocks are free, and one of a heap that does not keeps small pages" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+    buddyinfo_for_test = buddyinfo_plenty;
+    defer buddyinfo_for_test = null;
     // The thread's heap takes two segments' worth, so a new heap of one
     // segment beside it does not lead.
     const mine = try allocator.alloc(u8, prefault_big);
@@ -1185,6 +1256,52 @@ test "on Linux a new segment of a heap that faults in ahead is aligned for huge 
     const q = small.newPage().?;
     try std.testing.expect(!faultsAhead(&small));
     try std.testing.expect(!try advisedHugeForTest(q));
+}
+
+/// Readings of /proc/buddyinfo for the tests: memory with free 2 MiB
+/// blocks to spare, and memory fragmented as a busy build host's is.
+const buddyinfo_plenty =
+    \\Node 0, zone      DMA      0      0      0      0      0      0      0      0      1      1      2
+    \\Node 0, zone    DMA32    211    395    378    717    515    367    336    236    159      3      0
+    \\Node 0, zone   Normal 364636 108634  62179  57000  38809  19951   4972   7065   2464    300      8
+    \\
+;
+const buddyinfo_fragmented =
+    \\Node 0, zone      DMA      0      0      0      0      0      0      0      0      1      1      2
+    \\Node 0, zone    DMA32    211    395    378    717    515    367    336    236    159      1      0
+    \\Node 0, zone   Normal 1359150  17930   6222   5728   3186   1669   1392   3119   2467     1      0
+    \\
+;
+
+test "free 2 MiB blocks are counted from orders 9 and up, an order-10 block as two, outside the DMA zone" {
+    try std.testing.expectEqual(@as(usize, 3 + 300 + 16), freeHugeBlocks(buddyinfo_plenty));
+    try std.testing.expectEqual(@as(usize, 2), freeHugeBlocks(buddyinfo_fragmented));
+    try std.testing.expectEqual(@as(usize, 0), freeHugeBlocks(""));
+}
+
+test "on Linux, with memory fragmented, no block, segment, or growth asks for huge pages" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    buddyinfo_for_test = buddyinfo_fragmented;
+    defer buddyinfo_for_test = null;
+    try std.testing.expect(!hugeFree());
+    var h = testHeap();
+    const mib: usize = 1 << 20;
+    const big = allocLarge(&h, 16 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(big)));
+    freeLarge(&h, big, 16 * mib);
+    trimAllForTest(&h);
+    trimAllForTest(heap().?);
+    const m = try allocator.alloc(u8, 8 * mib);
+    const g = allocator.remap(m, 32 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(g.ptr)));
+    allocator.free(g);
+    const mine = try allocator.alloc(u8, prefault_big);
+    defer allocator.free(mine);
+    var busy = testHeap();
+    busy.taken = prefault_big;
+    const p = busy.newPage().?;
+    try std.testing.expect(faultsAhead(&busy));
+    try std.testing.expect(!try advisedHugeForTest(p));
 }
 
 /// Whether the mapping that holds `p` asks for huge pages: its `VmFlags`
