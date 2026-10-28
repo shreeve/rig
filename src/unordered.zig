@@ -975,10 +975,12 @@ const testing = std.testing;
 /// The slots of `m`'s entries, as the prelude's walk gives them.
 fn walkSlots(m: anytype, out: *std.ArrayList(i64)) !void {
     out.clearRetainingCapacity();
-    var g: i64 = 0;
-    while (g < m.group_count()) : (g += 1) {
-        var lanes = m.full_lanes(g);
-        while (lanes != 0) : (lanes &= lanes - 1) try out.append(testing.allocator, m.slot_at(g, lanes));
+    var g: i64 = -1;
+    var lanes: i64 = 0;
+    while (true) {
+        const j = m.next_slot(&g, &lanes);
+        if (j < 0) break;
+        try out.append(testing.allocator, j);
     }
 }
 
