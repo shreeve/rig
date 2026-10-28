@@ -8513,6 +8513,33 @@ pub const Emitter = struct {
                 try self.emitExpr(if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0]);
                 return self.w.writeAll(")");
             },
+            // `rig.totalOrder(a, b)`: an `Order` (`Checker.floatCall`).
+            .total_order => {
+                try self.w.writeAll("rig.totalOrder(");
+                try self.emitExpr(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                try self.emitExpr(if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0]);
+                return self.w.writeAll(")");
+            },
+            // `rig.floatMin(@as(f64, x), @as(f64, y))`, and `floatMax`
+            // and `floatClamp` likewise.
+            .min, .max, .clamp => {
+                try self.w.writeAll(switch (ec.op) {
+                    .min => "rig.floatMin(",
+                    .max => "rig.floatMax(",
+                    else => "rig.floatClamp(",
+                });
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(ir.Member.object(callee));
+                try self.w.writeAll(")");
+                for (args) |a| {
+                    try self.w.writeAll(", ");
+                    try self.writeAsOpen(ec.num);
+                    try self.emitBare(a);
+                    try self.w.writeAll(")");
+                }
+                return self.w.writeAll(")");
+            },
             // `rig.hash(x)`, of the value the receiver reaches.
             .hash => {
                 try self.w.writeAll("rig.hash(");

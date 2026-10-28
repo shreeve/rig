@@ -1,0 +1,144 @@
+# types: how floats compare: `<` as IEEE 754 says, the methods `min`,
+# `max`, `clamp`, and `total_order`, and `Num`'s comparisons in a
+# generic body.
+
+
+test "float compare nan", "false false false false true"
+  # `<`, `<=`, `>`, and `>=` beside a NaN are false, as IEEE 754 says,
+  # and `!=` is true.
+
+  nan = Float.nan()
+  print(nan < 1.0, 1.0 < nan, nan <= nan, nan >= 1.0, nan != nan)
+
+test "float min max", '''
+  1.5 1.5 2.5 2.5 1.5 2.5 true
+  -1.0 3.0
+'''
+  # `x.min(y)` and `x.max(y)`: a NaN loses to a number, whichever side
+  # it is on, and two NaNs give a NaN.
+
+  nan = Float.nan()
+  a = 1.5
+  b = 2.5
+  both = nan.min(nan)
+  print(a.min(nan), nan.min(a), b.max(nan), nan.max(b), a.min(b), a.max(b), both != both)
+  print((-1.0).min(3.0), 3.0.max(-1.0))
+
+test "float min max f32", "1.5 2.5 1.5"
+  # An `F32`'s methods take and give `F32`s; a literal argument takes
+  # the receiver's type.
+
+  x: F32 = 1.5
+  y: F32 = 2.5
+  print(x.min(y), x.max(y), x.min(2))
+
+test "float clamp", "0.0 1.0 0.5 true 2.0"
+  # `x.clamp(lo, hi)`: a NaN `x` stays a NaN.
+
+  nan = Float.nan()
+  c = nan.clamp(0.0, 1.0)
+  print((-3.0).clamp(0.0, 1.0), 7.0.clamp(0.0, 1.0), 0.5.clamp(0.0, 1.0), c != c, 2.0.clamp(2.0, 2.0))
+
+bomb "float clamp bounds", "clamp: the low bound is above the high bound, or a bound is NaN"
+  # A clamp's bounds the wrong way round panic, as `math.clamp`'s do.
+
+  x = 0.5
+  print(x.clamp(1.0, 0.0))
+
+bomb "float clamp nan bound", "clamp: the low bound is above the high bound, or a bound is NaN"
+  # A NaN bound has no place on the line, so it panics too.
+
+  x = 0.5
+  print(x.clamp(Float.nan(), 1.0))
+
+test "float total order", '''
+  .less .less .greater .equal .less
+  .less .less .equal .less .greater
+'''
+  # IEEE 754 totalOrder: -NaN < -inf < negative numbers < -0.0 < +0.0 <
+  # positive numbers < +inf < +NaN. A NaN equals itself here.
+
+  nan = Float.nan()
+  inf = Float.inf()
+  print((-0.0).total_order(?0.0), 0.0.total_order(?1.0), 0.0.total_order(?(-0.0)), nan.total_order(?nan), inf.total_order(?nan))
+  print((-nan).total_order(?(-inf)), (-inf).total_order(?(-1.0)), 1.0.total_order(other: ?1.0), 5e-324.total_order(?1e-300), inf.total_order(?Float.max))
+
+test "float total order f32", ".less .greater .less"
+  # An `F32`'s `total_order`, through a view too.
+
+  x: F32 = -0.0
+  y: F32 = 0.0
+  n = F32.nan()
+  v = ?y
+  print(x.total_order(?y), v.total_order(?x), y.total_order(?n))
+
+test "float sort total order", '''
+  [-inf, -2.5, -0.0, 0.0, 1.0, 3.0, inf, nan]
+  [-inf, -2.5, -0.0, 0.0, 1.0, 3.0, inf]
+'''
+  # Floats that may hold a NaN sort by `total_order`: every float has a
+  # place, and a NaN goes last.
+
+  use std.sort
+
+  nan = Float.nan()
+  xs = [3.0, nan, -0.0, 1.0, Float.inf(), 0.0, -2.5, -Float.inf()]
+  sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)
+  print(xs)
+  l: List[Float] = List()
+  for x in ?xs[..7]
+    !l.push(x)
+  sort.sort_by(!l, |a, b| a.total_order(?b) == .greater)
+  sort.sort_by(!l, |a, b| a.total_order(?b) == .less)
+  print(l)
+
+test "float methods read self", "1.0 1.0 .equal"
+  # The methods read `self` where it is, a field or a view.
+
+  obj P
+    v: Float
+
+  p = P(v: 1.0)
+  r = ?p
+  print(p.v.min(2.0), r.v.clamp(0.0, 1.0), r.v.total_order(?p.v))
+
+fail "float min arity", "3:9: call to `min` expects 1 argument, got 0", "4:13: type mismatch: expected `Float`, got `Int`", "5:15: `clamp` takes positional arguments only", errors: 3
+  x = 1.5
+  n = 2
+  print(x.min())
+  print(x.max(n))
+  print(x.clamp(lo: 0.0, hi: 1.0))
+
+fail "float min consumes", "2:7: `min` does not consume `self`; remove the `<`"
+  x = 1.5
+  print(<x.min(1.0))
+
+fail "int has no float methods", "2:9: type `Int` has no method `min`", "3:9: type `Int` has no method `total_order`", errors: 2
+  n = 3
+  print(n.min(4))
+  print(n.total_order(?4))
+
+code "float min emit", "rig.floatMin(@as(f64, x), @as(f64, @as(f64, 2.0)))", "rig.totalOrder(x, @as(f64, 2.0))"
+  x = 1.5
+  print(x.min(2.0), x.total_order(?2.0))
+
+test "num bound compares", "2.5 3 2.5 3 true"
+  # A `T: Num` (or `Integer`, or `Signed`, which imply it) is compared
+  # with `<`, `<=`, `>`, and `>=`, as a number is: IEEE 754's order for
+  # a float. `math.abs` takes `T: Signed` and so takes a `Float`.
+
+  use std.math
+
+  fun larger[T: Num](a: T, b: T) -> T
+    b if a < b else a
+
+  pub fun magnitude[T: Signed](x: T) -> T
+    x if x >= 0 else -x
+
+  print(larger(1.5, 2.5), larger(3, 2), magnitude(-2.5), math.abs(-3), not (larger(Float.nan(), 1.0) < 0.0))
+
+fail "num bound gives no order method", "2:5: `T` is bounded by `Num`, which gives no method `order`"
+  fun cmp[T: Num](a: T, b: T) -> Order
+    a.order(?b)
+
+  print(cmp(1, 2))

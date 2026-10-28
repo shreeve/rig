@@ -318,7 +318,7 @@ capabilities a type may give its own meaning.
 | `Hash: Eq` | `.hash()` | `sub hash_into(?@, h: !Hasher)` |
 | `Ord: Eq` | `<` and its kin | `fun order(?@, other: ?Self) -> Order` |
 | `Print` | `print` and text building | `sub print(?@, out: !Printer)` |
-| `Num`, `Integer: Num`, `Signed: Num` | arithmetic; `%`, bits, shifts; negation | never: built-in numbers only |
+| `Num`, `Integer: Num`, `Signed: Num` | arithmetic and `<` and its kin (IEEE 754's for a float); `%`, bits, shifts; negation | never: built-in numbers only |
 
 `Copy` never implies `Owned`: `[T: Copy]` with `T = ?String` keeps its
 loan. A Cell's elements need both, written `Copy + Owned`; there is no

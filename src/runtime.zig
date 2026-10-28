@@ -4153,6 +4153,53 @@ pub fn orderOf(a: anytype, b: anytype) Order {
     return fromMath(order(@as(T, a), @as(T, b)));
 }
 
+/// How floats `a` and `b` order by IEEE 754 totalOrder, as an `Order`:
+/// `a.total_order(?b)`. Every float has a place: -NaN, -inf, the
+/// negative numbers, -0.0, +0.0, the positive numbers, +inf, +NaN, and
+/// NaNs among themselves by their payloads. A float's bits, with every
+/// bit but the sign flipped when it is negative, order as a signed
+/// integer does.
+pub fn totalOrder(a: anytype, b: anytype) Order {
+    if (comptime isValuePointer(@TypeOf(a))) return totalOrder(a.*, b);
+    if (comptime isValuePointer(@TypeOf(b))) return totalOrder(a, b.*);
+    const T = @TypeOf(a, b);
+    const bits = @bitSizeOf(T);
+    const S = @Int(.signed, bits);
+    const U = @Int(.unsigned, bits);
+    var x: S = @bitCast(@as(T, a));
+    var y: S = @bitCast(@as(T, b));
+    x ^= @bitCast(@as(U, @bitCast(x >> (bits - 1))) >> 1);
+    y ^= @bitCast(@as(U, @bitCast(y >> (bits - 1))) >> 1);
+    return fromMath(std.math.order(x, y));
+}
+
+/// `x.min(y)` of floats: the smaller, a NaN losing to a number (IEEE 754
+/// minimumNumber); NaN only when both are.
+pub fn floatMin(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return @min(a, b);
+}
+
+/// `x.max(y)` of floats: the larger, a NaN losing to a number (IEEE 754
+/// maximumNumber); NaN only when both are.
+pub fn floatMax(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return @max(a, b);
+}
+
+/// `x.clamp(lo, hi)` of floats: `lo` when `x < lo`, `hi` when `x > hi`,
+/// else `x`, so a NaN `x` stays one. Panics when `hi < lo` or either
+/// bound is a NaN.
+pub fn floatClamp(x: anytype, lo: @TypeOf(x), hi: @TypeOf(x)) @TypeOf(x) {
+    if (!(lo <= hi)) clampBounds();
+    if (x < lo) return lo;
+    if (x > hi) return hi;
+    return x;
+}
+
+noinline fn clampBounds() noreturn {
+    @branchHint(.cold);
+    @panic("clamp: the low bound is above the high bound, or a bound is NaN");
+}
+
 fn fromMath(o: std.math.Order) Order {
     return switch (o) {
         .lt => .less,

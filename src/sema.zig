@@ -2447,6 +2447,15 @@ pub const ElemOp = enum {
     /// `Ord` and gives no `order` of its own (`Checker.orderCall`); `num`
     /// is their type, `elem` `Order`.
     order,
+    /// `x.min(y)` and `x.max(y)` of floats: the smaller or larger, a NaN
+    /// losing to a number; `x.clamp(lo, hi)`: `x` limited to `lo..hi`.
+    /// `num` and `elem` are the float's type.
+    min,
+    max,
+    clamp,
+    /// `x.total_order(?y)`: the `Order` of two floats by IEEE 754
+    /// totalOrder; `num` is their type, `elem` `Order`.
+    total_order,
     /// `xs.sum()`, `xs.sum(start: n)`: the elements of a slice, an array,
     /// or a List of numbers added in order to `start`, `0` by default.
     sum,
@@ -2459,7 +2468,7 @@ pub const ElemOp = enum {
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .prefetch => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .min, .max, .clamp, .total_order, .sum, .prefetch => false,
         };
     }
 
@@ -2478,7 +2487,16 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .sum, .prefetch => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .min, .max, .clamp, .total_order, .sum, .prefetch => false,
+        };
+    }
+
+    /// Whether the method is a float's (`Checker.floatCall`): `min`,
+    /// `max`, `clamp`, and `total_order`.
+    pub fn isFloat(op: ElemOp) bool {
+        return switch (op) {
+            .min, .max, .clamp, .total_order => true,
+            else => false,
         };
     }
 };
