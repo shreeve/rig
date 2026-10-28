@@ -1,0 +1,44 @@
+# Lookups of wide plain keys, each built per lookup by a function of its
+# own (`called`), as Trig builds its cache and instantiation keys.
+use std.time
+
+obj CacheKey
+  pub lo: U64 = 0
+  pub hi: U64 = 0
+
+obj InstKey
+  pub owner: U64 = 0
+  pub key: CacheKey = CacheKey()
+
+called fun cache_key(i: Int) -> CacheKey
+  CacheKey(lo: (U64(i >> 10) << 32) | U64(i & 1023), hi: 0xA5C4000000000000)
+
+called fun inst_key(i: Int) -> InstKey
+  InstKey(owner: U64(i >> 4), key: cache_key(i))
+
+called sub caches(n: Int, rounds: Int)
+  m = Map[CacheKey, U32]()
+  for i in 0..n
+    !m.put(cache_key(i * 7919 % n), U32(i))
+  sum = U64(0)
+  t = time.now()
+  for r in 0..rounds
+    for i in 0..n
+      sum += U64(m.get(cache_key((i * 104729 + r) % (2 * n))) ?? 0)
+  print("cache", t.elapsed(), sum)
+
+called sub insts(n: Int, rounds: Int)
+  m = Map[InstKey, U32]()
+  for i in 0..n
+    !m.put(inst_key(i * 7919 % n), U32(i))
+  sum = U64(0)
+  t = time.now()
+  for r in 0..rounds
+    for i in 0..n
+      sum += U64(m.get(inst_key((i * 104729 + r) % (2 * n))) ?? 0)
+  print("inst", t.elapsed(), sum)
+
+sub main()
+  for n in [1000, 50000, 1000000]
+    caches(n, 20000000 / n)
+    insts(n, 20000000 / n)

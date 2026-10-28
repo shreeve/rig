@@ -1,0 +1,123 @@
+### l1_miss
+total 73568
+  4.75% InstantiationKey,u32
+  4.17% CacheKey,u32
+  2.56% CachedTypeKey,u32
+  0.56% CachedSignatureKey,u32
+  0.36% AssignmentReducedKey,u32
+  0.31% FlowLoopKey,u32
+  0.23% CacheKey,void
+  0.17% UnionOfUnionKey,u32
+  0.16% PropertiesTypesKey,u32
+  0.14% SubstitutionTypeKey,u32
+  0.04% InferenceKey,i32
+  0.01% DiscriminatedContextualTypeKey,u32
+
+  2.69% InstantiationKey,u32 matchAll ordered.zig:181:13
+  1.94% CacheKey,u32 matchAll ordered.zig:181:13
+  1.46% CachedTypeKey,u32 matchAll ordered.zig:181:13
+  1.02% InstantiationKey,u32 keyMatch ordered.zig:150:38
+  0.70% CacheKey,u32 keyMatch ordered.zig:150:38
+  0.66% CachedTypeKey,u32 eqlKey ordered.zig:145:31
+  0.41% InstantiationKey,u32 rt.eqlAs__func_4378 runtime.zig:1831:17
+  0.38% CacheKey,u32 findHashed ordered.zig:576:21
+  0.30% CacheKey,u32 clearGone ordered.zig:261:21
+  0.23% InstantiationKey,u32 value ordered.zig:712:27
+### l2_miss
+total 5728
+ 14.68% InstantiationKey,u32
+ 13.29% CacheKey,u32
+  5.78% CachedTypeKey,u32
+  1.17% CachedSignatureKey,u32
+  0.44% UnionOfUnionKey,u32
+  0.28% SubstitutionTypeKey,u32
+  0.26% FlowLoopKey,u32
+  0.17% AssignmentReducedKey,u32
+  0.10% PropertiesTypesKey,u32
+  0.07% CacheKey,void
+  0.07% DiscriminatedContextualTypeKey,u32
+
+ 12.08% InstantiationKey,u32 matchAll ordered.zig:181:13
+ 11.52% CacheKey,u32 matchAll ordered.zig:181:13
+  4.68% CachedTypeKey,u32 matchAll ordered.zig:181:13
+  1.73% InstantiationKey,u32 keyMatch ordered.zig:150:38
+  1.33% CacheKey,u32 keyMatch ordered.zig:150:38
+  0.87% CachedTypeKey,u32 eqlKey ordered.zig:145:31
+  0.38% InstantiationKey,u32 value ordered.zig:712:27
+  0.37% InstantiationKey,u32 rt.eqlAs__func_4378 runtime.zig:1831:17
+  0.21% CachedTypeKey,u32 value ordered.zig:712:27
+  0.19% CacheKey,u32 value ordered.zig:712:27
+  0.09% CacheKey,u32 clearGone ordered.zig:261:21
+### l3_miss
+total 1176
+ 10.03% InstantiationKey,u32
+  8.84% CacheKey,u32
+  5.61% CachedTypeKey,u32
+  2.72% CachedSignatureKey,u32
+  0.51% FlowLoopKey,u32
+  0.34% UnionOfUnionKey,u32
+  0.09% SuggestionKey,u32
+
+  4.85% InstantiationKey,u32 matchAll ordered.zig:181:13
+  4.85% CacheKey,u32 matchAll ordered.zig:181:13
+  3.57% CacheKey,u32 keyMatch ordered.zig:150:38
+  3.49% InstantiationKey,u32 keyMatch ordered.zig:150:38
+  2.98% CachedTypeKey,u32 eqlKey ordered.zig:145:31
+  2.21% CachedTypeKey,u32 matchAll ordered.zig:181:13
+  1.11% InstantiationKey,u32 value ordered.zig:712:27
+  0.43% CachedTypeKey,u32 value ordered.zig:712:27
+  0.43% InstantiationKey,u32 rt.eqlAs__func_4378 runtime.zig:1831:17
+  0.26% CacheKey,u32 value ordered.zig:712:27
+  0.17% InstantiationKey,u32 findIndexed ordered.zig:564:47
+  0.09% CacheKey,u32 findIndexed ordered.zig:564:47
+  0.09% CacheKey,u32 findIndexed ordered.zig:565:29
+### tlb
+total 3068
+ 21.61% InstantiationKey,u32
+ 19.72% CacheKey,u32
+  7.89% CachedTypeKey,u32
+  0.98% CachedSignatureKey,u32
+  0.72% UnionOfUnionKey,u32
+  0.20% FlowLoopKey,u32
+  0.13% SubstitutionTypeKey,u32
+  0.10% PropertiesTypesKey,u32
+  0.07% AssignmentReducedKey,u32
+  0.03% SuggestionKey,u32
+
+ 14.50% InstantiationKey,u32 findIndexed ordered.zig:559:34
+ 12.71% CacheKey,u32 findIndexed ordered.zig:559:34
+  5.28% CachedTypeKey,u32 findIndexed ordered.zig:559:34
+  4.89% InstantiationKey,u32 matchAll ordered.zig:181:13
+  3.94% CacheKey,u32 matchAll ordered.zig:181:13
+  2.74% CacheKey,u32 keyMatch ordered.zig:150:38
+  1.96% InstantiationKey,u32 keyMatch ordered.zig:150:38
+  1.24% CachedTypeKey,u32 eqlKey ordered.zig:145:31
+  1.21% CachedTypeKey,u32 matchAll ordered.zig:181:13
+  0.33% CacheKey,u32 value ordered.zig:712:27
+  0.26% InstantiationKey,u32 value ordered.zig:712:27
+  0.16% CachedTypeKey,u32 value ordered.zig:712:27
+### sfp
+total 6879
+  7.60% CacheKey,u32
+  2.02% CachedTypeKey,u32
+  1.77% InstantiationKey,u32
+  0.71% CacheKey,void
+  0.48% InferenceKey,i32
+  0.36% FlowLoopKey,u32
+  0.31% AssignmentReducedKey,u32
+  0.28% CachedSignatureKey,u32
+  0.09% UnionOfUnionKey,u32
+  0.03% PropertiesTypesKey,u32
+  0.01% SubstitutionTypeKey,u32
+
+  2.60% CacheKey,u32 matchAll ordered.zig:181:13
+  1.38% CacheKey,u32 findIndexed ordered.zig:559:34
+  0.54% CachedTypeKey,u32 matchAll ordered.zig:181:13
+  0.47% CacheKey,u32 keyMatch ordered.zig:150:38
+  0.44% InstantiationKey,u32 rt.foldMul runtime.zig:1962:28
+  0.36% CachedTypeKey,u32 eqlKey ordered.zig:145:31
+  0.35% CacheKey,u32 findHashed ordered.zig:576:21
+  0.33% InstantiationKey,u32 matchAll ordered.zig:181:13
+  0.25% CacheKey,u32 matchAll ordered.zig:189:33
+  0.23% CachedTypeKey,u32 findIndexed ordered.zig:564:47
+  0.22% CacheKey,u32 findIndexed ordered.zig:564:47

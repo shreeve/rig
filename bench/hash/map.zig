@@ -8,7 +8,7 @@
 //! `KEYS OP NS CHECK` per line.
 const std = @import("std");
 /// The table every row but the first round's Rig-and-Zig rows (ints,
-/// strings, pairs, small, intern) times: `table_std.zig`, Zig's own
+/// strings, small, intern) times: `table_std.zig`, Zig's own
 /// HashMap, or a port (`table_foa.zig`, `table_dense.zig`), named by
 /// bench-hash as the module `table`.
 const table = @import("table");
@@ -93,12 +93,12 @@ fn pair(i: i64) Pair {
 }
 
 fn pairs(io: std.Io, n: i64) !void {
-    var m: std.AutoHashMapUnmanaged(Pair, i64) = .empty;
+    var m: table.Auto(Pair, i64) = .empty;
     defer m.deinit(gpa);
     var t = now(io);
     var i: i64 = 0;
     while (i < n) : (i += 1) try m.put(gpa, pair(i), i);
-    out("pair", "insert", since(io, t), m.count());
+    out("pair", "insert", since(io, t), @intCast(m.count()));
     var sum: i64 = 0;
     t = now(io);
     i = 0;
@@ -113,6 +113,37 @@ fn pairs(io: std.Io, n: i64) !void {
         found += 1;
     };
     out("pair", "miss", since(io, t), found);
+}
+
+/// A key of three words, as map.rig's `Triple`.
+const Triple = struct { owner: u64, lo: u64, hi: u64 };
+
+fn triple(i: i64) Triple {
+    const u: u64 = @intCast(i);
+    return .{ .owner = u >> 4, .lo = ((u >> 10) << 32) | (u & 1023), .hi = 0xA5C4000000000000 };
+}
+
+fn triples(io: std.Io, n: i64) !void {
+    var m: table.Auto(Triple, i64) = .empty;
+    defer m.deinit(gpa);
+    var t = now(io);
+    var i: i64 = 0;
+    while (i < n) : (i += 1) try m.put(gpa, triple(i), i);
+    out("triple", "insert", since(io, t), @intCast(m.count()));
+    var sum: i64 = 0;
+    t = now(io);
+    i = 0;
+    while (i < n) : (i += 1) if (m.get(triple(i))) |v| {
+        sum += v;
+    };
+    out("triple", "hit", since(io, t), sum);
+    var found: i64 = 0;
+    t = now(io);
+    i = n;
+    while (i < 2 * n) : (i += 1) if (m.contains(triple(i))) {
+        found += 1;
+    };
+    out("triple", "miss", since(io, t), found);
 }
 
 /// "key" and `i`, built as Rig's `String("key", i)` is (`rig.String.add`).
@@ -709,11 +740,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
         try bigs(io, s);
         rowDone();
     }
+    try pairs(io, @intCast(n));
+    try triples(io, @intCast(n));
     // The rows only Rig and Zig's own HashMap time.
     if (!table.is_std) return;
     try ints(io, @intCast(n));
     try strings(io, n);
-    try pairs(io, @intCast(n));
     try small(io, @intCast(n), 4);
     try small(io, @intCast(n), 8);
     try intern(io, n);

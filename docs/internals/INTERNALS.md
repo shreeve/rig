@@ -5097,7 +5097,11 @@ across modules, and only std.prelude's scope names them.
 - **Layout** (bench/hash's `zig-ordered`; docs/history/records/2026-10/hash-race/
   zig-ordered.md for each choice and its measurement): the entries in
   one block of whole entries, in first-put order, `{key, value}` and,
-  for a key over 8 bytes, its hash. The index is one block of 80 bytes
+  for a key over 8 bytes, its hash; a plain key of at most four words
+  (`rig.wordCount`: integers, plain enums, and `Bool`s, through nested
+  objects, none with its own `==` or hash) keeps none, being hashed in
+  a multiply or two and compared in as many loads, so its entry is a
+  word smaller. The index is one block of 80 bytes
   a group, sizes Rig's allocator holds exactly: first the slots, a
   64-byte line of 16 `u32` entry indexes a group, so a group's slots
   are one line on x86, then the tags, 16 bytes a group (15 tags and an

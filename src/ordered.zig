@@ -6,7 +6,8 @@
 //! and its measurement), with Rig's hash and `==` and its drops.
 //!
 //! The entries sit in one array in the order their keys were first put,
-//! `{key, value}`, and a key over 8 bytes keeps its hash beside them. A
+//! `{key, value}`, and a key over 8 bytes, but a plain one of at most
+//! four words, keeps its hash beside them. A
 //! take drops its key, hands its value back, and marks its entry gone in
 //! a bitset at the end of the same allocation, so the order survives
 //! every take, and a walk passes the gone entries by runs. The entries
@@ -76,8 +77,12 @@ fn Ordered(comptime K: type, comptime V: type) type {
     return struct {
         const Self = @This();
 
-        /// A key over 8 bytes keeps its hash in its entry.
-        const stores_hash = @sizeOf(K) > 8;
+        /// A key over 8 bytes keeps its hash in its entry, but for a plain
+        /// key of at most 4 words (`rt.wordCount`), which hashes in a
+        /// multiply or two and compares in as many loads: its entry is a
+        /// word smaller, and a lookup reads the key where it would have
+        /// read the hash, on the same line.
+        const stores_hash = @sizeOf(K) > 8 and (rt.wordCount(K) orelse 5) > 4;
         const is_set = V == void;
 
         const E = if (stores_hash)
@@ -111,8 +116,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// tag lanes, less one for each take from a lane a probe may walk
         /// past.
         max_load: u32 = 0,
-        /// The hash's shift right that leaves its group.
-        shift: u8 = 63,
+        /// The hash's shift right that leaves its group: a `u6`, so a
+        /// lookup shifts by it with no test.
+        shift: u6 = 63,
         /// Whether the index is far (`far_bytes`). A `Bool`, so a `Map?`
         /// holds its `none` here (`rt.nicheOf`), never in a pointer.
         far: bool = false,
@@ -160,7 +166,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         inline fn home(self: *const Self, h: u64) usize {
-            return @intCast(h >> @intCast(self.shift));
+            return @intCast(h >> self.shift);
         }
 
         inline fn makeEntry(k: K, v: V, h: u64) E {
@@ -365,7 +371,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// Place every entry, in order. A far index is filled hashing
         /// sixteen entries ahead and prefetching the group each lands in.
         fn fill(self: *Self) void {
-            const shift: u6 = @intCast(self.shift);
+            const shift = self.shift;
             const es = self.entries;
             const n: usize = self.len;
             if (!self.far) {
@@ -1162,6 +1168,31 @@ test "ordered: a small table turns over" {
     try testing.expectEqual(@as(i64, 10), s.count());
     try testing.expectEqual(@as(u32, 0), s.groups);
     try testing.expect(s.find(195) != null and s.find(189) == null);
+}
+
+test "ordered: wide keys, with their hash kept and without" {
+    const Plain = struct { owner: u64, lo: u64, hi: u64 };
+    const Wide = struct { a: u64, b: u64, c: u64, d: u64, e: u64 };
+    comptime std.debug.assert(!Ordered(Plain, u32).stores_hash and Ordered(Wide, u32).stores_hash);
+    inline for (.{ Plain, Wide }) |K| {
+        var m: OrderedMap(K, u32) = .{};
+        defer m.__rig_drop();
+        const keyOf = struct {
+            fn f(i: u64) K {
+                var k: K = undefined;
+                inline for (@typeInfo(K).@"struct".field_names, 0..) |name, n| @field(k, name) = (i *% (n + 1)) ^ 0xA5C4;
+                return k;
+            }
+        }.f;
+        for (0..5000) |i| try testing.expect(m.put(keyOf(i), @intCast(i)));
+        for (0..5000) |i| if (i % 3 == 0) try testing.expectEqual(@as(u32, @intCast(i)), rt.some(m.take(&keyOf(i))).?);
+        try m.verify();
+        for (0..10000) |i| {
+            const got = m.find(&keyOf(i));
+            try testing.expectEqual(i < 5000 and i % 3 != 0, got != null);
+            if (got) |j| try testing.expectEqual(@as(u32, @intCast(i)), m.value(j));
+        }
+    }
 }
 
 /// The keys in first-put order, as a walk by runs gives them.

@@ -302,7 +302,13 @@ from Rig, in the owner's order:
    overflow 1.2%; docs/history/records/2026-10/safety-checks/measurement.md). By
    share of that cost: the stores (`Table`/`Slot`), Trig's symbol and id
    accessors, the std Map/Set probes, and Trig's AST records. Map and
-   Set code is 18.8% of ts-pattern's samples, beyond its checks.
+   Set code is 18.8% of ts-pattern's samples, beyond its checks. The
+   wide-key Maps' lookups already run as the hand-written Zig table's
+   do; their cost is the index's misses, a third of Trig's L2 load
+   misses and half its STLB misses
+   ([map-wide-keys.md](docs/history/records/2026-10/hash-race/map-wide-keys.md)):
+   huge pages for a large index are the lever left, and the wide-key
+   insert row is 34% behind zig-ordered's.
 2. **Doing less.** Trig allocates about 6.4x what tsrs does. Its memory
    is live data, not List slack (exact presizing saved 4% on Linux): the
    stores' contents, Map entries, and about 200,000 small `u32` lists.

@@ -246,6 +246,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   30.7 bytes an entry on the Mac. In bench/hash, 108 of 130 rows on the
   Mac and 109 of 114 on pup are faster than before
   ([map-builtin.md](docs/history/records/2026-10/hash-race/map-builtin.md)).
+- **A Map or Set of plain wide keys keeps no hash in its entries:** a
+  key of at most four words of integers, plain enums, and `Bool`s
+  (through nested objects, none with its own `==` or hash) is hashed
+  again when the index grows rather than kept beside it, so a two-word
+  key's entry is 24 bytes, not 32, and a probe compares the key where it
+  compared the hash. On pup, Trig's peak memory is 3.1% lower on
+  ts-pattern and 1.4% on zod3, its time unchanged; bench/hash's
+  hits on two-word and three-word keys are 22% and 7% faster on pup,
+  as fast as the hand-written Zig table they came from
+  ([map-wide-keys.md](docs/history/records/2026-10/hash-race/map-wide-keys.md)).
 - **`Map.ensure_by` checks its key**: the key `key(k)` makes must
   equal `k`, and one that differs panics, rather than leaving two equal
   keys in the Map.

@@ -1898,7 +1898,7 @@ pub fn hashAs(comptime T: type, x: T) u64 {
 /// of at most 64 bits, a plain enum, or a `Bool`, and none of them gives
 /// `==` or a hash of its own (`ownsApi`); `null` for any other `T`, and
 /// for an object with no part or more than 16 words.
-fn wordCount(comptime T: type) ?usize {
+pub fn wordCount(comptime T: type) ?usize {
     const n = leafWords(T) orelse return null;
     return if (n == 0 or n > 16) null else n;
 }
