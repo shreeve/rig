@@ -278,10 +278,10 @@ fn Unordered(comptime K: type, comptime V: type) type {
         else
             struct { key: K, value: V };
 
-        /// No prefetch for slots over 32 bytes; for smaller ones, the
-        /// home group's first slot line, inside the branch a tag match
-        /// takes.
-        const prefetch_slots = @sizeOf(Element) <= 32;
+        /// No prefetch for slots over 40 bytes, a `String` key's with its
+        /// value and hash; for smaller ones, the home group's first slot
+        /// line, inside the branch a tag match takes.
+        const prefetch_slots = @sizeOf(Element) <= 40;
 
         /// The groups; an empty table's are `Dummy`'s, so never null, and
         /// `HashMap?` holds its `none` here (`rt.nicheOf`).
