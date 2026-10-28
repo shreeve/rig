@@ -321,7 +321,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
             // the entries, so the two never need to live at once.
             self.freeIndex();
             const b = rt.allocSlice(u64, indexWords(groups));
-            @memset(b, 0);
+            // Only the tags need zeros: a slot is read only at a lane
+            // whose tag is set, which `place` writes with it.
+            @memset(b[8 * groups ..], 0);
             self.slots = @ptrCast(b.ptr);
             self.tags = @ptrCast(b.ptr + 8 * groups);
             self.groups = @intCast(groups);

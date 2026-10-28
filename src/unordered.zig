@@ -278,10 +278,10 @@ fn Unordered(comptime K: type, comptime V: type) type {
         else
             struct { key: K, value: V };
 
-        /// No prefetch for slots over 32 bytes; for smaller ones, the
-        /// home group's first slot line, inside the branch a tag match
-        /// takes.
-        const prefetch_slots = @sizeOf(Element) <= 32;
+        /// No prefetch for slots over 40 bytes, a `String` key's with its
+        /// value and hash; for smaller ones, the home group's first slot
+        /// line, inside the branch a tag match takes.
+        const prefetch_slots = @sizeOf(Element) <= 40;
 
         /// The groups; an empty table's are `Dummy`'s, so never null, and
         /// `HashMap?` holds its `none` here (`rt.nicheOf`).
@@ -792,21 +792,28 @@ fn Unordered(comptime K: type, comptime V: type) type {
             return @intCast(self.size);
         }
 
-        /// `group_count(?@) -> Int`: the groups a walk passes, 0 while empty.
-        pub inline fn group_count(self: *const Self) i64 {
-            return if (self.elements != null) @intCast(self.mask + 1) else 0;
-        }
-
-        /// `full_lanes(?@, g: Int) -> Int`: group `g`'s full lanes as a
-        /// mask (`slot_at` reads it), `0 <= g < group_count`.
-        pub inline fn full_lanes(self: *const Self, g: i64) i64 {
-            return @intCast(matchFull(&self.groups[@intCast(g)]));
-        }
-
-        /// `slot_at(?@, g: Int, lanes: Int) -> Int`: the slot of the first
-        /// lane of `lanes`, a nonzero mask of group `g`'s.
-        pub inline fn slot_at(_: *const Self, g: i64, lanes: i64) i64 {
-            return @intCast(@as(usize, @intCast(g)) * NL + laneOf(@intCast(lanes)));
+        /// `next_slot(?@, g: !Int, lanes: !Int) -> Int`: the next full
+        /// slot of a walk, or -1 past the last. `g` is the group the walk
+        /// is in (-1 before the first) and `lanes` that group's full lanes
+        /// not yet given, so a step within a group clears one bit and the
+        /// walk's state stays in two words the caller holds.
+        pub inline fn next_slot(self: *const Self, g: *i64, lanes: *i64) i64 {
+            const groups: i64 = if (self.elements != null) @intCast(self.mask + 1) else 0;
+            var at = g.*;
+            var m: Mask = @truncate(@as(u64, @bitCast(lanes.*)));
+            while (m == 0) {
+                at +%= 1;
+                if (at >= groups) {
+                    g.* = at;
+                    lanes.* = 0;
+                    return -1;
+                }
+                m = matchFull(&self.groups[@as(usize, @bitCast(at))]);
+            }
+            const slot = @as(usize, @bitCast(at)) * NL + laneOf(m);
+            g.* = at;
+            lanes.* = @bitCast(@as(u64, m & (m -% 1)));
+            return @intCast(slot);
         }
 
         /// `update(!@, f: ?sub(?K, !V))`: `f` called with each entry's key
@@ -968,10 +975,12 @@ const testing = std.testing;
 /// The slots of `m`'s entries, as the prelude's walk gives them.
 fn walkSlots(m: anytype, out: *std.ArrayList(i64)) !void {
     out.clearRetainingCapacity();
-    var g: i64 = 0;
-    while (g < m.group_count()) : (g += 1) {
-        var lanes = m.full_lanes(g);
-        while (lanes != 0) : (lanes &= lanes - 1) try out.append(testing.allocator, m.slot_at(g, lanes));
+    var g: i64 = -1;
+    var lanes: i64 = 0;
+    while (true) {
+        const j = m.next_slot(&g, &lanes);
+        if (j < 0) break;
+        try out.append(testing.allocator, j);
     }
 }
 

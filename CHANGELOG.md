@@ -182,6 +182,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`String(...)` is one block of its length.** Text of up to 256 bytes
+  is written on the stack and allocated once, as Rust's `format!` makes
+  one block, where it grew the String's buffer piece by piece and left
+  each key scattered with spare room. bench/hash's text hits at 100,000
+  keys take 7.0 ns, not 16.3, against the Zig prototype's 5.7, and text
+  removes are faster than the prototype's. A HashMap walk steps by the
+  table's `next_slot`, with no checked arithmetic in the loop, so its
+  iterate rows are level with the prototype; a HashMap prefetches its
+  40-byte text slots; and a Map's rebuilt index clears only its tags
+  ([table-gaps.md](docs/history/records/2026-10/hash-race/table-gaps.md)).
 - **Floats have methods that compare them.** `x.min(y)` and `x.max(y)`
   give the smaller and the larger float, and a NaN loses to a number
   on either side. `x.clamp(lo, hi)` limits `x` to `lo..hi`.

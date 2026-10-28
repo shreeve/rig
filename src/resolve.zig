@@ -5268,9 +5268,7 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
         });
     } else {
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, "group_count", .read, &.{read_self}, int),
-            try tableMethod(ctx, "full_lanes", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, "slot_at", .read, &.{ read_self, int, int }, int),
+            try tableMethod(ctx, "next_slot", .read, &.{ read_self, try ctx.intern(.{ .write_view = int }), try ctx.intern(.{ .write_view = int }) }, int),
         });
     }
     try fields.appendSlice(a, &.{
