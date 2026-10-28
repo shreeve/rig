@@ -1,0 +1,22 @@
+== tsp
+segment region populate: 41 calls, 41.0 MiB
+large-block populate: 201 calls, 49.3 MiB; whole 2 MiB windows inside: 4 (8 MiB)
+  calls of 16 KiB to 32 KiB: 0.1 MiB
+  calls of 32 KiB to 64 KiB: 3.3 MiB
+  calls of 64 KiB to 128 KiB: 4.7 MiB
+  calls of 128 KiB to 256 KiB: 3.4 MiB
+  calls of 256 KiB to 512 KiB: 7.7 MiB
+  calls of 512 KiB to 1024 KiB: 8.9 MiB
+  calls of 1024 KiB to 2048 KiB: 11.6 MiB
+  calls of 2048 KiB to 4096 KiB: 5.5 MiB
+  calls of 4096 KiB to 8192 KiB: 4.0 MiB
+== zod3
+segment region populate: 17 calls, 17.0 MiB
+large-block populate: 150 calls, 17.7 MiB; whole 2 MiB windows inside: 0 (0 MiB)
+  calls of 16 KiB to 32 KiB: 0.1 MiB
+  calls of 32 KiB to 64 KiB: 2.8 MiB
+  calls of 64 KiB to 128 KiB: 4.1 MiB
+  calls of 128 KiB to 256 KiB: 2.6 MiB
+  calls of 256 KiB to 512 KiB: 3.5 MiB
+  calls of 512 KiB to 1024 KiB: 2.6 MiB
+  calls of 1024 KiB to 2048 KiB: 1.9 MiB

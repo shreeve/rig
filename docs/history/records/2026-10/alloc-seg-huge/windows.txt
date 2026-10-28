@@ -1,0 +1,15 @@
+== ts-pattern
+peak Rss 261.8 MB; plain anonymous mappings of 2 MiB Rss or more: 38.0 MB, in 8 mappings; whole resident 2 MiB windows: 13 (26 MiB)
+  0x7893e6300000    3.0 MiB rss    2.2 windows 0
+  0x7893e6600000   14.0 MiB rss   11.3 windows 5
+  0x7893e8400000    7.0 MiB rss    6.9 windows 3
+  0x7893e8b00000    6.0 MiB rss    5.1 windows 2
+  0x7893e9100000    2.5 MiB rss    2.5 windows 0
+  0x7893e9780000    5.0 MiB rss    5.0 windows 2
+  0x78a1141f6000    2.5 MiB rss    2.3 windows 1
+  0x78a114536000    3.0 MiB rss    2.6 windows 0
+== zod3
+peak Rss 83.8 MB; plain anonymous mappings of 2 MiB Rss or more: 7.6 MB, in 3 mappings; whole resident 2 MiB windows: 1 (2 MiB)
+  0x748415280000    3.5 MiB rss    2.6 windows 0
+  0x74913f1f2000    2.5 MiB rss    2.3 windows 1
+  0x74913f53e000    3.0 MiB rss    2.6 windows 0
