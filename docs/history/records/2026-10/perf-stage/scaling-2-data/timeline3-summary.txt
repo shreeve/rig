@@ -1,0 +1,48 @@
+
+## ts-pattern trig1 (5 runs)
+run 1: wall  1297.6 write  1291.1 exit-after-write     6.5 head    45.4 check  1245.7 tail     6.5 | span 0:1246 | cpu 0:0 | conc 0:0 1:1298 | switches 4 | head to_load 4.6 load_to_newck 39.5 newck 0.0 to_task -
+run 2: wall  1306.9 write  1300.3 exit-after-write     6.6 head    50.4 check  1250.0 tail     6.6 | span 0:1250 | cpu 0:0 | conc 0:0 1:1307 | switches 6 | head to_load 5.4 load_to_newck 43.6 newck 0.0 to_task -
+run 3: wall  1302.4 write  1295.5 exit-after-write     6.9 head    45.9 check  1249.6 tail     6.9 | span 0:1250 | cpu 0:0 | conc 0:0 1:1302 | switches 6 | head to_load 5.0 load_to_newck 39.5 newck 0.0 to_task -
+run 4: wall  1313.8 write  1307.2 exit-after-write     6.6 head    44.1 check  1263.1 tail     6.6 | span 0:1263 | cpu 0:0 | conc 0:0 1:1314 | switches 4 | head to_load 3.8 load_to_newck 39.0 newck 0.0 to_task -
+run 5: wall  1293.0 write  1286.4 exit-after-write     6.6 head    48.5 check  1237.9 tail     6.6 | span 0:1238 | cpu 0:0 | conc 0:0 1:1293 | switches 8 | head to_load 6.7 load_to_newck 40.6 newck 0.0 to_task -
+median: wall  1302.4 write  1295.5 exit-after-write     6.6 head    45.9 check  1249.6 tail     6.6 | span 0:1250 | cpu 0:0 | task 1310 | conc 0:0 1:1302 | head to_load 5.0 load_to_newck 39.5 newck 0.0 to_task 0.0
+
+## ts-pattern tsgo1 (5 runs)
+run 1: wall  1079.4 write  1076.8 exit-after-write     2.6 head     0.0 check  1076.8 tail     2.6 | span 0:1077 | cpu 0:0 | conc 0:0 1:1079
+run 2: wall  1068.5 write  1065.9 exit-after-write     2.5 head     0.0 check  1065.9 tail     2.5 | span 0:1066 | cpu 0:0 | conc 0:0 1:1068
+run 3: wall  1073.4 write  1070.9 exit-after-write     2.5 head     0.0 check  1070.9 tail     2.5 | span 0:1071 | cpu 0:0 | conc 0:0 1:1073
+run 4: wall  1086.1 write  1083.5 exit-after-write     2.6 head     0.0 check  1083.5 tail     2.6 | span 0:1083 | cpu 0:0 | conc 0:0 1:1086
+run 5: wall  1063.1 write  1060.5 exit-after-write     2.6 head     0.0 check  1060.5 tail     2.6 | span 0:1061 | cpu 0:0 | conc 0:0 1:1063
+median: wall  1073.4 write  1070.9 exit-after-write     2.6 head     0.0 check  1070.9 tail     2.6 | span 0:1071 | cpu 0:0 | task 1082 | conc 0:0 1:1073
+
+## ts-pattern tsgo1c (5 runs)
+run 1: wall  1079.2 write  1076.7 exit-after-write     2.6 head     0.0 check  1076.7 tail     2.6 | span 0:1077 | cpu 0:0 | conc 0:0 1:1079
+run 2: wall  1068.3 write  1065.7 exit-after-write     2.6 head     0.0 check  1065.7 tail     2.6 | span 0:1066 | cpu 0:0 | conc 0:0 1:1068
+run 3: wall  1083.6 write  1081.1 exit-after-write     2.6 head     0.0 check  1081.1 tail     2.6 | span 0:1081 | cpu 0:0 | conc 0:0 1:1083
+run 4: wall  1081.4 write  1078.8 exit-after-write     2.6 head     0.0 check  1078.8 tail     2.6 | span 0:1079 | cpu 0:0 | conc 0:0 1:1081
+run 5: wall  1074.5 write  1071.9 exit-after-write     2.5 head     0.0 check  1071.9 tail     2.5 | span 0:1072 | cpu 0:0 | conc 0:0 1:1074
+median: wall  1079.2 write  1076.7 exit-after-write     2.6 head     0.0 check  1076.7 tail     2.6 | span 0:1077 | cpu 0:0 | task 1090 | conc 0:0 1:1079
+
+## zod3 trig1 (5 runs)
+run 1: wall   256.8 write   256.6 exit-after-write     0.2 head    46.4 check   210.2 tail     0.2 | span 0:210 | cpu 0:0 | conc 0:0 1:257 | switches 6 | head to_load 5.2 load_to_newck 40.1 newck 0.0 to_task -
+run 2: wall   266.5 write   266.3 exit-after-write     0.2 head    45.8 check   220.4 tail     0.2 | span 0:220 | cpu 0:0 | conc 0:0 1:266 | switches 6 | head to_load 5.2 load_to_newck 39.4 newck 0.0 to_task -
+run 3: wall   253.5 write   253.3 exit-after-write     0.2 head    44.9 check   208.4 tail     0.2 | span 0:208 | cpu 0:0 | conc 0:0 1:254 | switches 4 | head to_load 6.6 load_to_newck 37.1 newck 0.0 to_task -
+run 4: wall   254.1 write   253.9 exit-after-write     0.2 head    43.1 check   210.8 tail     0.2 | span 0:211 | cpu 0:0 | conc 0:0 1:254 | switches 4 | head to_load 4.5 load_to_newck 37.4 newck 0.0 to_task -
+run 5: wall   265.4 write   265.2 exit-after-write     0.2 head    47.9 check   217.3 tail     0.2 | span 0:217 | cpu 0:0 | conc 0:0 1:265 | switches 4 | head to_load 6.6 load_to_newck 40.1 newck 0.0 to_task -
+median: wall   256.8 write   256.6 exit-after-write     0.2 head    45.8 check   210.8 tail     0.2 | span 0:211 | cpu 0:0 | task 260 | conc 0:0 1:257 | head to_load 5.2 load_to_newck 39.4 newck 0.0 to_task 0.0
+
+## zod3 tsgo1 (5 runs)
+run 1: wall   185.0 write   184.7 exit-after-write     0.3 head     0.0 check   184.7 tail     0.3 | span 0:185 | cpu 0:0 | conc 0:0 1:185
+run 2: wall   182.2 write   182.0 exit-after-write     0.3 head     0.0 check   182.0 tail     0.3 | span 0:182 | cpu 0:0 | conc 0:0 1:182
+run 3: wall   184.2 write   183.9 exit-after-write     0.3 head     0.0 check   183.9 tail     0.3 | span 0:184 | cpu 0:0 | conc 0:0 1:184
+run 4: wall   183.2 write   182.9 exit-after-write     0.3 head     0.0 check   182.9 tail     0.3 | span 0:183 | cpu 0:0 | conc 0:0 1:183
+run 5: wall   181.7 write   181.4 exit-after-write     0.3 head     0.0 check   181.4 tail     0.3 | span 0:181 | cpu 0:0 | conc 0:0 1:182
+median: wall   183.2 write   182.9 exit-after-write     0.3 head     0.0 check   182.9 tail     0.3 | span 0:183 | cpu 0:0 | task 190 | conc 0:0 1:183
+
+## zod3 tsgo1c (5 runs)
+run 1: wall   185.9 write   185.7 exit-after-write     0.3 head     0.0 check   185.7 tail     0.3 | span 0:186 | cpu 0:0 | conc 0:0 1:186
+run 2: wall   189.3 write   189.0 exit-after-write     0.3 head     0.0 check   189.0 tail     0.3 | span 0:189 | cpu 0:0 | conc 0:0 1:189
+run 3: wall   189.3 write   189.0 exit-after-write     0.3 head     0.0 check   189.0 tail     0.3 | span 0:189 | cpu 0:0 | conc 0:0 1:189
+run 4: wall   181.5 write   181.2 exit-after-write     0.3 head     0.0 check   181.2 tail     0.3 | span 0:181 | cpu 0:0 | conc 0:0 1:182
+run 5: wall   183.4 write   183.1 exit-after-write     0.3 head     0.0 check   183.1 tail     0.3 | span 0:183 | cpu 0:0 | conc 0:0 1:183
+median: wall   185.9 write   185.7 exit-after-write     0.3 head     0.0 check   185.7 tail     0.3 | span 0:186 | cpu 0:0 | task 194 | conc 0:0 1:186

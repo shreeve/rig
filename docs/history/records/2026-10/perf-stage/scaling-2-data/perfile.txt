@@ -1,0 +1,32 @@
+ts-pattern: 72 files checked; sum by checker (ms): 0 466, 1 387, 2 324, 3 310
+  checker 1   288.2 ms  tests/exhaustive-match.test.ts
+  checker 0   197.0 ms  tests/large-exhaustive.test.ts
+  checker 0    92.7 ms  tests/real-world.test.ts
+  checker 3    82.7 ms  tests/intersection-and-union.test.ts
+  checker 2    70.3 ms  tests/deep-exclude.test.ts
+  checker 2    68.4 ms  tests/select.test.ts
+  checker 3    54.6 ms  tests/record.test.ts
+  checker 2    53.1 ms  tests/variadic-tuples.test.ts
+  checker 0    47.5 ms  tests/distribute-unions.test.ts
+  checker 3    40.3 ms  tests/nesting.test.ts
+  checker 0    36.9 ms  src/patterns.ts
+  checker 2    35.5 ms  tests/tuples.test.ts
+  checker 3    28.3 ms  tests/types.test.ts
+  checker 0    28.2 ms  tests/find-selected.test.ts
+  checker 3    27.0 ms  tests/optional.test.ts
+zod3: 85 files checked; sum by checker (ms): 0 99, 1 99, 2 85, 3 57
+  checker 0    60.8 ms  src/types.ts
+  checker 1    24.6 ms  src/__tests__/discriminated-unions.test.ts
+  checker 0    21.1 ms  src/helpers/partialUtil.ts
+  checker 3    20.7 ms  src/__tests__/partials.test.ts
+  checker 2    18.6 ms  src/__tests__/all-errors.test.ts
+  checker 2    17.1 ms  src/__tests__/crazySchema.ts
+  checker 3    16.1 ms  src/__tests__/instanceof.test.ts
+  checker 1    13.8 ms  src/__tests__/array.test.ts
+  checker 1    13.2 ms  src/__tests__/object.test.ts
+  checker 1     7.6 ms  src/__tests__/error.test.ts
+  checker 2     7.4 ms  src/__tests__/function.test.ts
+  checker 1     6.8 ms  src/__tests__/async-parsing.test.ts
+  checker 1     5.6 ms  src/__tests__/readonly.test.ts
+  checker 0     4.8 ms  src/__tests__/primitive.test.ts
+  checker 3     4.7 ms  src/__tests__/string.test.ts
