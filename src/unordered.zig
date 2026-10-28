@@ -251,7 +251,7 @@ inline fn textEql(a: []const u8, b: []const u8) bool {
 /// keys of that stride into a few groups.
 const int_mul: u64 = 0x4b33a62ed433d4a3;
 
-/// `Map[K, V]`'s unordered table, `HashMap[K, V]`'s.
+/// `HashMap[K, V]`'s table.
 pub fn UnorderedMap(comptime K: type, comptime V: type) type {
     return Unordered(K, V);
 }
