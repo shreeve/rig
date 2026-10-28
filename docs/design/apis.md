@@ -328,9 +328,10 @@ its item type, `[I: Iter, I.Item: Ord]`.
 **Which types provide which.** Numbers, `Bool`, text (`String`,
 `?String`, `Static`), and plain enums provide `Eq`, `Hash`, `Ord`, and
 `Print`, so `false < true`, and a String orders by its bytes as a
-`?String` does. `Float` provides `Eq` and `Ord`, with `NaN` comparing
-false as `==` and `<` do today, and not `Hash`, so a float never keys a
-Map. An optional, an array, and a slice provide `Eq`, `Hash`, `Ord`, and
+`?String` does. `Float` provides `Eq`, with `NaN` comparing false as
+`==` does, and neither `Hash`, so a float never keys a Map, nor `Ord`,
+since a NaN is neither below nor above a number: a float still
+compares with `<`, IEEE 754's, and orders by `x.total_order(?y)`. An optional, an array, and a slice provide `Eq`, `Hash`, `Ord`, and
 `Print` when their elements do; arrays and slices order element by
 element. A `List[T]` provides `Print`, and `Clone` when `T` does, and
 not `Eq`, `Hash`, or `Ord`, as its `==` today. A `Map`, a `Set`, a

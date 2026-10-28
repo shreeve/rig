@@ -60,8 +60,8 @@ checked for its type, as any generic call is.
 | Function | Result |
 |---|---|
 | `abs[T: Signed](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
-| `min[T: Ord](a: T, b: T) -> T`, `max[T: Ord](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
-| `clamp[T: Ord](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
+| `min[T: Ord](a: T, b: T) -> T`, `max[T: Ord](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal. A float provides no `Ord`: it has its own `x.min(y)` and `x.max(y)` |
+| `clamp[T: Ord](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo`. A float has its own `x.clamp(lo, hi)` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
 | `pow(base: Int, power: Int) -> Int` | `base` to the power `power`; a negative `power` gives 1 divided by `base` to the power `-power`, truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, and 0 for any other but 0, which panics as dividing by 0 does |
 | `mod(a: Int, b: Int) -> Int` | the floored remainder, with the sign of `b`; panics when `b` is 0 |
@@ -72,7 +72,7 @@ use std.math
 
 sub main()
   print(math.abs(-7), math.abs(-0.5), math.clamp(15, 0, 10), math.clamp(-3, 0, 10))
-  print(math.min(4, 2), math.max(1.5, 2.5), math.min("pear", "fig"))
+  print(math.min(4, 2), 1.5.max(2.5), math.min("pear", "fig"))
   print(math.gcd(-12, 18), math.gcd(0, 0))
   print(math.pow(3, 4), math.pow(2, -1), math.pow(-1, -3))
   print(-7 % 3, math.mod(-7, 3), math.mod(7, -3))
@@ -89,8 +89,9 @@ true true
 ```
 
 The Float constants NaN and infinity, and `frexp` (`fraction` and `exponent`), are methods of the number types, not of this module: `Float.nan()`, `Float.inf()`, `x.fraction()`, `x.exponent()` ([SPEC](../SPEC.md#numeric-conversions)).
-A float's comparisons are its own methods too: `x.min(y)` and
-`x.max(y)`, where a NaN loses to a number, `x.clamp(lo, hi)`, and
+A float's comparisons are its own methods too, since a float provides
+no `Ord` and so `min`, `max`, and `clamp` here take none: `x.min(y)`
+and `x.max(y)`, where a NaN loses to a number, `x.clamp(lo, hi)`, and
 `x.total_order(?y)`, IEEE 754's total order, which places every float,
 NaN too ([SPEC](../SPEC.md#floats-in-order)).
 
@@ -934,9 +935,9 @@ true true
 Sorting, and searching sorted slices, written in Rig over slices, so
 they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`).
 `sort`, `lower_bound`, and `search` take `T: Ord` and order elements
-with `<` ([SPEC, Bounds](../SPEC.md#bounds)); `sort_by` takes any `T`
-and the order a comparator gives, and `sort_by_key` the order of a key
-that provides `Ord`.
+with `<` ([SPEC, Bounds](../SPEC.md#bounds)), which a float is not;
+`sort_by` takes any `T` and the order a comparator gives, and
+`sort_by_key` the order of a key that provides `Ord`.
 
 | Function | Result |
 |---|---|
@@ -983,23 +984,35 @@ cy 7
 ann
 ```
 
-A NaN is not ordered by `<`: no comparison with one is true, so `sort`
-leaves Floats that may be NaN in no particular order. Sort them with
-`sort_by` and a comparator that orders every value, here putting NaN
-last:
+A float provides no `Ord`: a NaN is neither below nor above a number,
+so `<` cannot sort floats, and `sort`, `lower_bound`, and `search` take
+none. Sort them with `sort_by` and a float's `total_order`, IEEE 754's
+total order, which places every float and a NaN last
+([SPEC](../SPEC.md#floats-in-order)):
 
 ```rig
 use std.sort
 
 sub main()
-  zero = 0.0
-  xs = [2.0, zero / zero, 1.0]
-  sort.sort_by(!xs, |a, b| a == a and (b != b or a < b))
+  xs = [2.0, Float.nan(), -0.0, 1.0, 0.0]
+  sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)
   print(xs)
 ```
 
 ```output
-[1.0, 2.0, nan]
+[-0.0, 0.0, 1.0, 2.0, nan]
+```
+
+```rig reject
+use std.sort
+
+sub main()
+  xs = [2.0, 1.0]
+  sort.sort(!xs)
+```
+
+```error
+`sort.sort[Float]` cannot use `T = Float`: `Float` cannot be ordered: a NaN is neither below nor above a number; order floats by `x.total_order(?y)`, which places every float, a NaN too; sort floats with `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`
 ```
 
 `sort` takes `T: Ord`, so its elements must be ordered:

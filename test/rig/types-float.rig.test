@@ -1,6 +1,6 @@
 # types: how floats compare: `<` as IEEE 754 says, the methods `min`,
-# `max`, `clamp`, and `total_order`, and `Num`'s comparisons in a
-# generic body.
+# `max`, `clamp`, and `total_order`, `Num`'s comparisons in a generic
+# body, and the `Ord` a float does not provide.
 
 
 test "float compare nan", "false false false false true"
@@ -142,3 +142,98 @@ fail "num bound gives no order method", "2:5: `T` is bounded by `Num`, which giv
     a.order(?b)
 
   print(cmp(1, 2))
+
+# A float provides no `Ord`: a NaN is neither below nor above a number.
+# Each rejection says why and names the fix.
+
+fail "float sort rejected", "4:6: `sort.sort[Float]` cannot use `T = Float`: `Float` cannot be ordered: a NaN is neither below nor above a number; order floats by `x.total_order(?y)`, which places every float, a NaN too; sort floats with `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`"
+  use std.sort
+
+  xs = [3.0, Float.nan(), 1.0]
+  sort.sort(!xs)
+
+fail "float sort f32 and search rejected", "`sort.sort[F32]` cannot use `T = F32`: `F32` cannot be ordered: a NaN", "`sort.search[Float]` cannot use `T = Float`: `Float` cannot be ordered: a NaN", "`sort.sort_by_key[Float, Float]` cannot use `K = Float`", errors: 3
+  use std.sort
+
+  fun twice(x: ?Float) -> Float
+    2.0 * x
+
+  ys: List[F32] = List()
+  sort.sort(!ys)
+  xs = [1.0, 2.0]
+  print(sort.search(?xs, 1.0))
+  sort.sort_by_key(!xs, twice)
+
+fail "float math min rejected", "`math.min[Float]` cannot use `T = Float`: `Float` cannot be ordered: a NaN is neither below nor above a number; order floats by `x.total_order(?y)`, which places every float, a NaN too; a float's own `a.min(b)` takes `math.min`'s place", "`math.max[Float]` cannot use `T = Float`", "a float's own `x.clamp(lo, hi)` takes `math.clamp`'s place", errors: 3
+  use std.math
+
+  print(math.min(1.5, Float.nan()), math.max(1.5, 2.5), math.clamp(0.5, 0.0, 1.0))
+
+fail "float obj ord rejected", "1:5: `V` names `Ord`, so it is ordered by its fields, but its field `v` is a `Float`, which cannot be ordered: a NaN is neither below nor above a number; order floats by `x.total_order(?y)`"
+  obj V: Ord
+    v: Float
+
+  a = V(v: Float.nan())
+  print(a < V(v: 1.0))
+
+fail "float enum ord rejected", "`Reading` names `Ord`, so it is ordered by its fields, but its field `at.t` is a `F32`, which cannot be ordered: a NaN"
+  enum Reading: Ord
+    none
+    at(t: F32)
+
+  print(Reading.none < Reading.at(t: 1.5))
+
+fail "float generic ord rejected", "`larger[Float]` cannot use `T = Float`: `Float` cannot be ordered: a NaN is neither below nor above a number; order floats by `x.total_order(?y)`"
+  fun larger[T: Ord](a: T, b: T) -> T
+    b if a < b else a
+
+  print(larger(1.5, 2.5))
+
+fail "float order method rejected", "2:7: `Float` has no `order`: a NaN is neither below nor above a number; order floats by `x.total_order(?y)`, which places every float, a NaN too", "4:7: `F32` has no `order`: a NaN", errors: 2
+  n = Float.nan()
+  print(n.order(?1.0))
+  y: F32 = 1.5
+  print(y.order(?y))
+
+fail "float order in generic rejected", "`cmp[Float]` cannot use `T = Float`: the generic body orders a `T` with `order`, and `Float` cannot be ordered: a NaN is neither below nor above a number"
+  fun cmp[T](a: T, b: T) -> Order
+    a.order(?b)
+
+  print(cmp(3, 4), cmp(1.5, 2.5))
+
+fail "float holders unordered", "operator `<` orders values of one type that provides `Ord`, and `Float?` cannot be ordered; it holds a `Float`: a NaN is neither below nor above a number", "operator `<` orders values of one type that provides `Ord`, and `[2]Float` cannot be ordered; it holds a `Float`: a NaN", errors: 2
+  a: Float? = 1.0
+  xs = [1.0, 2.0]
+  print(a < a, xs < xs)
+
+test "float less stays", "true false false true true .less"
+  # `<` on two floats, IEEE 754's, stays, and so does `<` in a generic
+  # body whose `T` is a float: unbounded, or bounded by `Num`.
+
+  fun lt[T](a: T, b: T) -> Bool
+    a < b
+
+  fun le[T: Num](a: T, b: T) -> Bool
+    a <= b
+
+  nan = Float.nan()
+  print(1.5 < 2.5, nan < 1.0, lt(nan, 1.0), lt(1.5, 2.5), le(F32(1.5), 1.5), 1.5.total_order(?2.5))
+
+test "float own order", "false true .equal .less"
+  # A type that holds a float orders by its own `order`, written with
+  # `total_order`: a NaN reading sorts after every number.
+
+  use std.sort
+
+  obj Reading: Ord
+    at: Int
+    value: Float
+
+    fun order(?@, other: ?Reading) -> Order
+      @at.order(?other.at).then(@value.total_order(?other.value))
+
+  a = Reading(at: 1, value: Float.nan())
+  b = Reading(at: 1, value: 0.25)
+  rs = [a, b]
+  sort.sort(!rs)
+  print(a < b, b < a, a.order(?a), rs[0].value.total_order(?rs[1].value))

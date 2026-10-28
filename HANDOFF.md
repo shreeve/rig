@@ -78,6 +78,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A float provides no `Ord`** (owner, 2026-10-27, the Rust-style
+  recommendations' default): a NaN is neither below nor above a
+  number, so `T: Ord` takes no float, and floats compare by their own
+  `min`, `max`, `clamp`, and `total_order` (SPEC "Floats in order").
+  Two PRs: the methods and `Num`'s comparisons first, which reject
+  nothing; then the fix, once Trig has run `tools/migrate-float-min.py`
+  on its six `math.min` sites of floats. The name `total_order` is the
+  owner's call against `total_cmp`, Rust's.
 - **A generic body's own values hold no untracked view** (SPEC
   "Generic bodies", approved 2026-10-27): an instance whose type
   argument can hold the view a body could put in a `T` it holds is

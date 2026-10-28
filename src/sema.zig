@@ -3084,7 +3084,12 @@ fn writeMask(w: *std.Io.Writer, comptime name: []const u8, mask: ParamMask, n: u
 /// against every instantiation of the generic type.
 pub const Requirement = union(enum) {
     numeric,
+    /// `<`, `<=`, `>`, `>=`: a number, as IEEE 754 orders a float, or a
+    /// type that provides `Ord`.
     ordered,
+    /// `a.order(?b)`: a type that provides `Ord` (`lacks`), which a
+    /// float does not.
+    order,
     equatable,
     /// `x.hash()`: what `==` compares, less a float and what holds one
     /// (`notHashable`).
@@ -3168,6 +3173,7 @@ pub const Requirement = union(enum) {
         return switch (self) {
             .numeric => "arithmetic",
             .ordered => "ordering comparison",
+            .order => "`order`",
             .equatable => "`==` / `!=`",
             .hashable => "`.hash()`",
             .integer => "integer operators",
@@ -9590,7 +9596,8 @@ pub fn reportLack(ctx: *SemContext, at: u32, inst: []const u8, pname: []const u8
     const a = ctx.arena.allocator();
     const aname = try formatType(ctx, arg);
     if (lack.own_eq) return ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}", .{ inst, pname, aname, try ownEqUnhashed(ctx, lack.ty) });
-    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` {s}{s}", .{ inst, pname, aname, aname, cannotDo(api), try lackDetail(ctx, a, arg, api, lack) });
+    const fix = if (api == .Ord and isFloatType(ctx, lack.ty)) floatOrderFix(inst) else "";
+    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` {s}{s}{s}", .{ inst, pname, aname, aname, cannotDo(api), try lackDetail(ctx, a, arg, api, lack), fix });
 }
 
 /// Why `ty` lacks `api` (`lack`), for the end of an error: the fix for a
@@ -9602,8 +9609,10 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
     }
     if (lack.own_eq) return "";
     if (api == .Iter) return a.print(": {s}", .{(try iterLack(ctx, ty)) orelse "it declares no `fun next(!@) -> T?`"});
-    if (lack.path.len > 0) return a.print("; its field `{s}` is a `{s}`", .{ lack.path, try formatType(ctx, lack.ty) });
-    if (lack.ty != ty) return a.print("; it holds a `{s}`", .{try formatType(ctx, lack.ty)});
+    const unordered = if (api == .Ord and isFloatType(ctx, lack.ty)) floatUnordered else "";
+    if (lack.path.len > 0) return a.print("; its field `{s}` is a `{s}`{s}", .{ lack.path, try formatType(ctx, lack.ty), unordered });
+    if (lack.ty != ty) return a.print("; it holds a `{s}`{s}", .{ try formatType(ctx, lack.ty), unordered });
+    if (unordered.len > 0) return unordered;
     // A type a module declares gives itself an order, or its own `==`,
     // hashing, or printing, by naming the API on its header.
     if (api == .Ord) if (nominalDecl(ctx, ty)) |decl| {
@@ -9615,6 +9624,34 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
             return a.print("; name `Ord` on its header: `{s} {s}: {s}`", .{ if (is_enum) "enum" else "obj", sym.name, try formatBounds(decl.ctx, a, sym, .Ord) });
         }
     };
+    return "";
+}
+
+/// Why a float provides no `Ord`, and what orders floats instead, for
+/// the end of an error.
+pub const floatUnordered = ": a NaN is neither below nor above a number; order floats by `x.total_order(?y)`, which places every float, a NaN too";
+
+/// Whether `ty` is a float type or a float literal.
+pub fn isFloatType(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .float, .float_literal => true,
+        else => false,
+    };
+}
+
+/// The fix for a float given where `Ord` is needed, after
+/// `floatUnordered`, by what the instance `inst` is: a float's own
+/// `min`, `max`, or `clamp` for `math`'s, and `sort_by` with
+/// `total_order` for `sort` and `sort_by_key`.
+pub fn floatOrderFix(inst: []const u8) []const u8 {
+    const fixes = [_]struct { []const u8, []const u8 }{
+        .{ "math.min[", "; a float's own `a.min(b)` takes `math.min`'s place, and a NaN loses to a number there" },
+        .{ "math.max[", "; a float's own `a.max(b)` takes `math.max`'s place, and a NaN loses to a number there" },
+        .{ "math.clamp[", "; a float's own `x.clamp(lo, hi)` takes `math.clamp`'s place" },
+        .{ "sort.sort[", "; sort floats with `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`" },
+        .{ "sort.sort_by_key[", "; sort by a float key with `sort.sort_by(!xs, |a, b| key(a).total_order(?key(b)) == .less)`" },
+    };
+    for (fixes) |f| if (std.mem.startsWith(u8, inst, f[0])) return f[1];
     return "";
 }
 
@@ -9643,16 +9680,19 @@ fn heldLack(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?Lac
     return paramsLack(ctx, params.items, api);
 }
 
-/// Why `ty` has no order (`lacks` of `Ord`): numbers, `Bool`, text, and
+/// Why `ty` has no order (`lacks` of `Ord`): integers, `Bool`, text, and
 /// plain enums are ordered; an object or an enum whose header names
 /// `Ord`; an optional, an array, or a slice of ordered values; and a
-/// frozen value's handle when its value is ordered.
+/// frozen value's handle when its value is ordered. A float is not: a
+/// NaN is neither below nor above a number, so `<` cannot sort floats
+/// and `order` would have no answer (`floatUnordered`).
 fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?Lack {
     if (depth > 64) return .{ .ty = ty };
     if (isText(ctx, ty)) return null;
     switch (ctx.types.get(ty)) {
         .type_var => |sym| return boundLack(ctx, ty, sym, .Ord),
-        .int, .float, .int_literal, .float_literal, .bool, .slot => return null,
+        .int, .int_literal, .bool, .slot => return null,
+        .float, .float_literal => return .{ .ty = ty },
         .read_view, .write_view => |inner| return ordLack(ctx, inner, depth + 1),
         .optional => |inner| return ordLack(ctx, inner, depth + 1),
         // A frozen value never changes, so its handles order by what they

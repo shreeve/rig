@@ -157,6 +157,26 @@ Other:
 46. A write view of a read view, `!?T` (`!?List[Int]`, `!?Int`), is
     rejected as `!?String` is, written or given by the type a closure
     is checked against (`update` of a `Map[K, ?List[Int]]`).
+47. *Unsound:* a float provides no `Ord`, since a NaN is neither below
+    nor above a number (SPEC "Floats in order"). `v0.2.9` ordered floats
+    by Zig's `std.math.order`, which reaches `unreachable` on a NaN: a
+    panic in safe builds, undefined behavior under `--release=fast`. And
+    `sort.sort` left floats holding a NaN unsorted. Rejected now, each
+    with the fix in the message:
+    - `sort.sort`, `sort.lower_bound`, `sort.search`, and
+      `sort.sort_by_key` with a float key: sort with
+      `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`;
+    - `math.min`, `math.max`, and `math.clamp` of floats: write
+      `a.min(b)`, `a.max(b)`, `x.clamp(lo, hi)`, where a NaN loses to a
+      number;
+    - a program's own `[T: Ord]` generic at `Float` or `F32`, and a
+      body's `a.order(?b)` at a float;
+    - `obj` or `enum` that names `Ord` with a float field: write its own
+      `fun order(?@, other: ?Self) -> Order` with `total_order`;
+    - `x.order(?y)` of floats: write `x.total_order(?y)`;
+    - `<`, `<=`, `>`, `>=` on an optional, an array, or a slice of floats.
+    `<` on two floats stays, IEEE 754's, and so does `math.abs`, which
+    takes `T: Signed`.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -207,6 +227,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   iterate rows are level with the prototype; a HashMap prefetches its
   40-byte text slots; and a Map's rebuilt index clears only its tags
   ([table-gaps.md](docs/history/records/2026-10/hash-race/table-gaps.md)).
+- **A float provides no `Ord`.** A NaN is neither below nor above a
+  number, so `T: Ord` takes no `Float` or `F32`, a header that names
+  `Ord` takes no float field, and a float has no `order`; each
+  rejection names `total_order`, or a float's `min`, `max`, or `clamp`
+  in place of `math`'s. Comparing two `obj V: Ord` values with a NaN
+  field reached Zig's `unreachable`, and `sort.sort` left floats with a
+  NaN unsorted. `<` on floats stays IEEE 754's.
 - **Floats have methods that compare them.** `x.min(y)` and `x.max(y)`
   give the smaller and the larger float, and a NaN loses to a number
   on either side. `x.clamp(lo, hi)` limits `x` to `lo..hi`.
@@ -215,8 +242,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`. A `T: Num`
   (and so a `T: Integer` or `T: Signed`) is compared with `<`, `<=`,
   `>`, and `>=` as a number is, and `math.abs` takes `T: Signed`.
-  This prepares the change that takes `Ord` from floats, whose NaN has
-  no order (SPEC "Floats in order").
+  They take the place of `Ord` for floats (SPEC "Floats in order").
 
 - **A generic body's own values hold no untracked view.** A `T` the
   body holds by value carries no loan it tracks, so an instance whose

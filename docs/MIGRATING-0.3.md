@@ -519,6 +519,27 @@ sub main()!
 slept
 ```
 
+### A float provides no `Ord`
+
+A NaN is neither below nor above a number, so a float provides no
+`Ord` (SPEC "Floats in order"), and what 0.2.9 ordered by it panicked
+on a NaN or, under `--release=fast`, did anything. `<` on two floats
+stays. `tools/migrate-float-min.py RIG main.rig` (or `RIG --tests
+src/pkg` for a directory module) rewrites each `math.min`, `math.max`,
+and `math.clamp` of floats the compiler rejects as the float's own
+method, running `rig check` until none is left, and prints the other
+rejections as MANUAL lines:
+
+| 0.2.9 accepted | 0.3.0 asks for |
+|---|---|
+| `math.min(a, b)`, `math.max(a, b)`, `math.clamp(x, lo, hi)` of floats | `a.min(b)`, `a.max(b)`, `x.clamp(lo, hi)`, where a NaN loses to a number (the script) |
+| `sort.sort(!xs)` of floats | `sort.sort_by(!xs, \|a, b\| a.total_order(?b) == .less)` |
+| `sort.sort_by_key(!xs, key)` with a float key | `sort.sort_by` comparing `key(a).total_order(?key(b))` |
+| `sort.lower_bound`, `sort.search` of floats | a search written with `total_order`, or integer keys |
+| `obj V: Ord` or `enum E: Ord` with a float field | its own `fun order(?@, other: ?V) -> Order`, with `total_order` for the float |
+| `x.order(?y)` of floats | `x.total_order(?y)` |
+| `[T: Ord]` of a program's own at `Float` | a `T: Num` bound where the body uses only `<` and arithmetic |
+
 ### The rest
 
 | 0.2.9 accepted | 0.3.0 asks for |

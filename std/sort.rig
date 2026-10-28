@@ -1,8 +1,9 @@
 # std.sort: sorting slices and searching sorted ones, written in Rig.
 # Every function takes a slice, `![]T` to sort or `[]T` to search: pass
 # an array or a List as `!a` or `?a`. Order is
-# `<`'s, or a comparator's: a NaN is not ordered by `<`, so sort Floats
-# that may be NaN with `sort_by` and a comparator that orders it.
+# `<`'s, or a comparator's. A float provides no `Ord`, since a NaN is
+# neither below nor above a number: sort floats with `sort_by` and
+# `total_order`, `sort_by(!xs, |a, b| a.total_order(?b) == .less)`.
 
 # Sort `xs` in place, in the order of `<`, keeping equal elements in the
 # order they had. Allocates nothing.
