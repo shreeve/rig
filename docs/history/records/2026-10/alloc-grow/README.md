@@ -159,4 +159,25 @@ this round. The other four are recorded here as measured and not taken.
 
 ## Gates
 
-Listed in the PR as they finish.
+- A failing case first: "a large block grows into a kept block that
+  fits..." and "on Linux a large block from 64 KiB that no kept block
+  fits grows by moving its pages" fail on main (on pup, another address
+  and a null remap) and pass here; `zig test src/alloc.zig` passes on
+  the Mac and pup.
+- `tools/heavy swarm test/rig.rip all -q -w 6` on the Mac: 10,775 jobs,
+  none died.
+- `zig build test` on pup: safe and fast pass. Debug failed once, run
+  beside the Trig light gate's load, in `src/tasks.zig`'s "a set of
+  tasks keeps the failure it gives and drops every other one's data"
+  (the kept byte read 170, 0xAA, a slot never written); then three runs
+  each of main and the branch passed. Debug builds allocate through the
+  leak checker, not alloc.zig.
+- Trig's light gate (`tools/pup-rig 4bee4748c`, then `PUP_RIG=` its
+  Rig `tools/light`, from a clone of Trig `403a823` whose release slots
+  and workers keep off cores 1-3 and 8-11): GREEN in 69 s.
+- loco's light gate (loc `947ffa0`): GREEN in 32 s, 122 runs, none
+  differ.
+- std.json's guard: within 2% on all six files (0.1-0.7% fewer
+  instructions per byte than `guard.txt`).
+- The runtime benches (bench/tasks, actors, net, http) were not run:
+  the change touches only a large block's growth.
