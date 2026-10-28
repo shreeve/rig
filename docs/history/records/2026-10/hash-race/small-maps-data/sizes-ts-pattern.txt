@@ -1,0 +1,72 @@
+
+Map U32 -> U32: 118931 maps, gets 2486301, puts 1301031, grows 28013, dropped 118111
+  largest length: 0: 1733, 1: 30345, 2: 38538, 3: 6447, 4: 5155, 5: 1371, 6-7: 2628, 8-11: 4943, 12-15: 215, 16-23: 413, 24-31: 104, 32-47: 26533, 48-63: 137, 64-127: 354, 128-1023: 10, 1024-1099511627775: 5
+  gets by length then: 0: 3.2%, 1: 9.9%, 2: 9.4%, 3: 2.4%, 4: 3.3%, 5: 1.5%, 6-7: 14.1%, 8-11: 3.4%, 12-15: 2.7%, 16-23: 5.2%, 24-31: 4.4%, 32-47: 26.5%, 48-63: 0.8%, 64-127: 2.6%, 128-1023: 7.6%, 1024-1099511627775: 3.1%
+  never dropped: 820; their end length: 0: 820
+  entries at the end, never-dropped: 0
+
+Map checker.InferenceKey -> I32: 68612 maps, gets 131203, puts 251838, grows 355, dropped 68612
+  largest length: 1: 50555, 2: 5959, 3: 8531, 4: 622, 5: 644, 6-7: 477, 8-11: 968, 12-15: 565, 16-23: 108, 24-31: 71, 32-47: 48, 48-63: 36, 64-127: 20, 128-1023: 8
+  gets by length then: 0: 52.3%, 1: 14.2%, 2: 9.3%, 3: 3.0%, 4: 2.3%, 5: 2.2%, 6-7: 3.5%, 8-11: 4.7%, 12-15: 1.8%, 16-23: 1.7%, 24-31: 1.1%, 32-47: 1.3%, 48-63: 0.9%, 64-127: 1.1%, 128-1023: 0.7%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map U32 -> Int: 17858 maps, gets 251679, puts 251744, grows 4546, dropped 17858
+  largest length: 1: 1174, 2: 2379, 3: 2350, 4: 417, 5: 861, 6-7: 4292, 8-11: 2422, 12-15: 397, 16-23: 92, 24-31: 20, 32-47: 2392, 48-63: 878, 64-127: 182, 128-1023: 2
+  gets by length then: 0: 7.1%, 1: 6.7%, 2: 5.8%, 3: 4.8%, 4: 5.7%, 5: 4.3%, 6-7: 6.9%, 8-11: 6.7%, 12-15: 5.8%, 16-23: 11.2%, 24-31: 11.0%, 32-47: 19.4%, 48-63: 3.4%, 64-127: 1.2%, 128-1023: 0.0%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map String -> U32: 3874 maps, gets 10088, puts 10088, grows 130, dropped 3874
+  largest length: 1: 2667, 2: 997, 3: 115, 4: 15, 6-7: 5, 8-11: 5, 24-31: 10, 64-127: 60
+  gets by length then: 0: 38.4%, 1: 12.0%, 2: 2.1%, 3: 0.9%, 4: 0.8%, 5: 0.8%, 6-7: 1.5%, 8-11: 2.8%, 12-15: 2.8%, 16-23: 5.6%, 24-31: 5.0%, 32-47: 9.5%, 48-63: 9.5%, 64-127: 8.3%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Set U32 -> -: 2327 maps, gets 208872, puts 35233, grows 419, dropped 2327
+  largest length: 0: 2, 1: 402, 2: 648, 3: 181, 4: 154, 5: 293, 6-7: 138, 8-11: 128, 12-15: 7, 16-23: 1, 24-31: 1, 32-47: 341, 48-63: 18, 64-127: 9, 128-1023: 2, 1024-1099511627775: 2
+  gets by length then: 0: 42.6%, 1: 1.0%, 2: 0.6%, 3: 0.5%, 4: 0.5%, 5: 0.3%, 6-7: 0.6%, 8-11: 0.8%, 12-15: 1.0%, 16-23: 1.4%, 24-31: 1.4%, 32-47: 5.3%, 48-63: 0.3%, 64-127: 2.0%, 128-1023: 28.0%, 1024-1099511627775: 13.8%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map U32 -> printer.EmitNode: 166 maps, gets 1882, puts 345, grows 0, dropped 166
+  largest length: 0: 7, 1: 75, 2: 41, 3: 24, 4: 6, 5: 7, 6-7: 3, 8-11: 1, 12-15: 2
+  gets by length then: 0: 9.8%, 1: 15.5%, 2: 16.8%, 3: 17.7%, 4: 8.0%, 5: 12.3%, 6-7: 7.1%, 8-11: 3.1%, 12-15: 9.8%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map U32 -> printer.AutoGenerateInfo: 133 maps, gets 436, puts 0, grows 0, dropped 133
+  largest length: 0: 133
+  gets by length then: 0: 100.0%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map U32 -> printer.AnyNode: 82 maps, gets 129, puts 20, grows 0, dropped 82
+  largest length: 0: 69, 1: 9, 2: 1, 3: 3
+  gets by length then: 0: 87.6%, 1: 5.4%, 2: 7.0%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map checker.CacheKey -> U32: 70 maps, gets 3304240, puts 2291584, grows 3492, dropped 70
+  largest length: 1: 3, 3: 2, 4: 1, 5: 5, 6-7: 11, 8-11: 6, 12-15: 2, 16-23: 4, 24-31: 4, 32-47: 8, 48-63: 4, 64-127: 4, 128-1023: 9, 1024-1099511627775: 7
+  gets by length then: 0: 29.2%, 1: 11.3%, 2: 7.6%, 3: 5.6%, 4: 2.2%, 5: 2.6%, 6-7: 4.3%, 8-11: 3.1%, 12-15: 1.2%, 16-23: 0.9%, 24-31: 0.4%, 32-47: 0.6%, 48-63: 0.4%, 64-127: 1.5%, 128-1023: 0.9%, 1024-1099511627775: 28.2%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map checker.CompositeSymbolIdentity -> Int: 45 maps, gets 68, puts 136, grows 0, dropped 45
+  largest length: 1: 36, 2: 6, 3: 2, 4: 1
+  gets by length then: 0: 66.2%, 1: 25.0%, 2: 5.9%, 3: 2.9%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map String -> rig.runtime.ListOf(checker.SeenName,0): 30 maps, gets 0, puts 32, grows 0, dropped 30
+  largest length: 1: 28, 2: 2
+  gets by length then: 
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0
+
+Map U32 -> checker.NodeRef: 26 maps, gets 3851, puts 2, grows 0, dropped 26
+  largest length: 0: 25, 2: 1
+  gets by length then: 1: 1.0%, 2: 99.0%
+  never dropped: 0; their end length: 
+  entries at the end, never-dropped: 0

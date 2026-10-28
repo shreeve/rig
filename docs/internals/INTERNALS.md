@@ -5103,8 +5103,8 @@ across modules, and only std.prelude's scope names them.
   the same requirement, so the Map keeps nothing of `make`.
 - **Facts.** The tables are heap built-ins (`sema.isHashTable`, in
   `isHeapBuiltin`): glue and not plain, their entries behind them, a
-  deep clone where every parameter clones, and 96 bytes; a `Map` is
-  112. A table counts as running a drop body (`runsDropBody`), as a
+  deep clone where every parameter clones, and 56 bytes; a `Map` is
+  64, a line. A table counts as running a drop body (`runsDropBody`), as a
   type with glue declared in another module does, so a view a Map
   holds of a value dropped before it is rejected as before.
 - **Hash and `==`.** The table hashes with `rig.hash` and compares with
@@ -5127,9 +5127,17 @@ across modules, and only std.prelude's scope names them.
   prefetches the group's slot line, and walks on, out of line in a
   lookup, only while the overflow byte marks the tag's class. Up to 16
   live entries (and 32 written) there is no index: 32 tag bytes in the
-  table find a key, and say which entries are gone. The first put
-  makes room for 4 entries. An indexed table makes its gone bits, one
-  an entry, at the first take that leaves a hole.
+  table find a key, and say which entries are gone. They sit where an
+  indexed table keeps its index's pointers, its gone bits' pointer, its
+  maximum load and its group count (`Held`, an `extern union`), and
+  `shift` 0 says a table is small, so the table is 56 bytes. Its fields
+  are in a fixed order, `len` and `live`, which every put and take
+  writes, in a word of their own apart from `shift`, which every lookup
+  reads first. The first put makes room for 4 entries; an indexed
+  table's room doubles, but from 32 to 48 and from 48 to 64
+  (`nextRoom`), so a table of 33 to 48 entries holds 48. An indexed
+  table makes its gone bits, one an entry, at the first take that leaves
+  a hole; `clear` frees them with the index.
 - **Entry reads** go through `entryOf`: in a debug build it tests the
   entry index against the entries written (and, for the prelude's
   reads, that the entry is live), and in a release build it is the

@@ -212,6 +212,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   instructions on ts-pattern and 1.3% fewer on zod3, with `.text` 2.2%
   smaller
   ([runtime-unchecked.md](docs/history/records/2026-10/perf-stage/runtime-unchecked.md)).
+- **A Map or Set is 64 bytes, a cache line** (it was 112): the table's
+  small tags share their place with an indexed table's index pointers,
+  and its counts are narrower; an indexed table of 33 to 48 entries holds
+  room for 48 rather than 64. Lookups, puts, takes, and walks run as
+  before. On pup, Trig's peak memory is 3.5% lower on ts-pattern (9.8 MB)
+  and 4.3% on zod3, with 5-7% fewer L3 load misses and 3-6% fewer kernel
+  cycles, user cycles level
+  ([small-maps.md](docs/history/records/2026-10/hash-race/small-maps.md)).
 - **bench/hash times each row in a function of its own**, for every
   contestant (`called`, `noinline`, `#[inline(never)]`,
   `__attribute__((noinline))`, `//go:noinline`), so a row's loop is
