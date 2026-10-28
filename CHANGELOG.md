@@ -162,6 +162,20 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`HashMap[K, V]` and `HashSet[K]`**, built in beside `Map` and `Set`:
+  hash tables whose iteration order is unspecified, with every member
+  of `Map` and `Set`, declared as theirs are, but `Map.at`. Their
+  entries are held by the compiler built-ins `UnorderedMap[K, V]` and
+  `UnorderedSet[K]`, bench/hash's `zig-hash` in the runtime
+  (src/unordered.zig). Against the Map, on the Mac and pup: removes at
+  4M keys 25-35% faster, turnovers of 1,000 keys and up 23-52% faster,
+  misses at 3M-4M 52-81% faster, random hits there 35-45% faster; walks
+  and text removes stay the Map's. Of bench/hash's 104 rows, 60 on the
+  Mac and 77 on pup are within 5% of zig-hash or faster; 4,000,000 Int
+  keys take 51.1 and 54.5 bytes an entry
+  ([hashmap-builtin.md](docs/history/records/2026-10/hash-race/hashmap-builtin.md)).
+  A program's own type named `HashMap`, `HashSet`, `HashItems`,
+  `HashKeys`, `HashValues`, or `HashMembers` hides the built-in one.
 - **Map and Set hold their entries in a table built into the compiler**,
   `OrderedMap[K, V]` and `OrderedSet[K]`, which only std/prelude.rig
   names: bench/hash's `zig-ordered` in the runtime (src/ordered.zig),

@@ -47,7 +47,8 @@ As #736's: a Rig face over a built-in table.
 
 `resolve.registerTables` registers the four tables in every module, only
 std.prelude's scope names them, and each member's origins are its
-signature's (`sema.signatureOrigins`), as for the ordered ones. Sema
+signature's (`sema.signatureOrigins`), as for the ordered ones, but the
+two lookups below. Sema
 holds the unordered tables as it holds the ordered ones (`isHashTable`:
 heap built-ins, glue and not plain, deep clone where every parameter
 clones, a drop that counts as running a body), at 48 bytes.
@@ -75,15 +76,23 @@ is defined by the order a HashMap does not keep; an `at` over the slot
 order would be an O(n) walk whose answer changes with every growth, and
 nothing in std or Trig uses `at` but through the ordered Map.
 
-The table's members differ from the ordered table's only in the walk:
-`next_full(?@, j: Int) -> Int?`, the first full slot from `j` on, in
-place of `written`, `holes`, `live_from`, `gone_from`, and `nth`. An index
-the table hands out is a slot index; `key`, `value`, and `value_mut`
-take one.
+The table's members differ from the ordered table's in the walk and in
+two lookups. The walk is `group_count`, `full_lanes(g)`, and
+`slot_at(g, lanes)` in place of `written`, `holes`, `live_from`,
+`gone_from`, and `nth`: an iterator holds a group and its full lanes not
+yet given, so a step clears one bit. An index the table hands out is a
+slot index; `key`, `value`, and `value_mut` take one. `get(?@, k: ?K) ->
+(?V)?` and `edit(!@, k: ?K) -> (!V)?` hand back the value's view where
+the lookup found its slot, so a hit reads its slot once; their origins
+are a Rig declaration's with `from @` (resolve's `fromSelf`), where every
+other member's are its signature's, since the key is only hashed and
+compared. This is the one place a table member's origins are narrower
+than its signature's; the wrapper's `get` and `edit` declare `from @`
+too, and the ownership checker checks the wrapper bodies against them.
 
 The iterators are new prelude objects, `HashItems[K, V]`,
 `HashKeys[K, V]`, `HashValues[K, V]`, and `HashMembers[K]`, each holding
-`?HashMap[K, V]` (or `?HashSet[K]`) and the next slot, so a walk is
+`?HashMap[K, V]` (or `?HashSet[K]`), a group, and its lanes, so a walk is
 `from @map` as a Map's is. `Item[K, V]` is shared.
 
 ## Order
