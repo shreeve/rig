@@ -1,0 +1,31 @@
+use std.time
+
+fun scatter(n: Int) -> Int
+  z = (U64.wrap(n) +% 1) *% 0x9e3779b97f4a7c15
+  z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9
+  z = (z ^ (z >> 27)) *% 0x94d049bb133111eb
+  Int.wrap(z ^ (z >> 31))
+
+called sub misses(s: Int)
+  m: Map[Int, Int] = Map()
+  for i in 0..s
+    !m.put(scatter(i), i)
+  miss: List[Int] = List(capacity: s)
+  for i in 0..s
+    !miss.push(scatter(8000000 + i))
+  rounds = 4000000 / s
+  best = 1000000000000
+  found = 0
+  for _ in 0..7
+    found = 0
+    t = time.now()
+    for _ in 0..rounds
+      for key in miss
+        found += 1 if m.has(key)
+    e = t.elapsed()
+    best = e if e < best else best
+  print(s, "miss", best, found)
+
+sub main()
+  misses(1000)
+  misses(3000000)
