@@ -1,0 +1,40 @@
+2c2
+< v/main/bin:     file format elf64-x86-64
+---
+> v/base/bin:     file format elf64-x86-64
+6567c6567
+< 	vmovups -0x(%rip),%ymm0        #  <__anon_8017>
+---
+> 	vmovups -0x(%rip),%ymm0        #  <__anon_8031>
+6590c6590
+< 	vmovups -0x(%rip),%xmm0        #  <__anon_8045>
+---
+> 	vmovups -0x(%rip),%xmm0        #  <__anon_8059>
+6610c6610
+< 	vmovups -0x(%rip),%xmm0        #  <__anon_8048>
+---
+> 	vmovups -0x(%rip),%xmm0        #  <__anon_8062>
+8276c8276
+< 	vmovups -0x(%rip),%xmm0        #  <__anon_8487>
+---
+> 	vmovups -0x(%rip),%xmm0        #  <__anon_8501>
+43623c43623
+< 	vmovups -0x(%rip),%xmm0        #  <__anon_5777>
+---
+> 	vmovups -0x(%rip),%xmm0        #  <__anon_5791>
+1448418c1448418
+< 	vucomisd -0x(%rip),%xmm5        #  <__anon_8132+0x18>
+---
+> 	vucomisd -0x(%rip),%xmm5        #  <__anon_8146+0x18>
+1448446c1448446
+< 	vmovsd -0x(%rip),%xmm2        #  <__anon_8132+0x10>
+---
+> 	vmovsd -0x(%rip),%xmm2        #  <__anon_8146+0x10>
+1448590c1448590
+< 	vucomisd -0x(%rip),%xmm5        #  <__anon_8132+0x18>
+---
+> 	vucomisd -0x(%rip),%xmm5        #  <__anon_8146+0x18>
+2533503c2533503
+< 	vmulsd -0x(%rip),%xmm0,%xmm5        #  <__anon_8132+0x8>
+---
+> 	vmulsd -0x(%rip),%xmm0,%xmm5        #  <__anon_8146+0x8>

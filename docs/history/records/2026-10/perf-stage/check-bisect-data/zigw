@@ -1,0 +1,11 @@
+#!/bin/sh
+# zig, with ceil.py's variant ($CEIL_ARGS) made of the package rig wrote
+# in $RIG_OUT_DIR, once, before the first build-exe compiles it.
+W=/zfs/worktrees/rig/check-bisect
+if [ "${1:-}" = build-exe ] && [ -n "${CEIL_ARGS:-}" ] && [ ! -e "$RIG_OUT_DIR/.ceil-made" ]; then
+  rm -rf "$RIG_OUT_DIR.ceil"
+  taskset -c 0,5 python3 $W/ceil.py "$RIG_OUT_DIR" "$RIG_OUT_DIR.ceil" $CEIL_ARGS > "$RIG_OUT_DIR.ceil.out" 2>&1 || { echo "zigw: ceil.py failed" >&2; exit 97; }
+  (cd "$RIG_OUT_DIR.ceil" && find . -name '*.zig' -exec cp --parents {} "$RIG_OUT_DIR"/ \;) && rm -rf "$RIG_OUT_DIR.ceil"
+  touch "$RIG_OUT_DIR/.ceil-made"
+fi
+exec /home/shreeve/.local/bin/zig "$@"
