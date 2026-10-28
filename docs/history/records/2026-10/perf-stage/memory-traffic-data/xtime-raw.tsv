@@ -1,0 +1,2000 @@
+ts-pattern.0.1.csv	1073600409,,duration_time,1,100.00,,
+ts-pattern.0.1.csv	4521026833,,cpu_core/cycles/u,1064925552,99.00,,
+ts-pattern.0.1.csv	358691913,,cpu_core/cycles/k,1064925552,99.00,,
+ts-pattern.0.1.csv	9487662520,,cpu_core/instructions/u,1064925552,99.00,,
+ts-pattern.0.1.csv	102801413,,cpu_core/dtlb_load_misses.walk_active/u,1064925552,99.00,,
+ts-pattern.0.1.csv	1354470,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1064925552,99.00,,
+ts-pattern.0.1.csv	17636086,,cpu_core/ld_blocks.store_forward/u,1064925552,99.00,,
+ts-pattern.0.1.csv	39824,,page-faults,1065739209,100.00,,
+ts-pattern.0.1.rss	Command exited with non-zero status 2
+ts-pattern.0.1.rss	280848
+ts-pattern.0.10.csv	1101581343,,duration_time,1,100.00,,
+ts-pattern.0.10.csv	4356875843,,cpu_core/cycles/u,1089560369,99.00,,
+ts-pattern.0.10.csv	341366838,,cpu_core/cycles/k,1089560369,99.00,,
+ts-pattern.0.10.csv	9491837935,,cpu_core/instructions/u,1089560369,99.00,,
+ts-pattern.0.10.csv	96324914,,cpu_core/dtlb_load_misses.walk_active/u,1089560369,99.00,,
+ts-pattern.0.10.csv	1200019,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1089560369,99.00,,
+ts-pattern.0.10.csv	17709024,,cpu_core/ld_blocks.store_forward/u,1089560369,99.00,,
+ts-pattern.0.10.csv	39822,,page-faults,1090844553,100.00,,
+ts-pattern.0.10.rss	Command exited with non-zero status 2
+ts-pattern.0.10.rss	280848
+ts-pattern.0.11.csv	1190340684,,duration_time,1,100.00,,
+ts-pattern.0.11.csv	4478823930,,cpu_core/cycles/u,1178744445,99.00,,
+ts-pattern.0.11.csv	338839344,,cpu_core/cycles/k,1178744445,99.00,,
+ts-pattern.0.11.csv	9491956785,,cpu_core/instructions/u,1178744445,99.00,,
+ts-pattern.0.11.csv	101568806,,cpu_core/dtlb_load_misses.walk_active/u,1178744445,99.00,,
+ts-pattern.0.11.csv	1160638,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1178744445,99.00,,
+ts-pattern.0.11.csv	17776447,,cpu_core/ld_blocks.store_forward/u,1178744445,99.00,,
+ts-pattern.0.11.csv	39822,,page-faults,1180157711,100.00,,
+ts-pattern.0.11.rss	Command exited with non-zero status 2
+ts-pattern.0.11.rss	280844
+ts-pattern.0.12.csv	1138276721,,duration_time,1,100.00,,
+ts-pattern.0.12.csv	4475592637,,cpu_core/cycles/u,1126276860,99.00,,
+ts-pattern.0.12.csv	350426745,,cpu_core/cycles/k,1126276860,99.00,,
+ts-pattern.0.12.csv	9492227556,,cpu_core/instructions/u,1126276860,99.00,,
+ts-pattern.0.12.csv	97947161,,cpu_core/dtlb_load_misses.walk_active/u,1126276860,99.00,,
+ts-pattern.0.12.csv	1174596,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1126276860,99.00,,
+ts-pattern.0.12.csv	17729051,,cpu_core/ld_blocks.store_forward/u,1126276860,99.00,,
+ts-pattern.0.12.csv	39821,,page-faults,1127655724,100.00,,
+ts-pattern.0.12.rss	Command exited with non-zero status 2
+ts-pattern.0.12.rss	280844
+ts-pattern.0.13.csv	1067995432,,duration_time,1,100.00,,
+ts-pattern.0.13.csv	4237603957,,cpu_core/cycles/u,1058193053,99.00,,
+ts-pattern.0.13.csv	329130096,,cpu_core/cycles/k,1058193053,99.00,,
+ts-pattern.0.13.csv	9485260818,,cpu_core/instructions/u,1058193053,99.00,,
+ts-pattern.0.13.csv	89437565,,cpu_core/dtlb_load_misses.walk_active/u,1058193053,99.00,,
+ts-pattern.0.13.csv	1229030,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1058193053,99.00,,
+ts-pattern.0.13.csv	17694639,,cpu_core/ld_blocks.store_forward/u,1058193053,99.00,,
+ts-pattern.0.13.csv	39824,,page-faults,1058728250,100.00,,
+ts-pattern.0.13.rss	Command exited with non-zero status 2
+ts-pattern.0.13.rss	280840
+ts-pattern.0.14.csv	1096830537,,duration_time,1,100.00,,
+ts-pattern.0.14.csv	4386381440,,cpu_core/cycles/u,1086009354,99.00,,
+ts-pattern.0.14.csv	365827700,,cpu_core/cycles/k,1086009354,99.00,,
+ts-pattern.0.14.csv	9492224102,,cpu_core/instructions/u,1086009354,99.00,,
+ts-pattern.0.14.csv	94287897,,cpu_core/dtlb_load_misses.walk_active/u,1086009354,99.00,,
+ts-pattern.0.14.csv	1170801,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1086009354,99.00,,
+ts-pattern.0.14.csv	17697753,,cpu_core/ld_blocks.store_forward/u,1086009354,99.00,,
+ts-pattern.0.14.csv	39821,,page-faults,1087342988,100.00,,
+ts-pattern.0.14.rss	Command exited with non-zero status 2
+ts-pattern.0.14.rss	280848
+ts-pattern.0.15.csv	1159569764,,duration_time,1,100.00,,
+ts-pattern.0.15.csv	4482498132,,cpu_core/cycles/u,1148119666,99.00,,
+ts-pattern.0.15.csv	346899608,,cpu_core/cycles/k,1148119666,99.00,,
+ts-pattern.0.15.csv	9491601660,,cpu_core/instructions/u,1148119666,99.00,,
+ts-pattern.0.15.csv	98246421,,cpu_core/dtlb_load_misses.walk_active/u,1148119666,99.00,,
+ts-pattern.0.15.csv	1157235,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1148119666,99.00,,
+ts-pattern.0.15.csv	17723449,,cpu_core/ld_blocks.store_forward/u,1148119666,99.00,,
+ts-pattern.0.15.csv	39821,,page-faults,1149442588,100.00,,
+ts-pattern.0.15.rss	Command exited with non-zero status 2
+ts-pattern.0.15.rss	280844
+ts-pattern.0.16.csv	1123605942,,duration_time,1,100.00,,
+ts-pattern.0.16.csv	4628435419,,cpu_core/cycles/u,1112737204,99.00,,
+ts-pattern.0.16.csv	361367957,,cpu_core/cycles/k,1112737204,99.00,,
+ts-pattern.0.16.csv	9492450016,,cpu_core/instructions/u,1112737204,99.00,,
+ts-pattern.0.16.csv	104269871,,cpu_core/dtlb_load_misses.walk_active/u,1112737204,99.00,,
+ts-pattern.0.16.csv	1178558,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1112737204,99.00,,
+ts-pattern.0.16.csv	17750624,,cpu_core/ld_blocks.store_forward/u,1112737204,99.00,,
+ts-pattern.0.16.csv	39823,,page-faults,1114136575,100.00,,
+ts-pattern.0.16.rss	Command exited with non-zero status 2
+ts-pattern.0.16.rss	280844
+ts-pattern.0.17.csv	1066041998,,duration_time,1,100.00,,
+ts-pattern.0.17.csv	4538613638,,cpu_core/cycles/u,1055264470,99.00,,
+ts-pattern.0.17.csv	366428012,,cpu_core/cycles/k,1055264470,99.00,,
+ts-pattern.0.17.csv	9493231194,,cpu_core/instructions/u,1055264470,99.00,,
+ts-pattern.0.17.csv	102597158,,cpu_core/dtlb_load_misses.walk_active/u,1055264470,99.00,,
+ts-pattern.0.17.csv	1270475,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1055264470,99.00,,
+ts-pattern.0.17.csv	17700630,,cpu_core/ld_blocks.store_forward/u,1055264470,99.00,,
+ts-pattern.0.17.csv	39820,,page-faults,1056668462,100.00,,
+ts-pattern.0.17.rss	Command exited with non-zero status 2
+ts-pattern.0.17.rss	280844
+ts-pattern.0.18.csv	1128538482,,duration_time,1,100.00,,
+ts-pattern.0.18.csv	4488250553,,cpu_core/cycles/u,1117754391,99.00,,
+ts-pattern.0.18.csv	345408638,,cpu_core/cycles/k,1117754391,99.00,,
+ts-pattern.0.18.csv	9488927529,,cpu_core/instructions/u,1117754391,99.00,,
+ts-pattern.0.18.csv	101926815,,cpu_core/dtlb_load_misses.walk_active/u,1117754391,99.00,,
+ts-pattern.0.18.csv	1180707,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1117754391,99.00,,
+ts-pattern.0.18.csv	17713948,,cpu_core/ld_blocks.store_forward/u,1117754391,99.00,,
+ts-pattern.0.18.csv	39822,,page-faults,1118722991,100.00,,
+ts-pattern.0.18.rss	Command exited with non-zero status 2
+ts-pattern.0.18.rss	280844
+ts-pattern.0.19.csv	1176450058,,duration_time,1,100.00,,
+ts-pattern.0.19.csv	4526109340,,cpu_core/cycles/u,1166341149,99.00,,
+ts-pattern.0.19.csv	343459600,,cpu_core/cycles/k,1166341149,99.00,,
+ts-pattern.0.19.csv	9486802463,,cpu_core/instructions/u,1166341149,99.00,,
+ts-pattern.0.19.csv	108980445,,cpu_core/dtlb_load_misses.walk_active/u,1166341149,99.00,,
+ts-pattern.0.19.csv	1323403,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1166341149,99.00,,
+ts-pattern.0.19.csv	17728066,,cpu_core/ld_blocks.store_forward/u,1166341149,99.00,,
+ts-pattern.0.19.csv	39821,,page-faults,1167098753,100.00,,
+ts-pattern.0.19.rss	Command exited with non-zero status 2
+ts-pattern.0.19.rss	280848
+ts-pattern.0.2.csv	1106643895,,duration_time,1,100.00,,
+ts-pattern.0.2.csv	4542430525,,cpu_core/cycles/u,1095804323,99.00,,
+ts-pattern.0.2.csv	341640816,,cpu_core/cycles/k,1095804323,99.00,,
+ts-pattern.0.2.csv	9492689234,,cpu_core/instructions/u,1095804323,99.00,,
+ts-pattern.0.2.csv	103120115,,cpu_core/dtlb_load_misses.walk_active/u,1095804323,99.00,,
+ts-pattern.0.2.csv	1170295,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1095804323,99.00,,
+ts-pattern.0.2.csv	17760206,,cpu_core/ld_blocks.store_forward/u,1095804323,99.00,,
+ts-pattern.0.2.csv	39822,,page-faults,1097195145,100.00,,
+ts-pattern.0.2.rss	Command exited with non-zero status 2
+ts-pattern.0.2.rss	280848
+ts-pattern.0.20.csv	1103046245,,duration_time,1,100.00,,
+ts-pattern.0.20.csv	4645006286,,cpu_core/cycles/u,1092305114,99.00,,
+ts-pattern.0.20.csv	364837401,,cpu_core/cycles/k,1092305114,99.00,,
+ts-pattern.0.20.csv	9492435300,,cpu_core/instructions/u,1092305114,99.00,,
+ts-pattern.0.20.csv	107080116,,cpu_core/dtlb_load_misses.walk_active/u,1092305114,99.00,,
+ts-pattern.0.20.csv	1193584,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1092305114,99.00,,
+ts-pattern.0.20.csv	17755695,,cpu_core/ld_blocks.store_forward/u,1092305114,99.00,,
+ts-pattern.0.20.csv	39824,,page-faults,1093657516,100.00,,
+ts-pattern.0.20.rss	Command exited with non-zero status 2
+ts-pattern.0.20.rss	280848
+ts-pattern.0.3.csv	1047038640,,duration_time,1,100.00,,
+ts-pattern.0.3.csv	4440302557,,cpu_core/cycles/u,1038011105,99.00,,
+ts-pattern.0.3.csv	357408660,,cpu_core/cycles/k,1038011105,99.00,,
+ts-pattern.0.3.csv	9484931734,,cpu_core/instructions/u,1038011105,99.00,,
+ts-pattern.0.3.csv	95583558,,cpu_core/dtlb_load_misses.walk_active/u,1038011105,99.00,,
+ts-pattern.0.3.csv	1220811,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1038011105,99.00,,
+ts-pattern.0.3.csv	17669094,,cpu_core/ld_blocks.store_forward/u,1038011105,99.00,,
+ts-pattern.0.3.csv	39822,,page-faults,1038495450,100.00,,
+ts-pattern.0.3.rss	Command exited with non-zero status 2
+ts-pattern.0.3.rss	280844
+ts-pattern.0.4.csv	1067981836,,duration_time,1,100.00,,
+ts-pattern.0.4.csv	4553827037,,cpu_core/cycles/u,1058483229,99.00,,
+ts-pattern.0.4.csv	352346658,,cpu_core/cycles/k,1058483229,99.00,,
+ts-pattern.0.4.csv	9486073159,,cpu_core/instructions/u,1058483229,99.00,,
+ts-pattern.0.4.csv	106176825,,cpu_core/dtlb_load_misses.walk_active/u,1058483229,99.00,,
+ts-pattern.0.4.csv	1348739,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1058483229,99.00,,
+ts-pattern.0.4.csv	17690248,,cpu_core/ld_blocks.store_forward/u,1058483229,99.00,,
+ts-pattern.0.4.csv	39821,,page-faults,1059100155,100.00,,
+ts-pattern.0.4.rss	Command exited with non-zero status 2
+ts-pattern.0.4.rss	280844
+ts-pattern.0.5.csv	1088810105,,duration_time,1,100.00,,
+ts-pattern.0.5.csv	4546071018,,cpu_core/cycles/u,1078269259,99.00,,
+ts-pattern.0.5.csv	350490639,,cpu_core/cycles/k,1078269259,99.00,,
+ts-pattern.0.5.csv	9492127391,,cpu_core/instructions/u,1078269259,99.00,,
+ts-pattern.0.5.csv	101631469,,cpu_core/dtlb_load_misses.walk_active/u,1078269259,99.00,,
+ts-pattern.0.5.csv	1203766,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1078269259,99.00,,
+ts-pattern.0.5.csv	17747792,,cpu_core/ld_blocks.store_forward/u,1078269259,99.00,,
+ts-pattern.0.5.csv	39822,,page-faults,1079581851,100.00,,
+ts-pattern.0.5.rss	Command exited with non-zero status 2
+ts-pattern.0.5.rss	280844
+ts-pattern.0.6.csv	1030276760,,duration_time,1,100.00,,
+ts-pattern.0.6.csv	4365176745,,cpu_core/cycles/u,1021287672,99.00,,
+ts-pattern.0.6.csv	340868296,,cpu_core/cycles/k,1021287672,99.00,,
+ts-pattern.0.6.csv	9486380865,,cpu_core/instructions/u,1021287672,99.00,,
+ts-pattern.0.6.csv	87802395,,cpu_core/dtlb_load_misses.walk_active/u,1021287672,99.00,,
+ts-pattern.0.6.csv	1131845,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1021287672,99.00,,
+ts-pattern.0.6.csv	17654942,,cpu_core/ld_blocks.store_forward/u,1021287672,99.00,,
+ts-pattern.0.6.csv	39820,,page-faults,1021884971,100.00,,
+ts-pattern.0.6.rss	Command exited with non-zero status 2
+ts-pattern.0.6.rss	280848
+ts-pattern.0.7.csv	1018840220,,duration_time,1,100.00,,
+ts-pattern.0.7.csv	4307101856,,cpu_core/cycles/u,1009563182,99.00,,
+ts-pattern.0.7.csv	345327034,,cpu_core/cycles/k,1009563182,99.00,,
+ts-pattern.0.7.csv	9486033807,,cpu_core/instructions/u,1009563182,99.00,,
+ts-pattern.0.7.csv	90966169,,cpu_core/dtlb_load_misses.walk_active/u,1009563182,99.00,,
+ts-pattern.0.7.csv	1290251,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1009563182,99.00,,
+ts-pattern.0.7.csv	17617119,,cpu_core/ld_blocks.store_forward/u,1009563182,99.00,,
+ts-pattern.0.7.csv	39824,,page-faults,1010124799,100.00,,
+ts-pattern.0.7.rss	Command exited with non-zero status 2
+ts-pattern.0.7.rss	280844
+ts-pattern.0.8.csv	1101247979,,duration_time,1,100.00,,
+ts-pattern.0.8.csv	4539615674,,cpu_core/cycles/u,1090309242,99.00,,
+ts-pattern.0.8.csv	357022188,,cpu_core/cycles/k,1090309242,99.00,,
+ts-pattern.0.8.csv	9491450401,,cpu_core/instructions/u,1090309242,99.00,,
+ts-pattern.0.8.csv	103913393,,cpu_core/dtlb_load_misses.walk_active/u,1090309242,99.00,,
+ts-pattern.0.8.csv	1215497,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1090309242,99.00,,
+ts-pattern.0.8.csv	17727926,,cpu_core/ld_blocks.store_forward/u,1090309242,99.00,,
+ts-pattern.0.8.csv	39822,,page-faults,1091557047,100.00,,
+ts-pattern.0.8.rss	Command exited with non-zero status 2
+ts-pattern.0.8.rss	280848
+ts-pattern.0.9.csv	1090513880,,duration_time,1,100.00,,
+ts-pattern.0.9.csv	4470223595,,cpu_core/cycles/u,1080104906,99.00,,
+ts-pattern.0.9.csv	349098843,,cpu_core/cycles/k,1080104906,99.00,,
+ts-pattern.0.9.csv	9491434364,,cpu_core/instructions/u,1080104906,99.00,,
+ts-pattern.0.9.csv	101183147,,cpu_core/dtlb_load_misses.walk_active/u,1080104906,99.00,,
+ts-pattern.0.9.csv	1231175,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1080104906,99.00,,
+ts-pattern.0.9.csv	17729382,,cpu_core/ld_blocks.store_forward/u,1080104906,99.00,,
+ts-pattern.0.9.csv	39822,,page-faults,1081336162,100.00,,
+ts-pattern.0.9.rss	Command exited with non-zero status 2
+ts-pattern.0.9.rss	280844
+ts-pattern.1.1.csv	1070087692,,duration_time,1,100.00,,
+ts-pattern.1.1.csv	4487121897,,cpu_core/cycles/u,1061766238,99.00,,
+ts-pattern.1.1.csv	355794333,,cpu_core/cycles/k,1061766238,99.00,,
+ts-pattern.1.1.csv	9485399727,,cpu_core/instructions/u,1061766238,99.00,,
+ts-pattern.1.1.csv	89577178,,cpu_core/dtlb_load_misses.walk_active/u,1061766238,99.00,,
+ts-pattern.1.1.csv	938918,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1061766238,99.00,,
+ts-pattern.1.1.csv	17649259,,cpu_core/ld_blocks.store_forward/u,1061766238,99.00,,
+ts-pattern.1.1.csv	39761,,page-faults,1062299457,100.00,,
+ts-pattern.1.1.rss	Command exited with non-zero status 2
+ts-pattern.1.1.rss	280844
+ts-pattern.1.10.csv	1140425528,,duration_time,1,100.00,,
+ts-pattern.1.10.csv	4507919641,,cpu_core/cycles/u,1129033334,99.00,,
+ts-pattern.1.10.csv	343188321,,cpu_core/cycles/k,1129033334,99.00,,
+ts-pattern.1.10.csv	9492239442,,cpu_core/instructions/u,1129033334,99.00,,
+ts-pattern.1.10.csv	89323754,,cpu_core/dtlb_load_misses.walk_active/u,1129033334,99.00,,
+ts-pattern.1.10.csv	878658,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1129033334,99.00,,
+ts-pattern.1.10.csv	17727223,,cpu_core/ld_blocks.store_forward/u,1129033334,99.00,,
+ts-pattern.1.10.csv	39760,,page-faults,1130411202,100.00,,
+ts-pattern.1.10.rss	Command exited with non-zero status 2
+ts-pattern.1.10.rss	280848
+ts-pattern.1.11.csv	1095745828,,duration_time,1,100.00,,
+ts-pattern.1.11.csv	4543161306,,cpu_core/cycles/u,1085450606,99.00,,
+ts-pattern.1.11.csv	359185743,,cpu_core/cycles/k,1085450606,99.00,,
+ts-pattern.1.11.csv	9492308303,,cpu_core/instructions/u,1085450606,99.00,,
+ts-pattern.1.11.csv	91714323,,cpu_core/dtlb_load_misses.walk_active/u,1085450606,99.00,,
+ts-pattern.1.11.csv	873715,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1085450606,99.00,,
+ts-pattern.1.11.csv	17721593,,cpu_core/ld_blocks.store_forward/u,1085450606,99.00,,
+ts-pattern.1.11.csv	39760,,page-faults,1086771182,100.00,,
+ts-pattern.1.11.rss	Command exited with non-zero status 2
+ts-pattern.1.11.rss	280844
+ts-pattern.1.12.csv	1118631575,,duration_time,1,100.00,,
+ts-pattern.1.12.csv	4380474905,,cpu_core/cycles/u,1107478465,99.00,,
+ts-pattern.1.12.csv	387753367,,cpu_core/cycles/k,1107478465,99.00,,
+ts-pattern.1.12.csv	9491919003,,cpu_core/instructions/u,1107478465,99.00,,
+ts-pattern.1.12.csv	84338352,,cpu_core/dtlb_load_misses.walk_active/u,1107478465,99.00,,
+ts-pattern.1.12.csv	922730,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1107478465,99.00,,
+ts-pattern.1.12.csv	17678849,,cpu_core/ld_blocks.store_forward/u,1107478465,99.00,,
+ts-pattern.1.12.csv	39763,,page-faults,1108791052,100.00,,
+ts-pattern.1.12.rss	Command exited with non-zero status 2
+ts-pattern.1.12.rss	280844
+ts-pattern.1.13.csv	1181653730,,duration_time,1,100.00,,
+ts-pattern.1.13.csv	4443180423,,cpu_core/cycles/u,1172360508,99.00,,
+ts-pattern.1.13.csv	329962483,,cpu_core/cycles/k,1172360508,99.00,,
+ts-pattern.1.13.csv	9485355036,,cpu_core/instructions/u,1172360508,99.00,,
+ts-pattern.1.13.csv	89072218,,cpu_core/dtlb_load_misses.walk_active/u,1172360508,99.00,,
+ts-pattern.1.13.csv	873155,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1172360508,99.00,,
+ts-pattern.1.13.csv	17706157,,cpu_core/ld_blocks.store_forward/u,1172360508,99.00,,
+ts-pattern.1.13.csv	39759,,page-faults,1172932614,100.00,,
+ts-pattern.1.13.rss	Command exited with non-zero status 2
+ts-pattern.1.13.rss	280844
+ts-pattern.1.14.csv	1137235212,,duration_time,1,100.00,,
+ts-pattern.1.14.csv	4481854409,,cpu_core/cycles/u,1126167378,99.00,,
+ts-pattern.1.14.csv	346625643,,cpu_core/cycles/k,1126167378,99.00,,
+ts-pattern.1.14.csv	9492643015,,cpu_core/instructions/u,1126167378,99.00,,
+ts-pattern.1.14.csv	88534642,,cpu_core/dtlb_load_misses.walk_active/u,1126167378,99.00,,
+ts-pattern.1.14.csv	914810,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1126167378,99.00,,
+ts-pattern.1.14.csv	17718277,,cpu_core/ld_blocks.store_forward/u,1126167378,99.00,,
+ts-pattern.1.14.csv	39761,,page-faults,1127589505,100.00,,
+ts-pattern.1.14.rss	Command exited with non-zero status 2
+ts-pattern.1.14.rss	280848
+ts-pattern.1.15.csv	1190354298,,duration_time,1,100.00,,
+ts-pattern.1.15.csv	4489427141,,cpu_core/cycles/u,1178894161,99.00,,
+ts-pattern.1.15.csv	344640354,,cpu_core/cycles/k,1178894161,99.00,,
+ts-pattern.1.15.csv	9486511087,,cpu_core/instructions/u,1178894161,99.00,,
+ts-pattern.1.15.csv	88989403,,cpu_core/dtlb_load_misses.walk_active/u,1178894161,99.00,,
+ts-pattern.1.15.csv	865312,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1178894161,99.00,,
+ts-pattern.1.15.csv	17699439,,cpu_core/ld_blocks.store_forward/u,1178894161,99.00,,
+ts-pattern.1.15.csv	39760,,page-faults,1179610437,100.00,,
+ts-pattern.1.15.rss	Command exited with non-zero status 2
+ts-pattern.1.15.rss	280848
+ts-pattern.1.16.csv	1182089986,,duration_time,1,100.00,,
+ts-pattern.1.16.csv	4479906739,,cpu_core/cycles/u,1171759121,99.00,,
+ts-pattern.1.16.csv	342446206,,cpu_core/cycles/k,1171759121,99.00,,
+ts-pattern.1.16.csv	9488935055,,cpu_core/instructions/u,1171759121,99.00,,
+ts-pattern.1.16.csv	90630040,,cpu_core/dtlb_load_misses.walk_active/u,1171759121,99.00,,
+ts-pattern.1.16.csv	916533,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1171759121,99.00,,
+ts-pattern.1.16.csv	17711006,,cpu_core/ld_blocks.store_forward/u,1171759121,99.00,,
+ts-pattern.1.16.csv	39760,,page-faults,1172755615,100.00,,
+ts-pattern.1.16.rss	Command exited with non-zero status 2
+ts-pattern.1.16.rss	280848
+ts-pattern.1.17.csv	1121850119,,duration_time,1,100.00,,
+ts-pattern.1.17.csv	4502315194,,cpu_core/cycles/u,1111336536,99.00,,
+ts-pattern.1.17.csv	351410179,,cpu_core/cycles/k,1111336536,99.00,,
+ts-pattern.1.17.csv	9489830223,,cpu_core/instructions/u,1111336536,99.00,,
+ts-pattern.1.17.csv	90608679,,cpu_core/dtlb_load_misses.walk_active/u,1111336536,99.00,,
+ts-pattern.1.17.csv	935800,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1111336536,99.00,,
+ts-pattern.1.17.csv	17715757,,cpu_core/ld_blocks.store_forward/u,1111336536,99.00,,
+ts-pattern.1.17.csv	39760,,page-faults,1112393825,100.00,,
+ts-pattern.1.17.rss	Command exited with non-zero status 2
+ts-pattern.1.17.rss	280844
+ts-pattern.1.18.csv	1158138140,,duration_time,1,100.00,,
+ts-pattern.1.18.csv	4563450686,,cpu_core/cycles/u,1147778966,99.00,,
+ts-pattern.1.18.csv	341878635,,cpu_core/cycles/k,1147778966,99.00,,
+ts-pattern.1.18.csv	9491602094,,cpu_core/instructions/u,1147778966,99.00,,
+ts-pattern.1.18.csv	95904708,,cpu_core/dtlb_load_misses.walk_active/u,1147778966,99.00,,
+ts-pattern.1.18.csv	941404,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1147778966,99.00,,
+ts-pattern.1.18.csv	17760132,,cpu_core/ld_blocks.store_forward/u,1147778966,99.00,,
+ts-pattern.1.18.csv	39760,,page-faults,1149098831,100.00,,
+ts-pattern.1.18.rss	Command exited with non-zero status 2
+ts-pattern.1.18.rss	280848
+ts-pattern.1.19.csv	1191872913,,duration_time,1,100.00,,
+ts-pattern.1.19.csv	4470204899,,cpu_core/cycles/u,1181116485,99.00,,
+ts-pattern.1.19.csv	328857051,,cpu_core/cycles/k,1181116485,99.00,,
+ts-pattern.1.19.csv	9492072814,,cpu_core/instructions/u,1181116485,99.00,,
+ts-pattern.1.19.csv	88097060,,cpu_core/dtlb_load_misses.walk_active/u,1181116485,99.00,,
+ts-pattern.1.19.csv	931304,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1181116485,99.00,,
+ts-pattern.1.19.csv	17710822,,cpu_core/ld_blocks.store_forward/u,1181116485,99.00,,
+ts-pattern.1.19.csv	39760,,page-faults,1182531886,100.00,,
+ts-pattern.1.19.rss	Command exited with non-zero status 2
+ts-pattern.1.19.rss	280848
+ts-pattern.1.2.csv	1137105198,,duration_time,1,100.00,,
+ts-pattern.1.2.csv	4717875076,,cpu_core/cycles/u,1127047334,99.00,,
+ts-pattern.1.2.csv	375817618,,cpu_core/cycles/k,1127047334,99.00,,
+ts-pattern.1.2.csv	9492751671,,cpu_core/instructions/u,1127047334,99.00,,
+ts-pattern.1.2.csv	96507791,,cpu_core/dtlb_load_misses.walk_active/u,1127047334,99.00,,
+ts-pattern.1.2.csv	876790,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1127047334,99.00,,
+ts-pattern.1.2.csv	17743147,,cpu_core/ld_blocks.store_forward/u,1127047334,99.00,,
+ts-pattern.1.2.csv	39761,,page-faults,1128471419,100.00,,
+ts-pattern.1.2.rss	Command exited with non-zero status 2
+ts-pattern.1.2.rss	280844
+ts-pattern.1.20.csv	1148318125,,duration_time,1,100.00,,
+ts-pattern.1.20.csv	4371864954,,cpu_core/cycles/u,1137314374,99.00,,
+ts-pattern.1.20.csv	333533038,,cpu_core/cycles/k,1137314374,99.00,,
+ts-pattern.1.20.csv	9492053628,,cpu_core/instructions/u,1137314374,99.00,,
+ts-pattern.1.20.csv	86292900,,cpu_core/dtlb_load_misses.walk_active/u,1137314374,99.00,,
+ts-pattern.1.20.csv	917285,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1137314374,99.00,,
+ts-pattern.1.20.csv	17690693,,cpu_core/ld_blocks.store_forward/u,1137314374,99.00,,
+ts-pattern.1.20.csv	39760,,page-faults,1138680695,100.00,,
+ts-pattern.1.20.rss	Command exited with non-zero status 2
+ts-pattern.1.20.rss	280844
+ts-pattern.1.3.csv	1097720209,,duration_time,1,100.00,,
+ts-pattern.1.3.csv	4554713237,,cpu_core/cycles/u,1088043179,99.00,,
+ts-pattern.1.3.csv	344863532,,cpu_core/cycles/k,1088043179,99.00,,
+ts-pattern.1.3.csv	9493493768,,cpu_core/instructions/u,1088043179,99.00,,
+ts-pattern.1.3.csv	92278195,,cpu_core/dtlb_load_misses.walk_active/u,1088043179,99.00,,
+ts-pattern.1.3.csv	903120,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1088043179,99.00,,
+ts-pattern.1.3.csv	17732460,,cpu_core/ld_blocks.store_forward/u,1088043179,99.00,,
+ts-pattern.1.3.csv	39760,,page-faults,1089502944,100.00,,
+ts-pattern.1.3.rss	Command exited with non-zero status 2
+ts-pattern.1.3.rss	280844
+ts-pattern.1.4.csv	1060743123,,duration_time,1,100.00,,
+ts-pattern.1.4.csv	4508698000,,cpu_core/cycles/u,1051674642,99.00,,
+ts-pattern.1.4.csv	338554136,,cpu_core/cycles/k,1051674642,99.00,,
+ts-pattern.1.4.csv	9486021051,,cpu_core/instructions/u,1051674642,99.00,,
+ts-pattern.1.4.csv	89566451,,cpu_core/dtlb_load_misses.walk_active/u,1051674642,99.00,,
+ts-pattern.1.4.csv	986848,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1051674642,99.00,,
+ts-pattern.1.4.csv	17682626,,cpu_core/ld_blocks.store_forward/u,1051674642,99.00,,
+ts-pattern.1.4.csv	39759,,page-faults,1052249136,100.00,,
+ts-pattern.1.4.rss	Command exited with non-zero status 2
+ts-pattern.1.4.rss	280848
+ts-pattern.1.5.csv	1086100704,,duration_time,1,100.00,,
+ts-pattern.1.5.csv	4452655663,,cpu_core/cycles/u,1075567878,99.00,,
+ts-pattern.1.5.csv	334793878,,cpu_core/cycles/k,1075567878,99.00,,
+ts-pattern.1.5.csv	9493160205,,cpu_core/instructions/u,1075567878,99.00,,
+ts-pattern.1.5.csv	92448782,,cpu_core/dtlb_load_misses.walk_active/u,1075567878,99.00,,
+ts-pattern.1.5.csv	975238,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1075567878,99.00,,
+ts-pattern.1.5.csv	17707453,,cpu_core/ld_blocks.store_forward/u,1075567878,99.00,,
+ts-pattern.1.5.csv	39761,,page-faults,1076990218,100.00,,
+ts-pattern.1.5.rss	Command exited with non-zero status 2
+ts-pattern.1.5.rss	280844
+ts-pattern.1.6.csv	1051974493,,duration_time,1,100.00,,
+ts-pattern.1.6.csv	4265754702,,cpu_core/cycles/u,1042369332,99.00,,
+ts-pattern.1.6.csv	324707229,,cpu_core/cycles/k,1042369332,99.00,,
+ts-pattern.1.6.csv	9492710964,,cpu_core/instructions/u,1042369332,99.00,,
+ts-pattern.1.6.csv	76655992,,cpu_core/dtlb_load_misses.walk_active/u,1042369332,99.00,,
+ts-pattern.1.6.csv	895387,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1042369332,99.00,,
+ts-pattern.1.6.csv	17685998,,cpu_core/ld_blocks.store_forward/u,1042369332,99.00,,
+ts-pattern.1.6.csv	39761,,page-faults,1043689265,100.00,,
+ts-pattern.1.6.rss	Command exited with non-zero status 2
+ts-pattern.1.6.rss	280848
+ts-pattern.1.7.csv	1034412070,,duration_time,1,100.00,,
+ts-pattern.1.7.csv	4284004930,,cpu_core/cycles/u,1024278324,99.00,,
+ts-pattern.1.7.csv	332287118,,cpu_core/cycles/k,1024278324,99.00,,
+ts-pattern.1.7.csv	9493068282,,cpu_core/instructions/u,1024278324,99.00,,
+ts-pattern.1.7.csv	79186744,,cpu_core/dtlb_load_misses.walk_active/u,1024278324,99.00,,
+ts-pattern.1.7.csv	913576,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1024278324,99.00,,
+ts-pattern.1.7.csv	17673967,,cpu_core/ld_blocks.store_forward/u,1024278324,99.00,,
+ts-pattern.1.7.csv	39760,,page-faults,1025619321,100.00,,
+ts-pattern.1.7.rss	Command exited with non-zero status 2
+ts-pattern.1.7.rss	280844
+ts-pattern.1.8.csv	1080950300,,duration_time,1,100.00,,
+ts-pattern.1.8.csv	4448352547,,cpu_core/cycles/u,1070138587,99.00,,
+ts-pattern.1.8.csv	351806208,,cpu_core/cycles/k,1070138587,99.00,,
+ts-pattern.1.8.csv	9492581962,,cpu_core/instructions/u,1070138587,99.00,,
+ts-pattern.1.8.csv	88908174,,cpu_core/dtlb_load_misses.walk_active/u,1070138587,99.00,,
+ts-pattern.1.8.csv	924313,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1070138587,99.00,,
+ts-pattern.1.8.csv	17713824,,cpu_core/ld_blocks.store_forward/u,1070138587,99.00,,
+ts-pattern.1.8.csv	39761,,page-faults,1071483714,100.00,,
+ts-pattern.1.8.rss	Command exited with non-zero status 2
+ts-pattern.1.8.rss	280844
+ts-pattern.1.9.csv	1126934891,,duration_time,1,100.00,,
+ts-pattern.1.9.csv	4438865292,,cpu_core/cycles/u,1118202804,99.00,,
+ts-pattern.1.9.csv	345182709,,cpu_core/cycles/k,1118202804,99.00,,
+ts-pattern.1.9.csv	9485125246,,cpu_core/instructions/u,1118202804,99.00,,
+ts-pattern.1.9.csv	85497781,,cpu_core/dtlb_load_misses.walk_active/u,1118202804,99.00,,
+ts-pattern.1.9.csv	859430,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1118202804,99.00,,
+ts-pattern.1.9.csv	17712601,,cpu_core/ld_blocks.store_forward/u,1118202804,99.00,,
+ts-pattern.1.9.csv	39760,,page-faults,1118713670,100.00,,
+ts-pattern.1.9.rss	Command exited with non-zero status 2
+ts-pattern.1.9.rss	280844
+ts-pattern.2.1.csv	1063200693,,duration_time,1,100.00,,
+ts-pattern.2.1.csv	4208971571,,cpu_core/cycles/u,1055022979,99.00,,
+ts-pattern.2.1.csv	303302680,,cpu_core/cycles/k,1055022979,99.00,,
+ts-pattern.2.1.csv	9559001847,,cpu_core/instructions/u,1055022979,99.00,,
+ts-pattern.2.1.csv	82319379,,cpu_core/dtlb_load_misses.walk_active/u,1055022979,99.00,,
+ts-pattern.2.1.csv	1101044,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1055022979,99.00,,
+ts-pattern.2.1.csv	17654613,,cpu_core/ld_blocks.store_forward/u,1055022979,99.00,,
+ts-pattern.2.1.csv	14387,,page-faults,1055496787,100.00,,
+ts-pattern.2.1.rss	Command exited with non-zero status 2
+ts-pattern.2.1.rss	282404
+ts-pattern.2.10.csv	1098728313,,duration_time,1,100.00,,
+ts-pattern.2.10.csv	4488052401,,cpu_core/cycles/u,1088328460,99.00,,
+ts-pattern.2.10.csv	329463737,,cpu_core/cycles/k,1088328460,99.00,,
+ts-pattern.2.10.csv	9564292436,,cpu_core/instructions/u,1088328460,99.00,,
+ts-pattern.2.10.csv	100207734,,cpu_core/dtlb_load_misses.walk_active/u,1088328460,99.00,,
+ts-pattern.2.10.csv	1160984,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1088328460,99.00,,
+ts-pattern.2.10.csv	17738473,,cpu_core/ld_blocks.store_forward/u,1088328460,99.00,,
+ts-pattern.2.10.csv	14386,,page-faults,1089403861,100.00,,
+ts-pattern.2.10.rss	Command exited with non-zero status 2
+ts-pattern.2.10.rss	282400
+ts-pattern.2.11.csv	1076778873,,duration_time,1,100.00,,
+ts-pattern.2.11.csv	4533335430,,cpu_core/cycles/u,1065955671,99.00,,
+ts-pattern.2.11.csv	336378799,,cpu_core/cycles/k,1065955671,99.00,,
+ts-pattern.2.11.csv	9566937824,,cpu_core/instructions/u,1065955671,99.00,,
+ts-pattern.2.11.csv	100918076,,cpu_core/dtlb_load_misses.walk_active/u,1065955671,99.00,,
+ts-pattern.2.11.csv	1188939,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1065955671,99.00,,
+ts-pattern.2.11.csv	17745541,,cpu_core/ld_blocks.store_forward/u,1065955671,99.00,,
+ts-pattern.2.11.csv	14388,,page-faults,1067307580,100.00,,
+ts-pattern.2.11.rss	Command exited with non-zero status 2
+ts-pattern.2.11.rss	282404
+ts-pattern.2.12.csv	1030755178,,duration_time,1,100.00,,
+ts-pattern.2.12.csv	4359359783,,cpu_core/cycles/u,1020535375,99.00,,
+ts-pattern.2.12.csv	333920364,,cpu_core/cycles/k,1020535375,99.00,,
+ts-pattern.2.12.csv	9567962604,,cpu_core/instructions/u,1020535375,99.00,,
+ts-pattern.2.12.csv	91591525,,cpu_core/dtlb_load_misses.walk_active/u,1020535375,99.00,,
+ts-pattern.2.12.csv	1182178,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1020535375,99.00,,
+ts-pattern.2.12.csv	17696920,,cpu_core/ld_blocks.store_forward/u,1020535375,99.00,,
+ts-pattern.2.12.csv	14388,,page-faults,1021937008,100.00,,
+ts-pattern.2.12.rss	Command exited with non-zero status 2
+ts-pattern.2.12.rss	282404
+ts-pattern.2.13.csv	1188354631,,duration_time,1,100.00,,
+ts-pattern.2.13.csv	4438957417,,cpu_core/cycles/u,1177733963,99.00,,
+ts-pattern.2.13.csv	315742964,,cpu_core/cycles/k,1177733963,99.00,,
+ts-pattern.2.13.csv	9564578701,,cpu_core/instructions/u,1177733963,99.00,,
+ts-pattern.2.13.csv	95825273,,cpu_core/dtlb_load_misses.walk_active/u,1177733963,99.00,,
+ts-pattern.2.13.csv	1097147,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1177733963,99.00,,
+ts-pattern.2.13.csv	17727521,,cpu_core/ld_blocks.store_forward/u,1177733963,99.00,,
+ts-pattern.2.13.csv	14389,,page-faults,1178946514,100.00,,
+ts-pattern.2.13.rss	Command exited with non-zero status 2
+ts-pattern.2.13.rss	282404
+ts-pattern.2.14.csv	1086128622,,duration_time,1,100.00,,
+ts-pattern.2.14.csv	4277375718,,cpu_core/cycles/u,1075073080,99.00,,
+ts-pattern.2.14.csv	309365997,,cpu_core/cycles/k,1075073080,99.00,,
+ts-pattern.2.14.csv	9567012697,,cpu_core/instructions/u,1075073080,99.00,,
+ts-pattern.2.14.csv	92699658,,cpu_core/dtlb_load_misses.walk_active/u,1075073080,99.00,,
+ts-pattern.2.14.csv	1163827,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1075073080,99.00,,
+ts-pattern.2.14.csv	17706699,,cpu_core/ld_blocks.store_forward/u,1075073080,99.00,,
+ts-pattern.2.14.csv	14387,,page-faults,1076448820,100.00,,
+ts-pattern.2.14.rss	Command exited with non-zero status 2
+ts-pattern.2.14.rss	282404
+ts-pattern.2.15.csv	1038553107,,duration_time,1,100.00,,
+ts-pattern.2.15.csv	4367198645,,cpu_core/cycles/u,1026804127,99.00,,
+ts-pattern.2.15.csv	322807616,,cpu_core/cycles/k,1026804127,99.00,,
+ts-pattern.2.15.csv	9564903000,,cpu_core/instructions/u,1026804127,99.00,,
+ts-pattern.2.15.csv	96637575,,cpu_core/dtlb_load_misses.walk_active/u,1026804127,99.00,,
+ts-pattern.2.15.csv	1219499,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1026804127,99.00,,
+ts-pattern.2.15.csv	17709186,,cpu_core/ld_blocks.store_forward/u,1026804127,99.00,,
+ts-pattern.2.15.csv	14388,,page-faults,1027892444,100.00,,
+ts-pattern.2.15.rss	Command exited with non-zero status 2
+ts-pattern.2.15.rss	282408
+ts-pattern.2.16.csv	1162615808,,duration_time,1,100.00,,
+ts-pattern.2.16.csv	4549265478,,cpu_core/cycles/u,1152142936,99.00,,
+ts-pattern.2.16.csv	330936332,,cpu_core/cycles/k,1152142936,99.00,,
+ts-pattern.2.16.csv	9559847401,,cpu_core/instructions/u,1152142936,99.00,,
+ts-pattern.2.16.csv	102014665,,cpu_core/dtlb_load_misses.walk_active/u,1152142936,99.00,,
+ts-pattern.2.16.csv	1162382,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1152142936,99.00,,
+ts-pattern.2.16.csv	17737084,,cpu_core/ld_blocks.store_forward/u,1152142936,99.00,,
+ts-pattern.2.16.csv	14386,,page-faults,1152751087,100.00,,
+ts-pattern.2.16.rss	Command exited with non-zero status 2
+ts-pattern.2.16.rss	282408
+ts-pattern.2.17.csv	1124951792,,duration_time,1,100.00,,
+ts-pattern.2.17.csv	4504643458,,cpu_core/cycles/u,1113408360,99.00,,
+ts-pattern.2.17.csv	326961350,,cpu_core/cycles/k,1113408360,99.00,,
+ts-pattern.2.17.csv	9566634250,,cpu_core/instructions/u,1113408360,99.00,,
+ts-pattern.2.17.csv	96809608,,cpu_core/dtlb_load_misses.walk_active/u,1113408360,99.00,,
+ts-pattern.2.17.csv	1150504,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1113408360,99.00,,
+ts-pattern.2.17.csv	17731189,,cpu_core/ld_blocks.store_forward/u,1113408360,99.00,,
+ts-pattern.2.17.csv	14388,,page-faults,1114791977,100.00,,
+ts-pattern.2.17.rss	Command exited with non-zero status 2
+ts-pattern.2.17.rss	282408
+ts-pattern.2.18.csv	1140106973,,duration_time,1,100.00,,
+ts-pattern.2.18.csv	4569877132,,cpu_core/cycles/u,1129889640,99.00,,
+ts-pattern.2.18.csv	333680106,,cpu_core/cycles/k,1129889640,99.00,,
+ts-pattern.2.18.csv	9561273788,,cpu_core/instructions/u,1129889640,99.00,,
+ts-pattern.2.18.csv	102774678,,cpu_core/dtlb_load_misses.walk_active/u,1129889640,99.00,,
+ts-pattern.2.18.csv	1183328,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1129889640,99.00,,
+ts-pattern.2.18.csv	17733284,,cpu_core/ld_blocks.store_forward/u,1129889640,99.00,,
+ts-pattern.2.18.csv	14389,,page-faults,1130647081,100.00,,
+ts-pattern.2.18.rss	Command exited with non-zero status 2
+ts-pattern.2.18.rss	282404
+ts-pattern.2.19.csv	1064558135,,duration_time,1,100.00,,
+ts-pattern.2.19.csv	4497599783,,cpu_core/cycles/u,1053441733,99.00,,
+ts-pattern.2.19.csv	332453650,,cpu_core/cycles/k,1053441733,99.00,,
+ts-pattern.2.19.csv	9567995168,,cpu_core/instructions/u,1053441733,99.00,,
+ts-pattern.2.19.csv	105495314,,cpu_core/dtlb_load_misses.walk_active/u,1053441733,99.00,,
+ts-pattern.2.19.csv	1378991,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1053441733,99.00,,
+ts-pattern.2.19.csv	17741955,,cpu_core/ld_blocks.store_forward/u,1053441733,99.00,,
+ts-pattern.2.19.csv	14388,,page-faults,1054895018,100.00,,
+ts-pattern.2.19.rss	Command exited with non-zero status 2
+ts-pattern.2.19.rss	282408
+ts-pattern.2.2.csv	1060977446,,duration_time,1,100.00,,
+ts-pattern.2.2.csv	4342739086,,cpu_core/cycles/u,1050655681,99.00,,
+ts-pattern.2.2.csv	313344629,,cpu_core/cycles/k,1050655681,99.00,,
+ts-pattern.2.2.csv	9566933470,,cpu_core/instructions/u,1050655681,99.00,,
+ts-pattern.2.2.csv	91789222,,cpu_core/dtlb_load_misses.walk_active/u,1050655681,99.00,,
+ts-pattern.2.2.csv	1231986,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1050655681,99.00,,
+ts-pattern.2.2.csv	17712307,,cpu_core/ld_blocks.store_forward/u,1050655681,99.00,,
+ts-pattern.2.2.csv	14389,,page-faults,1051991372,100.00,,
+ts-pattern.2.2.rss	Command exited with non-zero status 2
+ts-pattern.2.2.rss	282408
+ts-pattern.2.20.csv	1148460208,,duration_time,1,100.00,,
+ts-pattern.2.20.csv	4441617429,,cpu_core/cycles/u,1136376407,99.00,,
+ts-pattern.2.20.csv	325057793,,cpu_core/cycles/k,1136376407,99.00,,
+ts-pattern.2.20.csv	9566286737,,cpu_core/instructions/u,1136376407,99.00,,
+ts-pattern.2.20.csv	96509389,,cpu_core/dtlb_load_misses.walk_active/u,1136376407,99.00,,
+ts-pattern.2.20.csv	1190181,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1136376407,99.00,,
+ts-pattern.2.20.csv	17729415,,cpu_core/ld_blocks.store_forward/u,1136376407,99.00,,
+ts-pattern.2.20.csv	14387,,page-faults,1137743669,100.00,,
+ts-pattern.2.20.rss	Command exited with non-zero status 2
+ts-pattern.2.20.rss	282404
+ts-pattern.2.3.csv	1034380461,,duration_time,1,100.00,,
+ts-pattern.2.3.csv	4386359115,,cpu_core/cycles/u,1025341197,99.00,,
+ts-pattern.2.3.csv	327202458,,cpu_core/cycles/k,1025341197,99.00,,
+ts-pattern.2.3.csv	9559767188,,cpu_core/instructions/u,1025341197,99.00,,
+ts-pattern.2.3.csv	98086739,,cpu_core/dtlb_load_misses.walk_active/u,1025341197,99.00,,
+ts-pattern.2.3.csv	1272930,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1025341197,99.00,,
+ts-pattern.2.3.csv	17684024,,cpu_core/ld_blocks.store_forward/u,1025341197,99.00,,
+ts-pattern.2.3.csv	14388,,page-faults,1025886574,100.00,,
+ts-pattern.2.3.rss	Command exited with non-zero status 2
+ts-pattern.2.3.rss	282404
+ts-pattern.2.4.csv	1120280143,,duration_time,1,100.00,,
+ts-pattern.2.4.csv	4325727731,,cpu_core/cycles/u,1109672787,99.00,,
+ts-pattern.2.4.csv	295870965,,cpu_core/cycles/k,1109672787,99.00,,
+ts-pattern.2.4.csv	9566860478,,cpu_core/instructions/u,1109672787,99.00,,
+ts-pattern.2.4.csv	92618667,,cpu_core/dtlb_load_misses.walk_active/u,1109672787,99.00,,
+ts-pattern.2.4.csv	1151049,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1109672787,99.00,,
+ts-pattern.2.4.csv	17713070,,cpu_core/ld_blocks.store_forward/u,1109672787,99.00,,
+ts-pattern.2.4.csv	14389,,page-faults,1111070235,100.00,,
+ts-pattern.2.4.rss	Command exited with non-zero status 2
+ts-pattern.2.4.rss	282404
+ts-pattern.2.5.csv	1108029986,,duration_time,1,100.00,,
+ts-pattern.2.5.csv	4517021034,,cpu_core/cycles/u,1097012657,99.00,,
+ts-pattern.2.5.csv	347026137,,cpu_core/cycles/k,1097012657,99.00,,
+ts-pattern.2.5.csv	9567107302,,cpu_core/instructions/u,1097012657,99.00,,
+ts-pattern.2.5.csv	102786230,,cpu_core/dtlb_load_misses.walk_active/u,1097012657,99.00,,
+ts-pattern.2.5.csv	1137975,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1097012657,99.00,,
+ts-pattern.2.5.csv	17736411,,cpu_core/ld_blocks.store_forward/u,1097012657,99.00,,
+ts-pattern.2.5.csv	14389,,page-faults,1098432533,100.00,,
+ts-pattern.2.5.rss	Command exited with non-zero status 2
+ts-pattern.2.5.rss	282404
+ts-pattern.2.6.csv	1028046530,,duration_time,1,100.00,,
+ts-pattern.2.6.csv	4227796251,,cpu_core/cycles/u,1018111357,99.00,,
+ts-pattern.2.6.csv	301537793,,cpu_core/cycles/k,1018111357,99.00,,
+ts-pattern.2.6.csv	9567378484,,cpu_core/instructions/u,1018111357,99.00,,
+ts-pattern.2.6.csv	83667166,,cpu_core/dtlb_load_misses.walk_active/u,1018111357,99.00,,
+ts-pattern.2.6.csv	1110153,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1018111357,99.00,,
+ts-pattern.2.6.csv	17650601,,cpu_core/ld_blocks.store_forward/u,1018111357,99.00,,
+ts-pattern.2.6.csv	14389,,page-faults,1019460042,100.00,,
+ts-pattern.2.6.rss	Command exited with non-zero status 2
+ts-pattern.2.6.rss	282404
+ts-pattern.2.7.csv	1037943511,,duration_time,1,100.00,,
+ts-pattern.2.7.csv	4281373135,,cpu_core/cycles/u,1028150419,99.00,,
+ts-pattern.2.7.csv	308572312,,cpu_core/cycles/k,1028150419,99.00,,
+ts-pattern.2.7.csv	9567228441,,cpu_core/instructions/u,1028150419,99.00,,
+ts-pattern.2.7.csv	86978946,,cpu_core/dtlb_load_misses.walk_active/u,1028150419,99.00,,
+ts-pattern.2.7.csv	1129105,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1028150419,99.00,,
+ts-pattern.2.7.csv	17703898,,cpu_core/ld_blocks.store_forward/u,1028150419,99.00,,
+ts-pattern.2.7.csv	14389,,page-faults,1029497607,100.00,,
+ts-pattern.2.7.rss	Command exited with non-zero status 2
+ts-pattern.2.7.rss	282408
+ts-pattern.2.8.csv	1025342468,,duration_time,1,100.00,,
+ts-pattern.2.8.csv	4316994512,,cpu_core/cycles/u,1015516148,99.00,,
+ts-pattern.2.8.csv	319954405,,cpu_core/cycles/k,1015516148,99.00,,
+ts-pattern.2.8.csv	9560659975,,cpu_core/instructions/u,1015516148,99.00,,
+ts-pattern.2.8.csv	91166104,,cpu_core/dtlb_load_misses.walk_active/u,1015516148,99.00,,
+ts-pattern.2.8.csv	1165309,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1015516148,99.00,,
+ts-pattern.2.8.csv	17683455,,cpu_core/ld_blocks.store_forward/u,1015516148,99.00,,
+ts-pattern.2.8.csv	14388,,page-faults,1016156173,100.00,,
+ts-pattern.2.8.rss	Command exited with non-zero status 2
+ts-pattern.2.8.rss	282408
+ts-pattern.2.9.csv	1122334827,,duration_time,1,100.00,,
+ts-pattern.2.9.csv	4377103306,,cpu_core/cycles/u,1110763391,99.00,,
+ts-pattern.2.9.csv	316301492,,cpu_core/cycles/k,1110763391,99.00,,
+ts-pattern.2.9.csv	9566520029,,cpu_core/instructions/u,1110763391,99.00,,
+ts-pattern.2.9.csv	90785502,,cpu_core/dtlb_load_misses.walk_active/u,1110763391,99.00,,
+ts-pattern.2.9.csv	1084623,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1110763391,99.00,,
+ts-pattern.2.9.csv	17719083,,cpu_core/ld_blocks.store_forward/u,1110763391,99.00,,
+ts-pattern.2.9.csv	14388,,page-faults,1112135853,100.00,,
+ts-pattern.2.9.rss	Command exited with non-zero status 2
+ts-pattern.2.9.rss	282408
+ts-pattern.4.1.csv	1154456457,,duration_time,1,100.00,,
+ts-pattern.4.1.csv	4392310271,,cpu_core/cycles/u,1144750202,99.00,,
+ts-pattern.4.1.csv	332870962,,cpu_core/cycles/k,1144750202,99.00,,
+ts-pattern.4.1.csv	9458240638,,cpu_core/instructions/u,1144750202,99.00,,
+ts-pattern.4.1.csv	93823026,,cpu_core/dtlb_load_misses.walk_active/u,1144750202,99.00,,
+ts-pattern.4.1.csv	1144181,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1144750202,99.00,,
+ts-pattern.4.1.csv	12732702,,cpu_core/ld_blocks.store_forward/u,1144750202,99.00,,
+ts-pattern.4.1.csv	39822,,page-faults,1146113937,100.00,,
+ts-pattern.4.1.rss	Command exited with non-zero status 2
+ts-pattern.4.1.rss	280844
+ts-pattern.4.10.csv	1009610189,,duration_time,1,100.00,,
+ts-pattern.4.10.csv	4262594230,,cpu_core/cycles/u,998923841,99.00,,
+ts-pattern.4.10.csv	342463295,,cpu_core/cycles/k,998923841,99.00,,
+ts-pattern.4.10.csv	9459214475,,cpu_core/instructions/u,998923841,99.00,,
+ts-pattern.4.10.csv	89315303,,cpu_core/dtlb_load_misses.walk_active/u,998923841,99.00,,
+ts-pattern.4.10.csv	1270417,,cpu_core/mem_inst_retired.stlb_miss_loads/u,998923841,99.00,,
+ts-pattern.4.10.csv	12721051,,cpu_core/ld_blocks.store_forward/u,998923841,99.00,,
+ts-pattern.4.10.csv	39823,,page-faults,1000221287,100.00,,
+ts-pattern.4.10.rss	Command exited with non-zero status 2
+ts-pattern.4.10.rss	280844
+ts-pattern.4.11.csv	1159124673,,duration_time,1,100.00,,
+ts-pattern.4.11.csv	4608260490,,cpu_core/cycles/u,1149721606,99.00,,
+ts-pattern.4.11.csv	364440415,,cpu_core/cycles/k,1149721606,99.00,,
+ts-pattern.4.11.csv	9451727943,,cpu_core/instructions/u,1149721606,99.00,,
+ts-pattern.4.11.csv	107113591,,cpu_core/dtlb_load_misses.walk_active/u,1149721606,99.00,,
+ts-pattern.4.11.csv	1259298,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1149721606,99.00,,
+ts-pattern.4.11.csv	12783538,,cpu_core/ld_blocks.store_forward/u,1149721606,99.00,,
+ts-pattern.4.11.csv	39822,,page-faults,1150305257,100.00,,
+ts-pattern.4.11.rss	Command exited with non-zero status 2
+ts-pattern.4.11.rss	280844
+ts-pattern.4.12.csv	1114057812,,duration_time,1,100.00,,
+ts-pattern.4.12.csv	4457570745,,cpu_core/cycles/u,1103809750,99.00,,
+ts-pattern.4.12.csv	347484611,,cpu_core/cycles/k,1103809750,99.00,,
+ts-pattern.4.12.csv	9453095291,,cpu_core/instructions/u,1103809750,99.00,,
+ts-pattern.4.12.csv	97956560,,cpu_core/dtlb_load_misses.walk_active/u,1103809750,99.00,,
+ts-pattern.4.12.csv	1134445,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1103809750,99.00,,
+ts-pattern.4.12.csv	12741022,,cpu_core/ld_blocks.store_forward/u,1103809750,99.00,,
+ts-pattern.4.12.csv	39822,,page-faults,1104530465,100.00,,
+ts-pattern.4.12.rss	Command exited with non-zero status 2
+ts-pattern.4.12.rss	280844
+ts-pattern.4.13.csv	1033037963,,duration_time,1,100.00,,
+ts-pattern.4.13.csv	4257153326,,cpu_core/cycles/u,1020953235,99.00,,
+ts-pattern.4.13.csv	331646215,,cpu_core/cycles/k,1020953235,99.00,,
+ts-pattern.4.13.csv	9459475071,,cpu_core/instructions/u,1020953235,99.00,,
+ts-pattern.4.13.csv	87788170,,cpu_core/dtlb_load_misses.walk_active/u,1020953235,99.00,,
+ts-pattern.4.13.csv	1187983,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1020953235,99.00,,
+ts-pattern.4.13.csv	12759716,,cpu_core/ld_blocks.store_forward/u,1020953235,99.00,,
+ts-pattern.4.13.csv	39821,,page-faults,1022307056,100.00,,
+ts-pattern.4.13.rss	Command exited with non-zero status 2
+ts-pattern.4.13.rss	280844
+ts-pattern.4.14.csv	1028888427,,duration_time,1,100.00,,
+ts-pattern.4.14.csv	4336847668,,cpu_core/cycles/u,1016234069,99.00,,
+ts-pattern.4.14.csv	349136283,,cpu_core/cycles/k,1016234069,99.00,,
+ts-pattern.4.14.csv	9456948769,,cpu_core/instructions/u,1016234069,99.00,,
+ts-pattern.4.14.csv	87458712,,cpu_core/dtlb_load_misses.walk_active/u,1016234069,99.00,,
+ts-pattern.4.14.csv	1183681,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1016234069,99.00,,
+ts-pattern.4.14.csv	12740004,,cpu_core/ld_blocks.store_forward/u,1016234069,99.00,,
+ts-pattern.4.14.csv	39827,,page-faults,1017308597,100.00,,
+ts-pattern.4.14.rss	Command exited with non-zero status 2
+ts-pattern.4.14.rss	280844
+ts-pattern.4.15.csv	1106125601,,duration_time,1,100.00,,
+ts-pattern.4.15.csv	4604094168,,cpu_core/cycles/u,1095254262,99.00,,
+ts-pattern.4.15.csv	368741229,,cpu_core/cycles/k,1095254262,99.00,,
+ts-pattern.4.15.csv	9458542239,,cpu_core/instructions/u,1095254262,99.00,,
+ts-pattern.4.15.csv	106194380,,cpu_core/dtlb_load_misses.walk_active/u,1095254262,99.00,,
+ts-pattern.4.15.csv	1163117,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1095254262,99.00,,
+ts-pattern.4.15.csv	12778582,,cpu_core/ld_blocks.store_forward/u,1095254262,99.00,,
+ts-pattern.4.15.csv	39823,,page-faults,1096596915,100.00,,
+ts-pattern.4.15.rss	Command exited with non-zero status 2
+ts-pattern.4.15.rss	280848
+ts-pattern.4.16.csv	1165132358,,duration_time,1,100.00,,
+ts-pattern.4.16.csv	4582762994,,cpu_core/cycles/u,1153593939,99.00,,
+ts-pattern.4.16.csv	350613365,,cpu_core/cycles/k,1153593939,99.00,,
+ts-pattern.4.16.csv	9458165207,,cpu_core/instructions/u,1153593939,99.00,,
+ts-pattern.4.16.csv	104990581,,cpu_core/dtlb_load_misses.walk_active/u,1153593939,99.00,,
+ts-pattern.4.16.csv	1163873,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1153593939,99.00,,
+ts-pattern.4.16.csv	12756249,,cpu_core/ld_blocks.store_forward/u,1153593939,99.00,,
+ts-pattern.4.16.csv	39821,,page-faults,1154967767,100.00,,
+ts-pattern.4.16.rss	Command exited with non-zero status 2
+ts-pattern.4.16.rss	280844
+ts-pattern.4.17.csv	1116501986,,duration_time,1,100.00,,
+ts-pattern.4.17.csv	4486725795,,cpu_core/cycles/u,1105380040,99.00,,
+ts-pattern.4.17.csv	361532796,,cpu_core/cycles/k,1105380040,99.00,,
+ts-pattern.4.17.csv	9458757393,,cpu_core/instructions/u,1105380040,99.00,,
+ts-pattern.4.17.csv	99162833,,cpu_core/dtlb_load_misses.walk_active/u,1105380040,99.00,,
+ts-pattern.4.17.csv	1211527,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1105380040,99.00,,
+ts-pattern.4.17.csv	12758436,,cpu_core/ld_blocks.store_forward/u,1105380040,99.00,,
+ts-pattern.4.17.csv	39822,,page-faults,1106768328,100.00,,
+ts-pattern.4.17.rss	Command exited with non-zero status 2
+ts-pattern.4.17.rss	280844
+ts-pattern.4.18.csv	1047330364,,duration_time,1,100.00,,
+ts-pattern.4.18.csv	4417083184,,cpu_core/cycles/u,1036343146,99.00,,
+ts-pattern.4.18.csv	348272718,,cpu_core/cycles/k,1036343146,99.00,,
+ts-pattern.4.18.csv	9459193879,,cpu_core/instructions/u,1036343146,99.00,,
+ts-pattern.4.18.csv	99913960,,cpu_core/dtlb_load_misses.walk_active/u,1036343146,99.00,,
+ts-pattern.4.18.csv	1355934,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1036343146,99.00,,
+ts-pattern.4.18.csv	12720672,,cpu_core/ld_blocks.store_forward/u,1036343146,99.00,,
+ts-pattern.4.18.csv	39823,,page-faults,1037707071,100.00,,
+ts-pattern.4.18.rss	Command exited with non-zero status 2
+ts-pattern.4.18.rss	280844
+ts-pattern.4.19.csv	1108955378,,duration_time,1,100.00,,
+ts-pattern.4.19.csv	4524705358,,cpu_core/cycles/u,1097643965,99.00,,
+ts-pattern.4.19.csv	348963300,,cpu_core/cycles/k,1097643965,99.00,,
+ts-pattern.4.19.csv	9453138047,,cpu_core/instructions/u,1097643965,99.00,,
+ts-pattern.4.19.csv	96077002,,cpu_core/dtlb_load_misses.walk_active/u,1097643965,99.00,,
+ts-pattern.4.19.csv	1150233,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1097643965,99.00,,
+ts-pattern.4.19.csv	12752806,,cpu_core/ld_blocks.store_forward/u,1097643965,99.00,,
+ts-pattern.4.19.csv	39827,,page-faults,1098378261,100.00,,
+ts-pattern.4.19.rss	Command exited with non-zero status 2
+ts-pattern.4.19.rss	280844
+ts-pattern.4.2.csv	1437089983,,duration_time,1,100.00,,
+ts-pattern.4.2.csv	4176014596,,cpu_core/cycles/u,1423406495,99.00,,
+ts-pattern.4.2.csv	298271947,,cpu_core/cycles/k,1423406495,99.00,,
+ts-pattern.4.2.csv	9456054762,,cpu_core/instructions/u,1423406495,99.00,,
+ts-pattern.4.2.csv	86885488,,cpu_core/dtlb_load_misses.walk_active/u,1423406495,99.00,,
+ts-pattern.4.2.csv	1167007,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1423406495,99.00,,
+ts-pattern.4.2.csv	12701955,,cpu_core/ld_blocks.store_forward/u,1423406495,99.00,,
+ts-pattern.4.2.csv	39826,,page-faults,1424786151,100.00,,
+ts-pattern.4.2.rss	Command exited with non-zero status 2
+ts-pattern.4.2.rss	280848
+ts-pattern.4.20.csv	1134782177,,duration_time,1,100.00,,
+ts-pattern.4.20.csv	4427844894,,cpu_core/cycles/u,1124651792,99.00,,
+ts-pattern.4.20.csv	335697218,,cpu_core/cycles/k,1124651792,99.00,,
+ts-pattern.4.20.csv	9453662797,,cpu_core/instructions/u,1124651792,99.00,,
+ts-pattern.4.20.csv	95751475,,cpu_core/dtlb_load_misses.walk_active/u,1124651792,99.00,,
+ts-pattern.4.20.csv	1195903,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1124651792,99.00,,
+ts-pattern.4.20.csv	12727608,,cpu_core/ld_blocks.store_forward/u,1124651792,99.00,,
+ts-pattern.4.20.csv	39822,,page-faults,1125449947,100.00,,
+ts-pattern.4.20.rss	Command exited with non-zero status 2
+ts-pattern.4.20.rss	280844
+ts-pattern.4.3.csv	1044826455,,duration_time,1,100.00,,
+ts-pattern.4.3.csv	4402526396,,cpu_core/cycles/u,1033354189,99.00,,
+ts-pattern.4.3.csv	345312521,,cpu_core/cycles/k,1033354189,99.00,,
+ts-pattern.4.3.csv	9459858084,,cpu_core/instructions/u,1033354189,99.00,,
+ts-pattern.4.3.csv	94529748,,cpu_core/dtlb_load_misses.walk_active/u,1033354189,99.00,,
+ts-pattern.4.3.csv	1176364,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1033354189,99.00,,
+ts-pattern.4.3.csv	12752495,,cpu_core/ld_blocks.store_forward/u,1033354189,99.00,,
+ts-pattern.4.3.csv	39822,,page-faults,1034767697,100.00,,
+ts-pattern.4.3.rss	Command exited with non-zero status 2
+ts-pattern.4.3.rss	280844
+ts-pattern.4.4.csv	1064627611,,duration_time,1,100.00,,
+ts-pattern.4.4.csv	4351917659,,cpu_core/cycles/u,1054357958,99.00,,
+ts-pattern.4.4.csv	330996042,,cpu_core/cycles/k,1054357958,99.00,,
+ts-pattern.4.4.csv	9458684537,,cpu_core/instructions/u,1054357958,99.00,,
+ts-pattern.4.4.csv	92061591,,cpu_core/dtlb_load_misses.walk_active/u,1054357958,99.00,,
+ts-pattern.4.4.csv	1173918,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1054357958,99.00,,
+ts-pattern.4.4.csv	12762149,,cpu_core/ld_blocks.store_forward/u,1054357958,99.00,,
+ts-pattern.4.4.csv	39823,,page-faults,1055672771,100.00,,
+ts-pattern.4.4.rss	Command exited with non-zero status 2
+ts-pattern.4.4.rss	280844
+ts-pattern.4.5.csv	1116750700,,duration_time,1,100.00,,
+ts-pattern.4.5.csv	4463649079,,cpu_core/cycles/u,1106411008,99.00,,
+ts-pattern.4.5.csv	331142657,,cpu_core/cycles/k,1106411008,99.00,,
+ts-pattern.4.5.csv	9458877566,,cpu_core/instructions/u,1106411008,99.00,,
+ts-pattern.4.5.csv	100219602,,cpu_core/dtlb_load_misses.walk_active/u,1106411008,99.00,,
+ts-pattern.4.5.csv	1192425,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1106411008,99.00,,
+ts-pattern.4.5.csv	12766205,,cpu_core/ld_blocks.store_forward/u,1106411008,99.00,,
+ts-pattern.4.5.csv	39822,,page-faults,1107823816,100.00,,
+ts-pattern.4.5.rss	Command exited with non-zero status 2
+ts-pattern.4.5.rss	280844
+ts-pattern.4.6.csv	1034383548,,duration_time,1,100.00,,
+ts-pattern.4.6.csv	4226121009,,cpu_core/cycles/u,1024254670,99.00,,
+ts-pattern.4.6.csv	323425233,,cpu_core/cycles/k,1024254670,99.00,,
+ts-pattern.4.6.csv	9459340908,,cpu_core/instructions/u,1024254670,99.00,,
+ts-pattern.4.6.csv	84027835,,cpu_core/dtlb_load_misses.walk_active/u,1024254670,99.00,,
+ts-pattern.4.6.csv	1143037,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1024254670,99.00,,
+ts-pattern.4.6.csv	12721204,,cpu_core/ld_blocks.store_forward/u,1024254670,99.00,,
+ts-pattern.4.6.csv	39820,,page-faults,1025590269,100.00,,
+ts-pattern.4.6.rss	Command exited with non-zero status 2
+ts-pattern.4.6.rss	280844
+ts-pattern.4.7.csv	1071817771,,duration_time,1,100.00,,
+ts-pattern.4.7.csv	4324547775,,cpu_core/cycles/u,1062422520,99.00,,
+ts-pattern.4.7.csv	336440336,,cpu_core/cycles/k,1062422520,99.00,,
+ts-pattern.4.7.csv	9453663528,,cpu_core/instructions/u,1062422520,99.00,,
+ts-pattern.4.7.csv	91738262,,cpu_core/dtlb_load_misses.walk_active/u,1062422520,99.00,,
+ts-pattern.4.7.csv	1216302,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1062422520,99.00,,
+ts-pattern.4.7.csv	12752256,,cpu_core/ld_blocks.store_forward/u,1062422520,99.00,,
+ts-pattern.4.7.csv	39823,,page-faults,1063192114,100.00,,
+ts-pattern.4.7.rss	Command exited with non-zero status 2
+ts-pattern.4.7.rss	280844
+ts-pattern.4.8.csv	1202041833,,duration_time,1,100.00,,
+ts-pattern.4.8.csv	4329775288,,cpu_core/cycles/u,1191087424,99.00,,
+ts-pattern.4.8.csv	320291229,,cpu_core/cycles/k,1191087424,99.00,,
+ts-pattern.4.8.csv	9457243072,,cpu_core/instructions/u,1191087424,99.00,,
+ts-pattern.4.8.csv	92623171,,cpu_core/dtlb_load_misses.walk_active/u,1191087424,99.00,,
+ts-pattern.4.8.csv	1167210,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1191087424,99.00,,
+ts-pattern.4.8.csv	12741779,,cpu_core/ld_blocks.store_forward/u,1191087424,99.00,,
+ts-pattern.4.8.csv	39823,,page-faults,1192399831,100.00,,
+ts-pattern.4.8.rss	Command exited with non-zero status 2
+ts-pattern.4.8.rss	280844
+ts-pattern.4.9.csv	1133828810,,duration_time,1,100.00,,
+ts-pattern.4.9.csv	4388220463,,cpu_core/cycles/u,1124671596,99.00,,
+ts-pattern.4.9.csv	337612375,,cpu_core/cycles/k,1124671596,99.00,,
+ts-pattern.4.9.csv	9451638385,,cpu_core/instructions/u,1124671596,99.00,,
+ts-pattern.4.9.csv	93857546,,cpu_core/dtlb_load_misses.walk_active/u,1124671596,99.00,,
+ts-pattern.4.9.csv	1149656,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1124671596,99.00,,
+ts-pattern.4.9.csv	12756449,,cpu_core/ld_blocks.store_forward/u,1124671596,99.00,,
+ts-pattern.4.9.csv	39823,,page-faults,1125238558,100.00,,
+ts-pattern.4.9.rss	Command exited with non-zero status 2
+ts-pattern.4.9.rss	280848
+ts-pattern.7.1.csv	1163666210,,duration_time,1,100.00,,
+ts-pattern.7.1.csv	4397042618,,cpu_core/cycles/u,1154151349,99.00,,
+ts-pattern.7.1.csv	308130066,,cpu_core/cycles/k,1154151349,99.00,,
+ts-pattern.7.1.csv	9530735280,,cpu_core/instructions/u,1154151349,99.00,,
+ts-pattern.7.1.csv	86584786,,cpu_core/dtlb_load_misses.walk_active/u,1154151349,99.00,,
+ts-pattern.7.1.csv	904284,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1154151349,99.00,,
+ts-pattern.7.1.csv	12728048,,cpu_core/ld_blocks.store_forward/u,1154151349,99.00,,
+ts-pattern.7.1.csv	14326,,page-faults,1155310793,100.00,,
+ts-pattern.7.1.rss	Command exited with non-zero status 2
+ts-pattern.7.1.rss	282404
+ts-pattern.7.10.csv	1173823925,,duration_time,1,100.00,,
+ts-pattern.7.10.csv	4295157204,,cpu_core/cycles/u,1163605580,99.00,,
+ts-pattern.7.10.csv	300847628,,cpu_core/cycles/k,1163605580,99.00,,
+ts-pattern.7.10.csv	9532433844,,cpu_core/instructions/u,1163605580,99.00,,
+ts-pattern.7.10.csv	83762021,,cpu_core/dtlb_load_misses.walk_active/u,1163605580,99.00,,
+ts-pattern.7.10.csv	906727,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1163605580,99.00,,
+ts-pattern.7.10.csv	12722894,,cpu_core/ld_blocks.store_forward/u,1163605580,99.00,,
+ts-pattern.7.10.csv	14327,,page-faults,1164988263,100.00,,
+ts-pattern.7.10.rss	Command exited with non-zero status 2
+ts-pattern.7.10.rss	282404
+ts-pattern.7.11.csv	1114048992,,duration_time,1,100.00,,
+ts-pattern.7.11.csv	4429872042,,cpu_core/cycles/u,1103921496,99.00,,
+ts-pattern.7.11.csv	322944234,,cpu_core/cycles/k,1103921496,99.00,,
+ts-pattern.7.11.csv	9532557078,,cpu_core/instructions/u,1103921496,99.00,,
+ts-pattern.7.11.csv	85546779,,cpu_core/dtlb_load_misses.walk_active/u,1103921496,99.00,,
+ts-pattern.7.11.csv	870847,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1103921496,99.00,,
+ts-pattern.7.11.csv	12757879,,cpu_core/ld_blocks.store_forward/u,1103921496,99.00,,
+ts-pattern.7.11.csv	14325,,page-faults,1105240368,100.00,,
+ts-pattern.7.11.rss	Command exited with non-zero status 2
+ts-pattern.7.11.rss	282408
+ts-pattern.7.12.csv	1137759746,,duration_time,1,100.00,,
+ts-pattern.7.12.csv	4386683963,,cpu_core/cycles/u,1126694090,99.00,,
+ts-pattern.7.12.csv	320116605,,cpu_core/cycles/k,1126694090,99.00,,
+ts-pattern.7.12.csv	9532962738,,cpu_core/instructions/u,1126694090,99.00,,
+ts-pattern.7.12.csv	85540969,,cpu_core/dtlb_load_misses.walk_active/u,1126694090,99.00,,
+ts-pattern.7.12.csv	921760,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1126694090,99.00,,
+ts-pattern.7.12.csv	12768159,,cpu_core/ld_blocks.store_forward/u,1126694090,99.00,,
+ts-pattern.7.12.csv	14326,,page-faults,1128110717,100.00,,
+ts-pattern.7.12.rss	Command exited with non-zero status 2
+ts-pattern.7.12.rss	282404
+ts-pattern.7.13.csv	1064301863,,duration_time,1,100.00,,
+ts-pattern.7.13.csv	4400003080,,cpu_core/cycles/u,1053308418,99.00,,
+ts-pattern.7.13.csv	331389591,,cpu_core/cycles/k,1053308418,99.00,,
+ts-pattern.7.13.csv	9533393588,,cpu_core/instructions/u,1053308418,99.00,,
+ts-pattern.7.13.csv	88271076,,cpu_core/dtlb_load_misses.walk_active/u,1053308418,99.00,,
+ts-pattern.7.13.csv	919016,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1053308418,99.00,,
+ts-pattern.7.13.csv	12757204,,cpu_core/ld_blocks.store_forward/u,1053308418,99.00,,
+ts-pattern.7.13.csv	14326,,page-faults,1054665004,100.00,,
+ts-pattern.7.13.rss	Command exited with non-zero status 2
+ts-pattern.7.13.rss	282404
+ts-pattern.7.14.csv	1064408781,,duration_time,1,100.00,,
+ts-pattern.7.14.csv	4412982927,,cpu_core/cycles/u,1053985349,99.00,,
+ts-pattern.7.14.csv	326417609,,cpu_core/cycles/k,1053985349,99.00,,
+ts-pattern.7.14.csv	9533595370,,cpu_core/instructions/u,1053985349,99.00,,
+ts-pattern.7.14.csv	88258256,,cpu_core/dtlb_load_misses.walk_active/u,1053985349,99.00,,
+ts-pattern.7.14.csv	965516,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1053985349,99.00,,
+ts-pattern.7.14.csv	12749115,,cpu_core/ld_blocks.store_forward/u,1053985349,99.00,,
+ts-pattern.7.14.csv	14327,,page-faults,1055358830,100.00,,
+ts-pattern.7.14.rss	Command exited with non-zero status 2
+ts-pattern.7.14.rss	282408
+ts-pattern.7.15.csv	1123580928,,duration_time,1,100.00,,
+ts-pattern.7.15.csv	4554143082,,cpu_core/cycles/u,1114289404,99.00,,
+ts-pattern.7.15.csv	323700881,,cpu_core/cycles/k,1114289404,99.00,,
+ts-pattern.7.15.csv	9525834067,,cpu_core/instructions/u,1114289404,99.00,,
+ts-pattern.7.15.csv	97811554,,cpu_core/dtlb_load_misses.walk_active/u,1114289404,99.00,,
+ts-pattern.7.15.csv	937442,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1114289404,99.00,,
+ts-pattern.7.15.csv	12743436,,cpu_core/ld_blocks.store_forward/u,1114289404,99.00,,
+ts-pattern.7.15.csv	14326,,page-faults,1114857468,100.00,,
+ts-pattern.7.15.rss	Command exited with non-zero status 2
+ts-pattern.7.15.rss	282404
+ts-pattern.7.16.csv	1092087591,,duration_time,1,100.00,,
+ts-pattern.7.16.csv	4487062747,,cpu_core/cycles/u,1082148705,99.00,,
+ts-pattern.7.16.csv	324081599,,cpu_core/cycles/k,1082148705,99.00,,
+ts-pattern.7.16.csv	9526543639,,cpu_core/instructions/u,1082148705,99.00,,
+ts-pattern.7.16.csv	92525959,,cpu_core/dtlb_load_misses.walk_active/u,1082148705,99.00,,
+ts-pattern.7.16.csv	877979,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1082148705,99.00,,
+ts-pattern.7.16.csv	12729043,,cpu_core/ld_blocks.store_forward/u,1082148705,99.00,,
+ts-pattern.7.16.csv	14325,,page-faults,1082749404,100.00,,
+ts-pattern.7.16.rss	Command exited with non-zero status 2
+ts-pattern.7.16.rss	282408
+ts-pattern.7.17.csv	1137014274,,duration_time,1,100.00,,
+ts-pattern.7.17.csv	4468818246,,cpu_core/cycles/u,1126231328,99.00,,
+ts-pattern.7.17.csv	318844290,,cpu_core/cycles/k,1126231328,99.00,,
+ts-pattern.7.17.csv	9532644175,,cpu_core/instructions/u,1126231328,99.00,,
+ts-pattern.7.17.csv	90084565,,cpu_core/dtlb_load_misses.walk_active/u,1126231328,99.00,,
+ts-pattern.7.17.csv	911781,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1126231328,99.00,,
+ts-pattern.7.17.csv	12746125,,cpu_core/ld_blocks.store_forward/u,1126231328,99.00,,
+ts-pattern.7.17.csv	14326,,page-faults,1127587796,100.00,,
+ts-pattern.7.17.rss	Command exited with non-zero status 2
+ts-pattern.7.17.rss	282404
+ts-pattern.7.18.csv	1077459037,,duration_time,1,100.00,,
+ts-pattern.7.18.csv	4522262803,,cpu_core/cycles/u,1067374026,99.00,,
+ts-pattern.7.18.csv	333982548,,cpu_core/cycles/k,1067374026,99.00,,
+ts-pattern.7.18.csv	9528566744,,cpu_core/instructions/u,1067374026,99.00,,
+ts-pattern.7.18.csv	92335786,,cpu_core/dtlb_load_misses.walk_active/u,1067374026,99.00,,
+ts-pattern.7.18.csv	939666,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1067374026,99.00,,
+ts-pattern.7.18.csv	12743031,,cpu_core/ld_blocks.store_forward/u,1067374026,99.00,,
+ts-pattern.7.18.csv	14326,,page-faults,1068210466,100.00,,
+ts-pattern.7.18.rss	Command exited with non-zero status 2
+ts-pattern.7.18.rss	282400
+ts-pattern.7.19.csv	1123512342,,duration_time,1,100.00,,
+ts-pattern.7.19.csv	4487111313,,cpu_core/cycles/u,1112543820,99.00,,
+ts-pattern.7.19.csv	319521816,,cpu_core/cycles/k,1112543820,99.00,,
+ts-pattern.7.19.csv	9532576667,,cpu_core/instructions/u,1112543820,99.00,,
+ts-pattern.7.19.csv	92591883,,cpu_core/dtlb_load_misses.walk_active/u,1112543820,99.00,,
+ts-pattern.7.19.csv	941589,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1112543820,99.00,,
+ts-pattern.7.19.csv	12723964,,cpu_core/ld_blocks.store_forward/u,1112543820,99.00,,
+ts-pattern.7.19.csv	14325,,page-faults,1113883180,100.00,,
+ts-pattern.7.19.rss	Command exited with non-zero status 2
+ts-pattern.7.19.rss	282404
+ts-pattern.7.2.csv	1164349509,,duration_time,1,100.00,,
+ts-pattern.7.2.csv	4302381271,,cpu_core/cycles/u,1154682512,99.00,,
+ts-pattern.7.2.csv	310177186,,cpu_core/cycles/k,1154682512,99.00,,
+ts-pattern.7.2.csv	9528086051,,cpu_core/instructions/u,1154682512,99.00,,
+ts-pattern.7.2.csv	85504160,,cpu_core/dtlb_load_misses.walk_active/u,1154682512,99.00,,
+ts-pattern.7.2.csv	904399,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1154682512,99.00,,
+ts-pattern.7.2.csv	12720843,,cpu_core/ld_blocks.store_forward/u,1154682512,99.00,,
+ts-pattern.7.2.csv	14326,,page-faults,1155519764,100.00,,
+ts-pattern.7.2.rss	Command exited with non-zero status 2
+ts-pattern.7.2.rss	282404
+ts-pattern.7.20.csv	1067307039,,duration_time,1,100.00,,
+ts-pattern.7.20.csv	4391520898,,cpu_core/cycles/u,1056766858,99.00,,
+ts-pattern.7.20.csv	336957372,,cpu_core/cycles/k,1056766858,99.00,,
+ts-pattern.7.20.csv	9532829686,,cpu_core/instructions/u,1056766858,99.00,,
+ts-pattern.7.20.csv	82140652,,cpu_core/dtlb_load_misses.walk_active/u,1056766858,99.00,,
+ts-pattern.7.20.csv	887660,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1056766858,99.00,,
+ts-pattern.7.20.csv	12718013,,cpu_core/ld_blocks.store_forward/u,1056766858,99.00,,
+ts-pattern.7.20.csv	14326,,page-faults,1058070964,100.00,,
+ts-pattern.7.20.rss	Command exited with non-zero status 2
+ts-pattern.7.20.rss	282408
+ts-pattern.7.3.csv	1035224107,,duration_time,1,100.00,,
+ts-pattern.7.3.csv	4341332700,,cpu_core/cycles/u,1025381563,99.00,,
+ts-pattern.7.3.csv	316582826,,cpu_core/cycles/k,1025381563,99.00,,
+ts-pattern.7.3.csv	9530769555,,cpu_core/instructions/u,1025381563,99.00,,
+ts-pattern.7.3.csv	88697676,,cpu_core/dtlb_load_misses.walk_active/u,1025381563,99.00,,
+ts-pattern.7.3.csv	955641,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1025381563,99.00,,
+ts-pattern.7.3.csv	12743221,,cpu_core/ld_blocks.store_forward/u,1025381563,99.00,,
+ts-pattern.7.3.csv	14325,,page-faults,1026415241,100.00,,
+ts-pattern.7.3.rss	Command exited with non-zero status 2
+ts-pattern.7.3.rss	282400
+ts-pattern.7.4.csv	1051141649,,duration_time,1,100.00,,
+ts-pattern.7.4.csv	4443370822,,cpu_core/cycles/u,1041218338,99.00,,
+ts-pattern.7.4.csv	338322133,,cpu_core/cycles/k,1041218338,99.00,,
+ts-pattern.7.4.csv	9533528049,,cpu_core/instructions/u,1041218338,99.00,,
+ts-pattern.7.4.csv	92786841,,cpu_core/dtlb_load_misses.walk_active/u,1041218338,99.00,,
+ts-pattern.7.4.csv	987105,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1041218338,99.00,,
+ts-pattern.7.4.csv	12740323,,cpu_core/ld_blocks.store_forward/u,1041218338,99.00,,
+ts-pattern.7.4.csv	14327,,page-faults,1042583893,100.00,,
+ts-pattern.7.4.rss	Command exited with non-zero status 2
+ts-pattern.7.4.rss	282404
+ts-pattern.7.5.csv	1057732979,,duration_time,1,100.00,,
+ts-pattern.7.5.csv	4518433854,,cpu_core/cycles/u,1047711777,99.00,,
+ts-pattern.7.5.csv	336022625,,cpu_core/cycles/k,1047711777,99.00,,
+ts-pattern.7.5.csv	9533414204,,cpu_core/instructions/u,1047711777,99.00,,
+ts-pattern.7.5.csv	92328676,,cpu_core/dtlb_load_misses.walk_active/u,1047711777,99.00,,
+ts-pattern.7.5.csv	934078,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1047711777,99.00,,
+ts-pattern.7.5.csv	12720588,,cpu_core/ld_blocks.store_forward/u,1047711777,99.00,,
+ts-pattern.7.5.csv	14325,,page-faults,1049072818,100.00,,
+ts-pattern.7.5.rss	Command exited with non-zero status 2
+ts-pattern.7.5.rss	282408
+ts-pattern.7.6.csv	1042604183,,duration_time,1,100.00,,
+ts-pattern.7.6.csv	4416831688,,cpu_core/cycles/u,1033485497,99.00,,
+ts-pattern.7.6.csv	326745204,,cpu_core/cycles/k,1033485497,99.00,,
+ts-pattern.7.6.csv	9526143464,,cpu_core/instructions/u,1033485497,99.00,,
+ts-pattern.7.6.csv	92229602,,cpu_core/dtlb_load_misses.walk_active/u,1033485497,99.00,,
+ts-pattern.7.6.csv	1020610,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1033485497,99.00,,
+ts-pattern.7.6.csv	12710878,,cpu_core/ld_blocks.store_forward/u,1033485497,99.00,,
+ts-pattern.7.6.csv	14328,,page-faults,1034051927,100.00,,
+ts-pattern.7.6.rss	Command exited with non-zero status 2
+ts-pattern.7.6.rss	282408
+ts-pattern.7.7.csv	1003196368,,duration_time,1,100.00,,
+ts-pattern.7.7.csv	4147102070,,cpu_core/cycles/u,992491460,99.00,,
+ts-pattern.7.7.csv	312932758,,cpu_core/cycles/k,992491460,99.00,,
+ts-pattern.7.7.csv	9532234635,,cpu_core/instructions/u,992491460,99.00,,
+ts-pattern.7.7.csv	72305387,,cpu_core/dtlb_load_misses.walk_active/u,992491460,99.00,,
+ts-pattern.7.7.csv	869291,,cpu_core/mem_inst_retired.stlb_miss_loads/u,992491460,99.00,,
+ts-pattern.7.7.csv	12746844,,cpu_core/ld_blocks.store_forward/u,992491460,99.00,,
+ts-pattern.7.7.csv	14328,,page-faults,993644903,100.00,,
+ts-pattern.7.7.rss	Command exited with non-zero status 2
+ts-pattern.7.7.rss	282400
+ts-pattern.7.8.csv	1020695621,,duration_time,1,100.00,,
+ts-pattern.7.8.csv	4189262030,,cpu_core/cycles/u,1010846773,99.00,,
+ts-pattern.7.8.csv	320091520,,cpu_core/cycles/k,1010846773,99.00,,
+ts-pattern.7.8.csv	9533395985,,cpu_core/instructions/u,1010846773,99.00,,
+ts-pattern.7.8.csv	75821768,,cpu_core/dtlb_load_misses.walk_active/u,1010846773,99.00,,
+ts-pattern.7.8.csv	934097,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1010846773,99.00,,
+ts-pattern.7.8.csv	12767873,,cpu_core/ld_blocks.store_forward/u,1010846773,99.00,,
+ts-pattern.7.8.csv	14327,,page-faults,1012155774,100.00,,
+ts-pattern.7.8.rss	Command exited with non-zero status 2
+ts-pattern.7.8.rss	282404
+ts-pattern.7.9.csv	1206238805,,duration_time,1,100.00,,
+ts-pattern.7.9.csv	4325238568,,cpu_core/cycles/u,1194509904,99.00,,
+ts-pattern.7.9.csv	343419661,,cpu_core/cycles/k,1194509904,99.00,,
+ts-pattern.7.9.csv	9527579758,,cpu_core/instructions/u,1194509904,99.00,,
+ts-pattern.7.9.csv	82223717,,cpu_core/dtlb_load_misses.walk_active/u,1194509904,99.00,,
+ts-pattern.7.9.csv	898881,,cpu_core/mem_inst_retired.stlb_miss_loads/u,1194509904,99.00,,
+ts-pattern.7.9.csv	12746062,,cpu_core/ld_blocks.store_forward/u,1194509904,99.00,,
+ts-pattern.7.9.csv	14327,,page-faults,1195319939,100.00,,
+ts-pattern.7.9.rss	Command exited with non-zero status 2
+ts-pattern.7.9.rss	282404
+zod3.0.1.csv	206712233,,duration_time,1,100.00,,
+zod3.0.1.csv	813191711,,cpu_core/cycles/u,200622334,99.00,,
+zod3.0.1.csv	103326082,,cpu_core/cycles/k,200622334,99.00,,
+zod3.0.1.csv	1717148197,,cpu_core/instructions/u,200622334,99.00,,
+zod3.0.1.csv	9887831,,cpu_core/dtlb_load_misses.walk_active/u,200622334,99.00,,
+zod3.0.1.csv	97584,,cpu_core/mem_inst_retired.stlb_miss_loads/u,200622334,99.00,,
+zod3.0.1.csv	3560789,,cpu_core/ld_blocks.store_forward/u,200622334,99.00,,
+zod3.0.1.csv	9239,,page-faults,201968981,100.00,,
+zod3.0.1.rss	Command exited with non-zero status 2
+zod3.0.1.rss	89444
+zod3.0.10.csv	216369302,,duration_time,1,100.00,,
+zod3.0.10.csv	789661886,,cpu_core/cycles/u,210647272,99.00,,
+zod3.0.10.csv	98015185,,cpu_core/cycles/k,210647272,99.00,,
+zod3.0.10.csv	1716557629,,cpu_core/instructions/u,210647272,99.00,,
+zod3.0.10.csv	10090191,,cpu_core/dtlb_load_misses.walk_active/u,210647272,99.00,,
+zod3.0.10.csv	115402,,cpu_core/mem_inst_retired.stlb_miss_loads/u,210647272,99.00,,
+zod3.0.10.csv	3557887,,cpu_core/ld_blocks.store_forward/u,210647272,99.00,,
+zod3.0.10.csv	9237,,page-faults,211980757,100.00,,
+zod3.0.10.rss	Command exited with non-zero status 2
+zod3.0.10.rss	89440
+zod3.0.11.csv	216566106,,duration_time,1,100.00,,
+zod3.0.11.csv	773054919,,cpu_core/cycles/u,210713109,99.00,,
+zod3.0.11.csv	92780841,,cpu_core/cycles/k,210713109,99.00,,
+zod3.0.11.csv	1716621567,,cpu_core/instructions/u,210713109,99.00,,
+zod3.0.11.csv	8711250,,cpu_core/dtlb_load_misses.walk_active/u,210713109,99.00,,
+zod3.0.11.csv	96469,,cpu_core/mem_inst_retired.stlb_miss_loads/u,210713109,99.00,,
+zod3.0.11.csv	3547941,,cpu_core/ld_blocks.store_forward/u,210713109,99.00,,
+zod3.0.11.csv	9237,,page-faults,212059040,100.00,,
+zod3.0.11.rss	Command exited with non-zero status 2
+zod3.0.11.rss	89440
+zod3.0.12.csv	196996231,,duration_time,1,100.00,,
+zod3.0.12.csv	784208726,,cpu_core/cycles/u,191700767,99.00,,
+zod3.0.12.csv	99616746,,cpu_core/cycles/k,191700767,99.00,,
+zod3.0.12.csv	1715352341,,cpu_core/instructions/u,191700767,99.00,,
+zod3.0.12.csv	9189399,,cpu_core/dtlb_load_misses.walk_active/u,191700767,99.00,,
+zod3.0.12.csv	100849,,cpu_core/mem_inst_retired.stlb_miss_loads/u,191700767,99.00,,
+zod3.0.12.csv	3550177,,cpu_core/ld_blocks.store_forward/u,191700767,99.00,,
+zod3.0.12.csv	9237,,page-faults,192763483,100.00,,
+zod3.0.12.rss	Command exited with non-zero status 2
+zod3.0.12.rss	89440
+zod3.0.13.csv	208049205,,duration_time,1,100.00,,
+zod3.0.13.csv	817940335,,cpu_core/cycles/u,201392644,99.00,,
+zod3.0.13.csv	110752549,,cpu_core/cycles/k,201392644,99.00,,
+zod3.0.13.csv	1715351140,,cpu_core/instructions/u,201392644,99.00,,
+zod3.0.13.csv	10295540,,cpu_core/dtlb_load_misses.walk_active/u,201392644,99.00,,
+zod3.0.13.csv	111058,,cpu_core/mem_inst_retired.stlb_miss_loads/u,201392644,99.00,,
+zod3.0.13.csv	3559273,,cpu_core/ld_blocks.store_forward/u,201392644,99.00,,
+zod3.0.13.csv	9239,,page-faults,202523090,100.00,,
+zod3.0.13.rss	Command exited with non-zero status 2
+zod3.0.13.rss	89440
+zod3.0.14.csv	217448814,,duration_time,1,100.00,,
+zod3.0.14.csv	807298623,,cpu_core/cycles/u,212114152,99.00,,
+zod3.0.14.csv	96739256,,cpu_core/cycles/k,212114152,99.00,,
+zod3.0.14.csv	1715303867,,cpu_core/instructions/u,212114152,99.00,,
+zod3.0.14.csv	10993102,,cpu_core/dtlb_load_misses.walk_active/u,212114152,99.00,,
+zod3.0.14.csv	100382,,cpu_core/mem_inst_retired.stlb_miss_loads/u,212114152,99.00,,
+zod3.0.14.csv	3556621,,cpu_core/ld_blocks.store_forward/u,212114152,99.00,,
+zod3.0.14.csv	9237,,page-faults,213311489,100.00,,
+zod3.0.14.rss	Command exited with non-zero status 2
+zod3.0.14.rss	89444
+zod3.0.15.csv	207805931,,duration_time,1,100.00,,
+zod3.0.15.csv	786658050,,cpu_core/cycles/u,202262752,99.00,,
+zod3.0.15.csv	96646073,,cpu_core/cycles/k,202262752,99.00,,
+zod3.0.15.csv	1716863311,,cpu_core/instructions/u,202262752,99.00,,
+zod3.0.15.csv	9238015,,cpu_core/dtlb_load_misses.walk_active/u,202262752,99.00,,
+zod3.0.15.csv	103926,,cpu_core/mem_inst_retired.stlb_miss_loads/u,202262752,99.00,,
+zod3.0.15.csv	3355738,,cpu_core/ld_blocks.store_forward/u,202262752,99.00,,
+zod3.0.15.csv	9238,,page-faults,203574856,100.00,,
+zod3.0.15.rss	Command exited with non-zero status 2
+zod3.0.15.rss	89440
+zod3.0.16.csv	211180314,,duration_time,1,100.00,,
+zod3.0.16.csv	763324696,,cpu_core/cycles/u,205803663,99.00,,
+zod3.0.16.csv	90959401,,cpu_core/cycles/k,205803663,99.00,,
+zod3.0.16.csv	1715697642,,cpu_core/instructions/u,205803663,99.00,,
+zod3.0.16.csv	8880396,,cpu_core/dtlb_load_misses.walk_active/u,205803663,99.00,,
+zod3.0.16.csv	109626,,cpu_core/mem_inst_retired.stlb_miss_loads/u,205803663,99.00,,
+zod3.0.16.csv	3552747,,cpu_core/ld_blocks.store_forward/u,205803663,99.00,,
+zod3.0.16.csv	9239,,page-faults,207004402,100.00,,
+zod3.0.16.rss	Command exited with non-zero status 2
+zod3.0.16.rss	89440
+zod3.0.17.csv	214287601,,duration_time,1,100.00,,
+zod3.0.17.csv	783085118,,cpu_core/cycles/u,208432126,99.00,,
+zod3.0.17.csv	95503844,,cpu_core/cycles/k,208432126,99.00,,
+zod3.0.17.csv	1717350424,,cpu_core/instructions/u,208432126,99.00,,
+zod3.0.17.csv	9430868,,cpu_core/dtlb_load_misses.walk_active/u,208432126,99.00,,
+zod3.0.17.csv	111716,,cpu_core/mem_inst_retired.stlb_miss_loads/u,208432126,99.00,,
+zod3.0.17.csv	3553481,,cpu_core/ld_blocks.store_forward/u,208432126,99.00,,
+zod3.0.17.csv	9238,,page-faults,209840930,100.00,,
+zod3.0.17.rss	Command exited with non-zero status 2
+zod3.0.17.rss	89440
+zod3.0.18.csv	193407309,,duration_time,1,100.00,,
+zod3.0.18.csv	765343501,,cpu_core/cycles/u,188712253,100.00,,
+zod3.0.18.csv	96398060,,cpu_core/cycles/k,188712253,100.00,,
+zod3.0.18.csv	1706053607,,cpu_core/instructions/u,188712253,100.00,,
+zod3.0.18.csv	8723590,,cpu_core/dtlb_load_misses.walk_active/u,188712253,100.00,,
+zod3.0.18.csv	100160,,cpu_core/mem_inst_retired.stlb_miss_loads/u,188712253,100.00,,
+zod3.0.18.csv	3532439,,cpu_core/ld_blocks.store_forward/u,188712253,100.00,,
+zod3.0.18.csv	9239,,page-faults,188712253,100.00,,
+zod3.0.18.rss	Command exited with non-zero status 2
+zod3.0.18.rss	89440
+zod3.0.19.csv	191905076,,duration_time,1,100.00,,
+zod3.0.19.csv	777217760,,cpu_core/cycles/u,187115001,99.00,,
+zod3.0.19.csv	96638547,,cpu_core/cycles/k,187115001,99.00,,
+zod3.0.19.csv	1713764479,,cpu_core/instructions/u,187115001,99.00,,
+zod3.0.19.csv	8721117,,cpu_core/dtlb_load_misses.walk_active/u,187115001,99.00,,
+zod3.0.19.csv	106842,,cpu_core/mem_inst_retired.stlb_miss_loads/u,187115001,99.00,,
+zod3.0.19.csv	3539206,,cpu_core/ld_blocks.store_forward/u,187115001,99.00,,
+zod3.0.19.csv	9239,,page-faults,187981029,100.00,,
+zod3.0.19.rss	Command exited with non-zero status 2
+zod3.0.19.rss	89440
+zod3.0.2.csv	214160898,,duration_time,1,100.00,,
+zod3.0.2.csv	803736953,,cpu_core/cycles/u,207560811,99.00,,
+zod3.0.2.csv	98567024,,cpu_core/cycles/k,207560811,99.00,,
+zod3.0.2.csv	1716864319,,cpu_core/instructions/u,207560811,99.00,,
+zod3.0.2.csv	9028725,,cpu_core/dtlb_load_misses.walk_active/u,207560811,99.00,,
+zod3.0.2.csv	88878,,cpu_core/mem_inst_retired.stlb_miss_loads/u,207560811,99.00,,
+zod3.0.2.csv	3558354,,cpu_core/ld_blocks.store_forward/u,207560811,99.00,,
+zod3.0.2.csv	9239,,page-faults,208914122,100.00,,
+zod3.0.2.rss	Command exited with non-zero status 2
+zod3.0.2.rss	89444
+zod3.0.20.csv	212058174,,duration_time,1,100.00,,
+zod3.0.20.csv	791966063,,cpu_core/cycles/u,206464005,99.00,,
+zod3.0.20.csv	94306338,,cpu_core/cycles/k,206464005,99.00,,
+zod3.0.20.csv	1715345778,,cpu_core/instructions/u,206464005,99.00,,
+zod3.0.20.csv	9633193,,cpu_core/dtlb_load_misses.walk_active/u,206464005,99.00,,
+zod3.0.20.csv	113411,,cpu_core/mem_inst_retired.stlb_miss_loads/u,206464005,99.00,,
+zod3.0.20.csv	3554938,,cpu_core/ld_blocks.store_forward/u,206464005,99.00,,
+zod3.0.20.csv	9238,,page-faults,207623975,100.00,,
+zod3.0.20.rss	Command exited with non-zero status 2
+zod3.0.20.rss	89440
+zod3.0.3.csv	215067427,,duration_time,1,100.00,,
+zod3.0.3.csv	812083738,,cpu_core/cycles/u,209389467,99.00,,
+zod3.0.3.csv	100695473,,cpu_core/cycles/k,209389467,99.00,,
+zod3.0.3.csv	1716116595,,cpu_core/instructions/u,209389467,99.00,,
+zod3.0.3.csv	10092488,,cpu_core/dtlb_load_misses.walk_active/u,209389467,99.00,,
+zod3.0.3.csv	89930,,cpu_core/mem_inst_retired.stlb_miss_loads/u,209389467,99.00,,
+zod3.0.3.csv	3559422,,cpu_core/ld_blocks.store_forward/u,209389467,99.00,,
+zod3.0.3.csv	9237,,page-faults,210663819,100.00,,
+zod3.0.3.rss	Command exited with non-zero status 2
+zod3.0.3.rss	89444
+zod3.0.4.csv	197949255,,duration_time,1,100.00,,
+zod3.0.4.csv	773576445,,cpu_core/cycles/u,193000608,99.00,,
+zod3.0.4.csv	93564237,,cpu_core/cycles/k,193000608,99.00,,
+zod3.0.4.csv	1716300804,,cpu_core/instructions/u,193000608,99.00,,
+zod3.0.4.csv	8919379,,cpu_core/dtlb_load_misses.walk_active/u,193000608,99.00,,
+zod3.0.4.csv	100820,,cpu_core/mem_inst_retired.stlb_miss_loads/u,193000608,99.00,,
+zod3.0.4.csv	3549719,,cpu_core/ld_blocks.store_forward/u,193000608,99.00,,
+zod3.0.4.csv	9238,,page-faults,194186281,100.00,,
+zod3.0.4.rss	Command exited with non-zero status 2
+zod3.0.4.rss	89440
+zod3.0.5.csv	209752245,,duration_time,1,100.00,,
+zod3.0.5.csv	832329237,,cpu_core/cycles/u,203699596,99.00,,
+zod3.0.5.csv	105012737,,cpu_core/cycles/k,203699596,99.00,,
+zod3.0.5.csv	1717498320,,cpu_core/instructions/u,203699596,99.00,,
+zod3.0.5.csv	11218087,,cpu_core/dtlb_load_misses.walk_active/u,203699596,99.00,,
+zod3.0.5.csv	108800,,cpu_core/mem_inst_retired.stlb_miss_loads/u,203699596,99.00,,
+zod3.0.5.csv	3569624,,cpu_core/ld_blocks.store_forward/u,203699596,99.00,,
+zod3.0.5.csv	9239,,page-faults,205098760,100.00,,
+zod3.0.5.rss	Command exited with non-zero status 2
+zod3.0.5.rss	89444
+zod3.0.6.csv	215511597,,duration_time,1,100.00,,
+zod3.0.6.csv	821854024,,cpu_core/cycles/u,209555052,99.00,,
+zod3.0.6.csv	103494738,,cpu_core/cycles/k,209555052,99.00,,
+zod3.0.6.csv	1716742682,,cpu_core/instructions/u,209555052,99.00,,
+zod3.0.6.csv	9402490,,cpu_core/dtlb_load_misses.walk_active/u,209555052,99.00,,
+zod3.0.6.csv	95219,,cpu_core/mem_inst_retired.stlb_miss_loads/u,209555052,99.00,,
+zod3.0.6.csv	3554540,,cpu_core/ld_blocks.store_forward/u,209555052,99.00,,
+zod3.0.6.csv	9237,,page-faults,210904678,100.00,,
+zod3.0.6.rss	Command exited with non-zero status 2
+zod3.0.6.rss	89440
+zod3.0.7.csv	213988073,,duration_time,1,100.00,,
+zod3.0.7.csv	819107445,,cpu_core/cycles/u,208687218,99.00,,
+zod3.0.7.csv	99687907,,cpu_core/cycles/k,208687218,99.00,,
+zod3.0.7.csv	1711823842,,cpu_core/instructions/u,208687218,99.00,,
+zod3.0.7.csv	10122930,,cpu_core/dtlb_load_misses.walk_active/u,208687218,99.00,,
+zod3.0.7.csv	91823,,cpu_core/mem_inst_retired.stlb_miss_loads/u,208687218,99.00,,
+zod3.0.7.csv	3548860,,cpu_core/ld_blocks.store_forward/u,208687218,99.00,,
+zod3.0.7.csv	9238,,page-faults,209422882,100.00,,
+zod3.0.7.rss	Command exited with non-zero status 2
+zod3.0.7.rss	89440
+zod3.0.8.csv	214722823,,duration_time,1,100.00,,
+zod3.0.8.csv	790706658,,cpu_core/cycles/u,209629670,99.00,,
+zod3.0.8.csv	95389085,,cpu_core/cycles/k,209629670,99.00,,
+zod3.0.8.csv	1711974227,,cpu_core/instructions/u,209629670,99.00,,
+zod3.0.8.csv	9623733,,cpu_core/dtlb_load_misses.walk_active/u,209629670,99.00,,
+zod3.0.8.csv	93011,,cpu_core/mem_inst_retired.stlb_miss_loads/u,209629670,99.00,,
+zod3.0.8.csv	3551467,,cpu_core/ld_blocks.store_forward/u,209629670,99.00,,
+zod3.0.8.csv	9238,,page-faults,210401471,100.00,,
+zod3.0.8.rss	Command exited with non-zero status 2
+zod3.0.8.rss	89440
+zod3.0.9.csv	210004285,,duration_time,1,100.00,,
+zod3.0.9.csv	770447433,,cpu_core/cycles/u,204998401,99.00,,
+zod3.0.9.csv	92459218,,cpu_core/cycles/k,204998401,99.00,,
+zod3.0.9.csv	1713350007,,cpu_core/instructions/u,204998401,99.00,,
+zod3.0.9.csv	9358375,,cpu_core/dtlb_load_misses.walk_active/u,204998401,99.00,,
+zod3.0.9.csv	98093,,cpu_core/mem_inst_retired.stlb_miss_loads/u,204998401,99.00,,
+zod3.0.9.csv	3550377,,cpu_core/ld_blocks.store_forward/u,204998401,99.00,,
+zod3.0.9.csv	9239,,page-faults,205930159,100.00,,
+zod3.0.9.rss	Command exited with non-zero status 2
+zod3.0.9.rss	89444
+zod3.1.1.csv	209252595,,duration_time,1,100.00,,
+zod3.1.1.csv	832161419,,cpu_core/cycles/u,203515922,99.00,,
+zod3.1.1.csv	102923531,,cpu_core/cycles/k,203515922,99.00,,
+zod3.1.1.csv	1716949523,,cpu_core/instructions/u,203515922,99.00,,
+zod3.1.1.csv	11673828,,cpu_core/dtlb_load_misses.walk_active/u,203515922,99.00,,
+zod3.1.1.csv	113142,,cpu_core/mem_inst_retired.stlb_miss_loads/u,203515922,99.00,,
+zod3.1.1.csv	3567513,,cpu_core/ld_blocks.store_forward/u,203515922,99.00,,
+zod3.1.1.csv	9237,,page-faults,204842258,100.00,,
+zod3.1.1.rss	Command exited with non-zero status 2
+zod3.1.1.rss	89444
+zod3.1.10.csv	206408294,,duration_time,1,100.00,,
+zod3.1.10.csv	768526986,,cpu_core/cycles/u,199774386,99.00,,
+zod3.1.10.csv	93566508,,cpu_core/cycles/k,199774386,99.00,,
+zod3.1.10.csv	1716965948,,cpu_core/instructions/u,199774386,99.00,,
+zod3.1.10.csv	8498872,,cpu_core/dtlb_load_misses.walk_active/u,199774386,99.00,,
+zod3.1.10.csv	96875,,cpu_core/mem_inst_retired.stlb_miss_loads/u,199774386,99.00,,
+zod3.1.10.csv	3553284,,cpu_core/ld_blocks.store_forward/u,199774386,99.00,,
+zod3.1.10.csv	9238,,page-faults,201086287,100.00,,
+zod3.1.10.rss	Command exited with non-zero status 2
+zod3.1.10.rss	89440
+zod3.1.11.csv	218301590,,duration_time,1,100.00,,
+zod3.1.11.csv	771259357,,cpu_core/cycles/u,212797890,99.00,,
+zod3.1.11.csv	92686949,,cpu_core/cycles/k,212797890,99.00,,
+zod3.1.11.csv	1715691850,,cpu_core/instructions/u,212797890,99.00,,
+zod3.1.11.csv	9035577,,cpu_core/dtlb_load_misses.walk_active/u,212797890,99.00,,
+zod3.1.11.csv	107428,,cpu_core/mem_inst_retired.stlb_miss_loads/u,212797890,99.00,,
+zod3.1.11.csv	3551301,,cpu_core/ld_blocks.store_forward/u,212797890,99.00,,
+zod3.1.11.csv	9238,,page-faults,214026614,100.00,,
+zod3.1.11.rss	Command exited with non-zero status 2
+zod3.1.11.rss	89440
+zod3.1.12.csv	214170588,,duration_time,1,100.00,,
+zod3.1.12.csv	830563363,,cpu_core/cycles/u,207645242,99.00,,
+zod3.1.12.csv	107876538,,cpu_core/cycles/k,207645242,99.00,,
+zod3.1.12.csv	1717103885,,cpu_core/instructions/u,207645242,99.00,,
+zod3.1.12.csv	11013403,,cpu_core/dtlb_load_misses.walk_active/u,207645242,99.00,,
+zod3.1.12.csv	112178,,cpu_core/mem_inst_retired.stlb_miss_loads/u,207645242,99.00,,
+zod3.1.12.csv	3560390,,cpu_core/ld_blocks.store_forward/u,207645242,99.00,,
+zod3.1.12.csv	9236,,page-faults,209027013,100.00,,
+zod3.1.12.rss	Command exited with non-zero status 2
+zod3.1.12.rss	89440
+zod3.1.13.csv	191202708,,duration_time,1,100.00,,
+zod3.1.13.csv	770740610,,cpu_core/cycles/u,185854363,99.00,,
+zod3.1.13.csv	96480022,,cpu_core/cycles/k,185854363,99.00,,
+zod3.1.13.csv	1717018721,,cpu_core/instructions/u,185854363,99.00,,
+zod3.1.13.csv	8607974,,cpu_core/dtlb_load_misses.walk_active/u,185854363,99.00,,
+zod3.1.13.csv	105709,,cpu_core/mem_inst_retired.stlb_miss_loads/u,185854363,99.00,,
+zod3.1.13.csv	3543263,,cpu_core/ld_blocks.store_forward/u,185854363,99.00,,
+zod3.1.13.csv	9237,,page-faults,187077076,100.00,,
+zod3.1.13.rss	Command exited with non-zero status 2
+zod3.1.13.rss	89440
+zod3.1.14.csv	210890501,,duration_time,1,100.00,,
+zod3.1.14.csv	789014689,,cpu_core/cycles/u,205339255,99.00,,
+zod3.1.14.csv	96249111,,cpu_core/cycles/k,205339255,99.00,,
+zod3.1.14.csv	1715935806,,cpu_core/instructions/u,205339255,99.00,,
+zod3.1.14.csv	9980475,,cpu_core/dtlb_load_misses.walk_active/u,205339255,99.00,,
+zod3.1.14.csv	107271,,cpu_core/mem_inst_retired.stlb_miss_loads/u,205339255,99.00,,
+zod3.1.14.csv	3558097,,cpu_core/ld_blocks.store_forward/u,205339255,99.00,,
+zod3.1.14.csv	9237,,page-faults,206559982,100.00,,
+zod3.1.14.rss	Command exited with non-zero status 2
+zod3.1.14.rss	89440
+zod3.1.15.csv	209259198,,duration_time,1,100.00,,
+zod3.1.15.csv	781897058,,cpu_core/cycles/u,203828075,99.00,,
+zod3.1.15.csv	96924420,,cpu_core/cycles/k,203828075,99.00,,
+zod3.1.15.csv	1716710950,,cpu_core/instructions/u,203828075,99.00,,
+zod3.1.15.csv	9374911,,cpu_core/dtlb_load_misses.walk_active/u,203828075,99.00,,
+zod3.1.15.csv	108218,,cpu_core/mem_inst_retired.stlb_miss_loads/u,203828075,99.00,,
+zod3.1.15.csv	3553833,,cpu_core/ld_blocks.store_forward/u,203828075,99.00,,
+zod3.1.15.csv	9237,,page-faults,205136144,100.00,,
+zod3.1.15.rss	Command exited with non-zero status 2
+zod3.1.15.rss	89440
+zod3.1.16.csv	220413761,,duration_time,1,100.00,,
+zod3.1.16.csv	809840556,,cpu_core/cycles/u,214630724,99.00,,
+zod3.1.16.csv	96752569,,cpu_core/cycles/k,214630724,99.00,,
+zod3.1.16.csv	1716554407,,cpu_core/instructions/u,214630724,99.00,,
+zod3.1.16.csv	11111889,,cpu_core/dtlb_load_misses.walk_active/u,214630724,99.00,,
+zod3.1.16.csv	100290,,cpu_core/mem_inst_retired.stlb_miss_loads/u,214630724,99.00,,
+zod3.1.16.csv	3566308,,cpu_core/ld_blocks.store_forward/u,214630724,99.00,,
+zod3.1.16.csv	9238,,page-faults,215979653,100.00,,
+zod3.1.16.rss	Command exited with non-zero status 2
+zod3.1.16.rss	89444
+zod3.1.17.csv	228156057,,duration_time,1,100.00,,
+zod3.1.17.csv	802371444,,cpu_core/cycles/u,222501176,99.00,,
+zod3.1.17.csv	93338397,,cpu_core/cycles/k,222501176,99.00,,
+zod3.1.17.csv	1716092119,,cpu_core/instructions/u,222501176,99.00,,
+zod3.1.17.csv	11489946,,cpu_core/dtlb_load_misses.walk_active/u,222501176,99.00,,
+zod3.1.17.csv	114445,,cpu_core/mem_inst_retired.stlb_miss_loads/u,222501176,99.00,,
+zod3.1.17.csv	3566969,,cpu_core/ld_blocks.store_forward/u,222501176,99.00,,
+zod3.1.17.csv	9237,,page-faults,223847027,100.00,,
+zod3.1.17.rss	Command exited with non-zero status 2
+zod3.1.17.rss	89440
+zod3.1.18.csv	195702555,,duration_time,1,100.00,,
+zod3.1.18.csv	780391191,,cpu_core/cycles/u,190184742,99.00,,
+zod3.1.18.csv	95519786,,cpu_core/cycles/k,190184742,99.00,,
+zod3.1.18.csv	1717901526,,cpu_core/instructions/u,190184742,99.00,,
+zod3.1.18.csv	9194500,,cpu_core/dtlb_load_misses.walk_active/u,190184742,99.00,,
+zod3.1.18.csv	106193,,cpu_core/mem_inst_retired.stlb_miss_loads/u,190184742,99.00,,
+zod3.1.18.csv	3562239,,cpu_core/ld_blocks.store_forward/u,190184742,99.00,,
+zod3.1.18.csv	9238,,page-faults,191527297,100.00,,
+zod3.1.18.rss	Command exited with non-zero status 2
+zod3.1.18.rss	89444
+zod3.1.19.csv	193476083,,duration_time,1,100.00,,
+zod3.1.19.csv	779131427,,cpu_core/cycles/u,187630409,99.00,,
+zod3.1.19.csv	98503394,,cpu_core/cycles/k,187630409,99.00,,
+zod3.1.19.csv	1717675853,,cpu_core/instructions/u,187630409,99.00,,
+zod3.1.19.csv	9060778,,cpu_core/dtlb_load_misses.walk_active/u,187630409,99.00,,
+zod3.1.19.csv	111269,,cpu_core/mem_inst_retired.stlb_miss_loads/u,187630409,99.00,,
+zod3.1.19.csv	3548241,,cpu_core/ld_blocks.store_forward/u,187630409,99.00,,
+zod3.1.19.csv	9238,,page-faults,188938697,100.00,,
+zod3.1.19.rss	Command exited with non-zero status 2
+zod3.1.19.rss	89444
+zod3.1.2.csv	209596106,,duration_time,1,100.00,,
+zod3.1.2.csv	795592882,,cpu_core/cycles/u,204205256,99.00,,
+zod3.1.2.csv	98628499,,cpu_core/cycles/k,204205256,99.00,,
+zod3.1.2.csv	1717381720,,cpu_core/instructions/u,204205256,99.00,,
+zod3.1.2.csv	9389210,,cpu_core/dtlb_load_misses.walk_active/u,204205256,99.00,,
+zod3.1.2.csv	108331,,cpu_core/mem_inst_retired.stlb_miss_loads/u,204205256,99.00,,
+zod3.1.2.csv	3558837,,cpu_core/ld_blocks.store_forward/u,204205256,99.00,,
+zod3.1.2.csv	9236,,page-faults,205592028,100.00,,
+zod3.1.2.rss	Command exited with non-zero status 2
+zod3.1.2.rss	89440
+zod3.1.20.csv	208582254,,duration_time,1,100.00,,
+zod3.1.20.csv	779213630,,cpu_core/cycles/u,202672852,99.00,,
+zod3.1.20.csv	95202360,,cpu_core/cycles/k,202672852,99.00,,
+zod3.1.20.csv	1717206201,,cpu_core/instructions/u,202672852,99.00,,
+zod3.1.20.csv	8568665,,cpu_core/dtlb_load_misses.walk_active/u,202672852,99.00,,
+zod3.1.20.csv	89135,,cpu_core/mem_inst_retired.stlb_miss_loads/u,202672852,99.00,,
+zod3.1.20.csv	3557324,,cpu_core/ld_blocks.store_forward/u,202672852,99.00,,
+zod3.1.20.csv	9238,,page-faults,204034671,100.00,,
+zod3.1.20.rss	Command exited with non-zero status 2
+zod3.1.20.rss	89440
+zod3.1.3.csv	213740810,,duration_time,1,100.00,,
+zod3.1.3.csv	806551682,,cpu_core/cycles/u,207575502,99.00,,
+zod3.1.3.csv	95234985,,cpu_core/cycles/k,207575502,99.00,,
+zod3.1.3.csv	1717253735,,cpu_core/instructions/u,207575502,99.00,,
+zod3.1.3.csv	9471291,,cpu_core/dtlb_load_misses.walk_active/u,207575502,99.00,,
+zod3.1.3.csv	86196,,cpu_core/mem_inst_retired.stlb_miss_loads/u,207575502,99.00,,
+zod3.1.3.csv	3556731,,cpu_core/ld_blocks.store_forward/u,207575502,99.00,,
+zod3.1.3.csv	9238,,page-faults,208963645,100.00,,
+zod3.1.3.rss	Command exited with non-zero status 2
+zod3.1.3.rss	89440
+zod3.1.4.csv	203407095,,duration_time,1,100.00,,
+zod3.1.4.csv	763565207,,cpu_core/cycles/u,198892070,100.00,,
+zod3.1.4.csv	93153088,,cpu_core/cycles/k,198892070,100.00,,
+zod3.1.4.csv	1705873763,,cpu_core/instructions/u,198892070,100.00,,
+zod3.1.4.csv	8929280,,cpu_core/dtlb_load_misses.walk_active/u,198892070,100.00,,
+zod3.1.4.csv	100143,,cpu_core/mem_inst_retired.stlb_miss_loads/u,198892070,100.00,,
+zod3.1.4.csv	3523997,,cpu_core/ld_blocks.store_forward/u,198892070,100.00,,
+zod3.1.4.csv	9238,,page-faults,198892070,100.00,,
+zod3.1.4.rss	Command exited with non-zero status 2
+zod3.1.4.rss	89440
+zod3.1.5.csv	203206728,,duration_time,1,100.00,,
+zod3.1.5.csv	804588864,,cpu_core/cycles/u,197318162,99.00,,
+zod3.1.5.csv	103676463,,cpu_core/cycles/k,197318162,99.00,,
+zod3.1.5.csv	1717312616,,cpu_core/instructions/u,197318162,99.00,,
+zod3.1.5.csv	9952654,,cpu_core/dtlb_load_misses.walk_active/u,197318162,99.00,,
+zod3.1.5.csv	104383,,cpu_core/mem_inst_retired.stlb_miss_loads/u,197318162,99.00,,
+zod3.1.5.csv	3558303,,cpu_core/ld_blocks.store_forward/u,197318162,99.00,,
+zod3.1.5.csv	9239,,page-faults,198653227,100.00,,
+zod3.1.5.rss	Command exited with non-zero status 2
+zod3.1.5.rss	89436
+zod3.1.6.csv	200300413,,duration_time,1,100.00,,
+zod3.1.6.csv	782481950,,cpu_core/cycles/u,194320336,99.00,,
+zod3.1.6.csv	95051492,,cpu_core/cycles/k,194320336,99.00,,
+zod3.1.6.csv	1717880277,,cpu_core/instructions/u,194320336,99.00,,
+zod3.1.6.csv	8662211,,cpu_core/dtlb_load_misses.walk_active/u,194320336,99.00,,
+zod3.1.6.csv	95887,,cpu_core/mem_inst_retired.stlb_miss_loads/u,194320336,99.00,,
+zod3.1.6.csv	3551079,,cpu_core/ld_blocks.store_forward/u,194320336,99.00,,
+zod3.1.6.csv	9238,,page-faults,195702184,100.00,,
+zod3.1.6.rss	Command exited with non-zero status 2
+zod3.1.6.rss	89440
+zod3.1.7.csv	212577444,,duration_time,1,100.00,,
+zod3.1.7.csv	814697526,,cpu_core/cycles/u,206937047,99.00,,
+zod3.1.7.csv	98588588,,cpu_core/cycles/k,206937047,99.00,,
+zod3.1.7.csv	1716714547,,cpu_core/instructions/u,206937047,99.00,,
+zod3.1.7.csv	10334526,,cpu_core/dtlb_load_misses.walk_active/u,206937047,99.00,,
+zod3.1.7.csv	98271,,cpu_core/mem_inst_retired.stlb_miss_loads/u,206937047,99.00,,
+zod3.1.7.csv	3559068,,cpu_core/ld_blocks.store_forward/u,206937047,99.00,,
+zod3.1.7.csv	9239,,page-faults,208254256,100.00,,
+zod3.1.7.rss	Command exited with non-zero status 2
+zod3.1.7.rss	89440
+zod3.1.8.csv	215424210,,duration_time,1,100.00,,
+zod3.1.8.csv	792639497,,cpu_core/cycles/u,209821721,99.00,,
+zod3.1.8.csv	93520037,,cpu_core/cycles/k,209821721,99.00,,
+zod3.1.8.csv	1716681876,,cpu_core/instructions/u,209821721,99.00,,
+zod3.1.8.csv	10107965,,cpu_core/dtlb_load_misses.walk_active/u,209821721,99.00,,
+zod3.1.8.csv	108874,,cpu_core/mem_inst_retired.stlb_miss_loads/u,209821721,99.00,,
+zod3.1.8.csv	3551117,,cpu_core/ld_blocks.store_forward/u,209821721,99.00,,
+zod3.1.8.csv	9238,,page-faults,211166722,100.00,,
+zod3.1.8.rss	Command exited with non-zero status 2
+zod3.1.8.rss	89436
+zod3.1.9.csv	216064928,,duration_time,1,100.00,,
+zod3.1.9.csv	790503839,,cpu_core/cycles/u,209894955,99.00,,
+zod3.1.9.csv	98714846,,cpu_core/cycles/k,209894955,99.00,,
+zod3.1.9.csv	1716714411,,cpu_core/instructions/u,209894955,99.00,,
+zod3.1.9.csv	8886203,,cpu_core/dtlb_load_misses.walk_active/u,209894955,99.00,,
+zod3.1.9.csv	85239,,cpu_core/mem_inst_retired.stlb_miss_loads/u,209894955,99.00,,
+zod3.1.9.csv	3550986,,cpu_core/ld_blocks.store_forward/u,209894955,99.00,,
+zod3.1.9.csv	9237,,page-faults,211237481,100.00,,
+zod3.1.9.rss	Command exited with non-zero status 2
+zod3.1.9.rss	89444
+zod3.2.1.csv	205243061,,duration_time,1,100.00,,
+zod3.2.1.csv	801885819,,cpu_core/cycles/u,199015375,99.00,,
+zod3.2.1.csv	96482950,,cpu_core/cycles/k,199015375,99.00,,
+zod3.2.1.csv	1727042033,,cpu_core/instructions/u,199015375,99.00,,
+zod3.2.1.csv	10388293,,cpu_core/dtlb_load_misses.walk_active/u,199015375,99.00,,
+zod3.2.1.csv	112305,,cpu_core/mem_inst_retired.stlb_miss_loads/u,199015375,99.00,,
+zod3.2.1.csv	3557297,,cpu_core/ld_blocks.store_forward/u,199015375,99.00,,
+zod3.2.1.csv	5299,,page-faults,200311114,100.00,,
+zod3.2.1.rss	Command exited with non-zero status 2
+zod3.2.1.rss	91188
+zod3.2.10.csv	203073343,,duration_time,1,100.00,,
+zod3.2.10.csv	764593322,,cpu_core/cycles/u,197860883,99.00,,
+zod3.2.10.csv	89018294,,cpu_core/cycles/k,197860883,99.00,,
+zod3.2.10.csv	1726945197,,cpu_core/instructions/u,197860883,99.00,,
+zod3.2.10.csv	8667370,,cpu_core/dtlb_load_misses.walk_active/u,197860883,99.00,,
+zod3.2.10.csv	110949,,cpu_core/mem_inst_retired.stlb_miss_loads/u,197860883,99.00,,
+zod3.2.10.csv	3548969,,cpu_core/ld_blocks.store_forward/u,197860883,99.00,,
+zod3.2.10.csv	5299,,page-faults,199145725,100.00,,
+zod3.2.10.rss	Command exited with non-zero status 2
+zod3.2.10.rss	91188
+zod3.2.11.csv	223195576,,duration_time,1,100.00,,
+zod3.2.11.csv	782470107,,cpu_core/cycles/u,217578857,99.00,,
+zod3.2.11.csv	90526291,,cpu_core/cycles/k,217578857,99.00,,
+zod3.2.11.csv	1726231126,,cpu_core/instructions/u,217578857,99.00,,
+zod3.2.11.csv	8507743,,cpu_core/dtlb_load_misses.walk_active/u,217578857,99.00,,
+zod3.2.11.csv	95046,,cpu_core/mem_inst_retired.stlb_miss_loads/u,217578857,99.00,,
+zod3.2.11.csv	3558253,,cpu_core/ld_blocks.store_forward/u,217578857,99.00,,
+zod3.2.11.csv	5300,,page-faults,218907555,100.00,,
+zod3.2.11.rss	Command exited with non-zero status 2
+zod3.2.11.rss	91192
+zod3.2.12.csv	202447629,,duration_time,1,100.00,,
+zod3.2.12.csv	782898728,,cpu_core/cycles/u,197944736,99.00,,
+zod3.2.12.csv	95064395,,cpu_core/cycles/k,197944736,99.00,,
+zod3.2.12.csv	1719988986,,cpu_core/instructions/u,197944736,99.00,,
+zod3.2.12.csv	9873748,,cpu_core/dtlb_load_misses.walk_active/u,197944736,99.00,,
+zod3.2.12.csv	105941,,cpu_core/mem_inst_retired.stlb_miss_loads/u,197944736,99.00,,
+zod3.2.12.csv	3536763,,cpu_core/ld_blocks.store_forward/u,197944736,99.00,,
+zod3.2.12.csv	5300,,page-faults,198446823,100.00,,
+zod3.2.12.rss	Command exited with non-zero status 2
+zod3.2.12.rss	91192
+zod3.2.13.csv	192095570,,duration_time,1,100.00,,
+zod3.2.13.csv	775893727,,cpu_core/cycles/u,186981499,99.00,,
+zod3.2.13.csv	95444704,,cpu_core/cycles/k,186981499,99.00,,
+zod3.2.13.csv	1726618391,,cpu_core/instructions/u,186981499,99.00,,
+zod3.2.13.csv	8874051,,cpu_core/dtlb_load_misses.walk_active/u,186981499,99.00,,
+zod3.2.13.csv	108172,,cpu_core/mem_inst_retired.stlb_miss_loads/u,186981499,99.00,,
+zod3.2.13.csv	3543986,,cpu_core/ld_blocks.store_forward/u,186981499,99.00,,
+zod3.2.13.csv	5298,,page-faults,188157758,100.00,,
+zod3.2.13.rss	Command exited with non-zero status 2
+zod3.2.13.rss	91188
+zod3.2.14.csv	214498099,,duration_time,1,100.00,,
+zod3.2.14.csv	808020552,,cpu_core/cycles/u,208510101,99.00,,
+zod3.2.14.csv	95002043,,cpu_core/cycles/k,208510101,99.00,,
+zod3.2.14.csv	1726967580,,cpu_core/instructions/u,208510101,99.00,,
+zod3.2.14.csv	10482156,,cpu_core/dtlb_load_misses.walk_active/u,208510101,99.00,,
+zod3.2.14.csv	98796,,cpu_core/mem_inst_retired.stlb_miss_loads/u,208510101,99.00,,
+zod3.2.14.csv	3562203,,cpu_core/ld_blocks.store_forward/u,208510101,99.00,,
+zod3.2.14.csv	5299,,page-faults,209863365,100.00,,
+zod3.2.14.rss	Command exited with non-zero status 2
+zod3.2.14.rss	91188
+zod3.2.15.csv	214451601,,duration_time,1,100.00,,
+zod3.2.15.csv	806896668,,cpu_core/cycles/u,209017779,99.00,,
+zod3.2.15.csv	94505701,,cpu_core/cycles/k,209017779,99.00,,
+zod3.2.15.csv	1726825867,,cpu_core/instructions/u,209017779,99.00,,
+zod3.2.15.csv	10426489,,cpu_core/dtlb_load_misses.walk_active/u,209017779,99.00,,
+zod3.2.15.csv	107553,,cpu_core/mem_inst_retired.stlb_miss_loads/u,209017779,99.00,,
+zod3.2.15.csv	3558288,,cpu_core/ld_blocks.store_forward/u,209017779,99.00,,
+zod3.2.15.csv	5298,,page-faults,210365609,100.00,,
+zod3.2.15.rss	Command exited with non-zero status 2
+zod3.2.15.rss	91188
+zod3.2.16.csv	203425005,,duration_time,1,100.00,,
+zod3.2.16.csv	772798739,,cpu_core/cycles/u,198118787,99.00,,
+zod3.2.16.csv	90601159,,cpu_core/cycles/k,198118787,99.00,,
+zod3.2.16.csv	1726673800,,cpu_core/instructions/u,198118787,99.00,,
+zod3.2.16.csv	8623239,,cpu_core/dtlb_load_misses.walk_active/u,198118787,99.00,,
+zod3.2.16.csv	95641,,cpu_core/mem_inst_retired.stlb_miss_loads/u,198118787,99.00,,
+zod3.2.16.csv	3552200,,cpu_core/ld_blocks.store_forward/u,198118787,99.00,,
+zod3.2.16.csv	5298,,page-faults,199377281,100.00,,
+zod3.2.16.rss	Command exited with non-zero status 2
+zod3.2.16.rss	91188
+zod3.2.17.csv	225210065,,duration_time,1,100.00,,
+zod3.2.17.csv	796113573,,cpu_core/cycles/u,219510329,99.00,,
+zod3.2.17.csv	98718826,,cpu_core/cycles/k,219510329,99.00,,
+zod3.2.17.csv	1726139939,,cpu_core/instructions/u,219510329,99.00,,
+zod3.2.17.csv	9675482,,cpu_core/dtlb_load_misses.walk_active/u,219510329,99.00,,
+zod3.2.17.csv	97399,,cpu_core/mem_inst_retired.stlb_miss_loads/u,219510329,99.00,,
+zod3.2.17.csv	3556690,,cpu_core/ld_blocks.store_forward/u,219510329,99.00,,
+zod3.2.17.csv	5298,,page-faults,220833409,100.00,,
+zod3.2.17.rss	Command exited with non-zero status 2
+zod3.2.17.rss	91184
+zod3.2.18.csv	203029888,,duration_time,1,100.00,,
+zod3.2.18.csv	800755559,,cpu_core/cycles/u,197546853,99.00,,
+zod3.2.18.csv	100564715,,cpu_core/cycles/k,197546853,99.00,,
+zod3.2.18.csv	1727713419,,cpu_core/instructions/u,197546853,99.00,,
+zod3.2.18.csv	10361896,,cpu_core/dtlb_load_misses.walk_active/u,197546853,99.00,,
+zod3.2.18.csv	105318,,cpu_core/mem_inst_retired.stlb_miss_loads/u,197546853,99.00,,
+zod3.2.18.csv	3547025,,cpu_core/ld_blocks.store_forward/u,197546853,99.00,,
+zod3.2.18.csv	5298,,page-faults,198928449,100.00,,
+zod3.2.18.rss	Command exited with non-zero status 2
+zod3.2.18.rss	91192
+zod3.2.19.csv	211855486,,duration_time,1,100.00,,
+zod3.2.19.csv	838420880,,cpu_core/cycles/u,206000552,99.00,,
+zod3.2.19.csv	105798689,,cpu_core/cycles/k,206000552,99.00,,
+zod3.2.19.csv	1727612289,,cpu_core/instructions/u,206000552,99.00,,
+zod3.2.19.csv	11032170,,cpu_core/dtlb_load_misses.walk_active/u,206000552,99.00,,
+zod3.2.19.csv	102076,,cpu_core/mem_inst_retired.stlb_miss_loads/u,206000552,99.00,,
+zod3.2.19.csv	3566587,,cpu_core/ld_blocks.store_forward/u,206000552,99.00,,
+zod3.2.19.csv	5298,,page-faults,207418398,100.00,,
+zod3.2.19.rss	Command exited with non-zero status 2
+zod3.2.19.rss	91188
+zod3.2.2.csv	205804526,,duration_time,1,100.00,,
+zod3.2.2.csv	783626543,,cpu_core/cycles/u,200323158,99.00,,
+zod3.2.2.csv	96215805,,cpu_core/cycles/k,200323158,99.00,,
+zod3.2.2.csv	1727118732,,cpu_core/instructions/u,200323158,99.00,,
+zod3.2.2.csv	8956923,,cpu_core/dtlb_load_misses.walk_active/u,200323158,99.00,,
+zod3.2.2.csv	100105,,cpu_core/mem_inst_retired.stlb_miss_loads/u,200323158,99.00,,
+zod3.2.2.csv	3555222,,cpu_core/ld_blocks.store_forward/u,200323158,99.00,,
+zod3.2.2.csv	5297,,page-faults,201637943,100.00,,
+zod3.2.2.rss	Command exited with non-zero status 2
+zod3.2.2.rss	91188
+zod3.2.20.csv	208353148,,duration_time,1,100.00,,
+zod3.2.20.csv	773891847,,cpu_core/cycles/u,202747335,99.00,,
+zod3.2.20.csv	94910565,,cpu_core/cycles/k,202747335,99.00,,
+zod3.2.20.csv	1726893294,,cpu_core/instructions/u,202747335,99.00,,
+zod3.2.20.csv	8877366,,cpu_core/dtlb_load_misses.walk_active/u,202747335,99.00,,
+zod3.2.20.csv	97683,,cpu_core/mem_inst_retired.stlb_miss_loads/u,202747335,99.00,,
+zod3.2.20.csv	3555853,,cpu_core/ld_blocks.store_forward/u,202747335,99.00,,
+zod3.2.20.csv	5298,,page-faults,204061674,100.00,,
+zod3.2.20.rss	Command exited with non-zero status 2
+zod3.2.20.rss	91188
+zod3.2.3.csv	213493910,,duration_time,1,100.00,,
+zod3.2.3.csv	803583559,,cpu_core/cycles/u,208145611,99.00,,
+zod3.2.3.csv	100037373,,cpu_core/cycles/k,208145611,99.00,,
+zod3.2.3.csv	1726837580,,cpu_core/instructions/u,208145611,99.00,,
+zod3.2.3.csv	9793317,,cpu_core/dtlb_load_misses.walk_active/u,208145611,99.00,,
+zod3.2.3.csv	96885,,cpu_core/mem_inst_retired.stlb_miss_loads/u,208145611,99.00,,
+zod3.2.3.csv	3561623,,cpu_core/ld_blocks.store_forward/u,208145611,99.00,,
+zod3.2.3.csv	5299,,page-faults,209489876,100.00,,
+zod3.2.3.rss	Command exited with non-zero status 2
+zod3.2.3.rss	91188
+zod3.2.4.csv	205777446,,duration_time,1,100.00,,
+zod3.2.4.csv	772469556,,cpu_core/cycles/u,201329115,99.00,,
+zod3.2.4.csv	93129232,,cpu_core/cycles/k,201329115,99.00,,
+zod3.2.4.csv	1721038201,,cpu_core/instructions/u,201329115,99.00,,
+zod3.2.4.csv	8691193,,cpu_core/dtlb_load_misses.walk_active/u,201329115,99.00,,
+zod3.2.4.csv	95574,,cpu_core/mem_inst_retired.stlb_miss_loads/u,201329115,99.00,,
+zod3.2.4.csv	3530698,,cpu_core/ld_blocks.store_forward/u,201329115,99.00,,
+zod3.2.4.csv	5299,,page-faults,201929002,100.00,,
+zod3.2.4.rss	Command exited with non-zero status 2
+zod3.2.4.rss	91184
+zod3.2.5.csv	196060433,,duration_time,1,100.00,,
+zod3.2.5.csv	772725842,,cpu_core/cycles/u,191922544,99.00,,
+zod3.2.5.csv	96735494,,cpu_core/cycles/k,191922544,99.00,,
+zod3.2.5.csv	1720227628,,cpu_core/instructions/u,191922544,99.00,,
+zod3.2.5.csv	9566587,,cpu_core/dtlb_load_misses.walk_active/u,191922544,99.00,,
+zod3.2.5.csv	113318,,cpu_core/mem_inst_retired.stlb_miss_loads/u,191922544,99.00,,
+zod3.2.5.csv	3540927,,cpu_core/ld_blocks.store_forward/u,191922544,99.00,,
+zod3.2.5.csv	5298,,page-faults,192437021,100.00,,
+zod3.2.5.rss	Command exited with non-zero status 2
+zod3.2.5.rss	91192
+zod3.2.6.csv	198586334,,duration_time,1,100.00,,
+zod3.2.6.csv	792409092,,cpu_core/cycles/u,193246491,99.00,,
+zod3.2.6.csv	96998132,,cpu_core/cycles/k,193246491,99.00,,
+zod3.2.6.csv	1726860014,,cpu_core/instructions/u,193246491,99.00,,
+zod3.2.6.csv	9617706,,cpu_core/dtlb_load_misses.walk_active/u,193246491,99.00,,
+zod3.2.6.csv	113595,,cpu_core/mem_inst_retired.stlb_miss_loads/u,193246491,99.00,,
+zod3.2.6.csv	3552887,,cpu_core/ld_blocks.store_forward/u,193246491,99.00,,
+zod3.2.6.csv	5298,,page-faults,194491349,100.00,,
+zod3.2.6.rss	Command exited with non-zero status 2
+zod3.2.6.rss	91188
+zod3.2.7.csv	198091709,,duration_time,1,100.00,,
+zod3.2.7.csv	758728231,,cpu_core/cycles/u,192218585,99.00,,
+zod3.2.7.csv	89876580,,cpu_core/cycles/k,192218585,99.00,,
+zod3.2.7.csv	1727032286,,cpu_core/instructions/u,192218585,99.00,,
+zod3.2.7.csv	7731401,,cpu_core/dtlb_load_misses.walk_active/u,192218585,99.00,,
+zod3.2.7.csv	91727,,cpu_core/mem_inst_retired.stlb_miss_loads/u,192218585,99.00,,
+zod3.2.7.csv	3546333,,cpu_core/ld_blocks.store_forward/u,192218585,99.00,,
+zod3.2.7.csv	5299,,page-faults,193471405,100.00,,
+zod3.2.7.rss	Command exited with non-zero status 2
+zod3.2.7.rss	91188
+zod3.2.8.csv	204125473,,duration_time,1,100.00,,
+zod3.2.8.csv	762051990,,cpu_core/cycles/u,198411892,99.00,,
+zod3.2.8.csv	91658455,,cpu_core/cycles/k,198411892,99.00,,
+zod3.2.8.csv	1727737545,,cpu_core/instructions/u,198411892,99.00,,
+zod3.2.8.csv	8332540,,cpu_core/dtlb_load_misses.walk_active/u,198411892,99.00,,
+zod3.2.8.csv	102139,,cpu_core/mem_inst_retired.stlb_miss_loads/u,198411892,99.00,,
+zod3.2.8.csv	3547232,,cpu_core/ld_blocks.store_forward/u,198411892,99.00,,
+zod3.2.8.csv	5298,,page-faults,199792864,100.00,,
+zod3.2.8.rss	Command exited with non-zero status 2
+zod3.2.8.rss	91192
+zod3.2.9.csv	207660991,,duration_time,1,100.00,,
+zod3.2.9.csv	764799333,,cpu_core/cycles/u,202341040,99.00,,
+zod3.2.9.csv	91619511,,cpu_core/cycles/k,202341040,99.00,,
+zod3.2.9.csv	1726761739,,cpu_core/instructions/u,202341040,99.00,,
+zod3.2.9.csv	8221473,,cpu_core/dtlb_load_misses.walk_active/u,202341040,99.00,,
+zod3.2.9.csv	94839,,cpu_core/mem_inst_retired.stlb_miss_loads/u,202341040,99.00,,
+zod3.2.9.csv	3546665,,cpu_core/ld_blocks.store_forward/u,202341040,99.00,,
+zod3.2.9.csv	5298,,page-faults,203632353,100.00,,
+zod3.2.9.rss	Command exited with non-zero status 2
+zod3.2.9.rss	91188
+zod3.4.1.csv	198243405,,duration_time,1,100.00,,
+zod3.4.1.csv	774257084,,cpu_core/cycles/u,193251593,99.00,,
+zod3.4.1.csv	96672840,,cpu_core/cycles/k,193251593,99.00,,
+zod3.4.1.csv	1704475082,,cpu_core/instructions/u,193251593,99.00,,
+zod3.4.1.csv	9030470,,cpu_core/dtlb_load_misses.walk_active/u,193251593,99.00,,
+zod3.4.1.csv	96431,,cpu_core/mem_inst_retired.stlb_miss_loads/u,193251593,99.00,,
+zod3.4.1.csv	2281705,,cpu_core/ld_blocks.store_forward/u,193251593,99.00,,
+zod3.4.1.csv	9240,,page-faults,194132295,100.00,,
+zod3.4.1.rss	Command exited with non-zero status 2
+zod3.4.1.rss	89440
+zod3.4.10.csv	199392614,,duration_time,1,100.00,,
+zod3.4.10.csv	741552272,,cpu_core/cycles/u,195211211,99.00,,
+zod3.4.10.csv	89218172,,cpu_core/cycles/k,195211211,99.00,,
+zod3.4.10.csv	1701023392,,cpu_core/instructions/u,195211211,99.00,,
+zod3.4.10.csv	8876144,,cpu_core/dtlb_load_misses.walk_active/u,195211211,99.00,,
+zod3.4.10.csv	104189,,cpu_core/mem_inst_retired.stlb_miss_loads/u,195211211,99.00,,
+zod3.4.10.csv	2264215,,cpu_core/ld_blocks.store_forward/u,195211211,99.00,,
+zod3.4.10.csv	9236,,page-faults,195705388,100.00,,
+zod3.4.10.rss	Command exited with non-zero status 2
+zod3.4.10.rss	89440
+zod3.4.11.csv	234810599,,duration_time,1,100.00,,
+zod3.4.11.csv	785431924,,cpu_core/cycles/u,228778041,99.00,,
+zod3.4.11.csv	92976811,,cpu_core/cycles/k,228778041,99.00,,
+zod3.4.11.csv	1707067640,,cpu_core/instructions/u,228778041,99.00,,
+zod3.4.11.csv	10312890,,cpu_core/dtlb_load_misses.walk_active/u,228778041,99.00,,
+zod3.4.11.csv	103589,,cpu_core/mem_inst_retired.stlb_miss_loads/u,228778041,99.00,,
+zod3.4.11.csv	2289657,,cpu_core/ld_blocks.store_forward/u,228778041,99.00,,
+zod3.4.11.csv	9239,,page-faults,230173453,100.00,,
+zod3.4.11.rss	Command exited with non-zero status 2
+zod3.4.11.rss	89440
+zod3.4.12.csv	208048995,,duration_time,1,100.00,,
+zod3.4.12.csv	789715028,,cpu_core/cycles/u,201601366,99.00,,
+zod3.4.12.csv	97669829,,cpu_core/cycles/k,201601366,99.00,,
+zod3.4.12.csv	1707432213,,cpu_core/instructions/u,201601366,99.00,,
+zod3.4.12.csv	9206478,,cpu_core/dtlb_load_misses.walk_active/u,201601366,99.00,,
+zod3.4.12.csv	105861,,cpu_core/mem_inst_retired.stlb_miss_loads/u,201601366,99.00,,
+zod3.4.12.csv	2290147,,cpu_core/ld_blocks.store_forward/u,201601366,99.00,,
+zod3.4.12.csv	9239,,page-faults,202859194,100.00,,
+zod3.4.12.rss	Command exited with non-zero status 2
+zod3.4.12.rss	89444
+zod3.4.13.csv	200494505,,duration_time,1,100.00,,
+zod3.4.13.csv	807019968,,cpu_core/cycles/u,194684238,99.00,,
+zod3.4.13.csv	100106072,,cpu_core/cycles/k,194684238,99.00,,
+zod3.4.13.csv	1708615721,,cpu_core/instructions/u,194684238,99.00,,
+zod3.4.13.csv	10666874,,cpu_core/dtlb_load_misses.walk_active/u,194684238,99.00,,
+zod3.4.13.csv	104309,,cpu_core/mem_inst_retired.stlb_miss_loads/u,194684238,99.00,,
+zod3.4.13.csv	2282006,,cpu_core/ld_blocks.store_forward/u,194684238,99.00,,
+zod3.4.13.csv	9239,,page-faults,196036417,100.00,,
+zod3.4.13.rss	Command exited with non-zero status 2
+zod3.4.13.rss	89440
+zod3.4.14.csv	201573938,,duration_time,1,100.00,,
+zod3.4.14.csv	759366934,,cpu_core/cycles/u,196499753,99.00,,
+zod3.4.14.csv	92443557,,cpu_core/cycles/k,196499753,99.00,,
+zod3.4.14.csv	1702865660,,cpu_core/instructions/u,196499753,99.00,,
+zod3.4.14.csv	8430447,,cpu_core/dtlb_load_misses.walk_active/u,196499753,99.00,,
+zod3.4.14.csv	88012,,cpu_core/mem_inst_retired.stlb_miss_loads/u,196499753,99.00,,
+zod3.4.14.csv	2281140,,cpu_core/ld_blocks.store_forward/u,196499753,99.00,,
+zod3.4.14.csv	9240,,page-faults,197217498,100.00,,
+zod3.4.14.rss	Command exited with non-zero status 2
+zod3.4.14.rss	89440
+zod3.4.15.csv	216726313,,duration_time,1,100.00,,
+zod3.4.15.csv	813050852,,cpu_core/cycles/u,211603010,99.00,,
+zod3.4.15.csv	98929200,,cpu_core/cycles/k,211603010,99.00,,
+zod3.4.15.csv	1705742827,,cpu_core/instructions/u,211603010,99.00,,
+zod3.4.15.csv	10521337,,cpu_core/dtlb_load_misses.walk_active/u,211603010,99.00,,
+zod3.4.15.csv	81488,,cpu_core/mem_inst_retired.stlb_miss_loads/u,211603010,99.00,,
+zod3.4.15.csv	2298477,,cpu_core/ld_blocks.store_forward/u,211603010,99.00,,
+zod3.4.15.csv	9237,,page-faults,212709911,100.00,,
+zod3.4.15.rss	Command exited with non-zero status 2
+zod3.4.15.rss	89440
+zod3.4.16.csv	202007104,,duration_time,1,100.00,,
+zod3.4.16.csv	748627536,,cpu_core/cycles/u,196170970,99.00,,
+zod3.4.16.csv	92988017,,cpu_core/cycles/k,196170970,99.00,,
+zod3.4.16.csv	1701335215,,cpu_core/instructions/u,196170970,99.00,,
+zod3.4.16.csv	8620000,,cpu_core/dtlb_load_misses.walk_active/u,196170970,99.00,,
+zod3.4.16.csv	99659,,cpu_core/mem_inst_retired.stlb_miss_loads/u,196170970,99.00,,
+zod3.4.16.csv	2279245,,cpu_core/ld_blocks.store_forward/u,196170970,99.00,,
+zod3.4.16.csv	9237,,page-faults,196713044,100.00,,
+zod3.4.16.rss	Command exited with non-zero status 2
+zod3.4.16.rss	89440
+zod3.4.17.csv	211668342,,duration_time,1,100.00,,
+zod3.4.17.csv	798229161,,cpu_core/cycles/u,207798850,99.00,,
+zod3.4.17.csv	95425202,,cpu_core/cycles/k,207798850,99.00,,
+zod3.4.17.csv	1700945160,,cpu_core/instructions/u,207798850,99.00,,
+zod3.4.17.csv	10679314,,cpu_core/dtlb_load_misses.walk_active/u,207798850,99.00,,
+zod3.4.17.csv	103795,,cpu_core/mem_inst_retired.stlb_miss_loads/u,207798850,99.00,,
+zod3.4.17.csv	2034734,,cpu_core/ld_blocks.store_forward/u,207798850,99.00,,
+zod3.4.17.csv	9238,,page-faults,208311959,100.00,,
+zod3.4.17.rss	Command exited with non-zero status 2
+zod3.4.17.rss	89440
+zod3.4.18.csv	205988640,,duration_time,1,100.00,,
+zod3.4.18.csv	800876573,,cpu_core/cycles/u,199917061,99.00,,
+zod3.4.18.csv	98661610,,cpu_core/cycles/k,199917061,99.00,,
+zod3.4.18.csv	1709037288,,cpu_core/instructions/u,199917061,99.00,,
+zod3.4.18.csv	11181032,,cpu_core/dtlb_load_misses.walk_active/u,199917061,99.00,,
+zod3.4.18.csv	113455,,cpu_core/mem_inst_retired.stlb_miss_loads/u,199917061,99.00,,
+zod3.4.18.csv	2298305,,cpu_core/ld_blocks.store_forward/u,199917061,99.00,,
+zod3.4.18.csv	9239,,page-faults,201367238,100.00,,
+zod3.4.18.rss	Command exited with non-zero status 2
+zod3.4.18.rss	89440
+zod3.4.19.csv	206655529,,duration_time,1,100.00,,
+zod3.4.19.csv	789571858,,cpu_core/cycles/u,201182910,99.00,,
+zod3.4.19.csv	97702013,,cpu_core/cycles/k,201182910,99.00,,
+zod3.4.19.csv	1706222105,,cpu_core/instructions/u,201182910,99.00,,
+zod3.4.19.csv	10225900,,cpu_core/dtlb_load_misses.walk_active/u,201182910,99.00,,
+zod3.4.19.csv	111103,,cpu_core/mem_inst_retired.stlb_miss_loads/u,201182910,99.00,,
+zod3.4.19.csv	2290773,,cpu_core/ld_blocks.store_forward/u,201182910,99.00,,
+zod3.4.19.csv	9238,,page-faults,202294016,100.00,,
+zod3.4.19.rss	Command exited with non-zero status 2
+zod3.4.19.rss	89440
+zod3.4.2.csv	208804673,,duration_time,1,100.00,,
+zod3.4.2.csv	797669834,,cpu_core/cycles/u,203023878,99.00,,
+zod3.4.2.csv	98602790,,cpu_core/cycles/k,203023878,99.00,,
+zod3.4.2.csv	1707883708,,cpu_core/instructions/u,203023878,99.00,,
+zod3.4.2.csv	10332421,,cpu_core/dtlb_load_misses.walk_active/u,203023878,99.00,,
+zod3.4.2.csv	105576,,cpu_core/mem_inst_retired.stlb_miss_loads/u,203023878,99.00,,
+zod3.4.2.csv	2295837,,cpu_core/ld_blocks.store_forward/u,203023878,99.00,,
+zod3.4.2.csv	9237,,page-faults,204342732,100.00,,
+zod3.4.2.rss	Command exited with non-zero status 2
+zod3.4.2.rss	89444
+zod3.4.20.csv	212981314,,duration_time,1,100.00,,
+zod3.4.20.csv	793463586,,cpu_core/cycles/u,207048436,99.00,,
+zod3.4.20.csv	97478756,,cpu_core/cycles/k,207048436,99.00,,
+zod3.4.20.csv	1708289008,,cpu_core/instructions/u,207048436,99.00,,
+zod3.4.20.csv	10140132,,cpu_core/dtlb_load_misses.walk_active/u,207048436,99.00,,
+zod3.4.20.csv	87542,,cpu_core/mem_inst_retired.stlb_miss_loads/u,207048436,99.00,,
+zod3.4.20.csv	2288195,,cpu_core/ld_blocks.store_forward/u,207048436,99.00,,
+zod3.4.20.csv	9238,,page-faults,208448393,100.00,,
+zod3.4.20.rss	Command exited with non-zero status 2
+zod3.4.20.rss	89440
+zod3.4.3.csv	209768188,,duration_time,1,100.00,,
+zod3.4.3.csv	778757068,,cpu_core/cycles/u,204160850,99.00,,
+zod3.4.3.csv	93986031,,cpu_core/cycles/k,204160850,99.00,,
+zod3.4.3.csv	1705347332,,cpu_core/instructions/u,204160850,99.00,,
+zod3.4.3.csv	9143698,,cpu_core/dtlb_load_misses.walk_active/u,204160850,99.00,,
+zod3.4.3.csv	107289,,cpu_core/mem_inst_retired.stlb_miss_loads/u,204160850,99.00,,
+zod3.4.3.csv	2286998,,cpu_core/ld_blocks.store_forward/u,204160850,99.00,,
+zod3.4.3.csv	9238,,page-faults,205179030,100.00,,
+zod3.4.3.rss	Command exited with non-zero status 2
+zod3.4.3.rss	89440
+zod3.4.4.csv	215801183,,duration_time,1,100.00,,
+zod3.4.4.csv	805639622,,cpu_core/cycles/u,210306068,99.00,,
+zod3.4.4.csv	105272265,,cpu_core/cycles/k,210306068,99.00,,
+zod3.4.4.csv	1700894632,,cpu_core/instructions/u,210306068,99.00,,
+zod3.4.4.csv	9566244,,cpu_core/dtlb_load_misses.walk_active/u,210306068,99.00,,
+zod3.4.4.csv	100054,,cpu_core/mem_inst_retired.stlb_miss_loads/u,210306068,99.00,,
+zod3.4.4.csv	2275716,,cpu_core/ld_blocks.store_forward/u,210306068,99.00,,
+zod3.4.4.csv	9238,,page-faults,210824101,100.00,,
+zod3.4.4.rss	Command exited with non-zero status 2
+zod3.4.4.rss	89440
+zod3.4.5.csv	203244168,,duration_time,1,100.00,,
+zod3.4.5.csv	805256367,,cpu_core/cycles/u,197751668,99.00,,
+zod3.4.5.csv	99317676,,cpu_core/cycles/k,197751668,99.00,,
+zod3.4.5.csv	1708113747,,cpu_core/instructions/u,197751668,99.00,,
+zod3.4.5.csv	9980476,,cpu_core/dtlb_load_misses.walk_active/u,197751668,99.00,,
+zod3.4.5.csv	104466,,cpu_core/mem_inst_retired.stlb_miss_loads/u,197751668,99.00,,
+zod3.4.5.csv	2282640,,cpu_core/ld_blocks.store_forward/u,197751668,99.00,,
+zod3.4.5.csv	9238,,page-faults,199056853,100.00,,
+zod3.4.5.rss	Command exited with non-zero status 2
+zod3.4.5.rss	89444
+zod3.4.6.csv	201512982,,duration_time,1,100.00,,
+zod3.4.6.csv	798942212,,cpu_core/cycles/u,196050856,99.00,,
+zod3.4.6.csv	103348303,,cpu_core/cycles/k,196050856,99.00,,
+zod3.4.6.csv	1707025127,,cpu_core/instructions/u,196050856,99.00,,
+zod3.4.6.csv	10116848,,cpu_core/dtlb_load_misses.walk_active/u,196050856,99.00,,
+zod3.4.6.csv	112413,,cpu_core/mem_inst_retired.stlb_miss_loads/u,196050856,99.00,,
+zod3.4.6.csv	2289719,,cpu_core/ld_blocks.store_forward/u,196050856,99.00,,
+zod3.4.6.csv	9236,,page-faults,197225675,100.00,,
+zod3.4.6.rss	Command exited with non-zero status 2
+zod3.4.6.rss	89440
+zod3.4.7.csv	190571701,,duration_time,1,100.00,,
+zod3.4.7.csv	742969959,,cpu_core/cycles/u,186490985,99.00,,
+zod3.4.7.csv	90492649,,cpu_core/cycles/k,186490985,99.00,,
+zod3.4.7.csv	1701056457,,cpu_core/instructions/u,186490985,99.00,,
+zod3.4.7.csv	8493706,,cpu_core/dtlb_load_misses.walk_active/u,186490985,99.00,,
+zod3.4.7.csv	102618,,cpu_core/mem_inst_retired.stlb_miss_loads/u,186490985,99.00,,
+zod3.4.7.csv	2269719,,cpu_core/ld_blocks.store_forward/u,186490985,99.00,,
+zod3.4.7.csv	9238,,page-faults,186968089,100.00,,
+zod3.4.7.rss	Command exited with non-zero status 2
+zod3.4.7.rss	89440
+zod3.4.8.csv	203437183,,duration_time,1,100.00,,
+zod3.4.8.csv	757321058,,cpu_core/cycles/u,197019255,99.00,,
+zod3.4.8.csv	93276076,,cpu_core/cycles/k,197019255,99.00,,
+zod3.4.8.csv	1709025768,,cpu_core/instructions/u,197019255,99.00,,
+zod3.4.8.csv	8592117,,cpu_core/dtlb_load_misses.walk_active/u,197019255,99.00,,
+zod3.4.8.csv	97158,,cpu_core/mem_inst_retired.stlb_miss_loads/u,197019255,99.00,,
+zod3.4.8.csv	2280960,,cpu_core/ld_blocks.store_forward/u,197019255,99.00,,
+zod3.4.8.csv	9237,,page-faults,198433931,100.00,,
+zod3.4.8.rss	Command exited with non-zero status 2
+zod3.4.8.rss	89436
+zod3.4.9.csv	213830386,,duration_time,1,100.00,,
+zod3.4.9.csv	784967874,,cpu_core/cycles/u,207541456,99.00,,
+zod3.4.9.csv	96092633,,cpu_core/cycles/k,207541456,99.00,,
+zod3.4.9.csv	1707882553,,cpu_core/instructions/u,207541456,99.00,,
+zod3.4.9.csv	10168590,,cpu_core/dtlb_load_misses.walk_active/u,207541456,99.00,,
+zod3.4.9.csv	108487,,cpu_core/mem_inst_retired.stlb_miss_loads/u,207541456,99.00,,
+zod3.4.9.csv	2282540,,cpu_core/ld_blocks.store_forward/u,207541456,99.00,,
+zod3.4.9.csv	9237,,page-faults,208888150,100.00,,
+zod3.4.9.rss	Command exited with non-zero status 2
+zod3.4.9.rss	89440
+zod3.7.1.csv	195413315,,duration_time,1,100.00,,
+zod3.7.1.csv	765690815,,cpu_core/cycles/u,190027923,99.00,,
+zod3.7.1.csv	92633283,,cpu_core/cycles/k,190027923,99.00,,
+zod3.7.1.csv	1718639160,,cpu_core/instructions/u,190027923,99.00,,
+zod3.7.1.csv	8582270,,cpu_core/dtlb_load_misses.walk_active/u,190027923,99.00,,
+zod3.7.1.csv	95247,,cpu_core/mem_inst_retired.stlb_miss_loads/u,190027923,99.00,,
+zod3.7.1.csv	2283063,,cpu_core/ld_blocks.store_forward/u,190027923,99.00,,
+zod3.7.1.csv	5298,,page-faults,191329684,100.00,,
+zod3.7.1.rss	Command exited with non-zero status 2
+zod3.7.1.rss	91192
+zod3.7.10.csv	205236444,,duration_time,1,100.00,,
+zod3.7.10.csv	756814150,,cpu_core/cycles/u,199918142,99.00,,
+zod3.7.10.csv	90245514,,cpu_core/cycles/k,199918142,99.00,,
+zod3.7.10.csv	1717999150,,cpu_core/instructions/u,199918142,99.00,,
+zod3.7.10.csv	8383063,,cpu_core/dtlb_load_misses.walk_active/u,199918142,99.00,,
+zod3.7.10.csv	104453,,cpu_core/mem_inst_retired.stlb_miss_loads/u,199918142,99.00,,
+zod3.7.10.csv	2280301,,cpu_core/ld_blocks.store_forward/u,199918142,99.00,,
+zod3.7.10.csv	5299,,page-faults,201214391,100.00,,
+zod3.7.10.rss	Command exited with non-zero status 2
+zod3.7.10.rss	91188
+zod3.7.11.csv	226004638,,duration_time,1,100.00,,
+zod3.7.11.csv	767651255,,cpu_core/cycles/u,220276685,99.00,,
+zod3.7.11.csv	90204620,,cpu_core/cycles/k,220276685,99.00,,
+zod3.7.11.csv	1717193947,,cpu_core/instructions/u,220276685,99.00,,
+zod3.7.11.csv	8685488,,cpu_core/dtlb_load_misses.walk_active/u,220276685,99.00,,
+zod3.7.11.csv	95179,,cpu_core/mem_inst_retired.stlb_miss_loads/u,220276685,99.00,,
+zod3.7.11.csv	2287005,,cpu_core/ld_blocks.store_forward/u,220276685,99.00,,
+zod3.7.11.csv	5298,,page-faults,221613139,100.00,,
+zod3.7.11.rss	Command exited with non-zero status 2
+zod3.7.11.rss	91192
+zod3.7.12.csv	228172951,,duration_time,1,100.00,,
+zod3.7.12.csv	775562274,,cpu_core/cycles/u,223940592,99.00,,
+zod3.7.12.csv	90841629,,cpu_core/cycles/k,223940592,99.00,,
+zod3.7.12.csv	1711204740,,cpu_core/instructions/u,223940592,99.00,,
+zod3.7.12.csv	9749446,,cpu_core/dtlb_load_misses.walk_active/u,223940592,99.00,,
+zod3.7.12.csv	104483,,cpu_core/mem_inst_retired.stlb_miss_loads/u,223940592,99.00,,
+zod3.7.12.csv	2288303,,cpu_core/ld_blocks.store_forward/u,223940592,99.00,,
+zod3.7.12.csv	5298,,page-faults,224530569,100.00,,
+zod3.7.12.rss	Command exited with non-zero status 2
+zod3.7.12.rss	91188
+zod3.7.13.csv	206432322,,duration_time,1,100.00,,
+zod3.7.13.csv	812205970,,cpu_core/cycles/u,200688292,99.00,,
+zod3.7.13.csv	101869076,,cpu_core/cycles/k,200688292,99.00,,
+zod3.7.13.csv	1718276123,,cpu_core/instructions/u,200688292,99.00,,
+zod3.7.13.csv	10159082,,cpu_core/dtlb_load_misses.walk_active/u,200688292,99.00,,
+zod3.7.13.csv	98082,,cpu_core/mem_inst_retired.stlb_miss_loads/u,200688292,99.00,,
+zod3.7.13.csv	2290082,,cpu_core/ld_blocks.store_forward/u,200688292,99.00,,
+zod3.7.13.csv	5297,,page-faults,202028911,100.00,,
+zod3.7.13.rss	Command exited with non-zero status 2
+zod3.7.13.rss	91192
+zod3.7.14.csv	198622294,,duration_time,1,100.00,,
+zod3.7.14.csv	757469568,,cpu_core/cycles/u,193557052,99.00,,
+zod3.7.14.csv	90847817,,cpu_core/cycles/k,193557052,99.00,,
+zod3.7.14.csv	1716449475,,cpu_core/instructions/u,193557052,99.00,,
+zod3.7.14.csv	9115790,,cpu_core/dtlb_load_misses.walk_active/u,193557052,99.00,,
+zod3.7.14.csv	109105,,cpu_core/mem_inst_retired.stlb_miss_loads/u,193557052,99.00,,
+zod3.7.14.csv	2282299,,cpu_core/ld_blocks.store_forward/u,193557052,99.00,,
+zod3.7.14.csv	5297,,page-faults,194640830,100.00,,
+zod3.7.14.rss	Command exited with non-zero status 2
+zod3.7.14.rss	91192
+zod3.7.15.csv	210324825,,duration_time,1,100.00,,
+zod3.7.15.csv	793208464,,cpu_core/cycles/u,204705037,99.00,,
+zod3.7.15.csv	93410146,,cpu_core/cycles/k,204705037,99.00,,
+zod3.7.15.csv	1717981308,,cpu_core/instructions/u,204705037,99.00,,
+zod3.7.15.csv	10196739,,cpu_core/dtlb_load_misses.walk_active/u,204705037,99.00,,
+zod3.7.15.csv	96140,,cpu_core/mem_inst_retired.stlb_miss_loads/u,204705037,99.00,,
+zod3.7.15.csv	2296152,,cpu_core/ld_blocks.store_forward/u,204705037,99.00,,
+zod3.7.15.csv	5297,,page-faults,206038181,100.00,,
+zod3.7.15.rss	Command exited with non-zero status 2
+zod3.7.15.rss	91192
+zod3.7.16.csv	200073215,,duration_time,1,100.00,,
+zod3.7.16.csv	750732939,,cpu_core/cycles/u,194583275,99.00,,
+zod3.7.16.csv	88849294,,cpu_core/cycles/k,194583275,99.00,,
+zod3.7.16.csv	1718099049,,cpu_core/instructions/u,194583275,99.00,,
+zod3.7.16.csv	7914959,,cpu_core/dtlb_load_misses.walk_active/u,194583275,99.00,,
+zod3.7.16.csv	92639,,cpu_core/mem_inst_retired.stlb_miss_loads/u,194583275,99.00,,
+zod3.7.16.csv	2271983,,cpu_core/ld_blocks.store_forward/u,194583275,99.00,,
+zod3.7.16.csv	5298,,page-faults,195851930,100.00,,
+zod3.7.16.rss	Command exited with non-zero status 2
+zod3.7.16.rss	91188
+zod3.7.17.csv	205162992,,duration_time,1,100.00,,
+zod3.7.17.csv	797058050,,cpu_core/cycles/u,198538667,99.00,,
+zod3.7.17.csv	99190974,,cpu_core/cycles/k,198538667,99.00,,
+zod3.7.17.csv	1717783368,,cpu_core/instructions/u,198538667,99.00,,
+zod3.7.17.csv	8572879,,cpu_core/dtlb_load_misses.walk_active/u,198538667,99.00,,
+zod3.7.17.csv	82667,,cpu_core/mem_inst_retired.stlb_miss_loads/u,198538667,99.00,,
+zod3.7.17.csv	2295783,,cpu_core/ld_blocks.store_forward/u,198538667,99.00,,
+zod3.7.17.csv	5298,,page-faults,199803640,100.00,,
+zod3.7.17.rss	Command exited with non-zero status 2
+zod3.7.17.rss	91188
+zod3.7.18.csv	196196059,,duration_time,1,100.00,,
+zod3.7.18.csv	767629709,,cpu_core/cycles/u,191767058,99.00,,
+zod3.7.18.csv	95662684,,cpu_core/cycles/k,191767058,99.00,,
+zod3.7.18.csv	1712622559,,cpu_core/instructions/u,191767058,99.00,,
+zod3.7.18.csv	8807313,,cpu_core/dtlb_load_misses.walk_active/u,191767058,99.00,,
+zod3.7.18.csv	99997,,cpu_core/mem_inst_retired.stlb_miss_loads/u,191767058,99.00,,
+zod3.7.18.csv	2279356,,cpu_core/ld_blocks.store_forward/u,191767058,99.00,,
+zod3.7.18.csv	5299,,page-faults,192428696,100.00,,
+zod3.7.18.rss	Command exited with non-zero status 2
+zod3.7.18.rss	91188
+zod3.7.19.csv	203001511,,duration_time,1,100.00,,
+zod3.7.19.csv	759123519,,cpu_core/cycles/u,197141232,99.00,,
+zod3.7.19.csv	91448815,,cpu_core/cycles/k,197141232,99.00,,
+zod3.7.19.csv	1718973538,,cpu_core/instructions/u,197141232,99.00,,
+zod3.7.19.csv	8961189,,cpu_core/dtlb_load_misses.walk_active/u,197141232,99.00,,
+zod3.7.19.csv	98602,,cpu_core/mem_inst_retired.stlb_miss_loads/u,197141232,99.00,,
+zod3.7.19.csv	2280937,,cpu_core/ld_blocks.store_forward/u,197141232,99.00,,
+zod3.7.19.csv	5299,,page-faults,198540280,100.00,,
+zod3.7.19.rss	Command exited with non-zero status 2
+zod3.7.19.rss	91188
+zod3.7.2.csv	196228588,,duration_time,1,100.00,,
+zod3.7.2.csv	766025396,,cpu_core/cycles/u,190994328,99.00,,
+zod3.7.2.csv	92295372,,cpu_core/cycles/k,190994328,99.00,,
+zod3.7.2.csv	1717437437,,cpu_core/instructions/u,190994328,99.00,,
+zod3.7.2.csv	8721407,,cpu_core/dtlb_load_misses.walk_active/u,190994328,99.00,,
+zod3.7.2.csv	95580,,cpu_core/mem_inst_retired.stlb_miss_loads/u,190994328,99.00,,
+zod3.7.2.csv	2283945,,cpu_core/ld_blocks.store_forward/u,190994328,99.00,,
+zod3.7.2.csv	5297,,page-faults,192180302,100.00,,
+zod3.7.2.rss	Command exited with non-zero status 2
+zod3.7.2.rss	91188
+zod3.7.20.csv	209475701,,duration_time,1,100.00,,
+zod3.7.20.csv	787569444,,cpu_core/cycles/u,204191414,99.00,,
+zod3.7.20.csv	92946873,,cpu_core/cycles/k,204191414,99.00,,
+zod3.7.20.csv	1717027290,,cpu_core/instructions/u,204191414,99.00,,
+zod3.7.20.csv	9819956,,cpu_core/dtlb_load_misses.walk_active/u,204191414,99.00,,
+zod3.7.20.csv	113831,,cpu_core/mem_inst_retired.stlb_miss_loads/u,204191414,99.00,,
+zod3.7.20.csv	2295938,,cpu_core/ld_blocks.store_forward/u,204191414,99.00,,
+zod3.7.20.csv	5299,,page-faults,205402613,100.00,,
+zod3.7.20.rss	Command exited with non-zero status 2
+zod3.7.20.rss	91192
+zod3.7.3.csv	213889954,,duration_time,1,100.00,,
+zod3.7.3.csv	795756489,,cpu_core/cycles/u,208297830,99.00,,
+zod3.7.3.csv	95764768,,cpu_core/cycles/k,208297830,99.00,,
+zod3.7.3.csv	1717887857,,cpu_core/instructions/u,208297830,99.00,,
+zod3.7.3.csv	9856656,,cpu_core/dtlb_load_misses.walk_active/u,208297830,99.00,,
+zod3.7.3.csv	104197,,cpu_core/mem_inst_retired.stlb_miss_loads/u,208297830,99.00,,
+zod3.7.3.csv	2284478,,cpu_core/ld_blocks.store_forward/u,208297830,99.00,,
+zod3.7.3.csv	5299,,page-faults,209632950,100.00,,
+zod3.7.3.rss	Command exited with non-zero status 2
+zod3.7.3.rss	91184
+zod3.7.4.csv	209145763,,duration_time,1,100.00,,
+zod3.7.4.csv	783402677,,cpu_core/cycles/u,205567429,100.00,,
+zod3.7.4.csv	97509302,,cpu_core/cycles/k,205567429,100.00,,
+zod3.7.4.csv	1706998825,,cpu_core/instructions/u,205567429,100.00,,
+zod3.7.4.csv	10132670,,cpu_core/dtlb_load_misses.walk_active/u,205567429,100.00,,
+zod3.7.4.csv	108249,,cpu_core/mem_inst_retired.stlb_miss_loads/u,205567429,100.00,,
+zod3.7.4.csv	2283362,,cpu_core/ld_blocks.store_forward/u,205567429,100.00,,
+zod3.7.4.csv	5299,,page-faults,205567429,100.00,,
+zod3.7.4.rss	Command exited with non-zero status 2
+zod3.7.4.rss	91188
+zod3.7.5.csv	204406309,,duration_time,1,100.00,,
+zod3.7.5.csv	815724667,,cpu_core/cycles/u,198803720,99.00,,
+zod3.7.5.csv	101085381,,cpu_core/cycles/k,198803720,99.00,,
+zod3.7.5.csv	1718462706,,cpu_core/instructions/u,198803720,99.00,,
+zod3.7.5.csv	11025827,,cpu_core/dtlb_load_misses.walk_active/u,198803720,99.00,,
+zod3.7.5.csv	107690,,cpu_core/mem_inst_retired.stlb_miss_loads/u,198803720,99.00,,
+zod3.7.5.csv	2294663,,cpu_core/ld_blocks.store_forward/u,198803720,99.00,,
+zod3.7.5.csv	5298,,page-faults,200151143,100.00,,
+zod3.7.5.rss	Command exited with non-zero status 2
+zod3.7.5.rss	91184
+zod3.7.6.csv	201346932,,duration_time,1,100.00,,
+zod3.7.6.csv	799900745,,cpu_core/cycles/u,196044516,99.00,,
+zod3.7.6.csv	98062181,,cpu_core/cycles/k,196044516,99.00,,
+zod3.7.6.csv	1713926084,,cpu_core/instructions/u,196044516,99.00,,
+zod3.7.6.csv	9317450,,cpu_core/dtlb_load_misses.walk_active/u,196044516,99.00,,
+zod3.7.6.csv	92519,,cpu_core/mem_inst_retired.stlb_miss_loads/u,196044516,99.00,,
+zod3.7.6.csv	2287032,,cpu_core/ld_blocks.store_forward/u,196044516,99.00,,
+zod3.7.6.csv	5300,,page-faults,196848584,100.00,,
+zod3.7.6.rss	Command exited with non-zero status 2
+zod3.7.6.rss	91192
+zod3.7.7.csv	195044627,,duration_time,1,100.00,,
+zod3.7.7.csv	762463526,,cpu_core/cycles/u,189211664,99.00,,
+zod3.7.7.csv	91227261,,cpu_core/cycles/k,189211664,99.00,,
+zod3.7.7.csv	1719139908,,cpu_core/instructions/u,189211664,99.00,,
+zod3.7.7.csv	9296139,,cpu_core/dtlb_load_misses.walk_active/u,189211664,99.00,,
+zod3.7.7.csv	115427,,cpu_core/mem_inst_retired.stlb_miss_loads/u,189211664,99.00,,
+zod3.7.7.csv	2285619,,cpu_core/ld_blocks.store_forward/u,189211664,99.00,,
+zod3.7.7.csv	5298,,page-faults,190560804,100.00,,
+zod3.7.7.rss	Command exited with non-zero status 2
+zod3.7.7.rss	91188
+zod3.7.8.csv	213037178,,duration_time,1,100.00,,
+zod3.7.8.csv	806020474,,cpu_core/cycles/u,208635995,99.00,,
+zod3.7.8.csv	96643194,,cpu_core/cycles/k,208635995,99.00,,
+zod3.7.8.csv	1712322234,,cpu_core/instructions/u,208635995,99.00,,
+zod3.7.8.csv	10541981,,cpu_core/dtlb_load_misses.walk_active/u,208635995,99.00,,
+zod3.7.8.csv	102703,,cpu_core/mem_inst_retired.stlb_miss_loads/u,208635995,99.00,,
+zod3.7.8.csv	2294326,,cpu_core/ld_blocks.store_forward/u,208635995,99.00,,
+zod3.7.8.csv	5299,,page-faults,209277855,100.00,,
+zod3.7.8.rss	Command exited with non-zero status 2
+zod3.7.8.rss	91184
+zod3.7.9.csv	211661569,,duration_time,1,100.00,,
+zod3.7.9.csv	784288361,,cpu_core/cycles/u,205784950,99.00,,
+zod3.7.9.csv	97608490,,cpu_core/cycles/k,205784950,99.00,,
+zod3.7.9.csv	1717633821,,cpu_core/instructions/u,205784950,99.00,,
+zod3.7.9.csv	8960387,,cpu_core/dtlb_load_misses.walk_active/u,205784950,99.00,,
+zod3.7.9.csv	97619,,cpu_core/mem_inst_retired.stlb_miss_loads/u,205784950,99.00,,
+zod3.7.9.csv	2282001,,cpu_core/ld_blocks.store_forward/u,205784950,99.00,,
+zod3.7.9.csv	5299,,page-faults,207074241,100.00,,
+zod3.7.9.rss	Command exited with non-zero status 2
+zod3.7.9.rss	91188

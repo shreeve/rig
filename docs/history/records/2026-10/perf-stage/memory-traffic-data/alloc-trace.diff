@@ -1,0 +1,344 @@
+diff --git i/src/main.zig w/src/main.zig
+index ac3201916..9dede94ab 100644
+--- i/src/main.zig
++++ w/src/main.zig
+@@ -309,6 +309,7 @@ const Env = struct {
+         if (env.heapProfile()) try w.writeAll("pub const __rig_heap_profile = true;\n");
+         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
+         if (env.mapTrace()) try w.writeAll("pub const __rig_map_trace = true;\n");
++        if (env.flag("RIG_ALLOC_TRACE")) try w.writeAll("pub const __rig_alloc_trace = true;\n");
+         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
+         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
+         if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
+@@ -1748,7 +1749,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
+         }
+         links_libc = links_libc or em.links_libc;
+         uses_symbols = uses_symbols or em.uses_symbols;
+-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or kind.pgo or tasks or reads.any())) {
++        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.flag("RIG_ALLOC_TRACE") or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or kind.pgo or tasks or reads.any())) {
+             try file_buffer.writer.writeAll("\n");
+             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph), reads);
+             if (kind.pgo) try file_buffer.writer.writeAll("pub const __rig_pgo = true;\n");
+diff --git i/src/ordered.zig w/src/ordered.zig
+index 6e2b22b3b..63b848df0 100644
+--- i/src/ordered.zig
++++ w/src/ordered.zig
+@@ -214,6 +214,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
+         /// any, sized to match.
+         fn resizeEntries(self: *Self, new_cap: usize) void {
+             if (new_cap > max_entries) tooMany();
++            if (rt.alloc_trace) rt.AllocTrace.ownerNamed("map entries " ++ @typeName(K) ++ " -> " ++ @typeName(V));
+             self.entries = (if (self.cap == 0) rt.allocSlice(E, new_cap) else rt.reallocSlice(E, self.entries[0..self.cap], new_cap)).ptr;
+             self.cap = @intCast(new_cap);
+             if (self.gone_words != 0) self.sizeGone();
+@@ -244,6 +245,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
+             const old: usize = self.gone_words;
+             const new = goneWords(self.cap);
+             if (new <= old) return;
++            if (rt.alloc_trace) rt.AllocTrace.ownerNamed("map gone " ++ @typeName(K) ++ " -> " ++ @typeName(V));
+             self.gone = (if (old == 0) rt.allocSlice(u64, new) else rt.reallocSlice(u64, self.gone[0..old], new)).ptr;
+             @memset(self.gone[old..new], 0);
+             self.gone_words = @intCast(new);
+@@ -320,6 +322,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
+             // The old index is freed first: the new one is filled from
+             // the entries, so the two never need to live at once.
+             self.freeIndex();
++            if (rt.alloc_trace) rt.AllocTrace.ownerNamed("map index " ++ @typeName(K) ++ " -> " ++ @typeName(V));
+             const b = rt.allocSlice(u64, indexWords(groups));
+             @memset(b, 0);
+             self.slots = @ptrCast(b.ptr);
+diff --git i/src/runtime.zig w/src/runtime.zig
+index b8f48989c..a338ec666 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -1652,6 +1652,7 @@ pub fn rt(value: anytype) @TypeOf(value) {
+ /// Allocate one `T` with the default allocator.
+ pub fn create(comptime T: type) *T {
+     if (heap_profile) HeapProfile.owner(T);
++    if (alloc_trace) AllocTrace.ownerNamed("box " ++ @typeName(T));
+     if (fills or @sizeOf(T) == 0) return defaultAllocator().create(T) catch oom();
+     const p = defaultAllocator().rawAlloc(@sizeOf(T), .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
+     return @ptrCast(@alignCast(p));
+@@ -5258,6 +5259,7 @@ var leak_checker: LeakChecker = .{};
+ /// build, the leak checker's.
+ pub fn defaultAllocator() std.mem.Allocator {
+     if (heap_profile) return heap_profiler.allocator();
++    if (alloc_trace) return AllocTrace.allocator();
+     return ownAllocator();
+ }
+ 
+@@ -5284,6 +5286,7 @@ const fills = sanitize;
+ pub fn allocSlice(comptime T: type, n: usize) []T {
+     if (@as(u64, n) > max_len) lenPanic();
+     if (heap_profile) HeapProfile.owner(T);
++    if (alloc_trace) AllocTrace.owner(T);
+     if (fills or n == 0 or @sizeOf(T) == 0) return defaultAllocator().alloc(T, n) catch oom();
+     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
+     const p = defaultAllocator().rawAlloc(bytes, .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
+@@ -5295,6 +5298,7 @@ pub fn allocSlice(comptime T: type, n: usize) []T {
+ pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
+     if (@as(u64, n) > max_len) lenPanic();
+     if (heap_profile) HeapProfile.owner(T);
++    if (alloc_trace) AllocTrace.owner(T);
+     if (fills or @sizeOf(T) == 0) return defaultAllocator().realloc(old, n) catch oom();
+     if (old.len == 0) return allocSlice(T, n);
+     if (n == 0) {
+@@ -5588,6 +5592,210 @@ const HeapProfile = struct {
+     }
+ };
+ 
++
++/// PRIVATE (memory-traffic record, never on main): `RIG_ALLOC_TRACE=1` at
++/// build time declares `__rig_alloc_trace`, and every allocation, free,
++/// and move of a block, and every reserved table, writes a 64-byte record
++/// to memory, written out at exit to `$RIG_ALLOC_TRACE_FILE` (with
++/// `.names` and `.maps` beside it). Linux x86-64 only; a no-op elsewhere.
++pub const alloc_trace = @hasDecl(root, "__rig_alloc_trace") and root.__rig_alloc_trace;
++
++pub const AllocTrace = struct {
++    /// op: 1 alloc, 2 free, 3 remap (ptr new, aux old), 4 resize in place,
++    /// 5 table reserved, 6 clock (ptr = CLOCK_MONOTONIC ns).
++    const Rec = extern struct { tsc: u64, ptr: u64, len: u64, op_owner: u64, frames: [4]u64 };
++    const cap_recs: usize = (24 << 30) / @sizeOf(Rec);
++    const on = builtin.os.tag == .linux and builtin.cpu.arch == .x86_64;
++    var recs: ?[*]Rec = null;
++    var count_: std.atomic.Value(usize) = .init(0);
++    var path_buf: [4096]u8 = undefined;
++    var path_len: usize = 0;
++    var names: [1 << 20]u8 = undefined;
++    var names_len: usize = 0;
++    var last_id: u32 = 0;
++    var name_lock: std.atomic.Value(bool) = .init(false);
++    var closed: bool = false;
++    threadlocal var next: u32 = 0;
++    var vt: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .remap = remap, .free = free };
++
++    fn allocator() std.mem.Allocator {
++        return .{ .ptr = undefined, .vtable = &vt };
++    }
++
++    inline fn tsc() u64 {
++        if (comptime builtin.cpu.arch != .x86_64) return 0;
++        var lo: u32 = undefined;
++        var hi: u32 = undefined;
++        asm volatile ("rdtsc"
++            : [lo] "={eax}" (lo),
++              [hi] "={edx}" (hi),
++        );
++        return (@as(u64, hi) << 32) | lo;
++    }
++
++    fn idOf(comptime name: []const u8) u32 {
++        // The struct names `name`, so each owner gets its own (a struct that
++        // captures nothing is one type across instantiations).
++        const S = struct {
++            const owner_name = name;
++            var id: u32 = 0;
++        };
++        if (S.id != 0) return S.id;
++        while (name_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
++        defer name_lock.store(false, .release);
++        if (S.id != 0) return S.id;
++        last_id += 1;
++        S.id = last_id;
++        const line = std.fmt.bufPrint(names[names_len..], "{d}\t{s}\n", .{ S.id, name }) catch "";
++        names_len += line.len;
++        return S.id;
++    }
++
++    inline fn owner(comptime T: type) void {
++        if (next == 0) next = idOf(@typeName(T));
++    }
++
++    pub inline fn ownerNamed(comptime name: []const u8) void {
++        if (next == 0) next = idOf(name);
++    }
++
++    fn open(environ: std.process.Environ) void {
++        if (!on) return;
++        const path = environ.getPosix("RIG_ALLOC_TRACE_FILE") orelse return;
++        if (path.len >= path_buf.len - 8) return;
++        @memcpy(path_buf[0..path.len], path);
++        path_len = path.len;
++        const m = std.posix.mmap(null, cap_recs * @sizeOf(Rec), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch return;
++        std.posix.madvise(m.ptr, m.len, std.posix.MADV.HUGEPAGE) catch {};
++        recs = @ptrCast(@alignCast(m.ptr));
++        clock();
++    }
++
++    fn clock() void {
++        var ts: std.os.linux.timespec = undefined;
++        _ = std.os.linux.clock_gettime(.MONOTONIC, &ts);
++        const t = tsc();
++        put(.{ .tsc = t, .ptr = @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec)), .len = 0, .op_owner = 6, .frames = @splat(0) });
++    }
++
++    inline fn put(r: Rec) void {
++        const b = recs orelse return;
++        const i = count_.fetchAdd(1, .monotonic);
++        if (i >= cap_recs) return;
++        b[i] = r;
++    }
++
++    /// The return addresses of the frames above `fp`, by the frame-pointer chain.
++    inline fn walk(fp0: usize) [4]u64 {
++        var out: [4]u64 = @splat(0);
++        var fp = fp0;
++        var i: usize = 0;
++        while (i < 4) : (i += 1) {
++            if (fp == 0 or fp & 7 != 0) break;
++            const nxt = @as(*const usize, @ptrFromInt(fp)).*;
++            out[i] = @as(*const usize, @ptrFromInt(fp + 8)).*;
++            if (nxt <= fp or nxt - fp > (8 << 20)) break;
++            fp = nxt;
++        }
++        return out;
++    }
++
++    fn taken() u64 {
++        const o = next;
++        next = 0;
++        return @as(u64, o) << 8;
++    }
++
++    noinline fn alloc(_: *anyopaque, size: usize, alignment: std.mem.Alignment, ret: usize) ?[*]u8 {
++        const o = taken();
++        const p = ownAllocator().rawAlloc(size, alignment, ret) orelse return null;
++        if (recs != null) put(.{ .tsc = tsc(), .ptr = @intFromPtr(p), .len = size, .op_owner = 1 | o, .frames = walk(@frameAddress()) });
++        return p;
++    }
++
++    noinline fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) bool {
++        // A resize or remap that fails leaves the owner for the alloc after it.
++        if (!ownAllocator().rawResize(memory, alignment, new_len, ret)) return false;
++        const o = taken();
++        if (recs != null) put(.{ .tsc = tsc(), .ptr = @intFromPtr(memory.ptr), .len = new_len, .op_owner = 4 | o | (@as(u64, memory.len) << 32), .frames = walk(@frameAddress()) });
++        return true;
++    }
++
++    noinline fn remap(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
++        const p = ownAllocator().rawRemap(memory, alignment, new_len, ret) orelse return null;
++        const o = taken();
++        if (recs != null) {
++            var f = walk(@frameAddress());
++            f[3] = @intFromPtr(memory.ptr);
++            put(.{ .tsc = tsc(), .ptr = @intFromPtr(p), .len = new_len, .op_owner = 3 | o | (@as(u64, memory.len) << 32), .frames = f });
++        }
++        return p;
++    }
++
++    noinline fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret: usize) void {
++        next = 0;
++        if (recs != null) put(.{ .tsc = tsc(), .ptr = @intFromPtr(memory.ptr), .len = memory.len, .op_owner = 2, .frames = @splat(0) });
++        ownAllocator().rawFree(memory, alignment, ret);
++    }
++
++    pub noinline fn table(comptime T: type, p: usize, bytes: usize) void {
++        if (!alloc_trace) return;
++        const id = idOf("table " ++ @typeName(T));
++        if (recs != null) put(.{ .tsc = tsc(), .ptr = p, .len = bytes, .op_owner = 5 | (@as(u64, id) << 8), .frames = walk(@frameAddress()) });
++    }
++
++    fn writeAll(fd: i32, bytes: []const u8) void {
++        var off: usize = 0;
++        while (off < bytes.len) {
++            const rc = std.os.linux.write(fd, bytes.ptr + off, @min(bytes.len - off, 1 << 30));
++            if (@as(isize, @bitCast(rc)) <= 0) return;
++            off += rc;
++        }
++    }
++
++    fn createOut(suffix: []const u8) i32 {
++        var buf: [4200]u8 = undefined;
++        const t = std.fmt.bufPrint(&buf, "{s}{s}\x00", .{ path_buf[0..path_len], suffix }) catch return -1;
++        const z: [*:0]const u8 = @ptrCast(t.ptr);
++        const rc = std.os.linux.open(z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644);
++        if (@as(isize, @bitCast(rc)) < 0) return -1;
++        return @intCast(rc);
++    }
++
++    fn close() void {
++        if (!on) return;
++        const b = recs orelse return;
++        if (closed) return;
++        closed = true;
++        clock();
++        const count = @min(count_.load(.monotonic), cap_recs);
++        recs = null;
++        const fd = createOut("");
++        if (fd >= 0) {
++            writeAll(fd, std.mem.sliceAsBytes(b[0..count]));
++            _ = std.os.linux.close(fd);
++        }
++        const fn_ = createOut(".names");
++        if (fn_ >= 0) {
++            writeAll(fn_, names[0..names_len]);
++            _ = std.os.linux.close(fn_);
++        }
++        const mfd = std.os.linux.open("/proc/self/maps", .{ .ACCMODE = .RDONLY }, 0);
++        if (@as(isize, @bitCast(mfd)) >= 0) {
++            const out = createOut(".maps");
++            var buf: [65536]u8 = undefined;
++            while (true) {
++                const rc = std.os.linux.read(@intCast(mfd), &buf, buf.len);
++                if (@as(isize, @bitCast(rc)) <= 0) break;
++                if (out >= 0) writeAll(out, buf[0..rc]);
++            }
++            _ = std.os.linux.close(@intCast(mfd));
++            if (out >= 0) _ = std.os.linux.close(out);
++        }
++        if (count >= cap_recs) std.debug.print("rig: alloc trace full\n", .{});
++    }
++};
++
+ var heap_profiler: HeapProfile = .{};
+ var profile_lock: std.Io.Mutex = .init;
+ 
+@@ -6654,6 +6862,7 @@ pub fn start(init: std.process.Init.Minimal) void {
+         }
+     }
+     if (map_trace) map_tracer.open(init.environ);
++    if (alloc_trace) AllocTrace.open(init.environ);
+     if (sanitize) {
+         sanitizer.configure(init.environ);
+         Sanitizer.installHandler();
+@@ -6703,6 +6912,7 @@ var threaded: std.Io.Threaded = .init_single_threaded;
+ /// Every thread ends with it.
+ fn endProcess(status: u8) noreturn {
+     if (pgo) writeProfile();
++    if (alloc_trace) AllocTrace.close();
+     if (builtin.link_libc) std.c._exit(status);
+     if (builtin.os.tag == .linux) std.os.linux.exit_group(status);
+     std.process.exit(status);
+@@ -6730,6 +6940,7 @@ pub fn exitStatus(n: Int) u8 {
+ /// a leaking program never passes.
+ pub fn finish() void {
+     if (pgo) writeProfile();
++    if (alloc_trace) AllocTrace.close();
+     if (map_trace) map_tracer.close();
+     if (makes_tasks) threaded.deinit();
+     releaseProcess();
+diff --git i/src/table.zig w/src/table.zig
+index 8d0f9e34c..5d9082506 100644
+--- i/src/table.zig
++++ w/src/table.zig
+@@ -142,6 +142,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
+             switch (how) {
+                 .reserved => {
+                     const p = reserve(bytes);
++                    if (rt.alloc_trace) rt.AllocTrace.table(T, @intFromPtr(p), bytes);
+                     var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
+                     if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
+                     return t;
+diff --git i/src/unordered.zig w/src/unordered.zig
+index 93c447554..8cd91b259 100644
+--- i/src/unordered.zig
++++ w/src/unordered.zig
+@@ -403,6 +403,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
+         /// sentinel set.
+         fn newArrays(n: usize) Arrays {
+             const groups = groupsFor(n);
++            if (rt.alloc_trace) rt.AllocTrace.ownerNamed("hashmap block " ++ @typeName(Element));
+             const block = rt.allocSlice(Element, blockLen(groups));
+             var p: usize = @intFromPtr(block.ptr + slotsFor(groups));
+             p += (@sizeOf(Group) -% p) % @sizeOf(Group);
