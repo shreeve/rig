@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Time the built-in Map and std.hash's Map against the fastest hash
+"""Time the built-in Map and HashMap against the fastest hash
 tables in Zig, Rust, C++, and Go.
 
 usage: bench/hash/bench-hash [options]
@@ -10,8 +10,9 @@ usage: bench/hash/bench-hash [options]
   --variants a,b  what to build and time (default: rig-safe,zig-safe):
                     rig-safe   bench/hash/map.rig, rig build --release (Zig's safe mode)
                     rig-fast   the same, rig build --release=fast
-                    hash-safe  map.rig with its Map aliases made `hash.Map` (std.hash)
-                    hash-fast  the same, rig build --release=fast
+                    rig-hash   map.rig with its Map aliases made `HashMap`, the
+                               unordered built-in, rig build --release=fast
+                    rig-hash-safe the same, rig build --release
                     zig-safe   bench/hash/map.zig, -OReleaseSafe
                     zig-fast   the same, -OReleaseFast
                     zig-foa    map.zig on bench/hash/foa.zig, a port of boost's
@@ -38,7 +39,7 @@ usage: bench/hash/bench-hash [options]
                     go         bench/hash/map.go, Go's built-in map, its own hash
                   and each but go with `-mix` (`absl-mix` ...): its table with
                   Rig's Int hash, so the tables race on the same hash. All
-                  but rig-*, hash-*, and zig-* time the sized rows only.
+                  but rig-* and zig-* time the sized rows only.
                   The C++ ones need bench/hash/fetch-deps run once.
                   A variant may name an allocator after a colon, to race
                   allocators under one table (`zig-foa:smp`):
@@ -52,8 +53,7 @@ usage: bench/hash/bench-hash [options]
                     :thp       the same program run with
                                GLIBC_TUNABLES=glibc.malloc.hugetlb=1, so
                                glibc's malloc asks for transparent huge pages
-  --all           every variant above but the safe ones and hash-* (which
-                  needs a `rig` whose std has std.hash; add it with --variants)
+  --all           every variant above but the safe ones
   --mem           also each variant's peak memory per entry for one map
                   of 4,000,000 Int keys (with --reps 0, only that)
   --reps N        runs per variant, interleaved across variants; the
@@ -98,7 +98,7 @@ ARM = platform.machine() in ("arm64", "aarch64")
 CXX_NATIVE = ["-mcpu=native"] if ARM else ["-march=native"]
 RUST_NATIVE = ["-C", "target-cpu=native"]
 GO_NATIVE = {"GOARM64": "v8.5"} if ARM else {"GOAMD64": "v3"}
-ALL = ["rig-fast", "zig-fast", "rust", "rust-mix", "hashbrown", "hashbrown-mix",
+ALL = ["rig-fast", "rig-hash", "zig-fast", "rust", "rust-mix", "hashbrown", "hashbrown-mix",
        "indexmap", "indexmap-mix", "absl", "absl-mix", "boost", "boost-mix", "dense", "dense-mix", "go"]
 # The Zig ports race once their sources are there.
 ALL += [v for v, f in (("zig-foa", "foa.zig"), ("zig-dense", "dense.zig"), ("zig-hash", "hash.zig"),
@@ -143,15 +143,14 @@ def build(v, out):
         return exe
     tmp = exe + ".new"
     v = base
-    if v.startswith("rig-") or v.startswith("hash-"):
-        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
+    if v.startswith("rig-"):
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
         flag = "--release" if v.endswith("-safe") else "--release=fast"
         src = os.path.join(HERE, "map.rig")
-        if v.startswith("hash-"):
+        if v.startswith("rig-hash"):
             # The same program with each `type X = Map[...]` alias made
-            # `hash.Map[...]`, so every row but interning times std.hash.
-            text = re.sub(r"^type (\w+) = Map\[", r"type \1 = hash.Map[", open(src).read(), flags=re.M)
-            text = re.sub(r"^use std\.text$", "use std.text\nuse std.hash", text, count=1, flags=re.M)
+            # `HashMap[...]`, so every row times the unordered HashMap.
+            text = re.sub(r"^type (\w+) = Map\[", r"type \1 = HashMap[", open(src).read(), flags=re.M)
             src = os.path.join(out, "map-hash.rig")
             with open(src, "w") as f:
                 f.write(text)

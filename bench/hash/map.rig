@@ -11,8 +11,8 @@
 # depend on what the compiler inlines into `main` around it.
 #
 # Every Map is named by one of the aliases below, which bench-hash
-# rewrites to `hash.Map` (and `hash.Set`) for its `hash-*` variants,
-# adding `use std.hash`, so std.hash is timed by the same program.
+# rewrites to `HashMap` for its `rig-hash` variants, so the unordered
+# HashMap is timed by the same program.
 
 use std.time
 use std.text
