@@ -29,6 +29,10 @@ TABLES = {"map": lambda s: s,
           "hashmap": lambda s: s.replace("Map[", "HashMap[").replace("Set[", "HashSet[")}
 N = 100000           # the operations of one repetition (guard.rig's N)
 LO, HI = 1, 11       # the repetitions of the two runs a row's count is the difference of
+# A walk retires 5 to 20 instructions an entry, so a run's count moves by
+# more than 2% of the difference at 11 repetitions; at 101 it moves by
+# well under 1%.
+HI_OF = {"int-iterate": 101}
 LIMIT = 1.02
 
 
@@ -44,7 +48,8 @@ def per_op(exe, row):
     # The difference of a run of HI repetitions and one of LO, over the
     # operations between them, so building the keys and the Map counts
     # nothing; the median of 5, since a run's count moves by a little.
-    runs = [(instructions(exe, row, HI) - instructions(exe, row, LO)) / ((HI - LO) * N) for _ in range(5)]
+    hi = HI_OF.get(row, HI)
+    runs = [(instructions(exe, row, hi) - instructions(exe, row, LO)) / ((hi - LO) * N) for _ in range(5)]
     return statistics.median(runs)
 
 
