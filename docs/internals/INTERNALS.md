@@ -5108,37 +5108,30 @@ across modules, and only std.prelude's scope names them.
   overflow byte). A key's group is its hash's high bits, its tag the
   low byte made nonzero; a probe matches the tag over the group,
   prefetches the group's slot line, and walks on, out of line in a
-  lookup, only while the overflow byte marks the tag's class. Up to 48
-  entries written there is no index: the table is one block, its tags
-  (a byte an entry, 0 when gone or not written, in whole groups of 16)
-  and then its entries, and a lookup matches each group `len` reaches,
-  each by code of its own. The first put makes room for 4 entries, and
-  the room doubles to 48; a small table whose entries fill their room
-  compacts them when a quarter are gone, and past 48 builds its index,
-  sized for its live entries, moving the entries to a block of their
-  own. An indexed table makes its gone bits, one an entry, at the first
-  take that leaves a hole.
+  lookup, only while the overflow byte marks the tag's class. Up to 16
+  live entries (and 32 written) there is no index: 32 tag bytes in the
+  table find a key, and say which entries are gone. They sit where an
+  indexed table keeps its index's pointers, its gone bits' pointer, its
+  maximum load and its group count (`Held`, an `extern union`), and
+  `shift` 0 says a table is small, so the table is 56 bytes. Its fields
+  are in a fixed order, `len` and `live`, which every put and take
+  writes, in a word of their own apart from `shift`, which every lookup
+  reads first. The first put makes room for 4 entries; an indexed
+  table's room doubles, but from 32 to 48 and from 48 to 64
+  (`nextRoom`), so a table of 33 to 48 entries holds 48. An indexed
+  table makes its gone bits, one an entry, at the first take that leaves
+  a hole; `clear` frees them with the index.
 - **Entry reads** go through `entryOf`: in a debug build it tests the
   entry index against the entries written (and, for the prelude's
   reads, that the entry is live), and in a release build it is the
   read alone (the panel's decision 10, record map-builtin.md).
 - **Tag writes** write the 16 tags whole from a register
   (`writeLane`): a byte's store into them stalled the next lookup's
-  vector load of the same 16 bytes, on x86 most of all. A take from a
-  small table writes every group `len` reaches, the group of the entry
-  taken changed (out of line, `unlinkWide`, so a take from an indexed
-  table stays short): the stores' addresses are known before the entry
-  is found, so the next lookup's loads of the groups wait on them. Written
-  to the entry's group alone, the store's address waits on the search,
-  and in-order takes from a table of 18 to 48 entries took twice as
-  long on Apple cores (record small-maps.md).
+  vector load of the same 16 bytes, on x86 most of all.
 - **Take** frees the lane, lowers the maximum load where the group
   marks the tag's class, drops the key, hands the value back, and marks
   the entry gone; the last entry written is cut off instead, and the
   last live one empties the table, keeping its memory and its index.
-  `clear` keeps a small table's block; an indexed table's it frees, with
-  its index, and keeps room for 48, so a table cleared and filled with a
-  few entries again clears no index.
 - **Compaction** runs only when the entries fill their room and a
   quarter is gone, or as the index grows; under the same index the
   live entries move down and each lane is renumbered by its entry's

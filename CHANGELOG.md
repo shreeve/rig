@@ -182,20 +182,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
-- **A small Map or Set is one block, and has no index up to 48
-  entries.** The table is 56 bytes and a `Map` 64, one cache line (they
-  were 96 and 112): a small table's tags left the object for the start
-  of its entries' block, and up to 48 entries written a key is found by
-  matching its tag over a group of 16 a time, with no index. The first
-  room is 4 entries, doubling to 48; past that the index is built for the
-  live entries. A take from a table of more than 16 entries' room writes
-  each tag group, so the next lookup waits on its store rather than
-  passing it. `clear` keeps a small table's block, and frees an indexed
-  table's index and entries, keeping room for 48. Trig's symbol tables
-  (`Map[Atom, Sym]`, 119,000 on ts-pattern, 58% of them of 1 or 2
-  entries and 22% of 32 to 47) shed their indexes. On pup, Trig's peak
-  memory is 5.2% lower on ts-pattern (14 MB) and 4.4% on zod3, its L3
-  load misses 5% fewer and kernel cycles 2-3% fewer, user cycles level
+- **A Map or Set is 64 bytes, a cache line** (it was 112): the table's
+  small tags share their place with an indexed table's index pointers,
+  and its counts are narrower; an indexed table of 33 to 48 entries holds
+  room for 48 rather than 64. Lookups, puts, takes, and walks run as
+  before. On pup, Trig's peak memory is 3.5% lower on ts-pattern (9.8 MB)
+  and 4.3% on zod3, with 5-7% fewer L3 load misses and 3-6% fewer kernel
+  cycles, user cycles level
   ([small-maps.md](docs/history/records/2026-10/hash-race/small-maps.md)).
 - **The built-in tables have a guard.** `bench/hash/guard.py` counts the
   instructions per operation of `Map` and `HashMap` on Int, text, and

@@ -21,7 +21,7 @@ sub main()
   !m.put(String("abcdefghijklmnopqrstuvwxyz0123"), 3)
   !m.clear()
   s: Set[Int] = Set()
-  for i in 0..60
+  for i in 0..20
     _ = !s.add(i)
   t1 = fill(1000)&
   t2 = fill(1000)&
@@ -34,7 +34,7 @@ for mode in "" "--release"; do
   rm -f trace.bin trace.bin.types
   out=$(RIG_MAP_TRACE=1 rig build $mode -o ops ops.rig 2>&1); expect_rc $? 0 "rig build $mode ops.rig: $out"
   out=$(RIG_MAP_TRACE_FILE=trace.bin ./ops 2>&1); expect_rc $? 0 "./ops ($mode): $out"
-  expect_eq "$out" $'false\n2\n2\n4000 60' "the program runs as it would ($mode)"
+  expect_eq "$out" $'false\n2\n2\n4000 20' "the program runs as it would ($mode)"
   out=$(python3 - trace.bin <<'PY' 2>&1
 import struct, sys
 from collections import Counter
@@ -63,7 +63,7 @@ assert [(r[0], r[1], r[2], r[4], r[5], r[7]) for r in text] == [
 assert text[2][6] == text[3][6] == text[4][6] != text[1][6], "a key's hash is the same at each op"
 sets = [r for r in rs if types[r[3]] == ["Int", "-", "Set"]]
 c = Counter(r[0] for r in sets)
-assert c["new"] == 1 and c["put"] == 60 and c["drop"] == 1 and c["grow"] >= 1, c
+assert c["new"] == 1 and c["put"] == 20 and c["drop"] == 1 and c["grow"] >= 1, c
 grows = [r for r in sets if r[0] == "grow"]
 assert all(r[6] >= 16 and r[6] & (r[6] - 1) == 0 for r in grows), grows
 assert [r[7] for r in sets if r[0] == "put"][3] == (3).to_bytes(8, "little"), "an Int key is its 8 bytes"
@@ -95,7 +95,7 @@ mv prog plain
 cp out/__rig_main.zig plain.zig && cp out/__rig_std_prelude.zig plain_builtin.zig
 RIG_MAP_TRACE=0 RIG_OUT_DIR=$PWD/out "$RIG" build --release -o prog ops.rig >/dev/null 2>&1 || fail "RIG_MAP_TRACE=0 rig build ops.rig"
 mv prog zero
-out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n4000 60' "the plain program runs"
+out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n4000 20' "the plain program runs"
 [[ -e rig-map-trace.bin ]] && fail "a program built without RIG_MAP_TRACE writes no trace"
 grep -q "__rig_map_trace" plain.zig && fail "the root module declares no trace"
 grep -q "__rig_trace\|mapTrace" plain_builtin.zig && fail "the built-in Map has no trace without the flag"

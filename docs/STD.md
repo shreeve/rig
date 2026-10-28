@@ -1322,10 +1322,9 @@ once taken. Taking an entry drops its key at once, hands back its
 value, and marks the entry gone, so the rest keep their order; the gone
 entries are dropped from the List only when it is full and a quarter
 of it is gone, when the index grows, or when the last entry is taken,
-and a walk passes them by runs. Up to 48 entries a Map or Set has no
-index: its entries and a tag byte for each share one block, and a key is
-found by a 16-byte compare of the tags for each 16 entries. A Map is 64
-bytes, a cache line, and a small one has one block. Past that, an index of groups of 16 tag bytes (15
+and a walk passes them by runs. Up to 16 entries a Map or Set has no
+index: a tag byte for each entry, kept in the Map itself, finds a key by
+one 16-byte compare. Past that, an index of groups of 16 tag bytes (15
 tags and a byte of overflow marks) and beside them 16 32-bit entry
 indexes a group finds it: a lookup compares its key's tag with a whole
 group at once and compares a key only where a tag matches, and a key

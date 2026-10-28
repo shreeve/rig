@@ -1,9 +1,12 @@
-# Small maps: one block and no index up to 48 entries (2026-10-28)
+# Small maps: a Map of one line (2026-10-28)
 
 The owner approved the work on 2026-10-28: make the built-in `Map` and
 `Set` hold a small table compactly, so Trig's many small Maps take fewer
-cache lines, fewer blocks and less memory. Branch `small-maps`, against
-main 373b6aed3.
+cache lines, fewer blocks and less memory. Branch `small-maps`. The
+first design (one block, no index up to 48 entries) cut Trig's memory
+5%, but bench/hash rows were up to 70% slower on the Mac; the owner
+turned it down, and the second design below keeps main's tables and
+shrinks the Map. Its numbers are against main 773978d1d.
 
 ## What Trig's small Maps are
 
@@ -40,188 +43,224 @@ one checker, and a heap profile by site (`RIG_HEAP_PROFILE=sites`):
 
 ## The design
 
-- **The table is 56 bytes, a Map 64, one cache line.** The 32 tag bytes
-  left the object; the gone bits' word count became a flag (they are
-  `goneWords(cap)` words while they exist). `sema.minBytesOf` says 56.
-- **A small table is one block:** its tags, a byte an entry in whole
-  groups of 16 (0 when gone or not written), then its entries. A lookup
-  matches the first group and each group `len` reaches, each by code of
-  its own (unrolled), and compares a key only where a tag matches.
-- **No index up to 48 entries written.** The room starts at 4 and
-  doubles to 48 (4, 8, 16, 32, 48); a full small table compacts when a
-  quarter of it is gone, grows while its room is under 48, and else
-  builds its index. 48 is three groups: every symbol table of up to 47
-  entries, 99.7% of them, stays small.
-- **The index, when built, is sized for the live entries**
-  (`groupsFor(live + 1)`, 8 groups at the 49th entry), and the entries
-  move to a block of their own of the next power of two above twice the
-  room (128), so a table that keeps growing has main's sizes.
-- **A take from a small table of more than one group writes every
-  group** `len` reaches, the entry's group changed, out of line
-  (`unlinkWide`); one of one group writes its group, inline, as main
-  did. See "Apple cores" below; out of line, because inline it made
-  bench/hash's takes from large tables (64-byte values) 15-28% slower on
-  pup, by the code it added to every take.
-- **`clear` keeps a small table's block; an indexed table frees its
-  index and entries and keeps room for 48.** Keeping the index, as
-  taking the last entry does, made Trig's pooled mapper caches (2.44
-  million clears on ts-pattern) clear an index each time: 1.7% of
-  ts-pattern's instructions went to `memset`, and Trig took 1.5% more
-  instructions than main. Main freed the index and kept the entries,
-  which a small table in one block cannot hold.
-- **A clone of a small table copies its tags**, hashing no key.
+Main's table, its algorithms unchanged, in 56 bytes, so a `Map` is 64,
+one cache line (112 before):
 
-What a `Map[Atom, Sym]` holds:
+- **The small tags share their place with the index.** No table holds
+  both: a small table (up to 16 live entries, 32 written) uses its 32
+  tag bytes; an indexed one, in the same 32 bytes, its tags and slots
+  pointers, its gone bits' pointer, its maximum load and its groups
+  (`Held`, an `extern union`). `shift`, 0 in a small table, says which.
+  The gone bits' word count became a flag (`has_gone`; they are
+  `goneWords(cap)` words). `clear` frees the gone bits with the index,
+  since the small tags take their place.
+- **The fields are in a fixed order** (`extern struct`): `len` and
+  `live`, written by every put and take, have an 8-byte word of their
+  own, apart from `cap` and `shift`, which every lookup reads first.
+  With `shift` beside `live`, bench/hash's int16 walk was 30-45% slower
+  on the Mac.
+- **An indexed table's room goes 32, 48, 64** (`nextRoom`), then
+  doubles as before, so a table of 33 to 48 entries holds 48 entries'
+  room, not 64; every room past 64 is main's.
+- `sema.minBytesOf` says 56.
 
-| largest length | main | small-maps |
-|---|---:|---:|
-| 0 | 112 | 64 |
-| 1-4 | 112 + 32 | 64 + 48 |
-| 5-8 | 112 + 64 | 64 + 80 |
-| 9-16 | 112 + 128 | 64 + 144 |
-| 17-32 | 112 + 256 + 320 | 64 + 288 |
-| 33-47 | 112 + 512 + 320 | 64 + 432 |
+What a `Map[Atom, Sym]` holds (bytes; the rest are blocks the allocator
+rounds up to its classes):
 
-The Map sits in its List; the rest are blocks, which the allocator
-rounds up to its size classes (144 to 160, 288 to 320, 432 to 448).
+| largest length | main | small-maps | first design |
+|---|---:|---:|---:|
+| 0 | 112 | 64 | 64 |
+| 1-4 | 112 + 32 | 64 + 32 | 64 + 48 |
+| 9-16 | 112 + 128 | 64 + 128 | 64 + 144 |
+| 17-32 | 112 + 256 + 320 | 64 + 256 + 320 | 64 + 288 |
+| 33-47 | 112 + 512 + 320 | 64 + 384 + 320 | 64 + 432 |
 
-`HashMap` and `HashSet` are unchanged: their table is 48 bytes already,
-Trig holds none, and a small form for them (their least table is two
-groups of 15 slots) is a design of its own.
+The first design's saving on the 32-47-entry tables (no index) is gone:
+26,500 tables of Trig's keep a 320-byte index. Kept inside one block
+with the entries, as the coordinator asked to try, the index saves no
+bytes: 320 + 384 = 704 bytes rounds up to a 768-byte class in one
+block, where the two blocks are exactly 320 and 384. Its lookups would
+be main's either way.
 
-## What was tried and dropped
+`HashMap` and `HashSet` are unchanged: their table is 48 bytes, and
+Trig holds none.
 
-- **64 lanes:** tables of 33 to 47 entries grew to 64 entries' room,
-  640 bytes against 448.
-- **Room rounded up to the allocator's size class**, so a block filled
-  its class: it saved 128 bytes on tables of 33 or 34 entries (3,480 in
-  Trig), but rooms then crossed group bounds (16 Int pairs grew to 37
-  entries, three groups) for nothing else. Plain doubling.
-- **A small table's gone bits in the object** (a take writes no tag;
-  its bit is a word in the object): takes 25-55% faster than main, but
-  every hit then reads its bit, and hits in tables of 16 to 24 were 10%
-  slower in a Zig micro-benchmark on the Mac.
-- **One test for a miss in a table of 48:** the three groups' compares
-  or'd and tested once. On the Mac it was slower than a test a group.
-- **A bit a lane** (`@bitCast` of the compare to `u16`, the groups in
-  one word, one loop over the candidates): slower on the Mac than a
-  narrowing a group.
-- **A first room of 2:** it would save 16 bytes on each of the 69,000
-  tables of 1 or 2 entries (1.1 MB), but every table of 3 or more takes
-  one more growth, which bench/hash's 16-key insert rows would pay.
-- **No index past 16 entries, as main, in this layout:** the Trig
-  replay below took 41% longer than with 48 on the Mac and 17% longer on
-  pup, and 36% more memory: a table of 17 to 47 entries builds an index
-  at 17 (sized for its live entries, it is rebuilt at 27 and 53).
+## The first design, and why it went
 
-## Apple cores: a take's tag store
+One block (tags, then entries) and no index up to 48 entries: 35% less
+memory in the replay below, 5% less peak memory in Trig, Trig's cycles
+level. On the Mac it lost bench/hash rows:
 
-With a take writing only its entry's tag group, in-order takes from a
-table of 18 to 48 entries took twice as long as main's on the Mac (rnd24
-remove 8.1 ns against 4.1), and not on pup. The jump is between 17 and
-18 entries: from the second take in the second group. That store's
-address depends on the search's result, and the next lookup's load of
-the group does not, so it runs ahead of the store. Writing every group
-`len` reaches, at addresses known before the search ends, brings the
-takes back to main's (rnd24 remove 4.0 against 3.9 in a Zig
-micro-benchmark). A probe of loads and stores alone, with the store's
-address known early, shows no cost from the neighbouring group, so it is
-the late address.
+- **Lookups across many tables of 24-48 entries**, 25-70% slower on the
+  Mac (level or faster on pup): scanning up to three tag groups costs 9
+  more instructions a miss than an index's one group, at a lower IPC, and
+  two other forms of the scan (one test of the three groups or'd; a bit
+  a lane) were slower still.
+- **The 16-key miss rows**, 64-66% slower: main's tags were in the Map,
+  a local, and the compiler kept them in registers for the whole loop.
+- **In-order takes from tables of 18-48**: a take's tag store, its
+  address known only when the search ends, made the next lookup's load
+  of that group wait; writing every group fixed it, at a cost to churn16.
 
 ## Measurements
 
-### The Zig, replayed (step 1)
+### The Zig, replayed
 
-The table is the runtime's own Zig, called by the prelude's `Map` and
-`Set` as before, so the prototype is src/ordered.zig itself, measured
-against main's copy of it. A replay of every operation the trace
-records on Trig's `U32`-keyed Maps and Sets (4,817,641 on ts-pattern,
-990,151 on zod3), the tables' objects in one array a type as Trig's
-Lists hold them, ReleaseFast, fastest of 7; peak bytes from Rig's
+Every operation the trace records on Trig's `U32`-keyed Maps and Sets
+(4,817,641 on ts-pattern, 990,151 on zod3), against main's
+src/ordered.zig, ReleaseFast on the Mac; peak bytes from Rig's
 allocator:
 
-| | main | small-maps | |
-|---|---:|---:|---|
-| ts-pattern, peak bytes | 39,911,728 | 25,878,576 | 35% less |
-| zod3, peak bytes | 9,969,904 | 7,347,280 | 26% less |
-| ts-pattern, allocations | 313,205 | 282,820 | 10% fewer |
-| ts-pattern, Mac | 16.9 ms | 15.0 ms | 11% faster |
-| ts-pattern, pup core 8 | 25.0 ms | 22.7 ms | 9% faster |
-| zod3, pup core 8 | 5.16 ms | 4.82 ms | 7% faster |
+| | main | small-maps | first design |
+|---|---:|---:|---:|
+| ts-pattern, peak bytes | 39,911,728 | 31,172,784 (22% less) | 25,878,576 |
+| zod3, peak bytes | 9,969,904 | 7,991,216 (20% less) | 7,347,280 |
+| ts-pattern, time (fastest of 5) | 16.7-16.9 ms | 16.9 ms | 15.0 ms |
 
-### Trig (step 2)
+### Trig
 
-pup, release builds (slot 10-11), 20 interleaved rounds on core 8 with
-sibling 9 idle, one checker; Trig main 403a823, Rig main 373b6aed3.
-Output identical every round. Medians:
+pup, release builds (slots "10,11 10,11 10,11"), 20 interleaved rounds
+on core 8 with sibling 9 idle, one checker; Trig 403a823 built by main
+773978d1d and by this branch. Output identical every round. Main's
+kernel cycles (0.25G on ts-pattern) match a quiet pup; `/proc/buddyinfo`
+before and after is in `trig-pup-buddyinfo.txt` (order 9: 20 then 75;
+order 10: 0). Medians:
 
-| | ts-pattern main | ts-pattern new | new / main | zod3 main | zod3 new | new / main |
+| | ts-pattern main | new | new / main | zod3 main | new | new / main |
 |---|---:|---:|---:|---:|---:|---:|
-| peak RSS, KB | 266,580 | 252,598 | 0.9476 | 85,956 | 82,166 | 0.9559 |
-| user cycles | 4,327,387,246 | 4,317,042,249 | 0.9976 | 774,954,230 | 765,721,418 | 0.9881 |
-| kernel cycles | 353,966,690 | 345,482,150 | 0.9760 | 99,083,558 | 95,934,276 | 0.9682 |
-| instructions | 9,270,689,622 | 9,246,591,869 | 0.9974 | 1,683,894,646 | 1,675,015,969 | 0.9947 |
-| L3 load misses | 1,047,344 | 996,542 | 0.9515 | 192,665 | 182,204 | 0.9457 |
-| page faults | 40,160 | 39,625 | 0.9867 | 9,765 | 9,591 | 0.9822 |
-| seconds | 1.02 | 1.01 | 0.99 | 0.20 | 0.20 | 1.00 |
+| peak RSS, KB | 277,200 | 267,448 | 0.9648 | 92,628 | 88,604 | 0.9566 |
+| user cycles | 3,973,896,722 | 3,942,405,272 | 0.9921 | 735,716,096 | 733,130,980 | 0.9965 |
+| kernel cycles | 253,269,154 | 238,207,219 | 0.9405 | 90,747,480 | 87,624,901 | 0.9656 |
+| instructions | 9,271,080,160 | 9,228,501,740 | 0.9954 | 1,683,930,994 | 1,676,189,622 | 0.9954 |
+| L3 load misses | 548,580 | 522,211 | 0.9519 | 133,028 | 123,888 | 0.9313 |
+| page faults | 15,460 | 14,924 | 0.9653 | 8,046 | 7,872 | 0.9784 |
 
-Peak memory is 5.2% lower on ts-pattern (14.0 MB) and 4.4% on zod3
-(3.8 MB); L3 load misses 5% fewer; kernel cycles 2-3% fewer, from fewer
-pages touched; user cycles and instructions within noise (under the
-speed bar: this is a memory change). The build with the multi-group
-take inline (`trig-pup-take-inline.txt`) measured the same: 5.2% and
-4.4% less memory, user cycles 0.1% and 0.2% fewer. With `clear` keeping
-the index (the build before that), ts-pattern took 1.5% more
-instructions and user cycles, its peak memory the same.
+Peak memory is 3.5% lower on ts-pattern (9.8 MB) and 4.3% on zod3
+(4.0 MB), against the first design's 5.2% and 4.4%.
 
 ### bench/hash
 
-Interleaved, fastest of 9, `rig-fast`; Mac under `tools/low`, pup on
-core 8. Neither machine was quiet: on pup other release builds ran
-throughout (load 2.4 to 5.4), and on both, main's large-table rows
-moved by 5-20% between runs while the table's code for them did not
-change.
+Interleaved, fastest of 11, `rig-fast`, against main 773978d1d. The Mac
+under `tools/low` with `.mac-quiet` absent (load 3-4 from other
+sessions); pup on core 8 (load 2-3: another session's release builds
+ran throughout), timed twice. Rows over 2% slower: the Mac 17 of 133,
+pup 24 and 22 of 133.
 
-- **Small tables, pup:** the 16-key inserts 6% faster, removes 3-5%
-  faster, hits and misses within 4%; rnd24 inserts 31% faster and hits
-  27% faster (no index), misses 5% slower; churn16 16% slower, str16
-  5-8% slower, big16 removes 18% slower.
-- **Small tables, Mac:** rnd24 inserts 46% faster and hits 7% faster;
-  the 16-key misses 64-66% slower, churn16 32% slower, removes 5-17%
-  slower. The miss rows look one Map up in a loop; main kept its tags
-  in the Map, a local, and the compiler held them in registers for the
-  whole loop (`ldp q0, q1, [sp, ...]` before it), which a table whose
-  tags are in its block cannot get. Behind a pointer, as a Map in a List
-  is, the 16-key misses are level (Zig micro-benchmark: 0.57-0.59 ns
-  against main's 0.54-0.59).
-- **In-order lookups across many tables of 24 to 48 entries** (a Zig
-  micro-benchmark, a million keys) are 25-70% slower on the Mac than
-  main's indexed tables, and on pup level or faster (misses at 40
-  entries: 18.1 cycles against 19.2, with more branch misses from three
-  groups of tags). The Trig replay above, whose tables of 32 to 47
-  entries take a quarter of its symbol-table lookups, is faster on both.
-- **The guard** (instructions): every row within 2% but small-hit, 7.3%
-  fewer; the baseline is updated for it.
+**Placebo.** Main with 16 `nop`s added to a cold function (`tooMany`),
+timed against main the same way on the Mac: 14 rows moved by more than
+2%, up to 6% slower (int100000 miss) and 5% faster. Moving code alone
+moves rows that far.
 
-### std.json's guard
+Every row more than 2% slower before (first design, on either machine),
+new / main:
 
-0.1-0.8% fewer instructions per byte on all six files.
+| row | Mac before | Mac now | pup before | pup now (two runs) |
+|---|---:|---:|---:|---:|
+| int16 insert | 1.05 | 1.00 | 0.94 | 1.04, 1.03 |
+| int16 remove | 1.13 | 1.00 | 0.95 | 0.97, 0.96 |
+| int16 hit | 1.01 | 1.00 | 1.04 | 1.08, 1.07 |
+| int16 miss | 1.64 | 1.00 | 0.98 | 1.00, 1.00 |
+| int16 iterate | 1.24 | 1.01 | 1.00 | 1.00, 0.99 |
+| int1000 remove | 0.99 | 0.98 | 1.03 | 0.95, 0.93 |
+| int4000000 insert | 1.01 | 1.00 | 1.21 | 1.00, 1.03 |
+| int4000000 hit | 1.06 | 1.01 | 1.03 | 0.98, 0.99 |
+| int4000000 miss | 1.04 | 0.96 | 1.10 | 0.97, 0.95 |
+| rnd16 insert | 1.04 | 0.98 | 0.94 | 1.04, 1.02 |
+| rnd16 remove | 1.05 | 1.09 | 0.97 | 0.98, 0.99 |
+| rnd16 hit | 1.08 | 1.00 | 0.97 | 1.00, 1.01 |
+| rnd16 miss | 1.66 | 1.00 | 1.02 | 0.99, 1.00 |
+| rnd24 remove | 1.17 | 1.15 | 1.03 | 0.95, 0.95 |
+| rnd24 miss | 0.97 | 1.01 | 1.05 | 1.04, 1.03 |
+| rnd24 iterate | 1.17 | 1.16 | 1.00 | 1.00, 1.00 |
+| rnd1000 hit | 1.13 | 0.99 | 1.02 | 0.99, 0.99 |
+| rnd1000 miss | 1.19 | 1.03 | 1.06 | 1.01, 1.07 |
+| rnd1500 hit | 1.09 | 1.05 | 1.02 | 1.05, 1.00 |
+| rnd1500 miss | 1.08 | 1.00 | 1.01 | 1.01, 1.00 |
+| rnd100000 hit | 0.98 | 0.96 | 1.04 | 1.01, 0.99 |
+| rnd100000 miss | 1.06 | 0.83 | 1.05 | 1.02, 1.02 |
+| rnd150000 insert | 1.01 | 1.01 | 1.09 | 1.02, 0.99 |
+| rnd150000 remove | 1.02 | 1.04 | 1.03 | 0.99, 0.95 |
+| rnd150000 hit | 1.06 | 1.01 | 0.99 | 1.01, 0.97 |
+| rnd150000 miss | 1.08 | 1.00 | 1.07 | 1.05, 1.07 |
+| rnd3000000 insert | 1.01 | 1.00 | 1.05 | 0.97, 1.02 |
+| rnd3000000 remove | 1.04 | 1.05 | 0.96 | 0.83, 0.98 |
+| rnd3000000 hit | 1.09 | 1.03 | 1.01 | 0.95, 0.97 |
+| rnd3000000 miss | 1.09 | 1.03 | 1.10 | 0.95, 1.01 |
+| rnd3000000 iterate | 0.95 | 1.02 | 1.05 | 0.99, 0.99 |
+| rnd4000000 insert | 1.02 | 1.00 | 1.06 | 0.98, 0.99 |
+| rnd4000000 hit | 1.14 | 1.03 | 1.00 | 0.94, 0.95 |
+| rnd4000000 miss | 1.08 | 1.01 | 1.02 | 0.94, 0.98 |
+| lat16 chain | 1.00 | 1.00 | 1.05 | 1.00, 1.00 |
+| lat4000000 chain | 1.01 | 1.00 | 1.03 | 1.00, 1.00 |
+| churn16 turnover | 1.32 | 1.02 | 1.16 | 1.00, 1.03 |
+| mix16 half | 1.01 | 1.00 | 1.08 | 1.03, 1.00 |
+| str16 insert | 1.03 | 1.00 | 1.06 | 1.56, 1.38 |
+| str16 remove | 1.02 | 1.00 | 1.05 | 1.01, 1.00 |
+| str16 hit | 1.03 | 0.98 | 1.08 | 1.09, 1.08 |
+| str1000 insert | 1.00 | 0.99 | 1.03 | 1.04, 1.03 |
+| str1000 miss | 0.89 | 1.01 | 1.03 | 1.00, 1.00 |
+| str100000 insert | 1.02 | 1.01 | 1.04 | 1.07, 1.06 |
+| str100000 remove | 1.01 | 0.99 | 1.05 | 1.03, 1.04 |
+| str1000000 remove | 1.02 | 0.94 | 1.19 | 1.03, 0.92 |
+| big16 remove | 1.05 | 1.07 | 1.18 | 1.00, 0.99 |
+| big16 hit | 1.07 | 1.02 | 0.95 | 0.98, 1.01 |
+| big16 iterate | 1.16 | 1.01 | 1.00 | 1.01, 1.00 |
+| big1000 remove | 1.01 | 1.03 | 1.03 | 0.99, 0.99 |
+| big1000 hit | 1.12 | 1.03 | 1.00 | 0.99, 0.99 |
+| big100000 insert | 1.01 | 1.01 | 1.06 | 1.02, 0.98 |
+| big100000 iterate | 1.01 | 1.00 | 1.04 | 0.99, 0.99 |
+| big1000000 hit | 1.05 | 1.03 | 0.96 | 0.97, 0.98 |
+| int insert | 0.99 | 0.99 | 1.03 | 1.05, 1.00 |
+| int iterate | 1.03 | 1.00 | 1.06 | 1.02, 1.03 |
+| string insert | 1.03 | 0.99 | 0.97 | 1.00, 0.89 |
+| string iterate | 0.97 | 1.02 | 1.26 | 0.98, 1.00 |
+| pair hit | 1.07 | 0.97 | 0.63 | 1.00, 0.96 |
+| triple hit | 1.06 | 1.05 | 0.74 | 0.89, 0.86 |
+| small 4 | 1.03 | 0.99 | 1.01 | 1.00, 1.00 |
+| string intern | 1.06 | 1.00 | 1.04 | 1.00, 0.99 |
+| int ensure_with-miss | 1.00 | 0.99 | 1.07 | 1.05, 1.01 |
+| int edit_put-miss | 0.99 | 1.01 | 1.04 | 1.01, 0.97 |
+| string ensure-miss | 1.02 | 0.98 | 1.06 | 1.04, 0.99 |
+| string edit_put-miss | 0.99 | 0.99 | 1.03 | 0.94, 0.92 |
+
+### What is still slower, and why
+
+- **Mac, rnd16 and rnd24 removes (9% and 15%), big16 remove (7%), the
+  large removes (4-7%).** In the Zig micro-benchmark of the table alone
+  (`micro.zig`, a Map-shaped object) the removes are level with main's:
+  rnd24 3.75 ns against 3.81-3.95. The difference is in the Rig loop the
+  table is inlined into: in `random`'s remove loop, with the Map 64
+  bytes, LLVM keeps two extra address registers and reloads three values
+  from the stack and a constant each step (4 more instructions a take);
+  at 112 bytes it did not. Padding the Map to 72 bytes made it worse
+  (int16 remove 60% slower). What it would take: the loop's codegen,
+  not the table's: the emitter or LLVM's loop strength reduction.
+- **pup, str16 insert (38-56%), int16 and str16 hits (7-9%), string
+  inserts (4-9%).** str16 insert moved from 1.06 to 1.38-1.56 between
+  runs of the same binaries, string hit from 1.03 to 1.42; pup was not
+  quiet. They need a quiet pup to judge.
+- **Large-table hits and misses (3-8%).** Within the placebo's spread.
+
+### Guards
+
+bench/hash's guard: every row within 2% of main's baseline (text-miss
+1.5% more instructions, int-churn 4.8% fewer). std.json's guard:
+0.1-0.8% fewer instructions per byte.
 
 ## Data
 
 [small-maps-data/](small-maps-data/): the trace's size tables
-(`sizes.py`, `sizes-*.txt`), the heap profile by site at main's peak
-(`heap-sites-ts-pattern.txt`), the replay (`compact.py` makes its input
-from a trace, `replay.zig` runs it beside src/ordered.zig and a copy of
-main's), the micro-benchmark (`micro.zig`), the Trig scripts
-(`trig-build.sh`, `trig-time.sh`, `trig-report.py`) and rounds
-(`trig-pup.txt`; `trig-pup-take-inline.txt` for the build with the
-multi-group take inline, `trig-pup-clear-keeps-index.txt` for the one
-whose `clear` kept the index), and bench/hash's runs (`bench-hash.sh`,
-`bench-hash-mac.txt`, `bench-hash-pup.txt`).
+(`sizes.py`, `sizes-*.txt`); the heap profile by site at main's peak
+(`heap-sites-ts-pattern.txt`); the replay (`compact.py` makes its input
+from a trace, `replay.zig` runs it); the micro-benchmark (`micro.zig`);
+the Trig scripts (`trig-build.sh`, `trig-time.sh`, `trig-report.py`),
+rounds (`trig-pup.txt`, with `trig-pup-buddyinfo.txt`) and the first
+design's (`trig-pup-one-block.txt`, `trig-pup-take-inline.txt`,
+`trig-pup-clear-keeps-index.txt`); bench/hash's runs (`bench-hash.sh`,
+`bench-hash-rerun.sh`; `bench-hash-mac.txt`, `bench-hash-pup.txt`,
+`bench-hash-pup-rerun.txt`, `bench-hash-mac-placebo.txt`, and the first
+design's `bench-hash-*-one-block.txt`).
 
 ## Gates
 
-Rig's full suite (10,792 cases) and proofs (5,271) green on the Mac,
-the oracle quiet; Trig's light gate GREEN (ee42012a3, 45 s); loco's
-light gate GREEN (122 runs, none differ).
+GATES_PLACEHOLDER

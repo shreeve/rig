@@ -1,134 +1,134 @@
 row                             new     main  new/main
-int16 insert                   3.30     3.14    1.05 <SLOWER
-int16 remove                   4.20     3.70    1.13 <SLOWER
-int16 hit                      0.90     0.89    1.01
-int16 miss                     0.81     0.50    1.64 <SLOWER
-int16 iterate                  0.11     0.09    1.24 <SLOWER
-int1000 insert                 6.54     6.66    0.98
-int1000 remove                 2.37     2.39    0.99
-int1000 hit                    1.26     1.24    1.01
-int1000 miss                   1.04     1.06    0.98
+int16 insert                   3.15     3.16    1.00
+int16 remove                   3.80     3.79    1.00
+int16 hit                      0.90     0.90    1.00
+int16 miss                     0.50     0.50    1.00
+int16 iterate                  0.09     0.09    1.01
+int1000 insert                 6.84     6.76    1.01
+int1000 remove                 2.35     2.40    0.98
+int1000 hit                    1.24     1.24    1.00
+int1000 miss                   1.02     1.06    0.96
 int1000 iterate                0.08     0.08    1.00
-int100000 insert               6.03     6.03    1.00
-int100000 remove               4.19     4.28    0.98
-int100000 hit                  1.50     1.46    1.02
-int100000 miss                 1.50     1.47    1.02
+int100000 insert               6.18     6.08    1.02
+int100000 remove               4.19     4.26    0.98
+int100000 hit                  1.48     1.46    1.01
+int100000 miss                 1.37     1.50    0.91
 int100000 iterate              0.13     0.13    1.00
-int4000000 insert             13.56    13.47    1.01
-int4000000 remove             10.77    10.57    1.02
-int4000000 hit                 5.33     5.01    1.06 <SLOWER
-int4000000 miss                3.38     3.24    1.04 <SLOWER
-int4000000 iterate             0.20     0.20    1.01
-rnd16 insert                   3.10     2.99    1.04 <SLOWER
-rnd16 remove                   4.28     4.09    1.05 <SLOWER
-rnd16 hit                      0.92     0.86    1.08 <SLOWER
-rnd16 miss                     0.82     0.50    1.66 <SLOWER
-rnd16 iterate                  0.10     0.11    0.96
-rnd24 insert                   3.68     6.76    0.54
-rnd24 remove                   4.79     4.10    1.17 <SLOWER
-rnd24 hit                      0.99     1.06    0.93
-rnd24 miss                     0.84     0.86    0.97
-rnd24 iterate                  0.10     0.09    1.17 <SLOWER
-rnd1000 insert                 6.43     6.52    0.99
-rnd1000 remove                 2.47     2.45    1.01
-rnd1000 hit                    1.25     1.11    1.13 <SLOWER
-rnd1000 miss                   1.19     1.00    1.19 <SLOWER
-rnd1000 iterate                0.08     0.08    1.01
-rnd1500 insert                 5.85     5.88    1.00
-rnd1500 remove                 3.60     3.56    1.01
-rnd1500 hit                    1.32     1.20    1.09 <SLOWER
-rnd1500 miss                   1.02     0.94    1.08 <SLOWER
+int4000000 insert             14.30    14.31    1.00
+int4000000 remove             10.70    11.45    0.93
+int4000000 hit                 5.37     5.30    1.01
+int4000000 miss                3.33     3.46    0.96
+int4000000 iterate             0.20     0.21    1.00
+rnd16 insert                   2.98     3.04    0.98
+rnd16 remove                   4.44     4.09    1.09 <SLOWER
+rnd16 hit                      0.87     0.87    1.00
+rnd16 miss                     0.50     0.50    1.00
+rnd16 iterate                  0.11     0.12    0.90
+rnd24 insert                   6.85     6.87    1.00
+rnd24 remove                   4.87     4.22    1.15 <SLOWER
+rnd24 hit                      1.08     1.06    1.01
+rnd24 miss                     0.87     0.86    1.01
+rnd24 iterate                  0.11     0.09    1.16 <SLOWER
+rnd1000 insert                 6.60     6.56    1.01
+rnd1000 remove                 2.53     2.47    1.02
+rnd1000 hit                    1.09     1.11    0.99
+rnd1000 miss                   1.04     1.00    1.03 <SLOWER
+rnd1000 iterate                0.08     0.08    1.00
+rnd1500 insert                 5.99     5.94    1.01
+rnd1500 remove                 3.64     3.60    1.01
+rnd1500 hit                    1.27     1.21    1.05 <SLOWER
+rnd1500 miss                   0.95     0.94    1.00
 rnd1500 iterate                0.08     0.08    1.00
-rnd100000 insert               5.97     5.94    1.01
-rnd100000 remove               4.43     4.44    1.00
-rnd100000 hit                  2.07     2.11    0.98
-rnd100000 miss                 1.65     1.55    1.06 <SLOWER
+rnd100000 insert               6.04     6.01    1.01
+rnd100000 remove               4.46     4.39    1.02
+rnd100000 hit                  2.05     2.13    0.96
+rnd100000 miss                 1.31     1.58    0.83
 rnd100000 iterate              0.13     0.13    1.00
-rnd150000 insert               6.01     5.94    1.01
-rnd150000 remove               3.01     2.94    1.02
-rnd150000 hit                  1.97     1.86    1.06 <SLOWER
-rnd150000 miss                 1.45     1.34    1.08 <SLOWER
+rnd150000 insert               6.06     6.01    1.01
+rnd150000 remove               3.09     2.97    1.04 <SLOWER
+rnd150000 hit                  1.88     1.86    1.01
+rnd150000 miss                 1.34     1.35    1.00
 rnd150000 iterate              0.13     0.13    1.00
-rnd3000000 insert              8.76     8.70    1.01
-rnd3000000 remove              4.90     4.73    1.04 <SLOWER
-rnd3000000 hit                 7.82     7.20    1.09 <SLOWER
-rnd3000000 miss                2.97     2.73    1.09 <SLOWER
-rnd3000000 iterate             0.15     0.16    0.95
-rnd4000000 insert             14.30    14.02    1.02
-rnd4000000 remove             11.80    11.76    1.00
-rnd4000000 hit                11.45    10.03    1.14 <SLOWER
-rnd4000000 miss                4.22     3.92    1.08 <SLOWER
+rnd3000000 insert              9.25     9.21    1.00
+rnd3000000 remove              5.52     5.25    1.05 <SLOWER
+rnd3000000 hit                 7.74     7.48    1.03 <SLOWER
+rnd3000000 miss                3.00     2.92    1.03
+rnd3000000 iterate             0.20     0.19    1.02
+rnd4000000 insert             14.91    14.90    1.00
+rnd4000000 remove             13.53    12.68    1.07 <SLOWER
+rnd4000000 hit                10.85    10.49    1.03 <SLOWER
+rnd4000000 miss                4.20     4.16    1.01
 rnd4000000 iterate             0.21     0.20    1.01
-lat16 chain                    7.13     7.13    1.00
-lat1000 chain                  8.34     8.35    1.00
-lat100000 chain               15.47    15.35    1.01
-lat4000000 chain             146.15   145.23    1.01
-churn16 turnover               4.81     3.63    1.32 <SLOWER
-churn1000 turnover             3.84     3.91    0.98
-churn100000 turnover           3.57     3.59    0.99
-churn4000000 turnover         13.05    12.96    1.01
-mix16 half                     0.68     0.67    1.01
-mix1000 half                   1.01     1.00    1.00
-mix100000 half                 5.29     5.44    0.97
-mix4000000 half               10.76    10.75    1.00
-str16 insert                   6.98     6.80    1.03
-str16 remove                   7.36     7.25    1.02
-str16 hit                      3.88     3.78    1.03
-str16 miss                     1.71     1.76    0.98
-str1000 insert                 9.33     9.37    1.00
-str1000 remove                 7.88     7.75    1.02
-str1000 hit                    4.18     4.11    1.02
-str1000 miss                   2.16     2.42    0.89
-str100000 insert               9.42     9.22    1.02
-str100000 remove              11.34    11.19    1.01
-str100000 hit                  8.78     8.67    1.01
-str100000 miss                 4.25     4.33    0.98
-str1000000 insert             13.15    13.12    1.00
-str1000000 remove             13.36    13.07    1.02
-str1000000 hit                35.27    35.16    1.00
-str1000000 miss                5.17     5.20    1.00
-big16 insert                   5.47     5.35    1.02
-big16 remove                   4.39     4.16    1.05 <SLOWER
-big16 hit                      0.97     0.90    1.07 <SLOWER
-big16 iterate                  0.10     0.09    1.16 <SLOWER
-big1000 insert                 8.18     8.26    0.99
-big1000 remove                 2.62     2.59    1.01
-big1000 hit                    1.30     1.16    1.12 <SLOWER
-big1000 iterate                0.08     0.08    1.02
-big100000 insert               8.90     8.81    1.01
-big100000 remove               4.69     4.69    1.00
-big100000 hit                  2.84     2.78    1.02
-big100000 iterate              0.52     0.52    1.01
-big1000000 insert             16.56    17.00    0.97
-big1000000 remove              4.97     5.16    0.96
-big1000000 hit                10.41     9.92    1.05 <SLOWER
-big1000000 iterate             0.81     0.85    0.96
-int insert                     8.23     8.33    0.99
-int hit                        2.02     1.99    1.02
-int miss                       1.89     1.95    0.97
-int iterate                    0.20     0.19    1.03 <SLOWER
-string insert                 17.17    16.71    1.03
-string hit                     7.49     7.35    1.02
-string miss                    5.10     5.07    1.00
-string iterate                 0.62     0.64    0.97
-pair insert                    8.26     8.26    1.00
-pair hit                       2.43     2.27    1.07 <SLOWER
-pair miss                      1.90     1.85    1.02
-triple insert                  9.94     9.91    1.00
-triple hit                     3.01     2.85    1.06 <SLOWER
-triple miss                    2.64     2.61    1.01
-small 4                        1.29     1.25    1.03 <SLOWER
-small 8                        1.31     1.29    1.01
-string intern                  7.07     6.70    1.06 <SLOWER
-int ensure-miss                9.02     8.97    1.00
-int ensure-hit                 2.16     2.30    0.94
-int ensure_with-miss           9.17     9.15    1.00
-int ensure_with-hit            2.09     2.16    0.97
-int edit_put-miss              8.50     8.55    0.99
-int edit_put-hit               2.06     2.03    1.01
-string ensure-miss            16.78    16.40    1.02
-string ensure-hit              9.47     9.52    0.99
-string ensure_with-miss       18.33    18.64    0.98
-string ensure_with-hit         9.13     9.32    0.98
-string edit_put-miss          17.46    17.58    0.99
-string edit_put-hit            9.89    10.15    0.97
+lat16 chain                    7.18     7.21    1.00
+lat1000 chain                  8.43     8.48    0.99
+lat100000 chain               15.60    15.67    1.00
+lat4000000 chain             152.54   152.35    1.00
+churn16 turnover               3.74     3.65    1.02
+churn1000 turnover             3.89     3.92    0.99
+churn100000 turnover           3.61     3.61    1.00
+churn4000000 turnover         14.21    13.99    1.02
+mix16 half                     0.69     0.69    1.00
+mix1000 half                   1.02     1.02    1.00
+mix100000 half                 4.89     5.84    0.84
+mix4000000 half               11.14    11.13    1.00
+str16 insert                   7.01     7.03    1.00
+str16 remove                   7.23     7.20    1.00
+str16 hit                      3.72     3.78    0.98
+str16 miss                     1.66     1.75    0.95
+str1000 insert                 9.51     9.61    0.99
+str1000 remove                 7.89     7.82    1.01
+str1000 hit                    3.99     4.12    0.97
+str1000 miss                   2.44     2.43    1.01
+str100000 insert               9.55     9.47    1.01
+str100000 remove              11.29    11.40    0.99
+str100000 hit                  8.79     9.13    0.96
+str100000 miss                 4.24     4.33    0.98
+str1000000 insert             13.37    13.34    1.00
+str1000000 remove             12.84    13.66    0.94
+str1000000 hit                38.15    38.14    1.00
+str1000000 miss                5.21     5.41    0.96
+big16 insert                   5.60     5.49    1.02
+big16 remove                   4.49     4.18    1.07 <SLOWER
+big16 hit                      0.93     0.91    1.02
+big16 iterate                  0.09     0.09    1.01
+big1000 insert                 8.34     8.34    1.00
+big1000 remove                 2.67     2.61    1.03
+big1000 hit                    1.20     1.16    1.03 <SLOWER
+big1000 iterate                0.08     0.08    1.00
+big100000 insert               9.13     9.03    1.01
+big100000 remove               4.81     4.74    1.01
+big100000 hit                  2.83     2.85    0.99
+big100000 iterate              0.53     0.53    1.00
+big1000000 insert             18.14    18.11    1.00
+big1000000 remove              5.70     5.40    1.05 <SLOWER
+big1000000 hit                10.52    10.23    1.03
+big1000000 iterate             0.84     0.84    1.00
+int insert                     8.36     8.44    0.99
+int hit                        1.90     1.93    0.99
+int miss                       1.87     1.90    0.98
+int iterate                    0.20     0.20    1.00
+string insert                 17.98    18.18    0.99
+string hit                     8.08     7.96    1.01
+string miss                    5.58     5.70    0.98
+string iterate                 0.64     0.63    1.02
+pair insert                    8.35     8.41    0.99
+pair hit                       2.32     2.40    0.97
+pair miss                      1.88     1.88    1.00
+triple insert                  9.99    10.17    0.98
+triple hit                     2.99     2.86    1.05 <SLOWER
+triple miss                    2.63     2.63    1.00
+small 4                        1.29     1.31    0.99
+small 8                        1.31     1.31    1.00
+string intern                  6.89     6.88    1.00
+int ensure-miss                9.08     9.16    0.99
+int ensure-hit                 2.15     2.33    0.92
+int ensure_with-miss           9.24     9.32    0.99
+int ensure_with-hit            2.07     2.09    0.99
+int edit_put-miss              8.66     8.61    1.01
+int edit_put-hit               2.02     2.10    0.96
+string ensure-miss            17.33    17.60    0.98
+string ensure-hit              9.32     9.59    0.97
+string ensure_with-miss       19.04    18.75    1.02
+string ensure_with-hit         9.66     9.75    0.99
+string edit_put-miss          17.98    18.12    0.99
+string edit_put-hit           10.25    10.05    1.02

@@ -5404,22 +5404,6 @@ pub fn freeSlice(comptime T: type, buf: []T) void {
     defaultAllocator().rawFree(bytes, .fromByteUnits(@alignOf(T)), @returnAddress());
 }
 
-/// `n` bytes aligned as a `T`, unwritten, for a block that holds `T`s
-/// and other bytes beside them; the heap profile counts it as `T`'s.
-pub fn allocBytes(comptime T: type, n: usize) []align(@alignOf(T)) u8 {
-    if (heap_profile) HeapProfile.owner(T);
-    const a = defaultAllocator();
-    if (fills) return a.alignedAlloc(u8, .fromByteUnits(@alignOf(T)), n) catch oom();
-    const p = a.rawAlloc(n, .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
-    return @as([*]align(@alignOf(T)) u8, @alignCast(p))[0..n];
-}
-
-/// Free what `allocBytes` gave.
-pub fn freeBytes(comptime T: type, buf: []align(@alignOf(T)) u8) void {
-    if (fills) return defaultAllocator().free(buf);
-    defaultAllocator().rawFree(buf, .fromByteUnits(@alignOf(T)), @returnAddress());
-}
-
 /// Free what `create` gave.
 pub fn destroy(ptr: anytype) void {
     const T = @typeInfo(@TypeOf(ptr)).pointer.child;
