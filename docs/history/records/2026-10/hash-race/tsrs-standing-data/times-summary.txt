@@ -1,0 +1,36 @@
+
+ts-pattern
+| variant | n | wall median ms | wall fastest ms | cycles (median) | instructions (median) | peak RSS MB (median) | minor faults (median) | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| main-pgo | 20 | 891.9 | 805.9 | 3.787G | 8.204G | 275.4 | 67,572 | DIFF exit 2 |
+| main-rel | 20 | 994.7 | 914.8 | 4.313G | 9.281G | 273.9 | 67,481 | same exit 2 |
+| f7ed-rel | 20 | 1,022.9 | 935.1 | 4.433G | 9.493G | 272.4 | 66,267 | same exit 2 |
+| a38f-rel | 20 | 1,067.6 | 991.7 | 4.618G | 9.473G | 296.2 | 73,840 | same exit 2 |
+| tsrs | 20 | 691.0 | 661.4 | 3.070G | 7.229G | 201.7 | 19,107 | same exit 2 |
+| tsrs-src | 20 | 817.2 | 791.5 | 3.675G | 8.139G | 205.2 | 18,980 | same exit 2 |
+
+main-pgo / tsrs: wall median 1.291, fastest 1.219, cycles 1.2336, instructions 1.1349, RSS 1.365, faults 3.537
+main-rel / tsrs: wall median 1.439, fastest 1.383, cycles 1.4047, instructions 1.2839, RSS 1.358, faults 3.532
+main-rel / tsrs-src: wall median 1.217, fastest 1.156, cycles 1.1735, instructions 1.1403, RSS 1.335, faults 3.555
+main-rel / f7ed-rel: wall median 0.972, fastest 0.978, cycles 0.9729, instructions 0.9777, RSS 1.005, faults 1.018
+f7ed-rel / a38f-rel: wall median 0.958, fastest 0.943, cycles 0.9599, instructions 1.0021, RSS 0.920, faults 0.897
+main-rel / a38f-rel: wall median 0.932, fastest 0.922, cycles 0.9339, instructions 0.9797, RSS 0.925, faults 0.914
+load: 1.79 to 2.16
+
+zod3
+| variant | n | wall median ms | wall fastest ms | cycles (median) | instructions (median) | peak RSS MB (median) | minor faults (median) | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| main-pgo | 20 | 159.7 | 153.7 | 0.628G | 1.440G | 86.6 | 21,425 | DIFF exit 2 |
+| main-rel | 20 | 179.4 | 175.6 | 0.728G | 1.678G | 86.2 | 21,386 | same exit 2 |
+| f7ed-rel | 20 | 183.2 | 179.8 | 0.745G | 1.731G | 86.7 | 21,688 | same exit 2 |
+| a38f-rel | 20 | 190.2 | 185.7 | 0.776G | 1.708G | 89.2 | 22,398 | same exit 2 |
+| tsrs | 20 | 117.0 | 115.2 | 0.486G | 1.206G | 53.6 | 6,712 | same exit 2 |
+| tsrs-src | 20 | 145.8 | 142.0 | 0.628G | 1.402G | 54.8 | 6,024 | same exit 2 |
+
+main-pgo / tsrs: wall median 1.365, fastest 1.334, cycles 1.2915, instructions 1.1938, RSS 1.615, faults 3.192
+main-rel / tsrs: wall median 1.534, fastest 1.524, cycles 1.4985, instructions 1.3912, RSS 1.608, faults 3.186
+main-rel / tsrs-src: wall median 1.231, fastest 1.237, cycles 1.1594, instructions 1.1968, RSS 1.573, faults 3.550
+main-rel / f7ed-rel: wall median 0.979, fastest 0.977, cycles 0.9783, instructions 0.9693, RSS 0.994, faults 0.986
+f7ed-rel / a38f-rel: wall median 0.963, fastest 0.968, cycles 0.9599, instructions 1.0136, RSS 0.972, faults 0.968
+main-rel / a38f-rel: wall median 0.943, fastest 0.945, cycles 0.9391, instructions 0.9826, RSS 0.966, faults 0.955
+load: 2.1 to 2.15
