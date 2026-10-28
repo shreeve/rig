@@ -7599,9 +7599,9 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             // shift.
             48
         else if (isHashTable(ctx, pn.sym))
-            // `ordered.zig`'s table: four pointers, six counts, its shift
-            // and flag, and 32 tag bytes on a 16-byte line.
-            96
+            // `ordered.zig`'s table: four pointers, five counts, its
+            // shift, and two flags.
+            56
         else if (pn.sym == ctx.box_sym_id)
             8
         else if (pn.sym == ctx.signal_sym_id) blk: {

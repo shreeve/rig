@@ -24,10 +24,15 @@
 //! one, so no tombstone piles up: a rebuild forced by drift sizes the
 //! index so the live entries fill at most 0.6 of it.
 //!
-//! Up to `small` (16) live entries there is no index: `small_tags`, lane
-//! `i` entry `i`'s tag (0 when gone or not written), finds a key by one
-//! match. A small table writes up to `small_lanes` entries, so a turnover
-//! compacts once every `small` takes, and its first put makes room for 4.
+//! A table of up to `small_lanes` (48) entries written has no index:
+//! its tags, lane `i` entry `i`'s (0 when gone or not written), sit at
+//! the start of the entries' block, in whole 16-byte groups, and find a
+//! key by one match a group. The table is then one block and an object
+//! of 56 bytes (a `Map`, 64: a line). Its first put makes room for 4
+//! entries, and the room doubles to 48; a small table whose entries are
+//! full compacts them when a quarter are gone, grows while its room is
+//! under 48, and else builds its index, sized for its live entries
+//! (docs/history/records/2026-10/hash-race/small-maps.md).
 //!
 //! Every method here is called only from std/prelude.rig's `Map` and
 //! `Set`, whose declarations the checkers read; an entry index it is
@@ -48,10 +53,9 @@ const tag_lanes: LaneMask = if (neon) 0x0111_1111_1111_1111 else 0x7FFF;
 const Group = [16]u8;
 const Slots = [16]u32;
 
-/// Live entries a table holds before it builds its index.
-const small = 16;
-/// Entries a small table may have written, gone or not.
-const small_lanes = 32;
+/// Entries a small table may have written, gone or not: its tags are at
+/// most four groups, a line.
+const small_lanes = 48;
 /// The room a table makes at its first put.
 const first_cap = 4;
 /// The index's maximum load, in thousandths of its tag lanes.
@@ -94,24 +98,30 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// A view of a key, as a lookup takes it (`?K`).
         const KeyView = rt.ReadView(K);
 
-        /// The entries, `cap` of them; undefined while `cap` is 0.
+        /// The entries, `cap` of them; undefined while `cap` is 0. An
+        /// indexed table's are a block of their own; a small table's
+        /// follow its tags in theirs.
         entries: [*]E = undefined,
-        /// A bit an entry, set when it is gone: `gone_words` words, made
-        /// at the first take that leaves a hole in an indexed table, and
-        /// sized for `cap` from then on. A small table keeps none: its
-        /// tags say which entries are gone.
+        /// A bit an entry, set when it is gone: `goneWords(cap)` words
+        /// while `has_gone`, made at the first take that leaves a hole in
+        /// an indexed table. A small table keeps none: its tags say which
+        /// entries are gone.
         gone: [*]u64 = undefined,
-        /// The index: `groups` groups of tags, and their slots; undefined
-        /// while `groups` is 0. `slots` starts the index's block.
+        /// The index's tags, `groups` groups. A small table with room
+        /// keeps its own here, at the start of the entries' block:
+        /// `tagBytes(cap)` of them, lane `i` entry `i`'s, 0 when it is gone
+        /// or not written.
         tags: [*]Group = undefined,
+        /// The index's slots, a group's beside its tags: they start the
+        /// index's block. Undefined in a small table.
         slots: [*]Slots = undefined,
         cap: u32 = 0,
         /// Entries written, gone or not.
         len: u32 = 0,
         /// Entries not gone; `len - live` are gone.
         live: u32 = 0,
+        /// The index's groups; 0 in a small table.
         groups: u32 = 0,
-        gone_words: u32 = 0,
         /// The live entries the index takes before it grows: 7/8 of its
         /// tag lanes, less one for each take from a lane a probe may walk
         /// past.
@@ -122,9 +132,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// Whether the index is far (`far_bytes`). A `Bool`, so a `Map?`
         /// holds its `none` here (`rt.nicheOf`), never in a pointer.
         far: bool = false,
-        /// A small table's tags: lane `i` is entry `i`'s, 0 when it is
-        /// gone or not written.
-        small_tags: [small_lanes]u8 align(16) = @splat(0),
+        /// Whether `gone` is made.
+        has_gone: bool = false,
         /// Under `RIG_MAP_TRACE`, how many times the index was built
         /// anew (`traceRebuilds`); nothing otherwise.
         trace_rebuilds: if (rt.map_trace) u32 else void = if (rt.map_trace) 0 else {},
@@ -215,14 +224,24 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return (n + 63) / 64;
         }
 
-        /// Room for `new_cap` entries: the entries alone in their block,
-        /// whose size is a whole number of entries, and the gone bits, if
-        /// any, sized to match.
+        /// Room for `new_cap` entries, the gone bits, if any, sized to
+        /// match. An indexed table's entries are alone in their block,
+        /// whose size is a whole number of entries; a small table's share
+        /// one with its tags (`resizeSmall`).
         fn resizeEntries(self: *Self, new_cap: usize) void {
             if (new_cap > max_entries) tooMany();
-            self.entries = (if (self.cap == 0) rt.allocSlice(E, new_cap) else rt.reallocSlice(E, self.entries[0..self.cap], new_cap)).ptr;
+            if (self.groups == 0) return self.resizeSmall(new_cap);
+            const old_cap: usize = self.cap;
+            self.entries = (if (old_cap == 0) rt.allocSlice(E, new_cap) else rt.reallocSlice(E, self.entries[0..old_cap], new_cap)).ptr;
             self.cap = @intCast(new_cap);
-            if (self.gone_words != 0) self.sizeGone();
+            if (self.has_gone) {
+                const old = goneWords(old_cap);
+                const new = goneWords(new_cap);
+                if (new > old) {
+                    self.gone = rt.reallocSlice(u64, self.gone[0..old], new).ptr;
+                    @memset(self.gone[old..new], 0);
+                }
+            }
         }
 
         noinline fn tooMany() noreturn {
@@ -245,45 +264,108 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return &self.entries[j];
         }
 
-        /// The gone bits sized for `cap` entries, the new words clear.
-        fn sizeGone(self: *Self) void {
-            const old: usize = self.gone_words;
-            const new = goneWords(self.cap);
-            if (new <= old) return;
-            self.gone = (if (old == 0) rt.allocSlice(u64, new) else rt.reallocSlice(u64, self.gone[0..old], new)).ptr;
-            @memset(self.gone[old..new], 0);
-            self.gone_words = @intCast(new);
-        }
-
-        /// Mark entry `j` of an indexed table gone, making its gone bits
-        /// at the first.
+        /// Mark entry `j` of an indexed table gone, making its gone bits,
+        /// clear, at the first.
         inline fn markGone(self: *Self, j: usize) void {
-            if (self.gone_words == 0) self.sizeGone();
+            if (!self.has_gone) {
+                const n = goneWords(self.cap);
+                self.gone = rt.allocSlice(u64, n).ptr;
+                @memset(self.gone[0..n], 0);
+                self.has_gone = true;
+            }
             self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
         }
 
         /// Clear the gone bits of the first `n` entries.
         fn clearGone(self: *Self, n: usize) void {
-            if (self.gone_words != 0) @memset(self.gone[0..@min(goneWords(n), self.gone_words)], 0);
+            if (self.has_gone) @memset(self.gone[0..@min(goneWords(n), goneWords(self.cap))], 0);
         }
 
         /// Whether entry `j` is gone: its bit in `gone`; in a small table,
         /// whose gone bits stay clear, its tag is 0.
         inline fn isGone(self: *const Self, j: usize) bool {
-            if (self.groups == 0) return self.small_tags[j] == 0;
-            return self.gone_words != 0 and (self.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
+            if (self.groups == 0) return self.smallTags()[j] == 0;
+            return self.has_gone and (self.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
         }
 
         /// Word `w` of the gone bits of the entries written: in a small
         /// table, the lanes of its tags that are 0, below `len`.
         inline fn goneWord(self: *const Self, w: usize) u64 {
             if (self.groups == 0) {
-                if (w > 0) return 0;
-                const v: @Vector(small_lanes, u8) = self.small_tags;
-                const zero: u32 = @bitCast(v == @as(@Vector(small_lanes, u8), @splat(0)));
+                if (w > 0 or self.len == 0) return 0;
+                var zero: u64 = 0;
+                for (0..(@as(usize, self.len) + 15) / 16) |g| {
+                    const v: @Vector(16, u8) = self.tags[g];
+                    const z: u16 = @bitCast(v == @as(@Vector(16, u8), @splat(0)));
+                    zero |= @as(u64, z) << @intCast(16 * g);
+                }
                 return zero & lowBits(self.len);
             }
-            return if (w < self.gone_words) self.gone[w] else 0;
+            return if (self.has_gone and w < goneWords(self.cap)) self.gone[w] else 0;
+        }
+
+        // a small table's block /////////////////////////////////////////////
+        //
+        // A small table's tags and entries share one block: `tagBytes(cap)`
+        // tags, the lanes past `len` 0, then `cap` entries. It grows from
+        // 4 entries by doubling to `small_lanes`, so its tags fill whole
+        // groups but at the last step.
+
+        /// The bytes of a small table's tags: whole groups of 16, so a
+        /// lookup matches a group with no mask, and a multiple of an
+        /// entry's alignment, so the entries after them are aligned.
+        fn tagBytes(cap: usize) usize {
+            return std.mem.alignForward(usize, std.mem.alignForward(usize, cap, 16), @alignOf(E));
+        }
+
+        fn smallBytes(cap: usize) usize {
+            return tagBytes(cap) + cap * @sizeOf(E);
+        }
+
+        /// A small table's tags, as bytes; only while `cap` is not 0.
+        inline fn smallTags(self: *const Self) [*]u8 {
+            return @ptrCast(self.tags);
+        }
+
+        fn smallBlock(self: *const Self) []align(@alignOf(E)) u8 {
+            const p: [*]align(@alignOf(E)) u8 = @ptrCast(@alignCast(self.tags));
+            return p[0..smallBytes(self.cap)];
+        }
+
+        /// A small table's room made `new_cap`, at least `len`: a new
+        /// block, the tags and entries written so far copied into it.
+        fn resizeSmall(self: *Self, new_cap: usize) void {
+            std.debug.assert(new_cap >= self.len and new_cap <= small_lanes);
+            const b = rt.allocBytes(E, smallBytes(new_cap));
+            const tb = tagBytes(new_cap);
+            const es: [*]E = @ptrCast(@alignCast(b.ptr + tb));
+            const n: usize = self.len;
+            // The tags by whole groups, those past `len` 0 in the old.
+            const nt: [*]Group = @ptrCast(b.ptr);
+            const kept = (n + 15) / 16;
+            for (0..kept) |g| nt[g] = self.tags[g];
+            for (kept..tb / 16) |g| nt[g] = @splat(0);
+            if (self.cap != 0) {
+                @memcpy(es[0..n], self.entries[0..n]);
+                rt.freeBytes(E, self.smallBlock());
+            }
+            self.tags = nt;
+            self.entries = es;
+            self.cap = @intCast(new_cap);
+        }
+
+        /// A small table's entries moved to a block of their own, of room
+        /// `new_cap`, its tags dropped: the step before its index is built.
+        /// A table with no room keeps none.
+        fn leaveSmall(self: *Self, new_cap: usize) void {
+            if (self.cap == 0) return;
+            if (new_cap > max_entries) tooMany();
+            const n: usize = self.len;
+            const es = rt.allocSlice(E, new_cap).ptr;
+            @memcpy(es[0..n], self.entries[0..n]);
+            rt.freeBytes(E, self.smallBlock());
+            self.entries = es;
+            self.cap = @intCast(new_cap);
         }
 
         // the index's block /////////////////////////////////////////////////
@@ -364,6 +446,17 @@ fn Ordered(comptime K: type, comptime V: type) type {
         noinline fn rebuild(self: *Self, groups: usize) void {
             if (rt.map_trace) self.trace_rebuilds +%= 1;
             if (self.len != self.live) self.moveLive(null);
+            self.newIndex(groups);
+            self.fill();
+        }
+
+        /// A small table's index built, of `groups` groups: its gone
+        /// entries dropped, the rest moved to a block of their own of room
+        /// `new_cap` (at least the live entries), and placed in order.
+        noinline fn buildIndex(self: *Self, groups: usize, new_cap: usize) void {
+            if (rt.map_trace) self.trace_rebuilds +%= 1;
+            if (self.len != self.live) self.moveLive(null);
+            self.leaveSmall(new_cap);
             self.newIndex(groups);
             self.fill();
         }
@@ -462,13 +555,14 @@ fn Ordered(comptime K: type, comptime V: type) type {
         fn compactSmall(self: *Self) void {
             const n: usize = self.len;
             self.moveLive(null);
+            const t = self.smallTags();
             var d: usize = 0;
             for (0..n) |i| {
-                if (self.small_tags[i] == 0) continue;
-                self.small_tags[d] = self.small_tags[i];
+                if (t[i] == 0) continue;
+                t[d] = t[i];
                 d += 1;
             }
-            @memset(self.small_tags[d..], 0);
+            @memset(t[d..n], 0);
         }
 
         /// Room for one more entry, and room in the index for it.
@@ -493,7 +587,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.len = 0;
             self.live = 0;
             // A small table's tags are 0 already, each take having cleared
-            // its own, and its gone bits stay clear.
+            // its own, and it keeps no gone bits.
             if (self.groups == 0) return;
             self.clearGone(n);
             const t: [*]u8 = @ptrCast(self.tags);
@@ -503,7 +597,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// Write lane `i` of a small table's tags (`writeLane`).
         inline fn setSmallTag(self: *Self, i: usize, tag: u8) void {
-            writeLane(self.small_tags[i & 16 ..][0..16], i & 15, tag);
+            writeLane(&self.tags[i >> 4], i & 15, tag);
         }
 
         // finding ///////////////////////////////////////////////////////////
@@ -514,16 +608,16 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// tag among the small tags, each an entry.
         inline fn findSmall(self: *const Self, k: KeyView, h: u64) ?usize {
             const tag = tagOf(h);
-            var m = matchAll(self.small_tags[0..16], tag);
+            var m = matchAll(&self.tags[0], tag);
             while (m != 0) : (m &= m - 1) {
                 const i = firstLane(m);
                 if (keyMatch(self.entryOf(i, false), k, h)) return i;
             }
-            if (self.len > 16) {
-                @branchHint(.unlikely);
-                m = matchAll(self.small_tags[16..32], tag);
+            inline for (1..small_lanes / 16) |g| {
+                if (self.len <= 16 * g) return null;
+                m = matchAll(&self.tags[g], tag);
                 while (m != 0) : (m &= m - 1) {
-                    const i = 16 + firstLane(m);
+                    const i = 16 * g + firstLane(m);
                     if (keyMatch(self.entryOf(i, false), k, h)) return i;
                 }
             }
@@ -597,7 +691,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         inline fn insertHashed(self: *Self, k: K, v: V, h: u64) usize {
             if (self.groups == 0) {
                 const j: usize = self.len;
-                if (j < self.cap and j < small_lanes and self.live < small) {
+                if (j < self.cap) {
                     self.entries[j] = makeEntry(k, v, h);
                     self.setSmallTag(j, tagOf(h));
                     self.len = @intCast(j + 1);
@@ -629,29 +723,31 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.place(g, tag, j);
         }
 
-        /// A small table's first entry; one whose array is full, given
-        /// room up to `small_lanes` or compacted; or one with `small` live
-        /// entries, given its index, sized for the entries' next room.
+        /// A small table's first entry, given its first room; or one whose
+        /// entries are full: compacted when a quarter of them are gone,
+        /// else given more room up to `small_lanes`, else its index.
         noinline fn insertSmallSlow(self: *Self, k: K, v: V, h: u64) usize {
             if (self.cap == 0) {
-                self.resizeEntries(first_cap);
-            } else if (self.live < small and self.len == self.cap and self.cap < small_lanes) {
-                self.resizeEntries(@min(2 * @as(usize, self.cap), small_lanes));
-            } else if (self.live < small) {
-                self.compactSmall();
+                self.resizeSmall(first_cap);
             } else {
-                self.rebuild(groupsFor(2 * @as(usize, self.cap)));
-                if (self.len == self.cap) self.resizeEntries(2 * @as(usize, self.cap));
-                const j: usize = self.len;
-                self.entries[j] = makeEntry(k, v, h);
-                self.len = @intCast(j + 1);
-                self.live += 1;
-                self.place(self.home(h), tagOf(h), j);
-                return j;
+                const dead = self.len - self.live;
+                if (dead != 0 and dead >= self.cap / 4) {
+                    self.compactSmall();
+                } else if (self.cap < small_lanes) {
+                    self.resizeSmall(@min(2 * @as(usize, self.cap), small_lanes));
+                } else {
+                    self.buildIndex(groupsFor(@as(usize, self.live) + 1), std.math.ceilPowerOfTwoAssert(usize, 2 * @as(usize, self.cap)));
+                    const j: usize = self.len;
+                    self.entries[j] = makeEntry(k, v, h);
+                    self.len = @intCast(j + 1);
+                    self.live += 1;
+                    self.place(self.home(h), tagOf(h), j);
+                    return j;
+                }
             }
             const j: usize = self.len;
             self.entries[j] = makeEntry(k, v, h);
-            self.small_tags[j] = tagOf(h);
+            self.setSmallTag(j, tagOf(h));
             self.len = @intCast(j + 1);
             self.live += 1;
             return j;
@@ -665,6 +761,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         inline fn unlink(self: *Self, k: KeyView) ?usize {
             const h = hashKey(k);
             if (self.groups == 0) {
+                if (self.cap > 16) return self.unlinkWide(k, h);
                 if (self.cap == 0) return null;
                 const i = self.findSmall(k, h) orelse return null;
                 self.setSmallTag(i, 0);
@@ -675,6 +772,24 @@ fn Ordered(comptime K: type, comptime V: type) type {
             writeLane(grp, f.lane, 0);
             if (grp[15] & classBit(tagOf(h)) != 0) self.max_load -= 1;
             return f.j;
+        }
+
+        /// `unlink` in a small table of more than one group of tags, out
+        /// of line, so a take keeps the other paths short. Every group the
+        /// lookups match is written, its address known before the entry is
+        /// found, so a later lookup's load waits on this store rather than
+        /// passing it.
+        noinline fn unlinkWide(self: *Self, k: KeyView, h: u64) ?usize {
+            const i = self.findSmall(k, h) orelse return null;
+            const ids: @Vector(16, u8) = std.simd.iota(u8, 16);
+            inline for (0..small_lanes / 16) |g| {
+                if (g == 0 or self.len > 16 * g) {
+                    const v: @Vector(16, u8) = self.tags[g];
+                    const lane: u8 = @truncate(i -% 16 * g);
+                    self.tags[g] = @select(u8, ids == @as(@Vector(16, u8), @splat(lane)), @as(@Vector(16, u8), @splat(0)), v);
+                }
+            }
+            return i;
         }
 
         /// Entry `j`, whose lane is freed and whose key and value are
@@ -940,7 +1055,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 rt.dropElement(V, &e.value);
                 rt.dropElement(K, &e.key);
                 if (self.groups == 0) {
-                    self.small_tags[j] = 0;
+                    self.smallTags()[j] = 0;
                 } else self.markGone(j);
                 self.live -= 1;
                 removed = true;
@@ -959,28 +1074,35 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 self.reset();
                 return;
             }
+            if (self.groups == 0) return self.compactSmall();
             self.moveLive(null);
-            if (self.groups == 0) {
-                @memset(&self.small_tags, 0);
-                for (0..self.len) |j| self.small_tags[j] = tagOf(hashOf(&self.entries[j]));
-                return;
-            }
             const t: [*]u8 = @ptrCast(self.tags);
             @memset(t[0 .. 16 * @as(usize, self.groups)], 0);
             self.max_load = maxLoad(self.groups);
             self.fill();
         }
 
-        /// `clear(!@)`: drop every entry and the index, keeping the
-        /// entries' memory.
+        /// `clear(!@)`: drop every entry. A small table keeps its block;
+        /// an indexed one frees its index and its entries and keeps room
+        /// for `small_lanes` entries, a small table's most, so a table
+        /// cleared and filled again with a few entries clears no index.
         pub fn clear(self: *Self) void {
             self.dropLive();
-            self.clearGone(self.cap);
-            self.freeIndex();
+            if (self.groups == 0) {
+                for (0..(@as(usize, self.len) + 15) / 16) |g| self.tags[g] = @splat(0);
+                self.len = 0;
+                self.live = 0;
+                return;
+            }
             self.len = 0;
             self.live = 0;
+            if (self.has_gone) rt.freeSlice(u64, self.gone[0..goneWords(self.cap)]);
+            self.has_gone = false;
+            self.freeIndex();
+            rt.freeSlice(E, self.entries[0..self.cap]);
+            self.cap = 0;
             self.max_load = 0;
-            @memset(&self.small_tags, 0);
+            self.resizeSmall(small_lanes);
         }
 
         /// `reserve(!@, n: Int)`: room for `n` more entries at once, the
@@ -993,9 +1115,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
             // zeroed before the entries' growth traps.
             if (@as(usize, self.len) + more > max_entries) tooMany();
             const want = @as(usize, self.live) + more;
-            if (want > small) {
+            if (want > small_lanes) {
                 const g = groupsFor(want);
-                if (g > self.groups) self.rebuild(g);
+                if (self.groups == 0) {
+                    self.buildIndex(g, @max(want, self.cap));
+                } else if (g > self.groups) self.rebuild(g);
             } else if (self.groups == 0 and @as(usize, self.len) + more > small_lanes) {
                 self.compactSmall();
             }
@@ -1023,16 +1147,37 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// entries' block and the index freed.
         pub fn __rig_drop(self: *Self) void {
             self.dropLive();
-            if (self.cap != 0) rt.freeSlice(E, self.entries[0..self.cap]);
-            if (self.gone_words != 0) rt.freeSlice(u64, self.gone[0..self.gone_words]);
+            if (self.cap != 0) {
+                if (self.groups == 0) rt.freeBytes(E, self.smallBlock()) else rt.freeSlice(E, self.entries[0..self.cap]);
+            }
+            if (self.has_gone) rt.freeSlice(u64, self.gone[0..goneWords(self.cap)]);
             self.freeIndex();
             self.* = .{};
         }
 
-        /// `+m`: a new table of the live entries, each cloned, in order.
+        /// `+m`: a new table of the live entries, each cloned, in order. A
+        /// small table's tags are copied, no key hashed again.
         pub fn clone(self: *const Self) Self {
             var out: Self = .{};
             if (self.live == 0) return out;
+            if (self.groups == 0) {
+                out.resizeSmall(self.live);
+                const t = self.smallTags();
+                const ot = out.smallTags();
+                for (0..self.len) |j| {
+                    if (t[j] == 0) continue;
+                    const e = &self.entries[j];
+                    const d: usize = out.len;
+                    out.entries[d] = if (stores_hash)
+                        .{ .key = rt.cloneValue(&e.key), .value = rt.cloneValue(&e.value), .hash = e.hash }
+                    else
+                        .{ .key = rt.cloneValue(&e.key), .value = rt.cloneValue(&e.value) };
+                    ot[d] = t[j];
+                    out.len += 1;
+                    out.live += 1;
+                }
+                return out;
+            }
             out.reserve(self.live);
             for (0..self.len) |j| {
                 if (self.isGone(j)) continue;
@@ -1062,7 +1207,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             if (self.live > self.len or self.len > self.cap) return error.Corrupt;
             if (self.cap == 0) return;
             var gone_count: usize = 0;
-            for (0..self.gone_words) |w| {
+            for (0..if (self.has_gone) goneWords(self.cap) else 0) |w| {
                 const g = self.gone[w];
                 gone_count += @popCount(g);
                 if (g != 0 and w * 64 + 64 - @clz(g) > self.len) return error.Corrupt;
@@ -1070,13 +1215,15 @@ fn Ordered(comptime K: type, comptime V: type) type {
             if (gone_count != (if (self.groups == 0) 0 else self.len - self.live)) return error.Corrupt;
             if (self.len != 0 and self.isGone(self.len - 1)) return error.Corrupt;
             if (self.groups == 0) {
-                if (self.len > small_lanes or self.live > small) return error.Corrupt;
-                for (0..small_lanes) |i| {
-                    const t = self.small_tags[i];
-                    if (i >= self.len or self.isGone(i)) {
-                        if (t != 0) return error.Corrupt;
-                    } else if (t != tagOf(hashOf(&self.entries[i]))) return error.Corrupt;
+                if (self.cap > small_lanes or self.has_gone) return error.Corrupt;
+                var tagged: usize = 0;
+                for (0..tagBytes(self.cap)) |i| {
+                    const t = self.smallTags()[i];
+                    if (t == 0) continue;
+                    if (i >= self.len or t != tagOf(hashOf(&self.entries[i]))) return error.Corrupt;
+                    tagged += 1;
                 }
+                if (tagged != self.live) return error.Corrupt;
                 return;
             }
             if (self.live > self.max_load) return error.Corrupt;
@@ -1168,6 +1315,54 @@ test "ordered: a small table turns over" {
     try testing.expectEqual(@as(i64, 10), s.count());
     try testing.expectEqual(@as(u32, 0), s.groups);
     try testing.expect(s.find(195) != null and s.find(189) == null);
+}
+
+test "ordered: the table is 56 bytes, as sema.minBytesOf says" {
+    try testing.expectEqual(@as(usize, 56), @sizeOf(OrderedMap(u32, u32)));
+    try testing.expectEqual(@as(usize, 56), @sizeOf(OrderedSet(u8)));
+}
+
+test "ordered: a small table is one block, grows to 48 entries, then builds its index" {
+    var m: OrderedMap(u32, u32) = .{};
+    defer m.__rig_drop();
+    var i: u32 = 0;
+    while (i < small_lanes) : (i += 1) {
+        try testing.expect(m.put(i, i + 1));
+        try m.verify();
+    }
+    try testing.expectEqual(@as(u32, 0), m.groups);
+    try testing.expectEqual(@as(u32, small_lanes), m.cap);
+    // Takes in a small table, in and out of order, then a clone of it.
+    for ([_]u32{ 20, 0, 47, 46, 33 }) |k| try testing.expectEqual(k + 1, rt.some(m.take(k)).?);
+    try m.verify();
+    try testing.expectEqual(@as(u32, 46), m.len);
+    try testing.expect(m.find(20) == null and m.find(47) == null and m.find(45) != null);
+    var c = m.clone();
+    defer c.__rig_drop();
+    try c.verify();
+    try testing.expectEqual(@as(u32, 0), c.groups);
+    try testing.expectEqual(@as(i64, 43), c.count());
+    try testing.expectEqual(@as(u32, 1), c.key(0));
+    for ([_]u32{ 0, 20, 33, 46, 47 }) |k| try testing.expect(m.put(k, k + 1));
+    try m.verify();
+    try testing.expect(m.put(small_lanes, small_lanes + 1));
+    try m.verify();
+    try testing.expect(m.groups != 0);
+    i = 0;
+    while (i <= small_lanes) : (i += 1) try testing.expectEqual(i + 1, m.value(m.find(i).?));
+    // A clear frees the index and keeps a small table's most room.
+    m.clear();
+    try m.verify();
+    try testing.expect(m.groups == 0 and m.cap == small_lanes and m.count() == 0 and m.find(3) == null);
+    try testing.expect(m.put(3, 4));
+    try testing.expectEqual(@as(u32, 4), m.value(m.find(3).?));
+    // A reserve past the small table's room builds the index at once.
+    var r: OrderedSet(u32) = .{};
+    defer r.__rig_drop();
+    _ = r.add(7);
+    r.reserve(100);
+    try r.verify();
+    try testing.expect(r.groups != 0 and r.cap >= 101 and r.find(7) != null);
 }
 
 test "ordered: wide keys, with their hash kept and without" {

@@ -157,7 +157,8 @@ pub obj Map[K: Hash, V]
     @len = @t.count()
     v
 
-  # Drop every entry. The Map keeps the memory it has.
+  # Drop every entry. The Map keeps its memory up to room for 48
+  # entries; a larger one frees its index and keeps room for 48.
   pub sub clear(!@)
     !@t.clear()
     @len = 0
@@ -238,7 +239,8 @@ pub obj Set[K: Hash]
     !@t.retain(f)
     @len = @t.count()
 
-  # Drop every key. The Set keeps the memory it has.
+  # Drop every key. The Set keeps its memory up to room for 48
+  # keys; a larger one frees its index and keeps room for 48.
   pub sub clear(!@)
     !@t.clear()
     @len = 0
