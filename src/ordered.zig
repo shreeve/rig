@@ -738,22 +738,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return f.j;
         }
 
-        /// Entry `j`, whose lane is freed and whose key and value are
-        /// handed on or dropped, leaves the live entries: marked gone; or
-        /// cut off, with the gone entries before it, when it is the last
-        /// written; or, when it was the last live entry, the table emptied.
-        /// The last entry written, `j`, cut off, with the gone entries
-        /// before it; out of line, as a take of the last entry is rare
-        /// beside the others.
-        noinline fn cutOff(self: *Self, j: usize) void {
-            var n = j;
-            while (self.isGone(n - 1)) {
-                n -= 1;
-                if (!self.isSmall()) self.u.ix.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
-            }
-            self.len = @intCast(n);
-        }
-
         /// `reset`, out of line: a take that empties the table is rare
         /// beside the others, and inlined into a program's loop of takes
         /// its memset and gone-bit sizing took registers the loop kept its
@@ -763,12 +747,23 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.reset();
         }
 
+        /// Entry `j`, whose lane is freed and whose key and value are
+        /// handed on or dropped, leaves the live entries: marked gone; or
+        /// cut off, with the gone entries before it, when it is the last
+        /// written; or, when it was the last live entry, the table emptied.
         inline fn dropEntry(self: *Self, j: usize) void {
             self.live -= 1;
             if (self.live == 0) {
-                self.emptied();
+                // A small table's tags are 0 already: it needs only its
+                // length cleared, inline.
+                if (self.isSmall()) self.len = 0 else self.emptied();
             } else if (j + 1 == self.len) {
-                self.cutOff(j);
+                var n = j;
+                while (self.isGone(n - 1)) {
+                    n -= 1;
+                    if (!self.isSmall()) self.u.ix.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
+                }
+                self.len = @intCast(n);
             } else if (!self.isSmall()) {
                 self.markGone(j);
             }

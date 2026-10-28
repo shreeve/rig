@@ -226,53 +226,71 @@ new / main:
 ### The layout protocol
 
 One binary pair is not a verdict: moving code moves rows. Each arm,
-main and the branch, is built in three layouts from the same package
-(`rig build`'s Zig, compiled by `layout-build.sh` with
-`-Ofast -fomit-frame-pointer` as `rig build --release=fast` does; the
-branch's package differs from main's only in `rig/ordered.zig`): as is,
-and with 8 and 24 `nop`s in a cold function (`tooMany`). All six run
-interleaved, fastest of 5 each (`layout-time.sh`). A row is slower only
-when the branch's fastest layout is more than 2% over main's slowest,
-and faster the other way round; the median of each arm's three layouts
-gives the ratio. The Mac under `tools/low`, pup on core 8.
+main and the branch, is built in four layouts from the same package
+(`rig build`'s Zig compiled by `layout-build.sh` with `-Ofast
+-fomit-frame-pointer`, as `rig build --release=fast` does): as is, and
+with 5, 13 and 29 `nop`s in `placePast`, a cold function each Map type's
+code lays among the program's, so the row functions after it move by 0,
+16 and 32 bytes. (Nops in `tooMany`, the first try, moved none of the
+row functions on pup.) All eight run interleaved, fastest of 5 each
+(`layout-time.sh`). A row is slower only when the branch's fastest
+layout is more than 2% over main's slowest, and faster the other way
+round; each arm's median gives the ratio. The Mac under `tools/low`,
+pup on core 8.
+
+### bench/hash, each row in a function of its own
+
+bench/hash now runs each row's timed loop in a function of its own, for
+every contestant (main, #763). With the rows of a group in one function,
+the Map's new size moved rows of the group by 5-40% on the Mac though
+their loops had not changed. Under the layout protocol, the branch
+(`bench-hash-*-rows*.txt`):
+
+- **Mac:** no row slower; int4000000, rnd24 and rnd4000000 removes
+  5-6% faster.
+- **pup:** int16 insert 8-10% slower, in both runs; int16 remove 3-4%
+  faster, rnd24 remove 5% faster. One run also flagged int100000 remove
+  (8%) and rnd100000 hit (6%); the other did not.
 
 ### The remove loop
 
 The emitted Zig of bench/hash is the same on main and the branch but
-for `rig/ordered.zig`: the difference is in how LLVM fits the table's
+for `rig/ordered.zig`: the difference is how LLVM fits the table's
 inlined take into the program's loop. In `random`'s remove loop the
 branch kept two more address registers, reloaded the key List's length
 and pointer from the stack each step, and built a constant again each
 step: 4 more instructions a take. The cause was `reset`, run when a take
 empties the table, inlined into the loop: its memset and its gone-bit
-sizing (`goneWords(cap)`, where main read a count) took the registers.
-Out of line (`emptied`, and the cut-off of the last entries, `cutOff`),
-the Mac's rnd16, rnd24 and big16 removes are level with main's or
-faster (1.008, 1.022, 1.003 in one pair; no int, rnd or big remove row slower under the
-layout protocol on either machine). Main's own loop does not gain from
-the same change (main with `reset` out of line: within noise of main).
+sizing took the registers. Out of line (`emptied`, for an indexed table;
+a small table's needs only its length cleared, inline), the removes are
+level with main's or faster. Taking the cut-off of the last entries out
+of line as well, as tried, put a call in the loop that cost the small
+tables' takes their vector constant (rnd16 and big16 removes 6%
+slower); it stays inline. Main's own loop does not gain from the
+change. Two field orders were tried and dropped: the small tags first
+in the table and the table first in the Map (so a Map's address finds
+the tags) fixed rnd16 on the Mac but made pup's string removes 20-60%
+slower.
 
 ### What is still slower
 
-Under the layout protocol (`bench-hash-*-layouts.txt`):
-
-- **Mac:** int16 insert 6%, rnd1000 miss 11%, rnd150000 miss 4%,
-  rnd3000000 hit 5% and iterate 42%, rnd4000000 hit 9%.
-- **pup:** str16 hit 7%, string `ensure_with` miss 7%, int1000 hit 4%,
-  str1000 remove 4%, str16 remove 3%. str16 insert, 38-56% slower in
-  single pairs before, is level (0.999): it was the loaded machine.
-
-These rows share functions with the rest of their group (`random`,
-`sized`, `strings_sized`), and the table's code for them is unchanged.
-Taken out alone (`miss-alone.rig`, the rnd1000 and rnd3000000 miss loops
-each in a function of their own), the branch is level with main or
-faster: rnd1000 miss 4.06-4.07 ms against 4.11-4.13, rnd3000000 11.1-11.7
-against 11.4-11.7. What moves them is how LLVM allocates registers in
-the whole function the row sits in, which a change of the table's size
-moves. Getting every row within 2% would take either a bench whose rows
-are each a function of their own, so a row measures its own loop, or
-finding, row by row, which inlined path takes the registers, as `reset`
-did for the removes.
+- **pup, int16 insert, 8-10%.** The row's loop and the take's code are
+  the same instructions on both arms. In a program of `sized(16)` alone
+  the branch is 2% slower (5.85 ns against 5.74), and its removes
+  faster; in the whole program 8-10%, in every layout. Not explained:
+  the next step is to time the row's allocations (each map's first put
+  and two growths go through `insertSmallSlow` and the allocator) apart
+  from its puts.
+- **rnd3000000 iterate (42% on the Mac before the per-row bench).** Not
+  the table. Taken into a program of `random(3000000)` alone, or in its
+  own function, the branch is level (0.20-0.22 ns against 0.22). In the
+  whole program, walking the 3,000,000 entries four times in a row
+  (`iterate-passes.rig`) shows the first pass 22% slower (0.262 ns
+  against 0.215) and the next three equal (0.147-0.149): the row timed
+  one pass, the first walk of entries the heap's history had placed
+  differently. Under the per-row bench it is not slower.
+- **pup str1000000 remove** swung 30-60% in single pairs; in a program of
+  the string rows alone, with the field order kept, it is level.
 
 ### Guards
 
@@ -292,8 +310,10 @@ design's (`trig-pup-one-block.txt`, `trig-pup-take-inline.txt`,
 `trig-pup-clear-keeps-index.txt`); bench/hash's runs (`bench-hash.sh`,
 `bench-hash-rerun.sh`; `bench-hash-mac.txt`, `bench-hash-pup.txt`,
 `bench-hash-pup-rerun.txt`, `bench-hash-mac-placebo.txt`, the layout
-protocol's `layout-build.sh`, `layout-time.sh` and
-`bench-hash-*-layouts.txt`, `miss-alone.rig`, and the first design's
+protocol's `layout-build.sh`, `layout-time.sh`,
+`bench-hash-*-layouts.txt` (the old bench, `tooMany` layouts) and
+`bench-hash-*-rows*.txt` (the per-row bench), `miss-alone.rig`,
+`iterate-passes.rig`, and the first design's
 `bench-hash-*-one-block.txt`).
 
 ## Gates
