@@ -1,0 +1,44 @@
+== ts-pattern
+peak sampled Rss 261.7 MB, AnonHugePages 50.0 MB
+0x1000000      5 MiB rss     4.2 thp    0.0 rd mr mw me sd /zfs/worktrees/rig/tsrs-standing-1028/packs/2c01f07dd-pgo/bin
+0x157f000     12 MiB rss     9.6 thp    0.0 rd ex mr mw me sd /zfs/worktrees/rig/tsrs-standing-1028/packs/2c01f07dd-pgo/bin
+0x7a9779880000      2 MiB rss     2.5 thp    0.0 rd wr mr mw me ac sd 
+0x7a9779b00000      3 MiB rss     2.2 thp    0.0 rd wr mr mw me ac sd 
+0x7a9779e00000     14 MiB rss    11.3 thp    0.0 rd wr mr mw me ac sd 
+0x7a977ac00000     16 MiB rss    14.0 thp    6.0 rd wr mr mw me ac sd hg 
+0x7a977bcc0000      7 MiB rss     6.9 thp    0.0 rd wr mr mw me ac sd 
+0x7a977c500000      6 MiB rss     5.1 thp    0.0 rd wr mr mw me ac sd 
+0x7a977cc80000      2 MiB rss     1.9 thp    0.0 rd wr mr mw me ac sd 
+0x7a977cf00000      1 MiB rss     1.4 thp    0.0 rd wr mr mw me ac sd 
+0x7a977d200000      2 MiB rss     2.5 thp    0.0 rd wr mr mw me ac sd 
+0x7a977d600000      2 MiB rss     1.5 thp    0.0 rd wr mr mw me ac sd 
+0x7a977d8e0000      1 MiB rss     1.1 thp    0.0 rd wr mr mw me ac sd 
+0x7a977da60000      1 MiB rss     1.1 thp    0.0 rd wr mr mw me ac sd 
+0x7a977dd40000      1 MiB rss     1.9 thp    0.0 rd wr mr mw me ac sd 
+0x7a977e140000      1 MiB rss     1.9 thp    0.0 rd wr mr mw me ac sd 
+0x7a977e320000      1 MiB rss     1.2 thp    0.0 rd wr mr mw me ac sd 
+0x7a977e800000  53894 MiB rss   123.5 thp    0.0 rd wr mr mw me nr sd nh 
+0x7aa4a7000000      2 MiB rss     1.6 thp    0.0 rd wr mr mw me ac sd 
+0x7aa4a747a000      2 MiB rss     1.9 thp    0.0 rd wr mr mw me ac sd 
+0x7aa4a79e6000      2 MiB rss     2.3 thp    0.0 rd wr mr mw me ac sd 
+0x7aa4a7de6000      3 MiB rss     2.6 thp    0.0 rd wr mr mw me ac sd 
+0x7aa4a9400000      4 MiB rss     4.0 thp    4.0 rd wr mr mw me nr sd hg 
+0x7aa4a9c00000     40 MiB rss    40.0 thp   40.0 rd wr mr mw me nr sd hg 
+0x7aa4ac400000  65492 MiB rss     0.0 thp    0.0 rd wr mr mw me nr sd 
+0x7ab4a99b5000  65536 MiB rss     0.0 thp    0.0 mr mw me nr sd 
+== zod3
+peak sampled Rss 83.7 MB, AnonHugePages 20.0 MB
+0x1000000      5 MiB rss     4.2 thp    0.0 rd mr mw me sd /zfs/worktrees/rig/tsrs-standing-1028/packs/2c01f07dd-pgo/bin
+0x157f000     12 MiB rss     8.9 thp    0.0 rd ex mr mw me sd /zfs/worktrees/rig/tsrs-standing-1028/packs/2c01f07dd-pgo/bin
+0x7e80fb680000      3 MiB rss     2.6 thp    0.0 rd wr mr mw me ac sd 
+0x7e80fba00000      2 MiB rss     1.9 thp    0.0 rd wr mr mw me ac sd 
+0x7e80fbc88000      1 MiB rss     1.1 thp    0.0 rd wr mr mw me ac sd 
+0x7e80fc200000  53894 MiB rss    21.4 thp    0.0 rd wr mr mw me nr sd nh 
+0x7e8e24a00000      2 MiB rss     1.6 thp    0.0 rd wr mr mw me ac sd 
+0x7e8e24f04000      2 MiB rss     1.8 thp    0.0 rd wr mr mw me ac sd 
+0x7e8e25554000      2 MiB rss     2.3 thp    0.0 rd wr mr mw me ac sd 
+0x7e8e25894000      3 MiB rss     2.6 thp    0.0 rd wr mr mw me ac sd 
+0x7e8e27000000      4 MiB rss     4.0 thp    4.0 rd wr mr mw me nr sd hg 
+0x7e8e27800000     16 MiB rss    16.0 thp   16.0 rd wr mr mw me nr sd hg 
+0x7e8e28800000  65516 MiB rss     0.0 thp    0.0 rd wr mr mw me nr sd 
+0x7e9e27464000  65536 MiB rss     0.0 thp    0.0 mr mw me nr sd 
