@@ -742,17 +742,33 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// handed on or dropped, leaves the live entries: marked gone; or
         /// cut off, with the gone entries before it, when it is the last
         /// written; or, when it was the last live entry, the table emptied.
+        /// The last entry written, `j`, cut off, with the gone entries
+        /// before it; out of line, as a take of the last entry is rare
+        /// beside the others.
+        noinline fn cutOff(self: *Self, j: usize) void {
+            var n = j;
+            while (self.isGone(n - 1)) {
+                n -= 1;
+                if (!self.isSmall()) self.u.ix.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
+            }
+            self.len = @intCast(n);
+        }
+
+        /// `reset`, out of line: a take that empties the table is rare
+        /// beside the others, and inlined into a program's loop of takes
+        /// its memset and gone-bit sizing took registers the loop kept its
+        /// own values in (bench/hash's rnd24 removes 15% slower on the
+        /// Mac; record small-maps.md).
+        noinline fn emptied(self: *Self) void {
+            self.reset();
+        }
+
         inline fn dropEntry(self: *Self, j: usize) void {
             self.live -= 1;
             if (self.live == 0) {
-                self.reset();
+                self.emptied();
             } else if (j + 1 == self.len) {
-                var n = j;
-                while (self.isGone(n - 1)) {
-                    n -= 1;
-                    if (!self.isSmall()) self.u.ix.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
-                }
-                self.len = @intCast(n);
+                self.cutOff(j);
             } else if (!self.isSmall()) {
                 self.markGone(j);
             }
