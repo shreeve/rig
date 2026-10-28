@@ -1,0 +1,11 @@
+--- a/src/alloc.zig	2026-10-27 23:22:24.067084334 -0600
++++ b/src/alloc.zig	2026-10-28 01:20:09.256040978 -0600
+@@ -369,7 +369,7 @@
+ /// A large block at least this long grows by moving its pages
+ /// (`mremap`, Linux), not by copying them into new ones, which the
+ /// system would fault in afresh.
+-const move_large: usize = 1 << 20;
++const move_large: usize = 64 << 10;
+ 
+ /// The most bytes of freed large blocks a heap keeps: as many as leave
+ /// what it holds in large blocks, handed out and kept, within its
