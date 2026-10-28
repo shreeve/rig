@@ -8006,18 +8006,29 @@ pub const Checker = struct {
 
     /// A call of a function value (`held_store`) may store the loans in
     /// `stored` in what var `id` leads to, a value of a type parameter's
-    /// type whose loans the body does not track: where one is not the
-    /// write argument's own, and is on memory the body owns (any, for a
-    /// value the body holds; for a lent parameter, the parameter itself
-    /// or a value of the body's), each instance's type of the function
-    /// value must keep none there (`requireCallable`). A lent parameter
-    /// keeps the loans on the caller's other values its signature says.
+    /// type whose loans the body does not track. Where one is not the
+    /// write argument's own and is on memory the body owns (for a lent
+    /// parameter `id`, the parameter itself or a value of the body's),
+    /// each instance's type of the function value must keep none there
+    /// (`requireCallable`), as for any other loan not on a parameter. A
+    /// loan on another lent parameter stays tracked, as any lent view
+    /// is: a lent `id` records it
+    /// (`recordStore`), and a value of the body's carries it as a value
+    /// of a type parameter's type does (`taintGeneric`), returned or
+    /// stored wherever the body returns or stores one.
     fn heldStore(self: *Checker, id: VarId, stored: Value, lent: bool) Error!void {
         const hs = self.held_store orelse return;
+        var required = false;
         for (stored.loans) |l| {
             if (containsLoan(hs.own, l)) continue;
-            if (lent and l.root != id and !self.isLocalLoan(l)) continue;
-            return self.requireCallable(hs.pos, hs.callable, false);
+            if (lent) {
+                if (l.root != id and !self.isLocalLoan(l)) continue;
+            } else if (!self.ownsLoan(l, 0)) if (self.paramOf(l)) |i| {
+                self.func.generic |= sema.paramBit(i);
+                continue;
+            };
+            if (!required) try self.requireCallable(hs.pos, hs.callable, false);
+            required = true;
         }
     }
 

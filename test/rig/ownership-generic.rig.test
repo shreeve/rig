@@ -1926,9 +1926,10 @@ fail "generic value from a local into self", "`Pairs[List[?String]]` cannot use 
   !p.upd(|k, v| !v.push(k))
   print(p.vs.len)
 
-fail "generic value from a lent parameter through a local into self", "`Pairs[List[?String]]` cannot use `V = List[?String]`"
-  # `b` is the body's own: what `f` puts in it is not tracked, though
-  # it views the caller's `xs`, and `b` then goes into self.
+fail "generic value from a lent parameter through a local into self", "10:5: `upd` stores a view of `xs` in `@`, which its caller reaches, but its signature does not keep `xs`; say so: `keeps xs`"
+  # A view of what the caller lent, put in the body's own `b`, stays
+  # tracked as a `T` the body holds is: `b` goes into self, so `upd`
+  # keeps `xs`.
 
   obj Pairs[V]
     vs: List[V]
@@ -1942,6 +1943,32 @@ fail "generic value from a lent parameter through a local into self", "`Pairs[Li
   !xs.push(String("a"))
   !p.upd(?xs, List(), |k, v| !v.push(k))
   print(p.vs.len)
+
+test "generic value from a lent parameter returned through a local", "a"
+  # The view of `xs` that `f` may put in `b` is the caller's to track:
+  # `mk`'s result may view `xs`, so `xs` stays lent while `r` lives.
+
+  fun mk[V](xs: ?List[String], v: V, f: ?sub(?String, !V)) -> V
+    b = <v
+    f(?xs[0], !b)
+    b
+
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  r = mk(?xs, List[?String](), |k, v| !v.push(k))
+  print(r[0])
+
+fail "generic value from a lent parameter returned keeps it lent", "cannot drop `xs` while it is lent"
+  fun mk[V](xs: ?List[String], v: V, f: ?sub(?String, !V)) -> V
+    b = <v
+    f(?xs[0], !b)
+    b
+
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  r = mk(?xs, List[?String](), |k, v| !v.push(k))
+  <xs
+  print(r)
 
 fail "generic value through a field holding an owned closure", "`Pairs[String, List[?String]]` cannot use `V = List[?String]`: the generic body passes a `*sub(?String, !List[?String])`"
   obj Pairs[K, V]

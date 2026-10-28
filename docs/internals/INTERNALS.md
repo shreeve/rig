@@ -3212,8 +3212,9 @@ A function value's call is judged per instance too, keyed by its type
 (`PlainRequirement.callable`). Where a call of a function value whose
 type names a type parameter is given a write view of a `T` the body
 holds beside another view, and `genericStoreIn` drops a loan the store
-carries (any, into a value of the body's own; into a lent parameter, a
-loan on that parameter or on the body's own memory: `heldStore`), or
+carries on that place itself or on memory the body owns (`heldStore`;
+a loan on another lent parameter stays tracked, recorded where a lent
+parameter takes it and tainted where a value of the body's does), or
 where the call's result is held as a `T` and carries a loan on memory
 the body owns (a local, a parameter given by value, self's storage, a
 loop element of a collection it owns: `viewsOwned`),
