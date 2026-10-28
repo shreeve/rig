@@ -279,7 +279,7 @@ pub const Heap = struct {
         // so it asks for huge pages for them; a heap that keeps to one
         // segment, as a server's worker's or a blocking-pool thread's,
         // keeps small pages, as a huge page would commit 2 MiB of it.
-        if (faultsAhead(h)) adviseHuge(@intFromPtr(s), segment_size);
+        if (builtin.os.tag == .linux and faultsAhead(h)) adviseHuge(@intFromPtr(s), segment_size);
         // The header's page, and the first stretch the heap carves from.
         prefault(h, @intFromPtr(s), prefault_size);
         s.* = .{ .heap = h, .used = 2 };
