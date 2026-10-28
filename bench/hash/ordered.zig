@@ -95,8 +95,9 @@ pub fn Ordered(comptime K: type, comptime V: type, comptime Context: type, compt
 
         const ctx: Context = undefined;
 
-        /// A key over 8 bytes keeps its hash in its entry.
-        pub const stores_hash = @sizeOf(K) > 8;
+        /// A key over 8 bytes keeps its hash in its entry, unless its
+        /// Context says (`keep_hash`).
+        pub const stores_hash = if (@hasDecl(Context, "keep_hash")) Context.keep_hash else @sizeOf(K) > 8;
         /// A slice key compares through a call: the walk past the home
         /// group goes out of line.
         const compare_is_call = @typeInfo(K) == .pointer;

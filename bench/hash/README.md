@@ -73,7 +73,8 @@ Then the Rig and Zig programs insert a million
 keys into an empty map, look each up, look up a million they do not
 hold, and walk the map, for Int and String keys; they insert, look up
 and miss a million keys of two words as well, shaped as Trig's packed
-cache keys are (`AutoHashMapUnmanaged` for Zig). The Rig program
+cache keys are, and of three, shaped as its instantiation keys are
+(`AutoHashMapUnmanaged` for Zig). The Rig program
 also times the three ways to write the value under a key whether or
 not it is new (`ensure`, `ensure_with`, and `edit` then `put`), on
 misses and on hits, which Zig's has no rows for.

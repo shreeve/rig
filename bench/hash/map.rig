@@ -1,6 +1,6 @@
 # The built-in Map timed on Int and String keys: insert, hit lookup, miss
 # lookup, and iterate, each over N keys; insert, hit and miss on keys of
-# two words; hits in Maps of 4 and 8 keys;
+# two words and of three; hits in Maps of 4 and 8 keys;
 # interning N words; and writing a value whether or not its key is new,
 # three ways, on misses and on hits; then insert, hit, miss, remove, and
 # iterate on Int keys at sizes 16, 1,000, 100,000, and 4,000,000. Each
@@ -23,6 +23,7 @@ N = 1000000
 type IntMap = Map[Int, Int]
 type StringMap = Map[String, Int]
 type PairMap = Map[Pair, Int]
+type TripleMap = Map[Triple, Int]
 type TextMap = Map[String, String]
 type BigMap = Map[Int, Big]
 
@@ -109,6 +110,36 @@ called sub pairs(n: Int)
     if m.has(pair(i))
       found += 1
   print("pair miss", t.elapsed(), found)
+
+# A key of three words, shaped as Trig's instantiation keys are: an
+# owner, then a pair key.
+obj Triple
+  owner: U64
+  lo: U64
+  hi: U64
+
+# The triple key of `i`.
+fun triple(i: Int) -> Triple
+  Triple(owner: U64(i >> 4), lo: (U64(i >> 10) << 32) | U64(i & 1023), hi: 0xA5C4000000000000)
+
+called sub triples(n: Int)
+  m = TripleMap.new()
+  t = time.now()
+  for i in 0..n
+    !m.put(triple(i), i)
+  print("triple insert", t.elapsed(), m.len)
+  sum = 0
+  t = time.now()
+  for i in 0..n
+    if m.get(triple(i)) as v
+      sum += v
+  print("triple hit", t.elapsed(), sum)
+  found = 0
+  t = time.now()
+  for i in n..2 * n
+    if m.has(triple(i))
+      found += 1
+  print("triple miss", t.elapsed(), found)
 
 # N hit lookups in a Map of `size` Int keys: the symbol tables most
 # programs hold are this small.
@@ -633,6 +664,7 @@ sub main()
   ints(N)
   strings(N)
   pairs(N)
+  triples(N)
   small(N, 4)
   small(N, 8)
   intern(N)
