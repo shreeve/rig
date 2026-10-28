@@ -1,0 +1,9 @@
+#!/bin/sh
+# Trig 403a823 tools/trig/bolt-train, on copies of its four projects.
+top=/zfs/worktrees/rig/runtime-unchecked/train
+for _ in 1 2 3; do
+  for p in mitt neverthrow superstruct zod3; do
+    (cd "$top/$p" && "$1" -p tsconfig.trig.json --noEmit >/dev/null 2>&1)
+  done
+done
+exit 0

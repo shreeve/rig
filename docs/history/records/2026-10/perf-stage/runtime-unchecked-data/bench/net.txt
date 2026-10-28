@@ -1,0 +1,20 @@
+== net round 1 main 17:15:04 load=3.08
+         rig-fast      rig-safe      vs rig-fast
+pingpong 5.38 us/trip  5.87 us/trip  rig-safe 1.1x slower
+echo     4.09 us/trip  4.44 us/trip  rig-safe 1.1x slower
+connect  32.16 us/conn 32.17 us/conn rig-safe 1.0x slower
+== net round 1 branch 17:15:10 load=3.22
+         rig-fast      rig-safe      vs rig-fast
+pingpong 5.59 us/trip  5.78 us/trip  rig-safe 1.0x slower
+echo     4.08 us/trip  4.37 us/trip  rig-safe 1.1x slower
+connect  31.42 us/conn 31.98 us/conn rig-safe 1.0x slower
+== net round 2 main 17:15:15 load=3.28
+         rig-fast      rig-safe      vs rig-fast
+pingpong 5.60 us/trip  5.75 us/trip  rig-safe 1.0x slower
+echo     4.08 us/trip  4.39 us/trip  rig-safe 1.1x slower
+connect  31.40 us/conn 32.47 us/conn rig-safe 1.0x slower
+== net round 2 branch 17:15:21 load=3.34
+         rig-fast      rig-safe      vs rig-fast
+pingpong 5.63 us/trip  5.77 us/trip  rig-safe 1.0x slower
+echo     4.07 us/trip  4.38 us/trip  rig-safe 1.1x slower
+connect  31.05 us/conn 32.87 us/conn rig-safe 1.1x slower

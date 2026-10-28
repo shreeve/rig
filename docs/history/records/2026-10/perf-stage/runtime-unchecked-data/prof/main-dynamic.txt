@@ -1,0 +1,61 @@
+# samples 231496; in Zig checks 1510 (0.65%); check jumps 67259
+# in the runtime's Zig: 454 (0.20% of samples)
+  1056  0.46% user
+   129  0.06% runtime.zig:3009 rig.runtime.ListOf
+    70  0.03% table.zig:189 rig.table.Table
+    55  0.02% runtime.zig:3088 rig.runtime.ListOf
+    52  0.02% runtime.zig:2975 rig.runtime.ListOf
+    40  0.02% runtime.zig:5402 rig.runtime.freeSlice__func_978 via mem.zig:4707
+    17  0.01% runtime.zig:3278 rig.runtime.String.ofShort
+    14  0.01% runtime.zig:2746 rig.runtime.FnRef
+    13  0.01% runtime.zig:5402 rig.runtime.freeSlice__func_3746 via mem.zig:4707
+     7  0.00% runtime.zig:5402 rig.runtime.freeSlice__func_1023 via mem.zig:4707
+     7  0.00% runtime.zig:2747 rig.runtime.FnRef
+     6  0.00% runtime.zig:2761 rig.runtime.FnRef
+     5  0.00% runtime.zig:5402 rig.runtime.freeSlice__func_4277 via mem.zig:4707
+     5  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:134
+     4  0.00% runtime.zig:5373 rig.runtime.allocSlice__func_1482
+     4  0.00% runtime.zig:3132 rig.runtime.ListOf
+     3  0.00% runtime.zig:5402 rig.runtime.freeSlice__func_4141 via mem.zig:4707
+     2  0.00% alloc.zig:267 rig.alloc.Heap.alloc
+     2  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:164
+     2  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:186
+     2  0.00% runtime.zig:5394 rig.runtime.reallocSlice__func_2110
+     2  0.00% runtime.zig:5390 rig.runtime.reallocSlice__func_1776 via mem.zig:4707
+     2  0.00% runtime.zig:1524 rig.runtime.dropElement__func_1015
+     2  0.00% runtime.zig:3414 rig.runtime.String.appendBytes
+     1  0.00% alloc.zig:313 rig.alloc.Heap.freeSmall
+     1  0.00% alloc.zig:779 rig.alloc.free
+     1  0.00% runtime.zig:3448 rig.runtime.String.clone
+     1  0.00% runtime.zig:3097 rig.runtime.ListOf via debug.zig:442
+
+# samples 200398; in Zig checks 2132 (1.06%); check jumps 67259
+# in the runtime's Zig: 356 (0.18% of samples)
+  1776  0.89% user
+    70  0.03% runtime.zig:3009 rig.runtime.ListOf
+    44  0.02% runtime.zig:2975 rig.runtime.ListOf
+    44  0.02% table.zig:189 rig.table.Table
+    33  0.02% runtime.zig:5402 rig.runtime.freeSlice__func_978 via mem.zig:4707
+    24  0.01% runtime.zig:3088 rig.runtime.ListOf
+    20  0.01% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:134
+    20  0.01% runtime.zig:2747 rig.runtime.FnRef
+    17  0.01% runtime.zig:2761 rig.runtime.FnRef
+    15  0.01% runtime.zig:3278 rig.runtime.String.ofShort
+     6  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:164
+     6  0.00% runtime.zig:2746 rig.runtime.FnRef
+     6  0.00% runtime.zig:3132 rig.runtime.ListOf
+     6  0.00% runtime.zig:3097 rig.runtime.ListOf
+     4  0.00% alloc.zig:313 rig.alloc.Heap.freeSmall
+     4  0.00% alloc.zig:267 rig.alloc.Heap.alloc
+     4  0.00% runtime.zig:5402 rig.runtime.freeSlice__func_1023 via mem.zig:4707
+     3  0.00% alloc.zig:254 rig.alloc.Heap.alloc
+     3  0.00% runtime.zig:5402 rig.runtime.freeSlice__func_4277 via mem.zig:4707
+     3  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:160
+     3  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:186
+     3  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:187
+     2  0.00% alloc.zig:314 rig.alloc.Heap.freeSmall
+     2  0.00% alloc.zig:261 rig.alloc.Heap.alloc
+     2  0.00% runtime.zig:1981 rig.runtime.hashBytes via hash/wyhash.zig:112
+     2  0.00% runtime.zig:5402 rig.runtime.freeSlice__func_3746 via mem.zig:4707
+     2  0.00% runtime.zig:5402 rig.runtime.freeSlice__func_4141 via mem.zig:4707
+     1  0.00% alloc.zig:317 rig.alloc.Heap.freeSmall

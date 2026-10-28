@@ -1,0 +1,8 @@
+#!/bin/sh
+# zig, with the runtime files in $RUNTIME_SRC (when set) copied over the
+# package rig wrote in $RIG_OUT_DIR before each build-exe.
+if [ "${1:-}" = build-exe ] && [ -n "${RUNTIME_SRC:-}" ]; then
+  cp "$RUNTIME_SRC"/*.zig "$RIG_OUT_DIR"/rig/ || { echo "zigb: copy failed" >&2; exit 97; }
+  echo "$*" >> "$RIG_OUT_DIR.zigb.log"
+fi
+exec /home/shreeve/.local/bin/zig "$@"

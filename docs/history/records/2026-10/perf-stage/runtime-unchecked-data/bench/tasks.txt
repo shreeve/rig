@@ -1,0 +1,32 @@
+== tasks round 1 main 17:13:42 load=2.48
+        rig-fast          rig-safe          vs rig-fast
+spawn   65 ns/task        77 ns/task        rig-safe 1.2x slower
+chain   91 ns/task        102 ns/task       rig-safe 1.1x slower
+fanout  331.2 ms/run      288.4 ms/run      rig-safe 1.1x faster
+yield   24 ns/yield       24 ns/yield       rig-safe 1.0x slower
+hog     140.65 us/step    124.25 us/step    rig-safe 1.1x faster
+memory  4.6 KiB/task      4.6 KiB/task      rig-safe 1.0x more
+== tasks round 1 branch 17:14:01 load=2.75
+        rig-fast          rig-safe          vs rig-fast
+spawn   65 ns/task        79 ns/task        rig-safe 1.2x slower
+chain   94 ns/task        103 ns/task       rig-safe 1.1x slower
+fanout  334.3 ms/run      292.6 ms/run      rig-safe 1.1x faster
+yield   24 ns/yield       24 ns/yield       rig-safe 1.0x slower
+hog     142.40 us/step    124.52 us/step    rig-safe 1.1x faster
+memory  4.6 KiB/task      4.6 KiB/task      rig-safe 1.0x more
+== tasks round 2 main 17:14:20 load=3.01
+        rig-fast          rig-safe          vs rig-fast
+spawn   66 ns/task        78 ns/task        rig-safe 1.2x slower
+chain   93 ns/task        101 ns/task       rig-safe 1.1x slower
+fanout  331.8 ms/run      282.1 ms/run      rig-safe 1.2x faster
+yield   24 ns/yield       24 ns/yield       rig-safe 1.0x slower
+hog     141.69 us/step    124.36 us/step    rig-safe 1.1x faster
+memory  4.6 KiB/task      4.6 KiB/task      rig-safe 1.0x more
+== tasks round 2 branch 17:14:39 load=3.07
+        rig-fast          rig-safe          vs rig-fast
+spawn   66 ns/task        78 ns/task        rig-safe 1.2x slower
+chain   93 ns/task        103 ns/task       rig-safe 1.1x slower
+fanout  323.7 ms/run      290.1 ms/run      rig-safe 1.1x faster
+yield   24 ns/yield       24 ns/yield       rig-safe 1.0x slower
+hog     141.77 us/step    124.11 us/step    rig-safe 1.1x faster
+memory  4.6 KiB/task      4.6 KiB/task      rig-safe 1.0x more

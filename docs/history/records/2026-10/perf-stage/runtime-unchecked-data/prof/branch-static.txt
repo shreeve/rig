@@ -1,0 +1,40 @@
+# samples 58641; in Zig checks 58641 (100.00%); check jumps 58641
+# in the runtime's Zig: 2788 (4.75% of samples)
+ 55853 95.25% user
+   836  1.43% table.zig:196 rig.table.Table
+   509  0.87% runtime.zig:3304 rig.runtime.String.ofShort
+   149  0.25% runtime.zig:2747 rig.runtime.FnRef
+    76  0.13% runtime.zig:5421 rig.runtime.allocSlice__func_1429
+    66  0.11% runtime.zig:5421 rig.runtime.allocSlice__func_1434
+    56  0.10% sched.zig:2152 rig.sched.Ring.push
+    55  0.09% runtime.zig:2761 rig.runtime.FnRef
+    50  0.09% runtime.zig:3029 rig.runtime.ListOf
+    43  0.07% table.zig:275 rig.table.Table
+    34  0.06% runtime.zig:3204 rig.runtime.ListOf
+    22  0.04% sched.zig:182 rig.sched.current
+    18  0.03% runtime.zig:3132 rig.runtime.ListOf
+    18  0.03% runtime.zig:2089 rig.runtime.order__func_1489 via math.zig:1610
+    18  0.03% runtime.zig:5380 rig.runtime.unlockOutput via Io.zig:1771
+    17  0.03% sched.zig:385 rig.sched.beginWait
+    11  0.02% runtime.zig:3040 rig.runtime.ListOf
+    11  0.02% alloc.zig:536 rig.alloc.unmapLarge
+    10  0.02% runtime.zig:1524 rig.runtime.dropElement__func_3471
+    10  0.02% runtime.zig:1524 rig.runtime.dropElement__func_3606
+     9  0.02% runtime.zig:3244 rig.runtime.ListOf
+     8  0.01% sched.zig:2951 rig.sched.unmapStack
+     8  0.01% runtime.zig:3133 rig.runtime.ListOf
+     7  0.01% sched.zig:1652 rig.sched.stop
+     7  0.01% runtime.zig:3131 rig.runtime.ListOf
+     7  0.01% runtime.zig:3991 rig.runtime.addIf
+     7  0.01% alloc.zig:158 rig.alloc.classAbove
+     7  0.01% alloc.zig:98 rig.alloc.prefault
+     7  0.01% runtime.zig:5212 rig.runtime.rem__func_3754
+     6  0.01% sched.zig:1651 rig.sched.stop
+     6  0.01% runtime.zig:4105 rig.runtime.slice__func_2195
+     5  0.01% sched.zig:653 rig.sched.Timers.less
+     5  0.01% sched.zig:2944 rig.sched.releaseStack
+     5  0.01% runtime.zig:1524 rig.runtime.dropElement__func_3187
+     5  0.01% sched.zig:1751 rig.sched.printStats via Io/Writer.zig:1659
+     5  0.01% sched.zig:1751 rig.sched.printStats via Io/Writer.zig:1664
+     5  0.01% sched.zig:1751 rig.sched.printStats via Io/Writer.zig:1667
+     5  0.01% alloc.zig:443 rig.alloc.adviseHuge
