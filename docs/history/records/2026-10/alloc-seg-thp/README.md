@@ -296,7 +296,7 @@ the change compiles to nothing elsewhere; Linux's code is the same):
 
 ## Re-measure after the rebase (2026-10-27, later)
 
-The owner's answer, relayed by the coordinating session: "Yes, take
+The owner's answer, given directly in the reviewing session: "Yes, take
 #740: rebase it onto main, re-measure Trig and re-run the gates, then
 mark it ready for me to merge." The branch was rebased onto main
 `099c1bff3` (#737 to #739, the HashMap and HashSet built-ins) with no

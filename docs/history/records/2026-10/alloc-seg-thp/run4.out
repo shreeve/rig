@@ -1,0 +1,10 @@
+before: 1.67 2.03 2.12 1/1123 2347087
+PSR %CPU USER     COMMAND
+ 16  100 shreeve  ps -eo psr,pcpu,user,args --sort=-pcpu
+  1  1.1 shreeve  /usr/bin/gnome-shell --mode=ubuntu
+  3  0.7 shreeve  /usr/local/lib/lyte/lyte-host --wire-listen 41151 --clipboard=images --advertise-i
+  6  0.5 shreeve  /home/shreeve/.local/bin/janus run --config /home/shreeve/.config/janus/Caddyfile 
+ 17  0.3 shreeve  bash /home/shreeve/.local/bin/clip-sync
+after one checker: 1.31 1.89 2.07 1/1114 2347920
+after: 1.61 1.93 2.08 1/1111 2348463
+done
