@@ -1,0 +1,84 @@
+
+### main-pgo.tsv (29006 samples)
+Rig: 57.7%
+Trig: 41.5%
+?: 0.8%
+Rig?: 0.1%
+| side | group | share of cycles |
+|---|---|---:|
+| Trig | Trig's own code (checker.zig) | 38.50% |
+| Rig | Map/Set (ordered.zig, hashing) | 18.78% |
+| Rig | Table reads and pushes (table.zig) | 11.74% |
+| Rig | List operations (push, pop, at, mem, grow) | 9.08% |
+| Rig | index and range checks | 3.89% |
+| Rig | other runtime (lend, rt, niches, drops) | 3.03% |
+| Rig | allocator (alloc.zig) | 3.01% |
+| Rig | yield checks (turn, tickCall) | 2.56% |
+| Rig | String and text (std.text, mem.eql) | 2.45% |
+| Trig | Trig's own code (ast.zig) | 1.99% |
+| Rig | enum from integer (std.enums.fromInt) | 1.10% |
+| Rig | memcpy, memset, stack probes (compiler_rt) | 1.03% |
+| ? | unsymbolized | 0.76% |
+| Rig | interner (std.text Interner) | 0.43% |
+| Rig | other std (sort) | 0.39% |
+| Trig | Trig's own code (lexer.zig) | 0.32% |
+| Trig | Trig's own code (parser.zig) | 0.29% |
+| Trig | Trig's own code (binder.zig) | 0.22% |
+| Rig | other std (prelude) | 0.19% |
+| Trig | Trig's own code (jsnum.zig) | 0.05% |
+| Rig? | other Zig std (Writer.zig) | 0.04% |
+| Trig | Trig's own code (printer.zig) | 0.03% |
+| Trig | Trig's own code (diagnostics.zig) | 0.02% |
+| Trig | Trig's own code (tspath.zig) | 0.02% |
+| Rig | other std (utf8) | 0.02% |
+| Trig | Trig's own code (compiler.zig) | 0.01% |
+| Rig | other std (slices) | 0.01% |
+| Trig | Trig's own code (core.zig) | 0.01% |
+| Rig | other std (json) | 0.01% |
+| Rig? | other Zig std (vfs.zig) | 0.00% |
+| Rig? | other Zig std (diagnosticwriter.zig) | 0.00% |
+| Rig? | other Zig std (file.zig) | 0.00% |
+| Rig? | other Zig std (vfsmatch.zig) | 0.00% |
+| Trig | Trig's own code (bundled.zig) | 0.00% |
+| Rig? | other Zig std (atomic.zig) | 0.00% |
+| Rig? | other Zig std (modulespecifiers.zig) | 0.00% |
+
+### main-rel.tsv (16797 samples)
+Rig: 50.7%
+Trig: 48.6%
+?: 0.7%
+Rig?: 0.1%
+| side | group | share of cycles |
+|---|---|---:|
+| Trig | Trig's own code (checker.zig) | 44.70% |
+| Rig | Map/Set (ordered.zig, hashing) | 17.87% |
+| Rig | Table reads and pushes (table.zig) | 11.25% |
+| Rig | List operations (push, pop, at, mem, grow) | 7.00% |
+| Rig | index and range checks | 3.66% |
+| Rig | other runtime (lend, rt, niches, drops) | 2.77% |
+| Rig | allocator (alloc.zig) | 2.75% |
+| Trig | Trig's own code (ast.zig) | 2.60% |
+| Rig | yield checks (turn, tickCall) | 1.99% |
+| Rig | String and text (std.text, mem.eql) | 1.34% |
+| Rig | memcpy, memset, stack probes (compiler_rt) | 0.86% |
+| ? | unsymbolized | 0.66% |
+| Rig | other std (sort) | 0.53% |
+| Trig | Trig's own code (parser.zig) | 0.51% |
+| Rig | interner (std.text Interner) | 0.36% |
+| Trig | Trig's own code (lexer.zig) | 0.33% |
+| Trig | Trig's own code (binder.zig) | 0.28% |
+| Rig | other std (prelude) | 0.23% |
+| Rig | enum from integer (std.enums.fromInt) | 0.08% |
+| Trig | Trig's own code (jsnum.zig) | 0.06% |
+| Rig? | other Zig std (Writer.zig) | 0.05% |
+| Trig | Trig's own code (compiler.zig) | 0.04% |
+| Rig | other std (utf8) | 0.02% |
+| Trig | Trig's own code (core.zig) | 0.01% |
+| Trig | Trig's own code (printer.zig) | 0.01% |
+| Trig | Trig's own code (diagnostics.zig) | 0.01% |
+| Rig? | other Zig std (simd.zig) | 0.01% |
+| Trig | Trig's own code (module.zig) | 0.01% |
+| Rig? | other Zig std (FloatStream.zig) | 0.01% |
+| Trig | Trig's own code (stringutil.zig) | 0.01% |
+| Rig | other std (slices) | 0.01% |
+| Rig? | other Zig std (Dir.zig) | 0.01% |
