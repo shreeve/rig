@@ -157,18 +157,21 @@ Output identical every round. Medians:
 
 | | ts-pattern main | ts-pattern new | new / main | zod3 main | zod3 new | new / main |
 |---|---:|---:|---:|---:|---:|---:|
-| peak RSS, KB | 266,580 | 252,588 | 0.9475 | 85,956 | 82,160 | 0.9558 |
-| user cycles | 3,984,008,397 | 3,979,919,159 | 0.9990 | 752,444,758 | 750,825,502 | 0.9978 |
-| kernel cycles | 341,791,408 | 331,477,857 | 0.9698 | 95,692,230 | 92,826,329 | 0.9701 |
-| instructions | 9,270,520,297 | 9,242,489,650 | 0.9970 | 1,684,107,844 | 1,674,424,796 | 0.9943 |
-| L3 load misses | 518,740 | 489,210 | 0.9431 | 146,000 | 137,825 | 0.9440 |
-| page faults | 40,160 | 39,624 | 0.9867 | 9,765 | 9,591 | 0.9822 |
-| seconds | 0.94 | 0.93 | 0.99 | 0.19 | 0.19 | 1.00 |
+| peak RSS, KB | 266,580 | 252,598 | 0.9476 | 85,956 | 82,166 | 0.9559 |
+| user cycles | 4,327,387,246 | 4,317,042,249 | 0.9976 | 774,954,230 | 765,721,418 | 0.9881 |
+| kernel cycles | 353,966,690 | 345,482,150 | 0.9760 | 99,083,558 | 95,934,276 | 0.9682 |
+| instructions | 9,270,689,622 | 9,246,591,869 | 0.9974 | 1,683,894,646 | 1,675,015,969 | 0.9947 |
+| L3 load misses | 1,047,344 | 996,542 | 0.9515 | 192,665 | 182,204 | 0.9457 |
+| page faults | 40,160 | 39,625 | 0.9867 | 9,765 | 9,591 | 0.9822 |
+| seconds | 1.02 | 1.01 | 0.99 | 0.20 | 0.20 | 1.00 |
 
 Peak memory is 5.2% lower on ts-pattern (14.0 MB) and 4.4% on zod3
-(3.8 MB); kernel cycles 3% fewer, from fewer pages touched; L3 load
-misses 6% fewer; user cycles and instructions within noise. With
-`clear` keeping the index (the build before), ts-pattern took 1.5% more
+(3.8 MB); L3 load misses 5% fewer; kernel cycles 2-3% fewer, from fewer
+pages touched; user cycles and instructions within noise (under the
+speed bar: this is a memory change). The build with the multi-group
+take inline (`trig-pup-take-inline.txt`) measured the same: 5.2% and
+4.4% less memory, user cycles 0.1% and 0.2% fewer. With `clear` keeping
+the index (the build before that), ts-pattern took 1.5% more
 instructions and user cycles, its peak memory the same.
 
 ### bench/hash
@@ -212,6 +215,13 @@ change.
 from a trace, `replay.zig` runs it beside src/ordered.zig and a copy of
 main's), the micro-benchmark (`micro.zig`), the Trig scripts
 (`trig-build.sh`, `trig-time.sh`, `trig-report.py`) and rounds
-(`trig-pup.txt`; `trig-pup-clear-keeps-index.txt` for the build whose
-`clear` kept the index), and bench/hash's runs (`bench-hash.sh`,
+(`trig-pup.txt`; `trig-pup-take-inline.txt` for the build with the
+multi-group take inline, `trig-pup-clear-keeps-index.txt` for the one
+whose `clear` kept the index), and bench/hash's runs (`bench-hash.sh`,
 `bench-hash-mac.txt`, `bench-hash-pup.txt`).
+
+## Gates
+
+Rig's full suite (10,792 cases) and proofs (5,271) green on the Mac,
+the oracle quiet; Trig's light gate GREEN (ee42012a3, 45 s); loco's
+light gate GREEN (122 runs, none differ).

@@ -195,7 +195,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   (`Map[Atom, Sym]`, 119,000 on ts-pattern, 58% of them of 1 or 2
   entries and 22% of 32 to 47) shed their indexes. On pup, Trig's peak
   memory is 5.2% lower on ts-pattern (14 MB) and 4.4% on zod3, its L3
-  load misses 6% fewer and kernel cycles 3% fewer, user cycles level
+  load misses 5% fewer and kernel cycles 2-3% fewer, user cycles level
   ([small-maps.md](docs/history/records/2026-10/hash-race/small-maps.md)).
 - **The built-in tables have a guard.** `bench/hash/guard.py` counts the
   instructions per operation of `Map` and `HashMap` on Int, text, and
