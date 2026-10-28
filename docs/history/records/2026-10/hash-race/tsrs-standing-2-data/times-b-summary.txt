@@ -1,0 +1,34 @@
+
+ts-pattern
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 773-pgo | 20 | 811.2 | 803.2 | 755.4 | 56.5 | 3.629G | 247M | 8.169G | 15,542 | 272.2 | same exit 2 |
+| 2c0-pgo | 20 | 843.2 | 827.1 | 764.0 | 79.0 | 3.673G | 353M | 8.166G | 40,248 | 261.7 | same exit 2 |
+| 364-pgo | 20 | 864.5 | 851.2 | 781.1 | 84.9 | 3.733G | 377M | 8.202G | 40,343 | 271.0 | same exit 2 |
+| tsrs | 20 | 678.4 | 671.2 | 639.1 | 40.0 | 3.035G | 174M | 7.230G | 17,798 | 202.3 | same exit 2 |
+| tsrs-src | 20 | 808.1 | 799.2 | 771.3 | 39.5 | 3.669G | 179M | 8.135G | 17,689 | 205.3 | same exit 2 |
+
+773-pgo / tsrs: wall median 1.196, fastest 1.197, user 1.182, system 1.413, user cycles 1.1957, kernel cycles 1.422, instructions 1.1299, faults 0.873, RSS 1.345
+2c0-pgo / tsrs: wall median 1.243, fastest 1.232, user 1.195, system 1.974, user cycles 1.2102, kernel cycles 2.036, instructions 1.1295, faults 2.261, RSS 1.293
+364-pgo / tsrs: wall median 1.274, fastest 1.268, user 1.222, system 2.122, user cycles 1.2301, kernel cycles 2.171, instructions 1.1345, faults 2.267, RSS 1.339
+773-pgo / 2c0-pgo: wall median 0.962, fastest 0.971, user 0.989, system 0.716, user cycles 0.9880, kernel cycles 0.699, instructions 1.0004, faults 0.386, RSS 1.040
+2c0-pgo / 364-pgo: wall median 0.975, fastest 0.972, user 0.978, system 0.930, user cycles 0.9838, kernel cycles 0.938, instructions 0.9956, faults 0.998, RSS 0.966
+773-pgo / 364-pgo: wall median 0.938, fastest 0.944, user 0.967, system 0.666, user cycles 0.9720, kernel cycles 0.655, instructions 0.9959, faults 0.385, RSS 1.005
+load: 1.76 to 2.17
+
+zod3
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 773-pgo | 20 | 158.3 | 154.9 | 135.5 | 23.6 | 0.643G | 93M | 1.440G | 8,062 | 90.8 | same exit 2 |
+| 2c0-pgo | 20 | 155.0 | 150.4 | 132.5 | 22.9 | 0.645G | 94M | 1.436G | 9,784 | 84.5 | same exit 2 |
+| 364-pgo | 20 | 157.0 | 153.8 | 131.4 | 25.0 | 0.640G | 104M | 1.438G | 9,689 | 83.7 | same exit 2 |
+| tsrs | 20 | 115.6 | 113.7 | 101.0 | 13.6 | 0.489G | 56M | 1.206G | 5,414 | 54.2 | same exit 2 |
+| tsrs-src | 20 | 142.3 | 140.4 | 129.3 | 12.0 | 0.626G | 51M | 1.404G | 4,647 | 54.6 | same exit 2 |
+
+773-pgo / tsrs: wall median 1.370, fastest 1.363, user 1.342, system 1.743, user cycles 1.3145, kernel cycles 1.643, instructions 1.1938, faults 1.489, RSS 1.676
+2c0-pgo / tsrs: wall median 1.341, fastest 1.323, user 1.312, system 1.691, user cycles 1.3181, kernel cycles 1.665, instructions 1.1910, faults 1.807, RSS 1.560
+364-pgo / tsrs: wall median 1.358, fastest 1.353, user 1.302, system 1.843, user cycles 1.3086, kernel cycles 1.837, instructions 1.1921, faults 1.789, RSS 1.546
+773-pgo / 2c0-pgo: wall median 1.022, fastest 1.030, user 1.023, system 1.031, user cycles 0.9973, kernel cycles 0.987, instructions 1.0023, faults 0.824, RSS 1.075
+2c0-pgo / 364-pgo: wall median 0.987, fastest 0.978, user 1.008, system 0.917, user cycles 1.0073, kernel cycles 0.906, instructions 0.9990, faults 1.010, RSS 1.009
+773-pgo / 364-pgo: wall median 1.009, fastest 1.007, user 1.031, system 0.946, user cycles 1.0045, kernel cycles 0.894, instructions 1.0014, faults 0.832, RSS 1.084
+load: 1.52 to 2.04
