@@ -1,0 +1,20 @@
+| project | build | wall ms | user ms | system ms | kernel cycles | page faults | dTLB misses |
+|---|---|---:|---:|---:|---:|---:|---:|
+| ts-pattern | main | 895.2 | 801.8 | 89.6 | 371M | 40243 | 2.11M |
+| ts-pattern | seg | 881.5 | 802.5 | 79.0 | 350M | 39755 | 1.55M |
+| ts-pattern | segnp | 881.5 | 802.4 | 80.4 | 351M | 39776 | 1.56M |
+| ts-pattern | seglead | 877.1 | 798.5 | 77.9 | 346M | 39823 | 1.53M |
+| ts-pattern | tbl | 860.8 | 801.0 | 60.0 | 269M | 15542 | 1.88M |
+| zod3 | main | 175.8 | 152.3 | 25.5 | 99M | 9641 | 0.22M |
+| zod3 | seg | 173.1 | 148.0 | 23.6 | 94M | 9187 | 0.14M |
+| zod3 | segnp | 173.3 | 150.8 | 20.5 | 94M | 9195 | 0.14M |
+| zod3 | seglead | 170.2 | 149.1 | 23.5 | 93M | 9234 | 0.14M |
+| zod3 | tbl | 175.8 | 151.0 | 26.1 | 97M | 7923 | 0.22M |
+ts-pattern main singleThreaded 280472 KB
+ts-pattern seglead singleThreaded 280816 KB
+ts-pattern main singleThreaded 280472 KB
+ts-pattern seglead singleThreaded 280820 KB
+zod3 main singleThreaded 88092 KB
+zod3 seglead singleThreaded 89588 KB
+zod3 main singleThreaded 88268 KB
+zod3 seglead singleThreaded 89588 KB

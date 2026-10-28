@@ -1,0 +1,40 @@
+ts-pattern round=1 v=main duration_time=1003177802 user_time=918006000 system_time=84092000 cpu_core/cycles/k=371430540 page-faults=40242 cpu_atom/dTLB-load-misses/=883487 cpu_core/dTLB-load-misses/=2022173 
+ts-pattern round=1 v=seglead duration_time=982376676 user_time=902495000 system_time=78955000 cpu_core/cycles/k=351027163 page-faults=39822 cpu_atom/dTLB-load-misses/=1108407 cpu_core/dTLB-load-misses/=1506487 
+ts-pattern round=2 v=main duration_time=1000199901 user_time=901665000 system_time=94964000 cpu_core/cycles/k=365023655 page-faults=40245 cpu_atom/dTLB-load-misses/=701416 cpu_core/dTLB-load-misses/=2019349 
+ts-pattern round=2 v=seglead duration_time=979583306 user_time=891788000 system_time=86979000 cpu_core/cycles/k=343723065 page-faults=39821 cpu_atom/dTLB-load-misses/=22796 cpu_core/dTLB-load-misses/=1607340 
+ts-pattern round=3 v=main duration_time=1014319575 user_time=935472000 system_time=78039000 cpu_core/cycles/k=379877205 page-faults=40242 cpu_atom/dTLB-load-misses/=699831 cpu_core/dTLB-load-misses/=2042907 
+ts-pattern round=3 v=seglead duration_time=980276553 user_time=916336000 system_time=63023000 cpu_core/cycles/k=341030061 page-faults=39821 cpu_atom/dTLB-load-misses/=655871 cpu_core/dTLB-load-misses/=1559154 
+ts-pattern round=4 v=main duration_time=1001171935 user_time=903055000 system_time=97005000 cpu_core/cycles/k=360590344 page-faults=40240 cpu_atom/dTLB-load-misses/=2582 cpu_core/dTLB-load-misses/=2202349 
+ts-pattern round=4 v=seglead duration_time=1014735845 user_time=926500000 system_time=86953000 cpu_core/cycles/k=361148263 page-faults=39821 cpu_atom/dTLB-load-misses/=698101 cpu_core/dTLB-load-misses/=1589096 
+ts-pattern round=5 v=main duration_time=996510079 user_time=913499000 system_time=82134000 cpu_core/cycles/k=359545759 page-faults=40241 cpu_atom/dTLB-load-misses/=1892832 cpu_core/dTLB-load-misses/=2104026 
+ts-pattern round=5 v=seglead duration_time=984760035 user_time=882847000 system_time=100982000 cpu_core/cycles/k=344740255 page-faults=39823 cpu_atom/dTLB-load-misses/=1081023 cpu_core/dTLB-load-misses/=1637879 
+ts-pattern round=6 v=main duration_time=1016612223 user_time=925116000 system_time=90913000 cpu_core/cycles/k=369070665 page-faults=40239 cpu_atom/dTLB-load-misses/=2137593 cpu_core/dTLB-load-misses/=2117303 
+ts-pattern round=6 v=seglead duration_time=993842845 user_time=906679000 system_time=86064000 cpu_core/cycles/k=353007972 page-faults=39821 cpu_atom/dTLB-load-misses/=1261219 cpu_core/dTLB-load-misses/=1566515 
+ts-pattern round=7 v=main duration_time=1011307695 user_time=914369000 system_time=91236000 cpu_core/cycles/k=368326854 page-faults=40246 cpu_core/dTLB-load-misses/=2218492 
+ts-pattern round=7 v=seglead duration_time=996748251 user_time=918729000 system_time=76977000 cpu_core/cycles/k=361983657 page-faults=39821 cpu_atom/dTLB-load-misses/=620966 cpu_core/dTLB-load-misses/=1607733 
+ts-pattern round=8 v=main duration_time=1003285752 user_time=914201000 system_time=88019000 cpu_core/cycles/k=367801286 page-faults=40241 cpu_atom/dTLB-load-misses/=2109199 cpu_core/dTLB-load-misses/=2178774 
+ts-pattern round=8 v=seglead duration_time=983004755 user_time=910064000 system_time=71926000 cpu_core/cycles/k=342447251 page-faults=39823 cpu_atom/dTLB-load-misses/=1825622 cpu_core/dTLB-load-misses/=1548787 
+ts-pattern round=9 v=main duration_time=1014034966 user_time=920133000 system_time=93114000 cpu_core/cycles/k=377416909 page-faults=40241 cpu_atom/dTLB-load-misses/=1350494 cpu_core/dTLB-load-misses/=2162027 
+ts-pattern round=9 v=seglead duration_time=978942594 user_time=899129000 system_time=78923000 cpu_core/cycles/k=341261166 page-faults=39822 cpu_atom/dTLB-load-misses/=1382639 cpu_core/dTLB-load-misses/=1552308 
+ts-pattern round=10 v=main duration_time=967222367 user_time=870312000 system_time=95924000 cpu_core/cycles/k=393884105 page-faults=40241 cpu_atom/dTLB-load-misses/=2002 cpu_core/dTLB-load-misses/=2066067 
+ts-pattern round=10 v=seglead duration_time=944610847 user_time=869725000 system_time=73976000 cpu_core/cycles/k=363913641 page-faults=39821 cpu_atom/dTLB-load-misses/=688612 cpu_core/dTLB-load-misses/=1638522 
+zod3 round=1 v=main duration_time=185591890 user_time=156081000 system_time=28830000 cpu_core/cycles/k=103412394 page-faults=9639 cpu_atom/dTLB-load-misses/=133930 cpu_core/dTLB-load-misses/=227017 
+zod3 round=1 v=seglead duration_time=186907343 user_time=151201000 system_time=35046000 cpu_core/cycles/k=104178269 page-faults=9234 cpu_atom/dTLB-load-misses/=16539 cpu_core/dTLB-load-misses/=141790 
+zod3 round=2 v=main duration_time=184974351 user_time=158313000 system_time=26051000 cpu_core/cycles/k=103020505 page-faults=9639 cpu_atom/dTLB-load-misses/=146026 cpu_core/dTLB-load-misses/=216728 
+zod3 round=2 v=seglead duration_time=186676690 user_time=161958000 system_time=23993000 cpu_core/cycles/k=102067421 page-faults=9234 cpu_atom/dTLB-load-misses/=153003 cpu_core/dTLB-load-misses/=145174 
+zod3 round=3 v=main duration_time=182557162 user_time=151962000 system_time=29992000 cpu_core/cycles/k=102345590 page-faults=9639 cpu_atom/dTLB-load-misses/=383608 cpu_core/dTLB-load-misses/=217521 
+zod3 round=3 v=seglead duration_time=179319600 user_time=153562000 system_time=25091000 cpu_core/cycles/k=100148923 page-faults=9233 cpu_atom/dTLB-load-misses/=340154 cpu_core/dTLB-load-misses/=163638 
+zod3 round=4 v=main duration_time=191417208 user_time=154692000 system_time=35928000 cpu_core/cycles/k=109107867 page-faults=9640 cpu_atom/dTLB-load-misses/=127254 cpu_core/dTLB-load-misses/=222951 
+zod3 round=4 v=seglead duration_time=178254450 user_time=155547000 system_time=22077000 cpu_core/cycles/k=96149223 page-faults=9232 cpu_core/dTLB-load-misses/=147770 
+zod3 round=5 v=main duration_time=184572965 user_time=157060000 system_time=27010000 cpu_core/cycles/k=103848892 page-faults=9640 cpu_atom/dTLB-load-misses/=150723 cpu_core/dTLB-load-misses/=227355 
+zod3 round=5 v=seglead duration_time=180590308 user_time=153050000 system_time=27008000 cpu_core/cycles/k=99371116 page-faults=9233 cpu_atom/dTLB-load-misses/=173397 cpu_core/dTLB-load-misses/=139109 
+zod3 round=6 v=main duration_time=185677259 user_time=161973000 system_time=22996000 cpu_core/cycles/k=102809161 page-faults=9641 cpu_atom/dTLB-load-misses/=119248 cpu_core/dTLB-load-misses/=212115 
+zod3 round=6 v=seglead duration_time=182005284 user_time=157484000 system_time=24074000 cpu_core/cycles/k=99573169 page-faults=9234 cpu_atom/dTLB-load-misses/=132498 cpu_core/dTLB-load-misses/=145893 
+zod3 round=7 v=main duration_time=185655741 user_time=160999000 system_time=23999000 cpu_core/cycles/k=103178590 page-faults=9638 cpu_atom/dTLB-load-misses/=140029 cpu_core/dTLB-load-misses/=228888 
+zod3 round=7 v=seglead duration_time=180513029 user_time=150814000 system_time=29157000 cpu_core/cycles/k=97723844 page-faults=9231 cpu_atom/dTLB-load-misses/=121917 cpu_core/dTLB-load-misses/=147262 
+zod3 round=8 v=main duration_time=187224821 user_time=155835000 system_time=30770000 cpu_core/cycles/k=109111309 page-faults=9640 cpu_core/dTLB-load-misses/=227374 
+zod3 round=8 v=seglead duration_time=179445666 user_time=151567000 system_time=27101000 cpu_core/cycles/k=98233093 page-faults=9232 cpu_atom/dTLB-load-misses/=149704 cpu_core/dTLB-load-misses/=159345 
+zod3 round=9 v=main duration_time=187434911 user_time=163615000 system_time=22946000 cpu_core/cycles/k=106113256 page-faults=9640 cpu_atom/dTLB-load-misses/=1681 cpu_core/dTLB-load-misses/=220304 
+zod3 round=9 v=seglead duration_time=181190641 user_time=153318000 system_time=27056000 cpu_core/cycles/k=98433564 page-faults=9233 cpu_atom/dTLB-load-misses/=122620 cpu_core/dTLB-load-misses/=146640 
+zod3 round=10 v=main duration_time=184436692 user_time=154840000 system_time=28970000 cpu_core/cycles/k=103751615 page-faults=9640 cpu_atom/dTLB-load-misses/=163386 cpu_core/dTLB-load-misses/=222239 
+zod3 round=10 v=seglead duration_time=183129828 user_time=161470000 system_time=21061000 cpu_core/cycles/k=104573783 page-faults=9233 cpu_atom/dTLB-load-misses/=114355 cpu_core/dTLB-load-misses/=142177 
