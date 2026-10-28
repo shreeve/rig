@@ -193,7 +193,11 @@ until its rule is built. docs/internals/tests.md has the rest.
    its PR: `bench/json/guard.py`, run with the branch's `bin/rig` on
    `PATH` (after `tools/fetch-json-data.sh` once), within 2% of
    `guard.txt` on all six files. std.json may never get slower, and a
-   gain on Trig alone does not show that it did not.
+   gain on Trig alone does not show that it did not. It shows the
+   built-in tables' numbers the same way: `bench/hash/guard.py`, within
+   2% of its `guard.txt` on every row for `Map` and `HashMap`, so a
+   speed won on the tables stays won. A change meant to move a row
+   commits the new baseline with `--update` and says why in its PR.
 7. **PR,** opened early as a draft whose body is a checklist of the
    steps, the gates among them; `gh pr ready` when done. Commit only
    when the owner asks.

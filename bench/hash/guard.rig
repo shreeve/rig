@@ -1,0 +1,182 @@
+# The rows bench/hash/guard.py holds to a baseline. `guard ROW REPS`
+# builds its keys and its Map once, then does ROW's operation REPS times
+# over N keys and prints a check, so two runs of one row differ only in
+# the repeated loop. guard.py builds this program as written and with
+# `Map[` and `Set[` read as `HashMap[` and `HashSet[`, so one program
+# guards both tables.
+
+use std.os
+use std.text
+
+N = 100000
+
+type IntMap = Map[Int, Int]
+type TextMap = Map[String, Int]
+type PairMap = Map[Pair, Int]
+
+obj Pair
+  lo: U64
+  hi: U64
+
+fun pair(i: Int) -> Pair
+  Pair(lo: (U64(i >> 10) << 32) | U64(i & 1023), hi: 0xA5C4000000000000)
+
+fun scatter(n: Int) -> Int
+  z = (U64.wrap(n) +% 1) *% 0x9e3779b97f4a7c15
+  z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9
+  z = (z ^ (z >> 27)) *% 0x94d049bb133111eb
+  Int.wrap(z ^ (z >> 31))
+
+# `text(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes.
+fun text_of(n: Int) -> String
+  String(U64.wrap(scatter(n)) >> (n % 48), "#", n)
+
+fun ints(from: Int) -> List[Int]
+  xs: List[Int] = List(capacity: N)
+  for i in 0..N
+    !xs.push(scatter(from + i))
+  xs
+
+fun texts(from: Int) -> List[String]
+  xs: List[String] = List(capacity: N)
+  for i in 0..N
+    !xs.push(text_of(from + i))
+  xs
+
+fun int_map(ks: ?List[Int]) -> IntMap
+  m = IntMap()
+  for k, i in ?ks
+    !m.put(k, i)
+  m
+
+fun text_map(ks: ?List[String]) -> TextMap
+  m = TextMap()
+  for k, i in ?ks
+    !m.put(String(k), i)
+  m
+
+called fun int_hit(reps: Int) -> Int
+  ks = ints(0)
+  m = int_map(?ks)
+  sum = 0
+  for _ in 0..reps
+    for k in ?ks
+      if m.get(k) as v
+        sum += v
+  sum
+
+called fun int_miss(reps: Int) -> Int
+  m = int_map(?ints(0))
+  miss = ints(N)
+  found = 0
+  for _ in 0..reps
+    for k in ?miss
+      found += 1 if m.has(k)
+  found
+
+# Each repetition fills an empty Map and empties it again.
+called fun int_churn(reps: Int) -> Int
+  ks = ints(0)
+  sum = 0
+  for _ in 0..reps
+    m = IntMap()
+    for k, i in ?ks
+      !m.put(k, i)
+    for k in ?ks
+      sum += (!m).take(k) ?? 0
+  sum
+
+called fun int_iterate(reps: Int) -> Int
+  m = int_map(?ints(0))
+  sum = 0
+  for _ in 0..reps
+    for e in ?m.items()
+      sum += e.value
+  sum
+
+called fun text_hit(reps: Int) -> Int
+  ks = texts(0)
+  m = text_map(?ks)
+  look = texts(0)
+  sum = 0
+  for _ in 0..reps
+    for k in ?look
+      if m.get(k) as v
+        sum += v
+  sum
+
+called fun text_miss(reps: Int) -> Int
+  m = text_map(?texts(0))
+  miss = texts(8 * N)
+  found = 0
+  for _ in 0..reps
+    for k in ?miss
+      found += 1 if m.has(k)
+  found
+
+# Each repetition makes N texts, moves them into an empty Map, and takes
+# them out, which drops them: String(...), put, and take.
+called fun text_churn(reps: Int) -> Int
+  ks = texts(0)
+  sum = 0
+  for _ in 0..reps
+    m = TextMap()
+    for i in 0..N
+      !m.put(text_of(i), i)
+    for k in ?ks
+      sum += (!m).take(k) ?? 0
+  sum
+
+called fun pair_hit(reps: Int) -> Int
+  m = PairMap()
+  for i in 0..N
+    !m.put(pair(i), i)
+  sum = 0
+  for _ in 0..reps
+    for i in 0..N
+      if m.get(pair(i)) as v
+        sum += v
+  sum
+
+# N lookups in a Map of 16 keys.
+called fun small_hit(reps: Int) -> Int
+  m = IntMap()
+  for i in 0..16
+    !m.put(scatter(i), i)
+  ks: List[Int] = List(capacity: N)
+  for i in 0..N
+    !ks.push(scatter(i % 16))
+  sum = 0
+  for _ in 0..reps
+    for k in ?ks
+      if m.get(k) as v
+        sum += v
+  sum
+
+sub main()
+  args = os.args()
+  if args.len < 3
+    print("usage: guard ROW REPS")
+    return
+  reps = text.parse_int(args[2]) catch 1
+  row = args[1]
+  if row == "int-hit"
+    print(int_hit(reps))
+  else if row == "int-miss"
+    print(int_miss(reps))
+  else if row == "int-churn"
+    print(int_churn(reps))
+  else if row == "int-iterate"
+    print(int_iterate(reps))
+  else if row == "text-hit"
+    print(text_hit(reps))
+  else if row == "text-miss"
+    print(text_miss(reps))
+  else if row == "text-churn"
+    print(text_churn(reps))
+  else if row == "pair-hit"
+    print(pair_hit(reps))
+  else if row == "small-hit"
+    print(small_hit(reps))
+  else
+    print("guard: no row", row)

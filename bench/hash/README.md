@@ -112,3 +112,18 @@ and compares every variant with `--base` (default: the first Zig one),
 then a scoreboard: first places by variant over the rows every variant
 times, the `int` rows left out. `--spread PCT` lists each row whose runs of a
 variant spread more than PCT%, to run again.
+
+## The guard
+
+`bench/hash/guard.py` holds the built-in tables to what they have won.
+It builds `guard.rig` for `Map` and again for `HashMap` (`rig build
+--release`), and counts the instructions each row retires per operation:
+hits, misses, a fill and empty (`churn`), and a walk over 100,000 Int
+keys; hits, misses, and a churn that makes its keys with `String(...)`
+over 100,000 texts; hits on two-word keys; and hits in a Map of 16. A
+row is two runs of 1 and 11 repetitions, so building the keys and the
+Map counts nothing. Any row more than 2% over `guard.txt` fails, and
+`--update` writes a new baseline. Counts do not move with load, so it
+runs on a busy Mac in about 10 seconds (`/usr/bin/time -l`, macOS only).
+Instructions do not see where memory lies, so a change that scatters
+keys without adding work is the timed rows' to catch.
