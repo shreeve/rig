@@ -182,6 +182,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A payload taken out of an optional is copied once.** `xs.pop() ?? d`,
+  `if xs.pop() as v` and `while xs.pop() as v` copy the element out of
+  the slot the pop leaves, and `o ?? d` copies an object, array or
+  String payload out of the optional where it is, where each went
+  through a Zig `?T` and out again, up to four copies of the whole
+  value. Trig's blocked loads fall 18% on ts-pattern and 27% on zod3,
+  with cycles about the same
+  ([records](docs/history/records/2026-10/perf-stage/payload-in-place.md)).
 - **The built-in tables have a guard.** `bench/hash/guard.py` counts the
   instructions per operation of `Map` and `HashMap` on Int, text, and
   two-word keys, and fails any row more than 2% over its baseline, as

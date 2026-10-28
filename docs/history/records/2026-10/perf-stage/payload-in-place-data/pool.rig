@@ -1,0 +1,55 @@
+obj Big
+  a: List[Int] = List()
+  b: List[Int] = List()
+  c: List[Int] = List()
+  s: Set[Int] = Set[Int]()
+  n0: Int = 0
+  n1: Int = 0
+  n2: Int = 0
+  n3: Int = 0
+  n4: Int = 0
+  n5: Int = 0
+  n6: Int = 0
+  n7: Int = 0
+  n8: Int = 0
+  n9: Int = 0
+  n10: Int = 0
+  n11: Int = 0
+  n12: Int = 0
+  n13: Int = 0
+  n14: Int = 0
+  n15: Int = 0
+  n16: Int = 0
+  n17: Int = 0
+  n18: Int = 0
+  n19: Int = 0
+
+obj Owner
+  free: List[Big] = List()
+  total: Int = 0
+
+fun Owner.get(!@) -> Big
+  (!@free).pop() ?? Big()
+
+sub Owner.put(!@, r: Big)
+  new r = <r
+  !r.a.clear()
+  r.n0 = 0
+  r.n19 = 0
+  !@free.push(<r)
+
+fun Owner.work(!@, k: Int) -> Int
+  r = (!@).get()
+  r.n0 = k
+  !r.a.push(k)
+  t = r.n0 + r.a.len
+  !@put(<r)
+  t
+
+sub main()
+  o = Owner()
+  s = 0
+  for i in 0..1000
+    s += (!o).work(i)
+  print(s)
+  print(o.free.len)

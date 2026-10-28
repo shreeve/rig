@@ -34,6 +34,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Table reads in loops and yield checks (2026-10-26) | a Table's base is reloaded in a loop because the index test before it leaves the loop and Zig gives LLVM no `dereferenceable`, as much as because of the yield call; `noalias` on views gains nothing on Trig today (0.2% fewer instructions), and running range loops' turns in runs is worse (2.8-3.9% more); built: the yield checks call the scheduler through a function that keeps every register: Trig release 1.9% fewer instructions, with PGO 0.8-0.9% fewer and time within the noise, under the bar | [perf-stage/loop-hoist.md](2026-10/perf-stage/loop-hoist.md) |
 | Memory traffic, Trig against tsrs (2026-10-28) | Trig and tsrs miss L1 and L2 alike; Trig has 1.9× tsrs's L3 misses, 3.2× its STLB misses and 2.2× its faults. Map indexes take a third of its L3 and half its STLB misses, Tables a quarter and a third, and 81% of its faults, where tsrs keeps the same data in one arena on huge pages. By bytes Trig allocates about what tsrs does (the "6.4×" was instructions); 81% of its blocks are copies of stored lists. Ceilings: Tables faulted in 64 KiB ahead, 2.7% fewer cycles and 64% fewer faults, for 0.6-2.0% more memory; the Relater copied in place, 2.0% fewer user cycles; huge pages for large indexes, 24% fewer STLB misses and no cycles. Ranked Rig-side requirements and Trig-side findings | [perf-stage/memory-traffic.md](2026-10/perf-stage/memory-traffic.md) |
 | Table fault-ahead (2026-10-28) | built into the runtime, it cut Trig's faults 65% but its cycles only 0.4%: populating a page saves only its trap, about 850 of 5,000-5,600 kernel cycles, and the frontier check stopped `push` from inlining; the kernel gap to tsrs is page size, 53,600 pages of 4 KiB against 63 of 2 MiB; archived for huge pages | [perf-stage/fault-ahead/](2026-10/perf-stage/fault-ahead/README.md) |
+| A payload taken out of an optional, copied once (2026-10-28) | emit took a payload out of an optional by value, four copies of a pooled object between a List's slot and its binding; now `xs.pop() ?? d` and `xs.pop() as v` copy it once out of the slot (`popAt`), and `o ?? d` out of the optional where it is (`storage.takeFrom`); `rig.rt` and `rig.take` cost no copy. Trig: blocked loads 18% fewer on ts-pattern and 27% fewer on zod3, user cycles unchanged and 0.4% fewer, under the bar; the ceiling's 2.0% did not reproduce | [perf-stage/payload-in-place.md](2026-10/perf-stage/payload-in-place.md) |
 | Profile-guided optimization (2026-10-25) | LLVM PGO through Zig's bitcode and `zig cc`, trained away from the project timed: Trig 10% faster with 14% fewer instructions on ts-pattern and zod3, 5-9% faster than BOLT alone, BOLT on top adding nothing; built as `rig build --release --pgo`, with a freestanding profile writer the runtime calls in `--pgo` packages only | [perf-stage/pgo.md](2026-10/perf-stage/pgo.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
@@ -253,6 +254,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [w.c](2026-10/perf-stage/bounds-enum-data/w.c)
 - [loop-hoist.md](2026-10/perf-stage/loop-hoist.md): Table reads in loops, and what a yield check costs (2026-10-26)
 - [memory-traffic.md](2026-10/perf-stage/memory-traffic.md): Where Trig's memory traffic comes from, against tsrs, and what Rig can remove (2026-10-28)
+- [payload-in-place.md](2026-10/perf-stage/payload-in-place.md): A payload taken out of an optional, copied once (2026-10-28)
 
 ### 2026-10/perf-stage/loop-hoist-data/
 
@@ -284,6 +286,17 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [xtime-raw.tsv](2026-10/perf-stage/memory-traffic-data/xtime-raw.tsv)
 - [xtime.sh](2026-10/perf-stage/memory-traffic-data/xtime.sh)
 - `out/`: the summaries each script wrote; `tsrs/`: tsrs's mimalloc statistics and memory split
+
+### 2026-10/perf-stage/payload-in-place-data/
+
+- [ceiling-raw.log](2026-10/perf-stage/payload-in-place-data/ceiling-raw.log)
+- [pool.rig](2026-10/perf-stage/payload-in-place-data/pool.rig)
+- [setup.sh](2026-10/perf-stage/payload-in-place-data/setup.sh)
+- [time-raw.log](2026-10/perf-stage/payload-in-place-data/time-raw.log)
+- [time.md](2026-10/perf-stage/payload-in-place-data/time.md)
+- [time.sh](2026-10/perf-stage/payload-in-place-data/time.sh)
+- [tsum.py](2026-10/perf-stage/payload-in-place-data/tsum.py)
+- [variants.py](2026-10/perf-stage/payload-in-place-data/variants.py)
 
 ### 2026-10/perf-stage/list-grow-data/
 
