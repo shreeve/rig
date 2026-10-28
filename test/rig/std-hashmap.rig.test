@@ -1,0 +1,1033 @@
+# std: tests whose names start `hashmap`: the unordered HashMap and
+# HashSet. Their order is unspecified (it differs between targets), so
+# a case that walks one sorts what it walked, or walks one entry.
+
+use std.sort
+
+test "hashmap churn", '''
+  true true true true
+  true true
+  true true true
+'''
+  # HashMap and HashSet against a plain reference, a List of pairs
+  # searched in turn, over a long pseudo-random run of puts, takes, gets,
+  # edits, `put_new`s, `ensure`s, `retain`s, and clears, at sizes that
+  # grow the table several times, and with room reserved. After every
+  # step the two agree on the length and on every key, and a walk gives
+  # each live key once.
+
+  obj Pair
+    key: Int
+    value: Int
+    live: Bool
+
+  obj Model
+    pairs: List[Pair] = List()
+    len: Int = 0
+
+    fun find(?@, k: Int) -> Int?
+      for p, i in ?@pairs
+        return i if p.live and p.key == k
+      none
+
+    sub put(!@, k: Int, v: Int)
+      if @find(k) as i
+        @pairs[i].value = v
+      else
+        !@pairs.push(Pair(key: k, value: v, live: true))
+        @len += 1
+
+    fun take(!@, k: Int) -> Int?
+      if @find(k) as i
+        @pairs[i].live = false
+        @len -= 1
+        return @pairs[i].value
+      none
+
+    sub bump(!@, k: Int)
+      if @find(k) as i
+        @pairs[i].value += 1
+
+    sub clear(!@)
+      !@pairs.clear()
+      @len = 0
+
+    sub retain(!@, raise: Int)
+      kept: List[Pair] = List()
+      for p in ?@pairs
+        if p.live and kept_after(p.key, p.value + raise)
+          !kept.push(Pair(key: p.key, value: p.value + raise, live: true))
+      @len = kept.len
+      @pairs = <kept
+
+    fun keys(?@) -> List[Int]
+      out: List[Int] = List()
+      for p in ?@pairs
+        !out.push(p.key) if p.live
+      sort.sort(!out)
+      out
+
+  fun kept_after(k: Int, v: Int) -> Bool
+    (k / 1024 + v) % 3 != 0
+
+  fun same_keys(a: ?List[Int], b: ?List[Int]) -> Bool
+    return false if a.len != b.len
+    for x, i in a
+      return false if x != b[i]
+    true
+
+  fun raise_and_keep(k: ?Int, v: !Int) -> Bool
+    v += 2
+    kept_after(k, v)
+
+  obj Rand
+    s: U64
+
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
+
+  fun agree(m: ?HashMap[Int, Int], ref: ?Model, span: Int) -> Bool
+    return false if m.len != ref.len
+    for x in 0..span
+      k = x * 1024
+      want: Int? = none
+      if ref.find(k) as i
+        want = ref.pairs[i].value
+      got: Int? = none
+      if m.get(k) as v
+        got = v
+      return false if got != want
+    walked: List[Int] = List()
+    for e in ?m.items()
+      !walked.push(e.key)
+    sort.sort(!walked)
+    same_keys(?walked, ?ref.keys())
+
+  fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
+    r = Rand(s: seed)
+    m = HashMap[Int, Int].new(capacity: reserve)
+    ref = Model()
+    for step in 0..steps
+      op = (!r).next(20)
+      k = (!r).next(span) * 1024
+      if op < 9
+        !m.put(k, step)
+        !ref.put(k, step)
+      else if op < 14
+        return false if (!m).take(k) != (!ref).take(k)
+      else if op < 15
+        if (!m).edit(k) as v
+          v += 1
+          !ref.bump(k)
+      else if op < 16
+        return false if (!m).put_new(k, step) != (ref.find(k) == none)
+        !ref.put(k, step) if ref.find(k) == none
+      else if op < 18
+        c = (!m).ensure(k, step)
+        c += 1
+        !ref.put(k, step) if ref.find(k) == none
+        !ref.bump(k)
+      else if op < 19
+        if (!r).next(10) == 0
+          !m.retain(|key, val| raise_and_keep(key, !val))
+          !ref.retain(2)
+      else if (!r).next(25) == 0
+        !m.clear()
+        !ref.clear()
+      return false if not agree(?m, ?ref, span)
+    true
+
+  fun set_agrees(s: ?HashSet[Int], ref: ?Model, span: Int) -> Bool
+    return false if s.len != ref.len
+    for x in 0..span
+      return false if s.has(x * 1024) != (ref.find(x * 1024) != none)
+    walked: List[Int] = List()
+    for k in ?s.items()
+      !walked.push(k)
+    sort.sort(!walked)
+    same_keys(?walked, ?ref.keys())
+
+  fun run_set(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
+    r = Rand(s: seed)
+    s = HashSet[Int].new(capacity: reserve)
+    ref = Model()
+    for _ in 0..steps
+      op = (!r).next(10)
+      k = (!r).next(span) * 1024
+      if op < 6
+        return false if (!s).add(k) != (ref.find(k) == none)
+        !ref.put(k, 0)
+      else if op < 9
+        got = (!s).take(k)
+        return false if (got != none) != ((!ref).take(k) != none)
+      else if (!r).next(10) == 0
+        !s.retain(|key| kept_after(key, 0))
+        !ref.retain(0)
+      else if (!r).next(50) == 0
+        !s.clear()
+        !ref.clear()
+      return false if not set_agrees(?s, ?ref, span)
+    true
+
+  print(run(1, 6, 400, 0), run(2, 12, 2000, 0), run(3, 40, 4000, 0), run(4, 300, 6000, 0))
+  print(run(5, 40, 3000, 100), run(6, 9, 3000, 9))
+  print(run_set(7, 6, 400, 0), run_set(8, 40, 4000, 0), run_set(9, 300, 6000, 50))
+
+test "hashmap model of text keys", "true true"
+  # A HashMap of String keys and String values, and a HashSet of String
+  # keys, against a reference over random puts, takes, `ensure`s,
+  # `retain`s, clears, reserves, and clones, at spans that stay small and
+  # that grow the table many times; checked every 101 steps on the
+  # length, every key, and a walk, the clone too.
+
+  obj Rand
+    s: U64
+
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
+
+  fun word(i: Int) -> String
+    String("key-", i, "-", i * 7919 % 1000)
+
+  fun same(m: ?HashMap[String, String], ref: ?List[Int], span: Int) -> Bool
+    live = 0
+    for x in 0..span
+      w = word(x)
+      if ref[x] >= 0
+        live += 1
+        return false if m.get(?w) != String("v", ref[x])
+      else
+        return false if m.has(?w)
+    return false if m.len != live
+    n = 0
+    for e in ?m.items()
+      return false if e.value.len < 2
+      n += 1
+    n == live
+
+  fun run(seed: U64, span: Int, steps: Int) -> Bool
+    r = Rand(s: seed)
+    m = HashMap[String, String]()
+    s = HashSet[String]()
+    ref: List[Int] = List()
+    for _ in 0..span
+      !ref.push(-1)
+    for step in 0..steps
+      x = (!r).next(span)
+      op = (!r).next(100)
+      if op < 45
+        !m.put(word(x), String("v", step))
+        _ = (!s).add(word(x))
+        ref[x] = step
+      else if op < 75
+        got = (!m).take(word(x))
+        return false if (got != none) != (ref[x] >= 0)
+        _ = (!s).take(word(x))
+        ref[x] = -1
+      else if op < 90
+        _ = (!m).ensure(word(x), String("v", step))
+        _ = (!s).add(word(x))
+        ref[x] = step if ref[x] < 0
+      else if op < 93
+        !m.retain(|k, v| k.len % 2 == 0)
+        !s.retain(|k| k.len % 2 == 0)
+        for y in 0..span
+          ref[y] = -1 if word(y).len % 2 != 0
+      else if op < 95
+        !m.clear()
+        !s.clear()
+        for y in 0..span
+          ref[y] = -1
+      else
+        !m.reserve((!r).next(200))
+      if step % 101 == 0
+        return false if not same(?m, ?ref, span)
+        c = +m
+        return false if not same(?c, ?ref, span)
+        return false if s.len != m.len
+    same(?m, ?ref, span)
+
+  print(run(11, 8, 3000), run(12, 3000, 6000))
+
+test "hashmap drops each key and value once", '''
+  100 20 20
+  e true
+  len 47 128 94
+  30 30
+  got 3
+  total 246 246 171 171
+'''
+  # Objects with `drop` bodies as keys and values count their drops on
+  # shared tallies: through a put over a key, `put_new` and `ensure` on a
+  # present key, take, `retain`, `clear`, and the drop of the HashMap and
+  # HashSet. Every key and value made is dropped exactly once, and a
+  # HashSet's take hands its key back undropped.
+
+  obj K: Eq + Hash
+    n: Int
+    name: String
+    tally: *Cell[Int]
+
+    fun eq(?@, other: ?K) -> Bool
+      @n == other.n
+
+    sub hash_into(?@, h: !Hasher)
+      !h.add(@n)
+
+    drop(!@)
+      !@tally.set(@tally.get() + 1)
+
+  obj V
+    tag: Int
+    tally: *Cell[Int]
+
+    drop(!@)
+      !@tally.set(@tally.get() + 1)
+
+  ks: *Cell[Int] = *Cell(0)
+  vs: *Cell[Int] = *Cell(0)
+  keys = 0
+  values = 0
+  if true
+    m = HashMap[K, V]()
+    for i in 0..100
+      !m.put(K(n: i, name: String("n"), tally: +ks), V(tag: i, tally: +vs))
+      keys += 1
+      values += 1
+    for i in 0..100
+      continue if i % 5 != 0
+      !m.put(K(n: i, name: String("n"), tally: +ks), V(tag: i, tally: +vs))
+      keys += 1
+      values += 1
+    print(m.len, ks.get(), vs.get())
+    for i in 0..100
+      continue if i % 3 != 0
+      _ = (!m).take(K(n: i, name: String("x"), tally: +ks))
+      keys += 1
+    !m.retain(|k, v| k.n % 2 == 0)
+    for i in 0..20
+      _ = (!m).put_new(K(n: i, name: String("n"), tally: +ks), V(tag: i, tally: +vs))
+      keys += 1
+      values += 1
+    e = (!m).ensure(K(n: 2, name: String("n"), tally: +ks), V(tag: -1, tally: +vs))
+    keys += 1
+    values += 1
+    print("e", e.tag != -1)
+    print("len", m.len, ks.get(), vs.get())
+    !m.clear()
+    for i in 0..30
+      !m.put(K(n: i, name: String("n"), tally: +ks), V(tag: i, tally: +vs))
+      keys += 1
+      values += 1
+    s = HashSet[K]()
+    for i in 0..40
+      _ = (!s).add(K(n: i % 25, name: String("s"), tally: +ks))
+      keys += 1
+    print(m.len, s.len + 5)
+    if (!s).take(K(n: 3, name: String("q"), tally: +ks)) as got
+      print("got", got.n)
+    keys += 1
+    !s.retain(|k| k.n % 2 == 0)
+  print("total", keys, ks.get(), values, vs.get())
+
+test "hashmap compound keys", '''
+  10 5 false
+  10 5 false
+'''
+  # A compound key is an object of its parts. One that owns its text is
+  # looked up with a key built the same way; one that holds a view of its
+  # text looks up with no copy, and its HashMap holds views, so the text
+  # it views is declared before the HashMap.
+
+  obj Key
+    name: String
+    n: Int
+
+  obj KeyView
+    name: ?String
+    n: Int
+
+  m = HashMap[Key, Int].new()
+  !m.put(Key(name: String("a"), n: 1), 10)
+  c = (!m).ensure(Key(name: String("b"), n: 2), 0)
+  c += 5
+  print(m.get(Key(name: String("a"), n: 1)), m.get(Key(name: String("b"), n: 2)), m.has(Key(name: String("a"), n: 2)))
+
+  t = String("a")
+  v = HashMap[KeyView, Int].new()
+  !v.put(KeyView(name: ?t, n: 1), 10)
+  w = (!v).ensure(KeyView(name: "b", n: 2), 0)
+  w += 5
+  print(v.get(KeyView(name: "a", n: 1)), v.get(KeyView(name: "b", n: 2)), v.has(KeyView(name: "a", n: 2)))
+
+test "hashmap keys of every kind", '''
+  mod 150 0
+  name 39 10
+  {.red: 1}
+  {false: 0}
+  41 -1 39
+  128 255 none
+  1
+  long 100 true
+'''
+  # Keys with their own `==` and hash, found by an equal key that is a
+  # different value; enum, Bool, optional, U8, and Static keys; and text
+  # keys past 32 bytes, which the table hashes as Wyhash does.
+
+  obj Mod: Eq + Hash
+    n: Int
+
+    fun eq(?@, other: ?Mod) -> Bool
+      @n % 1000 == other.n % 1000
+
+    sub hash_into(?@, h: !Hasher)
+      !h.add(@n % 1000)
+
+  obj Name: Eq + Hash
+    text: String
+
+    fun eq(?@, other: ?Name) -> Bool
+      @text.len == other.text.len
+
+    sub hash_into(?@, h: !Hasher)
+      !h.add(@text.len)
+
+  enum Color
+    red
+    green
+    blue
+
+  m = HashMap[Mod, Int]()
+  for i in 0..300
+    !m.put(Mod(n: i), i)
+  for i in 0..300
+    continue if i % 4 != 0
+    _ = (!m).take(Mod(n: i + 1000))
+  !m.retain(|k, v| v % 3 != 0)
+  bad = 0
+  for i in 0..300
+    want = i % 4 != 0 and i % 3 != 0
+    bad += 1 if (m.get(Mod(n: i + 2000)) != none) != want
+  print("mod", m.len, bad)
+  nm = HashMap[Name, Int]()
+  for i in 1..40
+    s = String()
+    for _ in 0..i
+      !s.add("x")
+    !nm.put(Name(text: <s), i)
+  print("name", nm.len, nm.get(Name(text: String("abcdefghij"))))
+  em = HashMap[Color, Int]()
+  !em.put(.red, 1)
+  !em.put(.blue, 3)
+  _ = (!em).take(.blue)
+  print(em)
+  bm = HashMap[Bool, Int]()
+  !bm.put(true, 1)
+  !bm.put(false, 0)
+  _ = (!bm).take(true)
+  print(bm)
+  om = HashMap[Int?, Int]()
+  for i in 0..40
+    !om.put(i, i)
+  !om.put(none, -1)
+  nn: Int? = none
+  k39: Int? = 39
+  print(om.len, om.get(?nn), om.get(?k39))
+  um = HashMap[U8, Int]()
+  for i in 0..256
+    !um.put(U8(i), i)
+  for i in 0..256
+    continue if i % 2 != 0
+    _ = (!um).take(U8(i))
+  print(um.len, um.get(U8(255)), um.get(U8(254)))
+  sm = HashMap[Static, Int]()
+  !sm.put("a", 1)
+  print(sm.get("a"))
+  long = HashMap[String, Int]()
+  for i in 0..100
+    !long.put(String("a key well past thirty-two bytes long, number ", i), i)
+  print("long", long.len, (long.get("a key well past thirty-two bytes long, number 42") ?? 0) == 42)
+
+test "hashmap ensure chain", "[5, 6] 1"
+  # The write view `ensure` returns takes a write call in the same
+  # statement, with no `!` before the receiver it already lends.
+
+  b = HashMap[Int, List[Int]].new()
+  (!b).ensure(1, List()).push(5)
+  (!b).ensure(1, List()).push(6)
+  print(b.get(1), b.len)
+
+fail "hashmap ensure keeps lent", "use of `m.len` while a write loan on `m` is live"
+  # The write view `ensure` returns is `from @`: it keeps the HashMap lent
+  # to write, so it cannot be read or written while the view lives.
+
+  m = HashMap[Int, Int].new()
+  c = (!m).ensure(1, 0)
+  print(m.len)
+  c += 1
+
+test "hashmap ensure with", '''
+  ab true
+  cd true
+  ab false
+  ab false
+  ef true
+  cd false
+  3 3
+  ["ab!", "ab", "ab", "ab"] ["cd!", "cd", "cd"] ["ef!", "ef"]
+  10 10 13 85
+'''
+  # `ensure_with` lends the value under a key to write, making it with
+  # `make` only when the key is new. Values that own memory are made,
+  # kept, and dropped clean.
+
+  fun make(k: ?String, count: !Int, added: !Bool) -> List[String]
+    count += 1
+    added = true
+    l = List[String]()
+    !l.push(String(k, "!"))
+    l
+
+  count = 0
+  m = HashMap[String, List[String]].new()
+  for w in ["ab", "cd", "ab", "ab", "ef", "cd"]
+    added = false
+    g = (!m).ensure_with(String(w), |!count, !added, k| make(k, !count, !added))
+    !g.push(String(w))
+    print(w, added)
+  print(count, m.len)
+  print(m.get("ab"), m.get("cd"), m.get("ef"))
+
+  calls = 0
+  sq = HashMap[Int, Int].new()
+  for i in 0..40
+    v = (!sq).ensure_with(i % 10, |!calls, k| square(k, !calls))
+    v += 1
+  print(calls, sq.len, sq.get(3), sq.get(9))
+
+  fun square(k: ?Int, calls: !Int) -> Int
+    calls += 1
+    k * k
+
+fail "hashmap ensure with no map", "cannot lend `m` to write while a read loan is live"
+  # `ensure_with` holds the HashMap lent to write while `make` runs, so
+  # `make` cannot capture it.
+
+  m = HashMap[Int, Int].new()
+  v = (!m).ensure_with(1, |?m, k| m.len + k)
+  v += 1
+
+test "hashmap ensure by", '''
+  2 2 1 1 4 4
+  2 1 2
+  10 [3, 13, 23, 33]
+'''
+  # `ensure_by` takes the key viewed and makes the key to put with `key`
+  # only when it is new: four words make four keys.
+
+  fun keyed(s: ?String, made: !Int) -> String
+    made += 1
+    +s
+
+  made = 0
+  counts = HashMap[String, Int].new()
+  for w in ["to", "be", "or", "not", "to", "be"]
+    (!counts).ensure_by(w, |!made, s| keyed(s, !made), 0) += 1
+  print(counts.get("to"), counts.get("be"), counts.get("or"), counts.get("not"), counts.len, made)
+
+  m = HashMap[String, Int].new()
+  buf = String()
+  for w in ["to", "be", "to"]
+    !buf.clear()
+    !buf.add(w)
+    (!m).ensure_by(?buf, |s| +s, 0) += 1
+  print(m.get("to"), m.get("be"), m.len)
+
+  sq = HashMap[Int, List[Int]].new()
+  for i in 0..40
+    k = i % 10
+    l = (!sq).ensure_by(?k, |n| n, List[Int]())
+    !l.push(i)
+  if sq.get(3) as l
+    print(sq.len, l)
+
+fail "hashmap ensure by view keys stay lent", "cannot lend `buf` to write while a read loan is live"
+  # A HashMap of view keys keeps what `key` made from the viewed key, so
+  # the buffer stays lent while the HashMap is used.
+
+  m = HashMap[?String, Int].new()
+  buf = String("to")
+  (!m).ensure_by(?buf, |s| s, 0) += 1
+  !buf.clear()
+  print(m)
+
+bomb "hashmap ensure by key other than k", "HashMap: `ensure_by`'s `key(k)` made a key other than `k`"
+  # The key `key(k)` makes must equal `k`: one that differs, here a key
+  # the HashMap holds already, would leave two equal keys in it.
+
+  m = HashMap[String, Int].new()
+  !m.put(String("b"), 1)
+  (!m).ensure_by("a", |s| String("b"), 5) += 0
+  print(m)
+
+fail "hashmap get keeps lent", "cannot lend `m` to write while a read loan is live"
+  # The view `get` returns is `from @`: it keeps the HashMap lent to
+  # read, so it cannot be written while the view lives.
+
+  m = HashMap[String, Int].new()
+  r = ?m.get("a")
+  !m.put(String("b"), 1)
+  print(r)
+
+fail "hashmap items then put", "cannot lend `m` to write while a read loan is live"
+  # The iterator `items` returns views the HashMap, which stays lent to
+  # read while the loop walks it.
+
+  m = HashMap[String, Int].new()
+  !m.put(String("a"), 1)
+  for e in ?m.items()
+    !m.put(String("c"), 2)
+
+fail "hashmap keys then take", "cannot lend `s` to write while a read loan is live"
+  # A HashSet's walk keeps it lent to read too.
+
+  s = HashSet[Int].new()
+  _ = (!s).add(1)
+  for k in ?s.items()
+    _ = (!s).take(k)
+
+fail "hashmap value view keeps its loan", "cannot drop `t` while it is lent"
+  # A value that views text, taken out of a HashMap, still views it.
+
+  t = String("x")
+  m = HashMap[Int, ?String]()
+  !m.put(1, ?t)
+  v = (!m).take(1)
+  <t
+  print(v)
+
+fail "hashmap key no eq", "cannot use `K = List[Int]`"
+  # A key is a value `.hash()` takes, and a List has no `==`.
+
+  m = HashMap[List[Int], Int].new()
+  print(m.len)
+
+fail "hashmap key same type", "type mismatch: expected `?Key`, got `KeyView`"
+  # A lookup takes a view of the HashMap's own key type.
+
+  obj Key
+    name: String
+    n: Int
+
+  obj KeyView
+    name: ?String
+    n: Int
+
+  m = HashMap[Key, Int].new()
+  print(m.get(KeyView(name: "a", n: 1)))
+
+fail "hashmap len read only", "5:9: `len` is a field of `HashMap[String, Int]`, not a method: write `m.len`", "5:18: `len` is a field of `HashSet[Int]`, not a method: write `s.len`", "6:3: cannot assign to `m.len`: field `len` of `HashMap` is read-only outside the methods of `HashMap`", "7:3: cannot assign to `s.len`: field `len` of `HashSet` is read-only outside the methods of `HashSet`", errors: 4
+  # `len` is a field, read anywhere and written only by their methods.
+
+  m = HashMap[String, Int]()
+  s = HashSet[Int]()
+  print(m.len(), s.len())
+  m.len = 3
+  s.len += 1
+
+fail "hashmap no at", "no method `at` on type `HashMap`"
+  # `at` is the entry at an index in first-put order, which a HashMap
+  # does not keep.
+
+  m = HashMap[String, Int]()
+  print(m.at(0))
+
+fail "hashmap no tables", "use of unbound"
+  # The tables behind HashMap and HashSet are the prelude's alone.
+
+  t = UnorderedMap[Int, Int]()
+  print(1)
+
+test "hashmap map", '''
+  0 false none
+  2 uno two false
+  two none
+  dos
+  uno none 2
+  ["again", "dos", "tres!"]
+  ["a", "b", "c"]
+  ["again", "dos", "tres!"]
+  0 none
+  666 332667 true true none
+  1000 1000
+  4 4 3 4
+  a b false
+  1 2 none
+  true true false 2
+  true false x none 1
+  ["x", "y", "z"]
+  0 false
+  true false 1 1 0 0
+  0 false
+  {"k": 1}
+'''
+  # HashMap and HashSet: every member, over owned and viewed text keys,
+  # integers, objects, and enums, through growth, taking, and clearing,
+  # with values that own memory. `HashMap[K, V]()` and `HashSet[K]()`
+  # make empty ones, also as a field's default, and `len` is a field.
+
+  obj Pt
+    x: Int
+    y: Int
+
+  enum Key
+    name(s: String)
+    num(n: Int)
+
+  sub bump(k: ?String, v: !Int)
+    v += k.len
+
+  obj Binder
+    ids: HashMap[U32, U32] = HashMap[U32, U32]()
+    seen: HashSet[U32] = HashSet[U32]()
+
+  m = HashMap[String, String].new()
+  print(m.len, m.has("a"), m.get("a"))
+  !m.put(String("a"), String("one"))
+  !m.put(String("b"), String("two"))
+  !m.put(String("a"), String("uno"))
+  print(m.len, m.get("a"), m.get("b"), m.has("c"))
+  old = (!m).replace(String("b"), String("dos"))
+  print(old, (!m).replace(String("c"), String("tres")))
+  if (!m).edit("c") as v
+    !v.add("!")
+  t = String("b")
+  print(m.get(?t))
+  print((!m).take("a"), (!m).take("a"), m.len)
+  !m.put(String("a"), String("again"))
+  vals: List[String] = List()
+  for e in ?m.items()
+    !vals.push(+e.value)
+  sort.sort(!vals)
+  print(vals)
+  ks: List[String] = List()
+  for k in ?m.keys()
+    !ks.push(+k)
+  sort.sort(!ks)
+  print(ks)
+  vs: List[String] = List()
+  for v in ?m.values()
+    !vs.push(+v)
+  sort.sort(!vs)
+  print(vs)
+  !m.clear()
+  print(m.len, m.get("b"))
+
+  ints = HashMap[Int, Int].new()
+  for i in 0..1000
+    !ints.put(i * 7, i)
+  for i in 0..1000
+    if i % 3 == 0
+      _ = (!ints).take(i * 7)
+  sum = 0
+  for i in 0..1000
+    if ints.get(i * 7) as v
+      sum += v
+  print(ints.len, sum, ints.has(7), ints.has(14), ints.get(6993))
+  for i in 0..1000
+    !ints.put(i * 7, 1)
+  count = 0
+  for e in ?ints.items()
+    count += e.value
+  print(ints.len, count)
+
+  counts = HashMap[?String, Int].new()
+  words = ["to", "be", "or", "not", "to", "be"]
+  for w in words
+    if (!counts).edit(w) as c
+      c += 1
+    else
+      !counts.put(w, 1)
+  !counts.update(bump)
+  print(counts.get("to"), counts.get("be"), counts.get("or"), counts.get("not"))
+
+  pts = HashMap[Pt, ?String].new()
+  !pts.put(Pt(x: 1, y: 2), "a")
+  !pts.put(Pt(x: 2, y: 1), "b")
+  print(pts.get(?Pt(x: 1, y: 2)), pts.get(?Pt(x: 2, y: 1)), pts.has(?Pt(x: 1, y: 1)))
+
+  keyed = HashMap[Key, Int].new()
+  !keyed.put(Key.name(s: String("x")), 1)
+  !keyed.put(Key.num(n: 5), 2)
+  print(keyed.get(Key.name(s: String("x"))), keyed.get(Key.num(n: 5)), keyed.get(Key.num(n: 6)))
+
+  s = HashSet[String].new()
+  print((!s).add(String("x")), (!s).add(String("y")), (!s).add(String("x")), s.len)
+  print(s.has("x"), s.has("z"), (!s).take("x"), (!s).take("x"), s.len)
+  _ = (!s).add(String("z"))
+  _ = (!s).add(String("x"))
+  members: List[String] = List()
+  for k in ?s.items()
+    !members.push(+k)
+  sort.sort(!members)
+  print(members)
+  !s.clear()
+  print(s.len, s.has("y"))
+  bd = Binder()
+  other = Binder()
+  !bd.ids.put(1, 10)
+  print((!bd.seen).add(1), (!bd.seen).add(1), bd.ids.len, bd.seen.len, other.ids.len, other.seen.len)
+  e = HashMap[Int, Int]()
+  print(e.len, e.has(1))
+  one = HashMap[String, Int]()
+  !one.put(String("k"), 1)
+  print(one)
+
+test "hashmap results", '''
+  new a
+  new b
+  new c
+  3 1 3
+'''
+  # `HashMap.ensure_added` lends the value under a key to write, with
+  # whether the key was new.
+
+  sub count(m: !HashMap[String, Int], word: ?String)
+    w, added = (!m).ensure_added(String(word), 0)
+    w += 1
+    print("new", word) if added
+
+  m = HashMap[String, Int]()
+  for word in ["a", "b", "a", "c", "a"]
+    count(!m, word)
+  print(m.get("a") ?? 0, m.get("b") ?? 0, m.len)
+
+fail "hashmap retain no map", "cannot lend `m` to write while a read loan is live"
+  # `retain` holds the HashMap lent to write while its closure runs, so
+  # the closure cannot capture it.
+
+  m = HashMap[Int, Int].new()
+  !m.put(1, 1)
+  !m.retain(|?m, k, v| m.len > 1)
+  print(m.len)
+
+test "hashmap write drops", '''
+  0 true
+  drop 2
+  a false
+  drop 3
+  b 11
+  c 11
+  make 2
+  d 200
+  e true
+  drop 11
+  f 4
+  drop 200
+  g 1
+  drop 4
+'''
+  # `put_new` and `ensure` drop the key and value they do not store at
+  # the call, `ensure_with` does not call `make` for a key already there,
+  # and `retain` drops an entry it rejects then.
+
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  fun mk(k: ?Int) -> Res
+    print("make", k)
+    Res(n: k * 100)
+
+  m = HashMap[Int, Res].new()
+  print(m.len, (!m).put_new(1, Res(n: 1)))
+  print("a", (!m).put_new(1, Res(n: 2)))
+  c = (!m).ensure(1, Res(n: 3))
+  c.n += 10
+  print("b", c.n)
+  d = (!m).ensure_with(1, mk)
+  print("c", d.n)
+  e = (!m).ensure_with(2, mk)
+  print("d", e.n)
+  t = (!m).take(1)
+  print("e", t != none)
+  <t
+  f = (!m).ensure(1, Res(n: 4))
+  print("f", f.n)
+  !m.retain(|k, r| k == 1)
+  print("g", m.len)
+
+test "hashmap writes", '''
+  1 2 3
+  2 ["be", "be", "or", "to", "to", "to"] 3 ["not"]
+  ["be", "not", "or", "to"] 0 1 4
+  abab+ cdcd
+  kept 8 [0, 1, 2, 4, 5, 6, 8, 9] 101
+  false true
+  9 true
+  16 false true [1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19]
+  end
+'''
+  # HashMap's writes beyond `put`: `ensure` lends the value under a key,
+  # putting one first when the key is new; `put_new` puts only a new key,
+  # so the first value wins; `edit` then `put` makes a value only for a
+  # new key; and `retain` keeps the entries a closure says to, writing
+  # values as it goes and dropping each entry it rejects then.
+
+  obj Res
+    n: Int
+
+  words = ["to", "be", "or", "not", "to", "be", "to"]
+
+  counts = HashMap[String, Int].new()
+  for w in words
+    c = (!counts).ensure(String(w), 0)
+    c += 1
+  print(counts.get("or"), counts.get("be"), counts.get("to"))
+
+  groups = HashMap[Int, List[String]].new()
+  for w in words
+    g = (!groups).ensure(w.len, List())
+    !g.push(String(w))
+  if groups.get(2) as two
+    if groups.get(3) as three
+      l = +two
+      sort.sort(!l)
+      print(2, l, 3, three)
+
+  seen = HashMap[?String, Int].new()
+  order = List[?String]()
+  for i in 0..words.len
+    if (!seen).put_new(words[i], i)
+      !order.push(words[i])
+  sort.sort(!order)
+  print(order, seen.get("to"), seen.get("be"), seen.len)
+
+  made = HashMap[String, String].new()
+  for w in ["ab", "cd", "ab"]
+    if (!made).edit(w) as s
+      !s.add("+")
+    else
+      !made.put(String(w), String(w, w))
+  print(made.get("ab"), made.get("cd"))
+
+  res = HashMap[Int, Res].new()
+  for i in 0..12
+    !res.put(i, Res(n: i * 10))
+  !res.retain(|k, r| keep(k, !r))
+  kept: List[Int] = List()
+  for k in ?res.keys()
+    !kept.push(k)
+  sort.sort(!kept)
+  bumped = 0
+  if res.get(9) as r9
+    if res.get(0) as r0
+      bumped = r9.n + r0.n + 9 if res.get(10) == none
+  print("kept", res.len, kept, bumped)
+  print(res.has(3), res.get(4) != none)
+  !res.put(30, Res(n: 1))
+  print(res.len, res.has(30))
+
+  nums = HashSet[Int].new()
+  for i in 0..20
+    _ = (!nums).add(i)
+  !nums.retain(|k| k % 5 != 0)
+  out = List[Int]()
+  for k in ?nums.items()
+    !out.push(k)
+  sort.sort(!out)
+  print(nums.len, nums.has(5), nums.has(6), out)
+  print("end")
+
+  fun keep(k: ?Int, r: !Res) -> Bool
+    r.n += 1
+    k % 4 != 3 and k < 10
+
+test "hashmap built in", '''
+  1 true
+  HashMap[String, Int] HashSet[Int]
+'''
+  # HashMap and HashSet are part of the language, named with no import,
+  # and their types print with no module.
+
+  m: HashMap[String, Int] = HashMap()
+  !m.put(String("a"), 1)
+  s = HashSet[Int].new()
+  _ = (!s).add(2)
+  print(m.get("a"), s.has(2))
+  print($name(HashMap[String, Int]), $name(HashSet[Int]))
+
+test "hashmap clone and nest", '''
+  3 1 true
+  1 2
+  none 7
+  true
+'''
+  # `+m` clones every entry into a HashMap of its own; nested HashMaps
+  # clone deep.
+
+  m = HashMap[String, List[Int]]()
+  !m.put(String("a"), List[Int]())
+  !m.put(String("b"), List[Int]())
+  c = +m
+  !c.put(String("c"), List[Int]())
+  _ = (!m).take("a")
+  print(c.len, m.len, c.get("a") != none)
+  nest = HashMap[Int, HashMap[String, Int]]()
+  inner = HashMap[String, Int]()
+  !inner.put(String("x"), 1)
+  !nest.put(1, <inner)
+  copy = +nest
+  if (!copy).edit(1) as h
+    !h.put(String("x"), 2)
+  if nest.get(1) as a
+    if copy.get(1) as b
+      print(a.get("x"), b.get("x"))
+  maybe: HashMap[Int, Int]? = none
+  print(maybe, 7)
+  some_map: HashMap[Int, Int]? = HashMap[Int, Int]()
+  if (!some_map) as h
+    !h.put(1, 2)
+  print(some_map != none)
+
+test "hashmap own map", "2 0"
+  # A module's own `HashMap` hides the built-in one; `HashSet` stays
+  # built in.
+
+  obj HashMap
+    n: Int
+
+  sub main()
+    m = HashMap(n: 2)
+    s: HashSet[Int] = HashSet()
+    print(m.n, s.len)
+
+bomb "hashmap reserve past the entry limit", "a HashMap holds at most 4294967295 entries"
+  # The limit is tested before the table is made: no memory is touched.
+  m = HashMap[Int, Int].new(5000000000)
+  print(m.len)
+
+bomb "hashmap set reserve past the entry limit", "a HashSet holds at most 4294967295 keys"
+  s = HashSet[Int].new(5000000000)
+  print(s.len)
+
+test "hashmap release", "true 4000 1000", release: true
+  # The release build, which tests no slot index, agrees with a debug one.
+
+  m = HashMap[Int, Int]()
+  for i in 0..5000
+    !m.put(i * 1024, i)
+  for i in 0..1000
+    _ = (!m).take(i * 1024)
+  sum = 0
+  for e in ?m.items()
+    sum += 1 if e.key == e.value * 1024
+  s = HashSet[String]()
+  for i in 0..1000
+    _ = (!s).add(String("w", i))
+  last = 4999 * 1024
+  print((m.get(last) ?? 0) == 4999, sum, s.len)

@@ -1,6 +1,7 @@
 # The built-in types written in Rig: the Map and Set, hash tables that
-# keep their entries in the order they were first put in, and `Lanes`,
-# the iterator of a mask's true lanes (at the end). A key is any value
+# keep their entries in the order they were first put in; the HashMap
+# and HashSet, hash tables whose order is unspecified; and `Lanes`, the
+# iterator of a mask's true lanes (at the end). A key is any value
 # `.hash()` takes: what `==` compares, less a float and what holds one.
 # Text keys hash and compare by their bytes, so a `Map[String, V]` finds
 # a key from a `Static` or a `?String` as well as from a String.
@@ -16,10 +17,18 @@
 # entries a table has no index; past that, groups of 16 tag bytes and
 # their entry indexes find a key.
 #
-# Each member below is the Map's or Set's as a program sees it, its
-# signature what every checker reads; its body asks the table. A
-# member of the table that lends returns a view of the table, and one
-# that writes moves the keys and values it takes into it.
+# A HashMap's entries are held by `UnorderedMap[K, V]` (a HashSet's,
+# `UnorderedSet[K]`): the runtime's unordered hash table
+# (src/unordered.zig), on the design of bench/hash's `zig-hash`. Its
+# entries lie in slots in groups, each group with a word of tags that
+# finds a key; a take frees its slot, so nothing is left behind, and a
+# walk passes the slots in the table's order, which depends on the
+# hashes, the target, and the table's history.
+#
+# Each member below is the type's as a program sees it, its signature
+# what every checker reads; its body asks the table. A member of the
+# table that lends returns a view of the table, and one that writes
+# moves the keys and values it takes into it.
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
@@ -312,6 +321,274 @@ pub obj Members[K]
       return none if @next_at >= @end
     j = @next_at
     @next_at += 1
+    ?@set.t.key(j)
+
+# A hash table of keys and values in no order a program can rely on: a
+# Map's members but `at`, which an order gives, and faster than a Map
+# where order is not needed, above all at takes, turnovers, misses, and
+# large sizes. A walk gives every entry once, in an order that depends on
+# the keys, the target, and what was put and taken before.
+#
+# `HashMap[K, V]()` is an empty HashMap, which allocates nothing until
+# the first `put`.
+pub obj HashMap[K: Hash, V]
+  # How many entries the HashMap holds.
+  pub ?len: Int = 0
+  # The entries, and what finds them.
+  t: UnorderedMap[K, V] = UnorderedMap()
+
+  # An empty HashMap, as `HashMap[K, V]()` is, with room for `capacity`
+  # entries.
+  pub fun new(capacity: Int = 0) -> HashMap[K, V]
+    m = HashMap[K, V]()
+    !m.reserve(capacity) if capacity > 0
+    m
+
+  # Make room for `n` more entries at once, so the next `n` puts of new
+  # keys do not grow the table.
+  pub sub reserve(!@, n: Int)
+    !@t.reserve(n)
+
+  # Whether the HashMap holds the key `k`.
+  pub inline fun has(?@, k: ?K) -> Bool
+    @t.find(k) != none
+
+  # The value of the key `k`, viewed where the HashMap holds it, or
+  # `none`.
+  pub inline fun get(?@, k: ?K) -> (?V)? from @
+    ?@t.get(k)
+
+  # The value of the key `k`, lent to write where the HashMap holds it,
+  # or `none`.
+  pub inline fun edit(!@, k: ?K) -> (!V)? from @
+    (!@t).edit(k)
+
+  # Put `v` under `k`, inserting or overwriting; the old value is
+  # dropped. A key already there stays, and `k` is dropped.
+  pub inline sub put(!@, k: K, v: V)
+    @len += 1 if (!@t).put(<k, <v)
+
+  # Put `v` under `k`, inserting or overwriting, and hand back the old
+  # value, or `none` when `k` is new.
+  pub inline fun replace(!@, k: K, v: V) -> V?
+    old = (!@t).replace(<k, <v)
+    @len = @t.count()
+    old
+
+  # Put `v` under `k` only when `k` is new: true if it did; otherwise
+  # `k` and `v` are dropped.
+  pub inline fun put_new(!@, k: K, v: V) -> Bool
+    added = (!@t).put_new(<k, <v)
+    @len += 1 if added
+    added
+
+  # Put `v` under `k` when `k` is new, and lend the value under `k` to
+  # write. When `k` is there, `k` and `v` are dropped.
+  pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
+    j = (!@t).ensure(<k, <v)
+    @len = @t.count()
+    (!@t).value_mut(j)
+
+  # Put `v` under `k` when `k` is new, and lend the value under `k` to
+  # write, with whether `k` was new. When `k` is there, `k` and `v` are
+  # dropped.
+  pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
+    was = @len
+    j = (!@t).ensure(<k, <v)
+    @len = @t.count()
+    return (!@t).value_mut(j), @len > was
+
+  # Lend the value under `k` to write, putting `make(k)` there first
+  # when `k` is new, so the value is made only then. When `k` is there,
+  # `k` is dropped and `make` is not called.
+  pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
+    j = 0
+    if @t.find(?k) as at
+      <k
+      j = at
+    else
+      j = (!@).add_made(<k, make)
+    (!@t).value_mut(j)
+
+  # Add the entry of `k`, whose key is new, with the value `make(k)`, and
+  # give its slot; out of line, so a lookup that finds its key stays
+  # short.
+  fun add_made(!@, k: K, make: ?fun(?K) -> V) -> Int keeps make
+    rarely
+    v = make(?k)
+    @len += 1
+    (!@t).insert_new(<k, <v)
+
+  # As `ensure`, with the key viewed, not given: `key(k)` makes the key
+  # to put only when `k` is new, so a count by a viewed key,
+  # `(!m).ensure_by(word, |w| +w, 0) += 1`, makes no key for a word
+  # already there. When `k` is there, `key` is not called and `v` is
+  # dropped. The HashMap keeps `key`, as `ensure_with` keeps `make`. The
+  # key `key(k)` makes must equal `k`, or the HashMap would hold another
+  # key where `k` was looked up, perhaps one it holds already: a key
+  # that differs panics.
+  pub inline fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
+    j = 0
+    if @t.find(k) as at
+      <v
+      j = at
+    else
+      made = key(k)
+      panic("HashMap: `ensure_by`'s `key(k)` made a key other than `k`") if made != k
+      j = (!@t).insert_new(<made, <v)
+      @len += 1
+    (!@t).value_mut(j)
+
+  # Keep the entries for which `f` is true. `f` gets each key to read
+  # and its value to write, and an entry it rejects is dropped then. The
+  # entries keep the memory the HashMap has.
+  pub sub retain(!@, f: ?fun(?K, !V) -> Bool)
+    !@t.retain(f)
+    @len = @t.count()
+
+  # Take the entry of the key `k` out: its value is handed back, and its
+  # key dropped. `none` when the HashMap has no such key.
+  pub inline fun take(!@, k: ?K) -> V?
+    v = (!@t).take(k)
+    @len = @t.count()
+    v
+
+  # Drop every entry. The HashMap keeps the memory it has.
+  pub sub clear(!@)
+    !@t.clear()
+    @len = 0
+
+  # The entries, each an `Item` viewing its key and value.
+  pub fun items(?@) -> HashItems[K, V] from @
+    HashItems(map: ?@, group: -1, lanes: 0)
+
+  # The keys, each viewed where the HashMap holds it.
+  pub fun keys(?@) -> HashKeys[K, V] from @
+    HashKeys(map: ?@, group: -1, lanes: 0)
+
+  # The values, each viewed where the HashMap holds it.
+  pub fun values(?@) -> HashValues[K, V] from @
+    HashValues(map: ?@, group: -1, lanes: 0)
+
+  # Call `f` with each key and its value lent to write.
+  pub sub update(!@, f: ?sub(?K, !V))
+    !@t.update(f)
+
+# A set of keys in no order a program can rely on, held as a HashMap's
+# entries are.
+#
+# `HashSet[K]()` is an empty HashSet, which allocates nothing until the
+# first `add`.
+pub obj HashSet[K: Hash]
+  # How many keys the HashSet holds.
+  pub ?len: Int = 0
+  # The keys, and what finds them.
+  t: UnorderedSet[K] = UnorderedSet()
+
+  # An empty HashSet, as `HashSet[K]()` is, with room for `capacity`
+  # keys.
+  pub fun new(capacity: Int = 0) -> HashSet[K]
+    s = HashSet[K]()
+    !s.reserve(capacity) if capacity > 0
+    s
+
+  # Make room for `n` more keys at once, so the next `n` adds of new
+  # keys do not grow the table.
+  pub sub reserve(!@, n: Int)
+    !@t.reserve(n)
+
+  # Whether the HashSet holds the key `k`.
+  pub inline fun has(?@, k: ?K) -> Bool
+    @t.find(k) != none
+
+  # Add the key `k`: true when it is new; otherwise `k` is dropped.
+  pub inline fun add(!@, k: K) -> Bool
+    added = (!@t).add(<k)
+    @len += 1 if added
+    added
+
+  # Take the key `k` out and hand it back, or `none` when the HashSet
+  # has no such key.
+  pub inline fun take(!@, k: ?K) -> K?
+    key = (!@t).take(k)
+    @len = @t.count()
+    key
+
+  # Keep the keys for which `f` is true; a key it rejects is dropped
+  # then. The keys keep the memory the HashSet has.
+  pub sub retain(!@, f: ?fun(?K) -> Bool)
+    !@t.retain(f)
+    @len = @t.count()
+
+  # Drop every key. The HashSet keeps the memory it has.
+  pub sub clear(!@)
+    !@t.clear()
+    @len = 0
+
+  # The keys, each viewed where the HashSet holds it.
+  pub fun items(?@) -> HashMembers[K] from @
+    HashMembers(set: ?@, group: -1, lanes: 0)
+
+# The entries of a HashMap (`HashMap.items`), group by group: `lanes`
+# holds the full lanes of `group` not yet given, so a step within a group
+# clears one bit.
+pub obj HashItems[K, V]
+  map: ?HashMap[K, V]
+  group: Int
+  lanes: Int
+
+  pub inline fun next(!@) -> Item[?K, ?V]? from @map
+    while @lanes == 0
+      @group += 1
+      return none if @group >= @map.t.group_count()
+      @lanes = @map.t.full_lanes(@group)
+    j = @map.t.slot_at(@group, @lanes)
+    @lanes &= @lanes - 1
+    Item(key: ?@map.t.key(j), value: ?@map.t.value(j))
+
+# The keys of a HashMap (`HashMap.keys`).
+pub obj HashKeys[K, V]
+  map: ?HashMap[K, V]
+  group: Int
+  lanes: Int
+
+  pub inline fun next(!@) -> (?K)? from @map
+    while @lanes == 0
+      @group += 1
+      return none if @group >= @map.t.group_count()
+      @lanes = @map.t.full_lanes(@group)
+    j = @map.t.slot_at(@group, @lanes)
+    @lanes &= @lanes - 1
+    ?@map.t.key(j)
+
+# The values of a HashMap (`HashMap.values`).
+pub obj HashValues[K, V]
+  map: ?HashMap[K, V]
+  group: Int
+  lanes: Int
+
+  pub inline fun next(!@) -> (?V)? from @map
+    while @lanes == 0
+      @group += 1
+      return none if @group >= @map.t.group_count()
+      @lanes = @map.t.full_lanes(@group)
+    j = @map.t.slot_at(@group, @lanes)
+    @lanes &= @lanes - 1
+    ?@map.t.value(j)
+
+# The keys of a HashSet (`HashSet.items`).
+pub obj HashMembers[K]
+  set: ?HashSet[K]
+  group: Int
+  lanes: Int
+
+  pub inline fun next(!@) -> (?K)? from @set
+    while @lanes == 0
+      @group += 1
+      return none if @group >= @set.t.group_count()
+      @lanes = @set.t.full_lanes(@group)
+    j = @set.t.slot_at(@group, @lanes)
+    @lanes &= @lanes - 1
     ?@set.t.key(j)
 
 # The true lanes of a mask, lowest first (`m.lanes()`). `bits` holds a
