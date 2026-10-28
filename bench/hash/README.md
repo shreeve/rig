@@ -92,6 +92,17 @@ allocator, `src/alloc.zig`), `zig-foa:arena` (an `ArenaAllocator` over
 `malloc` asks for transparent huge pages. The map.zig allocator is the
 module `alloc` (`alloc/*.zig`). None of these is in `--all`.
 
+Every program runs each row's timed loop in a function of its own that
+the compiler does not inline into its caller (`called` in Rig, `noinline`
+in Zig, `#[inline(never)]` in Rust, `__attribute__((noinline))` in C++,
+`//go:noinline` in Go). The function takes what the loop reads, reads the
+clock around the loop, and gives back its time and checksum; the group
+around it builds the inputs and prints the lines. So what one row's loop
+keeps in registers depends on that loop alone, as a program's would,
+and not on the other rows of its group: with the rows of a group in one
+function, a change to a Map's size moved rows of the group by 5-40% on
+the Mac though their own loops had not changed.
+
 Every program hides from the optimizer what each round of a row reads,
 the keys or the map, as Rust's `black_box` does (`opaque` in map.cc,
 `hide` in map.zig), so no round's work is hoisted out of the loop or

@@ -212,6 +212,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   instructions on ts-pattern and 1.3% fewer on zod3, with `.text` 2.2%
   smaller
   ([runtime-unchecked.md](docs/history/records/2026-10/perf-stage/runtime-unchecked.md)).
+- **bench/hash times each row in a function of its own**, for every
+  contestant (`called`, `noinline`, `#[inline(never)]`,
+  `__attribute__((noinline))`, `//go:noinline`), so a row's loop is
+  compiled for itself and not with the other rows of its group. Every
+  line's checksum is unchanged; the guard's program already timed each
+  row alone, and its baseline is unchanged.
 - **The built-in tables have a guard.** `bench/hash/guard.py` counts the
   instructions per operation of `Map` and `HashMap` on Int, text, and
   two-word keys, and fails any row more than 2% over its baseline, as

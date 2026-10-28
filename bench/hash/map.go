@@ -27,6 +27,81 @@ func out(keys, op string, ns, check int64) {
 // Keeps the maps alive until the timing is done, as Rust's black_box does.
 var sink any
 
+// Each row's timed loop is a function of its own that is never inlined,
+// so its registers are allotted for that loop alone, not shared with
+// the other rows' loops in the caller. It reads the clock around the
+// loop, so the call is not timed, and returns the time with the row's
+// checksum.
+
+//go:noinline
+func intInsert(maps []map[int64]int64, s int64) time.Duration {
+	t := time.Now()
+	for j, m := range maps {
+		base := int64(j) * s
+		for i := int64(0); i < s; i++ {
+			m[(base+i)*mul] = i
+		}
+	}
+	return time.Since(t)
+}
+
+//go:noinline
+func intRemove(maps []map[int64]int64, s int64) (time.Duration, int64) {
+	var check int64
+	t := time.Now()
+	for j, m := range maps {
+		base := int64(j) * s
+		for i := int64(0); i < s; i++ {
+			key := (base + i) * mul
+			if v, ok := m[key]; ok {
+				check += v
+				delete(m, key)
+			}
+		}
+	}
+	return time.Since(t), check
+}
+
+//go:noinline
+func intHit(m map[int64]int64, s, rounds int64) (time.Duration, int64) {
+	var sum int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for i := int64(0); i < s; i++ {
+			if v, ok := m[i*mul]; ok {
+				sum += v
+			}
+		}
+	}
+	return time.Since(t), sum
+}
+
+//go:noinline
+func intMiss(m map[int64]int64, s, rounds int64) (time.Duration, int64) {
+	var found int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for i := s; i < 2*s; i++ {
+			if _, ok := m[i*mul]; ok {
+				found++
+			}
+		}
+	}
+	return time.Since(t), found
+}
+
+//go:noinline
+func intIterate(m map[int64]int64, rounds int64) (time.Duration, int64) {
+	var sum int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for _, v := range m {
+			sum += v
+		}
+	}
+	return time.Since(t), sum
+}
+
 func sized(s int64) {
 	total := 4 * n
 	k := int64(1)
@@ -42,26 +117,10 @@ func sized(s int64) {
 		for j := range maps {
 			maps[j] = map[int64]int64{}
 		}
-		t := time.Now()
-		for j, m := range maps {
-			base := int64(j) * s
-			for i := int64(0); i < s; i++ {
-				m[(base+i)*mul] = i
-			}
-		}
-		ins += time.Since(t)
-		t = time.Now()
-		for j, m := range maps {
-			base := int64(j) * s
-			for i := int64(0); i < s; i++ {
-				key := (base + i) * mul
-				if v, ok := m[key]; ok {
-					check += v
-					delete(m, key)
-				}
-			}
-		}
-		rem += time.Since(t)
+		ins += intInsert(maps, s)
+		d, c := intRemove(maps, s)
+		rem += d
+		check += c
 		sink = maps
 	}
 	sink = nil
@@ -73,34 +132,12 @@ func sized(s int64) {
 		m[i*mul] = i
 	}
 	rounds := total / s
-	var sum int64
-	t := time.Now()
-	for r := int64(0); r < rounds; r++ {
-		for i := int64(0); i < s; i++ {
-			if v, ok := m[i*mul]; ok {
-				sum += v
-			}
-		}
-	}
-	out(name, "hit", scale(time.Since(t)), sum)
-	var found int64
-	t = time.Now()
-	for r := int64(0); r < rounds; r++ {
-		for i := s; i < 2*s; i++ {
-			if _, ok := m[i*mul]; ok {
-				found++
-			}
-		}
-	}
-	out(name, "miss", scale(time.Since(t)), found)
-	sum = 0
-	t = time.Now()
-	for r := int64(0); r < rounds; r++ {
-		for _, v := range m {
-			sum += v
-		}
-	}
-	out(name, "iterate", scale(time.Since(t)), sum)
+	d, sum := intHit(m, s, rounds)
+	out(name, "hit", scale(d), sum)
+	d, found := intMiss(m, s, rounds)
+	out(name, "miss", scale(d), found)
+	d, sum = intIterate(m, rounds)
+	out(name, "iterate", scale(d), sum)
 }
 
 // splitmix64's output for n + 1: a bijection, so distinct n give
@@ -120,6 +157,73 @@ func shuffle(v []int64) {
 		j := int(uint64(scatter(seed+int64(i))) % uint64(i+1))
 		v[i], v[j] = v[j], v[i]
 	}
+}
+
+//go:noinline
+func rndInsert(maps []map[int64]int64, keys []int64, s int64) time.Duration {
+	t := time.Now()
+	for j, m := range maps {
+		ks := keys[int64(j)*s : int64(j+1)*s]
+		for i, key := range ks {
+			m[key] = int64(i)
+		}
+	}
+	return time.Since(t)
+}
+
+//go:noinline
+func rndRemove(maps []map[int64]int64, keys []int64, s int64) (time.Duration, int64) {
+	var check int64
+	t := time.Now()
+	for j, m := range maps {
+		for _, key := range keys[int64(j)*s : int64(j+1)*s] {
+			if v, ok := m[key]; ok {
+				check += v
+				delete(m, key)
+			}
+		}
+	}
+	return time.Since(t), check
+}
+
+//go:noinline
+func rndHit(m map[int64]int64, hit []int64, rounds int64) (time.Duration, int64) {
+	var sum int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for _, key := range hit {
+			if v, ok := m[key]; ok {
+				sum += v
+			}
+		}
+	}
+	return time.Since(t), sum
+}
+
+//go:noinline
+func rndMiss(m map[int64]int64, miss []int64, rounds int64) (time.Duration, int64) {
+	var found int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for _, key := range miss {
+			if _, ok := m[key]; ok {
+				found++
+			}
+		}
+	}
+	return time.Since(t), found
+}
+
+//go:noinline
+func rndIterate(m map[int64]int64, rounds int64) (time.Duration, int64) {
+	var sum int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for _, v := range m {
+			sum += v
+		}
+	}
+	return time.Since(t), sum
 }
 
 // The ops of sized on random keys (scatter of 0, 1, ...), read from
@@ -143,24 +247,10 @@ func random(s int64) {
 		for j := range maps {
 			maps[j] = map[int64]int64{}
 		}
-		t := time.Now()
-		for j, m := range maps {
-			ks := keys[int64(j)*s : int64(j+1)*s]
-			for i, key := range ks {
-				m[key] = int64(i)
-			}
-		}
-		ins += time.Since(t)
-		t = time.Now()
-		for j, m := range maps {
-			for _, key := range keys[int64(j)*s : int64(j+1)*s] {
-				if v, ok := m[key]; ok {
-					check += v
-					delete(m, key)
-				}
-			}
-		}
-		rem += time.Since(t)
+		ins += rndInsert(maps, keys, s)
+		d, c := rndRemove(maps, keys, s)
+		rem += d
+		check += c
 		sink = maps
 	}
 	sink = nil
@@ -178,34 +268,12 @@ func random(s int64) {
 		miss[i] = scatter(8*n + int64(i))
 	}
 	rounds := total / s
-	var sum int64
-	t := time.Now()
-	for r := int64(0); r < rounds; r++ {
-		for _, key := range hit {
-			if v, ok := m[key]; ok {
-				sum += v
-			}
-		}
-	}
-	out(name, "hit", scale(time.Since(t)), sum)
-	var found int64
-	t = time.Now()
-	for r := int64(0); r < rounds; r++ {
-		for _, key := range miss {
-			if _, ok := m[key]; ok {
-				found++
-			}
-		}
-	}
-	out(name, "miss", scale(time.Since(t)), found)
-	sum = 0
-	t = time.Now()
-	for r := int64(0); r < rounds; r++ {
-		for _, v := range m {
-			sum += v
-		}
-	}
-	out(name, "iterate", scale(time.Since(t)), sum)
+	d, sum := rndHit(m, hit, rounds)
+	out(name, "hit", scale(d), sum)
+	d, found := rndMiss(m, miss, rounds)
+	out(name, "miss", scale(d), found)
+	d, sum = rndIterate(m, rounds)
+	out(name, "iterate", scale(d), sum)
 }
 
 // text(n) of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by the
@@ -229,6 +297,15 @@ func shuffledRange(s int64) []int64 {
 	return p
 }
 
+//go:noinline
+func latChain(m map[int64]int64, key, total int64) (time.Duration, int64) {
+	t := time.Now()
+	for r := int64(0); r < total; r++ {
+		key = m[key]
+	}
+	return time.Since(t), key
+}
+
 // One lookup at a time, each waiting for the last: the map is one cycle
 // through its keys, in shuffled order. Each key scatter(i) is put in
 // order of i, with the key after it in the cycle as its value, so a map
@@ -244,12 +321,23 @@ func latency(s int64) {
 	for i := int64(0); i < s; i++ {
 		m[scatter(i)] = scatter(next[i])
 	}
-	key := scatter(p[0])
+	d, key := latChain(m, scatter(p[0]), total)
+	out(fmt.Sprintf("lat%d", s), "chain", d.Nanoseconds()*n/total, key)
+}
+
+//go:noinline
+func churnTurnover(m map[int64]int64, keys []int64, s, turns int64) (time.Duration, int64) {
+	var check int64
 	t := time.Now()
-	for r := int64(0); r < total; r++ {
-		key = m[key]
+	for i := int64(0); i < turns; i++ {
+		key := keys[i]
+		if v, ok := m[key]; ok {
+			check += v
+			delete(m, key)
+		}
+		m[keys[s+i]] = s + i
 	}
-	out(fmt.Sprintf("lat%d", s), "chain", time.Since(t).Nanoseconds()*n/total, key)
+	return time.Since(t), check
 }
 
 // A map of s keys turned over: each step removes the oldest key and
@@ -265,20 +353,25 @@ func churn(s int64) {
 	for i := int64(0); i < s; i++ {
 		m[keys[i]] = i
 	}
-	var check int64
-	t := time.Now()
-	for i := int64(0); i < turns; i++ {
-		key := keys[i]
-		if v, ok := m[key]; ok {
-			check += v
-			delete(m, key)
-		}
-		m[keys[s+i]] = s + i
-	}
-	ns := time.Since(t).Nanoseconds()
+	d, check := churnTurnover(m, keys, s, turns)
+	ns := d.Nanoseconds()
 	sink = m
 	sink = nil
 	out(fmt.Sprintf("churn%d", s), "turnover", ns*n/total, check)
+}
+
+//go:noinline
+func mixHalf(m map[int64]int64, look []int64, rounds int64) (time.Duration, int64) {
+	var sum int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for _, key := range look {
+			if v, ok := m[key]; ok {
+				sum += v
+			}
+		}
+	}
+	return time.Since(t), sum
 }
 
 // Lookups that hit half the time, in shuffled order.
@@ -297,16 +390,62 @@ func mixed(s int64) {
 		}
 	}
 	shuffle(look)
+	d, sum := mixHalf(m, look, total/s)
+	out(fmt.Sprintf("mix%d", s), "half", d.Nanoseconds()*n/total, sum)
+}
+
+//go:noinline
+func strInsert(maps []map[string]int64, put []string, s int64) time.Duration {
+	t := time.Now()
+	for j, m := range maps {
+		for i, key := range put[int64(j)*s : int64(j+1)*s] {
+			m[key] = int64(i)
+		}
+	}
+	return time.Since(t)
+}
+
+//go:noinline
+func strRemove(maps []map[string]int64, take []string, s int64) (time.Duration, int64) {
+	var check int64
+	t := time.Now()
+	for j, m := range maps {
+		for _, key := range take[int64(j)*s : int64(j+1)*s] {
+			if v, ok := m[key]; ok {
+				check += v
+				delete(m, key)
+			}
+		}
+	}
+	return time.Since(t), check
+}
+
+//go:noinline
+func strHit(m map[string]int64, hit []string, rounds int64) (time.Duration, int64) {
 	var sum int64
 	t := time.Now()
-	for r := int64(0); r < total/s; r++ {
-		for _, key := range look {
+	for r := int64(0); r < rounds; r++ {
+		for _, key := range hit {
 			if v, ok := m[key]; ok {
 				sum += v
 			}
 		}
 	}
-	out(fmt.Sprintf("mix%d", s), "half", time.Since(t).Nanoseconds()*n/total, sum)
+	return time.Since(t), sum
+}
+
+//go:noinline
+func strMiss(m map[string]int64, miss []string, rounds int64) (time.Duration, int64) {
+	var found int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for _, key := range miss {
+			if _, ok := m[key]; ok {
+				found++
+			}
+		}
+	}
+	return time.Since(t), found
 }
 
 // Text keys, each put into the map and found by an equal text made
@@ -333,24 +472,11 @@ func strings(s int64) {
 		for j := range maps {
 			maps[j] = map[string]int64{}
 		}
-		t := time.Now()
-		for j, m := range maps {
-			for i, key := range put[int64(j)*s : int64(j+1)*s] {
-				m[key] = int64(i)
-			}
-		}
-		ins += time.Since(t)
+		ins += strInsert(maps, put, s)
 		put = nil
-		t = time.Now()
-		for j, m := range maps {
-			for _, key := range take[int64(j)*s : int64(j+1)*s] {
-				if v, ok := m[key]; ok {
-					check += v
-					delete(m, key)
-				}
-			}
-		}
-		rem += time.Since(t)
+		d, c := strRemove(maps, take, s)
+		rem += d
+		check += c
 		sink = maps
 	}
 	sink = nil
@@ -368,26 +494,62 @@ func strings(s int64) {
 	for i := range miss {
 		miss[i] = text(8*n + int64(i))
 	}
+	d, sum := strHit(m, hit, n/s)
+	out(name, "hit", d.Nanoseconds(), sum)
+	d, found := strMiss(m, miss, n/s)
+	out(name, "miss", d.Nanoseconds(), found)
+}
+
+//go:noinline
+func bigInsert(maps []map[int64][8]int64, keys []int64, s int64) time.Duration {
+	t := time.Now()
+	for j, m := range maps {
+		for i, key := range keys[int64(j)*s : int64(j+1)*s] {
+			m[key] = big(int64(i))
+		}
+	}
+	return time.Since(t)
+}
+
+//go:noinline
+func bigRemove(maps []map[int64][8]int64, keys []int64, s int64) (time.Duration, int64) {
+	var check int64
+	t := time.Now()
+	for j, m := range maps {
+		for _, key := range keys[int64(j)*s : int64(j+1)*s] {
+			if v, ok := m[key]; ok {
+				check += v[7]
+				delete(m, key)
+			}
+		}
+	}
+	return time.Since(t), check
+}
+
+//go:noinline
+func bigHit(m map[int64][8]int64, hit []int64, rounds int64) (time.Duration, int64) {
 	var sum int64
 	t := time.Now()
-	for r := int64(0); r < n/s; r++ {
+	for r := int64(0); r < rounds; r++ {
 		for _, key := range hit {
 			if v, ok := m[key]; ok {
-				sum += v
+				sum += v[7]
 			}
 		}
 	}
-	out(name, "hit", time.Since(t).Nanoseconds(), sum)
-	var found int64
-	t = time.Now()
-	for r := int64(0); r < n/s; r++ {
-		for _, key := range miss {
-			if _, ok := m[key]; ok {
-				found++
-			}
+	return time.Since(t), sum
+}
+
+//go:noinline
+func bigIterate(m map[int64][8]int64, rounds int64) (time.Duration, int64) {
+	var sum int64
+	t := time.Now()
+	for r := int64(0); r < rounds; r++ {
+		for _, v := range m {
+			sum += v[0]
 		}
 	}
-	out(name, "miss", time.Since(t).Nanoseconds(), found)
+	return time.Since(t), sum
 }
 
 // random's insert, remove, hit and iterate with a value of eight
@@ -411,23 +573,10 @@ func bigs(s int64) {
 		for j := range maps {
 			maps[j] = map[int64][8]int64{}
 		}
-		t := time.Now()
-		for j, m := range maps {
-			for i, key := range keys[int64(j)*s : int64(j+1)*s] {
-				m[key] = big(int64(i))
-			}
-		}
-		ins += time.Since(t)
-		t = time.Now()
-		for j, m := range maps {
-			for _, key := range keys[int64(j)*s : int64(j+1)*s] {
-				if v, ok := m[key]; ok {
-					check += v[7]
-					delete(m, key)
-				}
-			}
-		}
-		rem += time.Since(t)
+		ins += bigInsert(maps, keys, s)
+		d, c := bigRemove(maps, keys, s)
+		rem += d
+		check += c
 		sink = maps
 	}
 	sink = nil
@@ -440,24 +589,10 @@ func bigs(s int64) {
 	}
 	hit := append([]int64(nil), keys[:s]...)
 	shuffle(hit)
-	var sum int64
-	t := time.Now()
-	for r := int64(0); r < total/s; r++ {
-		for _, key := range hit {
-			if v, ok := m[key]; ok {
-				sum += v[7]
-			}
-		}
-	}
-	out(name, "hit", scale(time.Since(t)), sum)
-	sum = 0
-	t = time.Now()
-	for r := int64(0); r < total/s; r++ {
-		for _, v := range m {
-			sum += v[0]
-		}
-	}
-	out(name, "iterate", scale(time.Since(t)), sum)
+	d, sum := bigHit(m, hit, total/s)
+	out(name, "hit", scale(d), sum)
+	d, sum = bigIterate(m, total/s)
+	out(name, "iterate", scale(d), sum)
 }
 
 // mem: one map of 4,000,000 keys, for its peak memory; mem0: the keys

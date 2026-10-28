@@ -6,9 +6,11 @@
 # iterate on Int keys at sizes 16, 1,000, 100,000, and 4,000,000. Each
 # loop walks its keys as map.zig's does: a range of Ints, or a List's
 # elements in order. Prints `KEYS OP NS CHECK` per line
-# (bench/hash/bench-hash). Each group is `called`, a function of its own
-# as a program's would be, so what one group keeps in registers does not
-# depend on what the compiler inlines into `main` around it.
+# (bench/hash/bench-hash). Each row's timed loop is `called`, a function
+# of its own as a program's would be, which takes what it reads and gives
+# back its time and checksum (`Row`): what one row keeps in registers
+# depends neither on the other rows nor on what the compiler inlines
+# around it. Each group builds a row's inputs and prints its lines.
 #
 # Every Map is named by one of the aliases below, which bench-hash
 # rewrites to `HashMap` for its `rig-hash` variants, so the unordered
@@ -27,29 +29,79 @@ type TripleMap = Map[Triple, Int]
 type TextMap = Map[String, String]
 type BigMap = Map[Int, Big]
 
-called sub ints(n: Int)
-  m = IntMap.new()
+# What a timed row gives back: its time in nanoseconds and its checksum.
+obj Row
+  ns: Int
+  check: Int
+
+called fun int_insert(m: !IntMap, n: Int) -> Row
   t = time.now()
   for i in 0..n
     !m.put(i *% -7046029254386353131, i)
-  print("int insert", t.elapsed(), m.len)
+  Row(ns: t.elapsed(), check: m.len)
+
+called fun int_hit(m: ?IntMap, n: Int) -> Row
   sum = 0
   t = time.now()
   for i in 0..n
     if m.get(i *% -7046029254386353131) as v
       sum += v
-  print("int hit", t.elapsed(), sum)
+  Row(ns: t.elapsed(), check: sum)
+
+called fun int_miss(m: ?IntMap, n: Int) -> Row
   found = 0
   t = time.now()
   for i in n..2 * n
     if m.has(i *% -7046029254386353131)
       found += 1
-  print("int miss", t.elapsed(), found)
+  Row(ns: t.elapsed(), check: found)
+
+called fun int_walk(m: ?IntMap) -> Row
   sum = 0
   t = time.now()
-  for e in ?m.items()
+  for e in m.items()
     sum += e.value
-  print("int iterate", t.elapsed(), sum)
+  Row(ns: t.elapsed(), check: sum)
+
+called sub ints(n: Int)
+  m = IntMap.new()
+  r = int_insert(!m, n)
+  print("int insert", r.ns, r.check)
+  r = int_hit(?m, n)
+  print("int hit", r.ns, r.check)
+  r = int_miss(?m, n)
+  print("int miss", r.ns, r.check)
+  r = int_walk(?m)
+  print("int iterate", r.ns, r.check)
+
+called fun string_insert(m: !StringMap, put: List[String]) -> Row
+  t = time.now()
+  for k, i in <put
+    !m.put(<k, i)
+  Row(ns: t.elapsed(), check: m.len)
+
+called fun string_hit(m: ?StringMap, look: ?List[String]) -> Row
+  sum = 0
+  t = time.now()
+  for k in look
+    if m.get(k) as v
+      sum += v
+  Row(ns: t.elapsed(), check: sum)
+
+called fun string_miss(m: ?StringMap, miss: ?List[String]) -> Row
+  found = 0
+  t = time.now()
+  for k in miss
+    if m.has(k)
+      found += 1
+  Row(ns: t.elapsed(), check: found)
+
+called fun string_walk(m: ?StringMap) -> Row
+  sum = 0
+  t = time.now()
+  for e in m.items()
+    sum += e.value
+  Row(ns: t.elapsed(), check: sum)
 
 called sub strings(n: Int)
   put: List[String] = List()
@@ -60,27 +112,14 @@ called sub strings(n: Int)
     !look.push(String("key", i))
     !miss.push(String("key", n + i))
   m = StringMap.new()
-  t = time.now()
-  for k, i in <put
-    !m.put(<k, i)
-  print("string insert", t.elapsed(), m.len)
-  sum = 0
-  t = time.now()
-  for k in ?look
-    if m.get(k) as v
-      sum += v
-  print("string hit", t.elapsed(), sum)
-  found = 0
-  t = time.now()
-  for k in ?miss
-    if m.has(k)
-      found += 1
-  print("string miss", t.elapsed(), found)
-  sum = 0
-  t = time.now()
-  for e in ?m.items()
-    sum += e.value
-  print("string iterate", t.elapsed(), sum)
+  r = string_insert(!m, <put)
+  print("string insert", r.ns, r.check)
+  r = string_hit(?m, ?look)
+  print("string hit", r.ns, r.check)
+  r = string_miss(?m, ?miss)
+  print("string miss", r.ns, r.check)
+  r = string_walk(?m)
+  print("string iterate", r.ns, r.check)
 
 # A key of two words, shaped as Trig's packed relation keys are: two
 # type ids in the low word, a family tag in the high one.
@@ -92,24 +131,36 @@ obj Pair
 fun pair(i: Int) -> Pair
   Pair(lo: (U64(i >> 10) << 32) | U64(i & 1023), hi: 0xA5C4000000000000)
 
-called sub pairs(n: Int)
-  m = PairMap.new()
+called fun pair_insert(m: !PairMap, n: Int) -> Row
   t = time.now()
   for i in 0..n
     !m.put(pair(i), i)
-  print("pair insert", t.elapsed(), m.len)
+  Row(ns: t.elapsed(), check: m.len)
+
+called fun pair_hit(m: ?PairMap, n: Int) -> Row
   sum = 0
   t = time.now()
   for i in 0..n
     if m.get(pair(i)) as v
       sum += v
-  print("pair hit", t.elapsed(), sum)
+  Row(ns: t.elapsed(), check: sum)
+
+called fun pair_miss(m: ?PairMap, n: Int) -> Row
   found = 0
   t = time.now()
   for i in n..2 * n
     if m.has(pair(i))
       found += 1
-  print("pair miss", t.elapsed(), found)
+  Row(ns: t.elapsed(), check: found)
+
+called sub pairs(n: Int)
+  m = PairMap.new()
+  r = pair_insert(!m, n)
+  print("pair insert", r.ns, r.check)
+  r = pair_hit(?m, n)
+  print("pair hit", r.ns, r.check)
+  r = pair_miss(?m, n)
+  print("pair miss", r.ns, r.check)
 
 # A key of three words, shaped as Trig's instantiation keys are: an
 # owner, then a pair key.
@@ -122,50 +173,75 @@ obj Triple
 fun triple(i: Int) -> Triple
   Triple(owner: U64(i >> 4), lo: (U64(i >> 10) << 32) | U64(i & 1023), hi: 0xA5C4000000000000)
 
-called sub triples(n: Int)
-  m = TripleMap.new()
+called fun triple_insert(m: !TripleMap, n: Int) -> Row
   t = time.now()
   for i in 0..n
     !m.put(triple(i), i)
-  print("triple insert", t.elapsed(), m.len)
+  Row(ns: t.elapsed(), check: m.len)
+
+called fun triple_hit(m: ?TripleMap, n: Int) -> Row
   sum = 0
   t = time.now()
   for i in 0..n
     if m.get(triple(i)) as v
       sum += v
-  print("triple hit", t.elapsed(), sum)
+  Row(ns: t.elapsed(), check: sum)
+
+called fun triple_miss(m: ?TripleMap, n: Int) -> Row
   found = 0
   t = time.now()
   for i in n..2 * n
     if m.has(triple(i))
       found += 1
-  print("triple miss", t.elapsed(), found)
+  Row(ns: t.elapsed(), check: found)
+
+called sub triples(n: Int)
+  m = TripleMap.new()
+  r = triple_insert(!m, n)
+  print("triple insert", r.ns, r.check)
+  r = triple_hit(?m, n)
+  print("triple hit", r.ns, r.check)
+  r = triple_miss(?m, n)
+  print("triple miss", r.ns, r.check)
 
 # N hit lookups in a Map of `size` Int keys: the symbol tables most
 # programs hold are this small.
-called sub small(n: Int, size: Int)
-  m = IntMap.new()
-  for i in 0..size
-    !m.put(i *% -7046029254386353131, i)
+called fun small_hit(m: ?IntMap, n: Int, size: Int) -> Row
   sum = 0
   t = time.now()
   for i in 0..n
     if m.get((i % size) *% -7046029254386353131) as v
       sum += v
-  print("small", size, t.elapsed(), sum)
+  Row(ns: t.elapsed(), check: sum)
+
+called sub small(n: Int, size: Int)
+  m = IntMap.new()
+  for i in 0..size
+    !m.put(i *% -7046029254386353131, i)
+  r = small_hit(?m, n, size)
+  print("small", size, r.ns, r.check)
 
 # N words, from 50,000 distinct ones, each given a dense id: the first
 # time a word is seen its text is copied in.
+# The interning row's time and its checksum, a U64.
+obj WordsRow
+  ns: Int
+  sum: U64
+
+called fun intern_words(names: !text.Interner, words: ?List[String]) -> WordsRow
+  sum: U64 = 0
+  t = time.now()
+  for w in words
+    sum +%= U64((!names).intern(w))
+  WordsRow(ns: t.elapsed(), sum: sum)
+
 called sub intern(n: Int)
   words: List[String] = List()
   for i in 0..n
     !words.push(String("w", (i * 7919) % 50000))
   names = text.Interner()
-  sum: U64 = 0
-  t = time.now()
-  for w in ?words
-    sum +%= U64((!names).intern(w))
-  print("string intern", t.elapsed(), sum)
+  r = intern_words(!names, ?words)
+  print("string intern", r.ns, r.sum)
 
 # The three ways to write the value under a key whether or not the key
 # is new: `ensure`, `ensure_with`, and `edit` then `put`. Each counts N
@@ -184,99 +260,100 @@ fun keys(n: Int) -> List[String]
     !ks.push(String("key", i))
   ks
 
+called fun int_ensure_pass(m: !IntMap, n: Int) -> Int
+  t = time.now()
+  for i in 0..n
+    w = (!m).ensure(i *% -7046029254386353131, 0)
+    w += 1
+  t.elapsed()
+
 called sub int_ensure(n: Int)
   m = IntMap.new()
+  ns = int_ensure_pass(!m, n)
+  print("int ensure-miss", ns, m.len)
+  ns = int_ensure_pass(!m, n)
+  print("int ensure-hit", ns, m.get(0))
+
+called fun int_ensure_with_pass(m: !IntMap, n: Int) -> Int
   t = time.now()
   for i in 0..n
-    w = (!m).ensure(i *% -7046029254386353131, 0)
+    w = (!m).ensure_with(i *% -7046029254386353131, one)
     w += 1
-  print("int ensure-miss", t.elapsed(), m.len)
-  t = time.now()
-  for i in 0..n
-    w = (!m).ensure(i *% -7046029254386353131, 0)
-    w += 1
-  print("int ensure-hit", t.elapsed(), m.get(0))
+  t.elapsed()
 
 called sub int_ensure_with(n: Int)
   m = IntMap.new()
+  ns = int_ensure_with_pass(!m, n)
+  print("int ensure_with-miss", ns, m.len)
+  ns = int_ensure_with_pass(!m, n)
+  print("int ensure_with-hit", ns, m.get(0))
+
+called fun int_edit_put_pass(m: !IntMap, n: Int) -> Int
   t = time.now()
   for i in 0..n
-    w = (!m).ensure_with(i *% -7046029254386353131, one)
-    w += 1
-  print("int ensure_with-miss", t.elapsed(), m.len)
-  t = time.now()
-  for i in 0..n
-    w = (!m).ensure_with(i *% -7046029254386353131, one)
-    w += 1
-  print("int ensure_with-hit", t.elapsed(), m.get(0))
+    k = i *% -7046029254386353131
+    if (!m).edit(k) as w
+      w += 1
+    else
+      !m.put(k, 1)
+  t.elapsed()
 
 called sub int_edit_put(n: Int)
   m = IntMap.new()
+  ns = int_edit_put_pass(!m, n)
+  print("int edit_put-miss", ns, m.len)
+  ns = int_edit_put_pass(!m, n)
+  print("int edit_put-hit", ns, m.get(0))
+
+called fun string_ensure_pass(m: !StringMap, ks: List[String]) -> Int
   t = time.now()
-  for i in 0..n
-    k = i *% -7046029254386353131
-    if (!m).edit(k) as w
-      w += 1
-    else
-      !m.put(k, 1)
-  print("int edit_put-miss", t.elapsed(), m.len)
-  t = time.now()
-  for i in 0..n
-    k = i *% -7046029254386353131
-    if (!m).edit(k) as w
-      w += 1
-    else
-      !m.put(k, 1)
-  print("int edit_put-hit", t.elapsed(), m.get(0))
+  for k in <ks
+    w = (!m).ensure(<k, 0)
+    w += 1
+  t.elapsed()
 
 called sub string_ensure(n: Int)
   put = keys(n)
   look = keys(n)
   m = StringMap.new()
+  ns = string_ensure_pass(!m, <put)
+  print("string ensure-miss", ns, m.len)
+  ns = string_ensure_pass(!m, <look)
+  print("string ensure-hit", ns, m.get("key0"))
+
+called fun string_ensure_with_pass(m: !StringMap, ks: List[String]) -> Int
   t = time.now()
-  for k in <put
-    w = (!m).ensure(<k, 0)
+  for k in <ks
+    w = (!m).ensure_with(<k, one_of)
     w += 1
-  print("string ensure-miss", t.elapsed(), m.len)
-  t = time.now()
-  for k in <look
-    w = (!m).ensure(<k, 0)
-    w += 1
-  print("string ensure-hit", t.elapsed(), m.get("key0"))
+  t.elapsed()
 
 called sub string_ensure_with(n: Int)
   put = keys(n)
   look = keys(n)
   m = StringMap.new()
+  ns = string_ensure_with_pass(!m, <put)
+  print("string ensure_with-miss", ns, m.len)
+  ns = string_ensure_with_pass(!m, <look)
+  print("string ensure_with-hit", ns, m.get("key0"))
+
+called fun string_edit_put_pass(m: !StringMap, ks: List[String]) -> Int
   t = time.now()
-  for k in <put
-    w = (!m).ensure_with(<k, one_of)
-    w += 1
-  print("string ensure_with-miss", t.elapsed(), m.len)
-  t = time.now()
-  for k in <look
-    w = (!m).ensure_with(<k, one_of)
-    w += 1
-  print("string ensure_with-hit", t.elapsed(), m.get("key0"))
+  for k in <ks
+    if (!m).edit(k) as w
+      w += 1
+    else
+      !m.put(<k, 1)
+  t.elapsed()
 
 called sub string_edit_put(n: Int)
   put = keys(n)
   look = keys(n)
   m = StringMap.new()
-  t = time.now()
-  for k in <put
-    if (!m).edit(k) as w
-      w += 1
-    else
-      !m.put(<k, 1)
-  print("string edit_put-miss", t.elapsed(), m.len)
-  t = time.now()
-  for k in <look
-    if (!m).edit(k) as w
-      w += 1
-    else
-      !m.put(<k, 1)
-  print("string edit_put-hit", t.elapsed(), m.get("key0"))
+  ns = string_edit_put_pass(!m, <put)
+  print("string edit_put-miss", ns, m.len)
+  ns = string_edit_put_pass(!m, <look)
+  print("string edit_put-hit", ns, m.get("key0"))
 
 # splitmix64's output for `n + 1`: a bijection, so distinct `n` give
 # distinct keys, scattered over all 64 bits.
@@ -300,6 +377,50 @@ sub shuffle(v: !List[Int])
 
 # The ops of `sized` on random keys (`scatter` of 0, 1, ...), read from
 # Lists made before the timing; hits look the keys up in shuffled order.
+called fun rnd_insert(maps: !List[IntMap], ks: ?List[Int], k: Int, s: Int) -> Int
+  t = time.now()
+  for j in 0..k
+    m = !maps[j]
+    base = j * s
+    for i in 0..s
+      !m.put(ks[base + i], i)
+  t.elapsed()
+
+called fun rnd_remove(maps: !List[IntMap], ks: ?List[Int], k: Int, s: Int) -> Row
+  check = 0
+  t = time.now()
+  for j in 0..k
+    m = !maps[j]
+    base = j * s
+    for i in 0..s
+      check += (!m).take(ks[base + i]) ?? 0
+  Row(ns: t.elapsed(), check: check)
+
+called fun rnd_hit(m: ?IntMap, hit: ?List[Int], rounds: Int) -> Row
+  sum = 0
+  t = time.now()
+  for _ in 0..rounds
+    for key in hit
+      if m.get(key) as v
+        sum += v
+  Row(ns: t.elapsed(), check: sum)
+
+called fun rnd_miss(m: ?IntMap, miss: ?List[Int], rounds: Int) -> Row
+  found = 0
+  t = time.now()
+  for _ in 0..rounds
+    for key in miss
+      found += 1 if m.has(key)
+  Row(ns: t.elapsed(), check: found)
+
+called fun walk_rounds(m: ?IntMap, rounds: Int) -> Row
+  sum = 0
+  t = time.now()
+  for _ in 0..rounds
+    for e in m.items()
+      sum += e.value
+  Row(ns: t.elapsed(), check: sum)
+
 called sub random(s: Int)
   total = 4 * N
   k = N / s if s < N else 1
@@ -315,20 +436,10 @@ called sub random(s: Int)
     maps: List[IntMap] = List(capacity: k)
     for _ in 0..k
       !maps.push(IntMap())
-    t = time.now()
-    for j in 0..k
-      m = !maps[j]
-      base = j * s
-      for i in 0..s
-        !m.put(ks[base + i], i)
-    ins += t.elapsed()
-    t = time.now()
-    for j in 0..k
-      m = !maps[j]
-      base = j * s
-      for i in 0..s
-        check += (!m).take(ks[base + i]) ?? 0
-    rem += t.elapsed()
+    ins += rnd_insert(!maps, ?ks, k, s)
+    r = rnd_remove(!maps, ?ks, k, s)
+    rem += r.ns
+    check += r.check
   print(name, "insert", ins * N / total, reps * k * s)
   print(name, "remove", rem * N / total, check)
   m = IntMap()
@@ -342,25 +453,12 @@ called sub random(s: Int)
   for i in 0..s
     !miss.push(scatter(8 * N + i))
   rounds = total / s
-  sum = 0
-  t = time.now()
-  for _ in 0..rounds
-    for key in hit
-      if m.get(key) as v
-        sum += v
-  print(name, "hit", t.elapsed() * N / total, sum)
-  found = 0
-  t = time.now()
-  for _ in 0..rounds
-    for key in miss
-      found += 1 if m.has(key)
-  print(name, "miss", t.elapsed() * N / total, found)
-  sum = 0
-  t = time.now()
-  for _ in 0..rounds
-    for e in ?m.items()
-      sum += e.value
-  print(name, "iterate", t.elapsed() * N / total, sum)
+  r = rnd_hit(?m, ?hit, rounds)
+  print(name, "hit", r.ns * N / total, r.check)
+  r = rnd_miss(?m, ?miss, rounds)
+  print(name, "miss", r.ns * N / total, r.check)
+  r = walk_rounds(?m, rounds)
+  print(name, "iterate", r.ns * N / total, r.check)
 
 # The ops at one size `s`, each over 4,000,000 operations, printed as
 # `intS OP NS CHECK` with NS scaled to N operations: insert puts `s`
@@ -368,6 +466,42 @@ called sub random(s: Int)
 # remove takes each key back out, both over 4,000,000 keys in all; hit
 # and miss look 4,000,000 keys up in one Map of `s`; iterate walks it
 # until 4,000,000 entries are seen.
+called fun int_insert_maps(maps: !List[IntMap], k: Int, s: Int) -> Int
+  t = time.now()
+  for j in 0..k
+    m = !maps[j]
+    base = j * s
+    for i in 0..s
+      !m.put((base + i) *% -7046029254386353131, i)
+  t.elapsed()
+
+called fun int_remove_maps(maps: !List[IntMap], k: Int, s: Int) -> Row
+  check = 0
+  t = time.now()
+  for j in 0..k
+    m = !maps[j]
+    base = j * s
+    for i in 0..s
+      check += (!m).take((base + i) *% -7046029254386353131) ?? 0
+  Row(ns: t.elapsed(), check: check)
+
+called fun int_hit_rounds(m: ?IntMap, s: Int, rounds: Int) -> Row
+  sum = 0
+  t = time.now()
+  for _ in 0..rounds
+    for i in 0..s
+      if m.get(i *% -7046029254386353131) as v
+        sum += v
+  Row(ns: t.elapsed(), check: sum)
+
+called fun int_miss_rounds(m: ?IntMap, s: Int, rounds: Int) -> Row
+  found = 0
+  t = time.now()
+  for _ in 0..rounds
+    for i in s..2 * s
+      found += 1 if m.has(i *% -7046029254386353131)
+  Row(ns: t.elapsed(), check: found)
+
 called sub sized(s: Int)
   total = 4 * N
   k = N / s if s < N else 1
@@ -380,45 +514,22 @@ called sub sized(s: Int)
     maps: List[IntMap] = List(capacity: k)
     for _ in 0..k
       !maps.push(IntMap())
-    t = time.now()
-    for j in 0..k
-      m = !maps[j]
-      base = j * s
-      for i in 0..s
-        !m.put((base + i) *% -7046029254386353131, i)
-    ins += t.elapsed()
-    t = time.now()
-    for j in 0..k
-      m = !maps[j]
-      base = j * s
-      for i in 0..s
-        check += (!m).take((base + i) *% -7046029254386353131) ?? 0
-    rem += t.elapsed()
+    ins += int_insert_maps(!maps, k, s)
+    r = int_remove_maps(!maps, k, s)
+    rem += r.ns
+    check += r.check
   print(name, "insert", ins * N / total, reps * k * s)
   print(name, "remove", rem * N / total, check)
   m = IntMap()
   for i in 0..s
     !m.put(i *% -7046029254386353131, i)
   rounds = total / s
-  sum = 0
-  t = time.now()
-  for _ in 0..rounds
-    for i in 0..s
-      if m.get(i *% -7046029254386353131) as v
-        sum += v
-  print(name, "hit", t.elapsed() * N / total, sum)
-  found = 0
-  t = time.now()
-  for _ in 0..rounds
-    for i in s..2 * s
-      found += 1 if m.has(i *% -7046029254386353131)
-  print(name, "miss", t.elapsed() * N / total, found)
-  sum = 0
-  t = time.now()
-  for _ in 0..rounds
-    for e in ?m.items()
-      sum += e.value
-  print(name, "iterate", t.elapsed() * N / total, sum)
+  r = int_hit_rounds(?m, s, rounds)
+  print(name, "hit", r.ns * N / total, r.check)
+  r = int_miss_rounds(?m, s, rounds)
+  print(name, "miss", r.ns * N / total, r.check)
+  r = walk_rounds(?m, rounds)
+  print(name, "iterate", r.ns * N / total, r.check)
 
 # `text_of(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by the
 # part after `#`.
@@ -451,6 +562,14 @@ fun upto(n: Int) -> List[Int]
 # through its keys, in shuffled order. Each key `scatter(i)` is put in
 # order of `i`, with the key after it in the cycle as its value, so a Map
 # that keeps its entries in order meets them out of order.
+called fun lat_chain(m: ?IntMap, start: Int, total: Int) -> Row
+  key = start
+  t = time.now()
+  for _ in 0..total
+    if m.get(key) as v
+      key = v
+  Row(ns: t.elapsed(), check: key)
+
 called sub latency(s: Int)
   total = 4 * N
   p = upto(s)
@@ -461,12 +580,16 @@ called sub latency(s: Int)
     next[p[t]] = p[(t + 1) % s]
   for i in 0..s
     !m.put(scatter(i), scatter(next[i]))
-  key = scatter(p[0])
+  r = lat_chain(?m, scatter(p[0]), total)
+  print(String("lat", s), "chain", r.ns * N / total, r.check)
+
+called fun churn_turns(m: !IntMap, ks: ?List[Int], s: Int, turns: Int) -> Row
+  check = 0
   t = time.now()
-  for _ in 0..total
-    if m.get(key) as v
-      key = v
-  print(String("lat", s), "chain", t.elapsed() * N / total, key)
+  for i in 0..turns
+    check +%= (!m).take(ks[i]) ?? 0
+    !m.put(ks[s + i], s + i)
+  Row(ns: t.elapsed(), check: check)
 
 # A Map of `s` keys turned over: each step takes the oldest key and puts
 # a new one.
@@ -479,12 +602,8 @@ called sub churn(s: Int)
   m = IntMap()
   for i in 0..s
     !m.put(ks[i], i)
-  check = 0
-  t = time.now()
-  for i in 0..turns
-    check +%= (!m).take(ks[i]) ?? 0
-    !m.put(ks[s + i], s + i)
-  print(String("churn", s), "turnover", t.elapsed() * N / total, check)
+  r = churn_turns(!m, ?ks, s, turns)
+  print(String("churn", s), "turnover", r.ns * N / total, r.check)
 
 # Lookups that hit half the time, in shuffled order.
 called sub mixed(s: Int)
@@ -496,13 +615,50 @@ called sub mixed(s: Int)
   for i in 0..s
     !look.push(scatter(i) if i % 2 == 0 else scatter(8 * N + i))
   shuffle(!look)
+  r = rnd_hit(?m, ?look, total / s)
+  print(String("mix", s), "half", r.ns * N / total, r.check)
+
+called fun str_insert(maps: !List[StringMap], put: List[String], s: Int) -> Int
+  t = time.now()
+  j = 0
+  i = 0
+  for key in <put
+    (!maps[j]).put(<key, i)
+    i += 1
+    if i == s
+      i = 0
+      j += 1
+  t.elapsed()
+
+called fun str_remove(maps: !List[StringMap], take: ?List[String], s: Int) -> Row
+  check = 0
+  t = time.now()
+  j = 0
+  i = 0
+  for key in take
+    check += (!maps[j]).take(key) ?? 0
+    i += 1
+    if i == s
+      i = 0
+      j += 1
+  Row(ns: t.elapsed(), check: check)
+
+called fun str_hit(m: ?StringMap, hit: ?List[String], rounds: Int) -> Row
   sum = 0
   t = time.now()
-  for _ in 0..total / s
-    for key in look
+  for _ in 0..rounds
+    for key in hit
       if m.get(key) as v
         sum += v
-  print(String("mix", s), "half", t.elapsed() * N / total, sum)
+  Row(ns: t.elapsed(), check: sum)
+
+called fun str_miss(m: ?StringMap, miss: ?List[String], rounds: Int) -> Row
+  found = 0
+  t = time.now()
+  for _ in 0..rounds
+    for key in miss
+      found += 1 if m.has(key)
+  Row(ns: t.elapsed(), check: found)
 
 # Text keys, each moved into the Map and found by an equal text made
 # apart; a million operations a row.
@@ -524,26 +680,10 @@ called sub strings_sized(s: Int)
     maps: List[StringMap] = List(capacity: k)
     for _ in 0..k
       !maps.push(StringMap())
-    t = time.now()
-    j = 0
-    i = 0
-    for key in <put
-      (!maps[j]).put(<key, i)
-      i += 1
-      if i == s
-        i = 0
-        j += 1
-    ins += t.elapsed()
-    t = time.now()
-    j = 0
-    i = 0
-    for key in ?take
-      check += (!maps[j]).take(key) ?? 0
-      i += 1
-      if i == s
-        i = 0
-        j += 1
-    rem += t.elapsed()
+    ins += str_insert(!maps, <put, s)
+    r = str_remove(!maps, ?take, s)
+    rem += r.ns
+    check += r.check
   print(name, "insert", ins, reps * k * s)
   print(name, "remove", rem, check)
   m = StringMap()
@@ -557,19 +697,47 @@ called sub strings_sized(s: Int)
     !hit.push(text_of(order[i]))
   for i in 0..s
     !miss.push(text_of(8 * N + i))
+  r = str_hit(?m, ?hit, N / s)
+  print(name, "hit", r.ns, r.check)
+  r = str_miss(?m, ?miss, N / s)
+  print(name, "miss", r.ns, r.check)
+
+called fun big_insert(maps: !List[BigMap], ks: ?List[Int], k: Int, s: Int) -> Int
+  t = time.now()
+  for j in 0..k
+    m = !maps[j]
+    base = j * s
+    for i in 0..s
+      !m.put(ks[base + i], big(i))
+  t.elapsed()
+
+called fun big_remove(maps: !List[BigMap], ks: ?List[Int], k: Int, s: Int) -> Row
+  check = 0
+  t = time.now()
+  for j in 0..k
+    m = !maps[j]
+    base = j * s
+    for i in 0..s
+      if (!m).take(ks[base + i]) as v
+        check += v.h
+  Row(ns: t.elapsed(), check: check)
+
+called fun big_hit(m: ?BigMap, hit: ?List[Int], rounds: Int) -> Row
   sum = 0
   t = time.now()
-  for _ in 0..N / s
-    for key in ?hit
+  for _ in 0..rounds
+    for key in hit
       if m.get(key) as v
-        sum += v
-  print(name, "hit", t.elapsed(), sum)
-  found = 0
+        sum += v.h
+  Row(ns: t.elapsed(), check: sum)
+
+called fun big_walk(m: ?BigMap, rounds: Int) -> Row
+  sum = 0
   t = time.now()
-  for _ in 0..N / s
-    for key in ?miss
-      found += 1 if m.has(key)
-  print(name, "miss", t.elapsed(), found)
+  for _ in 0..rounds
+    for e in m.items()
+      sum += e.value.a
+  Row(ns: t.elapsed(), check: sum)
 
 # `random`'s insert, remove, hit, and iterate with a value of eight Ints.
 called sub bigs(s: Int)
@@ -587,21 +755,10 @@ called sub bigs(s: Int)
     maps: List[BigMap] = List(capacity: k)
     for _ in 0..k
       !maps.push(BigMap())
-    t = time.now()
-    for j in 0..k
-      m = !maps[j]
-      base = j * s
-      for i in 0..s
-        !m.put(ks[base + i], big(i))
-    ins += t.elapsed()
-    t = time.now()
-    for j in 0..k
-      m = !maps[j]
-      base = j * s
-      for i in 0..s
-        if (!m).take(ks[base + i]) as v
-          check += v.h
-    rem += t.elapsed()
+    ins += big_insert(!maps, ?ks, k, s)
+    r = big_remove(!maps, ?ks, k, s)
+    rem += r.ns
+    check += r.check
   print(name, "insert", ins * N / total, reps * k * s)
   print(name, "remove", rem * N / total, check)
   m = BigMap()
@@ -611,19 +768,10 @@ called sub bigs(s: Int)
   for i in 0..s
     !hit.push(ks[i])
   shuffle(!hit)
-  sum = 0
-  t = time.now()
-  for _ in 0..total / s
-    for key in hit
-      if m.get(key) as v
-        sum += v.h
-  print(name, "hit", t.elapsed() * N / total, sum)
-  sum = 0
-  t = time.now()
-  for _ in 0..total / s
-    for e in ?m.items()
-      sum += e.value.a
-  print(name, "iterate", t.elapsed() * N / total, sum)
+  r = big_hit(?m, ?hit, total / s)
+  print(name, "hit", r.ns * N / total, r.check)
+  r = big_walk(?m, total / s)
+  print(name, "iterate", r.ns * N / total, r.check)
 
 # `mem`: one Map of 4,000,000 keys, for its peak memory; `mem0`: the
 # keys alone, the baseline.

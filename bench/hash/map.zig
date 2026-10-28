@@ -56,32 +56,63 @@ fn rowDone() void {
     if (@hasDecl(alloc, "reset")) alloc.reset();
 }
 
-fn ints(io: std.Io, n: i64) !void {
-    var m: std.AutoHashMapUnmanaged(i64, i64) = .empty;
-    defer m.deinit(gpa);
-    var t = now(io);
+// Each row's timed loop is a function of its own that is never inlined,
+// so its registers are allotted for that loop alone, not shared with
+// the other rows' loops in the caller. It reads the clock around the
+// loop, so the call is not timed, and returns the time with the row's
+// checksum.
+
+/// A row's time in nanoseconds and its checksum.
+const Timed = struct { ns: i96, check: i64 };
+
+const StdIntMap = std.AutoHashMapUnmanaged(i64, i64);
+
+noinline fn intsInsert(io: std.Io, m: *StdIntMap, n: i64) !i96 {
+    const t = now(io);
     var i: i64 = 0;
     while (i < n) : (i += 1) try m.put(gpa, i *% mul, i);
-    out("int", "insert", since(io, t), m.count());
+    return since(io, t);
+}
+
+noinline fn intsHit(io: std.Io, m: *StdIntMap, n: i64) Timed {
     var sum: i64 = 0;
-    t = now(io);
-    i = 0;
+    const t = now(io);
+    var i: i64 = 0;
     while (i < n) : (i += 1) if (m.get(i *% mul)) |v| {
         sum += v;
     };
-    out("int", "hit", since(io, t), sum);
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+noinline fn intsMiss(io: std.Io, m: *StdIntMap, n: i64) Timed {
     var found: i64 = 0;
-    t = now(io);
-    i = n;
+    const t = now(io);
+    var i: i64 = n;
     while (i < 2 * n) : (i += 1) if (m.contains(i *% mul)) {
         found += 1;
     };
-    out("int", "miss", since(io, t), found);
-    sum = 0;
-    t = now(io);
+    return .{ .ns = since(io, t), .check = found };
+}
+
+noinline fn intsIterate(io: std.Io, m: *StdIntMap) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
     var it = m.iterator();
     while (it.next()) |e| sum += e.value_ptr.*;
-    out("int", "iterate", since(io, t), sum);
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+fn ints(io: std.Io, n: i64) !void {
+    var m: StdIntMap = .empty;
+    defer m.deinit(gpa);
+    const ns = try intsInsert(io, &m, n);
+    out("int", "insert", ns, m.count());
+    var d = intsHit(io, &m, n);
+    out("int", "hit", d.ns, d.check);
+    d = intsMiss(io, &m, n);
+    out("int", "miss", d.ns, d.check);
+    d = intsIterate(io, &m);
+    out("int", "iterate", d.ns, d.check);
 }
 
 /// A key of two words, as map.rig's `Pair`.
@@ -92,27 +123,43 @@ fn pair(i: i64) Pair {
     return .{ .lo = ((u >> 10) << 32) | (u & 1023), .hi = 0xA5C4000000000000 };
 }
 
+/// The timed loops of `pairs` and `triples`, for keys `make(i)`.
+noinline fn keyedInsert(comptime K: type, comptime make: fn (i64) K, io: std.Io, m: *table.Auto(K, i64), n: i64) !i96 {
+    const t = now(io);
+    var i: i64 = 0;
+    while (i < n) : (i += 1) try m.put(gpa, make(i), i);
+    return since(io, t);
+}
+
+noinline fn keyedHit(comptime K: type, comptime make: fn (i64) K, io: std.Io, m: *table.Auto(K, i64), n: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var i: i64 = 0;
+    while (i < n) : (i += 1) if (m.get(make(i))) |v| {
+        sum += v;
+    };
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+noinline fn keyedMiss(comptime K: type, comptime make: fn (i64) K, io: std.Io, m: *table.Auto(K, i64), n: i64) Timed {
+    var found: i64 = 0;
+    const t = now(io);
+    var i: i64 = n;
+    while (i < 2 * n) : (i += 1) if (m.contains(make(i))) {
+        found += 1;
+    };
+    return .{ .ns = since(io, t), .check = found };
+}
+
 fn pairs(io: std.Io, n: i64) !void {
     var m: table.Auto(Pair, i64) = .empty;
     defer m.deinit(gpa);
-    var t = now(io);
-    var i: i64 = 0;
-    while (i < n) : (i += 1) try m.put(gpa, pair(i), i);
-    out("pair", "insert", since(io, t), @intCast(m.count()));
-    var sum: i64 = 0;
-    t = now(io);
-    i = 0;
-    while (i < n) : (i += 1) if (m.get(pair(i))) |v| {
-        sum += v;
-    };
-    out("pair", "hit", since(io, t), sum);
-    var found: i64 = 0;
-    t = now(io);
-    i = n;
-    while (i < 2 * n) : (i += 1) if (m.contains(pair(i))) {
-        found += 1;
-    };
-    out("pair", "miss", since(io, t), found);
+    const ns = try keyedInsert(Pair, pair, io, &m, n);
+    out("pair", "insert", ns, @intCast(m.count()));
+    var d = keyedHit(Pair, pair, io, &m, n);
+    out("pair", "hit", d.ns, d.check);
+    d = keyedMiss(Pair, pair, io, &m, n);
+    out("pair", "miss", d.ns, d.check);
 }
 
 /// A key of three words, as map.rig's `Triple`.
@@ -126,24 +173,12 @@ fn triple(i: i64) Triple {
 fn triples(io: std.Io, n: i64) !void {
     var m: table.Auto(Triple, i64) = .empty;
     defer m.deinit(gpa);
-    var t = now(io);
-    var i: i64 = 0;
-    while (i < n) : (i += 1) try m.put(gpa, triple(i), i);
-    out("triple", "insert", since(io, t), @intCast(m.count()));
-    var sum: i64 = 0;
-    t = now(io);
-    i = 0;
-    while (i < n) : (i += 1) if (m.get(triple(i))) |v| {
-        sum += v;
-    };
-    out("triple", "hit", since(io, t), sum);
-    var found: i64 = 0;
-    t = now(io);
-    i = n;
-    while (i < 2 * n) : (i += 1) if (m.contains(triple(i))) {
-        found += 1;
-    };
-    out("triple", "miss", since(io, t), found);
+    const ns = try keyedInsert(Triple, triple, io, &m, n);
+    out("triple", "insert", ns, @intCast(m.count()));
+    var d = keyedHit(Triple, triple, io, &m, n);
+    out("triple", "hit", d.ns, d.check);
+    d = keyedMiss(Triple, triple, io, &m, n);
+    out("triple", "miss", d.ns, d.check);
 }
 
 /// "key" and `i`, built as Rig's `String("key", i)` is (`rig.String.add`).
@@ -152,6 +187,40 @@ fn key(i: usize) !std.ArrayList(u8) {
     var w: std.Io.Writer.Allocating = .fromArrayList(gpa, &list);
     try w.writer.print("key{d}", .{i});
     return w.toArrayList();
+}
+
+const StdStrMap = std.StringHashMapUnmanaged(i64);
+
+noinline fn stringsInsert(io: std.Io, m: *StdStrMap, put: []std.ArrayList(u8)) !i96 {
+    const t = now(io);
+    for (put, 0..) |k, i| try m.put(gpa, k.items, @intCast(i));
+    return since(io, t);
+}
+
+noinline fn stringsHit(io: std.Io, m: *StdStrMap, look: []std.ArrayList(u8)) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    for (look) |k| if (m.get(k.items)) |v| {
+        sum += v;
+    };
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+noinline fn stringsMiss(io: std.Io, m: *StdStrMap, miss: []std.ArrayList(u8)) Timed {
+    var found: i64 = 0;
+    const t = now(io);
+    for (miss) |k| if (m.contains(k.items)) {
+        found += 1;
+    };
+    return .{ .ns = since(io, t), .check = found };
+}
+
+noinline fn stringsIterate(io: std.Io, m: *StdStrMap) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var it = m.iterator();
+    while (it.next()) |e| sum += e.value_ptr.*;
+    return .{ .ns = since(io, t), .check = sum };
 }
 
 fn strings(io: std.Io, n: usize) !void {
@@ -163,27 +232,15 @@ fn strings(io: std.Io, n: usize) !void {
         look[i] = try key(i);
         miss[i] = try key(n + i);
     }
-    var m: std.StringHashMapUnmanaged(i64) = .empty;
-    var t = now(io);
-    for (put, 0..) |k, i| try m.put(gpa, k.items, @intCast(i));
-    out("string", "insert", since(io, t), m.count());
-    var sum: i64 = 0;
-    t = now(io);
-    for (look) |k| if (m.get(k.items)) |v| {
-        sum += v;
-    };
-    out("string", "hit", since(io, t), sum);
-    var found: i64 = 0;
-    t = now(io);
-    for (miss) |k| if (m.contains(k.items)) {
-        found += 1;
-    };
-    out("string", "miss", since(io, t), found);
-    sum = 0;
-    t = now(io);
-    var it = m.iterator();
-    while (it.next()) |e| sum += e.value_ptr.*;
-    out("string", "iterate", since(io, t), sum);
+    var m: StdStrMap = .empty;
+    const ns = try stringsInsert(io, &m, put);
+    out("string", "insert", ns, m.count());
+    var d = stringsHit(io, &m, look);
+    out("string", "hit", d.ns, d.check);
+    d = stringsMiss(io, &m, miss);
+    out("string", "miss", d.ns, d.check);
+    d = stringsIterate(io, &m);
+    out("string", "iterate", d.ns, d.check);
     m.deinit(gpa);
     for (put, look, miss) |*a, *b, *c| {
         a.deinit(gpa);
@@ -195,31 +252,34 @@ fn strings(io: std.Io, n: usize) !void {
     gpa.free(miss);
 }
 
-/// `n` hit lookups in a map of `size` Int keys.
-fn small(io: std.Io, n: i64, size: i64) !void {
-    var m: std.AutoHashMapUnmanaged(i64, i64) = .empty;
-    defer m.deinit(gpa);
-    var i: i64 = 0;
-    while (i < size) : (i += 1) try m.put(gpa, i *% mul, i);
+noinline fn smallHit(io: std.Io, m: *StdIntMap, n: i64, size: i64) Timed {
     var sum: i64 = 0;
     const t = now(io);
-    i = 0;
+    var i: i64 = 0;
     while (i < n) : (i += 1) if (m.get(@mod(i, size) *% mul)) |v| {
         sum += v;
     };
-    const keys = if (size == 4) "small 4" else "small 8";
-    std.debug.print("{s} {d} {d}\n", .{ keys, since(io, t), sum });
+    return .{ .ns = since(io, t), .check = sum };
 }
 
-/// `n` words, from 50,000 distinct ones, each given a dense id, as
-/// `text.Interner` does: a map from the text to its id, the text of a
-/// new word copied once into one arena.
-fn intern(io: std.Io, n: usize) !void {
-    const words = try gpa.alloc(std.ArrayList(u8), n);
-    for (words, 0..) |*w, i| w.* = try word(i);
-    var ids: std.StringHashMapUnmanaged(u32) = .empty;
-    var arena: std.ArrayList(u8) = .empty;
-    var ends: std.ArrayList(u32) = .empty;
+/// `n` hit lookups in a map of `size` Int keys.
+fn small(io: std.Io, n: i64, size: i64) !void {
+    var m: StdIntMap = .empty;
+    defer m.deinit(gpa);
+    var i: i64 = 0;
+    while (i < size) : (i += 1) try m.put(gpa, i *% mul, i);
+    const d = smallHit(io, &m, n, size);
+    const keys = if (size == 4) "small 4" else "small 8";
+    std.debug.print("{s} {d} {d}\n", .{ keys, d.ns, d.check });
+}
+
+noinline fn internWords(
+    io: std.Io,
+    ids: *std.StringHashMapUnmanaged(u32),
+    arena: *std.ArrayList(u8),
+    ends: *std.ArrayList(u32),
+    words: []std.ArrayList(u8),
+) !Timed {
     var sum: u64 = 0;
     const t = now(io);
     for (words) |w| {
@@ -233,7 +293,20 @@ fn intern(io: std.Io, n: usize) !void {
         }
         sum +%= got.value_ptr.*;
     }
-    out("string", "intern", since(io, t), @bitCast(sum));
+    return .{ .ns = since(io, t), .check = @bitCast(sum) };
+}
+
+/// `n` words, from 50,000 distinct ones, each given a dense id, as
+/// `text.Interner` does: a map from the text to its id, the text of a
+/// new word copied once into one arena.
+fn intern(io: std.Io, n: usize) !void {
+    const words = try gpa.alloc(std.ArrayList(u8), n);
+    for (words, 0..) |*w, i| w.* = try word(i);
+    var ids: std.StringHashMapUnmanaged(u32) = .empty;
+    var arena: std.ArrayList(u8) = .empty;
+    var ends: std.ArrayList(u32) = .empty;
+    const d = try internWords(io, &ids, &arena, &ends, words);
+    out("string", "intern", d.ns, d.check);
     ids.deinit(gpa);
     arena.deinit(gpa);
     ends.deinit(gpa);
@@ -249,6 +322,68 @@ fn word(i: usize) !std.ArrayList(u8) {
     return w.toArrayList();
 }
 
+const IntMap = table.Auto(i64, i64);
+
+noinline fn sizedInsert(io: std.Io, maps: []IntMap, s: i64) !i96 {
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        const base = @as(i64, @intCast(j)) * s;
+        var i: i64 = 0;
+        while (i < s) : (i += 1) try m.put(gpa, (base + i) *% mul, i);
+    }
+    return since(io, t);
+}
+
+noinline fn sizedRemove(io: std.Io, maps: []IntMap, s: i64) Timed {
+    var check: i64 = 0;
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        const base = @as(i64, @intCast(j)) * s;
+        var i: i64 = 0;
+        while (i < s) : (i += 1) if (m.fetchRemove((base + i) *% mul)) |e| {
+            check += e.value;
+        };
+    }
+    return .{ .ns = since(io, t), .check = check };
+}
+
+noinline fn sizedHit(io: std.Io, m: *IntMap, s: i64, rounds: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        var i: i64 = 0;
+        while (i < s) : (i += 1) if (m.get(hide(i) *% mul)) |v| {
+            sum += v;
+        };
+    }
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+noinline fn sizedMiss(io: std.Io, m: *IntMap, s: i64, rounds: i64) Timed {
+    var found: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        var i: i64 = s;
+        while (i < 2 * s) : (i += 1) if (m.contains(hide(i) *% mul)) {
+            found += 1;
+        };
+    }
+    return .{ .ns = since(io, t), .check = found };
+}
+
+noinline fn sizedIterate(io: std.Io, m: *IntMap, rounds: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        var it = hide(m).iterator();
+        while (it.next()) |e| sum += e.value_ptr.*;
+    }
+    return .{ .ns = since(io, t), .check = sum };
+}
+
 /// The ops at one size `s`, as map.rig's `sized`: insert and remove over
 /// batches of maps of `s` keys, hit and miss in one map of `s`, iterate
 /// over it, each 4,000,000 operations, NS scaled to a million.
@@ -259,8 +394,7 @@ fn sized(io: std.Io, s: i64) !void {
     const reps: i64 = @divTrunc(total, k * s);
     var name_buf: [32]u8 = undefined;
     const name = try std.fmt.bufPrint(&name_buf, "int{d}", .{s});
-    const Map = table.Auto(i64, i64);
-    const maps = try gpa.alloc(Map, @intCast(k));
+    const maps = try gpa.alloc(IntMap, @intCast(k));
     defer gpa.free(maps);
     var ins: i96 = 0;
     var rem: i96 = 0;
@@ -268,60 +402,26 @@ fn sized(io: std.Io, s: i64) !void {
     var r: i64 = 0;
     while (r < reps) : (r += 1) {
         for (maps) |*m| m.* = .empty;
-        var t = now(io);
-        for (maps, 0..) |*m, j| {
-            const base = @as(i64, @intCast(j)) * s;
-            var i: i64 = 0;
-            while (i < s) : (i += 1) try m.put(gpa, (base + i) *% mul, i);
-        }
-        ins += since(io, t);
-        t = now(io);
-        for (maps, 0..) |*m, j| {
-            const base = @as(i64, @intCast(j)) * s;
-            var i: i64 = 0;
-            while (i < s) : (i += 1) if (m.fetchRemove((base + i) *% mul)) |e| {
-                check += e.value;
-            };
-        }
-        rem += since(io, t);
+        ins += try sizedInsert(io, maps, s);
+        const d = sizedRemove(io, maps, s);
+        rem += d.ns;
+        check += d.check;
         keep(maps.ptr);
         for (maps) |*m| m.deinit(gpa);
     }
     out(name, "insert", @divTrunc(ins * n, total), reps * k * s);
     out(name, "remove", @divTrunc(rem * n, total), check);
-    var m: Map = .empty;
+    var m: IntMap = .empty;
     defer m.deinit(gpa);
     var i: i64 = 0;
     while (i < s) : (i += 1) try m.put(gpa, i *% mul, i);
     const rounds = @divTrunc(total, s);
-    var sum: i64 = 0;
-    var t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        i = 0;
-        while (i < s) : (i += 1) if (m.get(hide(i) *% mul)) |v| {
-            sum += v;
-        };
-    }
-    out(name, "hit", @divTrunc(since(io, t) * n, total), sum);
-    var found: i64 = 0;
-    t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        i = s;
-        while (i < 2 * s) : (i += 1) if (m.contains(hide(i) *% mul)) {
-            found += 1;
-        };
-    }
-    out(name, "miss", @divTrunc(since(io, t) * n, total), found);
-    sum = 0;
-    t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        var it = hide(&m).iterator();
-        while (it.next()) |e| sum += e.value_ptr.*;
-    }
-    out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
+    var d = sizedHit(io, &m, s, rounds);
+    out(name, "hit", @divTrunc(d.ns * n, total), d.check);
+    d = sizedMiss(io, &m, s, rounds);
+    out(name, "miss", @divTrunc(d.ns * n, total), d.check);
+    d = sizedIterate(io, &m, rounds);
+    out(name, "iterate", @divTrunc(d.ns * n, total), d.check);
 }
 
 /// splitmix64's output for `n + 1`: a bijection, so distinct `n` give
@@ -344,6 +444,60 @@ fn shuffle(v: []i64) void {
     }
 }
 
+noinline fn randomInsert(io: std.Io, maps: []IntMap, keys: []const i64, su: usize) !i96 {
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        for (keys[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
+    }
+    return since(io, t);
+}
+
+noinline fn randomRemove(io: std.Io, maps: []IntMap, keys: []const i64, su: usize) Timed {
+    var check: i64 = 0;
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        for (keys[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
+            check += e.value;
+        };
+    }
+    return .{ .ns = since(io, t), .check = check };
+}
+
+noinline fn randomHit(io: std.Io, m: *IntMap, hit: []const i64, rounds: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        for (hide(hit.ptr)[0..hit.len]) |x| if (m.get(x)) |v| {
+            sum += v;
+        };
+    }
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+noinline fn randomMiss(io: std.Io, m: *IntMap, miss: []const i64, rounds: i64) Timed {
+    var found: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        for (hide(miss.ptr)[0..miss.len]) |x| if (m.contains(x)) {
+            found += 1;
+        };
+    }
+    return .{ .ns = since(io, t), .check = found };
+}
+
+noinline fn randomIterate(io: std.Io, m: *IntMap, rounds: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        var it = hide(m).iterator();
+        while (it.next()) |e| sum += e.value_ptr.*;
+    }
+    return .{ .ns = since(io, t), .check = sum };
+}
+
 /// The ops of `sized` on random keys (`scatter` of 0, 1, ...), read from
 /// slices made before the timing; hits look the keys up in shuffled order.
 fn random(io: std.Io, s: i64) !void {
@@ -354,11 +508,10 @@ fn random(io: std.Io, s: i64) !void {
     const su: usize = @intCast(s);
     var name_buf: [32]u8 = undefined;
     const name = try std.fmt.bufPrint(&name_buf, "rnd{d}", .{s});
-    const Map = table.Auto(i64, i64);
     const keys = try gpa.alloc(i64, @intCast(k * s));
     defer gpa.free(keys);
     for (keys, 0..) |*x, i| x.* = scatter(@intCast(i));
-    const maps = try gpa.alloc(Map, @intCast(k));
+    const maps = try gpa.alloc(IntMap, @intCast(k));
     defer gpa.free(maps);
     var ins: i96 = 0;
     var rem: i96 = 0;
@@ -366,24 +519,16 @@ fn random(io: std.Io, s: i64) !void {
     var r: i64 = 0;
     while (r < reps) : (r += 1) {
         for (maps) |*m| m.* = .empty;
-        var t = now(io);
-        for (maps, 0..) |*m, j| {
-            for (keys[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
-        }
-        ins += since(io, t);
-        t = now(io);
-        for (maps, 0..) |*m, j| {
-            for (keys[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
-                check += e.value;
-            };
-        }
-        rem += since(io, t);
+        ins += try randomInsert(io, maps, keys, su);
+        const d = randomRemove(io, maps, keys, su);
+        rem += d.ns;
+        check += d.check;
         keep(maps.ptr);
         for (maps) |*m| m.deinit(gpa);
     }
     out(name, "insert", @divTrunc(ins * n, total), reps * k * s);
     out(name, "remove", @divTrunc(rem * n, total), check);
-    var m: Map = .empty;
+    var m: IntMap = .empty;
     defer m.deinit(gpa);
     for (keys[0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
     const hit = try gpa.dupe(i64, keys[0..su]);
@@ -393,32 +538,12 @@ fn random(io: std.Io, s: i64) !void {
     defer gpa.free(miss);
     for (miss, 0..) |*x, i| x.* = scatter(8 * n + @as(i64, @intCast(i)));
     const rounds = @divTrunc(total, s);
-    var sum: i64 = 0;
-    var t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        for (hide(hit.ptr)[0..su]) |x| if (m.get(x)) |v| {
-            sum += v;
-        };
-    }
-    out(name, "hit", @divTrunc(since(io, t) * n, total), sum);
-    var found: i64 = 0;
-    t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        for (hide(miss.ptr)[0..su]) |x| if (m.contains(x)) {
-            found += 1;
-        };
-    }
-    out(name, "miss", @divTrunc(since(io, t) * n, total), found);
-    sum = 0;
-    t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        var it = hide(&m).iterator();
-        while (it.next()) |e| sum += e.value_ptr.*;
-    }
-    out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
+    var d = randomHit(io, &m, hit, rounds);
+    out(name, "hit", @divTrunc(d.ns * n, total), d.check);
+    d = randomMiss(io, &m, miss, rounds);
+    out(name, "miss", @divTrunc(d.ns * n, total), d.check);
+    d = randomIterate(io, &m, rounds);
+    out(name, "iterate", @divTrunc(d.ns * n, total), d.check);
 }
 
 /// `text(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by
@@ -446,6 +571,14 @@ fn shuffled(s: usize) ![]i64 {
     return v;
 }
 
+noinline fn latencyChain(io: std.Io, m: *IntMap, first: i64, total: i64) Timed {
+    var x = first;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < total) : (r += 1) x = m.get(x).?;
+    return .{ .ns = since(io, t), .check = x };
+}
+
 /// One lookup at a time, each waiting for the last: the map is one
 /// cycle through its keys, in shuffled order.
 fn latency(io: std.Io, s: i64) !void {
@@ -456,7 +589,7 @@ fn latency(io: std.Io, s: i64) !void {
     const name = try std.fmt.bufPrint(&name_buf, "lat{d}", .{s});
     const p = try shuffled(su);
     defer gpa.free(p);
-    var m: table.Auto(i64, i64) = .empty;
+    var m: IntMap = .empty;
     defer m.deinit(gpa);
     // Each key `scatter(i)` is put in order of `i`, with the key after it
     // in the cycle as its value, so a map that keeps its entries in order
@@ -465,11 +598,19 @@ fn latency(io: std.Io, s: i64) !void {
     defer gpa.free(next);
     for (0..su) |t| next[@intCast(p[t])] = p[(t + 1) % su];
     for (0..su) |i| try m.put(gpa, scatter(@intCast(i)), scatter(next[i]));
-    var x = scatter(p[0]);
+    const d = latencyChain(io, &m, scatter(p[0]), total);
+    out(name, "chain", @divTrunc(d.ns * n, total), d.check);
+}
+
+noinline fn churnTurnover(io: std.Io, m: *IntMap, keys: []const i64, s: i64, turns: i64) !Timed {
+    var check: i64 = 0;
     const t = now(io);
-    var r: i64 = 0;
-    while (r < total) : (r += 1) x = m.get(x).?;
-    out(name, "chain", @divTrunc(since(io, t) * n, total), x);
+    var i: i64 = 0;
+    while (i < turns) : (i += 1) {
+        if (m.fetchRemove(keys[@intCast(i)])) |e| check +%= e.value;
+        try m.put(gpa, keys[@intCast(s + i)], s + i);
+    }
+    return .{ .ns = since(io, t), .check = check };
 }
 
 /// A map of `s` keys turned over: each step removes the oldest key and
@@ -484,19 +625,24 @@ fn churn(io: std.Io, s: i64) !void {
     const keys = try gpa.alloc(i64, @intCast(s + turns));
     defer gpa.free(keys);
     for (keys, 0..) |*x, i| x.* = scatter(@intCast(i));
-    var m: table.Auto(i64, i64) = .empty;
+    var m: IntMap = .empty;
     defer m.deinit(gpa);
     for (keys[0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
-    var check: i64 = 0;
-    const t = now(io);
-    var i: i64 = 0;
-    while (i < turns) : (i += 1) {
-        if (m.fetchRemove(keys[@intCast(i)])) |e| check +%= e.value;
-        try m.put(gpa, keys[@intCast(s + i)], s + i);
-    }
-    const ns = since(io, t);
+    const d = try churnTurnover(io, &m, keys, s, turns);
     keep(&m);
-    out(name, "turnover", @divTrunc(ns * n, total), check);
+    out(name, "turnover", @divTrunc(d.ns * n, total), d.check);
+}
+
+noinline fn mixedHalf(io: std.Io, m: *IntMap, look: []const i64, rounds: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        for (hide(look.ptr)[0..look.len]) |x| if (m.get(x)) |v| {
+            sum += v;
+        };
+    }
+    return .{ .ns = since(io, t), .check = sum };
 }
 
 /// Lookups that hit half the time, in shuffled order.
@@ -506,7 +652,7 @@ fn mixed(io: std.Io, s: i64) !void {
     const su: usize = @intCast(s);
     var name_buf: [32]u8 = undefined;
     const name = try std.fmt.bufPrint(&name_buf, "mix{d}", .{s});
-    var m: table.Auto(i64, i64) = .empty;
+    var m: IntMap = .empty;
     defer m.deinit(gpa);
     var i: i64 = 0;
     while (i < s) : (i += 1) try m.put(gpa, scatter(i), i);
@@ -517,15 +663,8 @@ fn mixed(io: std.Io, s: i64) !void {
         x.* = if (@mod(ji, 2) == 0) scatter(ji) else scatter(8 * n + ji);
     }
     shuffle(look);
-    var sum: i64 = 0;
-    const t = now(io);
-    var r: i64 = 0;
-    while (r < @divTrunc(total, s)) : (r += 1) {
-        for (hide(look.ptr)[0..su]) |x| if (m.get(x)) |v| {
-            sum += v;
-        };
-    }
-    out(name, "half", @divTrunc(since(io, t) * n, total), sum);
+    const d = mixedHalf(io, &m, look, @divTrunc(total, s));
+    out(name, "half", @divTrunc(d.ns * n, total), d.check);
 }
 
 const StrMap = table.String(i64);
@@ -541,6 +680,50 @@ fn freeStrMap(m: *StrMap) void {
 fn freeTexts(v: [][]u8) void {
     for (v) |x| gpa.free(x);
     gpa.free(v);
+}
+
+noinline fn textsInsert(io: std.Io, maps: []StrMap, put: [][]u8, su: usize) !i96 {
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        for (put[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
+    }
+    return since(io, t);
+}
+
+noinline fn textsRemove(io: std.Io, maps: []StrMap, take: [][]u8, su: usize) Timed {
+    var check: i64 = 0;
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        for (take[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
+            gpa.free(e.key);
+            check += e.value;
+        };
+    }
+    return .{ .ns = since(io, t), .check = check };
+}
+
+noinline fn textsHit(io: std.Io, m: *StrMap, hit: [][]u8, rounds: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        for (hide(hit.ptr)[0..hit.len]) |x| if (m.get(x)) |v| {
+            sum += v;
+        };
+    }
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+noinline fn textsMiss(io: std.Io, m: *StrMap, miss: [][]u8, rounds: i64) Timed {
+    var found: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        for (hide(miss.ptr)[0..miss.len]) |x| if (m.contains(x)) {
+            found += 1;
+        };
+    }
+    return .{ .ns = since(io, t), .check = found };
 }
 
 /// Text keys, each moved into the map, which frees it, and found by an
@@ -569,19 +752,10 @@ fn texts(io: std.Io, s: i64) !void {
         for (put, 0..) |*a, i| a.* = try text(@intCast(i));
         for (take, 0..) |*b, i| b.* = try text(@intCast(i));
         for (maps) |*m| m.* = .empty;
-        var t = now(io);
-        for (maps, 0..) |*m, j| {
-            for (put[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, @intCast(i));
-        }
-        ins += since(io, t);
-        t = now(io);
-        for (maps, 0..) |*m, j| {
-            for (take[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
-                gpa.free(e.key);
-                check += e.value;
-            };
-        }
-        rem += since(io, t);
+        ins += try textsInsert(io, maps, put, su);
+        const d = textsRemove(io, maps, take, su);
+        rem += d.ns;
+        check += d.check;
         keep(maps.ptr);
         for (maps) |*m| freeStrMap(m);
     }
@@ -599,24 +773,54 @@ fn texts(io: std.Io, s: i64) !void {
     defer freeTexts(miss);
     for (hit, order) |*h, o| h.* = try text(o);
     for (miss, 0..) |*x, j| x.* = try text(8 * n + @as(i64, @intCast(j)));
+    var d = textsHit(io, &m, hit, @divTrunc(n, s));
+    out(name, "hit", d.ns, d.check);
+    d = textsMiss(io, &m, miss, @divTrunc(n, s));
+    out(name, "miss", d.ns, d.check);
+}
+
+const BigMap = table.Auto(i64, [8]i64);
+
+noinline fn bigsInsert(io: std.Io, maps: []BigMap, keys: []const i64, su: usize) !i96 {
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        for (keys[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, big(@intCast(i)));
+    }
+    return since(io, t);
+}
+
+noinline fn bigsRemove(io: std.Io, maps: []BigMap, keys: []const i64, su: usize) Timed {
+    var check: i64 = 0;
+    const t = now(io);
+    for (maps, 0..) |*m, j| {
+        for (keys[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
+            check += e.value[7];
+        };
+    }
+    return .{ .ns = since(io, t), .check = check };
+}
+
+noinline fn bigsHit(io: std.Io, m: *BigMap, hit: []const i64, rounds: i64) Timed {
     var sum: i64 = 0;
-    var t = now(io);
-    r = 0;
-    while (r < @divTrunc(n, s)) : (r += 1) {
-        for (hide(hit.ptr)[0..su]) |x| if (m.get(x)) |v| {
-            sum += v;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        for (hide(hit.ptr)[0..hit.len]) |x| if (m.getPtr(x)) |v| {
+            sum += v[7];
         };
     }
-    out(name, "hit", since(io, t), sum);
-    var found: i64 = 0;
-    t = now(io);
-    r = 0;
-    while (r < @divTrunc(n, s)) : (r += 1) {
-        for (hide(miss.ptr)[0..su]) |x| if (m.contains(x)) {
-            found += 1;
-        };
+    return .{ .ns = since(io, t), .check = sum };
+}
+
+noinline fn bigsIterate(io: std.Io, m: *BigMap, rounds: i64) Timed {
+    var sum: i64 = 0;
+    const t = now(io);
+    var r: i64 = 0;
+    while (r < rounds) : (r += 1) {
+        var it = hide(m).valueIterator();
+        while (it.next()) |v| sum += v[0];
     }
-    out(name, "miss", since(io, t), found);
+    return .{ .ns = since(io, t), .check = sum };
 }
 
 /// `random`'s insert, remove, hit and iterate with a value of eight
@@ -629,11 +833,10 @@ fn bigs(io: std.Io, s: i64) !void {
     const su: usize = @intCast(s);
     var name_buf: [32]u8 = undefined;
     const name = try std.fmt.bufPrint(&name_buf, "big{d}", .{s});
-    const Map = table.Auto(i64, [8]i64);
     const keys = try gpa.alloc(i64, @intCast(k * s));
     defer gpa.free(keys);
     for (keys, 0..) |*x, i| x.* = scatter(@intCast(i));
-    const maps = try gpa.alloc(Map, @intCast(k));
+    const maps = try gpa.alloc(BigMap, @intCast(k));
     defer gpa.free(maps);
     var ins: i96 = 0;
     var rem: i96 = 0;
@@ -641,47 +844,26 @@ fn bigs(io: std.Io, s: i64) !void {
     var r: i64 = 0;
     while (r < reps) : (r += 1) {
         for (maps) |*m| m.* = .empty;
-        var t = now(io);
-        for (maps, 0..) |*m, j| {
-            for (keys[j * su ..][0..su], 0..) |x, i| try m.put(gpa, x, big(@intCast(i)));
-        }
-        ins += since(io, t);
-        t = now(io);
-        for (maps, 0..) |*m, j| {
-            for (keys[j * su ..][0..su]) |x| if (m.fetchRemove(x)) |e| {
-                check += e.value[7];
-            };
-        }
-        rem += since(io, t);
+        ins += try bigsInsert(io, maps, keys, su);
+        const d = bigsRemove(io, maps, keys, su);
+        rem += d.ns;
+        check += d.check;
         keep(maps.ptr);
         for (maps) |*m| m.deinit(gpa);
     }
     out(name, "insert", @divTrunc(ins * n, total), reps * k * s);
     out(name, "remove", @divTrunc(rem * n, total), check);
-    var m: Map = .empty;
+    var m: BigMap = .empty;
     defer m.deinit(gpa);
     for (keys[0..su], 0..) |x, i| try m.put(gpa, x, big(@intCast(i)));
     const hit = try gpa.dupe(i64, keys[0..su]);
     defer gpa.free(hit);
     shuffle(hit);
     const rounds = @divTrunc(total, s);
-    var sum: i64 = 0;
-    var t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        for (hide(hit.ptr)[0..su]) |x| if (m.getPtr(x)) |v| {
-            sum += v[7];
-        };
-    }
-    out(name, "hit", @divTrunc(since(io, t) * n, total), sum);
-    sum = 0;
-    t = now(io);
-    r = 0;
-    while (r < rounds) : (r += 1) {
-        var it = hide(&m).valueIterator();
-        while (it.next()) |v| sum += v[0];
-    }
-    out(name, "iterate", @divTrunc(since(io, t) * n, total), sum);
+    var d = bigsHit(io, &m, hit, rounds);
+    out(name, "hit", @divTrunc(d.ns * n, total), d.check);
+    d = bigsIterate(io, &m, rounds);
+    out(name, "iterate", @divTrunc(d.ns * n, total), d.check);
 }
 
 /// `mem`: one map of 4,000,000 keys, for its peak memory; `mem0`: the

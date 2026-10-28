@@ -114,6 +114,75 @@ static void out(const char* keys, const char* op, uint64_t ns, int64_t check) {
     std::printf("%s %s %llu %lld\n", keys, op, (unsigned long long)ns, (long long)check);
 }
 
+// Each row's timed loop is a function of its own that is never inlined,
+// so its registers are allotted for that loop alone, not shared with
+// the other rows' loops in the caller. It reads the clock around the
+// loop, so the call is not timed, and returns the time with the row's
+// checksum.
+#define NOINLINE __attribute__((noinline))
+
+struct Timed {
+    uint64_t ns;
+    int64_t check;
+};
+
+NOINLINE static uint64_t int_insert(std::vector<Map>& maps, int64_t k, int64_t s) {
+    uint64_t t = now();
+    for (int64_t j = 0; j < k; j++) {
+        Map& m = maps[j];
+        int64_t base = j * s;
+        for (int64_t i = 0; i < s; i++) m.insert_or_assign(wrap_mul(base + i, MUL), i);
+    }
+    return now() - t;
+}
+
+NOINLINE static Timed int_remove(std::vector<Map>& maps, int64_t k, int64_t s) {
+    int64_t check = 0;
+    uint64_t t = now();
+    for (int64_t j = 0; j < k; j++) {
+        Map& m = maps[j];
+        int64_t base = j * s;
+        for (int64_t i = 0; i < s; i++) {
+            auto it = m.find(wrap_mul(base + i, MUL));
+            if (it != m.end()) {
+                check += it->second;
+                m.erase(it);
+            }
+        }
+    }
+    return {now() - t, check};
+}
+
+NOINLINE static Timed int_hit(Map& m, int64_t s, int64_t rounds) {
+    int64_t sum = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++)
+        for (int64_t i = 0; i < s; i++) {
+            auto it = m.find(wrap_mul(opaque(i), MUL));
+            if (it != m.end()) sum += it->second;
+        }
+    return {now() - t, sum};
+}
+
+NOINLINE static Timed int_miss(Map& m, int64_t s, int64_t rounds) {
+    int64_t found = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++)
+        for (int64_t i = s; i < 2 * s; i++)
+            if (m.contains(wrap_mul(opaque(i), MUL))) found++;
+    return {now() - t, found};
+}
+
+NOINLINE static Timed int_iterate(Map& m, int64_t rounds) {
+    int64_t sum = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        Map const& mm = *opaque(&m);
+        for (auto const& kv : mm) sum += kv.second;
+    }
+    return {now() - t, sum};
+}
+
 static void sized(int64_t s) {
     int64_t total = 4 * N;
     int64_t k = s < N ? N / s : 1;
@@ -124,26 +193,10 @@ static void sized(int64_t s) {
     int64_t check = 0;
     for (int64_t r = 0; r < reps; r++) {
         std::vector<Map> maps(k);
-        uint64_t t = now();
-        for (int64_t j = 0; j < k; j++) {
-            Map& m = maps[j];
-            int64_t base = j * s;
-            for (int64_t i = 0; i < s; i++) m.insert_or_assign(wrap_mul(base + i, MUL), i);
-        }
-        ins += now() - t;
-        t = now();
-        for (int64_t j = 0; j < k; j++) {
-            Map& m = maps[j];
-            int64_t base = j * s;
-            for (int64_t i = 0; i < s; i++) {
-                auto it = m.find(wrap_mul(base + i, MUL));
-                if (it != m.end()) {
-                    check += it->second;
-                    m.erase(it);
-                }
-            }
-        }
-        rem += now() - t;
+        ins += int_insert(maps, k, s);
+        Timed d = int_remove(maps, k, s);
+        rem += d.ns;
+        check += d.check;
         keep(maps);
     }
     auto scale = [&](uint64_t ns) { return ns * (uint64_t)N / (uint64_t)total; };
@@ -152,27 +205,12 @@ static void sized(int64_t s) {
     Map m;
     for (int64_t i = 0; i < s; i++) m.insert_or_assign(wrap_mul(i, MUL), i);
     int64_t rounds = total / s;
-    int64_t sum = 0;
-    uint64_t t = now();
-    for (int64_t r = 0; r < rounds; r++)
-        for (int64_t i = 0; i < s; i++) {
-            auto it = m.find(wrap_mul(opaque(i), MUL));
-            if (it != m.end()) sum += it->second;
-        }
-    out(name, "hit", scale(now() - t), sum);
-    int64_t found = 0;
-    t = now();
-    for (int64_t r = 0; r < rounds; r++)
-        for (int64_t i = s; i < 2 * s; i++)
-            if (m.contains(wrap_mul(opaque(i), MUL))) found++;
-    out(name, "miss", scale(now() - t), found);
-    sum = 0;
-    t = now();
-    for (int64_t r = 0; r < rounds; r++) {
-        Map const& mm = *opaque(&m);
-        for (auto const& kv : mm) sum += kv.second;
-    }
-    out(name, "iterate", scale(now() - t), sum);
+    Timed d = int_hit(m, s, rounds);
+    out(name, "hit", scale(d.ns), d.check);
+    d = int_miss(m, s, rounds);
+    out(name, "miss", scale(d.ns), d.check);
+    d = int_iterate(m, rounds);
+    out(name, "iterate", scale(d.ns), d.check);
 }
 
 // splitmix64's output for `n + 1`: a bijection, so distinct `n` give
@@ -194,6 +232,67 @@ static void shuffle(std::vector<int64_t>& v) {
     }
 }
 
+NOINLINE static uint64_t rnd_insert(std::vector<Map>& maps, std::vector<int64_t> const& keys, int64_t k, int64_t s) {
+    uint64_t t = now();
+    for (int64_t j = 0; j < k; j++) {
+        Map& m = maps[j];
+        const int64_t* ks = keys.data() + j * s;
+        for (int64_t i = 0; i < s; i++) m.insert_or_assign(ks[i], i);
+    }
+    return now() - t;
+}
+
+NOINLINE static Timed rnd_remove(std::vector<Map>& maps, std::vector<int64_t> const& keys, int64_t k, int64_t s) {
+    int64_t check = 0;
+    uint64_t t = now();
+    for (int64_t j = 0; j < k; j++) {
+        Map& m = maps[j];
+        const int64_t* ks = keys.data() + j * s;
+        for (int64_t i = 0; i < s; i++) {
+            auto it = m.find(ks[i]);
+            if (it != m.end()) {
+                check += it->second;
+                m.erase(it);
+            }
+        }
+    }
+    return {now() - t, check};
+}
+
+NOINLINE static Timed rnd_hit(Map& m, std::vector<int64_t>& hit, int64_t s, int64_t rounds) {
+    int64_t sum = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        const int64_t* hs = opaque(hit.data());
+        for (int64_t i = 0; i < s; i++) {
+            auto it = m.find(hs[i]);
+            if (it != m.end()) sum += it->second;
+        }
+    }
+    return {now() - t, sum};
+}
+
+NOINLINE static Timed rnd_miss(Map& m, std::vector<int64_t>& miss, int64_t s, int64_t rounds) {
+    int64_t found = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        const int64_t* ms = opaque(miss.data());
+        for (int64_t i = 0; i < s; i++)
+            if (m.contains(ms[i])) found++;
+    }
+    return {now() - t, found};
+}
+
+NOINLINE static Timed rnd_iterate(Map& m, int64_t rounds) {
+    int64_t sum = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        Map const& mm = *opaque(&m);
+        for (auto const& kv : mm) sum += kv.second;
+    }
+    return {now() - t, sum};
+}
+
 // The ops of `sized` on random keys (`scatter` of 0, 1, ...), read from
 // arrays made before the timing; hits look the keys up in shuffled order.
 static void random_keys(int64_t s) {
@@ -208,26 +307,10 @@ static void random_keys(int64_t s) {
     int64_t check = 0;
     for (int64_t r = 0; r < reps; r++) {
         std::vector<Map> maps(k);
-        uint64_t t = now();
-        for (int64_t j = 0; j < k; j++) {
-            Map& m = maps[j];
-            const int64_t* ks = keys.data() + j * s;
-            for (int64_t i = 0; i < s; i++) m.insert_or_assign(ks[i], i);
-        }
-        ins += now() - t;
-        t = now();
-        for (int64_t j = 0; j < k; j++) {
-            Map& m = maps[j];
-            const int64_t* ks = keys.data() + j * s;
-            for (int64_t i = 0; i < s; i++) {
-                auto it = m.find(ks[i]);
-                if (it != m.end()) {
-                    check += it->second;
-                    m.erase(it);
-                }
-            }
-        }
-        rem += now() - t;
+        ins += rnd_insert(maps, keys, k, s);
+        Timed d = rnd_remove(maps, keys, k, s);
+        rem += d.ns;
+        check += d.check;
         keep(maps);
     }
     auto scale = [&](uint64_t ns) { return ns * (uint64_t)N / (uint64_t)total; };
@@ -240,31 +323,12 @@ static void random_keys(int64_t s) {
     std::vector<int64_t> miss(s);
     for (int64_t i = 0; i < s; i++) miss[i] = scatter(8 * N + i);
     int64_t rounds = total / s;
-    int64_t sum = 0;
-    uint64_t t = now();
-    for (int64_t r = 0; r < rounds; r++) {
-        const int64_t* hs = opaque(hit.data());
-        for (int64_t i = 0; i < s; i++) {
-            auto it = m.find(hs[i]);
-            if (it != m.end()) sum += it->second;
-        }
-    }
-    out(name, "hit", scale(now() - t), sum);
-    int64_t found = 0;
-    t = now();
-    for (int64_t r = 0; r < rounds; r++) {
-        const int64_t* ms = opaque(miss.data());
-        for (int64_t i = 0; i < s; i++)
-            if (m.contains(ms[i])) found++;
-    }
-    out(name, "miss", scale(now() - t), found);
-    sum = 0;
-    t = now();
-    for (int64_t r = 0; r < rounds; r++) {
-        Map const& mm = *opaque(&m);
-        for (auto const& kv : mm) sum += kv.second;
-    }
-    out(name, "iterate", scale(now() - t), sum);
+    Timed d = rnd_hit(m, hit, s, rounds);
+    out(name, "hit", scale(d.ns), d.check);
+    d = rnd_miss(m, miss, s, rounds);
+    out(name, "miss", scale(d.ns), d.check);
+    d = rnd_iterate(m, rounds);
+    out(name, "iterate", scale(d.ns), d.check);
 }
 
 // `text(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by
@@ -284,6 +348,12 @@ static std::vector<int64_t> shuffled_range(int64_t s) {
     return p;
 }
 
+NOINLINE static Timed lat_chain(Map& m, int64_t key, int64_t total) {
+    uint64_t t = now();
+    for (int64_t r = 0; r < total; r++) key = m.find(key)->second;
+    return {now() - t, key};
+}
+
 // One lookup at a time, each waiting for the last: the map is one
 // cycle through its keys, in shuffled order. Each key `scatter(i)` is
 // put in order of `i`, with the key after it in the cycle as its value,
@@ -295,23 +365,13 @@ static void latency(int64_t s) {
     std::vector<int64_t> next(s);
     for (int64_t t = 0; t < s; t++) next[p[t]] = p[(t + 1) % s];
     for (int64_t i = 0; i < s; i++) m.insert_or_assign(scatter(i), scatter(next[i]));
-    int64_t key = scatter(p[0]);
-    uint64_t t = now();
-    for (int64_t r = 0; r < total; r++) key = m.find(key)->second;
+    Timed d = lat_chain(m, scatter(p[0]), total);
     char name[32];
     std::snprintf(name, sizeof name, "lat%lld", (long long)s);
-    out(name, "chain", (now() - t) * (uint64_t)N / (uint64_t)total, key);
+    out(name, "chain", d.ns * (uint64_t)N / (uint64_t)total, d.check);
 }
 
-// A map of `s` keys turned over: each step removes the oldest key and
-// inserts a new one.
-static void churn(int64_t s) {
-    int64_t total = 4 * N;
-    int64_t turns = total / 2;
-    std::vector<int64_t> keys(s + turns);
-    for (int64_t n = 0; n < s + turns; n++) keys[n] = scatter(n);
-    Map m;
-    for (int64_t i = 0; i < s; i++) m.insert_or_assign(keys[i], i);
+NOINLINE static Timed churn_turnover(Map& m, std::vector<int64_t> const& keys, int64_t s, int64_t turns) {
     uint64_t check = 0;
     uint64_t t = now();
     for (int64_t i = 0; i < turns; i++) {
@@ -323,10 +383,36 @@ static void churn(int64_t s) {
         m.insert_or_assign(keys[s + i], s + i);
     }
     uint64_t ns = now() - t;
+    return {ns, (int64_t)check};
+}
+
+// A map of `s` keys turned over: each step removes the oldest key and
+// inserts a new one.
+static void churn(int64_t s) {
+    int64_t total = 4 * N;
+    int64_t turns = total / 2;
+    std::vector<int64_t> keys(s + turns);
+    for (int64_t n = 0; n < s + turns; n++) keys[n] = scatter(n);
+    Map m;
+    for (int64_t i = 0; i < s; i++) m.insert_or_assign(keys[i], i);
+    Timed d = churn_turnover(m, keys, s, turns);
     keep(m);
     char name[32];
     std::snprintf(name, sizeof name, "churn%lld", (long long)s);
-    out(name, "turnover", ns * (uint64_t)N / (uint64_t)total, (int64_t)check);
+    out(name, "turnover", d.ns * (uint64_t)N / (uint64_t)total, d.check);
+}
+
+NOINLINE static Timed mix_half(Map& m, std::vector<int64_t>& look, int64_t s, int64_t rounds) {
+    int64_t sum = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        const int64_t* ls = opaque(look.data());
+        for (int64_t i = 0; i < s; i++) {
+            auto it = m.find(ls[i]);
+            if (it != m.end()) sum += it->second;
+        }
+    }
+    return {now() - t, sum};
 }
 
 // Lookups that hit half the time, in shuffled order.
@@ -337,18 +423,61 @@ static void mixed(int64_t s) {
     std::vector<int64_t> look(s);
     for (int64_t i = 0; i < s; i++) look[i] = i % 2 == 0 ? scatter(i) : scatter(8 * N + i);
     shuffle(look);
+    Timed d = mix_half(m, look, s, total / s);
+    char name[32];
+    std::snprintf(name, sizeof name, "mix%lld", (long long)s);
+    out(name, "half", d.ns * (uint64_t)N / (uint64_t)total, d.check);
+}
+
+NOINLINE static uint64_t str_insert(std::vector<StrMap>& maps, std::vector<std::string>& put, int64_t k, int64_t s) {
+    uint64_t t = now();
+    for (int64_t j = 0; j < k; j++) {
+        StrMap& m = maps[j];
+        std::string* ks = put.data() + j * s;
+        for (int64_t i = 0; i < s; i++) m.insert_or_assign(std::move(ks[i]), i);
+    }
+    return now() - t;
+}
+
+NOINLINE static Timed str_remove(std::vector<StrMap>& maps, std::vector<std::string> const& take, int64_t k, int64_t s) {
+    int64_t check = 0;
+    uint64_t t = now();
+    for (int64_t j = 0; j < k; j++) {
+        StrMap& m = maps[j];
+        const std::string* ks = take.data() + j * s;
+        for (int64_t i = 0; i < s; i++) {
+            auto it = m.find(ks[i]);
+            if (it != m.end()) {
+                check += it->second;
+                m.erase(it);
+            }
+        }
+    }
+    return {now() - t, check};
+}
+
+NOINLINE static Timed str_hit(StrMap& m, std::vector<std::string>& hit, int64_t s, int64_t rounds) {
     int64_t sum = 0;
     uint64_t t = now();
-    for (int64_t r = 0; r < total / s; r++) {
-        const int64_t* ls = opaque(look.data());
+    for (int64_t r = 0; r < rounds; r++) {
+        const std::string* hs = opaque(hit.data());
         for (int64_t i = 0; i < s; i++) {
-            auto it = m.find(ls[i]);
+            auto it = m.find(hs[i]);
             if (it != m.end()) sum += it->second;
         }
     }
-    char name[32];
-    std::snprintf(name, sizeof name, "mix%lld", (long long)s);
-    out(name, "half", (now() - t) * (uint64_t)N / (uint64_t)total, sum);
+    return {now() - t, sum};
+}
+
+NOINLINE static Timed str_miss(StrMap& m, std::vector<std::string>& miss, int64_t s, int64_t rounds) {
+    int64_t found = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        const std::string* ms = opaque(miss.data());
+        for (int64_t i = 0; i < s; i++)
+            if (m.contains(ms[i])) found++;
+    }
+    return {now() - t, found};
 }
 
 // Text keys, each moved into the map and found by an equal text made
@@ -365,26 +494,10 @@ static void text_keys(int64_t s) {
         for (int64_t n = 0; n < k * s; n++) put[n] = text(n);
         for (int64_t n = 0; n < k * s; n++) take[n] = text(n);
         std::vector<StrMap> maps(k);
-        uint64_t t = now();
-        for (int64_t j = 0; j < k; j++) {
-            StrMap& m = maps[j];
-            std::string* ks = put.data() + j * s;
-            for (int64_t i = 0; i < s; i++) m.insert_or_assign(std::move(ks[i]), i);
-        }
-        ins += now() - t;
-        t = now();
-        for (int64_t j = 0; j < k; j++) {
-            StrMap& m = maps[j];
-            const std::string* ks = take.data() + j * s;
-            for (int64_t i = 0; i < s; i++) {
-                auto it = m.find(ks[i]);
-                if (it != m.end()) {
-                    check += it->second;
-                    m.erase(it);
-                }
-            }
-        }
-        rem += now() - t;
+        ins += str_insert(maps, put, k, s);
+        Timed d = str_remove(maps, take, k, s);
+        rem += d.ns;
+        check += d.check;
         keep(maps);
     }
     out(name, "insert", ins, reps * k * s);
@@ -395,24 +508,60 @@ static void text_keys(int64_t s) {
     std::vector<std::string> hit(s), miss(s);
     for (int64_t i = 0; i < s; i++) hit[i] = text(p[i]);
     for (int64_t i = 0; i < s; i++) miss[i] = text(8 * N + i);
-    int64_t sum = 0;
+    Timed d = str_hit(m, hit, s, N / s);
+    out(name, "hit", d.ns, d.check);
+    d = str_miss(m, miss, s, N / s);
+    out(name, "miss", d.ns, d.check);
+}
+
+NOINLINE static uint64_t big_insert(std::vector<BigMap>& maps, std::vector<int64_t> const& keys, int64_t k, int64_t s) {
     uint64_t t = now();
-    for (int64_t r = 0; r < N / s; r++) {
-        const std::string* hs = opaque(hit.data());
+    for (int64_t j = 0; j < k; j++) {
+        BigMap& m = maps[j];
+        const int64_t* ks = keys.data() + j * s;
+        for (int64_t i = 0; i < s; i++) m.insert_or_assign(ks[i], big(i));
+    }
+    return now() - t;
+}
+
+NOINLINE static Timed big_remove(std::vector<BigMap>& maps, std::vector<int64_t> const& keys, int64_t k, int64_t s) {
+    int64_t check = 0;
+    uint64_t t = now();
+    for (int64_t j = 0; j < k; j++) {
+        BigMap& m = maps[j];
+        const int64_t* ks = keys.data() + j * s;
         for (int64_t i = 0; i < s; i++) {
-            auto it = m.find(hs[i]);
-            if (it != m.end()) sum += it->second;
+            auto it = m.find(ks[i]);
+            if (it != m.end()) {
+                check += it->second[7];
+                m.erase(it);
+            }
         }
     }
-    out(name, "hit", now() - t, sum);
-    int64_t found = 0;
-    t = now();
-    for (int64_t r = 0; r < N / s; r++) {
-        const std::string* ms = opaque(miss.data());
-        for (int64_t i = 0; i < s; i++)
-            if (m.contains(ms[i])) found++;
+    return {now() - t, check};
+}
+
+NOINLINE static Timed big_hit(BigMap& m, std::vector<int64_t>& hit, int64_t s, int64_t rounds) {
+    int64_t sum = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        const int64_t* hs = opaque(hit.data());
+        for (int64_t i = 0; i < s; i++) {
+            auto it = m.find(hs[i]);
+            if (it != m.end()) sum += it->second[7];
+        }
     }
-    out(name, "miss", now() - t, found);
+    return {now() - t, sum};
+}
+
+NOINLINE static Timed big_iterate(BigMap& m, int64_t rounds) {
+    int64_t sum = 0;
+    uint64_t t = now();
+    for (int64_t r = 0; r < rounds; r++) {
+        BigMap const& mm = *opaque(&m);
+        for (auto const& kv : mm) sum += kv.second[0];
+    }
+    return {now() - t, sum};
 }
 
 // `random_keys`' insert, remove, hit and iterate with a value of eight
@@ -429,26 +578,10 @@ static void bigs(int64_t s) {
     int64_t check = 0;
     for (int64_t r = 0; r < reps; r++) {
         std::vector<BigMap> maps(k);
-        uint64_t t = now();
-        for (int64_t j = 0; j < k; j++) {
-            BigMap& m = maps[j];
-            const int64_t* ks = keys.data() + j * s;
-            for (int64_t i = 0; i < s; i++) m.insert_or_assign(ks[i], big(i));
-        }
-        ins += now() - t;
-        t = now();
-        for (int64_t j = 0; j < k; j++) {
-            BigMap& m = maps[j];
-            const int64_t* ks = keys.data() + j * s;
-            for (int64_t i = 0; i < s; i++) {
-                auto it = m.find(ks[i]);
-                if (it != m.end()) {
-                    check += it->second[7];
-                    m.erase(it);
-                }
-            }
-        }
-        rem += now() - t;
+        ins += big_insert(maps, keys, k, s);
+        Timed d = big_remove(maps, keys, k, s);
+        rem += d.ns;
+        check += d.check;
         keep(maps);
     }
     auto scale = [&](uint64_t ns) { return ns * (uint64_t)N / (uint64_t)total; };
@@ -458,23 +591,10 @@ static void bigs(int64_t s) {
     for (int64_t i = 0; i < s; i++) m.insert_or_assign(keys[i], big(i));
     std::vector<int64_t> hit(keys.begin(), keys.begin() + s);
     shuffle(hit);
-    int64_t sum = 0;
-    uint64_t t = now();
-    for (int64_t r = 0; r < total / s; r++) {
-        const int64_t* hs = opaque(hit.data());
-        for (int64_t i = 0; i < s; i++) {
-            auto it = m.find(hs[i]);
-            if (it != m.end()) sum += it->second[7];
-        }
-    }
-    out(name, "hit", scale(now() - t), sum);
-    sum = 0;
-    t = now();
-    for (int64_t r = 0; r < total / s; r++) {
-        BigMap const& mm = *opaque(&m);
-        for (auto const& kv : mm) sum += kv.second[0];
-    }
-    out(name, "iterate", scale(now() - t), sum);
+    Timed d = big_hit(m, hit, s, total / s);
+    out(name, "hit", scale(d.ns), d.check);
+    d = big_iterate(m, total / s);
+    out(name, "iterate", scale(d.ns), d.check);
 }
 
 // `mem`: one map of 4,000,000 keys, for its peak memory; `mem0`: the
