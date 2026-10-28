@@ -1309,6 +1309,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   36%). Trig's peak memory on ts-pattern is 0.4% higher at one checker
   (296.2 MB against 295.0) and the same at four, zod3's the same; its
   time and instructions are unchanged. Other systems are unchanged.
+- **Release allocator:** on Linux, a heap that faults in ahead (one
+  that leads the heaps or has taken two segments) asks for transparent
+  huge pages for each new segment (`MADV_HUGEPAGE`); other heaps keep
+  small pages. Trig on pup runs 1.7 to 3.2% faster at one checker and
+  2.9 to 4.6% at four, with 22 to 36% fewer dTLB misses and its
+  instructions unchanged; its peak memory is 0.1 to 0.7% higher on
+  ts-pattern and 1.5 to 2.0% on zod3. Other systems are unchanged.
 - **Release allocator:** a heap keeps freed large blocks within its
   settled peak, the most it has had handed out just after a free, and
   16 MiB, where the peak was the most handed out at any moment. That

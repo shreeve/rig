@@ -20,9 +20,9 @@
 //! stays for reuse. On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
-//! worth, faults in at once the memory it is about to fill (`prefault`),
-//! and a new large block of 16 MiB or more asks for huge pages
-//! (`huge_large`).
+//! worth, faults in at once the memory it is about to fill (`prefault`)
+//! and asks for huge pages for each new segment, and a new large block
+//! of 16 MiB or more asks for huge pages (`huge_large`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -275,6 +275,11 @@ pub const Heap = struct {
         };
         const s = mapSegment() orelse return null;
         h.took(segment_size);
+        // A heap that does much of the work fills its segments densely,
+        // so it asks for huge pages for them; a heap that keeps to one
+        // segment, as a server's worker's or a blocking-pool thread's,
+        // keeps small pages, as a huge page would commit 2 MiB of it.
+        if (faultsAhead(h)) adviseHuge(@intFromPtr(s), segment_size);
         // The header's page, and the first stretch the heap carves from.
         prefault(h, @intFromPtr(s), prefault_size);
         s.* = .{ .heap = h, .used = 2 };
@@ -1080,6 +1085,25 @@ test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned fo
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(g.ptr)));
     try std.testing.expectEqual(@as(u8, 7), g[8 * mib - 1]);
     a.free(g);
+}
+
+test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them, and one of a heap that does not keeps small pages" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    // The thread's heap takes two segments' worth, so a new heap of one
+    // segment beside it does not lead.
+    const mine = try allocator.alloc(u8, prefault_big);
+    defer allocator.free(mine);
+    var busy = testHeap();
+    busy.taken = prefault_big;
+    const p = busy.newPage().?;
+    const s = p & ~(segment_size - 1);
+    try std.testing.expectEqual(@as(usize, 0), s % huge_page);
+    try std.testing.expect(try advisedHugeForTest(s));
+    try std.testing.expect(try advisedHugeForTest(s + segment_size - 1));
+    var small = testHeap();
+    const q = small.newPage().?;
+    try std.testing.expect(!faultsAhead(&small));
+    try std.testing.expect(!try advisedHugeForTest(q));
 }
 
 /// Whether the mapping that holds `p` asks for huge pages: its `VmFlags`
