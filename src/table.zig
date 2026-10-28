@@ -8,8 +8,7 @@
 //!
 //! - **Reserved.** `T` is plain data whose default is all zero bytes: one
 //!   private anonymous mapping of `n * @sizeOf(T)` bytes, made with
-//!   `MAP_NORESERVE`; on Linux its first 2 MiB keep small pages and the
-//!   rest asks for huge ones (`reserve`). The system gives
+//!   `MAP_NORESERVE` and, on Linux, `MADV_NOHUGEPAGE`. The system gives
 //!   each page as zeros when it is first touched, so a slot never written
 //!   costs no memory. It is its own mapping, never one of `alloc.zig`'s
 //!   blocks, which are reused unzeroed and faulted in ahead.
@@ -95,36 +94,12 @@ fn reservePanic(bytes: usize) noreturn {
 
 const page = std.heap.page_size_min;
 
-/// A huge page's bytes on Linux.
-const huge: usize = 2 << 20;
-
-/// `bytes` of address space, zero pages, none committed. On Linux the
-/// first 2 MiB keep small pages, since a huge page would commit 2 MiB at
-/// a small table's first touch, and the rest, from a 2 MiB boundary, asks
-/// for huge pages: a table that grows past 2 MiB is faulted in 2 MiB at a
-/// time, one fault and one TLB entry where 512 small pages each take
-/// their own, at the cost of the part of its last huge page not yet
-/// written (docs/history/records/2026-10/perf-stage/fault-ahead/).
+/// `bytes` of address space, zero pages, none committed.
 fn reserve(bytes: usize) [*]align(page) u8 {
-    const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
-    const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
-    if (builtin.os.tag != .linux or bytes <= huge) {
-        const m = std.posix.mmap(null, bytes, prot, flags, -1, 0) catch reservePanic(bytes);
-        if (builtin.os.tag == .linux) std.posix.madvise(m.ptr, m.len, std.posix.MADV.NOHUGEPAGE) catch {};
-        return m.ptr;
-    }
-    // Mapped `huge` long, then trimmed to start on a 2 MiB boundary.
-    const m = std.posix.mmap(null, bytes + huge, prot, flags, -1, 0) catch reservePanic(bytes);
-    const lo = @intFromPtr(m.ptr);
-    const start = std.mem.alignForward(usize, lo, huge);
-    if (start > lo) std.posix.munmap(m[0 .. start - lo]);
-    const stop = start + bytes;
-    const end = lo + m.len;
-    if (end > stop) std.posix.munmap(@as([*]align(page) u8, @ptrFromInt(stop))[0 .. end - stop]);
-    const p: [*]align(page) u8 = @ptrFromInt(start);
-    std.posix.madvise(p, huge, std.posix.MADV.NOHUGEPAGE) catch {};
-    std.posix.madvise(@ptrFromInt(start + huge), bytes - huge, std.posix.MADV.HUGEPAGE) catch {};
-    return p;
+    const m = std.posix.mmap(null, bytes, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch reservePanic(bytes);
+    // A huge page would commit 2 MiB at a table's first touch.
+    if (builtin.os.tag == .linux) std.posix.madvise(m.ptr, m.len, std.posix.MADV.NOHUGEPAGE) catch {};
+    return m.ptr;
 }
 
 fn unreserve(p: [*]align(page) u8, bytes: usize) void {
