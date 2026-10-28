@@ -1,0 +1,13 @@
+--- a/src/alloc.zig	2026-10-27 23:39:56.410485839 -0600
++++ b/src/alloc.zig	2026-10-28 00:14:28.058748867 -0600
+@@ -829,7 +829,9 @@
+     if (takeKept(h, new_size)) |p| {
+         lent(h, new_size);
+         @memcpy(p[0..memory.len], memory);
+-        freeLarge(h, memory.ptr, memory.len);
++        h.large_live -|= old_size;
++        h.large_peak = @max(h.large_peak, h.large_live);
++        unmapLarge(@intFromPtr(memory.ptr), old_size);
+         if (counts) h.count(@intCast(new_size - old_size), 0);
+         return p;
+     }

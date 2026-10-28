@@ -10,7 +10,9 @@
 //! for the next request any of them fits, the smallest that does, and
 //! keeps the rest of it apart (`takeKept`), so a list that grows, a
 //! buffer used again, and tables built and dropped again and again do
-//! not map and unmap memory each time. It keeps them while what it holds
+//! not map and unmap memory each time; a large block that grows moves
+//! into a kept block that fits, whose pages are resident, before it
+//! takes new ones (`remap`). It keeps them while what it holds
 //! in large blocks, handed out and kept, is no more than its settled
 //! peak, the most it has had handed out just after a free, and
 //! `keep_large` more (`keepBound`). So a growth's moment, the old block
@@ -366,10 +368,10 @@ fn minLarge() usize {
     return largeSize(max_small + 1);
 }
 
-/// A large block at least this long grows by moving its pages
-/// (`mremap`, Linux), not by copying them into new ones, which the
-/// system would fault in afresh.
-const move_large: usize = 1 << 20;
+/// A large block at least this long that no kept block fits grows by
+/// moving its pages (`mremap`, Linux), not by copying them into new
+/// ones, which the system would fault in afresh (`remap`).
+const move_large: usize = 64 << 10;
 
 /// The most bytes of freed large blocks a heap keeps: as many as leave
 /// what it holds in large blocks, handed out and kept, within its
@@ -813,14 +815,27 @@ fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: us
     return largeSize(memory.len) == largeSize(new_len);
 }
 
+/// A large block grown to `new_len`: copied into a kept block that fits,
+/// which then keeps the old one in turn, since a kept block's pages are
+/// resident and copying into them costs less than faulting in fresh
+/// ones; else, on Linux and from `move_large`, grown by moving its pages
+/// (`mremap`). Anything else, or a block that shrinks, is left to the
+/// caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
-    if (builtin.os.tag != .linux) return null;
     if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
-    if (memory.len < move_large or new_len < memory.len) return null;
+    if (new_len < memory.len) return null;
     const h = heap() orelse return null;
     const old_size = largeSize(memory.len);
     const new_size = largeSize(new_len);
+    if (takeKept(h, new_size)) |p| {
+        lent(h, new_size);
+        @memcpy(p[0..memory.len], memory);
+        freeLarge(h, memory.ptr, memory.len);
+        if (counts) h.count(@intCast(new_size - old_size), 0);
+        return p;
+    }
+    if (builtin.os.tag != .linux or memory.len < move_large) return null;
     const linux = std.os.linux;
     // A block grown to `huge_large` moves to pages aligned for huge ones.
     const to = if (new_size >= huge_large) mapLarge(new_size) orelse return null else 0;
@@ -1085,6 +1100,46 @@ test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned fo
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(g.ptr)));
     try std.testing.expectEqual(@as(u8, 7), g[8 * mib - 1]);
     a.free(g);
+}
+
+test "a large block grows into a kept block that fits, which keeps the old one, and takes no new pages" {
+    const a = allocator;
+    const h = heap().?;
+    trimAllForTest(h);
+    const mib: usize = 1 << 20;
+    const k = try a.alloc(u8, 4 * mib);
+    const m = try a.alloc(u8, 2 * mib);
+    @memset(m, 7);
+    a.free(k);
+    const taken = h.taken;
+    const g = a.remap(m, 4 * mib).?;
+    try std.testing.expectEqual(k.ptr, g.ptr);
+    try std.testing.expectEqual(@as(u8, 7), g[0]);
+    try std.testing.expectEqual(@as(u8, 7), g[2 * mib - 1]);
+    try std.testing.expectEqual(taken, h.taken);
+    // The block it grew from is kept for the next.
+    const again = try a.alloc(u8, 2 * mib);
+    try std.testing.expectEqual(m.ptr, again.ptr);
+    a.free(again);
+    a.free(g);
+    trimAllForTest(h);
+}
+
+test "on Linux a large block from 64 KiB that no kept block fits grows by moving its pages" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const a = allocator;
+    const h = heap().?;
+    trimAllForTest(h);
+    const m = try a.alloc(u8, 64 << 10);
+    @memset(m, 9);
+    const taken = h.taken;
+    const g = a.remap(m, 128 << 10).?;
+    try std.testing.expectEqual(@as(u8, 9), g[(64 << 10) - 1]);
+    // Only the growth is new; the block it grew from is not kept.
+    try std.testing.expectEqual(taken + largeSize(128 << 10) - largeSize(64 << 10), h.taken);
+    try std.testing.expectEqual(@as(usize, 0), h.large_bytes);
+    a.free(g);
+    trimAllForTest(h);
 }
 
 test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them, and one of a heap that does not keeps small pages" {

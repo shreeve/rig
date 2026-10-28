@@ -1325,6 +1325,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   allocate and 26 to free on x86-64, where each took about 50. Trig checks ts-pattern
   at one checker with 1.8% fewer instructions (zod3 2.0%); its time
   moves within the run-to-run spread.
+- **Release allocator:** a large block that grows moves into a kept
+  block that fits, copying it into pages already resident, and keeps
+  the block it left; one no kept block fits grows on Linux by moving
+  its pages (`mremap`) from 64 KiB, where it did from 1 MiB, so it
+  leaves no old block resident. Growing by `mremap` had taken fresh
+  pages for every table while the heap gave back the resident ones it
+  kept. On pup, bench/hash's 100,000-key inserts run 7 to 30% faster
+  under the Zig table and 7 to 22% for the built-in Map, and every row
+  1.7% faster (geometric mean), the 3M and 4M rows unchanged; Trig's
+  peak memory is 2.8% lower on ts-pattern and 2.9% on zod3, its time
+  and instructions unchanged. The Mac is unchanged.
 - **Release allocator:** a freed block over 32 KiB serves any later
   request it fits, the smallest kept block that does, with the rest kept
   apart, where it served only a request of its own size; and a heap
