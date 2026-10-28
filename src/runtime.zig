@@ -3246,11 +3246,41 @@ pub const String = struct {
     /// The value a table's slot starts as (`table.defaultOf`).
     pub const __rig_default: String = .{};
 
-    /// `String(a, b, ...)`.
+    /// `String(a, b, ...)`. Text of up to `of_stack` bytes is written on
+    /// the stack and allocated once at its length, one block the size of
+    /// its bytes; longer text grows as `add` grows it.
     pub inline fn of(pieces: anytype) String {
+        if (ofShort(pieces)) |t| return t;
         var t: String = .empty;
         t.add(pieces);
         return t;
+    }
+
+    const of_stack = 256;
+
+    /// `of`'s text when it fits `of_stack` bytes, `null` when not.
+    noinline fn ofShort(pieces: anytype) ?String {
+        var buf: [of_stack]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&buf);
+        inline for (comptime piecesOf(@TypeOf(pieces))) |p| switch (p) {
+            .text => |t| w.writeAll(t) catch return null,
+            .value => |f| writePiece(&w, pieces[f]) catch return null,
+        };
+        if (w.end == 0) return .empty;
+        const block = allocSlice(u8, w.end);
+        @memcpy(block, buf[0..w.end]);
+        var t: String = .empty;
+        t.list.items = block;
+        t.list.capacity = block.len;
+        return t;
+    }
+
+    /// A value as `addValue` writes it, to `w`.
+    inline fn writePiece(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
+        const P = @TypeOf(value);
+        if (comptime isStringView(P)) return w.writeAll(value);
+        if (comptime P == String or isStringPlace(P)) return w.writeAll(value.list.items);
+        return writeValue(w, value, true);
     }
 
     /// `!t.add(a, b, ...)`: the pieces as `print` takes them (`piecesOf`),
