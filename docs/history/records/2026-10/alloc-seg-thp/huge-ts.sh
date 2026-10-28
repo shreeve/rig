@@ -10,7 +10,7 @@ P=/zfs/trig-pup/full/trig/misc/projects
 for proj in ts-pattern zod3; do
   cd $P/$proj
   for i in 1 2 3; do
-    for v in main seg segnp seglead tbl; do
+    for v in ${VARIANTS:-main seg segnp seglead tbl}; do
       taskset -c 6 $A/trig-$v/bin -p tsconfig.trig.json --noEmit --singleThreaded > /dev/null 2>&1 &
       pid=$!
       best=0 hp=0

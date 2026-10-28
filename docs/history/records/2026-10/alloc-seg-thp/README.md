@@ -294,6 +294,69 @@ the change compiles to nothing elsewhere; Linux's code is the same):
 - std.json's guard on the Mac: every file within 2% of `guard.txt`,
   0.1 to 0.8% fewer instructions per byte.
 
+## Re-measure after the rebase (2026-10-27, later)
+
+The owner's answer, relayed by the coordinating session: "Yes, take
+#740: rebase it onto main, re-measure Trig and re-run the gates, then
+mark it ready for me to merge." The branch was rebased onto main
+`099c1bff3` (#737 to #739, the HashMap and HashSet built-ins) with no
+conflict, and seglead measured again against it, the same scripts,
+Trig `403a823` (`run2.sh`: `trig-perf-2.md`, `trig-wall-2.md`,
+`trig-perf4-2.md`, `huge-2.md`, `huge-ts-2.txt`, `sys-ts-2.txt`). As
+the numbers came out weaker, the timing ran a third time with Trig
+built also by the old main `36422da59` (`run3.sh`, `*-3.md`).
+
+pup was busier than for the first measurement: another session's
+release builds ran on cores 10 and 11 throughout, and the load was 1.2
+to 5.4. The old main's Trig takes 4,157M user cycles on ts-pattern in
+run 3, against 3,815M in the first measurement for the same code; the
+new main takes the same as the old (4,160M; zod3 751.5M against
+753.6M, walls within 1%). So the rebase moved nothing, and the machine
+is about 9% slower in cycles for the same instructions.
+
+seglead against main, three measurements (wall: fastest / median):
+
+| | first (36422da59) | run 2 (099c1bff3) | run 3 (099c1bff3) |
+|---|---|---|---|
+| ts-pattern 1, perf wall | 1.7% / 2.0% faster | 0.7% / 1.5% | 1.9% / 0.9% |
+| ts-pattern 1, plain wall | 1.7% / 1.8% | 1.9% / 1.4% | 1.9% / 1.8% |
+| ts-pattern 1, user cycles | 1.3% fewer | 1.0% fewer | 1.2% fewer |
+| ts-pattern 1, kernel cycles | 5.0% fewer | 1.9% fewer | 0.5% fewer |
+| ts-pattern 1, dTLB misses | 24% fewer | 25% fewer | 24% fewer |
+| zod3 1, perf wall | 3.2% / 2.6% | 2.5% / 2.5% | 4.3% / 1.9% |
+| zod3 1, plain wall | 1.7% / 2.3% | 1.1% / 1.6% | 1.1% slower / 2.1% faster |
+| zod3 1, user cycles | 2.3% fewer | 0.2% more | 0.2% fewer |
+| zod3 1, kernel cycles | 7.9% fewer | 6.2% fewer | 8.7% fewer |
+| zod3 1, dTLB misses | 35% fewer | 35% fewer | 34% fewer |
+| ts-pattern 4, wall | 3.0% / 2.9% | 1.2% / 1.5% | 7.1% / 2.7% |
+| ts-pattern 4, user cycles | 2.4% fewer | 2.6% fewer | 2.4% fewer |
+| zod3 4, wall | 4.6% / 3.1% | 3.3% slower / 2.4% faster | 4.4% / 2.4% |
+| zod3 4, user cycles | 1.3% fewer | the same | 0.4% fewer |
+| `sys-ts.sh` medians, ts-pattern / zod3 | 2.0% / 3.2% | 2.0% / 2.5% | |
+| peak RSS, 1 checker, ts-pattern / zod3 | +0.5% / +1.5% | +0.5% / +1.5% | |
+| peak RSS, 4 checkers | +0.7% / +2.0% | +0.7% / +1.8% | |
+| AnonHugePages, ts-pattern / zod3 | 50-60 / 18 MB | 51-53 / 18-20 MB | |
+
+Peak memory is as before (274.2 against 272.9 MB, 87.3 against 86.0;
+311.8 against 309.6, 127.3 against 125.0). The TLB and fault effects
+are as before. The speed is weaker: at one checker the walls' medians
+are 0.9 to 2.5% faster where they were 1.8 to 2.6%, and user cycles
+0.2% more to 1.2% fewer where they were 1.3 to 2.3% fewer; user and
+kernel cycles together are 0.6 to 1.2% fewer at one checker, against
+1.6 and 3.0% before. A gain of 1.5 to 2% counts only with cycles
+agreeing, and on this busier pup they agree with about 1%. The branch
+was left a draft for that.
+
+Gates on the rebased head `fa892e516`: `tools/heavy swarm test/rig.rip
+all -q -w 6` on the Mac, 10,743 jobs, none died; `zig build test` on
+pup at ReleaseSafe and ReleaseFast passes, and at Debug passed once in
+four runs while pup was loaded: `sched`'s "two tasks that answer each
+other over a socket stay on one worker" failed in the others, and fails
+the same way on main `099c1bff3` under the same load (a test of
+scheduling, not of the allocator); Trig's light gate GREEN in 70 s;
+loco's GREEN, 122 runs, none differ; std.json's guard, all six within
+2% (0.1 to 0.7% fewer instructions per byte).
+
 ## Decision
 
 Huge pages for the segments of a heap that faults in ahead: Trig 1.7

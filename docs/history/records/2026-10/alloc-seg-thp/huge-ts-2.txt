@@ -1,0 +1,12 @@
+ts-pattern run=1 v=main rss_kb=279644 anonhuge_kb=8192
+ts-pattern run=1 v=seglead rss_kb=278136 anonhuge_kb=51200
+ts-pattern run=2 v=main rss_kb=280644 anonhuge_kb=8192
+ts-pattern run=2 v=seglead rss_kb=281048 anonhuge_kb=53248
+ts-pattern run=3 v=main rss_kb=279668 anonhuge_kb=8192
+ts-pattern run=3 v=seglead rss_kb=278604 anonhuge_kb=51200
+zod3 run=1 v=main rss_kb=87324 anonhuge_kb=0
+zod3 run=1 v=seglead rss_kb=86144 anonhuge_kb=18432
+zod3 run=2 v=main rss_kb=85472 anonhuge_kb=0
+zod3 run=2 v=seglead rss_kb=86172 anonhuge_kb=18432
+zod3 run=3 v=main rss_kb=85468 anonhuge_kb=0
+zod3 run=3 v=seglead rss_kb=88420 anonhuge_kb=20480
