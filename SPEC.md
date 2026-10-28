@@ -3330,7 +3330,7 @@ text (`String`, `?String`, `Static`), and plain enums provide `Eq`,
 optional, an array, and a slice provide what their elements provide,
 and order element by element, a shorter prefix first. A `List`
 provides `Print`, and `Clone` where its elements do; a `Map`, a `Set`,
-a Cell, a Signal, a handle, and a task provide only the facts, and
+a `HashMap`, a `HashSet`, a Cell, a Signal, a handle, and a task provide only the facts, and
 `Print` where `print` takes them. An
 object or an enum provides `Eq`, `Hash`, and `Print` by its fields, and
 `Ord` only where its header names it: `obj Version: Ord` orders by the
@@ -8539,7 +8539,10 @@ are reserved, as `Actor` is, which [§18](#actors) describes.
 Other built-in types are named with no import, as these are, and are
 declared in Rig: `Map[K: Hash, V]` and `Set[K: Hash]`, whose entries a
 table built into the compiler holds, with the types their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
-([docs/STD.md](docs/STD.md#map-and-set)), `Lanes`, the iterator of a
+([docs/STD.md](docs/STD.md#map-and-set)); `HashMap[K: Hash, V]` and
+`HashSet[K: Hash]`, the same over an unordered table, whose iteration
+order is unspecified, with `HashItems`, `HashKeys`, `HashValues`, and
+`HashMembers` ([docs/STD.md](docs/STD.md#hashmap-and-hashset)); `Lanes`, the iterator of a
 mask's true lanes ([Vectors](#vectors)), and
 `Order`, `Hasher`, and `Printer` ([Own meanings](#own-meanings)). Their
 names are not reserved: a module that declares a type of its own of one
@@ -12037,6 +12040,7 @@ may hide either. `panic` is a keyword.
 | object | `User(name: "ada", age: 36)`: every field, in order |
 | array, slice, `List` | `[1, 2]` |
 | `Map`, `Set` | `{"a": 1, "b": 2}`, `{1, 2}`: the entries in the order their keys were first put in, each key and value as an element of a List; `{}` when empty |
+| `HashMap`, `HashSet` | as a `Map` and a `Set`, the entries in the table's order, which is unspecified |
 | shared handle | the value it holds |
 | `^T` | the value it holds |
 | `Cell`, `Signal` | `Cell(value: 5)`, `Signal(value: 5)` |
