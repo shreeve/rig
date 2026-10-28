@@ -182,6 +182,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The built-in tables have a guard.** `bench/hash/guard.py` counts the
+  instructions per operation of `Map` and `HashMap` on Int, text, and
+  two-word keys, and fails any row more than 2% over its baseline, as
+  `bench/json/guard.py` holds std.json; AGENTS.md makes it a gate for
+  compiler, runtime, and std changes.
 - **`String(...)` is one block of its length.** Text of up to 256 bytes
   is written on the stack and allocated once, as Rust's `format!` makes
   one block, where it grew the String's buffer piece by piece and left
