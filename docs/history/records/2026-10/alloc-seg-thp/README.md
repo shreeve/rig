@@ -275,7 +275,24 @@ The unit test "on Linux a new segment of a heap that faults in ahead
 is aligned for huge pages and asks for them, and one of a heap that
 does not keeps small pages" fails on pup with `adviseHuge` made a
 no-op (as does #726's) and passes at Debug, ReleaseSafe and
-ReleaseFast (`zig build test`, pup). The other gates are in the PR.
+ReleaseFast (`zig build test`, pup, cores 0,5). On the branch's head,
+`35b455100` (its second commit asks `faultsAhead` only on Linux, so
+the change compiles to nothing elsewhere; Linux's code is the same):
+
+- `tools/heavy swarm test/rig.rip all -q -w 6` on the Mac: 10,702 jobs,
+  none died.
+- `zig build test` on pup at Debug, ReleaseSafe and ReleaseFast: all
+  pass.
+- Trig's light gate, `PUP_RIG=<the branch's Rig, built on pup in this
+  record's directory> tools/light`, from a clone of Trig main `403a823`
+  whose `tools/pup` runs its workers on cores 0, 4-7 and 12-21 (`-w
+  12`) and its release builds on cores 0,5: GREEN in 58 s (and in 59 s
+  on `78f15118f`). `tools/pup-rig`'s shared `rig-next` held another
+  session's Rig.
+- loco's light gate (`rig/tools/light RIG=<branch bin/rig>`, loc
+  `947ffa0`): GREEN in 30 s, 122 runs, none differ.
+- std.json's guard on the Mac: every file within 2% of `guard.txt`,
+  0.1 to 0.8% fewer instructions per byte.
 
 ## Decision
 
