@@ -5240,11 +5240,11 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
         });
     }
     try fields.append(a, try tableMethod(ctx, "count", .read, &.{read_self}, int));
-    if (!ordered and is_map) {
-        // A lookup that hands back the value's view at once, so the slot
-        // it found is read where it was found: declared as a Rig
-        // `fun get(?@, k: ?K) -> (?V)? from @` would be, since the key is
-        // only hashed and compared.
+    if (is_map) {
+        // A lookup that hands back the value's view at once, so the entry
+        // it found is read where it was found, in either table: declared
+        // as a Rig `fun get(?@, k: ?K) -> (?V)? from @` would be
+        // (`fromSelf`, whose comment says why that is sound).
         const v = g.params[1];
         const opt_read_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .read_view = v }) });
         const opt_write_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .write_view = v }) });
@@ -5287,7 +5287,12 @@ fn tableMethod(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, par
 }
 
 /// `f` with its result's origin narrowed to self, as `from @` narrows a
-/// Rig declaration's (`registerTable`).
+/// Rig declaration's (`registerTable`): the `get` and `edit` of both the
+/// ordered and the unordered table. Sound only because each runtime's
+/// `get` and `edit` (src/ordered.zig, src/unordered.zig) hash the key
+/// and compare it, and never return or store it or anything reached
+/// through it; a runtime that returned something reached through `k`
+/// would make the narrowing unsound.
 fn fromSelf(f: Field) Error!Field {
     var out = f;
     out.origins.result &= sema.paramBit(0);

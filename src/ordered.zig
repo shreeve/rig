@@ -702,6 +702,28 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return @intCast(j);
         }
 
+        /// `get(?@, k: ?K) -> (?V)? from @`: the value of `k`, viewed
+        /// where the lookup found its entry.        ///
+        /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
+        /// only because `k` is hashed and compared, never returned or
+        /// stored: returning anything reached through `k` would make that
+        /// narrowing unsound.
+        pub inline fn get(self: *const Self, k: KeyView) ?rt.ReadView(V) {
+            const j = self.findHashed(k, hashKey(k)) orelse return null;
+            return rt.lend(&self.entryOf(j, true).value);
+        }
+
+        /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, lent to
+        /// write.        ///
+        /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
+        /// only because `k` is hashed and compared, never returned or
+        /// stored: returning anything reached through `k` would make that
+        /// narrowing unsound.
+        pub inline fn edit(self: *Self, k: KeyView) ?*V {
+            const j = self.findHashed(k, hashKey(k)) orelse return null;
+            return &self.entryOf(j, true).value;
+        }
+
         /// `key(?@, j: Int) -> ?K`.
         pub inline fn key(self: *const Self, j: i64) KeyView {
             return rt.lend(&self.entryOf(@intCast(j), true).key);

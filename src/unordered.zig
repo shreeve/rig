@@ -662,14 +662,22 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         /// `get(?@, k: ?K) -> (?V)? from @`: the value of `k`, viewed
-        /// where the slot that holds it was found.
+        /// where the slot that holds it was found.        ///
+        /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
+        /// only because `k` is hashed and compared, never returned or
+        /// stored: returning anything reached through `k` would make that
+        /// narrowing unsound.
         pub inline fn get(self: *const Self, k: KeyView) ?rt.ReadView(V) {
             const f = self.locate(k, hashKey(k)) orelse return null;
             return rt.lend(&f.p.value);
         }
 
         /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, lent to
-        /// write.
+        /// write.        ///
+        /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
+        /// only because `k` is hashed and compared, never returned or
+        /// stored: returning anything reached through `k` would make that
+        /// narrowing unsound.
         pub inline fn edit(self: *Self, k: KeyView) ?*V {
             const f = self.locate(k, hashKey(k)) orelse return null;
             return &f.p.value;

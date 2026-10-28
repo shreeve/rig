@@ -1383,7 +1383,8 @@ sub main()
 3 [1, 2, 3]
 ```
 
-`at` is not there:
+HashMap and HashSet have no `at`, since an unordered table has no
+stable position:
 
 ```rig reject
 

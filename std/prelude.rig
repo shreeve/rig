@@ -60,16 +60,12 @@ pub obj Map[K: Hash, V]
 
   # The value of the key `k`, viewed where the Map holds it, or `none`.
   pub inline fun get(?@, k: ?K) -> (?V)? from @
-    if @t.find(k) as j
-      return ?@t.value(j)
-    none
+    ?@t.get(k)
 
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
   pub inline fun edit(!@, k: ?K) -> (!V)? from @
-    if @t.find(k) as j
-      return (!@t).value_mut(j)
-    none
+    (!@t).edit(k)
 
   # Put `v` under `k`, inserting or overwriting; the old value is
   # dropped. A key already there keeps its place, and `k` is dropped.
