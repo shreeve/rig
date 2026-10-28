@@ -1,0 +1,8 @@
+ms, fastest of N                     pair insert      pair hit     pair miss triple insert    triple hit   triple miss
+bh_zo-false_zig-ordered                    19.42          7.71          4.41         22.34         10.58          6.78
+bh_zo-false_zig-ordered-checked            20.22          8.62          4.59         22.71         10.49          6.91
+bh_zo-true_zig-ordered                     20.89          8.87          4.53         22.62         11.20          6.87
+bh_zo-true_zig-ordered-checked             21.49          9.54          5.01         22.87         11.98          7.35
+wide_rig-base                              27.61          8.81          4.26         31.02         11.25          6.37
+wide_rig-nh                                25.98          6.91          4.25         28.62         10.42          6.43
+wide_rig-nhnp                              23.83          8.33          3.84         25.87         11.33          6.02

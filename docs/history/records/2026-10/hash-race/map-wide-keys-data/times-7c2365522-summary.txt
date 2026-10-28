@@ -1,0 +1,11 @@
+runs whose output differs from base or that failed: 0
+ts-pattern, 20 rounds
+  ns            m7: med 9.0627e+08 min 8.9455e+08  f7: med 9.0728e+08 min 8.9368e+08   f7 vs m7: med +0.11% min -0.10%
+  cycles        m7: med 3.9029e+09 min 3.858e+09  f7: med 3.9212e+09 min 3.8812e+09   f7 vs m7: med +0.47% min +0.60%
+  instructions  m7: med 9.28e+09 min 9.2758e+09  f7: med 9.2528e+09 min 9.2488e+09   f7 vs m7: med -0.29% min -0.29%
+  rss_kb        m7: med 2.8041e+05 min 2.804e+05  f7: med 2.7183e+05 min 2.7183e+05   f7 vs m7: med -3.06% min -3.06%
+zod3, 20 rounds
+  ns            m7: med 1.7803e+08 min 1.7267e+08  f7: med 1.7621e+08 min 1.7418e+08   f7 vs m7: med -1.02% min +0.87%
+  cycles        m7: med 7.2354e+08 min 7.1094e+08  f7: med 7.251e+08 min 7.1732e+08   f7 vs m7: med +0.21% min +0.90%
+  instructions  m7: med 1.6783e+09 min 1.6775e+09  f7: med 1.6753e+09 min 1.6722e+09   f7 vs m7: med -0.17% min -0.31%
+  rss_kb        m7: med 87900 min 87900  f7: med 86696 min 86696   f7 vs m7: med -1.37% min -1.37%
