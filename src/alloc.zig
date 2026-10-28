@@ -310,8 +310,8 @@ pub const Heap = struct {
     }
 
     fn freeSmall(h: *Heap, p: [*]u8, c: usize) void {
-        const seg: *Segment = @ptrFromInt(@intFromPtr(p) & ~(segment_size - 1));
-        const b: *Block = @ptrCast(@alignCast(p));
+        const seg = segmentOf(p);
+        const b = blockOf(p);
         if (seg.heap == h) {
             mustOwn(h);
             b.next = h.free[c];
@@ -773,10 +773,10 @@ noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: us
 /// Give back `memory`, a block `alloc` made with `alignment`.
 noinline fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
     if (fastClass(memory.len, alignment)) |c| if (my_heap) |h| {
-        const seg: *const Segment = @ptrFromInt(@intFromPtr(memory.ptr) & ~(segment_size - 1));
+        const seg = segmentOf(memory.ptr);
         if (seg.heap == h) {
             if (builtin.is_test) mustOwn(h);
-            const b: *Block = @ptrCast(@alignCast(memory.ptr));
+            const b = blockOf(memory.ptr);
             b.next = h.free[c];
             h.free[c] = b;
             if (counts) h.count(-@as(isize, @intCast(classSize(c))), 0);
@@ -784,6 +784,32 @@ noinline fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: u
         }
     };
     freeSlow(memory, alignment);
+}
+
+// `segmentOf` and `blockOf` read a small block `alloc` made, which `free`
+// and `freeSmall` are given: Zig's checks on their casts are kept in a
+// debug build and left out of an optimized one, where the allocator's own
+// layout proves them.
+const proven_checks = builtin.mode == .debug;
+
+/// The segment that holds `p`, a small block: segments are aligned to
+/// `segment_size`, and a block is never in a segment's first page (its
+/// header's), so the address is the segment's and is not zero.
+inline fn segmentOf(p: [*]u8) *Segment {
+    if (builtin.mode == .debug) std.debug.assert(@intFromPtr(p) & (segment_size - 1) >= page_size);
+    // A block lies past its segment's header, so the segment is not null.
+    @setRuntimeSafety(proven_checks);
+    return @ptrFromInt(@intFromPtr(p) & ~(segment_size - 1));
+}
+
+/// `p`, a small block, as a free-list entry: carved at a multiple of its
+/// class's size, every one a multiple of 8, from a page, so aligned for
+/// a `Block`.
+inline fn blockOf(p: [*]u8) *Block {
+    if (builtin.mode == .debug) std.debug.assert(@intFromPtr(p) % @alignOf(Block) == 0);
+    // Every class's size is a multiple of 8 (`classSize`), as is a page.
+    @setRuntimeSafety(proven_checks);
+    return @ptrCast(@alignCast(p));
 }
 
 /// The class of a block the fast paths serve, or null.

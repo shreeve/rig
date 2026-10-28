@@ -4991,6 +4991,23 @@ every emitted program as `rig/runtime.zig`, which the program imports as
 It is trusted code: the checkers do not see it, so it is kept small and
 reviewed.
 
+Where one of Zig's own safety checks in the runtime is proven by an
+invariant the runtime itself keeps (`len <= buf.len`, `len < n` before a
+table's push, a small block aligned by its class), an optimized build
+leaves it out: the operation is written wrapping or saturating
+(`+%`, `*|`), an exact cast as `@truncate`, an element read through the
+slice's pointer, or in a block under
+`@setRuntimeSafety(proven_checks)`, with a comment that names the
+invariant. A debug build keeps Zig's checks there and asserts the
+invariant too (`invariant`). A test of anything a program controls (an
+index, a length, a size from input) is never written so: those are
+Rig's tests, made in every build mode. The helpers inlined into every
+caller are written this way: List's `push`, `pop`, `items`, and
+`IntoIter.next`, `at`, `elemPtr`, and `swap` after `index`, a table's
+`push`, String's copies into a block it has just made, `FnRef`'s
+context, `freeSlice`, and the allocator's `free` paths
+([runtime-unchecked.md](../history/records/2026-10/perf-stage/runtime-unchecked.md)).
+
 | Piece | Role |
 |---|---|
 | `Shared(T)`, `Frozen(T)` | the box behind `*T`, and behind `*Frozen[T]` with its counts always atomic (both `Counted(T, atomic)`; `Shared`'s counts are atomic when `T` is `synchronized`): a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
