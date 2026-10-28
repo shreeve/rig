@@ -198,6 +198,16 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   stores and gives no view of a parameter; it would accept that call,
   `retain(|k| k.len == 5)` on a `Map[?String, ?String]`, and
   `update(|k, v| v = "lit")`.
+- **A scheduler unit test fails under load** in a debug build.
+  `src/sched.zig`'s "two tasks that answer each other over a socket stay
+  on one worker" counts the answers a side reads on a worker other than
+  the one that wrote them, and expects few. On pup, with another release
+  build's load (1.2 to 5.4), `zig build test -Doptimize=debug` failed it
+  in 3 of 4 runs, on main as on a branch that left the scheduler alone
+  (2026-10-27); safe and fast passed.
+  Decide whether the test measures a property load may break (and
+  should allow a share of crossings, or run pinned), or the scheduler
+  lets a woken pair drift apart under load.
 
 Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before
