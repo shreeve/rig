@@ -39,6 +39,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Which checks cost Trig's time (2026-10-28) | the 6-8% that every check costs Trig is diffuse: each kind and each group costs in proportion to the instructions and code it removes, and they add up; no hot sites; builds that change no check read up to 1.3% either way (the layout lottery); List index tests 4.6-6.3% of the instructions, of them the checker's id accessors 1.6-2.2% and the AST's record reads 1.1-2.3%, together 2.3% and 3.6% faster with PGO, both Trig-side moves onto `Table`/`Slot`; Zig's overflow tests 1.9-2.3%; Zig's tests in the runtime's own Zig 1.3-1.7%, the one group a Rig change alone could take | [perf-stage/check-bisect.md](2026-10/perf-stage/check-bisect.md) |
 | The runtime's proven checks (2026-10-28) | fourteen blocks in runtime.zig, table.zig, and alloc.zig leave out, in an optimized build, the Zig checks the runtime's own invariants prove (debug builds keep them and assert the invariant): Trig 1.66% and 1.35% fewer instructions (PGO 1.71% and 1.07%), as many as all of the runtime's Zig checks; 0.8% and 1.4% faster plain, 1.2% and 0.5% with PGO; over the instruction bar, under the time bar; most of the share is the checks' cost in their callers, not their own compare and branch | [perf-stage/runtime-unchecked.md](2026-10/perf-stage/runtime-unchecked.md) |
 | Huge pages when memory is fragmented (2026-10-28) | with no free 2 MiB block left, every `MADV_HUGEPAGE` fault compacts (`defrag=madvise`): Trig PGO on ts-pattern 34-41% slower than with no huge pages (kernel cycles 0.25G to 2G), zod3 up to 78%; the Tables' advice (#754) stalls most, the segments' (#740) too, the large blocks' not measurably; quiet, huge pages are 5.3% (ts-pattern) and 4.8% (zod3) faster. A check of free 2 MiB blocks in `/proc/buddyinfo` with 128 to spare kept the quiet gain and never stalled; `MADV_COLLAPSE` and a `defrag` test do not; recommended: gate all three, close #760 | [perf-stage/thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md) |
+| The speed ceiling of Trig's emitted Zig (2026-10-27) | step 1 of the owner's method for Trig: the hottest functions of the emitted package tuned by hand. The safe ceiling (six edits, checks kept) is within 1% of main and within the noise under PGO; with every check removed, Trig PGO is 5.5% faster on ts-pattern and 7.5% on zod3, from 1.21× tsrs to 1.14× and from 1.34× to 1.24×. Index tests are three fifths of that, yield checks 1.4-2.9%. Requirements ranked by gain and classed (emit or runtime, proof or fact, language, Trig-side); partial inlining measured slower; Trig's list builders in bulk 0.4-1.1% faster | [perf-stage/trig-zig-ceiling.md](2026-10/perf-stage/trig-zig-ceiling.md) |
 | Profile-guided optimization (2026-10-25) | LLVM PGO through Zig's bitcode and `zig cc`, trained away from the project timed: Trig 10% faster with 14% fewer instructions on ts-pattern and zod3, 5-9% faster than BOLT alone, BOLT on top adding nothing; built as `rig build --release --pgo`, with a freestanding profile writer the runtime calls in `--pgo` packages only | [perf-stage/pgo.md](2026-10/perf-stage/pgo.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
@@ -267,6 +268,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [memory-traffic.md](2026-10/perf-stage/memory-traffic.md): Where Trig's memory traffic comes from, against tsrs, and what Rig can remove (2026-10-28)
 - [thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md): Huge pages when memory is fragmented, which users stall, and a gate on free 2 MiB blocks (2026-10-28)
 - [scaling-2.md](2026-10/perf-stage/scaling-2.md): Why Trig loses more than tsrs from one checker to four, ranked by milliseconds (2026-10-28)
+- [trig-zig-ceiling.md](2026-10/perf-stage/trig-zig-ceiling.md): The speed ceiling of Trig's emitted Zig, safe and unchecked, against main and tsrs (2026-10-27)
 
 ### 2026-10/perf-stage/loop-hoist-data/
 
@@ -368,6 +370,41 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [timeline3-summary.txt](2026-10/perf-stage/scaling-2-data/timeline3-summary.txt)
 - [times-summary.txt](2026-10/perf-stage/scaling-2-data/times-summary.txt)
 - [times.txt](2026-10/perf-stage/scaling-2-data/times.txt)
+
+### 2026-10/perf-stage/trig-zig-ceiling-data/
+
+- [builds.txt](2026-10/perf-stage/trig-zig-ceiling-data/builds.txt)
+- [edits/se1_index.py](2026-10/perf-stage/trig-zig-ceiling-data/edits/se1_index.py)
+- [edits/se2_mapper.py](2026-10/perf-stage/trig-zig-ceiling-data/edits/se2_mapper.py)
+- [edits/se3_instantiate.py](2026-10/perf-stage/trig-zig-ceiling-data/edits/se3_instantiate.py)
+- [edits/se4_active.py](2026-10/perf-stage/trig-zig-ceiling-data/edits/se4_active.py)
+- [edits/se5_inference.py](2026-10/perf-stage/trig-zig-ceiling-data/edits/se5_inference.py)
+- [edits/se6_bulk.py](2026-10/perf-stage/trig-zig-ceiling-data/edits/se6_bulk.py)
+- [edits/sub.py](2026-10/perf-stage/trig-zig-ceiling-data/edits/sub.py)
+- [emit.sh](2026-10/perf-stage/trig-zig-ceiling-data/emit.sh)
+- [hot.py](2026-10/perf-stage/trig-zig-ceiling-data/hot.py)
+- [main-rel.attr](2026-10/perf-stage/trig-zig-ceiling-data/main-rel.attr)
+- [mk.sh](2026-10/perf-stage/trig-zig-ceiling-data/mk.sh)
+- [mkpgo.sh](2026-10/perf-stage/trig-zig-ceiling-data/mkpgo.sh)
+- [noyield.patch](2026-10/perf-stage/trig-zig-ceiling-data/noyield.patch)
+- [polite.sh](2026-10/perf-stage/trig-zig-ceiling-data/polite.sh)
+- [prof.sh](2026-10/perf-stage/trig-zig-ceiling-data/prof.sh)
+- [queue.sh](2026-10/perf-stage/trig-zig-ceiling-data/queue.sh)
+- [safe.patch](2026-10/perf-stage/trig-zig-ceiling-data/safe.patch)
+- [se1-index.patch](2026-10/perf-stage/trig-zig-ceiling-data/se1-index.patch)
+- [se2-mapper-outline.patch](2026-10/perf-stage/trig-zig-ceiling-data/se2-mapper-outline.patch)
+- [se3-instantiate-inline.patch](2026-10/perf-stage/trig-zig-ceiling-data/se3-instantiate-inline.patch)
+- [se4-active-mappers.patch](2026-10/perf-stage/trig-zig-ceiling-data/se4-active-mappers.patch)
+- [se5-inference-loop.patch](2026-10/perf-stage/trig-zig-ceiling-data/se5-inference-loop.patch)
+- [se6-bulk-lists.patch](2026-10/perf-stage/trig-zig-ceiling-data/se6-bulk-lists.patch)
+- [summ.py](2026-10/perf-stage/trig-zig-ceiling-data/summ.py)
+- [summary.txt](2026-10/perf-stage/trig-zig-ceiling-data/summary.txt)
+- [time.sh](2026-10/perf-stage/trig-zig-ceiling-data/time.sh)
+- [times.txt](2026-10/perf-stage/trig-zig-ceiling-data/times.txt)
+- [unchecked-index-main.patch](2026-10/perf-stage/trig-zig-ceiling-data/unchecked-index-main.patch)
+- [unchecked-main.patch](2026-10/perf-stage/trig-zig-ceiling-data/unchecked-main.patch)
+- [unchecked.patch](2026-10/perf-stage/trig-zig-ceiling-data/unchecked.patch)
+- [zigw](2026-10/perf-stage/trig-zig-ceiling-data/zigw)
 
 ### 2026-10/perf-stage/list-grow-data/
 

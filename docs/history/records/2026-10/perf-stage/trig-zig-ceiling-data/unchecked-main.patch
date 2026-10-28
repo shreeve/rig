@@ -1,0 +1,76 @@
+diff --git a/rig/runtime.zig b/rig/runtime.zig
+index b8f4898..c7197ae 100644
+--- a/rig/runtime.zig
++++ b/rig/runtime.zig
+@@ -3366,6 +3366,9 @@ pub const String = struct {
+ 
+     noinline fn keepPanic(count: Int, n: usize) noreturn {
+         @branchHint(.cold);
++    // CEILING (unchecked): built -Ofast, a failed check is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+         std.debug.panic("`keep: {d}` is outside 0..{d}, the bytes pushed", .{ count, n });
+     }
+ 
+@@ -3832,6 +3835,9 @@ pub const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_v
+ 
+ pub fn proofPanic() noreturn {
+     @branchHint(.cold);
++    // CEILING (unchecked): built -Ofast, a failed check is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     @panic("rig: a proven check failed (compiler bug)");
+ }
+ 
+@@ -5013,6 +5019,9 @@ inline fn maskBitsSwar(comptime n: usize, lanes: @Vector(n, u8)) u64 {
+ /// bytes, or starts before them.
+ fn bytesPanic(comptime what: []const u8, n: usize, offset: anytype, count: usize) noreturn {
+     @branchHint(.cold);
++    // CEILING (unchecked): built -Ofast, a failed check is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     std.debug.panic("byte " ++ what ++ " out of range: {d} bytes at offset {d} of {d}", .{ n, offset, count });
+ }
+ 
+@@ -5062,6 +5071,9 @@ fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
+ 
+ fn slicePanic() noreturn {
+     @branchHint(.cold);
++    // CEILING (unchecked): built -Ofast, a failed check is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     @panic("slice bounds out of range");
+ }
+ 
+@@ -5139,11 +5151,17 @@ pub inline fn heldLen(n: usize) Int {
+ /// compare and a branch.
+ noinline fn lenPanic() noreturn {
+     @branchHint(.cold);
++    // CEILING (unchecked): built -Ofast, a failed check is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     @panic("length out of range");
+ }
+ 
+ fn indexPanic() noreturn {
+     @branchHint(.cold);
++    // CEILING (unchecked): built -Ofast, a failed check is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     @panic("index out of bounds");
+ }
+ 
+diff --git a/rig/table.zig b/rig/table.zig
+index 8d0f9e3..8e8fdf4 100644
+--- a/rig/table.zig
++++ b/rig/table.zig
+@@ -83,6 +83,9 @@ fn defaultOf(comptime T: type) T {
+ 
+ fn fullPanic(comptime n: u64) noreturn {
+     @branchHint(.cold);
++    // CEILING (unchecked): built -Ofast, a failed check is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     @panic(std.fmt.comptimePrint("a table of {d} slot{s} is full", .{ n, if (n == 1) "" else "s" }));
+ }
+ 

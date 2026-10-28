@@ -1,0 +1,31 @@
+From 6503aa06e98d081a6423db232a58874c193ac267 Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Tue, 27 Oct 2026 20:28:17 -0600
+Subject: [PATCH] se2_mapper
+
+---
+ checker.zig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/checker.zig b/checker.zig
+index 4af7f88..7b2c47b 100644
+--- a/checker.zig
++++ b/checker.zig
+@@ -41896,7 +41896,7 @@ pub const Checker = struct {
+         return m;
+     }
+ 
+-    pub fn inference_type_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
++    pub noinline fn inference_type_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
+         @setEvalBranchQuota(rig.eval_quota);
+         const n: u32 = rig.rt(self.mapper_n(m));
+         {
+@@ -45853,7 +45853,7 @@ pub const Checker = struct {
+         return false;
+     }
+ 
+-    pub fn function_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
++    pub noinline fn function_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
+         @setEvalBranchQuota(rig.eval_quota);
+         switch (rig.rt(self.mapper_fn(m))) {
+             .UniqueLiteral => {
