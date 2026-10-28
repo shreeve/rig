@@ -3249,30 +3249,36 @@ pub const String = struct {
     /// `String(a, b, ...)`. Text of up to `of_stack` bytes is written on
     /// the stack and allocated once at its length, one block the size of
     /// its bytes; longer text grows as `add` grows it.
+    /// The call is out of line, one function for each tuple of pieces, so
+    /// its buffer and both ways of building stay out of the caller's frame.
     pub inline fn of(pieces: anytype) String {
-        if (ofShort(pieces)) |t| return t;
-        var t: String = .empty;
-        t.add(pieces);
-        return t;
+        return ofPieces(pieces);
     }
 
     const of_stack = 256;
 
-    /// `of`'s text when it fits `of_stack` bytes, `null` when not.
-    noinline fn ofShort(pieces: anytype) ?String {
+    noinline fn ofPieces(pieces: anytype) String {
+        var t: String = .empty;
+        if (ofShort(&t, pieces)) return t;
+        t.add(pieces);
+        return t;
+    }
+
+    /// `of`'s text in `t` when it fits `of_stack` bytes; false, with `t`
+    /// left empty, when not.
+    inline fn ofShort(t: *String, pieces: anytype) bool {
         var buf: [of_stack]u8 = undefined;
         var w: std.Io.Writer = .fixed(&buf);
         inline for (comptime piecesOf(@TypeOf(pieces))) |p| switch (p) {
-            .text => |t| w.writeAll(t) catch return null,
-            .value => |f| writePiece(&w, pieces[f]) catch return null,
+            .text => |x| w.writeAll(x) catch return false,
+            .value => |f| writePiece(&w, pieces[f]) catch return false,
         };
-        if (w.end == 0) return .empty;
+        if (w.end == 0) return true;
         const block = allocSlice(u8, w.end);
         @memcpy(block, buf[0..w.end]);
-        var t: String = .empty;
         t.list.items = block;
         t.list.capacity = block.len;
-        return t;
+        return true;
     }
 
     /// A value as `addValue` writes it, to `w`.
