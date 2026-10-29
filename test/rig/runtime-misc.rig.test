@@ -2063,6 +2063,19 @@ bomb "slice swap out of range", "index out of bounds"
   w = !a[1..]
   !w.swap(0, rt(2))
 
+test "slice swap with itself", "[1, 2, 3] [\"a\", \"b\"]", release: true
+  # `swap` of an element with itself leaves it, though both indexes are
+  # checked first.
+
+  fun rt(n: Int) -> Int
+    n
+
+  a = [1, 2, 3]
+  !a.swap(rt(1), rt(1))
+  t = [String("a"), String("b")]
+  !t.swap(rt(1), 1)
+  print(a, t)
+
 bomb "stack overflow frame", "rig: stack overflow", prints: "before"
   # A frame larger than the whole stack stops the program with a
   # stack-overflow error before it writes anything past the stack. `big`

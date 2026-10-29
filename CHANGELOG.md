@@ -202,6 +202,8 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`!s.swap(i, i)` leaves the element in place** without handing Zig's
+  `std.mem.swap` one place twice, which Zig leaves undefined.
 - **The runtime's hot helpers make none of Zig's checks that the
   runtime's own invariants prove** (`len <= buf.len`, `len < n`, a
   block aligned by its class) in an optimized build: List's `pop`,

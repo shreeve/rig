@@ -4200,10 +4200,13 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
     return acc;
 }
 
-/// `!s.swap(i, j)`: panics unless both indexes are in range.
+/// `!s.swap(i, j)`: panics unless both indexes are in range. An element
+/// swapped with itself stays, as `std.mem.swap` may not be given one
+/// place twice.
 pub fn swap(items: anytype, i: anytype, j: anytype) void {
     const a = index(i, items.len);
     const b = index(j, items.len);
+    if (a == b) return;
     // `a, b < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
     std.mem.swap(std.meta.Elem(@TypeOf(items)), &items[a], &items[b]);
