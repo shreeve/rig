@@ -10880,6 +10880,7 @@ const Checker = struct {
         defer self.slot = saved_slot;
         self.slot = .{ .call = call orelse .nil, .params = site.declared, .lends = try self.argLends(args, f, info) };
         const retains = self.callRetains(f, self.lend_recv);
+        const recv_param = self.lend_recv;
         const lends = self.lend_call and !retains;
         self.lend_call = false;
         self.lend_recv = null;
@@ -10949,6 +10950,7 @@ const Checker = struct {
             slots[idx] = .{ .arg = @intCast(ai) };
             try self.checkArg(ir.Kwarg.value(kw), f, idx, lends);
         }
+        if (self.ctx.diagnostics.items.len == mark) try self.wastedClones(args, slots, f, recv_param);
         var complete = true;
         for (slots, 0..) |*slot, i| {
             if (slot.* != null) continue;
@@ -11011,6 +11013,107 @@ const Checker = struct {
         const out = try self.ctx.arena.allocator().alloc(sema.ArgSlot, slots.len);
         for (slots, out) |s, *o| o.* = s.?;
         try self.ctx.recordCallSlots(call_node, out);
+    }
+
+    /// `peek(+w)`: a clone into a read view (`?T`, `[]T`, `?String`) that
+    /// makes a new owner is made only to be read and dropped, so the call
+    /// lends the original, `?w`. The clone stays where the same call lends
+    /// the original to write or moves it (`g(+p, !p)`): it keeps the views
+    /// apart. `recv` is a method's self parameter, null for a function.
+    fn wastedClones(self: *Checker, args: []const Sexp, slots: []const ?sema.ArgSlot, f: FunctionType, recv: ?TypeId) Error!void {
+        const call = self.current_call orelse return;
+        // A task holds its arguments while it runs.
+        if (call.isKind(.call) and ir.Call.task(call) != .nil) return;
+        for (slots, 0..) |sl, k| {
+            const i = switch (sl orelse continue) {
+                .arg => |i| i,
+                .default => continue,
+            };
+            const value = if (args[i].isKind(.kwarg)) ir.Kwarg.value(args[i]) else args[i];
+            if (!value.isKind(.clone) or !sema.readViewField(self.ctx, f.params[k])) continue;
+            const operand = ir.get(value, .operand);
+            if (!self.clonesOwner(operand)) continue;
+            const root = placeRoot(operand) orelse continue;
+            if (self.writesRoot(call, args, i, recv, self.text(root))) continue;
+            try self.errAt(value, "lend `{s}` instead: a clone into a read view is only read, then dropped", .{try self.lentText(operand)});
+        }
+    }
+
+    /// `(+w).total()`, a clone into a method's read self: the method is
+    /// called on the original, `w.total()`, unless an argument lends it
+    /// to write or moves it.
+    fn wastedCloneSelf(self: *Checker, obj: Sexp, args: []const Sexp) Error!void {
+        if (!obj.isKind(.clone)) return;
+        const call = self.current_call orelse return;
+        if (call.isKind(.call) and ir.Call.task(call) != .nil) return;
+        const operand = ir.get(obj, .operand);
+        if (!self.clonesOwner(operand)) return;
+        const root = placeRoot(operand) orelse return;
+        for (args) |a| if (writesName(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, self.text(root))) return;
+        try self.errAt(obj, "call the method on `{s}` instead: a clone into a read self is only read, then dropped", .{self.sourceText(operand)});
+    }
+
+    /// Whether `+e` makes a new owner, a String's bytes or a value's parts
+    /// copied (`sema.cloneable`), not a bit copy or a handle's count.
+    fn clonesOwner(self: *Checker, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return switch (sema.cloneable(self.ctx, ty)) {
+            .text, .deep => true,
+            else => false,
+        };
+    }
+
+    /// How `?e` reads in a call: a read view held by a name is lent on
+    /// bare, any other place with `?`.
+    fn lentText(self: *Checker, e: Sexp) Error![]const u8 {
+        const shown = self.sourceText(e);
+        if (self.ctx.typeOf(e)) |ty| if (sema.readViewField(self.ctx, ty)) return shown;
+        return self.ctx.arena.allocator().print("?{s}", .{shown});
+    }
+
+    /// Whether call `call` lends the place rooted at `root` to write, or
+    /// moves it, other than in its argument `skip`: through another
+    /// argument, a closure that names it, or a self taken to write or
+    /// consumed.
+    fn writesRoot(self: *Checker, call: Sexp, args: []const Sexp, skip: usize, recv: ?TypeId, root: []const u8) bool {
+        for (args, 0..) |a, j| {
+            if (j == skip) continue;
+            if (writesName(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, root)) return true;
+        }
+        const r = recv orelse return false;
+        if (!call.isKind(.call)) return false;
+        const callee = ir.Call.callee(call);
+        if (!callee.isKind(.member)) return false;
+        const obj = ir.Member.object(callee);
+        const takes = switch (self.ctx.types.get(r)) {
+            .read_view, .slice, .string_view => obj.isKind(.write) or obj.isKind(.move),
+            else => true,
+        };
+        if (!takes) return writesName(self, obj, root);
+        const at = placeRoot(obj) orelse return writesName(self, obj, root);
+        return std.mem.eql(u8, self.text(at), root) or writesName(self, obj, root);
+    }
+
+    /// Whether `e` lends a place rooted at `root` to write, moves one, or
+    /// holds a closure that names it.
+    fn writesName(self: *Checker, e: Sexp, root: []const u8) bool {
+        if (e == .src) return false;
+        const h = e.kind() orelse return false;
+        switch (h) {
+            .write, .move => if (placeRoot(ir.get(e, .operand))) |at| if (std.mem.eql(u8, self.text(at), root)) return true,
+            .lambda => return namesLeaf(self, e, root),
+            else => {},
+        }
+        for (e.items()) |c| if (writesName(self, c, root)) return true;
+        return false;
+    }
+
+    /// Whether `e` holds a leaf whose text is `name`.
+    fn namesLeaf(self: *Checker, e: Sexp, name: []const u8) bool {
+        if (e == .src) return std.mem.eql(u8, self.text(e), name);
+        if (e != .list) return false;
+        for (e.items()) |c| if (namesLeaf(self, c, name)) return true;
+        return false;
     }
 
     /// A method's parameters as its type declares them, after the first
@@ -12932,6 +13035,7 @@ const Checker = struct {
         self.lend_recv = f.params[0];
         const mark = self.ctx.diagnostics.items.len;
         try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
+        if (receiver == .read and !misplaced_sigil) try self.wastedCloneSelf(obj, args);
         // A receiver the method keeps is lent with `?` written (Core
         // sentence 4).
         const o = resolved.field.origins;
@@ -13319,7 +13423,7 @@ const Checker = struct {
     /// an addition's method included. Null when none does; two make the
     /// call name the API (`Shape.area(c)`).
     fn apiShorthand(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
-        const value = sema.unwrapViews(self.ctx, obj_ty);
+        const value = self.canonical(sema.unwrapViews(self.ctx, obj_ty));
         switch (self.ctx.types.get(value)) {
             .type_var, .shared, .weak, .optional, .function => return null,
             else => {},
@@ -13341,6 +13445,8 @@ const Checker = struct {
         if (found.items.len == 0) return null;
         if (found.items.len > 1) return try self.reportAmbiguous(obj, method, found.items, value, pos, args);
         const witness = (try sema.witnessFor(self.ctx, value, found.items[0].api)) orelse return null;
+        // `5.twice()`: a literal self is a value of the type it defaults to.
+        if (obj_ty == self.t().int_literal_id) try self.defaultIntLiteral(stripSigil(obj));
         return try self.apiMethodCall(callee, obj, obj_ty, value, found.items[0], .{ .witness = witness }, method, pos, args, ct);
     }
 
@@ -13386,7 +13492,9 @@ const Checker = struct {
                 if (c.eql(m.api)) return self.objectCall(.nil, args[0], recv_ty, h.object, m.api, method, pos, args, ct, true);
             }
         }
-        const value = sema.unwrapViews(self.ctx, recv_ty);
+        // `Shape.area(4)`: a literal self is a value of the type it
+        // defaults to.
+        const value = self.canonical(sema.unwrapViews(self.ctx, recv_ty));
         const witness = (try sema.witnessFor(self.ctx, value, m.api)) orelse {
             const name = try sema.apiName(self.ctx, m.api);
             return self.badCall(args, pos, "`{s}.{s}` takes self as a value of a type that provides `{s}`, and `{s}` does not", .{ api_text, method, name, try self.tyName(value) });
@@ -20834,7 +20942,9 @@ fn reportUnbounded(ctx: *SemContext, pos: u32, param: SymbolId, api: sema.Api, w
 fn checkHeaders(ctx: *SemContext) Error!void {
     for (ctx.symbols.items) |sym| {
         if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
-        if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos or sym.apis.count() == 0) continue;
+        if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos) continue;
+        try checkLookAlikes(ctx, sym);
+        if (sym.apis.count() == 0) continue;
         var it = sym.apis.iterator();
         while (it.next()) |api| if (sema.ownApiMethod(sym, api)) |m| try checkApiMethod(ctx, sym, api, m);
         if (!sym.apis.contains(.Ord) or sema.ownApiMethod(sym, .Ord) != null) continue;
@@ -20882,14 +20992,52 @@ fn isHasherView(ctx: *SemContext, ty: TypeId) Error!bool {
 /// the signature `api` fixes: another signature is an error, not a quiet
 /// opt-out (docs/design/apis.md, Stage 2).
 fn checkApiMethod(ctx: *SemContext, sym: sema.Symbol, api: sema.Api, m: Field) Error!void {
+    const why = (try apiMethodMismatch(ctx, api, m)) orelse return;
+    if (why.len == 0) return;
+    const owner = try ctx.arena.allocator().print("{s}.{s}", .{ sym.name, m.name });
+    try ctx.err(m.decl_pos, "`{s}` {s}, but `{s}` fixes `{s}`", .{ owner, why, @tagName(api), fixedSignature(api) });
+}
+
+/// A method of `sym` with the very signature a built-in API fixes,
+/// `fun eq(?@, other: ?Self) -> Bool` and the others, on a type whose
+/// header does not name that API: `==`, hashing, ordering, or printing
+/// would quietly pass it by. A method under the name with another
+/// signature is an ordinary method.
+fn checkLookAlikes(ctx: *SemContext, sym: sema.Symbol) Error!void {
+    if (sym.flags.error_set) return;
+    for ([_]sema.Api{ .Eq, .Hash, .Ord, .Print }) |api| {
+        if (sym.apis.contains(api)) continue;
+        const name = sema.apiMethodName(api).?;
+        for (sym.fields orelse &.{}) |m| {
+            if (!m.is_method or m.is_drop_method or !std.mem.eql(u8, m.name, name)) continue;
+            if ((try apiMethodMismatch(ctx, api, m)) != null) continue;
+            const a = ctx.arena.allocator();
+            const is_enum = for (sym.fields orelse &.{}) |f| {
+                if (f.is_variant) break true;
+            } else false;
+            const params: []const u8 = if (sym.kind == .generic_type) try a.print("[{s}]", .{tparamNames(ctx, sym)}) else "";
+            const uses: []const u8 = switch (api) {
+                .Eq => "`==`",
+                .Hash => "hashing",
+                .Ord => "`<`",
+                .Print => "`print`",
+                else => unreachable,
+            };
+            try ctx.err(m.decl_pos, "`{s}.{s}` has the signature `{s}` fixes, but `{s}` does not name `{s}`, so {s} does not use it: name it on the header, `{s} {s}{s}: {s}`, or rename the method", .{ sym.name, m.name, @tagName(api), sym.name, @tagName(api), uses, if (is_enum) "enum" else "obj", sym.name, params, try sema.formatBounds(ctx, a, sym, api) });
+        }
+    }
+}
+
+/// How method `m` differs from the signature `api` fixes for it, as an
+/// error says it; empty for no function, null for the very signature.
+fn apiMethodMismatch(ctx: *SemContext, api: sema.Api, m: Field) Error!?[]const u8 {
     const a = ctx.arena.allocator();
     const f = switch (ctx.types.get(m.ty)) {
         .function => |f| f,
-        else => return,
+        else => return "",
     };
-    if (f.params.len == 0) return;
+    if (f.params.len == 0) return "";
     const self_view = f.params[0];
-    const owner = try a.print("{s}.{s}", .{ sym.name, m.name });
     const names = m.param_names orelse &.{};
     const what: ?[]const u8 = blk: {
         if (m.receiver != .read) break :blk try a.print("takes `self` as `{s}`", .{switch (m.receiver) {
@@ -20917,8 +21065,7 @@ fn checkApiMethod(ctx: *SemContext, sym: sema.Symbol, api: sema.Api, m: Field) E
         if (f.returns != want) break :blk if (f.returns == ctx.types.void_id) "gives nothing" else try a.print("gives `{s}`", .{try sema.formatType(ctx, f.returns)});
         break :blk null;
     };
-    const why = what orelse return;
-    try ctx.err(m.decl_pos, "`{s}` {s}, but `{s}` fixes `{s}`", .{ owner, why, @tagName(api), fixedSignature(api) });
+    return what;
 }
 
 // =============================================================================

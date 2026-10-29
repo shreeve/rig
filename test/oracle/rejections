@@ -24,7 +24,6 @@ array.write_held.move run
 box.arg_then_write.catch run
 box.arg_then_write.destructure run
 box.arg_then_write.destructure_branch run
-box.arg_then_write.destructure_view run
 box.arg_then_write.destructure_write run
 box.arg_then_write.field run
 box.arg_then_write.move run

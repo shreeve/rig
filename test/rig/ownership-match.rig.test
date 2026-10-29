@@ -1107,7 +1107,7 @@ test "match payload view in arm", '''
         print(w.n, w.t)
       .b(_) => pass
 
-  sub guarded(b: ?^E)
+  sub guarded(b: ?E)
     match b
       .a(r) if r.n > 0 => see(?r)
       _ => print("other")
@@ -1212,7 +1212,7 @@ test "match payload view outlives arm", release: true, '''
       .a(r) => ?r
       .b(r) => r
 
-  fun boxed(b: ?^E) -> ?Res from b
+  fun boxed(b: ?E) -> ?Res from b
     match b
       .a(r) => ?r
       .b(r) => ?r
@@ -1360,7 +1360,7 @@ test "match payload views", '''
       .a(r) => show(r) + r.t.len
       .b(r) => show(?r)
 
-  fun boxed(b: ?^E) -> Int
+  fun boxed(b: ?E) -> Int
     match b
       .a(r) if r.n > 0 => r.n
       .a(r) => -r.n

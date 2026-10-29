@@ -707,7 +707,7 @@ test "temporary receiver read", '''
   drop 5
   end
 '''
-  # A `?@` receiver only reads: a value made there, a cloned handle
+  # A `?@` receiver only reads: a value made there, a handle made
   # included, is a temporary its statement drops.
 
   obj B
@@ -722,8 +722,7 @@ test "temporary receiver read", '''
   fun mk(n: Int) -> B
     B(n: n)
 
-  c: *Cell[Int] = *Cell(1)
-  print((+c).get(), mk(5).get())
+  print((*Cell(1)).get(), mk(5).get())
   print("end")
 
 test "temporary views in statement", '''

@@ -36,7 +36,7 @@ test "apis object crossing a syncing box lent to two tasks", seeds: 20, "8.0 8.0
     fun area(?@) -> Float
       @side * @side
 
-  fun total(b: ?^{Shape + Syncs}) -> Float
+  fun total(b: ?{Shape + Syncs}) -> Float
     b.area() * 2.0
 
   fun area_of(s: ?{Shape + Syncs}) -> Float
@@ -448,7 +448,7 @@ fail "apis object crossing lent without its bound", "`?b` is lent to a task to r
     t = touch(!w)&
     >t
 
-  fun total(c: ?^{Shape + Sends}) -> Float
+  fun total(c: ?{Shape}) -> Float
     c.area()
 
   b: ^{Shape} = ^Square(side: 2.0)

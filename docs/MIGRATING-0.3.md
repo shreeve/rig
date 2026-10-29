@@ -560,6 +560,9 @@ rejections as MANUAL lines:
 | `*g` of a function where a `*fun` goes | `*\|\| g()` |
 | a lend of a branch that may be a named value, `(a if c else b)[0].m()` | lend each branch: `(?a if c else ?b)[0].m()` |
 | a `defer` that changes what its scope's value views (`defer !@xs.clear()` before a last value `!@xs[0]`), or uses a write view `s` the scope returns | change it before the value is formed, or let the defer leave the value and `s` alone |
+| `fun eq(?@, other: ?P) -> Bool` on an `obj P` whose header names no `Eq` (and `order`, `hash_into`, `print` with the signatures `Ord`, `Hash`, and `Print` fix) | `obj P: Eq`, so `==` calls it, or another name |
+| a parameter `?^T`, a read view of a box | `?T`, which takes a `^T` too |
+| `peek(+w)` where `peek` takes a read view, or `(+w).len()` of a `?@` method | `peek(?w)`, `w.len()` |
 
 ## Programs written against `main` between releases
 

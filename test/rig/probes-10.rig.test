@@ -1071102,7 +1071102,7 @@ test "own-perf n18", "0"
   print(s)
 
 test "p-bq", "true false true true true"
-  fun cmp(b: ?^String) -> Bool
+  fun cmp(b: ?String) -> Bool
     b == "boxed"
 
   b = ^String("boxed")
@@ -1071665,7 +1071665,7 @@ test "purity-newbie-expr", '''
     div(left: ^Expr, right: ^Expr)
     neg(inner: ^Expr)
 
-  fun eval(e: ?^Expr) -> Float!
+  fun eval(e: ?Expr) -> Float!
     match e
       .num(v) => v
       .add(l, r) => eval(?l)! + eval(?r)!

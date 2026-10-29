@@ -2134,7 +2134,7 @@ fail "box views ownership", "13:3: cannot reassign `root` while it is lent", "17
     key: Int
     left: ^Node?
 
-  fun first(n: ?^Node) -> ?Node
+  fun first(n: ?Node) -> ?Node
     ?n
 
   root: ^Node? = ^Node(key: 1, left: none)
@@ -7736,7 +7736,7 @@ test "loop view call arg", '''
   sub round(c: ?Circle)
     print(c.area())
 
-  sub boxed(c: ?^Circle)
+  sub boxed(c: ?Circle)
     print(c.r)
 
   names: List[String] = List()

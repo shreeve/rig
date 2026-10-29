@@ -3027,7 +3027,7 @@ test "R3c1-t32 ctn", '''
   s: (?String)? = "s"
   print(h(x, 3), h(s, "s"), h(s, "t"))
 
-test "R3c1-t36b", "false true"
+fail "R3c1-t36b", "4:7: `P.eq` has the signature `Eq` fixes, but `P` does not name `Eq`"
   obj P
     x: Int
 

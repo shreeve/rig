@@ -208,6 +208,20 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Decide whether the test measures a property load may break (and
   should allow a share of crossings, or run pinned), or the scheduler
   lets a woken pair drift apart under load.
+- **Literal arithmetic given a read view is refused.** `f(4 + 1)`,
+  where `f` takes a `?Int`, says "type mismatch: expected `?Int`, got
+  `Int`", while `f(4)` and `f(x + 1)` are lent as made values. Literal
+  arithmetic checked against a view should be checked against the
+  value it views. Found with the errors-only fixes (2026-10-29).
+- **The matrix cell `error.match_part.clone` is a Zig error.** `python3
+  test/matrix.py -k error.match_part.clone` fails on `main` with
+  "expected type '*const T', found 'T'" in the emitted Zig: accepted,
+  not lowered. Found with the errors-only fixes (2026-10-29).
+- **A `?^T` field can no longer be filled from a parameter.** A
+  parameter `?^T` is rejected (SPEC "Box"), but a field or a result of
+  type `?^T` stays, and a `?T` parameter is no `?^T`. Decide whether a
+  read view of a box is rejected wherever it is written, or a `?T`
+  given a box may be held as one.
 
 Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before

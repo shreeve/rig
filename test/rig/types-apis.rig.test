@@ -342,6 +342,121 @@ fail "apis fixed signatures", "`Version.eq` takes `self` as `!@`, but `Eq` fixes
 
   print(1)
 
+fail "apis look-alike methods", "7:7: `P.eq` has the signature `Eq` fixes, but `P` does not name `Eq`, so `==` does not use it: name it on the header, `obj P: Eq`, or rename the method", "14:7: `E.order` has the signature `Ord` fixes, but `E` does not name `Ord`, so `<` does not use it: name it on the header, `enum E: Ord`, or rename the method", "20:7: `Box.print` has the signature `Print` fixes, but `Box` does not name `Print`, so `print` does not use it: name it on the header, `obj Box[T]: Print`, or rename the method", "26:7: `H.hash_into` has the signature `Hash` fixes, but `H` does not name `Hash`, so hashing does not use it: name it on the header, `obj H: Hash`, or rename the method", "39:7: `S.eq` has the signature `Eq` fixes, but `S` does not name `Eq`, so `==` does not use it: name it on the header, `obj S: Shape + Eq`, or rename the method", errors: 5
+  # A method with the very signature a built-in API fixes, on a type
+  # whose header does not name the API, would be passed by: `a == b`
+  # would compare fields while `a.eq(?b)` said otherwise.
+  obj P
+    x: Int
+
+    fun eq(?@, other: ?P) -> Bool
+      true
+
+  enum E
+    a
+    b
+
+    fun order(?@, other: ?E) -> Order
+      .equal
+
+  obj Box[T]
+    v: T
+
+    sub print(?@, out: !Printer)
+      !out.text("box")
+
+  obj H
+    x: Int
+
+    sub hash_into(?@, h: !Hasher)
+      !h.add(1)
+
+  api Shape
+    fun area(?@) -> Int
+    fun eq(?@, other: ?Self) -> Bool
+
+  obj S: Shape
+    x: Int
+
+    fun area(?@) -> Int
+      @x
+
+    fun eq(?@, other: ?S) -> Bool
+      true
+
+  print(1)
+
+test "apis look-alike neighbors", '''
+  true false true
+  false true false
+'''
+  # Under another signature `eq` is an ordinary method, and `==` compares
+  # fields; a header that names the API makes `==` call its own.
+  obj P
+    x: Int
+
+    fun eq(?@, other: ?Int) -> Bool
+      @x == other
+
+  obj Q: Eq
+    x: Int
+
+    fun eq(?@, other: ?Q) -> Bool
+      true
+
+  api Shape
+    fun area(?@) -> Int
+    fun eq(?@, other: ?Self) -> Bool
+
+  obj S: Shape + Eq
+    x: Int
+
+    fun area(?@) -> Int
+      @x
+
+    fun eq(?@, other: ?S) -> Bool
+      false
+
+  a = P(x: 1)
+  print(a.eq(?1), a == P(x: 2), Q(x: 1) == Q(x: 2))
+  s = S(x: 1)
+  print(s == s, Shape.eq(?s, ?s) == (s == s), s.eq(?s))
+
+test "apis a literal self", '''
+  10 8 10 10
+  1.5 1.5
+'''
+  # A literal is a value of the type it defaults to, as self of a call
+  # through an API too.
+  api Twice
+    fun twice(?@) -> Int
+
+  add Int: Twice
+    fun twice(?@) -> Int
+      @ * 2
+
+  api Half
+    fun half(?@) -> Float
+
+  add Float: Half
+    fun half(?@) -> Float
+      @ / 2.0
+
+  x = 5
+  print(Twice.twice(x), Twice.twice(4), 5.twice(), (4 + 1).twice())
+  print(Half.half(3.0), 3.0.half())
+
+fail "apis a literal self that does not fit", "8:7: integer value `99999999999999999999` does not fit in `Int`", "9:19: integer value `99999999999999999999` does not fit in `Int`", errors: 2
+  api Twice
+    fun twice(?@) -> Int
+
+  add Int: Twice
+    fun twice(?@) -> Int
+      @ * 2
+
+  print(99999999999999999999.twice())
+  print(Twice.twice(99999999999999999999))
+
 test "apis std bounds", '''
   [1, 2, 3] 1 true 4
   ann 3
@@ -5622,7 +5737,7 @@ Square(side: 3.0) 3
       3.0 * @r * @r
 
   # A float provides no `Ord`, so the key is the area in hundredths.
-  fun key(s: ?^{Shape}) -> Int
+  fun key(s: ?{Shape}) -> Int
     Int(s.area() * 100.0)
 
   shapes: List[^{Shape}] = List()
@@ -5630,7 +5745,7 @@ Square(side: 3.0) 3
   !shapes.push(^Circle(r: 1.0))
   !shapes.push(^Square(side: 1.0))
   !shapes.push(^Square(side: 0.5))
-  sort.sort_by_key(!shapes, key)
+  sort.sort_by_key(!shapes, |s| key(s))
   print(shapes[0].area(), shapes[1].area(), shapes[2].area(), shapes[3].area())
   last = (!shapes).pop()
   if last as l
@@ -5852,14 +5967,14 @@ test "apis object box a field printed by the braces", "H(s: Square(side: 1.0))"
   h = H(s: ^Square(side: 1.0))
   print(h)
 
-fail "apis object box a consuming method through a view", "`<s.close()` consumes self, and `s` is a `!{Shape}`, a view: only a box, `^{Shape}`, gives its value up", "`<v.close()` consumes self, and `v` is a `?^{Shape}`, a view: only a box, `^{Shape}`, gives its value up"
+fail "apis object box a consuming method through a view", "`<s.close()` consumes self, and `s` is a `!{Shape}`, a view: only a box, `^{Shape}`, gives its value up", "`<v.close()` consumes self, and `v` is a `!^{Shape}`, a view: only a box, `^{Shape}`, gives its value up"
   api Shape
     sub close(<@)
 
   sub finish(s: !{Shape})
     <s.close()
 
-  sub finish_box(v: ?^{Shape})
+  sub finish_box(v: !^{Shape})
     <v.close()
 
   print(1)

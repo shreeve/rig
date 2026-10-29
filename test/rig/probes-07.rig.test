@@ -720,7 +720,7 @@ fail "box-d5", "cannot reassign `a` while it is lent"
     key: Int
     next: ^Node?
 
-  fun first(n: ?^Node) -> ?Node
+  fun first(n: ?Node) -> ?Node
     ?n
 
   a = ^Node(key: 1, next: none)

@@ -87,6 +87,13 @@ A new session, human or agent, takes these steps in order:
   `^List[T]`) is still rejected, a sibling SPEC's box table implies.
   Next: drop `*Frozen`'s weak count; measure what the weak count costs
   every `*T` on Trig, by share first.
+- **The Rust-style review's errors-only fixes** (owner, 2026-10-27,
+  its default): a method with the very signature a built-in API fixes
+  on a type whose header does not name the API, a parameter `?^T`, and
+  a clone into a read view are rejected, each with its fix; a literal
+  is self of a call through an API (`Twice.twice(4)`); `async` and
+  `await` name `&` and `>t`. Trig, std, the examples, and the benches
+  use none of the rejected forms. In review as one PR.
 - **A float provides no `Ord`** (owner, 2026-10-27, the Rust-style
   recommendations' default): a NaN is neither below nor above a
   number, so `T: Ord` takes no float, and floats compare by their own

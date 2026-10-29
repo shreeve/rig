@@ -158,6 +158,7 @@ vlit.bare.kept main prod-rejects prod-strict `x = keep(.dot)` keeps a view of a 
 int.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 plain.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 array.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
+box.arg_then_write.destructure_view run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 simd.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 int.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 plain.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)

@@ -213,11 +213,6 @@ test "slice of read view through write", release: true, '''
     w.f = u
     print(s)
 
-  sub boxed(w: !RB, u: ?^String) keeps u
-    s = w.f[1..]
-    w.f = u
-    print(s)
-
   sub shared(w: !RS, u: ?*String) keeps u
     s = w.f[1..]
     w.f = u
@@ -236,7 +231,10 @@ test "slice of read view through write", release: true, '''
   b = ^String("boxed")
   bu = ^String("other")
   rb = RB(f: ?b)
-  boxed(!rb, ?bu)
+  wb = !rb
+  sb = wb.f[1..]
+  wb.f = ?bu
+  print(sb)
   h = *String("shared")
   hu = *String("other")
   rs = RS(f: ?h)
@@ -251,7 +249,6 @@ test "slice of read view through write", release: true, '''
   print(s, r2.f)
 
   # oracle: field accept
-  # oracle: boxed accept
   # oracle: shared accept
   # oracle: element accept
   # oracle: main accept
@@ -281,7 +278,7 @@ test "slice of text view", release: true, '''
   sub shared(h: ?*String)
     print(h[1..], word(h[..2]))
 
-  sub boxed(b: ?^String)
+  sub boxed(b: ?String)
     print(b[1..], word(b[..2]))
 
   sub write_param(t: !String)

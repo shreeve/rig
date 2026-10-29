@@ -20,7 +20,7 @@ test "review-box-p135", '''
     fun eat(<@) -> Int
       3
 
-  fun g(e: ?^E) -> Int
+  fun g(e: ?E) -> Int
     e.get()
 
   e = ^E.b
@@ -57,13 +57,13 @@ test "review-box-p138", '''
   fun rd(r: ?R) -> Int
     r.n
 
-  fun pick(k: Int, b: ?^R, c: ?^R) -> ?R
+  fun pick(k: Int, b: ?R, c: ?R) -> ?R
     if k > 0
       ?b
     else
       ?c
 
-  fun pick2(k: Int, b: ?^R, c: ?R) -> ?R
+  fun pick2(k: Int, b: ?R, c: ?R) -> ?R
     match k
       1 => ?b
       _ => c
@@ -721,10 +721,10 @@ test "review-box-p52", '''
   fun pick(b: !^R) -> !R
     !b
 
-  fun rpick(b: ?^R) -> ?R
+  fun rpick(b: ?R) -> ?R
     b
 
-  fun rpick2(b: ?^R) -> ?R
+  fun rpick2(b: ?R) -> ?R
     ?b
 
   b = ^R(n: 1)

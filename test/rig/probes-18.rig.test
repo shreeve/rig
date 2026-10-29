@@ -1856,7 +1856,7 @@ fail "review-box-bug as temp loan", "cannot reassign `h` while it is lent"
     print(x.n)
 
 test "review-box-bug generic return", "5"
-  fun peek[T](b: ?^T) -> ?T
+  fun peek[T](b: ?T) -> ?T
     ?b
 
   i = ^5
@@ -2120,7 +2120,7 @@ test "review-box-p108", '''
   obj H
     b: ^Sh
 
-  fun area(b: ?^Sh) -> Int
+  fun area(b: ?Sh) -> Int
     match b
       .c(r) => r * 3
       .s(k) => k * k
@@ -2371,13 +2371,13 @@ test "review-box-p128", '''
     drop(!@)
       print("drop", @n)
 
-  fun peek[T](b: ?^T) -> ?T
+  fun peek[T](b: ?T) -> ?T
     ?b
 
   sub show[T](x: ?T)
     print(x)
 
-  sub showb[T](b: ?^T)
+  sub showb[T](b: ?T)
     show(?b)
     show(b)
 
@@ -2401,10 +2401,10 @@ test "review-box-p129", '''
   5
   0
 '''
-  fun peek(b: ?^Int) -> ?Int
+  fun peek(b: ?Int) -> ?Int
     ?b
 
-  fun peekv(b: ?^List[Int]) -> ?List[Int]
+  fun peekv(b: ?List[Int]) -> ?List[Int]
     ?b
 
   i = ^5

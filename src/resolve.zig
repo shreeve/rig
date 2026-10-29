@@ -2621,6 +2621,22 @@ pub const TypeResolver = struct {
         return self.ctx.types.invalid_id;
     }
 
+    /// A parameter `?^T`: a read view of a box reads nothing a `?T`
+    /// cannot, and a `?T` takes a `^T` too, where `?^T` turns a plain
+    /// `T` away. A `!^T` stays, since it may replace the box, and so
+    /// does a view of a box of a view, `?^?T`, whose box lends no `?T`.
+    fn readBoxParam(self: *TypeResolver, node: Sexp, ty: TypeId) Error!void {
+        const boxed = switch (self.ctx.types.get(ty)) {
+            .read_view => |inner| sema.boxedType(self.ctx, inner) orelse return,
+            else => return,
+        };
+        // A box of a view, `^?T`, lends no `?T`.
+        if (self.ctx.types.get(boxed) == .read_view) return;
+        const value = try sema.formatType(self.ctx, boxed);
+        const want = try self.ctx.arena.allocator().print("?{s}", .{value});
+        try self.ctx.errAt(node, "write `{s}`, not `{s}`: a `{s}` takes a `^{s}` too, and a read view of the box reads nothing more", .{ want, diag.textOf(self.ctx.source, self.ctx.span(node)), want, value });
+    }
+
     pub fn resolveParamType(self: *TypeResolver, param: Sexp) Error!TypeId {
         switch (param) {
             .src => |s| {
@@ -2647,6 +2663,7 @@ pub const TypeResolver = struct {
                         };
                         const ty = try self.resolveType(ir.get(param, .type));
                         if (try self.misplacedAt(ir.get(param, .type), ty, .signature)) return self.ctx.types.invalid_id;
+                        try self.readBoxParam(ir.get(param, .type), ty);
                         return ty;
                     },
                     // Self, `?@`, `!@`, or `<@`: `?Self`, `!Self`, or `Self`.

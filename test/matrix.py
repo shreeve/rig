@@ -130,6 +130,12 @@ def rd(ty):
     return ty if ty.startswith("?") else f"?{ty}"
 
 
+def par(ty):
+    """The read view a parameter takes of a type: a box's is its value's,
+    as a `?T` takes a `^T` too and a parameter `?^T` is rejected."""
+    return rd(ty[1:]) if ty.startswith("^") else rd(ty)
+
+
 def fal(ty):
     """The fallible result of a type: a read view takes parentheses first."""
     return f"({ty})!" if ty.startswith("?") else f"{ty}!"
@@ -850,8 +856,8 @@ def step_program(oname, hname, shape, then):
     out = ["use std.text\n" if oname == "text" else "", "error E\n  bad\n",
            f"obj H\n  r: {v}\n\n  fun get(?@) -> {v}\n    @r\n",
            f"sub grow(v: !{o['ty']})\n  for {'i' if 'i' in o['grow'] else '_'} in 0..100\n    {o['grow']}\n",
-           f"fun mk(v: {rd(o['ty'])}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
-           f"fun mkf(v: {rd(o['ty'])}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
+           f"fun mk(v: {par(o['ty'])}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
+           f"fun mkf(v: {par(o['ty'])}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
     step = "k += " + o["read"].replace("X", h["x"])
     grow = "grow(!v)" if then == "grow" else "k += 1"
     loop = [l.replace("C", "mk(?v, n) as h").replace("J", "mk(?v, n) as h and n >= 0")
@@ -1591,14 +1597,14 @@ PAYLOAD_TYPES = {
     "shared": dict(ty="*N", mk="*N(v: 7)", mk2="*N(v: 70)", show="print(v.v)", out="7"),
 }
 # How the match reaches the enum: a `?E` parameter matched bare or lent
-# again, a `?^E` parameter, a field of a `?H` parameter, or, in a
+# again, or given a box, a field of a `?H` parameter, or, in a
 # generic function, a `?G[T]` parameter, the view a call returns of one,
 # a lend of that view, a branching value, or a field of a view a call
 # returns. `main` makes `e` from `mk()` and passes `?e`.
 PAYLOAD_SUBJECTS = {
     "param": dict(param="e: ?E", subj="e"),
     "lend": dict(param="e: ?E", subj="?e"),
-    "box": dict(param="e: ?^E", subj="e", make="e = ^E.a(r: mk())"),
+    "box": dict(param="e: ?E", subj="e", make="e = ^E.a(r: mk())"),
     "field": dict(param="e: ?H", subj="e.e", make="e = H(e: E.a(r: mk()))"),
     "generic": dict(param="e: ?G[T]", subj="e", make="e: G[TY] = .a(r: mk())", generic=True),
     "generic_call": dict(param="e: ?G[T]", subj="getg(e)", make="e: G[TY] = .a(r: mk())", generic=True),
@@ -1638,19 +1644,19 @@ def payload_program(tname, sname, ename):
            "obj GH[T]\n  e: G[T]\n", "fun getg[T](e: ?G[T]) -> ?G[T] from e\n  e\n",
            "fun getgh[T](h: ?GH[T]) -> ?GH[T] from h\n  h\n", "fun yes() -> Bool\n  true\n",
            f"fun mk() -> {ty}\n  {t['mk']}\n", f"fun mk2() -> {ty}\n  {t['mk2']}\n",
-           f"fun ok(v: {rd(ty)}) -> Bool\n  true\n",
+           f"fun ok(v: {par(ty)}) -> Bool\n  true\n",
            "fun clobber(n: Int) -> Int\n  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n"
            "  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n  a[1] + b[2]\n"]
     show = [t["show"]]
     if x.get("whole"):
         # A view of the whole value is shown through its payload.
         show = ["match v", "  .a(p) => show(?p)", "  .b(p) => show(?p)"]
-        out.append(f"sub show(v: {rd(ty)})\n  {t['show']}\n")
+        out.append(f"sub show(v: {par(ty)})\n  {t['show']}\n")
     main = [s.get("make", "e = E.a(r: mk())").replace("TY", ty)]
     if "arm" in x:
         if s.get("generic"):
             return None, None
-        out.append(f"sub see(v: {rd(ty)})\n  print(clobber(1000))\n  {t['show']}\n")
+        out.append(f"sub see(v: {par(ty)})\n  print(clobber(1000))\n  {t['show']}\n")
         out.append(f"sub seee(v: ?E)\n  match v\n    .a(p) => see(?p)\n    .b(p) => see(?p)\n")
         out.append(f"sub inner({s['param']})\n  match {s['subj']}\n" + indent(x["arm"], 4) + "\n")
         main.append("inner(?e)")
@@ -1670,7 +1676,7 @@ def payload_program(tname, sname, ename):
         main.append("v = inner(?e)")
     else:
         body = ["saved = k", f"match {s['subj']}"] + ["  " + a for a in arms] + ["saved"]
-        out.append(f"fun {fun}({s['param']}, k: {rd(res)}) -> {rd(res)}\n" + indent(body, 2) + "\n")
+        out.append(f"fun {fun}({s['param']}, k: {par(res)}) -> {par(res)}\n" + indent(body, 2) + "\n")
         whole_k = f"k: G[{ty}] = .b(r: mk2())" if s.get("generic") else "k = E.b(r: mk2())"
         main += [whole_k if x.get("whole") else "k = mk2()", "v = inner(?e, ?k)"]
     main.append("print(clobber(1000))")
@@ -3244,7 +3250,7 @@ def program(tname, fname, cname):
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
     if fallible:
         out.append(f"fun fail(c: Bool) -> {fal(ty)}\n  return E.bad if c\n  mk(7)\n")
-    out.append(f"fun look(x: {rd(ty)}) -> Int\n  1\n")
+    out.append(f"fun look(x: {par(ty)}) -> Int\n  1\n")
     if fname in VIEW_FORMS and ("decl" in ctx or "tail" in ctx):
         return None
     if "decl" in ctx:
@@ -3311,7 +3317,7 @@ def program(tname, fname, cname):
     called = set(re.findall(r"\b(\w+)\(", "\n".join(body)))
     for name, text in RESULT_FUNS.items():
         if name in called:
-            out.append(text.format(t=ty, r=rd(ty)))
+            out.append(text.format(t=ty, r=par(ty)))
     out.append(f"fun run(c: Bool, o: {opt(ty)}) -> {ret_ty}\n{indent(body, 2)}\n")
     out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
