@@ -293,8 +293,10 @@ alone on its line, and a name everywhere else. The grammar takes it as
 a statement, `(rarely)`; the Parser wrapper keeps the one that starts
 the body of a function, a branch of `if` or `match`, a `catch` handler,
 or a loop (`placeRarely`) and rejects any other (`strayRarely`). Every
-pass reads it as `pass`, and emit writes it `rig.cold();`, an inline
-function whose body is `@branchHint(.cold)`: Zig takes the hint only as
+pass reads it as `pass`. Emit writes the one that starts a function's
+body (`rig.funRarely`) `rig.cold();`, an inline function whose body is
+`@branchHint(.cold)`, and any other `rig.unlikely();`, whose body is
+`@branchHint(.unlikely)`: Zig takes a hint only as
 the first statement of a branch or a function, and through an inline
 call it lands in the branch the call is in wherever the call stands, so
 a capture or a loop's bookkeeping written before the block's statements

@@ -4119,11 +4119,18 @@ pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeO
     return items[b[0]..b[1]];
 }
 
-/// `rarely`, the first line of a block: Zig's cold hint for the branch
-/// or function the block is. Inline, so the hint lands where it is
-/// called, as the hint written first in that branch would.
+/// `rarely`, the first line of a function's body: Zig's cold hint, so
+/// the function is laid out away from its callers' code. Inline, so the
+/// hint lands where it is called, as the hint written first would.
 pub inline fn cold() void {
     @branchHint(.cold);
+}
+
+/// `rarely`, the first line of a branch, a `catch` handler, or a loop's
+/// body: Zig's unlikely hint, so the code around it is laid out for the
+/// path that skips it, which stays near. Inline, as `cold` is.
+pub inline fn unlikely() void {
+    @branchHint(.unlikely);
 }
 
 /// The end of a slice `s[lo..=hi]`: one past `hi`. A bound no index
