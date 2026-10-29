@@ -36,6 +36,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Table fault-ahead (2026-10-28) | built into the runtime, it cut Trig's faults 65% but its cycles only 0.4%: populating a page saves only its trap, about 850 of 5,000-5,600 kernel cycles, and the frontier check stopped `push` from inlining; the kernel gap to tsrs is page size, 53,600 pages of 4 KiB against 63 of 2 MiB; archived for huge pages | [perf-stage/fault-ahead/](2026-10/perf-stage/fault-ahead/README.md) |
 | Which checks cost Trig's time (2026-10-28) | the 6-8% that every check costs Trig is diffuse: each kind and each group costs in proportion to the instructions and code it removes, and they add up; no hot sites; builds that change no check read up to 1.3% either way (the layout lottery); List index tests 4.6-6.3% of the instructions, of them the checker's id accessors 1.6-2.2% and the AST's record reads 1.1-2.3%, together 2.3% and 3.6% faster with PGO, both Trig-side moves onto `Table`/`Slot`; Zig's overflow tests 1.9-2.3%; Zig's tests in the runtime's own Zig 1.3-1.7%, the one group a Rig change alone could take | [perf-stage/check-bisect.md](2026-10/perf-stage/check-bisect.md) |
 | The runtime's proven checks (2026-10-28) | fourteen blocks in runtime.zig, table.zig, and alloc.zig leave out, in an optimized build, the Zig checks the runtime's own invariants prove (debug builds keep them and assert the invariant): Trig 1.66% and 1.35% fewer instructions (PGO 1.71% and 1.07%), as many as all of the runtime's Zig checks; 0.8% and 1.4% faster plain, 1.2% and 0.5% with PGO; over the instruction bar, under the time bar; most of the share is the checks' cost in their callers, not their own compare and branch | [perf-stage/runtime-unchecked.md](2026-10/perf-stage/runtime-unchecked.md) |
+| Huge pages when memory is fragmented (2026-10-28) | with no free 2 MiB block left, every `MADV_HUGEPAGE` fault compacts (`defrag=madvise`): Trig PGO on ts-pattern 34-41% slower than with no huge pages (kernel cycles 0.25G to 2G), zod3 up to 78%; the Tables' advice (#754) stalls most, the segments' (#740) too, the large blocks' not measurably; quiet, huge pages are 5.3% (ts-pattern) and 4.8% (zod3) faster. A check of free 2 MiB blocks in `/proc/buddyinfo` with 128 to spare kept the quiet gain and never stalled; `MADV_COLLAPSE` and a `defrag` test do not; recommended: gate all three, close #760 | [perf-stage/thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md) |
 | Profile-guided optimization (2026-10-25) | LLVM PGO through Zig's bitcode and `zig cc`, trained away from the project timed: Trig 10% faster with 14% fewer instructions on ts-pattern and zod3, 5-9% faster than BOLT alone, BOLT on top adding nothing; built as `rig build --release --pgo`, with a freestanding profile writer the runtime calls in `--pgo` packages only | [perf-stage/pgo.md](2026-10/perf-stage/pgo.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
@@ -255,6 +256,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [w.c](2026-10/perf-stage/bounds-enum-data/w.c)
 - [loop-hoist.md](2026-10/perf-stage/loop-hoist.md): Table reads in loops, and what a yield check costs (2026-10-26)
 - [memory-traffic.md](2026-10/perf-stage/memory-traffic.md): Where Trig's memory traffic comes from, against tsrs, and what Rig can remove (2026-10-28)
+- [thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md): Huge pages when memory is fragmented, which users stall, and a gate on free 2 MiB blocks (2026-10-28)
 
 ### 2026-10/perf-stage/loop-hoist-data/
 
@@ -286,6 +288,28 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [xtime-raw.tsv](2026-10/perf-stage/memory-traffic-data/xtime-raw.tsv)
 - [xtime.sh](2026-10/perf-stage/memory-traffic-data/xtime.sh)
 - `out/`: the summaries each script wrote; `tsrs/`: tsrs's mimalloc statistics and memory split
+
+### 2026-10/perf-stage/thp-fragmented-data/
+
+- [build.sh](2026-10/perf-stage/thp-fragmented-data/build.sh)
+- [c-no-segment-huge.patch](2026-10/perf-stage/thp-fragmented-data/c-no-segment-huge.patch)
+- [cmds.sh](2026-10/perf-stage/thp-fragmented-data/cmds.sh)
+- [collapse.c](2026-10/perf-stage/thp-fragmented-data/collapse.c)
+- [d-no-huge.patch](2026-10/perf-stage/thp-fragmented-data/d-no-huge.patch)
+- [e-buddy-gate.patch](2026-10/perf-stage/thp-fragmented-data/e-buddy-gate.patch)
+- [e2-buddy-gate-128.patch](2026-10/perf-stage/thp-fragmented-data/e2-buddy-gate-128.patch)
+- [frag.c](2026-10/perf-stage/thp-fragmented-data/frag.c)
+- [micro.sh](2026-10/perf-stage/thp-fragmented-data/micro.sh)
+- [micro.txt](2026-10/perf-stage/thp-fragmented-data/micro.txt)
+- [quietrun.sh](2026-10/perf-stage/thp-fragmented-data/quietrun.sh)
+- [summ.py](2026-10/perf-stage/thp-fragmented-data/summ.py)
+- [summary.txt](2026-10/perf-stage/thp-fragmented-data/summary.txt)
+- [time.sh](2026-10/perf-stage/thp-fragmented-data/time.sh)
+- [times-e2.txt](2026-10/perf-stage/thp-fragmented-data/times-e2.txt)
+- [times-quiet.txt](2026-10/perf-stage/thp-fragmented-data/times-quiet.txt)
+- [times-r10.txt](2026-10/perf-stage/thp-fragmented-data/times-r10.txt)
+- [times-r20.txt](2026-10/perf-stage/thp-fragmented-data/times-r20.txt)
+- [unfrag.c](2026-10/perf-stage/thp-fragmented-data/unfrag.c)
 
 ### 2026-10/perf-stage/list-grow-data/
 

@@ -1,0 +1,17 @@
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 063dad438..6edbf1e36 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -439,9 +439,9 @@ fn mapPages(size: usize) ?usize {
+ /// where it is set to do so for a range that asks (`madvise` mode). A
+ /// system that cannot leaves them as they are.
+ fn adviseHuge(p: usize, len: usize) void {
+-    if (builtin.os.tag != .linux) return;
+-    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+-    std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
++    // Experiment (thp-fragmented): no huge pages anywhere.
++    _ = p;
++    _ = len;
+ }
+ 
+ /// `size` more bytes of large blocks handed out. The settled peak is
