@@ -1373,6 +1373,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   2.9 to 4.6% at four, with 22 to 36% fewer dTLB misses and its
   instructions unchanged; its peak memory is 0.1 to 0.7% higher on
   ts-pattern and 1.5 to 2.0% on zod3. Other systems are unchanged.
+- **Release runtime:** on Linux, a reserved Table past its first 2 MiB,
+  a heap's new segment, and a new large block of 16 MiB or more ask for
+  transparent huge pages only while `/proc/buddyinfo` shows more than
+  128 free blocks of 2 MiB or more. Under the default `defrag` setting,
+  a fault in a range that asked compacts memory when no free 2 MiB
+  block is left: on pup with its memory fragmented, Trig ran 34 to 41%
+  slower than with no huge pages, the Tables' requests the most and the
+  segments' as surely. With the test, Trig on pup is 4.6% faster than
+  with no huge pages on ts-pattern (main 5.4%) and 3.0% on zod3 (main
+  4.0%) when memory is free, and within 0.4% of no huge pages when it
+  is fragmented, where main is 54 to 57% slower. Other systems are
+  unchanged.
 - **Release allocator:** a heap keeps freed large blocks within its
   settled peak, the most it has had handed out just after a free, and
   16 MiB, where the peak was the most handed out at any moment. That
