@@ -143,6 +143,12 @@ fn Ordered(comptime K: type, comptime V: type) type {
         len: u32 = 0,
         /// Entries not gone; `len - live` are gone.
         live: u32 = 0,
+        /// At 16 bytes into the table, and so into a Map, which starts
+        /// with it: in a Map 16-aligned, as a List's or the stack's are,
+        /// no group of the small tags straddles two cache lines. At 24, a
+        /// group did, wherever the Map sat 16 bytes into a line
+        /// (bench/hash's churn16 3-5% slower on pup).
+        u: Held = .{ .small = @splat(0) },
         cap: u32 = 0,
         /// The hash's shift right that leaves its group, 64 less the log
         /// of the index's groups; 0 in a small table, which has no index.
@@ -152,7 +158,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
         far: bool = false,
         /// Whether an indexed table has made its gone bits.
         has_gone: bool = false,
-        u: Held = .{ .small = @splat(0) },
         /// Under `RIG_MAP_TRACE`, how many times the index was built
         /// anew (`traceRebuilds`); nothing otherwise.
         trace_rebuilds: if (rt.map_trace) u32 else void = if (rt.map_trace) 0 else {},
