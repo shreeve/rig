@@ -318,9 +318,10 @@ protocol's `layout-build.sh`, `layout-time.sh`,
 
 ## Gates
 
-At c79299b07: Rig's full suite (10,792 cases) green on the Mac, the
-oracle quiet (proofs green at e680b48fb, before the take's rare paths
-went out of line); bench/hash's guard within 2% (text-miss 1.5% more
-instructions); Trig's light gate GREEN (49 s, built by
-`zig build` from the commit on pup, as `tools/pup-rig` builds, since
-another session held `rig-next`); loco's light gate GREEN.
+At b4739d0a6, on the per-row bench (#763): Rig's full suite green on the
+Mac, the oracle quiet (cli.std_http's descriptor check failed once
+under load and passes alone), proofs green (5,271); bench/hash's guard
+within 2% (text-miss 1.6% more instructions, int-churn 3.4% fewer);
+Trig's light gate GREEN (37 s, built from the commit on pup with `zig
+build`, as `tools/pup-rig` builds, since another session held
+`rig-next`); loco's light gate GREEN.
