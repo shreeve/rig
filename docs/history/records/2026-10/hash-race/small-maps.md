@@ -247,7 +247,8 @@ Mac runs and four pup runs (`bench-hash-mac-rows*.txt`,
 `bench-hash-pup-rows*.txt`): no row is slower in two runs. Four rows
 were flagged once each and not again (Mac big100000 hit 5%; pup
 int100000 remove 4%, big1000000 remove 4%); int100000 remove's median
-sits 1-4% over main's in all four pup runs. Faster: the Mac's
+sat 1-4% over main's in all four pup runs, until the reset went inline
+again (below). Faster: the Mac's
 int4000000, rnd24 and rnd4000000 removes and int `ensure` hits (4-6%);
 pup's str16 remove (4%).
 
@@ -272,7 +273,7 @@ Four layout changes came out of the rows:
   registers it needed for its hash constants, which it built again each
   step: the Mac's int edit_put-hit 3-5% slower. Gone bits, maximum load
   and group count come first.
-- **An indexed table's reset out of line** (below).
+- **The reset inline again** (below).
 
 ### The remove loop
 
@@ -284,20 +285,31 @@ and pointer from the stack each step, and built a constant again each
 step: 4 more instructions a take. The cause was `reset`, run when a take
 empties the table, inlined into the loop: its memset and its gone-bit
 sizing took the registers. Out of line (`emptied`, for an indexed table;
-a small table's needs only its length cleared, inline), the removes are
-level with main's or faster. Taking the cut-off of the last entries out
-of line as well, as tried, put a call in the loop that cost the small
-tables' takes their vector constant (rnd16 and big16 removes 6%
-slower); it stays inline. Main's own loop does not gain from the
-change. Two field orders were tried and dropped: the small tags first
+a small table's needs only its length cleared, inline), the removes
+were level with main's or faster in the old bench. Taking the cut-off
+of the last entries out of line as well, as tried, put a call in the
+loop that cost the small tables' takes their vector constant (rnd16 and
+big16 removes 6% slower); it stays inline.
+
+Under the per-row bench the call is what cost: pup's int100000 remove,
+whose 100,000 entries are indexed, sat 1-4% over main in every run. In
+its row function the take inlines the indexed path, and the call to
+`emptied` beside it made LLVM keep the row's state on the stack: 71
+stack accesses in `int_remove_maps` on pup against main's 44. The Map
+and its index sit where they did (the Map 16-aligned, the index's
+counts and pointers at 16-40 bytes into it), and the cut-off is inline
+on both arms; only the reset moved. With the reset inline again, as on
+main, the function has 42, and int100000 remove is level (0.999, 0.987
+on pup; 0.999, 0.995 on the Mac). Under the layout protocol, two pup
+runs flag no row, and four Mac runs flag none twice (churn16 3% once,
+rnd24 hit 4% once; `bench-hash-*-reset*.txt`; the first two Mac runs'
+tables were not kept). Two field orders were tried and dropped: the small tags first
 in the table and the table first in the Map (so a Map's address finds
 the tags) fixed rnd16 on the Mac but made pup's string removes 20-60%
 slower.
 
 ### What is still slower
 
-- **pup, int100000 remove:** flagged once in four runs, its median 1-4%
-  over main's in each; not flagged twice.
 - **rnd3000000 iterate (42% on the Mac before the per-row bench).** Not
   the table. Taken into a program of `random(3000000)` alone, or in its
   own function, the branch is level (0.20-0.22 ns against 0.22). In the
@@ -329,7 +341,8 @@ design's (`trig-pup-one-block.txt`, `trig-pup-take-inline.txt`,
 `bench-hash-pup-rerun.txt`, `bench-hash-mac-placebo.txt`, the layout
 protocol's `layout-build.sh`, `layout-time.sh`,
 `bench-hash-*-layouts.txt` (the old bench, `tooMany` layouts) and
-`bench-hash-*-rows*.txt` (the per-row bench), `map-address.sh`,
+`bench-hash-*-rows*.txt` (the per-row bench, at 8eab1c8c7),
+`bench-hash-*-reset*.txt` (the reset inline), `map-address.sh`,
 `miss-alone.rig`,
 `iterate-passes.rig`, and the first design's
 `bench-hash-*-one-block.txt`).

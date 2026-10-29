@@ -749,15 +749,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// The last entry written, `j`, cut off, with the gone entries
         /// before it; out of line, as a take of the last entry is rare
         /// beside the others.
-        /// `reset`, out of line: a take that empties the table is rare
-        /// beside the others, and inlined into a program's loop of takes
-        /// its memset and gone-bit sizing took registers the loop kept its
-        /// own values in (bench/hash's rnd24 removes 15% slower on the
-        /// Mac; record small-maps.md).
-        noinline fn emptied(self: *Self) void {
-            self.reset();
-        }
-
         /// Entry `j`, whose lane is freed and whose key and value are
         /// handed on or dropped, leaves the live entries: marked gone; or
         /// cut off, with the gone entries before it, when it is the last
@@ -765,9 +756,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         inline fn dropEntry(self: *Self, j: usize) void {
             self.live -= 1;
             if (self.live == 0) {
-                // A small table's tags are 0 already: it needs only its
-                // length cleared, inline.
-                if (self.isSmall()) self.len = 0 else self.emptied();
+                self.reset();
             } else if (j + 1 == self.len) {
                 var n = j;
                 while (self.isGone(n - 1)) {
