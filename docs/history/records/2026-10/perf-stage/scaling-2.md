@@ -357,6 +357,10 @@ The fixes, corrected, by milliseconds at four checkers:
 | Index the sparse Table densely | Trig | most of #754's 10 MB a checker | no |
 | Grow large blocks without `mremap` | Rig | about 0.4 ms: not worth it | |
 
+The release-build exit was measured before ([fast-exit/](../fast-exit/), #680): as noise on Trig,
+whose stores drop inside its own functions, not at `main`'s end. It pays only once Trig keeps the
+program and checkers owned by `main`, so Trig moves first and Rig's part is measured again then.
+
 Debug aids for Trig to port now: dump each file's checker, read an
 assignment from a file, per-file check time. A fairer comparison adds a
 column of tsrs run on Trig's partition (`--checkerAssignment file:`).
