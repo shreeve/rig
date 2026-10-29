@@ -1,0 +1,17 @@
+20:37:59 main -Osafe exit=0 in 850 s
+20:52:58 noyield -Osafe exit=0 in 896 s
+21:04:48 unchecked0 -Ofast exit=0 in 710 s
+21:22:54 safe -Osafe exit=0 in 1079 s
+22:37:30 unchecked -Ofast exit=0 in 670 s
+22:49:28 uidx -Osafe exit=0 in 718 s
+23:01:28 se6only -Osafe exit=0 in 720 s
+# 23:05:35 start: sh mkpgo.sh main - --release
+00:20:14 pgo main --release exit=0 patched=no in 4479 s
+# 01:46:30 start: sh mkpgo.sh safe /zfs/worktrees/rig/trig-zig-ceiling/safe.patch --release
+02:27:50 pgo safe --release exit=0 patched=yes in 2480 s
+# 02:28:25 start: sh mkpgo.sh unchecked /zfs/worktrees/rig/trig-zig-ceiling/unchecked.patch --release=fast
+03:13:44 pgo unchecked --release=fast exit=0 patched=yes in 2719 s
+# 03:15:45 start: sh queue.sh se1only
+03:28:08 se1only -Osafe exit=0 in 743 s
+# 03:30:08 start: sh queue.sh se3only
+04:32:28 se3only -Osafe exit=0 in 3740 s

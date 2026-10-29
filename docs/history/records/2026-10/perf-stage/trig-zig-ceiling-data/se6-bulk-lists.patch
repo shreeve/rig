@@ -1,0 +1,271 @@
+From 4c957fe34d5eb5503584f81b1987f454034a7507 Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Tue, 27 Oct 2026 20:53:42 -0600
+Subject: [PATCH] se6_bulk
+
+---
+ checker.zig     | 104 ++++++++++++++++++++++--------------------------
+ rig/runtime.zig |   4 ++
+ rig/table.zig   |  22 ++++++++++
+ 3 files changed, 74 insertions(+), 56 deletions(-)
+
+diff --git a/checker.zig b/checker.zig
+index 11df922..f3be139 100644
+--- a/checker.zig
++++ b/checker.zig
+@@ -75609,19 +75609,18 @@ pub const Checker = struct {
+             return TypeList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.type_lists))))));
+-        {
+-            var __rig_turns_11633: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11633);
+-                _ = self.store.type_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.type_lists.appendSlice(items);
+         return TypeList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn type_list_items(__rig_in_self: *const Checker, __rig_in_list: TypeList) rig.List(rig.SlotOf(134217728)) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(rig.SlotOf(134217728)).empty;
++        if (self.store.type_lists.constRange(list.start, list.count)) |xs| return rig.List(rig.SlotOf(134217728)).fromSlice(xs);
+         var out: rig.List(rig.SlotOf(134217728)) = rig.List(rig.SlotOf(134217728)).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+@@ -75659,19 +75658,18 @@ pub const Checker = struct {
+             return SymList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.sym_lists))))));
+-        {
+-            var __rig_turns_11644: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11644);
+-                _ = self.store.sym_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.sym_lists.appendSlice(items);
+         return SymList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn sym_list_items(__rig_in_self: *const Checker, __rig_in_list: SymList) rig.List(u32) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(u32).empty;
++        if (self.store.sym_lists.constRange(list.start, list.count)) |xs| return rig.List(u32).fromSlice(xs);
+         var out: rig.List(u32) = rig.List(u32).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+@@ -75709,19 +75707,18 @@ pub const Checker = struct {
+             return SigList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.sig_lists))))));
+-        {
+-            var __rig_turns_11655: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11655);
+-                _ = self.store.sig_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.sig_lists.appendSlice(items);
+         return SigList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn sig_list_items(__rig_in_self: *const Checker, __rig_in_list: SigList) rig.List(rig.SlotOf(33554432)) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(rig.SlotOf(33554432)).empty;
++        if (self.store.sig_lists.constRange(list.start, list.count)) |xs| return rig.List(rig.SlotOf(33554432)).fromSlice(xs);
+         var out: rig.List(rig.SlotOf(33554432)) = rig.List(rig.SlotOf(33554432)).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+@@ -75759,19 +75756,18 @@ pub const Checker = struct {
+             return InfoList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.info_lists))))));
+-        {
+-            var __rig_turns_11666: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11666);
+-                _ = self.store.info_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.info_lists.appendSlice(items);
+         return InfoList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn info_list_items(__rig_in_self: *const Checker, __rig_in_list: InfoList) rig.List(rig.SlotOf(8388608)) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(rig.SlotOf(8388608)).empty;
++        if (self.store.info_lists.constRange(list.start, list.count)) |xs| return rig.List(rig.SlotOf(8388608)).fromSlice(xs);
+         var out: rig.List(rig.SlotOf(8388608)) = rig.List(rig.SlotOf(8388608)).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+@@ -75809,19 +75805,18 @@ pub const Checker = struct {
+             return NodeList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.node_lists))))));
+-        {
+-            var __rig_turns_11677: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11677);
+-                _ = self.store.node_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.node_lists.appendSlice(items);
+         return NodeList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn node_list_items(__rig_in_self: *const Checker, __rig_in_list: NodeList) rig.List(NodeRef) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(NodeRef).empty;
++        if (self.store.node_lists.constRange(list.start, list.count)) |xs| return rig.List(NodeRef).fromSlice(xs);
+         var out: rig.List(NodeRef) = rig.List(NodeRef).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+@@ -75859,19 +75854,18 @@ pub const Checker = struct {
+             return AtomList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.atom_lists))))));
+-        {
+-            var __rig_turns_11688: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11688);
+-                _ = self.store.atom_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.atom_lists.appendSlice(items);
+         return AtomList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn atom_list_items(__rig_in_self: *const Checker, __rig_in_list: AtomList) rig.List(u32) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(u32).empty;
++        if (self.store.atom_lists.constRange(list.start, list.count)) |xs| return rig.List(u32).fromSlice(xs);
+         var out: rig.List(u32) = rig.List(u32).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+@@ -75909,19 +75903,18 @@ pub const Checker = struct {
+             return ElementInfoList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.element_info_lists))))));
+-        {
+-            var __rig_turns_11699: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11699);
+-                _ = self.store.element_info_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.element_info_lists.appendSlice(items);
+         return ElementInfoList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn element_info_list_items(__rig_in_self: *const Checker, __rig_in_list: ElementInfoList) rig.List(ElementInfo) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(ElementInfo).empty;
++        if (self.store.element_info_lists.constRange(list.start, list.count)) |xs| return rig.List(ElementInfo).fromSlice(xs);
+         var out: rig.List(ElementInfo) = rig.List(ElementInfo).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+@@ -75959,19 +75952,18 @@ pub const Checker = struct {
+             return VarianceList{ .start = LIST_EMPTY, .count = 0 };
+         }
+         const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.variance_lists))))));
+-        {
+-            var __rig_turns_11710: u32 = rig.tick_turns;
+-            for (items) |x| {
+-                rig.turn(&__rig_turns_11710);
+-                _ = self.store.variance_lists.push(x);
+-            }
+-        }
++        // CEILING se6: one test and one copy for the items.
++        self.store.variance_lists.appendSlice(items);
+         return VarianceList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+     }
+ 
+     pub inline fn variance_list_items(__rig_in_self: *const Checker, __rig_in_list: VarianceList) rig.List(u32) {
+         const self = rig.rt(__rig_in_self);
+         const list = rig.rt(__rig_in_list);
++        // CEILING se6: the range tested once, copied into a List of
++        // exactly its length (one allocation, one copy).
++        if (list.count == 0) return rig.List(u32).empty;
++        if (self.store.variance_lists.constRange(list.start, list.count)) |xs| return rig.List(u32).fromSlice(xs);
+         var out: rig.List(u32) = rig.List(u32).empty;
+         var __rig_alive_out = true;
+         defer if (__rig_alive_out) { __rig_alive_out = false; rig.drop(&out); };
+diff --git a/rig/runtime.zig b/rig/runtime.zig
+index ab4a02d..f4172ca 100644
+--- a/rig/runtime.zig
++++ b/rig/runtime.zig
+@@ -5151,6 +5151,10 @@ noinline fn lenPanic() noreturn {
+     @panic("length out of range");
+ }
+ 
++pub fn indexPanicPub() noreturn {
++    indexPanic();
++}
++
+ fn indexPanic() noreturn {
+     @branchHint(.cold);
+     @panic("index out of bounds");
+diff --git a/rig/table.zig b/rig/table.zig
+index 8d0f9e3..4d1e8da 100644
+--- a/rig/table.zig
++++ b/rig/table.zig
+@@ -169,6 +169,28 @@ pub fn Table(comptime T: type, comptime n: u64) type {
+             return s;
+         }
+ 
++        /// CEILING se6: `xs` pushed in order, with one test that they fit
++        /// and one copy; a table whose slots drop, or that commits as it is
++        /// written, pushes each.
++        pub fn appendSlice(self: *Self, xs: []const T) void {
++            if (comptime rt.needsDrop(T) or how == .committed) {
++                for (xs) |x| _ = self.push(x);
++                return;
++            }
++            if (xs.len > n - self.len) fullPanic(n);
++            @memcpy(self.slots[@intCast(self.len)..][0..xs.len], xs);
++            self.len += xs.len;
++        }
++
++        /// CEILING se6: slots `lo..lo + count`, read in place, with one
++        /// test that the last is below `n`; null for a committed table,
++        /// whose caller reads each.
++        pub inline fn constRange(self: *const Self, lo: u64, count: u64) ?[]const T {
++            if (comptime how == .committed) return null;
++            if (lo + count > n) rt.indexPanicPub();
++            return self.slots[@intCast(lo)..][0..@intCast(count)];
++        }
++
+         /// A slot's offset: below `n` by its type, which a debug build
+         /// asserts, as a proven test is (`verify_proofs`).
+         inline fn offset(s: Index) usize {

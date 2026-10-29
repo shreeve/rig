@@ -1,0 +1,24 @@
+diff --git a/rig/runtime.zig b/rig/runtime.zig
+index b8f4898..c90fbdc 100644
+--- a/rig/runtime.zig
++++ b/rig/runtime.zig
+@@ -5062,6 +5062,9 @@ fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
+ 
+ fn slicePanic() noreturn {
+     @branchHint(.cold);
++    // CEILING (index tests only): a failed index test is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     @panic("slice bounds out of range");
+ }
+ 
+@@ -5144,6 +5147,9 @@ noinline fn lenPanic() noreturn {
+ 
+ fn indexPanic() noreturn {
+     @branchHint(.cold);
++    // CEILING (index tests only): a failed index test is unreachable.
++    @setRuntimeSafety(false);
++    if (true) unreachable;
+     @panic("index out of bounds");
+ }
+ 

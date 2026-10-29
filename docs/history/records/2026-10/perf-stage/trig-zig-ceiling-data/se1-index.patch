@@ -1,0 +1,29 @@
+From 8ee4b8af033f51c2e13c0e00a5e94717c037f26c Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Tue, 27 Oct 2026 20:28:17 -0600
+Subject: [PATCH] se1_index
+
+---
+ rig/runtime.zig | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/rig/runtime.zig b/rig/runtime.zig
+index b8f4898..ab4a02d 100644
+--- a/rig/runtime.zig
++++ b/rig/runtime.zig
+@@ -3641,6 +3641,15 @@ fn moduleOf(comptime name: []const u8) []const u8 {
+ /// Convert a Rig index of any integer type to `usize`, panicking unless
+ /// `0 <= i < count`.
+ pub fn index(i: anytype, count: usize) usize {
++    // CEILING se1: a signed index is one unsigned compare. Every count
++    // here is a length (a List's at most `max_len`, a slice's below 2^63),
++    // so a negative `i`, read as at least 2^63, fails it too.
++    const info = @typeInfo(@TypeOf(i));
++    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64) {
++        const u: u64 = @bitCast(@as(i64, i));
++        if (u >= count) indexPanic();
++        return @truncate(u);
++    }
+     const idx = std.math.cast(usize, i) orelse indexPanic();
+     if (idx >= count) indexPanic();
+     return idx;

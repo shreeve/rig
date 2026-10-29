@@ -1,0 +1,8 @@
+#!/bin/sh
+# zig, with the ceiling patch $CEIL_PATCH applied once to the package rig
+# wrote in $RIG_OUT_DIR, before the first build-exe compiles it.
+if [ "${1:-}" = build-exe ] && [ -n "${CEIL_PATCH:-}" ] && [ ! -e "$RIG_OUT_DIR/.ceil-patched" ]; then
+  (cd "$RIG_OUT_DIR" && git apply "$CEIL_PATCH") || { echo "zigw: $CEIL_PATCH does not apply" >&2; exit 97; }
+  touch "$RIG_OUT_DIR/.ceil-patched"
+fi
+exec /home/shreeve/.local/bin/zig "$@"

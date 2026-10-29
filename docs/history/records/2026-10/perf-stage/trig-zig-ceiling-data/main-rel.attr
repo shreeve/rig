@@ -1,0 +1,222 @@
+
+## innermost file (of 18061 samples)
+ 43.48%  checker.zig
+ 18.87%  ordered.zig
+ 15.14%  runtime.zig
+ 11.02%  table.zig
+  2.57%  ast.zig
+  2.32%  alloc.zig
+  1.25%  mem.zig
+  0.69%  ??
+  0.66%  memcpy.zig
+  0.52%  __rig_std_text.zig
+  0.48%  __rig_std_sort.zig
+  0.42%  parser.zig
+  0.40%  atomic.zig
+  0.39%  Allocator.zig
+  0.37%  math.zig
+  0.31%  lexer.zig
+  0.23%  binder.zig
+  0.21%  __rig_std_prelude.zig
+  0.13%  compiler_rt.zig
+  0.11%  enums.zig
+  0.10%  wyhash.zig
+  0.09%  jsnum.zig
+  0.07%  Writer.zig
+  0.03%  compiler.zig
+  0.03%  printer.zig
+  0.03%  __rig_std_utf8.zig
+  0.02%  stringutil.zig
+  0.01%  core.zig
+  0.01%  __rig_std_slices.zig
+  0.01%  stack_probe.zig
+  0.01%  simd.zig
+  0.01%  module.zig
+  0.01%  diagnostics.zig
+  0.01%  sched.zig
+
+## innermost function (of 18061 samples)
+  2.55%  checker.zig  checker.Checker.mapper_map
+  2.00%  table.zig  rig.table.Table(checker.Type,134217728).constSlot
+  1.94%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findIndexed
+  1.87%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll
+  1.76%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).matchAll
+  1.52%  checker.zig  checker.Checker.instantiate_type_with_alias
+  1.42%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findIndexed
+  1.21%  table.zig  rig.table.Table(checker.Type,134217728).at
+  1.20%  table.zig  rig.table.Table(checker.TypeMapper,16777216).at
+  1.14%  runtime.zig  rig.runtime.index__func_1313
+  1.11%  checker.zig  checker.Checker.could_contain_type_variables
+  1.08%  alloc.zig  rig.alloc.alloc
+  1.04%  runtime.zig  rig.runtime.ListOf(u32,0).push
+  1.01%  runtime.zig  rig.runtime.ListOf(ast.NodeRec,0).at__func_1192
+  0.97%  runtime.zig  rig.runtime.turn
+  0.87%  checker.zig  checker.Checker.instantiate_type_worker
+  0.82%  checker.zig  checker.Checker.get_non_distributed_type_parameter
+  0.73%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).matchAll
+  0.71%  checker.zig  checker.Checker.get_apparent_type
+  0.69%  ??  ??
+  0.65%  alloc.zig  rig.alloc.free
+  0.60%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).entryOf
+  0.59%  checker.zig  checker.Ids.sym_file_of
+  0.56%  runtime.zig  rig.runtime.index__func_1309
+  0.56%  checker.zig  checker.Checker.get_type_from_type_node_worker
+  0.55%  checker.zig  checker.Checker.get_conditional_flow_type_of_type
+  0.55%  checker.zig  checker.Checker.is_related_to_ex
+  0.53%  checker.zig  checker.Checker.checker_symbol
+  0.52%  table.zig  rig.table.Table(checker.Type,134217728).offset
+  0.50%  checker.zig  checker.Ids.node_id
+  0.48%  checker.zig  checker.Checker.find_active_mapper
+  0.48%  checker.zig  checker.Checker.symbol_flags
+  0.48%  checker.zig  checker.Checker.instantiate_type
+  0.48%  table.zig  rig.table.Table(u32,268435456).at
+  0.47%  checker.zig  checker.Checker.get_object_type_instantiation
+  0.45%  runtime.zig  rig.runtime.foldMul
+  0.45%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).insertHashed
+  0.45%  checker.zig  checker.Checker.get_conditional_type_worker
+  0.44%  checker.zig  checker.Checker.symbol_value_declaration
+  0.43%  runtime.zig  rig.runtime.ListOf(u32,8).mem
+  0.43%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).entryOf
+  0.42%  checker.zig  checker.Checker.get_conditional_type_instantiation_of
+  0.42%  memcpy.zig  compiler_rt.memcpy.copyBlocks
+  0.41%  ordered.zig  rig.ordered.Ordered(u32,u32).matchAll
+  0.41%  checker.zig  checker.Checker.get_type_from_type_reference
+  0.40%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).eqlKey
+  0.39%  runtime.zig  rig.runtime.tickCall
+  0.38%  checker.zig  checker.Checker.is_simple_type_related_to_ex
+  0.38%  ordered.zig  rig.ordered.Ordered(u32,u32).findHashed
+  0.37%  table.zig  rig.table.Table(checker.StructuredType,67108864).at
+  0.36%  runtime.zig  rig.runtime.indexBelow
+  0.35%  ordered.zig  rig.ordered.Ordered(u32,u32).findIndexed
+  0.34%  table.zig  rig.table.Table(u32,268435456).push
+  0.34%  checker.zig  checker.Checker.structured_type_related_to_worker
+  0.34%  mem.zig  mem.eqlBytes
+  0.34%  runtime.zig  rig.runtime.hashWord
+  0.33%  checker.zig  checker.Checker.conditional_flow_step
+  0.33%  ordered.zig  rig.ordered.Ordered(u32,u32).get
+  0.33%  checker.zig  checker.TypeList.is_nil
+  0.32%  checker.zig  checker.Checker.compare_types
+  0.31%  checker.zig  checker.Ids.is_binder_sym
+  0.31%  checker.zig  checker.Checker.symbol_declaration
+  0.31%  checker.zig  checker.Checker.infer_from_types
+  0.30%  runtime.zig  rig.runtime.ListOf(u32,0).at__func_1276
+  0.30%  table.zig  rig.table.Table(checker.TypeMapper,16777216).constSlot
+  0.30%  checker.zig  checker.Checker.new_type_mapper
+  0.30%  checker.zig  checker.Checker.get_actual_type_variable
+  0.30%  checker.zig  checker.Checker.get_recursion_identity_from_target
+  0.29%  ordered.zig  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).matchAll
+  0.29%  runtime.zig  rig.runtime.Niche(checker.Relater,.{ .offset = 89, .Word = u8, .value = 2, .spare = 254 }).unwrap
+  0.29%  table.zig  rig.table.Table(checker.CheckerSymbol,67108864).at
+  0.29%  runtime.zig  rig.runtime.ListOf(u32,0).pop
+  0.29%  checker.zig  rig.table.Table(checker.Type,134217728).offset
+  0.28%  table.zig  rig.table.Table(checker.StructuredType,67108864).constSlot
+  0.28%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).findIndexed
+  0.28%  checker.zig  checker.Checker.is_declaration_contained_in
+  0.27%  table.zig  rig.table.Table(checker.TupleType,67108864).constSlot
+  0.26%  runtime.zig  rig.runtime.provenOffset
+  0.25%  atomic.zig  atomic.Value(u32).load
+  0.25%  checker.zig  checker.Checker.get_relater
+
+## outermost function (the symbol perf names) (of 18061 samples)
+  8.49%  checker.Checker.instantiate_type_worker
+  5.40%  checker.Checker.instantiate_type_with_alias
+  4.90%  checker.Checker.mapper_map
+  3.49%  checker.Checker.recursive_type_related_to
+  2.95%  checker.Checker.get_conditional_type_instantiation_of
+  2.02%  checker.Checker.get_conditional_type_worker
+  1.93%  checker.Checker.get_conditional_flow_type_of_type
+  1.85%  checker.Checker.get_property_of_type_ex
+  1.42%  checker.Checker.is_type_related_to
+  1.37%  checker.Checker.set_structured_type_members
+  1.28%  rig.alloc.alloc
+  1.26%  checker.Checker.create_type_reference_ex
+  1.21%  checker.Checker.get_intersection_type_ex
+  1.20%  checker.Checker.sort_symbols_by_key
+  1.08%  checker.Checker.get_unmatched_properties_worker
+  1.08%  checker.Checker.check_type_related_to_ex_output
+  1.07%  checker.Checker.get_type_from_type_node_worker
+  1.04%  checker.Checker.instantiate_symbol
+  1.02%  checker.Checker.compare_types
+  0.99%  checker.Checker.get_permissive_instantiation
+  0.89%  checker.Checker.get_apparent_type
+  0.87%  checker.Checker.add_mapped_members_for_key_type
+  0.86%  checker.Checker.get_union_type_worker
+  0.81%  checker.Checker.infer_from_types
+  0.78%  checker.Checker.get_normalized_type
+  0.76%  checker.Checker.get_type_of_symbol
+  0.76%  checker.Checker.get_type_items_instantiation_key
+  0.75%  checker.Checker.resolve_object_type_members
+  0.73%  checker.Checker.is_related_to_ex
+  0.73%  checker.Checker.instantiate_types
+  0.72%  checker.Checker.get_union_type_from_sorted_list
+  0.70%  checker.Checker.get_reduced_type_worker
+  0.70%  rig.alloc.free
+  0.69%  ??
+  0.68%  checker.Checker.get_type_from_type_reference
+  0.67%  checker.Checker.get_recursion_identity_from_target
+  0.66%  checker.Checker.get_type_of_parameter
+  0.66%  checker.Checker.add_inherited_members
+  0.66%  memcpy
+  0.65%  checker.Checker.structured_type_related_to_worker
+
+## innermost function within outermost (of 18061 samples)
+  2.55%  checker.zig  checker.Checker.mapper_map  checker.Checker.mapper_map
+  1.52%  checker.zig  checker.Checker.instantiate_type_with_alias  checker.Checker.instantiate_type_with_alias
+  1.13%  table.zig  rig.table.Table(checker.TypeMapper,16777216).at  checker.Checker.mapper_map
+  1.08%  alloc.zig  rig.alloc.alloc  rig.alloc.alloc
+  0.87%  checker.zig  checker.Checker.instantiate_type_worker  checker.Checker.instantiate_type_worker
+  0.86%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll  checker.Checker.recursive_type_related_to
+  0.85%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findIndexed  checker.Checker.instantiate_type_worker
+  0.82%  checker.zig  checker.Checker.could_contain_type_variables  checker.Checker.instantiate_type_with_alias
+  0.73%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).matchAll  checker.Checker.instantiate_type_worker
+  0.73%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).matchAll  checker.Checker.get_conditional_type_instantiation_of
+  0.71%  checker.zig  checker.Checker.get_apparent_type  checker.Checker.get_apparent_type
+  0.69%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findIndexed  checker.Checker.get_conditional_type_instantiation_of
+  0.69%  ??  ??  ??
+  0.68%  checker.zig  checker.Checker.get_non_distributed_type_parameter  checker.Checker.instantiate_type_worker
+  0.67%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findIndexed  checker.Checker.recursive_type_related_to
+  0.65%  alloc.zig  rig.alloc.free  rig.alloc.free
+  0.56%  checker.zig  checker.Checker.get_type_from_type_node_worker  checker.Checker.get_type_from_type_node_worker
+  0.55%  checker.zig  checker.Checker.get_conditional_flow_type_of_type  checker.Checker.get_conditional_flow_type_of_type
+  0.55%  checker.zig  checker.Checker.is_related_to_ex  checker.Checker.is_related_to_ex
+  0.48%  checker.zig  checker.Checker.find_active_mapper  checker.Checker.instantiate_type_with_alias
+  0.47%  checker.zig  checker.Checker.get_object_type_instantiation  checker.Checker.instantiate_type_worker
+  0.45%  checker.zig  checker.Checker.get_conditional_type_worker  checker.Checker.get_conditional_type_worker
+  0.43%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll  checker.Checker.is_type_related_to
+  0.42%  checker.zig  checker.Checker.get_conditional_type_instantiation_of  checker.Checker.get_conditional_type_instantiation_of
+  0.42%  table.zig  rig.table.Table(checker.Type,134217728).constSlot  checker.Checker.instantiate_type_worker
+  0.42%  memcpy.zig  compiler_rt.memcpy.copyBlocks  memcpy
+  0.41%  checker.zig  checker.Checker.get_type_from_type_reference  checker.Checker.get_type_from_type_reference
+  0.38%  checker.zig  checker.Checker.is_simple_type_related_to_ex  checker.Checker.is_simple_type_related_to_ex
+  0.38%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findIndexed  checker.Checker.create_type_reference_ex
+  0.34%  checker.zig  checker.Checker.structured_type_related_to_worker  checker.Checker.structured_type_related_to_worker
+  0.33%  mem.zig  mem.eqlBytes  mem.eqlBytes
+  0.33%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).insertHashed  checker.Checker.instantiate_type_with_alias
+  0.33%  checker.zig  checker.Checker.conditional_flow_step  checker.Checker.get_conditional_flow_type_of_type
+  0.32%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findIndexed  checker.Checker.is_type_related_to
+  0.32%  checker.zig  checker.Checker.compare_types  checker.Checker.compare_types
+  0.31%  checker.zig  checker.Checker.infer_from_types  checker.Checker.infer_from_types
+  0.30%  checker.zig  checker.Checker.get_actual_type_variable  checker.Checker.get_actual_type_variable
+  0.30%  checker.zig  checker.Checker.get_recursion_identity_from_target  checker.Checker.get_recursion_identity_from_target
+  0.29%  runtime.zig  rig.runtime.Niche(checker.Relater,.{ .offset = 89, .Word = u8, .value = 2, .spare = 254 }).unwrap  checker.Checker.check_type_related_to_ex_output
+  0.29%  checker.zig  checker.TypeList.is_nil  checker.Checker.instantiate_type_worker
+  0.29%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).matchAll  checker.Checker.create_type_reference_ex
+  0.28%  checker.zig  checker.Checker.is_declaration_contained_in  checker.Checker.set_structured_type_members
+  0.28%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).matchAll  checker.Checker.get_permissive_instantiation
+  0.27%  ordered.zig  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).matchAll  checker.Checker.add_mapped_members_for_key_type
+  0.26%  checker.zig  checker.Checker.symbol_flags  checker.Checker.symbol_is_value
+  0.26%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).eqlKey  checker.Checker.get_permissive_instantiation
+  0.25%  checker.zig  checker.Checker.get_relater  checker.Checker.check_type_related_to_ex_output
+  0.25%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll  checker.Checker.get_intersection_type_ex
+  0.24%  runtime.zig  rig.runtime.ListOf(u32,0).push  checker.Checker.instantiate_type_with_alias
+  0.23%  checker.zig  checker.Checker.symbol_sort_key  checker.Checker.sort_symbols_by_key
+  0.23%  checker.zig  checker.Checker.get_property_of_type_ex  checker.Checker.get_property_of_type_ex
+  0.23%  ordered.zig  rig.ordered.Ordered(u32,u32).findHashed  checker.Checker.get_property_of_type_ex
+  0.23%  ordered.zig  rig.ordered.Ordered(u32,u32).get  checker.Checker.get_property_of_type_ex
+  0.23%  checker.zig  checker.Checker.is_type_reference_with_generic_arguments  checker.Checker.is_type_reference_with_generic_arguments
+  0.23%  runtime.zig  rig.runtime.ListOf(ast.Node,0).grow  rig.runtime.ListOf(ast.Node,0).grow
+  0.22%  checker.zig  checker.Checker.get_relation_key  checker.Checker.get_relation_key
+  0.22%  checker.zig  checker.Checker.get_type_of_symbol  checker.Checker.get_type_of_symbol
+  0.22%  checker.zig  checker.Checker.is_deeply_nested_type  checker.Checker.is_deeply_nested_type
+  0.22%  checker.zig  checker.Checker.get_normalized_type  checker.Checker.get_normalized_type
+  0.22%  checker.zig  checker.Checker.check_type_related_to_ex_output  checker.Checker.check_type_related_to_ex_output

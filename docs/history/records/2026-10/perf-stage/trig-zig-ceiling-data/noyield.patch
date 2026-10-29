@@ -1,0 +1,24 @@
+diff --git a/rig/runtime.zig b/rig/runtime.zig
+index b8f4898..7b812b3 100644
+--- a/rig/runtime.zig
++++ b/rig/runtime.zig
+@@ -357,7 +357,8 @@ pub const tick_turns: u32 = 1024;
+ /// scheduler, the task yields if other work waits for its worker
+ /// (`sched.tick`), so a long loop never keeps that work waiting.
+ pub inline fn turn(n: *u32) void {
+-    if (!scheduled or @inComptime()) return;
++    // CEILING (no yields): a loop turn checks nothing.
++    if (true) return;
+     n.* -%= 1;
+     if (n.* == 0) {
+         @branchHint(.unlikely);
+@@ -372,7 +373,8 @@ pub inline fn turn(n: *u32) void {
+ /// (`sched.waiting`), the first such call to see it yields to that work
+ /// (`sched.tickCall`). Otherwise it is one load of a flag.
+ pub inline fn tickCall() void {
+-    if (!scheduled or @inComptime()) return;
++    // CEILING (no yields): a call checks nothing.
++    if (true) return;
+     if (sched.waiting.load(.monotonic) != 0) {
+         @branchHint(.unlikely);
+         callKeeping(tickCallC);
