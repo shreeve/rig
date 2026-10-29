@@ -10092,7 +10092,11 @@ const Checker = struct {
                 if (sema.hasBounds(sym) and !sema.boundApis(self.ctx, sym).contains(.Ord)) {
                     if (!try sema.reportStated(self.ctx, self.startOf(obj), tv, .Ord, "order")) return null;
                 }
-                if (!sema.hasBounds(sym)) try self.require(tv, .ordered, self.startOf(obj), "order");
+                if (!sema.hasBounds(sym)) try self.require(tv, .order, self.startOf(obj), "order");
+            },
+            .float => {
+                try self.errAt(obj, "`{s}` has no `order`{s}", .{ try self.tyName(value), sema.floatUnordered });
+                return try self.skipCall(args);
             },
             else => if ((try sema.lacks(self.ctx, value, .Ord)) != null) return null,
         }
@@ -20406,6 +20410,10 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 .frozen => try ctx.err(at, cannot ++ "freezes a value that holds a `{s}`, and {s}", .{ inst, pname, aname, pname, try sema.frozenReason(ctx, arg, (try sema.frozenBlocker(ctx, arg)).?) }),
                 .no_task, .task => try reportTaskReq(ctx, req, at, inst, pname, arg),
                 .meets => |api| try ctx.err(at, cannot ++ "{s}, and `{s}` is not `{s}`", .{ inst, pname, aname, req.op, aname, @tagName(api) }),
+                .order => {
+                    const lack: sema.Lack = (try sema.lacks(ctx, arg, .Ord)) orelse .{ .ty = arg };
+                    try ctx.err(at, cannot ++ "orders a `{s}` with `order`, and `{s}` cannot be ordered{s}", .{ inst, pname, aname, pname, aname, try sema.lackDetail(ctx, ctx.arena.allocator(), arg, .Ord, lack) });
+                },
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, (try sema.notHashable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
@@ -20657,7 +20665,7 @@ fn apiOf(req: Requirement) ?sema.Api {
         .numeric, .bytes => .Num,
         .integer, .whole_division => .Integer,
         .signed => .Signed,
-        .ordered => .Ord,
+        .ordered, .order => .Ord,
         .equatable => .Eq,
         .hashable => .Hash,
         .copies, .no_cleanup => .Copy,
@@ -21608,6 +21616,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .no_task => !sema.holdsTask(ctx, ty),
         .task => |reach| (try sema.taskBlocker(ctx, ty, reach)) == null,
         .meets => |api| (try sema.lacks(ctx, ty, api)) == null,
+        .order => (try sema.lacks(ctx, ty, .Ord)) == null,
     };
 }
 

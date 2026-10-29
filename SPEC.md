@@ -3348,7 +3348,11 @@ The first five are facts of a type's parts, which no type declares;
 `Copy` never implies `Owned`, so a Cell's element needs `Copy + Owned`.
 The number APIs belong to the built-in numbers alone. Numbers, `Bool`,
 text (`String`, `?String`, `Static`), and plain enums provide `Eq`,
-`Hash`, `Ord`, and `Print`, but a float provides no `Hash`. An
+`Hash`, `Ord`, and `Print`, but a float provides neither `Hash` nor
+`Ord`: `==` calls `0.0` and `-0.0` equal, and a NaN is equal to
+nothing and neither below nor above a number. A float still compares
+with `<` and orders by `total_order` ([Floats in order](#floats-in-order)),
+and `Num` gives the comparisons in a generic body. An
 optional, an array, and a slice provide what their elements provide,
 and order element by element, a shorter prefix first. A `List`
 provides `Print`, and `Clone` where its elements do; a `Map`, a `Set`,
@@ -5522,7 +5526,13 @@ sub main()
 
 Floats order as IEEE 754 says: a NaN is neither below, above, nor equal
 to any float, itself included, so `<`, `<=`, `>`, `>=`, and `==` beside
-a NaN are false. A float's own methods compare it where a NaN must
+a NaN are false. So a float provides no `Ord` ([Bounds](#bounds)), as
+it provides no `Hash`, and as Rust's floats are `PartialOrd` and not
+`Ord`: `<` cannot sort floats, and `order` would have no answer for a
+NaN. A bound `T: Ord` (`sort.sort`, `math.max`), an `obj` or `enum`
+whose header names `Ord` with a float field, a float's `x.order(?y)`,
+and `<` on an optional, an array, or a slice of floats are rejected,
+with the fix. A float's own methods compare it where a NaN must
 have a place. `x.min(y)` and `x.max(y)` are the smaller and the larger,
 where a NaN loses to a number (IEEE 754's minimumNumber and
 maximumNumber), so neither depends on which side a NaN is on; of `0.0`
@@ -5535,7 +5545,9 @@ positive numbers, `inf`, `NaN`. `Float.nan()` is a positive NaN; one an
 operation makes, `0.0 / 0.0`, may carry either sign, as the target
 gives it. Floats that may hold a NaN sort by it, with the NaNs last:
 `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`. All four take
-and give the receiver's float type, `Float` or `F32`.
+and give the receiver's float type, `Float` or `F32`. A type that holds
+a float orders by its own `order`, written with `total_order`
+([Own meanings](#own-meanings)).
 
 ```rig
 use std.sort
@@ -5554,6 +5566,37 @@ sub main()
 false false false 2.5 -1.0 5.0
 .greater .less .equal
 [-inf, -0.0, 0.0, 1.5, 2.0, nan]
+```
+
+```rig reject
+obj Reading: Ord
+  at: Int
+  value: Float
+
+sub main()
+  print(Reading(at: 1, value: 0.5) < Reading(at: 2, value: 0.25))
+```
+
+```error
+`Reading` names `Ord`, so it is ordered by its fields, but its field `value` is a `Float`, which cannot be ordered: a NaN is neither below nor above a number; order floats by `x.total_order(?y)`
+```
+
+```rig
+obj Reading: Ord
+  at: Int
+  value: Float
+
+  fun order(?@, other: ?Reading) -> Order
+    @at.order(?other.at).then(@value.total_order(?other.value))
+
+sub main()
+  a = Reading(at: 1, value: Float.nan())
+  b = Reading(at: 1, value: 0.25)
+  print(a < b, b < a, a.order(?a))
+```
+
+```output
+false true .equal
 ```
 
 ### Block expressions
@@ -11595,11 +11638,11 @@ fun unbox(b: ?boxes.Wrap[Int]) -> Int
 sub main()
   b = boxes.Wrap[Int](v: 3)
   s = boxes.Wrap(v: "s")
-  print(unbox(?b), s.get(), boxes.larger(2, 7), boxes.larger[Float](1, 2))
+  print(unbox(?b), s.get(), boxes.larger(2, 7), boxes.larger[I32](1, 2))
 ```
 
 ```output
-3 s 7 2.0
+3 s 7 2
 ```
 
 ```rig file=stats.rig

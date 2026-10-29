@@ -1675,7 +1675,7 @@ test "generic chain three modules", "12 6.0 12"
       x + x
 
 test "generic fn across modules", '''
-  7 2.0
+  7 2
   2 5
   9 1.5
   drop 3
@@ -1697,7 +1697,7 @@ test "generic fn across modules", '''
       print("drop", @n)
 
   sub main()
-    print(lib.max(3, 7), lib.max[Float](1, 2))
+    print(lib.max(3, 7), lib.max[I32](1, 2))
     z: U8 = lib.max(1, 2)
     small: U8 = 5
     print(z, lib.max(lib.max(1, 2), small))
