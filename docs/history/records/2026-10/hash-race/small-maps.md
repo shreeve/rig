@@ -121,20 +121,20 @@ allocator:
 
 pup, release builds (slots "10,11 10,11 10,11"), 20 interleaved rounds
 on core 8 with sibling 9 idle, one checker; Trig 403a823 built by main
-773978d1d and by ab6c71f17. Output identical every round. Main's kernel
+773978d1d and by 8eab1c8c7. Output identical every round. Main's kernel
 cycles (0.25G on ts-pattern) match a quiet pup; `/proc/buddyinfo`
 before and after is in `trig-pup-buddyinfo.txt`. Medians:
 
 | | ts-pattern main | new | new / main | zod3 main | new | new / main |
 |---|---:|---:|---:|---:|---:|---:|
-| peak RSS, KB | 277,200 | 267,440 | 0.9648 | 92,628 | 88,596 | 0.9565 |
-| user cycles | 3,788,885,913 | 3,769,082,880 | 0.9948 | 715,650,632 | 711,816,520 | 0.9946 |
-| kernel cycles | 254,204,290 | 244,425,104 | 0.9615 | 91,813,987 | 89,666,906 | 0.9766 |
-| instructions | 9,270,727,539 | 9,219,125,792 | 0.9944 | 1,683,882,158 | 1,674,676,634 | 0.9945 |
-| L3 load misses | 249,462 | 219,890 | 0.8815 | 73,375 | 64,060 | 0.8730 |
-| page faults | 15,460 | 14,927 | 0.9655 | 8,046 | 7,873 | 0.9785 |
+| peak RSS, KB | 277,200 | 267,436 | 0.9648 | 92,630 | 88,592 | 0.9564 |
+| user cycles | 3,804,540,378 | 3,771,114,030 | 0.9912 | 718,246,786 | 710,711,589 | 0.9895 |
+| kernel cycles | 251,359,839 | 245,202,155 | 0.9755 | 91,986,853 | 89,013,354 | 0.9677 |
+| instructions | 9,270,666,322 | 9,218,964,868 | 0.9944 | 1,683,499,754 | 1,673,926,802 | 0.9943 |
+| L3 load misses | 245,502 | 215,231 | 0.8767 | 70,175 | 59,053 | 0.8415 |
+| page faults | 15,461 | 14,926 | 0.9654 | 8,046 | 7,872 | 0.9783 |
 
-Peak memory is 3.5% lower on ts-pattern (9.8 MB) and 4.3% on zod3
+Peak memory is 3.5% lower on ts-pattern (9.8 MB) and 4.4% on zod3
 (4.0 MB), against the first design's 5.2% and 4.4%.
 
 ### bench/hash
@@ -242,30 +242,37 @@ pup on core 8.
 bench/hash now runs each row's timed loop in a function of its own, for
 every contestant (#763). With the rows of a group in one function, the
 Map's new size moved rows of the group by 5-40% on the Mac though their
-loops had not changed. Under the layout protocol, at ab6c71f17
-(`bench-hash-mac-rows.txt`, `bench-hash-pup-rows*.txt`, four pup runs):
+loops had not changed. Under the layout protocol, at 8eab1c8c7, three
+Mac runs and four pup runs (`bench-hash-mac-rows*.txt`,
+`bench-hash-pup-rows*.txt`): no row is slower in two runs. Four rows
+were flagged once each and not again (Mac big100000 hit 5%; pup
+int100000 remove 4%, big1000000 remove 4%); int100000 remove's median
+sits 1-4% over main's in all four pup runs. Faster: the Mac's
+int4000000, rnd24 and rnd4000000 removes and int `ensure` hits (4-6%);
+pup's str16 remove (4%).
 
-- **Mac:** no row slower; int4000000, rnd24 and rnd4000000 removes
-  5-6% faster.
-- **pup:** churn16 3-5% slower in all four runs (flagged in two, the
-  branch's fastest layout over main's slowest by 1.5-3.5%); int100000
-  remove (1.00-1.02) and rnd100000 hit (1.01-1.02) level in all four;
-  string, churn1000 and big1000 removes 3-6% faster.
+A single run of the protocol over 133 rows flags about one row by
+chance, so a row counts as slower only when two runs flag it.
 
-Two layout changes came out of the rows:
+Four layout changes came out of the rows:
 
 - **The Map's table first.** With the table 8 bytes into the Map, a loop
   over a List of Maps kept a pointer to each Map and one to its table
   and spilled one: pup's int16 inserts 8-10% slower (a Zig
   micro-benchmark showed it too: puts into reserved tables level, the
   growths slower). The prelude's Map and Set put `t` first.
-- **The index's pointers last in their place.** With the tags and slots
-  pointers first, a loop of `edit` hits kept them in registers it needed
-  for its hash constants, which it built again each step: the Mac's int
-  edit_put-hit 4% slower. Gone bits, maximum load and group count come
-  first. That order costs pup's churn16 the 3-5% above; the other order
-  has it level and the Mac's edit_put-hit 4.6% slower. The loop of
-  churn16's function is the same instructions under both orders.
+- **The small tags 16 bytes into the Map.** At 24, a 16-byte group of
+  them straddled two cache lines wherever the Map sat 16 bytes into one,
+  as churn16's did on pup (`map-address.sh` prints a Map's address mod
+  64: 16 on the branch, 48 on main, whose tags the type aligned to 16):
+  churn16 3-5% slower. At 16, in a Map 16-aligned, as a List's and the
+  stack's are, no group straddles, and churn16 is level (0.98).
+- **The index's pointers after its counts in their place.** With the
+  tags and slots pointers first, a loop of `edit` hits kept them in
+  registers it needed for its hash constants, which it built again each
+  step: the Mac's int edit_put-hit 3-5% slower. Gone bits, maximum load
+  and group count come first.
+- **An indexed table's reset out of line** (below).
 
 ### The remove loop
 
@@ -289,8 +296,8 @@ slower.
 
 ### What is still slower
 
-- **pup, churn16, 3-5%.** See above: the order of the index's place
-  trades it against the Mac's int edit_put-hit.
+- **pup, int100000 remove:** flagged once in four runs, its median 1-4%
+  over main's in each; not flagged twice.
 - **rnd3000000 iterate (42% on the Mac before the per-row bench).** Not
   the table. Taken into a program of `random(3000000)` alone, or in its
   own function, the branch is level (0.20-0.22 ns against 0.22). In the
@@ -322,15 +329,16 @@ design's (`trig-pup-one-block.txt`, `trig-pup-take-inline.txt`,
 `bench-hash-pup-rerun.txt`, `bench-hash-mac-placebo.txt`, the layout
 protocol's `layout-build.sh`, `layout-time.sh`,
 `bench-hash-*-layouts.txt` (the old bench, `tooMany` layouts) and
-`bench-hash-*-rows*.txt` (the per-row bench), `miss-alone.rig`,
+`bench-hash-*-rows*.txt` (the per-row bench), `map-address.sh`,
+`miss-alone.rig`,
 `iterate-passes.rig`, and the first design's
 `bench-hash-*-one-block.txt`).
 
 ## Gates
 
-At ab6c71f17, on the per-row bench (#763): Rig's full suite and proofs
+At 8eab1c8c7, on the per-row bench (#763): Rig's full suite and proofs
 green on the Mac, the oracle quiet; bench/hash's guard within 2%
-(text-miss 1.4% more instructions, int-churn 3.5% fewer); Trig's light
-gate GREEN (35 s, built from the commit on pup with `zig build`, as
+(text-miss 1.5% more instructions, int-churn 3.5% fewer); Trig's light
+gate GREEN (37 s, built from the commit on pup with `zig build`, as
 `tools/pup-rig` builds, since another session held `rig-next`); loco's
 light gate GREEN.
