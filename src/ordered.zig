@@ -103,10 +103,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// their place, as no table holds both. A Map is then 64 bytes, a
         /// line.
         const Index = extern struct {
-            /// The index: `groupCount()` groups of tags, and their slots.
-            /// `slots` starts the index's block.
-            tags: [*]Group,
-            slots: [*]Slots,
             /// A bit an entry, set when it is gone: `goneWords(cap)` words
             /// while `has_gone`, made at the first take that leaves a hole.
             gone: [*]u64,
@@ -116,6 +112,10 @@ fn Ordered(comptime K: type, comptime V: type) type {
             max_load: u32,
             /// The index's groups, a power of two.
             groups: u32,
+            /// The index: `groupCount()` groups of tags, and their slots.
+            /// `slots` starts the index's block.
+            tags: [*]Group,
+            slots: [*]Slots,
         };
         const Held = extern union {
             /// A small table's tags: lane `i` is entry `i`'s, 0 when it is
@@ -132,7 +132,10 @@ fn Ordered(comptime K: type, comptime V: type) type {
         // written by every put and take, share no word with a field a
         // lookup reads, as `shift` is; a store into a word and a narrower
         // load of another part of it, soon after, wait on each other on
-        // Apple cores.
+        // Apple cores. The prelude's Map and Set put their table first,
+        // so a Map's address is its table's: with the table 8 bytes in, a
+        // loop over a List of Maps kept two pointers for each and spilled
+        // one (bench/hash's int16 inserts 8-10% slower on pup).
 
         /// The entries, `cap` of them; undefined while `cap` is 0.
         entries: [*]E = undefined,
@@ -738,6 +741,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return f.j;
         }
 
+        /// The last entry written, `j`, cut off, with the gone entries
+        /// before it; out of line, as a take of the last entry is rare
+        /// beside the others.
         /// `reset`, out of line: a take that empties the table is rare
         /// beside the others, and inlined into a program's loop of takes
         /// its memset and gone-bit sizing took registers the loop kept its
