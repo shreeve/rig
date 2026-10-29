@@ -78,6 +78,15 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The keep-or-cut panel's fixes** (owner, 2026-10-28, approving its
+  defaults; records in `~/Data/Code/Claude/rig/rig/feature-cut/`):
+  cut nothing, and freeze `*{A}`, `~{A}`, `once ?fun`, and user
+  `api`/`add`. A type that contains itself is told to box the field
+  (`next: ^Node?`), and `for x in ?h` walks a List or array a shared
+  handle holds, in one PR. A loop over a box (`for x in ?b` of a
+  `^List[T]`) is still rejected, a sibling SPEC's box table implies.
+  Next: drop `*Frozen`'s weak count; measure what the weak count costs
+  every `*T` on Trig, by share first.
 - **A float provides no `Ord`** (owner, 2026-10-27, the Rust-style
   recommendations' default): a NaN is neither below nor above a
   number, so `T: Ord` takes no float, and floats compare by their own

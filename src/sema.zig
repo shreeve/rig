@@ -7169,15 +7169,45 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
         if (!c.cyclic[i]) continue;
         ctx.symbols.items[i].contents.cyclic = true;
         if (sym.decl_pos >= imported_decl_pos) continue;
-        const f = fields: for (sym.fields orelse &.{}) |*f| {
-            targets.clearRetainingCapacity();
-            for (dataFields(f)) |d| try byValueTargets(ctx, d.ty, &targets, false);
-            // `low` names the component after the search.
-            for (targets.items) |t| if (c.low[t] == c.low[i]) break :fields f;
+        // The first field, and the data field within it (a variant's
+        // payload has several), that leads back into the component.
+        const Found = struct { f: *const Field, d: *const Field, target: SymbolId };
+        const found: Found = fields: for (sym.fields orelse &.{}) |*f| {
+            for (dataFields(f)) |*d| {
+                targets.clearRetainingCapacity();
+                try byValueTargets(ctx, d.ty, &targets, false);
+                // `low` names the component after the search.
+                for (targets.items) |t| if (c.low[t] == c.low[i]) break :fields .{ .f = f, .d = d, .target = t };
+            }
         } else continue;
-        const shown = if (sym.kind == .generic_type) try ctx.arena.allocator().print("{s}[...]", .{sym.name}) else sym.name;
-        try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
+        const a = ctx.arena.allocator();
+        const shown = if (sym.kind == .generic_type) try a.print("{s}[...]", .{sym.name}) else sym.name;
+        const fix = try cycleFix(ctx, found.d, found.target);
+        try ctx.err(found.f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; own it through a box (`{s}`), or share it through a handle (`*{s}`)", .{ shown, found.f.name, fix.box, fix.held });
     }
+}
+
+/// How a cycle of types through the data field `d` is broken: the box
+/// that owns the value instead (the field rewritten, `next: ^Node?`,
+/// where it holds the type in the cycle or that type's optional; else
+/// that type's box alone, `^Node`), and the type a handle would hold.
+fn cycleFix(ctx: *SemContext, d: *const Field, target: SymbolId) std.mem.Allocator.Error!struct { box: []const u8, held: []const u8 } {
+    const a = ctx.arena.allocator();
+    const inner, const optional = switch (ctx.types.get(d.ty)) {
+        .optional => |in| .{ in, true },
+        else => .{ d.ty, false },
+    };
+    const names_target = switch (ctx.types.get(inner)) {
+        .nominal => |s| s == target,
+        .parameterized_nominal => |pn| pn.sym == target,
+        else => false,
+    };
+    if (!names_target) {
+        const name = ctx.symbols.items[target].name;
+        return .{ .box = try a.print("^{s}", .{name}), .held = name };
+    }
+    const held = try formatType(ctx, inner);
+    return .{ .box = try a.print("{s}: ^{s}{s}", .{ d.name, held, if (optional) "?" else "" }), .held = held };
 }
 
 /// The strongly connected components of the graph of declared types, an
@@ -14041,8 +14071,20 @@ pub fn forViewsSlot(ctx: *const SemContext, node: Sexp) bool {
     const source = ir.For.source(node);
     if (handsOver(ctx, source).kind != .place) return false;
     const ty = ctx.typeOf(source) orelse return false;
-    const elem = listElem(ctx, unwrapViews(ctx, ty)) orelse return false;
+    const elem = listElem(ctx, loopWalks(ctx, ty)) orelse return false;
     return moves(ctx, elem) == .yes;
+}
+
+/// The type a `for` over a source of type `ty` walks: the value the
+/// source views, or a List or an array a shared handle holds (`*T`,
+/// `*Frozen[T]`, through views and boxes), which `?h` lends and the loop
+/// reads where the handle reaches it.
+pub fn loopWalks(ctx: *const SemContext, ty: TypeId) TypeId {
+    if (accessThroughShared(ctx, ty)) {
+        const reached = unwrapAccess(ctx, ty);
+        if (ctx.types.get(reached) == .array or listElem(ctx, reached) != null) return reached;
+    }
+    return unwrapViews(ctx, ty);
 }
 
 /// Why `<x` cannot drop the binding `x`, where it cannot.

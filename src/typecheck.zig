@@ -3467,9 +3467,35 @@ const Checker = struct {
         return self.viewOfAccess(access, elem);
     }
 
+    /// The element of a loop over the List or array `walked` that a
+    /// shared handle holds (`sema.loopWalks`): `?h` lends the value the
+    /// handle holds, so the loop reads each element where it stands,
+    /// with the loan on `h`. Nothing is written through a handle, or
+    /// taken out through one.
+    fn sharedLoopElement(self: *Checker, source: Sexp, inner_source: Sexp, walked: TypeId, mode: ?Tag) Error!TypeId {
+        const elem, const what = if (listElementType(self.ctx, walked)) |e| .{ e, "a List" } else .{ self.ctx.types.get(walked).array.elem, "an array" };
+        const pos = self.startOf(source);
+        const shown = try self.plainText(inner_source);
+        if (mode == .write) {
+            try self.err(pos, "cannot write-iterate through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{});
+            return self.t().invalid_id;
+        }
+        if (mode == .move) {
+            try self.err(pos, "`<{s}` would move the elements out of {s} that a shared handle (`*T`) holds; loop over `?{s}`", .{ shown, what, shown });
+            return self.t().invalid_id;
+        }
+        if (!self.placeOf(inner_source).named()) {
+            try self.err(pos, "a loop through a shared handle walks one that a name holds, or a field or element of one; bind `{s}` to a name first", .{shown});
+            return self.t().invalid_id;
+        }
+        return try self.loopElement(.read, elem);
+    }
+
     fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
         const pos = self.startOf(source);
         if (self.isPoison(source_ty)) return self.t().invalid_id;
+        const walked = sema.loopWalks(self.ctx, source_ty);
+        if (walked != sema.unwrapViews(self.ctx, source_ty)) return self.sharedLoopElement(source, inner_source, walked, mode);
         const peeled = sema.unwrapViews(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
             // A table's pushed slots, `0..len`, read or written in place, as

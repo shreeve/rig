@@ -19,6 +19,41 @@ test "frozen reads", '''
   s = *Frozen(String("home"))
   print(s)
 
+test "for through a frozen List", seeds: 20, '''
+  6 6
+  6
+  8
+'''
+  # `?f` of a `*Frozen[List[T]]` lends the frozen List, which a loop reads
+  # in place; each task walks the one List through its own handle.
+
+  fun total(f: *Frozen[List[Int]]) -> Int
+    n = 0
+    for x in ?f
+      n += x
+    n
+
+  fun lens(f: *Frozen[List[String]]) -> Int
+    n = 0
+    for s, i in ?f
+      n += s.len + i
+    n
+
+  f = *Frozen(List([1, 2, 3]))
+  a = total(+f)&
+  b = total(+f)&
+  print(>a, >b)
+  n = 0
+  for x in f
+    n += x
+  print(n)
+  v: List[String] = List()
+  !v.push(String("ab"))
+  !v.push(String("cdefg"))
+  g = *Frozen(<v)
+  c = lens(+g)&
+  print(>c)
+
 test "frozen pages from an actor", seeds: 20, '''
   page a
   page b

@@ -5895,6 +5895,40 @@ held for the loop, which owns its elements. A part of a value made
 there (`mk().arr`) is walked in that value, which the loop holds until
 it ends.
 
+A List or an array that a shared handle holds (`h: *List[T]`,
+`*Frozen[List[T]]`, `*[N]T`, or a view of one) is walked through the
+handle: `for x in ?h`, or `for x in h`, reads each element where it
+stands, as `?h` lends the value the handle holds ([§9](#shared-handles)),
+with the loan on `h`. The handle is a binding, or a field or element of
+one. Nothing is written or taken through it, so `for x in !h` and
+`for x in <h` are rejected; a shared List that changes is a
+`*Cell[List[T]]`.
+
+```rig
+fun total(f: *Frozen[List[Int]]) -> Int
+  n = 0
+  for x in ?f
+    n += x
+  n
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("ada"))
+  !v.push(String("grace"))
+  names = *<v
+  for s, i in ?names
+    print(i, s, s.len)
+  f = *Frozen(List([1, 2, 3]))
+  a = total(+f)&
+  print(>a)
+```
+
+```output
+0 ada 3
+1 grace 5
+6
+```
+
 `for source`, with no variable, is `for _ in source` and nothing else:
 the same sources, sigils, checks and lowering, with no binding. The
 parser takes `for NAME in` and `for NAME, NAME in` as the binding form
@@ -8530,7 +8564,8 @@ clone it instead.
 `*[N]T`, `*List[T]`, or `*?String`), and `?@` methods reach through a
 handle automatically, including through fields and loop elements. `?h`
 lends the value's read views ([§7](#lending)), a `?Shape` of a `*Shape`
-and a `?String` of a `*String`, with the loan on `h`, so `h` may not be
+and a `?String` of a `*String`, and a `for` walks the List or array it
+lends in place ([§6](#for)), with the loan on `h`, so `h` may not be
 dropped, moved, or reassigned while the view is used. `!h` lends only
 the handle itself (a `!*T`), never a write view of the value. Writing a
 field, calling a `!@` method, or consuming the value through a handle
@@ -13040,7 +13075,8 @@ generic `*T` is never given a frozen value's handle (a `T` is).
 
 - Fields, read methods, and elements are reached through the handle,
   `f.title`, `f.get()`, `f[0]`, as through any `*T`, and nothing writes
-  through it; `?f` lends the frozen value as a `?T`.
+  through it; `?f` lends the frozen value as a `?T`, and `for x in ?f`
+  walks a frozen List or array in place.
 - `+f` adds a handle, in one atomic step; the last one dropped, on
   whichever task drops it, drops the value, a long chain through the
   same queue a `*T`'s takes.

@@ -1576,9 +1576,11 @@ test "struct constructor fields", '''
   print(u.name)
   print(u.age + 1)
 
-fail "struct contains itself", "`Node` contains itself by value through `next`", "`A` contains itself by value through `b`", "`Chain[...]` contains itself by value through `tail`", "`Tree` contains itself by value through `pair`"
+fail "struct contains itself", "`Node` contains itself by value through `next`, so it would have no finite size; own it through a box (`next: ^Node?`), or share it through a handle (`*Node`)", "`A` contains itself by value through `b`, so it would have no finite size; own it through a box (`b: ^B`)", "`Chain[...]` contains itself by value through `tail`, so it would have no finite size; own it through a box (`tail: ^Chain[T]?`)", "`Tree` contains itself by value through `pair`, so it would have no finite size; own it through a box (`l: ^Tree`)"
   # A type that holds itself by value, directly, through an optional, or
-  # through another type, has no finite size.
+  # through another type, has no finite size. The fix is a box in the
+  # field that leads back, which owns its value; a shared handle is for
+  # a value with several owners.
 
   obj Node
     n: Int
@@ -1597,6 +1599,15 @@ fail "struct contains itself", "`Node` contains itself by value through `next`",
   enum Tree
     leaf(n: Int)
     pair(l: Tree, r: Int)
+
+  print(1)
+
+fail "struct contains itself through an array", "`Grid` contains itself by value through `cells`, so it would have no finite size; own it through a box (`^Grid`), or share it through a handle (`*Grid`)"
+  # Where the field does not name the type itself, the box goes around
+  # the type in the cycle.
+
+  obj Grid
+    cells: [2]Grid
 
   print(1)
 
