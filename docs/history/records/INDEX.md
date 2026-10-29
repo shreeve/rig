@@ -97,6 +97,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | APIs Stage 5's design (2026-10-23) | `*{A}`, a counted handle to an API object whose count operations live in its table, atomic as the hidden allocation is; `~{A}` its weak handle; `Sends` and `Syncs` in the braces as facts of the hidden value checked at erasure, each form crossing by its own row of SPEC §18; `*{A + Syncs}` only of a frozen value; owned closures as objects of one method if measured faster; two holes of Stage 4's boxes (an owned closure hidden from a local task, a task hidden from `task.isolate`); a build plan, 22 questions with defaults, and a draft CORE paragraph for the panel and the owner | [apis-stage5/](2026-10/apis-stage5/) |
 | CORE's "A shared API object counts a value of hidden type" (Stage 5, phase 0) | §1's handle row, §4's `*T` row, a clause each to sentences 8 and 9, Stage 4's list's last line, and a paragraph with a list of five: the holding follows from the braces (`*{A}` a `*T`'s, `*{A + Syncs}` a frozen value's, no `~`, no `Owned`), erasure only moves or counts a handle, `~{A}` carries its loans, an object crosses only by a bound it names and without it goes to no task, a local one included, and no object or owned closure holds a task; a panel of three (compiler, adversary, reviewer) and the owner's approval with the reviewer's three fixes | [apis-stage5/core-panel/](2026-10/apis-stage5/core-panel/) |
 | Why Trig scales worse than tsrs on every core (2026-10-24) | Rig does not oversubscribe: one worker per CPU, four run, idle ones sleep once; scheduler 0.03% of samples, no allocator contention, no false sharing. The gap (2.35× against 2.96× from one core to all) is Trig's work shape: unbalanced checkers in Go's partition (longest 1.41× the mean, about 25% of the all-core time), a serial 54 ms head (parse and bind), and a ~20 ms teardown at exit | [perf-stage/scaling.md](2026-10/perf-stage/scaling.md) |
+| Why Trig loses more than tsrs from one checker to four (2026-10-28) | on E-cores Trig is 1.22× tsrs at one checker and 1.31× (1.35× by the fastest) in Go order at four, 1.55× against tsrs's default; the loss is mostly serial: a 53 ms head (parse and bind on one thread, 1.8× tsrs's, which tsrs also runs in parallel; checkers made one after another), about 22 ms on ts-pattern and 17 on zod3, and a 17 ms tail of freeing memory at exit, 11 and 7.5; then Go's checker 0 group being Trig-slow (1.41× tsrs's against 1.27× for all), 14 ms; then kernel costs only Trig grows, TLB shootdowns from `rig.alloc.remap` (4,200 IPIs a run against 53) and faults, 7-12 ms; the scheduler and allocator nothing. #754's huge pages are per Table, so its memory grows about 10 MB a checker (13% at four on ts-pattern) | [perf-stage/scaling-2.md](2026-10/perf-stage/scaling-2.md) |
 | CORE's "A view reached through a write view that a binding holds" (sentence 7) | `if !@slots[j] as s` may `return !s.value` `from @`: the view carries the binding's loans, path for path, and a loan on the binding that ends with its scope; nothing in that scope, its defers included, uses `s` while the view lives (§7 Defer: what a scope gives back is live while its defers run); a designer, an adversary (H1 to H6), a reviewer whose holes 1 and 2 shipped first as the defer hotfix (#663), and the owner's approval | [wview-return/](2026-10/wview-return/) |
 
 | CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
@@ -259,6 +260,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [thp-gate.md](2026-10/perf-stage/thp-gate.md): The huge-page gate on free 2 MiB blocks, measured quiet and fragmented, and kept (2026-10-28)
 - [memory-traffic.md](2026-10/perf-stage/memory-traffic.md): Where Trig's memory traffic comes from, against tsrs, and what Rig can remove (2026-10-28)
 - [thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md): Huge pages when memory is fragmented, which users stall, and a gate on free 2 MiB blocks (2026-10-28)
+- [scaling-2.md](2026-10/perf-stage/scaling-2.md): Why Trig loses more than tsrs from one checker to four, ranked by milliseconds (2026-10-28)
 
 ### 2026-10/perf-stage/loop-hoist-data/
 
@@ -328,6 +330,38 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [times-r10.txt](2026-10/perf-stage/thp-fragmented-data/times-r10.txt)
 - [times-r20.txt](2026-10/perf-stage/thp-fragmented-data/times-r20.txt)
 - [unfrag.c](2026-10/perf-stage/thp-fragmented-data/unfrag.c)
+### 2026-10/perf-stage/scaling-2-data/
+
+- [analyze.py](2026-10/perf-stage/scaling-2-data/analyze.py)
+- [bychecker.py](2026-10/perf-stage/scaling-2-data/bychecker.py)
+- [bychecker.txt](2026-10/perf-stage/scaling-2-data/bychecker.txt)
+- [cmds.sh](2026-10/perf-stage/scaling-2-data/cmds.sh)
+- [counters-summary.txt](2026-10/perf-stage/scaling-2-data/counters-summary.txt)
+- [counters.py](2026-10/perf-stage/scaling-2-data/counters.py)
+- [counters.sh](2026-10/perf-stage/scaling-2-data/counters.sh)
+- [counters.txt](2026-10/perf-stage/scaling-2-data/counters.txt)
+- [dynamic.sh](2026-10/perf-stage/scaling-2-data/dynamic.sh)
+- [extdiag.txt](2026-10/perf-stage/scaling-2-data/extdiag.txt)
+- [memory.txt](2026-10/perf-stage/scaling-2-data/memory.txt)
+- [mm-summary.txt](2026-10/perf-stage/scaling-2-data/mm-summary.txt)
+- [mm.py](2026-10/perf-stage/scaling-2-data/mm.py)
+- [mm.sh](2026-10/perf-stage/scaling-2-data/mm.sh)
+- [parse.py](2026-10/perf-stage/scaling-2-data/parse.py)
+- [perfile.py](2026-10/perf-stage/scaling-2-data/perfile.py)
+- [perfile.txt](2026-10/perf-stage/scaling-2-data/perfile.txt)
+- [probes.sh](2026-10/perf-stage/scaling-2-data/probes.sh)
+- [profile-summary.txt](2026-10/perf-stage/scaling-2-data/profile-summary.txt)
+- [profile.py](2026-10/perf-stage/scaling-2-data/profile.py)
+- [profile.sh](2026-10/perf-stage/scaling-2-data/profile.sh)
+- [sched-stats.ts-pattern.txt](2026-10/perf-stage/scaling-2-data/sched-stats.ts-pattern.txt)
+- [sched-stats.zod3.txt](2026-10/perf-stage/scaling-2-data/sched-stats.zod3.txt)
+- [time.sh](2026-10/perf-stage/scaling-2-data/time.sh)
+- [timeline-summary.txt](2026-10/perf-stage/scaling-2-data/timeline-summary.txt)
+- [timeline.sh](2026-10/perf-stage/scaling-2-data/timeline.sh)
+- [timeline2-summary.txt](2026-10/perf-stage/scaling-2-data/timeline2-summary.txt)
+- [timeline3-summary.txt](2026-10/perf-stage/scaling-2-data/timeline3-summary.txt)
+- [times-summary.txt](2026-10/perf-stage/scaling-2-data/times-summary.txt)
+- [times.txt](2026-10/perf-stage/scaling-2-data/times.txt)
 
 ### 2026-10/perf-stage/list-grow-data/
 

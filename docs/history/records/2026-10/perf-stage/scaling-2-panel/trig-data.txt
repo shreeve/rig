@@ -1,0 +1,89 @@
+# Trig panel data (pup, 2026-10-28; Trig 403a823 PGO by Rig 773978d1d, tsrs 0.18.0)
+
+## Per file, one thread, P-core 3: each test with src/index.ts, less src/index.ts alone (7 rounds)
+base trig 63.8 tsrs 43.9 ratio 1.451; Ginstr 0.509 0.384
+file (minus base)         trig ms  tsrs ms  ratio  med r |   Gi_t   Gi_s  i rat
+exhaustive-match            154.1    127.7  1.207  1.166 |  1.541  1.354  1.139
+large-exhaustive            103.7     81.8  1.267  1.215 |  1.561  1.306  1.196
+real-world                   59.9     49.9  1.201  1.199 |  0.727  0.641  1.133
+intersection-and-union       41.9     33.7  1.242  1.125 |  0.343  0.313  1.096
+select                       41.7     33.9  1.230  1.049 |  0.341  0.310  1.100
+deep-exclude                 40.7     32.0  1.272  1.184 |  0.441  0.398  1.110
+variadic-tuples              30.2     28.0  1.078  1.175 |  0.286  0.268  1.069
+record                       28.5     23.3  1.224  1.122 |  0.223  0.206  1.085
+distribute-unions            28.0     21.2  1.321  1.230 |  0.301  0.264  1.138
+find-selected                12.8     14.1  0.911  1.046 |  0.157  0.146  1.075
+base               trig min 79.7 med 84.1 | tsrs min 56.0 med 61.2 | ratio min 1.424 med 1.375 | Gi 0.499/0.376 | dTLB M 0.02/0.01
+g0                 trig min 370.2 med 395.0 | tsrs min 291.3 med 313.8 | ratio min 1.271 med 1.259 | Gi 3.227/2.720 | dTLB M 0.13/0.08
+g0b                trig min 296.5 med 323.0 | tsrs min 239.1 med 264.5 | ratio min 1.240 med 1.221 | Gi 2.781/2.316 | dTLB M 0.09/0.06
+large-exhaustive   trig min 218.5 med 231.1 | tsrs min 170.7 med 182.6 | ratio min 1.280 med 1.266 | Gi 2.057/1.683 | dTLB M 0.05/0.04
+real-world         trig min 165.8 med 177.7 | tsrs min 125.5 med 137.5 | ratio min 1.321 med 1.292 | Gi 1.226/1.013 | dTLB M 0.05/0.03
+exhaustive-match   trig min 291.9 med 320.7 | tsrs min 236.3 med 254.6 | ratio min 1.235 med 1.260 | Gi 2.039/1.727 | dTLB M 0.13/0.07
+minus base (median):
+  g0                 310.9 / 252.6 = 1.231
+  g0b                238.8 / 203.2 = 1.175
+  large-exhaustive   147.0 / 121.4 = 1.211
+  real-world         93.5 / 76.3 = 1.225
+  exhaustive-match   236.6 / 193.4 = 1.223
+
+## Base (src/index.ts) Check time, P-core 3, 9 runs: Trig 41-47 ms, tsrs 31-34 ms (1.40x)
+## Libs alone (empty file, esnext.full), E-core 16, 5 runs: Trig parse 22-24 bind 11-12 ms; with lib esnext (no dom): parse 7-8 bind 2-3
+
+## Partitions: Trig's (uprobe on check_source_file) and tsrs Go order (TSRS_FILE_TIMES), each costed by tsrs's per-file CPU at 4 checkers
+ts-pattern C=4: same groups=False; checked files trig 72 tsrs 72
+   tsrs-cost loads, Trig's partition: 371 319 272 247  longest/mean 1.227
+   tsrs-cost loads, tsrs's partition: 369 355 248 237  longest/mean 1.221
+     tests/exhaustive-match.test.ts            221.1 ms; with (trig) [] (tsrs) []
+     tests/large-exhaustive.test.ts            141.1 ms; with (trig) ['tests/real-world.test.ts'] (tsrs) []
+     tests/real-world.test.ts                   88.5 ms; with (trig) ['tests/large-exhaustive.test.ts'] (tsrs) []
+     tests/select.test.ts                       62.5 ms; with (trig) [] (tsrs) []
+ts-pattern C=8: same groups=False; checked files trig 72 tsrs 72
+   tsrs-cost loads, Trig's partition: 345 300 201 105 101 86 70  longest/mean 2.000
+   tsrs-cost loads, tsrs's partition: 259 243 213 145 141 121 87  longest/mean 1.498
+     tests/exhaustive-match.test.ts            221.1 ms; with (trig) [] (tsrs) []
+     tests/large-exhaustive.test.ts            141.1 ms; with (trig) ['tests/real-world.test.ts'] (tsrs) []
+     tests/real-world.test.ts                   88.5 ms; with (trig) ['tests/large-exhaustive.test.ts'] (tsrs) []
+     tests/select.test.ts                       62.5 ms; with (trig) [] (tsrs) []
+zod3 C=4: same groups=False; checked files trig 85 tsrs 85
+   tsrs-cost loads, Trig's partition: 59 48 45 25  longest/mean 1.339
+   tsrs-cost loads, tsrs's partition: 55 45 45 33  longest/mean 1.246
+     src/types.ts                               28.7 ms; with (trig) ['src/helpers/partialUtil.ts'] (tsrs) ['src/helpers/partialUtil.ts']
+     src/__tests__/discriminated-unions.test.ts   14.8 ms; with (trig) ['src/__tests__/object.test.ts'] (tsrs) []
+     src/__tests__/object.test.ts               12.0 ms; with (trig) ['src/__tests__/discriminated-unions.test.ts'] (tsrs) []
+     src/helpers/partialUtil.ts                 10.2 ms; with (trig) ['src/types.ts'] (tsrs) ['src/types.ts']
+zod3 C=8: same groups=False; checked files trig 85 tsrs 85
+   tsrs-cost loads, Trig's partition: 80 33 30 20 14  longest/mean 2.255
+   tsrs-cost loads, tsrs's partition: 35 32 29 26 21 20 14  longest/mean 1.397
+     src/types.ts                               28.7 ms; with (trig) ['src/helpers/partialUtil.ts'] (tsrs) []
+     src/__tests__/discriminated-unions.test.ts   14.8 ms; with (trig) [] (tsrs) []
+     src/__tests__/object.test.ts               12.0 ms; with (trig) [] (tsrs) []
+     src/helpers/partialUtil.ts                 10.2 ms; with (trig) ['src/types.ts'] (tsrs) []
+Trig's program has 3 libs tsrs 0.18.0 lacks: lib.esnext.iterator, lib.esnext.modulesource, lib.esnext.promise.
+
+## tsrs on its Go order (go) and on Trig's partition (file:), 4 or 8 threads on core 3, thread CPU of the longest group (3 runs); outputs identical
+fx.ts-pattern.4.file.1 groups 4 longest 290.2 ms
+fx.ts-pattern.4.file.2 groups 4 longest 309.7 ms
+fx.ts-pattern.4.file.3 groups 4 longest 320.1 ms
+fx.ts-pattern.4.go.1 groups 4 longest 350.5 ms
+fx.ts-pattern.4.go.2 groups 4 longest 298.3 ms
+fx.ts-pattern.4.go.3 groups 4 longest 283.8 ms
+fx.ts-pattern.8.file.1 groups 8 longest 318.6 ms
+fx.ts-pattern.8.file.2 groups 8 longest 281.6 ms
+fx.ts-pattern.8.file.3 groups 8 longest 251.9 ms
+fx.ts-pattern.8.go.1 groups 8 longest 236.1 ms
+fx.ts-pattern.8.go.2 groups 8 longest 218.7 ms
+fx.ts-pattern.8.go.3 groups 8 longest 241.4 ms
+fx.zod3.4.file.1 groups 4 longest 49.5 ms
+fx.zod3.4.file.2 groups 4 longest 49.8 ms
+fx.zod3.4.file.3 groups 4 longest 49.4 ms
+fx.zod3.4.go.1 groups 4 longest 52.9 ms
+fx.zod3.4.go.2 groups 4 longest 53.3 ms
+fx.zod3.4.go.3 groups 4 longest 53.2 ms
+fx.zod3.8.file.1 groups 6 longest 56.9 ms
+fx.zod3.8.file.2 groups 6 longest 57.1 ms
+fx.zod3.8.file.3 groups 6 longest 56.9 ms
+fx.zod3.8.go.1 groups 8 longest 39.3 ms
+fx.zod3.8.go.2 groups 8 longest 64.7 ms
+fx.zod3.8.go.3 groups 8 longest 40.2 ms
+
+Scripts: trig-perfile.sh, trig-group.sh beside this file; raw data in pup /tmp/panel-trig/.

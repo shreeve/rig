@@ -1,0 +1,32 @@
+
+## ts-pattern trig4 (5 runs)
+run 1: wall   570.2 write   554.1 exit-after-write    16.0 head    51.6 check   500.7 tail    17.9 | span 0:501 1:412 2:348 3:330 | cpu 0:501 1:412 2:348 3:329 | conc 0:1 1:156 2:64 3:19 4:329 | switches 656 | head to_load 5.5 load_to_newck 39.9 newck 3.6 to_task 2.6
+run 2: wall   568.7 write   554.2 exit-after-write    14.5 head    52.1 check   500.2 tail    16.3 | span 0:500 1:409 2:345 3:328 | cpu 0:500 1:408 2:345 3:327 | conc 0:1 1:158 2:65 3:18 4:327 | switches 656 | head to_load 5.2 load_to_newck 40.8 newck 3.3 to_task 2.8
+run 3: wall   571.1 write   556.4 exit-after-write    14.7 head    54.4 check   500.2 tail    16.6 | span 0:500 1:410 2:347 3:328 | cpu 0:500 1:409 2:346 3:327 | conc 0:1 1:159 2:64 3:20 4:327 | switches 656 | head to_load 7.2 load_to_newck 41.2 newck 3.5 to_task 2.5
+run 4: wall   569.8 write   551.9 exit-after-write    18.0 head    53.2 check   496.3 tail    20.3 | span 0:496 1:401 2:333 3:318 | cpu 0:496 1:400 2:333 3:318 | conc 0:1 1:168 2:68 3:16 4:318 | switches 658 | head to_load 5.0 load_to_newck 42.7 newck 3.3 to_task 2.2
+run 5: wall   575.5 write   560.4 exit-after-write    15.2 head    55.7 check   502.8 tail    17.1 | span 0:503 1:412 2:347 3:330 | cpu 0:502 1:412 2:347 3:330 | conc 0:1 1:161 2:66 3:17 4:330 | switches 656 | head to_load 7.4 load_to_newck 42.1 newck 3.4 to_task 2.7
+median: wall   570.2 write   554.2 exit-after-write    15.2 head    53.2 check   500.2 tail    17.1 | span 0:500 1:410 2:347 3:328 | cpu 0:500 1:409 2:346 3:327 | task 1663 | conc 0:1 1:159 2:65 3:18 4:327 | head to_load 5.5 load_to_newck 41.2 newck 3.4 to_task 2.6
+
+## ts-pattern trig4on1 (5 runs)
+run 1: wall  1462.5 write  1451.2 exit-after-write    11.3 head    50.0 check  1399.1 tail    13.4 | span 0:1319 1:626 2:1178 3:1399 | cpu 0:448 1:364 2:293 3:294 | conc 0:0 1:1462 | switches 282 | head to_load 5.0 load_to_newck 39.6 newck 3.5 to_task 1.9
+run 2: wall  1469.6 write  1458.5 exit-after-write    11.1 head    50.7 check  1406.0 tail    12.9 | span 0:1336 1:610 2:1198 3:1406 | cpu 0:447 1:356 2:328 3:275 | conc 0:0 1:1469 | switches 286 | head to_load 5.2 load_to_newck 39.7 newck 3.7 to_task 2.0
+run 3: wall  1451.8 write  1440.9 exit-after-write    10.9 head    51.4 check  1387.7 tail    12.7 | span 0:1317 1:619 2:1186 3:1388 | cpu 0:449 1:359 2:297 3:283 | conc 0:0 1:1452 | switches 282 | head to_load 6.0 load_to_newck 40.1 newck 3.6 to_task 1.7
+run 4: wall  1449.5 write  1436.2 exit-after-write    13.2 head    50.0 check  1384.1 tail    15.4 | span 0:1301 1:613 2:1162 3:1384 | cpu 0:448 1:355 2:291 3:290 | conc 0:0 1:1449 | switches 282 | head to_load 5.2 load_to_newck 39.8 newck 3.3 to_task 1.7
+run 5: wall  1464.9 write  1452.4 exit-after-write    12.5 head    51.6 check  1398.6 tail    14.7 | span 0:1318 1:623 2:1173 3:1399 | cpu 0:451 1:354 2:293 3:301 | conc 0:0 1:1465 | switches 282 | head to_load 6.7 load_to_newck 39.8 newck 3.3 to_task 1.8
+median: wall  1462.5 write  1451.2 exit-after-write    11.3 head    50.7 check  1398.6 tail    13.4 | span 0:1318 1:619 2:1178 3:1399 | cpu 0:448 1:356 2:293 3:290 | task 1474 | conc 0:0 1:1462 | head to_load 5.2 load_to_newck 39.8 newck 3.5 to_task 1.8
+
+## zod3 trig4 (5 runs)
+run 1: wall   167.3 write   166.2 exit-after-write     1.2 head    49.8 check   108.2 tail     9.3 | span 0:106 1:108 2:93 3:61 | cpu 0:106 1:108 2:93 3:61 | conc 0:1 1:59 2:14 3:33 4:61 | switches 788 | head to_load 5.5 load_to_newck 38.9 newck 3.2 to_task 2.2
+run 2: wall   162.9 write   161.8 exit-after-write     1.1 head    52.3 check   101.2 tail     9.4 | span 0:99 1:101 2:86 3:58 | cpu 0:99 1:101 2:86 3:58 | conc 0:1 1:62 2:13 3:29 4:58 | switches 788 | head to_load 4.8 load_to_newck 42.3 newck 3.1 to_task 2.1
+run 3: wall   167.8 write   166.7 exit-after-write     1.1 head    53.0 check   105.6 tail     9.3 | span 0:103 1:105 2:92 3:63 | cpu 0:103 1:105 2:91 3:63 | conc 0:1 1:62 2:12 3:30 4:62 | switches 788 | head to_load 6.7 load_to_newck 40.8 newck 3.2 to_task 2.1
+run 4: wall   163.6 write   162.5 exit-after-write     1.1 head    51.1 check   103.3 tail     9.2 | span 0:101 1:103 2:89 3:61 | cpu 0:101 1:103 2:89 3:60 | conc 0:1 1:60 2:13 3:29 4:60 | switches 788 | head to_load 5.2 load_to_newck 39.7 newck 3.4 to_task 2.9
+run 5: wall   184.1 write   182.6 exit-after-write     1.5 head    57.9 check   111.6 tail    14.6 | span 0:110 1:111 2:95 3:64 | cpu 0:109 1:111 2:95 3:64 | conc 0:1 1:73 2:15 3:32 4:64 | switches 788 | head to_load 5.1 load_to_newck 45.8 newck 4.2 to_task 2.7
+median: wall   167.3 write   166.2 exit-after-write     1.1 head    52.3 check   105.6 tail     9.3 | span 0:103 1:105 2:92 3:61 | cpu 0:103 1:105 2:91 3:61 | task 428 | conc 0:1 1:62 2:13 3:30 4:61 | head to_load 5.2 load_to_newck 40.8 newck 3.2 to_task 2.2
+
+## zod3 trig4on1 (5 runs)
+run 1: wall   361.8 write   361.3 exit-after-write     0.4 head    54.3 check   301.8 tail     5.6 | span 0:252 1:223 2:248 3:302 | cpu 0:85 1:91 2:73 3:53 | conc 0:0 1:362 | switches 120 | head to_load 5.3 load_to_newck 42.3 newck 4.7 to_task 2.0
+run 2: wall   355.7 write   355.3 exit-after-write     0.4 head    47.8 check   302.4 tail     5.5 | span 0:253 1:226 2:252 3:302 | cpu 0:85 1:94 2:75 3:48 | conc 0:0 1:356 | switches 118 | head to_load 5.6 load_to_newck 37.5 newck 3.1 to_task 1.5
+run 3: wall   352.7 write   352.3 exit-after-write     0.4 head    49.5 check   297.6 tail     5.6 | span 0:247 1:219 2:247 3:298 | cpu 0:85 1:87 2:76 3:49 | conc 0:0 1:353 | switches 118 | head to_load 5.1 load_to_newck 39.7 newck 3.1 to_task 1.6
+run 4: wall   351.4 write   351.0 exit-after-write     0.4 head    48.7 check   297.3 tail     5.5 | span 0:244 1:222 2:245 3:297 | cpu 0:86 1:86 2:75 3:50 | conc 0:0 1:351 | switches 118 | head to_load 6.2 load_to_newck 37.7 newck 3.1 to_task 1.6
+run 5: wall   391.2 write   390.5 exit-after-write     0.7 head    58.5 check   323.9 tail     8.8 | span 0:266 1:241 2:266 3:324 | cpu 0:94 1:94 2:81 3:56 | conc 0:0 1:391 | switches 120 | head to_load 5.8 load_to_newck 46.7 newck 4.0 to_task 1.9
+median: wall   355.7 write   355.3 exit-after-write     0.4 head    49.5 check   301.8 tail     5.6 | span 0:252 1:223 2:248 3:302 | cpu 0:85 1:91 2:75 3:50 | task 360 | conc 0:0 1:356 | head to_load 5.6 load_to_newck 39.7 newck 3.1 to_task 1.6

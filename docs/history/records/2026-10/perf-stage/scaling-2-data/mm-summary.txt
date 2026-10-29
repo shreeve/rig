@@ -1,0 +1,76 @@
+
+## ts-pattern t2c0 (2 runs; per run)
+  head: IPI 22, madvise HUGEPAGE 4, madvise NOHUGEPAGE 172, madvise POPULATE_WRITE 144, mmap 285, mremap 72, munmap 14, tlb_flush  5, tlb_flush local mm shootdown 90, tlb_flush remote send IPI 10, tlb_flush task switch 156
+  check: IPI 5204, madvise HUGEPAGE 7, madvise POPULATE_WRITE 199, mmap 102, mremap 155, munmap 26, tlb_flush  10, tlb_flush local mm shootdown 1841, tlb_flush remote send IPI 1841, tlb_flush remote shootdown 5034, tlb_flush task switch 30
+  tail: IPI 8, madvise POPULATE_WRITE 4, mremap 4, munmap 342, tlb_flush  7, tlb_flush local mm shootdown 346, tlb_flush remote send IPI 10, tlb_flush remote shootdown 0, tlb_flush task switch 22
+    head madvise NOHUGEPAGE 172: checker.new_checker
+    tail munmap 172: rig.runtime.dropFields__func_3180
+    check mremap 136: rig.alloc.remap
+    check madvise POPULATE_WRITE 103: rig.alloc.remap
+    tail munmap 99: rig.alloc.freeLarge
+    head madvise POPULATE_WRITE 77: rig.alloc.allocSlow
+    check madvise POPULATE_WRITE 77: rig.alloc.allocSlow
+    tail munmap 70: ?
+    head mremap 23: rig.alloc.remap
+    head madvise POPULATE_WRITE 23: rig.alloc.remap
+    check munmap 20: rig.alloc.keepPiece
+    head mremap 12: rig.runtime.ListOf(ast.ListRec,0).grow
+    head mremap 11: rig.runtime.ListOf(ast.Node,0).grow
+    head munmap 8: ?
+
+## ts-pattern t773 (2 runs; per run)
+  head: IPI 28, madvise HUGEPAGE 176, madvise NOHUGEPAGE 172, madvise POPULATE_WRITE 144, mmap 285, mremap 72, munmap 187, tlb_flush  7, tlb_flush local mm shootdown 96, tlb_flush remote send IPI 10, tlb_flush task switch 196
+  check: IPI 4212, madvise HUGEPAGE 7, madvise POPULATE_WRITE 199, mmap 102, mremap 155, munmap 26, tlb_flush  4, tlb_flush local mm shootdown 1433, tlb_flush remote send IPI 1456, tlb_flush remote shootdown 4063, tlb_flush task switch 53
+  tail: IPI 9, madvise POPULATE_WRITE 4, mremap 4, munmap 342, tlb_flush  10, tlb_flush local mm shootdown 345, tlb_flush remote send IPI 22, tlb_flush remote shootdown 1, tlb_flush task switch 42
+    head munmap 172: rig.table.reserve
+    head madvise NOHUGEPAGE 172: rig.table.reserve
+    head madvise HUGEPAGE 172: rig.table.reserve
+    tail munmap 172: rig.runtime.dropFields__func_3180
+    check mremap 136: rig.alloc.remap
+    check madvise POPULATE_WRITE 103: rig.alloc.remap
+    tail munmap 99: rig.alloc.freeLarge
+    head madvise POPULATE_WRITE 77: rig.alloc.allocSlow
+    check madvise POPULATE_WRITE 77: rig.alloc.allocSlow
+    tail munmap 69: ?
+    head mremap 23: rig.alloc.remap
+    head madvise POPULATE_WRITE 23: rig.alloc.remap
+    check munmap 20: rig.alloc.keepPiece
+    head mremap 12: rig.runtime.ListOf(ast.ListRec,0).grow
+
+## zod3 t2c0 (2 runs; per run)
+  head: IPI 30, madvise HUGEPAGE 3, madvise NOHUGEPAGE 172, madvise POPULATE_WRITE 137, mmap 274, mremap 79, munmap 16, tlb_flush  5, tlb_flush local mm shootdown 122, tlb_flush remote send IPI 12, tlb_flush task switch 165
+  check: IPI 5642, madvise HUGEPAGE 4, madvise POPULATE_WRITE 86, mmap 72, mremap 50, munmap 14, tlb_flush  4, tlb_flush local mm shootdown 1969, tlb_flush remote send IPI 2073, tlb_flush remote shootdown 5352, tlb_flush task switch 14
+  tail: IPI 6, munmap 307, tlb_flush  4, tlb_flush local mm shootdown 307, tlb_flush remote send IPI 7, tlb_flush task switch 8
+    head madvise NOHUGEPAGE 172: checker.new_checker
+    tail munmap 172: rig.runtime.dropFields__func_3180
+    tail munmap 71: ?
+    head madvise POPULATE_WRITE 68: rig.alloc.allocSlow
+    tail munmap 64: rig.alloc.freeLarge
+    check madvise POPULATE_WRITE 50: rig.alloc.allocSlow
+    check mremap 38: rig.alloc.remap
+    check madvise POPULATE_WRITE 27: rig.alloc.remap
+    head mremap 23: rig.alloc.remap
+    head madvise POPULATE_WRITE 23: rig.alloc.remap
+    head mremap 14: rig.runtime.ListOf(ast.ListRec,0).grow
+    head mremap 13: rig.runtime.ListOf(ast.Node,0).grow
+    check munmap 12: rig.alloc.keepPiece
+    head munmap 10: ?
+
+## zod3 t773 (2 runs; per run)
+  head: IPI 36, madvise HUGEPAGE 175, madvise NOHUGEPAGE 172, madvise POPULATE_WRITE 137, mmap 274, mremap 79, munmap 188, tlb_flush  6, tlb_flush local mm shootdown 103, tlb_flush remote send IPI 12, tlb_flush task switch 152
+  check: IPI 4549, madvise HUGEPAGE 4, madvise POPULATE_WRITE 86, mmap 72, mremap 50, munmap 14, tlb_flush  4, tlb_flush local mm shootdown 1522, tlb_flush remote send IPI 1610, tlb_flush remote shootdown 4304, tlb_flush task switch 11
+  tail: IPI 6, munmap 307, tlb_flush  5, tlb_flush local mm shootdown 307, tlb_flush remote send IPI 6, tlb_flush task switch 9
+    head munmap 172: rig.table.reserve
+    head madvise NOHUGEPAGE 172: rig.table.reserve
+    head madvise HUGEPAGE 172: rig.table.reserve
+    tail munmap 172: rig.runtime.dropFields__func_3180
+    tail munmap 69: ?
+    head madvise POPULATE_WRITE 68: rig.alloc.allocSlow
+    tail munmap 64: rig.alloc.freeLarge
+    check madvise POPULATE_WRITE 50: rig.alloc.allocSlow
+    check mremap 38: rig.alloc.remap
+    check madvise POPULATE_WRITE 27: rig.alloc.remap
+    head mremap 23: rig.alloc.remap
+    head madvise POPULATE_WRITE 23: rig.alloc.remap
+    head mremap 14: rig.runtime.ListOf(ast.ListRec,0).grow
+    head mremap 13: rig.runtime.ListOf(ast.Node,0).grow

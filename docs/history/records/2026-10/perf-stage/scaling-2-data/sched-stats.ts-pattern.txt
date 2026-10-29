@@ -1,0 +1,4 @@
+rig: worker 0: ran 322, pinned 0, stole 0, slept 319
+rig: worker 1: ran 2, pinned 0, stole 1, slept 2
+rig: worker 2: ran 2, pinned 0, stole 1, slept 2
+rig: worker 3: ran 3, pinned 0, stole 1, slept 3
