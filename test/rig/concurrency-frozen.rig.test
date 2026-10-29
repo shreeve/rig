@@ -348,3 +348,31 @@ test "frozen list length through a view", "2"
   !v.push(2)
   f = *Frozen(<v)
   print(count(?f))
+
+test "frozen dropped once by many tasks", seeds: 20, '''
+  drop 7
+  done
+'''
+  # Four tasks and the main one each hold a handle and drop it in an
+  # order the schedule picks: the last drop, on whichever task, drops the
+  # value once and frees its allocation.
+  obj Tok
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  sub take(t: *Frozen[Tok])
+    _ = t.n
+
+  f = *Frozen(Tok(n: 7))
+  a = take(+f)&
+  b = take(+f)&
+  c = take(+f)&
+  d = take(+f)&
+  <f
+  >a
+  >b
+  >c
+  >d
+  print("done")

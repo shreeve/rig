@@ -7,6 +7,8 @@
 //!   handles (`Weak(T)`). `cloneStrong` / `dropStrong` /
 //!   `weakRef` / `cloneWeak` / `dropWeak` / `upgrade` are the only
 //!   refcount operations; the emitter spells every one explicitly.
+//! - `*Frozen[T]` is `*Frozen(T)`: a strong count, always atomic, and the
+//!   value; a frozen value has no weak handle, so no weak count.
 //! - `dropElement` is the single place that knows how to release a value
 //!   of any type: a strong handle drops a count, a type that declares
 //!   `__rig_drop(self: *Self)` runs it, structs, tagged unions, arrays,
@@ -2153,26 +2155,29 @@ pub fn Shared(comptime T: type) type {
 }
 
 /// The allocation behind `*Frozen[T]`: a `T` no one changes again, which
-/// any task reads, so its handles are counted atomically.
+/// any task reads, so its handles are counted atomically. A frozen value
+/// has no weak handle, so its allocation has no weak count: a strong
+/// count and the value, and the last drop frees it.
 pub fn Frozen(comptime T: type) type {
     return Counted(T, true);
 }
 
 /// `Shared` and `Frozen`: a counted allocation whose counts are atomic
-/// when it is `always_atomic` (a frozen value's) or its `T` is
+/// when it is `is_frozen` (a frozen value's) or its `T` is
 /// `synchronized`. That is decided inside the type, when it is first
-/// used, so a `T` that holds a `*T` is complete by then.
-fn Counted(comptime T: type, comptime always_atomic: bool) type {
+/// used, so a `T` that holds a `*T` is complete by then. A frozen value's
+/// has no weak count (`void`), as it has no weak handle.
+fn Counted(comptime T: type, comptime is_frozen: bool) type {
     return struct {
         strong: usize,
-        weak: usize,
+        weak: if (is_frozen) void else usize,
         value: T,
 
         /// Marks the type for `isShared`.
         pub const __rig_shared = {};
 
         const Self = @This();
-        const atomic_count = always_atomic or synchronized(T);
+        const atomic_count = is_frozen or synchronized(T);
 
         pub fn cloneStrong(self: *Self) *Self {
             if (atomic_count) {
@@ -2185,6 +2190,7 @@ fn Counted(comptime T: type, comptime always_atomic: bool) type {
         }
 
         pub fn weakRef(self: *Self) Weak(T) {
+            if (comptime is_frozen) @compileError("rig: a frozen value has no weak handle");
             if (atomic_count) {
                 _ = @atomicRmw(usize, &self.weak, .Add, 1, .monotonic);
                 return .{ .ptr = self };
@@ -2222,9 +2228,11 @@ fn Counted(comptime T: type, comptime always_atomic: bool) type {
             if (t.drop_depth == 0) drainDropQueue();
         }
 
-        /// Drop the value, then give up the strong side's weak count.
+        /// Drop the value, then give up the strong side's weak count; a
+        /// frozen value's allocation, which has none, is freed.
         fn releaseValue(self: *Self) void {
             dropElement(T, &self.value);
+            if (comptime is_frozen) return destroy(self);
             if (atomic_count) {
                 if (@atomicRmw(usize, &self.weak, .Sub, 1, .acq_rel) == 1) destroy(self);
                 return;
@@ -2444,7 +2452,7 @@ pub fn shared(value: anytype) *Shared(@TypeOf(value)) {
 /// `*Frozen(value)`: the first handle to a frozen value.
 pub fn frozen(value: anytype) *Frozen(@TypeOf(value)) {
     const box = create(Frozen(@TypeOf(value)));
-    box.* = .{ .strong = 1, .weak = 1, .value = value };
+    box.* = .{ .strong = 1, .weak = {}, .value = value };
     return box;
 }
 
@@ -8246,6 +8254,21 @@ test "strong and weak handles free the box once" {
     try testing.expectEqual(1, drops);
     try testing.expectEqual(null, w.upgrade());
     w.dropWeak();
+    try expectNoLeaks(before);
+}
+
+test "a frozen value's allocation has no weak count" {
+    // A strong count and the value, where a `*T`'s also has a weak count.
+    try testing.expectEqual(@sizeOf(usize) + @sizeOf(i64), @sizeOf(Frozen(i64)));
+    try testing.expectEqual(2 * @sizeOf(usize) + @sizeOf(i64), @sizeOf(Shared(i64)));
+    const before = usage();
+    var drops: usize = 0;
+    const a = frozen(Counter{ .drops = &drops });
+    const b = a.cloneStrong();
+    a.dropStrong();
+    try testing.expectEqual(0, drops);
+    b.dropStrong();
+    try testing.expectEqual(1, drops);
     try expectNoLeaks(before);
 }
 

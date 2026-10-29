@@ -202,6 +202,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A frozen value's allocation has no weak count.** A `*Frozen[T]`
+  holds a strong count and the value, 8 bytes less than before, and its
+  last drop is one atomic decrement that frees the allocation, as a
+  frozen value has no weak handle. A `*T` is unchanged
+  ([frozen-no-weak](docs/history/records/2026-10/frozen-no-weak/README.md)).
 - **`!s.swap(i, i)` leaves the element in place** without handing Zig's
   `std.mem.swap` one place twice, which Zig leaves undefined.
 - **`for x in ?h` walks a List or an array that a shared handle
