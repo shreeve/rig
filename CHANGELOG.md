@@ -239,6 +239,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   and 4.3% on zod3, with 5-7% fewer L3 load misses and 3-6% fewer kernel
   cycles, user cycles level
   ([small-maps.md](docs/history/records/2026-10/hash-race/small-maps.md)).
+- **bench/hash's guard gives the same counts every run.** Each row's two
+  runs differ by about 1,000 million instructions, and each count is the
+  least of 5, so the 1 to 2 million instructions the kernel adds to a
+  run move a row by 0.2% at most, where they moved a cheap row by up to
+  7% and failed the guard on `main` in 2 runs of 5. The baseline
+  is written again for the Map of 64 bytes, whose rows it predated.
 - **bench/hash times each row in a function of its own**, for every
   contestant (`called`, `noinline`, `#[inline(never)]`,
   `__attribute__((noinline))`, `//go:noinline`), so a row's loop is
