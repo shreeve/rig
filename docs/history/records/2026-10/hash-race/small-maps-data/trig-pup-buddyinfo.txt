@@ -1,0 +1,8 @@
+== buddy14-before.txt
+Node 0, zone      DMA      0      0      0      0      0      0      0      0      1      1      2 
+Node 0, zone    DMA32    211    394    351    745    525    394    349    242    163     12      0 
+Node 0, zone   Normal  84271  79721  63652  44320  32610  25908  14276   5963   3028    252     10 
+== buddy14-after.txt
+Node 0, zone      DMA      0      0      0      0      0      0      0      0      1      1      2 
+Node 0, zone    DMA32    211    394    351    745    525    394    349    242    163     12      0 
+Node 0, zone   Normal  89995  99300  82434  56952  38965  28220   9917   4867   3064    168      3 

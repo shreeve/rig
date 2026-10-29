@@ -1,0 +1,182 @@
+rig: heap profile: 125.5 MiB live at the peak, in 177 owners; by what owned them then:
+       MiB  share     blocks    avg B   ever made  owner: a List's or slice's element, a box's value; u8 is text
+     17.42  13.9%      27547      663       39606  u64
+     16.08  12.8%        174    96909         802  __rig_std_prelude.Map(u32,u32)
+     16.00  12.8%          1 16777216          18  rig.ordered.Ordered(checker.InstantiationKey,u32).E__struct_3303
+     15.36  12.2%     116478      138      234803  rig.ordered.Ordered(u32,u32).E__struct_942
+     10.33   8.2%         70   154743         337  rig.ordered.Ordered(checker.CacheKey,u32).E__struct_3295
+      7.04   5.6%      22613      326     1948176  u32
+      7.00   5.6%          1  7340032          16  checker.SymbolData
+      6.96   5.5%        249    29311        2270  ast.NodeRec
+      5.05   4.0%       8805      601      393319  u8
+      4.02   3.2%        172    24480         982  ast.SymbolRec
+      3.01   2.4%      96676       32      138897  checker.NodeRef
+      3.00   2.4%          1  3145728          17  rig.ordered.Ordered(checker.CachedTypeKey,u32).E__struct_3299
+      2.25   1.8%          1  2359296          14  checker.InferenceInfo
+      1.88   1.5%          1  1966080          13  checker.InferenceContext
+      1.57   1.3%        249     6624        1734  ast.ListRec
+      1.50   1.2%          1  1572864          16  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).E__struct_3250
+      1.07   0.9%        498     2258        3161  ast.TextRec
+      1.00   0.8%          1  1048576          14  rig.ordered.Ordered(checker.CachedSignatureKey,u32).E__struct_3309
+      0.63   0.5%        173     3795         749  ast.FlowRec
+      0.63   0.5%          2   327680          28  checker.Loc
+      0.51   0.4%       2124      253       21125  ast.Node
+      0.38   0.3%          1   393216          12  rig.ordered.Ordered(checker.UnionOfUnionKey,u32).E__struct_3302
+      0.33   0.3%          1   344064           7  ast.File
+      0.30   0.2%        190     1630         858  ast.Diagnostic
+      0.29   0.2%       2308      131       15835  rig.runtime.String
+      0.22   0.2%          1   229376          10  checker.Diag
+      0.21   0.2%        172     1303         196  compiler.FileIncludeReason
+      0.14   0.1%          1   151552           7  ast.Binding
+      0.11   0.1%          1   114688          10  rig.ordered.Ordered(checker.DiagnosticLocationKey,rig.runtime.ListOf(u32,0)).E__struct_3317
+      0.10   0.1%        471      224         705  checker.InferMemoInfo
+      0.10   0.1%         11     9451          70  tsoptions.CommandLineOption
+      0.09   0.1%          1    98304          11  rig.ordered.Ordered(u32,checker.DeferredSymbolLinks).E__struct_3251
+      0.09   0.1%         67     1432          75  module.ResolvedModule
+      0.06   0.1%          1    67136           1  checker.Checker
+      0.06   0.0%          1    65536          11  rig.ordered.Ordered(checker.NodeRef,checker.NodeLinks).E__struct_3242
+      0.04   0.0%        145      320         145  ast.PragmaArgument
+      0.03   0.0%          1    32768          11  rig.ordered.Ordered(u32,checker.SymbolReferenceLinks).E__struct_3249
+      0.03   0.0%          1    32768          10  rig.ordered.Ordered(checker.PropertiesTypesKey,u32).E__struct_3300
+      0.03   0.0%          1    29696           6  parser.LazyJSDoc
+      0.03   0.0%          1    28672           7  rig.ordered.Ordered(rig.runtime.String,ast.SourceFileMetaData).E__struct_3085
+rig: heap profile: the 20 sites that held the most at the peak, each with the calls that made it:
+
+#1: 16.00 MiB, 12.8%, 1 blocks of rig.ordered.Ordered(checker.InstantiationKey,u32).E__struct_3303, made in
+    insertHashed (ordered.zig:609)
+    instantiate_type_with_alias (checker.zig:46268)
+    instantiate_type (checker.zig:46206)
+    instantiate_type_worker (checker.zig:46515)
+    instantiate_type_with_alias (checker.zig:46268)
+
+#2: 14.00 MiB, 11.2%, 1 blocks of __rig_std_prelude.Map(u32,u32), made in
+    resolve_type_reference_members (checker.zig:47164)
+    resolve_structured_type_members (checker.zig:42098)
+    resolve_type_reference_members (checker.zig:47164)
+    resolve_structured_type_members (checker.zig:42098)
+    get_unmatched_property (checker.zig:38749)
+
+#3: 7.00 MiB, 5.6%, 1 blocks of checker.SymbolData, made in
+    resolve_mapped_type_members (checker.zig:50530)
+    resolve_structured_type_members_worker (checker.zig:42116)
+    resolve_structured_type_members (checker.zig:42098)
+    get_reduced_type (checker.zig:42655)
+    is_related_to_ex (checker.zig:67973)
+
+#4: 6.00 MiB, 4.8%, 1 blocks of rig.ordered.Ordered(checker.CacheKey,u32).E__struct_3295, made in
+    insertHashed (ordered.zig:609)
+    is_related_to_ex (checker.zig:68052)
+    each_type_related_to_type (checker.zig:68258)
+    structured_type_related_to_worker (checker.zig:68900)
+    structured_type_related_to (checker.zig:68752)
+
+#5: 3.00 MiB, 2.4%, 3 blocks of ast.NodeRec, made in
+    parse_list (parser.zig:1192)
+    parse_object_type_members (parser.zig:4522)
+    parse_interface_declaration (parser.zig:2898)
+    parse_declaration (parser.zig:1811)
+    parse_statement (parser.zig:1779)
+
+#6: 3.00 MiB, 2.4%, 1 blocks of rig.ordered.Ordered(checker.CachedTypeKey,u32).E__struct_3299, made in
+    insertHashed (ordered.zig:609)
+    get_conditional_type_worker (checker.zig:48120)
+    get_conditional_type (checker.zig:47950)
+    get_conditional_type_instantiation_of (checker.zig:48511)
+    instantiate_type_with_alias (checker.zig:46268)
+
+#7: 2.91 MiB, 2.3%, 100 blocks of u8, made in
+    parse_source_file_worker (parser.zig:915)
+    parse_source_file_with_options (parser.zig:10836)
+    run_work (compiler.zig:1762)
+    new_program (compiler.zig:4715)
+    compile_config (execute.zig:796)
+
+#8: 2.50 MiB, 2.0%, 1 blocks of u64, made in
+    reserveOne (ordered.zig:477)
+    insertHashed (ordered.zig:609)
+    instantiate_type_with_alias (checker.zig:46268)
+    instantiate_type (checker.zig:46206)
+    get_property_type_for_index_type (checker.zig:48952)
+
+#9: 2.50 MiB, 2.0%, 1 blocks of u64, made in
+    reserveOne (ordered.zig:477)
+    insertHashed (ordered.zig:609)
+    is_related_to_ex (checker.zig:68052)
+    type_related_to_each_type (checker.zig:68356)
+    structured_type_related_to_worker (checker.zig:68900)
+
+#10: 2.25 MiB, 1.8%, 1 blocks of checker.InferenceInfo, made in
+    get_conditional_type (checker.zig:47950)
+    get_conditional_type_instantiation_of (checker.zig:48511)
+    instantiate_type_with_alias (checker.zig:46268)
+    instantiate_type (checker.zig:46206)
+    get_simplified_conditional_type_worker (checker.zig:47795)
+
+#11: 2.04 MiB, 1.6%, 3 blocks of ast.SymbolRec, made in
+    bind_declaration (binder.zig:221)
+    bind (binder.zig:697)
+    bind_each_statement_functions_first (binder.zig:2136)
+    bind_children (binder.zig:1991)
+    bind_container (binder.zig:1788)
+
+#12: 1.88 MiB, 1.5%, 1 blocks of checker.InferenceContext, made in
+    new_inference_context (checker.zig:38809)
+    get_conditional_type (checker.zig:47950)
+    get_conditional_type_instantiation_of (checker.zig:48511)
+    instantiate_type_with_alias (checker.zig:46268)
+    instantiate_type (checker.zig:46206)
+
+#13: 1.50 MiB, 1.2%, 1 blocks of rig.ordered.Ordered(u32,checker.MappedSymbolLinks).E__struct_3250, made in
+    insertHashed (ordered.zig:609)
+    ensure (ordered.zig:814)
+    __rig_invoke (checker.zig:50511)
+    resolve_mapped_type_members (checker.zig:50515)
+    resolve_structured_type_members_worker (checker.zig:42116)
+
+#14: 1.50 MiB, 1.2%, 1 blocks of rig.ordered.Ordered(checker.CacheKey,u32).E__struct_3295, made in
+    insertHashed (ordered.zig:609)
+    instantiate_type_worker (checker.zig:46528)
+    instantiate_type_with_alias (checker.zig:46268)
+    instantiate_type (checker.zig:46206)
+    get_non_circular_return_type_of_signature (checker.zig:70891)
+
+#15: 1.50 MiB, 1.2%, 1 blocks of rig.ordered.Ordered(checker.CacheKey,u32).E__struct_3295, made in
+    insertHashed (ordered.zig:609)
+    is_related_to_ex (checker.zig:67984)
+    is_related_to_simple (checker.zig:67939)
+    properties_identical_to (checker.zig:71616)
+    structured_type_related_to_worker (checker.zig:69398)
+
+#16: 1.25 MiB, 1.0%, 1 blocks of u64, made in
+    reserveOne (ordered.zig:477)
+    insertHashed (ordered.zig:609)
+    get_conditional_type_worker (checker.zig:48120)
+    get_conditional_type (checker.zig:47950)
+    get_conditional_type_instantiation_of (checker.zig:48508)
+
+#17: 1.00 MiB, 0.8%, 1 blocks of u32, made in
+    parse_list (parser.zig:1192)
+    parse_object_type_members (parser.zig:4522)
+    parse_interface_declaration (parser.zig:2898)
+    parse_declaration (parser.zig:1811)
+    parse_statement (parser.zig:1779)
+
+#18: 1.00 MiB, 0.8%, 1 blocks of rig.ordered.Ordered(checker.CachedSignatureKey,u32).E__struct_3309, made in
+    insertHashed (ordered.zig:609)
+    signature_related_to (checker.zig:71753)
+    structured_type_related_to_worker (checker.zig:69400)
+    structured_type_related_to (checker.zig:68752)
+    is_related_to_ex (checker.zig:68052)
+
+#19: 0.92 MiB, 0.7%, 10 blocks of __rig_std_prelude.Map(u32,u32), made in
+    bind (binder.zig:697)
+    bind_list_nodes (binder.zig:2085)
+    bind_children (ast.zig:674)
+    bind_container (binder.zig:1829)
+    bind (binder.zig:706)
+
+#20: 0.90 MiB, 0.7%, 172 blocks of u32, made in
+    bind_source_file_worker (binder.zig:3117)
+    compile_config (execute.zig:796)
+    command_line (execute.zig:644)
+    fiberMain (sched.zig:3076)

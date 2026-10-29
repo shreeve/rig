@@ -38,10 +38,11 @@ pub obj Item[K, V]
 # `Map[K, V]()` is an empty Map, which allocates nothing until the
 # first `put`.
 pub obj Map[K: Hash, V]
+  # The entries, and what finds them: first, so a Map's address is
+  # its table's.
+  t: OrderedMap[K, V] = OrderedMap()
   # How many entries the Map holds.
   pub ?len: Int = 0
-  # The entries, and what finds them.
-  t: OrderedMap[K, V] = OrderedMap()
 
   # An empty Map, as `Map[K, V]()` is, with room for `capacity` entries.
   pub fun new(capacity: Int = 0) -> Map[K, V]
@@ -199,10 +200,11 @@ pub obj Map[K: Hash, V]
 # `Set[K]()` is an empty Set, which allocates nothing until the
 # first `add`.
 pub obj Set[K: Hash]
+  # The keys, and what finds them: first, so a Set's address is
+  # its table's.
+  t: OrderedSet[K] = OrderedSet()
   # How many keys the Set holds.
   pub ?len: Int = 0
-  # The keys, and what finds them.
-  t: OrderedSet[K] = OrderedSet()
 
   # An empty Set, as `Set[K]()` is, with room for `capacity` keys.
   pub fun new(capacity: Int = 0) -> Set[K]

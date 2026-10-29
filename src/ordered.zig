@@ -24,10 +24,15 @@
 //! one, so no tombstone piles up: a rebuild forced by drift sizes the
 //! index so the live entries fill at most 0.6 of it.
 //!
-//! Up to `small` (16) live entries there is no index: `small_tags`, lane
-//! `i` entry `i`'s tag (0 when gone or not written), finds a key by one
-//! match. A small table writes up to `small_lanes` entries, so a turnover
-//! compacts once every `small` takes, and its first put makes room for 4.
+//! Up to `small` (16) live entries there is no index: the small tags,
+//! lane `i` entry `i`'s tag (0 when gone or not written), find a key by
+//! one match. A small table writes up to `small_lanes` entries, so a
+//! turnover compacts once every `small` takes, and its first put makes
+//! room for 4. The small tags sit in the table where an indexed table
+//! keeps its index's pointers and gone bits (`Held`), so the table is 56
+//! bytes and a `Map` 64, a line. An indexed table's room doubles but
+//! from 32 to 48 and 48 to 64 (`nextRoom`)
+//! (docs/history/records/2026-10/hash-race/small-maps.md).
 //!
 //! Every method here is called only from std/prelude.rig's `Map` and
 //! `Set`, whose declarations the checkers read; an entry index it is
@@ -74,7 +79,7 @@ pub fn OrderedSet(comptime K: type) type {
 }
 
 fn Ordered(comptime K: type, comptime V: type) type {
-    return struct {
+    return extern struct {
         const Self = @This();
 
         /// A key over 8 bytes keeps its hash in its entry, but for a plain
@@ -94,37 +99,65 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// A view of a key, as a lookup takes it (`?K`).
         const KeyView = rt.ReadView(K);
 
+        /// An indexed table's index and gone bits; a small table's tags in
+        /// their place, as no table holds both. A Map is then 64 bytes, a
+        /// line.
+        const Index = extern struct {
+            /// A bit an entry, set when it is gone: `goneWords(cap)` words
+            /// while `has_gone`, made at the first take that leaves a hole.
+            gone: [*]u64,
+            /// The live entries the index takes before it grows: 7/8 of
+            /// its tag lanes, less one for each take from a lane a probe
+            /// may walk past.
+            max_load: u32,
+            /// The index's groups, a power of two.
+            groups: u32,
+            /// The index: `groupCount()` groups of tags, and their slots.
+            /// `slots` starts the index's block.
+            tags: [*]Group,
+            slots: [*]Slots,
+        };
+        const Held = extern union {
+            /// A small table's tags: lane `i` is entry `i`'s, 0 when it is
+            /// gone or not written.
+            small: [small_lanes]u8,
+            ix: Index,
+        };
+        comptime {
+            std.debug.assert(@sizeOf(Index) <= small_lanes);
+        }
+
+        // The fields are laid out in order (an `extern struct`), each
+        // 8-byte word holding fields written together: `len` and `live`,
+        // written by every put and take, share no word with a field a
+        // lookup reads, as `shift` is; a store into a word and a narrower
+        // load of another part of it, soon after, wait on each other on
+        // Apple cores. The prelude's Map and Set put their table first,
+        // so a Map's address is its table's: with the table 8 bytes in, a
+        // loop over a List of Maps kept two pointers for each and spilled
+        // one (bench/hash's int16 inserts 8-10% slower on pup).
+
         /// The entries, `cap` of them; undefined while `cap` is 0.
         entries: [*]E = undefined,
-        /// A bit an entry, set when it is gone: `gone_words` words, made
-        /// at the first take that leaves a hole in an indexed table, and
-        /// sized for `cap` from then on. A small table keeps none: its
-        /// tags say which entries are gone.
-        gone: [*]u64 = undefined,
-        /// The index: `groups` groups of tags, and their slots; undefined
-        /// while `groups` is 0. `slots` starts the index's block.
-        tags: [*]Group = undefined,
-        slots: [*]Slots = undefined,
-        cap: u32 = 0,
         /// Entries written, gone or not.
         len: u32 = 0,
         /// Entries not gone; `len - live` are gone.
         live: u32 = 0,
-        groups: u32 = 0,
-        gone_words: u32 = 0,
-        /// The live entries the index takes before it grows: 7/8 of its
-        /// tag lanes, less one for each take from a lane a probe may walk
-        /// past.
-        max_load: u32 = 0,
-        /// The hash's shift right that leaves its group: a `u6`, so a
-        /// lookup shifts by it with no test.
-        shift: u6 = 63,
+        /// At 16 bytes into the table, and so into a Map, which starts
+        /// with it: in a Map 16-aligned, as a List's or the stack's are,
+        /// no group of the small tags straddles two cache lines. At 24, a
+        /// group did, wherever the Map sat 16 bytes into a line
+        /// (bench/hash's churn16 3-5% slower on pup).
+        u: Held = .{ .small = @splat(0) },
+        cap: u32 = 0,
+        /// The hash's shift right that leaves its group, 64 less the log
+        /// of the index's groups; 0 in a small table, which has no index.
+        shift: u8 = 0,
         /// Whether the index is far (`far_bytes`). A `Bool`, so a `Map?`
         /// holds its `none` here (`rt.nicheOf`), never in a pointer.
         far: bool = false,
-        /// A small table's tags: lane `i` is entry `i`'s, 0 when it is
-        /// gone or not written.
-        small_tags: [small_lanes]u8 align(16) = @splat(0),
+        /// Whether an indexed table has made its gone bits.
+        has_gone: bool = false,
         /// Under `RIG_MAP_TRACE`, how many times the index was built
         /// anew (`traceRebuilds`); nothing otherwise.
         trace_rebuilds: if (rt.map_trace) u32 else void = if (rt.map_trace) 0 else {},
@@ -134,6 +167,30 @@ fn Ordered(comptime K: type, comptime V: type) type {
         pub const __rig_args = if (is_set) .{K} else .{ K, V };
         /// `rt.cloneValue` clones it by `clone`.
         pub const __rig_ordered = {};
+
+        /// Whether the table has no index.
+        inline fn isSmall(self: *const Self) bool {
+            return self.shift == 0;
+        }
+
+        /// The index's groups; 0 in a small table.
+        inline fn groupCount(self: *const Self) usize {
+            return if (self.shift == 0) 0 else self.u.ix.groups;
+        }
+
+        /// The index's groups less one: its group mask.
+        inline fn groupMask(self: *const Self) usize {
+            return @as(usize, self.u.ix.groups) -% 1;
+        }
+
+        inline fn hashShift(self: *const Self) u6 {
+            return @truncate(self.shift);
+        }
+
+        /// The words of gone bits held.
+        inline fn goneWordsHeld(self: *const Self) usize {
+            return if (self.has_gone) goneWords(self.cap) else 0;
+        }
 
         // hashing, tags, groups /////////////////////////////////////////////
 
@@ -166,7 +223,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         inline fn home(self: *const Self, h: u64) usize {
-            return @intCast(h >> self.shift);
+            return @intCast(h >> self.hashShift());
         }
 
         inline fn makeEntry(k: K, v: V, h: u64) E {
@@ -220,9 +277,20 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// any, sized to match.
         fn resizeEntries(self: *Self, new_cap: usize) void {
             if (new_cap > max_entries) tooMany();
-            self.entries = (if (self.cap == 0) rt.allocSlice(E, new_cap) else rt.reallocSlice(E, self.entries[0..self.cap], new_cap)).ptr;
+            const old_cap: usize = self.cap;
+            self.entries = (if (old_cap == 0) rt.allocSlice(E, new_cap) else rt.reallocSlice(E, self.entries[0..old_cap], new_cap)).ptr;
             self.cap = @intCast(new_cap);
-            if (self.gone_words != 0) self.sizeGone();
+            if (self.has_gone) self.sizeGone(goneWords(old_cap));
+        }
+
+        /// An indexed table's next room: twice its room, but from 32 to
+        /// 48 and from 48 to 64, so a table of 33 to 48 entries holds 48
+        /// rather than 64 (Trig's symbol tables of 41) and every larger
+        /// room is a power of two again.
+        fn nextRoom(cap: usize) usize {
+            if (cap >= 32 and cap < 48) return 48;
+            if (cap == 48) return 64;
+            return 2 * cap;
         }
 
         noinline fn tooMany() noreturn {
@@ -245,45 +313,45 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return &self.entries[j];
         }
 
-        /// The gone bits sized for `cap` entries, the new words clear.
-        fn sizeGone(self: *Self) void {
-            const old: usize = self.gone_words;
+        /// The gone bits, `old` words of them, sized for `cap` entries,
+        /// the new words clear.
+        fn sizeGone(self: *Self, old: usize) void {
             const new = goneWords(self.cap);
             if (new <= old) return;
-            self.gone = (if (old == 0) rt.allocSlice(u64, new) else rt.reallocSlice(u64, self.gone[0..old], new)).ptr;
-            @memset(self.gone[old..new], 0);
-            self.gone_words = @intCast(new);
+            self.u.ix.gone = (if (old == 0) rt.allocSlice(u64, new) else rt.reallocSlice(u64, self.u.ix.gone[0..old], new)).ptr;
+            @memset(self.u.ix.gone[old..new], 0);
+            self.has_gone = true;
         }
 
         /// Mark entry `j` of an indexed table gone, making its gone bits
         /// at the first.
         inline fn markGone(self: *Self, j: usize) void {
-            if (self.gone_words == 0) self.sizeGone();
-            self.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
+            if (!self.has_gone) self.sizeGone(0);
+            self.u.ix.gone[j >> 6] |= @as(u64, 1) << @intCast(j & 63);
         }
 
         /// Clear the gone bits of the first `n` entries.
         fn clearGone(self: *Self, n: usize) void {
-            if (self.gone_words != 0) @memset(self.gone[0..@min(goneWords(n), self.gone_words)], 0);
+            if (self.has_gone) @memset(self.u.ix.gone[0..@min(goneWords(n), goneWords(self.cap))], 0);
         }
 
         /// Whether entry `j` is gone: its bit in `gone`; in a small table,
         /// whose gone bits stay clear, its tag is 0.
         inline fn isGone(self: *const Self, j: usize) bool {
-            if (self.groups == 0) return self.small_tags[j] == 0;
-            return self.gone_words != 0 and (self.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
+            if (self.isSmall()) return self.u.small[j] == 0;
+            return self.has_gone and (self.u.ix.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
         }
 
         /// Word `w` of the gone bits of the entries written: in a small
         /// table, the lanes of its tags that are 0, below `len`.
         inline fn goneWord(self: *const Self, w: usize) u64 {
-            if (self.groups == 0) {
+            if (self.isSmall()) {
                 if (w > 0) return 0;
-                const v: @Vector(small_lanes, u8) = self.small_tags;
+                const v: @Vector(small_lanes, u8) = self.u.small;
                 const zero: u32 = @bitCast(v == @as(@Vector(small_lanes, u8), @splat(0)));
                 return zero & lowBits(self.len);
             }
-            return if (w < self.gone_words) self.gone[w] else 0;
+            return if (w < self.goneWordsHeld()) self.u.ix.gone[w] else 0;
         }
 
         // the index's block /////////////////////////////////////////////////
@@ -300,13 +368,13 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         fn indexBlock(self: *const Self) []u64 {
-            const p: [*]u64 = @ptrCast(@alignCast(self.slots));
-            return p[0..indexWords(self.groups)];
+            const p: [*]u64 = @ptrCast(@alignCast(self.u.ix.slots));
+            return p[0..indexWords(self.groupCount())];
         }
 
         fn freeIndex(self: *Self) void {
-            if (self.groups != 0) rt.freeSlice(u64, self.indexBlock());
-            self.groups = 0;
+            if (!self.isSmall()) rt.freeSlice(u64, self.indexBlock());
+            self.shift = 0;
         }
 
         fn maxLoad(groups: usize) u32 {
@@ -330,27 +398,27 @@ fn Ordered(comptime K: type, comptime V: type) type {
             // Only the tags need zeros: a slot is read only at a lane
             // whose tag is set, which `place` writes with it.
             @memset(b[8 * groups ..], 0);
-            self.slots = @ptrCast(b.ptr);
-            self.tags = @ptrCast(b.ptr + 8 * groups);
-            self.groups = @intCast(groups);
+            self.u.ix.slots = @ptrCast(b.ptr);
+            self.u.ix.tags = @ptrCast(b.ptr + 8 * groups);
             self.shift = @intCast(@as(u32, 64) - std.math.log2_int(usize, groups));
-            self.max_load = maxLoad(groups);
+            self.u.ix.max_load = maxLoad(groups);
+            self.u.ix.groups = @intCast(groups);
             self.far = indexWords(groups) * 8 > far_bytes;
         }
 
         /// The first free lane from `g`'s group on takes entry `j`; each
         /// full group on the way marks the tag's class as overflowed.
         inline fn place(self: *Self, start: usize, tag: u8, j: usize) void {
-            const mask = @as(usize, self.groups) - 1;
+            const mask = self.groupMask();
             var g = start;
             var step: usize = 0;
             while (true) {
-                const grp = &self.tags[g];
+                const grp = &self.u.ix.tags[g];
                 const free = match(grp, 0);
                 if (free != 0) {
                     const lane = firstLane(free);
                     writeLane(grp, lane, tag);
-                    self.slots[g][lane] = @intCast(j);
+                    self.u.ix.slots[g][lane] = @intCast(j);
                     return;
                 }
                 writeLane(grp, 15, grp[15] | classBit(tag));
@@ -371,7 +439,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// Place every entry, in order. A far index is filled hashing
         /// sixteen entries ahead and prefetching the group each lands in.
         fn fill(self: *Self) void {
-            const shift = self.shift;
+            const shift = self.hashShift();
             const es = self.entries;
             const n: usize = self.len;
             if (!self.far) {
@@ -387,16 +455,16 @@ fn Ordered(comptime K: type, comptime V: type) type {
             while (it < ahead and it < n) : (it += 1) {
                 const h = hashOf(&es[it]);
                 ring[it] = h;
-                @prefetch(&self.tags[@intCast(h >> shift)], .{ .rw = .write });
-                @prefetch(&self.slots[@intCast(h >> shift)], .{ .rw = .write });
+                @prefetch(&self.u.ix.tags[@intCast(h >> shift)], .{ .rw = .write });
+                @prefetch(&self.u.ix.slots[@intCast(h >> shift)], .{ .rw = .write });
             }
             for (0..n) |j| {
                 const h = ring[j % ahead];
                 if (it != n) {
                     const nh = hashOf(&es[it]);
                     ring[j % ahead] = nh;
-                    @prefetch(&self.tags[@intCast(nh >> shift)], .{ .rw = .write });
-                    @prefetch(&self.slots[@intCast(nh >> shift)], .{ .rw = .write });
+                    @prefetch(&self.u.ix.tags[@intCast(nh >> shift)], .{ .rw = .write });
+                    @prefetch(&self.u.ix.slots[@intCast(nh >> shift)], .{ .rw = .write });
                     it += 1;
                 }
                 self.place(@intCast(h >> shift), tagOf(h), j);
@@ -441,11 +509,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
             var stack: [64]u32 = undefined;
             const before = if (words <= stack.len) stack[0..words] else rt.allocSlice(u32, words);
             defer if (words > stack.len) rt.freeSlice(u32, before);
-            const gone = self.gone;
+            const gone = self.u.ix.gone;
             self.moveLive(before);
-            for (0..self.groups) |g| {
-                var full = ~match(&self.tags[g], 0) & tag_lanes;
-                const sl = &self.slots[g];
+            for (0..self.groupCount()) |g| {
+                var full = ~match(&self.u.ix.tags[g], 0) & tag_lanes;
+                const sl = &self.u.ix.slots[g];
                 while (full != 0) : (full &= full - 1) {
                     const lane = firstLane(full);
                     const j: usize = sl[lane];
@@ -464,24 +532,24 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.moveLive(null);
             var d: usize = 0;
             for (0..n) |i| {
-                if (self.small_tags[i] == 0) continue;
-                self.small_tags[d] = self.small_tags[i];
+                if (self.u.small[i] == 0) continue;
+                self.u.small[d] = self.u.small[i];
                 d += 1;
             }
-            @memset(self.small_tags[d..], 0);
+            @memset(self.u.small[d..], 0);
         }
 
         /// Room for one more entry, and room in the index for it.
         noinline fn reserveOne(self: *Self) void {
-            if (self.live >= self.max_load) {
-                self.rebuild(@max(groupsFor(@as(usize, self.live) + 1), self.groups));
+            if (self.live >= self.u.ix.max_load) {
+                self.rebuild(@max(groupsFor(@as(usize, self.live) + 1), self.groupCount()));
             }
             if (self.len == self.cap) {
                 const dead = self.len - self.live;
                 if (dead != 0 and dead >= self.cap / 4) {
                     self.compact();
                 } else {
-                    self.resizeEntries(2 * @as(usize, self.cap));
+                    self.resizeEntries(nextRoom(self.cap));
                 }
             }
         }
@@ -494,16 +562,16 @@ fn Ordered(comptime K: type, comptime V: type) type {
             self.live = 0;
             // A small table's tags are 0 already, each take having cleared
             // its own, and its gone bits stay clear.
-            if (self.groups == 0) return;
+            if (self.isSmall()) return;
             self.clearGone(n);
-            const t: [*]u8 = @ptrCast(self.tags);
-            @memset(t[0 .. 16 * @as(usize, self.groups)], 0);
-            self.max_load = maxLoad(self.groups);
+            const t: [*]u8 = @ptrCast(self.u.ix.tags);
+            @memset(t[0 .. 16 * self.groupCount()], 0);
+            self.u.ix.max_load = maxLoad(self.groupCount());
         }
 
         /// Write lane `i` of a small table's tags (`writeLane`).
         inline fn setSmallTag(self: *Self, i: usize, tag: u8) void {
-            writeLane(self.small_tags[i & 16 ..][0..16], i & 15, tag);
+            writeLane(self.u.small[i & 16 ..][0..16], i & 15, tag);
         }
 
         // finding ///////////////////////////////////////////////////////////
@@ -514,14 +582,14 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// tag among the small tags, each an entry.
         inline fn findSmall(self: *const Self, k: KeyView, h: u64) ?usize {
             const tag = tagOf(h);
-            var m = matchAll(self.small_tags[0..16], tag);
+            var m = matchAll(self.u.small[0..16], tag);
             while (m != 0) : (m &= m - 1) {
                 const i = firstLane(m);
                 if (keyMatch(self.entryOf(i, false), k, h)) return i;
             }
             if (self.len > 16) {
                 @branchHint(.unlikely);
-                m = matchAll(self.small_tags[16..32], tag);
+                m = matchAll(self.u.small[16..32], tag);
                 while (m != 0) : (m &= m - 1) {
                     const i = 16 + firstLane(m);
                     if (keyMatch(self.entryOf(i, false), k, h)) return i;
@@ -532,16 +600,16 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// The probe from group `start`, `step` groups walked.
         inline fn probeFrom(self: *const Self, k: KeyView, h: u64, tag: u8, start: usize, start_step: usize) ?Found {
-            const mask = @as(usize, self.groups) - 1;
+            const mask = self.groupMask();
             const bit = classBit(tag);
             var g = start;
             var step = start_step;
             while (true) {
-                const grp = &self.tags[g];
+                const grp = &self.u.ix.tags[g];
                 var m = match(grp, tag);
                 while (m != 0) : (m &= m - 1) {
                     const lane = firstLane(m);
-                    const j: usize = self.slots[g][lane];
+                    const j: usize = self.u.ix.slots[g][lane];
                     if (keyMatch(self.entryOf(j, false), k, h)) return .{ .g = g, .lane = lane, .j = j };
                 }
                 if (grp[15] & bit == 0) return null;
@@ -551,9 +619,10 @@ fn Ordered(comptime K: type, comptime V: type) type {
             }
         }
 
-        noinline fn probePastHome(self: *const Self, k: KeyView, h: u64, tag: u8, start: usize) ?Found {
+        /// The walk past the home group `home_g`, out of line.
+        noinline fn probePastHome(self: *const Self, k: KeyView, h: u64, tag: u8, home_g: usize) ?Found {
             @branchHint(.cold);
-            return self.probeFrom(k, h, tag, start, 1);
+            return self.probeFrom(k, h, tag, (home_g + 1) & self.groupMask(), 1);
         }
 
         /// The entry of `k`, whose hash is `h`, in the index: the home
@@ -564,24 +633,24 @@ fn Ordered(comptime K: type, comptime V: type) type {
         inline fn findIndexed(self: *const Self, k: KeyView, h: u64, comptime walk_inline: bool) ?Found {
             const tag = tagOf(h);
             const g = self.home(h);
-            @prefetch(&self.slots[g], .{});
-            const grp = &self.tags[g];
+            @prefetch(&self.u.ix.slots[g], .{});
+            const grp = &self.u.ix.tags[g];
             var m = match(grp, tag);
             while (m != 0) : (m &= m - 1) {
                 const lane = firstLane(m);
-                const j: usize = self.slots[g][lane];
+                const j: usize = self.u.ix.slots[g][lane];
                 if (keyMatch(self.entryOf(j, false), k, h)) return .{ .g = g, .lane = lane, .j = j };
             }
             if (grp[15] & classBit(tag) != 0) {
                 @branchHint(.unlikely);
-                if (walk_inline) return self.probeFrom(k, h, tag, (g + 1) & (@as(usize, self.groups) - 1), 1);
-                return self.probePastHome(k, h, tag, (g + 1) & (@as(usize, self.groups) - 1));
+                if (walk_inline) return self.probeFrom(k, h, tag, (g + 1) & (self.groupMask()), 1);
+                return self.probePastHome(k, h, tag, g);
             }
             return null;
         }
 
         inline fn findHashed(self: *const Self, k: KeyView, h: u64) ?usize {
-            if (self.groups == 0) {
+            if (self.isSmall()) {
                 if (self.cap == 0) return null;
                 return self.findSmall(k, h);
             }
@@ -595,7 +664,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// give its index. An insert into room the table has is inline;
         /// making room is out of line.
         inline fn insertHashed(self: *Self, k: K, v: V, h: u64) usize {
-            if (self.groups == 0) {
+            if (self.isSmall()) {
                 const j: usize = self.len;
                 if (j < self.cap and j < small_lanes and self.live < small) {
                     self.entries[j] = makeEntry(k, v, h);
@@ -606,7 +675,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 }
                 return self.insertSmallSlow(k, v, h);
             }
-            if (self.len == self.cap or self.live >= self.max_load) self.reserveOne();
+            if (self.len == self.cap or self.live >= self.u.ix.max_load) self.reserveOne();
             const j: usize = self.len;
             self.entries[j] = makeEntry(k, v, h);
             self.len = @intCast(j + 1);
@@ -614,12 +683,12 @@ fn Ordered(comptime K: type, comptime V: type) type {
             // The home group's first free lane, inline; a full home group
             // walks on out of line.
             const g = self.home(h);
-            const grp = &self.tags[g];
+            const grp = &self.u.ix.tags[g];
             const free = match(grp, 0);
             if (free != 0) {
                 const lane = firstLane(free);
                 writeLane(grp, lane, tagOf(h));
-                self.slots[g][lane] = @intCast(j);
+                self.u.ix.slots[g][lane] = @intCast(j);
             } else self.placePast(g, tagOf(h), j);
             return j;
         }
@@ -641,7 +710,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 self.compactSmall();
             } else {
                 self.rebuild(groupsFor(2 * @as(usize, self.cap)));
-                if (self.len == self.cap) self.resizeEntries(2 * @as(usize, self.cap));
+                if (self.len == self.cap) self.resizeEntries(nextRoom(self.cap));
                 const j: usize = self.len;
                 self.entries[j] = makeEntry(k, v, h);
                 self.len = @intCast(j + 1);
@@ -651,7 +720,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             }
             const j: usize = self.len;
             self.entries[j] = makeEntry(k, v, h);
-            self.small_tags[j] = tagOf(h);
+            self.u.small[j] = tagOf(h);
             self.len = @intCast(j + 1);
             self.live += 1;
             return j;
@@ -664,19 +733,22 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// (`dropEntry`); or null.
         inline fn unlink(self: *Self, k: KeyView) ?usize {
             const h = hashKey(k);
-            if (self.groups == 0) {
+            if (self.isSmall()) {
                 if (self.cap == 0) return null;
                 const i = self.findSmall(k, h) orelse return null;
                 self.setSmallTag(i, 0);
                 return i;
             }
             const f = self.findIndexed(k, h, true) orelse return null;
-            const grp = &self.tags[f.g];
+            const grp = &self.u.ix.tags[f.g];
             writeLane(grp, f.lane, 0);
-            if (grp[15] & classBit(tagOf(h)) != 0) self.max_load -= 1;
+            if (grp[15] & classBit(tagOf(h)) != 0) self.u.ix.max_load -= 1;
             return f.j;
         }
 
+        /// The last entry written, `j`, cut off, with the gone entries
+        /// before it; out of line, as a take of the last entry is rare
+        /// beside the others.
         /// Entry `j`, whose lane is freed and whose key and value are
         /// handed on or dropped, leaves the live entries: marked gone; or
         /// cut off, with the gone entries before it, when it is the last
@@ -689,10 +761,10 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 var n = j;
                 while (self.isGone(n - 1)) {
                     n -= 1;
-                    if (self.groups != 0) self.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
+                    if (!self.isSmall()) self.u.ix.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
                 }
                 self.len = @intCast(n);
-            } else if (self.groups != 0) {
+            } else if (!self.isSmall()) {
                 self.markGone(j);
             }
         }
@@ -939,8 +1011,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 if (keep) continue;
                 rt.dropElement(V, &e.value);
                 rt.dropElement(K, &e.key);
-                if (self.groups == 0) {
-                    self.small_tags[j] = 0;
+                if (self.isSmall()) {
+                    self.u.small[j] = 0;
                 } else self.markGone(j);
                 self.live -= 1;
                 removed = true;
@@ -960,14 +1032,14 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 return;
             }
             self.moveLive(null);
-            if (self.groups == 0) {
-                @memset(&self.small_tags, 0);
-                for (0..self.len) |j| self.small_tags[j] = tagOf(hashOf(&self.entries[j]));
+            if (self.isSmall()) {
+                @memset(&self.u.small, 0);
+                for (0..self.len) |j| self.u.small[j] = tagOf(hashOf(&self.entries[j]));
                 return;
             }
-            const t: [*]u8 = @ptrCast(self.tags);
-            @memset(t[0 .. 16 * @as(usize, self.groups)], 0);
-            self.max_load = maxLoad(self.groups);
+            const t: [*]u8 = @ptrCast(self.u.ix.tags);
+            @memset(t[0 .. 16 * self.groupCount()], 0);
+            self.u.ix.max_load = maxLoad(self.groupCount());
             self.fill();
         }
 
@@ -975,12 +1047,14 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// entries' memory.
         pub fn clear(self: *Self) void {
             self.dropLive();
-            self.clearGone(self.cap);
+            // The small tags take the index's place: the gone bits go
+            // with it.
+            if (self.has_gone) rt.freeSlice(u64, self.u.ix.gone[0..goneWords(self.cap)]);
+            self.has_gone = false;
             self.freeIndex();
             self.len = 0;
             self.live = 0;
-            self.max_load = 0;
-            @memset(&self.small_tags, 0);
+            @memset(&self.u.small, 0);
         }
 
         /// `reserve(!@, n: Int)`: room for `n` more entries at once, the
@@ -995,8 +1069,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
             const want = @as(usize, self.live) + more;
             if (want > small) {
                 const g = groupsFor(want);
-                if (g > self.groups) self.rebuild(g);
-            } else if (self.groups == 0 and @as(usize, self.len) + more > small_lanes) {
+                if (g > self.groupCount()) self.rebuild(g);
+            } else if (self.isSmall() and @as(usize, self.len) + more > small_lanes) {
                 self.compactSmall();
             }
             const total = @as(usize, self.len) + more;
@@ -1024,7 +1098,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         pub fn __rig_drop(self: *Self) void {
             self.dropLive();
             if (self.cap != 0) rt.freeSlice(E, self.entries[0..self.cap]);
-            if (self.gone_words != 0) rt.freeSlice(u64, self.gone[0..self.gone_words]);
+            if (self.has_gone) rt.freeSlice(u64, self.u.ix.gone[0..goneWords(self.cap)]);
+            self.has_gone = false;
             self.freeIndex();
             self.* = .{};
         }
@@ -1051,7 +1126,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         pub fn traceSlots(self: *const Self) u64 {
-            return @as(u64, self.groups) * 16;
+            return @as(u64, self.groupCount()) * 16;
         }
 
         /// The invariants, for tests: the counts agree; every live entry
@@ -1062,34 +1137,34 @@ fn Ordered(comptime K: type, comptime V: type) type {
             if (self.live > self.len or self.len > self.cap) return error.Corrupt;
             if (self.cap == 0) return;
             var gone_count: usize = 0;
-            for (0..self.gone_words) |w| {
-                const g = self.gone[w];
+            for (0..self.goneWordsHeld()) |w| {
+                const g = self.u.ix.gone[w];
                 gone_count += @popCount(g);
                 if (g != 0 and w * 64 + 64 - @clz(g) > self.len) return error.Corrupt;
             }
-            if (gone_count != (if (self.groups == 0) 0 else self.len - self.live)) return error.Corrupt;
+            if (gone_count != (if (self.isSmall()) 0 else self.len - self.live)) return error.Corrupt;
             if (self.len != 0 and self.isGone(self.len - 1)) return error.Corrupt;
-            if (self.groups == 0) {
+            if (self.isSmall()) {
                 if (self.len > small_lanes or self.live > small) return error.Corrupt;
                 for (0..small_lanes) |i| {
-                    const t = self.small_tags[i];
+                    const t = self.u.small[i];
                     if (i >= self.len or self.isGone(i)) {
                         if (t != 0) return error.Corrupt;
                     } else if (t != tagOf(hashOf(&self.entries[i]))) return error.Corrupt;
                 }
                 return;
             }
-            if (self.live > self.max_load) return error.Corrupt;
+            if (self.live > self.u.ix.max_load) return error.Corrupt;
             var full: usize = 0;
-            for (0..self.groups) |g| for (0..15) |lane| {
-                if (self.tags[g][lane] == 0) continue;
+            for (0..self.groupCount()) |g| for (0..15) |lane| {
+                if (self.u.ix.tags[g][lane] == 0) continue;
                 full += 1;
-                const j = self.slots[g][lane];
+                const j = self.u.ix.slots[g][lane];
                 if (j >= self.len or self.isGone(j)) return error.Corrupt;
-                if (tagOf(hashOf(&self.entries[j])) != self.tags[g][lane]) return error.Corrupt;
+                if (tagOf(hashOf(&self.entries[j])) != self.u.ix.tags[g][lane]) return error.Corrupt;
             };
             if (full != self.live) return error.Corrupt;
-            const mask = @as(usize, self.groups) - 1;
+            const mask = self.groupMask();
             for (0..self.len) |j| {
                 if (self.isGone(j)) continue;
                 const h = hashOf(&self.entries[j]);
@@ -1099,11 +1174,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 while (true) {
                     var hits: usize = 0;
                     for (0..15) |lane| {
-                        if (self.tags[g][lane] == tag and self.slots[g][lane] == j) hits += 1;
+                        if (self.u.ix.tags[g][lane] == tag and self.u.ix.slots[g][lane] == j) hits += 1;
                     }
                     if (hits > 1) return error.Corrupt;
                     if (hits == 1) break;
-                    if (self.tags[g][15] & classBit(tag) == 0) return error.Corrupt;
+                    if (self.u.ix.tags[g][15] & classBit(tag) == 0) return error.Corrupt;
                     step += 1;
                     if (step > mask) return error.Corrupt;
                     g = (g + step) & mask;
@@ -1157,6 +1232,12 @@ test "ordered: puts, takes, and walks keep first-put order" {
     try testing.expectEqual(@as(i64, 998), last);
 }
 
+test "ordered: the table is 56 bytes, as sema.minBytesOf says" {
+    if (rt.map_trace) return;
+    try testing.expectEqual(@as(usize, 56), @sizeOf(OrderedMap(u32, u32)));
+    try testing.expectEqual(@as(usize, 56), @sizeOf(OrderedSet(u8)));
+}
+
 test "ordered: a small table turns over" {
     var s: OrderedSet(i64) = .{};
     defer s.__rig_drop();
@@ -1166,7 +1247,7 @@ test "ordered: a small table turns over" {
         if (i >= 10) try testing.expectEqual(@as(i64, i - 10), rt.some(s.take(i - 10)).?);
     }
     try testing.expectEqual(@as(i64, 10), s.count());
-    try testing.expectEqual(@as(u32, 0), s.groups);
+    try testing.expect(s.isSmall());
     try testing.expect(s.find(195) != null and s.find(189) == null);
 }
 
