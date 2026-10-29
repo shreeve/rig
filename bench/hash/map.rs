@@ -75,6 +75,77 @@ fn out(keys: &str, op: &str, ns: u128, check: i64) {
     println!("{keys} {op} {ns} {check}");
 }
 
+// Each row's timed loop is a function of its own that is never inlined,
+// so its registers are allotted for that loop alone, not shared with
+// the other rows' loops in the caller. It reads the clock around the
+// loop, so the call is not timed, and returns the time with the row's
+// checksum.
+
+#[inline(never)]
+fn int_insert(maps: &mut [Map], s: i64) -> u128 {
+    let t = Instant::now();
+    for (j, m) in maps.iter_mut().enumerate() {
+        let base = j as i64 * s;
+        for i in 0..s {
+            m.insert((base + i).wrapping_mul(MUL), i);
+        }
+    }
+    t.elapsed().as_nanos()
+}
+
+#[inline(never)]
+fn int_remove(maps: &mut [Map], s: i64) -> (u128, i64) {
+    let mut check = 0i64;
+    let t = Instant::now();
+    for (j, m) in maps.iter_mut().enumerate() {
+        let base = j as i64 * s;
+        for i in 0..s {
+            check += m.remove(&(base + i).wrapping_mul(MUL)).unwrap_or(0);
+        }
+    }
+    (t.elapsed().as_nanos(), check)
+}
+
+#[inline(never)]
+fn int_hit(m: &Map, s: i64, rounds: i64) -> (u128, i64) {
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for i in 0..s {
+            if let Some(v) = m.get(&black_box(i).wrapping_mul(MUL)) {
+                sum += v;
+            }
+        }
+    }
+    (t.elapsed().as_nanos(), sum)
+}
+
+#[inline(never)]
+fn int_miss(m: &Map, s: i64, rounds: i64) -> (u128, i64) {
+    let mut found = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for i in s..2 * s {
+            if m.contains_key(&black_box(i).wrapping_mul(MUL)) {
+                found += 1;
+            }
+        }
+    }
+    (t.elapsed().as_nanos(), found)
+}
+
+#[inline(never)]
+fn int_iterate(m: &Map, rounds: i64) -> (u128, i64) {
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for v in black_box(m).values() {
+            sum += v;
+        }
+    }
+    (t.elapsed().as_nanos(), sum)
+}
+
 fn sized(s: i64) {
     let total = 4 * N;
     let k = if s < N { N / s } else { 1 };
@@ -83,22 +154,10 @@ fn sized(s: i64) {
     let (mut ins, mut rem, mut check) = (0u128, 0u128, 0i64);
     for _ in 0..reps {
         let mut maps: Vec<Map> = (0..k).map(|_| Map::default()).collect();
-        let t = Instant::now();
-        for (j, m) in maps.iter_mut().enumerate() {
-            let base = j as i64 * s;
-            for i in 0..s {
-                m.insert((base + i).wrapping_mul(MUL), i);
-            }
-        }
-        ins += t.elapsed().as_nanos();
-        let t = Instant::now();
-        for (j, m) in maps.iter_mut().enumerate() {
-            let base = j as i64 * s;
-            for i in 0..s {
-                check += m.remove(&(base + i).wrapping_mul(MUL)).unwrap_or(0);
-            }
-        }
-        rem += t.elapsed().as_nanos();
+        ins += int_insert(&mut maps, s);
+        let (ns, c) = int_remove(&mut maps, s);
+        rem += ns;
+        check += c;
         black_box(&maps);
     }
     let scale = |ns: u128| ns * N as u128 / total as u128;
@@ -109,34 +168,12 @@ fn sized(s: i64) {
         m.insert(i.wrapping_mul(MUL), i);
     }
     let rounds = total / s;
-    let mut sum = 0i64;
-    let t = Instant::now();
-    for _ in 0..rounds {
-        for i in 0..s {
-            if let Some(v) = m.get(&black_box(i).wrapping_mul(MUL)) {
-                sum += v;
-            }
-        }
-    }
-    out(&name, "hit", scale(t.elapsed().as_nanos()), sum);
-    let mut found = 0i64;
-    let t = Instant::now();
-    for _ in 0..rounds {
-        for i in s..2 * s {
-            if m.contains_key(&black_box(i).wrapping_mul(MUL)) {
-                found += 1;
-            }
-        }
-    }
-    out(&name, "miss", scale(t.elapsed().as_nanos()), found);
-    sum = 0;
-    let t = Instant::now();
-    for _ in 0..rounds {
-        for v in black_box(&m).values() {
-            sum += v;
-        }
-    }
-    out(&name, "iterate", scale(t.elapsed().as_nanos()), sum);
+    let (ns, sum) = int_hit(&m, s, rounds);
+    out(&name, "hit", scale(ns), sum);
+    let (ns, found) = int_miss(&m, s, rounds);
+    out(&name, "miss", scale(ns), found);
+    let (ns, sum) = int_iterate(&m, rounds);
+    out(&name, "iterate", scale(ns), sum);
 }
 
 /// splitmix64's output for `n + 1`: a bijection, so distinct `n` give
@@ -159,6 +196,69 @@ fn shuffled(mut v: Vec<i64>) -> Vec<i64> {
 
 const SEED: i64 = 0x5eed;
 
+#[inline(never)]
+fn rnd_insert(maps: &mut [Map], keys: &[i64], s: i64) -> u128 {
+    let t = Instant::now();
+    for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
+        for (i, &key) in ks.iter().enumerate() {
+            m.insert(key, i as i64);
+        }
+    }
+    t.elapsed().as_nanos()
+}
+
+#[inline(never)]
+fn rnd_remove(maps: &mut [Map], keys: &[i64], s: i64) -> (u128, i64) {
+    let mut check = 0i64;
+    let t = Instant::now();
+    for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
+        for &key in ks {
+            check += (|m: &mut Map, k: &i64| m.remove(k))(m, &key).unwrap_or(0);
+        }
+    }
+    (t.elapsed().as_nanos(), check)
+}
+
+#[inline(never)]
+fn rnd_hit(m: &Map, hit: &Vec<i64>, rounds: i64) -> (u128, i64) {
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for &key in black_box(hit) {
+            if let Some(v) = m.get(&key) {
+                sum += v;
+            }
+        }
+    }
+    (t.elapsed().as_nanos(), sum)
+}
+
+#[inline(never)]
+fn rnd_miss(m: &Map, miss: &Vec<i64>, rounds: i64) -> (u128, i64) {
+    let mut found = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for key in black_box(miss) {
+            if m.contains_key(key) {
+                found += 1;
+            }
+        }
+    }
+    (t.elapsed().as_nanos(), found)
+}
+
+#[inline(never)]
+fn rnd_iterate(m: &Map, rounds: i64) -> (u128, i64) {
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for v in black_box(m).values() {
+            sum += v;
+        }
+    }
+    (t.elapsed().as_nanos(), sum)
+}
+
 /// The ops of `sized` on random keys (`scatter` of 0, 1, ...), read from
 /// arrays made before the timing; hits look the keys up in shuffled order.
 fn random(s: i64) {
@@ -170,20 +270,10 @@ fn random(s: i64) {
     let (mut ins, mut rem, mut check) = (0u128, 0u128, 0i64);
     for _ in 0..reps {
         let mut maps: Vec<Map> = (0..k).map(|_| Map::default()).collect();
-        let t = Instant::now();
-        for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
-            for (i, &key) in ks.iter().enumerate() {
-                m.insert(key, i as i64);
-            }
-        }
-        ins += t.elapsed().as_nanos();
-        let t = Instant::now();
-        for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
-            for &key in ks {
-                check += (|m: &mut Map, k: &i64| m.remove(k))(m, &key).unwrap_or(0);
-            }
-        }
-        rem += t.elapsed().as_nanos();
+        ins += rnd_insert(&mut maps, &keys, s);
+        let (ns, c) = rnd_remove(&mut maps, &keys, s);
+        rem += ns;
+        check += c;
         black_box(&maps);
     }
     let scale = |ns: u128| ns * N as u128 / total as u128;
@@ -196,34 +286,12 @@ fn random(s: i64) {
     let hit = shuffled(keys[..s as usize].to_vec());
     let miss: Vec<i64> = (0..s).map(|i| scatter(8 * N + i)).collect();
     let rounds = total / s;
-    let mut sum = 0i64;
-    let t = Instant::now();
-    for _ in 0..rounds {
-        for &key in black_box(&hit) {
-            if let Some(v) = m.get(&key) {
-                sum += v;
-            }
-        }
-    }
-    out(&name, "hit", scale(t.elapsed().as_nanos()), sum);
-    let mut found = 0i64;
-    let t = Instant::now();
-    for _ in 0..rounds {
-        for key in black_box(&miss) {
-            if m.contains_key(key) {
-                found += 1;
-            }
-        }
-    }
-    out(&name, "miss", scale(t.elapsed().as_nanos()), found);
-    sum = 0;
-    let t = Instant::now();
-    for _ in 0..rounds {
-        for v in black_box(&m).values() {
-            sum += v;
-        }
-    }
-    out(&name, "iterate", scale(t.elapsed().as_nanos()), sum);
+    let (ns, sum) = rnd_hit(&m, &hit, rounds);
+    out(&name, "hit", scale(ns), sum);
+    let (ns, found) = rnd_miss(&m, &miss, rounds);
+    out(&name, "miss", scale(ns), found);
+    let (ns, sum) = rnd_iterate(&m, rounds);
+    out(&name, "iterate", scale(ns), sum);
 }
 
 /// `text(n)` of bench/hash/WORKLOADS.md: 7 to 27 bytes, distinct by
@@ -235,6 +303,15 @@ fn text(n: i64) -> String {
 /// `big(i)`: eight integers from `i`.
 fn big(i: i64) -> [i64; 8] {
     [i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7]
+}
+
+#[inline(never)]
+fn lat_chain(m: &Map, mut key: i64, total: i64) -> (u128, i64) {
+    let t = Instant::now();
+    for _ in 0..total {
+        key = m[&key];
+    }
+    (t.elapsed().as_nanos(), key)
 }
 
 /// One lookup at a time, each waiting for the last: the map is one
@@ -252,12 +329,19 @@ fn latency(s: i64) {
     for i in 0..s {
         m.insert(scatter(i), scatter(next[i as usize]));
     }
-    let mut key = scatter(p[0]);
+    let (ns, key) = lat_chain(&m, scatter(p[0]), total);
+    out(&format!("lat{s}"), "chain", ns * N as u128 / total as u128, key);
+}
+
+#[inline(never)]
+fn churn_turnover(m: &mut Map, keys: &[i64], s: i64, turns: i64) -> (u128, i64) {
+    let mut check = 0i64;
     let t = Instant::now();
-    for _ in 0..total {
-        key = m[&key];
+    for i in 0..turns {
+        check = check.wrapping_add(m.remove(&keys[i as usize]).unwrap_or(0));
+        m.insert(keys[(s + i) as usize], s + i);
     }
-    out(&format!("lat{s}"), "chain", t.elapsed().as_nanos() * N as u128 / total as u128, key);
+    (t.elapsed().as_nanos(), check)
 }
 
 /// A map of `s` keys turned over: each step removes the oldest key and
@@ -270,14 +354,23 @@ fn churn(s: i64) {
     for i in 0..s {
         m.insert(keys[i as usize], i);
     }
-    let mut check = 0i64;
-    let t = Instant::now();
-    for i in 0..turns {
-        check = check.wrapping_add(m.remove(&keys[i as usize]).unwrap_or(0));
-        m.insert(keys[(s + i) as usize], s + i);
-    }
-    out(&format!("churn{s}"), "turnover", t.elapsed().as_nanos() * N as u128 / total as u128, check);
+    let (ns, check) = churn_turnover(&mut m, &keys, s, turns);
+    out(&format!("churn{s}"), "turnover", ns * N as u128 / total as u128, check);
     black_box(&m);
+}
+
+#[inline(never)]
+fn mix_half(m: &Map, look: &Vec<i64>, rounds: i64) -> (u128, i64) {
+    let mut sum = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for key in black_box(look) {
+            if let Some(v) = m.get(key) {
+                sum += v;
+            }
+        }
+    }
+    (t.elapsed().as_nanos(), sum)
 }
 
 /// Lookups that hit half the time, in shuffled order.
@@ -288,16 +381,62 @@ fn mixed(s: i64) {
         m.insert(scatter(i), i);
     }
     let look = shuffled((0..s).map(|i| if i % 2 == 0 { scatter(i) } else { scatter(8 * N + i) }).collect());
+    let (ns, sum) = mix_half(&m, &look, total / s);
+    out(&format!("mix{s}"), "half", ns * N as u128 / total as u128, sum);
+}
+
+#[inline(never)]
+fn str_insert(maps: &mut [StrMap], put: &mut Vec<String>, s: i64) -> u128 {
+    let t = Instant::now();
+    let mut put_at = put.drain(..);
+    for m in maps.iter_mut() {
+        for i in 0..s {
+            m.insert(put_at.next().unwrap(), i);
+        }
+    }
+    let ns = t.elapsed().as_nanos();
+    drop(put_at);
+    ns
+}
+
+#[inline(never)]
+fn str_remove(maps: &mut [StrMap], take: &[String], s: i64) -> (u128, i64) {
+    let mut check = 0i64;
+    let t = Instant::now();
+    for (m, ks) in maps.iter_mut().zip(take.chunks(s as usize)) {
+        for key in ks {
+            check += m.remove(key.as_str()).unwrap_or(0);
+        }
+    }
+    (t.elapsed().as_nanos(), check)
+}
+
+#[inline(never)]
+fn str_hit(m: &StrMap, hit: &Vec<String>, rounds: i64) -> (u128, i64) {
     let mut sum = 0i64;
     let t = Instant::now();
-    for _ in 0..total / s {
-        for key in black_box(&look) {
-            if let Some(v) = m.get(key) {
+    for _ in 0..rounds {
+        for key in black_box(hit) {
+            if let Some(v) = m.get(key.as_str()) {
                 sum += v;
             }
         }
     }
-    out(&format!("mix{s}"), "half", t.elapsed().as_nanos() * N as u128 / total as u128, sum);
+    (t.elapsed().as_nanos(), sum)
+}
+
+#[inline(never)]
+fn str_miss(m: &StrMap, miss: &Vec<String>, rounds: i64) -> (u128, i64) {
+    let mut found = 0i64;
+    let t = Instant::now();
+    for _ in 0..rounds {
+        for key in black_box(miss) {
+            if m.contains_key(key.as_str()) {
+                found += 1;
+            }
+        }
+    }
+    (t.elapsed().as_nanos(), found)
 }
 
 /// Text keys, each moved into the map and found by an equal text made
@@ -311,22 +450,10 @@ fn strings(s: i64) {
         let mut put: Vec<String> = (0..k * s).map(text).collect();
         let take: Vec<String> = (0..k * s).map(text).collect();
         let mut maps: Vec<StrMap> = (0..k).map(|_| StrMap::default()).collect();
-        let t = Instant::now();
-        let mut put_at = put.drain(..);
-        for m in maps.iter_mut() {
-            for i in 0..s {
-                m.insert(put_at.next().unwrap(), i);
-            }
-        }
-        ins += t.elapsed().as_nanos();
-        drop(put_at);
-        let t = Instant::now();
-        for (m, ks) in maps.iter_mut().zip(take.chunks(s as usize)) {
-            for key in ks {
-                check += m.remove(key.as_str()).unwrap_or(0);
-            }
-        }
-        rem += t.elapsed().as_nanos();
+        ins += str_insert(&mut maps, &mut put, s);
+        let (ns, c) = str_remove(&mut maps, &take, s);
+        rem += ns;
+        check += c;
         black_box(&maps);
     }
     out(&name, "insert", ins, reps * k * s);
@@ -337,26 +464,61 @@ fn strings(s: i64) {
     }
     let hit: Vec<String> = shuffled((0..s).collect()).into_iter().map(text).collect();
     let miss: Vec<String> = (0..s).map(|i| text(8 * N + i)).collect();
+    let (ns, sum) = str_hit(&m, &hit, N / s);
+    out(&name, "hit", ns, sum);
+    let (ns, found) = str_miss(&m, &miss, N / s);
+    out(&name, "miss", ns, found);
+}
+
+#[inline(never)]
+fn big_insert(maps: &mut [BigMap], keys: &[i64], s: i64) -> u128 {
+    let t = Instant::now();
+    for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
+        for (i, &key) in ks.iter().enumerate() {
+            m.insert(key, big(i as i64));
+        }
+    }
+    t.elapsed().as_nanos()
+}
+
+#[inline(never)]
+fn big_remove(maps: &mut [BigMap], keys: &[i64], s: i64) -> (u128, i64) {
+    let mut check = 0i64;
+    let t = Instant::now();
+    for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
+        for key in ks {
+            if let Some(v) = m.remove(key) {
+                check += v[7];
+            }
+        }
+    }
+    (t.elapsed().as_nanos(), check)
+}
+
+#[inline(never)]
+fn big_hit(m: &BigMap, hit: &Vec<i64>, rounds: i64) -> (u128, i64) {
     let mut sum = 0i64;
     let t = Instant::now();
-    for _ in 0..N / s {
-        for key in black_box(&hit) {
-            if let Some(v) = m.get(key.as_str()) {
-                sum += v;
+    for _ in 0..rounds {
+        for key in black_box(hit) {
+            if let Some(v) = m.get(key) {
+                sum += v[7];
             }
         }
     }
-    out(&name, "hit", t.elapsed().as_nanos(), sum);
-    let mut found = 0i64;
+    (t.elapsed().as_nanos(), sum)
+}
+
+#[inline(never)]
+fn big_iterate(m: &BigMap, rounds: i64) -> (u128, i64) {
+    let mut sum = 0i64;
     let t = Instant::now();
-    for _ in 0..N / s {
-        for key in black_box(&miss) {
-            if m.contains_key(key.as_str()) {
-                found += 1;
-            }
+    for _ in 0..rounds {
+        for v in black_box(m).values() {
+            sum += v[0];
         }
     }
-    out(&name, "miss", t.elapsed().as_nanos(), found);
+    (t.elapsed().as_nanos(), sum)
 }
 
 /// `random`'s insert, remove, hit and iterate with a value of eight
@@ -370,22 +532,10 @@ fn bigs(s: i64) {
     let (mut ins, mut rem, mut check) = (0u128, 0u128, 0i64);
     for _ in 0..reps {
         let mut maps: Vec<BigMap> = (0..k).map(|_| BigMap::default()).collect();
-        let t = Instant::now();
-        for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
-            for (i, &key) in ks.iter().enumerate() {
-                m.insert(key, big(i as i64));
-            }
-        }
-        ins += t.elapsed().as_nanos();
-        let t = Instant::now();
-        for (m, ks) in maps.iter_mut().zip(keys.chunks(s as usize)) {
-            for key in ks {
-                if let Some(v) = m.remove(key) {
-                    check += v[7];
-                }
-            }
-        }
-        rem += t.elapsed().as_nanos();
+        ins += big_insert(&mut maps, &keys, s);
+        let (ns, c) = big_remove(&mut maps, &keys, s);
+        rem += ns;
+        check += c;
         black_box(&maps);
     }
     let scale = |ns: u128| ns * N as u128 / total as u128;
@@ -396,24 +546,10 @@ fn bigs(s: i64) {
         m.insert(key, big(i as i64));
     }
     let hit = shuffled(keys[..s as usize].to_vec());
-    let mut sum = 0i64;
-    let t = Instant::now();
-    for _ in 0..total / s {
-        for key in black_box(&hit) {
-            if let Some(v) = m.get(key) {
-                sum += v[7];
-            }
-        }
-    }
-    out(&name, "hit", scale(t.elapsed().as_nanos()), sum);
-    sum = 0;
-    let t = Instant::now();
-    for _ in 0..total / s {
-        for v in black_box(&m).values() {
-            sum += v[0];
-        }
-    }
-    out(&name, "iterate", scale(t.elapsed().as_nanos()), sum);
+    let (ns, sum) = big_hit(&m, &hit, total / s);
+    out(&name, "hit", scale(ns), sum);
+    let (ns, sum) = big_iterate(&m, total / s);
+    out(&name, "iterate", scale(ns), sum);
 }
 
 /// `mem`: one map of 4,000,000 keys, for its peak memory; `mem0`: the
