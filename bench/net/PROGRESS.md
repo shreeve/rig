@@ -23,6 +23,8 @@ moves up into its table).
 | 2026-10-27 | #725: a freed large block serves any request it fits | rig-fast | 14.82 us | 5.92 us | 49.98 us |
 | 2026-10-27 | main 967e1ac11 before #726, interleaved | rig-fast | 14.69 us | 5.96 us | 45.19 us |
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (Linux only) | rig-fast | 14.81 us | 5.92 us | 48.47 us |
+| 2026-10-28 | main de6ef3e41 before #767, interleaved | rig-fast | 14.10 us | 5.90 us | 45.17 us |
+| 2026-10-28 | #767: a frozen value's allocation has no weak count | rig-fast | 14.04 us | 5.87 us | 46.35 us |
 
 ## x86-64 (pup)
 
@@ -53,3 +55,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-27 | #725: a freed large block serves any request it fits (pup cores 6,7) | rig-fast | 5.00 us | 3.84 us | 30.08 us |
 | 2026-10-27 | main 967e1ac11 before #726, interleaved (pup cores 6,7) | rig-fast | 4.93 us | 3.59 us | 28.10 us |
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (pup cores 6,7) | rig-fast | 4.99 us | 3.62 us | 28.89 us |
+| 2026-10-28 | main de6ef3e41 before #767, interleaved (pup core 6) | rig-fast | 4.73 us | 4.55 us | 28.88 us |
+| 2026-10-28 | #767: a frozen value's allocation has no weak count (pup core 6) | rig-fast | 4.74 us | 4.56 us | 28.71 us |

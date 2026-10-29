@@ -102,6 +102,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | CORE's "A view reached through a write view that a binding holds" (sentence 7) | `if !@slots[j] as s` may `return !s.value` `from @`: the view carries the binding's loans, path for path, and a loan on the binding that ends with its scope; nothing in that scope, its defers included, uses `s` while the view lives (§7 Defer: what a scope gives back is live while its defers run); a designer, an adversary (H1 to H6), a reviewer whose holes 1 and 2 shipped first as the defer hotfix (#663), and the owner's approval | [wview-return/](2026-10/wview-return/) |
 
 | CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
+| A frozen value's allocation (#767, 2026-10-28) | `*Frozen[T]` holds a strong count and the value, no weak count (8 bytes less), and its last drop is one atomic decrement; the weak count's cost to every `*T` on Trig measured: one `*T` allocation of 3.4M on ts-pattern, so storing it only when a weak handle exists is not worth a design round | [frozen-no-weak/](2026-10/frozen-no-weak/) |
 
 ## Every record
 
@@ -209,6 +210,10 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [design.md](2026-10/frozen/design.md): `*Frozen[T]`: a value many tasks read
 - [review-1.md](2026-10/frozen/review-1.md): Review: `*Frozen[T]` (branch `frozen`), and its fixes
+
+### 2026-10/frozen-no-weak/
+
+- [README.md](2026-10/frozen-no-weak/README.md): the frozen layout as built, its gates, and the measurement of the weak count on Trig's `*T`, with its verdict
 
 ### 2026-10/functions/
 
