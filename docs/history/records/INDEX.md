@@ -272,6 +272,9 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 ### 2026-10/perf-stage/thp-gate-data/
 
+- [bench.sh](2026-10/perf-stage/thp-gate-data/bench.sh)
+- [benches-pup.log](2026-10/perf-stage/thp-gate-data/benches-pup.log)
+- [benchsum.py](2026-10/perf-stage/thp-gate-data/benchsum.py)
 - [build-g.sh](2026-10/perf-stage/thp-gate-data/build-g.sh)
 - [cmds.sh](2026-10/perf-stage/thp-gate-data/cmds.sh)
 - [frag.c](2026-10/perf-stage/thp-gate-data/frag.c)

@@ -118,6 +118,13 @@ Rig's gates for the branch:
 - `bench/hash/guard.py`, every row within 0.3%;
 - `zig build test` on pup with `-Doptimize=debug`, `safe` and `fast`,
   passing.
+- AGENTS' runtime benches on pup (`bench/tasks`, `bench/actors`,
+  `bench/net`, `bench/http`, rig-fast), main and the branch interleaved,
+  4 rounds of 3 runs, fastest of 12, on P-core 1 and its sibling 2
+  (`bench.sh`, `benches-pup.log`, `benchsum.py`): unchanged, every case
+  within 1.2% except http's p50 latency, 6.4% lower (187 us against
+  175) with its p99 0.4% higher and its requests 0.2% more, which is
+  noise. No PROGRESS.md row is added.
 
 The gate's tests failed first against a stand-in for main's behavior:
 the parser's count, and no huge-page request for a block, a growth, or
