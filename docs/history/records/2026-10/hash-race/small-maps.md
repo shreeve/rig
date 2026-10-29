@@ -121,18 +121,18 @@ allocator:
 
 pup, release builds (slots "10,11 10,11 10,11"), 20 interleaved rounds
 on core 8 with sibling 9 idle, one checker; Trig 403a823 built by main
-773978d1d and by 8eab1c8c7. Output identical every round. Main's kernel
+773978d1d and by 722129211. Output identical every round. Main's kernel
 cycles (0.25G on ts-pattern) match a quiet pup; `/proc/buddyinfo`
 before and after is in `trig-pup-buddyinfo.txt`. Medians:
 
 | | ts-pattern main | new | new / main | zod3 main | new | new / main |
 |---|---:|---:|---:|---:|---:|---:|
-| peak RSS, KB | 277,200 | 267,436 | 0.9648 | 92,630 | 88,592 | 0.9564 |
-| user cycles | 3,804,540,378 | 3,771,114,030 | 0.9912 | 718,246,786 | 710,711,589 | 0.9895 |
-| kernel cycles | 251,359,839 | 245,202,155 | 0.9755 | 91,986,853 | 89,013,354 | 0.9677 |
-| instructions | 9,270,666,322 | 9,218,964,868 | 0.9944 | 1,683,499,754 | 1,673,926,802 | 0.9943 |
-| L3 load misses | 245,502 | 215,231 | 0.8767 | 70,175 | 59,053 | 0.8415 |
-| page faults | 15,461 | 14,926 | 0.9654 | 8,046 | 7,872 | 0.9783 |
+| peak RSS, KB | 277,200 | 267,440 | 0.9648 | 92,628 | 88,592 | 0.9564 |
+| user cycles | 3,794,395,165 | 3,777,859,646 | 0.9956 | 719,456,250 | 711,434,444 | 0.9889 |
+| kernel cycles | 254,631,825 | 244,951,293 | 0.9620 | 91,101,514 | 88,777,876 | 0.9745 |
+| instructions | 9,270,865,372 | 9,218,318,838 | 0.9943 | 1,683,481,266 | 1,674,045,938 | 0.9944 |
+| L3 load misses | 251,941 | 219,262 | 0.8703 | 71,675 | 60,361 | 0.8421 |
+| page faults | 15,460 | 14,926 | 0.9654 | 8,046 | 7,871 | 0.9782 |
 
 Peak memory is 3.5% lower on ts-pattern (9.8 MB) and 4.4% on zod3
 (4.0 MB), against the first design's 5.2% and 4.4%.
@@ -349,9 +349,9 @@ protocol's `layout-build.sh`, `layout-time.sh`,
 
 ## Gates
 
-At 8eab1c8c7, on the per-row bench (#763): Rig's full suite and proofs
+At 722129211, on the per-row bench (#763): Rig's full suite and proofs
 green on the Mac, the oracle quiet; bench/hash's guard within 2%
-(text-miss 1.5% more instructions, int-churn 3.5% fewer); Trig's light
-gate GREEN (37 s, built from the commit on pup with `zig build`, as
-`tools/pup-rig` builds, since another session held `rig-next`); loco's
-light gate GREEN.
+(text-miss 1.5% more instructions); std.json's guard 0.1-0.8% fewer
+instructions per byte; Trig's light gate GREEN (35 s, built from the
+commit on pup with `zig build`, as `tools/pup-rig` builds, since
+another session held `rig-next`); loco's light gate GREEN.
