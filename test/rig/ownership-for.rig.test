@@ -887,3 +887,100 @@ fail "for write view elements", "10:6: a write view is never stored inside a val
   a = H(n: 1)
   hs = [!a]
   print(xs.len, hs.len)
+
+test "for through a shared List", '''
+  6
+  6
+  9
+  6
+  9
+  24
+'''
+  # `?h` of a `*List[T]` lends the List the handle holds, so `for x in ?h`
+  # reads each element where it stands, with the loan on `h`; a bare
+  # `for x in h` is the same loop. A view of a handle, a handle in a
+  # field, and a handle of an array are walked the same way.
+
+  obj Reg
+    ns: *List[Int]
+
+  fun total(h: ?*List[Int]) -> Int
+    n = 0
+    for x in h
+      n += x
+    n
+
+  h = *List([1, 2, 3])
+  n = 0
+  for x in ?h
+    n += x
+  print(n)
+  n = 0
+  for x in h
+    n += x
+  print(n)
+  n = 0
+  for x, i in ?h
+    n += x + i
+  print(n)
+  print(total(?h))
+  r = Reg(ns: *List([4, 5]))
+  n = 0
+  for x in ?r.ns
+    n += x
+  print(n)
+  a = *[7, 8, 9]
+  n = 0
+  for x in ?a
+    n += x
+  print(n)
+
+test "for through a shared List of Strings", '''
+  ab 2
+  cde 3
+  first ab
+  x 1
+  yz 2
+'''
+  # Elements that own (`String`) are read as views of their slots in the
+  # List the handle holds; a `break` leaves the List as it was.
+
+  v: List[String] = List()
+  !v.push(String("ab"))
+  !v.push(String("cde"))
+  h = *<v
+  for s in ?h
+    print(s, s.len)
+  for s in ?h
+    print("first", s)
+    break
+  a = *[String("x"), String("yz")]
+  for s in ?a
+    print(s, s.len)
+
+fail "for through a shared handle only reads", "9:11: cannot write-iterate through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", "11:11: `<h` would move the elements out of a List that a shared handle (`*T`) holds; loop over `?h`", "13:11: a loop through a shared handle walks one that a name holds, or a field or element of one; bind `mk()` to a name first", errors: 3
+  # Nothing is written through a shared handle, or taken out through
+  # one, so `for x in !h` and `for x in <h` are rejected; a handle a call
+  # makes is bound to a name first.
+
+  fun mk() -> *List[Int]
+    *List([1, 2])
+
+  h = *List([1, 2])
+  for x in !h
+    x += 1
+  for x in <h
+    print(x)
+  for x in ?mk()
+    print(x)
+
+fail "for through a shared handle holds it", "6:3: cannot reassign `h` while it is lent", "9:4: cannot drop `h` while it is lent", errors: 2
+  # The loop's loan on `h` keeps the handle, and so the List, for the
+  # whole loop.
+
+  h = *List([1, 2])
+  for x in ?h
+    h = *List([x])
+  for x in ?h
+    print(x)
+    <h

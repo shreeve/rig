@@ -903,6 +903,9 @@ pub const Facts = struct {
     pub fn unwrapAccess(f: Facts, ty: TypeId) TypeId {
         return sema.unwrapAccess(f.c(), ty);
     }
+    pub fn loopWalks(f: Facts, ty: TypeId) TypeId {
+        return sema.loopWalks(f.c(), ty);
+    }
     pub fn boxedType(f: Facts, ty: TypeId) ?TypeId {
         return sema.boxedType(f.c(), ty);
     }

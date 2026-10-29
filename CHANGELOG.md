@@ -204,6 +204,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 - **`!s.swap(i, i)` leaves the element in place** without handing Zig's
   `std.mem.swap` one place twice, which Zig leaves undefined.
+- **`for x in ?h` walks a List or an array that a shared handle
+  holds**, `*List[T]`, `*Frozen[List[T]]`, or `*[N]T`: it reads each
+  element in place, with the loan on `h`, as `?h` lends the value the
+  handle holds (SPEC §6 "for"). Tasks walk one frozen List each through
+  its own handle. `for x in !h` and `for x in <h` stay rejected, each
+  with its own message, since nothing is written or taken through a
+  handle.
+- **A type that contains itself is told to box the field that leads
+  back:** "`Node` contains itself by value through `next`, so it would
+  have no finite size; own it through a box (`next: ^Node?`), or share
+  it through a handle (`*Node`)". The message suggested only `*Node`, a
+  shared handle, which a tree or a list of its own nodes does not want.
 - **The runtime's hot helpers make none of Zig's checks that the
   runtime's own invariants prove** (`len <= buf.len`, `len < n`, a
   block aligned by its class) in an optimized build: List's `pop`,

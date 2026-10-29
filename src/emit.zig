@@ -4150,7 +4150,12 @@ pub const Emitter = struct {
         const source = ir.For.source(sexp);
         if (source.isKind(.@"..")) return self.emitRangeFor(sexp, lp);
 
-        const src_ty = self.typeOf(source);
+        // A List or an array that a shared handle holds is walked where
+        // the handle reaches it (`sema.loopWalks`, `writeReach`).
+        const held_ty = self.typeOf(source);
+        const walked = if (held_ty) |t| self.facts.loopWalks(t) else null;
+        const through = walked != null and walked != self.peelViews(held_ty.?);
+        const src_ty = if (through) walked else held_ty;
         const is_list = src_ty != null and (self.isListTy(src_ty.?) or self.facts.tableElem(self.peelViews(src_ty.?)) != null);
         // A List or an array of values that move, which the loop takes or
         // its source makes, hands its elements over one at a time.
@@ -4198,7 +4203,11 @@ pub const Emitter = struct {
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_list and src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
-        if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
+        if (through) {
+            if (array_ptr) try self.w.writeAll("&");
+            try self.emitMemberBase(source, held_ty);
+            try self.writeReach(held_ty.?);
+        } else if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
             // A place reached through temporaries is walked where it is.
             try self.emitSubjectPtr(source, mode == .write);
             if (!array_ptr) try self.w.writeAll(".*");

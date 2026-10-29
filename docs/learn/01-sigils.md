@@ -313,7 +313,8 @@ a value somewhere else.
 
 **`^x` boxes it.** A box holds one value on the heap, with one owner.
 A note that points to the next note needs one, because a `Note` that
-held a `Note` would have no finite size:
+held a `Note` would have no finite size (the compiler says so, and
+names the box to write, `next: ^Note?`):
 
 ```rig
 obj Note

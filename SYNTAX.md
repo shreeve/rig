@@ -1310,7 +1310,7 @@ sub main()
 
 | Loop | Element |
 |---|---|
-| `for x in xs`, `for x in ?xs` | each element read in place: a copy of plain data, a view of anything else |
+| `for x in xs`, `for x in ?xs` | each element read in place: a copy of plain data, a view of anything else; also of a List or array a shared handle holds (`h: *List[T]`) |
 | `for x in !xs` | a write view of each element |
 | `for x in <v` | each element of a List, owned; `v` is consumed |
 | `for x in !it`, `for x in mk()` | each value an iterator gives, advancing `it` where it stands, or a value made here |

@@ -852,7 +852,7 @@ pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     if (source.isKind(.@"..") or forConsumes(ctx, loop)) return false;
     const sym = ctx.symbolOf(ir.For.@"var"(loop)) orelse return false;
     const bound = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
-    const t = sema.unwrapViews(ctx, typeOf(ctx, source) orelse return false);
+    const t = sema.loopWalks(ctx, typeOf(ctx, source) orelse return false);
     const elem = switch (ctx.types.get(t)) {
         .array => |a| a.elem,
         .slice => |sl| sl.elem,
