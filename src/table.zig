@@ -186,7 +186,10 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// place drops what was there.
         pub fn push(self: *Self, value: T) Index {
             if (self.len == n) fullPanic(n);
-            const s: Index = @intCast(self.len);
+            // `len < n` here, as only `push` raises `len`, and `n - 1`
+            // fits `Index`: the cast is exact.
+            rt.invariant(self.len < n);
+            const s: Index = @truncate(self.len);
             const p = self.slot(s);
             if (comptime rt.needsDrop(T)) rt.dropElement(T, p);
             p.* = value;

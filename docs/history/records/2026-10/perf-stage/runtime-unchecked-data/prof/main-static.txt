@@ -1,0 +1,40 @@
+# samples 67259; in Zig checks 67259 (100.00%); check jumps 67259
+# in the runtime's Zig: 11360 (16.89% of samples)
+ 55899 83.11% user
+  1527  2.27% runtime.zig:3278 rig.runtime.String.ofShort
+  1224  1.82% runtime.zig:3414 rig.runtime.String.appendBytes
+  1129  1.68% runtime.zig:5402 rig.runtime.freeSlice__func_1023 via mem.zig:4707
+  1002  1.49% runtime.zig:3448 rig.runtime.String.clone
+   956  1.42% runtime.zig:5402 rig.runtime.freeSlice__func_978 via mem.zig:4707
+   844  1.25% table.zig:189 rig.table.Table
+   836  1.24% table.zig:193 rig.table.Table
+   659  0.98% runtime.zig:5402 rig.runtime.freeSlice__func_777 via mem.zig:4707
+   307  0.46% runtime.zig:5402 rig.runtime.freeSlice__func_970 via mem.zig:4707
+   202  0.30% runtime.zig:3132 rig.runtime.ListOf
+   159  0.24% runtime.zig:3088 rig.runtime.ListOf
+   149  0.22% runtime.zig:2747 rig.runtime.FnRef
+   128  0.19% runtime.zig:5402 rig.runtime.freeSlice__func_892 via mem.zig:4707
+   105  0.16% runtime.zig:3009 rig.runtime.ListOf
+   105  0.16% runtime.zig:5402 rig.runtime.freeSlice__func_3746 via mem.zig:4707
+   104  0.15% runtime.zig:2746 rig.runtime.FnRef
+    76  0.11% runtime.zig:5373 rig.runtime.allocSlice__func_1477
+    76  0.11% runtime.zig:5402 rig.runtime.freeSlice__func_4141 via mem.zig:4707
+    66  0.10% runtime.zig:5373 rig.runtime.allocSlice__func_1482
+    56  0.08% sched.zig:2152 rig.sched.Ring.push
+    55  0.08% runtime.zig:2761 rig.runtime.FnRef
+    48  0.07% runtime.zig:5402 rig.runtime.freeSlice__func_2471 via mem.zig:4707
+    43  0.06% table.zig:272 rig.table.Table
+    31  0.05% runtime.zig:3178 rig.runtime.ListOf
+    30  0.04% runtime.zig:5402 rig.runtime.freeSlice__func_2843 via mem.zig:4707
+    29  0.04% runtime.zig:5402 rig.runtime.freeSlice__func_980 via mem.zig:4707
+    28  0.04% runtime.zig:5402 rig.runtime.freeSlice__func_931 via mem.zig:4707
+    25  0.04% runtime.zig:5402 rig.runtime.freeSlice__func_934 via mem.zig:4707
+    24  0.04% runtime.zig:5402 rig.runtime.freeSlice__func_782 via mem.zig:4707
+    23  0.03% runtime.zig:5402 rig.runtime.freeSlice__func_4117 via mem.zig:4707
+    22  0.03% sched.zig:182 rig.sched.current
+    18  0.03% runtime.zig:3109 rig.runtime.ListOf
+    18  0.03% runtime.zig:2089 rig.runtime.order__func_1537 via math.zig:1610
+    18  0.03% runtime.zig:5332 rig.runtime.unlockOutput via Io.zig:1771
+    17  0.03% runtime.zig:2975 rig.runtime.ListOf
+    17  0.03% runtime.zig:5402 rig.runtime.freeSlice__func_1540 via mem.zig:4707
+    17  0.03% sched.zig:385 rig.sched.beginWait

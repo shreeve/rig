@@ -1,0 +1,20 @@
+== actors round 1 main 17:15:02 load=3.08
+         rig-fast    rig-safe    vs rig-fast
+solo     11 ns/call  12 ns/call  rig-safe 1.0x slower
+contend  15 ns/call  15 ns/call  rig-safe 1.0x faster
+spread   11 ns/call  11 ns/call  rig-safe 1.0x slower
+== actors round 1 branch 17:15:03 load=3.08
+         rig-fast    rig-safe    vs rig-fast
+solo     12 ns/call  12 ns/call  rig-safe 1.0x slower
+contend  15 ns/call  15 ns/call  rig-safe 1.0x faster
+spread   11 ns/call  11 ns/call  rig-safe 1.0x slower
+== actors round 2 main 17:15:03 load=3.08
+         rig-fast    rig-safe    vs rig-fast
+solo     12 ns/call  13 ns/call  rig-safe 1.0x slower
+contend  16 ns/call  16 ns/call  rig-safe 1.0x faster
+spread   11 ns/call  12 ns/call  rig-safe 1.0x slower
+== actors round 2 branch 17:15:04 load=3.08
+         rig-fast    rig-safe    vs rig-fast
+solo     12 ns/call  12 ns/call  rig-safe 1.0x slower
+contend  16 ns/call  15 ns/call  rig-safe 1.0x faster
+spread   11 ns/call  12 ns/call  rig-safe 1.0x slower

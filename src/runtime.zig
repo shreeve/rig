@@ -2743,7 +2743,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             const n = @typeInfo(@TypeOf(Env.__rig_invoke)).@"fn".param_types.len - 1;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
-                    const e: *Env = @ptrCast(@alignCast(ctx));
+                    const e: *Env = ctxAs(*Env, ctx);
                     return @call(.auto, Env.__rig_invoke, .{e} ++ argsFor(n, args));
                 }
             };
@@ -2757,7 +2757,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             const n = @typeInfo(@typeInfo(F).pointer.child).@"fn".param_types.len;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
-                    const g: F = @ptrCast(@alignCast(ctx));
+                    const g: F = ctxAs(F, ctx);
                     return @call(.auto, g, argsFor(n, args));
                 }
             };
@@ -2772,7 +2772,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             const n = @typeInfo(C.Args).@"struct".field_types.len;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
-                    const c: *C = @ptrCast(@alignCast(ctx));
+                    const c: *C = ctxAs(*C, ctx);
                     return c.invoke(argsFor(n, args));
                 }
             };
@@ -2781,6 +2781,16 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
 
         pub fn call(self: Self, args: Args) R {
             return self.call_fn(self.ctx, args);
+        }
+
+        /// `ctx` as the pointer `of`, `ofFn`, or `ofClosure` made it
+        /// from, which a thunk is only ever called with: aligned for it.
+        inline fn ctxAs(comptime P: type, ctx: *anyopaque) P {
+            const Child = @typeInfo(P).pointer.child;
+            if (comptime @typeInfo(Child) != .@"fn") invariant(@intFromPtr(ctx) % @alignOf(Child) == 0);
+            // The thunk and `ctx` are made together, from a `P`.
+            @setRuntimeSafety(proven_checks);
+            return @ptrCast(@alignCast(ctx));
         }
 
         pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -2858,9 +2868,17 @@ pub fn Signal(comptime T: type) type {
 /// A fact the runtime's fast paths rely on in place of a check. Debug
 /// builds verify it; optimized builds trust it, so the hot path carries
 /// no branch for a case that cannot happen.
-inline fn invariant(ok: bool) void {
+pub inline fn invariant(ok: bool) void {
     if (builtin.mode == .debug) std.debug.assert(ok);
 }
+
+/// Zig's own safety checks in a block whose every check the runtime's
+/// own invariants prove, written `@setRuntimeSafety(proven_checks)`
+/// under a comment that names the invariant: kept in a debug build,
+/// which also asserts the invariant (`invariant`), and left out of an
+/// optimized one. Never for a check of anything a program controls (an
+/// index, a length, a size from input): those are Rig's own tests.
+pub const proven_checks = builtin.mode == .debug;
 
 /// `List(T)`: a growable array that owns its elements. Dropping it drops
 /// the elements in reverse order, then frees the buffer.
@@ -2972,7 +2990,9 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 invariant(self.len <= self.buf.len);
                 return self.buf.ptr[0..self.len];
             }
-            return if (comptime @typeInfo(@TypeOf(self)).pointer.attrs.@"const") self.memConst()[0..self.len] else self.mem()[0..self.len];
+            const m = if (comptime @typeInfo(@TypeOf(self)).pointer.attrs.@"const") self.memConst() else self.mem();
+            invariant(self.len <= m.len);
+            return m.ptr[0..self.len];
         }
 
         /// Room for `want` elements in all.
@@ -3006,7 +3026,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 self.buf = buf;
                 return;
             }
-            self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len * 2));
+            self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len *| 2));
         }
 
         /// `len <= buf.len` always holds. When the buffer is full, `grow`
@@ -3084,8 +3104,11 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// Remove and return the last element; the caller owns it.
         pub fn pop(self: *Self) Opt(T) {
             if (self.len == 0) return pack(Opt(T), null);
-            self.len -= 1;
-            return pack(Opt(T), self.mem()[self.len]);
+            // `0 < len <= buf.len`: the new length is the last live slot.
+            self.len -%= 1;
+            const m = self.mem();
+            invariant(self.len < m.len);
+            return pack(Opt(T), m.ptr[self.len]);
         }
 
         /// Insert `value` at `i`, moving the elements from `i` on up by
@@ -3129,8 +3152,11 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
             pub fn next(it: *IntoIter) Opt(T) {
                 if (it.next_index >= it.list.len) return pack(Opt(T), null);
-                const value = it.list.mem()[it.next_index];
-                it.next_index += 1;
+                // `next_index < len <= buf.len`, and `len <= max_len`.
+                const m = it.list.mem();
+                invariant(it.next_index < m.len);
+                const value = m.ptr[it.next_index];
+                it.next_index +%= 1;
                 return pack(Opt(T), value);
             }
 
@@ -3275,7 +3301,7 @@ pub const String = struct {
         };
         if (w.end == 0) return true;
         const block = allocSlice(u8, w.end);
-        @memcpy(block, buf[0..w.end]);
+        copyFresh(block, buf[0..w.end]);
         t.list.items = block;
         t.list.capacity = block.len;
         return true;
@@ -3411,8 +3437,22 @@ pub const String = struct {
         const used = l.items.len;
         if (l.capacity -% used < bytes_.len) self.grow(bytes_.len);
         invariant(l.capacity -% used >= bytes_.len);
-        @memcpy((l.items.ptr + used)[0..bytes_.len], bytes_);
+        {
+            // Both are `bytes_.len` long; a move, so it is right even if
+            // `bytes_` were this String's own spare capacity.
+            @setRuntimeSafety(proven_checks);
+            @memmove((l.items.ptr + used)[0..bytes_.len], bytes_);
+        }
         l.items.len = used +% bytes_.len;
+    }
+
+    /// `@memcpy` into `dst`, a block just allocated, which therefore
+    /// overlaps no other memory, of `src.len` bytes.
+    inline fn copyFresh(dst: []u8, src: []const u8) void {
+        invariant(dst.len == src.len);
+        // `dst` is new and as long as `src`: they match and are apart.
+        @setRuntimeSafety(proven_checks);
+        @memcpy(dst, src);
     }
 
     noinline fn grow(self: *String, extra: usize) void {
@@ -3445,7 +3485,7 @@ pub const String = struct {
         var t: String = .empty;
         if (self.list.items.len == 0) return t;
         const buf = allocSlice(u8, self.list.items.len);
-        @memcpy(buf, self.list.items);
+        copyFresh(buf, self.list.items);
         t.list.items = buf;
         t.list.capacity = buf.len;
         return t;
@@ -3846,13 +3886,19 @@ fn Elems(comptime P: type) type {
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
 /// once; panics when out of range.
 pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
-    return items[index(i, items.len)];
+    const idx = index(i, items.len);
+    // `idx < items.len` by `index`.
+    @setRuntimeSafety(proven_checks);
+    return items[idx];
 }
 
 /// `s[i] = x` through a `![]T`: the slot at `i`, with `s` evaluated
 /// once; panics when out of range. Read-only for a read-only slice.
 pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
-    return &items[index(i, items.len)];
+    const idx = index(i, items.len);
+    // `idx < items.len` by `index`.
+    @setRuntimeSafety(proven_checks);
+    return &items[idx];
 }
 
 /// Which of an index's tests the compiler proved already passed
@@ -4158,6 +4204,8 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
 pub fn swap(items: anytype, i: anytype, j: anytype) void {
     const a = index(i, items.len);
     const b = index(j, items.len);
+    // `a, b < items.len` by `index`.
+    @setRuntimeSafety(proven_checks);
     std.mem.swap(std.meta.Elem(@TypeOf(items)), &items[a], &items[b]);
 }
 
@@ -5387,7 +5435,7 @@ pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
     const a = defaultAllocator();
     const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
-    const old_bytes = std.mem.sliceAsBytes(old);
+    const old_bytes = heldBytes(T, old);
     if (a.rawRemap(old_bytes, alignment, bytes, @returnAddress())) |p| return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
     const p = a.rawAlloc(bytes, alignment, @returnAddress()) orelse oom();
     const kept = @min(bytes, old_bytes.len);
@@ -5396,10 +5444,20 @@ pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
     return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
 }
 
+/// The bytes of `buf`, a block `allocSlice` or `reallocSlice` made (or
+/// a part of one): `sliceAsBytes` with no test that the byte count fits,
+/// which those two tested when they made the block (`std.math.mul`).
+inline fn heldBytes(comptime T: type, buf: []T) []u8 {
+    if (comptime @sizeOf(T) == 0) return &.{};
+    invariant(buf.len <= std.math.maxInt(usize) / @sizeOf(T));
+    const p: [*]u8 = @ptrCast(buf.ptr);
+    return p[0 .. buf.len *% @sizeOf(T)];
+}
+
 /// Free what `allocSlice` or `reallocSlice` gave.
 pub fn freeSlice(comptime T: type, buf: []T) void {
     if (fills) return defaultAllocator().free(buf);
-    const bytes = std.mem.sliceAsBytes(buf);
+    const bytes = heldBytes(T, buf);
     if (bytes.len == 0) return;
     defaultAllocator().rawFree(bytes, .fromByteUnits(@alignOf(T)), @returnAddress());
 }

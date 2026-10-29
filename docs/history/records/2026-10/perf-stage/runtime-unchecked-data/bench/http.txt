@@ -1,0 +1,16 @@
+== http round 1 main 17:15:27 load=3.39
+                 req/s       p50       p99 per idle conn
+rig-fast        188083     209 us    3499 us       8.6 KiB
+rig-safe        182140     238 us    3448 us       8.6 KiB
+== http round 1 branch 17:15:55 load=3.98
+                 req/s       p50       p99 per idle conn
+rig-fast        192293     197 us    3482 us       8.6 KiB
+rig-safe        190837     215 us    3445 us       8.6 KiB
+== http round 2 main 17:16:22 load=4.20
+                 req/s       p50       p99 per idle conn
+rig-fast        194827     189 us    3508 us       8.6 KiB
+rig-safe        190547     227 us    3448 us       8.6 KiB
+== http round 2 branch 17:16:50 load=6.92
+                 req/s       p50       p99 per idle conn
+rig-fast        107731     368 us    4403 us       8.6 KiB
+rig-safe        136144     333 us    3739 us       8.6 KiB

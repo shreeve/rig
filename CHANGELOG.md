@@ -182,6 +182,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The runtime's hot helpers make none of Zig's checks that the
+  runtime's own invariants prove** (`len <= buf.len`, `len < n`, a
+  block aligned by its class) in an optimized build: List's `pop`,
+  `items`, and `IntoIter.next`, `at`, `elemPtr`, and `swap` after their
+  index test, a table's `push`, String's copies, `FnRef`'s context,
+  `freeSlice`, and the allocator's `free`. A debug build keeps the
+  checks and asserts each invariant. Trig retires 1.7% fewer
+  instructions on ts-pattern and 1.3% fewer on zod3, with `.text` 2.2%
+  smaller
+  ([runtime-unchecked.md](docs/history/records/2026-10/perf-stage/runtime-unchecked.md)).
 - **The built-in tables have a guard.** `bench/hash/guard.py` counts the
   instructions per operation of `Map` and `HashMap` on Int, text, and
   two-word keys, and fails any row more than 2% over its baseline, as
