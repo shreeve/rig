@@ -132,9 +132,14 @@ It builds `guard.rig` for `Map` and again for `HashMap` (`rig build
 hits, misses, a fill and empty (`churn`), and a walk over 100,000 Int
 keys; hits, misses, and a churn that makes its keys with `String(...)`
 over 100,000 texts; hits on two-word keys; and hits in a Map of 16. A
-row is two runs of 1 and 11 repetitions, so building the keys and the
-Map counts nothing. Any row more than 2% over `guard.txt` fails, and
-`--update` writes a new baseline. Counts do not move with load, so it
-runs on a busy Mac in about 10 seconds (`/usr/bin/time -l`, macOS only).
+row is the difference of two runs, one of 1 repetition and one sized
+so the two differ by about 1,000 million instructions, so building the
+keys and the Map counts nothing. Each run is the least of 5: the
+kernel's work for a run adds 1 to 2 million instructions however long
+it runs, which was 5% of a cheap row's difference at 11 repetitions,
+and is now 0.2% at most from one guard run to the next. Any row more
+than 2% over `guard.txt` fails, and `--update` writes a new baseline.
+Counts do not move with load, so it runs on a busy Mac in about 15
+seconds (`/usr/bin/time -l`, macOS only).
 Instructions do not see where memory lies, so a change that scatters
 keys without adding work is the timed rows' to catch.

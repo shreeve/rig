@@ -14,7 +14,6 @@ usage: bench/hash/guard.py [--update]   (RIG names the rig to build with;
 """
 import os
 import re
-import statistics
 import subprocess
 import sys
 import tempfile
@@ -28,11 +27,14 @@ ROWS = ["int-hit", "int-miss", "int-churn", "int-iterate", "text-hit", "text-mis
 TABLES = {"map": lambda s: s,
           "hashmap": lambda s: s.replace("Map[", "HashMap[").replace("Set[", "HashSet[")}
 N = 100000           # the operations of one repetition (guard.rig's N)
-LO, HI = 1, 11       # the repetitions of the two runs a row's count is the difference of
-# A walk retires 5 to 20 instructions an entry, so a run's count moves by
-# more than 2% of the difference at 11 repetitions; at 101 it moves by
-# well under 1%.
-HI_OF = {"int-iterate": 101}
+LO = 1               # the repetitions of the shorter of the two runs
+# A run's count moves by 1 to 2 million instructions however long it
+# runs (the kernel's work for the process, which only ever adds), so a
+# row's two runs are made to differ by about 1,000 million: the run of
+# HI repetitions is sized from a probe of the row, and each count is the
+# least of 5 runs.
+SPAN = 1000e6
+PROBE = 11
 LIMIT = 1.02
 
 
@@ -44,13 +46,18 @@ def instructions(exe, row, reps):
     return int(m.group(1))
 
 
+def least(exe, row, reps):
+    return min(instructions(exe, row, reps) for _ in range(5))
+
+
 def per_op(exe, row):
     # The difference of a run of HI repetitions and one of LO, over the
     # operations between them, so building the keys and the Map counts
-    # nothing; the median of 5, since a run's count moves by a little.
-    hi = HI_OF.get(row, HI)
-    runs = [(instructions(exe, row, hi) - instructions(exe, row, LO)) / ((hi - LO) * N) for _ in range(5)]
-    return statistics.median(runs)
+    # nothing.
+    lo = least(exe, row, LO)
+    probe = (instructions(exe, row, PROBE) - lo) / (PROBE - LO)
+    hi = LO + max(PROBE - LO, round(SPAN / probe))
+    return (least(exe, row, hi) - lo) / ((hi - LO) * N)
 
 
 def build(out, table):
