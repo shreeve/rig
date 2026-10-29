@@ -121,19 +121,18 @@ allocator:
 
 pup, release builds (slots "10,11 10,11 10,11"), 20 interleaved rounds
 on core 8 with sibling 9 idle, one checker; Trig 403a823 built by main
-773978d1d and by this branch. Output identical every round. Main's
-kernel cycles (0.25G on ts-pattern) match a quiet pup; `/proc/buddyinfo`
-before and after is in `trig-pup-buddyinfo.txt` (order 9: 20 then 75;
-order 10: 0). Medians:
+773978d1d and by ab6c71f17. Output identical every round. Main's kernel
+cycles (0.25G on ts-pattern) match a quiet pup; `/proc/buddyinfo`
+before and after is in `trig-pup-buddyinfo.txt`. Medians:
 
 | | ts-pattern main | new | new / main | zod3 main | new | new / main |
 |---|---:|---:|---:|---:|---:|---:|
-| peak RSS, KB | 277,200 | 267,448 | 0.9648 | 92,628 | 88,604 | 0.9566 |
-| user cycles | 3,973,896,722 | 3,942,405,272 | 0.9921 | 735,716,096 | 733,130,980 | 0.9965 |
-| kernel cycles | 253,269,154 | 238,207,219 | 0.9405 | 90,747,480 | 87,624,901 | 0.9656 |
-| instructions | 9,271,080,160 | 9,228,501,740 | 0.9954 | 1,683,930,994 | 1,676,189,622 | 0.9954 |
-| L3 load misses | 548,580 | 522,211 | 0.9519 | 133,028 | 123,888 | 0.9313 |
-| page faults | 15,460 | 14,924 | 0.9653 | 8,046 | 7,872 | 0.9784 |
+| peak RSS, KB | 277,200 | 267,440 | 0.9648 | 92,628 | 88,596 | 0.9565 |
+| user cycles | 3,788,885,913 | 3,769,082,880 | 0.9948 | 715,650,632 | 711,816,520 | 0.9946 |
+| kernel cycles | 254,204,290 | 244,425,104 | 0.9615 | 91,813,987 | 89,666,906 | 0.9766 |
+| instructions | 9,270,727,539 | 9,219,125,792 | 0.9944 | 1,683,882,158 | 1,674,676,634 | 0.9945 |
+| L3 load misses | 249,462 | 219,890 | 0.8815 | 73,375 | 64,060 | 0.8730 |
+| page faults | 15,460 | 14,927 | 0.9655 | 8,046 | 7,873 | 0.9785 |
 
 Peak memory is 3.5% lower on ts-pattern (9.8 MB) and 4.3% on zod3
 (4.0 MB), against the first design's 5.2% and 4.4%.
@@ -241,16 +240,32 @@ pup on core 8.
 ### bench/hash, each row in a function of its own
 
 bench/hash now runs each row's timed loop in a function of its own, for
-every contestant (main, #763). With the rows of a group in one function,
-the Map's new size moved rows of the group by 5-40% on the Mac though
-their loops had not changed. Under the layout protocol, the branch
-(`bench-hash-*-rows*.txt`):
+every contestant (#763). With the rows of a group in one function, the
+Map's new size moved rows of the group by 5-40% on the Mac though their
+loops had not changed. Under the layout protocol, at ab6c71f17
+(`bench-hash-mac-rows.txt`, `bench-hash-pup-rows*.txt`, four pup runs):
 
 - **Mac:** no row slower; int4000000, rnd24 and rnd4000000 removes
   5-6% faster.
-- **pup:** int16 insert 8-10% slower, in both runs; int16 remove 3-4%
-  faster, rnd24 remove 5% faster. One run also flagged int100000 remove
-  (8%) and rnd100000 hit (6%); the other did not.
+- **pup:** churn16 3-5% slower in all four runs (flagged in two, the
+  branch's fastest layout over main's slowest by 1.5-3.5%); int100000
+  remove (1.00-1.02) and rnd100000 hit (1.01-1.02) level in all four;
+  string, churn1000 and big1000 removes 3-6% faster.
+
+Two layout changes came out of the rows:
+
+- **The Map's table first.** With the table 8 bytes into the Map, a loop
+  over a List of Maps kept a pointer to each Map and one to its table
+  and spilled one: pup's int16 inserts 8-10% slower (a Zig
+  micro-benchmark showed it too: puts into reserved tables level, the
+  growths slower). The prelude's Map and Set put `t` first.
+- **The index's pointers last in their place.** With the tags and slots
+  pointers first, a loop of `edit` hits kept them in registers it needed
+  for its hash constants, which it built again each step: the Mac's int
+  edit_put-hit 4% slower. Gone bits, maximum load and group count come
+  first. That order costs pup's churn16 the 3-5% above; the other order
+  has it level and the Mac's edit_put-hit 4.6% slower. The loop of
+  churn16's function is the same instructions under both orders.
 
 ### The remove loop
 
@@ -274,13 +289,8 @@ slower.
 
 ### What is still slower
 
-- **pup, int16 insert, 8-10%.** The row's loop and the take's code are
-  the same instructions on both arms. In a program of `sized(16)` alone
-  the branch is 2% slower (5.85 ns against 5.74), and its removes
-  faster; in the whole program 8-10%, in every layout. Not explained:
-  the next step is to time the row's allocations (each map's first put
-  and two growths go through `insertSmallSlow` and the allocator) apart
-  from its puts.
+- **pup, churn16, 3-5%.** See above: the order of the index's place
+  trades it against the Mac's int edit_put-hit.
 - **rnd3000000 iterate (42% on the Mac before the per-row bench).** Not
   the table. Taken into a program of `random(3000000)` alone, or in its
   own function, the branch is level (0.20-0.22 ns against 0.22). In the
@@ -318,10 +328,9 @@ protocol's `layout-build.sh`, `layout-time.sh`,
 
 ## Gates
 
-At b4739d0a6, on the per-row bench (#763): Rig's full suite green on the
-Mac, the oracle quiet (cli.std_http's descriptor check failed once
-under load and passes alone), proofs green (5,271); bench/hash's guard
-within 2% (text-miss 1.6% more instructions, int-churn 3.4% fewer);
-Trig's light gate GREEN (37 s, built from the commit on pup with `zig
-build`, as `tools/pup-rig` builds, since another session held
-`rig-next`); loco's light gate GREEN.
+At ab6c71f17, on the per-row bench (#763): Rig's full suite and proofs
+green on the Mac, the oracle quiet; bench/hash's guard within 2%
+(text-miss 1.4% more instructions, int-churn 3.5% fewer); Trig's light
+gate GREEN (35 s, built from the commit on pup with `zig build`, as
+`tools/pup-rig` builds, since another session held `rig-next`); loco's
+light gate GREEN.
