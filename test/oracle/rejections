@@ -3310,6 +3310,7 @@ test/reject/ownership/for_consuming_iteration_moves.rig main
 test/reject/ownership/for_loop_move.rig main
 test/reject/ownership/for_move_element_keeps_view.rig main
 test/reject/ownership/for_temporary_source_loans.rig main
+test/reject/ownership/for_through_a_shared_handle_holds_it.rig main
 test/reject/ownership/for_write_iteration_conflicts_ownership.rig main
 test/reject/ownership/generic_as_keeps_the_optional_lent.rig clear
 test/reject/ownership/generic_payload_view_moved.rig dropped
