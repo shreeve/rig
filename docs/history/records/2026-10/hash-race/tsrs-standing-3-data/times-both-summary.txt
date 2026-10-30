@@ -1,0 +1,50 @@
+
+ts-pattern
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 1b2-pgo | 40 | 746.6 | 705.7 | 667.3 | 79.0 | 3.285G | 351M | 7.983G | 40,415 | 2,011k | 446k | 86.2M | 1,405k | 251.1 | same exit 2 |
+| 1b2-pgo/huge | 4 | 712.5 | 705.7 | 654.9 | 56.5 | 3.196G | 250M | 7.986G | 15,277 | 1,245k | 204k | 49.4M | 834k | 261.9 | same exit 2 |
+| 1b2-pgo/small | 36 | 747.7 | 727.3 | 667.9 | 80.4 | 3.288G | 352M | 7.982G | 40,415 | 2,030k | 446k | 87.4M | 1,406k | 251.1 | same exit 2 |
+| 773-pgo | 40 | 717.5 | 706.2 | 665.3 | 52.5 | 3.268G | 238M | 8.163G | 15,543 | 1,169k | 186k | 49.3M | 1,191k | 272.2 | same exit 2 |
+| 773-403-pgo | 40 | 721.2 | 701.3 | 666.9 | 52.9 | 3.275G | 241M | 8.164G | 15,542 | 1,151k | 185k | 50.3M | 1,325k | 268.9 | same exit 2 |
+| tsrs | 40 | 627.9 | 620.6 | 587.2 | 40.0 | 2.882G | 179M | 7.227G | 17,802 | 593k | 581k | 21.6M | 1,177k | 202.1 | same exit 2 |
+| tsrs-src | 40 | 748.6 | 740.4 | 711.4 | 38.0 | 3.490G | 179M | 8.133G | 17,687 | 651k | 596k | 20.6M | 1,668k | 205.2 | same exit 2 |
+
+1b2-pgo / tsrs: wall median 1.189, fastest 1.137, user 1.136, system 1.974, user cycles 1.1397, kernel cycles 1.966, instructions 1.1046, faults 2.270, dTLB load walks 3.394, dTLB store walks 0.768, iTLB walks 1.194, RSS 1.243
+1b2-pgo/huge / tsrs: wall median 1.135, fastest 1.137, user 1.115, system 1.413, user cycles 1.1090, kernel cycles 1.400, instructions 1.1050, faults 0.858, dTLB load walks 2.100, dTLB store walks 0.351, iTLB walks 0.709, RSS 1.296
+1b2-pgo/small / tsrs: wall median 1.191, fastest 1.172, user 1.138, system 2.010, user cycles 1.1409, kernel cycles 1.972, instructions 1.1045, faults 2.270, dTLB load walks 3.426, dTLB store walks 0.768, iTLB walks 1.194, RSS 1.243
+1b2-pgo/huge / 773-pgo: wall median 0.993, fastest 0.999, user 0.984, system 1.077, user cycles 0.9782, kernel cycles 1.052, instructions 0.9783, faults 0.983, dTLB load walks 1.064, dTLB store walks 1.097, iTLB walks 0.700, RSS 0.962
+1b2-pgo/small / 773-pgo: wall median 1.042, fastest 1.030, user 1.004, system 1.533, user cycles 1.0063, kernel cycles 1.481, instructions 0.9779, faults 2.600, dTLB load walks 1.736, dTLB store walks 2.402, iTLB walks 1.180, RSS 0.922
+1b2-pgo/small / 1b2-pgo/huge: wall median 1.049, fastest 1.031, user 1.020, system 1.423, user cycles 1.0288, kernel cycles 1.409, instructions 0.9996, faults 2.645, dTLB load walks 1.631, dTLB store walks 2.189, iTLB walks 1.685, RSS 0.959
+773-pgo / tsrs: wall median 1.143, fastest 1.138, user 1.133, system 1.312, user cycles 1.1337, kernel cycles 1.332, instructions 1.1295, faults 0.873, dTLB load walks 1.973, dTLB store walks 0.320, iTLB walks 1.012, RSS 1.347
+773-403-pgo / tsrs: wall median 1.149, fastest 1.130, user 1.136, system 1.323, user cycles 1.1362, kernel cycles 1.352, instructions 1.1296, faults 0.873, dTLB load walks 1.942, dTLB store walks 0.318, iTLB walks 1.126, RSS 1.331
+1b2-pgo / 773-pgo: wall median 1.041, fastest 0.999, user 1.003, system 1.505, user cycles 1.0053, kernel cycles 1.477, instructions 0.9780, faults 2.600, dTLB load walks 1.720, dTLB store walks 2.401, iTLB walks 1.180, RSS 0.922
+773-pgo / 773-403-pgo: wall median 0.995, fastest 1.007, user 0.998, system 0.991, user cycles 0.9979, kernel cycles 0.985, instructions 0.9999, faults 1.000, dTLB load walks 1.016, dTLB store walks 1.006, iTLB walks 0.899, RSS 1.012
+1b2-pgo / 773-403-pgo: wall median 1.035, fastest 1.006, user 1.001, system 1.492, user cycles 1.0031, kernel cycles 1.454, instructions 0.9778, faults 2.600, dTLB load walks 1.747, dTLB store walks 2.415, iTLB walks 1.060, RSS 0.934
+load: 0.4 to 3.54
+free 2 MiB blocks before a run: 88 to 138, median 107.0
+
+zod3
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 1b2-pgo | 40 | 148.2 | 142.1 | 124.3 | 23.0 | 0.615G | 99M | 1.414G | 10,061 | 204k | 104k | 11.3M | 262k | 80.9 | same exit 2 |
+| 1b2-pgo/huge | 8 | 146.3 | 142.1 | 124.0 | 20.1 | 0.607G | 92M | 1.415G | 7,912 | 127k | 79k | 7.2M | 182k | 87.7 | same exit 2 |
+| 1b2-pgo/small | 32 | 148.5 | 143.8 | 124.6 | 23.5 | 0.616G | 100M | 1.413G | 10,061 | 207k | 104k | 11.4M | 262k | 80.9 | same exit 2 |
+| 773-pgo | 40 | 148.0 | 142.9 | 126.5 | 21.4 | 0.624G | 92M | 1.438G | 8,060 | 122k | 77k | 7.2M | 243k | 90.8 | same exit 2 |
+| 773-403-pgo | 40 | 147.9 | 142.3 | 126.9 | 21.1 | 0.627G | 91M | 1.439G | 8,061 | 120k | 77k | 7.2M | 259k | 88.2 | same exit 2 |
+| tsrs | 40 | 111.3 | 108.4 | 97.0 | 14.9 | 0.482G | 56M | 1.206G | 5,414 | 54k | 74k | 3.1M | 208k | 53.8 | same exit 2 |
+| tsrs-src | 40 | 137.4 | 133.3 | 125.0 | 13.0 | 0.617G | 51M | 1.403G | 4,725 | 55k | 59k | 3.1M | 342k | 54.8 | same exit 2 |
+
+1b2-pgo / tsrs: wall median 1.332, fastest 1.311, user 1.281, system 1.541, user cycles 1.2762, kernel cycles 1.762, instructions 1.1721, faults 1.858, dTLB load walks 3.738, dTLB store walks 1.408, iTLB walks 1.257, RSS 1.505
+1b2-pgo/huge / tsrs: wall median 1.315, fastest 1.311, user 1.278, system 1.345, user cycles 1.2590, kernel cycles 1.633, instructions 1.1728, faults 1.461, dTLB load walks 2.327, dTLB store walks 1.071, iTLB walks 0.876, RSS 1.632
+1b2-pgo/small / tsrs: wall median 1.334, fastest 1.327, user 1.284, system 1.575, user cycles 1.2779, kernel cycles 1.777, instructions 1.1719, faults 1.858, dTLB load walks 3.794, dTLB store walks 1.413, iTLB walks 1.258, RSS 1.505
+1b2-pgo/huge / 773-pgo: wall median 0.989, fastest 0.994, user 0.980, system 0.939, user cycles 0.9729, kernel cycles 0.994, instructions 0.9839, faults 0.982, dTLB load walks 1.042, dTLB store walks 1.027, iTLB walks 0.750, RSS 0.966
+1b2-pgo/small / 773-pgo: wall median 1.004, fastest 1.006, user 0.984, system 1.099, user cycles 0.9874, kernel cycles 1.082, instructions 0.9831, faults 1.248, dTLB load walks 1.700, dTLB store walks 1.355, iTLB walks 1.076, RSS 0.891
+1b2-pgo/small / 1b2-pgo/huge: wall median 1.015, fastest 1.012, user 1.005, system 1.171, user cycles 1.0150, kernel cycles 1.088, instructions 0.9992, faults 1.272, dTLB load walks 1.631, dTLB store walks 1.319, iTLB walks 1.435, RSS 0.922
+773-pgo / tsrs: wall median 1.329, fastest 1.318, user 1.304, system 1.433, user cycles 1.2941, kernel cycles 1.643, instructions 1.1920, faults 1.489, dTLB load walks 2.232, dTLB store walks 1.043, iTLB walks 1.169, RSS 1.688
+773-403-pgo / tsrs: wall median 1.329, fastest 1.313, user 1.307, system 1.410, user cycles 1.2999, kernel cycles 1.623, instructions 1.1930, faults 1.489, dTLB load walks 2.198, dTLB store walks 1.041, iTLB walks 1.242, RSS 1.640
+1b2-pgo / 773-pgo: wall median 1.002, fastest 0.994, user 0.983, system 1.075, user cycles 0.9861, kernel cycles 1.073, instructions 0.9833, faults 1.248, dTLB load walks 1.675, dTLB store walks 1.351, iTLB walks 1.076, RSS 0.891
+773-pgo / 773-403-pgo: wall median 1.000, fastest 1.004, user 0.997, system 1.016, user cycles 0.9956, kernel cycles 1.012, instructions 0.9992, faults 1.000, dTLB load walks 1.016, dTLB store walks 1.002, iTLB walks 0.941, RSS 1.029
+1b2-pgo / 773-403-pgo: wall median 1.002, fastest 0.998, user 0.980, system 1.093, user cycles 0.9818, kernel cycles 1.086, instructions 0.9825, faults 1.248, dTLB load walks 1.701, dTLB store walks 1.353, iTLB walks 1.012, RSS 0.917
+load: 0.72 to 7.25
+free 2 MiB blocks before a run: 119 to 139, median 122.0

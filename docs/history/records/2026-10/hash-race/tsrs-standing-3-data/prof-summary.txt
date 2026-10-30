@@ -1,0 +1,97 @@
+
+## trig: 40 runs, 61.1 samples a run (128.6 ms of CPU at 4.75 GHz)
+spans (ms, mean): start->load 5.8, load->check 27.0, check->out 119.6, out->exit_group 0.3, exit_group->end 0.0
+by phase (samples a run, user / kernel): start 1.0/0.2, load 8.1/3.5, check 41.0/7.2, out 0.0/0.1
+user 50.1 (105.5 ms), kernel 10.9 (23.1 ms)
+kernel by kind (samples a run, ms):
+    3.23   6.79 ms  fault: anon
+    3.00   6.32 ms  interrupt
+    2.38   5.00 ms  sys madvise
+    0.50   1.05 ms  sys munmap
+    0.33   0.68 ms  fault: write after zero page
+    0.28   0.58 ms  sys futex
+    0.23   0.47 ms  other: sync_regs
+    0.23   0.47 ms  other: entry_SYSCALL_64_after_hwframe
+    0.15   0.32 ms  sys openat
+    0.12   0.26 ms  sys mremap
+    0.12   0.26 ms  sys mmap
+    0.07   0.16 ms  sys readv
+    0.07   0.16 ms  sys statx
+    0.05   0.11 ms  fault: huge page
+    0.05   0.11 ms  sys read
+    0.03   0.05 ms  fault: file
+    0.03   0.05 ms  other: entry_SYSCALL_64
+    0.03   0.05 ms  other: asm_exc_int3
+    0.03   0.05 ms  sys writev
+    0.03   0.05 ms  sys write
+    0.03   0.05 ms  sys close
+user by function, top 40 (samples a run, ms):
+    3.90   8.21 ms  checker.Checker.instantiate_type_with_alias
+    1.95   4.11 ms  checker.Checker.resolve_structured_type_members_worker
+    1.70   3.58 ms  checker.Checker.is_related_to_ex
+    1.65   3.47 ms  checker.Checker.resolve_external_module
+    1.60   3.37 ms  checker.Checker.structured_type_related_to
+    1.60   3.37 ms  checker.Checker.set_structured_type_members
+    1.05   2.21 ms  binder.Binder.bind
+    0.95   2.00 ms  __rig_std_file.realpath
+    0.95   2.00 ms  checker.Checker.compare_types
+    0.95   2.00 ms  checker.Checker.check_collisions_for_declaration_name
+    0.88   1.84 ms  parser.Parser.next_token
+    0.85   1.79 ms  checker.Checker.check_property_access_expression
+    0.80   1.68 ms  checker.Checker.check_identifier
+    0.80   1.68 ms  checker.Checker.infer_from_types
+    0.78   1.63 ms  checker.Checker.add_inherited_members
+    0.75   1.58 ms  checker.Checker.resolve_name_worker
+    0.72   1.53 ms  checker.Checker.compare_signatures_related_with
+    0.70   1.47 ms  checker.Checker.get_type_facts_worker
+    0.68   1.42 ms  mem.eql__func_63
+    0.68   1.42 ms  rig.alloc.alloc
+    0.65   1.37 ms  checker.Checker.get_type_of_symbol
+    0.65   1.37 ms  checker.Checker.get_normalized_type
+    0.60   1.26 ms  checker.Checker.check_expression_ex
+    0.53   1.11 ms  checker.Checker.get_type_at_flow_node
+    0.50   1.05 ms  compiler_rt.memcpy.memcpyFast
+    0.47   1.00 ms  compiler.Program.get_emit_module_format_of_file
+    0.42   0.89 ms  checker.Checker.has_matching_recursion_identity
+    0.40   0.84 ms  binder.Binder.declare_symbol_and_add_to_symbol_table
+    0.40   0.84 ms  checker.Checker.mapper_map
+    0.40   0.84 ms  checker.Checker.get_spelling_suggestion_for_name
+    0.40   0.84 ms  checker.Checker.get_indexed_access_type_or_undefined
+    0.40   0.84 ms  parser.Parser.create_identifier_with_diagnostic
+    0.38   0.79 ms  checker.Checker.is_matching_reference
+    0.35   0.74 ms  checker.Checker.get_recursion_identity_target
+    0.33   0.68 ms  rig.alloc.free
+    0.30   0.63 ms  checker.Checker.get_conditional_flow_type_of_type
+    0.30   0.63 ms  checker.Checker.get_resolved_signature
+    0.30   0.63 ms  checker.Checker.get_intersection_type_ex
+    0.28   0.58 ms  parser.Parser.parse_list
+    0.28   0.58 ms  parser.Parser.parse_semicolon
+
+## tsrs: 40 runs, 39.1 samples a run (82.4 ms of CPU at 4.75 GHz)
+spans (ms, mean): start->out 109.7, out->exit_group 0.3, exit_group->end 0.1
+by phase (samples a run, user / kernel): start 34.7/4.4
+user 34.7 (73.1 ms), kernel 4.4 (9.3 ms)
+kernel by kind (samples a run, ms):
+    1.80   3.79 ms  fault: anon
+    0.95   2.00 ms  interrupt
+    0.90   1.89 ms  fault: huge page
+    0.20   0.42 ms  sys statx
+    0.17   0.37 ms  sys read
+    0.07   0.16 ms  other: sync_regs
+    0.05   0.11 ms  other: entry_SYSCALL_64_after_hwframe
+    0.05   0.11 ms  sys futex
+    0.05   0.11 ms  fault: file
+    0.03   0.05 ms  sys mprotect
+    0.03   0.05 ms  other: [unknown]
+    0.03   0.05 ms  other: __wrgsbase_inactive
+    0.03   0.05 ms  other: entry_SYSCALL_64
+    0.03   0.05 ms  sys getdents64
+    0.03   0.05 ms  sys madvise
+    0.03   0.05 ms  other: syscall_return_via_sysret
+user by function, top 40 (samples a run, ms):
+   33.92  71.42 ms  [unknown]
+    0.35   0.74 ms  __memcmp_avx2_movbe
+    0.25   0.53 ms  __memmove_avx_unaligned_erms
+    0.10   0.21 ms  __memset_avx2_unaligned_erms
+    0.05   0.11 ms  _dl_relocate_object_no_relro
+    0.03   0.05 ms  do_lookup_x
