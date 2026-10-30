@@ -233,6 +233,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   type from `x` wherever an `*Actor[T]` is expected (a typed binding,
   an argument, a field, a payload), as `*Frozen(x)` does; it was
   rejected as an opaque type before.
+- **An instance calling another instance is no cycle.** The yield
+  checks of recursion (docs/internals/scheduler.md) treat each instance
+  of a function whose compile-time parameters are values as a function
+  of its own, and skip a call in an `if` branch its values rule out, so
+  `at[true]` calling `at[false]` no longer puts a check at `at`'s
+  entry. The check on every call kept LLVM from vectorizing the calls
+  of `at` in spectralnorm's inner loop: without it spectralnorm-fast
+  takes 1.65 times fewer cycles. An instance that reaches itself, as
+  `down[true]` calling `down[false]` calling `down[true]`, still checks.
 - **A method call's self is lent where it is, an element too.**
   `?@balls[i].hit(lo)` on a `List[Ball]` whose `Ball` copies gave `hit`
   a view of a copy of the element, so a result that keeps self (`from
