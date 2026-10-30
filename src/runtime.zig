@@ -1081,7 +1081,7 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
             t.drop_depth += 1;
             self.vt.__rig_drop(self.ptr);
             t.drop_depth -= 1;
-            if (t.drop_depth == 0) drainDropQueue();
+            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
         }
     };
 }
@@ -2239,7 +2239,7 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
             t.drop_depth += 1;
             self.releaseValue();
             t.drop_depth -= 1;
-            if (t.drop_depth == 0) drainDropQueue();
+            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
         }
 
         /// Drop the value, then give up the strong side's weak count; a
@@ -2277,6 +2277,9 @@ fn isWord(comptime T: type) bool {
 // `strong == 0`, so `upgrade` fails on it. The depth and the queue are
 // the running task's (`TaskState`): a `*T` never leaves its task, and the
 // value whose atomic count the task took to zero is the task's alone.
+
+// Only a release that leaves something queued calls the drain, so the
+// last drop of a short chain costs one test and no call.
 
 const max_drop_depth = 256;
 const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
@@ -2518,7 +2521,7 @@ pub fn Box(comptime T: type) type {
             t.drop_depth += 1;
             release(self.value);
             t.drop_depth -= 1;
-            if (t.drop_depth == 0) drainDropQueue();
+            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
         }
 
         fn release(p: *T) void {
