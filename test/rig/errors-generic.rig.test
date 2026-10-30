@@ -539,7 +539,7 @@ fail "a `_` the substituted set makes dead", "this arm never runs: the arms befo
       _ => 2
   print(v)
 
-code "the set is a comptime parameter and the call passes its Zig set", "fn apply(comptime E: type, n: i64, f: rig.FnRef(&.{ i64, rig.ErrSlot }, E!i64), __out: rig.ErrSlot) E!i64 {", "apply(Bad, 0, rig.FnRef(&.{ i64, rig.ErrSlot }, Bad!i64).ofFn(g), rig.failSlot(&__rig_fail_1))"
+code "the set is a comptime parameter and the call passes its Zig set", "fn apply(comptime E: type, __rig_in_n: i64, __rig_in_f: rig.FnRef(&.{ i64, rig.ErrSlot }, E!i64), __out: rig.ErrSlot) E!i64 {", "apply(Bad, 0, rig.FnRef(&.{ i64, rig.ErrSlot }, Bad!i64).ofFn(g), rig.failSlot(&__rig_fail_1))"
   error Bad
     empty
 

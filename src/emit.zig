@@ -8576,7 +8576,10 @@ pub const Emitter = struct {
                 return self.w.writeAll("))");
             },
             .copy, .fill, .swap => {
-                try self.w.print("rig.{s}(", .{@tagName(ec.op)});
+                // A swap's tests known to pass, of both indexes, are
+                // omitted (`provenOf`).
+                const proven = if (ec.op == .swap) provenTests(self.provenOf(callee)) else null;
+                try self.w.print("rig.{s}{s}(", .{ @tagName(ec.op), if (proven != null) "Proven" else "" });
                 try self.emitElems(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
@@ -8586,6 +8589,7 @@ pub const Emitter = struct {
                     }
                     try self.emitBare(a);
                 }
+                if (proven) |p| try self.w.print(", .{s}", .{p});
             },
         }
         try self.w.writeAll(")");

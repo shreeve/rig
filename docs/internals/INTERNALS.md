@@ -1938,6 +1938,8 @@ is part of its unit, and makes nothing.
 | `s[i]`, read or a place | `lower` under `nonneg(i)`; `upper` under `below(i, k, len(s))`, `k >= 1` |
 | `s[i + c]` or `s[c + i]`, `c` a literal | `lower` under `nonneg(i)` (the add is tested, or proven, before the index is); `upper` under `below(i, k, len(s))`, `k >= c + 1` |
 | `s[e & m]`, `m` a mask | `lower`; `upper` under `below(m, k, len(s))`, `k >= 1`, or for the mask `s.len - 1` of the same `s` |
+| `s[b - c - i]`, written `(b - c) - i`, `c >= 1` a literal and `b` a bound (`t.len`, or an `Int` binding `n`): the index counted down from the end | `lower` under `below(i, k, b)`, `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` when `b` is the length; `upper` under `nonneg(i)` when `b` is `s.len` or an `n` with `eq(n, s)` (`b - c - i <= b - 1`) |
+| `!s.swap(i, j)`, on the callee | of the tests both indexes pass, as `s[i]` and `s[j]` would (each `i + c`, or counted down from the end), those of both: `rig.swapProven`, which swaps through a copy, right for equal indexes too |
 | `s.read[T, e](i)`, `!s.write[T, e](i, v)`, on the callee | the same, with `k >= $size(T)`: the width of a number `T`, or `n` times the width of `E` for a `Simd[E, n]` of numbers with a known `n` (a vector's bytes are tested as an integer's of that size) |
 | `i + c`, and the `set` of `i += c`, `0 < c <= 2^62` a literal | `no_overflow` under `below(i, k, b)` with `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` and `fits(s)` (`i + c <= 2^62 - 1 + c`) |
 | `i + x`, and the `set` of `i += x`, `x` an `Int` with `0 <= x <= h`: `d.f` under `upto(d, f, h)`, or `g(...).f` or `g(...)` where `g` bounds that field or its result by `h` | as `i + max(h, 1)`: `i + x <= i + max(h, 1)` |
@@ -1991,7 +1993,7 @@ a fact emit and the ownership checker read too:
 | block | its statements in order; at its end, the kills of its `defer`s |
 | `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
 | `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant, and `i`'s `nonneg(i)` and `below(i, k, b)` from `E` when every write of `i` in the loop is `i = e & m` with one mask `m` that holds in `L` (the `below` with no more room than `m` has in `L`, or 1 for `s.len - 1`): each write makes them again, and the loop writes neither `m` nor `b`; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
-| `for` | the source unit; then `L` as for `while`, a masked `i` kept as there, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration); any other `for` binding gets no facts |
+| `for` | the source unit; then `L` as for `while`, a masked `i` kept as there, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration), or `b / c` with a literal `c >= 1` and `b` a length or `lo` a literal (`lo..hi` only: `b / c <= b` for `b >= 0`, and a body that runs has `0 <= k < b / c`, so `b > 0`; `k <= -1 / 2` holds at `k = 0`); any other `for` binding gets no facts |
 | statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
 | `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
 | `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, `continue`, or `panic` statement nothing is reached |
@@ -4512,8 +4514,8 @@ symbols); a query that decides more than that is a recorded fact.
 
   A function's marker comes first (SPEC.md, "Function markers"). One
   marked `inline fun` is inlined whatever the rule below says: its size,
-  its expansion, its compile-time type parameters, a closure in it, and
-  its frame's size are waived, and no step of the rule stops inlining
+  its expansion, a closure in it, its frame's size, and its frame's
+  being unknown at a generic's instances are waived, and no step of the rule stops inlining
   it. What Zig cannot inline is an error, in the pass that knows it: a
   value use of it (`typecheck`, where every function value is typed:
   `functionValue`, by the `inline_marked` flag of its symbol or method),
@@ -4598,19 +4600,19 @@ symbols); a query that decides more than that is a recorded fact.
     form of the tree once (a call, an operator, a binding, an `if`),
     which std.json's helpers (`string`, `plain`, `key`, `close`,
     `literal`, 27 to 50) fit and larger ones in that parser do not;
-  - it is on no cycle of calls, directly or through others;
+  - it is on no cycle of calls, directly or through others, its
+    declaration's calls counted for every instance (the yield checks
+    tell instances apart, [the scheduler](scheduler.md), "Recursion");
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time type parameters,
-    and holds no closure (`extern` functions have no body). A function
-    whose compile-time parameters are all values (`Bool`, a number, an
-    enum) is a function per instance, sized, cycle-checked, and inlined
-    as any other, and so are the helpers it calls; the `comptime`
-    parameters stay compile-time and the rest are bound through `rig.rt`
-    as always. Its frame must be known without the values. A member of a
-    generic type is one declaration Zig writes once for all its
-    instances, so it is decided once, under the largest frame of its
-    instances, which bounds each: a generic owner's account is the
+  - it is not the root's `main`, and holds no closure (`extern`
+    functions have no body). A generic function, over types or values
+    (`Bool`, a number, an enum), is sized and inlined by the same rule,
+    and so are the helpers it calls; the `comptime` parameters stay
+    compile-time and the rest are bound through `rig.rt` as always. It,
+    and a member of a generic type, is one declaration Zig writes once
+    for all its instances, so it is decided once, under the largest
+    frame of its instances, which bounds each: a generic owner's account is the
     largest of the frames its instances counted (`FrameSize`), its own
     values and its own with the marked ones, each the largest of any
     instance. One no instance the program makes binds is a frame Zig

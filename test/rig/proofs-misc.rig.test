@@ -348,6 +348,36 @@ bomb "guard overflow mut", "integer overflow", release: true
 
   print(count("abcdefghij", Int.max - 3))
 
+test "half range", "[5, 4, 3, 2, 1]", release: true
+  # `for i in 0..n / 2`, with `n = xs.len`, has `i + 1 <= n`, since
+  # `n / 2 <= n`: `xs[i]` is in range, and so is `xs[n - 1 - i]`, the
+  # index counted down from the end, as `0 <= i`.
+
+  sub flip(xs: ![]Int)
+    n = xs.len
+    for i in 0..n / 2
+      t = xs[i] # proves: index lower upper
+      xs[i] = xs[n - 1 - i] # proves: index lower upper
+      xs[n - 1 - i] = t # proves: index lower upper
+
+  a = [1, 2, 3, 4, 5]
+  flip(!a[..])
+  print(a)
+
+bomb "half range inclusive mut", "index out of bounds", release: true
+  # `0..=n / 2` reaches `n / 2`, which is `n` itself when `n` is 0: `xs[i]`
+  # keeps its upper test.
+
+  fun total(xs: []Int) -> Int
+    n = xs.len
+    t = 0
+    for i in 0..=n / 2
+      t += xs[i] # keeps: index upper
+    t
+
+  a = [1, 2, 3]
+  print(total(a[..0]))
+
 test "held as", release: true, '''
   drop 99
   198
@@ -669,6 +699,35 @@ bomb "match guard mut", "index out of bounds", release: true
     0
 
   print(pick("abc", 2, 1))
+
+bomb "mirror bound mut", "index out of bounds", release: true
+  # `n - 1 - i` is below the length only when `n` is the length: here it
+  # is one more, so the index keeps its upper test, though `i < n / 2`
+  # still proves its lower one.
+
+  fun total(xs: []Int) -> Int
+    n = xs.len + 1
+    t = 0
+    for i in 0..n / 2
+      t += xs[n - 1 - i] # proves: index lower
+    t
+
+  a = [1, 2, 3]
+  print(total(a[..]))
+
+bomb "mirror room mut", "index out of bounds", release: true
+  # `n - 2 - i` needs `i + 2 <= n`, which `0..n` does not give: the index
+  # keeps its lower test.
+
+  fun total(xs: []Int) -> Int
+    n = xs.len
+    t = 0
+    for i in 0..n
+      t += xs[n - 2 - i] # keeps: index lower
+    t
+
+  a = [1, 2, 3]
+  print(total(a[..]))
 
 test "negative start", release: true, '''
   7523094288207667809
@@ -1417,6 +1476,34 @@ bomb "step mut", "integer overflow", release: true
     t
 
   print(run(Int.max - 5, Int.max))
+
+test "swap half", "[5, 4, 3, 2, 1] [\"d\", \"c\", \"b\", \"a\"]", release: true
+  # `!xs.swap(i, j)` is proven when both indexes are: here the first half
+  # and its mirror, at any element type.
+
+  sub flip[T](xs: ![]T)
+    n = xs.len
+    for i in 0..n / 2
+      !xs.swap(i, n - 1 - i) # proves: swap lower upper
+
+  a = [1, 2, 3, 4, 5]
+  flip(!a[..])
+  b = [String("a"), String("b"), String("c"), String("d")]
+  flip(!b[..])
+  print(a, b)
+
+bomb "swap half mut", "index out of bounds", release: true
+  # One index the facts do not prove keeps the tests of both: `n - i` is
+  # `n` at `i = 0`.
+
+  sub flip(xs: ![]Int)
+    n = xs.len
+    for i in 0..n / 2
+      !xs.swap(i, n - i) # keeps: swap lower upper
+
+  a = [1, 2, 3, 4, 5]
+  flip(!a[..])
+  print(a)
 
 test "swar", release: true, '''
   13

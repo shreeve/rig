@@ -421,9 +421,9 @@ expect_has "$out" 'pub fn bump(' "a callee that would overfill the caller's fram
 # Its frame is large, so it is never inlined either (`sema.noinline_reach`).
 expect_has "$out" 'pub noinline fn near(' "the caller"
 
-# An instance of a function with compile-time values (Bool, Int, enum) is
-# sized and inlined as any function, and so are the helpers it calls; one
-# with a compile-time type parameter is called.
+# A function with compile-time values (Bool, Int, enum) or types is sized
+# and inlined as any function, under the largest frame of its instances,
+# and so are the helpers it calls.
 cat >ctvalue.rig <<'RIG'
 enum Mode
   strict
@@ -464,7 +464,7 @@ expect_has "$out" 'pub inline fn times(comptime n: i64' "a function with a compi
 expect_has "$out" 'pub inline fn mode(comptime m: ' "a function with a compile-time enum"
 expect_has "$out" 'pub inline fn step(' "the callee of an instance"
 expect_has "$out" 'pub inline fn pick(' "the callee of an instance"
-expect_has "$out" 'pub fn same(comptime T: type' "a function with a compile-time type"
+expect_has "$out" 'pub inline fn same(comptime T: type' "a function with a compile-time type"
 expect_has "$out" 'pub fn down(' "recursion through an instance"
 
 # A function that is called from one place only, in a function with

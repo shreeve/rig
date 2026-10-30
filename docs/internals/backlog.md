@@ -44,6 +44,15 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   - Judge memory-bound bench/hash rows by medians with intervals and an
     unchanged control row, not by the fastest of N runs, which swung
     single rows several percent either way on unchanged code.
+- The ray tracer's `ray-dyn` after generic instances are inlined by the
+  size rule (#777): on pup (x86-64) 6% more cycles (36.6 to 38.8
+  billion), on the Mac 3% fewer (126.5 to 122.8 billion). The size
+  rule now inlines `ray_color`, which x86 runs more slowly inlined; the
+  port's own `inline` mark did the same before. Needs a study of why
+  the x86 inline loses, and whether the size rule should weigh a body's
+  loop or call depth. Trig's peak memory rose 200 KB (0.06%) in the
+  same change, against 8 KB more code: larger frames from deeper
+  inlining are the likely cause, not yet measured.
 - Every copy out of a view in a generic body takes the per-instance
   `copies` requirement, as `Cell.get` and a `??` through a view of an
   optional do: today a view read where its `T` is expected (`p` in

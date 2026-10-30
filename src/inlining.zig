@@ -20,15 +20,14 @@
 //!   - it is not on a cycle of calls, directly or through others,
 //!   - no mention of it is anything but the callee of a call: it is
 //!     never passed, stored, returned, or made into a closure,
-//!   - it is not the program's `main`, has no compile-time type
-//!     parameters (an instance of one with compile-time values is sized
-//!     and inlined as any function), and holds no closure,
+//!   - it is not the program's `main`, and holds no closure,
 //!   - and the frame of every frame owner it lands in stays within its
 //!     account's limits (`fit`).
 //!
-//! A member of a generic type is one declaration Zig writes once for all
-//! its instances, so it is decided once, under the largest frame of its
-//! instances (`collect`), which bounds each.
+//! A generic function, and a member of a generic type, is one
+//! declaration Zig writes once for all its instances, so it is decided
+//! once, by the same rule, under the largest frame of its instances
+//! (`collect`), which bounds each.
 //!
 //! What a call reaches is the one fact typecheck records where it
 //! resolves the call (`SemContext.callTargetOf`): a function by its
@@ -158,7 +157,7 @@ const Owner = struct {
     type_name: []const u8 = "",
 };
 
-const Edge = struct { callee: Callee, copies: u32 };
+const Edge = struct { callee: Callee, copies: u32, node: Sexp };
 
 /// The functions of one name, which a call no check resolved reaches all
 /// of: such a call is one edge to the group, not one to each, so the
@@ -204,6 +203,49 @@ fn textOf(c: *const SemContext, leaf: Sexp) []const u8 {
 
 /// A call and what it may reach.
 const Site = struct { module: usize, id: parser.NodeId, callee: Callee };
+
+/// A call outside every frame owner (`Pass.loose`), which may make an
+/// instance.
+const Loose = struct { module: usize, node: Sexp, callee: Callee };
+
+/// A compile-time value an instance binds a parameter to.
+const CtVal = union(enum) { boolean: bool, int: sema.Wide };
+
+/// The most instances of one function `cutCycles` tells apart; past it
+/// the function is one, as a function of no compile-time values is.
+const max_instances = 64;
+
+/// A function's instances, as `cutCycles` sees them (`Pass.enumerate`).
+const CtFn = struct {
+    /// Every compile-time parameter is a value (`n: Int`, `t: Bool`), so
+    /// each instance is a function of its own.
+    instanced: bool = false,
+    /// Some instance is not known: a call's compile-time argument is
+    /// not a value the pass computes, or a call by name reaches it.
+    unknown: bool = false,
+    /// The values of each instance the program makes, a value per
+    /// compile-time parameter, in order.
+    bindings: std.ArrayList([]const CtVal) = .empty,
+    /// The frame owners its instances write: its own and its closures'.
+    owners: std.ArrayList(u32) = .empty,
+    /// Its first node in `cutCycles`' graph, and how many.
+    first: u32 = 0,
+    count: u32 = 0,
+
+    /// Its instances are each a node of `cutCycles`' graph.
+    fn apart(f: CtFn) bool {
+        return f.instanced and !f.unknown and f.bindings.items.len > 0;
+    }
+};
+
+/// An `if` around a call, in the body of a function with compile-time
+/// values, and the branch the call is in: the call runs only where the
+/// condition is `taken`. `up` is the next `if` out.
+const Guard = struct { cond: Sexp, taken: bool, up: ?*const Guard };
+
+/// A frame owner `enumerate` walks, at one instance of its function (an
+/// index of its `bindings`), or at none.
+const Context = struct { owner: u32, binding: ?u32 };
 
 /// An owner's frame, by its declaring module's id and where it is
 /// declared (`sema.FrameSize`).
@@ -255,6 +297,13 @@ const Pass = struct {
     work: std.ArrayList(Callee) = .empty,
     /// The cycles of marked `inline` functions reported.
     cycles: u32 = 0,
+    /// The calls outside every frame owner, and what each reaches.
+    loose: std.ArrayList(Loose) = .empty,
+    /// Per function: its instances, for `cutCycles` (`enumerate`).
+    ct: []CtFn = &.{},
+    /// A call in the body of a function with compile-time values -> the
+    /// `if`s around it there (`Guard`), by its node.
+    guards: std.AutoHashMapUnmanaged(usize, *const Guard) = .empty,
 
     fn ctx(self: *Pass, module: usize) *const SemContext {
         return self.mods[module].sema;
@@ -341,10 +390,8 @@ const Pass = struct {
         const marker = rig.markerOf(node);
         // A function that always panics is cold, and stays out of line
         // as a `rarely` one does.
-        var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none and !rig.alwaysPanics(body);
+        var eligible = body != .nil and !is_main and marker == .none and !rig.alwaysPanics(body);
         if (body != .nil and holdsClosure(body)) eligible = false;
-        // A frame that depends on a compile-time value is unknown.
-        if (o.per_instance and sema.tparamsOf(node) != .nil) eligible = false;
         const idx: u32 = @intCast(self.fns.items.len);
         const gop = try self.by_name.getOrPut(self.a, name);
         if (!gop.found_existing) {
@@ -476,7 +523,9 @@ const Pass = struct {
                 if (f.first == null) f.first = first;
                 if (from) |v| try f.callers.append(self.a, v);
             }
-            if (owner) |o| try self.owners.items[o].calls.append(self.a, .{ .callee = t, .copies = fc.copies });
+            if (owner) |o| {
+                try self.owners.items[o].calls.append(self.a, .{ .callee = t, .copies = fc.copies, .node = fc.node });
+            } else try self.loose.append(self.a, .{ .module = module, .node = fc.node, .callee = t });
             if (fc.node == .list and fc.node.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = fc.node.list.id, .callee = t });
         }
     }
@@ -945,23 +994,237 @@ const Pass = struct {
         return self.cyclic.items[v];
     }
 
-    /// The functions called on a cycle with function `v`: those of its
-    /// calls, and of the groups its calls reach, in its component.
-    fn cycleCallees(self: *Pass, v: u32, out: *std.ArrayList(u32)) !void {
+    // ---- compile-time instances --------------------------------------
+
+    /// Find the instances of each function whose compile-time parameters
+    /// are all values (`CtFn`), from every call the program makes: a
+    /// call's compile-time arguments, computed at the instance of the
+    /// function around it, name the instance it makes. A call in a branch
+    /// that instance's values rule out (`ruledOut`) makes none. A function
+    /// some call reaches with arguments the pass does not compute, or by
+    /// name, has instances not known (`CtFn.unknown`), and is one function.
+    fn enumerate(self: *Pass) !void {
+        const nf = self.fns.items.len;
+        self.ct = try self.a.alloc(CtFn, nf);
+        for (self.ct, self.fns.items) |*f, fun| {
+            f.* = .{};
+            const body = ir.get(fun.node, .body);
+            f.instanced = body != .nil and sema.tparamsOf(fun.node) != .nil and onlyValueParams(fun.node);
+            if (f.instanced) try self.walkGuards(body, null);
+        }
+        var work: std.ArrayList(Context) = .empty;
+        for (self.owners.items, 0..) |o, i| {
+            const k: u32 = @intCast(i);
+            if (o.in_fn) |v| if (self.ct[v].instanced) {
+                try self.ct[v].owners.append(self.a, k);
+                continue;
+            };
+            try work.append(self.a, .{ .owner = k, .binding = null });
+        }
+        for (self.loose.items) |l| try self.reach(&work, l.module, l.node, l.callee, null, null);
+        while (work.pop()) |at| {
+            const o = self.owners.items[at.owner];
+            const module = self.moduleOf(at.owner);
+            const in = o.in_fn;
+            const vals: ?[]const CtVal = if (at.binding) |b| self.ct[in.?].bindings.items[b] else null;
+            for (o.calls.items) |e| {
+                if (vals != null and self.ruledOut(module, e.node, in.?, vals.?)) continue;
+                try self.reach(&work, module, e.node, e.callee, in, vals);
+            }
+        }
+    }
+
+    /// The instance call `node` (of module `module`) makes of what it
+    /// reaches, `t`, at the instance `vals` of function `in` around it.
+    fn reach(self: *Pass, work: *std.ArrayList(Context), module: usize, node: Sexp, t: Callee, in: ?u32, vals: ?[]const CtVal) !void {
+        if (t & group_bit != 0) {
+            for (self.groups.items[t & ~group_bit].members.items) |w| if (self.ct[w].instanced) try self.unknownInstances(work, w);
+            return;
+        }
+        if (!self.ct[t].instanced) return;
+        const args = (try self.argsOf(module, node, t, in, vals)) orelse return self.unknownInstances(work, t);
+        const f = &self.ct[t];
+        if (f.unknown or self.bindingOf(t, args) != null) return;
+        if (f.bindings.items.len == max_instances) return self.unknownInstances(work, t);
+        const b: u32 = @intCast(f.bindings.items.len);
+        try f.bindings.append(self.a, args);
+        for (f.owners.items) |o| try work.append(self.a, .{ .owner = o, .binding = b });
+    }
+
+    /// Function `v` has instances not known: its owners are walked once
+    /// more, at no instance.
+    fn unknownInstances(self: *Pass, work: *std.ArrayList(Context), v: u32) !void {
+        const f = &self.ct[v];
+        if (f.unknown) return;
+        f.unknown = true;
+        for (f.owners.items) |o| try work.append(self.a, .{ .owner = o, .binding = null });
+    }
+
+    /// The index of the instance of `v` that binds `args`, if found.
+    fn bindingOf(self: *const Pass, v: u32, args: []const CtVal) ?u32 {
+        for (self.ct[v].bindings.items, 0..) |b, i| {
+            for (b, args) |x, y| {
+                if (!std.meta.eql(x, y)) break;
+            } else return @intCast(i);
+        }
+        return null;
+    }
+
+    /// The module of owner `o`.
+    fn moduleOf(self: *const Pass, o: u32) usize {
+        var m: usize = self.mods.len - 1;
+        while (self.owner_base[m] > o) m -= 1;
+        return m;
+    }
+
+    /// The compile-time arguments of call `node` of module `module` to
+    /// function `t`, at the instance `vals` of function `in` around it;
+    /// null when one is not a value the pass computes.
+    fn argsOf(self: *Pass, module: usize, node: Sexp, t: u32, in: ?u32, vals: ?[]const CtVal) !?[]const CtVal {
+        const c = self.ctx(module);
+        const given = c.ctArgsOf(node);
+        if (given.len != sema.tparamsOf(self.fns.items[t].node).items().len) return null;
+        const out = try self.a.alloc(CtVal, given.len);
+        for (given, out) |g, *o| o.* = self.valueOf(c, g, in, vals) orelse return null;
+        return out;
+    }
+
+    /// Whether call `node` of module `module`, in the body of function
+    /// `v`, runs in no run of its instance `vals`: an `if` around it has a
+    /// condition those values decide for the other branch.
+    fn ruledOut(self: *Pass, module: usize, node: Sexp, v: u32, vals: []const CtVal) bool {
+        if (node != .list) return false;
+        const c = self.ctx(module);
+        var g = self.guards.get(@intFromPtr(node.list.ptr));
+        while (g) |guard| : (g = guard.up) {
+            const decided = self.valueOf(c, guard.cond, v, vals) orelse continue;
+            if (decided == .boolean and decided.boolean != guard.taken) return true;
+        }
+        return false;
+    }
+
+    /// Record the `if`s around each call in `e` (`guards`), `up` the
+    /// innermost around `e`.
+    fn walkGuards(self: *Pass, e: Sexp, up: ?*const Guard) !void {
+        if (e != .list) return;
+        if (e.isKind(.@"if")) {
+            const cond = ir.If.cond(e);
+            try self.walkGuards(cond, up);
+            const then = try self.a.create(Guard);
+            then.* = .{ .cond = cond, .taken = true, .up = up };
+            try self.walkGuards(ir.If.then(e), then);
+            const other = try self.a.create(Guard);
+            other.* = .{ .cond = cond, .taken = false, .up = up };
+            try self.walkGuards(ir.If.@"else"(e), other);
+            return;
+        }
+        if (up != null and e.isKind(.call)) try self.guards.put(self.a, @intFromPtr(e.list.ptr), up.?);
+        for (e.items()) |c| try self.walkGuards(c, up);
+    }
+
+    /// The value of the compile-time expression `e` of `c`, at the
+    /// instance `vals` of function `in` around it: a literal, a
+    /// compile-time parameter of `in`, an integer constant, and `not`,
+    /// `and`, `or`, and comparisons of them; null for any other.
+    fn valueOf(self: *const Pass, c: *const SemContext, e: Sexp, in: ?u32, vals: ?[]const CtVal) ?CtVal {
+        switch (e) {
+            .src => {
+                const word = rig.leafText(c.source, e.src);
+                if (std.mem.eql(u8, word, "true")) return .{ .boolean = true };
+                if (std.mem.eql(u8, word, "false")) return .{ .boolean = false };
+                if (sema.isIntLiteralText(word)) return .{ .int = std.fmt.parseInt(sema.Wide, word, 0) catch return null };
+                const id = c.symbolOf(e) orelse return null;
+                if (c.const_ints.get(id)) |k| return .{ .int = k.value };
+                const fun = in orelse return null;
+                const at = vals orelse return null;
+                const pos = c.symbols.items[id].decl_pos;
+                for (sema.tparamsOf(self.fns.items[fun].node).items(), at) |p, v| {
+                    const name = sema.paramNameNode(p) orelse continue;
+                    if (name == .src and name.src.pos == pos) return v;
+                }
+                return null;
+            },
+            .list => {},
+            else => return null,
+        }
+        const kind = e.kind() orelse return null;
+        switch (kind) {
+            .not => {
+                const v = self.valueOf(c, ir.Not.operand(e), in, vals) orelse return null;
+                return if (v == .boolean) .{ .boolean = !v.boolean } else null;
+            },
+            // A side the values decide decides the whole: `x and false` is
+            // false whatever `x` is, and `x or true` true.
+            .@"and", .@"or" => {
+                const want = kind == .@"or";
+                const l = if (kind == .@"and") ir.And.left(e) else ir.Or.left(e);
+                const r = if (kind == .@"and") ir.And.right(e) else ir.Or.right(e);
+                const a = self.valueOf(c, l, in, vals);
+                const b = self.valueOf(c, r, in, vals);
+                for ([_]?CtVal{ a, b }) |side| if (side) |v| if (v == .boolean and v.boolean == want) return v;
+                const x = a orelse return null;
+                const y = b orelse return null;
+                if (x != .boolean or y != .boolean) return null;
+                return .{ .boolean = if (want) x.boolean or y.boolean else x.boolean and y.boolean };
+            },
+            .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
+                const x = self.valueOf(c, ir.get(e, .left), in, vals) orelse return null;
+                const y = self.valueOf(c, ir.get(e, .right), in, vals) orelse return null;
+                if (x == .boolean and y == .boolean) return switch (kind) {
+                    .@"==" => .{ .boolean = x.boolean == y.boolean },
+                    .@"!=" => .{ .boolean = x.boolean != y.boolean },
+                    else => null,
+                };
+                if (x != .int or y != .int) return null;
+                return .{ .boolean = switch (kind) {
+                    .@"==" => x.int == y.int,
+                    .@"!=" => x.int != y.int,
+                    .@"<" => x.int < y.int,
+                    .@">" => x.int > y.int,
+                    .@"<=" => x.int <= y.int,
+                    else => x.int >= y.int,
+                } };
+            },
+            else => return null,
+        }
+    }
+
+    /// The nodes of `cutCycles`' graph that function `v`'s node `n`, at
+    /// the instance `vals` or at none, calls on a cycle: those of its
+    /// calls, and of the groups its calls reach, in its component; a call
+    /// of a function whose instances are apart reaches the instance its
+    /// arguments name.
+    fn cycleCallees(self: *Pass, v: u32, vals: ?[]const CtVal, out: *std.ArrayList(u32)) !void {
         out.clearRetainingCapacity();
         const c = self.component.items[v];
+        const module = self.fns.items[v].module;
         for (self.owners.items[self.fns.items[v].owner].calls.items) |e| {
+            if (vals != null and self.ruledOut(module, e.node, v, vals.?)) continue;
             const one = [1]u32{e.callee};
             const reached: []const u32 = if (e.callee & group_bit != 0) self.groups.items[e.callee & ~group_bit].members.items else &one;
-            for (reached) |t| if (self.cyclic.items[t] and self.component.items[t] == c) try out.append(self.a, t);
+            for (reached) |t| {
+                if (!self.cyclic.items[t] or self.component.items[t] != c) continue;
+                const f = self.ct[t];
+                if (f.apart() and e.callee & group_bit == 0) {
+                    if (try self.argsOf(module, e.node, t, v, vals)) |args| if (self.bindingOf(t, args)) |b| {
+                        try out.append(self.a, f.first + b);
+                        continue;
+                    };
+                }
+                for (0..f.count) |k| try out.append(self.a, f.first + @as(u32, @intCast(k)));
+            }
         }
     }
 
     /// Choose the functions whose entry checks for waiting work
     /// (`checked`): a set of functions on cycles of calls that every
     /// cycle passes through, so a task that recurses reaches a check on
-    /// each turn of any cycle while the others go unchecked. A function
-    /// that calls itself is in it. Of the rest, the reductions of a
+    /// each turn of any cycle while the others go unchecked. Each instance
+    /// of a function whose compile-time parameters are values is a
+    /// function of its own here (`enumerate`), so `at[true]` calling
+    /// `at[false]` is no cycle; a function checks when one of its
+    /// instances is chosen, since Zig writes one function for them all.
+    /// A function that calls itself is in it. Of the rest, the reductions of a
     /// feedback vertex set drop a function no cycle is left through (one
     /// no other calls, or that calls none, among those left), and while
     /// cycles remain the largest function is taken: a large body runs
@@ -971,30 +1234,52 @@ const Pass = struct {
         const nf = self.fns.items.len;
         self.checked = try self.a.alloc(bool, nf);
         @memset(self.checked, false);
+        try self.enumerate();
+        // The graph's nodes: each function on a cycle, or each instance
+        // of one whose instances are apart.
+        var node_fn: std.ArrayList(u32) = .empty;
+        var node_vals: std.ArrayList(?[]const CtVal) = .empty;
+        for (0..nf) |i| {
+            const v: u32 = @intCast(i);
+            if (!self.cyclic.items[v]) continue;
+            const f = &self.ct[v];
+            f.first = @intCast(node_fn.items.len);
+            if (f.apart()) {
+                for (f.bindings.items) |b| {
+                    try node_fn.append(self.a, v);
+                    try node_vals.append(self.a, b);
+                }
+            } else {
+                try node_fn.append(self.a, v);
+                try node_vals.append(self.a, null);
+            }
+            f.count = @as(u32, @intCast(node_fn.items.len)) - f.first;
+        }
+        const nn = node_fn.items.len;
+        const chosen = try self.a.alloc(bool, nn);
+        @memset(chosen, false);
         const Set = std.AutoArrayHashMapUnmanaged(u32, void);
-        const succ = try self.a.alloc(Set, nf);
-        const pred = try self.a.alloc(Set, nf);
-        const callees = try self.a.alloc([]const u32, nf);
-        const alive = try self.a.alloc(bool, nf);
+        const succ = try self.a.alloc(Set, nn);
+        const pred = try self.a.alloc(Set, nn);
+        const callees = try self.a.alloc([]const u32, nn);
+        const alive = try self.a.alloc(bool, nn);
         for (succ, pred, callees, alive) |*s, *p, *c, *l| {
             s.* = .empty;
             p.* = .empty;
             c.* = &.{};
-            l.* = false;
+            l.* = true;
         }
         var buf: std.ArrayList(u32) = .empty;
         var work: std.ArrayList(u32) = .empty;
-        for (0..nf) |i| {
-            const v: u32 = @intCast(i);
-            if (!self.cyclic.items[v]) continue;
-            alive[v] = true;
-            try self.cycleCallees(v, &buf);
-            callees[v] = try self.a.dupe(u32, buf.items);
+        for (0..nn) |i| {
+            const n: u32 = @intCast(i);
+            try self.cycleCallees(node_fn.items[n], node_vals.items[n], &buf);
+            callees[n] = try self.a.dupe(u32, buf.items);
             for (buf.items) |t| {
-                try succ[v].put(self.a, t, {});
-                try pred[t].put(self.a, v, {});
+                try succ[n].put(self.a, t, {});
+                try pred[t].put(self.a, n, {});
             }
-            try work.append(self.a, v);
+            try work.append(self.a, n);
         }
         const Graph = struct {
             succ: []Set,
@@ -1022,38 +1307,41 @@ const Pass = struct {
             while (work.pop()) |v| {
                 if (!alive[v]) continue;
                 if (succ[v].contains(v)) {
-                    self.checked[v] = true;
+                    chosen[v] = true;
                     try g.remove(v);
                 } else if (succ[v].count() == 0 or pred[v].count() == 0) try g.remove(v);
             }
             var best: ?u32 = null;
             for (alive, 0..) |l, i| if (l) {
-                if (best == null or self.fns.items[i].size > self.fns.items[best.?].size) best = @intCast(i);
+                if (best == null or self.fns.items[node_fn.items[i]].size > self.fns.items[node_fn.items[best.?]].size) best = @intCast(i);
             };
             const v = best orelse break;
-            self.checked[v] = true;
+            chosen[v] = true;
             try taken.append(self.a, v);
             try g.remove(v);
         }
         // Drop each function taken whose cycles the other checks cover.
-        const seen = try self.a.alloc(bool, nf);
+        const seen = try self.a.alloc(bool, nn);
         var stack: std.ArrayList(u32) = .empty;
         var k = taken.items.len;
         while (k > 0) {
             k -= 1;
             const v = taken.items[k];
-            self.checked[v] = false;
+            chosen[v] = false;
             @memset(seen, false);
             stack.clearRetainingCapacity();
             try stack.appendSlice(self.a, callees[v]);
             const back = while (stack.pop()) |w| {
                 if (w == v) break true;
-                if (seen[w] or self.checked[w]) continue;
+                if (seen[w] or chosen[w]) continue;
                 seen[w] = true;
                 try stack.appendSlice(self.a, callees[w]);
             } else false;
-            if (back) self.checked[v] = true;
+            if (back) chosen[v] = true;
         }
+        for (chosen, node_fn.items) |x, v| if (x) {
+            self.checked[v] = true;
+        };
     }
 };
 
@@ -1074,7 +1362,7 @@ pub fn size(e: Sexp) u32 {
 
 /// Whether every compile-time parameter of `node` is a value (`n: Int`,
 /// `dense: Bool`), none a type (`T`): each instance is then a function of
-/// a known frame, sized and inlined as any other.
+/// its own to `cutCycles`, told apart by its values.
 fn onlyValueParams(node: Sexp) bool {
     const tp = sema.tparamsOf(node);
     if (tp == .nil) return true;

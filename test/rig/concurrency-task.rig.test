@@ -713,6 +713,73 @@ code "task one check on a cycle of calls", '''
   t = even(10)&
   print(>t)
 
+code "task an instance calling another is no cycle", '''
+  pub fn at(comptime t: bool, i: i64, j: i64) i64 {
+      @setEvalBranchQuota(rig.eval_quota);
+      if (t) {
+'''
+  # Each instance of a function whose compile-time parameters are values
+  # is a function of its own to the checks: `at[true]` calls `at[false]`,
+  # whose call of `at` is in a branch its `t` rules out, so no cycle
+  # runs through `at` and it does not check.
+  fun at[t: Bool](i: Int, j: Int) -> Int
+    return at[false](j, i) if t
+    i * 10 + j
+
+  fun flip[t: Bool](x: Int) -> Int
+    flip[not t](x - 1) if t and x > 0 else x
+
+  t = at[true](1, 2)&
+  print(>t, flip[true](3))
+
+code "task an instance calling itself checks", '''
+  pub fn down(comptime t: bool, n: i64) i64 {
+      @setEvalBranchQuota(rig.eval_quota);
+      rig.tickCall();
+'''
+  # An instance that reaches itself is a cycle, through the other
+  # instance or straight, and checks: `down[true]` calls `down[false]`,
+  # which calls `down[true]`.
+  fun down[t: Bool](n: Int) -> Int
+    return 0 if n == 0
+    down[not t](n - 1) + 1
+
+  t = down[true](10)&
+  print(>t)
+
+code "task an instance a closure makes checks", '''
+  pub fn count(comptime k: i64, n: i64) i64 {
+      @setEvalBranchQuota(rig.eval_quota);
+      rig.tickCall();
+'''
+  # An instance only a closure makes is found as any other: `count[0]`
+  # calls nothing, but `count[2]` calls itself.
+  fun count[k: Int](n: Int) -> Int
+    if k == 0 or n <= 0
+      return n
+    else
+      return count[k](n - k) + 1
+
+  fun two() -> Int
+    2
+
+  f = |n: Int| count[2](n)
+  t = two()&
+  print(count[0](5), f(10), >t)
+
+test "task instances that recurse yield", seeds: 20, "2 4 4"
+  # The values an instance's calls are judged by are its own: `walk[1]`
+  # recurses through `walk[2]` under a condition no value decides.
+  fun walk[k: Int](n: Int) -> Int
+    return 0 if n <= 0
+    if k == 1
+      return walk[2](n - 1) + 1
+    walk[1](n - 1) + 1
+
+  a = walk[1](2)&
+  b = walk[2](4)&
+  print(>a, >b, walk[1](4))
+
 code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
   # A loop counts a turn in its continue expression, so a turn that
   # leaves the loop counts nothing.

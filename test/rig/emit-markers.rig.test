@@ -62,10 +62,10 @@ code "markers each shape", "pub inline fn big(__rig_in_a: i64) i64 {", "pub inli
     w = Wrap[Int](value: 2)
     print(big(1), small(2), tiny(3), w.get(), w.peek(), w.same(), larger(3, 4))
 
-code "markers none, the compiler's rule decides", "pub fn big(a: i64) i64 {", "pub inline fn small(", "pub fn larger(comptime T: type, ", /^(?![\s\S]*@branchHint)/, /^(?![\s\S]*noinline)/
+code "markers none, the compiler's rule decides", "pub fn big(a: i64) i64 {", "pub inline fn small(", "pub inline fn larger(comptime T: type, ", /^(?![\s\S]*@branchHint)/, /^(?![\s\S]*noinline)/
   # Without the markers, the compiler's rule decides: `big` is over its size
-  # and is called; `small`, `get`, and `peek` are inlined; `larger`, generic
-  # over a type, is not; no function is cold or `noinline`.
+  # and is called; `small`, `get`, `peek`, and `larger`, generic over a
+  # type, are inlined; no function is cold or `noinline`.
 
   fun big(a: Int) -> Int
     x = a
@@ -115,6 +115,23 @@ code "markers none, the compiler's rule decides", "pub fn big(a: i64) i64 {", "p
   sub main()
     w = Wrap[Int](value: 2)
     print(big(1), small(2), tiny(3), w.get(), w.peek(), w.same(), larger(3, 4))
+
+code "markers none, a generic by its largest instance", "pub inline fn pick(comptime T: type, ", "pub fn spread(comptime T: type, "
+  # A generic function is one function Zig writes for all its instances,
+  # so the rule judges it by the largest frame of them: `pick` is small at
+  # each, and inlined; `spread` holds 80 KB at `spread[Int]`, over the
+  # 64 KiB an inlined frame may add, so it is called even where
+  # `spread[Bool]` would fit.
+
+  fun pick[T](a: T, b: T, first: Bool) -> T
+    a if first else b
+
+  fun spread[T](x: T) -> T
+    xs = [10000 of x]
+    xs[7]
+
+  sub main()
+    print(pick(1, 2, true), pick("a", "b", false), spread(3), spread(true))
 
 test "markers change no meaning", "5230176601 3 2 2 2 2 4", release: true
   # A marker changes no meaning: the program prints the same without them.

@@ -184,7 +184,15 @@ fails, and yields only when other work waits.
   function that calls itself, then, while cycles remain among the
   rest, the largest function on one, since a large body runs longest
   each call and so checks least often; a function picked whose cycles
-  the others' checks already cover is dropped. So a task that
+  the others' checks already cover is dropped. Each instance of a
+  function whose compile-time parameters are all values is a function
+  of its own there, calling what its values leave it: a call in an
+  `if` branch its values rule out is no call, so `at[true]` calling
+  `at[false]`, whose own call of `at` is under `if t`, is no cycle and
+  `at` does not check. A function with an instance picked checks in
+  all of them, since Zig writes one function for them all; one whose
+  instances are not all known (a compile-time argument the compiler
+  does not compute, a call by name) is one function, as before. So a task that
   recurses reaches a check on every turn of any cycle, and between
   two checks it makes at most one chain of calls that repeats no
   function. In Trig's checker 387 of the 2,812 functions on cycles
