@@ -182,6 +182,18 @@ test "markers"
 """
 
 
+GENERIC = """fun pick[T](a: T, b: T, first: Bool) -> T
+  a if first else b
+
+fun spread[T](x: T) -> T
+  xs = [10000 of x]
+  xs[7]
+
+sub main()
+  print(pick(1, 2, true), pick("a", "b", false), spread(3), spread(true))
+"""
+
+
 def chain(n):
     """`main` calls g0, and each marked g_i calls g_(i+1), n deep."""
     out = "".join(f"inline fun g{i}(x: Int) -> Int\n  g{i + 1}(x) + 1\n\n" for i in range(n))
@@ -221,11 +233,18 @@ def text():
               "parameter is `inline fn`; `rarely` is `noinline`, and starts with the",
               "cold hint; `called` is `noinline`, with no cold hint."], SHAPES),
         case("code \"markers none, the compiler's rule decides\", "
-             "\"pub fn big(a: i64) i64 {\", \"pub inline fn small(\", \"pub fn larger(comptime T: type, \", "
+             "\"pub fn big(a: i64) i64 {\", \"pub inline fn small(\", \"pub inline fn larger(comptime T: type, \", "
              + lacks("@branchHint") + ", " + lacks("noinline"),
              ["Without the markers, the compiler's rule decides: `big` is over its size",
-              "and is called; `small`, `get`, and `peek` are inlined; `larger`, generic",
-              "over a type, is not; no function is cold or `noinline`."], PLAIN),
+              "and is called; `small`, `get`, `peek`, and `larger`, generic over a",
+              "type, are inlined; no function is cold or `noinline`."], PLAIN),
+        case("code \"markers none, a generic by its largest instance\", "
+             "\"pub inline fn pick(comptime T: type, \", \"pub fn spread(comptime T: type, \"",
+             ["A generic function is one function Zig writes for all its instances,",
+              "so the rule judges it by the largest frame of them: `pick` is small at",
+              "each, and inlined; `spread` holds 80 KB at `spread[Int]`, over the",
+              "64 KiB an inlined frame may add, so it is called even where",
+              "`spread[Bool]` would fit."], GENERIC),
         case("test \"markers change no meaning\", \"5230176601 3 2 2 2 2 4\", release: true",
              ["A marker changes no meaning: the program prints the same without them."], SHAPES),
         case("test \"markers none change no meaning\", \"5230176601 3 2 2 2 2 4\", release: true",

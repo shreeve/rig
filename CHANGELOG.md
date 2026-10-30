@@ -233,6 +233,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   type from `x` wherever an `*Actor[T]` is expected (a typed binding,
   an argument, a field, a payload), as `*Frozen(x)` does; it was
   rejected as an opaque type before.
+- **A generic function is inlined by the size rule.** The compiler
+  inlined no function with compile-time type parameters unless it was
+  marked `inline`; it now judges one as any other function, under the
+  largest frame of its instances, so a small generic helper costs what
+  the same helper written for one type does. The ray tracer's generic
+  `ray_color` needed `inline` for that: without it ray-dyn took 3% more
+  cycles, and now takes the same as with it.
 - **An instance calling another instance is no cycle.** The yield
   checks of recursion (docs/internals/scheduler.md) treat each instance
   of a function whose compile-time parameters are values as a function

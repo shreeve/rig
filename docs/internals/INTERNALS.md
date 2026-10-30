@@ -4512,8 +4512,8 @@ symbols); a query that decides more than that is a recorded fact.
 
   A function's marker comes first (SPEC.md, "Function markers"). One
   marked `inline fun` is inlined whatever the rule below says: its size,
-  its expansion, its compile-time type parameters, a closure in it, and
-  its frame's size are waived, and no step of the rule stops inlining
+  its expansion, a closure in it, its frame's size, and its frame's
+  being unknown at a generic's instances are waived, and no step of the rule stops inlining
   it. What Zig cannot inline is an error, in the pass that knows it: a
   value use of it (`typecheck`, where every function value is typed:
   `functionValue`, by the `inline_marked` flag of its symbol or method),
@@ -4598,19 +4598,19 @@ symbols); a query that decides more than that is a recorded fact.
     form of the tree once (a call, an operator, a binding, an `if`),
     which std.json's helpers (`string`, `plain`, `key`, `close`,
     `literal`, 27 to 50) fit and larger ones in that parser do not;
-  - it is on no cycle of calls, directly or through others;
+  - it is on no cycle of calls, directly or through others, its
+    declaration's calls counted for every instance (the yield checks
+    tell instances apart, [the scheduler](scheduler.md), "Recursion");
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time type parameters,
-    and holds no closure (`extern` functions have no body). A function
-    whose compile-time parameters are all values (`Bool`, a number, an
-    enum) is a function per instance, sized, cycle-checked, and inlined
-    as any other, and so are the helpers it calls; the `comptime`
-    parameters stay compile-time and the rest are bound through `rig.rt`
-    as always. Its frame must be known without the values. A member of a
-    generic type is one declaration Zig writes once for all its
-    instances, so it is decided once, under the largest frame of its
-    instances, which bounds each: a generic owner's account is the
+  - it is not the root's `main`, and holds no closure (`extern`
+    functions have no body). A generic function, over types or values
+    (`Bool`, a number, an enum), is sized and inlined by the same rule,
+    and so are the helpers it calls; the `comptime` parameters stay
+    compile-time and the rest are bound through `rig.rt` as always. It,
+    and a member of a generic type, is one declaration Zig writes once
+    for all its instances, so it is decided once, under the largest
+    frame of its instances, which bounds each: a generic owner's account is the
     largest of the frames its instances counted (`FrameSize`), its own
     values and its own with the marked ones, each the largest of any
     instance. One no instance the program makes binds is a frame Zig

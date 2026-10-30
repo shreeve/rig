@@ -20,15 +20,14 @@
 //!   - it is not on a cycle of calls, directly or through others,
 //!   - no mention of it is anything but the callee of a call: it is
 //!     never passed, stored, returned, or made into a closure,
-//!   - it is not the program's `main`, has no compile-time type
-//!     parameters (an instance of one with compile-time values is sized
-//!     and inlined as any function), and holds no closure,
+//!   - it is not the program's `main`, and holds no closure,
 //!   - and the frame of every frame owner it lands in stays within its
 //!     account's limits (`fit`).
 //!
-//! A member of a generic type is one declaration Zig writes once for all
-//! its instances, so it is decided once, under the largest frame of its
-//! instances (`collect`), which bounds each.
+//! A generic function, and a member of a generic type, is one
+//! declaration Zig writes once for all its instances, so it is decided
+//! once, by the same rule, under the largest frame of its instances
+//! (`collect`), which bounds each.
 //!
 //! What a call reaches is the one fact typecheck records where it
 //! resolves the call (`SemContext.callTargetOf`): a function by its
@@ -391,10 +390,8 @@ const Pass = struct {
         const marker = rig.markerOf(node);
         // A function that always panics is cold, and stays out of line
         // as a `rarely` one does.
-        var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none and !rig.alwaysPanics(body);
+        var eligible = body != .nil and !is_main and marker == .none and !rig.alwaysPanics(body);
         if (body != .nil and holdsClosure(body)) eligible = false;
-        // A frame that depends on a compile-time value is unknown.
-        if (o.per_instance and sema.tparamsOf(node) != .nil) eligible = false;
         const idx: u32 = @intCast(self.fns.items.len);
         const gop = try self.by_name.getOrPut(self.a, name);
         if (!gop.found_existing) {
@@ -1365,7 +1362,7 @@ pub fn size(e: Sexp) u32 {
 
 /// Whether every compile-time parameter of `node` is a value (`n: Int`,
 /// `dense: Bool`), none a type (`T`): each instance is then a function of
-/// a known frame, sized and inlined as any other.
+/// its own to `cutCycles`, told apart by its values.
 fn onlyValueParams(node: Sexp) bool {
     const tp = sema.tparamsOf(node);
     if (tp == .nil) return true;
