@@ -1840,6 +1840,11 @@ pub const Facts = struct {
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Assignments to a field that holds `none` wherever they run: the
+    /// ownership checker found it taken with `<p.f`, and neither written
+    /// nor lent to write since, on every path (`SemContext.recordOldNone`).
+    /// The store drops no old value.
+    old_nones: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// `*w` nodes that upgrade a weak handle -> whether each reads or
     /// takes it (`SemContext.recordUpgrade`).
     upgrades: std.AutoHashMapUnmanaged(NodeKey, Upgrade) = .empty,
@@ -4981,6 +4986,18 @@ pub const SemContext = struct {
 
     pub fn takes(self: *const SemContext, node: Sexp) bool {
         return self.facts.takes.contains(nodeKey(node) orelse return false);
+    }
+
+    /// Assignment `set` stores into a field the ownership checker knows
+    /// holds `none` (`Facts.old_nones`). Only the module check calls
+    /// this, after the checker accepts the module.
+    pub fn recordOldNone(self: *SemContext, set: Sexp) !void {
+        try self.facts.old_nones.put(self.allocator, recordKey(set), {});
+    }
+
+    /// Whether assignment `set`'s old value is `none` (`recordOldNone`).
+    pub fn oldIsNone(self: *const SemContext, set: Sexp) bool {
+        return self.facts.old_nones.contains(nodeKey(set) orelse return false);
     }
 
     /// `*w` (`node`, a `share`) of a weak handle `w`, a `~T` or a view of
@@ -8350,13 +8367,19 @@ pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
 /// `somePtr`, `pack`): where its representation may differ from Zig's
 /// `?T`. A type parameter's may, since its instance decides; so may an
 /// object's, which holds `none` in a niche where it has one, and an
-/// optional of such an optional (`rig.Opt`). `pack` writes an object's flag optional in one store
-/// where it fits (runtime `OneStore`). `strict` (`RIG_STRICT_OPTIONALS`)
-/// holds each of them as a tagged struct.
+/// optional of such an optional (`rig.Opt`). A box's `^T?` and a weak
+/// handle's `~T?` hold `none` as the null address, a pointer's size, as
+/// a `*T?` does: Zig gives that only to a bare pointer, and a box and a
+/// weak handle are each a struct around one. `pack` writes an object's
+/// flag optional in one store where it fits (runtime `OneStore`).
+/// `strict` (`RIG_STRICT_OPTIONALS`) holds each object's as a tagged
+/// struct.
 pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
     return switch (ctx.types.get(inner)) {
         .type_var => true,
         .optional => |payload| optionalRouted(ctx, payload, strict),
+        .weak => objectHeld(ctx, inner) == null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id) objectHeld(ctx, inner) == null else isObject(ctx, inner),
         else => isObject(ctx, inner),
     };
 }

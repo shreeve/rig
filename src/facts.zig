@@ -558,6 +558,11 @@ pub const Facts = struct {
     pub fn takes(f: Facts, node: Sexp) bool {
         return f.c().takes(node);
     }
+    /// Whether assignment `set` stores into a field that holds `none`
+    /// there, so it drops no old value (`SemContext.oldIsNone`).
+    pub fn oldIsNone(f: Facts, set: Sexp) bool {
+        return f.c().oldIsNone(set);
+    }
     pub fn upgradeOf(f: Facts, node: Sexp) ?Upgrade {
         return f.c().upgradeOf(node);
     }

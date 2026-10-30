@@ -4152,6 +4152,22 @@ Its readers, each taking the steps from `eachSetStep`:
 A new reader takes the steps from `eachSetStep` and the held storage
 from `setOrder`, and decides neither again.
 
+**The fact: `old_nones`** (`SemContext.recordOldNone`, read by emit as
+`Facts.oldIsNone`). An assignment to a field whose old value moves
+drops it through the slot, unless the ownership checker knows the
+field holds `none` there. Each var's flow keeps the optional fields
+known to hold `none` (`Flow.nones`): `<p.f` adds one (`markNone`), a
+field reached by fields alone, through no index or shared handle; any
+write, lend to write, or move of a place overlapping it removes it
+(`clearNones`, in `conflictingLoan`, `walkFieldAssign`, and
+`reassign`), and a join keeps only what both paths know. A store into
+such a field records the assignment (`noteOldNone`), and a walk that
+reaches it with the field not known `none`, a loop's earlier rounds and
+a `defer`'s exits among them, keeps it out. Only an accepted module's
+assignments are recorded, after the check. `@head = ^Node(elem: <e,
+next: <@head)`, and `@head = <node.next` after `node = (<@head)?.unbox()`,
+store with no drop.
+
 - **The checker** walks the value, then the target. While the value is
   walked, the target's uses lie ahead, in the statement after `__v`:
   the symbols the target reads are live (`Checker.after_value`,
@@ -4363,9 +4379,13 @@ symbols); a query that decides more than that is a recorded fact.
   (`test/cli/niche_optional.sh`). An optional of it takes the next value
   while one is free (a `Bool` has 254, a plain enum what its tag leaves, an
   address only 0), else Zig's flag. Only the objects emit writes (`__rig_name`) take
-  a niche: a `String?`, `List[T]?`, `^T?`, `~T?`, `Bool?`, or enum's
-  optional is written `?T` outside generic code, so `rig.Opt` of it
-  stays `?T` everywhere. An object that names its none (`none id == 0`,
+  a niche, and boxes and weak handles: a `String?`, `List[T]?`,
+  `Bool?`, or enum's optional is written `?T` outside generic code, so
+  `rig.Opt` of it stays `?T` everywhere. A `^T?` and a `~T?` are routed
+  as an object's is (`sema.optionalRouted`): a box and a weak handle are
+  each a struct around one address, whose `?T` Zig would hold beside a
+  flag, so `rig.Opt` holds `none` as the null address, a pointer's size,
+  as a `*T?` is. An API object's box `^{Shape}?` stays Zig's `?T`. An object that names its none (`none id == 0`,
   `sema.namedNoneOf`) declares `__rig_none_field` and `__rig_none`,
   which `nicheOf` takes as its niche, read as the field's integer or
   enum tag; the object asserts its optional is its own size, and its

@@ -645,6 +645,10 @@ pub fn Opt(comptime T: type) type {
     if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_name") or @hasDecl(T, "__rig_niche"))) {
         if (comptime nicheOf(T)) |n| return Niche(T, n);
     }
+    // A box's (`^T?`) and a weak handle's (`~T?`) hold `none` as the
+    // null address, a pointer's size, as a `*T?` does; every optional of
+    // one goes through the helpers too.
+    if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak"))) return Niche(T, nicheOf(T).?);
     return ?T;
 }
 
@@ -1077,7 +1081,7 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
             t.drop_depth += 1;
             self.vt.__rig_drop(self.ptr);
             t.drop_depth -= 1;
-            if (t.drop_depth == 0) drainDropQueue();
+            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
         }
     };
 }
@@ -1534,9 +1538,19 @@ pub fn dropElement(comptime T: type, value: *T) void {
     }
 }
 
-/// `dropElement` with the type inferred from the pointer.
-pub fn drop(ptr: anytype) void {
-    dropElement(@TypeOf(ptr.*), ptr);
+/// `dropElement` with the type inferred from the pointer. An optional
+/// is tested for `none` where the drop is, so a drop of a place just
+/// emptied (`takeOut`) folds away even where `dropElement`, recursive
+/// through a box, stays a call.
+pub inline fn drop(ptr: anytype) void {
+    const T = @TypeOf(ptr.*);
+    if (comptime !needsDrop(T)) return;
+    if (comptime isOptStruct(T)) {
+        if (somePtr(ptr) == null) return;
+    } else if (comptime @typeInfo(T) == .optional) {
+        if (ptr.* == null) return;
+    }
+    dropElement(T, ptr);
 }
 
 /// Drop every field of the struct `ptr` points to, last field first.
@@ -1546,7 +1560,7 @@ pub fn dropFields(ptr: anytype) void {
     comptime var i = s.field_names.len;
     inline while (i > 0) {
         i -= 1;
-        dropElement(s.field_types[i], &@field(ptr, s.field_names[i]));
+        drop(&@field(ptr, s.field_names[i]));
     }
 }
 
@@ -1573,10 +1587,10 @@ fn dropPartsAt(comptime T: type, ptr: *T, comptime here: []const u8, comptime pa
     inline for (paths, 0..) |p, i| {
         if (comptime std.mem.eql(u8, p, here)) {
             if (!held[i]) return;
-            if (!below) return dropElement(T, ptr);
+            if (!below) return drop(ptr);
         }
     }
-    if (!below) return dropElement(T, ptr);
+    if (!below) return drop(ptr);
     const s = @typeInfo(T).@"struct";
     comptime var i = s.field_names.len;
     inline while (i > 0) {
@@ -2205,8 +2219,10 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
         /// and then the strong side's share of the weak count. Deep
         /// chains of boxes are released through `drop_queue` rather than
         /// by unbounded recursion, a frozen value's as a `*T`'s: the task
-        /// whose handle was the last holds the value alone.
-        pub fn dropStrong(self: *Self) void {
+        /// whose handle was the last holds the value alone. The count's
+        /// decrement and test are inline where the handle drops, and the
+        /// release a call (`dropLast`), as Rust splits `Rc::drop`.
+        pub inline fn dropStrong(self: *Self) void {
             // The handle that takes the count to zero frees it, after every
             // other handle's changes.
             if (atomic_count) {
@@ -2216,6 +2232,11 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
                 self.strong -= 1;
                 if (self.strong > 0) return;
             }
+            self.dropLast();
+        }
+
+        /// The last strong handle's release (`dropStrong`).
+        noinline fn dropLast(self: *Self) void {
             if (comptime !needsDrop(T)) return self.releaseValue();
             const t = task();
             if (t.drop_depth >= max_drop_depth) {
@@ -2225,7 +2246,7 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
             t.drop_depth += 1;
             self.releaseValue();
             t.drop_depth -= 1;
-            if (t.drop_depth == 0) drainDropQueue();
+            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
         }
 
         /// Drop the value, then give up the strong side's weak count; a
@@ -2263,6 +2284,9 @@ fn isWord(comptime T: type) bool {
 // `strong == 0`, so `upgrade` fails on it. The depth and the queue are
 // the running task's (`TaskState`): a `*T` never leaves its task, and the
 // value whose atomic count the task took to zero is the task's alone.
+
+// Only a release that leaves something queued calls the drain, so the
+// last drop of a short chain costs one test and no call.
 
 const max_drop_depth = 256;
 const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
@@ -2504,7 +2528,7 @@ pub fn Box(comptime T: type) type {
             t.drop_depth += 1;
             release(self.value);
             t.drop_depth -= 1;
-            if (t.drop_depth == 0) drainDropQueue();
+            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
         }
 
         fn release(p: *T) void {

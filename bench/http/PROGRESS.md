@@ -27,6 +27,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (Linux only) | rig-fast | 174056 | 358 us | 603 us | 16.6 KiB |
 | 2026-10-28 | main de6ef3e41 before #767, interleaved | rig-fast | 175431 | 359 us | 593 us | 16.6 KiB |
 | 2026-10-28 | #767: a frozen value's allocation has no weak count | rig-fast | 172686 | 364 us | 585 us | 16.6 KiB |
+| 2026-10-29 | main 277fba515 before #773, interleaved | rig-fast | 168572 | 362 us | 1022 us | 16.6 KiB |
+| 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 180629 | 259 us | 1761 us | 16.6 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 
@@ -58,6 +60,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (pup cores 6,7) | rig-fast | 210404 | 177 us | 3381 us | 8.6 KiB |
 | 2026-10-28 | main de6ef3e41 before #767, interleaved (pup core 6, server and load) | rig-fast | 148184 | 338 us | 2847 us | 8.6 KiB |
 | 2026-10-28 | #767: a frozen value's allocation has no weak count (pup core 6, server and load) | rig-fast | 150723 | 334 us | 2732 us | 8.6 KiB |
+| 2026-10-29 | main 277fba515 before #773, interleaved (pup core 6, server and load) | rig-fast | 125591 | 398 us | 2902 us | 8.6 KiB |
+| 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6, server and load) | rig-fast | 140740 | 346 us | 2865 us | 8.6 KiB |
 
 The "buffers held only per request" rows (#402) ran on a build that
 pinned every task to the worker that made it, a slip of #401 that #405

@@ -93,6 +93,12 @@ A new session, human or agent, takes these steps in order:
   its value is used. It only accepts programs rejected before, so Trig
   needs no migration; `tools/drop-write-parens.py` drops the
   parentheses no longer needed. In review as one PR.
+- **The cost around each list node** (too-many-lists' speed review,
+  `~/Data/Code/Claude/rig/rig/rust-ports/reviews/tml-speed.md`): `^T?`
+  and `~T?` are a pointer's size, a store into a field taken with
+  `<p.f` drops nothing (`old_nones`), the drop queue is drained only
+  when it holds something, and a `*T`'s drop is inline until the last.
+  In review as one PR, measured commit by commit.
 - **The keep-or-cut panel's fixes** (owner, 2026-10-28, approving its
   defaults; records in `~/Data/Code/Claude/rig/rig/feature-cut/`):
   cut nothing, and freeze `*{A}`, `~{A}`, `once ?fun`, and user

@@ -3107,7 +3107,8 @@ pub const Emitter = struct {
             };
             return self.w.writeAll(" }");
         };
-        try self.w.print("; rig.drop({s}); {s}.* = ", .{ slot, slot });
+        // A field known to hold `none` there drops nothing.
+        if (self.facts.oldIsNone(set)) try self.w.print("; {s}.* = ", .{slot}) else try self.w.print("; rig.drop({s}); {s}.* = ", .{ slot, slot });
         try self.writeNewValue(new);
         try self.w.writeAll("; }");
     }
