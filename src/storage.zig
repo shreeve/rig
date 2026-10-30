@@ -1246,10 +1246,11 @@ fn decideStepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
 pub const LoopTurns = enum(u8) {
     /// Each turn, as it ends and the next begins (`rig.turn`).
     each,
-    /// In strips of up to `rig.tick_turns` turns, each counted as it
-    /// ends (`rig.turns`): a range, or a walk of a slice, a List, or a
-    /// String, whose turns in a strip check nothing.
-    strips,
+    /// Ahead, all at once, as it starts, when it is shorter than what is
+    /// left of the count, and then no turn checks; a longer one counts
+    /// each (`rig.countsAhead`): a range, or a walk of a slice, a List, or
+    /// a String.
+    ahead,
     /// All at once, before the loop: a walk of an array of at most
     /// `rig.tick_turns` elements.
     whole,
@@ -1260,17 +1261,17 @@ pub fn loopTurns(ctx: *const SemContext, loop: Sexp) LoopTurns {
     return decide(ctx, loop, .loop_turns);
 }
 
-/// A range, or a walk of what is not an array, runs in strips; an array
-/// short enough runs whole. A loop that consumes its source walks an
+/// A range, or a walk of what is not an array, counts ahead; an array
+/// short enough counts whole. A loop that consumes its source walks an
 /// iterator, which counts each turn.
 fn decideLoopTurns(ctx: *const SemContext, loop: Sexp) LoopTurns {
     const source = ir.For.source(loop);
-    if (source.isKind(.@"..")) return .strips;
+    if (source.isKind(.@"..")) return .ahead;
     if (forConsumes(ctx, loop)) return .each;
     const t = typeOf(ctx, source) orelse return .each;
     return switch (ctx.types.get(sema.unwrapViews(ctx, sema.loopWalks(ctx, t)))) {
         .array => |a| if ((sema.arrayLen(ctx, a) orelse return .each) <= tick_turns) .whole else .each,
-        else => .strips,
+        else => .ahead,
     };
 }
 

@@ -3869,9 +3869,9 @@ pub const Emitter = struct {
         /// How it counts its turns (`facts.loopTurns`): a loop counted in
         /// strips or whole checks nothing in a turn of its own.
         counts: facts.LoopTurns = .each,
-        /// The name of the flag of a loop counted in strips that says it
-        /// runs in more than one (`rig.inStrips`).
-        strips: []const u8 = "",
+        /// The name of the flag of a loop that counts its turns ahead
+        /// that says it is too long to (`rig.countsAhead`).
+        long: []const u8 = "",
     };
 
     /// `while` and every form of `for` (docs/internals/INTERNALS.md, "Loops"):
@@ -3969,7 +3969,11 @@ pub const Emitter = struct {
         self.targets.items[lp.index].part = .body;
         const l = try self.openLabeled(lp.body);
         try self.openBrace();
-        if (lp.turns) |n| if (lp.top_turn and lp.counts == .each) try self.line("rig.turn(&{s});", .{n});
+        if (lp.turns) |n| if (lp.top_turn) switch (lp.counts) {
+            .each => try self.line("rig.turn(&{s});", .{n}),
+            .ahead => try self.line("rig.turnIf({s}, &{s});", .{ lp.long, n }),
+            .whole => {},
+        };
         return l;
     }
 
@@ -3978,7 +3982,10 @@ pub const Emitter = struct {
     /// with no `;`, or several, each with its own).
     fn writeStep(self: *Emitter, lp: *const Loop, step: []const u8) Error!void {
         const one = std.mem.indexOfScalar(u8, step, ';') == null;
-        if (lp.turns) |n| if (lp.counts == .each) {
+        if (lp.turns) |n| if (lp.counts == .ahead) {
+            if (step.len == 0) return self.w.print(": (rig.turnIf({s}, &{s})) ", .{ lp.long, n });
+            return self.w.print(": ({{ rig.turnIf({s}, &{s}); {s}{s} }}) ", .{ lp.long, n, step, if (one) ";" else "" });
+        } else if (lp.counts == .each) {
             if (step.len == 0) return self.w.print(": (rig.turn(&{s})) ", .{n});
             return self.w.print(": ({{ rig.turn(&{s}); {s}{s} }}) ", .{ n, step, if (one) ";" else "" });
         };
@@ -4210,27 +4217,19 @@ pub const Emitter = struct {
         // counts it.
         lp.top_turn = true;
         const is_array = src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
-        // A loop counted in strips walks its slice, held once: whole,
-        // its turns counted before it starts, when it is shorter than
-        // what is left of the count, and otherwise a strip at a time, a
-        // Zig `for` over each, which checks nothing, in a `while` that
-        // counts the strip's turns as it ends (`facts.LoopTurns`).
+        // A walk of a slice, a List, or a String counts its turns ahead
+        // (`facts.LoopTurns`): its slice is held once, and when it is
+        // shorter than what is left of the count, its turns are counted
+        // before it starts and no turn checks; a longer one counts each.
         //
-        //     const w = xs; const long = rig.inStrips(&turns, w.len);
-        //     var at: usize = 0;
-        //     L: while (at < w.len) {
-        //         const n = rig.stripOf(w.len - at, long, turns);
-        //         for (w[at..][0..n], at..) |x, i| { body }
-        //         at += n; if (!long) break; rig.turns(&turns, n);
-        //     }
+        //     const w = xs; const long = rig.countsAhead(&turns, w.len);
+        //     L: for (w, 0..) |x, i| { rig.turnIf(long, &turns); body }
         //
         // A short array's walk counts its turns all at once, before it.
-        const strips = lp.counts == .strips;
+        const ahead = lp.counts == .ahead;
         var walk: []const u8 = "";
-        var at: []const u8 = "";
-        var strip: []const u8 = "";
         if (lp.counts != .each) {
-            if (strips == is_array) return self.unsupported(sexp, "a loop counted other than the walk it makes");
+            if (ahead == is_array) return self.unsupported(sexp, "a loop counted other than the walk it makes");
             try self.openLoopBlock(lp);
         }
         if (lp.counts == .whole) {
@@ -4239,12 +4238,10 @@ pub const Emitter = struct {
             try self.emitTypeTy(self.facts.types.get(self.peelViews(src_ty.?)).array.len);
             try self.w.writeAll(");\n");
         }
-        if (strips) {
+        if (ahead) {
             const id = self.nextId();
             walk = try self.fmt("__rig_w_{d}", .{id});
-            at = try self.fmt("__rig_at_{d}", .{id});
-            strip = try self.fmt("__rig_n_{d}", .{id});
-            lp.strips = try self.fmt("__rig_long_{d}", .{id});
+            lp.long = try self.fmt("__rig_long_{d}", .{id});
             try self.writeIndent(self.indent);
             try self.w.print("const {s} = ", .{walk});
         } else {
@@ -4252,8 +4249,8 @@ pub const Emitter = struct {
             try self.pushScope();
         }
         var l: Labeled = undefined;
-        if (!strips) l = try self.openLabeled(lp.loop);
-        if (!strips) try self.w.writeAll("for (");
+        if (!ahead) l = try self.openLabeled(lp.loop);
+        if (!ahead) try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_list and is_array;
         if (through) {
@@ -4272,23 +4269,18 @@ pub const Emitter = struct {
         if (is_list) try self.w.writeAll(".items()");
         // `for b in ?t` walks the bytes of a String, boxed or not.
         if (src_ty) |t| if (self.stringReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
-        if (strips) {
+        if (ahead) {
             try self.w.writeAll(";\n");
-            try self.line("const {s} = rig.inStrips(&{s}, {s}.len);", .{ lp.strips, lp.turns.?, walk });
-            try self.line("var {s}: usize = 0;", .{at});
+            try self.line("const {s} = rig.countsAhead(&{s}, {s}.len);", .{ lp.long, lp.turns.?, walk });
             try self.startLoopLine(lp);
             try self.pushScope();
             l = try self.openLabeled(lp.loop);
-            try self.w.print("while ({s} < {s}.len) ", .{ at, walk });
-            try self.openBrace();
-            try self.line("const {s} = rig.stripOf({s}.len - {s}, {s}, {s});", .{ strip, walk, at, lp.strips, lp.turns.? });
-            try self.writeIndent(self.indent);
-            try self.w.print("for ({s}[{s}..][0..{s}]", .{ walk, at, strip });
+            try self.w.print("for ({s}", .{walk});
         }
         const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
         // An index nobody reads needs no counter.
         const indexed = self.loopIndex(sexp) != null;
-        if (indexed) try self.w.print(", {s}..", .{if (strips) at else "0"});
+        if (indexed) try self.w.writeAll(", 0..");
         try self.w.writeAll(") |");
         var elem_name: []const u8 = "_";
         var bytes_of: []const u8 = "";
@@ -4307,21 +4299,8 @@ pub const Emitter = struct {
         if (bytes_of.len > 0) try self.line("const {s} = {s}.bytes();", .{ bytes_name, bytes_of });
         try self.bindLoopIndex(sexp, counter);
         try self.closeLoopBody(lp, body, ir.For.body(sexp));
-        if (strips) try self.closeStrip(lp, try self.fmt("{s} += {s};", .{ at, strip }), strip);
         try self.closeLabeled(l);
         try self.popScope();
-    }
-
-    /// The end of a strip of loop `lp` (`emitFor`, `emitRangeFor`): the
-    /// statement `step`, the end of a loop that runs whole, the strip's
-    /// `turns` counted, and the brace of the `while` that runs the
-    /// strips.
-    fn closeStrip(self: *Emitter, lp: *const Loop, step: []const u8, turns: []const u8) Error!void {
-        try self.w.writeAll("\n");
-        if (step.len > 0) try self.line("{s}", .{step});
-        try self.line("if (!{s}) break;", .{lp.strips});
-        try self.line("rig.turns(&{s}, {s});", .{ lp.turns.?, turns });
-        try self.closeBrace();
     }
 
     /// `for x in <v`: the List (or the array, `array`) is consumed; each
@@ -4392,55 +4371,24 @@ pub const Emitter = struct {
         }
         const more = if (rig.isInclusive(range)) try self.hiddenStorage(sexp, .range_more, .owned, .{ .id = id }) else "";
         if (more.len > 0) try self.line("var {s} = {s} <= {s};", .{ more, counter, end });
-        // A range counted in strips (`facts.LoopTurns`) runs whole, its
-        // turns counted before it starts, when it is shorter than what is
-        // left of the count, and otherwise a strip at a time, each in a
-        // `while` that checks nothing, in one that counts the strip's
-        // turns as it ends:
+        // A range counts its turns ahead (`facts.LoopTurns`): when it is
+        // shorter than what is left of the count, its turns are counted
+        // before it starts and no turn checks; a longer one counts each.
         //
-        //     const long = rig.inStripsTo(&turns, i, end);
-        //     L: while (i < end) {
-        //         const s = rig.stripTo(i, end, long, turns);
-        //         while (i < s.stop) : (i += 1) { body }
-        //         if (!long) break; rig.turns(&turns, s.n);
-        //     }
-        //
-        // An inclusive range counts its strip's turns, `c`, since its end
-        // may be its type's largest value:
-        //
-        //     L: while (more) {
-        //         const s = rig.stripThrough(i, end, long, turns); var c: usize = 0;
-        //         while (c < s.n) : ({ c += 1; i +%= 1; }) { body }
-        //         more = s.more; if (!long) break; rig.turns(&turns, s.n);
-        //     }
-        const strips = lp.counts == .strips;
-        const strip = if (strips) try self.fmt("__rig_s_{d}", .{id}) else "";
-        const turn = if (strips) try self.fmt("__rig_c_{d}", .{id}) else "";
-        if (strips) {
-            lp.strips = try self.fmt("__rig_long_{d}", .{id});
-            try self.line("const {s} = rig.inStrips{s}(&{s}, {s}, {s});", .{ lp.strips, if (more.len > 0) "Through" else "To", lp.turns.?, counter, end });
+        //     const long = rig.countsAheadTo(&turns, i, end);
+        //     L: while (i < end) : ({ rig.turnIf(long, &turns); i += 1; }) { body }
+        if (lp.counts == .ahead) {
+            lp.long = try self.fmt("__rig_long_{d}", .{id});
+            try self.line("const {s} = rig.countsAhead{s}(&{s}, {s}, {s});", .{ lp.long, if (more.len > 0) "Through" else "To", lp.turns.?, counter, end });
         }
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
         if (more.len > 0) {
             try self.w.print("while ({s}) ", .{more});
-            if (strips) {
-                try self.openBrace();
-                try self.line("const {s} = rig.stripThrough({s}, {s}, {s}, {s});", .{ strip, counter, end, lp.strips, lp.turns.? });
-                try self.line("var {s}: usize = 0;", .{turn});
-                try self.writeIndent(self.indent);
-                try self.w.print("while ({s} < {s}.n) ", .{ turn, strip });
-                try self.writeStep(lp, try self.fmt("{s} += 1; {s} +%= 1;", .{ turn, counter }));
-            } else try self.writeStep(lp, try self.fmt("{s} = {s} < {s}; {s} +%= 1;", .{ more, counter, end, counter }));
+            try self.writeStep(lp, try self.fmt("{s} = {s} < {s}; {s} +%= 1;", .{ more, counter, end, counter }));
         } else {
             try self.w.print("while ({s} < {s}) ", .{ counter, end });
-            if (strips) {
-                try self.openBrace();
-                try self.line("const {s} = rig.stripTo({s}, {s}, {s}, {s});", .{ strip, counter, end, lp.strips, lp.turns.? });
-                try self.writeIndent(self.indent);
-                try self.w.print("while ({s} < {s}.stop) ", .{ counter, strip });
-            }
             try self.writeStep(lp, try self.fmt("{s} += 1", .{counter}));
         }
         const body = try self.openLoopBody(lp);
@@ -4449,11 +4397,6 @@ pub const Emitter = struct {
             try self.line("const {s} = {s};", .{ stored.zig_name, counter });
         };
         try self.closeLoopBody(lp, body, ir.For.body(sexp));
-        if (strips) try self.closeStrip(
-            lp,
-            if (more.len > 0) try self.fmt("{s} = {s}.more;", .{ more, strip }) else "",
-            try self.fmt("{s}.n", .{strip}),
-        );
         try self.closeLabeled(l);
     }
 
