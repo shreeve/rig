@@ -6584,3 +6584,188 @@ fail "apis witness call instance at the call", "21:5: `R.go[*Node]` cannot use `
     r.go(?n)
 
   print(drive(?R(k: 1)))
+
+# ---- A large optional result goes out through the caller's place ----
+
+test "apis object a large optional result, a hit and a miss", '''
+  7 5 10 15
+  none
+  false true 1
+  false true 2
+  12
+'''
+  # `Big?` is wider than three words: its entry writes a hit through the
+  # caller's place and only returns a flag on a miss. `Int?` returns as
+  # it is.
+
+  api Finder
+    fun find(?@, k: Int) -> Big?
+    fun small(?@, k: Int) -> Int?
+
+  obj Big
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+
+  obj Table: Finder
+    base: Int
+
+    fun find(?@, k: Int) -> Big?
+      return none if k < 0
+      Big(a: @base, b: k, c: k * 2, d: k * 3)
+
+    fun small(?@, k: Int) -> Int?
+      return none if k < 0
+      k * 4
+
+  fun show(f: ?{Finder}, k: Int) -> String
+    if f.find(k) as b
+      String(b.a, " ", b.b, " ", b.c, " ", b.d)
+    else
+      String("none")
+
+  t = Table(base: 7)
+  print(show(t, 5))
+  print(show(t, -1))
+  bs: List[^{Finder}] = List()
+  !bs.push(^Table(base: 1))
+  !bs.push(^Table(base: 2))
+  for f in ?bs
+    hit = f.find(3)
+    miss = f.find(-3)
+    print(hit == none, miss == none, (hit ?? Big(a: -1, b: 0, c: 0, d: 0)).a)
+  print(bs[0].small(3) ?? 0)
+
+test "apis object a large nested optional result", '''
+  true false
+  true
+  12
+'''
+  # `(Big?)?` holds three cases: none, a none inside, and a value.
+
+  api Finder
+    fun maybe(?@, k: Int) -> (Big?)?
+
+  obj Big
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+
+  obj Table: Finder
+    base: Int
+
+    fun maybe(?@, k: Int) -> (Big?)?
+      return none if k < 0
+      inner: Big? = none
+      return inner if k == 0
+      Big(a: @base, b: k, c: k * 2, d: k * 3)
+
+  bs: List[^{Finder}] = List()
+  !bs.push(^Table(base: 1))
+  m = ?bs
+  x = m[0].maybe(-1)
+  y = m[0].maybe(0)
+  z = m[0].maybe(4)
+  print(x == none, y == none)
+  if y as inner
+    print(inner == none)
+  if z as inner
+    if inner as b
+      print(b.d)
+
+test "apis object a large optional result that views self", '''
+  2 one
+  true
+  3
+  two
+'''
+  # The value written through the caller's place views the object's
+  # title (`from @`), held in a view and in a box.
+
+  api Finder
+    fun find(?@, k: Int) -> Seen? from @
+
+  obj Seen
+    n: Int
+    k: Int
+    title: ?String
+
+  obj Book: Finder
+    title: String
+
+    fun find(?@, k: Int) -> Seen? from @
+      return none if k < 0
+      Seen(n: 1, k: k, title: ?@title)
+
+  h = Book(title: String("one"))
+  v: ?{Finder} = ?h
+  if v.find(2) as s
+    print(s.k, s.title)
+  print(v.find(-2) == none)
+  print((Finder.find(v, 3) ?? Seen(n: 0, k: -1, title: "")).k)
+  b: ^{Finder} = ^Book(title: String("two"))
+  if ?b.find(4) as got
+    print(got.title)
+
+test "apis object a large optional result of a generic type's method", '''
+  label two 2
+  taken two
+'''
+  # A generic type provides the API; the results own a String, given
+  # once through the caller's place, by a method that reads self and one
+  # that consumes it.
+
+  api Named
+    fun label(?@) -> Rec?
+
+  api Finder: Named
+    fun take(<@) -> Rec?
+
+  obj Rec
+    name: String
+    n: Int
+
+  obj Holder[T]: Finder
+    item: T
+    title: String
+
+    fun label(?@) -> Rec?
+      Rec(name: String("label ", @title), n: 2)
+
+    fun take(<@) -> Rec?
+      Rec(name: String("taken ", @title), n: 9)
+
+  b: ^{Finder} = ^Holder[String](item: String("s"), title: String("two"))
+  l = b.label()
+  if l as r
+    print(r.name, r.n)
+  t = (<b).take()
+  if t as r
+    print(r.name)
+
+test "apis object a task's large optional result", seeds: 20, "12 true"
+  api Finder
+    fun find(?@, k: Int) -> Big?
+
+  obj Big
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+
+  obj Grid: Finder
+    w: Int
+
+    fun find(?@, k: Int) -> Big?
+      return none if k < 0
+      Big(a: @w, b: k, c: @w * k, d: 0)
+
+  b: ^{Finder + Syncs + Sends} = ^Grid(w: 3)
+  t = ?b.find(4)&
+  u = ?b.find(-4)&
+  x = >t
+  y = >u
+  if x as v
+    print(v.c, y == none)

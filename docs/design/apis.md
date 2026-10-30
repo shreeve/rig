@@ -1197,6 +1197,10 @@ p))`, the witness's member, as a call through a bound does, passing the
 arguments and, where the method takes one, the slot; Zig takes no
 address of an inline function, so the method stays inlinable everywhere
 else. A `<@` entry moves the value out of the box and frees it first.
+An entry whose result is an optional wider than three words, a `Hit?`,
+writes the value through a place the caller lends, its last parameter,
+and returns only whether there is one, so a `none` writes nothing
+(INTERNALS, "APIs and API objects").
 `?{Shape}` is `rig.ApiView(__rig_table_Shape, .read, "")`, `!{Shape}`
 its `.write` form, and `^{Shape}` `rig.ApiBox(__rig_table_Shape, "")`,
 the string the built-in APIs its braces name, for `$name`, whose

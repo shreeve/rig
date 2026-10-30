@@ -589,7 +589,43 @@ pub const TableEntry = struct {
     slot: u32,
     self_mode: MethodReceiver,
     fn_ty: TypeId,
+    /// The method's result is an optional wider than `out_result_bytes`
+    /// (`resultOut`): the entry writes the value through the caller's
+    /// place, its last parameter, and returns whether there is one, so a
+    /// `none` writes nothing.
+    result_out: bool = false,
 };
+
+/// The bytes of an optional's value above which a table entry's result
+/// goes out through the caller's place (`TableEntry.result_out`): above
+/// three words. A result of more than two returns through memory on
+/// arm64 and x86-64 alike, where a `none` returned by value writes the
+/// whole of it; from four words on, a miss that writes nothing costs
+/// less than the flag and the copy out of the place cost a hit.
+/// Measured (docs/internals/INTERNALS.md, "APIs and API objects").
+pub const out_result_bytes = 24;
+
+/// Whether a table entry's result of type `returns` goes out through the
+/// caller's place (`TableEntry.result_out`): an optional whose value
+/// takes more than `out_result_bytes`. A value whose size is not known
+/// (a type parameter's) is returned as it is.
+pub fn resultOut(ctx: *SemContext, returns: TypeId) std.mem.Allocator.Error!bool {
+    const inner = switch (ctx.types.get(returns)) {
+        .optional => |i| i,
+        else => return false,
+    };
+    const bytes = (try minBytes(ctx, inner)) orelse return false;
+    return bytes > out_result_bytes;
+}
+
+/// The entry of the table a call through an API object reaches, as the
+/// table's module recorded it (`object_tables`), or null.
+pub fn tableEntry(ctx: *const SemContext, d: Dispatch.Dynamic) ?TableEntry {
+    const home = apiContext(ctx, d.table) orelse return null;
+    const entries = home.object_tables.get(d.table.sym) orelse return null;
+    for (entries) |e| if (e.slot == d.slot) return e;
+    return null;
+}
 
 /// The API object a view `ty` is, `?{Shape}` or `!{Shape}`, and how it
 /// views it; null for any other type, a box or a handle of one included.
@@ -1504,7 +1540,9 @@ pub const Dispatch = union(enum) {
         /// The API that declares the method, and its name.
         api: ApiRef,
         method: []const u8,
-        /// Its entry in the object's table (`ObjectMethod.slot`).
+        /// The object's API, whose table the call reaches, and the
+        /// method's entry in it (`ObjectMethod.slot`).
+        table: ApiRef,
         slot: u32,
         /// How the method takes self.
         self_mode: MethodReceiver = .read,

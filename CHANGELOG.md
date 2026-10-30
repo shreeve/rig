@@ -225,6 +225,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A large optional result through an API object goes out through
+  the caller's place.** A table entry whose result is an optional wider
+  than three words, a `Hit?`, writes the value through a place the
+  caller lends and returns whether there is one, so a `none` writes
+  nothing; the call gives the same `T?` as before. A `none`'s payload,
+  and that place, are no longer filled with 0xaa in a safe build.
+  ray-dyn: 10% fewer cycles in a fast build, 29% fewer in a safe one,
+  on the Mac.
 - **A shared value made in a variant's call is the payload's value.**
   `Frame.bulk(data: *Frozen(String("x")))`, and a `*Chan[T](n)` or
   `*Actor(x)` made there, recorded its own signature on the variant's
