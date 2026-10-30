@@ -208,6 +208,20 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Decide whether the test measures a property load may break (and
   should allow a share of crossings, or run pinned), or the scheduler
   lets a woken pair drift apart under load.
+- **A result that views a `for` element cannot outlive the turn.**
+  `for b in balls` (or `for b in ?balls`) over a `List[Ball]` whose
+  `Ball` copies, then `best = ?b.hit()` with `fun hit(?@) -> Hit from @`,
+  is rejected: "`b` does not live long enough ... `b` goes out of scope
+  while `best` still views it". The first error's hint, `?b.hit()`, gives
+  the second. Indexing, `best = ?balls[i].hit()`, runs, and so does a
+  loop over `List[^Ball]`; Rust accepts the loop over `&self.list`. The
+  rejection is sound for the Zig emitted, since a copyable element is
+  bound by copy (`for (balls.items()) |b|`). Accepting it takes two
+  changes: the loop binds a view of the element (`|*b|`) where a view
+  of `b` leaves the turn, decided once in storage, and the ownership
+  checker gives that view the loan on `balls`, as CORE's "`for x in ?v`
+  reads each element in place" says. Found porting Rust (2026-10-29;
+  probe in the Rust-ports notes, `r1-view-from-loop-element.rig`).
 - **Literal arithmetic given a read view is refused.** `f(4 + 1)`,
   where `f` takes a `?Int`, says "type mismatch: expected `?Int`, got
   `Int`", while `f(4)` and `f(x + 1)` are lent as made values. Literal

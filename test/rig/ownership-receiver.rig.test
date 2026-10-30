@@ -709,3 +709,168 @@ fail "receiver view with move arg", "cannot move `rc` while a read loan is live"
 
   rc = *Wrap(inner: *Inner(x: 5))
   rc.show(<rc)
+
+test "receiver element lent in place", '''
+  1.0 .matte(albedo: 0.5)
+  1.0 .matte(albedo: 0.5)
+  1.0 .matte(albedo: 0.5)
+  1.0 .matte(albedo: 0.5)
+  1.0 .matte(albedo: 0.5)
+'''
+  # A method call lends its self where it is, so an element on the path of
+  # that self is reached in place, never copied out first, though its type
+  # copies: a result that keeps self (`from @`) views the element, not a
+  # copy the next turn of the loop writes over. An element of a List, a
+  # field of one, an element of an element, a generic method's self, and
+  # an element of a slice.
+
+  enum Mat
+    matte(albedo: Float)
+    glass(index: Float)
+
+  obj Hit
+    t: Float
+    mat: ?Mat
+
+  obj Ball
+    r: Float
+    mat: Mat
+
+    fun hit(?@) -> Hit from @
+      Hit(t: @r, mat: ?@mat)
+
+    fun hit_at[N](?@, n: N) -> Hit from @
+      Hit(t: @r, mat: ?@mat)
+
+    fun take(!@) -> !Mat from @
+      !@mat
+
+  obj Pair
+    b: Ball
+
+  obj World
+    balls: List[Ball] = List()
+    pairs: List[Pair] = List()
+    grid: List[List[Ball]] = List()
+
+    fun first(?@) -> Hit? from @
+      best: Hit? = none
+      for i in 0..@balls.len
+        h = ?@balls[i].hit()
+        best = h if best == none else best
+      best
+
+    fun first_pair(?@) -> Hit? from @
+      best: Hit? = none
+      for i in 0..@pairs.len
+        h = ?@pairs[i].b.hit()
+        best = h if best == none else best
+      best
+
+    fun first_cell(?@) -> Hit? from @
+      best: Hit? = none
+      for i in 0..@grid[0].len
+        h = ?@grid[0][i].hit()
+        best = h if best == none else best
+      best
+
+    fun first_generic(?@) -> Hit? from @
+      best: Hit? = none
+      for i in 0..@balls.len
+        h = ?@balls[i].hit_at(i)
+        best = h if best == none else best
+      best
+
+  fun first_of(xs: []Ball) -> Hit? from xs
+    best: Hit? = none
+    for i in 0..xs.len
+      h = ?xs[i].hit()
+      best = h if best == none else best
+    best
+
+  fun ball(r: Float, m: Mat) -> Ball
+    Ball(r: r, mat: m)
+
+  w = World()
+  for r in [1.0, 2.0]
+    m = Mat.matte(albedo: 0.5) if r == 1.0 else Mat.glass(index: 1.5)
+    !w.balls.push(ball(r, m))
+    !w.pairs.push(Pair(b: ball(r, m)))
+  row = List([ball(1.0, Mat.matte(albedo: 0.5)), ball(2.0, Mat.glass(index: 1.5))])
+  !w.grid.push(<row)
+  if w.first() as h
+    print(h.t, h.mat)
+  if w.first_pair() as h
+    print(h.t, h.mat)
+  if w.first_cell() as h
+    print(h.t, h.mat)
+  if w.first_generic() as h
+    print(h.t, h.mat)
+  if first_of(w.balls[..]) as h
+    print(h.t, h.mat)
+
+test "receiver element lent to write in place", ".glass(index: 9.0) .glass(index: 8.0)"
+  # A write method's self is reached in place along its path, a field of
+  # an element and an element of an element, so a result that keeps it
+  # writes the element itself.
+
+  enum Mat
+    matte(albedo: Float)
+    glass(index: Float)
+
+  obj Ball
+    r: Float
+    mat: Mat
+
+    fun take(!@) -> !Mat from @
+      !@mat
+
+  obj Pair
+    b: Ball
+
+  pairs = List([Pair(b: Ball(r: 1.0, mat: Mat.matte(albedo: 0.5))), Pair(b: Ball(r: 2.0, mat: Mat.glass(index: 1.5)))])
+  grid = List[List[Ball]]()
+  row = List([Ball(r: 1.0, mat: Mat.matte(albedo: 0.5))])
+  !grid.push(<row)
+  i = 0
+  m = (!pairs[i].b).take()
+  m = Mat.glass(index: 9.0)
+  g = (!grid[0][i]).take()
+  g = Mat.glass(index: 8.0)
+  print(pairs[0].b.mat, grid[0][0].mat)
+
+test "receiver element lent in place in an as header", "1.0 .matte(albedo: 0.5)"
+  # `if ?@balls[i].hit(lo) as h` views the element in the List, so the
+  # first ball's hit keeps the first ball's material.
+
+  enum Mat
+    matte(albedo: Float)
+    glass(index: Float)
+
+  obj Hit
+    t: Float
+    mat: ?Mat
+
+  obj Ball
+    r: Float
+    mat: Mat
+
+    fun hit(?@, lo: Float) -> Hit? from @
+      return none if @r < lo
+      Hit(t: @r, mat: ?@mat)
+
+  obj World
+    balls: List[Ball] = List()
+
+    fun hit(?@, lo: Float) -> Hit? from @
+      best: Hit? = none
+      for i in 0..@balls.len
+        if ?@balls[i].hit(lo) as h
+          best = h if best == none else best
+      best
+
+  world = World()
+  !world.balls.push(Ball(r: 1.0, mat: Mat.matte(albedo: 0.5)))
+  !world.balls.push(Ball(r: 2.0, mat: Mat.glass(index: 1.5)))
+  if world.hit(0.0) as h
+    print(h.t, h.mat)

@@ -78,6 +78,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A lent self's element is reached in place** (R2 of the Rust ports,
+  2026-10-29): `?xs[i].m()` gives `m` a view of the element, never of a
+  copy, so a `from @` result no longer views a temporary. In review as
+  one PR. R1, a result that views a `for` element, is in the backlog.
 - **The keep-or-cut panel's fixes** (owner, 2026-10-28, approving its
   defaults; records in `~/Data/Code/Claude/rig/rig/feature-cut/`):
   cut nothing, and freeze `*{A}`, `~{A}`, `once ?fun`, and user
