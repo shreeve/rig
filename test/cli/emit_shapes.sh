@@ -132,8 +132,8 @@ grep -q '@as(S, (if' <<<"$out" && fail "a branching receiver copied: $out"
 grep -qE 'var __rig_(arg|recv)_' <<<"$out" && fail "a temporary copied into the call's block: $out"
 grep -qE '__rig_recv_[0-9]+ = &\(rig\.keep\(' <<<"$out" || fail "kept receiver not reached in its slot: $out"
 
-# A `match` on a generic read view a name holds switches on the value
-# where the view reaches it, never on a copy (`rig.viewed`).
+# A `match` on a read view of a generic enum, a pointer at every
+# instance, switches on the value where the view points, never on a copy.
 cat >generic.rig <<'EOF2'
 enum Opt[T]
   some(v: T)
@@ -151,7 +151,7 @@ sub main()
   print(a.all())
 EOF2
 out=$("$RIG" emit generic.rig 2>/dev/null) || fail "rig emit generic.rig"
-expect_has "$out" 'switch (rig.viewedPtr(__rig_Self, &self).*)' "generic subject switched in place"
+expect_has "$out" 'switch (self.*)' "generic subject switched in place"
 
 # So does one on a generic read view a field or an element holds (`w.r`,
 # `arr[1]`), guarded or not: emit never takes the address of a field of
@@ -194,8 +194,8 @@ sub main()
   print(f(?w), g(?w), h(?o, ?o))
 EOF2
 out=$("$RIG" emit viewfield.rig 2>/dev/null) || fail "rig emit viewfield.rig"
-expect_has "$out" 'switch (rig.viewedPtr(Opt(T), &w.r).*)' "generic view in a field switched in place"
-expect_has "$out" '&rig.viewedPtr(Opt(T), &w.r).*.some.v' "guarded payload of a generic view in a field"
+expect_has "$out" 'switch (w.r.*)' "generic view in a field switched in place"
+expect_has "$out" '&w.r.*.some.v' "guarded payload of a generic view in a field"
 grep -qF '&rig.viewed(' <<<"$out" && fail "the address of a field of a rig.viewed copy: $out"
 grep -qE 'switch \(rig\.viewed\(' <<<"$out" && fail "a switch on a rig.viewed copy: $out"
 

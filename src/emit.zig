@@ -5253,7 +5253,7 @@ pub const Emitter = struct {
         // address, never by value (`rig.discardAt`).
         for (prelude.drops) |d| try self.line("defer rig.discardAt(&{s});", .{d});
         for (prelude.owned) |o| {
-            const is_var = o.local.kind == .value or o.local.kind == .optional;
+            const is_var = self.ownedIsVar(o.local);
             try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", o.local.zig_name, o.expr });
             if (o.local.guard != .none) {
                 try self.writeIndent(self.indent);
@@ -5495,6 +5495,15 @@ pub const Emitter = struct {
         try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
     }
 
+    /// Whether the owned binding `local`, a resource an `as`, `match`,
+    /// or loop binding took, is a Zig `var`: when its drop takes it by
+    /// address (a value or an optional), or when it is written through
+    /// (`SymbolFlags.written`: lent to write, or a field of it assigned),
+    /// which a handle lent as itself (`!*T`) is too.
+    fn ownedIsVar(self: *Emitter, local: Local) bool {
+        return local.kind == .value or local.kind == .optional or self.facts.symbols.items[local.sym].flags.written;
+    }
+
     /// The type inside the optional `value` gives, through any views.
     fn optionalInner(self: *Emitter, value: Sexp) ?TypeId {
         const t = self.typeOf(value) orelse return null;
@@ -5517,7 +5526,7 @@ pub const Emitter = struct {
             .kind = kind,
             .guard = self.resourceGuard(sym),
         }, self.srcText(o.name));
-        const is_var = kind == .value or kind == .optional;
+        const is_var = self.ownedIsVar(local.*);
         try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", local.zig_name, o.tmp });
         try self.writeIndent(self.indent);
         try self.emitGuard(local);

@@ -242,6 +242,15 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   type `?^T` stays, and a `?T` parameter is no `?^T`. Decide whether a
   read view of a box is rejected wherever it is written, or a `?T`
   given a box may be held as one.
+- **An object's own optional in its fields is rejected, not built.**
+  `kids: List[Node?]`, `prev: ?Node?`, and `^(Node?)` in `obj Node` are
+  refused (sema `checkOptionalLoops`), since `rig.Opt(Node)` asks Zig
+  for `Node`'s layout while `Node` is laid out. A layout chosen lazily,
+  inside a struct whose fields Zig resolves later, would let them
+  compile; measure what it costs every object's optional first. A
+  generic declared in another module whose fields name `T?`, given the
+  type that holds it (`W[Node]` of an imported `W`), is not walked and
+  still fails in Zig. Found with the port bugs (2026-10-29).
 
 Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before

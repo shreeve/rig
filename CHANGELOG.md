@@ -192,6 +192,14 @@ Other:
     `?String`, or `(+w).len()` of a `?@` method, is a lend:
     `peek(?w)`, `w.len()`. A clone the same call keeps apart from a
     write lend or a move of the original, `g(+w, !w)`, stays.
+51. *Unsound:* a Cell or Signal reached through a read view of a
+    handle is not changed: `!n.c.set(5)` with `n: ?*Node`, through `if
+    n as x` of an `n: ?(*Node)?`, a `?@` method's `if @head as x`, a
+    read match's or `for` loop's binding of a handle (`for h in hs`), or
+    a closure's `|?h|`, is rejected, as `?Cell[T]` was ("cannot lend to
+    write through a read view `?*Node`"). Change it through a handle of
+    your own (`mine = +n`, then `!mine.c.set(5)`), or take a write view
+    (`n: !*Node`, `if !o as x`, `for h in !hs`, `!@`).
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -256,6 +264,34 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A `*T` handle's drop is inline while the count stays above zero:**
   the decrement and its test are where the handle drops, and only the
   last handle's release is a call.
+- **An optional view compares as the optional of what it views:**
+  `(?Int)? == 3`, `!=`, beside `none`, an `Int?`, or another `(?Int)?`,
+  `(?String)?` beside any text or optional of text, and `(?P)?` of an
+  object that provides `Eq`, as `?Int == 3` and `Int? == 3` did.
+- **A taken binding that owns a resource is lent to write:** `if <o as
+  node` then `bump(!node)` of a `bump(h: !*Node)` compiles, as it did
+  for a `String`, a List, or a box, for a handle too, in `if … as`,
+  `while … as`, `match <x`, and `for x in <v`, in a generic body as in
+  a plain one; the binding is a Zig `var` wherever it is written
+  through, where a handle's was a `const` that Zig rejected. A taken
+  binding of plain data stays a copy that is not written, and one of a
+  type parameter's value is moved into a new binding: `new x = <x`.
+- **A read view of a handle changes nothing.** A write lend reached
+  through any read view is rejected, a Cell or Signal behind a handle
+  the view holds or reaches included, with the read view's message,
+  "cannot lend to write through a read view `?*Node`"; a handle field
+  under a read view (`!w.h.c.set(5)` with `w: ?W`) named the shared
+  handle instead. The emitted Zig had written through a `*const`
+  (Upgrading, item 51).
+- **A generic object holds an optional view of itself:** `prev:
+  (?Frame[T])?` in `obj Frame[T]`, a pair of generic objects that view
+  each other, and an enum that views itself compile, as their plain
+  forms do; a view of an object is a pointer whatever its type
+  arguments. A field that names the object's own optional, `T?`,
+  anywhere the object's layout needs it (`?Node?`, `List[Node?]`,
+  `^(Node?)`, `*(Node?)`, or a generic instance whose fields name it)
+  is rejected with the two forms to hold instead, `(?Node)?` or
+  `^Node?`; Zig rejected each before.
 - **A literal is self of a call through an API:** `Twice.twice(4)` and
   `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
   `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit

@@ -5335,8 +5335,27 @@ one, whatever its payloads hold; so does the variant named with its
 enum (`Shape.dot`), beside a value of that enum. A payload literal
 compares the payload too, so the enum must have `==`. Floats compare as IEEE numbers wherever they are, so a
 object holding a NaN is not equal to itself. A viewed operand (`?P`,
-`!P`) compares as the value it reaches. `==` calls a method `eq` only
-on a type whose header names `Eq` ([APIs](#apis)).
+`!P`) compares as the value it reaches, and so does a view inside an
+optional: `(?P)?` compares as a `P?`, with a `P`, a `P?`, `none`, or
+another `(?P)?`, and `(?String)?` with any text or optional of text.
+`==` calls a method `eq` only on a type whose header names `Eq`
+([APIs](#apis)).
+
+```rig
+fun first(xs: ?List[Int]) -> (?Int)?
+  if xs.len > 0
+    return ?xs[0]
+  none
+
+sub main()
+  xs = List[Int]([3])
+  ys = List[Int]()
+  print(first(xs) == 3, first(ys) != 3, first(ys) == none, first(xs) == first(xs))
+```
+
+```output
+true true true true
+```
 
 A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a List, Cell, or Signal, a
@@ -8178,9 +8197,14 @@ needs a path that may write it (an owned local, a `!T`, not a `?T` or a
 `*T`), and no other view of the value may be live, and it needs an
 owner: a field of a temporary cannot be taken. Whether a field can be
 taken is decided by its type where it is named: inside a generic body a
-`T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
-that owns a resource moved into it (`if <o as n`) has fields that can be
-written and taken, like a local's. A local binding is still moved whole:
+`T?` field can be, a `T` field cannot, whatever `T` is. An `as`, `match
+<x`, or `for x in <v` binding that owns a resource moved into it (`if <o
+as n`, a `String`, a List, a box, a handle) is written like a local's:
+its fields can be written and taken, and it is lent to write (`grow(!n)`,
+`bump(!h)` of a `bump(h: !*Node)`). One that takes plain data, or a
+type parameter's value, holds it as a pattern binding holds a copy and
+is not written: `new n = n` (`new n = <n` for a type parameter's) binds
+one that is. A local binding is still moved whole:
 `<x` leaves `x` unusable, never `none`. A field or element that is not
 optional is neither ended nor emptied, so `<` on it is rejected
 ([Moves](#moves)). `<`'s operand is a place or a value made there:
@@ -8828,6 +8852,22 @@ is not a `!` view, a capture, a field of a value another handle shares) `!h`
 lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
 hint is to pass `+h` for a handle of your own. A read view of a handle, or
 of a value that holds one, is not lent to write at all: `?` changes nothing.
+That holds however the view is reached: a `?*C` parameter, a field
+handle of a `?W`, a binding of a read `if … as`, `while … as`, `match`,
+or `for` (`if @head as n` in a `?@` method), or a closure's `|?h|`. A
+handle of your own changes the Cell: `mine = +n`, then `!mine.c.set(5)`.
+
+```rig reject
+obj Node
+  c: Cell[Int]
+
+sub bump(n: ?*Node)
+  !n.c.set(5)
+```
+
+```error
+cannot lend to write through a read view `?*Node`; take a write view, or share a handle of your own with `+h`
+```
 
 ```rig reject
 obj S
@@ -9261,6 +9301,27 @@ boxes a clone of its value ([§7](#clone)), and dropping it drops the
 value and frees the memory. Long chains of boxes are released without
 deep recursion. The sigil binds tighter than a suffix: `^Node?` is an
 optional box, and a box of an optional is `^(Node?)`.
+
+An object's optional, `Node?`, is laid out from the object's own
+layout (it holds `none` in bytes no `Node` holds), so a field that
+`Node`'s layout needs may not name `Node?` anywhere in its type: not
+in `^(Node?)`, `List[Node?]`, `*(Node?)`, a view `?Node?`, or a
+generic instance whose fields name it. The field holds an optional
+box (`^Node?`) or an optional view (`(?Node)?`), which are laid out
+without `Node`'s layout, whatever its type arguments.
+
+```rig reject
+obj Node
+  n: Int
+  kids: List[Node?]
+
+sub main()
+  print(1)
+```
+
+```error
+`Node?` in `kids` is laid out from `Node`'s layout, which needs `kids` first; hold an optional view (`(?Node)?`) or a box (`^Node?`) instead
+```
 
 | Member | Meaning |
 |---|---|

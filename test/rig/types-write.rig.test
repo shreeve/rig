@@ -731,6 +731,117 @@ test "write view calls mutating method", '''
   !b.push(3)
   print(v.len, v[2])
 
+test "taken bindings lent to write", '''
+  2
+  a!
+  1
+  7
+  6
+  11
+  21
+'''
+  # An `as`, `match <x`, or `for x in <v` binding that owns a resource
+  # moved into it is written like a local: it is lent to write, a handle
+  # as itself (`!*Node`), in a plain and in a generic body.
+
+  obj Node
+    n: Cell[Int]
+
+  enum Slot
+    full(h: *Node)
+    empty
+
+  sub bump(h: !*Node)
+    !h.n.set(h.n.get() + 1)
+
+  sub grow(s: !String)
+    !s.add("!")
+
+  sub extend(v: !List[Int])
+    !v.push(9)
+
+  sub swap_in(b: !^Int)
+    b = ^7
+
+  obj Cnt[T]
+    v: T
+    n: Cell[Int]
+
+  sub bumpc[T](h: !*Cnt[T])
+    !h.n.set(h.n.get() + 1)
+
+  obj Q[T]
+    items: List[(*Cnt[T])?]
+
+    fun drain(!@) -> Int
+      i = 0
+      t = 0
+      while i < @items.len
+        at = <@items[i]
+        while <at as node
+          bumpc(!node)
+          t += node.n.get()
+          at = none
+        i += 1
+      t
+
+  sub main()
+    o: (*Node)? = *Node(n: Cell(1))
+    if <o as node
+      bump(!node)
+      print(node.n.get())
+    s: String? = String("a")
+    if <s as t
+      grow(!t)
+      print(t)
+    l: List[Int]? = List[Int]()
+    while <l as v
+      extend(!v)
+      print(v.len)
+      l = none
+    b: ^Int? = ^3
+    if <b as x
+      swap_in(!x)
+      print(x)
+    e = Slot.full(h: *Node(n: Cell(5)))
+    match <e
+      .full(h)
+        bump(!h)
+        print(h.n.get())
+      .empty => pass
+    hs = List[*Node]()
+    !hs.push(*Node(n: Cell(10)))
+    for h in <hs
+      bump(!h)
+      print(h.n.get())
+    q = Q[Int](items: List[(*Cnt[Int])?]())
+    !q.items.push(*Cnt(v: 1, n: Cell(20)))
+    print((!q).drain())
+
+fail "taken plain bindings immutable", "13:11: cannot lend `x` to write; loop and pattern bindings are immutable (move it into a new binding with `new x = <x`)", "18:10: cannot lend `v` to write; loop and pattern bindings are immutable (bind a copy with `new v = v`)", "21:10: cannot lend `x` to write; loop and pattern bindings are immutable (bind a copy with `new x = x`)"
+  # A binding that takes plain data, or a type parameter's value, holds
+  # it as a pattern binding does and is not written; `new` binds one.
+
+  sub inc(n: !Int)
+    n += 1
+
+  sub poke[T](x: !T)
+    pass
+
+  sub each[T](o: T?)
+    at = o
+    if <at as x
+      poke(!x)
+
+  sub main()
+    o: Int? = 1
+    if <o as v
+      inc(!v)
+    xs = List[Int]([1])
+    for x in <xs
+      inc(!x)
+    each[Int](2)
+
 fail "write view immutable bindings", "cannot lend parameter `n` to write", "cannot lend fixed binding `y` to write", "cannot lend captured `k` to write", "cannot lend `x` to write; loop and pattern bindings are immutable", "cannot lend `v` to write: it is a copy of the value inside `m`; to change that value in place, bind it with `!m as v`"
   # `!x` writes through `x`, so `x` must be mutable: a plain parameter, a
   # fixed binding, a capture, and a loop or `as` binding are not.

@@ -650,7 +650,7 @@ fail "purity-rustzig-family", "cannot store a view of `name` in a `Cell`: every 
   fun child(parent: ?*Node, name: ?String) -> *Node
     up = +parent
     kid = *Node(name: name, parent: ~up, children: Cell(List()))
-    !parent.children.push(+kid)
+    !up.children.push(+kid)
     kid
 
   # Walk up through the weak parent links.

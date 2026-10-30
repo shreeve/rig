@@ -13,6 +13,58 @@ test "optional compared with value", "true true true false true true"
   e: E? = E.b
   print(a == 5, a != 6, 5 == a, u == 3, a == k, e == E.b)
 
+test "optional view compared as its value", '''
+  true false true true false true
+  true true true false true
+  true false false true false
+  true true false
+  true false
+'''
+  # A view inside an optional compares as the value it reaches: a
+  # `(?Int)?` as an `Int?`, with a value, `none`, an `Int?`, or another
+  # optional view; text and an object that provides `Eq` alike, and a
+  # generic `(?T)?`.
+
+  obj P: Eq
+    x: Int
+
+    fun eq(?@, o: ?P) -> Bool
+      @x == o.x
+
+  fun first(xs: ?List[Int]) -> (?Int)?
+    if xs.len > 0
+      return ?xs[0]
+    none
+
+  fun has[T: Eq](o: (?T)?, v: ?T) -> Bool
+    o == v
+
+  i = 3
+  xs = List[Int]([3])
+  ys = List[Int]()
+  a = first(?xs)
+  b = first(?ys)
+  c: Int? = 3
+  print(a == 3, a != 3, 3 == a, a == i, b == 3, b != 3)
+  print(b == none, a == c, c == a, a == b, b == first(?ys))
+  str = String("x")
+  s: (?String)? = ?str
+  t: (?String)? = none
+  u: String? = String("x")
+  print(s == "x", s == t, t == "x", s == u, t == u)
+  pp = P(x: 1)
+  p: (?P)? = ?pp
+  q: (?P)? = none
+  print(p == pp, p == p, q == pp)
+  print(has[Int](?i, ?i), has[Int](none, ?i))
+
+fail "optional view compared without ==", "`==` is not defined for `List[Int]?`: `List[Int]` has no `==`"
+  # What the view reaches must have `==`.
+
+  l = List[Int]([1])
+  o: (?List[Int])? = ?l
+  print(o == l)
+
 test "optional equality", '''
   true true true false
   true false false false true

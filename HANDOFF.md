@@ -99,6 +99,13 @@ A new session, human or agent, takes these steps in order:
   `<p.f` drops nothing (`old_nones`), the drop queue is drained only
   when it holds something, and a `*T`'s drop is inline until the last.
   In review as one PR, measured commit by commit.
+- **Four bugs the Rust ports found** (port-bugs, one PR, a commit
+  each): a generic object holds an optional view of itself, and a field
+  naming its own object's optional (`List[Node?]`, `?Node?`) is
+  rejected; a read view of a handle changes no Cell; a taken binding
+  that owns a resource is lent to write, a handle's too; an optional
+  view compares as the optional of what it views. Trig and std use none
+  of the rejected forms. In review.
 - **The keep-or-cut panel's fixes** (owner, 2026-10-28, approving its
   defaults; records in `~/Data/Code/Claude/rig/rig/feature-cut/`):
   cut nothing, and freeze `*{A}`, `~{A}`, `once ?fun`, and user
