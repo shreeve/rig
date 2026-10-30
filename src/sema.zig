@@ -2331,6 +2331,9 @@ pub const Question = enum(u8) {
     /// expression or after the body in the condition's bindings
     /// (`storage.stepPoint`).
     step_point,
+    /// Of a `for`: how a program that makes tasks counts its turns toward
+    /// a yield check (`storage.loopTurns`).
+    loop_turns,
     /// Of a box or a binding: whether the fill `[n of x]` it takes is
     /// built where its value goes (`storage.fillsInPlace`).
     fills_in_place,

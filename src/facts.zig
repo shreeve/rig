@@ -100,6 +100,7 @@ pub const SetOrder = storage.SetOrder;
 pub const ResourceKind = sema.ResourceKind;
 pub const SetStep = storage.SetStep;
 pub const StepPoint = storage.StepPoint;
+pub const LoopTurns = storage.LoopTurns;
 pub const JumpDest = sema.JumpDest;
 pub const CallTarget = sema.CallTarget;
 pub const Dispatch = sema.Dispatch;
@@ -775,6 +776,11 @@ pub const Facts = struct {
     /// Where the step of a `while` runs (`storage.stepPoint`).
     pub fn stepPoint(f: Facts, loop: Sexp) ?StepPoint {
         return storage.decided(f.c(), loop, .step_point);
+    }
+    /// How a `for` counts its turns toward a yield check
+    /// (`storage.loopTurns`).
+    pub fn loopTurns(f: Facts, loop: Sexp) ?LoopTurns {
+        return storage.decided(f.c(), loop, .loop_turns);
     }
     /// Where a `break` or `continue` goes, as the type checker resolved it
     /// (`sema.JumpDest`).

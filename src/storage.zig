@@ -1239,6 +1239,45 @@ fn decideStepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
     return if (reads.found) .after_body else .continue_expr;
 }
 
+/// How a `for` in a program that makes tasks counts its turns toward a
+/// yield check (docs/internals/scheduler.md, "Yield checks"), which emit
+/// lowers it to. A loop whose trip count is known as it starts counts
+/// them in bulk, with no check in a turn; any other counts each.
+pub const LoopTurns = enum(u8) {
+    /// Each turn, as it ends and the next begins (`rig.turn`).
+    each,
+    /// In strips of up to `rig.tick_turns` turns, each counted as it
+    /// ends (`rig.turns`): a range, or a walk of a slice, a List, or a
+    /// String, whose turns in a strip check nothing.
+    strips,
+    /// All at once, before the loop: a walk of an array of at most
+    /// `rig.tick_turns` elements.
+    whole,
+};
+
+/// How `for` loop `loop` counts its turns, decided once.
+pub fn loopTurns(ctx: *const SemContext, loop: Sexp) LoopTurns {
+    return decide(ctx, loop, .loop_turns);
+}
+
+/// A range, or a walk of what is not an array, runs in strips; an array
+/// short enough runs whole. A loop that consumes its source walks an
+/// iterator, which counts each turn.
+fn decideLoopTurns(ctx: *const SemContext, loop: Sexp) LoopTurns {
+    const source = ir.For.source(loop);
+    if (source.isKind(.@"..")) return .strips;
+    if (forConsumes(ctx, loop)) return .each;
+    const t = typeOf(ctx, source) orelse return .each;
+    return switch (ctx.types.get(sema.unwrapViews(ctx, sema.loopWalks(ctx, t)))) {
+        .array => |a| if ((sema.arrayLen(ctx, a) orelse return .each) <= tick_turns) .whole else .each,
+        else => .strips,
+    };
+}
+
+/// How many turns of a loop run between a task's yield checks
+/// (`rig.tick_turns`).
+pub const tick_turns = 1024;
+
 /// Whether `e` holds a node of one of `kinds`, outside the closures in it.
 pub fn contains(e: Sexp, kinds: []const Tag) bool {
     if (e != .list) return false;
@@ -1298,6 +1337,7 @@ pub fn Answer(comptime q: sema.Question) type {
         .subject_hold => ?StorageBy,
         .set_order => SetOrder,
         .step_point => StepPoint,
+        .loop_turns => LoopTurns,
         .drop_kind => ?sema.ResourceKind,
     };
 }
@@ -1340,6 +1380,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .lane_checked => Node.of(decideLaneChecked),
         .set_order => Node.of(decideSetOrder),
         .step_point => Node.of(decideStepPoint),
+        .loop_turns => Node.of(decideLoopTurns),
         .fills_in_place => Node.of(decideFillsInPlace),
         .drop_kind => Node.of(decideDropKind),
     };
@@ -1777,6 +1818,7 @@ const Planner = struct {
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
         const source = ir.For.source(loop);
+        _ = loopTurns(ctx, loop);
         if (loopBindsStringBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
