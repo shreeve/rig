@@ -353,8 +353,44 @@ fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
 }
 
 pub fn close(fd: i64, reg: i64) void {
+    if (fd < 0) return;
     if (reg != 0) rig.sched.deregister(@ptrFromInt(@as(usize, @intCast(reg))));
     _ = sys.close(@intCast(fd));
+}
+
+/// `on`: let the system hold small writes and send them together
+/// (TCP_NODELAY off); otherwise send each at once, as every stream
+/// begins (`noDelay`).
+pub fn batch_on(fd: i64, on: bool) void {
+    const v: c_int = if (on) 0 else 1;
+    posix.setsockopt(@intCast(fd), posix.IPPROTO.TCP, posix.TCP.NODELAY, std.mem.asBytes(&v)) catch {};
+}
+
+/// The count of a split stream's halves, a `Reader` and a `Writer`,
+/// which share its descriptor and its registration: the registration
+/// keeps a waiter to read and one to write, so a task may wait on each
+/// half at once. The last half to go closes them (`release`).
+const Pair = std.atomic.Value(u32);
+
+pub fn share() i64 {
+    const p = rig.defaultAllocator().create(Pair) catch rig.oom();
+    p.* = .init(2);
+    return @intCast(@intFromPtr(p));
+}
+
+/// Shut `fd` down for writing: the other end reads the end of the
+/// connection. A connection already reset or closed has nothing to end.
+pub fn end_writing(fd: i64) void {
+    _ = sys.shutdown(@intCast(fd), posix.SHUT.WR);
+}
+
+/// One half of a split stream is gone: the last closes the descriptor,
+/// once, and frees the count.
+pub fn release(fd: i64, reg: i64, pair: i64) void {
+    const p: *Pair = @ptrFromInt(@as(usize, @intCast(pair)));
+    if (p.fetchSub(1, .acq_rel) != 1) return;
+    rig.defaultAllocator().destroy(p);
+    close(fd, reg);
 }
 
 // -----------------------------------------------------------------------------

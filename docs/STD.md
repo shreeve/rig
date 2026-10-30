@@ -735,11 +735,24 @@ Host names are not looked up yet.
 | `l.port()` | the port it listens on, the one the system chose for port 0 |
 | `(!s).read(!into, max)!` | read up to `max` bytes onto the end of the String `into`, once any come: how many, or 0 once the other end has closed |
 | `!s.write(bytes)!` | write all of `bytes`, a `?String` |
+| `!s.batch(on)` | with `on`, the system may hold small writes and send them together; with `on` false, each is sent at once again |
+| `r, w = <s.split()` | the stream in two halves, a `Reader` and a `Writer`, which two tasks may own |
+| `(!r).read(!into, max)!` | a `Reader`'s read, as a stream's |
+| `!w.write(bytes)!`, `!w.batch(on)` | a `Writer`'s write and batch, as a stream's |
+| `<w.close()` | end this side's writing (a half-close): the other end reads the end of the connection, while the `Reader` still reads |
 
 A `Stream`, accepted or connected, sends each write at once
 (`TCP_NODELAY`): a small write is never held back to join the next, so
 a request written in pieces, or one that follows another not yet
-answered, waits for no acknowledgment of the one before.
+answered, waits for no acknowledgment of the one before. `batch(true)`
+lets the system hold small writes and send them together, which saves
+packets where nothing waits for an answer to each.
+
+`split` gives a stream's reading and its writing to two owners: a task
+may wait to read on the `Reader` while another writes through the
+`Writer`. A `Writer` closed or dropped ends this side's writing, so
+the other end reads the end of the connection; the connection closes
+when both halves are gone, whichever goes first.
 
 A task waiting to read holds no buffer for what it waits for: a read
 into a String without room for `max` more takes the bytes through a
@@ -782,6 +795,45 @@ sub main()!
 ```output
 hello
 5
+```
+
+A split stream, its writer closed when the request is sent, reads the
+answer to its end:
+
+```rig
+use std.net
+
+fun answer(l: net.Listener) -> Int!
+  s = l.accept()!
+  got = String()
+  while true
+    if (!s).read(!got, 64)! == 0
+      break
+  (!s).write(String("got ", got.len))!
+  got.len
+
+fun send(w: net.Writer) -> Int!
+  new w = <w
+  (!w).write("ping")!
+  <w.close()
+  4
+
+sub main()!
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = answer(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  r, w = <c.split()
+  s = send(<w)&
+  back = String()
+  while true
+    if (!r).read(!back, 64)! == 0
+      break
+  print(back, >s!, >t!)
+```
+
+```output
+got 4 4 4
 ```
 
 ## std.http
