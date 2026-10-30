@@ -253,6 +253,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **The last drop of a short chain of boxes or handles calls nothing
   more:** the queue that deep chains are released through is drained
   only when a release left something in it.
+- **A `*T` handle's drop is inline while the count stays above zero:**
+  the decrement and its test are where the handle drops, and only the
+  last handle's release is a call.
 - **A literal is self of a call through an API:** `Twice.twice(4)` and
   `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
   `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit

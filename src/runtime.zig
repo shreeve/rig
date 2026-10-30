@@ -2219,8 +2219,10 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
         /// and then the strong side's share of the weak count. Deep
         /// chains of boxes are released through `drop_queue` rather than
         /// by unbounded recursion, a frozen value's as a `*T`'s: the task
-        /// whose handle was the last holds the value alone.
-        pub fn dropStrong(self: *Self) void {
+        /// whose handle was the last holds the value alone. The count's
+        /// decrement and test are inline where the handle drops, and the
+        /// release a call (`dropLast`), as Rust splits `Rc::drop`.
+        pub inline fn dropStrong(self: *Self) void {
             // The handle that takes the count to zero frees it, after every
             // other handle's changes.
             if (atomic_count) {
@@ -2230,6 +2232,11 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
                 self.strong -= 1;
                 if (self.strong > 0) return;
             }
+            self.dropLast();
+        }
+
+        /// The last strong handle's release (`dropStrong`).
+        noinline fn dropLast(self: *Self) void {
             if (comptime !needsDrop(T)) return self.releaseValue();
             const t = task();
             if (t.drop_depth >= max_drop_depth) {
