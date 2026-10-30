@@ -3073,7 +3073,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// Room for `want` elements in all.
         fn reserveTotal(self: *Self, want: usize) void {
             if (want <= self.memConst().len) return;
-            self.grow(want);
+            self.growTo(want);
         }
 
         /// `!v.reserve(n)`: room for `n` more elements; the length is
@@ -3083,32 +3083,50 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             self.reserveTotal(self.len +| extra);
         }
 
-        /// The out-of-line growth, so `push` stays small enough to inline.
-        /// No List grows past `max_len` elements (`heldLen`): here for a
-        /// zero-bit element, in `allocSlice` and `reallocSlice` for the rest.
-        noinline fn grow(self: *Self, want: usize) void {
+        /// Room for `want` elements in all. A List with no inline room
+        /// grows through `growBy`, by value; one with inline room through
+        /// `growInline`, which moves its elements out of the List itself.
+        inline fn growTo(self: *Self, want: usize) void {
+            if (comptime inline_len == 0) {
+                self.buf = growBy(self.buf, want);
+            } else self.growInline(want);
+        }
+
+        /// A buffer of at least `want` elements holding `buf`'s: the one
+        /// place a List's heap buffer grows. Out of line, so `push` stays
+        /// small enough to inline, and by value, a slice in and a slice
+        /// out, so no List's address passes to a call: a List local's
+        /// pointer and length stay in registers through a loop of
+        /// pushes. No List grows past `max_len` elements (`heldLen`):
+        /// here for a zero-bit element, in `allocSlice` and
+        /// `reallocSlice` for the rest.
+        noinline fn growBy(buf: []T, want: usize) []T {
             // A zero-bit element takes no memory: the buffer is made as
             // long as a length can be, and freeing it frees nothing.
             if (comptime @sizeOf(T) == 0) {
                 if (want > max_len) lenPanic();
-                self.buf = self.buf.ptr[0..comptime @min(max_len, std.math.maxInt(usize))];
-                return;
+                return buf.ptr[0..comptime @min(max_len, std.math.maxInt(usize))];
             }
-            if (inline_len > 0 and self.buf.len == 0) {
-                // Past its inline room: all of it to the heap.
+            return reallocSlice(T, buf, @max(want, 4, buf.len *| 2));
+        }
+
+        /// `growTo` for a List with inline room: past it, all of it to
+        /// the heap; on the heap, `growBy`.
+        noinline fn growInline(self: *Self, want: usize) void {
+            if (@sizeOf(T) != 0 and self.buf.len == 0) {
                 const buf = allocSlice(T, @max(want, 2 * inline_len));
                 @memcpy(buf[0..self.len], self.inline_buf[0..self.len]);
                 self.buf = buf;
                 return;
             }
-            self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len *| 2));
+            self.buf = growBy(self.buf, want);
         }
 
-        /// `len <= buf.len` always holds. When the buffer is full, `grow`
+        /// `len <= buf.len` always holds. When the buffer is full, `growTo`
         /// leaves `len < buf.len`, so the slot at `len` exists, `len + 1`
         /// cannot overflow, and the store needs no bounds check.
         pub fn push(self: *Self, value: T) void {
-            if (self.len == self.mem().len) self.grow(self.len +% 1);
+            if (self.len == self.mem().len) self.growTo(self.len +% 1);
             const m = self.mem();
             invariant(self.len < m.len);
             m.ptr[self.len] = value;
@@ -3435,7 +3453,7 @@ pub const String = struct {
     /// `!t.push(b)`: append one byte.
     pub fn push(self: *String, b: u8) void {
         const l = &self.list;
-        if (l.items.len == l.capacity) self.grow(1);
+        if (l.items.len == l.capacity) growList(l, 1);
         invariant(l.items.len < l.capacity);
         l.items.ptr[l.items.len] = b;
         l.items.len +%= 1;
@@ -3445,7 +3463,7 @@ pub const String = struct {
     pub fn reserve(self: *String, n: Int) void {
         const extra = std.math.cast(usize, n) orelse @panic("negative size");
         const l = &self.list;
-        if (l.capacity -% l.items.len < extra) self.grow(extra);
+        if (l.capacity -% l.items.len < extra) growList(l, extra);
         invariant(l.capacity -% l.items.len >= extra);
     }
 
@@ -3455,7 +3473,7 @@ pub const String = struct {
         const n = @divExact(@bitSizeOf(T), 8);
         const l = &self.list;
         const used = l.items.len;
-        if (l.capacity -% used < n) self.grow(n);
+        if (l.capacity -% used < n) growList(l, n);
         invariant(l.capacity -% used >= n);
         const Bits = @Int(.unsigned, @bitSizeOf(T));
         const raw: Bits = @bitCast(value);
@@ -3481,7 +3499,7 @@ pub const String = struct {
         if (k > n) keepPanic(count, n);
         const l = &self.list;
         const used = l.items.len;
-        if (l.capacity -% used < n) self.grow(n);
+        if (l.capacity -% used < n) growList(l, n);
         invariant(l.capacity -% used >= n);
         // One store of all `n` bytes at `used`, through an unaligned
         // pointer; `used + n <= capacity` puts them inside the allocation.
@@ -3510,7 +3528,7 @@ pub const String = struct {
     fn appendBytes(self: *String, bytes_: []const u8) void {
         const l = &self.list;
         const used = l.items.len;
-        if (l.capacity -% used < bytes_.len) self.grow(bytes_.len);
+        if (l.capacity -% used < bytes_.len) growList(l, bytes_.len);
         invariant(l.capacity -% used >= bytes_.len);
         {
             // Both are `bytes_.len` long; a move, so it is right even if
@@ -3530,14 +3548,25 @@ pub const String = struct {
         @memcpy(dst, src);
     }
 
-    noinline fn grow(self: *String, extra: usize) void {
-        const l = &self.list;
-        const want = std.math.add(usize, l.items.len, extra) catch oom();
-        if (want <= l.capacity) return;
+    /// Room in `l` for `extra` more bytes, through `growBy`.
+    inline fn growList(l: *std.ArrayList(u8), extra: usize) void {
         const used = l.items.len;
-        const buf = reallocSlice(u8, l.allocatedSlice(), @max(want, 16, l.capacity +| l.capacity / 2));
+        const buf = growBy(l.allocatedSlice(), used, extra);
         l.items = buf[0..used];
         l.capacity = buf.len;
+    }
+
+    /// A buffer with room for `extra` bytes past the first `used` of
+    /// `held`, a String's whole buffer: `held` itself when it has the
+    /// room, else a larger one holding those bytes. The one place a
+    /// String grows. Out of line, so each append stays small enough to
+    /// inline, and by value, a slice in and a slice out, so no String's
+    /// address passes to a call: a String local's pointer, length, and
+    /// capacity stay in registers through a loop of appends.
+    noinline fn growBy(held: []u8, used: usize, extra: usize) []u8 {
+        const want = std.math.add(usize, used, extra) catch oom();
+        if (want <= held.len) return held;
+        return reallocSlice(u8, held, @max(want, 16, held.len +| held.len / 2));
     }
 
     /// `!t.clear()`: empty, keeping the buffer.
@@ -5355,7 +5384,7 @@ fn lenHeld(comptime P: type) bool {
 /// byte: such a buffer lies in memory, and no target addresses `2^62`
 /// bytes (a 64-bit one at most `2^57`); `allocSlice` and `reallocSlice`
 /// refuse a longer one all the same. A List of zero-bit elements, which
-/// takes no memory, stops at `max_len` where it grows (`ListOf.grow`).
+/// takes no memory, stops at `max_len` where it grows (`ListOf.growBy`).
 /// Debug builds verify it.
 pub inline fn heldLen(n: usize) Int {
     invariant(@as(u64, n) <= max_len);

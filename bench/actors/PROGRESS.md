@@ -38,6 +38,8 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 5.2 ns | 30 ns | 0.9 ns |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 5.1 ns | 31 ns | 0.9 ns |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 5.2 ns | 30 ns | 1.0 ns |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 5.1 ns | 29 ns | 0.9 ns |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 5.0 ns | 30 ns | 0.9 ns |
 
 ## x86-64 (pup)
 
@@ -82,3 +84,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 17 ns | 36 ns | 2.0 ns |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 13 ns | 34 ns | 1.7 ns |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 13 ns | 35 ns | 1.8 ns |
+| 2026-10-30 | main a8acfdc5c before #780, alternated (pup core 6) | rig-fast | 12 ns | 12 ns | 12 ns |
+| 2026-10-30 | #780: String and List appends grow by value (pup core 6) | rig-fast | 12 ns | 12 ns | 12 ns |

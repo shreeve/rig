@@ -234,6 +234,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   ray-dyn: 10% fewer cycles in a fast build and 28% fewer in a safe one
   on the Mac, 18% and 21% fewer on pup, where it is now level with the
   Rust's `Box<dyn>`.
+- **A loop of appends keeps a String's or a List's fields in
+  registers.** A String's `push`, `reserve`, `push[T, e]`,
+  `push(v, keep: k)`, and `add`'s bytes, and a List's `push` and
+  `reserve`, grow through one out-of-line function each that takes the
+  buffer and returns the grown one by value, so no append passes the
+  String's or List's address to a call, and a local's length is no
+  longer loaded and stored back on every append. On the Mac a loop of
+  pushes to a local String takes 32% less time, to a local `List[Int]`
+  39% less, and to a List in a field 21% less; the Benchmarks Game's
+  revcomp plain takes 25% less, knucleotide plain 11% less, and Trig on
+  pup runs ts-pattern 1.6% and zod3 1.0% faster.
 - **A shared value made in a variant's call is the payload's value.**
   `Frame.bulk(data: *Frozen(String("x")))`, and a `*Chan[T](n)` or
   `*Actor(x)` made there, recorded its own signature on the variant's

@@ -35,6 +35,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 172606 | 363 us | 652 us | 16.6 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 171895 | 362 us | 654 us | 16.6 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 167932 | 368 us | 850 us | 16.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 171624 | 352 us | 984 us | 16.6 KiB |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 175955 | 330 us | 1300 us | 16.6 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 
@@ -70,6 +72,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6, server and load) | rig-fast | 140740 | 346 us | 2865 us | 8.6 KiB |
 | 2026-10-30 | main a8acfdc5c before #779, interleaved (pup core 8, server and load) | rig-fast | 146697 | 351 us | 2775 us | 8.6 KiB |
 | 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY (pup core 8, server and load) | rig-fast | 146440 | 325 us | 2808 us | 8.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #780, alternated (pup core 6, server and load) | rig-fast | 149799 | 343 us | 2742 us | 8.6 KiB |
+| 2026-10-30 | #780: String and List appends grow by value (pup core 6, server and load) | rig-fast | 148588 | 353 us | 2757 us | 8.6 KiB |
 
 The "buffers held only per request" rows (#402) ran on a build that
 pinned every task to the worker that made it, a slip of #401 that #405
