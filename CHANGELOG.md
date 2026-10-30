@@ -256,6 +256,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A `*T` handle's drop is inline while the count stays above zero:**
   the decrement and its test are where the handle drops, and only the
   last handle's release is a call.
+- **A generic object holds an optional view of itself:** `prev:
+  (?Frame[T])?` in `obj Frame[T]`, a pair of generic objects that view
+  each other, and an enum that views itself compile, as their plain
+  forms do; a view of an object is a pointer whatever its type
+  arguments. A field that names the object's own optional, `T?`,
+  anywhere the object's layout needs it (`?Node?`, `List[Node?]`,
+  `^(Node?)`, `*(Node?)`, or a generic instance whose fields name it)
+  is rejected with the two forms to hold instead, `(?Node)?` or
+  `^Node?`; Zig rejected each before.
 - **A literal is self of a call through an API:** `Twice.twice(4)` and
   `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
   `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit

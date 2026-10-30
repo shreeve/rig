@@ -685,14 +685,28 @@ fn decideMatchBlock(ctx: *const SemContext, match: Sexp) bool {
 /// The `T` of a read view `?T` whose form depends on a generic type's
 /// arguments: `T` holds a type parameter and neither owns resources nor
 /// holds a Cell on its own. Emit writes it `rig.ReadView(T)`, a copy or
-/// a pointer per instance; null for any other type.
+/// a pointer per instance; null for any other type. An object or an
+/// enum with payloads, and an optional of one, is lent by address in
+/// every instance (`sema.copiedByReadView`), so its view is a pointer
+/// whatever its arguments: `rig.ReadView` would ask Zig about the type,
+/// which a view inside the type itself (`prev: (?Frame[T])?`) cannot.
 pub fn genericReadView(ctx: *const SemContext, ty: TypeId) ?TypeId {
     const inner = switch (ctx.types.get(ty)) {
         .read_view => |inner| inner,
         else => return null,
     };
     if (!sema.maybeDropGlue(ctx, inner) or sema.holdsCellByValue(ctx, inner)) return null;
+    if (lentByAddressAlways(ctx, inner)) return null;
     return inner;
+}
+
+/// Whether every instance of `ty` is lent by address: an object or an
+/// enum with a payload (`sema.isCompound`), or an optional of one.
+fn lentByAddressAlways(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .optional => |inner| lentByAddressAlways(ctx, inner),
+        else => sema.isCompound(ctx, ty),
+    };
 }
 
 /// Whether `match`'s subject is a view a call returns whose form depends

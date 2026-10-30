@@ -1613,6 +1613,116 @@ fail "struct contains itself through an array", "`Grid` contains itself by value
 
   print(1)
 
+test "generic object holds an optional view of itself", '''
+  3
+  3
+  3
+  a 1 2
+  3
+  7
+'''
+  # A view of an object is a pointer whatever its type arguments, so a
+  # generic object may hold an optional view of itself, of a type that
+  # holds one of it back, or an enum of itself, as a plain one may.
+
+  obj Frame[T]
+    data: T
+    prev: (?Frame[T])?
+
+  obj A[T]
+    v: T
+    b: (?B[T])?
+
+  obj B[T]
+    w: T
+    a: (?A[T])?
+
+  enum Chain[T]
+    link(v: T, prev: (?Chain[T])?)
+    stop
+
+  obj Pair[K, V]
+    k: K
+    v: V
+    up: (?Pair[K, V])?
+
+  fun depth[T](c: ?Chain[T]) -> Int
+    n = 0
+    cur: (?Chain[T])? = c
+    while cur as at
+      n += 1
+      match at
+        .link(_, prev)
+          cur = prev
+        .stop
+          cur = none
+    n
+
+  fun total[T](f: ?Frame[T], get: ?fun(?T) -> Int) -> Int
+    t = 0
+    cur: (?Frame[T])? = f
+    while cur as fr
+      t += get(?fr.data)
+      cur = fr.prev
+    t
+
+  a = Frame(data: 1, prev: none)
+  b = Frame(data: 2, prev: ?a)
+  print(total(?b, |x| x))
+  x = A(v: 1, b: none)
+  y = B(w: 2, a: ?x)
+  if y.a as xa
+    print(xa.v + y.w)
+  c0 = Chain[Int].stop
+  c1 = Chain.link(v: 1, prev: ?c0)
+  c2 = Chain.link(v: 2, prev: ?c1)
+  print(depth(?c2))
+  p = Pair(k: "a", v: List[Int]([1]), up: none)
+  q = Pair(k: "b", v: List[Int]([2, 3]), up: ?p)
+  if q.up as u
+    print(u.k, u.v.len, q.v.len)
+  f = Frame(data: Frame(data: 3, prev: none), prev: none)
+  g = Frame(data: Frame(data: 4, prev: ?f.data), prev: ?f)
+  if g.data.prev as gp
+    print(gp.data)
+  print(total(?g, |fr| fr.data))
+
+fail "object names its own optional in a field", "`Link?` in `prev` is laid out from `Link`'s layout, which needs `prev` first; hold an optional view (`(?Link)?`) or a box (`^Link?`) instead", "`Frame[T]?` in `prev` is laid out from `Frame[T]`'s layout, which needs `prev` first", "`Tree?` in `kids` is laid out from `Tree`'s layout", "`Kid?` in `kid` is laid out", "`Up?` in `back` is laid out from `Up`'s layout, which needs `back` first", "`Node?` in `w` is laid out from `Node`'s layout, which needs `w` first"
+  # An object's optional is laid out from the object's own layout (its
+  # niche), so no field the object's layout needs may name it, even
+  # behind a view, a handle, a box, a List, or a generic instance.
+
+  obj Link
+    n: Int
+    prev: ?Link?
+
+  obj Frame[T]
+    data: T
+    prev: ?Frame[T]?
+
+  obj Tree
+    n: Int
+    kids: List[Tree?]
+
+  obj Kid
+    n: Int
+    kid: *(Kid?)
+
+  obj Down
+    back: ?Up?
+
+  obj Up
+    down: Down
+
+  obj W[T]
+    v: List[T?]
+
+  obj Node
+    n: Int
+    w: W[Node]
+
+  print(1)
+
 fail "struct duplicate kwarg", "duplicate field `name` in constructor of `User`"
   # A constructor may not name the same field twice.
 

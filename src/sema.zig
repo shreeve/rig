@@ -5927,6 +5927,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try resolve.resolveDeclarations(&ctx, tree, module_scope);
     const order = try computeContents(&ctx);
     try checkInfiniteTypes(&ctx);
+    try checkOptionalLoops(&ctx);
     try checkTypeSizes(&ctx, order);
     try computeOrigins(&ctx);
     try resolve.checkDeclarations(&ctx);
@@ -7218,6 +7219,95 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
     }
 }
 
+/// An object's optional, `X?`, is laid out from `X`'s own layout (its
+/// niche, runtime `Opt`), which Zig works out from the type of every
+/// field `X` holds by value. So no field of `X`, or of a type `X` holds
+/// by value, may name `X?` anywhere in its type, not even behind a view,
+/// a handle, a box, or a List (`prev: ?X?`, `kids: List[X?]`): its type
+/// would be needed to lay itself out. The field holds a box's optional
+/// (`^X?`) or an optional view (`(?X)?`) instead, which Zig lays out
+/// without `X`'s layout.
+fn checkOptionalLoops(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var seen: std.ArrayList(SymbolId) = .empty;
+    defer seen.deinit(ctx.allocator);
+    var walked: std.ArrayList(TypeId) = .empty;
+    defer walked.deinit(ctx.allocator);
+    for (0..ctx.symbols.items.len) |i| {
+        const sym = ctx.symbols.items[i];
+        if (!isTypeDecl(sym) or sym.decl_pos >= imported_decl_pos or sym.contents.cyclic) continue;
+        for (sym.fields orelse &.{}) |*f| for (dataFields(f)) |*d| {
+            walked.clearRetainingCapacity();
+            const x = try optionalOfHolder(ctx, d.ty, @intCast(i), &seen, &walked) orelse continue;
+            const name = try formatType(ctx, x);
+            const at = if (f.is_variant) d.decl_pos else f.decl_pos;
+            try ctx.err(at, "`{s}?` in `{s}` is laid out from `{s}`'s layout, which needs `{s}` first; hold an optional view (`(?{s})?`) or a box (`^{s}?`) instead", .{ name, d.name, name, d.name, name, name });
+            break;
+        };
+    }
+}
+
+/// The object `X` of the first `X?` named anywhere in `ty` (through
+/// views, handles, type arguments, and the fields of a generic instance
+/// declared here) whose layout needs `holder`'s: `X` is `holder`, or
+/// holds it by value (`byValueTargets`).
+fn optionalOfHolder(ctx: *SemContext, ty: TypeId, holder: SymbolId, seen: *std.ArrayList(SymbolId), walked: *std.ArrayList(TypeId)) std.mem.Allocator.Error!?TypeId {
+    const t = ctx.types.get(ty);
+    switch (t) {
+        .optional => |inner| if (declaredSym(ctx, inner)) |x| {
+            if (isObject(ctx, inner) and try holdsByValue(ctx, x, holder, seen)) return inner;
+        },
+        // `W[Node]` names `Node?` where `W[T]`'s fields name `T?`.
+        .parameterized_nominal => |pn| {
+            const decl = ctx.symbols.items[pn.sym];
+            if (decl.decl_pos < imported_decl_pos and decl.type_params != null and walked.items.len < 64 and std.mem.indexOfScalar(TypeId, walked.items, ty) == null) {
+                try walked.append(ctx.allocator, ty);
+                const subst: TypeSubst = .{ .params = decl.type_params.?, .args = pn.args };
+                for (decl.fields orelse &.{}) |*f| for (dataFields(f)) |*d| {
+                    const field_ty = try substituteType(ctx, d.ty, subst);
+                    if (try optionalOfHolder(ctx, field_ty, holder, seen, walked)) |x| return x;
+                };
+            }
+        },
+        else => {},
+    }
+    var it: TypeChildren = .{ .ty = t };
+    while (it.next()) |c| if (try optionalOfHolder(ctx, c, holder, seen, walked)) |x| return x;
+    return null;
+}
+
+/// The local declaration a nominal type or generic instance names.
+fn declaredSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |s| s,
+        .parameterized_nominal => |pn| pn.sym,
+        else => null,
+    };
+}
+
+/// Whether a value of the type `from` declares is, or holds by value,
+/// one of the type `target` declares.
+fn holdsByValue(ctx: *const SemContext, from: SymbolId, target: SymbolId, seen: *std.ArrayList(SymbolId)) std.mem.Allocator.Error!bool {
+    seen.clearRetainingCapacity();
+    try seen.append(ctx.allocator, from);
+    var next: usize = 0;
+    while (next < seen.items.len) : (next += 1) {
+        const s = seen.items[next];
+        if (s == target) return true;
+        const before = seen.items.len;
+        for (ctx.symbols.items[s].fields orelse &.{}) |*f| for (dataFields(f)) |*d| try byValueTargets(ctx, d.ty, seen, false);
+        // Keep each type once.
+        var w = before;
+        for (seen.items[before..]) |n| {
+            if (std.mem.indexOfScalar(SymbolId, seen.items[0..w], n) == null) {
+                seen.items[w] = n;
+                w += 1;
+            }
+        }
+        seen.shrinkRetainingCapacity(w);
+    }
+    return false;
+}
+
 /// How a cycle of types through the data field `d` is broken: the box
 /// that owns the value instead (the field rewritten, `next: ^Node?`,
 /// where it holds the type in the cycle or that type's optional; else
@@ -8353,13 +8443,41 @@ pub fn isObject(ctx: *const SemContext, ty: TypeId) bool {
 
 /// `isObject` of the type `sym` declares.
 pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
-    if (sym_id >= ctx.symbols.items.len) return false;
+    return declaredKind(ctx, sym_id) == .object;
+}
+
+/// An object, or an enum with a payload, declared in Rig, generic or
+/// not: a Zig struct or union in every instance, so a read view of one
+/// is a pointer whatever its type arguments (`copiedByReadView`).
+pub fn isCompound(ctx: *const SemContext, ty: TypeId) bool {
+    const sym, const in = switch (ctx.types.get(ty)) {
+        .nominal => |sym| .{ sym, ctx },
+        .parameterized_nominal => |pn| .{ pn.sym, ctx },
+        .imported_nominal => |n| .{ n.sym_id, ctx.foreign_semas.get(n.module_id) orelse return false },
+        else => return false,
+    };
+    return switch (declaredKind(in, sym)) {
+        .object, .payload_enum => true,
+        .other => false,
+    };
+}
+
+/// What a type declared in Rig is: an object, an enum one of whose
+/// variants has a payload, or anything else (a plain enum, an error
+/// set, a built-in type).
+fn declaredKind(ctx: *const SemContext, sym_id: SymbolId) enum { object, payload_enum, other } {
+    if (sym_id >= ctx.symbols.items.len) return .other;
     const sym = ctx.symbols.items[sym_id];
-    if (isProxy(sym)) return isObjectSym(ctx.foreign_semas.get(sym.from.module_id) orelse return false, sym.from.sym);
-    if (sym.decl_pos == builtin_decl_pos or sym.flags.error_set) return false;
-    if (sym.kind != .nominal_type and sym.kind != .generic_type) return false;
-    for (sym.fields orelse return false) |f| if (f.is_variant) return false;
-    return true;
+    if (isProxy(sym)) return declaredKind(ctx.foreign_semas.get(sym.from.module_id) orelse return .other, sym.from.sym);
+    if (sym.decl_pos == builtin_decl_pos or sym.flags.error_set) return .other;
+    if (sym.kind != .nominal_type and sym.kind != .generic_type) return .other;
+    var variant = false;
+    for (sym.fields orelse return .other) |f| {
+        if (!f.is_variant) continue;
+        variant = true;
+        if (f.payload != null and f.payload.?.len > 0) return .payload_enum;
+    }
+    return if (variant) .other else .object;
 }
 
 /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, and every

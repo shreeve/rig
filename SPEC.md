@@ -9262,6 +9262,27 @@ value and frees the memory. Long chains of boxes are released without
 deep recursion. The sigil binds tighter than a suffix: `^Node?` is an
 optional box, and a box of an optional is `^(Node?)`.
 
+An object's optional, `Node?`, is laid out from the object's own
+layout (it holds `none` in bytes no `Node` holds), so a field that
+`Node`'s layout needs may not name `Node?` anywhere in its type: not
+in `^(Node?)`, `List[Node?]`, `*(Node?)`, a view `?Node?`, or a
+generic instance whose fields name it. The field holds an optional
+box (`^Node?`) or an optional view (`(?Node)?`), which are laid out
+without `Node`'s layout, whatever its type arguments.
+
+```rig reject
+obj Node
+  n: Int
+  kids: List[Node?]
+
+sub main()
+  print(1)
+```
+
+```error
+`Node?` in `kids` is laid out from `Node`'s layout, which needs `kids` first; hold an optional view (`(?Node)?`) or a box (`^Node?`) instead
+```
+
 | Member | Meaning |
 |---|---|
 | `^Node(...)` | a box of a new `Node` |
