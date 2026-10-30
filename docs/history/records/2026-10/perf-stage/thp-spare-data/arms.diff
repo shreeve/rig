@@ -1,0 +1,40 @@
+# arm s64
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 4e16c7c6a..ab6ead838 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -449,7 +449,7 @@ fn adviseHuge(p: usize, len: usize) void {
+ 
+ /// The free blocks of 2 MiB or more that Linux must have, more than
+ /// this many, before Rig asks it for huge pages (`hugeFree`).
+-const huge_spare: usize = 128;
++const huge_spare: usize = 64;
+ 
+ /// Whether Linux has more than `huge_spare` free blocks of 2 MiB or more
+ /// (`/proc/buddyinfo`), the test made before every request for huge pages
+# arm always
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 4e16c7c6a..781994613 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -467,6 +467,7 @@ const huge_spare: usize = 128;
+ pub noinline fn hugeFree() bool {
+     @branchHint(.cold);
+     if (builtin.os.tag != .linux) return false;
++    if (true) return true;
+     if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text) > huge_spare;
+     const linux = std.os.linux;
+     const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+# arm never
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 4e16c7c6a..6c604040c 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -467,6 +467,7 @@ const huge_spare: usize = 128;
+ pub noinline fn hugeFree() bool {
+     @branchHint(.cold);
+     if (builtin.os.tag != .linux) return false;
++    if (true) return false;
+     if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text) > huge_spare;
+     const linux = std.os.linux;
+     const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);

@@ -1,0 +1,17 @@
+19:02:47 rig s128 built in 117 s: rig 0.2.9
+19:04:48 rig s64 built in 118 s: rig 0.2.9
+19:06:50 rig s32 built in 119 s: rig 0.2.9
+19:08:53 rig s16 built in 119 s: rig 0.2.9
+19:10:57 rig always built in 121 s: rig 0.2.9
+19:12:59 rig never built in 119 s: rig 0.2.9
+19:43:20 trig s128-pgo built in 1821 s: d2e787e6862e98c7
+20:19:59 trig s64-pgo built in 2197 s: db50a468fb4356f5
+21:38 trig s32-pgo built (parent shell detached at 20:20; slot from 21:11): 3f158e581ad577fb
+19:30:29 rig never present
+19:30:29 rig always present
+20:07:39 trig never-pgo built in 2230 s: 13f75f2e2184c18f
+20:48:40 trig always-pgo built in 2461 s: 1fe81fce6a5b7ed6
+20:48:40 done
+20:20:22 rig s16 present
+21:05:50 trig s16-pgo built in 2728 s: 2925063d2f402223
+21:05:50 done

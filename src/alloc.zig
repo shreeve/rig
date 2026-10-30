@@ -448,8 +448,20 @@ fn adviseHuge(p: usize, len: usize) void {
 }
 
 /// The free blocks of 2 MiB or more that Linux must have, more than
-/// this many, before Rig asks it for huge pages (`hugeFree`).
-const huge_spare: usize = 128;
+/// this many, before Rig asks it for huge pages (`hugeFree`): about what
+/// one program takes for itself (Trig 76 on ts-pattern, 15 on zod3), so a
+/// program that asks finds free blocks for its faults rather than
+/// compacting in them. A quiet host idles above it (pup at about 90 to
+/// 140), where asking does not stall; a spare of 128, within that idle
+/// level, shut the test for most of Trig's runs there, as a run's own
+/// huge pages drain the count, and this spare runs ts-pattern 5.8%
+/// faster than it.
+/// Below it, with memory fragmented and 35 to 65 free, Trig on
+/// ts-pattern asking at a spare of 32 compacted in 17 of 20 runs and ran
+/// more than 5% slower than with no huge pages in 8 (up to 70%), and at
+/// 16 ran 34% slower by the median, where at 64 it asked for none
+/// (docs/history/records/2026-10/perf-stage/thp-spare.md).
+const huge_spare: usize = 64;
 
 /// Whether Linux has more than `huge_spare` free blocks of 2 MiB or more
 /// (`/proc/buddyinfo`), the test made before every request for huge pages
@@ -1277,6 +1289,32 @@ test "free 2 MiB blocks are counted from orders 9 and up, an order-10 block as t
     try std.testing.expectEqual(@as(usize, 3 + 300 + 16), freeHugeBlocks(buddyinfo_plenty));
     try std.testing.expectEqual(@as(usize, 2), freeHugeBlocks(buddyinfo_fragmented));
     try std.testing.expectEqual(@as(usize, 0), freeHugeBlocks(""));
+}
+
+/// Readings of /proc/buddyinfo for the tests: a quiet host's idle level
+/// of free 2 MiB blocks, and memory partly fragmented.
+const buddyinfo_idle =
+    \\Node 0, zone      DMA      0      0      0      0      0      0      0      0      1      1      2
+    \\Node 0, zone    DMA32    225    437    407    793    594    402    356    236    163      4      0
+    \\Node 0, zone   Normal 220790 283987 134655  91745  51471  16101   6882   8684   1943     92      2
+    \\
+;
+const buddyinfo_partly =
+    \\Node 0, zone      DMA      0      0      0      0      0      0      0      0      1      1      2
+    \\Node 0, zone    DMA32    225    437    407    793    594    402    356    236    163      4      0
+    \\Node 0, zone   Normal 350327 293013 229278 138927  72867  28994   8972   3759   1173     51      0
+    \\
+;
+
+test "on Linux huge pages are asked for with 100 free 2 MiB blocks, a quiet host's idle level, and not with 55, memory partly fragmented" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try std.testing.expectEqual(@as(usize, 100), freeHugeBlocks(buddyinfo_idle));
+    try std.testing.expectEqual(@as(usize, 55), freeHugeBlocks(buddyinfo_partly));
+    defer buddyinfo_for_test = null;
+    buddyinfo_for_test = buddyinfo_idle;
+    try std.testing.expect(hugeFree());
+    buddyinfo_for_test = buddyinfo_partly;
+    try std.testing.expect(!hugeFree());
 }
 
 test "on Linux, with memory fragmented, no block, segment, or growth asks for huge pages" {
