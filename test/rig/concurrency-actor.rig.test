@@ -620,3 +620,30 @@ test "actor generic instances", "1 1"
     a.take(<x)
 
   print(go(3), go(String("s")))
+
+test "actor made where its type is expected", seeds: 20, "1 2 3 4"
+  # `*Actor(x)` takes its type from `x`, wherever an `*Actor[T]` is
+  # expected: a typed binding, an argument, a field, a variant payload.
+  obj Counter
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+  obj Box
+    a: *Actor[Counter]
+
+  enum Link
+    act(a: *Actor[Counter])
+    null
+
+  fun take(a: *Actor[Counter]) -> Int
+    a.get()
+
+  x: *Actor[Counter] = *Actor(Counter(n: 1))
+  b = Box(a: *Actor(Counter(n: 3)))
+  l = Link.act(a: *Actor(Counter(n: 4)))
+  m = match l
+    .act(a: a) => a.get()
+    .null => 0
+  print(x.get(), take(*Actor(Counter(n: 2))), b.a.get(), m)

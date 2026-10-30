@@ -376,3 +376,101 @@ test "frozen dropped once by many tasks", seeds: 20, '''
   >c
   >d
   print("done")
+
+test "frozen made in a variant payload", '''
+  x
+  3
+  4
+  n
+  h
+  a b
+  g
+  p
+'''
+  # A shared value made in the call that builds a variant, an object,
+  # a List, or a method's argument is that slot's value: the call made
+  # in the argument leaves the variant's callee its own.
+  obj Node
+    n: Int
+
+  enum Frame
+    bulk(data: *Frozen[String])
+    cell(c: *Cell[Int])
+    node(p: *Node)
+    null
+
+  enum Inner
+    bulk(data: *Frozen[String])
+    empty
+
+  enum Outer
+    wrap(i: Inner)
+    empty
+
+  obj Holder
+    data: *Frozen[String]
+
+  enum Opt[T]
+    some(v: T)
+    empty
+
+  sub show(f: ?Frame)
+    match f
+      .bulk(data: d) => print(d)
+      .cell(c: c) => print(c.get())
+      .node(p: p) => print(p.n)
+      .null => print("null")
+
+  show(Frame.bulk(data: *Frozen(String("x"))))
+  show(Frame.cell(c: *Cell(3)))
+  show(Frame.node(p: *Node(n: 4)))
+  o = Outer.wrap(i: Inner.bulk(data: *Frozen(String("n"))))
+  match o
+    .wrap(i: i) => match i
+      .bulk(data: d) => print(d)
+      .empty => print("empty")
+    .empty => print("empty")
+  h = Holder(data: *Frozen(String("h")))
+  print(h.data)
+  l = [*Frozen(String("a")), *Frozen(String("b"))]
+  print(l[0], l[1])
+  g = Opt[*Frozen[String]].some(v: *Frozen(String("g")))
+  match g
+    .some(v: v) => print(v)
+    .empty => print("empty")
+  v: List[*Frozen[String]] = List()
+  !v.push(*Frozen(String("p")))
+  print(v[0])
+
+test "frozen payload moved and shared", seeds: 20, '''
+  5
+  xy xy
+  cl
+  .bulk(data: "cl")
+'''
+  # A variant holding frozen data moves to a task, where `match <f`
+  # takes the payload; `+d` adds a handle to it.
+  enum Frame
+    bulk(data: *Frozen[String])
+    null
+
+  fun len(f: Frame) -> Int
+    match <f
+      .bulk(data: d) => d.len
+      .null => 0
+
+  f = Frame.bulk(data: *Frozen(String("hello")))
+  t = len(<f)&
+  print(>t)
+  g = Frame.bulk(data: *Frozen(String("xy")))
+  match <g
+    .bulk(data: d)
+      e = +d
+      print(d, e)
+    .null => print("null")
+  h = Frame.bulk(data: *Frozen(String("cl")))
+  k = +h
+  match h
+    .bulk(data: d) => print(+d)
+    .null => print("null")
+  print(k)

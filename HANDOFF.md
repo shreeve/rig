@@ -78,6 +78,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A shared value made in a variant's call** (B4 of the Rust ports,
+  2026-10-29): `Frame.bulk(data: *Frozen(...))`, a `*Chan[T](n)`, or
+  an `*Actor(x)` there is the payload's value, and `*Actor(x)` takes
+  its type from `x` where an `*Actor[T]` is expected. In review as one
+  PR.
 - **A lent self's element is reached in place** (R2 of the Rust ports,
   2026-10-29): `?xs[i].m()` gives `m` a view of the element, never of a
   copy, so a `from @` result no longer views a temporary. In review as

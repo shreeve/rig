@@ -150,7 +150,9 @@ const Checker = struct {
     body: Body,
     nominal: NominalContext = NominalContext.none,
     /// Callee node of the method call being checked; its resolved
-    /// signature is recorded as the node's type.
+    /// signature is recorded as the node's type. Each call starts with
+    /// none (`synthCall`), so a call in an argument never records its
+    /// signature on the callee of the call around it.
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
@@ -8932,6 +8934,9 @@ const Checker = struct {
         const saved = self.current_call;
         self.current_call = node;
         defer self.current_call = saved;
+        const saved_callee = self.callee_node;
+        self.callee_node = null;
+        defer self.callee_node = saved_callee;
         // What the call reaches, recorded where it resolves to a Rig
         // function (`noteTarget`); any other call reaches none.
         try self.ctx.recordCallTarget(node, .none);
@@ -16564,8 +16569,9 @@ const Checker = struct {
                 if (callee != .src or tt != .parameterized_nominal) return null;
                 const id = self.lookupQuiet(callee) orelse return null;
                 if (id != tt.parameterized_nominal.sym) return null;
-                // `Frozen(x)` takes its type from `x` (`frozenMake`).
-                if (id == self.ctx.frozen_sym_id) return null;
+                // `Frozen(x)` and `Actor(x)` take their types from `x`
+                // (`frozenMake`, `actorMake`).
+                if (id == self.ctx.frozen_sym_id or id == self.ctx.actor_sym_id) return null;
                 _ = try self.useName(callee);
                 if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
                     try self.errAt(callee, stack_signal, .{});

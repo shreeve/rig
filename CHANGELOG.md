@@ -217,6 +217,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A shared value made in a variant's call is the payload's value.**
+  `Frame.bulk(data: *Frozen(String("x")))`, and a `*Chan[T](n)` or
+  `*Actor(x)` made there, recorded its own signature on the variant's
+  callee, so the variant was written as a Zig call that did not
+  compile; each call now records only its own. `*Actor(x)` takes its
+  type from `x` wherever an `*Actor[T]` is expected (a typed binding,
+  an argument, a field, a payload), as `*Frozen(x)` does; it was
+  rejected as an opaque type before.
 - **A method call's self is lent where it is, an element too.**
   `?@balls[i].hit(lo)` on a `List[Ball]` whose `Ball` copies gave `hit`
   a view of a copy of the element, so a result that keeps self (`from
