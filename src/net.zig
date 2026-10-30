@@ -98,6 +98,15 @@ fn socket(family: u32) NetError!i32 {
     return fd;
 }
 
+/// Send each write at once, never holding small ones back to join the
+/// next (Nagle's algorithm), which delays a request that follows one
+/// still unanswered by the other end's delayed acknowledgment: every
+/// accepted and connected stream does.
+fn noDelay(fd: i32) void {
+    const one: c_int = 1;
+    posix.setsockopt(fd, posix.IPPROTO.TCP, posix.TCP.NODELAY, std.mem.asBytes(&one)) catch {};
+}
+
 /// macOS sets a socket not to block after it is made.
 fn nonblocking(fd: i32) void {
     if (!darwin) return;
@@ -185,6 +194,7 @@ pub fn open_to(addr: []const u8) Error!i64 {
     try stopped();
     const sa = SockAddr.of(try parse(addr));
     const fd = try socket(sa.family);
+    noDelay(fd);
     const rc = sys.connect(fd, sa.ptr(), sa.len);
     switch (posix.errno(rc)) {
         .SUCCESS, .INPROGRESS, .INTR => return fd,
@@ -224,6 +234,7 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
             .SUCCESS => {
                 const c: i32 = @intCast(rc);
                 nonblocking(c);
+                noDelay(c);
                 return c;
             },
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
@@ -243,13 +254,68 @@ pub fn local_port(fd: i64) i64 {
     return std.mem.bigToNative(u16, storage.port);
 }
 
+/// Read up to `max` bytes onto the end of `into`, once any come: how
+/// many, or 0 once the other end has closed. A String with room for
+/// `max` more is read into; one without, on the scheduler, is read
+/// through the worker's block (`readKept`), so a task waiting for bytes
+/// holds no buffer for them, and the String grows by only the bytes that
+/// came.
 pub fn read_from(fd: i64, reg: i64, into: *rig.String, max: i64) Error!i64 {
     const want: usize = @intCast(@max(max, 0));
     if (want == 0) return 0;
+    const s: i32 = @intCast(fd);
+    if (into.list.unusedCapacitySlice().len < want and reg != 0 and rig.sched.current() != null) return @intCast(try readKept(s, reg, into, want));
     into.list.ensureUnusedCapacity(rig.defaultAllocator(), want) catch rig.oom();
-    const n = try readSome(@intCast(fd), reg, into.list.unusedCapacitySlice()[0..want], .{});
+    const n = try readSome(s, reg, into.list.unusedCapacitySlice()[0..want], .{});
     into.list.items.len += n;
     return @intCast(n);
+}
+
+/// `read_from` for a String without room for `want` more bytes: read
+/// into a block of the worker's, holding none while it waits, and add
+/// the bytes that came to `into`, one copy of them. A block that comes
+/// back full may have more waiting behind it, which is read straight
+/// into `into`, so a large read copies no more than a block.
+fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
+    try stopped();
+    while (true) {
+        const b = rig.sched.takeBlock();
+        const asked = @min(want, b.len);
+        const rc = sys.read(s, b, asked);
+        const e = posix.errno(rc);
+        if (e == .SUCCESS) {
+            const n: usize = @intCast(rc);
+            into.list.appendSlice(rig.defaultAllocator(), b[0..n]) catch rig.oom();
+            rig.sched.giveBlock(b);
+            if (n < asked or n == want) return n;
+            return n + readMore(s, into, want - n);
+        }
+        rig.sched.giveBlock(b);
+        switch (e) {
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
+            .INTR => try stopped(),
+            else => return failure(e),
+        }
+    }
+}
+
+/// Read up to `more` bytes onto the end of `into`, those already waiting
+/// and no others: 0 when none are, or on any failure, which the next
+/// read meets again.
+fn readMore(s: i32, into: *rig.String, more: usize) usize {
+    into.list.ensureUnusedCapacity(rig.defaultAllocator(), more) catch rig.oom();
+    while (true) {
+        const rc = sys.read(s, into.list.unusedCapacitySlice().ptr, more);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                const n: usize = @intCast(rc);
+                into.list.items.len += n;
+                return n;
+            },
+            .INTR => {},
+            else => return 0,
+        }
+    }
 }
 
 /// Read what comes into `dest`, once any does: how many bytes, or 0 once

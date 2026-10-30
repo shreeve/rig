@@ -123,3 +123,80 @@ test "net without tasks", "ping"
   while got.len < 4
     _ = (!s).read(!got, 10)!
   print(got)
+
+test "net read keeps only the bytes that came", seeds: 20, "5 true"
+  # A read into a String without room for `max` more grows it by the
+  # bytes that came, not by `max`.
+  use std.os
+
+  fun idle() -> Int
+    0
+
+  t = idle()&
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  (!c).write("hello")!
+  got = String()
+  before = os.memory().live
+  n = (!s).read(!got, 16384)!
+  grew = os.memory().live - before
+  _ = >t
+  print(n, grew < 1024)
+
+test "net read of more than a block", seeds: 20, "100000 true"
+  # A read of more than the worker's block takes what is waiting behind
+  # it too, and every byte comes in order.
+  fun send(port: Int) -> Int!
+    c = net.connect(String("127.0.0.1:", port))!
+    text = String()
+    for i in 0..100000
+      !text.push(U8(48 + i % 10))
+    (!c).write(?text)!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  t = send(l.port())&
+  s = l.accept()!
+  got = String()
+  while true
+    n = (!s).read(!got, 65536)!
+    if n == 0
+      break
+  _ = >t!
+  ok = true
+  bytes = ?got[..]
+  for i in 0..bytes.len
+    if bytes[i] != U8(48 + i % 10)
+      ok = false
+  print(got.len, ok)
+
+test "net small writes go at once", "true"
+  # A stream sends each write at once (TCP_NODELAY): a request written
+  # in two pieces is not held back for the acknowledgment of the first,
+  # which the other end delays, about 40 ms a round on Linux.
+  use std.time
+
+  fun serve(l: net.Listener, rounds: Int) -> Int!
+    s = l.accept()!
+    for 0..rounds
+      got = String()
+      while got.len < 2
+        _ = (!s).read(!got, 16)!
+      (!s).write("ok")!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = serve(<l, 20)&
+  c = net.connect(String("127.0.0.1:", port))!
+  start = time.now()
+  for 0..20
+    (!c).write("x")!
+    (!c).write("y")!
+    got = String()
+    while got.len < 2
+      _ = (!c).read(!got, 16)!
+  ms = start.elapsed() / 1000000
+  _ = >t!
+  print(ms < 300)

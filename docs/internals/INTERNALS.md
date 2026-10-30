@@ -5471,9 +5471,12 @@ one, in debug and release builds, on aarch64 (assembly) and x86_64
 (`objdump`).
 
 **The message.** The overflow handler (`onOverflow`) runs on the
-thread's alternate signal stack, which Zig's start code sets (a child
-process forked on macOS loses it, so `onOwnStack` sets it again in one,
-through `pthread_atfork`, where libc is linked). For a fault in the
+thread's alternate signal stack, which `onOwnStack` maps for the main
+thread and the scheduler for each thread it starts (`AltStack`, untouched
+until a signal runs on it; the root's `std_options` turns off Zig's
+thread-local one), and which a child process forked on macOS loses, so
+`onOwnStack` sets it again in one, through `pthread_atfork`, where libc
+is linked. For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
 overflow`. An optimized build then aborts with the message alone, as a
 runtime panic does: there Zig's handler walks the trace by frame

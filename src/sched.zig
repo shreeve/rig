@@ -86,6 +86,10 @@ const Worker = struct {
     lifo_streak: u8 = 0,
     free: ?*FreeStack = null,
     free_count: u32 = 0,
+    /// The stacks of its last reservation no fiber has run on yet
+    /// (`takeStack`): `fresh_left` of them, from `fresh_next` up.
+    fresh_next: usize = 0,
+    fresh_left: u32 = 0,
     /// Blocks to reuse (`takeBlock`).
     blocks: ?*FreeBlock = null,
     block_count: u32 = 0,
@@ -1387,6 +1391,8 @@ fn performanceCores() u32 {
 /// as `main` ends (`stop`).
 fn monitor(p: *Pool) void {
     defer rt.fast_alloc.threadExit();
+    const alt = rt.AltStack.attach();
+    defer alt.detach();
     while (true) {
         const seen = p.monitor_word.load(.seq_cst);
         const now = nowReal();
@@ -1432,6 +1438,8 @@ var pool: Pool = .{};
 fn poolMain(p: *Pool) void {
     // The thread's heap goes to the next thread as it ends (`alloc.zig`).
     defer rt.fast_alloc.threadExit();
+    const alt = rt.AltStack.attach();
+    defer alt.detach();
     p.lock.lock();
     // Started for a call: it is busy, not among the threads waiting.
     var waited = false;
@@ -1810,7 +1818,8 @@ fn workerCount() usize {
 
 fn workerMain(w: *Worker) void {
     defer rt.fast_alloc.threadExit();
-    std.Thread.maybeAttachSignalStack();
+    const alt = rt.AltStack.attach();
+    defer alt.detach();
     me_slot = w;
     loop(w);
 }
@@ -2111,6 +2120,11 @@ fn freeStacks(w: *Worker) void {
         unmapStack(n.stack);
     }
     w.free_count = 0;
+    if (w.fresh_left > 0) {
+        const span = rt.task_guard + rt.task_stack_size + std.heap.pageSize();
+        std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(w.fresh_next))[0 .. span * w.fresh_left]);
+    }
+    w.fresh_left = 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -2386,7 +2400,13 @@ pub fn block(b: *const Blocked) void {
         h.blocked = b;
         h.held_by.store(h, .seq_cst);
     }
-    if (!leadsOn(b)) return;
+    if (leadsOn(b)) walkFrom(f, b);
+}
+
+/// `block`'s walk, in a frame of its own: its 15 KiB of waits and steps
+/// would otherwise sit in `block`'s frame, and every fiber that blocks
+/// would touch a stack page more than it needs, though most never walk.
+noinline fn walkFrom(f: *Fiber, b: *const Blocked) void {
     var walk: Walk = .{ .me = f };
     var buf: [1024]u8 = undefined;
     lockGraph();
@@ -2915,24 +2935,37 @@ const keep_free = 64;
 const chunk = 16;
 
 /// A stack to run a fiber on: one a fiber that ended on this worker
-/// left, or one of a new reservation, whose others it keeps free.
+/// left, or the next of its last reservation, or the first of a new
+/// one. The stacks of a reservation stay untouched until a fiber runs on
+/// each, so they hold no page, nor the table that would map it.
 fn takeStack() Stack {
     const w = me();
-    if (w) |x| if (x.free) |n| {
-        x.free = n.next;
-        x.free_count -= 1;
-        return n.stack;
-    };
     const guard = rt.task_guard;
     const len = rt.task_stack_size;
     const span = guard + len + std.heap.pageSize();
+    if (w) |x| {
+        if (x.free) |n| {
+            x.free = n.next;
+            x.free_count -= 1;
+            return n.stack;
+        }
+        if (x.fresh_left > 0) {
+            const b = x.fresh_next;
+            x.fresh_next += span;
+            x.fresh_left -= 1;
+            return .{ .base = b, .guard = guard, .len = len };
+        }
+    }
     const count: usize = if (w != null) chunk else 1;
     const got = std.posix.mmap(null, span * count, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
     const base = @intFromPtr(got.ptr);
     for (0..count) |i| {
         const b = base + i * span;
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
-        if (i > 0) releaseStack(w.?, .{ .base = b, .guard = guard, .len = len });
+    }
+    if (w) |x| {
+        x.fresh_next = base + span;
+        x.fresh_left = @intCast(count - 1);
     }
     return .{ .base = base, .guard = guard, .len = len };
 }
@@ -3225,6 +3258,32 @@ test "fibers switch, yield to each other in turn, and finish" {
     try std.testing.expect(at(log, 'a') < at(log, 'c') and at(log, 'b') < at(log, 'd'));
     try std.testing.expect(at(log, 'c') > at(log, 'b') and at(log, 'd') > at(log, 'a'));
     try std.testing.expectEqual(@as(u8, 'e'), log[4]);
+}
+
+test "the other stacks of a new reservation stay untouched until a fiber runs on each" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var looked: usize = 0;
+        var resident: usize = 0;
+        fn first(_: *anyopaque) callconv(.c) void {
+            // The worker has taken no stack yet, so this is the first of
+            // a new reservation of `chunk`.
+            const s = takeStack();
+            defer releaseStack(me().?, s);
+            const page = std.heap.pageSize();
+            const span = s.guard + s.len + page;
+            for (1..chunk) |i| {
+                const top = s.base + i * span + s.guard + s.len - page;
+                var v: [1]u8 = undefined;
+                std.posix.mincore(@ptrFromInt(top), page, &v) catch continue;
+                looked += 1;
+                if (v[0] & 1 != 0) resident += 1;
+            }
+        }
+    };
+    runForTest(Run.first, 1);
+    try std.testing.expectEqual(@as(usize, chunk - 1), Run.looked);
+    try std.testing.expectEqual(@as(usize, 0), Run.resident);
 }
 
 test "many workers run many fibers, each waited for, and their results add up" {
