@@ -112,7 +112,9 @@ pub fn Task(comptime T: type) type {
         /// 5): the entry `name` of its table, given the address the object
         /// holds; the object, its two words, goes to the task, which its
         /// braces' crossing bound allows. An entry of a fallible method
-        /// takes the slot, which the task's record gives it.
+        /// takes the slot, which the task's record gives it; an entry
+        /// whose result goes out through the caller's place, a place of
+        /// the task's own (`resultOut`).
         pub fn spawnObject(obj: anytype, comptime name: []const u8, args: anytype) Self {
             return startObject(false, obj, name, args);
         }
@@ -129,6 +131,11 @@ pub fn Task(comptime T: type) type {
             const Call = if (comptime takesSlot(Entry)) struct {
                 fn run(o: O, a: A, out: rt.ErrSlot) T {
                     return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{out});
+                }
+            } else if (comptime resultOut(Entry, T)) struct {
+                fn run(o: O, a: A) T {
+                    var res = rt.outPlace(T);
+                    return rt.packOut(T, @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{&res}), &res);
                 }
             } else struct {
                 fn run(o: O, a: A) T {
@@ -251,6 +258,14 @@ pub fn Task(comptime T: type) type {
             self.handle.free();
         }
     };
+}
+
+/// Whether an entry of type `F` (a function's address) of a method whose
+/// result is a `T` gives it through the caller's place (`rt.packOut`):
+/// it returns a flag where the method gives a `T?`.
+fn resultOut(comptime F: type, comptime T: type) bool {
+    const ret = @typeInfo(@typeInfo(F).pointer.child).@"fn".return_type orelse return false;
+    return ret == bool and T != bool;
 }
 
 /// Whether a function of type `F` takes the slot its failure's fields go

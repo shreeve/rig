@@ -752,7 +752,7 @@ fn Niche(comptime T: type, comptime n: NicheAt) type {
         }
 
         pub inline fn wrap(x: ?T) Self {
-            var o: Self = undefined;
+            var o = uninit(Self);
             if (x) |v| {
                 @as(*T, @ptrCast(&o.bytes)).* = v;
             } else {
@@ -842,6 +842,49 @@ pub inline fn pack(comptime O: type, x: ?Payload(O)) O {
     if (comptime isOptStruct(O)) return O.wrap(x);
     if (comptime OneStore(O) != void) return packOneStore(O, x);
     return x;
+}
+
+/// A value of `T` whose bytes are undefined, which a safe build leaves
+/// as they are rather than fill with 0xaa: for bytes nothing reads before
+/// they are written, the payload of a `none` (`Niche.wrap`) and the place
+/// a result goes out through (`outPlace`). A fill there is a store of
+/// each byte on every call.
+pub inline fn uninit(comptime T: type) T {
+    @setRuntimeSafety(false);
+    var x: T = undefined;
+    _ = &x;
+    return x;
+}
+
+/// The caller's place for the value of a `T?` result that goes out
+/// through it (`sema.TableEntry` `result_out`), which the entry writes
+/// only when there is one.
+pub inline fn outPlace(comptime O: type) Payload(O) {
+    return uninit(Payload(O));
+}
+
+/// The table entry's side of a result through the caller's place: `x`'s
+/// value written to `out`, when there is one, and whether there was. A
+/// struct optional's value is copied from where it holds it
+/// (`unwrapPtr`), not through a `?T` made on the way.
+pub inline fn someOut(x: anytype, out: *Payload(@TypeOf(x))) bool {
+    const O = @TypeOf(x);
+    if (comptime isOptStruct(O)) {
+        const p = O.unwrapPtr(&x) orelse return false;
+        out.* = p.*;
+        return true;
+    }
+    if (x) |v| {
+        out.* = v;
+        return true;
+    }
+    return false;
+}
+
+/// The caller's side: the `O` the entry gave, `has` its flag and `out`
+/// the place it wrote the value to when there is one.
+pub inline fn packOut(comptime O: type, has: bool, out: *const Payload(O)) O {
+    return pack(O, if (has) out.* else null);
 }
 
 // A flag optional in one store. Zig's `?T`, for a `T` with no spare

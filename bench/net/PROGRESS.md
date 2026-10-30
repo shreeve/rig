@@ -29,6 +29,10 @@ moves up into its table).
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 19.22 us | 6.12 us | 53.64 us |
 | 2026-10-30 | main a8acfdc5c before #779, interleaved | rig-fast | 14.22 us | 5.82 us | 47.07 us |
 | 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY | rig-fast | 14.67 us | 5.82 us | 47.23 us |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-fast | 14.73 us | 5.88 us | 49.69 us |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 14.46 us | 5.91 us | 48.99 us |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 14.61 us | 5.95 us | 53.13 us |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 14.52 us | 5.93 us | 51.79 us |
 
 ## x86-64 (pup)
 
@@ -65,3 +69,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6) | rig-fast | 5.06 us | 4.86 us | 30.30 us |
 | 2026-10-30 | main a8acfdc5c before #779, interleaved (pup core 8) | rig-fast | 4.78 us | 4.57 us | 28.97 us |
 | 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY (pup core 8) | rig-fast | 4.82 us | 4.57 us | 29.54 us |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-fast | 8.10 us | 980 ns | 42.56 us |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 9.71 us | 1.05 us | 33.54 us |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 8.94 us | 1.02 us | 30.18 us |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 8.98 us | 1.00 us | 26.24 us |

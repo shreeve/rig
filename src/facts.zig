@@ -495,6 +495,13 @@ pub const Facts = struct {
     pub fn objectTable(f: Facts, sym: SymbolId) []const sema.TableEntry {
         return f.c().object_tables.get(sym) orelse &.{};
     }
+    /// Whether the result of a call through an API object goes out
+    /// through the caller's place: its table entry's (`sema.TableEntry`
+    /// `result_out`).
+    pub fn resultOut(f: Facts, d: Dispatch.Dynamic) bool {
+        const e = sema.tableEntry(f.c(), d) orelse return false;
+        return e.result_out;
+    }
     /// This module's id among the program's.
     pub fn moduleId(f: Facts) u32 {
         return f.c().module_id;

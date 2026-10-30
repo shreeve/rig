@@ -31,6 +31,10 @@ began; Rig's are added as the runtime grows.
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 180629 | 259 us | 1761 us | 16.6 KiB |
 | 2026-10-30 | main a8acfdc5c before #779, interleaved | rig-fast | 178763 | 326 us | 1239 us | 16.6 KiB |
 | 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY | rig-fast | 176453 | 281 us | 2331 us | 16.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-fast | 169803 | 367 us | 647 us | 16.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 172606 | 363 us | 652 us | 16.6 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 171895 | 362 us | 654 us | 16.6 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 167932 | 368 us | 850 us | 16.6 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 
@@ -73,3 +77,7 @@ fixed: one core served every connection. Their memory stands; their
 speed does not, and #405's rows are the measure. On the Mac one core
 leaves the load generator, on the same machine, more of the others,
 which is why that row reads faster.
+| 2026-10-30 | main a8acfdc5c before #781 | rig-fast | 1026401 | 43 us | 287 us | 8.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 997282 | 38 us | 559 us | 8.6 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 1047411 | 39 us | 307 us | 8.6 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 936124 | 46 us | 324 us | 8.6 KiB |

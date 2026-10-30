@@ -393,3 +393,39 @@ code "apis object shared the count entries", ".__rig_weak = rig.weakErased(__rig
     fun area(?@) -> Float
 
   print(1)
+
+# ---- A large optional result goes out through the caller's place ----
+
+code "apis object a large optional result through the caller's place", "find: *const fn (rig.ErasedRead, i64, *rig.Payload(rig.Opt(Big))) bool,", "return rig.someOut(__rig_W.find(rig.selfArg(__rig_W.find, __rig_p), __rig_a0), __rig_res);", "rig.packOut(rig.Opt(Big), f.vt.find(f.ptr, k, &__rig_res_"
+  # A `Big?` wider than three words: the entry writes a hit through the
+  # caller's place and returns a flag, so a miss writes nothing.
+
+  api Finder
+    fun find(?@, k: Int) -> Big?
+
+  obj Big
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+
+  fun first(f: ?{Finder}, k: Int) -> Int
+    if f.find(k) as b
+      return b.a
+    0
+
+  print(1)
+
+code "apis object a small optional result returned", "near: *const fn (rig.ErasedRead, i64) rig.Opt(Trio),", "small: *const fn (rig.ErasedRead, i64) ?i64,"
+  # Three words or less are returned as they are.
+
+  api Finder
+    fun near(?@, k: Int) -> Trio?
+    fun small(?@, k: Int) -> Int?
+
+  obj Trio
+    a: Int
+    b: Int
+    c: Int
+
+  print(1)

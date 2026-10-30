@@ -49,6 +49,10 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 112 ns | 50 ns | 91.0 ms | 8 ns | 109.10 us | 17.1 KiB |
 | 2026-10-30 | main a8acfdc5c before #779, interleaved | rig-fast | 100 ns | 45 ns | 84.9 ms | 5 ns | 76.29 us | 17.1 KiB |
 | 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY | rig-fast | 84 ns | 45 ns | 88.7 ms | 5 ns | 76.95 us | 16.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-fast | 112 ns | 44 ns | 84.9 ms | 5 ns | 94.74 us | 17.1 KiB |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 91 ns | 54 ns | 75.1 ms | 6 ns | 79.08 us | 17.1 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 110 ns | 45 ns | 85.7 ms | 5 ns | 107.39 us | 17.1 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 90 ns | 54 ns | 71.6 ms | 5 ns | 117.56 us | 17.1 KiB |
 
 ## x86-64 (pup)
 
@@ -98,3 +102,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6) | rig-fast | 79 ns | 85 ns | 597.7 ms | 36 ns | 178.29 us | 4.5 KiB |
 | 2026-10-30 | main a8acfdc5c before #779, interleaved (pup core 8) | rig-fast | 81 ns | 86 ns | 598.8 ms | 34 ns | 177.33 us | 4.5 KiB |
 | 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY (pup core 8) | rig-fast | 79 ns | 85 ns | 600.4 ms | 33 ns | 176.57 us | 4.5 KiB |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-fast | 195 ns | 86 ns | 97.5 ms | 4 ns | 42.46 us | 5.2 KiB |
+| 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 207 ns | 101 ns | 89.5 ms | 4 ns | 65.56 us | 5.3 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 205 ns | 91 ns | 97.8 ms | 4 ns | 42.93 us | 5.2 KiB |
+| 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 193 ns | 95 ns | 85.8 ms | 4 ns | 53.17 us | 5.3 KiB |

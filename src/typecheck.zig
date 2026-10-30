@@ -13371,7 +13371,7 @@ const Checker = struct {
         const home = sema.apiContext(self.ctx, m.api) orelse return self.skipCall(args);
         const am: ApiMethod = .{ .api = m.api, .home = home, .field = m.field };
         const object = try self.ctx.intern(.{ .api_object = o });
-        if (!receiver_arg) return self.apiMethodCall(callee, obj, obj_ty, object, am, .{ .table = m.slot.? }, method, pos, rest, ct);
+        if (!receiver_arg) return self.apiMethodCall(callee, obj, obj_ty, object, am, .{ .table = .{ .api = o.api, .slot = m.slot.? } }, method, pos, rest, ct);
         // `Shape.area(s)`: self the first argument, with its sigil; a
         // method that consumes self takes the box, `Shape.close(<b)`.
         const self_ty = if (m.field.receiver == .value) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.box_sym_id, .args = try self.ctx.dupeIds(&.{object}) } }) else object;
@@ -13383,7 +13383,7 @@ const Checker = struct {
         try self.noteCallee(f);
         self.lend_call = true;
         try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
-        if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .slot = m.slot.?, .self_mode = m.field.receiver, .receiver_arg = true } });
+        if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .table = o.api, .slot = m.slot.?, .self_mode = m.field.receiver, .receiver_arg = true } });
         return f.returns;
     }
 
@@ -13485,14 +13485,15 @@ const Checker = struct {
                 if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_mode = receiver } });
                 try self.recordApiCall(self_ty, m, own, pos);
             },
-            .table => |slot| if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .slot = slot, .self_mode = receiver } }),
+            .table => |entry| if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .table = entry.api, .slot = entry.slot, .self_mode = receiver } }),
         }
         return f.returns;
     }
 
     /// How a call through an API reaches its method: through a witness,
-    /// or an API object's table, at an entry (`sema.Dispatch`).
-    const ApiVia = union(enum) { witness: sema.Witness, table: u32 };
+    /// or an API object's table, the object's API's, at an entry
+    /// (`sema.Dispatch`).
+    const ApiVia = union(enum) { witness: sema.Witness, table: struct { api: sema.ApiRef, slot: u32 } };
 
     /// A call's own compile-time arguments and the slots they fill, as
     /// `instantiateCall` binds them.
@@ -21263,7 +21264,7 @@ fn recordObjectTable(ctx: *SemContext, id: SymbolId) Error!void {
             if (sema.containsTypeVar(ctx, p)) break true;
         } else false;
         if (named_param or sema.containsTypeVar(ctx, f.returns)) continue;
-        try entries.append(a, .{ .name = m.field.name, .slot = slot, .self_mode = m.field.receiver, .fn_ty = fn_ty });
+        try entries.append(a, .{ .name = m.field.name, .slot = slot, .self_mode = m.field.receiver, .fn_ty = fn_ty, .result_out = try sema.resultOut(ctx, f.returns) });
     }
     try ctx.object_tables.put(ctx.allocator, id, entries.items);
 }

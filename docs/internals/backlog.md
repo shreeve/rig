@@ -198,6 +198,19 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
   `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
   a capture and a field lend, like `!c`, lend what the handle holds.
+- **A large optional result of a direct call goes out by value.** An
+  API object's table entry whose result is an optional wider than three
+  words writes it through the caller's place (INTERNALS, "APIs and API
+  objects"); a direct call, `Sphere.hit` or a witness's method, still
+  returns it, and a miss that is not inlined writes the whole undefined
+  payload. Doing the same there changes the Zig signature of every such
+  function, which each use of it as a value follows: a witness's
+  member, `rig.selfArg`, a table entry, a closure, a task, and a call
+  Zig evaluates at compile time. ray.rig gains nothing (its `hit` is
+  inlined, and `Material.scatter`'s `Scatter?` is too); it waits for a
+  program whose large optional result crosses a call LLVM keeps, with
+  the entry's numbers as the guide: 9% to 25% fewer cycles from 25
+  bytes with a niche, a fast build.
 - **A closure that stores nothing, at a value type that can hold a
   view** (deferred by the owner). `!m.update(|k, v| v = none)` on a
   `Map[String, (?String)?]` is refused with its instance (SPEC "Generic

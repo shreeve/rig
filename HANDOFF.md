@@ -85,6 +85,12 @@ A new session, human or agent, takes these steps in order:
   none. In review. PR B, the allocator's part (another heap's remote
   list before carving a page, no safe-mode fill in String and List
   growth, a program-wide bound on large blocks), comes next.
+- **A large optional result through the caller's place** (ray-speed
+  review, decision 1, owner 2026-10-29): an API object's table entry
+  whose result is an optional wider than three words writes it through
+  the caller's place and returns a flag; a `none`'s payload is not
+  filled in a safe build. In review as one PR (#781); the direct-call
+  case is in the backlog.
 - **A shared value made in a variant's call** (B4 of the Rust ports,
   2026-10-29): `Frame.bulk(data: *Frozen(...))`, a `*Chan[T](n)`, or
   an `*Actor(x)` there is the payload's value, and `*Actor(x)` takes

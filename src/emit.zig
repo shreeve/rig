@@ -1218,6 +1218,10 @@ pub const Emitter = struct {
             // to a method that takes one (`rig.takesSlot`).
             if (self.facts.types.get(f.returns) == .fallible) {
                 try self.w.print("if (comptime rig.takesSlot(__rig_W.{f}, {d})) {s}{s}, __rig_out) else {s}{s});\n", .{ ident(e.name), args.len + 1, call, list.items, call, list.items });
+            } else if (e.result_out) {
+                // A result through the caller's place: written there only
+                // when there is one (`sema.TableEntry` `result_out`).
+                try self.w.print("rig.someOut({s}{s}), __rig_res);\n", .{ call, list.items });
             } else try self.w.print("{s}{s});\n", .{ call, list.items });
             try self.w.writeAll("        }\n");
         }
@@ -1233,8 +1237,9 @@ pub const Emitter = struct {
 
     /// A table entry's parameters and result: the address of the value,
     /// then the method's parameters after self, the slot of a fallible
-    /// method, and its result; `named` writes the names an entry's body
-    /// reads.
+    /// method, and its result, or, for a result through the caller's
+    /// place, the place and whether it was written; `named` writes the
+    /// names an entry's body reads.
     fn writeEntrySignature(self: *Emitter, e: facts.TableEntry, named: bool) Error!void {
         const f = self.facts.types.get(e.fn_ty).function;
         if (named) try self.w.writeAll("__rig_ptr: ");
@@ -1249,6 +1254,12 @@ pub const Emitter = struct {
             try self.emitTypeTy(p);
         }
         if (self.facts.types.get(f.returns) == .fallible) try self.w.writeAll(if (named) ", __rig_out: rig.ErrSlot" else ", rig.ErrSlot");
+        if (e.result_out) {
+            try self.w.writeAll(if (named) ", __rig_res: *rig.Payload(" else ", *rig.Payload(");
+            try self.emitTypeTy(f.returns);
+            try self.w.writeAll(")) bool");
+            return;
+        }
         try self.w.writeAll(") ");
         if (f.is_sub and f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
     }
@@ -1583,7 +1594,11 @@ pub const Emitter = struct {
     /// table (docs/design/apis.md, Stage 4): `s.vt.area(s.ptr, args)`, the
     /// slot a `!` or `catch` lends after the arguments of a fallible
     /// method. A receiver other than a name is evaluated once, into a
-    /// constant of the call's own block.
+    /// constant of the call's own block. A result through the caller's
+    /// place (`sema.TableEntry` `result_out`) goes into a hidden local
+    /// of that block, which the entry writes only when there is one:
+    /// `var __rig_res_N = rig.outPlace(O); break ... rig.packOut(O,
+    /// s.vt.hit(s.ptr, args, &__rig_res_N), &__rig_res_N)`.
     fn emitObjectCall(self: *Emitter, call: Sexp, d: facts.Dispatch.Dynamic) Error!void {
         const recv_node = if (d.receiver_arg) ir.Call.args(call)[0] else self.receiverOf(call) orelse return self.unsupported(call, "a call through an API object without its receiver");
         const recv = lentPlace(recv_node);
@@ -1595,9 +1610,19 @@ pub const Emitter = struct {
             try self.emitExpr(recv);
         }
         const direct = recv == .src;
+        const out = self.facts.resultOut(d);
         const id = self.nextId();
         const name = if (direct) buf.written() else try self.fmt("__rig_obj_{d}", .{id});
-        if (!direct) try self.w.print("(__rig_call_{d}: {{ const {s} = {s}; break :__rig_call_{d} ", .{ id, name, buf.written(), id });
+        if (!direct or out) try self.w.print("(__rig_call_{d}: {{ ", .{id});
+        if (!direct) try self.w.print("const {s} = {s}; ", .{ name, buf.written() });
+        if (out) {
+            const result = self.typeOf(call) orelse return self.unsupported(call, "an untyped call through an API object");
+            try self.w.print("var __rig_res_{d} = rig.outPlace(", .{id});
+            try self.emitTypeTy(result);
+            try self.w.print("); break :__rig_call_{d} rig.packOut(", .{id});
+            try self.emitTypeTy(result);
+            try self.w.writeAll(", ");
+        } else if (!direct) try self.w.print("break :__rig_call_{d} ", .{id});
         try self.w.print("{s}.vt.{f}({s}.ptr", .{ name, ident(d.method), name });
         const skip: usize = @intFromBool(d.receiver_arg);
         const slots = self.facts.callSlotsOf(call);
@@ -1605,8 +1630,9 @@ pub const Emitter = struct {
         const slot = if (self.fail_slot) |f| sameNode(f.call, call) else false;
         if (runtime > 0 or slot) try self.w.writeAll(", ");
         try self.emitArgsFrom(call, skip);
+        if (out) try self.w.print(", &__rig_res_{d}), &__rig_res_{d}", .{ id, id });
         try self.w.writeAll(")");
-        if (!direct) try self.w.writeAll("; })");
+        if (!direct or out) try self.w.writeAll("; })");
     }
 
     /// `W.area`: the method of the witness a call reaches.

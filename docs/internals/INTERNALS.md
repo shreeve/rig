@@ -2393,6 +2393,35 @@ are the holding's (`rig.ApiHolding`). The objects are the runtime's
 pointer and a table pointer, sixteen bytes; `emitObjectCall` writes
 `s.vt.area(s.ptr)`.
 
+**Results through the caller's place.** A method's result that is an
+optional whose value takes more than `sema.out_result_bytes` (24, three
+words) goes out through the caller's place (`TableEntry.result_out`,
+decided by `sema.resultOut` as `recordObjectTable` records the table).
+Returned by value, such a `T?` goes through memory on arm64 and
+x86-64, and a `none` writes all of it: LLVM merges the two returns, so
+a miss stores the payload's undefined words, filled with 0xaa in a safe
+build. The entry instead takes a `*rig.Payload(O)` last, writes the
+value there only when there is one (`rig.someOut`, which copies it
+from where the optional holds it), and returns a `bool`. Each call
+reads the decision from the entry (`Facts.resultOut`, by
+`Dispatch.Dynamic`'s `table`, the object's API, and `slot`), so the
+table and every call agree: the call's block holds the place, `var
+__rig_res_N = rig.outPlace(O)`, and gives `rig.packOut(O,
+s.vt.hit(s.ptr, args, &__rig_res_N), &__rig_res_N)`, an `O` like any
+call's, which every context uses as before; a task through an object
+does the same (`tasks.resultOut`). The place is left unfilled
+(`rig.uninit`), as is a `none`'s payload in `Niche.wrap`.
+
+The width is measured on the Mac, an API object's method called 1.6
+billion times, a third of them misses, by value against through the
+place. With a niche (an object holding a `Bool`): 17 bytes, 3% more
+cycles in a fast build; 25 bytes, 9% fewer; 33 and 41, 25% fewer; a
+safe build 14% to 21% fewer at every width. Without a niche (`Int`
+fields only): 24 bytes, 8% more; 32, 18% fewer; above it within the
+noise, 6% more to 7% fewer. ray-dyn's `Hit?` (88 bytes): 10% fewer
+cycles fast and 28% fewer safe on the Mac, 18% and 21% fewer on pup. Only an entry does this: a direct call
+keeps its result (docs/internals/backlog.md).
+
 ### Compile-time functions
 
 A module-level `fun` with compile-time parameters and no run-time list
