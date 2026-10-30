@@ -741,3 +741,35 @@ test "box write view param", '''
   x = ^R(n: 1)
   f(!x)
   print(x.n)
+
+test "box optional pointer size", '''
+  16 8 8 8
+  321
+  1 2
+'''
+  # `^T?` and `~T?` are a pointer's size, as `*T?` is: `none` is the null
+  # address, so a list node of an Int and a `^Node?` is two words.
+
+  obj Node
+    elem: Int
+    next: ^Node?
+
+  obj Leaf
+    n: Int
+
+  print($size(Node), $size(^Node?), $size(~Leaf?), $size(*Leaf?))
+
+  head: ^Node? = none
+  for i in 1..4
+    head = ^Node(elem: i, next: <head)
+  digits = 0
+  slot = ?head
+  while slot as n
+    digits = digits * 10 + n.elem
+    slot = ?n.next
+  print(digits)
+  h = *Leaf(n: 1)
+  w: ~Leaf? = ~h
+  if w as v
+    if *v as s
+      print(s.n, 2)

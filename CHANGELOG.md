@@ -242,6 +242,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   where `T` is a `Bool`. The long form `(!v).pop()` stays valid
   everywhere. The change only accepts programs rejected before, and
   `tools/drop-write-parens.py` drops the parentheses no longer needed.
+- **`^T?` and `~T?` are a pointer's size:** `none` is the null
+  address, as it is for a `*T?`, so an optional box or weak handle is 8
+  bytes, not 16, and a list node of an `Int` and a `^Node?` is 16 bytes.
 - **A literal is self of a call through an API:** `Twice.twice(4)` and
   `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
   `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit

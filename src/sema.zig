@@ -8350,13 +8350,19 @@ pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
 /// `somePtr`, `pack`): where its representation may differ from Zig's
 /// `?T`. A type parameter's may, since its instance decides; so may an
 /// object's, which holds `none` in a niche where it has one, and an
-/// optional of such an optional (`rig.Opt`). `pack` writes an object's flag optional in one store
-/// where it fits (runtime `OneStore`). `strict` (`RIG_STRICT_OPTIONALS`)
-/// holds each of them as a tagged struct.
+/// optional of such an optional (`rig.Opt`). A box's `^T?` and a weak
+/// handle's `~T?` hold `none` as the null address, a pointer's size, as
+/// a `*T?` does: Zig gives that only to a bare pointer, and a box and a
+/// weak handle are each a struct around one. `pack` writes an object's
+/// flag optional in one store where it fits (runtime `OneStore`).
+/// `strict` (`RIG_STRICT_OPTIONALS`) holds each object's as a tagged
+/// struct.
 pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
     return switch (ctx.types.get(inner)) {
         .type_var => true,
         .optional => |payload| optionalRouted(ctx, payload, strict),
+        .weak => objectHeld(ctx, inner) == null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id) objectHeld(ctx, inner) == null else isObject(ctx, inner),
         else => isObject(ctx, inner),
     };
 }

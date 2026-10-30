@@ -645,6 +645,10 @@ pub fn Opt(comptime T: type) type {
     if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_name") or @hasDecl(T, "__rig_niche"))) {
         if (comptime nicheOf(T)) |n| return Niche(T, n);
     }
+    // A box's (`^T?`) and a weak handle's (`~T?`) hold `none` as the
+    // null address, a pointer's size, as a `*T?` does; every optional of
+    // one goes through the helpers too.
+    if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak"))) return Niche(T, nicheOf(T).?);
     return ?T;
 }
 
