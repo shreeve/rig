@@ -78,6 +78,16 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The per-loop tick, option (a)** (owner, 2026-10-30, branch
+  `loop-tick`, a draft PR): a range or a walk of a slice, a List, or a
+  String runs in strips of up to 1,024 turns with no check in a turn
+  (`storage.LoopTurns`). ray-dyn on pup is 8.5% faster and ray.rig 3%
+  (4% fewer cycles on the Mac), but Trig is 2.6% slower on ts-pattern,
+  so it fails Trig's bar and waits for the owner. Two other lowerings
+  (short loops counted ahead, with strips or with each turn counted)
+  measured no better on Trig; with no loop checks at all Trig is 2.5%
+  faster, the ceiling.
+
 - **A shared value made in a variant's call** (B4 of the Rust ports,
   2026-10-29): `Frame.bulk(data: *Frozen(...))`, a `*Chan[T](n)`, or
   an `*Actor(x)` there is the payload's value, and `*Actor(x)` takes

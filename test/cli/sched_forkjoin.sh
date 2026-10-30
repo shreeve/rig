@@ -20,7 +20,10 @@ sub main()
   print(total)
 EOF
 zig=$(rig emit nest.rig) || fail "rig emit nest.rig"
-expect_eq "$(grep -o 'rig\.turn(&' <<<"$zig" | wc -l | tr -d ' ')" 3 "yield checks in three nested loops"
+# Ranges run in strips: the outermost checks between its strips, and each
+# loop inside it counts its strips' turns in the outer loop's count.
+expect_eq "$(grep -o 'rig\.stripTurn(&' <<<"$zig" | wc -l | tr -d ' ')" 1 "yield checks in three nested loops"
+expect_eq "$(grep -o 'rig\.turns(&' <<<"$zig" | wc -l | tr -d ' ')" 2 "strips counted in three nested loops"
 expect_eq "$(grep -o 'rig\.tick_turns' <<<"$zig" | wc -l | tr -d ' ')" 1 "counts of turns in three nested loops"
 
 cat >forkjoin.rig <<'EOF'

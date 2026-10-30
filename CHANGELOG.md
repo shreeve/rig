@@ -1829,6 +1829,16 @@ first step is on `main` (SPEC §18):
   nothing. A task that recurses still checks on every turn of any cycle.
   Trig's checker keeps 387 of its 2,812 recursive checks; on ts-pattern
   with one checker it runs 5% fewer instructions and 2% faster (pup).
+- **A bounded loop checks between strips:** a range, or a walk of a
+  slice, a List, or a String, in a program that makes tasks, runs in
+  strips of up to 1,024 turns, each a Zig loop with no yield check, so
+  LLVM may vectorize it; the outermost loop checks between its strips
+  and one inside another counts each strip's turns in the outer count.
+  A walk of an array of at most 1,024 elements counts its turns before
+  it starts. ray-dyn takes 8.5% less time on pup, ray.rig 3% (4% fewer
+  cycles on the Mac); fannkuch takes 4% more on both, and Trig 2.6%
+  more on ts-pattern (bench/tasks `hog` waits 79-85 us a step on the
+  Mac, where it waited 99-127 us).
 - **A yield check costs no registers:** in an optimized build for
   x86_64 or aarch64, a loop's turn check and a recursive function's
   entry check call the scheduler through a function that saves and

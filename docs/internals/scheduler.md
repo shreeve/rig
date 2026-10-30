@@ -251,7 +251,13 @@ reads only its flag, so a worker deep in recursion leaves its timers to
 the workers that sleep.
 
 The loop check costs a decrement and a branch per turn of any loop
-after its first: within noise on `bench/tasks`. The recursion check is
+after its first: within noise on `bench/tasks`. A loop counted in
+strips pays a few instructions per strip instead and none in a turn:
+ray-dyn takes 8.5% less time on pup and ray.rig 3%, but a short loop
+pays more per run than its turns' checks cost, and LLVM unrolls or
+vectorizes a short loop with no call in it, which can make it slower:
+fannkuch takes 4% more time on the Mac and on pup, and Trig 2.6% more
+on ts-pattern (with no loop checks at all, Trig takes 2.5% less). The recursion check is
 a load and a branch per call of a function that checks: free in any
 function that does work, but a function as small as `fib` runs about
 1.5x slower with it. On Trig (ts-pattern, one checker, on pup) the two
