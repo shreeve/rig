@@ -2419,7 +2419,7 @@ cycles in a fast build; 25 bytes, 9% fewer; 33 and 41, 25% fewer; a
 safe build 14% to 21% fewer at every width. Without a niche (`Int`
 fields only): 24 bytes, 8% more; 32, 18% fewer; above it within the
 noise, 6% more to 7% fewer. ray-dyn's `Hit?` (88 bytes): 10% fewer
-cycles fast, 29% fewer safe. Only an entry does this: a direct call
+cycles fast and 28% fewer safe on the Mac, 18% and 21% fewer on pup. Only an entry does this: a direct call
 keeps its result (docs/internals/backlog.md).
 
 ### Compile-time functions

@@ -231,8 +231,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   caller lends and returns whether there is one, so a `none` writes
   nothing; the call gives the same `T?` as before. A `none`'s payload,
   and that place, are no longer filled with 0xaa in a safe build.
-  ray-dyn: 10% fewer cycles in a fast build, 29% fewer in a safe one,
-  on the Mac.
+  ray-dyn: 10% fewer cycles in a fast build and 28% fewer in a safe one
+  on the Mac, 18% and 21% fewer on pup, where it is now level with the
+  Rust's `Box<dyn>`.
 - **A shared value made in a variant's call is the payload's value.**
   `Frame.bulk(data: *Frozen(String("x")))`, and a `*Chan[T](n)` or
   `*Actor(x)` made there, recorded its own signature on the variant's
