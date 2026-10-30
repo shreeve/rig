@@ -736,6 +736,11 @@ Host names are not looked up yet.
 | `(!s).read(!into, max)!` | read up to `max` bytes onto the end of the String `into`, once any come: how many, or 0 once the other end has closed |
 | `!s.write(bytes)!` | write all of `bytes`, a `?String` |
 
+A task waiting to read holds no buffer for what it waits for: a read
+into a String without room for `max` more takes the bytes through a
+block of its worker's, and `into` grows by only the bytes that came.
+A String with room is read into directly.
+
 A `Listener` or `Stream` closes when it is dropped. Each connection is
 usually a task of its own:
 

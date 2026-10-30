@@ -1804,8 +1804,10 @@ pub const Emitter = struct {
             self.fun.out_unmarked = true;
         }
 
-        // The runtime's panic handler flushes buffered `print` output first.
-        if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
+        // The runtime's panic handler flushes buffered `print` output
+        // first; its Zig options leave each thread's alternate signal
+        // stack to it (`rig.AltStack`).
+        if (is_main) try self.w.writeAll("pub const panic = rig.panic;\npub const std_options = rig.std_options;\n\n");
         // A `main` that can fail is canceled by an interrupt or SIGTERM
         // (`rig.cancelOnInterrupt`); one that cannot keeps their default.
         if (main_fails) try self.w.writeAll("pub const __rig_interrupt = true;\n\n");

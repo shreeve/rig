@@ -1047,6 +1047,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\const rig = @import("{s}");
         \\
         \\pub const panic = rig.panic;
+        \\pub const std_options = rig.std_options;
         \\
     , .{emit.runtime_module});
     try env.writeRootFlags(&root.writer, true, null, false, .{});
@@ -1412,6 +1413,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         \\const rig = @import("{s}");
         \\
         \\pub const panic = rig.panic;
+        \\pub const std_options = rig.std_options;
         \\
     , .{emit.runtime_filename});
     try env.writeRootFlags(w, true, taskGuardOf(graph), makesActors(graph), readsOf(graph));

@@ -6568,9 +6568,10 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
         std.process.exit(1);
     };
     // A fault runs its handler on the thread's alternate signal stack,
-    // which Zig's start code sets; a child process forked on macOS has
-    // none until it is set again.
+    // set here (`AltStack`); a child process forked on macOS has none
+    // until it is set again.
     if (builtin.link_libc) _ = std.c.pthread_atfork(null, null, attachSignalStack);
+    _ = AltStack.attach();
     installOverflowHandler();
     const Call = struct {
         args: @TypeOf(args),
@@ -6601,8 +6602,44 @@ pub const task_stack_size = stack_size;
 pub const task_guard: usize = if (@hasDecl(root, "__rig_task_guard")) root.__rig_task_guard else guard_sizes[guard_sizes.len - 1];
 
 fn attachSignalStack() callconv(.c) void {
-    std.Thread.maybeAttachSignalStack();
+    _ = AltStack.attach();
 }
+
+/// Zig's options for a program's root (`pub const std_options =
+/// rig.std_options`): no alternate signal stack of Zig's, a 256 KiB
+/// thread-local array that each thread would hold resident, since the
+/// runtime maps its own (`AltStack`).
+pub const std_options: std.Options = if (own_stack) .{ .signal_stack_size = null } else .{};
+
+/// A thread's alternate signal stack, on which a fault's handler runs
+/// (`installOverflowHandler`): a mapping of its own, whose pages cost
+/// nothing until a signal runs on them. `main`'s thread holds one for
+/// the program's life (`onOwnStack`), and each thread the scheduler
+/// starts one for its own (`sched.zig`).
+pub const AltStack = struct {
+    mem: ?[]align(std.heap.page_size_min) u8,
+
+    const size = 256 << 10;
+
+    /// Map an alternate signal stack and set it as this thread's: none
+    /// when the system has no room for one, and the thread's handlers
+    /// run on its own stack.
+    pub fn attach() AltStack {
+        const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch return .{ .mem = null };
+        std.posix.sigaltstack(&.{ .sp = got.ptr, .flags = 0, .size = size }, null) catch {
+            std.posix.munmap(got);
+            return .{ .mem = null };
+        };
+        return .{ .mem = got };
+    }
+
+    /// Unset this thread's alternate signal stack, as it ends, and unmap it.
+    pub fn detach(s: AltStack) void {
+        const mem = s.mem orelse return;
+        std.posix.sigaltstack(&.{ .sp = mem.ptr, .flags = std.posix.system.SS.DISABLE, .size = 0 }, null) catch return;
+        std.posix.munmap(mem);
+    }
+};
 
 /// Call `run(arg)` with the stack pointer at `top`, and return with it
 /// where it was. The frame record it pushes links the new stack's frames

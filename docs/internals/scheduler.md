@@ -81,8 +81,16 @@ a program that makes none starts no workers.
 A task's stack is 64 MiB of address space, as `main`'s is, since a
 frame may keep up to 13 MiB of values, committed only as the task
 touches it. Stacks never move, since loans point into them. They are
-carved 16 at a time from one reservation, and each worker keeps up to
-64 free for the next tasks, returning more to the system.
+carved 16 at a time from one reservation, whose stacks stay untouched,
+holding no page, until a task runs on each; each worker keeps up to 64
+that tasks have ended on for the next, returning more to the system.
+A task that waits on another task or an actor touches little of its
+stack: `sched.block` reserves under a page, and its deadlock walk, which
+few waits run, has a frame of its own (`walkFrom`, about 15 KiB). Each
+thread's alternate signal stack, on which a fault's handler runs, is a
+mapping of its own, untouched until a signal runs on it (`rt.AltStack`):
+the root turns off Zig's, a 256 KiB thread-local array every worker and
+pool thread would keep resident (`test/cli/thread_memory.sh`).
 
 Below each stack is a guard that a frame overflowing the stack faults
 in. A frame that skipped past its guard would land in another's memory,
