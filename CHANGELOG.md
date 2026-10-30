@@ -233,6 +233,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   type from `x` wherever an `*Actor[T]` is expected (a typed binding,
   an argument, a field, a payload), as `*Frozen(x)` does; it was
   rejected as an opaque type before.
+- **`slices.reverse` swaps the first half with the last, its indexes
+  proven.** It counts `i` over `0..n / 2` and swaps `xs[i]` with
+  `xs[n - 1 - i]`, and the proof pass now proves both: a `for` over
+  `0..b / c` bounds its binding by `b`, an index `b - c - i` counted
+  down from the end is in range when `i + c <= b` and `0 <= i`, and a
+  `!s.swap(i, j)` whose two indexes are proven omits their tests
+  (`rig.swapProven`). Its loop was 13 instructions a swap on arm64
+  against Rust's 6, and fannkuchredux, which flips with it, took 10%
+  more cycles than Rust's; it now takes the same (n = 11: 6.32 billion
+  cycles on the M5 against Rust's 6.33, 8.67 on x86 against 8.69).
 - **A generic function is inlined by the size rule.** The compiler
   inlined no function with compile-time type parameters unless it was
   marked `inline`; it now judges one as any other function, under the

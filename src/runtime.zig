@@ -4251,6 +4251,17 @@ pub fn swap(items: anytype, i: anytype, j: anytype) void {
     std.mem.swap(std.meta.Elem(@TypeOf(items)), &items[a], &items[b]);
 }
 
+/// `swap` with the tests `p` proves of both indexes omitted. The swap
+/// goes through a copy, which is right when the indexes are equal, so
+/// they need no test of their own.
+pub inline fn swapProven(items: anytype, i: Int, j: Int, comptime p: Proven) void {
+    const a = provenOffset(i, items.len, 1, p) orelse indexPanic();
+    const b = provenOffset(j, items.len, 1, p) orelse indexPanic();
+    const t = items.ptr[a];
+    items.ptr[a] = items.ptr[b];
+    items.ptr[b] = t;
+}
+
 /// Rig's `Endian`: the byte order of `read` and `write`.
 pub const Endian = enum { little, big };
 

@@ -83,6 +83,13 @@ A new session, human or agent, takes these steps in order:
   an `*Actor(x)` there is the payload's value, and `*Actor(x)` takes
   its type from `x` where an `*Actor[T]` is expected. In review as one
   PR.
+- **The inlining PR** (owner, 2026-10-29, approving the Rust ports'
+  speed reviews): each compile-time instance is its own function to the
+  yield checks, so `at[true]` calling `at[false]` no longer checks; a
+  generic function is inlined by the size rule; `slices.reverse` swaps
+  the first half with the last, its mirror index proven. In review as
+  one PR of three commits. Specializing `fun` parameters (gap 1) waits
+  on a design note.
 - **A lent self's element is reached in place** (R2 of the Rust ports,
   2026-10-29): `?xs[i].m()` gives `m` a view of the element, never of a
   copy, so a `from @` result no longer views a temporary. In review as

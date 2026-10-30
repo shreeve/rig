@@ -402,6 +402,9 @@ const Use = union(enum) {
     add: struct { i: SymbolId, c: u64 },
 };
 
+/// A mirror index `b - c - i` (`Pass.mirrorOf`).
+const Mirror = struct { i: SymbolId, c: u64, b: Bound };
+
 /// A test of a flag: `nonneg(i)`, or `below(i, k, len(s))`.
 const FlagFact = Fact;
 
@@ -870,6 +873,57 @@ const Pass = struct {
         return false;
     }
 
+    /// The tests an index `e` into place `s` passes on every path: `i + c`,
+    /// or a mirror index (`mirrorOf`).
+    fn proveIndex(p: *Pass, st: *const State, e: Sexp, s: Place) Error!Proven {
+        if (p.indexOf(e)) |ix| return proveUse(st, .{ .range = .{ .i = ix.i, .c = ix.c, .s = s, .width = 1 } }, 0);
+        if (try p.mirrorOf(e)) |m| return proveMirror(st, m, s);
+        return .{};
+    }
+
+    /// The tests the mirror index `b - c - i` into place `s` passes on
+    /// every path: `0 <= b - c - i` under `below(i, c, b)`; and, when `b`
+    /// is `s.len` or an `n` with `eq(n, s)`, `b - c - i < len(s)` under
+    /// `nonneg(i)`, since `b - c - i <= b - 1`, and the lower test under
+    /// `below(i, c, len(s))` as well.
+    fn proveMirror(st: *const State, m: Mirror, s: Place) Proven {
+        const is_len = switch (m.b) {
+            .len => |t| std.meta.eql(t, s),
+            .int => |n| st.has(.{ .eq = .{ .n = n, .s = s } }),
+        };
+        const room = @max(st.belowK(m.i, m.b, 0) orelse 0, if (is_len) st.belowK(m.i, .{ .len = s }, 0) orelse 0 else 0);
+        return .{ .lower = room >= m.c, .upper = is_len and st.hasNonneg(m.i, 0) };
+    }
+
+    /// `b - c - i` of type `Int`, `(b - c) - i` as written, with a literal
+    /// `c >= 1`, an own `Int` binding `i`, and a bound `b` (`s.len`, or an
+    /// `Int` binding): an index counted down from the end as `i` counts up.
+    fn mirrorOf(p: *Pass, e: Sexp) Error!?Mirror {
+        if (!e.isKind(.@"-") or p.ctx.typeOf(e) != p.ctx.types.int_id) return null;
+        const i = p.intLocal(ir.get(e, .right)) orelse return null;
+        const left = ir.get(e, .left);
+        if (!left.isKind(.@"-") or p.ctx.typeOf(left) != p.ctx.types.int_id) return null;
+        const c = p.intLiteral(ir.get(left, .right)) orelse return null;
+        if (c == 0 or c > max_k) return null;
+        const b = (try p.boundOf(ir.get(left, .left))) orelse return null;
+        if (b == .int and b.int == i) return null;
+        return .{ .i = i, .c = c, .b = b };
+    }
+
+    /// `!s.swap(i, j)` of a place `s`: the callee, the two indexes, and
+    /// `s`.
+    fn swapAccess(p: *Pass, call: Sexp) Error!?struct { callee: Sexp, i: Sexp, j: Sexp, s: Place } {
+        const callee = p.ctx.calleeOf(call);
+        const ec = p.ctx.elemCallOf(callee) orelse return null;
+        if (ec.op != .swap) return null;
+        var obj = ir.Member.object(callee);
+        if (obj.isKind(.write)) obj = ir.Write.operand(obj);
+        const args = ir.Call.args(call);
+        if (args.len != 2) return null;
+        const s = (try p.lenPlace(obj)) orelse return null;
+        return .{ .callee = callee, .i = args[0], .j = args[1], .s = s };
+    }
+
     /// Record what `node` proves, from the facts that hold where it runs.
     fn recordUse(p: *Pass, node: Sexp, st: *const State) Error!void {
         switch (node.kind() orelse return) {
@@ -877,6 +931,7 @@ const Pass = struct {
                 const s = (try p.lenPlace(ir.Index.object(node))) orelse return;
                 const index = ir.Index.index(node);
                 if (p.indexOf(index)) |ix| return p.recordProof(node, st, .{ .range = .{ .i = ix.i, .c = ix.c, .s = s, .width = 1 } }, true);
+                if (try p.mirrorOf(index)) |m| return p.record(node, proveMirror(st, m, s), null);
                 // `s[e & m]`: `0 <= e & m <= m`, so the room `m` has.
                 switch ((try p.maskOf(index, st)) orelse return) {
                     .sym => |m| try p.recordProof(node, st, .{ .range = .{ .i = m, .c = 0, .s = s, .width = 1 } }, true),
@@ -884,8 +939,13 @@ const Pass = struct {
                 }
             },
             .call => {
-                const b = (try p.byteAccess(node)) orelse return;
-                try p.recordProof(b.callee, st, .{ .range = .{ .i = b.i, .c = 0, .s = b.s, .width = b.width } }, false);
+                if (try p.byteAccess(node)) |b| return p.recordProof(b.callee, st, .{ .range = .{ .i = b.i, .c = 0, .s = b.s, .width = b.width } }, false);
+                // `!s.swap(i, j)`: the tests both indexes pass, on the
+                // callee.
+                const sw = (try p.swapAccess(node)) orelse return;
+                const x = try p.proveIndex(st, sw.i, sw.s);
+                const y = try p.proveIndex(st, sw.j, sw.s);
+                try p.record(sw.callee, .{ .lower = x.lower and y.lower, .upper = x.upper and y.upper }, null);
             },
             .@"+" => {
                 if (p.plusConst(node, false)) |pc| return p.recordProof(node, st, .{ .add = .{ .i = pc.i, .c = pc.c } }, true);
@@ -1393,7 +1453,8 @@ const Pass = struct {
     /// What `for k in lo..hi` gives its body, for every iteration: `0 <=
     /// k` when `0 <= lo` (a literal, or a binding known not negative), and
     /// `k + 1 <= hi` when `hi` is a bound (`s.len`, or an `Int` binding)
-    /// that nothing in the loop writes (`k <= hi` for `lo..=hi`). Emit
+    /// that nothing in the loop writes (`k <= hi` for `lo..=hi`), and
+    /// `k + 1 <= b` for `hi` a quotient `b / c` of one (`quotientBound`). Emit
     /// reads both ends once, before the first iteration, and counts `k`
     /// up from `lo` while it is below `hi` (or, inclusive, up to it).
     fn rangeFacts(p: *Pass, loop: Sexp, source_node: Sexp, head: *const State, kills: *const Kills, body: *State) Error!void {
@@ -1404,11 +1465,26 @@ const Pass = struct {
         if (p.intLiteral(lo) != null) {
             try body.add(p.a, .{ .nonneg = k }, 0);
         } else if (p.intLocal(lo)) |j| if (head.nonnegFlag(j)) |flag| try body.add(p.a, .{ .nonneg = k }, flag);
-        const b = (try p.boundOf(hi)) orelse return;
+        const b = (try p.boundOf(hi)) orelse (try p.quotientBound(hi, lo, source_node)) orelse return;
         const fact: Fact = .{ .below = .{ .i = k, .k = @intFromBool(!rig.isInclusive(source_node)), .b = b } };
         if (kills.ends(fact)) return;
         if (b == .len) try body.add(p.a, .{ .fits = b.len }, 0);
         try body.add(p.a, fact, 0);
+    }
+
+    /// The bound `b` of `lo..b / c`, with a literal `c >= 1` and a bound
+    /// `b` (`s.len`, or an `Int` binding when `lo` is a literal): `k <
+    /// b / c` gives `k + 1 <= b`, since `b / c <= b` for `b >= 0`, and a
+    /// body that runs has `0 <= k < b / c`, so `b >= c > 0` (Rig's `/`
+    /// rounds toward zero). Not for `lo..=hi`: `k <= -1 / 2` is `k <= 0`.
+    fn quotientBound(p: *Pass, hi: Sexp, lo: Sexp, source_node: Sexp) Error!?Bound {
+        if (rig.isInclusive(source_node)) return null;
+        if (!hi.isKind(.@"/") or p.ctx.typeOf(hi) != p.ctx.types.int_id) return null;
+        const c = p.intLiteral(ir.get(hi, .right)) orelse return null;
+        if (c == 0) return null;
+        const b = (try p.boundOf(ir.get(hi, .left))) orelse return null;
+        if (b == .int and p.intLiteral(lo) == null) return null;
+        return b;
     }
 
     // ------------------------------------------------------------------
