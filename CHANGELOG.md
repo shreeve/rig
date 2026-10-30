@@ -1577,6 +1577,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   4.0%) when memory is free, and within 0.4% of no huge pages when it
   is fragmented, where main is 54 to 57% slower. Other systems are
   unchanged.
+- **Release runtime:** on Linux, the test for huge pages asks while
+  more than 64 free 2 MiB blocks are left, where it asked for more than
+  128. pup idles at about 90 to 140, where 128 shut the test for most
+  of Trig's runs, as a run's own huge pages drain the count: there Trig
+  on pup is 5.8% faster on ts-pattern and 1.9% on zod3. When memory is
+  free it is within 1.4% of 128, and with memory partly fragmented (35
+  to 65 free) it asks for none and runs as with no huge pages, where
+  spares of 32 and 16 stalled in compaction. Peak memory is unchanged.
 - **Release allocator:** a heap keeps freed large blocks within its
   settled peak, the most it has had handed out just after a free, and
   16 MiB, where the peak was the most handed out at any moment. That

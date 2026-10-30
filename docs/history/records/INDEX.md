@@ -33,6 +33,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Bounds tests and enum conversion in Trig (2026-10-26) | each index test is Rust's one compare and branch; the cycles the disassembly diff charged to them (row 4, and row 8's `fromInt`) are load misses landing on the next instruction, as PEBS shows; one shape made two tests, a signed index against a compile-time bound (`Table`, arrays, `Slot[n].of`), now one compare: Trig PGO 0.5-0.7% fewer instructions alone (under the bar), 1.5-1.7% with #706; std.json's instructions per byte unchanged | [perf-stage/bounds-enum.md](2026-10/perf-stage/bounds-enum.md) |
 | Table reads in loops and yield checks (2026-10-26) | a Table's base is reloaded in a loop because the index test before it leaves the loop and Zig gives LLVM no `dereferenceable`, as much as because of the yield call; `noalias` on views gains nothing on Trig today (0.2% fewer instructions), and running range loops' turns in runs is worse (2.8-3.9% more); built: the yield checks call the scheduler through a function that keeps every register: Trig release 1.9% fewer instructions, with PGO 0.8-0.9% fewer and time within the noise, under the bar | [perf-stage/loop-hoist.md](2026-10/perf-stage/loop-hoist.md) |
 | The huge-page gate (2026-10-28) | Rig asks for huge pages (Table `reserve`, segments, large blocks) only while `/proc/buddyinfo` shows more than 128 free 2 MiB blocks, read in one cold function at each request: Trig PGO quiet 4.6% faster than no huge pages on ts-pattern and 3.0% on zod3 (main 5.4% and 4.0%), fragmented within 0.4% of no huge pages where main is 54-57% slower; kept. A Table is still advised once, at `reserve`: a window at a time would cost every `push` a load | [perf-stage/thp-gate.md](2026-10/perf-stage/thp-gate.md) |
+| The huge-page gate's spare (2026-10-29) | the gate asks while more than 64 free 2 MiB blocks are left, where it asked above 128, which shut it for most runs at pup's idle level (114-168 free): Trig PGO 5.8% faster than 128 on ts-pattern and 1.9% on zod3 there, the same as 128 quiet (within 1.4%), and with memory partly fragmented (34-67 free) asking for nothing and running as no huge pages does, where a spare of 32 stalled in 17 of 20 ts-pattern runs (up to 70% slower) and 16 ran 33.5% slower by the median | [perf-stage/thp-spare.md](2026-10/perf-stage/thp-spare.md) |
 | Memory traffic, Trig against tsrs (2026-10-28) | Trig and tsrs miss L1 and L2 alike; Trig has 1.9× tsrs's L3 misses, 3.2× its STLB misses and 2.2× its faults. Map indexes take a third of its L3 and half its STLB misses, Tables a quarter and a third, and 81% of its faults, where tsrs keeps the same data in one arena on huge pages. By bytes Trig allocates about what tsrs does (the "6.4×" was instructions); 81% of its blocks are copies of stored lists. Ceilings: Tables faulted in 64 KiB ahead, 2.7% fewer cycles and 64% fewer faults, for 0.6-2.0% more memory; the Relater copied in place, 2.0% fewer user cycles; huge pages for large indexes, 24% fewer STLB misses and no cycles. Ranked Rig-side requirements and Trig-side findings | [perf-stage/memory-traffic.md](2026-10/perf-stage/memory-traffic.md) |
 | Table fault-ahead (2026-10-28) | built into the runtime, it cut Trig's faults 65% but its cycles only 0.4%: populating a page saves only its trap, about 850 of 5,000-5,600 kernel cycles, and the frontier check stopped `push` from inlining; the kernel gap to tsrs is page size, 53,600 pages of 4 KiB against 63 of 2 MiB; archived for huge pages | [perf-stage/fault-ahead/](2026-10/perf-stage/fault-ahead/README.md) |
 | Which checks cost Trig's time (2026-10-28) | the 6-8% that every check costs Trig is diffuse: each kind and each group costs in proportion to the instructions and code it removes, and they add up; no hot sites; builds that change no check read up to 1.3% either way (the layout lottery); List index tests 4.6-6.3% of the instructions, of them the checker's id accessors 1.6-2.2% and the AST's record reads 1.1-2.3%, together 2.3% and 3.6% faster with PGO, both Trig-side moves onto `Table`/`Slot`; Zig's overflow tests 1.9-2.3%; Zig's tests in the runtime's own Zig 1.3-1.7%, the one group a Rig change alone could take | [perf-stage/check-bisect.md](2026-10/perf-stage/check-bisect.md) |
@@ -299,6 +300,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [v.c](2026-10/perf-stage/bounds-enum-data/v.c)
 - [w.c](2026-10/perf-stage/bounds-enum-data/w.c)
 - [loop-hoist.md](2026-10/perf-stage/loop-hoist.md): Table reads in loops, and what a yield check costs (2026-10-26)
+- [thp-spare.md](2026-10/perf-stage/thp-spare.md): The huge-page gate's spare, 128, 64, 32 and 16 measured at pup's levels of free 2 MiB blocks, and 64 taken (2026-10-29)
 - [thp-gate.md](2026-10/perf-stage/thp-gate.md): The huge-page gate on free 2 MiB blocks, measured quiet and fragmented, and kept (2026-10-28)
 - [memory-traffic.md](2026-10/perf-stage/memory-traffic.md): Where Trig's memory traffic comes from, against tsrs, and what Rig can remove (2026-10-28)
 - [thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md): Huge pages when memory is fragmented, which users stall, and a gate on free 2 MiB blocks (2026-10-28)
@@ -314,6 +316,20 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [licm-runs.zig](2026-10/perf-stage/loop-hoist-data/licm-runs.zig)
 - [noalias-and-runs.patch](2026-10/perf-stage/loop-hoist-data/noalias-and-runs.patch)
 - [time.sh](2026-10/perf-stage/loop-hoist-data/time.sh)
+
+### 2026-10/perf-stage/thp-spare-data/
+
+- [arms.diff](2026-10/perf-stage/thp-spare-data/arms.diff)
+- [build.sh](2026-10/perf-stage/thp-spare-data/build.sh)
+- [builds.log](2026-10/perf-stage/thp-spare-data/builds.log)
+- [cmds.sh](2026-10/perf-stage/thp-spare-data/cmds.sh)
+- [frag.c](2026-10/perf-stage/thp-spare-data/frag.c)
+- [summ.py](2026-10/perf-stage/thp-spare-data/summ.py)
+- [summary.txt](2026-10/perf-stage/thp-spare-data/summary.txt)
+- [time.sh](2026-10/perf-stage/thp-spare-data/time.sh)
+- [times-leave35.txt](2026-10/perf-stage/thp-spare-data/times-leave35.txt)
+- [times.txt](2026-10/perf-stage/thp-spare-data/times.txt)
+- [unfrag.c](2026-10/perf-stage/thp-spare-data/unfrag.c)
 
 ### 2026-10/perf-stage/thp-gate-data/
 
