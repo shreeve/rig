@@ -180,7 +180,6 @@ box.recv_read_then_write.ternary run
 box.recv_read_then_write.write_view run
 box.recv_view_then_write.call run
 box.recv_view_then_write.catch run
-box.recv_view_then_write.clone run
 box.recv_view_then_write.field run
 box.recv_view_then_write.nullish run
 box.recv_view_then_write.place run
@@ -1223,8 +1222,6 @@ lendw.while_as.list.slice.live main
 lendw.while_as.list.whole.live main
 payload.int.box.guard inner
 payload.int.box.return inner
-payload.int.box.whole inner
-payload.int.box.whole_store inner
 payload.int.field.guard inner
 payload.int.field.return inner
 payload.int.field.whole inner
@@ -1237,8 +1234,6 @@ payload.plain.box.guard inner
 payload.plain.box.guard_store inner
 payload.plain.box.return inner
 payload.plain.box.store inner
-payload.plain.box.whole inner
-payload.plain.box.whole_store inner
 payload.plain.field.guard inner
 payload.plain.field.guard_store inner
 payload.plain.field.return inner
@@ -1652,16 +1647,8 @@ string.as_temp.optional run
 string.as_temp.place run
 string.as_temp.read_view run
 string.as_temp.ternary run
-string.destructure.clone run
-string.destructure_as.clone run
-string.destructure_assign.clone run
-string.destructure_catch.clone run
-string.destructure_discard.clone run
-string.destructure_none.clone run
-string.elem_assign_call.clone run
 string.eq.move run
 string.eq_then_write.move run
-string.list_push.clone run
 string.match_subject_temp.call run
 string.match_subject_temp.catch run
 string.match_subject_temp.clone run

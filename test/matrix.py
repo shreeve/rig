@@ -376,6 +376,13 @@ FORMS = {
     "destructure_view": "d1",
     "destructure_write": "d1",
 }
+# The cells where `+a` would be a clone into a read view, made only to be
+# read and dropped, which Rig rejects: a `?String`'s clone given to a
+# parameter of its type, and a box's clone made for a `?@` self. The
+# clone is bound first, `k = +a`, and lent there, `?k`.
+CLONE_BOUND = {("string", c) for c in ("as_temp", "match_subject_temp", "elem_assign_call", "list_push", "destructure",
+                                       "destructure_discard", "destructure_assign", "destructure_as",
+                                       "destructure_catch", "destructure_none")} | {("box", "recv_view_then_write")}
 # The binding each view or destructure form reads, declared before the
 # context.
 VIEW_FORMS = {
@@ -3285,6 +3292,9 @@ def program(tname, fname, cname):
         body += [f"vs: List[{ty}] = List()", "!vs.push(mk(4))"]
     if fname in VIEW_FORMS:
         body.append(VIEW_FORMS[fname])
+    if fname == "clone" and (tname, cname) in CLONE_BOUND:
+        body.append("k = +a")
+        form = "?k"
     if isinstance(form, list):
         head = ctx["block"].replace("E", form[0])
         body.append(head)
