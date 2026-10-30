@@ -12,6 +12,8 @@ the `rig-sched` variant, and `rig-fast` ran on Zig's `Threaded`
 backend; from #356 on, `rig-fast` runs on the scheduler.
 
 | Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 110 ns | 45 ns | 88.0 ms | 5 ns | 79.97 us | 17.1 KiB |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 92 ns | 45 ns | 88.5 ms | 5 ns | 95.72 us | 17.1 KiB |
 |---|---|---|---|---|---|---|---|---|
 | 2026-10-19 | reference | tokio | 171 ns | 167 ns | 69.0 ms | 40 ns | 2.9 ms | 270 B |
 | 2026-10-19 | reference | go | 232 ns | 223 ns | 69.6 ms | 233 ns | 3.2 ms | 2.9 KiB |

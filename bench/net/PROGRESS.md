@@ -8,6 +8,8 @@ Rig rows below them are added as the runtime grows (`bench-net --record
 moves up into its table).
 
 | Date | Change | Variant | pingpong (per trip) | echo (per trip) | connect (per conn) |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 14.72 us | 5.90 us | 48.37 us |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 14.22 us | 5.91 us | 49.06 us |
 |---|---|---|---|---|---|
 | 2026-10-20 | reference | tokio | 14.10 us | 5.68 us | 57.43 us |
 | 2026-10-20 | reference | go | 16.01 us | 5.68 us | 58.58 us |

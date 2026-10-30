@@ -8,6 +8,8 @@ actors grow (`bench-actors --record "#PR: what changed"`, which appends
 to the end of the file, so a Mac row moves up into its table).
 
 | Date | Change | Variant | solo (per call) | contend (per call) | spread (per call) |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 5.1 ns | 29 ns | 0.9 ns |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 5.0 ns | 30 ns | 0.9 ns |
 |---|---|---|---|---|---|
 | 2026-10-20 | reference | tokio | 134 ns | 134 ns | 35 ns |
 | 2026-10-20 | reference | go | 3.7 ns | 21 ns | 0.7 ns |

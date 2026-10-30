@@ -8,6 +8,8 @@ began; Rig's are added as the runtime grows.
 ## arm64 (Mac, 10 cores, 5,000 idle connections)
 
 | Date | Change | Variant | req/s | p50 | p99 | per idle conn |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 171624 | 352 us | 984 us | 16.6 KiB |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 175955 | 330 us | 1300 us | 16.6 KiB |
 |---|---|---|---|---|---|---|
 | 2026-10-20 | reference | tokio | 180339 | 346 us | 614 us | 18.6 KiB |
 | 2026-10-20 | reference | go | 163675 | 366 us | 1071 us | 18.5 KiB |

@@ -144,7 +144,20 @@ tools that take them in `bench/json/`.
    where the program asks. A `noalias` round should expect the same
    trade-off: freeing registers can lose in a large function, so judge it
    on `document`'s wall time, not on a micro-benchmark.
-   *Verified (measured); parked for a write window.*
+
+   Growth by value is built (#780), with the buffer passed as a slice
+   (`growBy(buf, want) -> buf`), after std.json came to push to its tape
+   as a field of `Doc`, through `@`. std.json then retires 0.1 to 1.1%
+   fewer instructions on the six files, and its cycles move within
+   1.2% either way; the Benchmarks Game's push loops gain (revcomp plain
+   25% less time on the Mac). The trade-off above remains where a large
+   function holds Lists of its own across a hot loop: bench/hash's
+   HashMap text rows retire about 3% more instructions on the Mac,
+   where LLVM, knowing the driver's List lengths, rematerializes a
+   constant loop bound rather than holding it in a register; and
+   fasta's plain port in a safe build on the Mac takes 9% more cycles,
+   no longer folding its constant probability table.
+   *Verified (measured); built.*
 9. **Results through memory.** `take_digits` returns the position and
    hands the digits' value back through `m: !U64`, which stays in a
    register only when the call is inlined; a whitespace cache cannot

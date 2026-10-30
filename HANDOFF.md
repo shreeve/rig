@@ -91,6 +91,10 @@ A new session, human or agent, takes these steps in order:
   the caller's place and returns a flag; a `none`'s payload is not
   filled in a safe build. In review as one PR (#781); the direct-call
   case is in the backlog.
+- **Push loops keep `len` in registers** (finding 1 of the Rust ports'
+  second speed review, owner 2026-10-29): a String's and a List's
+  appends grow by value through one `growBy` each, so no append passes
+  the owner's address to a call. In review as one PR (#780).
 - **A shared value made in a variant's call** (B4 of the Rust ports,
   2026-10-29): `Frame.bulk(data: *Frozen(...))`, a `*Chan[T](n)`, or
   an `*Actor(x)` there is the payload's value, and `*Actor(x)` takes
