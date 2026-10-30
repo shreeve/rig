@@ -1,0 +1,68 @@
+
+trig: 3 runs, 10,061 faults a run
+     10052  user
+         6  exec
+         2  kernel: __x64_sys_openat
+         1  kernel: __x64_sys_statx
+  in user code, by function:
+      1763  checker.Checker.resolve_structured_type_members_worker
+      1621  checker.Checker.instantiate_type_with_alias
+       478  compiler_rt.fastMemset
+       416  compiler_rt.memcpy.memcpyFast
+       336  checker.Checker.get_resolved_signature
+       332  checker.Checker.get_type_of_symbol
+       303  parser.Parser.create_identifier_with_diagnostic
+       277  compiler_rt.memmove.memmoveFast
+       266  checker.Checker.instantiate_mapped_constituent
+       261  checker.Checker.get_signature_from_declaration
+       247  checker.Checker.get_type_from_type_node_worker
+       247  checker.Checker.set_structured_type_members
+       184  parser.Parser.parse_postfix_type_or_higher
+       133  checker.Checker.instantiate_signature_ex
+       132  checker.Checker.get_union_type_ex
+       131  checker.Checker.get_union_type_worker
+       123  parser.Parser.parse_list
+       120  checker.Checker.instantiate_symbol
+       117  checker.Checker.check_identifier
+        99  checker.Checker.is_related_to_ex
+        97  checker.Checker.get_intersection_type_ex
+        95  parser.Parser.parse_parameter_ex
+        95  binder.Binder.declare_symbol_and_add_to_symbol_table
+        88  checker.Checker.get_type_with_this_argument
+        87  binder.Binder.bind
+
+tsrs: 3 runs, 5,416 faults a run
+      4648  user
+       754  kernel: __x64_sys_read
+         9  exec
+         1  kernel: __x64_sys_openat
+         1  kernel: __x64_sys_rt_sigprocmask
+         1  kernel: __x64_sys_statx
+         1  kernel: __x64_sys_getdents64
+         1  kernel: [unknown]
+  in user code, by function:
+      3409  [unknown]
+       449  _dl_relocate_object_no_relro
+       348  __memset_avx2_unaligned_erms
+       140  __memmove_avx_unaligned_erms
+        36  _int_malloc
+        28  _dl_map_object_from_fd
+        23  ?
+        13  _dl_start
+        13  _nl_intern_locale_data
+        12  _dl_process_pt_gnu_property
+        12  __libc_early_init
+        11  dl_main
+         9  memset
+         6  __x86_cacheinfo_ifunc
+         6  __getrandom_early_init
+         6  _int_realloc
+         5  strcmp
+         5  _dl_allocate_tls_storage
+         5  __memcmp_avx2_movbe
+         4  __vfscanf_internal
+         4  __GI___tunables_init
+         4  _dl_cache_libcmp
+         3  _start
+         3  _dl_load_cache_lookup
+         3  _dl_init_paths

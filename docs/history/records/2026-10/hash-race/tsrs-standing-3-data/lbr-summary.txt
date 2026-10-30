@@ -1,0 +1,87 @@
+40 runs, 1955 samples (48.9 a run)
+| function | inclusive | self |
+|---|---:|---:|
+| checker.Checker.check_source_element | 52.9% | 0.5% |
+| checker.Checker.check_expression_ex | 48.8% | 0.8% |
+| checker.Checker.get_resolved_signature | 38.7% | 0.7% |
+| checker.Checker.check_source_file | 38.1% | 0.4% |
+| checker.Checker.check_block | 34.5% | 0.1% |
+| checker.Checker.is_related_to_ex | 32.1% | 2.9% |
+| checker.Checker.resolve_call_ex | 30.6% | 0.2% |
+| checker.Checker.structured_type_related_to | 29.4% | 3.7% |
+| checker.Checker.choose_overload | 27.9% | 0.1% |
+| checker.Checker.get_type_of_symbol | 25.7% | 1.5% |
+| checker.Checker.infer_type_arguments | 22.6% | 0.2% |
+| checker.Checker.check_variable_like_declaration | 20.6% | 0.2% |
+| checker.Checker.is_type_related_to | 19.9% | 0.4% |
+| checker.Checker.instantiate_type_with_alias | 19.5% | 7.2% |
+| checker.Checker.compare_signatures_related_with | 18.6% | 1.2% |
+| checker.Checker.check_property_access_expression | 18.5% | 2.1% |
+| declarations.get_diagnostics_of_any_program | 18.4% | 0.1% |
+| checker.Checker.resolve_structured_type_members_worker | 14.2% | 4.5% |
+| checker.Checker.get_inferred_type | 11.9% | 0.2% |
+| checker.Checker.check_type_reference_node | 11.4% | 0.2% |
+| checker.Checker.check_identifier | 9.6% | 1.9% |
+| checker.Checker.get_return_type_of_signature | 9.4% | 0.3% |
+| checker.Checker.check_object_literal | 9.0% | 0.4% |
+| parser.Parser.parse_statement | 8.9% | 0.2% |
+| parser.Parser.parse_source_file_worker | 8.8% | 0.1% |
+| checker.Checker.infer_types | 8.0% | 0.3% |
+| checker.Checker.infer_from_types | 7.8% | 1.6% |
+| parser.Parser.parse_declaration_worker | 7.3% | 0.3% |
+| compiler.process_all_program_files | 7.0% | 0.1% |
+| checker.Checker.check_type_related_to_ex_output | 6.9% | 0.1% |
+| checker.Checker.is_signature_applicable_output | 6.9% | 0.2% |
+| checker.Checker.get_conditional_type_worker | 6.6% | 0.4% |
+| checker.Checker.infer_from_object_types | 6.5% | 0.6% |
+| execute.perform_compilation | 6.4% | 0.1% |
+| checker.Checker.check_type_argument_constraints | 6.4% | 0.0% |
+| compiler.FileLoader.load | 6.2% | 0.1% |
+| checker.Checker.get_type_from_type_node_worker | 6.1% | 0.6% |
+| checker.Checker.check_expression_cached_ex | 5.8% | 0.1% |
+| parser.Parser.parse_list | 5.5% | 0.7% |
+| checker.Checker.get_quick_type_of_expression | 5.4% | 0.2% |
+| checker.Checker.check_function_or_method_declaration | 5.4% | 0.1% |
+| checker.Checker.get_variances_worker | 5.2% | 0.1% |
+| checker.Checker.check_array_literal | 4.8% | 0.0% |
+| checker.Checker.get_indexed_access_type_or_undefined | 4.6% | 0.4% |
+| checker.Checker.get_type_at_flow_node | 4.5% | 0.6% |
+| binder.Binder.bind | 4.5% | 2.1% |
+| binder.Binder.bind_each_statement_functions_first | 4.2% | 0.3% |
+| checker.Checker.resolve_external_module_name_with_attributes | 3.9% | 0.1% |
+| checker.Checker.set_structured_type_members | 3.8% | 3.1% |
+| checker.Checker.resolve_external_module | 3.8% | 3.0% |
+| checker.Checker.get_normalized_type | 3.8% | 1.6% |
+| checker.Checker.is_weak_type | 3.7% | 0.2% |
+| checker.Checker.check_binary_like_expression | 3.7% | 0.1% |
+| checker.Checker.get_target_of_alias_declaration | 3.3% | 0.0% |
+| binder.Binder.bind_children | 3.2% | 0.2% |
+| checker.Checker.get_reduced_type_worker | 3.2% | 0.3% |
+| checker.Checker.check_function_expression_or_object_literal_method | 3.0% | 0.1% |
+| checker.Checker.narrow_type | 3.0% | 0.4% |
+| checker.Checker.get_return_type_from_body | 3.0% | 0.0% |
+| checker.Checker.get_resolved_base_constraint | 2.9% | 0.6% |
+
+checker.Checker.resolve_external_module: inclusive 3.8%, self 3.0%
+  callers: checker.Checker.resolve_external_module_name_with_attributes 3.84%
+  callees: (self) 3.02%, compiler.Program.get_default_resolution_mode_for_file 0.56%, rig.runtime.String.ofPieces__func_1091 0.15%, checker.Checker.new_diagnostic_for_node 0.05%, compiler.import_ref_of 0.05%
+
+__rig_std_file.realpath: inclusive 0.7%, self 0.7%
+  callers: rig.runtime.onOwnStack__func_297.Call.run 0.66%
+  callees: (self) 0.66%
+
+compiler.Program.get_emit_module_format_of_file: inclusive 0.6%, self 0.6%
+  callers: checker.Checker.check_source_element 0.56%, checker.Checker.check_import_declaration 0.05%
+  callees: (self) 0.61%
+
+checker.Checker.check_collisions_for_declaration_name: inclusive 1.8%, self 1.8%
+  callers: checker.Checker.check_variable_like_declaration 1.59%, checker.Checker.check_import_binding 0.20%
+  callees: (self) 1.79%
+
+compiler.FileLoader.load: inclusive 6.2%, self 0.1%
+  callers: compiler.process_all_program_files 5.83%, (root) 0.36%
+  callees: parser.Parser.parse_source_file_worker 4.71%, module.DefaultResolver.resolve_module_name_worker 0.77%, parser.Parser.new 0.20%, module.DefaultResolver.get_package_json_info 0.20%, rig.ordered.Ordered(rig.runtime.String,compiler.FileRefs).probePastHome 0.05%, rig.runtime.String.ofPieces__func_1091 0.05%, tspath.RootedFilePath.directory 0.05%, mem.eql__func_63 0.05%
+
+binder.Binder.bind: inclusive 4.5%, self 2.1%
+  callers: binder.Binder.bind 8.80%, binder.Binder.bind_each_statement_functions_first 4.45%, execute.perform_compilation 3.89%, binder.Binder.bind_children 3.27%, binder.Binder.bind_if_statement 0.82%, binder.Binder.bind_each_child 0.15%, binder.Binder.bind_return_statement 0.15%, binder.Binder.bind_conditional_expression_flow 0.05%
+  callees: binder.Binder.bind 8.80%, binder.Binder.bind_each_statement_functions_first 3.99%, binder.Binder.bind_children 3.84%, (self) 2.15%, binder.Binder.bind_if_statement 0.82%, binder.Binder.bind_property_worker 0.51%, binder.Binder.declare_symbol_and_add_to_symbol_table 0.51%, binder.Binder.declare_symbol_ex 0.26%

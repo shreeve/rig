@@ -1,0 +1,375 @@
+## trig zod3 run 1
+Config time:    0.001s
+Parse time:     0.019s
+Bind time:      0.007s
+Check time:     0.118s
+Emit time:      0.000s
+Total time:     0.147s
+## trig zod3 run 2
+Config time:    0.001s
+Parse time:     0.019s
+Bind time:      0.007s
+Check time:     0.118s
+Emit time:      0.000s
+Total time:     0.146s
+## trig zod3 run 3
+Config time:    0.001s
+Parse time:     0.018s
+Bind time:      0.007s
+Check time:     0.116s
+Emit time:      0.000s
+Total time:     0.144s
+## trig zod3 run 4
+Config time:    0.001s
+Parse time:     0.018s
+Bind time:      0.007s
+Check time:     0.116s
+Emit time:      0.000s
+Total time:     0.143s
+## trig zod3 run 5
+Config time:    0.001s
+Parse time:     0.019s
+Bind time:      0.007s
+Check time:     0.112s
+Emit time:      0.000s
+Total time:     0.140s
+## trig zod3 counts
+Files:             180
+Lines:           76405
+Identifiers:     79970
+Symbols:        199073
+Types:           90910
+Instantiations: 287551
+## trig ts-pattern run 1
+Config time:     0.001s
+Parse time:      0.019s
+Bind time:       0.007s
+Check time:      0.721s
+Emit time:       0.000s
+Total time:      0.750s
+## trig ts-pattern run 2
+Config time:     0.001s
+Parse time:      0.020s
+Bind time:       0.007s
+Check time:      0.726s
+Emit time:       0.000s
+Total time:      0.757s
+## trig ts-pattern run 3
+Config time:     0.001s
+Parse time:      0.019s
+Bind time:       0.007s
+Check time:      0.764s
+Emit time:       0.000s
+Total time:      0.793s
+## trig ts-pattern run 4
+Config time:     0.001s
+Parse time:      0.019s
+Bind time:       0.007s
+Check time:      0.737s
+Emit time:       0.000s
+Total time:      0.767s
+## trig ts-pattern run 5
+Config time:     0.001s
+Parse time:      0.020s
+Bind time:       0.007s
+Check time:      0.770s
+Emit time:       0.000s
+Total time:      0.800s
+## trig ts-pattern counts
+Files:              172
+Lines:            78745
+Identifiers:      79298
+Symbols:         954642
+Types:           508937
+Instantiations: 3638908
+## tsrs zod3 run 1
+Config time:    0.000s
+Parse time:     0.012s
+Bind time:      0.003s
+Check time:     0.094s
+Emit time:      0.000s
+Total time:     0.111s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  13
+Program:   sequential load:            0.012s
+Program: file graph (parse + resolve): 0.012s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.000s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs zod3 run 2
+Config time:    0.000s
+Parse time:     0.012s
+Bind time:      0.003s
+Check time:     0.092s
+Emit time:      0.000s
+Total time:     0.109s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  13
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.000s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs zod3 run 3
+Config time:    0.000s
+Parse time:     0.011s
+Bind time:      0.003s
+Check time:     0.094s
+Emit time:      0.000s
+Total time:     0.110s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  13
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.000s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs zod3 run 4
+Config time:    0.000s
+Parse time:     0.011s
+Bind time:      0.003s
+Check time:     0.092s
+Emit time:      0.000s
+Total time:     0.108s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  13
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.000s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs zod3 run 5
+Config time:    0.000s
+Parse time:     0.011s
+Bind time:      0.003s
+Check time:     0.090s
+Emit time:      0.000s
+Total time:     0.105s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  13
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.000s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs zod3 counts
+Files:             177
+Lines:           75267
+Identifiers:     79096
+Symbols:        178125
+Types:           90555
+Instantiations: 287438
+## tsrs ts-pattern run 1
+Config time:     0.000s
+Parse time:      0.011s
+Bind time:       0.003s
+Check time:      0.612s
+Emit time:       0.000s
+Total time:      0.629s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  14
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.001s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs ts-pattern run 2
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.004s
+Check time:      0.633s
+Emit time:       0.000s
+Total time:      0.652s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  14
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.001s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs ts-pattern run 3
+Config time:     0.000s
+Parse time:      0.011s
+Bind time:       0.003s
+Check time:      0.614s
+Emit time:       0.000s
+Total time:      0.631s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  14
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.001s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs ts-pattern run 4
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.004s
+Check time:      0.641s
+Emit time:       0.000s
+Total time:      0.659s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  14
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.001s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs ts-pattern run 5
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.004s
+Check time:      0.621s
+Emit time:       0.000s
+Total time:      0.640s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  14
+Program:   sequential load:            0.011s
+Program: file graph (parse + resolve): 0.011s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.001s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.001s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.001s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.000s
+## tsrs ts-pattern counts
+Files:              169
+Lines:            77607
+Identifiers:      78424
+Symbols:         933321
+Types:           506567
+Instantiations: 3638700
+## the empty project (zod3's options, one empty file), 5 runs each on core 1: Parse, Bind, Total time, Trig | tsrs
+ 18:43:26 up 6 days,  5:28,  7 users,  load average: 7.83, 4.71, 2.83
+0.029s 0.009s 0.043s  | 0.018s 0.002s 0.028s 
+0.024s 0.011s 0.036s  | 0.015s 0.002s 0.025s 
+0.011s 0.005s 0.018s  | 0.008s 0.002s 0.011s 
+0.011s 0.005s 0.017s  | 0.008s 0.002s 0.011s 
+0.012s 0.006s 0.019s  | 0.008s 0.002s 0.012s 
