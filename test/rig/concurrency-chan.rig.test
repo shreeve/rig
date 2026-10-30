@@ -137,3 +137,20 @@ fail "chan select arm marked", "an arm receives or sends, which changes the chan
     task.select(c.on_recv(|v| v ?? 0))!
 
   _ = pick(*Chan[Int](1))
+
+test "chan made in a variant payload", seeds: 20, "7"
+  # `*Chan[T](n)` made in the call that builds a variant is the
+  # payload's value.
+  enum Link
+    ch(c: *Chan[Int])
+    null
+
+  sub run()!
+    l = Link.ch(c: *Chan[Int](2))
+    match !l
+      .ch(c: c)
+        !c.send(7)!
+        print((!c).recv()! ?? -1)
+      .null => print("null")
+
+  run() catch print("failed")
