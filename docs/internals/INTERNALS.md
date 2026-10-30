@@ -4152,6 +4152,22 @@ Its readers, each taking the steps from `eachSetStep`:
 A new reader takes the steps from `eachSetStep` and the held storage
 from `setOrder`, and decides neither again.
 
+**The fact: `old_nones`** (`SemContext.recordOldNone`, read by emit as
+`Facts.oldIsNone`). An assignment to a field whose old value moves
+drops it through the slot, unless the ownership checker knows the
+field holds `none` there. Each var's flow keeps the optional fields
+known to hold `none` (`Flow.nones`): `<p.f` adds one (`markNone`), a
+field reached by fields alone, through no index or shared handle; any
+write, lend to write, or move of a place overlapping it removes it
+(`clearNones`, in `conflictingLoan`, `walkFieldAssign`, and
+`reassign`), and a join keeps only what both paths know. A store into
+such a field records the assignment (`noteOldNone`), and a walk that
+reaches it with the field not known `none`, a loop's earlier rounds and
+a `defer`'s exits among them, keeps it out. Only an accepted module's
+assignments are recorded, after the check. `@head = ^Node(elem: <e,
+next: <@head)`, and `@head = <node.next` after `node = (<@head)?.unbox()`,
+store with no drop.
+
 - **The checker** walks the value, then the target. While the value is
   walked, the target's uses lie ahead, in the statement after `__v`:
   the symbols the target reads are live (`Checker.after_value`,

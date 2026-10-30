@@ -798,3 +798,86 @@ test "drop of compared temporaries", '''
   print(mo() < mo(), mo() == mo(), mo() >= mo())
   print(mp() < mp(), mp() == mp(), mp() >= mp())
   print(ma() < ma(), ma() == ma())
+
+code "drop a field taken before it is assigned drops nothing", /^(?![\s\S]*rig\.drop\(__rig_slot)/
+  # `<@head` leaves `none` in the field, and nothing writes it before
+  # the store, on every path: the store drops no old value
+  # (`Facts.old_nones`), here or after a branch that took it on each side.
+
+  obj Node
+    elem: Int
+    next: ^Node?
+
+  obj Stack
+    head: ^Node? = none
+    tail: ^Node? = none
+
+    sub push(!@, elem: Int)
+      @head = ^Node(elem: elem, next: <@head)
+
+    fun pop(!@) -> Int?
+      node = (<@head)?.unbox()
+      @head = <node.next
+      node.elem
+
+    sub park(!@, n: Int)
+      if <@tail as old
+        print(old.elem)
+      else
+        print(n)
+      @tail = ^Node(elem: n, next: none)
+
+  s = Stack()
+  !s.push(1)
+  !s.push(2)
+  !s.park(3)
+  print((!s).pop() ?? 0, (!s).pop() ?? 0)
+
+test "drop a field taken and written again drops the old value", '''
+  drop 2
+  drop 1
+  drop 4
+  drop 3
+  drop 6
+  drop 5
+  drop 7
+'''
+  # A field taken with `<@r` and then written, by a method given `!@`, a
+  # store into it, or one side of a branch, holds a value at the next
+  # store, which drops it.
+
+  obj R
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  obj Holder
+    r: ^R? = none
+
+    sub refill(!@, n: Int)
+      @r = ^R(n: n)
+
+    sub after_call(!@)
+      x = <@r
+      !@refill(2)
+      @r = ^R(n: 3)
+      _ = <x
+
+    sub after_store(!@)
+      x = <@r
+      @r = ^R(n: 4)
+      @r = ^R(n: 5)
+      _ = <x
+
+    sub after_branch(!@, c: Bool)
+      x = <@r
+      if c
+        @r = ^R(n: 6)
+      @r = ^R(n: 7)
+      _ = <x
+
+  h = Holder(r: ^R(n: 1))
+  !h.after_call()
+  !h.after_store()
+  !h.after_branch(true)

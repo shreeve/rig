@@ -304,6 +304,11 @@ const Flow = struct {
     /// The fields moved out of a live var, until each is assigned again:
     /// the var is partly moved. Arena-owned, immutable.
     parts: []const Part = &.{},
+    /// The optional fields known to hold `none`: taken with `<p.f` on
+    /// every path here, and neither written nor lent to write since
+    /// (`noneAt`). An assignment to one drops no old value
+    /// (`SemContext.old_nones`). Arena-owned, immutable.
+    nones: []const PathId = &.{},
 };
 
 const VarKind = enum { local, param, capture, pattern, loop_elem, hidden };
@@ -821,6 +826,10 @@ pub const Checker = struct {
     errors_found: u32 = 0,
     /// How many of `plain_reqs` this module's own bodies record.
     own_plain_reqs: usize = 0,
+    /// Each assignment to a field, by its node's id: whether the field
+    /// held `none` on every walk that reached it (`Flow.nones`), so its
+    /// store drops no old value (`oldNones`).
+    old_nones: std.AutoHashMapUnmanaged(u32, OldNone) = .empty,
     /// While a generic body is walked again as at an instance whose
     /// associated type `item` (`S.Item`) may view memory its base owns
     /// (`walkItemInstances`): a value of a type that reaches it is a view
@@ -859,12 +868,26 @@ pub const Checker = struct {
         return self.plain_reqs.items[0..self.own_plain_reqs];
     }
 
+    /// An assignment to a field, and whether the field held `none` on
+    /// every walk that reached it.
+    pub const OldNone = struct { set: Sexp, none: bool };
+
+    /// The assignments whose old value is `none` wherever they run, for
+    /// emit, which drops nothing there (`sema.SemContext.old_nones`).
+    pub fn oldNones(self: *const Checker, gpa: std.mem.Allocator) Error![]const Sexp {
+        var out: std.ArrayList(Sexp) = .empty;
+        var it = self.old_nones.valueIterator();
+        while (it.next()) |o| if (o.none) try out.append(gpa, o.set);
+        return out.toOwnedSlice(gpa);
+    }
+
     pub fn deinit(self: *Checker) void {
         for (self.diagnostics.items) |d| self.gpa.free(d.message);
         self.diagnostics.deinit(self.gpa);
         self.vars.deinit(self.gpa);
         self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
+        self.old_nones.deinit(self.gpa);
         self.method_calls.deinit(self.gpa);
         self.items_seen.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
@@ -1376,6 +1399,7 @@ pub const Checker = struct {
 
     /// `conflicts`, giving the loan it reported.
     fn conflictingLoan(self: *Checker, id: VarId, path: PathId, access: Access, pos: u32) Error!?Loan {
+        if (access != .read) try self.clearNones(id, path);
         const l = self.findLoan(id, path, if (access == .read) .write else .any, null) orelse return null;
         // Diagnostics name both places: the one used, and the one lent
         // where it is not the same.
@@ -1961,7 +1985,48 @@ pub const Checker = struct {
             .at = if (fa.status == status) fa.at else fb.at,
             .loans = try self.unionLoans(fa.loans, fb.loans),
             .parts = try self.unionParts(fa.parts, fb.parts),
+            .nones = try self.intersectNones(fa.nones, fb.nones),
         };
+    }
+
+    /// The fields known to hold `none` on both paths.
+    fn intersectNones(self: *Checker, a: []const PathId, b: []const PathId) Error![]const PathId {
+        if (a.len == 0 or pathSetEql(a, b)) return a;
+        var out: std.ArrayList(PathId) = .empty;
+        for (a) |p| if (std.mem.findScalar(PathId, b, p) != null) try out.append(self.arena(), p);
+        return out.items;
+    }
+
+    /// Whether field `path` of var `id` holds `none` here (`Flow.nones`).
+    fn noneAt(self: *const Checker, id: VarId, path: PathId) bool {
+        return std.mem.findScalar(PathId, self.flows.items[id].nones, path) != null;
+    }
+
+    /// Place `place`, just taken with `<p.f`, holds `none`: a field of
+    /// its root reached by fields alone, through no index, shared
+    /// handle, or path cut short.
+    fn markNone(self: *Checker, place: Place) Error!void {
+        if (place.path == whole_path or place.path_ended or place.indexed or place.through_shared) return;
+        if (self.noneAt(place.root, place.path)) return;
+        var f = self.flows.items[place.root];
+        const out = try self.arena().alloc(PathId, f.nones.len + 1);
+        @memcpy(out[0..f.nones.len], f.nones);
+        out[f.nones.len] = place.path;
+        f.nones = out;
+        try self.setFlow(place.root, f);
+    }
+
+    /// Place `path` of var `id` is written, lent to write, or moved: no
+    /// field it overlaps is known to hold `none` any more.
+    fn clearNones(self: *Checker, id: VarId, path: PathId) Error!void {
+        const f = self.flows.items[id];
+        if (f.nones.len == 0) return;
+        var out: std.ArrayList(PathId) = .empty;
+        for (f.nones) |p| if (!self.paths.overlap(p, path)) try out.append(self.arena(), p);
+        if (out.items.len == f.nones.len) return;
+        var g = f;
+        g.nones = out.items;
+        try self.setFlow(id, g);
     }
 
     /// The fields moved out on either path: moved out after the join.
@@ -3895,6 +3960,7 @@ pub const Checker = struct {
         const pos = self.startOf(inner);
         if (!try self.checkLivePath(id, place.path, pos)) return .{};
         if (try self.conflicts(id, place.path, .write, pos)) return .{};
+        try self.markNone(place);
         if (!self.mayCarryLoan(self.exprType(inner))) {
             self.taintGeneric(self.exprType(inner), self.varValue(id));
             return .{};
@@ -4659,7 +4725,7 @@ pub const Checker = struct {
             };
             var steps: Steps = .{ .c = self, .set = node, .placed = self.resolvePlace(target) != null };
             try storage.eachSetStep(node, &steps);
-            return self.walkFieldAssign(target, steps.value, steps.base, steps.base_node);
+            return self.walkFieldAssign(node, target, steps.value, steps.base, steps.base_node);
         }
 
         const pos = target.src.pos;
@@ -4710,6 +4776,7 @@ pub const Checker = struct {
             // Compound assignment (`+=`, ...).
             else => {
                 const id = self.find(name) orelse return;
+                try self.clearNones(id, whole_path);
                 try self.checkReadable(id, null, pos);
                 try self.checkAssignable(id, pos);
                 return;
@@ -4841,6 +4908,7 @@ pub const Checker = struct {
     /// another place, as any binding takes a new value: the loans it held
     /// end, and it holds the view's.
     fn reassign(self: *Checker, id: VarId, pos: u32, value: Value, repoints: bool) Error!void {
+        try self.clearNones(id, whole_path);
         const before = self.diagnostics.items.len;
         try self.checkAssignable(id, pos);
         if (self.diagnostics.items.len != before and self.quiet == 0) return;
@@ -4922,7 +4990,7 @@ pub const Checker = struct {
     /// The store of `value` into `target`, once its steps have run
     /// (`walkSet`); `base` is what a base that is no place, `base_node`,
     /// gave.
-    fn walkFieldAssign(self: *Checker, target: Sexp, value: Value, base: ?Value, base_node: Sexp) Error!void {
+    fn walkFieldAssign(self: *Checker, set: Sexp, target: Sexp, value: Value, base: ?Value, base_node: Sexp) Error!void {
         const place = self.resolvePlace(target) orelse {
             // A target whose path starts from a value no var holds is
             // reached through that value's write loans: what is stored
@@ -4936,6 +5004,7 @@ pub const Checker = struct {
         };
         const id = place.root;
         const pos = self.startOf(target);
+        try self.noteOldNone(set, place);
         if (!try self.fillParts(id, place, pos)) return;
         const v = self.vars.items[id];
         if (self.findLoan(id, place.path, .any, null)) |l| {
@@ -4974,6 +5043,18 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// Assignment `set` stores into `place`: whether the field holds
+    /// `none` there is recorded, and false on any walk is final
+    /// (`old_nones`). After the store it holds a value.
+    fn noteOldNone(self: *Checker, set: Sexp, place: Place) Error!void {
+        if (set == .list and set.list.id != 0 and self.reachable) {
+            const none = place.path != whole_path and self.noneAt(place.root, place.path);
+            const gop = try self.old_nones.getOrPut(self.gpa, set.list.id);
+            if (!gop.found_existing) gop.value_ptr.* = .{ .set = set, .none = none } else gop.value_ptr.none = gop.value_ptr.none and none;
+        }
+        try self.clearNones(place.root, place.path);
     }
 
     /// `p.f = x` of a live `p` (Core §5): a field moved out at `p.f`, or
@@ -8285,7 +8366,13 @@ fn containsLoan(set: []const Loan, l: Loan) bool {
 /// Two flows agree for the analysis (the position of a move is only
 /// for messages).
 fn flowEql(a: Flow, b: Flow) bool {
-    return a.status == b.status and loanSetEql(a.loans, b.loans) and partSetEql(a.parts, b.parts);
+    return a.status == b.status and loanSetEql(a.loans, b.loans) and partSetEql(a.parts, b.parts) and pathSetEql(a.nones, b.nones);
+}
+
+fn pathSetEql(a: []const PathId, b: []const PathId) bool {
+    if (a.len != b.len) return false;
+    for (a) |p| if (std.mem.findScalar(PathId, b, p) == null) return false;
+    return true;
 }
 
 fn hasPart(parts: []const Part, path: PathId) bool {

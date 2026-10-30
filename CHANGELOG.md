@@ -245,6 +245,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **`^T?` and `~T?` are a pointer's size:** `none` is the null
   address, as it is for a `*T?`, so an optional box or weak handle is 8
   bytes, not 16, and a list node of an `Int` and a `^Node?` is 16 bytes.
+- **A field taken with `<p.f` and assigned again drops nothing:** the
+  ownership checker knows it holds `none` until it is written or lent
+  to write, so `@head = ^Node(elem: <e, next: <@head)` stores without a
+  drop of the old value; a drop of an optional tests for `none` where
+  it is, before it calls out.
 - **A literal is self of a call through an API:** `Twice.twice(4)` and
   `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
   `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit

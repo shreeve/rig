@@ -1538,9 +1538,19 @@ pub fn dropElement(comptime T: type, value: *T) void {
     }
 }
 
-/// `dropElement` with the type inferred from the pointer.
-pub fn drop(ptr: anytype) void {
-    dropElement(@TypeOf(ptr.*), ptr);
+/// `dropElement` with the type inferred from the pointer. An optional
+/// is tested for `none` where the drop is, so a drop of a place just
+/// emptied (`takeOut`) folds away even where `dropElement`, recursive
+/// through a box, stays a call.
+pub inline fn drop(ptr: anytype) void {
+    const T = @TypeOf(ptr.*);
+    if (comptime !needsDrop(T)) return;
+    if (comptime isOptStruct(T)) {
+        if (somePtr(ptr) == null) return;
+    } else if (comptime @typeInfo(T) == .optional) {
+        if (ptr.* == null) return;
+    }
+    dropElement(T, ptr);
 }
 
 /// Drop every field of the struct `ptr` points to, last field first.
@@ -1550,7 +1560,7 @@ pub fn dropFields(ptr: anytype) void {
     comptime var i = s.field_names.len;
     inline while (i > 0) {
         i -= 1;
-        dropElement(s.field_types[i], &@field(ptr, s.field_names[i]));
+        drop(&@field(ptr, s.field_names[i]));
     }
 }
 
@@ -1577,10 +1587,10 @@ fn dropPartsAt(comptime T: type, ptr: *T, comptime here: []const u8, comptime pa
     inline for (paths, 0..) |p, i| {
         if (comptime std.mem.eql(u8, p, here)) {
             if (!held[i]) return;
-            if (!below) return dropElement(T, ptr);
+            if (!below) return drop(ptr);
         }
     }
-    if (!below) return dropElement(T, ptr);
+    if (!below) return drop(ptr);
     const s = @typeInfo(T).@"struct";
     comptime var i = s.field_names.len;
     inline while (i > 0) {
