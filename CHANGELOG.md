@@ -264,6 +264,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A `*T` handle's drop is inline while the count stays above zero:**
   the decrement and its test are where the handle drops, and only the
   last handle's release is a call.
+- **An optional view compares as the optional of what it views:**
+  `(?Int)? == 3`, `!=`, beside `none`, an `Int?`, or another `(?Int)?`,
+  `(?String)?` beside any text or optional of text, and `(?P)?` of an
+  object that provides `Eq`, as `?Int == 3` and `Int? == 3` did.
 - **A taken binding that owns a resource is lent to write:** `if <o as
   node` then `bump(!node)` of a `bump(h: !*Node)` compiles, as it did
   for a `String`, a List, or a box, for a handle too, in `if … as`,

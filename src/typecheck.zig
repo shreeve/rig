@@ -5901,8 +5901,14 @@ const Checker = struct {
         return sema.isErrorSet(self.ctx, sema.unwrapViews(self.ctx, ty)) and self.ctx.typeOf(ir.Call.callee(e)) == null;
     }
 
-    /// `l == r` once both operands are typed, `a` and `b`.
-    fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a: TypeId, b: TypeId, op: []const u8) Error!TypeId {
+    /// `l == r` once both operands are typed, `a` and `b`: each an
+    /// optional of a view as the optional of the value it reaches
+    /// (`comparedAs`).
+    fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a_ty: TypeId, b_ty: TypeId, op: []const u8) Error!TypeId {
+        const a = try self.comparedAs(a_ty);
+        const b = try self.comparedAs(b_ty);
+        // Two optionals of text compare by their bytes, as two texts do.
+        if (a != b and textOptionals(self.ctx, a, b)) return self.t().bool_id;
         if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
         if (try self.literalBesideSlot(l, r, a, b)) return self.t().bool_id;
         // Lane by lane: a mask. (An optional vector has no `==`, which
@@ -6018,6 +6024,18 @@ const Checker = struct {
         return self.synthReached(e);
     }
 
+    /// The type `==` compares a value of `ty` as: a view inside an
+    /// optional as the value it reaches (`(?Int)?` as `Int?`), as a
+    /// viewed operand compares (SPEC §5); `ty` itself otherwise.
+    fn comparedAs(self: *Checker, ty: TypeId) Error!TypeId {
+        const inner = switch (self.ctx.types.get(ty)) {
+            .optional => |i| i,
+            else => return ty,
+        };
+        const reached = try self.comparedAs(sema.unwrapViews(self.ctx, inner));
+        return if (reached == inner) ty else self.ctx.intern(.{ .optional = reached });
+    }
+
     /// The value a name holding a shared handle `*T` reaches, `T`, or null.
     fn sharedContent(self: *Checker, e: Sexp) ?TypeId {
         if (e != .src) return null;
@@ -6027,6 +6045,21 @@ const Checker = struct {
             .shared => |inner| if (self.ctx.types.get(inner) == .function) null else sema.frozenValue(self.ctx, inner) orelse inner,
             else => null,
         };
+    }
+
+    /// Whether `a` and `b` are optionals of text as deep as each other
+    /// (`String?` and `(?String)?`).
+    fn textOptionals(ctx: *const SemContext, a: TypeId, b: TypeId) bool {
+        const ia = switch (ctx.types.get(a)) {
+            .optional => |i| i,
+            else => return false,
+        };
+        const ib = switch (ctx.types.get(b)) {
+            .optional => |i| i,
+            else => return false,
+        };
+        if (isText(ctx, ia) and isText(ctx, ib)) return true;
+        return textOptionals(ctx, ia, ib);
     }
 
     /// Whether `opt` is a `T?` and `value` a `T` (or a literal that is

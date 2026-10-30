@@ -5335,8 +5335,27 @@ one, whatever its payloads hold; so does the variant named with its
 enum (`Shape.dot`), beside a value of that enum. A payload literal
 compares the payload too, so the enum must have `==`. Floats compare as IEEE numbers wherever they are, so a
 object holding a NaN is not equal to itself. A viewed operand (`?P`,
-`!P`) compares as the value it reaches. `==` calls a method `eq` only
-on a type whose header names `Eq` ([APIs](#apis)).
+`!P`) compares as the value it reaches, and so does a view inside an
+optional: `(?P)?` compares as a `P?`, with a `P`, a `P?`, `none`, or
+another `(?P)?`, and `(?String)?` with any text or optional of text.
+`==` calls a method `eq` only on a type whose header names `Eq`
+([APIs](#apis)).
+
+```rig
+fun first(xs: ?List[Int]) -> (?Int)?
+  if xs.len > 0
+    return ?xs[0]
+  none
+
+sub main()
+  xs = List[Int]([3])
+  ys = List[Int]()
+  print(first(xs) == 3, first(ys) != 3, first(ys) == none, first(xs) == first(xs))
+```
+
+```output
+true true true true
+```
 
 A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a List, Cell, or Signal, a
