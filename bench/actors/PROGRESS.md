@@ -30,6 +30,8 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (Linux only) | rig-fast | 5.0 ns | 25 ns | 0.8 ns |
 | 2026-10-28 | main de6ef3e41 before #767, interleaved | rig-fast | 5.0 ns | 31 ns | 0.8 ns |
 | 2026-10-28 | #767: a frozen value's allocation has no weak count | rig-fast | 5.0 ns | 30 ns | 0.9 ns |
+| 2026-10-29 | main 277fba515 before #773, interleaved | rig-fast | 5.6 ns | 46 ns | 1.3 ns |
+| 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 5.6 ns | 49 ns | 1.3 ns |
 
 ## x86-64 (pup)
 
@@ -66,3 +68,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (pup cores 6,7) | rig-fast | 11 ns | 15 ns | 10 ns |
 | 2026-10-28 | main de6ef3e41 before #767, interleaved (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
 | 2026-10-28 | #767: a frozen value's allocation has no weak count (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
+| 2026-10-29 | main 277fba515 before #773, interleaved (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
+| 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |

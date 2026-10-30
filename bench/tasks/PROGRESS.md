@@ -45,6 +45,8 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (Linux only) | rig-fast | 96 ns | 43 ns | 82.5 ms | 5 ns | 81.33 us | 17.1 KiB |
 | 2026-10-28 | main de6ef3e41 before #767, interleaved | rig-fast | 103 ns | 41 ns | 79.8 ms | 5 ns | 99.44 us | 17.1 KiB |
 | 2026-10-28 | #767: a frozen value's allocation has no weak count | rig-fast | 98 ns | 42 ns | 80.7 ms | 5 ns | 92.94 us | 17.1 KiB |
+| 2026-10-29 | main 277fba515 before #773, interleaved | rig-fast | 113 ns | 48 ns | 101.3 ms | 7 ns | 91.19 us | 17.1 KiB |
+| 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 112 ns | 50 ns | 91.0 ms | 8 ns | 109.10 us | 17.1 KiB |
 
 ## x86-64 (pup)
 
@@ -90,3 +92,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-27 | #726: huge pages for new blocks of 16 MiB or more (pup cores 6,7) | rig-fast | 60 ns | 85 ns | 310.1 ms | 21 ns | 130.64 us | 4.6 KiB |
 | 2026-10-28 | main de6ef3e41 before #767, interleaved (pup core 6) | rig-fast | 79 ns | 85 ns | 595.6 ms | 34 ns | 176.92 us | 4.5 KiB |
 | 2026-10-28 | #767: a frozen value's allocation has no weak count (pup core 6) | rig-fast | 80 ns | 85 ns | 594.2 ms | 34 ns | 176.87 us | 4.5 KiB |
+| 2026-10-29 | main 277fba515 before #773, interleaved (pup core 6) | rig-fast | 85 ns | 91 ns | 603.2 ms | 36 ns | 179.18 us | 4.5 KiB |
+| 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6) | rig-fast | 79 ns | 85 ns | 597.7 ms | 36 ns | 178.29 us | 4.5 KiB |
