@@ -110,6 +110,28 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
+- The rest of a String's appends by value. `add`'s text and values
+  (`appendFixed`, `addValueOf`) still pass the String's address out of
+  line, so a loop of `!s.add(..)` keeps its fields in memory as pushes
+  did before growth by value (a mixed `add` and `push` loop measured
+  the same on main and with it). `Table`'s committed growth and the
+  Map's entry growth (`resizeEntries`) have the same shape. Each needs
+  the print size guard, bench/hash, and std.json.
+- Lengths known to LLVM can cost a register. With growth by value, a
+  List a function fills to a constant length has that length as a
+  constant, and in bench/hash's HashMap `text_miss` LLVM builds the
+  loop bound (100,000) with two instructions on every lookup rather
+  than holding it, 2 to 3% slower on the Mac (8.61 against 8.80-8.90
+  cycles a lookup); the Map's code is the same. No change to the
+  runtime holds the bound without taking a List's address again.
+- fasta's plain port folds its probability tables only by chance: on
+  main a `--release` build computes the cumulative sums at compile time
+  and compares against constants, but with growth by value it loads
+  them each draw (9% more cycles on the Mac), and with the two tables
+  declared after the first section's `repeat` neither main nor the
+  branch folds them (6.89 and 6.86G instructions). Keeping the tables
+  in registers without the fold would need them proven uncaptured
+  across the String's calls; `--release=fast` is unaffected.
 - Faulting memory in ahead, measured; the third form below is built.
   Trig's ts-pattern takes about 115,000 page faults on pup.
   Asking for huge pages (`MADV_HUGEPAGE`) made it 13% slower, as pup's
