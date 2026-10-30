@@ -12,8 +12,6 @@ the `rig-sched` variant, and `rig-fast` ran on Zig's `Threaded`
 backend; from #356 on, `rig-fast` runs on the scheduler.
 
 | Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) |
-| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 110 ns | 45 ns | 88.0 ms | 5 ns | 79.97 us | 17.1 KiB |
-| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 92 ns | 45 ns | 88.5 ms | 5 ns | 95.72 us | 17.1 KiB |
 |---|---|---|---|---|---|---|---|---|
 | 2026-10-19 | reference | tokio | 171 ns | 167 ns | 69.0 ms | 40 ns | 2.9 ms | 270 B |
 | 2026-10-19 | reference | go | 232 ns | 223 ns | 69.6 ms | 233 ns | 3.2 ms | 2.9 KiB |
@@ -55,6 +53,8 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 91 ns | 54 ns | 75.1 ms | 6 ns | 79.08 us | 17.1 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 110 ns | 45 ns | 85.7 ms | 5 ns | 107.39 us | 17.1 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 90 ns | 54 ns | 71.6 ms | 5 ns | 117.56 us | 17.1 KiB |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 110 ns | 45 ns | 88.0 ms | 5 ns | 79.97 us | 17.1 KiB |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 92 ns | 45 ns | 88.5 ms | 5 ns | 95.72 us | 17.1 KiB |
 
 ## x86-64 (pup)
 
@@ -108,3 +108,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 207 ns | 101 ns | 89.5 ms | 4 ns | 65.56 us | 5.3 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 205 ns | 91 ns | 97.8 ms | 4 ns | 42.93 us | 5.2 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 193 ns | 95 ns | 85.8 ms | 4 ns | 53.17 us | 5.3 KiB |
+| 2026-10-30 | main a8acfdc5c before #780, alternated (pup core 6) | rig-fast | 79 ns | 85 ns | 593.5 ms | 35 ns | 177.51 us | 4.5 KiB |
+| 2026-10-30 | #780: String and List appends grow by value (pup core 6) | rig-fast | 78 ns | 86 ns | 593.2 ms | 34 ns | 177.35 us | 4.5 KiB |

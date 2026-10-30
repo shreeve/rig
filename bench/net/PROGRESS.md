@@ -8,8 +8,6 @@ Rig rows below them are added as the runtime grows (`bench-net --record
 moves up into its table).
 
 | Date | Change | Variant | pingpong (per trip) | echo (per trip) | connect (per conn) |
-| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 14.72 us | 5.90 us | 48.37 us |
-| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 14.22 us | 5.91 us | 49.06 us |
 |---|---|---|---|---|---|
 | 2026-10-20 | reference | tokio | 14.10 us | 5.68 us | 57.43 us |
 | 2026-10-20 | reference | go | 16.01 us | 5.68 us | 58.58 us |
@@ -35,6 +33,8 @@ moves up into its table).
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 14.46 us | 5.91 us | 48.99 us |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 14.61 us | 5.95 us | 53.13 us |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 14.52 us | 5.93 us | 51.79 us |
+| 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 14.72 us | 5.90 us | 48.37 us |
+| 2026-10-30 | #780: String and List appends grow by value | rig-fast | 14.22 us | 5.91 us | 49.06 us |
 
 ## x86-64 (pup)
 
@@ -75,3 +75,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 9.71 us | 1.05 us | 33.54 us |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 8.94 us | 1.02 us | 30.18 us |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 8.98 us | 1.00 us | 26.24 us |
+| 2026-10-30 | main a8acfdc5c before #780, alternated (pup core 6) | rig-fast | 5.10 us | 5.04 us | 31.44 us |
+| 2026-10-30 | #780: String and List appends grow by value (pup core 6) | rig-fast | 5.23 us | 5.02 us | 31.30 us |
