@@ -60,9 +60,10 @@ read where its parameter is a read view: `size(v)` is `size(?v)` for
 `size(xs: ?List[Int])`. Where the parameter owns its value, a bare owner
 is rejected: write `<v` to move it or `+v` to pass a clone (plain data
 such as an `Int` just copies). A write is always written: `grow(!v)`, or
-`!v.push(3)` for a method that changes `v`. A write call whose result
-is used puts its `!` in parentheses, `x = (!v).pop()`. A value has any
-number of read views or one write view, never both.
+`!v.push(3)` for a method that changes `v`, `x = !v.pop()` where its
+result is used. A write call whose `Bool` result is used puts its `!` in
+parentheses, `if (!seen).add(k)`, so it never reads as `not`. A value
+has any number of read views or one write view, never both.
 
 **A lend in a binding lasts.** `r = ?v[0]` keeps a view of `v[0]`;
 while `r` is used later, `v` may not change, move, or drop. `for x in

@@ -558,9 +558,9 @@ fail "task copy", "`t` owns a `Task[Int]`, which can't be copied by `=`", errors
   u = t
   print(>u)
 
-fail "task write receiver", "write `(!c).bump(2)&`: a write call whose value is used puts its `!` in parentheses", errors: 1
-  # A task's value is always used, so its write receiver is in
-  # parentheses.
+test "task write receiver", 3
+  # A task's value is always used, and a write call that is no `Bool`
+  # is written short, `!c.bump(2)&`, as anywhere else.
   obj Counter
     n: Int
 
@@ -570,6 +570,7 @@ fail "task write receiver", "write `(!c).bump(2)&`: a write call whose value is 
   c = Counter(n: 1)
   t = !c.bump(2)&
   >t
+  c.n
 
 test "task hogs", release: true, '''
   chain 380

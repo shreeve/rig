@@ -2056,10 +2056,13 @@ rule in SYNTAX is syntax too.
   calling on it: `(!s).insert(k)`. A branch of lends,
   `(!a if c else !b).x`, and a slice lend, `(?t[..])[0]`, are values,
   not lends of a place. *(built)*
-- **A write call whose value is used** is written `(!s).insert(k)`,
-  everywhere: a condition, an `as` header, an operand, a binding, an
-  argument, a result. The short form `!s.insert(k)` stands only where
-  the value is discarded. *(built)*
+- **A write call whose `Bool` value is used** is written
+  `(!s).insert(k)`, everywhere: a condition, an `as` header, an operand,
+  a binding, an argument, a result, so its `!` never reads as `not`.
+  Any other write call is written short wherever its value goes,
+  `x = !v.pop()`; the result its method declares decides, so a call
+  returning a `T` that is a `Bool` is short too. The long form
+  `(!v).pop()` is valid everywhere. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
@@ -2097,7 +2100,7 @@ sub main()
 ```
 
 ```error
-write `(!s).insert(1)`: a write call whose value is used puts its `!` in parentheses
+write `(!s).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
 ```
 
 ## 9. Inside the compiler

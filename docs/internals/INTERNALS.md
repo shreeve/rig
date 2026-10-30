@@ -545,8 +545,8 @@ wrapper also makes the only rewrites that need to inspect the tree:
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!@` (the habit of `!` as negation),
   a `<` before one that does not take `<@`, a `?` before one that
-  takes `!@` or `<@`, and a `!` call whose value is used,
-  written `(!set).insert(k)` there (`Checker.usesValue`). A `for` source sigil
+  takes `!@` or `<@`, and a `!` call whose declared `Bool` value is
+  used, written `(!set).insert(k)` there (`Checker.parenthesized`). A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
 
 It also rejects a tree nested more than 1000 deep, since every later

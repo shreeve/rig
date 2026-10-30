@@ -82,6 +82,12 @@ A new session, human or agent, takes these steps in order:
   2026-10-29): `?xs[i].m()` gives `m` a view of the element, never of a
   copy, so a `from @` result no longer views a temporary. In review as
   one PR. R1, a result that views a `for` element, is in the backlog.
+- **The paren rule** (owner, 2026-10-29, the design note's rule): a
+  write call whose value is used is written short, `x = !v.pop()`; only
+  one whose method declares a `Bool` result keeps `(!s).add(k)` where
+  its value is used. It only accepts programs rejected before, so Trig
+  needs no migration; `tools/drop-write-parens.py` drops the
+  parentheses no longer needed. In review as one PR.
 - **The keep-or-cut panel's fixes** (owner, 2026-10-28, approving its
   defaults; records in `~/Data/Code/Claude/rig/rig/feature-cut/`):
   cut nothing, and freeze `*{A}`, `~{A}`, `once ?fun`, and user

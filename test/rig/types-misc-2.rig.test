@@ -50,7 +50,7 @@ test "receiver sigil bool value", '''
   !set.insert(6)
   print(set.items.len)
 
-fail "receiver sigil consumes", "12:5: `top` does not consume `self`; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume `self`; it writes it: `(!s).pop()`, and its result needs no `<`"
+fail "receiver sigil consumes", "12:5: `top` does not consume `self`; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume `self`; it writes it: `!s.pop()`, and its result needs no `<`"
   # `<` before a method call moves the receiver into it, so the method
   # must consume it (`<@`); a call's result moves without `<`.
 
@@ -184,13 +184,15 @@ test "receiver sigil value used", release: true, '''
   !v.push(4)
   print(drain(!v), c.n)
 
-fail "receiver sigil value used is rejected", "20:5: write `(!@).next()`: a write call whose value is used puts its `!` in parentheses", "27:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "28:3: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "34:5: write `(!v).remove(0)`: a write call whose value is used puts its `!` in parentheses", "36:4: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "38:7: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "40:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "41:5: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "42:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "42:19: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "43:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "46:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "47:5: write `(!c).take()`: a write call whose value is used puts its `!` in parentheses", "48:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", errors: 14
-  # A write call whose value is used, whatever its type, is written
-  # `(!v).m(...)`: a binding, an `as` header of `if` and `while`,
-  # an operand, `??`, an argument, an array element, `return`, a
-  # function's and a closure's last line, a `match` subject, a value
-  # `if`'s branch, and a `catch` whose value is used. The hint is the
-  # call to write.
+test "receiver sigil value used short", '''
+  2 [3] 4
+  1 2 0 6 6 7
+'''
+  # A write call whose value is used and is no `Bool` is written short,
+  # `!v.m(...)`, wherever the value goes: a binding, an `as` header of
+  # `if` and `while`, an operand, `??`, an argument, an array element,
+  # `return`, a function's and a closure's last line, a `match` subject,
+  # a value `if`'s branch, and a `catch` whose value is used.
 
   error E
     bad
