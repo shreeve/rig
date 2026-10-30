@@ -39,3 +39,19 @@ pub fn write_to(fd: i64, reg: i64, bytes: []const u8) net.Error!void {
 pub fn close(fd: i64, reg: i64) void {
     net.close(fd, reg);
 }
+
+pub fn batch_on(fd: i64, on: bool) void {
+    net.batch_on(fd, on);
+}
+
+pub fn share() i64 {
+    return net.share();
+}
+
+pub fn end_writing(fd: i64) void {
+    net.end_writing(fd);
+}
+
+pub fn release(fd: i64, reg: i64, pair: i64) void {
+    net.release(fd, reg, pair);
+}

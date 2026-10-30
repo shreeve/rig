@@ -78,6 +78,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **`net.Stream.split()` and `batch`** (owner, 2026-10-30): a stream
+  splits into a `Reader` and a `Writer` two tasks own, the writer's
+  close a half-close; `batch(on)` lets the system hold small writes.
+  The poller's ends now wake only the waits they end. In review as one
+  PR, for the mini-redis port.
 - **A server's memory, PR A** (#779, the runtime part of the memory
   panel's fixes, owner 2026-10-30): a net read without room holds no
   buffer while it waits, each thread's signal stack is an untouched

@@ -77,3 +77,9 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 8.98 us | 1.00 us | 26.24 us |
 | 2026-10-30 | main a8acfdc5c before #780, alternated (pup core 6) | rig-fast | 5.10 us | 5.04 us | 31.44 us |
 | 2026-10-30 | #780: String and List appends grow by value (pup core 6) | rig-fast | 5.23 us | 5.02 us | 31.30 us |
+| 2026-10-30 | main 344257fc0 before #783 | rig-fast | 15.26 us | 6.24 us | 50.95 us |
+| 2026-10-30 | main 344257fc0 before #783 | rig-safe | 14.72 us | 6.16 us | 49.81 us |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits | rig-fast | 14.89 us | 6.19 us | 49.41 us |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits | rig-safe | 14.46 us | 6.21 us | 49.38 us |
+| 2026-10-30 | main 344257fc0 before #783, alternated (pup core 6) | rig-fast | 4.88 us | 4.68 us | 29.78 us |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits (pup core 6) | rig-fast | 4.83 us | 4.70 us | 29.89 us |

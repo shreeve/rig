@@ -42,7 +42,8 @@ pub obj Listener
     close(@fd, @reg)
 
 # A connection: bytes in and out. Its fields are the runtime's. Each
-# write is sent at once (TCP_NODELAY), never held back to join the next.
+# write is sent at once (TCP_NODELAY), never held back to join the next,
+# unless `batch` says otherwise.
 pub obj Stream
   fd: Int
   reg: Int
@@ -56,8 +57,67 @@ pub obj Stream
   pub sub write(!@, bytes: ?String)!
     write_to(@fd, @reg, bytes)!
 
+  # With `on`, the system may hold small writes and send them together;
+  # without, as a stream begins, it sends each write at once.
+  pub sub batch(!@, on: Bool)
+    batch_on(@fd, on)
+
+  # The connection in two halves, which two tasks may own: one reads
+  # and one writes. The connection closes once both are gone.
+  pub fun split(<@) -> (Reader, Writer)
+    s = <@
+    pair = share()
+    r = Reader(fd: s.fd, reg: s.reg, pair: pair)
+    w = Writer(fd: s.fd, reg: s.reg, pair: pair)
+    # The halves hold the descriptor now: the stream's drop closes
+    # nothing.
+    s.fd = -1
+    s.reg = 0
+    return <r, <w
+
   drop(!@)
     close(@fd, @reg)
+
+# The half of a split `Stream` that reads. Its fields are the runtime's.
+pub obj Reader
+  fd: Int
+  reg: Int
+  pair: Int
+
+  # Read up to `max` bytes onto the end of `into`, once any come: how
+  # many it read, or 0 once the other end has closed.
+  pub fun read(!@, into: !String, max: Int) -> Int!
+    read_from(@fd, @reg, !into, max)!
+
+  drop(!@)
+    release(@fd, @reg, @pair)
+
+# The half of a split `Stream` that writes. Its fields are the
+# runtime's. Once it is closed or dropped, the other end reads the end
+# of the connection, while the `Reader` still reads.
+pub obj Writer
+  fd: Int
+  reg: Int
+  pair: Int
+
+  # Write all of `bytes`.
+  pub sub write(!@, bytes: ?String)!
+    write_to(@fd, @reg, bytes)!
+
+  # With `on`, the system may hold small writes and send them together;
+  # without, as a stream begins, it sends each write at once.
+  pub sub batch(!@, on: Bool)
+    batch_on(@fd, on)
+
+  # End this side's writing now (a half-close): the other end reads the
+  # end of the connection.
+  pub sub close(<@)
+    # Its drop ends the writing.
+    pass
+
+  drop(!@)
+    end_writing(@fd)
+    release(@fd, @reg, @pair)
 
 # A socket listening on `addr`; port 0 lets the system choose one
 # (`port`).
@@ -91,5 +151,18 @@ extern zig "net.zig"
   fun read_from(fd: Int, reg: Int, into: !String, max: Int) -> Int!
   sub write_to(fd: Int, reg: Int, bytes: ?String)!
 
-  # Stop watching `fd` and close it.
+  # Stop watching `fd` and close it; nothing for an `fd` below 0.
   sub close(fd: Int, reg: Int)
+
+  # Set TCP_NODELAY on `fd` off with `on`, and on without.
+  sub batch_on(fd: Int, on: Bool)
+
+  # A count of the two halves of a split stream, which holds 2.
+  fun share() -> Int
+
+  # Shut `fd` down for writing.
+  sub end_writing(fd: Int)
+
+  # Take one from the count `pair`: the last stops watching `fd`,
+  # closes it, and frees the count.
+  sub release(fd: Int, reg: Int, pair: Int)

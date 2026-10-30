@@ -332,7 +332,12 @@ every time; the suite runs each concurrency case again under seeds 1 to
    sleeps in, and sleeps until the earliest deadline any worker holds.
    A file descriptor registered with a poller (`sched.Registration`)
    reports when it becomes ready to read or write, edge-triggered, and a
-   fiber waits for that (`sched.waitReady`), spending from a budget of
+   fiber waits for that (`sched.waitReady`). An end is readiness only
+   for the waits it ends: the end of reading (the other end's
+   half-close, EOF on kqueue's read filter or RDHUP) wakes the reader,
+   the end of writing (this side's half-close, EOF on the write filter)
+   the writer, and a hang-up or failure both, so a split stream's
+   reader sleeps on after its writer closes. A wait spends from a budget of
    128 when it need not wait, so a descriptor always ready cannot keep
    it on its worker. A round of 10,000 tasks that sleep 5 ms ends about
    40% sooner than with the timer thread on the Mac.

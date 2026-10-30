@@ -110,3 +110,9 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 193 ns | 95 ns | 85.8 ms | 4 ns | 53.17 us | 5.3 KiB |
 | 2026-10-30 | main a8acfdc5c before #780, alternated (pup core 6) | rig-fast | 79 ns | 85 ns | 593.5 ms | 35 ns | 177.51 us | 4.5 KiB |
 | 2026-10-30 | #780: String and List appends grow by value (pup core 6) | rig-fast | 78 ns | 86 ns | 593.2 ms | 34 ns | 177.35 us | 4.5 KiB |
+| 2026-10-30 | main 344257fc0 before #783 | rig-fast | 96 ns | 45 ns | 88.5 ms | 5 ns | 88.13 us | 16.6 KiB |
+| 2026-10-30 | main 344257fc0 before #783 | rig-safe | 89 ns | 53 ns | 69.5 ms | 5 ns | 79.26 us | 16.6 KiB |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits | rig-fast | 89 ns | 44 ns | 80.3 ms | 5 ns | 101.75 us | 16.6 KiB |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits | rig-safe | 95 ns | 53 ns | 69.9 ms | 5 ns | 72.88 us | 16.6 KiB |
+| 2026-10-30 | main 344257fc0 before #783, alternated (pup core 6) | rig-fast | 78 ns | 85 ns | 593.6 ms | 34 ns | 176.32 us | 4.5 KiB |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits (pup core 6) | rig-fast | 78 ns | 86 ns | 593.8 ms | 34 ns | 176.23 us | 4.5 KiB |

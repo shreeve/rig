@@ -1866,7 +1866,20 @@ first step is on `main` (SPEC §18):
 - **A stream sends each write at once:** every accepted and connected
   `net.Stream` sets `TCP_NODELAY`, so a request written in pieces, or
   pipelined behind one not yet answered, no longer waits for the other
-  end's delayed acknowledgment, about 40 ms on Linux.
+  end's delayed acknowledgment, about 40 ms on Linux. `!s.batch(true)`
+  lets the system hold small writes and send them together again.
+- **A stream splits in two:** `r, w = <s.split()` gives a `net.Reader`
+  and a `net.Writer`, which two tasks own: one reads while the other
+  writes, on one connection. `<w.close()`, or the writer's drop, ends
+  this side's writing (a half-close), and the other end reads the end
+  while the reader still reads; the connection closes once both halves
+  are gone.
+- **An end wakes only the waits it ends:** the poller marks the end of
+  reading as readiness to read and the end of writing as readiness to
+  write, where any end once woke every wait on the descriptor for good.
+  A reader no longer spins after its own side half-closes (kqueue's
+  write filter reports it), nor a writer on a full buffer after the
+  other end does.
 - **Each worker on cache lines of its own:** no line holds two
   workers' fields (`sched.Worker`), so a yield takes about 5 ns on the
   Mac and 22 on pup's two hyperthreads, 45% and 12% less (bench/tasks).

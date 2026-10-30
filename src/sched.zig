@@ -889,8 +889,10 @@ const Poller = struct {
                     continue;
                 }
                 const r: *Registration = @ptrFromInt(ev.udata);
-                var bits: u32 = if (ev.filter == std.c.EVFILT.READ) Registration.readable else Registration.writable;
-                if (ev.flags & std.c.EV.EOF != 0) bits |= Registration.closed;
+                // An end (EV_EOF) is its own filter's readiness: the end
+                // of reading wakes the reader, the end of writing (this
+                // side's shutdown, or the other end's reset) the writer.
+                const bits: u32 = if (ev.filter == std.c.EVFILT.READ) Registration.readable else Registration.writable;
                 if (r.ready(bits)) any = true;
             }
         } else if (linux) {
@@ -913,7 +915,6 @@ const Poller = struct {
                 var bits: u32 = 0;
                 if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
                 if (ev.events & (linux_.EPOLL.OUT | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.writable;
-                if (ev.events & (linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.closed;
                 if (r.ready(bits)) any = true;
             }
         }
@@ -1006,10 +1007,15 @@ pub const Registration = struct {
     prev: ?*Registration = null,
     next: ?*Registration = null,
 
+    /// An end of the descriptor is readiness too, for the waits it ends:
+    /// the end of reading (the other end shut down writing, EOF or RDHUP)
+    /// is readiness to read, and the end of writing (EOF on macOS's write
+    /// filter) readiness to write; a hang-up or a failure (HUP, ERR, a
+    /// reset) is both. Each wait then tries its read or write, which
+    /// returns at once, 0 or a failure, so none waits on an end again,
+    /// and one side's end never wakes the other side's wait.
     pub const readable: u32 = 1;
     pub const writable: u32 = 2;
-    /// The other end closed, or the descriptor failed: every wait ends.
-    pub const closed: u32 = 4;
 
     /// The fiber waiting, and the epoch of its wait. A poller waking it
     /// holds it (`waking` in place of the fiber) until it is done, and
@@ -1041,8 +1047,8 @@ pub const Registration = struct {
     fn ready(r: *Registration, bits: u32) bool {
         _ = r.ready_bits.fetchOr(bits, .seq_cst);
         var any = false;
-        if (bits & (readable | closed) != 0 and r.reader.wakeIt()) any = true;
-        if (bits & (writable | closed) != 0 and r.writer.wakeIt()) any = true;
+        if (bits & readable != 0 and r.reader.wakeIt()) any = true;
+        if (bits & writable != 0 and r.writer.wakeIt()) any = true;
         return any;
     }
 };
@@ -1086,14 +1092,14 @@ pub fn deregister(r: *Registration) void {
 pub const Readiness = enum { ready, canceled, timeout };
 
 /// Wait for `r` to be ready for `interest` (`Registration.readable` or
-/// `.writable`), or to be closed, until `deadline`; a cancel ends the
+/// `.writable`), or for its end, until `deadline`; a cancel ends the
 /// wait when `cancelable`. Readiness the poller saw before is taken at
 /// once, which spends from the fiber's budget (`spendBudget`).
 pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bool) Readiness {
     const f = current().?;
     const waiter = if (interest == Registration.readable) &r.reader else &r.writer;
     while (true) {
-        if (r.ready_bits.load(.seq_cst) & (interest | Registration.closed) != 0) {
+        if (r.ready_bits.load(.seq_cst) & interest != 0) {
             _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
             spendBudget();
             return .ready;
@@ -1107,7 +1113,7 @@ pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bo
         // Readiness the poller saw before this waiter was there, and a
         // cancel that came before the wait began, which found no wait to
         // end: either one, and the fiber goes on.
-        const seen = r.ready_bits.load(.seq_cst) & (interest | Registration.closed) != 0;
+        const seen = r.ready_bits.load(.seq_cst) & interest != 0;
         if (!seen and !(cancelable and isCanceled(f))) commitWait(e, deadline);
         waiter.leave(f);
     }
@@ -4440,4 +4446,107 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
     // A heap kept across a move is caught each time it is used.
     try std.testing.expect(Run.stale_used.load(.monotonic) > 0);
     try std.testing.expectEqual(Run.stale_used.load(.monotonic), Run.lost.load(.monotonic) - Run.hop_lost);
+}
+
+/// Fill the send buffer of `fds[1]`, of a pair (`testTcpPair`), and the
+/// other end's receive buffer, registered as `r`, until a wait for room
+/// times out: each buffer is set small, which keeps the system from
+/// growing it, and the bytes still on their way make room as they land,
+/// so it fills again until none come.
+fn testFill(fds: [2]i32, r: *Registration) void {
+    const posix = std.posix;
+    const small: c_int = 16 * 1024;
+    posix.setsockopt(fds[0], posix.SOL.SOCKET, posix.SO.RCVBUF, std.mem.asBytes(&small)) catch {};
+    posix.setsockopt(fds[1], posix.SOL.SOCKET, posix.SO.SNDBUF, std.mem.asBytes(&small)) catch {};
+    var buf: [16 * 1024]u8 = undefined;
+    @memset(&buf, 'x');
+    var quiet: u32 = 0;
+    while (quiet < 2) {
+        while (true) {
+            const n: isize = @bitCast(posix.system.write(fds[1], &buf, buf.len));
+            if (n <= 0) break;
+        }
+        quiet = if (waitReady(r, Registration.writable, nowNs() + 20 * std.time.ns_per_ms, false) == .timeout) quiet + 1 else 0;
+    }
+}
+
+test "a wait to read sleeps after its own side of the socket shuts down writing" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .ready;
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testTcpPair();
+            const r = register(fds[1]).?;
+            // macOS reports the end of writing on the write filter, which
+            // is no readiness to read.
+            _ = std.posix.system.shutdown(fds[1], std.posix.SHUT.WR);
+            got = waitReady(r, Registration.readable, nowNs() + 50 * std.time.ns_per_ms, false);
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.timeout, Run.got);
+}
+
+test "a wait to write on a full buffer sleeps after the other end shuts down writing" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .ready;
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testTcpPair();
+            const r = register(fds[1]).?;
+            testFill(fds, r);
+            // The other end's end of writing (EOF to read, RDHUP) makes no
+            // room to write.
+            _ = std.posix.system.shutdown(fds[0], std.posix.SHUT.WR);
+            got = waitReady(r, Registration.writable, nowNs() + 50 * std.time.ns_per_ms, false);
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.timeout, Run.got);
+}
+
+test "a wait to write on a full buffer ends when the other end closes, and the write fails" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .timeout;
+        var took: i96 = 0;
+        var failed = false;
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testTcpPair();
+            const r = register(fds[1]).?;
+            testFill(fds, r);
+            // Closed with bytes unread, the other end resets the
+            // connection.
+            _ = std.posix.system.close(fds[0]);
+            const start = nowNs();
+            got = waitReady(r, Registration.writable, nowNs() + 2 * std.time.ns_per_s, false);
+            took = nowNs() - start;
+            const n: isize = @bitCast(std.posix.system.write(fds[1], "x", 1));
+            failed = n < 0;
+            deregister(r);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.ready, Run.got);
+    try std.testing.expect(Run.took < std.time.ns_per_s);
+    try std.testing.expect(Run.failed);
 }

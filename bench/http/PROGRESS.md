@@ -85,3 +85,9 @@ which is why that row reads faster.
 | 2026-10-30 | main a8acfdc5c before #781 | rig-safe | 997282 | 38 us | 559 us | 8.6 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-fast | 1047411 | 39 us | 307 us | 8.6 KiB |
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 936124 | 46 us | 324 us | 8.6 KiB |
+| 2026-10-30 | main 344257fc0 before #783 (no idle run: the Mac busy with other sessions, its ports taken) | rig-fast | 157649 | 383 us | 1215 us |  |
+| 2026-10-30 | main 344257fc0 before #783 (no idle run: the Mac busy with other sessions, its ports taken) | rig-safe | 158633 | 387 us | 905 us |  |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits (no idle run, the Mac busy) | rig-fast | 159260 | 377 us | 1110 us |  |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits (no idle run, the Mac busy) | rig-safe | 157041 | 379 us | 1156 us |  |
+| 2026-10-30 | main 344257fc0 before #783, alternated (pup core 6) | rig-fast | 149186 | 339 us | 2750 us | 8.6 KiB |
+| 2026-10-30 | #783: a stream splits; an end wakes only its waits (pup core 6) | rig-fast | 148130 | 342 us | 2746 us | 8.6 KiB |

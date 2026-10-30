@@ -200,3 +200,189 @@ test "net small writes go at once", "true"
   ms = start.elapsed() / 1000000
   _ = >t!
   print(ms < 300)
+
+test "net split: one task reads while another writes", seeds: 20, "20000 20000"
+  # A stream split in two: a task writes through the writer while
+  # another reads through the reader, on one connection. The writer's
+  # end half-closes it, so the echo ends and the reader reads its end.
+  fun echo(l: net.Listener) -> Int!
+    s = l.accept()!
+    total = 0
+    buf = String()
+    while true
+      n = (!s).read(!buf, 4096)!
+      if n == 0
+        break
+      total += n
+      (!s).write(?buf)!
+      buf = String()
+    total
+
+  fun send(w: net.Writer, msgs: Int) -> Int!
+    new w = <w
+    for 0..msgs
+      (!w).write("0123456789")!
+    <w.close()
+    msgs * 10
+
+  fun take(r: net.Reader) -> Int!
+    new r = <r
+    got = String()
+    while true
+      n = (!r).read(!got, 4096)!
+      if n == 0
+        break
+    got.len
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  e = echo(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  r, w = <c.split()
+  tr = take(<r)&
+  tw = send(<w, 2000)&
+  sent = >tw!
+  print(sent, >tr!)
+  _ = >e!
+
+test "net split: the writer's close half-closes", seeds: 20, '''
+  ping
+  pong
+'''
+  # The other end reads the end once the writer closes, and answers;
+  # the reader still reads the answer, then the end.
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  r, w = <c.split()
+  (!w).write("ping")!
+  <w.close()
+  got = String()
+  while true
+    if (!s).read(!got, 16)! == 0
+      break
+  print(got)
+  (!s).write("pong")!
+  <s
+  back = String()
+  while true
+    if (!r).read(!back, 16)! == 0
+      break
+  print(back)
+
+test "net split: either half may go first", seeds: 20, "end end"
+  # The descriptor closes once, when both halves are gone, whichever
+  # goes first; a dropped writer half-closes the connection.
+  fun pair(l: ?net.Listener, reader_first: Bool) -> String!
+    c = net.connect(String("127.0.0.1:", l.port()))!
+    s = l.accept()!
+    r, w = <c.split()
+    if reader_first
+      <r
+      <w
+    else
+      <w
+      got = String()
+      _ = (!s).read(!got, 16)!
+      (!s).write("x")!
+      <s
+      _ = (!r).read(!got, 16)!
+      <r
+    String("end")
+
+  fun idle() -> Int
+    0
+
+  t = idle()&
+  l = net.listen("127.0.0.1:0")!
+  print(pair(?l, true)!, pair(?l, false)!)
+  _ = >t
+
+test "net split without tasks", "pong"
+  # A program that makes no tasks splits a stream too.
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  r, w = <c.split()
+  (!s).write("pong")!
+  got = String()
+  while got.len < 4
+    _ = (!r).read(!got, 16)!
+  <w
+  print(got)
+
+test "net batch", seeds: 20, "abcd"
+  # A stream or a writer may let the system hold small writes and send
+  # them together, and send each at once again.
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  !c.batch(true)
+  (!c).write("a")!
+  !c.batch(false)
+  (!c).write("b")!
+  r, w = <c.split()
+  !w.batch(true)
+  (!w).write("c")!
+  !w.batch(false)
+  (!w).write("d")!
+  got = String()
+  while got.len < 4
+    _ = (!s).read(!got, 16)!
+  print(got)
+
+test "net writes go on after the other end half-closes", seeds: 20, "200000 200000"
+  # The other end's half-close ends its writing, not this side's: a
+  # write that fills the buffer waits for room, and the other end still
+  # reads every byte.
+  fun drain(l: net.Listener) -> Int!
+    s = l.accept()!
+    r, w = <s.split()
+    <w.close()
+    got = String()
+    while true
+      n = (!r).read(!got, 65536)!
+      if n == 0
+        break
+    got.len
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = drain(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  end = String()
+  _ = (!c).read(!end, 16)!
+  text = String()
+  for i in 0..200000
+    !text.push(U8(48 + i % 10))
+  (!c).write(?text)!
+  sent = text.len
+  <c
+  print(sent, >t!)
+
+test "net a write fails once the other end closes", seeds: 20, "failed"
+  # A write waiting for room on a connection the other end closes
+  # unread fails; it does not wait on.
+  fun close_after(l: net.Listener) -> Int!
+    s = l.accept()!
+    got = String()
+    _ = (!s).read(!got, 1)!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = close_after(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  text = String()
+  for 0..8000000
+    !text.push(U8(120))
+  (!c).write(?text) catch |e|
+    print("failed")
+  _ = >t!
+
+fail "net split no write after the writer's close", "5:3: use of `w` after move"
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  r, w = <c.split()
+  <w.close()
+  (!w).write("x")!
