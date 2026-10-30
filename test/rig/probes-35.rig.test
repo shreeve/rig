@@ -170,7 +170,7 @@ fail "review-syntax-b-2-e06 box temp readview", "a view of the temporary `^Strin
   fun keep(s: ?String) -> ?String
     s
 
-  fun id(r: ?^String) -> ?^String
+  fun id(r: ?String) -> ?String
     r
 
   s = keep(id(?^String("hello"))[1..])

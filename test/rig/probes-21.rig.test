@@ -1346,7 +1346,7 @@ test "review-enumtext-deep-receivers", '''
   sub wbox(b: !^Color)
     print(b.text)
 
-  fun rbox(b: ?^Color) -> Static
+  fun rbox(b: ?Color) -> Static
     b.text
 
   sub wsh(h: !*Color)

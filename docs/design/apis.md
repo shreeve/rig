@@ -342,9 +342,10 @@ fields, as today, and `Ord` only when its header names it.
 
 **Giving a capability a meaning of one's own.** A type changes `==`,
 hashing, ordering, or printing only by naming the API on its header,
-`obj Name: Eq + Hash`, and writing the method. A method that is merely
-named `eq` or `hash` stays an ordinary method, as it is today, which
-removes SPEC §5's trap. Naming `Ord` without an `order` method orders
+`obj Name: Eq + Hash`, and writing the method. A method with the very
+signature in the table, on a type whose header does not name the API,
+is an error that says to name it, since `==` would pass it by; under
+another signature it is an ordinary method. Naming `Ord` without an `order` method orders
 by the fields, in declared order. A type that declares its own `Eq`
 loses the derived `Hash`, so a key whose `==` and hash disagree is
 rejected where it is used. Derived `==` and `.hash()` call a part's own

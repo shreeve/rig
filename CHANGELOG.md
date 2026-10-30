@@ -177,6 +177,21 @@ Other:
     - `<`, `<=`, `>`, `>=` on an optional, an array, or a slice of floats.
     `<` on two floats stays, IEEE 754's, and so does `math.abs`, which
     takes `T: Signed`.
+48. A method with the very signature a built-in API fixes,
+    `fun eq(?@, other: ?Self) -> Bool`, `fun order(?@, other: ?Self) ->
+    Order`, `sub hash_into(?@, h: !Hasher)`, or `sub print(?@, out:
+    !Printer)`, on a type whose header does not name the API, is
+    rejected: `==` and the others passed it by. Name the API on the
+    header, `obj P: Eq`, or rename the method; under another signature
+    the method stays an ordinary one.
+49. A parameter `?^T`, a read view of a box, is `?T`, which takes a
+    `^T` too: `fun eval(e: ?Expr)`. A `!^T` parameter, which may
+    replace the box, and a view of an optional box, `?^T?`, stay.
+50. A clone that copies a String's bytes or a value's parts into a read
+    view, `peek(+w)` where `peek` takes a `?T`, a `[]T`, or a
+    `?String`, or `(+w).len()` of a `?@` method, is a lend:
+    `peek(?w)`, `w.len()`. A clone the same call keeps apart from a
+    write lend or a move of the original, `g(+w, !w)`, stays.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -202,6 +217,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A literal is self of a call through an API:** `Twice.twice(4)` and
+  `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
+  `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit
+  `Int` is reported there.
+- **`async` and `await` say what Rig writes instead:** a task is
+  started with `f(x)&` and waited for with `>t`.
 - **`rarely` in a branch is unlikely:** a `rarely` that starts a branch,
   a `catch` handler, or a loop's body emits Zig's unlikely hint, which
   keeps the block near and lays out the code around it for the path

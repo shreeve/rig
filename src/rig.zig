@@ -2776,7 +2776,7 @@ pub const Parser = struct {
             // The word the parser failed on, written where no Rig form
             // takes a name (`if x then`, `const x = 5`).
             if (tok.len > 0 and (tok.cat == .ident or keyword(self.base.tokenText(tok)) != null)) {
-                if (foreign_words.get(self.base.tokenText(tok))) |f| if (f.alone) break :blk .{ tok.pos, self.base.tokenEnd(tok) };
+                if (foreign_words.get(self.base.tokenText(tok))) |f| if (f.alone and (!f.before_word or wordFollows(src, self.base.tokenEnd(tok)))) break :blk .{ tok.pos, self.base.tokenEnd(tok) };
             }
             // The statement's first word, right before the failure.
             const cat, const pos = if (tok.len > 0) .{ lexer.before_cat, lexer.before_pos } else .{ lexer.prev_cat, lexer.prev_pos };
@@ -2796,7 +2796,17 @@ pub const Parser = struct {
         /// when it starts a statement: a keyword of Rig's, or a word that
         /// ends a header.
         alone: bool = false,
+        /// Named alone only where a word follows on its line (`async
+        /// fun f()`, `await t`), not where it stands as a name.
+        before_word: bool = false,
     };
+
+    /// A word starts after the spaces at `at`, on the same line.
+    fn wordFollows(src: []const u8, at: u32) bool {
+        var p = at;
+        while (p < src.len and (src[p] == ' ' or src[p] == '\t')) p += 1;
+        return p > at and p < src.len and (std.ascii.isAlphabetic(src[p]) or src[p] == '_');
+    }
 
     /// Other languages' words for forms Rig spells differently.
     const foreign_words = std.StaticStringMap(Foreign).initComptime(.{
@@ -2811,6 +2821,8 @@ pub const Parser = struct {
         .{ "struct", Foreign{ .fix = "write `obj Name`: `struct` is spelled `obj`" } },
         .{ "impl", Foreign{ .fix = "write `add`: `add Int: Shape` adds an API to a type, and `obj Square: Shape` names one on its header", .alone = true } },
         .{ "trait", Foreign{ .fix = "write `api`: `api Shape` declares the methods a type provides", .alone = true } },
+        .{ "async", Foreign{ .fix = "any function runs as a task with `&`: `t = f(x)&` starts one, and `>t` waits for its result", .alone = true, .before_word = true } },
+        .{ "await", Foreign{ .fix = "a task started with `&` is waited for with `>t`: `t = f(x)&`, then `>t`", .alone = true, .before_word = true } },
         .{ "switch", Foreign{ .fix = "write `match`" } },
         .{ "case", Foreign{ .fix = "a match arm is `pattern => ...`" } },
         .{ "elif", Foreign{ .fix = "write `else if`" } },

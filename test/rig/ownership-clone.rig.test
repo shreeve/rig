@@ -178,6 +178,57 @@ fail "a Map of Maps of values with no clone has no clone", "has no clone"
   m2 = +m
   print(m2.len)
 
+fail "a clone into a read view", "16:8: lend `v` instead: a clone into a read view is only read, then dropped", "21:6: lend `?w` instead: a clone into a read view is only read, then dropped", "22:7: lend `?s` instead: a clone into a read view is only read, then dropped", "24:8: call the method on `b` instead: a clone into a read self is only read, then dropped", "25:12: lend `?w` instead: a clone into a read view is only read, then dropped", errors: 5
+  # A clone into a read view is made only to be read and dropped: the
+  # call lends the original.
+  obj B
+    v: List[Int]
+
+    fun total(?@) -> Int
+      @v.len
+
+  sub peek(v: ?List[Int])
+    print(v.len)
+
+  sub peekt(t: ?String)
+    print(t.len)
+
+  sub again(v: ?List[Int])
+    peek(+v)
+
+  w = List[Int]()
+  s = String("hi")
+  b = B(v: List[Int]())
+  peek(+w)
+  peekt(+s)
+  again(?w)
+  print((+b).total())
+  defer peek(+w)
+
+test "a clone into a read view kept apart", '''
+  2 2
+  [1, 1]
+'''
+  # Where the same call lends the original to write or moves it, the
+  # clone keeps the two views apart.
+  obj B
+    v: List[Int]
+
+    sub merge(!@, o: ?B)
+      !@v.push(o.v.len)
+
+  sub g(a: ?List[Int], b: !List[Int])
+    !b.push(a.len)
+
+  w = List[Int]()
+  !w.push(1)
+  g(+w, !w)
+  b = B(v: List[Int]())
+  !b.v.push(1)
+  !b.merge(+b)
+  print(b.v.len, w.len)
+  print(w)
+
 fail "a generic of itself over a value with no clone has no clone", "has no clone"
   obj Res
     id: Int

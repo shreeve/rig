@@ -3525,8 +3525,12 @@ signature the API fixes:
 `==` and `!=`, `.hash()`, `<` and its kin, `print` and text building
 then call the method, for the type and for the type as a part of
 another value, at every level. Another signature under one of these
-names, on a type that names the API, is an error. A method merely named
-`eq`, `hash`, or `order` on a type that does not name the API is an
+names, on a type that names the API, is an error. So is the very
+signature on a type that does not name the API, since `==` and the
+others would pass it by: `` `P.eq` has the signature `Eq` fixes, but
+`P` does not name `Eq`, so `==` does not use it: name it on the header,
+`obj P: Eq`, or rename the method ``. A method under one of these names
+with another signature, on a type that does not name the API, is an
 ordinary method. Naming an API without writing its method keeps the
 derived meaning: `Eq`, `Hash`, and `Print` by the fields, and `Ord` by
 the fields in declared order. A type with its own `Eq` and no
@@ -5322,8 +5326,8 @@ one, whatever its payloads hold; so does the variant named with its
 enum (`Shape.dot`), beside a value of that enum. A payload literal
 compares the payload too, so the enum must have `==`. Floats compare as IEEE numbers wherever they are, so a
 object holding a NaN is not equal to itself. A viewed operand (`?P`,
-`!P`) compares as the value it reaches. A method named `eq` is never
-called by `==`.
+`!P`) compares as the value it reaches. `==` calls a method `eq` only
+on a type whose header names `Eq` ([APIs](#apis)).
 
 A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a List, Cell, or Signal, a
@@ -7037,6 +7041,15 @@ clone. `+p.a` clones
 the value in a field, and `+v[i]` an element.
 `+e` only reads `e`: a value made there (`+make()`) is a temporary its
 statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
+
+A clone that makes a new owner (a String's bytes or a value's parts
+copied, not a bit copy or a handle's count), given to a read view,
+`peek(+w)` where `peek` takes a `?T`, a `[]T`, or a `?String`, or made
+for a method's `?@` self, `(+w).len()`, is only read and then dropped,
+and is rejected: `` lend `?w` instead: a
+clone into a read view is only read, then dropped ``. Where the same
+call also lends the original to write or moves it, `g(+w, !w)`, the
+clone keeps the two apart and stays.
 
 ### Drop
 
@@ -9252,7 +9265,11 @@ optional box, and a box of an optional is `^(Node?)`.
 | `match b`, `match !b` | match a boxed enum where it is |
 
 The box is reached as it is held: through an owned box or a `!^T`
-its value can be written, through a `?^T` only read. A consuming
+its value can be written, through a `?^T` only read. A parameter
+reads a box's value as a `?T`, which takes a `^T` too: a parameter
+`?^T` is rejected, `` write `?T`, not `?^T` ``, since it reads nothing
+more and turns a plain `T` away. A `!^T` parameter stays: it may
+replace the box. A consuming
 (`<@`) method of the value, `<b.m()`, takes the value out of the box
 first. `T` may be a read view (`^?v`, a `^?List[Int]`): the box keeps
 `v` lent while it is used. `T` holds no write view. A box has no field
@@ -9309,14 +9326,14 @@ sub main()
 ```
 
 A recursive enum holds its children in boxes, and a function reads one
-through a view of the box:
+through a view of its value, which a box lends:
 
 ```rig
 enum Expr
   num(n: Int)
   add(l: ^Expr, r: ^Expr)
 
-fun eval(e: ?^Expr) -> Int
+fun eval(e: ?Expr) -> Int
   match e
     .num(n) => n
     .add(l, r) => eval(?l) + eval(?r)
@@ -13251,6 +13268,7 @@ not parse, and their words and sigils stay reserved:
 | `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
 | `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
 | `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
+| `async fun f()`, `await t` | `` Rig has no `async`; any function runs as a task with `&`: `t = f(x)&` starts one, and `>t` waits for its result ``, and `await`'s toward `>t` |
 | `trait Shape`, `impl Shape for Square` | `` Rig has no `trait`; write `api`: `api Shape` declares the methods a type provides ``, and `impl`'s toward `add` ([APIs](#apis)) |
 | float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
 

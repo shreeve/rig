@@ -46,7 +46,7 @@ test "review-step45-f06 sort by owners", '''
   fun longer(a: ?String, b: ?String) -> Bool
     a.len > b.len
 
-  fun bigger(a: ?^P, b: ?^P) -> Bool
+  fun bigger(a: ?P, b: ?P) -> Bool
     a.n > b.n
 
   v: List[String] = List()
@@ -61,7 +61,7 @@ test "review-step45-f06 sort by owners", '''
   sort.sort_by(!v, longer)
   print(v[0], v[1], v[2], v.len)
   a = [^P(n: 1), ^P(n: 3), ^P(n: 2)]
-  sort.sort_by(!a, bigger)
+  sort.sort_by(!a, |x, y| bigger(x, y))
   print(a[0].n, a[1].n, a[2].n)
 
 fail "review-step45-f07 slice of vec then push", "cannot lend `v` to write while a read loan is live"

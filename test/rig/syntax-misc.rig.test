@@ -1359,6 +1359,22 @@ fail "habit braces", "3:12: unexpected `{`; Rig has no braces: a block is the li
     print(1)
   }
 
+fail "habit async", "3:1: Rig has no `async`; any function runs as a task with `&`: `t = f(x)&` starts one, and `>t` waits for its result", whole: true
+  # Any function runs as a task with `&`; there is no second kind.
+
+  async fun f() -> Int
+    1
+
+fail "habit await", "7:5: Rig has no `await`; a task started with `&` is waited for with `>t`: `t = f(x)&`, then `>t`"
+  # A task is waited for with `>t`.
+
+  fun f() -> Int
+    1
+
+  t = f()&
+  x = await t
+  print(x)
+
 fail "habit class", "3:1: Rig has no `class`; declare a type with `obj`", whole: true
   # A type is declared with `obj`.
 

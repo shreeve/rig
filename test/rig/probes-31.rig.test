@@ -498,7 +498,7 @@ test "review-step3-o14 loop box elem escape", '''
     n: Int
     t: String
 
-  fun first(v: ?List[^Res], d: ?^Res) -> ?^Res
+  fun first(v: ?List[^Res], d: ?Res) -> ?Res
     for b in v
       return ?b
     d
@@ -610,7 +610,7 @@ test "review-step3-r2-g11 guard place escape", '''
       .a(r) => r
       .b(r) => r
 
-  fun inner_box(b: ?^E) -> ?Res
+  fun inner_box(b: ?E) -> ?Res
     match b
       .a(r) if r.n > 0 => r
       .a(r) => r
