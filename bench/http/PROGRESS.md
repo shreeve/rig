@@ -29,6 +29,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-28 | #767: a frozen value's allocation has no weak count | rig-fast | 172686 | 364 us | 585 us | 16.6 KiB |
 | 2026-10-29 | main 277fba515 before #773, interleaved | rig-fast | 168572 | 362 us | 1022 us | 16.6 KiB |
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 180629 | 259 us | 1761 us | 16.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #779, interleaved | rig-fast | 178763 | 326 us | 1239 us | 16.6 KiB |
+| 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY | rig-fast | 176453 | 281 us | 2331 us | 16.6 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 
@@ -62,6 +64,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-28 | #767: a frozen value's allocation has no weak count (pup core 6, server and load) | rig-fast | 150723 | 334 us | 2732 us | 8.6 KiB |
 | 2026-10-29 | main 277fba515 before #773, interleaved (pup core 6, server and load) | rig-fast | 125591 | 398 us | 2902 us | 8.6 KiB |
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6, server and load) | rig-fast | 140740 | 346 us | 2865 us | 8.6 KiB |
+| 2026-10-30 | main a8acfdc5c before #779, interleaved (pup core 8, server and load) | rig-fast | 146697 | 351 us | 2775 us | 8.6 KiB |
+| 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY (pup core 8, server and load) | rig-fast | 146440 | 325 us | 2808 us | 8.6 KiB |
 
 The "buffers held only per request" rows (#402) ran on a build that
 pinned every task to the worker that made it, a slip of #401 that #405

@@ -47,6 +47,8 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-28 | #767: a frozen value's allocation has no weak count | rig-fast | 98 ns | 42 ns | 80.7 ms | 5 ns | 92.94 us | 17.1 KiB |
 | 2026-10-29 | main 277fba515 before #773, interleaved | rig-fast | 113 ns | 48 ns | 101.3 ms | 7 ns | 91.19 us | 17.1 KiB |
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 112 ns | 50 ns | 91.0 ms | 8 ns | 109.10 us | 17.1 KiB |
+| 2026-10-30 | main a8acfdc5c before #779, interleaved | rig-fast | 100 ns | 45 ns | 84.9 ms | 5 ns | 76.29 us | 17.1 KiB |
+| 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY | rig-fast | 84 ns | 45 ns | 88.7 ms | 5 ns | 76.95 us | 16.6 KiB |
 
 ## x86-64 (pup)
 
@@ -94,3 +96,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-28 | #767: a frozen value's allocation has no weak count (pup core 6) | rig-fast | 80 ns | 85 ns | 594.2 ms | 34 ns | 176.87 us | 4.5 KiB |
 | 2026-10-29 | main 277fba515 before #773, interleaved (pup core 6) | rig-fast | 85 ns | 91 ns | 603.2 ms | 36 ns | 179.18 us | 4.5 KiB |
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6) | rig-fast | 79 ns | 85 ns | 597.7 ms | 36 ns | 178.29 us | 4.5 KiB |
+| 2026-10-30 | main a8acfdc5c before #779, interleaved (pup core 8) | rig-fast | 81 ns | 86 ns | 598.8 ms | 34 ns | 177.33 us | 4.5 KiB |
+| 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY (pup core 8) | rig-fast | 79 ns | 85 ns | 600.4 ms | 33 ns | 176.57 us | 4.5 KiB |

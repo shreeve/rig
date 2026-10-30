@@ -27,6 +27,8 @@ moves up into its table).
 | 2026-10-28 | #767: a frozen value's allocation has no weak count | rig-fast | 14.04 us | 5.87 us | 46.35 us |
 | 2026-10-29 | main 277fba515 before #773, interleaved | rig-fast | 25.60 us | 6.17 us | 78.37 us |
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop | rig-fast | 19.22 us | 6.12 us | 53.64 us |
+| 2026-10-30 | main a8acfdc5c before #779, interleaved | rig-fast | 14.22 us | 5.82 us | 47.07 us |
+| 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY | rig-fast | 14.67 us | 5.82 us | 47.23 us |
 
 ## x86-64 (pup)
 
@@ -61,3 +63,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-28 | #767: a frozen value's allocation has no weak count (pup core 6) | rig-fast | 4.74 us | 4.56 us | 28.71 us |
 | 2026-10-29 | main 277fba515 before #773, interleaved (pup core 6) | rig-fast | 5.08 us | 4.87 us | 30.04 us |
 | 2026-10-29 | #773: pointer-sized ^T? and ~T?, no dead drops, a cheaper last drop (pup core 6) | rig-fast | 5.06 us | 4.86 us | 30.30 us |
+| 2026-10-30 | main a8acfdc5c before #779, interleaved (pup core 8) | rig-fast | 4.78 us | 4.57 us | 28.97 us |
+| 2026-10-30 | #779: no read buffer held while waiting, untouched signal stacks and fresh stacks, TCP_NODELAY (pup core 8) | rig-fast | 4.82 us | 4.57 us | 29.54 us |
