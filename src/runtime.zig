@@ -3524,8 +3524,44 @@ pub const String = struct {
         std.debug.panic("`keep: {d}` is outside 0..{d}, the bytes pushed", .{ count, n });
     }
 
+    /// A String of `bytes_`, in a block of their length.
+    pub fn ofBytes(bytes_: []const u8) String {
+        var t: String = .empty;
+        if (bytes_.len == 0) return t;
+        const buf = allocSlice(u8, bytes_.len);
+        copyFresh(buf, bytes_);
+        t.list.items = buf;
+        t.list.capacity = buf.len;
+        return t;
+    }
+
+    /// Room for `extra` more bytes, as a slice of exactly that length
+    /// past the String's bytes, for a reader to fill before it adds to
+    /// the length what came. A String short of room grows as every
+    /// append does (`growBy`), through the allocator's raw calls, so a
+    /// safe build writes nothing over it: a read that makes room for
+    /// 64 MiB and gets five bytes leaves the rest untouched, holding no
+    /// pages. An empty String grows to exactly `extra`.
+    pub fn roomFor(self: *String, extra: usize) []u8 {
+        const l = &self.list;
+        const used = l.items.len;
+        if (l.capacity -% used < extra) growList(l, extra);
+        invariant(l.capacity -% used >= extra);
+        return (l.items.ptr + used)[0..extra];
+    }
+
+    /// The buffer cut to the bytes the String holds, freed when it holds
+    /// none: after a read into room it did not fill.
+    pub fn fit(self: *String) void {
+        const l = &self.list;
+        if (l.capacity == l.items.len) return;
+        const buf = reallocSlice(u8, l.allocatedSlice(), l.items.len);
+        l.items = buf;
+        l.capacity = buf.len;
+    }
+
     /// Append `bytes_`, which does not alias this String's buffer.
-    fn appendBytes(self: *String, bytes_: []const u8) void {
+    pub fn appendBytes(self: *String, bytes_: []const u8) void {
         const l = &self.list;
         const used = l.items.len;
         if (l.capacity -% used < bytes_.len) growList(l, bytes_.len);
