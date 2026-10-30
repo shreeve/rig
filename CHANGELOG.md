@@ -192,6 +192,14 @@ Other:
     `?String`, or `(+w).len()` of a `?@` method, is a lend:
     `peek(?w)`, `w.len()`. A clone the same call keeps apart from a
     write lend or a move of the original, `g(+w, !w)`, stays.
+51. *Unsound:* a Cell or Signal reached through a read view of a
+    handle is not changed: `!n.c.set(5)` with `n: ?*Node`, through `if
+    n as x` of an `n: ?(*Node)?`, a `?@` method's `if @head as x`, a
+    read match's or `for` loop's binding of a handle (`for h in hs`), or
+    a closure's `|?h|`, is rejected, as `?Cell[T]` was ("cannot lend to
+    write through a read view `?*Node`"). Change it through a handle of
+    your own (`mine = +n`, then `!mine.c.set(5)`), or take a write view
+    (`n: !*Node`, `if !o as x`, `for h in !hs`, `!@`).
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -256,6 +264,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A `*T` handle's drop is inline while the count stays above zero:**
   the decrement and its test are where the handle drops, and only the
   last handle's release is a call.
+- **A read view of a handle changes nothing.** A write lend reached
+  through any read view is rejected, a Cell or Signal behind a handle
+  the view holds or reaches included, with the read view's message,
+  "cannot lend to write through a read view `?*Node`"; a handle field
+  under a read view (`!w.h.c.set(5)` with `w: ?W`) named the shared
+  handle instead. The emitted Zig had written through a `*const`
+  (Upgrading, item 51).
 - **A generic object holds an optional view of itself:** `prev:
   (?Frame[T])?` in `obj Frame[T]`, a pair of generic objects that view
   each other, and an enum that views itself compile, as their plain

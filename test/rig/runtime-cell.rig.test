@@ -185,6 +185,113 @@ fail "cell read view unchanged", "10:6: cannot lend to write through a read view
   bump(k.hits)
   print(k.hits.get())
 
+fail "cell read view of handle unchanged", "26:4: cannot lend to write through a read view `?*Node`; take a write view, or share a handle of your own with `+h`", "27:11: cannot lend to write through a read view `?*Node`", "27:30: cannot lend to write through a read view `?*Node`", "27:48: cannot lend to write through a read view `?*Node`", "27:66: cannot lend to write through a read view `?*Node`", "31:6: cannot lend to write through a read view `?*Node`", "33:6: cannot lend to write through a read view `?*Node`", "37:4: cannot lend to write through a read view `?W`", "38:4: cannot lend to write through a read view `?Deep`", "42:13: cannot lend to write through a read view `?*Node`", "47:6: cannot lend to write through a read view `?*Node`", "19:16: cannot lend to write through a read view `?*Node`; `node` is a read view of the value inside `@head`: to write through it, take `!@`, then bind it with `if !@head as node`", errors: 12
+  # A read view of a handle, or of a value that holds one, is never lent
+  # to write (SPEC §10, "Cell"), however it is reached: a parameter, a
+  # field handle of a viewed value, a read `if … as` or `while … as`
+  # binding, a `?@` method's, a closure's capture, or a loop's element.
+  # Every marked change of a Cell is rejected so.
+
+  obj Node
+    elem: Cell[Int]
+    word: Cell[Int?]
+
+  obj W
+    h: *Node
+
+  obj Stack
+    head: (*Node)?
+
+    fun take_head(?@) -> Int?
+      if @head as node
+        return (!node.word).swap(none)
+      none
+
+  obj Deep
+    w: W
+
+  sub by_view(n: ?*Node)
+    !n.elem.set(5)
+    print((!n.elem).swap(1), (!n.elem).add(1), (!n.elem).sub(1), (!n.elem).compare_swap(1, 2))
+
+  sub by_optional(n: ?(*Node)?)
+    if n as node
+      !node.elem.set(6)
+    while n as node
+      !node.elem.set(7)
+      break
+
+  sub by_holder(w: ?W, d: ?Deep)
+    !w.h.elem.set(5)
+    !d.w.h.elem.set(5)
+
+  sub by_capture(h: *Node)
+    v = ?h
+    f = |?v| !v.elem.set(8)
+    f()
+
+  sub by_loop(hs: ?List[*Node])
+    for h in hs
+      !h.elem.set(9)
+
+  h = *Node(elem: Cell(1), word: Cell(none))
+  by_view(?h)
+
+test "cell changes through what may write", '''
+  1112
+  1115
+  4 none
+'''
+  # A Cell changes through an owned handle, a write view of the value or
+  # of the handle, a handle of the callee's own, a clone of a read view's
+  # handle, a write `if … as`, a write loop, an owned capture, and a `!@`
+  # method's write `if … as`.
+
+  obj Node
+    elem: Cell[Int]
+    word: Cell[Int?]
+
+  obj Stack
+    head: (*Node)?
+
+    fun take_head(!@) -> Int?
+      if !@head as node
+        return (!node.word).swap(none)
+      none
+
+  sub by_write(n: !Node)
+    !n.elem.set(n.elem.get() + 1)
+
+  sub by_handle(n: !*Node)
+    !n.elem.set(n.elem.get() + 10)
+
+  sub by_own(n: *Node)
+    !n.elem.set(n.elem.get() + 100)
+
+  sub by_clone(n: ?*Node)
+    mine = +n
+    !mine.elem.set(mine.elem.get() + 1000)
+
+  h = *Node(elem: Cell(0), word: Cell(4))
+  !h.elem.set(1)
+  by_write(!h)
+  by_handle(!h)
+  by_own(+h)
+  by_clone(?h)
+  print(h.elem.get())
+  o: (*Node)? = +h
+  if !o as node
+    !node.elem.set(node.elem.get() + 1)
+  hs = List[*Node]()
+  !hs.push(+h)
+  for x in !hs
+    !x.elem.set(x.elem.get() + 1)
+  bump = |+h| !h.elem.set(h.elem.get() + 1)
+  bump()
+  print(h.elem.get())
+  s = Stack(head: +h)
+  print((!s).take_head(), h.word.get())
+
 test "cell replace shared", "30"
   # `Cell[*User].swap(<new)` stores the new handle and returns the old
   # one as an owned value. Each handle is dropped exactly once: `old` at

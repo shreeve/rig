@@ -605,8 +605,10 @@ test "header made cell holder owned", '''
 '''
   # A value a `for`, `if … as`, or `match` header makes is taken, and so is
   # the made value the subject is a part of (Core §3): each element or
-  # payload is the body's own `*Counter` handle, through which a `?@`
-  # method changes a Cell (Core s9), and `<k` moves it out.
+  # payload is the body's own `*Counter` handle, through which a `!@`
+  # method changes a Cell (Core s9), and `<k` moves it out. A part bound
+  # by a read match is a read view, which changes nothing: a handle of
+  # its own (`+c`) changes the Cell.
   #
   # oracle: loops accept
   # oracle: ifs accept
@@ -650,7 +652,7 @@ test "header made cell holder owned", '''
       !(+c).hit()
       print(c.hits.get())
     if mkh().o as c
-      !c.hits.set(20)
+      !(+c).hits.set(20)
       print(c.hits.get())
 
   loops()
@@ -1010,7 +1012,8 @@ test "header points through temporary", release: true, '''
 
   sub read_as(v: ?List[(*C)?])
     if v[idx(?String("a"))] as c
-      !c.c.set(c.c.get() + 5)
+      h = +c
+      !h.c.set(c.c.get() + 5)
 
   sub write_while(v: !List[String?])
     k = 0
@@ -1072,7 +1075,7 @@ test "header points through temporary", release: true, '''
     print(clobber(x), x)
   ws: List[[1]*C] = List()
   !ws.push([*C(c: Cell(0))])
-  for c in ws[idx(?String("k"))]
+  for c in !ws[idx(?String("k"))]
     !c.c.set(7)
   print(ws[0][0].c.get())
 
@@ -1467,7 +1470,7 @@ test "header temporary bound first", '''
     n = n + 1
     break
   cs: [1](*C)? = [*C(c: Cell(1))]
-  if ?cs[i] as c
+  if !cs[i] as c
     !c.c.set(5)
   if ?cs[0] as c
     print(c.c.get())
@@ -1587,7 +1590,7 @@ test "header temporary points", release: true, '''
     n += 1
     break
   cs: [1](*C)? = [*C(c: Cell(1))]
-  if ?cs[idx(?String("a"))] as c
+  if !cs[idx(?String("a"))] as c
     !c.c.set(5)
   bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
   match ?bs[idx(?String("a"))]

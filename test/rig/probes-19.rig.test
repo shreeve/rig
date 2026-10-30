@@ -1479,7 +1479,8 @@ fail "review-cell-mark-1-p72 view into holder cellvec", "cannot store a view of 
     (!x.log)[0] = s
 
   sub put2(h: ?*H, s: ?String)
-    (!h.log)[0] = s
+    own = +h
+    (!own.log)[0] = s
 
   h = *H(log: Cell(List()))
   !h.log.push("a")

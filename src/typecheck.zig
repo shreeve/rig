@@ -2121,9 +2121,11 @@ const Checker = struct {
         /// path's end and the shared handle it crosses (or its base, if
         /// it crosses none).
         leaf_blocked: bool = false,
-        /// A read view of something other than a handle stands on the path:
-        /// nothing changes through it, a Cell behind a handle included.
+        /// A read view stands on the path: nothing changes through it, a
+        /// Cell behind a handle it views or reaches included.
         view_blocked: bool = false,
+        /// The outermost read view on the path, and where it starts.
+        view: ?struct { ty: TypeId, pos: u32 } = null,
         /// The path crosses a shared handle (`sema.accessThroughShared`).
         crossed: bool = false,
 
@@ -2179,15 +2181,15 @@ const Checker = struct {
                 if (!crossed) place.leaf_blocked = true;
             }
             switch (self.ctx.types.get(ty)) {
-                .read_view => |viewed| {
+                // Nothing changes through a read view: not what it
+                // views, nor a Cell or Signal behind a handle it views or
+                // reaches (SPEC §10, "Cell").
+                .read_view => {
                     place.indirect = true;
                     place.block(.read_view, self.startOf(p));
-                    // A view of a handle views the handle, not what it
-                    // reaches.
-                    if (self.ctx.types.get(viewed) != .shared) {
-                        place.leaf_blocked = true;
-                        place.view_blocked = true;
-                    }
+                    place.leaf_blocked = true;
+                    place.view_blocked = true;
+                    place.view = .{ .ty = ty, .pos = self.startOf(p) };
                 },
                 // A write view of a value that holds a Cell views shared
                 // storage, which only its Cells and Signals change in
@@ -2285,6 +2287,14 @@ const Checker = struct {
     fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
         if (!self.trial_take) try self.recordTableWrites(place.node);
         const verb = access.verb();
+        // Nothing is lent to write through a read view, a Cell or a
+        // Signal behind a handle it views or reaches included (SPEC §10,
+        // "Cell"): the read view, not the handle, says why.
+        if (access == .lend_write and place.crossed) if (place.view) |v| {
+            const hint = try self.readMatchHint(place.sym);
+            try self.err(v.pos, "cannot lend to write through a read view `{s}`{s}", .{ try self.tyName(v.ty), if (hint.len > 0) hint else "; take a write view, or share a handle of your own with `+h`" });
+            return false;
+        };
         if (place.blocked) |b| {
             const through: Verb = if (access == .assign) .{ .head = "assign" } else verb;
             // A handle that changes by a marked call is lent, wherever it
@@ -3964,7 +3974,12 @@ const Checker = struct {
             if (self.placeOf(from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`, and field `{s}` of `{s}` is read-only {s}, so nothing here writes through it", .{ s.name, shown, f.field, f.owner, try readOnlyWhere(self.ctx, f, false) });
             // A parameter taken by value is written once it is taken to
             // write (`o: !T`).
-            if (self.placeOf(from.place).root == .param) return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, take the parameter to write (`{s}: !…`), then bind it with `if !{s} as {s}`", .{ s.name, shown, shown, shown, s.name });
+            const subject = self.placeOf(from.place);
+            if (subject.root == .param) {
+                const param = self.ctx.symbols.items[subject.sym.?].name;
+                const take = if (std.mem.eql(u8, param, "@")) try self.ctx.arena.allocator().dupe(u8, "take `!@`") else try self.ctx.arena.allocator().print("take the parameter to write (`{s}: !…`)", .{param});
+                return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, {s}, then bind it with `if !{s} as {s}`", .{ s.name, shown, take, shown, s.name });
+            }
             return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, bind it with `if !{s} as {s}`", .{ s.name, shown, shown, s.name });
         };
         const from = self.copied_from.get(id) orelse self.read_subjects.get(id) orelse return "";

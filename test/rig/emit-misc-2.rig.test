@@ -401,7 +401,8 @@ test "print reads cell places after later args", release: true, '''
 
   fun grow_opt(o: ?(*S)?) -> Int
     if o as s
-      return grow(!s.c)
+      h = +s
+      return grow(!h.c)
     0
 
   sub read_param(c: ?Cell[List[Int]], o: !Cell[List[Int]])

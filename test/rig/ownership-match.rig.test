@@ -585,8 +585,9 @@ test "match made part cell holder", '''
   # A `match` on a part of a value its header makes holds that value for
   # the match (Core §3, docs/internals/INTERNALS.md "Header subjects"): `H(...).e`,
   # `mkh(n).e`, `[...][0]`, and `mk(n)[0]` are held, so each payload is
-  # read where it is, a `*Counter` handle through which a `!@` method
-  # or a marked `Cell.set` changes a Cell (Core s9).
+  # read where it is, a read view of a `*Counter` handle: a handle of
+  # its own (`+c`) changes the Cell, by a `!@` method or a marked
+  # `Cell.set` (Core s9), as nothing changes through a read view.
   #
   # oracle: main accept
 
@@ -631,7 +632,7 @@ test "match made part cell holder", '''
     .b => pass
   match H(e: E.a(c: *Counter(hits: Cell(0)))).e
     .a(c)
-      !c.hits.set(2)
+      !(+c).hits.set(2)
       print(c.hits.get())
     .b => pass
 

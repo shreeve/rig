@@ -8828,6 +8828,22 @@ is not a `!` view, a capture, a field of a value another handle shares) `!h`
 lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
 hint is to pass `+h` for a handle of your own. A read view of a handle, or
 of a value that holds one, is not lent to write at all: `?` changes nothing.
+That holds however the view is reached: a `?*C` parameter, a field
+handle of a `?W`, a binding of a read `if … as`, `while … as`, `match`,
+or `for` (`if @head as n` in a `?@` method), or a closure's `|?h|`. A
+handle of your own changes the Cell: `mine = +n`, then `!mine.c.set(5)`.
+
+```rig reject
+obj Node
+  c: Cell[Int]
+
+sub bump(n: ?*Node)
+  !n.c.set(5)
+```
+
+```error
+cannot lend to write through a read view `?*Node`; take a write view, or share a handle of your own with `+h`
+```
 
 ```rig reject
 obj S
