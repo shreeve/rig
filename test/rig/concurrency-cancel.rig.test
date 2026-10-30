@@ -20,6 +20,31 @@ test "cancel check", seeds: 20, '''
     -1
   print(r)
 
+test "cancel a bounded loop", seeds: 20, '''
+  Stop.canceled true
+  -1
+'''
+  # A loop whose trip count is known checks for waiting work between
+  # strips of its turns, not in each: the cancel still reaches the task
+  # spinning in one at its next `task.check()`.
+  use std.task
+  use std.time
+
+  fun count() -> Int!
+    total = 0
+    for i in 0..1_000_000_000_000_000
+      total += i
+      if i % 100_000 == 99_999
+        task.check()!
+    total
+
+  t = count()&
+  time.sleep(time.MS)!
+  r = <t.cancel() catch |e|
+    print(e, e == task.Stop.canceled)
+    -1
+  print(r)
+
 test "cancel sleep", seeds: 20, release: true, '''
   nap stops
   -1

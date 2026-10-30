@@ -1624,7 +1624,9 @@ assignment, which of its steps it evaluates into storage in their turn
 (`set_order`, [Assignments](#assignments)); for each array literal,
 whether it evaluates its elements first (`hoists_args`), and how it
 holds each (`argument_hold`, `pure_arg`); and for each `while`,
-where its step runs (`step_point`, [Loops](#loops)); and for each box and
+where its step runs (`step_point`, [Loops](#loops)); and for each `for`,
+how a program that makes tasks counts its turns toward a yield check
+(`loop_turns`, [Loops](#loops)); and for each box and
 binding, whether the fill `[n of x]` it takes is built where its value
 goes (`fills_in_place`: a box's `^[n of x]` in its allocation,
 `Box(T).fill`, and a binding that declares or reassigns a local array,
@@ -3813,6 +3815,32 @@ A `for` has no condition and no step of its own: it is Zig's `for`, or a
 loop's continue expression, and its source is evaluated before the loop
 is entered, so a jump in it targets the loop around this one, as the
 checker walks it before `walkLoop`.
+
+**How a loop counts its turns** in a program that makes tasks is the
+decision `loop_turns` (`storage.loopTurns`, read by emit as
+`Facts.loopTurns`; docs/internals/scheduler.md, "Yield checks"). A
+`while`, and a `for` that consumes its source, counts each turn
+(`each`, `rig.turn`). A range, or a walk of a slice, a List, or a
+String, runs in strips (`strips`): its trip count is known as it
+starts, so the Zig loop above becomes a `while` over strips of up to
+`rig.tick_turns` turns, each strip the loop's own `while` or Zig `for`
+with no check in it, and the check, or the strip's count, between
+strips:
+
+```text
+L: while (i < end) {               // a walk: while (at < w.len), its slice held once in `w`
+    s = rig.stripTo(i, end)        // a walk: n = rig.strip(w.len - at)
+    while (i < s.stop) : (i += 1)  // a walk: for (w[at..][0..n], at..) |x, k|
+        L_body: { body }
+    rig.stripTurn(&count, i < end) // in a loop in another: rig.turns(&count, s.n)
+}
+```
+
+`break` leaves `L`, the loop of strips, and `continue` the body's block,
+as before. A walk of an array of at most `rig.tick_turns` elements
+counts its turns all at once before it starts (`whole`); a longer array
+counts each. Which loop keeps the count is the emitter's, as it was:
+the outermost loop of a function or closure.
 
 **Jump targets.** Which construct each `break` and `continue` names
 (the `while` or `for`, or a labeled `match` or `raw` block) is one rule,

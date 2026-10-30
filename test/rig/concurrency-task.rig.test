@@ -794,6 +794,102 @@ code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
   t = find([1, 2, 3], 2)&
   print(>t)
 
+code "task a bounded loop checks between strips", "const __rig_s_5 = rig.stripTo(__rig_i_5, __rig_end_5);", "while (__rig_i_5 < __rig_s_5.stop) : (__rig_i_5 += 1) {", "rig.stripTurn(&__rig_turns_4, __rig_i_5 < __rig_end_5);"
+  # A range runs in strips of up to 1,024 turns with no check in a turn;
+  # the loop that keeps the count checks between strips.
+  fun sum(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      s += i
+    s
+
+  t = sum(10)&
+  print(>t)
+
+code "task a walk checks between strips", "const __rig_w_5 = xs;", "const __rig_n_5 = rig.strip(__rig_w_5.len - __rig_at_5);", "for (__rig_w_5[__rig_at_5..][0..__rig_n_5], __rig_at_5..) |x, __rig_i_6| {", "rig.stripTurn(&__rig_turns_4, __rig_at_5 < __rig_w_5.len);"
+  # A walk of a slice, a List, or a String runs a strip of its elements
+  # at a time, its index counting from the strip's start.
+  fun find(xs: []Int, k: Int) -> Int
+    for x, i in xs
+      return i if x == k
+    -1
+
+  t = find([4, 5, 6], 5)&
+  print(>t)
+
+code "task a bounded loop in another counts its strips", "rig.turns(&__rig_turns_4, __rig_n_9);", "rig.stripTurn(&__rig_turns_4, __rig_i_5 < __rig_end_5);", "while (true) : (rig.turn(&__rig_turns_14)) {"
+  # A bounded loop in another counts each strip's turns in the outer
+  # loop's count; a `while` counts each turn.
+  fun total(xs: ?List[Int]) -> Int
+    s = 0
+    for i in 0..xs.len
+      for x in xs
+        s += x * i
+    while s > 100
+      s /= 2
+    s
+
+  xs = List([1, 2, 3])
+  t = total(?xs)&
+  print(>t)
+
+code "task a short array counts its turns at once", "rig.turns(&__rig_turns_4, 3);", "for (a) |x| {"
+  # A walk of an array of at most 1,024 elements counts its turns before
+  # it starts.
+  fun sum(a: [3]Int) -> Int
+    s = 0
+    for _ in 0..2
+      for x in a
+        s += x
+    s
+
+  t = sum([1, 2, 3])&
+  print(>t)
+
+code "task a break leaves every strip", "__rig_for_2: while (__rig_at_5 < __rig_w_5.len) {", "break :__rig_for_2;", "return i;"
+  # A `break` leaves the loop that runs the strips, and so the loop;
+  # a `return` leaves the function.
+  fun find(xs: []Int, k: Int) -> Int
+    for x, i in xs
+      return i if x == k
+      break if x < 0
+    -1
+
+  t = find([4, 5, 6], 5)&
+  print(>t)
+
+test "task a bounded loop yields", seeds: 20, "1 2 3"
+  # A task spinning in a loop whose trip count is known (a range, alone or
+  # in a `while`, or a walk of a List in a range) yields between strips,
+  # so the task queued behind it on the one worker runs and stops it.
+  fun range(stop: *Cell[Bool]) -> Int
+    for _ in 0..1_000_000_000_000_000
+      return 1 if stop.get()
+    0
+
+  fun inner(stop: *Cell[Bool]) -> Int
+    while true
+      for _ in 0..1_000_000_000_000_000
+        return 2 if stop.get()
+    0
+
+  fun walk(stop: *Cell[Bool], xs: List[Int]) -> Int
+    for _ in 0..1_000_000_000_000_000
+      for x in xs
+        return x if stop.get()
+    0
+
+  sub halt(stop: *Cell[Bool])
+    !stop.set(true)
+
+  stop = *Cell(false)
+  a = range(+stop)&
+  b = inner(+stop)&
+  c = walk(+stop, List([3, 3, 3]))&
+  h = halt(+stop)&
+  >h
+  print(>a, >b, >c)
+
 test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
   # Loops over a List and a Table lent to several tasks at once, long
   # enough to pass many yield checks, with `continue`, `return`, a loop

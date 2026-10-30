@@ -82,6 +82,34 @@ test "within tasks", seeds: 20, release: true, '''
   print("par", time.within(10 * time.MS, |?xs| par.map(xs, |x| slow(x * 10_000)!)!.len) catch -5)
   print("ok", time.within(time.SECOND, || slow(1)!) catch -6)
 
+test "within a bounded loop", seeds: 20, "-1 -2"
+  # A deadline reaches a task spinning in a range or a walk, which check
+  # for waiting work between strips of their turns, at its next
+  # `task.check()`.
+  use std.task
+  use std.time
+
+  fun spin() -> Int!
+    total = 0
+    for i in 0..1_000_000_000_000_000
+      total += i
+      if i % 4096 == 4095
+        task.check()!
+    total
+
+  fun walk(xs: ?List[Int]) -> Int!
+    total = 0
+    while true
+      for x in xs
+        total += x
+      task.check()!
+    total
+
+  xs = List([1, 2, 3])
+  a = time.within(time.MS, || spin()!) catch -1
+  b = time.within(time.MS, |?xs| walk(xs)!) catch -2
+  print(a, b)
+
 test "within one task", seeds: 20, '''
   -1 true
   3

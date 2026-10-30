@@ -369,10 +369,8 @@ pub inline fn turn(n: *u32) void {
 }
 
 /// `k` turns of a loop at once, counted down in `n` as `turn` counts one:
-/// the turns of a strip of a loop whose trip count is known as it starts,
-/// in a loop that does not keep the count, as the strip ends; or of a
-/// short array's walk, before it begins (`storage.LoopTurns`). A count
-/// that reaches the check checks once.
+/// a strip's, as it ends, or a short array's walk, before it begins
+/// (`storage.LoopTurns`). A count that reaches the check checks once.
 pub inline fn turns(n: *u32, k: usize) void {
     if (!scheduled or @inComptime()) return;
     if (n.* <= k) {
@@ -383,52 +381,75 @@ pub inline fn turns(n: *u32, k: usize) void {
     n.* -= @intCast(k);
 }
 
-/// The end of a strip of `tick_turns` turns of a loop that keeps the
-/// count `n`, whose trip count is known as it starts: when `more` turns
-/// remain, the task yields if other work waits, as `turn` checks, and the
-/// count of the loops in it starts again.
-pub inline fn stripTurn(n: *u32, more: bool) void {
-    if (!scheduled or @inComptime()) return;
-    if (more) {
-        @branchHint(.unlikely);
-        n.* = tick_turns;
-        callKeeping(tickC);
+/// Whether a loop of `k` turns, whose trip count is known as it starts,
+/// runs in strips: one shorter than what is left of the count `n` has
+/// its turns counted now, all at once, and runs whole, with no check;
+/// a longer one runs in strips that end where the count does, each
+/// counted as it ends (`turns`), so it checks every `tick_turns` turns.
+pub inline fn inStrips(n: *u32, k: usize) bool {
+    if (!scheduled or @inComptime()) return false;
+    if (k < n.*) {
+        n.* -= @intCast(k);
+        return false;
     }
+    return true;
 }
 
-/// How many turns the next strip of a walk runs, of the `left` it has.
-pub inline fn strip(left: usize) usize {
-    return @min(left, tick_turns);
+/// `inStrips` for a range `for` from `i` up to `end`.
+pub inline fn inStripsTo(n: *u32, i: anytype, end: @TypeOf(i)) bool {
+    const U = @Int(.unsigned, @bitSizeOf(@TypeOf(i)));
+    if (!(i < end)) return false;
+    // `end - i`, which fits `U` since `i < end`.
+    const d: U = @as(U, @bitCast(end)) -% @as(U, @bitCast(i));
+    if (comptime @bitSizeOf(U) > 64) if (d > tick_turns) return inStrips(n, tick_turns);
+    return inStrips(n, @intCast(d));
 }
 
-/// The next strip of a range `for`, from `i` up to `end`, which `i` is
+/// `inStrips` for an inclusive range `for` from `i` through `end`.
+pub inline fn inStripsThrough(n: *u32, i: anytype, end: @TypeOf(i)) bool {
+    if (!(i <= end)) return false;
+    const left = throughLeft(i, end);
+    return inStrips(n, if (left > tick_turns) tick_turns else @intCast(left));
+}
+
+/// How many turns of a walk with `left` turns the next strip runs: all
+/// of them in a loop that does not run in strips (`inStrips`), else as
+/// many as are left of the count `n`.
+pub inline fn stripOf(left: usize, strips: bool, n: u32) usize {
+    return if (strips) @min(left, n) else left;
+}
+
+/// The next strip of a range `for` from `i` up to `end`, which `i` is
 /// below: the counter it stops at, and its turns.
 pub fn Strip(comptime T: type) type {
     return struct { stop: T, n: usize };
 }
 
-pub inline fn stripTo(i: anytype, end: @TypeOf(i)) Strip(@TypeOf(i)) {
+pub inline fn stripTo(i: anytype, end: @TypeOf(i), strips: bool, n: u32) Strip(@TypeOf(i)) {
     const T = @TypeOf(i);
+    if (!strips) return .{ .stop = end, .n = 0 };
     const U = @Int(.unsigned, @bitSizeOf(T));
-    // `end - i`, which fits `U` since `i < end`.
     const d: U = @as(U, @bitCast(end)) -% @as(U, @bitCast(i));
-    if (comptime @bitSizeOf(T) < 11) return .{ .stop = end, .n = d };
-    if (d <= tick_turns) return .{ .stop = end, .n = @intCast(d) };
-    return .{ .stop = @bitCast(@as(U, @bitCast(i)) +% @as(U, tick_turns)), .n = tick_turns };
+    if (d <= n) return .{ .stop = end, .n = @intCast(d) };
+    return .{ .stop = @bitCast(@as(U, @bitCast(i)) +% @as(U, @intCast(n))), .n = n };
 }
 
-/// The next strip of an inclusive range `for`, from `i` through `end`,
+/// The next strip of an inclusive range `for` from `i` through `end`,
 /// which `i` is not above: its turns, and whether turns remain after it.
 pub const StripThrough = struct { n: usize, more: bool };
 
-pub inline fn stripThrough(i: anytype, end: @TypeOf(i)) StripThrough {
-    const T = @TypeOf(i);
-    const W = @Int(.unsigned, @bitSizeOf(T) + 1);
-    const U = @Int(.unsigned, @bitSizeOf(T));
-    // `end - i + 1`, which fits `W`.
-    const left: W = @as(W, @as(U, @bitCast(end)) -% @as(U, @bitCast(i))) + 1;
-    const n: W = if (left < tick_turns) left else tick_turns;
-    return .{ .n = @intCast(n), .more = left > n };
+pub inline fn stripThrough(i: anytype, end: @TypeOf(i), strips: bool, n: u32) StripThrough {
+    const left = throughLeft(i, end);
+    const k = if (strips and left > n) n else if (left > std.math.maxInt(usize)) std.math.maxInt(usize) else left;
+    return .{ .n = @intCast(k), .more = left > k };
+}
+
+/// `end - i + 1`, the turns of an inclusive range, which may be one more
+/// than its type holds.
+inline fn throughLeft(i: anytype, end: @TypeOf(i)) @Int(.unsigned, @bitSizeOf(@TypeOf(i)) + 1) {
+    const U = @Int(.unsigned, @bitSizeOf(@TypeOf(i)));
+    const W = @Int(.unsigned, @bitSizeOf(@TypeOf(i)) + 1);
+    return @as(W, @as(U, @bitCast(end)) -% @as(U, @bitCast(i))) + 1;
 }
 
 /// The entry of a function of a program that makes tasks that every

@@ -174,7 +174,17 @@ fails, and yields only when other work waits.
   `while`'s continue expression, so a turn that leaves its loop counts
   nothing: a probe of a `Map` that finds its key at once, or a scan
   that returns at its first element, pays no check. Zig's own `for`,
-  which has no continue expression, counts as each turn's body starts. The task yields when work waits for its worker (in its "run
+  which has no continue expression, counts as each turn's body starts.
+  A loop whose trip count is known as it starts, a range or a walk of
+  a slice, a List, or a String (`storage.LoopTurns`), checks nothing
+  in a turn: it runs in strips of up to 1,024 turns, each a Zig loop
+  with no call in it, which LLVM is free to unroll and vectorize. The
+  outermost loop checks between its strips (`rig.stripTurn`), and one
+  inside another counts each strip's turns in the outer loop's count
+  as the strip ends (`rig.turns`); a walk of an array of at most 1,024
+  elements counts its turns before it starts. A loop shorter than a
+  strip checks nothing at all. `while` loops, iterators, and consuming
+  loops count each turn. The task yields when work waits for its worker (in its "run
   next" slot, its ring, or the global queue) or for another busy one
   (the flag below).
 - **Recursion.** Every cycle of calls passes through a function that
