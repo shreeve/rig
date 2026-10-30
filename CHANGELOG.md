@@ -1836,6 +1836,10 @@ first step is on `main` (SPEC §18):
   workers, 5.0 MB at 50, was 14.5, and 10.6 MB at 1,000, was 128 to
   137. The same server in Tokio holds 5.6 to 5.7 MB and 25 MB on the
   Mac, 5.9 and 21 MB on pup.
+- **A stream sends each write at once:** every accepted and connected
+  `net.Stream` sets `TCP_NODELAY`, so a request written in pieces, or
+  pipelined behind one not yet answered, no longer waits for the other
+  end's delayed acknowledgment, about 40 ms on Linux.
 - **Each worker on cache lines of its own:** no line holds two
   workers' fields (`sched.Worker`), so a yield takes about 5 ns on the
   Mac and 22 on pup's two hyperthreads, 45% and 12% less (bench/tasks).

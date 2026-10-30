@@ -98,6 +98,15 @@ fn socket(family: u32) NetError!i32 {
     return fd;
 }
 
+/// Send each write at once, never holding small ones back to join the
+/// next (Nagle's algorithm), which delays a request that follows one
+/// still unanswered by the other end's delayed acknowledgment: every
+/// accepted and connected stream does.
+fn noDelay(fd: i32) void {
+    const one: c_int = 1;
+    posix.setsockopt(fd, posix.IPPROTO.TCP, posix.TCP.NODELAY, std.mem.asBytes(&one)) catch {};
+}
+
 /// macOS sets a socket not to block after it is made.
 fn nonblocking(fd: i32) void {
     if (!darwin) return;
@@ -185,6 +194,7 @@ pub fn open_to(addr: []const u8) Error!i64 {
     try stopped();
     const sa = SockAddr.of(try parse(addr));
     const fd = try socket(sa.family);
+    noDelay(fd);
     const rc = sys.connect(fd, sa.ptr(), sa.len);
     switch (posix.errno(rc)) {
         .SUCCESS, .INPROGRESS, .INTR => return fd,
@@ -224,6 +234,7 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
             .SUCCESS => {
                 const c: i32 = @intCast(rc);
                 nonblocking(c);
+                noDelay(c);
                 return c;
             },
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),

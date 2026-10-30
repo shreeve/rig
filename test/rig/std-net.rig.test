@@ -170,3 +170,33 @@ test "net read of more than a block", seeds: 20, "100000 true"
     if bytes[i] != U8(48 + i % 10)
       ok = false
   print(got.len, ok)
+
+test "net small writes go at once", "true"
+  # A stream sends each write at once (TCP_NODELAY): a request written
+  # in two pieces is not held back for the acknowledgment of the first,
+  # which the other end delays, about 40 ms a round on Linux.
+  use std.time
+
+  fun serve(l: net.Listener, rounds: Int) -> Int!
+    s = l.accept()!
+    for 0..rounds
+      got = String()
+      while got.len < 2
+        _ = (!s).read(!got, 16)!
+      (!s).write("ok")!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = serve(<l, 20)&
+  c = net.connect(String("127.0.0.1:", port))!
+  start = time.now()
+  for 0..20
+    (!c).write("x")!
+    (!c).write("y")!
+    got = String()
+    while got.len < 2
+      _ = (!c).read(!got, 16)!
+  ms = start.elapsed() / 1000000
+  _ = >t!
+  print(ms < 300)

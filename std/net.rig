@@ -41,7 +41,8 @@ pub obj Listener
   drop(!@)
     close(@fd, @reg)
 
-# A connection: bytes in and out. Its fields are the runtime's.
+# A connection: bytes in and out. Its fields are the runtime's. Each
+# write is sent at once (TCP_NODELAY), never held back to join the next.
 pub obj Stream
   fd: Int
   reg: Int
