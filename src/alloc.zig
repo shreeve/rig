@@ -6,16 +6,23 @@
 //! one freed on another thread (a task's value that moved to another
 //! core) goes on the owning heap's remote list, with one
 //! compare-and-swap, for the owner to take back when its own list runs
-//! out. Large blocks come from the system, and a heap keeps those freed
-//! for the next request any of them fits, the smallest that does, and
-//! keeps the rest of it apart (`takeKept`), so a list that grows, a
-//! buffer used again, and tables built and dropped again and again do
-//! not map and unmap memory each time; a large block that grows moves
-//! into a kept block that fits, whose pages are resident, before it
-//! takes new ones (`remap`). It keeps them while what it holds
-//! in large blocks, handed out and kept, is no more than its settled
-//! peak, the most it has had handed out just after a free, and
-//! `keep_large` more (`keepBound`). So a growth's moment, the old block
+//! out; a heap with none of a class left, its own or freed into it,
+//! takes another heap's remote list of that class before it carves a
+//! page (`takeRemote`), so blocks a server's tasks free on other workers
+//! are used again wherever they are wanted. Large blocks come from the
+//! system, and a heap keeps those freed for the next request any of
+//! them fits, the smallest that does, and keeps the rest of it apart
+//! (`takeKept`), so a list that grows, a buffer used again, and tables
+//! built and dropped again and again do not map and unmap memory each
+//! time; a large block that grows moves into a kept block that fits,
+//! whose pages are resident, before it takes new ones (`remap`). The
+//! heaps keep them while what the
+//! program holds in large blocks, handed out and kept by every heap, is
+//! no more than its settled peak, the most it has had handed out just
+//! after a free, and `keep_large` more (`keepBound`): one bound for the
+//! program, counted wherever each block is freed (`LargeTotals`), so a
+//! server whose workers each free blocks others made keeps no more than
+//! a program on one thread would. So a growth's moment, the old block
 //! and the new one handed out together, does not raise what it may keep,
 //! and a table that grows does not leave the block it grew from
 //! resident. Segments are never returned to the system: memory freed
@@ -216,23 +223,25 @@ pub const Heap = struct {
     carve_end: [class_count]usize = @splat(0),
     /// The segment pages come from.
     segment: ?*Segment = null,
-    /// Large blocks freed and kept for the next (`keepLarge`), by bucket
+    /// Large blocks freed and kept for the next (`keepPiece`), by bucket
     /// (four per doubling of pages, each block at least its bucket's
     /// size); which buckets hold any, a bit each; and how many bytes
     /// they hold.
     large: [large_buckets]?*LargeFree = @splat(null),
     large_held: [large_words]u64 = @splat(0),
     large_bytes: usize = 0,
-    /// The bytes of the large blocks this heap has handed out and not
-    /// had back, and the most they have been just after a free, its
-    /// settled peak (`keepBound`).
-    large_live: usize = 0,
-    large_peak: usize = 0,
+    /// What the program's heaps hold in large blocks together, which
+    /// bounds what each keeps (`keepBound`): `large_totals`, or a test's
+    /// own.
+    large_all: *LargeTotals = &large_totals,
     /// What this thread counted and has not yet added to the program's
     /// totals (`count`); nothing in a program that does not count.
     pending: Pending = .{},
     /// The next heap given back by a thread that ended (`threadExit`).
     next_free: ?*Heap = null,
+    /// The heap made before this one (`all_heaps`), set before it is
+    /// published and never after.
+    next_made: ?*Heap = null,
     /// In a safe build, the thread that owns it (`threadToken`).
     owner: usize = 0,
     /// The bytes this heap has taken from the system: its segments, and
@@ -260,6 +269,7 @@ pub const Heap = struct {
         }
         const size = classSize(c);
         if (h.carve[c] + size > h.carve_end[c]) {
+            if (takeRemote(h, c)) |b| return b;
             const page = h.newPage() orelse return null;
             h.carve[c] = page;
             h.carve_end[c] = page + page_size - page_size % size;
@@ -267,6 +277,30 @@ pub const Heap = struct {
         const p = h.carve[c];
         h.carve[c] += size;
         return @ptrFromInt(p);
+    }
+
+    /// The blocks of class `c` other threads freed into another heap,
+    /// before `h` carves a page for that class: the first such heap's
+    /// list, taken whole, as its owner takes it back (`alloc`), the first
+    /// block handed out and the rest on `h`'s own list. They stay the
+    /// other heap's, in its segments, so each goes back on its remote
+    /// list when freed here. Without it a heap takes back only what is
+    /// freed into it, so in a server, whose tasks resume on any worker
+    /// and free their buffers there, every heap carved pages for the
+    /// most buffers it ever had out at once, and the program's segments
+    /// grew with workers times connections. It costs a load of each
+    /// heap's list head once per page carved, and nothing on the paths
+    /// that find a block.
+    fn takeRemote(h: *Heap, c: usize) ?[*]u8 {
+        var at = all_heaps.load(.acquire);
+        while (at) |o| : (at = o.next_made) {
+            if (o == h or o.remote[c].load(.monotonic) == null) continue;
+            if (o.remote[c].swap(null, .acquire)) |list| {
+                h.free[c] = list.next;
+                return @ptrCast(list);
+            }
+        }
+        return null;
     }
 
     fn newPage(h: *Heap) ?usize {
@@ -374,20 +408,43 @@ fn minLarge() usize {
 /// ones, which the system would fault in afresh (`remap`).
 const move_large: usize = 64 << 10;
 
-/// The most bytes of freed large blocks a heap keeps: as many as leave
-/// what it holds in large blocks, handed out and kept, within its
-/// settled peak and `keep_large` more. A growth maps the new block, mostly
-/// untouched, before it frees the old one, whose pages are resident;
-/// the peak, counted only after a free, leaves that moment out, so the
-/// old block is kept only within `keep_large`. A table built and dropped
-/// counts its whole size, since its last growth's free leaves it handed
-/// out: a program that builds and drops its tables again and again takes
-/// their pages from its own. A free or a reuse leaves what the heap holds
-/// as it was, so only new pages can pass the bound (`trimKept`); while
-/// they take it past its settled peak, it keeps no more than
-/// `keep_large`.
+/// What the program's heaps hold in large blocks together: the bytes
+/// handed out and not had back, wherever each is freed; the most they
+/// have been just after a free, the settled peak (`keepBound`); and the
+/// bytes every heap keeps (`Heap.large_bytes`, summed). Counted per heap,
+/// a block freed on a heap other than the one that made it left the
+/// first's count high for good and the second's at nothing, and each
+/// heap kept `keep_large` of its own: a server of 10 workers could keep
+/// 160 MiB of freed values. Each sits on a cache line of its own, as the
+/// program's other totals do (`total_live`); only large blocks, of more
+/// than `max_small` bytes, touch them.
+const LargeTotals = struct {
+    live: std.atomic.Value(usize) align(128) = .init(0),
+    peak: std.atomic.Value(usize) align(128) = .init(0),
+    kept: std.atomic.Value(usize) align(128) = .init(0),
+};
+var large_totals: LargeTotals = .{};
+
+/// The most bytes of freed large blocks the program's heaps keep
+/// together: as many as leave what the program holds in large blocks,
+/// handed out and kept, within its settled peak and `keep_large` more. A
+/// growth maps the new block, mostly untouched, before it frees the old
+/// one, whose pages are resident; the peak, counted only after a free,
+/// leaves that moment out, so the old block is kept only within
+/// `keep_large`. A table built and dropped counts its whole size, since
+/// its last growth's free leaves it handed out: a program that builds and
+/// drops its tables again and again takes their pages from its own. A
+/// free or a reuse leaves what the program holds as it was, so only new
+/// pages can pass the bound (`trimKept`); while they take it past its
+/// settled peak, the heaps keep no more than `keep_large`.
 fn keepBound(h: *const Heap) usize {
-    return (h.large_peak -| h.large_live) + keep_large;
+    const t = h.large_all;
+    return (t.peak.load(.monotonic) -| t.live.load(.monotonic)) + keep_large;
+}
+
+/// The bytes of freed large blocks every heap keeps.
+fn keptAll(h: *const Heap) usize {
+    return h.large_all.kept.load(.monotonic);
 }
 
 fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
@@ -527,7 +584,7 @@ fn freeHugeBlocks(text: []const u8) usize {
 /// raised by a free (`freeLarge`), not here, so a block handed out
 /// before the one it replaces is freed does not count twice.
 fn lent(h: *Heap, size: usize) void {
-    h.large_live += size;
+    _ = h.large_all.live.fetchAdd(size, .monotonic);
 }
 
 /// A kept block for `size` bytes, best fit by bucket: the first of the
@@ -553,6 +610,7 @@ fn unkeep(h: *Heap, j: usize, len: usize) ?*LargeFree {
         at.* = f.next;
         if (h.large[j] == null) h.large_held[j / 64] &= ~(@as(u64, 1) << @intCast(j % 64));
         h.large_bytes -= f.len;
+        _ = h.large_all.kept.fetchSub(f.len, .monotonic);
         return f;
     }
     return null;
@@ -592,17 +650,23 @@ fn keepPiece(h: *Heap, p: usize, len: usize) void {
     h.large[k] = f;
     h.large_held[k / 64] |= @as(u64, 1) << @intCast(k % 64);
     h.large_bytes += len;
+    _ = h.large_all.kept.fetchAdd(len, .monotonic);
 }
 
-/// Give kept blocks back to the system until the heap keeps no more
-/// than `keepBound`, after it has taken new pages for a block no kept
-/// one fitted: the smallest block that alone brings it within the
-/// bound, or else the largest, and again. So the heap keeps its largest
-/// blocks, a program's tables built again, which cost the most pages
-/// to fault in afresh.
+/// Give kept blocks back to the system until the heaps keep no more
+/// than `keepBound`, or this one keeps none, after it has taken new
+/// pages for a block no kept one fitted: the smallest block of its own
+/// that alone brings them within the bound, or else its largest, and
+/// again. So the heap keeps its largest blocks, a program's tables built
+/// again, which cost the most pages to fault in afresh. Another heap's
+/// kept blocks are its own thread's to give back, as it next maps pages.
 fn trimKept(h: *Heap) void {
-    while (h.large_bytes > keepBound(h)) {
-        const over = h.large_bytes - keepBound(h);
+    while (true) {
+        // Read once each pass: other heaps change both meanwhile.
+        const kept = keptAll(h);
+        const bound = keepBound(h);
+        if (kept <= bound) return;
+        const over = kept - bound;
         var j = nextHeld(h, largeBucket(over));
         const f = while (j) |b| : (j = nextHeld(h, b + 1)) {
             if (unkeep(h, b, over)) |f| break f;
@@ -618,12 +682,13 @@ fn unmapLarge(p: usize, len: usize) void {
 fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     mustOwn(h);
     const size = largeSize(len);
-    // A block another heap handed out, freed here, counts against this
-    // heap's bound as a new one would. What stays handed out after the
-    // free is the settled peak's measure.
-    h.large_live -|= size;
-    h.large_peak = @max(h.large_peak, h.large_live);
-    if (h.large_bytes + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
+    // What stays handed out after the free, by every heap, is the
+    // settled peak's measure, whichever heap handed the block out.
+    const t = h.large_all;
+    const before = t.live.fetchSub(size, .monotonic);
+    if (builtin.mode == .debug) std.debug.assert(before >= size);
+    _ = t.peak.fetchMax(before -% size, .monotonic);
+    if (keptAll(h) + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
     keepPiece(h, @intFromPtr(p), size);
 }
 
@@ -760,6 +825,21 @@ pub fn checkOwnForTest(h: *const Heap) void {
 /// What `owner_lost` is but in a test.
 pub const owner_lost_default: *const fn () void = ownerLost;
 
+/// Every heap the program has made, the newest first, each linked to the
+/// one before (`next_made`). A heap is never unmapped and joins the list
+/// once, before it is used, so a thread walks the list with no lock
+/// (`takeRemote`).
+var all_heaps: std.atomic.Value(?*Heap) = .init(null);
+
+/// `h`, made and not yet used, onto `all_heaps`.
+fn publish(h: *Heap) void {
+    var top = all_heaps.load(.acquire);
+    while (true) {
+        h.next_made = top;
+        top = all_heaps.cmpxchgWeak(top, h, .acq_rel, .acquire) orelse return;
+    }
+}
+
 /// Heaps given back by threads that ended, for the next to start.
 var spare_heaps: std.atomic.Value(?*Heap) = .init(null);
 var spare_lock: std.atomic.Value(bool) = .init(false);
@@ -788,11 +868,18 @@ fn newHeap() ?*Heap {
         my_heap = s;
         return s;
     }
+    const h = makeHeap() orelse return null;
+    my_heap = h;
+    return h;
+}
+
+/// A new heap, owned by the running thread, on `all_heaps`.
+fn makeHeap() ?*Heap {
     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
     h.* = .{};
     if (check_owner) h.owner = threadToken();
-    my_heap = h;
+    publish(h);
     return h;
 }
 
@@ -1096,15 +1183,24 @@ test "heaps that have each taken more than a segment fault in ahead, though neit
     try std.testing.expect(!faultsAhead(&small));
 }
 
-/// A heap of its own for a test, owned by the running thread.
-fn testHeap() Heap {
-    var h: Heap = .{};
+/// A heap for a test, owned by the running thread, whose large blocks
+/// count in `t`, the test's own program's.
+fn testHeap(t: *LargeTotals) Heap {
+    var h: Heap = .{ .large_all = t };
     if (check_owner) h.owner = threadToken();
     return h;
 }
 
+/// Whether what `h`'s program holds in large blocks, handed out and
+/// kept, is past its settled peak and `keep_large`.
+fn heldPastBound(h: *const Heap) bool {
+    const t = h.large_all;
+    return t.kept.load(.monotonic) + t.live.load(.monotonic) > t.peak.load(.monotonic) + keep_large;
+}
+
 test "a freed large block serves a smaller request and keeps the rest, and a table dropped and built again takes no new pages" {
-    var h = testHeap();
+    var program: LargeTotals = .{};
+    var h = testHeap(&program);
     const mib: usize = 1 << 20;
     // A 4 MiB block freed serves two of 2 MiB, head then rest.
     const big = allocLarge(&h, 4 * mib).?;
@@ -1126,7 +1222,7 @@ test "a freed large block serves a smaller request and keeps the rest, and a tab
     for (blocks) |p| freeLarge(&h, p, 512 << 10);
     // What it holds stays within the most it handed out, and
     // `keep_large`.
-    try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
+    try std.testing.expect(!heldPastBound(&h));
     // A block larger than any kept takes new pages, past the settled
     // peak, and gives back kept ones past the bound: no more than
     // `keep_large` stay.
@@ -1138,7 +1234,8 @@ test "a freed large block serves a smaller request and keeps the rest, and a tab
 }
 
 test "a block grown as a List grows it, to past `keep_large`, keeps no more than `keep_large` of the blocks it grew from" {
-    var h = testHeap();
+    var program: LargeTotals = .{};
+    var h = testHeap(&program);
     const mib: usize = 1 << 20;
     // Each growth takes a block twice the size and frees the old one,
     // whose pages stay resident while the new one, mostly untouched, is
@@ -1154,13 +1251,14 @@ test "a block grown as a List grows it, to past `keep_large`, keeps no more than
     // Dropped, the last block is kept: it is what the heap held at its
     // settled peak.
     freeLarge(&h, p, len);
-    try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
+    try std.testing.expect(!heldPastBound(&h));
     try std.testing.expect(h.large_bytes > keep_large);
     trimAllForTest(&h);
 }
 
 test "tables grown past `keep_large` in all, dropped, and built again take no new pages" {
-    var h = testHeap();
+    var program: LargeTotals = .{};
+    var h = testHeap(&program);
     // 48 tables, each grown from 128 KiB to 512 KiB, all held at once
     // (24 MiB), then dropped: built again the same way, they take their
     // pages from what the heap kept.
@@ -1186,7 +1284,8 @@ test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned fo
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     buddyinfo_for_test = buddyinfo_plenty;
     defer buddyinfo_for_test = null;
-    var h = testHeap();
+    var program: LargeTotals = .{};
+    var h = testHeap(&program);
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
     try std.testing.expectEqual(@as(usize, 0), @intFromPtr(big) % huge_page);
@@ -1257,14 +1356,15 @@ test "on Linux a new segment of a heap that faults in ahead is aligned for huge 
     // segment beside it does not lead.
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
-    var busy = testHeap();
+    var program: LargeTotals = .{};
+    var busy = testHeap(&program);
     busy.taken = prefault_big;
     const p = busy.newPage().?;
     const s = p & ~(segment_size - 1);
     try std.testing.expectEqual(@as(usize, 0), s % huge_page);
     try std.testing.expect(try advisedHugeForTest(s));
     try std.testing.expect(try advisedHugeForTest(s + segment_size - 1));
-    var small = testHeap();
+    var small = testHeap(&program);
     const q = small.newPage().?;
     try std.testing.expect(!faultsAhead(&small));
     try std.testing.expect(!try advisedHugeForTest(q));
@@ -1322,7 +1422,8 @@ test "on Linux, with memory fragmented, no block, segment, or growth asks for hu
     buddyinfo_for_test = buddyinfo_fragmented;
     defer buddyinfo_for_test = null;
     try std.testing.expect(!hugeFree());
-    var h = testHeap();
+    var program: LargeTotals = .{};
+    var h = testHeap(&program);
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(big)));
@@ -1335,7 +1436,7 @@ test "on Linux, with memory fragmented, no block, segment, or growth asks for hu
     allocator.free(g);
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
-    var busy = testHeap();
+    var busy = testHeap(&program);
     busy.taken = prefault_big;
     const p = busy.newPage().?;
     try std.testing.expect(faultsAhead(&busy));
@@ -1385,6 +1486,90 @@ fn trimAllForTest(h: *Heap) void {
         const f = unkeep(h, j, 0).?;
         unmapLarge(@intFromPtr(f), f.len);
     }
+}
+
+test "a heap whose blocks of a class run out takes the ones other threads freed into another heap before it carves a page" {
+    // Three blocks of 20 KiB from one heap, freed on another thread's:
+    // they go on the first heap's remote list. The second heap, with no
+    // block of that class, takes them before it carves a page of its own.
+    const o = madeHeapForTest().?;
+    const h = madeHeapForTest().?;
+    const c = classOf(20 << 10, .@"8").?;
+    var blocks: [3][*]u8 = undefined;
+    for (&blocks) |*b| b.* = o.alloc(c).?;
+    for (blocks) |b| h.freeSmall(b, c);
+    for (0..blocks.len) |_| try std.testing.expectEqual(o, segmentOf(h.alloc(c).?).heap);
+    try std.testing.expectEqual(@as(usize, 0), h.taken);
+}
+
+test "heaps keep no more freed large blocks in all than the program's settled peak and `keep_large`, wherever each is freed" {
+    // One heap makes 16 MiB of blocks at a time, as a server's reader
+    // makes values, and each of three others in turn frees them, as the
+    // tasks that drop them on other workers do: the program never holds
+    // more than 16 MiB, and its heaps keep no more than `keep_large`
+    // beyond it.
+    var program: LargeTotals = .{};
+    var heaps: [4]Heap = @splat(testHeap(&program));
+    const mib: usize = 1 << 20;
+    var blocks: [16][*]u8 = undefined;
+    for (0..6) |round| {
+        for (&blocks) |*p| p.* = allocLarge(&heaps[0], mib).?;
+        const freer = &heaps[1 + round % 3];
+        for (blocks) |p| freeLarge(freer, p, mib);
+    }
+    var kept: usize = 0;
+    for (&heaps) |*h| kept += h.large_bytes;
+    try std.testing.expect(kept <= 16 * mib + keep_large);
+    try std.testing.expectEqual(kept, program.kept.load(.monotonic));
+    // Every block made is counted back, whichever heap freed it.
+    try std.testing.expectEqual(@as(usize, 0), program.live.load(.monotonic));
+    for (&heaps) |*h| trimAllForTest(h);
+}
+
+test "threads that make large blocks and free each other's at once count every one back" {
+    // Eight threads each make blocks of 64 KiB to 1 MiB and swap them
+    // through shared slots, so most are freed on a heap other than the
+    // one that made them, while every heap keeps, takes, and trims
+    // against the program's one bound.
+    const slots_len = 16;
+    const Shared = struct {
+        slots: [slots_len]std.atomic.Value(usize) = @splat(.init(0)),
+        fn run(sh: *@This(), seed: usize) void {
+            var x = seed;
+            for (0..20000) |_| {
+                x = x *% 6364136223846793005 +% 1442695040888963407;
+                const len = @as(usize, 64 << 10) << @intCast((x >> 33) % 5);
+                const p = allocator.alloc(u8, len) catch unreachable;
+                p[0] = @truncate(len >> 16);
+                const old = sh.slots[(x >> 40) % slots_len].swap(@intFromPtr(p.ptr) | (len >> 16), .acq_rel);
+                if (old != 0) {
+                    const q: [*]u8 = @ptrFromInt(old & ~@as(usize, 0xfff));
+                    const n = (old & 0xfff) << 16;
+                    std.debug.assert(q[0] == @as(u8, @truncate(n >> 16)));
+                    allocator.free(q[0..n]);
+                }
+            }
+            threadExit();
+        }
+    };
+    const live = large_totals.live.load(.monotonic);
+    var sh: Shared = .{};
+    var threads: [8]std.Thread = undefined;
+    for (&threads, 0..) |*t, i| t.* = try std.Thread.spawn(.{}, Shared.run, .{ &sh, i + 1 });
+    for (threads) |t| t.join();
+    for (&sh.slots) |*s| {
+        const old = s.load(.monotonic);
+        if (old == 0) continue;
+        const q: [*]u8 = @ptrFromInt(old & ~@as(usize, 0xfff));
+        allocator.free(q[0 .. (old & 0xfff) << 16]);
+    }
+    try std.testing.expectEqual(live, large_totals.live.load(.monotonic));
+}
+
+/// A heap of the program's own kind, made as a thread's first is, owned
+/// by the running thread. It is never given back.
+fn madeHeapForTest() ?*Heap {
+    return makeHeap();
 }
 
 test "every large size is its bucket's size" {
