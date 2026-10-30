@@ -2440,7 +2440,9 @@ const Checker = struct {
                     }
                     return false;
                 }
-                if (sema.moves(self.ctx, sym.ty) == .yes) {
+                // A value that may move (a type parameter's) moves into
+                // the new binding.
+                if (sema.moves(self.ctx, sym.ty) != .no) {
                     try self.err(pos, "cannot {s} `{s}`{s}; loop and pattern bindings are immutable (move it into a new binding with `new {s} = <{s}`)", .{ verb.head, name, verb.tail, name, name });
                 } else try self.err(pos, "cannot {s} `{s}`{s}; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb.head, name, verb.tail, name, name });
                 return false;

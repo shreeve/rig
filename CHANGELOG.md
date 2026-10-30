@@ -264,6 +264,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A `*T` handle's drop is inline while the count stays above zero:**
   the decrement and its test are where the handle drops, and only the
   last handle's release is a call.
+- **A taken binding that owns a resource is lent to write:** `if <o as
+  node` then `bump(!node)` of a `bump(h: !*Node)` compiles, as it did
+  for a `String`, a List, or a box, for a handle too, in `if … as`,
+  `while … as`, `match <x`, and `for x in <v`, in a generic body as in
+  a plain one; the binding is a Zig `var` wherever it is written
+  through, where a handle's was a `const` that Zig rejected. A taken
+  binding of plain data stays a copy that is not written, and one of a
+  type parameter's value is moved into a new binding: `new x = <x`.
 - **A read view of a handle changes nothing.** A write lend reached
   through any read view is rejected, a Cell or Signal behind a handle
   the view holds or reaches included, with the read view's message,

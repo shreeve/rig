@@ -8178,9 +8178,14 @@ needs a path that may write it (an owned local, a `!T`, not a `?T` or a
 `*T`), and no other view of the value may be live, and it needs an
 owner: a field of a temporary cannot be taken. Whether a field can be
 taken is decided by its type where it is named: inside a generic body a
-`T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
-that owns a resource moved into it (`if <o as n`) has fields that can be
-written and taken, like a local's. A local binding is still moved whole:
+`T?` field can be, a `T` field cannot, whatever `T` is. An `as`, `match
+<x`, or `for x in <v` binding that owns a resource moved into it (`if <o
+as n`, a `String`, a List, a box, a handle) is written like a local's:
+its fields can be written and taken, and it is lent to write (`grow(!n)`,
+`bump(!h)` of a `bump(h: !*Node)`). One that takes plain data, or a
+type parameter's value, holds it as a pattern binding holds a copy and
+is not written: `new n = n` (`new n = <n` for a type parameter's) binds
+one that is. A local binding is still moved whole:
 `<x` leaves `x` unusable, never `none`. A field or element that is not
 optional is neither ended nor emptied, so `<` on it is rejected
 ([Moves](#moves)). `<`'s operand is a place or a value made there:
