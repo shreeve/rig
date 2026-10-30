@@ -217,6 +217,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A method call's self is lent where it is, an element too.**
+  `?@balls[i].hit(lo)` on a `List[Ball]` whose `Ball` copies gave `hit`
+  a view of a copy of the element, so a result that keeps self (`from
+  @`) viewed a temporary the next turn of a loop wrote over: every hit
+  took the last ball's material. Each element on the path of a lent
+  self (`?xs[i].m()`, `?xs[i].f.m()`, `?g[r][c].m()`, a slice's element,
+  a generic method's self) is now reached in place, as a `!` self
+  already was. *Unsound before.*
 - **A literal is self of a call through an API:** `Twice.twice(4)` and
   `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
   `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit

@@ -13852,6 +13852,19 @@ const Checker = struct {
     /// `returns`.
     fn noteMethod(self: *Checker, callee: Sexp, receiver: sema.MethodReceiver, returns: TypeId) Error!TypeId {
         if (callee == .list) try self.methods.put(self.ctx.allocator, nodeId(callee), .{ .receiver = receiver, .returns = returns });
+        // A self lent to the method is lent where it is: each element on
+        // its path is reached in place, not copied (`sema.copiesElem`).
+        if ((receiver == .read or receiver == .write) and callee.isKind(.member)) {
+            var p = receiverPlace(ir.Member.object(callee));
+            while (true) switch (p.kind() orelse break) {
+                .index => {
+                    try self.ctx.recordElemLent(p);
+                    p = ir.get(p, .object);
+                },
+                .member => p = ir.get(p, .object),
+                else => break,
+            };
+        }
         // How the call dispatches: `direct`, until a call through an API
         // records `static` (`apiMethodCall`).
         if (self.current_call) |call| if (self.ctx.dispatchOf(call) == null) try self.ctx.recordDispatch(call, .direct);

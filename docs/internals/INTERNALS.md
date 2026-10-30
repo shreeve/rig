@@ -4219,7 +4219,8 @@ constant pointer, what `+x` lowers to). Whether an assignment writes
 through a `!T` binding is recorded where typecheck decides it
 (`writesThrough`, with the binding's `rebound` flag for its Zig `var`),
 and whether an element read copies the element where its type is
-recorded (`copiesElem`), and how a binding or a hidden storage holds a
+recorded and where a method call lends it as self (`copiesElem`,
+`recordElemLent`), and how a binding or a hidden storage holds a
 value that moves where the storage plan decides it (`Symbol.hold`,
 `dropKind`, `partDrops`, `SetOrder.drops_old`; "Storage facts"). Emit
 makes no decision with a classifier the checkers also call: a unit test
@@ -4440,7 +4441,10 @@ symbols); a query that decides more than that is a recorded fact.
   compile-time parameter is reached through a slice (`rig.elems`),
   since Zig rejects any index into an array of length 0, and `[n of x]`
   is `@as([n]T, @splat(x))`. An element that is not copied
-  (`sema.copies`) is reached where it is, as a field is: a List's through `constSlot(i).*` or `slot(i).*`, a slice's
+  (`sema.copies`), and any element on the path of the self a method
+  call lends (`?xs[i].m()`, `?xs[i].f.m()`, `!g[r][c].m()`), is reached
+  where it is, as a field is, so a result that keeps self views the
+  element and not a Zig temporary: a List's through `constSlot(i).*` or `slot(i).*`, a slice's
   through `rig.elemPtr`, never a copy of its bits through `at(i)`. A
   loop that takes an array of values that move hands them over one at
   a time (`rig.arrayIntoIter`), as one that takes a List does

@@ -1858,6 +1858,10 @@ pub const Facts = struct {
     /// Element reads (`x[i]`) that copy the element's value out
     /// (`SemContext.copiesElem`).
     elem_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Element reads on the path of a self a method call lends, which
+    /// are reached where they are whatever their type
+    /// (`SemContext.recordElemLent`).
+    elem_lent: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Payload bindings of a variant pattern -> the type of the field
     /// each binds, at the matched instance and in this module's types
     /// (`SemContext.recordPayloadField`).
@@ -4702,9 +4706,19 @@ pub const SemContext = struct {
 
     /// Whether reading element `node` (`x[i]`) copies its value out
     /// (`sema.copies` of its type is `.yes`) rather than reaching it where
-    /// it is.
+    /// it is: never where a method call lends it as self, or lends a
+    /// part of it (`recordElemLent`).
     pub fn copiesElem(self: *const SemContext, node: Sexp) bool {
-        return self.facts.elem_copies.contains(nodeKey(node) orelse return false);
+        const key = nodeKey(node) orelse return false;
+        return self.facts.elem_copies.contains(key) and !self.facts.elem_lent.contains(key);
+    }
+
+    /// `node`, an element read, is on the path of the self a method
+    /// call lends (`?xs[i].m()`, `!xs[i].f.m()`): the call is given a
+    /// view of the element where it is, never of a copy, which a result
+    /// that keeps self would outlive.
+    pub fn recordElemLent(self: *SemContext, node: Sexp) !void {
+        try self.facts.elem_lent.put(self.allocator, recordKey(node), {});
     }
 
     /// `node` yields a view where its context reads the value it
