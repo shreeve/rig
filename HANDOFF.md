@@ -89,7 +89,7 @@ A new session, human or agent, takes these steps in order:
   review, decision 1, owner 2026-10-29): an API object's table entry
   whose result is an optional wider than three words writes it through
   the caller's place and returns a flag; a `none`'s payload is not
-  filled in a safe build. A draft PR, at its gates; the direct-call
+  filled in a safe build. In review as one PR (#781); the direct-call
   case is in the backlog.
 - **A shared value made in a variant's call** (B4 of the Rust ports,
   2026-10-29): `Frame.bulk(data: *Frozen(...))`, a `*Chan[T](n)`, or
