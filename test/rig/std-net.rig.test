@@ -380,7 +380,7 @@ test "net a write fails once the other end closes", seeds: 20, "failed"
     print("failed")
   _ = >t!
 
-fail "net split: no write after the writer's close", "5:3: use of `w` after move"
+fail "net split no write after the writer's close", "5:3: use of `w` after move"
   l = net.listen("127.0.0.1:0")!
   c = net.connect(String("127.0.0.1:", l.port()))!
   r, w = <c.split()
