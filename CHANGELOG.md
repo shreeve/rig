@@ -1819,6 +1819,23 @@ first step is on `main` (SPEC §18):
   (`sched.takeWaiting`), so a maker computing in recursion, whose checks
   read only the notice, hands the task on; one that cleared it left the
   task waiting until the maker finished.
+- **A server's memory no longer grows with workers times
+  connections:** a `net.Stream` read into a String without room for
+  `max` more reads through the worker's block and keeps only the bytes
+  that came, so a task waiting for bytes holds no buffer, and a String
+  freed on another worker is a small block, not a 24 KiB one. Each
+  thread's alternate signal stack is a mapping of the runtime's,
+  untouched until a signal runs on it, not Zig's 256 KiB thread-local
+  array, which every worker and blocking-pool thread kept resident; a
+  task that blocks on another task or an actor touches one stack page,
+  its deadlock walk in a frame of its own (`sched.walkFrom`); and a new
+  reservation's stacks hold no page until used. A task-per-connection
+  key-value server (Redis's protocol, an actor for the store) under
+  load holds 6.4 to 6.8 MB at 50 connections on the Mac, was 16.5 to
+  19.4, and 24 to 26 MB at 1,000, was 89 to 148; on pup, with 22
+  workers, 5.0 MB at 50, was 14.5, and 10.6 MB at 1,000, was 128 to
+  137. The same server in Tokio holds 5.6 to 5.7 MB and 25 MB on the
+  Mac, 5.9 and 21 MB on pup.
 - **Each worker on cache lines of its own:** no line holds two
   workers' fields (`sched.Worker`), so a yield takes about 5 ns on the
   Mac and 22 on pup's two hyperthreads, 45% and 12% less (bench/tasks).

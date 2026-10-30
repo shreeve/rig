@@ -78,6 +78,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A server's memory, PR A** (#779, the runtime part of the memory
+  panel's fixes, owner 2026-10-30): a net read without room holds no
+  buffer while it waits, each thread's signal stack is an untouched
+  mapping, a blocked task touches one stack page, and fresh stacks hold
+  none. In review. PR B, the allocator's part (another heap's remote
+  list before carving a page, no safe-mode fill in String and List
+  growth, a program-wide bound on large blocks), comes next.
 - **A shared value made in a variant's call** (B4 of the Rust ports,
   2026-10-29): `Frame.bulk(data: *Frozen(...))`, a `*Chan[T](n)`, or
   an `*Actor(x)` there is the payload's value, and `*Actor(x)` takes
