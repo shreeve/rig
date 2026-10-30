@@ -222,6 +222,12 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   checker gives that view the loan on `balls`, as CORE's "`for x in ?v`
   reads each element in place" says. Found porting Rust (2026-10-29;
   probe in the Rust-ports notes, `r1-view-from-loop-element.rig`).
+- **A write call's result as an assignment target keeps the long
+  form.** `(!a).at_mut(i).n = 1` is accepted and `!a.at_mut(i).n = 1`
+  does not parse ("unexpected `=`"): a statement that starts with `!`
+  is an expression, not a place. The paren rule writes every other
+  used write call short; decide whether an assignment's target should
+  take the short form too. Trig has 60 such sites (2026-10-29).
 - **Literal arithmetic given a read view is refused.** `f(4 + 1)`,
   where `f` takes a `?Int`, says "type mismatch: expected `?Int`, got
   `Int`", while `f(4)` and `f(x + 1)` are lent as made values. Literal

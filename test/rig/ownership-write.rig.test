@@ -1443,7 +1443,7 @@ fail "write receiver note", "20:21: cannot lend `b` to write while a read loan i
   !b.items.push(Item(n: 7))
   print((!b).consume((!b).first()))
 
-fail "write receiver outer bang", "25:4: `pop` changes `self`, a temporary no name holds; the `!` here lends what `pop` returns, not `self`: write `(!(mkopt(n)?)).pop()`", "28:11: `vs` changes `self`, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of `self`: bind `mk(1)` to a name first"
+fail "write receiver outer bang", "25:4: `pop` changes `self`, a temporary no name holds; the `!` here lends what `pop` returns, not `self`: write `!(mkopt(n)?).pop()`", "28:11: `vs` changes `self`, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of `self`: bind `mk(1)` to a name first"
   # A `!` that does not reach a write method's temporary receiver: one
   # outside a chain the receiver-sigil rule stops at (`!o?.pop()` lends
   # what `pop` returns), and the `!` before a `for` source, which is the
@@ -1474,7 +1474,7 @@ fail "write receiver outer bang", "25:4: `pop` changes `self`, a temporary no na
   for x in !mk(1).vs()
     x += 1
 
-fail "write receiver temporary", "41:5: `bump` changes `self`, a temporary no name holds; add `!`: `!(@twice()).bump()`", "48:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().bump()`", "49:1: `bump` changes `self`, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`", "50:7: `next` changes `self`, a temporary no name holds; add `!`: `(!mk()).next()`", "51:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`", "52:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(+s).bump()`", "53:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().inner.bump()`", "54:1: `bump` changes `self`, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`", "55:7: `at` changes `self`, a temporary no name holds; add `!`: `(!mk()).at()`", errors: 9
+fail "write receiver temporary", "41:5: `bump` changes `self`, a temporary no name holds; add `!`: `!(@twice()).bump()`", "48:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().bump()`", "49:1: `bump` changes `self`, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`", "50:7: `next` changes `self`, a temporary no name holds; add `!`: `!mk().next()`", "51:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`", "52:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(+s).bump()`", "53:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().inner.bump()`", "54:1: `bump` changes `self`, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`", "55:7: `at` changes `self`, a temporary no name holds; add `!`: `!mk().at()`", errors: 9
   # A `!@` method changes its receiver, and every change is marked by
   # `!` (Core sentences 4 and 9): called on a value made in place, which no
   # name holds, with no `!`, it is rejected, with the hint to add one. The

@@ -385,30 +385,35 @@ sub main()
 2
 ```
 
-### A write call whose value is used is parenthesized
+### A write call whose `Bool` value is used is parenthesized
 
-`!v.push(x)` stands alone as a statement; where the call's value is
-used, the `!` and its place go in parentheses.
+`!v.push(x)` and `x = !v.pop()` are written short; where a call's `Bool`
+value is used, the `!` and its place go in parentheses, so it never
+reads as `not`.
 
 ```rig reject
 sub main()
-  v = List([1, 2])
-  x = !v.pop()
-  print(x ?? 0)
+  seen = Set[Int]()
+  if !seen.add(1)
+    print("new")
 ```
 
 ```error
-write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
+write `(!seen).add(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
 ```
 
 ```rig
 sub main()
+  seen = Set[Int]()
+  if (!seen).add(1)
+    print("new")
   v = List([1, 2])
-  x = (!v).pop()
+  x = !v.pop()
   print(x ?? 0, v.len)
 ```
 
 ```output
+new
 2 1
 ```
 

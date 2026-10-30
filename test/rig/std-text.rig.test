@@ -527,7 +527,7 @@ bomb "text format base panics", "text.format_int: the base is not between 2 and 
 
   print(text.format_int(1, 1))
 
-fail "text iterators", "5:10: field `rest` of `std.text.Split` is private to the standard library's module `std.text`", "6:10: only the standard library's module `std.text` can construct `std.text.Split`: its fields `rest`, `sep`, `done` are private", "7:10: method `next` needs `self` lent to write; write `(!it).next()`", errors: 3
+fail "text iterators", "5:10: field `rest` of `std.text.Split` is private to the standard library's module `std.text`", "6:10: only the standard library's module `std.text` can construct `std.text.Split`: its fields `rest`, `sep`, `done` are private", "7:10: method `next` needs `self` lent to write; write `!it.next()`", errors: 3
   # std.text's iterators are made by `split`, `lines`, and `words`, which
   # check their arguments, and advanced through a write view.
 

@@ -127,7 +127,7 @@ sub main()
   orders = List([30, 12, 58])
   add_fee(!orders, 2)
   !orders.push(7)
-  last = (!orders).pop() ?? 0
+  last = !orders.pop() ?? 0
   print(orders[0], orders.len, last)
 ```
 
@@ -138,9 +138,11 @@ sub main()
 Each of the three lines in `main` that changes `orders` says so.
 `for x in !xs` walks the list with a write view of each element. A
 method that changes its value takes the same mark, `!orders.push(7)`,
-even though `main` owns the list. When the result of a write call is
-used, the `!` goes in parentheses with its value, `(!orders).pop()`, so
-it never reads as anything else.
+even though `main` owns the list, and so does one whose result is used,
+`!orders.pop()`. When that result is a `Bool`, the `!` goes in
+parentheses with its value, `if (!seen).add(k)`, so it never reads as
+`not`: `if !seen.add(k)` would read as "if not added". The long form
+`(!orders).pop()` is valid everywhere.
 
 Leave the mark off and the program does not compile. The error says
 what to write:

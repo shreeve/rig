@@ -10,11 +10,11 @@ fail "write call already lent", "`(!b)` already lends `b` to write: remove the o
   !(!b).ensure(1, List()).push(5)
   print(b.len)
 
-fail "write call hint value used", "10:5: write `(!@v).pop()`: a write call whose value is used puts its `!` in parentheses", "18:7: method `pop` needs `self` lent to write; write `(!v).pop()`", "19:3: method `pop` needs `self` lent to write; write `!v.pop()`", "20:5: `pop` does not consume `self`; it writes it: `(!v).pop()`, and its result needs no `<`", "21:5: `pop` writes `self`: write `(!v).pop()`; to lend the call's result, write `?(v.pop())`", "22:5: write `(!w).pop()`: the call writes `w`", "23:5: `take` changes `self`, a temporary no name holds; add `!`: `(!mk()).take()`", errors: 7
+fail "write call hint value used", "19:7: method `pop` needs `self` lent to write; write `!v.pop()`", "20:3: method `pop` needs `self` lent to write; write `!v.pop()`", "21:5: `pop` does not consume `self`; it writes it: `!v.pop()`, and its result needs no `<`", "22:5: `pop` writes `self`: write `!v.pop()`; to lend the call's result, write `?(v.pop())`", "23:5: write `!w.pop()`: the call writes `w`", "24:5: `take` changes `self`, a temporary no name holds; add `!`: `!mk().take()`", "25:9: method `add` needs `self` lent to write; write `(!seen).add(1)`", errors: 7
   # A hint that writes a write call writes it as the call is used: the
-  # long form `(!v).m(...)` where its value is used, and the short form
-  # where it is discarded, so following a hint never draws the error that
-  # a write call whose value is used puts its `!` in parentheses.
+  # long form `(!s).m(...)` where its `Bool` value is used, and the short
+  # form elsewhere, so following a hint never draws the error that a write
+  # call whose `Bool` value is used puts its `!` in parentheses.
 
   obj Box2
     v: List[Int]
@@ -28,13 +28,133 @@ fail "write call hint value used", "10:5: write `(!@v).pop()`: a write call whos
   v: List[Int] = List()
   w = !v
   b = mk()
+  seen = Set[Int]()
   x = v.pop()
   v.pop()
   y = <v.pop()
   z = ?v.pop()
   q = w.pop()
   s = mk().take()
-  print(x, y, z, q, s, b.v.len)
+  if seen.add(1)
+    print(x, y, z, q, s, b.v.len)
+
+test "write call short form", '''
+  3 4 1
+  true generic
+  boxed
+  1 none
+  9
+'''
+  # A write call whose value is used and is no `Bool` is written short,
+  # `!v.m(...)`: the `!` lends the receiver of the chain's first method
+  # call, `@` in `!@new_node(k)`, `@nodes` in `!@nodes.remove(0).len`,
+  # `p.flags` in `!p.flags.remove(0)`. A call whose declared result is a
+  # `T` is short even where `T` is a `Bool`, and so is a `Bool?`, which
+  # no condition or `not` takes.
+
+  obj Pool
+    nodes: List[String]
+    flags: List[Bool]
+
+    fun new_node(!@, k: Int) -> Int
+      !@nodes.push(String("n{k}"))
+      @nodes.len
+
+    fun first(!@) -> Int
+      t = !@new_node(7)
+      return t + !@new_node(8)
+
+    fun texts(!@) -> Int
+      !@nodes.remove(0).len
+
+  obj Box[T]
+    items: List[T]
+
+    fun take(!@) -> T
+      !@items.remove(0)
+
+    fun maybe(!@) -> Bool?
+      none
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  p = Pool(nodes: List(), flags: List())
+  print(!p.first(), !p.texts(), p.nodes.len)
+  !p.flags.push(true)
+  !p.flags.push(false)
+  b = !p.flags.remove(0)
+  print(b, "generic") if !p.flags.remove(0) == false
+  x: Box[Bool] = Box(items: List([true]))
+  if !x.take()
+    print("boxed")
+  v: List[Int] = List([1])
+  print(!v.pop() ?? 0, !x.maybe())
+  !v.push(4)
+  if !v.pop() as n
+    print(twice(n) + 1)
+
+fail "write call short form on a Bool", "17:5: write `(!@seen).add(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "21:8: write `(!c.seen).add(k)`", "23:10: write `(!c).bump()`", "25:7: write `(!c).bump()`", "26:7: write `(!c).checked()`", errors: 5
+  # A write call whose declared result is a `Bool`, or a `Bool` that may
+  # fail, keeps its `!` in parentheses wherever its value is used: Rust's
+  # `if !seen.insert(k)` means "already seen", and short it would read so.
+
+  obj Counter
+    n: Int
+    seen: Set[Int]
+
+    fun bump(!@) -> Bool
+      @n += 1
+      @n > 1
+
+    fun checked(!@) -> Bool!
+      (!@).bump()
+
+    fun mark(!@, k: Int) -> Bool
+      !@seen.add(k)
+
+  fun run(c: !Counter) -> Int!
+    for k in [1, 2, 1]
+      if !c.seen.add(k)
+        continue
+    if not !c.bump()
+      print("first")
+    a = !c.bump()
+    b = !c.checked()!
+    print(a, b)
+    0
+
+code "write call short form emit", "const x: i64 = (v.pop() orelse 0);", "const n: i64 = self.items.remove(0);"
+  # The short form is the long form's tree (`Parser.receiverSigil`), so
+  # it emits the same Zig as "write call long form emit".
+
+  obj Box
+    items: List[Int]
+
+    fun take(!@) -> Int
+      n = !@items.remove(0)
+      n
+
+  v: List[Int] = List([1])
+  x = !v.pop() ?? 0
+  b = Box(items: List([2]))
+  print(x, !b.take())
+
+code "write call long form emit", "const x: i64 = (v.pop() orelse 0);", "const n: i64 = self.items.remove(0);"
+  # The long form `(!v).m(...)` stays valid everywhere, and emits what
+  # the short form does.
+
+  obj Box
+    items: List[Int]
+
+    fun take(!@) -> Int
+      n = (!@items).remove(0)
+      n
+
+  v: List[Int] = List([1])
+  x = (!v).pop() ?? 0
+  b = Box(items: List([2]))
+  print(x, (!b).take())
 
 fail "write lend constant", "56:7: cannot lend constant `Color.red` to write: it lives for the whole program and never changes", "57:7: cannot lend constant `E.bad` to write", "58:7: cannot lend constant `false` to write", "59:7: cannot lend constant `\"abc\"` to write", "60:7: cannot lend constant `none` to write", "61:6: cannot lend constant `5` to write", "62:6: cannot lend constant `-5` to write", "63:7: cannot lend constant `2 + 3` to write", "64:8: cannot lend constant `not true` to write", "65:8: cannot lend constant `Color.red if f(1) == 1 else Color.green` to write", "66:6: cannot lend constant `Int.max` to write", "67:7: cannot lend constant `U8.max` to write", "68:7: cannot lend constant `Int.max - 1` to write", "69:7: cannot lend constant `f` to write", "70:7: cannot lend constant `P.origin` to write", errors: 15
   # A constant lives for the whole program and never changes (Core
@@ -783,3 +903,21 @@ fail "write view stored in value", "5:6: a write view is never stored inside a v
   m = 2
   a = [!n, !m]
   print(a.len)
+
+fail "write call hint for source", "11:12: method `drain` needs `self` lent to write; write `(!b).drain()`", "13:13: method `drain` needs `self` lent to write; write `(!b).drain()`", errors: 4
+  # Before a `for` source, a `!` is the loop's mode, so a write call
+  # there keeps its parentheses, whatever it gives, and the hint says so.
+
+  obj Bag
+    items: List[Int]
+
+    fun drain(!@) -> List[Int]
+      swap(!@items, List())
+
+  b = Bag(items: List([1, 2]))
+  for x in b.drain()
+    print(x)
+  for y in !b.drain()
+    print(y)
+  for z in (!b).drain()
+    print(z)

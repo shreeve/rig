@@ -506,6 +506,8 @@ reaches `lib`: the checker says so, and the call in parentheses,
 | `(!mk().items).push(k)` | `!mk().items.push(k)` | a field of that temporary |
 | `(!(+s)).bump()` | `!(+s).bump()` | a parenthesized self |
 | `((!v).pop())?` | `!v.pop()?` | the suffix applies to the result |
+| `x = (!v).pop() ?? 0` | `x = !v.pop() ?? 0` | a value used, in a binding, an argument, an `as` header, or a result |
+| `if (!s).insert(k)` | none | a `Bool` value used keeps its parentheses |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
 | `(?p).dist(q)` | `?p.dist(q)` | lend `p` to read; the same as `p.dist(q)` |
 
@@ -519,11 +521,15 @@ makes applies to the whole expression too: `?f(x).g()` lends what `g`
 returns, since a made self is read or taken without a sigil. With
 parentheses around the call, `?(p.m())` and `!(p.m())` lend its
 result. The long form is valid everywhere; it is
-required for a write call whose value is used, whatever its type:
-`if (!set).insert(k)`, `x = (!v).pop()`, `while (!it).next() as x`,
-so that its `!` never reads as negation. The short form stands only
-where the value is discarded: a statement, alone or under `!`, `?`, or
-`catch` ([SPEC §3](SPEC.md#objects) has the checks).
+required for a write call whose `Bool` value is used, `if
+(!set).insert(k)`, `ok = (!set).insert(k)`, so that its `!` never
+reads as negation. The method's declared result decides: a call
+returning a `T` is short even where `T` is a `Bool`. Every other write
+call is short wherever its value goes, `x = !v.pop()`, `while
+!it.next() as x`, `t = !@new_node(k)` ([SPEC §3](SPEC.md#objects) has
+the checks). Two places keep the long form whatever the call gives: a
+`for` source, where a leading `!` is the loop's mode (`for x in
+(!it).items()`), and an assignment's target, `(!a).at_mut(i).n = 1`.
 
 ```rig
 obj Stack
@@ -533,7 +539,7 @@ obj Stack
     !@items.push(k)
 
   fun pop(!@) -> Int?
-    (!@items).pop()
+    !@items.pop()
 
   fun total(<@) -> Int
     sum = 0
@@ -546,7 +552,7 @@ sub main()
   !s.push(1)
   !s.push(2)
   !s.items.push(3)
-  print((!s).pop() ?? 0)
+  print(!s.pop() ?? 0)
   print(<s.total())
 ```
 

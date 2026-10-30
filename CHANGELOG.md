@@ -74,8 +74,8 @@ Syntax:
     parenthesized: `f() catch |e| (1 if e == E.bad else 2)`.
 23. A closure body below its bar list ends with its line; the `)` that
     closes the call goes on the next line.
-24. A write call whose value is used is parenthesized: `x = (!v).pop()`,
-    not `x = !v.pop()`.
+24. A write call whose `Bool` value is used is parenthesized:
+    `if (!s).add(k)`, not `if !s.add(k)`.
 25. A lend is written on a whole path, not its base: `v.len` and
     `<s.o`, not `(?v).len` and `<(!s).o`.
 
@@ -225,6 +225,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   self (`?xs[i].m()`, `?xs[i].f.m()`, `?g[r][c].m()`, a slice's element,
   a generic method's self) is now reached in place, as a `!` self
   already was. *Unsound before.*
+- **A write call whose value is used is written short,** `x =
+  !v.pop()`, `t = !@new_node(k)`, `while !it.next() as x`, in a
+  binding, an argument, an `as` header, under `??`, and in a result.
+  Only a call whose method declares a `Bool` result (or `Bool!`) keeps
+  its `!` in parentheses where its value is used, `if (!seen).add(k)`,
+  so it never reads as `not`; a call returning a `T` is short even
+  where `T` is a `Bool`. The long form `(!v).pop()` stays valid
+  everywhere. The change only accepts programs rejected before, and
+  `tools/drop-write-parens.py` drops the parentheses no longer needed.
 - **A literal is self of a call through an API:** `Twice.twice(4)` and
   `5.twice()`, given `add Int: Twice`, call `Int`'s method, as
   `Twice.twice(x)` of an `x: Int` does, and a literal that does not fit

@@ -126,7 +126,7 @@ fail "chan arm outside select", "`on_recv` makes an arm of `task.select`, and st
   c = *Chan[Int](1)
   _ = (!c).on_recv(|v| v)
 
-fail "chan receive marked", "method `recv` needs `self` lent to write; write `(!c).recv()`: a channel changes as it sends and receives, and a change through a shared handle is marked with `!`", errors: 1
+fail "chan receive marked", "method `recv` needs `self` lent to write; write `!c.recv()`: a channel changes as it sends and receives, and a change through a shared handle is marked with `!`", errors: 1
   c = *Chan[Int](1)
   !c.send(3) catch print("closed")
   v = c.recv() catch none

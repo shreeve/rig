@@ -2038,14 +2038,22 @@ does not take `!@` is rejected (it reads as negation, which is
 `not`), `<` before one that does not take `<@`, `?` before one that
 takes `!@` or `<@`, and any of them before a function with no
 self (`Point.origin()`). A
-write call whose value is used, whatever its type, is written in the
-long form, `(!set).insert(k)`, wherever the value goes (a condition, an
+write call whose value is used and whose method declares a `Bool`
+result (or a `Bool` that may fail, `Bool!`) is written in the long
+form, `(!set).insert(k)`, wherever the value goes (a condition, an
 `as` header, an operand, a binding, an argument, a return value, a
 function's or a closure's last line, a `match` subject, `??`), so its
-`!` never reads as negation: `x = (!v).pop()`, `while (!it).next() as
-x`. The short form stays for a call whose value is discarded: a
-statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`, and
-`_ = !v.pop()`, since `_ =` discards.
+`!` never reads as negation: `if !seen.insert(k)` would read as "if
+not inserted". Any other write call is written short wherever its
+value goes, `x = !v.pop()`, `while !it.next() as x`, `t =
+!@new_node(k)`. The result the method declares decides, before its
+type's arguments apply: `!flags.remove(0)` on a `List[Bool]` returns
+`T`, and is short. A `for` source keeps the long form, `for x in
+(!it).items()`, since a `!` before it is the loop's mode. A `Bool`
+call whose value is discarded is short
+too: a statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`,
+and `_ = !set.insert(k)`, since `_ =` discards. The long form
+`(!v).pop()` is valid everywhere.
 
 ```rig
 obj Tally
@@ -2125,19 +2133,20 @@ sub main()
 ```
 
 ```error
-write `(!t).insert(1)`: a write call whose value is used puts its `!` in parentheses
+write `(!t).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
 ```
 
-```rig reject
+```rig
 sub main()
   v: List[Int] = List()
   !v.push(1)
-  x = !v.pop()
-  print(x)
+  x = !v.pop() ?? 0
+  y = (!v).pop() ?? 0
+  print(x, y)
 ```
 
-```error
-write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
+```output
+1 0
 ```
 
 ```rig
@@ -12410,8 +12419,8 @@ keeps its write loan while it runs, and no value holds a write view
 made, `t = fill(!xs, 3)&`, and waited for there, `>t`; it is not
 moved, held in a list, or returned. A method's self is lent as the
 method takes it: `?c.get()&` to read, `(<c).into()&` to move it in, and
-`(!c).bump(2)&` to write, in parentheses as any write call whose value
-is used is ([Self sigils](SYNTAX.md#self-sigils)).
+`!c.bump(2)&` to write, short as any write call that gives no `Bool`
+([Self sigils](SYNTAX.md#self-sigils)).
 
 ```rig
 sub fill(xs: !List[Int], n: Int)
