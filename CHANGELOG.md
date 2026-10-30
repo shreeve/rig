@@ -386,6 +386,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   and 4.3% on zod3, with 5-7% fewer L3 load misses and 3-6% fewer kernel
   cycles, user cycles level
   ([small-maps.md](docs/history/records/2026-10/hash-race/small-maps.md)).
+- **bench/hash's guard builds its key lists out of line** (`called`), so
+  each row's loop runs to the List's length rather than to a constant
+  LLVM knows and may build again on every lookup. With it, Rig before
+  and after growth by value counts the same on every row (HashMap
+  text-hit 100.78 and 100.84 instructions, text-miss 61.96 and 62.15),
+  where with the constant the HashMap's text rows read 3.3 and 3.6% more
+  after it. The baseline is written again.
 - **bench/hash's guard gives the same counts every run.** Each row's two
   runs differ by about 1,000 million instructions, and each count is the
   least of 5, so the 1 to 2 million instructions the kernel adds to a

@@ -31,13 +31,15 @@ fun scatter(n: Int) -> Int
 fun text_of(n: Int) -> String
   String(U64.wrap(scatter(n)) >> (n % 48), "#", n)
 
-fun ints(from: Int) -> List[Int]
+# The key lists are built out of line, so a row's loop runs to the
+# List's length rather than to a constant LLVM knows.
+called fun ints(from: Int) -> List[Int]
   xs: List[Int] = List(capacity: N)
   for i in 0..N
     !xs.push(scatter(from + i))
   xs
 
-fun texts(from: Int) -> List[String]
+called fun texts(from: Int) -> List[String]
   xs: List[String] = List(capacity: N)
   for i in 0..N
     !xs.push(text_of(from + i))
