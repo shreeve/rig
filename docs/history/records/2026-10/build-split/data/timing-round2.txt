@@ -1,0 +1,10 @@
+ts-pattern
+  n1         fastest    256.6 ms  median    281.4 ms  ins  10.254 G  rss    312 MB  fastest/base 1.000  median/base 1.000  ins/base 1.000
+  s4         fastest    306.4 ms  median    324.7 ms  ins  11.621 G  rss    314 MB  fastest/base 1.194  median/base 1.154  ins/base 1.133
+  s8         fastest    314.3 ms  median    329.3 ms  ins  11.828 G  rss    315 MB  fastest/base 1.225  median/base 1.170  ins/base 1.153
+  s8b        fastest    290.7 ms  median    302.3 ms  ins  11.090 G  rss    315 MB  fastest/base 1.133  median/base 1.074  ins/base 1.082
+zod3
+  n1         fastest     81.5 ms  median     86.1 ms  ins   2.538 G  rss    124 MB  fastest/base 1.000  median/base 1.000  ins/base 1.000
+  s4         fastest     86.9 ms  median     96.2 ms  ins   2.906 G  rss    125 MB  fastest/base 1.066  median/base 1.117  ins/base 1.145
+  s8         fastest     88.1 ms  median     95.4 ms  ins   2.964 G  rss    126 MB  fastest/base 1.080  median/base 1.108  ins/base 1.168
+  s8b        fastest     88.9 ms  median     94.3 ms  ins   2.795 G  rss    126 MB  fastest/base 1.090  median/base 1.095  ins/base 1.101

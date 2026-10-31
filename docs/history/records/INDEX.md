@@ -106,6 +106,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
 | A frozen value's allocation (#767, 2026-10-28) | `*Frozen[T]` holds a strong count and the value, no weak count (8 bytes less), and its last drop is one atomic decrement; the weak count's cost to every `*T` on Trig measured: one `*T` allocation of 3.4M on ts-pattern, so storing it only when a weak handle exists is not worth a design round | [frozen-no-weak/](2026-10/frozen-no-weak/) |
 | Atomics without orderings (2026-10-30, proposed) | seq_cst costs nothing against acquire, release or acq_rel on Apple M5 (the same instructions, or equal speed), and only the seq_cst store differs on x86-64; ordering costs only against relaxed, in four places, two of which move inside built-in forms: a cache line per shared Cell (adjacent ones 4–29× slower), `update(f)` (2.4× faster on one thread), a per-core counter (88× at 8 threads), `wait_until`, and a snapshot Cell; Zig ceilings and Rust measured | [atomics/](2026-10/atomics/) |
+| Split builds (2026-10-31) | Trig's release build spends 440 of 448 s in LLVM on one core; 8 units cut by the call graph build Zig's part in 56 s at the same peak memory, but Trig runs 7.5-9.4% slower (4 or 8 module units, 14-21%), and the Mac has no LTO; approved: split debug builds, test packs and `rig run`, `--release` one unit unless `--units N`, ThinLTO measured on pup next | [build-split/](2026-10/build-split/) |
 | Inlining ray_color (2026-10-30, a study) | #777 changed no machine code for ray-dyn: LLVM already inlined what the size rule now inlines, and its recorded 6% x86 loss does not reproduce (all arms within 0.6% on pup). On arm64 keeping `ray_color` out of line runs 6.2% fewer instructions and 2.2% fewer cycles, as the merged function leaves no callee-saved FP register for World.hit's loop invariant; a rule for it waits on 20 quiet rounds and Trig | [ray-inline/](2026-10/ray-inline/) |
 
 ## Every record
@@ -171,6 +172,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [README.md](2026-10/atomics/README.md): the design note: Rig's atomics today, what seq_cst costs, the five built-in forms with their measured gains and costs to build, what stays out, and the order of building
 - [measurements.md](2026-10/atomics/measurements.md): seq_cst against the weaker orderings on Apple M5, in Zig and Rust, with arm64 and x86-64 instructions, and the counter, `update(f)`, waiting, snapshot, and false-sharing tables
+
+### 2026-10/build-split/
+
+- [README.md](2026-10/build-split/README.md): building Trig as several units compiled in parallel: what Zig 0.17 offers, the prototype, build time and memory, the run-time cost, what blocks a split, the compiler work, and the owner's decisions
+- [data/](2026-10/build-split/data/): each build's `/usr/bin/time -l`, the cut's statistics, and every timed run
 
 ### 2026-10/clone/
 

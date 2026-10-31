@@ -1,0 +1,37 @@
+{
+ "globals": {
+  "rig/alloc.zig": 13,
+  "rig/runtime.zig": 31,
+  "rig/sched.zig": 25,
+  "rig/tasks.zig": 1
+ },
+ "shadow": [
+  [
+   "rig/sched.zig",
+   1047,
+   "fn ready(r: *Registration, bits: u32) bool {"
+  ]
+ ],
+ "call_edges": 20180,
+ "cut_weight_before": 16437,
+ "cut_weight_after": 12368,
+ "total_edge_weight": 29836,
+ "functions": {
+  "inline/export": 5270,
+  "split": 4282,
+  "return": 22,
+  "param": 86
+ },
+ "split_lines": 198196.06,
+ "unit_lines": [
+  25511.36,
+  25515.35,
+  24291.48,
+  24901.149999999998,
+  25517.41,
+  25008.07,
+  25515.239999999998,
+  21936.0
+ ],
+ "error_names": 706
+}
