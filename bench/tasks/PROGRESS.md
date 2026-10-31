@@ -119,3 +119,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | main before #788, alternated (pup core 6) | rig-fast | 80 ns | 85 ns | 593.7 ms | 35 ns | 176.51 us | 4.5 KiB |
 | 2026-10-30 | #788: reads grow a String unfilled (pup core 6) | rig-fast | 79 ns | 85 ns | 594.1 ms | 35 ns | 177.19 us | 4.5 KiB |
 | 2026-10-31 | #815: a heap that does not fault in ahead keeps 1 MiB of freed large blocks resident | rig-fast | 104 ns | 43 ns | 83.2 ms | 5 ns | 92.22 us | 16.6 KiB |
+| 2026-10-31 | main 1ac34e1bb before #819, alternated (pup core 6) | rig-fast | 60 ns | 86 ns | 310.3 ms | 22 ns | 132.42 us | 4.6 KiB |
+| 2026-10-31 | #819: a pool call's waiter yields while the call finishes (pup core 6) | rig-fast | 60 ns | 86 ns | 310.3 ms | 22 ns | 130.69 us | 4.6 KiB |
+| 2026-10-31 | main 1ac34e1bb before #819, alternated (Mac, load 8-11) | rig-fast | 109 ns | 45 ns | 85.9 ms | 5 ns | 79.55 us | 16.6 KiB |
+| 2026-10-31 | #819: a pool call's waiter yields while the call finishes (Mac, load 8-11) | rig-fast | 95 ns | 45 ns | 85.0 ms | 5 ns | 77.77 us | 16.6 KiB |

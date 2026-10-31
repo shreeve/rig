@@ -85,8 +85,13 @@ A new session, human or agent, takes these steps in order:
 - **`none` of a large optional is one store** (queue row 30, branch
   `opt-flag`, the owner's ask): `rig.pack` writes a `?T` over 16 bytes
   by its flag alone, and a payload enum's optional is routed through
-  the helpers; sanstun's empty `poll_event` 1.9 ns to 0.26; Trig level. Ready
-  to merge.
+  the helpers; sanstun's empty `poll_event` 1.9 ns to 0.26; Trig level. On
+  main (#818).
+- **A pool call's waiter yields while the call finishes** (impact item
+  1's Rig-side lead, branch `pool-yield`): pinned to one core, the
+  waiter spun about 2.4 ms a Trig run (item 1's profile,
+  ~/Data/Code/Claude/rig/rig/item1/FINDINGS.md). Gates and the Trig A/B
+  running.
 - **Two more accepted programs that Zig rejected** (queue row 29): a
   `?[N]T` view passed bare where a `[]T` goes is lent from the address
   it holds, and a short form a `??` or `catch` fallback gives through a

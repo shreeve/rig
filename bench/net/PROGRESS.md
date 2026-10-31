@@ -86,3 +86,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | main before #788, alternated (pup core 6) | rig-fast | 4.81 us | 4.63 us | 29.88 us |
 | 2026-10-30 | #788: reads grow a String unfilled (pup core 6) | rig-fast | 4.76 us | 4.60 us | 29.35 us |
 | 2026-10-31 | #815: a heap that does not fault in ahead keeps 1 MiB of freed large blocks resident | rig-fast | 15.04 us | 6.26 us | 54.22 us |
+| 2026-10-31 | main 1ac34e1bb before #819, alternated (pup core 6) | rig-fast | 5.06 us | 3.79 us | 29.96 us |
+| 2026-10-31 | #819: a pool call's waiter yields while the call finishes (pup core 6) | rig-fast | 5.04 us | 3.79 us | 29.57 us |
+| 2026-10-31 | main 1ac34e1bb before #819, alternated (Mac, load 8-11) | rig-fast | 15.64 us | 6.11 us | 50.38 us |
+| 2026-10-31 | #819: a pool call's waiter yields while the call finishes (Mac, load 8-11) | rig-fast | 14.72 us | 6.09 us | 49.77 us |
