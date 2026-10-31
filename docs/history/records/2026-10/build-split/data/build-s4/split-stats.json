@@ -1,0 +1,29 @@
+{
+ "globals": {
+  "rig/alloc.zig": 13,
+  "rig/runtime.zig": 31,
+  "rig/sched.zig": 25,
+  "rig/tasks.zig": 1
+ },
+ "shadow": [
+  [
+   "rig/sched.zig",
+   1047,
+   "fn ready(r: *Registration, bits: u32) bool {"
+  ]
+ ],
+ "functions": {
+  "inline/export": 5270,
+  "split": 4282,
+  "return": 22,
+  "param": 86
+ },
+ "split_lines": 128947,
+ "unit_lines": [
+  32366,
+  32117,
+  32233,
+  32231
+ ],
+ "error_names": 706
+}
