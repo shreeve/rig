@@ -31,8 +31,10 @@ built, and most of jit's gain came from the segments, not the Tables:
 What jit had and hybrid lacks is huge pages for **segments** at a low
 floor: zod3 took 11 huge pages under jit and 2 under hybrid. A segment
 asks just before it is populated, so its check is current, and a floor
-of 8 never stalled. That is a change to `alloc.zig` alone, with no hook
-in `push`, and the next arm to build. `MADV_COLLAPSE`, a compacting
+of 8 never stalled. That change, to `alloc.zig` alone (`seg`), is
+2.6% faster on zod3 and 3.2-5.4% on the small projects where main's
+gate is shut, level quiet, with level instructions and at most 2 MB
+more peak RSS. `MADV_COLLAPSE`, a compacting
 "breaker", and a helper thread that faults pages in ahead all lose on
 one core or stall. Any huge pages raise peak RSS where main's gate is
 shut; that trade is the owner's.
@@ -304,18 +306,50 @@ Read from these:
   Between separately trained PGO builds, differences of about 1% in
   user cycles are within the builds' own spread.
 
-## Next: segments at a low floor
+## Segments at a low floor
 
 `newPage` asks for huge pages for a new 4 MiB segment and populates its
 first 1 MiB at once; `allocLarge` does the same for a block of 16 MiB or
-more, populating three quarters. Both check `hugeFree` (64 spare)
-moments before the pages fault, so the check is current, unlike a
-Table's at reserve. Gating them on the blocks they need plus 8, as jit
-did, is a change to `alloc.zig` alone: no field, no hook in `push`, no
-instruction on any hot path. From jit's runs, expected: zod3 1.6-2.8%
-faster where main's gate is shut, ts-pattern part of jit's 1.2-2.6%, 0
-stalls (jit had none in 240 runs at this floor), and peak RSS up to 5
-MB higher on zod3 where it takes them. One build and a 25-minute slot.
+more, populating three quarters. Both check the gate moments before the
+pages fault, so the check is current, unlike a Table's at reserve. The
+`seg` arm ([seg.patch](table-huge-data/seg.patch), `alloc.zig` only)
+lets them ask while free 2 MiB blocks number what they need plus 8;
+Tables keep main's gate. No field, no hook in `push`. Trig `2ba0719` by
+main `3296a2feb` with the patch, PGO as before (`d055c9ad9ef0f919`).
+
+Timed as before, two arms rotated, 20 rounds: natural (all six
+projects) and quiet, 12:50-12:58 after Trig's 12:00 suite, with a
+release build on the E-cores (pup at 12-17 free blocks). Raw:
+[times-s-nq.txt](table-huge-data/times-s-nq.txt); medians:
+[summary-seg.txt](table-huge-data/summary-seg.txt).
+
+| project, level | free | main | seg | seg vs main [25th, 75th] | huge pages main / seg | faults main / seg | peak RSS main / seg |
+|---|---:|---:|---:|---|---|---|---|
+| ts-pattern, natural | 14 | 881 ms | 872 ms | 0.8% faster [-1.2%, -0.1%] | 0 / 6 | 40,245 / 39,814 | 246.7 / 246.9 MB |
+| ts-pattern, quiet | 257 | 912 ms | 907 ms | 0.6% faster [-2.3%, +0.7%] | 76 / 76 | 14,894 / 14,893 | 259.1 / 259.0 MB |
+| zod3, natural | 16 | 177 ms | 173 ms | **2.6% faster** [-4.0%, -1.4%] | 0 / 7 | 9,924 / 9,498 | 77.2 / 77.5 MB |
+| zod3, quiet | 262 | 175 ms | 176 ms | 0.2% slower [-2.7%, +1.8%] | 15 / 15 | 7,774 / 7,774 | 84.1 / 84.1 MB |
+| tiny-invariant, natural | 17 | 78 ms | 75 ms | 3.2% faster [-4.7%, -1.2%] | 0 / 7 | 6,042 / 5,636 | 49.2 / 50.3 MB |
+| superstruct, natural | 17 | 36 ms | 34 ms | 5.4% faster [-9.9%, -2.0%] | 0 / 4 | 2,742 / 2,097 | 22.9 / 23.3 MB |
+| mitt, natural | 17 | 28 ms | 27 ms | 3.2% faster [-7.3%, +0.1%] | 0 / 3 | 2,624 / 2,264 | 31.3 / 32.0 MB |
+| neverthrow, natural | 17 | 29 ms | 30 ms | 0.4% faster [-7.6%, +5.6%] | 0 / 3 | 3,072 / 2,563 | 30.6 / 32.6 MB |
+
+User instructions are level (ts-pattern 7.971G main, 7.959G seg; zod3
+1.402G and 1.401G). 0 compaction stalls; every output tsrs's bytes.
+
+Read from these:
+
+- **Where main's gate is shut, seg is faster on five of six projects**:
+  zod3 2.6%, the small projects 3.2-5.4%, ts-pattern 0.8% (its
+  footprint is Tables', which keep main's gate). neverthrow is level.
+- **Quiet, seg is main**: the same 76 and 15 huge pages, within 0.6%.
+- **Peak RSS rises 0.1-2.0 MB** where seg takes huge pages: 0.4% on
+  zod3, 0.1% on ts-pattern, 1-7% on the small projects (2.0 MB on
+  neverthrow). Far less than jit's, since a segment's huge pages are
+  filled densely.
+- At 12-17 free blocks seg takes 3-7 huge pages a run. At the partly
+  fragmented level (leave35) it would take more; that part waits for a
+  quiet slot.
 
 ## Stash on the blocking pool (not built)
 
@@ -333,14 +367,18 @@ Trig against tsrs should then be timed so, is the owner's call.
 
 ## Recommendation
 
-1. **Do not land** jit, hybrid or hybrid2. The Tables' windows earn
+1. **seg** (default: build it properly): segments and large blocks ask
+   for huge pages while free blocks number their need plus 8, in
+   `alloc.zig` alone. zod3 2.6% and the small projects 3.2-5.4% faster
+   where main's gate is shut, level quiet, no stall, level instructions,
+   peak RSS up to 2 MB higher. Before a PR: the leave35 part, a test of
+   the floor on a buddyinfo reading, and the comparison with row 21's
+   `alloc.zig` prototype.
+2. **Do not land** jit, hybrid or hybrid2. The Tables' windows earn
    1.4% on ts-pattern where the gate is shut and cost about 1%
    wherever no window asks, from the hook in `push`.
-2. **Next arm: segments at a low floor** (default), `alloc.zig` only,
-   one build and a 25-minute slot at quiet, natural and leave35.
-3. **Peak RSS**: any huge pages where main's gate is shut raise it
-   (1.5% ts-pattern, up to 6.5% zod3). The owner asked for less memory
-   as well as speed; his call.
+3. **Peak RSS** rises with any huge pages where main's gate is shut;
+   seg's rise is the smallest measured. The owner's call.
 4. **Drop** `MADV_COLLAPSE` (9-22% slower in every state), the breaker
    (bounds how many stalls, not how long: one window took 84 ms), and
    the stash thread (owner's principle; loses on one core).
