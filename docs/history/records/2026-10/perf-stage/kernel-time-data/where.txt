@@ -1,0 +1,22 @@
+-- ts-pattern
+grow pages                   14768
+grow touched 1st half        6757
+grow touched 2nd half        4608
+new pages                    6036
+new pages >=3/4              1505
+new touched <3/4             4347
+new touched >=3/4            1213
+segment prefault untouched: inside the reached part 645, past the highest touched page 30
+-- zod3
+grow pages                   4200
+grow touched 1st half        1771
+grow touched 2nd half        1166
+new pages                    3138
+new pages >=3/4              780
+new touched <3/4             2092
+new touched >=3/4            494
+segment prefault untouched: inside the reached part 524, past the highest touched page 111
+-rw-r--r-- 1 root root 2307848 Oct 31 01:05 attr/ts-pattern.t.trace
+-rw-r--r-- 1 root root 3362195 Oct 31 01:05 attr/ts-pattern.tslg.trace
+-rw-r--r-- 1 root root  578289 Oct 31 01:05 attr/zod3.t.trace
+-rw-r--r-- 1 root root  957024 Oct 31 01:05 attr/zod3.tslg.trace

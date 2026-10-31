@@ -1,0 +1,19 @@
+site                                                  calls       MiB      ms  share
+table: unreserve munmap                                  43   53894.0   11.17  77.6%
+large: growth mremap                                    116      60.5    2.20  15.3%
+large: mapPages mmap                                    112      39.6    0.54   3.7%
+large: keepPiece remnant unmap                           16       0.2    0.24   1.7%
+table: reserve, small pages (mmap + NOHUGEPAGE)          86  107788.0    0.11   0.7%
+other munmap                                             10      16.7    0.07   0.5%
+other mmap                                                9      16.8    0.04   0.3%
+other mmap noreserve                                      4  131140.5    0.03   0.2%
+segment taken from the region                            11      44.0    0.00   0.0%
+total                                                   407             14.39
+
+user page faults by mapping: {'other': 2498, 'other-anon': 56, 'region': 9580, 'large': 17836, 'table': 32476} total 62446
+
+skipped prefault site                       pages  touched untouched %untouched
+segment: next 1 MiB prefault                 7168     6787       381       5.3%
+segment: new, first 1 MiB prefault           2560     2266       294      11.5%
+large: new block prefault (3/4)              4383     4334        49       1.1%
+large: growth prefault (half the gain)       7360     6786       574       7.8%

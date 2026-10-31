@@ -1,0 +1,238 @@
+diff --git a/src/alloc.zig b/src/alloc.zig
+index 727b528e0..847c49fcf 100644
+--- a/src/alloc.zig
++++ b/src/alloc.zig
+@@ -60,6 +60,55 @@ const pages_per_prefault = prefault_size / page_size;
+ /// `std.os.linux.MADV` does not name.
+ const madv_populate_write: u32 = 23;
+ 
++// PROTOTYPE (kernel-time): RIG_KT letters switch policies for measurement.
++//   s no segment prefault, l no new-large prefault, g no growth prefault,
++//   S a new segment prefaults whole (4 MiB) and none after,
++//   t tag each kernel call by its site (an invalid madvise just before it),
++//   k never give kept blocks back (no trim, no unmap on free).
++const Exp = struct { read: bool = false, s: bool = false, l: bool = false, g: bool = false, S: bool = false, t: bool = false, k: bool = false };
++var exp: Exp = .{};
++var env_buf: [1 << 16]u8 = undefined;
++inline fn ex() Exp {
++    if (!exp.read) readExp();
++    return exp;
++}
++noinline fn readExp() void {
++    @branchHint(.cold);
++    var e: Exp = .{ .read = true };
++    if (builtin.os.tag == .linux) blk: {
++        const linux = std.os.linux;
++        const rc = linux.openat(linux.AT.FDCWD, "/proc/self/environ", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
++        if (@as(isize, @bitCast(rc)) < 0) break :blk;
++        const fd: linux.fd_t = @intCast(rc);
++        defer _ = linux.close(fd);
++        var len: usize = 0;
++        while (len < env_buf.len) {
++            const r: isize = @bitCast(linux.read(fd, env_buf[len..].ptr, env_buf.len - len));
++            if (r <= 0) break;
++            len += @intCast(r);
++        }
++        var it = std.mem.splitScalar(u8, env_buf[0..len], 0);
++        while (it.next()) |kv| if (std.mem.startsWith(u8, kv, "RIG_KT=")) {
++            for (kv[7..]) |ch| switch (ch) {
++                's' => e.s = true,
++                'l' => e.l = true,
++                'g' => e.g = true,
++                'S' => e.S = true,
++                't' => e.t = true,
++                'k' => e.k = true,
++                else => {},
++            };
++        };
++    }
++    exp = e;
++}
++/// PROTOTYPE: an invalid madvise naming the site of the kernel call after it.
++pub fn tag(p: usize, len: usize, site: u32) void {
++    if (builtin.os.tag != .linux) return;
++    if (!ex().t) return;
++    _ = std.os.linux.syscall3(.madvise, p & ~(std.heap.pageSize() - 1), len, 0x7700 + site);
++}
++
+ /// What every heap has taken from the system together (`Heap.taken`).
+ var taken_all: std.atomic.Value(usize) = .init(0);
+ 
+@@ -92,9 +141,12 @@ const prefault_large: usize = 8 << 20;
+ /// cycles a program stalls after each, and commits little a program
+ /// never writes. Elsewhere, or where the system cannot (an older kernel),
+ /// the pages fault as they are touched.
+-fn prefault(h: *const Heap, p: usize, len: usize) void {
++fn prefault(h: *const Heap, p: usize, len: usize, site: u32) void {
+     if (len == 0) return;
+     if (!faultsAhead(h)) return;
++    tag(p, len, site);
++    const e = ex();
++    if ((site <= 2 and e.s) or (site == 4 and e.l) or (site == 6 and e.g)) return;
+     if (builtin.os.tag == .linux) {
+         const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+         std.posix.madvise(at, len, madv_populate_write) catch {};
+@@ -272,19 +324,20 @@ pub const Heap = struct {
+     fn newPage(h: *Heap) ?usize {
+         if (h.segment) |s| if (s.used < pages_per_segment) {
+             const p = @intFromPtr(s) + s.used * page_size;
+-            if (s.used % pages_per_prefault == 0) prefault(h, p, prefault_size);
++            if (s.used % pages_per_prefault == 0 and !ex().S) prefault(h, p, prefault_size, 1);
+             s.used += 1;
+             return p;
+         };
+         const s = mapSegment() orelse return null;
++        tag(@intFromPtr(s), segment_size, 15);
+         h.took(segment_size);
+         // A heap that does much of the work fills its segments densely,
+         // so it asks for huge pages for them; a heap that keeps to one
+         // segment, as a server's worker's or a blocking-pool thread's,
+         // keeps small pages, as a huge page would commit 2 MiB of it.
+-        if (builtin.os.tag == .linux and faultsAhead(h)) adviseHuge(@intFromPtr(s), segment_size);
++        if (builtin.os.tag == .linux and faultsAhead(h)) adviseHuge(@intFromPtr(s), segment_size, 3);
+         // The header's page, and the first stretch the heap carves from.
+-        prefault(h, @intFromPtr(s), prefault_size);
++        prefault(h, @intFromPtr(s), if (ex().S) segment_size else prefault_size, 2);
+         s.* = .{ .heap = h, .used = 2 };
+         h.segment = s;
+         return @intFromPtr(s) + page_size;
+@@ -398,11 +451,11 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
+         return p;
+     }
+     const got = mapLarge(size) orelse return null;
+-    if (size >= huge_large) adviseHuge(got, size);
++    if (size >= huge_large) adviseHuge(got, size, 5);
+     h.took(size);
+     lent(h, size);
+     trimKept(h);
+-    prefault(h, got, likelyFilled(size - size / 4));
++    prefault(h, got, likelyFilled(size - size / 4), 4);
+     return @ptrFromInt(got);
+ }
+ 
+@@ -423,15 +476,21 @@ const huge_page: usize = 2 << 20;
+ fn mapLarge(size: usize) ?usize {
+     const got = mapPages(size) orelse return null;
+     if (builtin.os.tag != .linux or size < huge_large or got % huge_page == 0) return got;
++    tag(got, size, 8);
+     unmapLarge(got, size);
+     const raw = mapPages(size + huge_page) orelse return null;
+     const p = std.mem.alignForward(usize, raw, huge_page);
+-    if (p > raw) unmapLarge(raw, p - raw);
++    if (p > raw) {
++        tag(raw, p - raw, 8);
++        unmapLarge(raw, p - raw);
++    }
++    tag(p + size, raw + huge_page - p, 8);
+     unmapLarge(p + size, raw + huge_page - p);
+     return p;
+ }
+ 
+ fn mapPages(size: usize) ?usize {
++    tag(0, size, 14);
+     const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
+     return @intFromPtr(got.ptr);
+ }
+@@ -440,9 +499,10 @@ fn mapPages(size: usize) ?usize {
+ /// where it is set to do so for a range that asks (`madvise` mode), while
+ /// it has free 2 MiB blocks to spare (`hugeFree`). A system that cannot
+ /// leaves them as they are.
+-fn adviseHuge(p: usize, len: usize) void {
++fn adviseHuge(p: usize, len: usize, site: u32) void {
+     if (builtin.os.tag != .linux) return;
+     if (!hugeFree()) return;
++    tag(p, len, site);
+     const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+     std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
+ }
+@@ -585,7 +645,10 @@ fn lastHeld(h: *const Heap) ?usize {
+ /// Keep the `len` bytes at `p`, or give them back to the system if no
+ /// large request could take them.
+ fn keepPiece(h: *Heap, p: usize, len: usize) void {
+-    if (len < minLarge()) return unmapLarge(p, len);
++    if (len < minLarge()) {
++        tag(p, len, 9);
++        return unmapLarge(p, len);
++    }
+     const f: *LargeFree = @ptrFromInt(p);
+     const k = largeBucket(len);
+     f.* = .{ .next = h.large[k], .len = len };
+@@ -601,12 +664,14 @@ fn keepPiece(h: *Heap, p: usize, len: usize) void {
+ /// blocks, a program's tables built again, which cost the most pages
+ /// to fault in afresh.
+ fn trimKept(h: *Heap) void {
++    if (ex().k) return;
+     while (h.large_bytes > keepBound(h)) {
+         const over = h.large_bytes - keepBound(h);
+         var j = nextHeld(h, largeBucket(over));
+         const f = while (j) |b| : (j = nextHeld(h, b + 1)) {
+             if (unkeep(h, b, over)) |f| break f;
+         } else unkeep(h, lastHeld(h) orelse return, 0).?;
++        tag(@intFromPtr(f), f.len, 10);
+         unmapLarge(@intFromPtr(f), f.len);
+     }
+ }
+@@ -623,7 +688,10 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
+     // free is the settled peak's measure.
+     h.large_live -|= size;
+     h.large_peak = @max(h.large_peak, h.large_live);
+-    if (h.large_bytes + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
++    if (!ex().k and h.large_bytes + size > keepBound(h)) {
++        tag(@intFromPtr(p), size, 11);
++        return unmapLarge(@intFromPtr(p), size);
++    }
+     keepPiece(h, @intFromPtr(p), size);
+ }
+ 
+@@ -944,18 +1012,22 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+     const linux = std.os.linux;
+     // A block grown to `huge_large` moves to pages aligned for huge ones.
+     const to = if (new_size >= huge_large) mapLarge(new_size) orelse return null else 0;
++    tag(@intFromPtr(memory.ptr), old_size, 12);
+     const rc = linux.mremap(@alignCast(memory.ptr), old_size, new_size, .{ .MAYMOVE = true, .FIXED = to != 0 }, if (to != 0) @ptrFromInt(to) else null);
+     if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) {
+-        if (to != 0) unmapLarge(to, new_size);
++        if (to != 0) {
++            tag(to, new_size, 13);
++            unmapLarge(to, new_size);
++        }
+         return null;
+     }
+-    if (to != 0) adviseHuge(rc, new_size);
++    if (to != 0) adviseHuge(rc, new_size, 7);
+     // The pages moved stay; of the new ones, those a List is likely to
+     // fill are faulted in at once.
+     h.took(new_size - old_size);
+     lent(h, new_size - old_size);
+     trimKept(h);
+-    prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 2));
++    prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 2), 6);
+     if (counts) h.count(@intCast(new_size - old_size), 0);
+     return @ptrFromInt(rc);
+ }
+diff --git a/src/table.zig b/src/table.zig
+index d041e1787..ca21704d2 100644
+--- a/src/table.zig
++++ b/src/table.zig
+@@ -114,11 +114,13 @@ fn reserve(bytes: usize) [*]align(page) u8 {
+     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
+     const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
+     if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
++        rt.fast_alloc.tag(0, bytes, 20);
+         const m = std.posix.mmap(null, bytes, prot, flags, -1, 0) catch reservePanic(bytes);
+         if (builtin.os.tag == .linux) std.posix.madvise(m.ptr, m.len, std.posix.MADV.NOHUGEPAGE) catch {};
+         return m.ptr;
+     }
+     // Mapped `huge` long, then trimmed to start on a 2 MiB boundary.
++    rt.fast_alloc.tag(0, bytes, 21);
+     const m = std.posix.mmap(null, bytes + huge, prot, flags, -1, 0) catch reservePanic(bytes);
+     const lo = @intFromPtr(m.ptr);
+     const start = std.mem.alignForward(usize, lo, huge);
+@@ -133,6 +135,7 @@ fn reserve(bytes: usize) [*]align(page) u8 {
+ }
+ 
+ fn unreserve(p: [*]align(page) u8, bytes: usize) void {
++    rt.fast_alloc.tag(@intFromPtr(p), bytes, 22);
+     std.posix.munmap(p[0..bytes]);
+ }
+ 
