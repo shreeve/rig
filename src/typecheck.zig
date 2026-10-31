@@ -9617,7 +9617,7 @@ const Checker = struct {
 
     /// Whether `ty` is a plain enum, every variant without a payload: one
     /// whose values are integers (`enumValues`), or a built-in one,
-    /// `Endian` or `Arch`, whose values are Zig's. Each has `e.text` and
+    /// `Endian`, `Arch`, or `Os`, whose values are Zig's. Each has `e.text` and
     /// `E.from_text(word)`.
     fn hasVariantNames(self: *Checker, ty: TypeId) bool {
         if (self.enumValues(ty) == true) return true;
@@ -9625,8 +9625,8 @@ const Checker = struct {
         return sema.isBuiltinEnum(decl.ctx, decl.sym);
     }
 
-    /// Whether `ty`, read through views, is a built-in enum, `Endian` or
-    /// `Arch`: no payloads, but variants that are Zig's, with no integer
+    /// Whether `ty`, read through views, is a built-in enum, `Endian`,
+    /// `Arch`, or `Os`: no payloads, but variants that are Zig's, with no integer
     /// Rig fixes.
     fn isBuiltinEnumTy(self: *Checker, ty: TypeId) bool {
         const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;

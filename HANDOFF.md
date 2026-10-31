@@ -78,6 +78,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **`target.os: Os`** (queue row 25a; the owner approved the name):
+  std.target gives the operating system as a built-in enum of Zig's
+  `std.Target.Os.Tag`, built as `Arch` is, so the coreutils port can
+  choose signal numbers and errors by system. In review as one PR.
 - **Two more accepted programs that Zig rejected** (queue row 29): a
   `?[N]T` view passed bare where a `[]T` goes is lent from the address
   it holds, and a short form a `??` or `catch` fallback gives through a

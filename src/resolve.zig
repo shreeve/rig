@@ -5070,6 +5070,25 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         try setFields(ctx, sym, &variants);
     }
 
+    // Os: the operating system the program is compiled for, which
+    // `std.target`'s `os` gives. Like `Arch`, its variants are all of
+    // Zig's (`std.Target.Os.Tag`), and it lowers to that type.
+    {
+        const sym = try ctx.addSymbol(.{
+            .name = "Os",
+            .kind = .nominal_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_pos,
+            .scope = module_scope,
+        });
+        try ctx.addToScope(module_scope, sym);
+        ctx.os_sym_id = sym;
+        const names = @typeInfo(std.Target.Os.Tag).@"enum".field_names;
+        var variants: [names.len]sema.Field = undefined;
+        for (names, &variants) |n, *v| v.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true };
+        try setFields(ctx, sym, &variants);
+    }
+
     // Simd[T, n: Int]: a vector of `n` lanes. An instance is a type of
     // its own kind (`simdInstance`), whose operators and methods typing
     // knows; the symbol only names it, so it is reserved like `List`.

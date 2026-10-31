@@ -4,3 +4,4 @@
 const builtin = @import("builtin");
 
 pub const arch = builtin.cpu.arch;
+pub const os = builtin.os.tag;
