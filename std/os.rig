@@ -1,5 +1,6 @@
 # std.os: the process's arguments, environment, working directory, what
-# its allocations come to, and ending it now.
+# its allocations come to, ending it now, and what a closed stdout pipe
+# does.
 
 use std.file
 
@@ -31,6 +32,24 @@ pub obj Memory
 pub fun memory() -> Memory
   Memory(live: memory_live(), peak: memory_peak(), allocs: memory_allocs())
 
+# What a write to stdout does once its reader has closed the pipe
+# (`prog | head -1`), as `on_broken_pipe` sets it.
+pub enum BrokenPipe
+  # End the program quietly, with status 0: the default.
+  exit
+  # Die by SIGPIPE, as a C program does, so a shell sees status 141.
+  die
+
+# What a write to stdout does once its reader has closed the pipe, for
+# the rest of the program, from `main` or any task. Either way the
+# program ends at once, with no drop, `defer`, or leak check. It covers
+# stdout alone: a failed `warn` is still dropped, and a socket whose
+# other end closes still fails the write with `net.NetError.closed`.
+pub sub on_broken_pipe(how: BrokenPipe)
+  match how
+    BrokenPipe.exit => set_broken_pipe_dies(false)
+    BrokenPipe.die => set_broken_pipe_dies(true)
+
 extern zig "os.zig"
   # Every argument, the program's name first. The text lives as long as
   # the program, like a literal's.
@@ -53,3 +72,6 @@ extern zig "os.zig"
   fun memory_live() -> Int
   fun memory_peak() -> Int
   fun memory_allocs() -> Int
+
+  # `on_broken_pipe`'s setting.
+  sub set_broken_pipe_dies(dies: Bool)

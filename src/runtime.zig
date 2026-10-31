@@ -6952,10 +6952,11 @@ var process_args: []const []const u8 = &.{};
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
-    // A write to a closed pipe (`prog | head`) fails with BrokenPipe,
-    // which `stdoutFailed` ends the program on with status 0, instead of
-    // killing it by SIGPIPE. A handler that does nothing, unlike ignoring
-    // the signal, is reset in a process this one starts.
+    // A write to a closed pipe (`prog | head`) or socket fails with
+    // BrokenPipe, instead of killing the program by SIGPIPE: a socket's
+    // write gets an error, and `stdoutFailed` ends the program as
+    // `broken_pipe_dies` says. A handler that does nothing, unlike
+    // ignoring the signal, is reset in a process this one starts.
     if (std.posix.Sigaction != void and @hasField(std.posix.SIG, "PIPE")) {
         const act: std.posix.Sigaction = .{
             .handler = .{ .handler = onBrokenPipe },
@@ -7013,6 +7014,17 @@ pub fn start(init: std.process.Init.Minimal) void {
 }
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
+
+/// What a write to stdout does once its reader has closed the pipe, as
+/// `os.on_broken_pipe` sets it: false ends the program with status 0,
+/// true ends it by SIGPIPE, as a C program dies (`stdoutFailed`).
+var broken_pipe_dies = std.atomic.Value(bool).init(false);
+
+/// `os.on_broken_pipe(how)`: whether a closed stdout pipe kills the
+/// program by SIGPIPE.
+pub fn setBrokenPipeDies(dies: bool) void {
+    broken_pipe_dies.store(dies, .seq_cst);
+}
 
 /// No crash report for this process's death, on Linux: a core limit of
 /// exactly 1, at which the kernel starts no `core_pattern` pipe (apport)
@@ -7352,9 +7364,10 @@ fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
 }
 
 /// The one place a failed write to stdout lands. A closed pipe (`prog |
-/// head`) ends the program quietly with status 0, unless a panic is being
-/// reported or `rig test` has not finished (its verdict is lost, so it is
-/// status 1); any other failure ends it with `error: stdout: <reason>` and
+/// head`) ends the program quietly with status 0, or by SIGPIPE once
+/// `os.on_broken_pipe(.die)` has set `broken_pipe_dies`, unless a panic
+/// is being reported or `rig test` has not finished (its verdict is lost,
+/// so it is status 1); any other failure ends it with `error: stdout: <reason>` and
 /// status 1. Either way it ends as a panic does: no drop, `defer`, or leak
 /// check runs.
 noinline fn stdoutFailed() noreturn {
@@ -7362,7 +7375,11 @@ noinline fn stdoutFailed() noreturn {
     if (pgo) writeProfile();
     const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
     if (err == error.BrokenPipe) {
-        std.process.exit(if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) 1 else 0);
+        if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) std.process.exit(1);
+        if (comptime std.posix.Sigaction != void and @hasField(std.posix.SIG, "PIPE")) {
+            if (broken_pipe_dies.load(.seq_cst)) endBy(.PIPE);
+        }
+        std.process.exit(0);
     }
     var buf: [128]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
