@@ -334,7 +334,7 @@ use std.os
 
 sub main()
   os.on_broken_pipe(.die)
-  for i in 0..3
+  for 0..3
     print("y")
 ```
 
