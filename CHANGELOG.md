@@ -220,7 +220,8 @@ Other:
     `?k`. Trig needs no migration: its emitted Zig is unchanged.
 55. `Os` names a built-in type, the operating system `target.os` gives,
     so a program's own type may not take the name, as it may not take
-    `Arch`. No program in Rig, Trig, or loco declares one.
+    `Arch`. No program in Rig, Trig, or loco declares one, so Trig needs
+    no migration.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
