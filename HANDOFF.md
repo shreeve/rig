@@ -131,6 +131,10 @@ A new session, human or agent, takes these steps in order:
   HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value
   barrier. Its review's findings are fixed and its
   gates are green; it waits to merge.
+- **`rig test std.NAME`** (owner, 2026-10-31): `rig test` takes a
+  standard library module's name and runs its own test blocks, so
+  std's private code is tested in place; first for #814's two MACs. A
+  draft PR, waiting on the light gates.
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review

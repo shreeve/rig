@@ -199,10 +199,6 @@ pub const ModuleGraph = struct {
     /// The root is a file, or a directory module (`isDirectory`), whose
     /// imports are then its siblings.
     pub fn loadRoot(self: *ModuleGraph, path: []const u8) Error!void {
-        const Frame = struct { id: ModuleId, next: usize = 0, ok: bool = true };
-        var stack: std.ArrayList(Frame) = .empty;
-        defer stack.deinit(self.allocator);
-
         const root_id = if (self.isDirectory(path)) blk: {
             const shown = std.mem.trimEnd(u8, path, "/");
             const canonical = try self.realPath(path);
@@ -225,6 +221,40 @@ pub const ModuleGraph = struct {
             };
             break :blk try self.add(try self.realPath(path), path, moduleName(path), source, &.{});
         };
+        try self.loadFrom(root_id);
+    }
+
+    /// Load and check the standard library's module `std.NAME`, `dotted`
+    /// being NAME, as the root, for `rig test std.NAME`: found in the
+    /// library in use (`std_dir`, or the one embedded), and loaded as one
+    /// of its modules, so its `extern zig` blocks bind; a directory
+    /// module with its test files (`with_tests`).
+    pub fn loadStdRoot(self: *ModuleGraph, dotted: []const u8) Error!void {
+        const a = self.arena.allocator();
+        const qualified = try a.print("std.{s}", .{dotted});
+        var comps: std.ArrayList([]const u8) = .empty;
+        var names = std.mem.splitScalar(u8, dotted, '.');
+        while (names.next()) |c| {
+            if (c.len == 0 or std.mem.findScalar(u8, c, '/') != null) {
+                try self.errors.append(self.allocator, try a.print("the standard library has no module `{s}`", .{qualified}));
+                return;
+            }
+            try comps.append(a, c);
+        }
+        const tree: Tree = if (self.std_dir) |d| .{ .dir = d, .std = true } else .{ .std = true, .embedded = true };
+        const found = (try self.findModule(null, .{ .start = 0, .end = 0 }, tree, comps.items, qualified)) orelse return;
+        const id = try self.add(found.key, found.display, qualified, found.source, found.parts);
+        self.get(id).is_std = true;
+        if (!try self.loadShims(id)) self.get(id).state = .failed;
+        try self.loadFrom(id);
+    }
+
+    /// Load the imports of the root `root_id`, depth first, and check
+    /// each module after its imports (`loadRoot`).
+    fn loadFrom(self: *ModuleGraph, root_id: ModuleId) Error!void {
+        const Frame = struct { id: ModuleId, next: usize = 0, ok: bool = true };
+        var stack: std.ArrayList(Frame) = .empty;
+        defer stack.deinit(self.allocator);
         if (self.get(root_id).state == .loading) try stack.append(self.allocator, .{ .id = root_id });
         while (stack.items.len > 0) {
             const top = &stack.items[stack.items.len - 1];
@@ -450,14 +480,15 @@ pub const ModuleGraph = struct {
     }
 
     /// The module `comps` names in `tree`, read and joined; null when
-    /// there is none, which is reported at `at` in module `id`.
-    fn findModule(self: *ModuleGraph, id: ModuleId, at: parser.Span, tree: Tree, comps: []const []const u8, qualified: []const u8) Error!?Found {
+    /// there is none, which is reported at `at` in module `id`, or with
+    /// no position when the module is the root (`id` null).
+    fn findModule(self: *ModuleGraph, id: ?ModuleId, at: parser.Span, tree: Tree, comps: []const []const u8, qualified: []const u8) Error!?Found {
         const a = self.arena.allocator();
         const rel = try std.mem.join(a, "/", comps);
         const file = try a.print("{s}.rig", .{rel});
         if (tree.std and !tree.embedded) {
             var d = std.Io.Dir.cwd().openDir(self.io, tree.dir.?, .{}) catch {
-                try self.errorAt(id, at, "RIG_STD names `{s}`, which is not a directory", .{tree.dir.?});
+                try self.dirError(id, at, "RIG_STD names `{s}`, which is not a directory", .{tree.dir.?});
                 return null;
             };
             d.close(self.io);
@@ -468,14 +499,14 @@ pub const ModuleGraph = struct {
             const parent = try std.mem.join(a, "/", comps[0 .. comps.len - 1]);
             const shown = if (tree.std) try a.print("std.{s}", .{try std.mem.join(a, ".", comps[0 .. comps.len - 1])}) else try std.mem.join(a, ".", comps[0 .. comps.len - 1]);
             if (file_kind == .file) {
-                try self.errorAt(id, at, "`{s}` is part of module `{s}`; a module under `{s}/` is a directory, such as `{s}/`", .{ file, shown, parent, rel });
+                try self.dirError(id, at, "`{s}` is part of module `{s}`; a module under `{s}/` is a directory, such as `{s}/`", .{ file, shown, parent, rel });
             } else if (tree.std) {
-                try self.errorAt(id, at, "the standard library has no module `{s}`: no directory {s}/", .{ qualified, rel });
-            } else try self.errorAt(id, at, "cannot read module `{s}`: no directory {s}/", .{ qualified, rel });
+                try self.dirError(id, at, "the standard library has no module `{s}`: no directory {s}/", .{ qualified, rel });
+            } else try self.dirError(id, at, "cannot read module `{s}`: no directory {s}/", .{ qualified, rel });
             return null;
         }
         if (comps.len == 1 and dir_kind == .dir and file_kind != .none) {
-            try self.errorAt(id, at, "module `{s}` is both the file `{s}` and the directory `{s}/`; keep one", .{ qualified, file, rel });
+            try self.dirError(id, at, "module `{s}` is both the file `{s}` and the directory `{s}/`; keep one", .{ qualified, file, rel });
             return null;
         }
         if (dir_kind == .dir) return self.readDir(id, at, tree, rel, qualified);
@@ -484,7 +515,7 @@ pub const ModuleGraph = struct {
                 try self.stdError(id, at, file, err);
                 return null;
             } orelse {
-                try self.errorAt(id, at, "the standard library has no module `{s}`", .{comps[0]});
+                try self.dirError(id, at, "the standard library has no module `{s}`", .{comps[0]});
                 return null;
             };
             return .{ .key = found.key, .display = found.display, .source = found.source, .parts = &.{} };
@@ -493,13 +524,13 @@ pub const ModuleGraph = struct {
         const display = try tree.path(a, file);
         const source = self.read(display) catch |err| {
             const hint = if (std.mem.eql(u8, name, "std")) "; a module of the standard library is `use std.NAME`" else "";
-            try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}{s}", .{ name, display, fileError(err), hint });
+            try self.dirError(id, at, "cannot read module `{s}` ({s}): {s}{s}", .{ name, display, fileError(err), hint });
             return null;
         };
         const canonical = try self.realPath(display);
         const real = std.fs.path.basename(canonical);
         if (!std.mem.eql(u8, real, file)) {
-            try self.errorAt(id, at, "module `{s}` is the file `{s}`; import it by that name", .{ name, real });
+            try self.dirError(id, at, "module `{s}` is the file `{s}`; import it by that name", .{ name, real });
             return null;
         }
         return .{ .key = canonical, .display = display, .source = source, .parts = &.{} };
@@ -520,7 +551,7 @@ pub const ModuleGraph = struct {
             for (std_lib.files) |f| {
                 const n = f[0];
                 if (n.len > rel.len + 1 and std.mem.startsWith(u8, n, rel) and n[rel.len] == '/' and std.mem.findScalar(u8, n[rel.len + 1 ..], '/') == null) {
-                    if (belongs(n[rel.len + 1 ..], false)) try names.append(a, n[rel.len + 1 ..]);
+                    if (belongs(n[rel.len + 1 ..], own_tests)) try names.append(a, n[rel.len + 1 ..]);
                 }
             }
         } else {
@@ -593,7 +624,7 @@ pub const ModuleGraph = struct {
         return .{ .key = key, .display = display_dir, .source = joined.items, .parts = parts.items };
     }
 
-    /// An error in reading a directory module: at the `use` of module
+    /// An error in finding or reading a module: at the `use` of module
     /// `id`, or, for the root, with no position.
     fn dirError(self: *ModuleGraph, id: ?ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {
         if (id) |i| return self.errorAt(i, at, fmt, args);
@@ -697,11 +728,11 @@ pub const ModuleGraph = struct {
     }
 
     /// Why a file of the standard library named `$RIG_STD` cannot be read.
-    fn stdError(self: *ModuleGraph, id: ModuleId, at: parser.Span, file: []const u8, err: anyerror) Error!void {
+    fn stdError(self: *ModuleGraph, id: ?ModuleId, at: parser.Span, file: []const u8, err: anyerror) Error!void {
         if (err == error.OutOfMemory) return error.OutOfMemory;
         const dir = self.std_dir.?;
-        if (err == error.NoStdDir) return self.errorAt(id, at, "RIG_STD names `{s}`, which is not a directory", .{dir});
-        try self.errorAt(id, at, "cannot read `{s}/{s}` (RIG_STD): {s}", .{ dir, file, fileError(err) });
+        if (err == error.NoStdDir) return self.dirError(id, at, "RIG_STD names `{s}`, which is not a directory", .{dir});
+        try self.dirError(id, at, "cannot read `{s}/{s}` (RIG_STD): {s}", .{ dir, file, fileError(err) });
     }
 
     /// Add a module and parse it; a module that does not parse is

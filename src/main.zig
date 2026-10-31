@@ -47,7 +47,8 @@ const usage =
     \\            about a function whose frame passes a page because of
     \\            what is inlined into it, naming what to mark `called`
     \\  test      Check, build, and run the program's `test` blocks,
-    \\            deterministically (`--seed`)
+    \\            deterministically (`--seed`); `rig test std.NAME` runs
+    \\            those of the standard library's module std.NAME
     \\  emit      Check, then print the root module's Zig to stdout
     \\  batch     Build many programs into one executable, <dir>/bin, with
     \\            one copy of the runtime (build), and run program <n> of it
@@ -240,6 +241,9 @@ const Options = struct {
     seed: ?u64 = null,
     /// `rig test --seeds=k`: run the tests with each seed from 1 to `k`.
     seeds: ?u64 = null,
+    /// `rig test std.NAME`: `path` names a module of the standard
+    /// library, not a file.
+    std_module: bool = false,
 };
 
 const Env = struct {
@@ -501,16 +505,20 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         return .{ .command = cmd, .path = "" };
     }
     const file = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)});
+    // `rig test` also takes a module of the standard library by its
+    // name, `std.NAME`: a word with no `/` that is not a `.rig` file.
+    if (cmd == .@"test" and std.mem.eql(u8, file, "std")) usageError("`rig test std` takes one module of the standard library: `rig test std.NAME`", .{});
+    const std_module = cmd == .@"test" and std.mem.startsWith(u8, file, "std.") and !std.mem.endsWith(u8, file, ".rig") and std.mem.findScalar(u8, file, '/') == null;
     // `rig check` and `rig test` also take a directory module.
-    const directory = (cmd == .check or cmd == .@"test") and isDirectory(io, file);
+    const directory = !std_module and (cmd == .check or cmd == .@"test") and isDirectory(io, file);
     // `rig build` writes ./<name>: a file without `.rig` would be its own
     // output.
     const base = std.fs.path.basename(file);
-    if (!directory and (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len)) usageError("`{s}` is not a .rig file", .{file});
+    if (!std_module and !directory and (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len)) usageError("`{s}` is not a .rig file", .{file});
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .bolt = lay_out, .bolt_profile = bolt_profile, .pgo = profiled, .pgo_profile = pgo_profile, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .bolt = lay_out, .bolt_profile = bolt_profile, .pgo = profiled, .pgo_profile = pgo_profile, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds, .std_module = std_module };
 }
 
 /// `rig check --tasks`: each local task of the program's own modules,
@@ -783,8 +791,9 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 }
 
 /// What a path names as the root: the file or directory itself, or for
-/// `rig check`, the module the file is part of.
-const Root = enum { path, module };
+/// `rig check`, the module the file is part of; for `rig test std.NAME`,
+/// the path is that name (`Options.std_module`).
+const Root = enum { path, module, std_module };
 
 /// The program at `path`, checked, or `null` when the checkers reject it,
 /// once its diagnostics are on stderr.
@@ -794,9 +803,14 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     errdefer graph.deinit();
     graph.std_dir = env.get("RIG_STD");
     graph.timing = times;
-    const at: modules.ModuleGraph.Root = if (root == .module) try graph.rootOf(path) else .{ .path = path };
-    graph.with_tests = with_tests or at.tests;
-    try graph.loadRoot(at.path);
+    if (root == .std_module) {
+        graph.with_tests = with_tests;
+        try graph.loadStdRoot(path["std.".len..]);
+    } else {
+        const at: modules.ModuleGraph.Root = if (root == .module) try graph.rootOf(path) else .{ .path = path };
+        graph.with_tests = with_tests or at.tests;
+        try graph.loadRoot(at.path);
+    }
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
@@ -852,7 +866,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             else => notRun("cannot clear RIG_RUN_STARTED `{s}`: {s}", .{ path, @errorName(err) }),
         };
     };
-    var graph = try loadProject(allocator, io, env, opts.path, .path, opts.command == .@"test", null);
+    var graph = try loadProject(allocator, io, env, opts.path, if (opts.std_module) .std_module else .path, opts.command == .@"test", null);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;

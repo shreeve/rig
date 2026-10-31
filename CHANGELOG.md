@@ -263,6 +263,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   signal's number or a `sysconf` name, branches on it,
   `SIGBUS = 7 if target.os == .linux else 10`, and Zig keeps the branch
   the target picks.
+
+- **`rig test std.NAME` runs a standard library module's own tests.**
+  `rig test std.crypto` loads `std.crypto` from the library in use, the
+  one built into `rig` or `RIG_STD`'s, as the library loads it, and runs
+  its test blocks, a directory module's `*_test.rig` files included, so
+  a test reaches the module's private names. `rig test std` is rejected,
+  and a path still names a program's file.
+
 - **A view of an array held where a slice goes is lent as one.** A
   `?[4]U8` parameter or binding passed bare where a `[]U8` goes, as an
   argument, a binding's value, or an assignment's, reaches Zig as the
