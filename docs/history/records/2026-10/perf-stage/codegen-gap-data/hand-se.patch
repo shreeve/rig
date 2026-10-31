@@ -1,0 +1,167 @@
+From 8ee4b8af033f51c2e13c0e00a5e94717c037f26c Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Tue, 27 Oct 2026 20:28:17 -0600
+Subject: [PATCH] se1_index
+
+---
+ rig/runtime.zig | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/rig/runtime.zig b/rig/runtime.zig
+index b8f4898..ab4a02d 100644
+--- a/rig/runtime.zig
++++ b/rig/runtime.zig
+@@ -3641,6 +3641,15 @@ fn moduleOf(comptime name: []const u8) []const u8 {
+ /// Convert a Rig index of any integer type to `usize`, panicking unless
+ /// `0 <= i < count`.
+ pub fn index(i: anytype, count: usize) usize {
++    // CEILING se1: a signed index is one unsigned compare. Every count
++    // here is a length (a List's at most `max_len`, a slice's below 2^63),
++    // so a negative `i`, read as at least 2^63, fails it too.
++    const info = @typeInfo(@TypeOf(i));
++    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64) {
++        const u: u64 = @bitCast(@as(i64, i));
++        if (u >= count) indexPanic();
++        return @truncate(u);
++    }
+     const idx = std.math.cast(usize, i) orelse indexPanic();
+     if (idx >= count) indexPanic();
+     return idx;
+From 6503aa06e98d081a6423db232a58874c193ac267 Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Tue, 27 Oct 2026 20:28:17 -0600
+Subject: [PATCH] se2_mapper
+
+---
+ checker.zig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/checker.zig b/checker.zig
+index 4af7f88..7b2c47b 100644
+--- a/checker.zig
++++ b/checker.zig
+@@ -41896,7 +41896,7 @@ pub const Checker = struct {
+         return m;
+     }
+ 
+-    pub fn inference_type_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
++    pub noinline fn inference_type_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
+         @setEvalBranchQuota(rig.eval_quota);
+         const n: u32 = rig.rt(self.mapper_n(m));
+         {
+@@ -45853,7 +45853,7 @@ pub const Checker = struct {
+         return false;
+     }
+ 
+-    pub fn function_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
++    pub noinline fn function_mapper_map(self: *Checker, m: rig.SlotOf(16777216), t: rig.SlotOf(134217728)) rig.SlotOf(134217728) {
+         @setEvalBranchQuota(rig.eval_quota);
+         switch (rig.rt(self.mapper_fn(m))) {
+             .UniqueLiteral => {
+From 94d999e80f4a28530c17e484eaaa27612660cec0 Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Tue, 27 Oct 2026 20:28:17 -0600
+Subject: [PATCH] se4_active
+
+---
+ checker.zig | 16 +++++++---------
+ 1 file changed, 7 insertions(+), 9 deletions(-)
+
+diff --git a/checker.zig b/checker.zig
+index 7b2c47b..c91a93f 100644
+--- a/checker.zig
++++ b/checker.zig
+@@ -46343,17 +46343,15 @@ pub const Checker = struct {
+     pub inline fn find_active_mapper(__rig_in_self: *const Checker, __rig_in_mapper: rig.SlotOf(16777216)) i64 {
+         const self = rig.rt(__rig_in_self);
+         const mapper = rig.rt(__rig_in_mapper);
+-        var i: i64 = rig.lenOf(self.active_mappers);
++        // CEILING se4: the List read once; `i` counts down from its
++        // length and nothing writes it in the loop, so no test.
++        const items = self.active_mappers.items();
++        var i: usize = items.len;
+         {
+             var __rig_turns_7236: u32 = rig.tick_turns;
+-            while (true) : (rig.turn(&__rig_turns_7236)) {
+-                if (!(i > 0)) break;
+-                {
+-                    i -= 1;
+-                    if (self.active_mappers.at(i) == mapper) {
+-                        return i;
+-                    }
+-                }
++            while (i > 0) : (rig.turn(&__rig_turns_7236)) {
++                i -= 1;
++                if (items[i] == mapper) return @intCast(i);
+             }
+         }
+         return @as(i64, -1);
+From c9769f06ad828790137c3dfd60f63a8b7e1f1f46 Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Tue, 27 Oct 2026 20:28:17 -0600
+Subject: [PATCH] se5_inference
+
+---
+ checker.zig | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/checker.zig b/checker.zig
+index c91a93f..86503d7 100644
+--- a/checker.zig
++++ b/checker.zig
+@@ -41900,13 +41900,18 @@ pub const Checker = struct {
+         @setEvalBranchQuota(rig.eval_quota);
+         const n: u32 = rig.rt(self.mapper_n(m));
+         {
++            // CEILING se5: nothing in the loop writes the context or the
++            // infos before it returns, so each is read once: the context's
++            // index tested once, its inferences walked with no test, and
++            // the infos' base and length kept.
++            const infs = self.inference_contexts.constSlot(@as(i64, @intCast(@as(u32, n)))).*.inferences.items();
++            const infos = self.inference_infos.items();
+             var __rig_turns_6557: u32 = rig.tick_turns;
+-            var __rig_i_6558: i64 = 0;
+-            const __rig_end_6558: i64 = rig.lenOf(self.inference_contexts.constSlot(@as(i64, @intCast(@as(u32, n)))).*.inferences);
+-            while (__rig_i_6558 < __rig_end_6558) : ({ rig.turn(&__rig_turns_6557); __rig_i_6558 += 1; }) {
+-                const i = __rig_i_6558;
+-                const inference: u32 = self.inference_contexts.constSlot(@as(i64, @intCast(@as(u32, n)))).*.inferences.at(i);
+-                if (t == self.inference_infos.constSlot(@as(i64, @intCast(@as(u32, inference)))).*.type_parameter) {
++            var __rig_i_6558: usize = 0;
++            while (__rig_i_6558 < infs.len) : ({ rig.turn(&__rig_turns_6557); __rig_i_6558 += 1; }) {
++                const i: i64 = @intCast(__rig_i_6558);
++                const inference: u32 = infs[__rig_i_6558];
++                if (t == infos[inference].type_parameter) {
+                     if (rig.rt(self.mapper_fixing(m)) and !self.inference_infos.constSlot(@as(i64, @intCast(@as(u32, inference)))).*.is_fixed) {
+                         self.infer_from_intra_expression_sites(n);
+                         var inferences = rig.rt(self.context_inferences(n));
+diff --git i/checker.zig w/checker.zig
+index 90bdd69..af781f5 100644
+--- i/checker.zig
++++ w/checker.zig
+@@ -45759,16 +45759,17 @@ pub const Checker = struct {
+                 return t;
+             },
+             .Array => {
++                // CEILING n1: the sources read as one slice, its range tested
++                // once, the target read with one test.
+                 const sources = rig.rt(self.mapper_sources(m));
+-                {
+-                    var __rig_turns_7174: u32 = rig.tick_turns;
+-                    var __rig_i_7175: i64 = 0;
+-                    const __rig_end_7175: i64 = sources.len();
+-                    while (__rig_i_7175 < __rig_end_7175) : ({ rig.turn(&__rig_turns_7174); __rig_i_7175 += 1; }) {
+-                        const i = __rig_i_7175;
+-                        if (t == rig.rt(self.type_at(sources, i))) {
+-                            return rig.rt(self.type_at(rig.rt(self.mapper_targets(m)), i));
+-                        }
++                const all = self.store.type_lists.items();
++                const src = all[sources.start..][0..sources.count];
++                var __rig_turns_7174: u32 = rig.tick_turns;
++                for (src, 0..) |s, i| {
++                    rig.turn(&__rig_turns_7174);
++                    if (t == s) {
++                        const targets = self.mapper_targets(m);
++                        return all[@as(usize, targets.start) + i];
+                     }
+                 }
+                 return t;

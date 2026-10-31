@@ -1,0 +1,23 @@
+diff --git i/rig/runtime.zig w/rig/runtime.zig
+index 278dd96..1119d68 100644
+--- i/rig/runtime.zig
++++ w/rig/runtime.zig
+@@ -1704,7 +1704,17 @@ pub const eval_quota = std.math.maxInt(u32);
+ /// than folded by Zig at compile time. An inlined call's optional or
+ /// fallible result is made a run-time value in place instead
+ /// (`emitCallDirect`), never passed through this.
+-pub fn rt(value: anytype) @TypeOf(value) {
++pub inline fn rt(value: anytype) @TypeOf(value) {
++    // CEILING rt: an object, optional or array passes through with no
++    // call, so no temporary is written in parts and read whole; a scalar
++    // still passes through a call, as before.
++    switch (@typeInfo(@TypeOf(value))) {
++        .@"struct", .@"union", .optional, .array => return value,
++        else => return rtCall(value),
++    }
++}
++
++fn rtCall(value: anytype) @TypeOf(value) {
+     return value;
+ }
+ 

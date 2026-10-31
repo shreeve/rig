@@ -1,0 +1,230 @@
+
+## innermost file (of 13197 samples)
+ 35.45%  checker.zig
+ 21.38%  runtime.zig
+ 11.69%  ordered.zig
+  6.52%  table.zig
+  5.81%  mem.zig
+  5.22%  ast.zig
+  2.34%  alloc.zig
+  1.54%  lexer.zig
+  1.26%  parser.zig
+  1.17%  __rig_std_text.zig
+  1.09%  binder.zig
+  1.00%  ??
+  0.90%  sched.zig
+  0.81%  memcpy.zig
+  0.73%  atomic.zig
+  0.45%  wyhash.zig
+  0.42%  enums.zig
+  0.33%  math.zig
+  0.29%  __rig_std_sort.zig
+  0.23%  memmove.zig
+  0.20%  Allocator.zig
+  0.17%  Writer.zig
+  0.16%  core.zig
+  0.13%  stack_probe.zig
+  0.12%  compiler.zig
+  0.11%  __rig_std_prelude.zig
+  0.11%  compiler_rt.zig
+  0.09%  __rig_std_utf8.zig
+  0.05%  tspath.zig
+  0.05%  jsnum.zig
+  0.04%  module.zig
+  0.03%  printer.zig
+  0.02%  vfs.zig
+  0.02%  stringutil.zig
+  0.02%  simd.zig
+  0.02%  __rig_std_slices.zig
+  0.01%  linux.zig
+  0.01%  __rig_std_math.zig
+  0.01%  text.zig
+  0.01%  diagnostics.zig
+  0.01%  SmpAllocator.zig
+  0.01%  Threaded.zig
+
+## innermost function (of 13197 samples)
+  5.47%  mem.zig  mem.eqlBytes
+  2.78%  runtime.zig  rig.runtime.index__func_1220
+  2.17%  runtime.zig  rig.runtime.ListOf(ast.NodeRec,0).at__func_1108
+  1.27%  table.zig  rig.table.Table(checker.Type,134217728).constSlot
+  1.24%  runtime.zig  rig.runtime.turn
+  1.24%  runtime.zig  rig.runtime.index__func_1216
+  1.02%  runtime.zig  rig.runtime.ListOf(u32,0).at__func_1182
+  1.00%  ??  ??
+  0.89%  alloc.zig  rig.alloc.alloc
+  0.83%  checker.zig  checker.Ids.sym_file_of
+  0.81%  sched.zig  rig.sched.poolCall__func_7799
+  0.80%  checker.zig  checker.Checker.could_contain_type_variables
+  0.79%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll
+  0.77%  table.zig  rig.table.Table(checker.Type,134217728).at
+  0.77%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findIndexed
+  0.76%  checker.zig  checker.Checker.symbol_is_value_ex
+  0.74%  alloc.zig  rig.alloc.free
+  0.72%  checker.zig  checker.Checker.symbol_value_declaration
+  0.64%  ast.zig  ast.Ast.text
+  0.60%  checker.zig  checker.Checker.checker_symbol
+  0.60%  runtime.zig  rig.runtime.rt__func_2907
+  0.59%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).matchAll
+  0.57%  checker.zig  checker.Checker.is_related_to_ex
+  0.56%  lexer.zig  lexer.Scanner.scan
+  0.56%  checker.zig  checker.Checker.instantiate_type_with_alias
+  0.52%  ordered.zig  rig.ordered.Ordered(u32,u32).eqlKey
+  0.52%  ordered.zig  rig.ordered.Ordered(u32,u32).isSmall
+  0.52%  ordered.zig  rig.ordered.Ordered(u32,u32).matchAll
+  0.52%  __rig_std_text.zig  __rig_std_text.Interner.find
+  0.52%  checker.zig  checker.Checker.is_declaration_contained_in
+  0.51%  runtime.zig  rig.runtime.ListOf(ast.ListRec,0).at__func_1184
+  0.50%  runtime.zig  rig.runtime.ListOf(u32,0).push
+  0.48%  checker.zig  checker.Ids.is_binder_sym
+  0.48%  runtime.zig  rig.runtime.indexBelow
+  0.48%  checker.zig  checker.Ids.sym
+  0.46%  checker.zig  checker.Checker.get_apparent_type
+  0.45%  ast.zig  ast.as_node
+  0.45%  atomic.zig  atomic.Value(u8).load
+  0.45%  memcpy.zig  compiler_rt.memcpy.copyBlocks
+  0.42%  runtime.zig  rig.runtime.provenOffset
+  0.41%  checker.zig  checker.Checker.get_non_distributed_type_parameter
+  0.41%  ordered.zig  rig.ordered.Ordered(u32,u32).findSmall
+  0.40%  checker.zig  checker.Checker.get_type_facts_worker
+  0.39%  checker.zig  checker.Checker.get_normalized_type
+  0.39%  ordered.zig  rig.ordered.Ordered(u32,u32).writeLane
+  0.39%  runtime.zig  rig.runtime.eqlAs__func_5784
+  0.37%  checker.zig  checker.Checker.maybe_type_of_kind
+  0.36%  checker.zig  checker.Checker.get_recursion_identity_target
+  0.36%  checker.zig  checker.Checker.resolve_name_worker
+  0.34%  checker.zig  checker.Ids.node_id
+  0.34%  table.zig  rig.table.Table(checker.StructuredType,67108864).at
+  0.34%  ast.zig  ast.Ast.word_node
+  0.33%  table.zig  rig.table.Table(checker.CheckerSymbol,67108864).at
+  0.33%  checker.zig  checker.Checker.symbol_sort_key
+  0.32%  ordered.zig  rig.ordered.Ordered(u32,u32).findIndexed
+  0.31%  ast.zig  ast.Ast.set_parent_in_immediate_children
+  0.31%  checker.zig  checker.Checker.symbol_flags
+  0.31%  table.zig  rig.table.Table(checker.TypeNodeLinks,134217728).at
+  0.31%  checker.zig  checker.Checker.get_recursion_identity_from_target
+  0.30%  table.zig  rig.table.Table(u32,268435456).push
+  0.30%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findIndexed
+  0.30%  checker.zig  checker.Checker.get_type_of_symbol
+  0.29%  __rig_std_text.zig  __rig_std_text.Interner.text
+  0.28%  table.zig  rig.table.Table(u32,268435456).at
+  0.28%  checker.zig  checker.Checker.mapper_map
+  0.28%  binder.zig  binder.Binder.bind
+  0.27%  checker.zig  checker.Checker.get_late_bound_symbol
+  0.27%  checker.zig  checker.Checker.instantiate_type_worker
+  0.27%  checker.zig  checker.Checker.instantiate_type
+  0.27%  alloc.zig  rig.alloc.fastClass
+  0.27%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findSmall
+  0.27%  runtime.zig  rig.runtime.rt__func_5140
+  0.27%  checker.zig  checker.Checker.compare_types
+  0.26%  atomic.zig  atomic.Value(u32).load
+  0.26%  runtime.zig  rig.runtime.tickCall
+  0.26%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).writeLane
+  0.26%  memcpy.zig  compiler_rt.memcpy.copyFixedLength
+  0.25%  ast.zig  ast.SymbolRec.declaration_count
+  0.25%  checker.zig  checker.Checker.instantiate_types
+  0.25%  checker.zig  checker.Checker.is_simple_type_related_to_ex
+
+## outermost function (the symbol perf names) (of 13197 samples)
+  8.65%  checker.Checker.instantiate_type_with_alias
+  4.43%  checker.Checker.resolve_structured_type_members_worker
+  4.04%  checker.Checker.structured_type_related_to
+  3.77%  checker.Checker.set_structured_type_members
+  3.21%  checker.Checker.is_related_to_ex
+  2.42%  checker.Checker.resolve_external_module
+  2.37%  checker.Checker.check_property_access_expression
+  2.20%  checker.Checker.get_normalized_type
+  1.92%  checker.Checker.check_identifier
+  1.71%  checker.Checker.compare_signatures_related_with
+  1.68%  checker.Checker.resolve_name_worker
+  1.60%  checker.Checker.compare_types
+  1.44%  binder.Binder.bind
+  1.40%  checker.Checker.get_type_of_symbol
+  1.33%  parser.Parser.next_token
+  1.30%  checker.Checker.infer_from_types
+  1.25%  checker.Checker.add_inherited_members
+  1.22%  checker.Checker.check_expression_ex
+  1.10%  checker.Checker.check_collisions_for_declaration_name
+  1.08%  rig.alloc.alloc
+  1.00%  checker.Checker.get_type_facts_worker
+  1.00%  ??
+  0.92%  checker.Checker.infer_from_object_types
+  0.89%  checker.Checker.is_matching_reference
+  0.87%  __rig_std_file.stat_into
+  0.86%  checker.Checker.create_union_or_intersection_property
+  0.85%  checker.Checker.get_type_at_flow_node
+  0.85%  rig.alloc.free
+  0.83%  checker.Checker.get_union_type_ex
+  0.82%  mem.eql__func_63
+  0.81%  memcpy
+  0.77%  ast.Ast.text
+  0.76%  checker.Checker.mapper_map
+  0.74%  checker.Checker.check_source_element
+  0.73%  compiler.Program.get_emit_module_format_of_file
+  0.64%  checker.Checker.resolve_entity_name
+  0.61%  checker.Checker.has_matching_recursion_identity
+  0.58%  checker.Checker.get_spelling_suggestion_for_name
+  0.54%  compiler.Program.get_default_resolution_mode_for_file
+  0.54%  binder.Binder.declare_symbol_and_add_to_symbol_table
+
+## innermost function within outermost (of 13197 samples)
+  2.20%  mem.zig  mem.eqlBytes  checker.Checker.resolve_external_module
+  1.00%  mem.zig  mem.eqlBytes  checker.Checker.check_collisions_for_declaration_name
+  1.00%  ??  ??  ??
+  0.89%  alloc.zig  rig.alloc.alloc  rig.alloc.alloc
+  0.81%  sched.zig  rig.sched.poolCall__func_7799  __rig_std_file.stat_into
+  0.80%  mem.zig  mem.eqlBytes  mem.eql__func_63
+  0.74%  alloc.zig  rig.alloc.free  rig.alloc.free
+  0.66%  mem.zig  mem.eqlBytes  compiler.Program.get_emit_module_format_of_file
+  0.64%  ast.zig  ast.Ast.text  ast.Ast.text
+  0.57%  checker.zig  checker.Checker.is_related_to_ex  checker.Checker.is_related_to_ex
+  0.56%  checker.zig  checker.Checker.instantiate_type_with_alias  checker.Checker.instantiate_type_with_alias
+  0.52%  checker.zig  checker.Checker.could_contain_type_variables  checker.Checker.instantiate_type_with_alias
+  0.52%  checker.zig  checker.Checker.is_declaration_contained_in  checker.Checker.set_structured_type_members
+  0.51%  mem.zig  mem.eqlBytes  compiler.Program.get_default_resolution_mode_for_file
+  0.50%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).matchAll  checker.Checker.instantiate_type_with_alias
+  0.48%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findIndexed  checker.Checker.is_related_to_ex
+  0.45%  memcpy.zig  compiler_rt.memcpy.copyBlocks  memcpy
+  0.41%  atomic.zig  atomic.Value(u8).load  __rig_std_file.realpath
+  0.40%  checker.zig  checker.Checker.get_type_facts_worker  checker.Checker.get_type_facts_worker
+  0.39%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll  checker.Checker.is_related_to_ex
+  0.39%  checker.zig  checker.Checker.get_normalized_type  checker.Checker.get_normalized_type
+  0.37%  checker.zig  checker.Checker.maybe_type_of_kind  checker.Checker.maybe_type_of_kind
+  0.36%  checker.zig  checker.Checker.symbol_is_value_ex  checker.Checker.resolve_structured_type_members_worker
+  0.36%  checker.zig  checker.Checker.get_recursion_identity_target  checker.Checker.get_recursion_identity_target
+  0.36%  checker.zig  checker.Checker.get_non_distributed_type_parameter  checker.Checker.instantiate_type_with_alias
+  0.32%  checker.zig  checker.Checker.symbol_sort_key  checker.Checker.set_structured_type_members
+  0.32%  checker.zig  checker.Checker.symbol_value_declaration  checker.Checker.get_spelling_suggestion_for_name
+  0.31%  table.zig  rig.table.Table(checker.TypeNodeLinks,134217728).at  checker.Checker.instantiate_type_with_alias
+  0.31%  checker.zig  checker.Checker.resolve_name_worker  checker.Checker.resolve_name_worker
+  0.30%  lexer.zig  lexer.Scanner.scan  parser.Parser.next_token
+  0.30%  checker.zig  checker.Checker.get_type_of_symbol  checker.Checker.get_type_of_symbol
+  0.29%  runtime.zig  rig.runtime.eqlAs__func_5784  checker.Checker.instantiate_type_with_alias
+  0.28%  checker.zig  checker.Checker.mapper_map  checker.Checker.mapper_map
+  0.27%  checker.zig  checker.Checker.instantiate_type_worker  checker.Checker.instantiate_type_with_alias
+  0.27%  binder.zig  binder.Binder.bind  binder.Binder.bind
+  0.27%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findSmall  checker.Checker.instantiate_type_with_alias
+  0.27%  checker.zig  checker.Checker.compare_types  checker.Checker.compare_types
+  0.26%  memcpy.zig  compiler_rt.memcpy.copyFixedLength  memcpy
+  0.25%  checker.zig  checker.Checker.instantiate_type  checker.Checker.instantiate_type_with_alias
+  0.25%  checker.zig  checker.Checker.is_type_reference_with_generic_arguments  checker.Checker.is_type_reference_with_generic_arguments
+  0.24%  table.zig  rig.table.Table(checker.Type,134217728).constSlot  checker.Checker.instantiate_type_with_alias
+  0.23%  checker.zig  checker.Checker.instantiate_types  checker.Checker.instantiate_type_with_alias
+  0.22%  checker.zig  checker.Checker.is_matching_reference  checker.Checker.is_matching_reference
+  0.22%  runtime.zig  rig.runtime.index__func_1220  checker.Checker.structured_type_related_to
+  0.22%  binder.zig  binder.Binder.bind_declaration  binder.Binder.bind
+  0.21%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findIndexed  checker.Checker.instantiate_type_with_alias
+  0.21%  runtime.zig  rig.runtime.rt__func_5140  checker.Checker.infer_from_types
+  0.20%  checker.zig  checker.Checker.get_recursion_identity_from_target  checker.Checker.has_matching_recursion_identity
+  0.20%  ordered.zig  rig.ordered.Ordered(u64,void).findIndexed  checker.Checker.instantiate_type_with_alias
+  0.20%  checker.zig  checker.Checker.structured_type_related_to_worker  checker.Checker.structured_type_related_to
+  0.20%  checker.zig  checker.Checker.get_type_of_instantiated_symbol  checker.Checker.get_type_of_symbol
+  0.19%  checker.zig  checker.Checker.could_contain_type_variables  checker.Checker.resolve_structured_type_members_worker
+  0.19%  checker.zig  checker.Checker.map_type_ex  checker.Checker.map_type_ex
+  0.19%  checker.zig  checker.Ids.tab  checker.Checker.resolve_name_worker
+  0.18%  runtime.zig  rig.runtime.index__func_1220  checker.Checker.check_property_access_expression
+  0.18%  runtime.zig  rig.runtime.ListOf(ast.NodeRec,0).at__func_1108  checker.Checker.structured_type_related_to
+  0.18%  checker.zig  checker.Checker.compare_signatures_related_with  checker.Checker.compare_signatures_related_with
+  0.18%  checker.zig  checker.Checker.should_normalize_intersection  checker.Checker.get_normalized_type
+  0.18%  alloc.zig  rig.alloc.fastClass  rig.alloc.alloc
+  0.17%  checker.zig  checker.Checker.get_named_members  checker.Checker.set_structured_type_members
