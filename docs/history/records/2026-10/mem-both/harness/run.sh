@@ -35,15 +35,17 @@ mb() { # ROUND ARM
   echo "$r $arm sh8bench $(cut -d' ' -f2 $W/t.out) $(cut -d' ' -f1 $W/t.out)"
   cd $W
 }
-# FIRST=R starts at round R; STOP=HHMM starts no round after that time.
+# ONLY64=1 runs only kv64k, xmalloc-test and sh8bench. FIRST=R starts at round R; STOP=HHMM starts no round after that time.
 for r in $(seq ${FIRST:-1} $rounds); do
   [ -n "${STOP:-}" ] && [ $(date +%H%M) -ge $STOP ] && { echo "stopped before round $r"; exit 0; }
   for k in $(seq 0 $((n-1))); do
     arm=${arms[$(( (k + r - 1) % n ))]}
     kv $r $arm kv64k 50 1 100 65536
-    kv $r $arm kv32 50 1
-    kv $r $arm kv32c1000 1000 1
-    kv $r $arm kvP16 50 16
+    if [ -z "${ONLY64:-}" ]; then
+      kv $r $arm kv32 50 1
+      kv $r $arm kv32c1000 1000 1
+      kv $r $arm kvP16 50 16
+    fi
     mb $r $arm
   done
 done
