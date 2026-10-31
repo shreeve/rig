@@ -7,6 +7,11 @@ on the blocking pool; the pool thread allocated the file buffer, made a
 second heap, and the rule then in place ("while the program has one
 heap", `heaps_made`) turned faulting ahead off for good.
 
+Both decisions here were timed with main first after every switch.
+Timed again with the order rotated (2026-10-31), zod3's gains are level
+and both rules stay; [timing-audit](../timing-audit/README.md) has the
+numbers on today's main.
+
 ## The rule
 
 A heap faults in ahead while it leads (`leads` in `src/alloc.zig`): it
