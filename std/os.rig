@@ -47,8 +47,8 @@ pub enum BrokenPipe
 # other end closes still fails the write with `net.NetError.closed`.
 pub sub on_broken_pipe(how: BrokenPipe)
   match how
-    BrokenPipe.exit => set_broken_pipe_dies(false)
-    BrokenPipe.die => set_broken_pipe_dies(true)
+    .exit => set_broken_pipe_dies(false)
+    .die => set_broken_pipe_dies(true)
 
 extern zig "os.zig"
   # Every argument, the program's name first. The text lives as long as
