@@ -28,6 +28,32 @@ test "cell count across tasks released", seeds: 20, release: true, "80000"
   >ts
   print(hits.get())
 
+test "cell counts of many tasks, each its own", seeds: 20, "8000 8 true"
+  # Cells made one after another, each changed by its own task while
+  # another reads them all, their handles counted from many cores: each
+  # Cell has a cache line of its own, and every count and handle comes out
+  # exact.
+  sub work(c: *Cell[Int])
+    for 0..1000
+      !c.add(1)
+
+  fun sum(cs: ?List[*Cell[Int]]) -> Int
+    n = 0
+    for c in cs
+      n += c.get()
+    n
+
+  cs = List[*Cell[Int]]()
+  for 0..8
+    !cs.push(*Cell(0))
+  ts = Tasks[Void]()
+  for c in cs
+    !ts.add(work(+c)&)
+  t = sum(?cs)&
+  >ts
+  seen = >t
+  print(sum(?cs), cs.len, seen <= 8000)
+
 test "cell claim once", seeds: 20, "1"
   # The first of many tasks to flip a flag wins: `compare_swap` checks
   # and stores at once, so exactly one sees `true`.

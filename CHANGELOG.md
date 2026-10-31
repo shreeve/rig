@@ -376,6 +376,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   ([frozen-no-weak](docs/history/records/2026-10/frozen-no-weak/README.md)).
 - **`!s.swap(i, i)` leaves the element in place** without handing Zig's
   `std.mem.swap` one place twice, which Zig leaves undefined.
+- **A `*Cell` of one word has a cache line of its own** in a program
+  that makes tasks: its allocation is aligned and sized to 128 bytes,
+  where it took 24. Four tasks each adding to its own Cell, the Cells
+  made one after another, took 4-10× as long as one task did. They now
+  take the same time
+  ([atomics](docs/history/records/2026-10/atomics/README.md)). Every
+  other `*T` keeps its size.
 - **`for x in ?h` walks a List or an array that a shared handle
   holds**, `*List[T]`, `*Frozen[List[T]]`, or `*[N]T`: it reads each
   element in place, with the loan on `h`, as `?h` lends the value the

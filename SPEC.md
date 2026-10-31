@@ -8792,7 +8792,9 @@ handle of its own (`+c`) or lent to read (`?c`). In a program that makes
 tasks, its handles are counted atomically, and each of its operations is
 one indivisible instruction, sequentially consistent, so a program sees
 one order of them all and no change is lost; elsewhere it is plain
-memory, as any Cell is. A Cell of more than one word stays with one
+memory, as any Cell is. In such a program each `*Cell` of one word has
+a cache line of its own, so tasks changing Cells made one after another
+do not slow one another. A Cell of more than one word stays with one
 task.
 
 ```rig
