@@ -85,3 +85,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | #783: a stream splits; an end wakes only its waits (pup core 6) | rig-fast | 4.83 us | 4.70 us | 29.89 us |
 | 2026-10-30 | main before #788, alternated (pup core 6) | rig-fast | 4.81 us | 4.63 us | 29.88 us |
 | 2026-10-30 | #788: reads grow a String unfilled (pup core 6) | rig-fast | 4.76 us | 4.60 us | 29.35 us |
+| 2026-10-31 | #815: a heap that does not fault in ahead keeps 1 MiB of freed large blocks resident | rig-fast | 15.04 us | 6.26 us | 54.22 us |

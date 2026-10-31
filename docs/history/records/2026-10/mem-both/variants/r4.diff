@@ -1,0 +1,11 @@
+--- /private/tmp/claude-501/-Users-shreeve-Data-Claude-Worktrees-rig-practical-hypatia-3af8bd/dbe54b0f-c953-450b-9882-0ae1b99f5bc5/scratchpad/arms/up/alloc-pr.zig	2026-10-31 14:42:44.460130529 -0600
++++ /private/tmp/claude-501/-Users-shreeve-Data-Claude-Worktrees-rig-practical-hypatia-3af8bd/dbe54b0f-c953-450b-9882-0ae1b99f5bc5/scratchpad/arms/up/alloc-r4.zig	2026-10-31 14:42:44.478115293 -0600
+@@ -362,7 +362,7 @@
+ /// (docs/history/records/2026-10/mem-both/).
+ /// A heap that does the program's work, as each of Trig's checkers', keeps
+ /// every block resident, within `keepBound`.
+-const keep_resident: usize = 1 << 20;
++const keep_resident: usize = 4 << 20;
+ 
+ /// Give the pages of the kept block of `len` bytes at `p` back to the
+ /// system, all but its first, which holds its header: on Linux with

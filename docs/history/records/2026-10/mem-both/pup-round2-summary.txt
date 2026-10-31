@@ -1,0 +1,25 @@
+test       arm   best        vs main      median      vs main      peak RSS MB (median, range)  n
+kv64k      main   257931.000  0.0% faster  248202.500  0.0% faster     60 (51-72)  10
+kv64k      a      256582.000  0.5% slower  247643.500  0.2% slower     39 (30-71)  10
+kv64k      ac     254207.000  1.4% slower  244489.500  1.5% slower     38 (30-47)  10
+kv64k      b2c    257322.000  0.2% slower  249243.000  0.4% faster     62 (35-76)  10
+kv32       main   973254.000  0.0% faster  934215.500  0.0% faster      4 (4-4)  10
+kv32       a      963362.000  1.0% slower  937403.500  0.3% faster      4 (4-5)  10
+kv32       ac     962193.000  1.1% slower  934051.500  0.0% slower      4 (4-4)  10
+kv32       b2c    950308.000  2.4% slower  934460.500  0.0% faster      4 (4-5)  10
+kv32c1000  main   776655.000  0.0% faster  760149.500  0.0% faster     10 (10-11)  10
+kv32c1000  a      784588.000  1.0% faster  751206.500  1.2% slower     11 (10-11)  10
+kv32c1000  ac     783850.000  0.9% faster  757769.000  0.3% slower     10 (10-11)  10
+kv32c1000  b2c    770493.000  0.8% slower  760366.000  0.0% faster     10 (10-11)  10
+kvP16      main  1896582.000  0.0% faster 1610592.000  0.0% faster      6 (5-6)  10
+kvP16      a     1783072.000  6.0% slower 1644887.500  2.1% faster      6 (6-6)  10
+kvP16      ac    1732805.000  8.6% slower 1642951.000  2.0% faster      6 (5-6)  10
+kvP16      b2c   1711375.000  9.8% slower 1621917.000  0.7% faster      6 (6-6)  10
+xmalloc    main        0.851  0.0% faster       0.950  0.0% faster    273 (263-289)  10
+xmalloc    a           0.866  1.7% slower       0.946  0.4% faster     78 (66-97)  10
+xmalloc    ac          0.797  6.8% faster       0.892  6.4% faster     62 (54-74)  10
+xmalloc    b2c         0.761 11.8% faster       0.897  5.9% faster     66 (64-70)  10
+sh8bench   main        0.610  0.0% faster       0.705  0.0% faster    319 (282-352)  10
+sh8bench   a           0.590  3.4% faster       0.645  9.3% faster    322 (286-367)  10
+sh8bench   ac          0.590  3.4% faster       0.700  0.7% faster    298 (262-337)  10
+sh8bench   b2c         0.610  0.0% faster       0.780  9.6% slower    286 (195-336)  10
