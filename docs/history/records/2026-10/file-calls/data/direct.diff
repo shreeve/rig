@@ -1,0 +1,11 @@
+--- a/std/file.zig
++++ b/std/file.zig
+@@ -31,7 +31,7 @@
+ /// which the pool copies, and plain values; a result that owns something
+ /// (a String, a descriptor, `Fd`) is freed by its drop.
+ fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
+-    return try (try rig.blockingStop(f, args));
++    return try @call(.auto, f, args);
+ }
+ 
+ /// A descriptor a pool call opened or was given, closed when dropped, as
