@@ -2219,6 +2219,15 @@ pub fn Frozen(comptime T: type) type {
     return Counted(T, true);
 }
 
+/// The alignment of the allocation behind `*T`: a cache line for a Cell
+/// many tasks change (`Cell.__rig_word`), which its size rounds up to, so
+/// no two such Cells share a line and cores changing each its own do not
+/// take the line from one another. Every other `*T` keeps a word's.
+fn countedAlign(comptime T: type, comptime is_frozen: bool) usize {
+    if (!is_frozen and @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_word") and T.__rig_word) return std.atomic.cache_line;
+    return @alignOf(usize);
+}
+
 /// `Shared` and `Frozen`: a counted allocation whose counts are atomic
 /// when it is `is_frozen` (a frozen value's) or its `T` is
 /// `synchronized`. That is decided inside the type, when it is first
@@ -2226,7 +2235,7 @@ pub fn Frozen(comptime T: type) type {
 /// has no weak count (`void`), as it has no weak handle.
 fn Counted(comptime T: type, comptime is_frozen: bool) type {
     return struct {
-        strong: usize,
+        strong: usize align(countedAlign(T, is_frozen)),
         weak: if (is_frozen) void else usize,
         value: T,
 
@@ -8456,6 +8465,27 @@ test "a frozen value's allocation has no weak count" {
     try testing.expectEqual(0, drops);
     b.dropStrong();
     try testing.expectEqual(1, drops);
+    try expectNoLeaks(before);
+}
+
+test "a Cell many tasks change has a cache line of its own" {
+    // Cells made one after another would otherwise share a line, and
+    // cores changing each its own would take it from one another.
+    try testing.expect(@alignOf(Shared(Cell(Int))) >= std.atomic.cache_line);
+    try testing.expect(@sizeOf(Shared(Cell(Int))) % std.atomic.cache_line == 0);
+    try testing.expect(@alignOf(Shared(Cell(bool))) >= std.atomic.cache_line);
+    // Every other `*T` keeps its size, a Cell of more than a word included.
+    try testing.expectEqual(2 * @sizeOf(usize) + @sizeOf(i64), @sizeOf(Shared(i64)));
+    try testing.expect(@sizeOf(Shared(Cell([2]Int))) < std.atomic.cache_line);
+    const before = usage();
+    const a = create(Shared(Cell(Int)));
+    a.* = .{ .strong = 1, .weak = 1, .value = .{ .value = 0 } };
+    const b = create(Shared(Cell(Int)));
+    b.* = .{ .strong = 1, .weak = 1, .value = .{ .value = 0 } };
+    try testing.expect(@intFromPtr(a) % std.atomic.cache_line == 0);
+    try testing.expect(@intFromPtr(b) % std.atomic.cache_line == 0);
+    a.dropStrong();
+    b.dropStrong();
     try expectNoLeaks(before);
 }
 
