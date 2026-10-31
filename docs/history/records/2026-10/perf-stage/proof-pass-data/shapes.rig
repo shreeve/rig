@@ -1,0 +1,66 @@
+obj Box
+  items: List[Int] = List()
+  n: Int = 0
+
+fun countdown(b: ?Box, x: Int) -> Int
+  i = b.items.len
+  while i > 0
+    i -= 1
+    return i if b.items[i] == x
+  -1
+
+fun countdown_local(xs: ?List[Int], x: Int) -> Int
+  i = xs.len
+  while i > 0
+    i -= 1
+    return i if xs[i] == x
+  -1
+
+fun grow(xs: !List[List[Int]], p: Int) -> Int
+  return 0 if p < 0
+  while xs.len <= p
+    !xs.push(List())
+  xs[p].len
+
+fun early(xs: ?List[Int], i: Int) -> Int
+  return 0 if i < 0 or i >= xs.len
+  xs[i]
+
+fun nextone(xs: ?List[Int], i: Int) -> Int
+  if 0 <= i and i < xs.len
+    return i + 1
+  0
+
+fun pushed(xs: !List[Int], v: Int) -> Int
+  n = xs.len
+  !xs.push(v)
+  xs[n]
+
+fun keep(xs: !List[Int], i: Int) -> Int
+  if 0 <= i and i < xs.len
+    !xs.push(1)
+    return xs[i]
+  0
+
+fun lenplus(xs: ?List[Int]) -> Int
+  1 + xs.len
+
+sub bump(b: !Box)
+  b.n += 1
+
+sub sortish(xs: !List[Int], j0: Int)
+  j = j0
+  return if j < 0 or j >= xs.len
+  while j > 0 and xs[j] < xs[j - 1]
+    !xs.swap(j, j - 1)
+    j -= 1
+
+sub main()
+  b = Box()
+  !b.items.push(3)
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[List[Int]] = List()
+  print(countdown(b, 3) + countdown_local(xs, 1) + grow(!ys, 2) + early(xs, 0) + nextone(xs, 0) + pushed(!xs, 4) + keep(!xs, 0) + lenplus(xs))
+  bump(!b)
+  sortish(!xs, 2)
