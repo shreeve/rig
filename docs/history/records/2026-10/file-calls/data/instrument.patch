@@ -1,0 +1,123 @@
+diff --git i/src/runtime.zig w/src/runtime.zig
+index 278dd96b3..56c0964de 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -7049,7 +7049,9 @@ var threaded: std.Io.Threaded = .init_single_threaded;
+ /// End the process now with `status`, running nothing on the way out:
+ /// `exit_group` on Linux, `_exit` where Zig links the C library (macOS).
+ /// Every thread ends with it.
++pub var exit_hook: ?*const fn () void = null;
+ fn endProcess(status: u8) noreturn {
++    if (exit_hook) |h| h();
+     if (pgo) writeProfile();
+     if (builtin.link_libc) std.c._exit(status);
+     if (builtin.os.tag == .linux) std.os.linux.exit_group(status);
+@@ -7077,6 +7079,7 @@ pub fn exitStatus(n: Int) u8 {
+ /// drops: flush `print` output, then exit non-zero if anything leaked, so
+ /// a leaking program never passes.
+ pub fn finish() void {
++    if (exit_hook) |h| h();
+     if (pgo) writeProfile();
+     if (map_trace) map_tracer.close();
+     if (makes_tasks) threaded.deinit();
+diff --git i/src/sched.zig w/src/sched.zig
+index 88cd6911c..843c43c0c 100644
+--- i/src/sched.zig
++++ w/src/sched.zig
+@@ -1527,6 +1527,10 @@ pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@Ty
+     return poolCall(f, args, true);
+ }
+ 
++pub var spin_iters: u64 = 0;
++pub var spin_ns: u64 = 0;
++pub var spin_calls: u64 = 0;
++threadlocal var spin_from: i96 = 0;
+ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
+     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
+     const Args = @TypeOf(args);
+@@ -1580,6 +1584,8 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
+         switch (c.state.load(.seq_cst)) {
+             C.done => break,
+             C.finishing => {
++                if (spin_from == 0) spin_from = nowReal();
++                spin_iters += 1;
+                 std.atomic.spinLoopHint();
+                 continue;
+             },
+@@ -1593,6 +1599,11 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
+         if (c.state.load(.seq_cst) != C.pending) continue;
+         c.epoch.store(beginWait(stoppable), .seq_cst);
+     }
++    if (spin_from != 0) {
++        spin_ns += @intCast(nowReal() - spin_from);
++        spin_calls += 1;
++        spin_from = 0;
++    }
+     const r = c.result;
+     std.heap.smp_allocator.destroy(c);
+     return .{ .done = r };
+diff --git i/std/file.zig w/std/file.zig
+index 87447e4b8..683de875d 100644
+--- i/std/file.zig
++++ w/std/file.zig
+@@ -30,8 +30,59 @@ const not_found = error.@"std.file.FileError.not_found";
+ /// So `args` hold nothing the task may free meanwhile: paths and bytes,
+ /// which the pool copies, and plain values; a result that owns something
+ /// (a String, a descriptor, `Fd`) is freed by its drop.
++const Stat = struct { n: u64 = 0, wall: u64 = 0, run: u64 = 0, fiber: u64 = 0 };
++var stats: [8]Stat = @splat(.{});
++var hooked = false;
++fn nowNs() u64 {
++    return @intCast(std.Io.Timestamp.now(rig.io(), .awake).nanoseconds);
++}
++fn same(comptime f: anytype, comptime g: anytype) bool {
++    if (@TypeOf(f) != @TypeOf(g)) return false;
++    return f == g;
++}
++fn kindOf(comptime f: anytype) usize {
++    if (same(f, readHere)) return 0;
++    if (same(f, statHere)) return 1;
++    if (same(f, entriesHere)) return 2;
++    if (same(f, realpathHere)) return 3;
++    if (same(f, existsHere)) return 4;
++    if (same(f, openHere)) return 5;
++    return 6;
++}
++const kind_names = [_][]const u8{ "read", "stat", "read_dir", "realpath", "exists", "open", "other", "-" };
++fn dump() void {
++    var buf: [2048]u8 = undefined;
++    var w: usize = 0;
++    for (stats, 0..) |s, i| {
++        if (s.n == 0) continue;
++        const line = std.fmt.bufPrint(buf[w..], "filestat {s} n={d} wall_us={d} run_us={d} handoff_us={d} on_fiber={d}\n", .{ kind_names[i], s.n, s.wall / 1000, s.run / 1000, (s.wall -| s.run) / 1000, s.fiber }) catch break;
++        w += line.len;
++    }
++    const line = std.fmt.bufPrint(buf[w..], "filestat spin calls={d} iters={d} us={d}\n", .{ rig.sched.spin_calls, rig.sched.spin_iters, rig.sched.spin_ns / 1000 }) catch "";
++    w += line.len;
++    _ = std.posix.system.write(2, &buf, w);
++}
+ fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
+-    return try (try rig.blockingStop(f, args));
++    if (!hooked) {
++        hooked = true;
++        rig.exit_hook = dump;
++    }
++    const k = comptime kindOf(f);
++    const Args = @TypeOf(args);
++    const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
++    const W = struct {
++        fn g(a: Args) R {
++            const t = nowNs();
++            defer _ = @atomicRmw(u64, &stats[k].run, .Add, nowNs() - t, .monotonic);
++            return @call(.auto, f, a);
++        }
++    };
++    const t0 = nowNs();
++    const r = rig.blockingStop(W.g, .{args});
++    stats[k].wall += nowNs() - t0;
++    stats[k].n += 1;
++    if (rig.sched.current() != null) stats[k].fiber += 1;
++    return try (try r);
+ }
+ 
+ /// A descriptor a pool call opened or was given, closed when dropped, as

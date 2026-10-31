@@ -1,0 +1,45 @@
+# Run A: load 3-5 (00:20), mean of 3 runs
+zod3 read                  n=87 wall_us=1914 run_us=1556 handoff_us=357
+zod3 stat                  n=290 wall_us=1618 run_us=472 handoff_us=1145
+zod3 read_dir              n=6 wall_us=181 run_us=158 handoff_us=22
+zod3 realpath              n=4 wall_us=168 run_us=113 handoff_us=54
+ts-pattern read            n=80 wall_us=4761 run_us=4371 handoff_us=389
+ts-pattern stat            n=264 wall_us=1742 run_us=542 handoff_us=1199
+ts-pattern read_dir        n=6 wall_us=363 run_us=341 handoff_us=22
+ts-pattern realpath        n=4 wall_us=102 run_us=66 handoff_us=36
+tiny-invariant stat        n=97 wall_us=556 run_us=153 handoff_us=402
+superstruct stat           n=50 wall_us=310 run_us=119 handoff_us=190
+mitt stat                  n=95 wall_us=512 run_us=143 handoff_us=369
+neverthrow stat            n=36 wall_us=253 run_us=105 handoff_us=147
+
+# Run B: load 14-15 (01:18), mean of 5 runs; spin = the waiter's spins in poolCall's finishing state
+zod3 read                  n=87 wall_us=19351 run_us=5430 handoff_us=13921 on_fiber=87
+zod3 stat                  n=290 wall_us=27139 run_us=1643 handoff_us=25496 on_fiber=290
+zod3 read_dir              n=6 wall_us=1081 run_us=360 handoff_us=720 on_fiber=6
+zod3 realpath              n=4 wall_us=868 run_us=175 handoff_us=693 on_fiber=4
+zod3 spin                  calls=0 iters=0 us=0
+ts-pattern read            n=80 wall_us=4197 run_us=3486 handoff_us=711 on_fiber=80
+ts-pattern stat            n=264 wall_us=3443 run_us=777 handoff_us=2666 on_fiber=264
+ts-pattern read_dir        n=6 wall_us=348 run_us=295 handoff_us=53 on_fiber=6
+ts-pattern realpath        n=4 wall_us=207 run_us=142 handoff_us=65 on_fiber=4
+ts-pattern spin            calls=0 iters=0 us=0
+tiny-invariant read        n=7 wall_us=335 run_us=307 handoff_us=27 on_fiber=7
+tiny-invariant stat        n=97 wall_us=607 run_us=175 handoff_us=431 on_fiber=97
+tiny-invariant read_dir    n=3 wall_us=86 run_us=74 handoff_us=12 on_fiber=3
+tiny-invariant realpath    n=4 wall_us=107 run_us=70 handoff_us=37 on_fiber=4
+tiny-invariant spin        calls=0 iters=0 us=0
+superstruct read           n=10 wall_us=443 run_us=400 handoff_us=42 on_fiber=10
+superstruct stat           n=50 wall_us=369 run_us=126 handoff_us=243 on_fiber=50
+superstruct read_dir       n=3 wall_us=89 run_us=71 handoff_us=17 on_fiber=3
+superstruct realpath       n=4 wall_us=102 run_us=65 handoff_us=37 on_fiber=4
+superstruct spin           calls=0 iters=0 us=0
+mitt read                  n=5 wall_us=281 run_us=260 handoff_us=21 on_fiber=5
+mitt stat                  n=95 wall_us=490 run_us=163 handoff_us=326 on_fiber=95
+mitt read_dir              n=3 wall_us=81 run_us=68 handoff_us=13 on_fiber=3
+mitt realpath              n=4 wall_us=144 run_us=93 handoff_us=50 on_fiber=4
+mitt spin                  calls=0 iters=0 us=0
+neverthrow read            n=7 wall_us=352 run_us=320 handoff_us=31 on_fiber=7
+neverthrow stat            n=36 wall_us=261 run_us=116 handoff_us=145 on_fiber=36
+neverthrow read_dir        n=3 wall_us=88 run_us=74 handoff_us=14 on_fiber=3
+neverthrow realpath        n=4 wall_us=106 run_us=67 handoff_us=38 on_fiber=4
+neverthrow spin            calls=0 iters=0 us=0
