@@ -916,10 +916,11 @@ pub const Emitter = struct {
         try self.w.writeAll("}\n");
     }
 
-    /// Under `RIG_STRICT_OPTIONALS`, the object being emitted asks for its
-    /// optional to be held as a tagged struct (`rig.Opt`).
+    /// Under `RIG_STRICT_OPTIONALS`, the object or payload enum being
+    /// emitted asks for its optional to be held as a tagged struct
+    /// (`rig.Opt`).
     fn emitStrictOptional(self: *Emitter, depth: u32) Error!void {
-        if (!self.strict_optionals or !self.facts.isObjectSym(self.nominal.?.sym)) return;
+        if (!self.strict_optionals or !self.facts.isCompoundSym(self.nominal.?.sym)) return;
         try self.writeIndent(depth);
         try self.w.writeAll("pub const __rig_strict_optional = {};\n");
     }
@@ -967,6 +968,7 @@ pub const Emitter = struct {
         }
         try self.emitRigName(1);
         try self.emitOwnApis(1);
+        try self.emitStrictOptional(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
     }
@@ -1004,6 +1006,7 @@ pub const Emitter = struct {
         try self.emitUnionVariants(2);
         try self.emitRigName(2);
         try self.emitOwnApis(2);
+        try self.emitStrictOptional(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }

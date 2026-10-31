@@ -243,6 +243,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`none` of a large optional is one store.** A `T?` over 16 bytes
+  whose `T` is an object, a payload enum, or an array writes `none` by
+  its flag alone, where Zig wrote every byte of it zero: an empty pop of
+  sanstun's 176-byte `Event?` takes 0.26 ns, from 1.9. A payload enum's
+  optional now goes through the optional helpers, as an object's does,
+  and under `RIG_STRICT_OPTIONALS` is a tagged struct too. A payload
+  variant literal compared with an optional (`o == .square(side: 2)`)
+  is its payload's value.
 - **A view of an array held where a slice goes is lent as one.** A
   `?[4]U8` parameter or binding passed bare where a `[]U8` goes, as an
   argument, a binding's value, or an assignment's, reaches Zig as the

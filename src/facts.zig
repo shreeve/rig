@@ -1128,6 +1128,11 @@ pub const Facts = struct {
     pub fn isObjectSym(f: Facts, sym: SymbolId) bool {
         return sema.isObjectSym(f.c(), sym);
     }
+    /// Whether the type `sym` declares is an object or a payload enum
+    /// (`sema.isCompoundSym`).
+    pub fn isCompoundSym(f: Facts, sym: SymbolId) bool {
+        return sema.isCompoundSym(f.c(), sym);
+    }
     /// What `+x` does to a value of this type (`sema.cloneable`).
     pub fn cloneable(f: Facts, ty: TypeId) Clone {
         return sema.cloneable(f.c(), ty);

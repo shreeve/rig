@@ -5799,7 +5799,10 @@ const Checker = struct {
                     }
                 }
             }
-            try self.checkExpr(lit, reached);
+            // A payload literal beside an optional is its payload's value,
+            // which `==` compares with the optional as it is: no lift.
+            const want = if (lit.isKind(.call) and self.ctx.types.get(reached) == .optional) sema.unwrapOptionals(self.ctx, reached) else reached;
+            try self.checkExpr(lit, want);
             if (lit.isKind(.call)) {
                 try self.checkEquatable(reached, l, op);
                 if (self.ctx.typeOf(lit)) |lit_ty| if (!self.isPoison(lit_ty) and sema.moves(self.ctx, lit_ty) != .no) try self.readLeaf(lit);

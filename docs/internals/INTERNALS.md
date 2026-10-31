@@ -4374,7 +4374,8 @@ symbols); a query that decides more than that is a recorded fact.
   `orelse`, and `if (x) |v|`, unless its representation may differ
   from that, which `Facts.optionalRouted` decides once per payload
   type (`sema.optionalRouted`): a type parameter's `T?`, whose
-  instance decides, every object's, and an optional of either. Such an
+  instance decides, every object's and payload enum's, and an optional
+  of any of these. Such an
   optional is written `rig.Opt(T)`, and every
   operation on it goes through the runtime's helpers: `rig.some(x)` is
   the Zig `?T` that `if x as v`, `while x as v`, `??`, `?`, and
@@ -4403,6 +4404,16 @@ symbols); a query that decides more than that is a recorded fact.
   one integer and stores that. The type and its layout stay Zig's `?T`;
   a runtime test checks that Zig's own `?T` has that layout.
 
+  `pack` writes the `none` of a larger `?T` by its flag alone. Zig
+  writes a `null` of `?T` as every byte of it zero, a store for each 16
+  bytes of `T` (an empty pop of sanstun's 176-byte `Event?` took 1.9 ns
+  for it); where `?T` is over 16 bytes and holds an object, a payload
+  enum, or an array (`FlagNone`, `flagNone`), `pack` leaves the payload's
+  bytes as they are and zeroes the flag byte after them, one store (the
+  pop takes 0.26 ns). Nothing reads a `none`'s payload: Zig tests the
+  flag first, and `rig.eql` and `rig.hashAs` compare and hash an
+  optional by its value.
+
   An object with a niche holds `none` in it ([The runtime](#the-runtime),
   `Niche`): a word of its bytes that no value of it holds, chosen at
   compile time from its fields by `rig.nicheOf` (a String's, List's,
@@ -4413,8 +4424,9 @@ symbols); a query that decides more than that is a recorded fact.
   while one is free (a `Bool` has 254, a plain enum what its tag leaves, an
   address only 0), else Zig's flag. Only the objects emit writes (`__rig_name`) take
   a niche, and boxes and weak handles: a `String?`, `List[T]?`,
-  `Bool?`, or enum's optional is written `?T` outside generic code, so
-  `rig.Opt` of it stays `?T` everywhere. A `^T?` and a `~T?` are routed
+  `Bool?`, or plain enum's optional is written `?T` outside generic
+  code, so `rig.Opt` of it stays `?T` everywhere; a payload enum's is
+  routed, so `pack` writes its `none`, and `rig.Opt` of it is `?T`. A `^T?` and a `~T?` are routed
   as an object's is (`sema.optionalRouted`): a box and a weak handle are
   each a struct around one address, whose `?T` Zig would hold beside a
   flag, so `rig.Opt` holds `none` as the null address, a pointer's size,
@@ -4425,8 +4437,8 @@ symbols); a query that decides more than that is a recorded fact.
   constructor goes through `rig.notNone`, which panics on that value.
   Its optional is the niche under `RIG_STRICT_OPTIONALS` too.
 
-  `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object
-  declares `__rig_strict_optional`, and `rig.Opt` of it, or of an
+  `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object and
+  payload enum declares `__rig_strict_optional`, and `rig.Opt` of it, or of an
   optional of it, is a tagged struct (`rig.Strict`), so a program
   compiles only if emit and the runtime write every operation on such
   an optional through the helpers. Run the suite in this mode after a
@@ -5079,7 +5091,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `Shared(T)`, `Frozen(T)` | the box behind `*T`, and behind `*Frozen[T]` with its count always atomic (both `Counted(T, is_frozen)`; `Shared`'s counts are atomic when `T` is `synchronized`). A `Shared` holds a strong count, a weak count (plus one for all strong handles), and the value, and its last strong drop gives back the strong side's weak count, freeing the box when no weak handle remains. A `Frozen` holds a strong count and the value, 8 bytes less, since a frozen value has no weak handle: its last drop is one atomic decrement, and it frees the box. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
 | `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `Shared` past 256 nested releases |
 | `Weak(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
-| `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `nicheOf`, `Niche(T, n)`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way: `Niche(T, n)`, an object's bytes holding `none` in its niche `n` (`nicheOf`), which it keeps as bytes since they are no `T` while they hold `none`, and reads as a `T` only past that one compare; `Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`; `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go. `eqlAs`, `hashAs`, and `cloneValue` reach a field nesting objects more than eight deep through a call of their own (`outOfLine`), so a chain of objects nested by value gives LLVM bodies of bounded size |
+| `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `nicheOf`, `Niche(T, n)`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way: `Niche(T, n)`, an object's bytes holding `none` in its niche `n` (`nicheOf`), which it keeps as bytes since they are no `T` while they hold `none`, and reads as a `T` only past that one compare; `Strict(T)`, the tagged struct an object's or payload enum's optional is under `RIG_STRICT_OPTIONALS`; `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go. `eqlAs`, `hashAs`, and `cloneValue` reach a field nesting objects more than eight deep through a call of their own (`outOfLine`), so a chain of objects nested by value gives LLVM bodies of bounded size |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `swap`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
