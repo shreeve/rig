@@ -42,7 +42,7 @@ test "crypto chacha rfc 8439", '''
 
   sun = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
   # §2.8.2: seal, then open.
-  c = crypto.ChaCha(unhex[32]("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
+  c = crypto.ChaCha.of(unhex[32]("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
   nonce = unhex[12]("070000004041424344454647")
   header = unhex[12]("50515253c0c1c2c3c4c5c6c7")
   buf = text(sun)
@@ -53,7 +53,7 @@ test "crypto chacha rfc 8439", '''
   print(show(buf))
   # §2.4.2: the AEAD's keystream starts at counter 1, as 2.4.2's does, so
   # a seal with no header gives 2.4.2's ciphertext.
-  d = crypto.ChaCha(unhex[32]("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"))
+  d = crypto.ChaCha.of(unhex[32]("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"))
   nob: [0]U8 = []
   plain = text(sun)
   _ = d.seal(!plain, unhex[12]("000000000000004a00000000"), nob)
@@ -75,7 +75,7 @@ test "crypto chacha forged", '''
       t += Int(x)
     t
 
-  c = crypto.ChaCha([32 of 9])
+  c = crypto.ChaCha.of([32 of 9])
   nonce: [12]U8 = [12 of 1]
   header: [5]U8 = [5 of 2]
   sealed: [300]U8 = [300 of 77]
@@ -118,7 +118,7 @@ test "crypto chacha every length", "11258623874660040186 true"
     nonce[0] = U8.wrap(n)
     nonce[11] = U8.wrap(n >> 8)
     al = [0, 1, 13, 16, 33, 80][n % 6]
-    c = crypto.ChaCha(key)
+    c = crypto.ChaCha.of(key)
     buf: List[U8] = List()
     for i in 0..n
       !buf.push(msg[i])
@@ -136,8 +136,8 @@ test "crypto chacha out of place", "true true true"
   # seal_into and open_into give what seal and open give, at every length to
   # 600, from one buffer into another; a padded seal_into seals the message
   # and its zeros.
-  c = crypto.ChaCha([32 of 3])
-  x = crypto.XChaCha([32 of 4])
+  c = crypto.ChaCha.of([32 of 3])
+  x = crypto.XChaCha.of([32 of 4])
   nonce: [12]U8 = [12 of 5]
   xnonce: [24]U8 = [24 of 6]
   header: [7]U8 = [7 of 8]
@@ -218,7 +218,7 @@ test "crypto xchacha draft", '''
 
   # draft-irtf-cfrg-xchacha-03 §A.3.1, whose HChaCha20 subkey is §2.2.1's.
   sun = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
-  x = crypto.XChaCha(unhex[32]("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
+  x = crypto.XChaCha.of(unhex[32]("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
   nonce = unhex[24]("404142434445464748494a4b4c4d4e4f5051525354555657")
   header = unhex[12]("50515253c0c1c2c3c4c5c6c7")
   buf: List[U8] = List()
@@ -261,13 +261,13 @@ test "crypto x25519 rfc 7748", '''
     out
 
   # §5.2: two scalars and u-coordinates.
-  s1 = x25519.Secret(unhex[32]("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"))
+  s1 = x25519.Secret.of(unhex[32]("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"))
   print(hx(s1.share(unhex[32]("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"))!))
-  s2 = x25519.Secret(unhex[32]("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d"))
+  s2 = x25519.Secret.of(unhex[32]("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d"))
   print(hx(s2.share(unhex[32]("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493"))!))
   # §6.1: Alice's and Bob's public keys, and the secret they share.
-  alice = x25519.Secret(unhex[32]("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"))
-  bob = x25519.Secret(unhex[32]("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"))
+  alice = x25519.Secret.of(unhex[32]("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"))
+  bob = x25519.Secret.of(unhex[32]("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"))
   print(hx(alice.public()))
   print(hx(bob.public()))
   print(hx(alice.share(bob.public())!))
@@ -290,7 +290,7 @@ test "crypto x25519 iterated", '''
   k[0] = 9
   u = k
   for i in 0..1000
-    r = x25519.Secret(k).share(u)!
+    r = x25519.Secret.of(k).share(u)!
     u = k
     k = r
     if i == 0
@@ -306,7 +306,7 @@ test "crypto x25519 low order", '''
 '''
   # Points of order 1, 2, 4, and 8, and p (u = 0 again), each give a
   # shared secret of zero, which `share` refuses.
-  s = x25519.Secret([32 of 0x5a])
+  s = x25519.Secret.of([32 of 0x5a])
   peers: [5][32]U8 = [[32 of 0], [32 of 0], [32 of 0], [32 of 0], [32 of 0xff]]
   peers[1][0] = 1
   low = [0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f, 0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16, 0x5f, 0x49, 0xb8, 0x00]
@@ -333,7 +333,7 @@ test "crypto x25519 comb and ladder agree", "true true"
     for j in 0..4
       z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9 +% 0x94d049bb133111eb
       !k.write[U64, .little](8 * j, z)
-    s = x25519.Secret(k)
+    s = x25519.Secret.of(k)
     same = same and crypto.equal(s.public(), s.share(base)!)
   a = x25519.Secret.new()
   b = x25519.Secret.new()
@@ -507,7 +507,7 @@ test "crypto wipe and equal", "0 true false false true"
   print(t, b[33] == 0xab, crypto.equal(c, d), crypto.equal(c, d[..2]), crypto.equal(c[..0], d[..0]))
 
 fail "crypto open fails visibly", "must be wrapped with `!`"
-  c = crypto.ChaCha([32 of 1])
+  c = crypto.ChaCha.of([32 of 1])
   buf: [4]U8 = [4 of 0]
   nonce: [12]U8 = [12 of 0]
   nob: [0]U8 = []
@@ -515,17 +515,54 @@ fail "crypto open fails visibly", "must be wrapped with `!`"
   c.open(!buf, tag, nonce, nob)
 
 fail "crypto a key moves", "`c`"
-  c = crypto.ChaCha([32 of 1])
+  c = crypto.ChaCha.of([32 of 1])
   d = c
-  print(d.key[0], c.key[0])
+  print(d, c)
+
+fail "crypto a key is private", "private"
+  c = crypto.ChaCha.of([32 of 1])
+  print(c.key[0])
+
+test "crypto key objects print no key", "ChaCha(…) XChaCha(…) Secret(…) Hmac(…)"
+  k: [32]U8 = [32 of 1]
+  print(crypto.ChaCha.of(k), crypto.XChaCha.of(k), x25519.Secret.of(k), blake2s.Hmac.of(?k))
+
+test "crypto open_into fails on a short message", "Forged.tag Forged.tag 7"
+  c = crypto.ChaCha.of([32 of 1])
+  nonce: [12]U8 = [12 of 0]
+  nob: [0]U8 = []
+  dst: [4]U8 = [4 of 7]
+  short: [15]U8 = [15 of 0]
+  c.open_into(!dst, short, nonce, nob) catch |e|
+    print(e)
+  c.open_into(!dst, nob, nonce, nob) catch |e|
+    print(e)
+  print(dst[0])
+
+bomb "crypto open_into needs room", "crypto: open_into needs room in `dst`"
+  c = crypto.ChaCha.of([32 of 1])
+  nonce: [12]U8 = [12 of 0]
+  nob: [0]U8 = []
+  dst: [4]U8 = [4 of 7]
+  src: [21]U8 = [21 of 0]
+  c.open_into(!dst, src, nonce, nob) catch |e|
+    print(e)
+
+test "crypto random", "true true"
+  a: [32]U8 = [32 of 0]
+  b: [32]U8 = [32 of 0]
+  crypto.random(!a)
+  crypto.random(!b)
+  z: [32]U8 = [32 of 0]
+  print(not crypto.equal(a, b), not crypto.equal(a, z))
 
 fail "crypto share fails visibly", "must be wrapped with `!`"
-  s = x25519.Secret([32 of 1])
+  s = x25519.Secret.of([32 of 1])
   k = s.share(s.public())
   print(k[0])
 
 bomb "crypto seal_into needs room", "crypto: seal_into needs room for the message and its 16-byte tag"
-  c = crypto.ChaCha([32 of 1])
+  c = crypto.ChaCha.of([32 of 1])
   src: [10]U8 = [10 of 0]
   dst: [20]U8 = [20 of 0]
   nonce: [12]U8 = [12 of 0]
