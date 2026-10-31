@@ -394,9 +394,37 @@ directory.
 | `realpath(path: ?String) -> String?!` | the absolute path `path` names, every symbolic link in it resolved; `none` when nothing is there |
 | `mkdir(path: ?String, parents: Bool = false)!` | makes the directory `path`; a directory there already is fine |
 | `rename(from: ?String, to: ?String)!` | moves what is at `from` to `to`, replacing a file there |
-| `remove(path: ?String) -> Bool!` | removes the file, or empty directory, at `path`: `true`, or `false` when nothing was there |
+| `remove(path: ?String) -> Bool!` | removes the file, or empty directory, at `path`, whichever is there, as C's `remove` does: `true`, or `false` when nothing was there |
+| `unlink(path: ?String) -> Bool!` | removes what is at `path` but a directory, a symbolic link itself and never what it names: `true`, or `false` when nothing was there. A directory fails with the system's reason: `is_directory` on Linux, `not_permitted` on macOS |
+| `rmdir(path: ?String) -> Bool!` | removes the empty directory at `path`: `true`, or `false` when nothing was there. A file fails with `not_directory`, a directory that holds entries with `not_empty` |
 | `open(path: ?String) -> File?!` | the file at `path`, to read; `none` when nothing is there |
 | `create(path: ?String, parents: Bool = false) -> File!` | the file at `path`, created or emptied, to write |
+
+**`rmdir` removes an empty directory, as `mkdir` makes one; `unlink`
+removes anything else.** Each is one system call, so a program that must
+not remove the other kind needs no `stat` first, which another process
+could make wrong before the removal, and each failure is the system's
+own: `rmdir` of a file is `not_directory`, as `rmdir(1)` reports it.
+Where the systems differ, each call gives its system's answer: macOS
+follows a link named with a trailing `/` (`rmdir("link/")` removes the
+directory the link names), where Linux fails with `not_directory`.
+`remove` stays either, as C's `remove` and Go's `os.Remove` are.
+
+```rig
+use std.file
+
+sub main()!
+  file.write("out/rm/f", "x", parents: true)!
+  _ = file.rmdir("out/rm/f") catch |e|
+    print(e)
+    false
+  print(file.unlink("out/rm/f")!, file.rmdir("out/rm")!, file.rmdir("out/rm")!)
+```
+
+```output
+FileError.not_directory
+true true false
+```
 
 **`parents: true` makes the missing directories on the way.** `write`,
 `append`, `create`, and `mkdir` take it, with one default everywhere,
@@ -419,9 +447,9 @@ reports a file it may not read.
 | `denied` | the permissions do not allow it | Permission denied |
 | `not_permitted` | the system does not allow it whatever the permissions: removing a device, another user's file in a sticky directory | Operation not permitted |
 | `read_only` | the file system is read-only | Read-only file system |
-| `not_directory` | the path given `read_dir` names a file, or a file stands where a call needs a directory on the way | Not a directory |
+| `not_directory` | the path given `read_dir` or `rmdir` names a file, or a file stands where a call needs a directory on the way | Not a directory |
 | `is_directory` | the path names a directory, where a file is wanted | Is a directory |
-| `not_empty` | `remove` of a directory that holds entries | Directory not empty |
+| `not_empty` | `remove` or `rmdir` of a directory that holds entries | Directory not empty |
 | `loop` | symbolic links on the path name one another, or too many of them | Too many levels of symbolic links |
 | `name_too_long` | the path, or a name in it, is longer than the system takes | File name too long |
 | `busy` | what the call needs is in use: a mount point | Resource busy (macOS), Device or resource busy (glibc) |
