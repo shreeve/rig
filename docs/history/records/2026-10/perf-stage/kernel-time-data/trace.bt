@@ -1,0 +1,15 @@
+// trace.bt COMM: every mmap, munmap, mremap and madvise of the process
+// named COMM, with its arguments, result and time in the kernel, and every
+// user page fault's address, in the order they happen (run it pinned to one
+// core so the order holds).
+tracepoint:syscalls:sys_enter_madvise /comm == str($1)/ { @t[tid] = nsecs; @a[tid] = args.start; @b[tid] = args.len_in; @c[tid] = args.behavior; }
+tracepoint:syscalls:sys_exit_madvise /@t[tid]/ { printf("madvise %lld %d %lx %ld %d %ld %lld\n", @t[tid], tid, @a[tid], @b[tid], @c[tid], args.ret, nsecs - @t[tid]); delete(@t[tid]); }
+tracepoint:syscalls:sys_enter_munmap /comm == str($1)/ { @t[tid] = nsecs; @a[tid] = args.addr; @b[tid] = args.len; }
+tracepoint:syscalls:sys_exit_munmap /@t[tid]/ { printf("munmap %lld %d %lx %ld 0 %ld %lld\n", @t[tid], tid, @a[tid], @b[tid], args.ret, nsecs - @t[tid]); delete(@t[tid]); }
+tracepoint:syscalls:sys_enter_mmap /comm == str($1)/ { @t[tid] = nsecs; @a[tid] = args.addr; @b[tid] = args.len; @c[tid] = args.flags; }
+tracepoint:syscalls:sys_exit_mmap /@t[tid]/ { printf("mmap %lld %d %lx %ld %d %lx %lld\n", @t[tid], tid, @a[tid], @b[tid], @c[tid], args.ret, nsecs - @t[tid]); delete(@t[tid]); }
+tracepoint:syscalls:sys_enter_mremap /comm == str($1)/ { @t[tid] = nsecs; @a[tid] = args.addr; @b[tid] = args.old_len; @c[tid] = args.new_len; @d[tid] = args.flags; @e[tid] = args.new_addr; }
+tracepoint:syscalls:sys_exit_mremap /@t[tid]/ { printf("mremap %lld %d %lx %ld %ld %lx %lld %d %lx\n", @t[tid], tid, @a[tid], @b[tid], @c[tid], args.ret, nsecs - @t[tid], @d[tid], @e[tid]); delete(@t[tid]); }
+tracepoint:exceptions:page_fault_user /comm == str($1)/ { printf("fault %lld %d %lx %lx %d\n", nsecs, tid, args.address, args.ip, args.error_code); }
+tracepoint:sched:sched_process_exit /comm == str($1) && pid == tid/ { printf("exit %lld %d\n", nsecs, tid); }
+END { clear(@t); clear(@a); clear(@b); clear(@c); clear(@d); clear(@e); }

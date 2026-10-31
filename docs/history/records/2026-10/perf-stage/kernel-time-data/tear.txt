@@ -1,0 +1,22 @@
+# tear.c on pup, E-core 15: 43 reservations of 1 GiB, 3 MiB of each written
+# (129 MiB in 4 KiB pages), then unmapped one by one (u=1) or left to exit
+# (u=0). perf stat, six rounds:
+u=0 cpu_atom/cycles/k=129007134 duration_time=60683853
+u=1 cpu_atom/cycles/k=146180971 duration_time=59940179
+u=0 cpu_atom/cycles/k=120478194 duration_time=60741567
+u=1 cpu_atom/cycles/k=143097074 duration_time=61530894
+u=0 cpu_atom/cycles/k=120756596 duration_time=60506431
+u=1 cpu_atom/cycles/k=147664033 duration_time=59697674
+u=0 cpu_atom/cycles/k=121012385 duration_time=59488738
+u=1 cpu_atom/cycles/k=177217687 duration_time=69002421
+u=0 cpu_atom/cycles/k=122070660 duration_time=59224550
+u=1 cpu_atom/cycles/k=152782130 duration_time=58914677
+u=0 cpu_atom/cycles/k=122290860 duration_time=61034862
+u=1 cpu_atom/cycles/k=151931207 duration_time=61982859
+# wall, 40 runs a set, three sets:
+u=0 61199 us/run
+u=1 60285 us/run
+u=0 61656 us/run
+u=1 60668 us/run
+u=0 61622 us/run
+u=1 60510 us/run

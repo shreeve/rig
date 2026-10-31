@@ -1,0 +1,12 @@
+ts-pattern  S     n=7 wall= 1716.1ms user=   5750M kern=   455M sum=   6205M faults= 39705 minflt= 62996 rss= 248.7MB
+ts-pattern  g     n=7 wall= 1723.8ms user=   5778M kern=   470M sum=   6248M faults= 46923 minflt= 62342 rss= 246.1MB
+ts-pattern  l     n=7 wall= 1723.6ms user=   5822M kern=   459M sum=   6281M faults= 44472 minflt= 62869 rss= 248.2MB
+ts-pattern  none  n=7 wall= 1742.7ms user=   5791M kern=   449M sum=   6240M faults= 40138 minflt= 62917 rss= 248.4MB
+ts-pattern  s     n=7 wall= 1771.3ms user=   5818M kern=   473M sum=   6291M faults= 49192 minflt= 62243 rss= 245.6MB
+ts-pattern  slg   n=7 wall= 1733.3ms user=   5774M kern=   492M sum=   6266M faults= 60312 minflt= 61621 rss= 243.2MB
+zod3        S     n=7 wall=  323.7ms user=   1038M kern=   129M sum=   1167M faults=  9452 minflt= 20118 rss=  81.3MB
+zod3        g     n=7 wall=  327.5ms user=   1048M kern=   131M sum=   1178M faults= 11604 minflt= 19180 rss=  77.5MB
+zod3        l     n=7 wall=  326.5ms user=   1044M kern=   129M sum=   1173M faults= 12034 minflt= 19507 rss=  78.9MB
+zod3        none  n=7 wall=  329.6ms user=   1043M kern=   129M sum=   1172M faults=  9879 minflt= 19522 rss=  78.9MB
+zod3        s     n=7 wall=  327.8ms user=   1043M kern=   133M sum=   1176M faults= 13339 minflt= 18887 rss=  76.5MB
+zod3        slg   n=7 wall=  331.5ms user=   1046M kern=   134M sum=   1180M faults= 17221 minflt= 18529 rss=  75.1MB
