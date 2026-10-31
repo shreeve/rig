@@ -209,3 +209,29 @@ bench/hash under the layout protocol, two runs
 (`bench-hash-pup-ensure*.txt`): no row slower; `int ensure-miss` 18%
 faster, `int ensure-hit` 21-24%, `int ensure_with-miss` 9-12%, `int
 ensure_with-hit` 4-10%; every insert and churn row within 2% by median.
+
+## Change 2, measured and dropped
+
+The arm64 tag as `t | 0x80` (7 bits, no table load), built at ca99fb4f7,
+leaves x86-64's code unchanged: bench/hash's and kn12's `.text`,
+`.rodata` and `.data` for x86-64 and x86-64-v3 are byte for byte main's.
+On arm64 it costs more than it saves:
+
+- **False tag matches**, counted in a copy of the table: a lookup of a
+  random key compares about twice as many wrong keys. Misses at 1,000 to
+  1,000,000 keys: 0.013-0.025 a lookup with the table's 254 tags,
+  0.025-0.060 with 7 bits; hits 0.006-0.013 and 0.012-0.033. Strided
+  keys (`i * MUL`) had none either way.
+- **bench/hash, layout protocol, two Mac runs**
+  (`bench-hash-mac-tag7-*.txt`): slower in both, by the extra compares'
+  cache misses on large tables and text compares: `rnd4000000 miss`
+  22-24%, `triple miss` 28-29%, `str1000000 miss` 18-20%, `string miss`
+  16-19%, `rnd3000000 miss` 17-26%, `int100000 hit` 8%, `string
+  ensure-miss` 5-6%, and more.
+
+The table's own tags by arithmetic instead (`b | (b < 2) << 3`: `tst`,
+`csel`, `orr`, no load, no extra false matches) is slower too
+(`bench-hash-mac-tagarith-*.txt`): small tables' hits and misses 6-16%
+in both runs (`int16 hit`, `rnd1000 miss`, `mix1000 half`), the three
+instructions costing more than a load that is off the critical path of
+a loop of lookups; kn12 1-4% slower. The table stays on every target.
