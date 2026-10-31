@@ -275,6 +275,35 @@ fewer cycles and 0.06% more instructions, zod3 0.29% more cycles and
 guard: 0.1-1.2% fewer instructions on all six files. bench/hash's guard:
 every row within 0.1%.
 
+**Swiss's review: defers and contained panics.** A `defer` of the body
+is registered after the write-back's, so it runs first and sees the held
+header: "held seen by a defer" reads and grows it, "held grown by a defer
+past its buffer" moves it to a new buffer, and the caller sees both. The
+places a panic is contained rather than ending the process, and why a
+stale caller's place is never read or freed after one:
+
+- `task.isolate`, and `task.supervise`, which runs its function isolated:
+  the checker rejects lending anything from outside to write into it
+  (`|!s|` is an error), so a held header belongs to a String the
+  isolated code owns, in frames the panic leaves without running their
+  drops. Cases: "isolate leaves a lent String it grew", "supervise
+  restarts after a String it grew".
+- An actor's runner: the actor dies, and its state, which the String
+  belongs to, is abandoned (`abandonValue`), never dropped or served
+  again; the next call panics in its caller. Case: "actor dies holding a
+  String it grew".
+- A supervised actor starts again from its function with a new value;
+  the old one is abandoned. Case: "actor supervised restarts after a
+  String it grew".
+- A method run inline in its caller panics in the caller as it stands,
+  so the panic goes on to one of the above, or ends the program.
+
+Not containment: `rig test` ends the run at a panic; `time.within`'s
+deadline fails with `Stop.timeout`, a failure, which runs every `defer`;
+`par.map` passes a panic to its owner. Each case runs under
+`RIG_SANITIZE=1`, and each function in it is held (checked in its
+emitted Zig).
+
 ## 6. Left
 
 - Trig's speed on pup with the branch, through Rig - Helper's pup slot.

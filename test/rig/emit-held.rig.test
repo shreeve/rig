@@ -102,3 +102,40 @@ test "held not with inline room", "8 7"
   v = List[Int, inline: 4]()
   fill(!v, 8)
   print(v.len, v[7])
+
+test "held seen by a defer", '''
+  AAA 3
+  AAAAB 5
+'''
+  # A `defer` of the body runs before the header goes back, so it reads
+  # and changes the held header, and the caller sees what it left.
+  sub show(out: !String, n: Int)
+    defer print(out, out.len)
+    for _ in 0..n
+      !out.push(65)
+
+  sub grow(out: !String, n: Int)
+    defer !out.push(66)
+    for _ in 0..n
+      !out.push(65)
+
+  s = String()
+  show(!s, 3)
+  t = String()
+  grow(!t, 4)
+  print(t, t.len)
+
+test "held grown by a defer past its buffer", "1001 66"
+  # The `defer` grows the String past its buffer, so the header it
+  # leaves points at a new one, which the caller reads.
+  sub grow(out: !String, n: Int)
+    defer
+      for _ in 0..n
+        !out.push(66)
+    for _ in 0..1
+      !out.push(65)
+
+  t = String()
+  grow(!t, 1000)
+  b = ?t[..]
+  print(t.len, b[t.len - 1])
