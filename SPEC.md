@@ -4577,7 +4577,14 @@ body decides its result:
 Go's `go test pkg` does: the test blocks of the file `X`, or, when `X` is a
 directory module, those of its files and its `*_test.rig` files
 ([§14](#directory-modules)). The test blocks of the modules `X` imports,
-the standard library's included, are checked and not run. It prints
+the standard library's included, are checked and not run. `X` may also
+name a module of the standard library, `rig test std.NAME`
+(`std.crypto`, `std.crypto.x25519`): the module the library in use
+holds, the one built into `rig` or `RIG_STD`'s, loaded as the library
+loads it, its `extern zig` blocks included, and its test blocks run as a
+program's are, a directory module's `*_test.rig` files with them.
+`rig test std` names no module and is rejected, and a path is always a
+program's file or directory. It prints
 `ok    test "name"` for each test that passes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
 For a `false`, the reason is the source of the `Bool`

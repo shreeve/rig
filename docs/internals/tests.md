@@ -276,6 +276,12 @@ on its first line (`written by tools/NAME.py`), and a core job,
 `generated.<file>`, runs the tool's `--check`, which fails when the file
 is not what the tool would write now.
 
+The standard library's own test blocks run by `rig test std.NAME`,
+which loads the module from the library in use, so `RIG_STD=$PWD/std`
+tests the checkout's copy without a rebuild; a test of a private name
+of a directory module goes in a `*_test.rig` file beside its files.
+`test/cli/test_std_module.sh` holds the command to that.
+
 ## Emit diffs
 
 `tools/emit-diff BASE` says whether the compiler in `bin/rig` writes the
