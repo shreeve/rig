@@ -1,0 +1,6 @@
+turn=1 status=0 665s
+base status=0 869s
+entry,turn=1 status=0 575s
+entry,callfree status=0 526s
+callfree status=0 894s
+turn=3 status=0 434s

@@ -107,6 +107,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | A frozen value's allocation (#767, 2026-10-28) | `*Frozen[T]` holds a strong count and the value, no weak count (8 bytes less), and its last drop is one atomic decrement; the weak count's cost to every `*T` on Trig measured: one `*T` allocation of 3.4M on ts-pattern, so storing it only when a weak handle exists is not worth a design round | [frozen-no-weak/](2026-10/frozen-no-weak/) |
 | Atomics without orderings (2026-10-30, proposed) | seq_cst costs nothing against acquire, release or acq_rel on Apple M5 (the same instructions, or equal speed), and only the seq_cst store differs on x86-64; ordering costs only against relaxed, in four places, two of which move inside built-in forms: a cache line per shared Cell (adjacent ones 4–29× slower), `update(f)` (2.4× faster on one thread), a per-core counter (88× at 8 threads), `wait_until`, and a snapshot Cell; Zig ceilings and Rust measured | [atomics/](2026-10/atomics/) |
 | Split builds (2026-10-31) | Trig's release build spends 440 of 448 s in LLVM on one core; 8 units cut by the call graph build Zig's part in 56 s at the same peak memory, but Trig runs 7.5-9.4% slower (4 or 8 module units, 14-21%), and the Mac has no LTO; approved: split debug builds, test packs and `rig run`, `--release` one unit unless `--units N`, ThinLTO measured on pup next | [build-split/](2026-10/build-split/) |
+| Cheaper yield checks (2026-10-31) | the per-loop count stays: a flag per turn starves timers (a 10 ms sleep waited 1.2 s), loops that call left unchecked starve a queued task (1.15 s), and a check at every function entry costs 2.2-3.9% more instructions; with no loop checks Trig takes 2.5% fewer instructions, time within the Mac's noise; #782's strips closed and archived; the owner's four decisions | [sched-check/](2026-10/sched-check/) |
 | Inlining ray_color (2026-10-30, a study) | #777 changed no machine code for ray-dyn: LLVM already inlined what the size rule now inlines, and its recorded 6% x86 loss does not reproduce (all arms within 0.6% on pup). On arm64 keeping `ray_color` out of line runs 6.2% fewer instructions and 2.2% fewer cycles, as the merged function leaves no callee-saved FP register for World.hit's loop invariant; a rule for it waits on 20 quiet rounds and Trig | [ray-inline/](2026-10/ray-inline/) |
 
 ## Every record
@@ -606,6 +607,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [times3.check](2026-10/safety-checks/data/times3.check)
 - [times3.medians.txt](2026-10/safety-checks/data/times3.medians.txt)
 - [times3.summary.txt](2026-10/safety-checks/data/times3.summary.txt)
+
+### 2026-10/sched-check/
+
+- [README.md](2026-10/sched-check/README.md): the study of cheaper yield checks: what the count costs, each alternative measured (a memory-effects hint, a flag per turn, a check per function entry, call-free loops only, short counted loops, signals), what Go and Erlang do, the preemption each keeps, the recommendation and the owner's decisions
+- [data/](2026-10/sched-check/data/): the summaries of the Trig, benchmark and latency runs, and fannkuch-fast's flip loop
 
 ### 2026-10/scheduler/
 
