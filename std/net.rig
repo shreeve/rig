@@ -81,14 +81,11 @@ pub obj Addr: Eq + Hash + Print
       port = port * 10 + Int(s[i] - 48)
       if port > 65535
         return NetError.address
-    ip: Ip = .v4(0)
-    if s[0] == OPEN
-      if s[c - 1] != CLOSE
-        return NetError.address
-      ip = .v6(parse_v6(s, 1, c - 1)!)
-    else
-      ip = .v4(parse_v4(s, 0, c)!)
-    Addr(ip: ip, port: U16(port))
+    if s[0] != OPEN
+      return Addr(ip: .v4(parse_v4(s, 0, c)!), port: U16(port))
+    if s[c - 1] != CLOSE
+      return NetError.address
+    Addr(ip: .v6(parse_v6(s, 1, c - 1)!), port: U16(port))
 
   sub print(?@, out: !Printer)
     match @ip
@@ -154,8 +151,11 @@ fun parse_v6(s: ?String, from: Int, to: Int) -> U128!
   while i < to
     start = i
     g = 0
-    while i < to and i - start < 5 and hex_digit(s[i]) >= 0
-      g = g * 16 + hex_digit(s[i])
+    while i < to and i - start < 5
+      d = hex_digit(s[i])
+      if d < 0
+        break
+      g = g * 16 + d
       i += 1
     # An IPv4 address ends the text, as two groups.
     w = 16
