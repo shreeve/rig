@@ -5261,7 +5261,13 @@ unspecified (SPEC §10, STD).
   probing. An insert is one pass. A take writes 0 to its tag and lowers
   the maximum load where the group marks the tag's class; a rehash that
   drift forces sizes the table to at most 0.5 full (0.6 on x86-64). A
-  key over 8 bytes keeps its hash in its slot.
+  key over 8 bytes keeps its hash in its slot. On x86-64 a growth to
+  twice the groups (`moveDoubled`) places an entry at home in old group
+  `g` at the next free lane of new group `2g` or `2g + 1`, kept as a
+  count, so no entry loads a group the entry before it just wrote, a
+  16-byte load that waits on a pending 1-byte store; arm64, whose random
+  keys gain nothing from it, places every entry by `emplace`
+  (docs/history/records/2026-10/hash-race/rehash-counts.md).
 - **Slot reads** go through `slotAt`: in a debug build it tests that
   the index is a slot and names a full one; in a release build it is
   the read alone, as the ordered table's `entryOf` is.

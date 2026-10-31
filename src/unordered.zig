@@ -624,11 +624,15 @@ fn Unordered(comptime K: type, comptime V: type) type {
         fn rehash(self: *Self, n: usize) void {
             const new = newArrays(n);
             if (self.elements) |es| {
-                for (0..self.mask + 1) |g| {
-                    var m = matchFull(&self.groups[g]);
-                    while (m != 0) : (m &= m - 1) {
-                        const e = &es[g * NL + laneOf(m)];
-                        new.elements[emplace(new, hashOf(e))] = e.*;
+                if (!group8 and new.mask == 2 * self.mask + 1) {
+                    self.moveDoubled(es, new);
+                } else {
+                    for (0..self.mask + 1) |g| {
+                        var m = matchFull(&self.groups[g]);
+                        while (m != 0) : (m &= m - 1) {
+                            const e = &es[g * NL + laneOf(m)];
+                            new.elements[emplace(new, hashOf(e))] = e.*;
+                        }
                     }
                 }
             }
@@ -638,6 +642,54 @@ fn Unordered(comptime K: type, comptime V: type) type {
             self.mask = new.mask;
             self.shift = new.shift;
             self.ml = self.initialMaxLoad();
+        }
+
+        /// Every entry moved into `new`, of twice the groups. An entry at
+        /// home in old group `g` is at home in new group `2g` or `2g + 1`,
+        /// and a group's lanes fill in order, so the pair's next free lanes
+        /// are kept as counts, read once for `g`: no entry loads a group the
+        /// entry before it wrote a tag into, a load the store would hold up
+        /// (a 16-byte load over a pending 1-byte store waits for it to
+        /// commit: bench/hash's 100,000-key inserts 12% slower on pup when
+        /// half the entries met it). An entry that overflowed, or whose new
+        /// group is full, is placed by `emplace`, and the counts follow it.
+        /// Groups of 7 on arm64 keep the placement of `emplace`: random
+        /// keys alternate between the pair, so the waits there are short
+        /// and the M5 hides them, and the counts cost its random-key
+        /// inserts 4-6% (docs/history/records/2026-10/hash-race/
+        /// rehash-counts.md).
+        fn moveDoubled(self: *const Self, es: [*]Element, new: Arrays) void {
+            for (0..self.mask + 1) |g| {
+                var m = matchFull(&self.groups[g]);
+                if (m == 0) continue;
+                const pair = 2 * g;
+                var even: usize = @popCount(matchFull(&new.groups[pair]));
+                var odd: usize = @popCount(matchFull(&new.groups[pair + 1]));
+                // The last group's last lane holds the sentinel.
+                const odd_lanes: usize = if (pair + 1 == new.mask) NL - 1 else NL;
+                while (m != 0) : (m &= m - 1) {
+                    const e = &es[g * NL + laneOf(m)];
+                    const hash = hashOf(e);
+                    const h = homeOf(hash, new.shift);
+                    const is_odd = h.pos & 1 != 0;
+                    const lane = if (is_odd) odd else even;
+                    const lanes = if (is_odd) odd_lanes else NL;
+                    var slot: usize = undefined;
+                    if (h.pos >> 1 == g and lane < lanes) {
+                        @branchHint(.likely);
+                        new.groups[h.pos].m[lane] = h.tag;
+                        slot = h.pos * NL + lane;
+                        even += @intFromBool(!is_odd);
+                        odd += @intFromBool(is_odd);
+                    } else {
+                        slot = emplace(new, hash);
+                        const pos = slot / NL;
+                        if (pos == pair) even += 1;
+                        if (pos == pair + 1) odd += 1;
+                    }
+                    new.elements[slot] = e.*;
+                }
+            }
         }
 
         /// The slot `p`, whose entry is moved out or dropped, freed; the
@@ -1031,6 +1083,31 @@ test "unordered: a set of strided keys" {
     try testing.expectEqual(@as(i64, 39_998), s.count());
     i = 1;
     while (i < 20_000) : (i += 1) try testing.expect(s.find(i << 20) != null and s.find((i << 20) + 1) == null);
+}
+
+test "unordered: growth moves every entry, crowded and overflowed ones too" {
+    // Dense keys and multiples of 2^32 crowd some groups under a
+    // one-multiply hash, so entries overflow past home before growth
+    // moves them; the table is checked after each growth.
+    for ([_]u6{ 0, 32 }) |shift| {
+        var m: UnorderedMap(i64, i64) = .{};
+        defer m.__rig_drop();
+        var mask = m.mask;
+        var grown: usize = 0;
+        var i: i64 = 0;
+        while (i < 20_000) : (i += 1) {
+            try testing.expect(m.put(i << shift, i));
+            if (m.mask != mask) {
+                mask = m.mask;
+                grown += 1;
+                try m.verify();
+            }
+        }
+        try testing.expect(grown >= 8);
+        i = 0;
+        while (i < 20_000) : (i += 1) try testing.expectEqual(i, m.value(m.find(i << shift).?));
+        try testing.expect(m.find(@as(i64, 20_000) << shift) == null);
+    }
 }
 
 test "unordered: random writes, takes, retains, and clears against a model" {
