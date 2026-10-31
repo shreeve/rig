@@ -95,11 +95,12 @@ A new session, human or agent, takes these steps in order:
 - **Server memory with no row slower** (queue row 21, branch
   `mem-both`): a heap that does not fault in ahead keeps 1 MiB of freed
   large blocks resident and the rest by address, their pages given back
-  (`keep_resident`). kv with 64 KiB values peaks at 39 MB rather than
-  60, xmalloc-test at 78 MB rather than 273, every row within 2% over ten
-  quiet rounds; Trig's heaps take main's path. The record is
-  docs/history/records/2026-10/mem-both/; Trig's timing and the gates
-  are next.
+  (`keep_resident`), #815. kv with 64 KiB values peaks at 34% less
+  memory for 1.1-1.5% fewer requests a second by the median, a trade the
+  owner accepted ("Merge it"); xmalloc-test at 71% less, level; Trig's
+  heaps take main's path. The record is
+  docs/history/records/2026-10/mem-both/. The per-page remote-list walk
+  (arm c, 16 MB more off xmalloc-test) waits in the backlog as its own row.
 - **A lent String or List held in registers** (queue row 28, branch
   `store-forward`): the storage fact `held_header` and its emit; fixes
   #780's Mac stall on a lent String (basenc 218 to 81 ms). Its gates are
