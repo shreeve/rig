@@ -88,11 +88,11 @@ A new session, human or agent, takes these steps in order:
   buffer while it waits, each thread's signal stack is an untouched
   mapping, a blocked task touches one stack page, and fresh stacks hold
   none. Merged. PR B is split (owner, 2026-10-30: nothing slower
-  lands): B2, reads that grow a String unfilled, in review alone; B1
-  and B3 (#785, a draft: another heap's remote list before carving a
-  page, a program-wide bound on large blocks) wait for a heap to reuse
-  other heaps' kept large blocks, so 64 KiB values on 22 workers are no
-  slower.
+  lands): B2, reads that grow a String unfilled, merged (#788); B1 and
+  B3 (#785, a draft: another heap's remote list before carving a page,
+  a pool of large blocks every heap takes from, one program-wide bound
+  counted in batches) land only when 64 KiB values on 22 workers and
+  sh8bench are within 2% of main.
 - **A large optional result through the caller's place** (ray-speed
   review, decision 1, owner 2026-10-29): an API object's table entry
   whose result is an optional wider than three words writes it through

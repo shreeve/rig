@@ -1885,6 +1885,15 @@ first step is on `main` (SPEC §18):
   workers, 5.0 MB at 50, was 14.5, and 10.6 MB at 1,000, was 128 to
   137. The same server in Tokio holds 5.6 to 5.7 MB and 25 MB on the
   Mac, 5.9 and 21 MB on pup.
+- **The heaps share what other threads free, and keep large blocks
+  under one bound:** a heap with no block of a class left takes
+  another heap's remote list of that class before it carves a page; a
+  heap keeps up to 2 MiB of the large blocks it frees, and the rest go
+  to a pool every heap takes from before it maps pages; and the large
+  blocks kept are bounded once for the program, by its settled peak and
+  16 MiB more, counted wherever each block is freed (each heap kept
+  16 MiB of its own, and a block freed on another heap stayed counted on
+  its maker's).
 - **Reads grow a String unfilled:** std.file's reads, std.http's
   strings, and net's reads grow a String through the runtime's raw
   growth, as every String append does, so a safe build writes no 0xAA
