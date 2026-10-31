@@ -181,8 +181,9 @@ const Local = struct {
     /// A parameter copied into `zig_name` at the top of the body: the
     /// name the signature gives it.
     param_name: []const u8 = "",
-    /// A parameter of an inlined function, bound through `rig.rt`
-    /// (`emitFunPrologue`).
+    /// A parameter of an inlined function, bound as a run-time value:
+    /// through `rig.rt`, or for an object a `var` in place
+    /// (`bindParamLocal`).
     launder: bool = false,
     /// The name of a parameter whose header is held in a local for the
     /// body (the storage fact `held_header`): the Zig parameter is
@@ -2073,7 +2074,12 @@ pub const Emitter = struct {
             // known at compile time would be known inside; `rig.rt`
             // keeps the arithmetic and the indexing on it checked when
             // the program runs, as in a function that is called.
-            if (local.launder) {
+            if (local.launder and local.ty != null and self.runsInPlace(local.ty.?) and self.usage.used.contains(local.sym)) {
+                // An object goes through a `var` in place, not `rig.rt`
+                // (`emitCallDirect`).
+                try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
+                try self.line("_ = &{s};", .{local.zig_name});
+            } else if (local.launder) {
                 try self.line("const {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
             } else if (self.fun.inlined) {
                 try self.line("var {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
@@ -6128,6 +6134,20 @@ pub const Emitter = struct {
         return false;
     }
 
+    /// A value made a run-time value by a `var` in place rather than by
+    /// `rig.rt` (`emitCallDirect`, `bindParamLocal`): an object, an enum
+    /// with payloads, an array, several results, or a read view held as
+    /// a copy of one. A scalar, a plain enum, or a pointer goes through
+    /// `rig.rt`, in registers.
+    fn runsInPlace(self: *Emitter, ty: TypeId) bool {
+        return switch (self.facts.types.get(ty)) {
+            .nominal, .imported_nominal, .parameterized_nominal => !self.isEnumTy(ty) or self.hasPayloadVariants(ty),
+            .array, .results => true,
+            .read_view => |inner| !self.isPtrViewTy(ty) and self.runsInPlace(inner),
+            else => false,
+        };
+    }
+
     fn isEnumTy(self: *Emitter, ty: TypeId) bool {
         const decl = self.facts.nominalDecl(ty) orelse return false;
         for (decl.symbol().fields orelse return false) |f| if (f.is_variant) return true;
@@ -8761,26 +8781,30 @@ pub const Emitter = struct {
     /// specifies a check when the program runs. `rig.rt` keeps the
     /// whole result, error or optional included, a run-time value.
     ///
-    /// An optional or fallible result is made a run-time value by a `var`
-    /// in place, not by `rig.rt`: Zig passes such a value to a function
-    /// through memory, and where it is a choice between a copy written
-    /// field by field (payload, then flag) and Zig's constant `null`,
-    /// LLVM keeps that round trip, whose whole-word load cannot be
-    /// forwarded from the two stores and waits for both to reach the
-    /// cache. An inline `rig.rt` would do the same, at four times the
-    /// compile time of a large program (records: perf-stage/table-reads.md).
+    /// An optional, a fallible result, or an object (`runsInPlace`) is
+    /// made a run-time value by a `var` in place, not by `rig.rt`: Zig
+    /// passes such a value to a function through memory, written field by
+    /// field (payload, then flag; or one field after another), and LLVM
+    /// keeps that round trip, whose whole-word load cannot be forwarded
+    /// from the stores and waits for them to reach the cache. An inline
+    /// `rig.rt` would do the same, at four times the compile time of a
+    /// large program (records: perf-stage/table-reads.md,
+    /// perf-stage/codegen-gap.md).
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
         if (ir.Call.task(sexp) != .nil) return self.emitTask(sexp);
         if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
-        if (self.typeOf(sexp)) |ty| switch (self.facts.types.get(ty)) {
-            .optional, .fallible => {
+        if (self.typeOf(sexp)) |ty| {
+            const in_place = switch (self.facts.types.get(ty)) {
+                .optional, .fallible => true,
+                else => self.runsInPlace(ty),
+            };
+            if (in_place) {
                 const id = self.nextId();
                 try self.w.print("(__rig_rt_{d}: {{ var __rig_v_{d} = ", .{ id, id });
                 try self.emitCallPlain(sexp);
                 return self.w.print("; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id });
-            },
-            else => {},
-        };
+            }
+        }
         try self.w.writeAll("rig.rt(");
         try self.emitCallPlain(sexp);
         try self.w.writeAll(")");

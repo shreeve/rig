@@ -1750,3 +1750,54 @@ test "shared list length is an Int", "0 1 7 true"
     t += i
   e = *List[Int]()
   print(t, h.len, last(?h), e.is_empty())
+
+code "inlined object parameter in place", "var p = __rig_in_p;"
+  # An inlined function's object parameter is made a run-time value by a
+  # `var` in place, not by `rig.rt`: through the call, Zig writes the
+  # object to memory a field at a time and LLVM reads it back whole, a
+  # load the stores cannot forward.
+  obj Pair
+    a: U32 = 0
+    b: U32 = 0
+
+  inline fun sum(p: Pair) -> U32
+    p.a + p.b
+
+  print(sum(Pair(a: 1, b: 2)))
+
+code "inlined object result in place", "var __rig_v_"
+  obj Pair
+    a: U32 = 0
+    b: U32 = 0
+
+  inline fun make(i: U32) -> Pair
+    Pair(a: i, b: i + 1)
+
+  called fun first(i: U32) -> U32
+    p = make(i)
+    p.a
+
+  sub main()
+    print(first(4))
+
+bomb "inlined object parameter checked when it runs", "integer overflow"
+  # A parameter known when the program is compiled is still checked
+  # when it runs, as a called function's would be.
+  obj Pair
+    a: U32 = 0
+    b: U32 = 0
+
+  inline fun sum(p: Pair) -> U32
+    p.a + p.b
+
+  print(sum(Pair(a: 0xFFFFFFFF, b: 1)))
+
+code "inlined scalar parameter through rt", "const i = rig.rt(__rig_in_i);"
+  inline fun twice(i: Int) -> Int
+    i * 2
+
+  called fun go(n: Int) -> Int
+    twice(n)
+
+  sub main()
+    print(go(3))
