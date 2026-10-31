@@ -104,6 +104,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 | CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
 | A frozen value's allocation (#767, 2026-10-28) | `*Frozen[T]` holds a strong count and the value, no weak count (8 bytes less), and its last drop is one atomic decrement; the weak count's cost to every `*T` on Trig measured: one `*T` allocation of 3.4M on ts-pattern, so storing it only when a weak handle exists is not worth a design round | [frozen-no-weak/](2026-10/frozen-no-weak/) |
+| Atomics without orderings (2026-10-30, proposed) | seq_cst costs nothing against acquire, release or acq_rel on Apple M5 (the same instructions, or equal speed), and only the seq_cst store differs on x86-64; ordering costs only against relaxed, in four places, two of which move inside built-in forms: a cache line per shared Cell (adjacent ones 4–29× slower), `update(f)` (2.4× faster on one thread), a per-core counter (88× at 8 threads), `wait_until`, and a snapshot Cell; Zig ceilings and Rust measured | [atomics/](2026-10/atomics/) |
 
 ## Every record
 
@@ -163,6 +164,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [6-final.md](2026-10/apis-stage5/core-panel/6-final.md): the final CORE text (§1's and §4's rows, the clauses to sentences 8 and 9, Stage 4's list's last line, the paragraph and its list), the reviewer's three fixes folded in, the real programs it accepts and rejects (the GUI render limit), and the examples
 - [4-draft.md](2026-10/apis-stage5/core-panel/4-draft.md): the combined draft, each hole with its rule, and SPEC §18's rows
 - [2-compiler.md](2026-10/apis-stage5/core-panel/2-compiler.md), [3-adversary.md](2026-10/apis-stage5/core-panel/3-adversary.md), [5-review.md](2026-10/apis-stage5/core-panel/5-review.md): the panel's reports (buildability and sizes; holes A1 to A7; holes, fixes, and verdict)
+
+### 2026-10/atomics/
+
+- [README.md](2026-10/atomics/README.md): the design note: Rig's atomics today, what seq_cst costs, the five built-in forms with their measured gains and costs to build, what stays out, and the order of building
+- [measurements.md](2026-10/atomics/measurements.md): seq_cst against the weaker orderings on Apple M5, in Zig and Rust, with arm64 and x86-64 instructions, and the counter, `update(f)`, waiting, snapshot, and false-sharing tables
 
 ### 2026-10/clone/
 
