@@ -390,6 +390,50 @@ Limits: E-core samples (Crestmont), shares of instructions, not cycles;
 the classes come from the emitted Zig's text by pattern, and the
 unclassed rows (1.7% and 2.3% of instructions) were not read.
 
+## 6. Row 1 built and timed: not taken (2026-10-31)
+
+Row 1 of §4, built in full as #816 (branch `rt-by-value`, kept as the
+tag `archive/rt-by-value`): an inlined function's object parameter or
+object result becomes a run-time value through a `var` in place, not
+through `rig.rt`. Its gates were green (the suite, emit-diff, Mac
+bench/hash, the std.json guard, loco, Trig's light gate). A third arm,
+`vol`, added to it a volatile word-at-a-time copy of a Map key of two to
+four words in `ordered.zig`'s `put`, `replace`, `put_new`, `ensure` and
+`insert_new` ([ordered-volatile.patch](codegen-gap-data/ordered-volatile.patch)),
+to measure row 2's store-forward blocks.
+
+Trig 2ba0719 PGO built by each Rig on main 144f70057
+([rtb-build.sh](codegen-gap-data/rtb-build.sh)), timed on P-core 6 with
+nothing else on pup, 20 rounds with the first arm rotated
+([time-rot2.sh](codegen-gap-data/time-rot2.sh),
+[rtb-times.txt](codegen-gap-data/rtb-times.txt)). Every arm's output is
+tsrs's. Against base, by user cycles:
+
+| | ts-pattern | zod3 |
+|---|---:|---:|
+| item1, median | 1.1% slower | 1.7% slower |
+| item1, paired by round (rounds slower) | 0.6% slower (14 of 20) | 2.2% slower (16 of 20) |
+| item1, store-forward blocks | 1.7% fewer | 13% more |
+| item1, user instructions | 0.1% fewer | 0.1% fewer |
+| vol, median | 2.0% slower | 2.7% slower |
+| vol, paired by round (rounds slower) | 2.0% slower (18 of 20) | 2.7% slower (16 of 20) |
+| vol, store-forward blocks | 18% more | 24% more |
+| tsrs | 11% fewer | 22% fewer |
+
+Base's medians: 3,237M user cycles and 13.75M store-forward blocks on
+ts-pattern, 616M and 4.29M on zod3. Peak memory is the same in all three
+Rig arms. pup's bench/hash, by the layout protocol (four layouts each,
+fastest of 7; [rtb-tp.sh](codegen-gap-data/rtb-tp.sh),
+[rtb-bench-hash-pup.txt](codegen-gap-data/rtb-bench-hash-pup.txt)): no
+row of 133 slower or faster, for Map and HashMap alike.
+
+**Not taken.** The hand ceiling's 1.1% did not survive a complete build:
+binding the values as `var`s left the blocked loads where they were on
+ts-pattern and added to them on zod3, and Trig is slower on both. The
+volatile key copy splits a load the next store cannot forward into words
+that the following wide loads cannot forward either, so blocks rise; row
+2 as a copy by words is not worth proposing.
+
 ## Trig-side findings
 
 For Trig, which owns its algorithm and data:
