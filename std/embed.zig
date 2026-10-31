@@ -10,6 +10,8 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "file.zig", @embedFile("file.zig") },
     .{ "char.zig", @embedFile("char.zig") },
     .{ "char_tables.zig", @embedFile("char_tables.zig") },
+    .{ "hint.rig", @embedFile("hint.rig") },
+    .{ "hint.zig", @embedFile("hint.zig") },
     .{ "http.rig", @embedFile("http.rig") },
     .{ "http.zig", @embedFile("http.zig") },
     .{ "io.rig", @embedFile("io.rig") },

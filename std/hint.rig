@@ -1,0 +1,9 @@
+# std.hint: what the optimizer must not see through.
+
+extern zig "hint.zig"
+  # Keep `x`: the optimizer must assume this reads `x` and reads and
+  # writes any memory, as Rust's `std::hint::black_box` does. So `x` is
+  # computed even when nothing else uses it, and no load or store moves
+  # across the call: a benchmark keeps each round's result, and the
+  # work of a round stays in its round.
+  pub sub keep[T](x: ?T)

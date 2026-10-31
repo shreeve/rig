@@ -2701,8 +2701,11 @@ pub const TypeResolver = struct {
     }
 
     /// A Zig-backed `fun` or `sub` has a signature the checker can
-    /// trust without a body: one with compile-time parameters would need
-    /// requirements it cannot infer. One that fails returns errors of its
+    /// trust without a body. Its compile-time parameters are bare type
+    /// parameters, which place no requirement on a type: a bound or a
+    /// compile-time value would need requirements it cannot infer. One
+    /// with type parameters cannot fail, since its errors are checked
+    /// only against a function of known type. One that fails returns errors of its
     /// module's error sets, or `std.task`'s `Stop` (a waiting point that
     /// a cancel stops), which the emitter hands `rig.expectShim` to check
     /// its Zig function against, so the module declares a set or uses
@@ -2710,11 +2713,16 @@ pub const TypeResolver = struct {
     fn checkZigBacked(self: *TypeResolver, node: Sexp) Error!void {
         const name = ir.get(node, .name);
         const text = identAt(self.ctx.source, name) orelse "it";
-        if (sema.tparamsOf(node).items().len > 0) {
-            try self.ctx.errAt(name, "a Zig-backed function cannot take compile-time parameters: write `{s}` in Rig", .{text});
-        }
+        const tparams = sema.tparamsOf(node).items();
+        for (tparams) |tp| if (tp != .src) {
+            try self.ctx.errAt(tp, "a Zig-backed function takes only type parameters, each a bare name: write `{s}` in Rig", .{text});
+            break;
+        };
         const f = self.ctx.types.get(self.ctx.symbols.items[self.ctx.symbolOf(name) orelse return].ty);
         const fails = rig.subFails(node) or (f == .function and self.ctx.types.get(f.function.returns) == .fallible);
+        if (fails and tparams.len > 0) {
+            try self.ctx.errAt(name, "a Zig-backed function with type parameters cannot fail: write `{s}` in Rig", .{text});
+        }
         const uses_stop = for (self.ctx.imports) |imp| {
             if (std.mem.eql(u8, imp.sema.name, "std.task")) break true;
         } else false;
