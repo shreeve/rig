@@ -1,0 +1,76 @@
+--- a/rig/ordered.zig
++++ b/rig/ordered.zig
+@@ -227,7 +227,22 @@
+         }
+ 
+         inline fn makeEntry(k: K, v: V, h: u64) E {
+-            return if (stores_hash) .{ .key = k, .value = v, .hash = h } else .{ .key = k, .value = v };
++            var e: E = if (stores_hash) .{ .key = undefined, .value = v, .hash = h } else .{ .key = undefined, .value = v };
++            copyKey(&e.key, &k);
++            return e;
++        }
++
++        /// CEILING (item 2): a plain key of two to four words is copied a
++        /// word at a time, by volatile loads LLVM may not merge into one
++        /// wide load, which a key written a word at a time could not
++        /// forward.
++        inline fn copyKey(d: *K, s: *const K) void {
++            if (comptime @sizeOf(K) > 8 and @sizeOf(K) % 8 == 0 and @sizeOf(K) <= 32 and @alignOf(K) >= 8 and !rt.needsDrop(K)) {
++                const n = @sizeOf(K) / 8;
++                const src: *const volatile [n]u64 = @ptrCast(s);
++                const dst: *[n]u64 = @ptrCast(d);
++                inline for (0..n) |i| dst[i] = src[i];
++            } else d.* = s.*;
+         }
+ 
+         inline fn firstLane(m: LaneMask) usize {
+@@ -823,7 +838,8 @@
+         /// there keeps its place and its old value and `k` are dropped.
+         /// True when `k` was new.
+         pub inline fn put(self: *Self, k: K, v: V) bool {
+-            var kk = k;
++            var kk: K = undefined;
++            copyKey(&kk, &k);
+             const h = hashKey(rt.lend(&kk));
+             if (self.findHashed(rt.lend(&kk), h)) |j| {
+                 rt.dropElement(K, &kk);
+@@ -839,7 +855,8 @@
+         /// `replace(!@, k: K, v: V) -> V?`: as `put`, handing the old
+         /// value back.
+         pub inline fn replace(self: *Self, k: K, v: V) rt.Opt(V) {
+-            var kk = k;
++            var kk: K = undefined;
++            copyKey(&kk, &k);
+             const h = hashKey(rt.lend(&kk));
+             if (self.findHashed(rt.lend(&kk), h)) |j| {
+                 rt.dropElement(K, &kk);
+@@ -855,7 +872,8 @@
+         /// `put_new(!@, k: K, v: V) -> Bool`: `v` under `k` only when `k`
+         /// is new; otherwise both are dropped.
+         pub inline fn put_new(self: *Self, k: K, v: V) bool {
+-            var kk = k;
++            var kk: K = undefined;
++            copyKey(&kk, &k);
+             var vv = v;
+             const h = hashKey(rt.lend(&kk));
+             if (self.findHashed(rt.lend(&kk), h) != null) {
+@@ -875,7 +893,8 @@
+         /// `ensure(!@, k: K, v: V) -> Int`: the entry of `k`, made of `k`
+         /// and `v` when `k` is new; otherwise both are dropped.
+         pub inline fn ensure(self: *Self, k: K, v: V) i64 {
+-            var kk = k;
++            var kk: K = undefined;
++            copyKey(&kk, &k);
+             var vv = v;
+             const h = hashKey(rt.lend(&kk));
+             if (self.findHashed(rt.lend(&kk), h)) |j| {
+@@ -890,7 +909,8 @@
+         /// is not there, made of `k` and `v`.
+         pub fn insert_new(self: *Self, k: K, v: V) i64 {
+             @branchHint(.unlikely);
+-            var kk = k;
++            var kk: K = undefined;
++            copyKey(&kk, &k);
+             return @intCast(self.insertHashed(kk, v, hashKey(rt.lend(&kk))));
+         }
+ 
