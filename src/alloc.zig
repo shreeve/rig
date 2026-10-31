@@ -857,6 +857,181 @@ fn mapOwnSegment() ?*Segment {
 }
 
 // -----------------------------------------------------------------------------
+// Tables' address space
+// -----------------------------------------------------------------------------
+
+/// The address space reserved Tables (`table.zig`) are handed on Linux:
+/// regions of `table_region_size`, each mapped once, with no memory
+/// committed (`MAP_NORESERVE`), and advised for small pages once. A Table
+/// takes a range of whole huge pages from one (`reserveTable`), which
+/// makes no system call while memory has no free 2 MiB blocks to spare,
+/// and one `madvise` while it does; a Table dropped gives its pages back
+/// to the system with `MADV_DONTNEED`, which leaves the range reading as
+/// zeros, and its range to the next Table (`unreserveTable`). Trig's
+/// checkers reserve 43 Tables each, 24 MiB to 4 GiB, 53 GiB in all, and
+/// a mapping, its advice, and its unmapping for each cost about 8
+/// microseconds of system calls. Only release builds take Tables from
+/// here: a debug build maps each on its own, so a Table used after it is
+/// dropped faults and the leak checker sees each.
+const table_region_size: usize = 256 << 30;
+/// The regions there may be, 8 TiB in all; a Table that finds none with
+/// room, or is larger than a region, is mapped on its own.
+const table_regions_max = 32;
+/// The free ranges kept between Tables. A range that would be one more
+/// is given up: its pages are back with the system, and only its
+/// addresses go unused.
+const table_free_max = 128;
+
+const Range = struct { start: usize, len: usize };
+
+var tables_lock: std.atomic.Value(bool) = .init(false);
+/// The regions, in the order they were mapped; the newest is handed out
+/// from `table_next` to `table_end`.
+var table_regions: [table_regions_max]Range = undefined;
+var table_region_count: usize = 0;
+var table_next: usize = 0;
+var table_end: usize = 0;
+/// No region could be mapped (`ulimit -v`, strict overcommit): each
+/// Table is mapped on its own from then on.
+var tables_unmapped: bool = false;
+/// The ranges given back, by address, none touching another.
+var table_free: [table_free_max]Range = undefined;
+var table_free_count: usize = 0;
+/// Whether any range has asked for huge pages, so a range given back is
+/// advised for small pages again before the next Table takes it.
+var tables_asked_huge: std.atomic.Value(bool) = .init(false);
+
+fn lockTables() void {
+    while (tables_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+}
+
+fn unlockTables() void {
+    tables_lock.store(false, .release);
+}
+
+/// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
+/// Table: zeros, none committed. Its first 2 MiB keep small pages, and
+/// the rest asks for huge pages while the system has free 2 MiB blocks
+/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes. Null
+/// where Tables are not taken from here: off Linux, a Table larger than
+/// a region, or no region to be had.
+pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
+    if (builtin.os.tag != .linux) return null;
+    const len = std.mem.alignForward(usize, bytes, huge_page);
+    if (len > table_region_size) return null;
+    const huge = len > huge_page and hugeFree();
+    lockTables();
+    const p = takeTableRange(len);
+    unlockTables();
+    if (huge) if (p) |at| {
+        tables_asked_huge.store(true, .monotonic);
+        std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+    };
+    return @ptrFromInt(p orelse return null);
+}
+
+/// Give back the range of a Table of `bytes` at `p`, if it is one
+/// `reserveTable` handed out: its pages to the system, and the range,
+/// advised for small pages again, to the next Table.
+pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
+    if (builtin.os.tag != .linux) return false;
+    const at = @intFromPtr(p);
+    const len = std.mem.alignForward(usize, bytes, huge_page);
+    lockTables();
+    var mine = false;
+    for (table_regions[0..table_region_count]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
+    unlockTables();
+    if (!mine) return false;
+    const range: [*]align(huge_page) u8 = @alignCast(p);
+    std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
+    if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+    lockTables();
+    giveTableRange(at, len);
+    unlockTables();
+    return true;
+}
+
+/// `len` bytes of the Tables' address space: the smallest free range
+/// that holds them, else the newest region's rest, else a new region.
+/// Under `tables_lock`.
+fn takeTableRange(len: usize) ?usize {
+    var best: ?usize = null;
+    for (table_free[0..table_free_count], 0..) |r, i| {
+        if (r.len >= len and (best == null or r.len < table_free[best.?].len)) best = i;
+    }
+    if (best) |i| {
+        const r = &table_free[i];
+        const p = r.start;
+        r.start += len;
+        r.len -= len;
+        if (r.len == 0) {
+            std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
+            table_free_count -= 1;
+        }
+        return p;
+    }
+    if (table_end - table_next < len and !newTableRegion()) return null;
+    const p = table_next;
+    table_next += len;
+    return p;
+}
+
+/// Map a new region, advised for small pages, and give the newest one's
+/// rest to the free ranges. Under `tables_lock`.
+fn newTableRegion() bool {
+    @branchHint(.cold);
+    if (tables_unmapped or table_region_count == table_regions_max) return false;
+    const raw = std.posix.mmap(null, table_region_size + huge_page, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
+        tables_unmapped = true;
+        return false;
+    };
+    std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+    const start = std.mem.alignForward(usize, @intFromPtr(raw.ptr), huge_page);
+    if (table_end > table_next) giveTableRange(table_next, table_end - table_next);
+    table_regions[table_region_count] = .{ .start = start, .len = table_region_size };
+    table_region_count += 1;
+    table_next = start;
+    table_end = start + table_region_size;
+    return true;
+}
+
+/// Put `len` bytes at `p` back: onto the newest region's rest when they
+/// end there, else among the free ranges, joined to those they touch.
+/// Under `tables_lock`.
+fn giveTableRange(p: usize, len: usize) void {
+    if (p + len == table_next) {
+        table_next = p;
+        // A free range that now ends at the rest joins it.
+        for (table_free[0..table_free_count], 0..) |r, i| if (r.start + r.len == p) {
+            table_next = r.start;
+            std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
+            table_free_count -= 1;
+            break;
+        };
+        return;
+    }
+    // The first free range after `p`.
+    var i: usize = 0;
+    while (i < table_free_count and table_free[i].start < p) i += 1;
+    const joins_before = i > 0 and table_free[i - 1].start + table_free[i - 1].len == p;
+    const joins_after = i < table_free_count and p + len == table_free[i].start;
+    if (joins_before and joins_after) {
+        table_free[i - 1].len += len + table_free[i].len;
+        std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
+        table_free_count -= 1;
+    } else if (joins_before) {
+        table_free[i - 1].len += len;
+    } else if (joins_after) {
+        table_free[i].start = p;
+        table_free[i].len += len;
+    } else if (table_free_count < table_free_max) {
+        std.mem.copyBackwards(Range, table_free[i + 1 .. table_free_count + 1], table_free[i..table_free_count]);
+        table_free[i] = .{ .start = p, .len = len };
+        table_free_count += 1;
+    }
+}
+
+// -----------------------------------------------------------------------------
 // What the program's allocations come to
 // -----------------------------------------------------------------------------
 
@@ -1635,6 +1810,85 @@ test "on Linux, with memory fragmented, no block, segment, or growth asks for hu
     const p = busy.newPage().?;
     try std.testing.expect(faultsAhead(&busy));
     try std.testing.expect(!try advisedHugeForTest(p));
+}
+
+test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with one reading of /proc/buddyinfo, and gives them back to the region's rest" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const reads = buddyinfo_reads;
+    const next = table_next;
+    var got: [43][*]u8 = undefined;
+    for (&got, 0..) |*g, i| {
+        g.* = reserveTable((i + 1) * (3 << 20) + 4096).?;
+        try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % huge_page);
+    }
+    try std.testing.expectEqual(reads + 1, buddyinfo_reads);
+    try std.testing.expect(table_region_count >= 1);
+    // Given back in another order than taken, they join one another and
+    // then the region's rest.
+    for (got, 0..) |g, i| if (i % 2 == 1) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
+    try std.testing.expect(table_free_count > 0);
+    for (got, 0..) |g, i| if (i % 2 == 0) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+    if (next != 0) try std.testing.expectEqual(next, table_next);
+}
+
+test "on Linux a Table's range given back has its pages back with the system, and the next Table that takes it reads zeros" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    const mib: usize = 1 << 20;
+    const a = reserveTable(6 * mib).?;
+    const b = reserveTable(4 * mib).?;
+    @memset(a[0 .. 6 * mib], 7);
+    try std.testing.expectEqual(@as(usize, 6 * mib), try residentForTest(a, 6 * mib));
+    // `a` is not at the region's rest, so its range is kept apart.
+    try std.testing.expect(unreserveTable(a, 6 * mib));
+    try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 6 * mib));
+    const c = reserveTable(5 * mib + 4096).?;
+    try std.testing.expectEqual(a, c);
+    for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
+    try std.testing.expect(unreserveTable(b, 4 * mib));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+    // A mapping of its own is not the Tables'.
+    var own: [4096]u8 align(4096) = undefined;
+    try std.testing.expect(!unreserveTable(&own, own.len));
+}
+
+test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    const mib: usize = 1 << 20;
+    const t = reserveTable(24 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    const small = reserveTable(2 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
+    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    useBuddyinfoForTest(buddyinfo_partly);
+    const u = reserveTable(24 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
+    try std.testing.expect(unreserveTable(u, 24 * mib));
+    try std.testing.expect(unreserveTable(small, 2 * mib));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+}
+
+/// The bytes of the `len` at `p` resident in memory (`mincore`).
+fn residentForTest(p: [*]u8, len: usize) !usize {
+    const pages = len / std.heap.pageSize();
+    var vec: [4096]u8 = undefined;
+    if (pages > vec.len) return error.TooLong;
+    const rc: isize = @bitCast(std.os.linux.syscall3(.mincore, @intFromPtr(p), len, @intFromPtr(&vec)));
+    if (rc < 0) return error.NoMincore;
+    var n: usize = 0;
+    for (vec[0..pages]) |v| n += v & 1;
+    return n * std.heap.pageSize();
 }
 
 /// Whether the mapping that holds `p` asks for huge pages: its `VmFlags`

@@ -111,6 +111,7 @@ const huge: usize = 2 << 20;
 /// memory fragments faults in through the compactor, as every range that
 /// asks does (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
 fn reserve(bytes: usize) [*]align(page) u8 {
+    if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes)) |p| return p;
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
     const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
     if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
@@ -133,8 +134,16 @@ fn reserve(bytes: usize) [*]align(page) u8 {
 }
 
 fn unreserve(p: [*]align(page) u8, bytes: usize) void {
+    if (comptime !leak_checked) if (rt.fast_alloc.unreserveTable(p, bytes)) return;
     std.posix.munmap(p[0..bytes]);
 }
+
+/// Whether the program is built with the leak checker, which maps each
+/// reserved table on its own: a table used after it is dropped faults,
+/// and one never dropped is reported. A release build takes them from
+/// the allocator's address space for tables (`alloc.zig`,
+/// `reserveTable`), with no system call for most.
+const leak_checked = builtin.optimize == .debug;
 
 /// `Table(T, n)`: `n` slots of `T`.
 pub fn Table(comptime T: type, comptime n: u64) type {
@@ -162,8 +171,6 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         pub const __rig_table = {};
         /// `Slot[n]`.
         pub const Index = Slot(n);
-
-        const leak_checked = builtin.optimize == .debug;
 
         /// `Table()`: `n` slots, each `T()`. A table made once its value
         /// is wanted, at run time: never a constant.

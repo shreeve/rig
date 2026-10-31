@@ -229,6 +229,26 @@ test "table slot of any value below n in a release build", release: true, '''
   big = Slot[1 << 62].of(i - 1)
   print(Slot[4].of(i - 1), Slot[4].of(i + 3), Slot[4].of(i + 4), Slot[4].of(Int.min + i), big, Slot[1 << 62].of(i + 5))
 
+test "table reserved tables made, written, and dropped again and again each start as zeros in a release build", release: true, '''
+  0 300
+'''
+  N = 1 << 26
+  M = 3 << 20
+
+  sub main()
+    seen = 0
+    last = 0
+    for i in 0..300
+      t: Table[Int, N] = Table()
+      far = Slot[N].of(N - 1 - i * 4099) ?? 0
+      seen += t[0] + t[far]
+      t[0] = i + 1
+      t[far] = i + 1
+      u: Table[U8, M] = Table()
+      _ = (!u).push(1)
+      last = t[0]
+    print(seen, last)
+
 fail "table a slot is not made from a number", "a `Slot[8]` is made by `push`, by `Slot[8].of(i)`, or by a literal below 8"
   s = Slot[8](3)
   print(s)
