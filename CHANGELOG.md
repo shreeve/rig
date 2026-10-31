@@ -422,7 +422,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   guard's handler and the sanitizer's took every such signal for a
   fault outside their pages and returned, so a sent one was lost: the
   program went on, a second one aborted it (134), and a later stack
-  overflow lost its message. A real fault is reported as before.
+  overflow lost its message. A real fault is reported as before. A sent
+  SIGILL or SIGFPE does the same, status 132 or 136, where a debug or
+  `--release` build reported it as an illegal instruction or an
+  arithmetic exception, with a trace, and aborted (134).
 - **`std.crypto`: WireGuard's primitives, in Rig and in constant
   time.** `crypto.ChaCha.of(key)` and `crypto.XChaCha.of(key)` seal and open
   ChaCha20-Poly1305 and XChaCha20-Poly1305 in place

@@ -1,18 +1,18 @@
-# timeout: 300
-# A SIGSEGV or SIGBUS that another process sends, or the program sends
-# itself, ends the program by that signal, as its default action does: a
-# shell sees 128 and the signal's number (139; 138 on macOS and 135 on
-# Linux for SIGBUS), and the program writes nothing more. The handlers
-# that catch a real fault, the stack guard's in every build mode and the
-# sanitizer's under RIG_SANITIZE=1, tell such a signal from a fault
-# (docs/internals/INTERNALS.md, "The message"). A real fault is
-# unchanged: a stack overflow still says `error: rig: stack overflow`,
-# and a use of freed memory `error: rig: use of freed memory`, each
-# ending the program by SIGABRT (134).
+# timeout: 400
+# A SIGSEGV, SIGBUS, SIGILL, or SIGFPE that another process sends, or the
+# program sends itself, ends the program by that signal, as its default
+# action does: a shell sees 128 and the signal's number (139; 138 on
+# macOS and 135 on Linux for SIGBUS; 132 for SIGILL; 136 for SIGFPE),
+# and the program writes nothing more. The handlers that catch a real
+# fault, the stack guard's in every build mode, the sanitizer's under
+# RIG_SANITIZE=1, and the one in front of Zig's report of an illegal
+# instruction or an arithmetic exception in a debug or `--release`
+# build, tell such a signal from a fault (docs/internals/INTERNALS.md,
+# "The message"). A real fault is unchanged: a stack overflow still says
+# `error: rig: stack overflow`, a use of freed memory `error: rig: use
+# of freed memory`, and an illegal instruction Zig's `Illegal
+# instruction`, each ending the program by SIGABRT (134).
 source "$ROOT/test/cli/_lib.sh"
-
-segv=$((128 + $(kill -l SEGV)))
-bus=$((128 + $(kill -l BUS)))
 
 # Each program writes its process id on stderr once its handlers are in
 # place, and the script waits for that before it sends the signal there.
@@ -47,16 +47,18 @@ sub main()
   print("survived", total)
 EOF2
 
-# A program that sends itself SIGSEGV.
-cat >raises.rig <<'EOF2'
+# A program that sends itself SIGSEGV, SIGILL, or SIGFPE.
+for sig in SEGV ILL FPE; do
+    cat >raises-$sig.rig <<EOF2
 extern fun kill(pid: I32, sig: I32) -> I32
 extern fun getpid() -> I32
 
 sub main()
   raw
-    kill(getpid(), 11)
+    kill(getpid(), $(kill -l $sig))
   print("survived")
 EOF2
+done
 
 # A real stack overflow, as `stack overflow recursion` in
 # test/rig/runtime-misc.rig.test.
@@ -82,7 +84,7 @@ run() { quiet bash -c 'exec "$@" 2>err.txt' _ "$@"; }
 # once it has started, and check that the signal ended it.
 send() {
     local prog=$1 sig=$2 what=$3 want job pid i
-    want=$segv; [[ $sig == BUS ]] && want=$bus
+    want=$((128 + $(kill -l $sig)))
     rm -f out.txt err.txt
     run ./$prog >out.txt 2>/dev/null &
     job=$!
@@ -116,16 +118,18 @@ for how in debug release fast sanitized; do
         fast) mode=--release=fast ;;
         sanitized) san=1 ;;
     esac
-    for prog in sleeps touches raises dives; do
+    for prog in sleeps touches raises-SEGV raises-ILL raises-FPE dives; do
         RIG_SANITIZE=$san rig build $mode -o $prog-$how $prog.rig >build.log 2>&1 || fail "build $prog.rig $how: $(cat build.log)"
     done
-    send sleeps-$how SEGV $how
-    send sleeps-$how BUS $how
-    send touches-$how SEGV $how
-    send touches-$how BUS $how
-    out=$(run ./raises-$how 2>/dev/null); expect_rc $? $segv "a program that sends itself SIGSEGV, $how"
-    expect_eq "$out" "" "stdout of a program that sends itself SIGSEGV, $how"
-    expect_eq "$(cat err.txt)" "" "stderr of a program that sends itself SIGSEGV, $how"
+    for sig in SEGV BUS ILL FPE; do
+        send sleeps-$how $sig $how
+        send touches-$how $sig $how
+    done
+    for sig in SEGV ILL FPE; do
+        out=$(run ./raises-$sig-$how 2>/dev/null); expect_rc $? $((128 + $(kill -l $sig))) "a program that sends itself SIG$sig, $how"
+        expect_eq "$out" "" "stdout of a program that sends itself SIG$sig, $how"
+        expect_eq "$(cat err.txt)" "" "stderr of a program that sends itself SIG$sig, $how"
+    done
     # `--release=fast` folds the recursion into a loop that never ends.
     if [[ $how != fast ]]; then
         out=$(run ./dives-$how 2>/dev/null); expect_rc $? 134 "a stack overflow, $how ($(head -c 300 err.txt))"
@@ -153,4 +157,23 @@ out=$(run "$RIG_OUT_DIR/programs/freed-debug" 2>/dev/null); rc=$?
 expect_rc $rc 134 "a use of freed memory ($(head -c 300 err.txt))"
 expect_eq "$out" "before" "stdout of a use of freed memory"
 expect_has "$(cat err.txt)" "error: rig: use of freed memory at address 0x" "a use of freed memory"
+
+# A real illegal instruction in a debug build, written by hand into the
+# emitted package, as safe Rig has none to write: Zig's handler still
+# reports it.
+cat >illegal.rig <<'EOF2'
+called fun illegal(i: Int) -> Int
+  i + 1
+
+sub main()
+  print(illegal(1))
+EOF2
+rig emit illegal.rig >/dev/null 2>&1 || fail "emit illegal.rig"
+pkg=$RIG_OUT_DIR/programs/illegal
+perl -0pi -e 's/(pub noinline fn illegal\(i: i64\) i64 \{).*?\n\}/$1\n    if (\@import("builtin").cpu.arch == .aarch64) asm volatile (".inst 0x00000000") else asm volatile ("ud2");\n    return i;\n}/s' "$pkg/__rig_main.zig"
+grep -q 'asm volatile' "$pkg/__rig_main.zig" || fail "the illegal instruction was not written into the package"
+(cd "$pkg" && zig_once "$PWD/../illegal-debug" -- . -- "${ZIG:-zig}" build-exe -O Debug -femit-bin="$PWD/../illegal-debug" __rig_main.zig) >build.log 2>&1 || fail "build illegal: $(cat build.log)"
+out=$(run "$RIG_OUT_DIR/programs/illegal-debug" 2>/dev/null); rc=$?
+expect_rc $rc 134 "an illegal instruction ($(head -c 300 err.txt))"
+expect_has "$(cat err.txt)" "Illegal instruction at address 0x" "an illegal instruction"
 exit 0

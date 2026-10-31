@@ -5593,7 +5593,20 @@ accessed as the abort tried to (`mach_vm_region`). The kernel can leave
 loop of allocations, so an abort at 0 counts only if the thread stopped
 at a load or store through a register that points into the first page,
 as a real access of address 0 does. On x86-64 macOS every such signal
-still counts as a fault. `test/cli/fault_signal.sh` checks each case in
+still counts as a fault.
+
+A SIGILL or SIGFPE has no handler of the runtime's to lose it, but Zig's
+handler of a fault, which a debug or `--release` build has, reported a
+sent one as an illegal instruction or an arithmetic exception, with a
+trace, and aborted (134). `start` installs a handler in front of it on
+Linux and macOS in those builds (`installTrapHandler`, `onTrap`): a sent
+signal ends the program by it (132 or 136), as the default action does
+in `--release=fast`, which has no handler; a real one puts Zig's handler
+back and returns, so the instruction faults again into it. `sentSignal`
+decides it as for SIGSEGV: by `si_code` on Linux, and on arm64 macOS by
+the syndrome's exception class, an undefined instruction or an illegal
+execution state for SIGILL and a trapped floating-point exception for
+SIGFPE. `test/cli/fault_signal.sh` checks each case in
 every build mode and under `RIG_SANITIZE=1`, with a real overflow and a
 real use of freed memory beside them.
 

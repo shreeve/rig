@@ -657,9 +657,9 @@ before writing beyond the stack, in every build mode. A program that
 cannot reserve its stack and the guard stops before it runs, with `rig:
 cannot reserve the program's stack and the guard below it` and exit
 status 1 ([INTERNALS](docs/internals/INTERNALS.md#the-programs-stack) describes the
-mechanism). A SIGSEGV or SIGBUS that another process sends, or the
-program sends itself, ends the program by that signal, as its default
-action does.
+mechanism). A SIGSEGV, SIGBUS, SIGILL, or SIGFPE that another process
+sends, or the program sends itself, ends the program by that signal, as
+its default action does.
 
 ```rig reject
 obj Grid
