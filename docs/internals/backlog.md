@@ -297,6 +297,13 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   generic declared in another module whose fields name `T?`, given the
   type that holds it (`W[Node]` of an imported `W`), is not walked and
   still fails in Zig. Found with the port bugs (2026-10-29).
+- **A write view of an array is no read slice.** A `![4]U8` passed
+  bare where a `[]U8` goes is rejected ("type mismatch: expected `[]U8`,
+  got `![4]U8`"), though a `![]U8` reads as the `[]U8` it views and a
+  `?[4]U8` lends its elements there. It is sound, only stricter: decide
+  whether a write view of an array lends its elements to read, as `?a`
+  does, and otherwise name the form to write in the message (`?k` or
+  `?k[..]`). Found with queue row 29 (2026-10-31).
 
 Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before
