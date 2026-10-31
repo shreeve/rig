@@ -7159,14 +7159,18 @@ pub fn start(init: std.process.Init.Minimal) void {
     // BrokenPipe, instead of killing the program by SIGPIPE: a socket's
     // write gets an error, and `stdoutFailed` ends the program as
     // `broken_pipe_dies` says. A handler that does nothing, unlike
-    // ignoring the signal, is reset in a process this one starts.
+    // ignoring the signal, is reset in a process this one starts. What
+    // it replaces says whether the program started with SIGPIPE
+    // ignored, for `os.on_broken_pipe(.inherit)`.
     if (std.posix.Sigaction != void and @hasField(std.posix.SIG, "PIPE")) {
         const act: std.posix.Sigaction = .{
             .handler = .{ .handler = onBrokenPipe },
             .mask = std.posix.sigemptyset(),
             .flags = 0,
         };
-        std.posix.sigaction(.PIPE, &act, null);
+        var old: std.posix.Sigaction = undefined;
+        std.posix.sigaction(.PIPE, &act, &old);
+        broken_pipe_ignored = old.handler.handler == std.posix.SIG.IGN;
     }
     if (cancels_on_interrupt) cancelOnInterrupt();
     // The backend that runs tasks, set up after that handler, which it
@@ -7229,6 +7233,18 @@ var broken_pipe_dies = std.atomic.Value(bool).init(false);
 /// program by SIGPIPE.
 pub fn setBrokenPipeDies(dies: bool) void {
     broken_pipe_dies.store(dies, .seq_cst);
+}
+
+/// Whether the program started with SIGPIPE ignored (`trap '' PIPE` in
+/// the shell that started it), as `start` found it before installing
+/// its own handler: `os.on_broken_pipe(.inherit)` then fails a write of
+/// `io.stdout()`, as `.exit` does, rather than dying as `.die` does.
+var broken_pipe_ignored = false;
+
+/// `os.on_broken_pipe(.inherit)`'s question: whether the program started
+/// with SIGPIPE ignored.
+pub fn brokenPipeIgnored() bool {
+    return broken_pipe_ignored;
 }
 
 /// No crash report for this process's death, on Linux: a core limit of

@@ -144,8 +144,12 @@ A new session, human or agent, takes these steps in order:
 - **`os.on_broken_pipe(.die)`** (owner, 2026-10-30: exit 0 stays the
   default): a program can choose to die by SIGPIPE when its stdout's
   reader closes, as the coreutils port's `yes`, `seq`, `cat`, `tee`,
-  `sort` and `env` need; sockets and stderr are unchanged. In review as
-  one PR.
+  `sort` and `env` need; sockets and stderr are unchanged. On main.
+  `os.on_broken_pipe(.inherit)` (queue row 25f; owner, 2026-10-31:
+  "Confirmed") is `.die`, or `.exit` when the program started with
+  SIGPIPE ignored, which `start` reads from the disposition its own
+  handler replaces, so the port's `seq` can report a write error under
+  `trap '' PIPE` as uutils' does. In review as one PR.
 - **A SIGSEGV or SIGBUS that was sent ends the program** (queue row
   25e): the stack guard's and the sanitizer's fault handlers ask
   `sentSignal` first, `si_code` on Linux and the thread's exception

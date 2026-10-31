@@ -410,7 +410,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `io.stdout()`; `.exit`, the default, still ends a `print` quietly with
   status 0 and fails an `io.stdout()` write with
   `FileError.broken_pipe`. A failed `warn` is still dropped, and a socket's closed peer
-  is still `net.NetError.closed`.
+  is still `net.NetError.closed`. `.inherit` follows the program's
+  parent, as uutils' coreutils do: it is `.die`, unless the program
+  started with SIGPIPE ignored (`trap '' PIPE`), when it is `.exit`, so
+  a write of `io.stdout()` fails with `FileError.broken_pipe` and the
+  program can report it.
 - **A SIGSEGV or SIGBUS that was sent ends the program by that
   signal.** `kill -SEGV`, `kill -BUS`, or a program's own `kill` of
   itself ends it as the signal's default action does, status 139, or

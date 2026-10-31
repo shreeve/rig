@@ -2,8 +2,8 @@
 //! stores when the program starts (`rig.start`). Both live as long as
 //! the process, so they cross into Rig as `Static`s. What the program's
 //! allocations come to (`rig.memoryTotals`), its end (`rig.exitNow`),
-//! what a closed stdout pipe does (`rig.setBrokenPipeDies`), and sync(2)
-//! on the blocking pool.
+//! what a closed stdout pipe does (`rig.setBrokenPipeDies`,
+//! `rig.brokenPipeIgnored`), and sync(2) on the blocking pool.
 
 const std = @import("std");
 const rig = @import("../runtime.zig");
@@ -35,6 +35,10 @@ pub fn exit(code: i64) void {
 
 pub fn set_broken_pipe_dies(dies: bool) void {
     rig.setBrokenPipeDies(dies);
+}
+
+pub fn broken_pipe_ignored() bool {
+    return rig.brokenPipeIgnored();
 }
 
 pub fn sync() void {

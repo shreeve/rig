@@ -12415,7 +12415,9 @@ When stdout is a pipe whose reader has closed it (`prog | head -1`), the
 program ends at once with status 0 and writes nothing more: its drops,
 `defer`s, and leak check do not run. A program that calls
 `os.on_broken_pipe(.die)` ([std.os](docs/STD.md#stdos)) dies by SIGPIPE
-there instead, as a C program does, so a shell sees status 141; a
+there instead, as a C program does, so a shell sees status 141, and one
+that calls `os.on_broken_pipe(.inherit)` does so unless it started with
+SIGPIPE ignored; a
 socket's closed peer is still a `net.NetError.closed`. Any other failure to write stdout
 (a full disk, a closed file) ends the program the same way, with
 `error: stdout: <reason>` on stderr and status 1. A `warn` whose write

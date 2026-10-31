@@ -41,6 +41,11 @@ pub enum BrokenPipe
   exit
   # Die by SIGPIPE, as a C program does, so a shell sees status 141.
   die
+  # As the program's parent left SIGPIPE: `die` when it did not ignore
+  # it, and `exit` when it did (`trap '' PIPE`), so a write of
+  # `io.stdout()` fails and the program can report it, as uutils'
+  # coreutils do.
+  inherit
 
 # What a write to stdout does once its reader has closed the pipe, for
 # the rest of the program, from `main` or any task: a `print`, or a
@@ -51,6 +56,7 @@ pub sub on_broken_pipe(how: BrokenPipe)
   match how
     .exit => set_broken_pipe_dies(false)
     .die => set_broken_pipe_dies(true)
+    .inherit => set_broken_pipe_dies(not broken_pipe_ignored())
 
 extern zig "os.zig"
   # Every argument, the program's name first. The text lives as long as
@@ -83,3 +89,6 @@ extern zig "os.zig"
 
   # `on_broken_pipe`'s setting.
   sub set_broken_pipe_dies(dies: Bool)
+
+  # Whether the program started with SIGPIPE ignored, for `.inherit`.
+  fun broken_pipe_ignored() -> Bool
