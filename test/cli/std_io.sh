@@ -137,7 +137,7 @@ sub main()
   if how == "stdin"
     input = io.stdin()
     (!input).write("x") catch |e| tell(e)
-  elif how == "read"
+  else if how == "read"
     out = io.stdout()
     buf = String()
     _ = (!out).read(!buf, 10) catch |e|
@@ -148,7 +148,7 @@ sub main()
     big = String()
     for i in 0..20000
       !big.add("line ", i, "\n")
-    for i in 0..10
+    for _ in 0..10
       (!out).write(big) catch |e|
         tell(e)
         return

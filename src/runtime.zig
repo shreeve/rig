@@ -7418,6 +7418,62 @@ noinline fn outLine(text: []const u8) void {
     if (stdout_is_tty) flush();
 }
 
+/// A write of a `file.File` of a standard stream (std/file.zig): to
+/// stdout through `print`'s buffer, so the two stay in order, and
+/// written out after each write when stdout is a terminal, as a `print`
+/// is; to stderr after what `print` buffered is written out, as by
+/// `warn`. The system's errno when the write fails, `.SUCCESS` when it
+/// is done. Unlike `print`'s, a failure is the caller's: the bytes it
+/// could not write are dropped, and the program goes on.
+pub fn writeStandard(fd: i64, bytes: []const u8) std.posix.E {
+    lockOutput();
+    defer unlockOutput();
+    if (fd == 2) {
+        flush();
+        return writeAllTo(2, bytes);
+    }
+    const w = stdout();
+    if (bytes.len > w.buffer.len - w.end) {
+        const e = drainStdout(w);
+        if (e != .SUCCESS) return e;
+        if (bytes.len > w.buffer.len) return writeAllTo(1, bytes);
+    }
+    @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
+    w.end += bytes.len;
+    return if (stdout_is_tty) drainStdout(w) else .SUCCESS;
+}
+
+/// Write out what `print` has buffered, for `File.flush` of stdout: the
+/// system's errno when the write fails, after which the buffer is empty.
+pub fn flushStandard() std.posix.E {
+    lockOutput();
+    defer unlockOutput();
+    if (stdout_writer) |*sw| return drainStdout(&sw.interface);
+    return .SUCCESS;
+}
+
+/// Write `print`'s buffer to stdout and empty it, whether or not the
+/// write succeeds.
+fn drainStdout(w: *std.Io.Writer) std.posix.E {
+    const e = writeAllTo(1, w.buffer[0..w.end]);
+    w.end = 0;
+    return e;
+}
+
+/// Write all of `bytes` to `fd`, retrying when a signal interrupts.
+fn writeAllTo(fd: i32, bytes: []const u8) std.posix.E {
+    var done: usize = 0;
+    while (done < bytes.len) {
+        const rc = std.posix.system.write(fd, bytes[done..].ptr, bytes.len - done);
+        switch (std.posix.errno(rc)) {
+            .SUCCESS => done += @intCast(rc),
+            .INTR => {},
+            else => |e| return e,
+        }
+    }
+    return .SUCCESS;
+}
+
 /// A value of a `print`, as Rig writes it at the top level: text as its
 /// bytes, anything else by the one writer of its type.
 inline fn outValue(value: anytype) void {

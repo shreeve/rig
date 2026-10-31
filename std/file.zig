@@ -5,21 +5,15 @@
 //! making it waits, and is a fallible waiting point.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const rig = @import("../runtime.zig");
 const posix = std.posix;
 const sys = posix.system;
 
 /// `std.file.FileError`, which the emitter names
-/// `error.@"std.file.FileError.name"`.
-pub const FileError = error{
-    @"std.file.FileError.not_found",
-    @"std.file.FileError.exists",
-    @"std.file.FileError.denied",
-    @"std.file.FileError.not_directory",
-    @"std.file.FileError.is_directory",
-    @"std.file.FileError.not_empty",
-    @"std.file.FileError.failed",
-};
+/// `error.@"std.file.FileError.name"`: the runtime's, which its reads and
+/// writes of files fail with too.
+pub const FileError = rig.net.FileError;
 pub const Error = rig.Stop || FileError;
 
 const not_found = error.@"std.file.FileError.not_found";
@@ -44,31 +38,35 @@ const Fd = struct {
     }
 };
 
-/// The FileError for a failure of Zig's, or the FileError itself.
+/// The FileError for a failure of Zig's, or the FileError itself. Zig
+/// names each errno it expects; one it does not is `Unexpected`.
 fn failure(err: anyerror) FileError {
     if (std.mem.startsWith(u8, @errorName(err), "std.file.FileError.")) return @errorCast(err);
     return switch (err) {
         error.FileNotFound => not_found,
         error.PathAlreadyExists => error.@"std.file.FileError.exists",
-        error.AccessDenied, error.PermissionDenied, error.ReadOnlyFileSystem => error.@"std.file.FileError.denied",
+        error.AccessDenied => error.@"std.file.FileError.denied",
+        error.PermissionDenied => error.@"std.file.FileError.not_permitted",
+        error.ReadOnlyFileSystem => error.@"std.file.FileError.read_only",
         error.NotDir => error.@"std.file.FileError.not_directory",
         error.IsDir => error.@"std.file.FileError.is_directory",
         error.DirNotEmpty => error.@"std.file.FileError.not_empty",
+        error.SymLinkLoop => error.@"std.file.FileError.loop",
+        error.NameTooLong => error.@"std.file.FileError.name_too_long",
+        error.DeviceBusy => error.@"std.file.FileError.busy",
+        error.CrossDevice => error.@"std.file.FileError.cross_device",
+        error.NoSpaceLeft => error.@"std.file.FileError.no_space",
+        error.BadPathName, error.InvalidArgument => error.@"std.file.FileError.invalid",
+        error.NotOpenForReading, error.NotOpenForWriting => error.@"std.file.FileError.bad_descriptor",
+        error.BrokenPipe => error.@"std.file.FileError.broken_pipe",
+        error.InputOutput => error.@"std.file.FileError.io",
         else => error.@"std.file.FileError.failed",
     };
 }
 
 /// The FileError for a failed system call's `errno`.
 fn errnoFailure(e: posix.E) FileError {
-    return switch (e) {
-        .NOENT => not_found,
-        .EXIST => error.@"std.file.FileError.exists",
-        .ACCES, .PERM, .ROFS => error.@"std.file.FileError.denied",
-        .NOTDIR => error.@"std.file.FileError.not_directory",
-        .ISDIR => error.@"std.file.FileError.is_directory",
-        .NOTEMPTY => error.@"std.file.FileError.not_empty",
-        else => error.@"std.file.FileError.failed",
-    };
+    return rig.net.fileFailure(e);
 }
 
 /// Nothing for a failure that means nothing is at the path: nothing at
@@ -146,9 +144,21 @@ pub fn rename(from: []const u8, to: []const u8) Error!void {
     return pool(void, renameHere, .{ from, to });
 }
 
+/// A system call of its own, so each errno is the system's reason: Zig's
+/// `Dir.rename` takes EINVAL (a directory moved into itself) for its
+/// caller's bug and panics.
 fn renameHere(from: []const u8, to: []const u8) FileError!void {
-    const cwd = std.Io.Dir.cwd();
-    std.Io.Dir.rename(cwd, from, cwd, to, rig.io()) catch |err| return failure(err);
+    var from_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    var to_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    const a = try terminated(from, &from_buf);
+    const b = try terminated(to, &to_buf);
+    while (true) {
+        switch (posix.errno(sys.renameat(posix.AT.FDCWD, a, posix.AT.FDCWD, b))) {
+            .SUCCESS => return,
+            .INTR => {},
+            else => |e| return errnoFailure(e),
+        }
+    }
 }
 
 /// Make the directory `path`, and each missing one on the way to it when
@@ -401,26 +411,29 @@ fn openAt(path: [*:0]const u8, flags: posix.O) FileError!i32 {
 
 /// `path` with a 0 after it, in `buf`.
 fn terminated(path: []const u8, buf: *[std.Io.Dir.max_path_bytes:0]u8) FileError![*:0]const u8 {
-    if (path.len >= buf.len or std.mem.findScalar(u8, path, 0) != null) return error.@"std.file.FileError.failed";
+    if (path.len >= buf.len) return error.@"std.file.FileError.name_too_long";
+    if (std.mem.findScalar(u8, path, 0) != null) return error.@"std.file.FileError.invalid";
     if (path.len == 0) return not_found;
     @memcpy(buf[0..path.len], path);
     buf[path.len] = 0;
     return buf[0..path.len :0];
 }
 
+/// `File.read`: up to `max` bytes onto the end of `into`, read into its
+/// own buffer (`rig.net.fileReadInto`).
 pub fn read_from(fd: i64, into: *rig.String, max: i64) Error!i64 {
-    const want: usize = @intCast(@max(max, 0));
-    if (want == 0) return 0;
-    var got = try rig.net.fileRead(fd, want);
-    defer rig.dropElement(rig.String, &got);
-    const n = got.list.items.len;
-    // Into a String with no buffer yet, the read's own is taken, not copied.
-    if (into.list.capacity == 0) std.mem.swap(rig.String, into, &got) else into.appendBytes(got.list.items);
-    return @intCast(n);
+    return @intCast(try rig.net.fileReadInto(fd, into, @intCast(@max(max, 0))));
 }
 
+/// `File.write`: on the blocking pool, or for a standard stream through
+/// `print`'s buffer (`rig.net.fileWrite`).
 pub fn write_to(fd: i64, bytes: []const u8) Error!void {
     return rig.net.fileWrite(fd, bytes);
+}
+
+/// `File.flush`: what `print` buffered, written out, for stdout.
+pub fn flush_fd(fd: i64) Error!void {
+    return rig.net.fileFlush(fd);
 }
 
 fn writeAll(fd: i32, bytes: []const u8) FileError!void {
@@ -435,8 +448,38 @@ fn writeAll(fd: i32, bytes: []const u8) FileError!void {
     }
 }
 
+/// Close `fd`, unless it is a standard stream's, which stays open for
+/// `print`, `warn`, and the next `io.stdin()`.
 pub fn close(fd: i64) void {
+    if (fd <= 2) return;
     _ = sys.close(@intCast(fd));
+}
+
+/// `reason`'s words for the member at `member` in `FileError`'s order:
+/// what `strerror` gives for its errno, on macOS or with glibc.
+pub fn reason_text(member: i64) []const u8 {
+    const apple = builtin.os.tag.isDarwin();
+    const words = [_][]const u8{
+        "No such file or directory",
+        "File exists",
+        "Permission denied",
+        "Operation not permitted",
+        "Read-only file system",
+        "Not a directory",
+        "Is a directory",
+        "Directory not empty",
+        "Too many levels of symbolic links",
+        "File name too long",
+        if (apple) "Resource busy" else "Device or resource busy",
+        if (apple) "Cross-device link" else "Invalid cross-device link",
+        "No space left on device",
+        "Invalid argument",
+        "Bad file descriptor",
+        "Broken pipe",
+        "Input/output error",
+        "Unknown error",
+    };
+    return words[@intCast(member)];
 }
 
 /// A fresh String of `bytes`.

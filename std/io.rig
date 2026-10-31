@@ -1,7 +1,7 @@
-# std.io: moving bytes between what reads and what writes. A `file.File`
-# (std.file) and a `net.Stream` (std.net) read with `read(!@, into, max)`
-# and write with `write(!@, bytes)`, and `io.copy` takes either at each
-# end.
+# std.io: the standard streams, and moving bytes between what reads and
+# what writes. A `file.File` (std.file) and a `net.Stream` (std.net) read
+# with `read(!@, into, max)` and write with `write(!@, bytes)`, and
+# `io.copy` takes either at each end.
 #
 # `io.copy(!from, !to) -> Int!` reads `from` to its end and writes all
 # of it to `to`, a block at a time: how many bytes it copied. It fails as
@@ -9,3 +9,22 @@
 # `task.Stop`, with what was copied before written. The checker types
 # the call, as it does `http.serve`: each end must be a `file.File` or a
 # `net.Stream`, lent to write.
+
+use std.file
+
+# Standard input, descriptor 0, as a `file.File` to read. Each call gives
+# a handle on the same stream, which dropping one leaves open.
+pub fun stdin() -> file.File
+  file.File(fd: 0)
+
+# Standard output, descriptor 1, as a `file.File` to write. Its writes go
+# through `print`'s own buffer, so the two stay in order; `flush` writes
+# the buffer out. Dropping it leaves the stream open.
+pub fun stdout() -> file.File
+  file.File(fd: 1)
+
+# Standard error, descriptor 2, as a `file.File` to write. A write first
+# writes out what `print` buffered, as `warn` does, then goes straight to
+# the stream. Dropping it leaves the stream open.
+pub fun stderr() -> file.File
+  file.File(fd: 2)

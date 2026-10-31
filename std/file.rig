@@ -9,24 +9,51 @@
 
 use std.task
 
-# Why a call on a path failed.
+# Why a call on a path or a file failed: the system's own reason, one
+# member for each, with its words in `reason`.
 pub error FileError
-  # Nothing is at the path, or at a directory on the way to it.
+  # Nothing is at the path, or at a directory on the way to it (ENOENT).
   not_found
-  # Something is at the path already.
+  # Something is at the path already (EEXIST).
   exists
-  # The system does not allow it: permissions, or a read-only file
-  # system.
+  # The permissions do not allow it (EACCES).
   denied
+  # The system does not allow it whatever the permissions: removing a
+  # device, a file of another user's in a sticky directory (EPERM).
+  not_permitted
+  # The file system is read-only (EROFS).
+  read_only
   # The path given `read_dir` names a file, or a file stands where a
-  # call that makes something needs a directory on the way.
+  # call needs a directory on the way (ENOTDIR).
   not_directory
-  # The path names a directory, where a file is wanted.
+  # The path names a directory, where a file is wanted (EISDIR).
   is_directory
-  # The directory to remove holds entries.
+  # The directory to remove holds entries (ENOTEMPTY).
   not_empty
-  # Anything else the system reports: no space left, too many open
-  # files, an I/O error.
+  # Symbolic links on the path name one another, or too many of them
+  # (ELOOP).
+  loop
+  # The path, or a name in it, is longer than the system takes
+  # (ENAMETOOLONG).
+  name_too_long
+  # What the call needs is in use: a mount point (EBUSY).
+  busy
+  # `rename` across file systems (EXDEV).
+  cross_device
+  # No space is left on the device (ENOSPC).
+  no_space
+  # The system rejects an argument: a directory moved into itself, a
+  # path with a 0 byte in it (EINVAL).
+  invalid
+  # The file is not open for this: a write to a file opened to read, a
+  # read of one opened to write, a closed standard stream (EBADF).
+  bad_descriptor
+  # A write to a pipe or a socket whose reader has closed it (EPIPE).
+  broken_pipe
+  # The device failed to read or write (EIO).
+  io
+  # Anything else the system reports: too many open files, a file too
+  # large, a quota.
   failed
 
 # What `stat` and `read_dir` find at a path.
@@ -53,22 +80,57 @@ pub obj Entry
   pub link: Bool
 
 # An open file, read and written from where the last read or write
-# ended, as a `net.Stream` is: `open` gives one to read, and `create` one
-# to write. It closes when dropped. Its field is the runtime's.
+# ended, as a `net.Stream` is: `open` gives one to read, `create` one to
+# write, and `io.stdin()`, `io.stdout()`, and `io.stderr()` the standard
+# streams. It closes when dropped, but a standard stream stays open. Its
+# field is the runtime's.
 pub obj File
   fd: Int
 
-  # Read up to `max` bytes onto the end of `into`: how many it read, or
-  # 0 at the end of the file.
+  # Read up to `max` bytes onto the end of `into`, into its own buffer:
+  # how many it read, or 0 at the end of the file. A buffer with room
+  # for `max` more is read into as it is, so a buffer cleared and read
+  # into again takes no allocation; one without room grows first, and a
+  # String with no buffer at all gets one cut to what came.
   pub fun read(!@, into: !String, max: Int) -> Int!
     read_from(@fd, !into, max)!
 
-  # Write all of `bytes`.
+  # Write all of `bytes`, with nothing added. On stdout they go through
+  # `print`'s buffer; on stderr, after what `print` buffered.
   pub sub write(!@, bytes: ?String)!
     write_to(@fd, bytes)!
 
+  # Write out what `print` has buffered, when this is stdout; nothing
+  # for any other file, whose writes are not buffered.
+  pub sub flush(!@)!
+    flush_fd(@fd)!
+
   drop(!@)
     close(@fd)
+
+# The system's own words for `e`, as `strerror` gives them: "No such
+# file or directory" for `FileError.not_found`. `FileError.failed`,
+# which stands for several reasons, is "Unknown error".
+pub fun reason(e: FileError) -> Static
+  match e
+    .not_found => reason_text(0)
+    .exists => reason_text(1)
+    .denied => reason_text(2)
+    .not_permitted => reason_text(3)
+    .read_only => reason_text(4)
+    .not_directory => reason_text(5)
+    .is_directory => reason_text(6)
+    .not_empty => reason_text(7)
+    .loop => reason_text(8)
+    .name_too_long => reason_text(9)
+    .busy => reason_text(10)
+    .cross_device => reason_text(11)
+    .no_space => reason_text(12)
+    .invalid => reason_text(13)
+    .bad_descriptor => reason_text(14)
+    .broken_pipe => reason_text(15)
+    .io => reason_text(16)
+    .failed => reason_text(17)
 
 # Whether a file, a directory, or anything else is at `path`, following
 # symbolic links: a link that names nothing is not. Any failure but
@@ -178,4 +240,9 @@ extern zig "file.zig"
 
   fun read_from(fd: Int, into: !String, max: Int) -> Int!
   sub write_to(fd: Int, bytes: ?String)!
+  sub flush_fd(fd: Int)!
+  # Close `fd`, unless it is a standard stream's (0, 1, or 2).
   sub close(fd: Int)
+
+  # `reason`'s words, by the member's place in `FileError`.
+  fun reason_text(member: Int) -> Static

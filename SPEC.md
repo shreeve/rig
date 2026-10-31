@@ -12355,6 +12355,13 @@ program ends at once with status 0 and writes nothing more: its drops,
 `error: stdout: <reason>` on stderr and status 1. A `warn` whose write
 to stderr fails writes nothing, and the program goes on.
 
+`io.stdout()` and `io.stderr()` ([std.io](docs/STD.md#stdio)) are the
+same streams as `file.File`s. A write to stdout goes into `print`'s
+buffer, and one to stderr first writes that buffer out, as `warn` does,
+so all four stay in the order written. Their writes add no newline, and
+a write or a `flush` that fails fails with a `file.FileError`
+(`broken_pipe`, `no_space`) instead of ending the program.
+
 ```rig
 sub main()
   print("one")

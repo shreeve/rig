@@ -86,6 +86,13 @@ A new session, human or agent, takes these steps in order:
   give an `/n` prefix; `time.Instant` `: Ord` with `add` and
   `Instant.at`. In review as one draft PR; the names are the owner's
   to confirm.
+- **std.io's standard streams** (#798, the coreutils port's first std
+  addition; owner approved `io.stdin()`, `io.stdout()`, `io.stderr()`):
+  the three streams as `file.File`s, stdout through `print`'s buffer;
+  `File.read` into the caller's buffer, with no allocation when it has
+  room; `FileError` with a member per errno and `file.reason(e)`, the
+  system's words. The owner approved the member names and `reason`;
+  the gates are green, and it waits to merge.
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review
