@@ -78,10 +78,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **`target.os: Os`** (queue row 25a; the owner approved the name):
-  std.target gives the operating system as a built-in enum of Zig's
-  `std.Target.Os.Tag`, built as `Arch` is, so the coreutils port can
-  choose signal numbers and errors by system. In review as one PR.
+- **`target.has(.avx2)`** (queue row 32; the owner approved the
+  names): std.target tests the CPU's features, as the built-in enum
+  `Feature` of Zig's x86-64 and arm64 feature names, beside
+  `target.os` (#813, landed). A call on a variant is a constant the
+  target sets, lowered to the runtime's `rig.hasFeature`, which Zig
+  folds. std.crypto and std.json can use it after it lands. In review
+  as one PR.
 - **`none` of a large optional is one store** (queue row 30, branch
   `opt-flag`, the owner's ask): `rig.pack` writes a `?T` over 16 bytes
   by its flag alone, and a payload enum's optional is routed through

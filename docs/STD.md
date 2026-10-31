@@ -39,7 +39,7 @@ never read as the library's.
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing; IP addresses and ports as data |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
-| [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
+| [`std.target`](#stdtarget) | the target the program is compiled for: its architecture, system, and CPU features |
 | [`std.hint`](#stdhint) | what the optimizer must not see through, for benchmarks: `keep` |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.crypto`](#stdcrypto) | WireGuard's cryptography, in constant time: ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and HMAC-BLAKE2s, `wipe`, `equal` |
@@ -1121,11 +1121,18 @@ architecture it compiles for: `.x86_64`, `.aarch64`, `.wasm32`,
 system the program is compiled for, a value of the built-in enum `Os`,
 whose variants are Zig's names for every system it compiles for:
 `.macos`, `.linux`, `.freebsd`, `.windows`, `.wasi`, and the rest.
+`target.has(f)` is whether the CPU the program is compiled for has
+feature `f`, a value of the built-in enum `Feature`, whose variants are
+Zig's names for the features of x86-64 and arm64, merged: `.avx2`,
+`.bmi2`, `.adx`, `.sse4_2`, `.avx512f`, `.pclmul`, `.sha`, `.aes`,
+`.neon`, `.sha2`, `.sha3`, `.crc`, `.dotprod`, `.sve`, `.dit`, `.lse`,
+and the rest.
 
-| Constant | Value |
+| Member | Value |
 |---|---|
 | `arch: Arch` | the target's processor architecture |
 | `os: Os` | the operating system the program is compiled for |
+| `has(f: Feature) -> Bool` | whether the target's CPU has feature `f`; false when its architecture has no feature by that name |
 
 Rig knows each one's type, never its value: Zig sets it when it
 compiles the program, so `rig check` gives the same verdict on every
@@ -1164,7 +1171,31 @@ sub main()
 true true
 ```
 
-The CPU's features are not built yet.
+`rig build` compiles for the CPU it runs on, so `target.has` answers
+for that machine's CPU: `target.has(.avx2)` is true on an x86-64
+machine with AVX2, and false on arm64, which has no feature by that
+name, as `target.has(.neon)` is false on x86-64. A name both
+architectures have, such as `.aes`, is each one's own feature. Called
+on a variant, `target.has` is a constant, which a choice branches on as
+it does on `target.arch`:
+
+```rig
+use std.target
+
+# A constant per CPU: Zig keeps the branch the target's CPU takes.
+LANES = 8 if target.has(.avx2) or target.arch == .aarch64 else 4
+
+sub main()
+  print(LANES == 8 or LANES == 4)
+```
+
+```output
+true
+```
+
+A branch the target does not take is never compiled, so a function
+called only in it, such as an `extern fun` of one system's C library,
+is never linked where the system lacks it.
 
 ## std.hint
 
