@@ -3,7 +3,7 @@
 The owner's words: "We need BOTH the SPEED and the MEMORY wins". The goal is #785's memory cut
 (tag `archive/mem-alloc-b`) with every row, and Trig's time and RSS, within 2% of main.
 
-**Round 3's verdict: arm a's memory cut holds and Trig is level, but on the PR's own base kv 64 KiB is 2.3% slower and xmalloc-test 5.7% slower, so it is not shown within 2%.** Round 2 (quiet, 10 rounds) found arms a and ac within 2% of main on every row by the median. Round 1's verdict was that no arm is shown to meet the bar, and none is shown to miss it. On pup the
+**Verdict after four rounds (40 pairs pooled): arm a cuts kv 64 KiB's memory from 61 to 40 MB and xmalloc-test's from 275 to 80 MB. xmalloc-test is level and sh8bench faster, Trig is level, and kv 64 KiB is 1.5% slower by the median (the arm faster in 11 of 40 pairs): a small, real cost at the bar's edge.** Round 3 alone showed kv 64 KiB 2.3% and xmalloc-test 5.7% slower. Round 2 (quiet, 10 rounds) found arms a and ac within 2% of main on every row by the median. Round 1's verdict was that no arm is shown to meet the bar, and none is shown to miss it. On pup the
 harness's spread between rounds is 3-12% on rows an arm does not touch. For example, arm a
 changes only large blocks, yet its kv 32 B median is 10.8% below main's. That spread is wider
 than the 2% bar, so four rounds cannot settle 2% either way. The memory cuts are clear:
@@ -176,6 +176,35 @@ http 146.6-148.3k req/s against 143.2-145.5k.
 
 A heap that crosses its 1 MiB bound pays a `madvise` on the free, and later page faults on the
 reuse, where main reuses resident pages. Round 3 is the likelier measure of that cost.
+
+## Round 4 on pup (quiet, 14:33-14:41): the decider, four builds interleaved
+
+The four builds were interleaved over 10 rounds: main and a at 179c50afa, and main and the PR at
+144f70057. Raw rows: [pup-round4.txt](pup-round4.txt). The pooled ratios of rounds 2-4 are in
+[pooled-summary.txt](pooled-summary.txt).
+
+**No merge is involved.**
+- xmalloc-test's shim compiles alloc.zig alone, and main's alloc.zig is byte-identical at both
+  bases.
+- kv's own emitted Zig is identical at both bases too.
+- The PR against a, paired, is 0.993 on kv 64 KiB.
+
+The noise floor shows in the identical code: main at 144f70057 against main at 179c50afa
+measured 0.978 on kv 64 KiB and 0.981 on xmalloc-test by the median. Single pairs ranged from
+0.75 to 1.55.
+
+**Pooled, 40 pairs** (a's code against main's in the same round; above 1 is faster):
+
+| Row | median | geomean | arm faster | peak RSS, arm / main |
+|---|---|---|---|---|
+| kv64k | 0.985 | 0.967 | 11 of 40 | 40 / 61 MB |
+| xmalloc | 0.981 | 0.984 | 18 of 40 | 80 / 275 MB |
+| sh8bench | 1.016 | 1.041 | 28 of 40 | 323 / 321 MB |
+
+xmalloc-test is level, within the noise floor, and sh8bench is faster. kv 64 KiB is slower, by
+1.5% by the median, and the arm is faster in only 11 of 40 pairs. The cost is real and on the
+edge of the bar. The likely mechanism is the 1 MiB bound: a heap whose kept bytes cross it pays a
+`madvise` on the free, then zero-fill faults on the block's reuse.
 
 ## Next
 
