@@ -78,6 +78,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A lent String or List held in registers** (queue row 28, branch
+  `store-forward`): the storage fact `held_header` and its emit; fixes
+  #780's Mac stall on a lent String (basenc 218 to 81 ms). Its gates are
+  running; the record is docs/history/records/2026-10/store-forward/.
 - **Small std additions for the sanstun port** (owner, approved with
   the port's panel): `std.hint.keep[T](x: ?T)`, Rust's `black_box`, as
   an empty `asm volatile` with a memory clobber, which needed a

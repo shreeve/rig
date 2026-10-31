@@ -1,0 +1,141 @@
+# emit: tests whose names start `held`.
+
+code "held String in a loop", "const out = &__rig_header_out;"
+  # A function lent a String to write, which uses it in a loop, holds the
+  # String's header (its pointer, length, and capacity) in a local, and
+  # writes it back as it returns, so the loop keeps the header in
+  # registers.
+  sub fill(out: !String, n: Int)
+    for _ in 0..n
+      !out.push(65)
+
+  s = String()
+  fill(!s, 3)
+  print(s)
+
+code "held List in a loop", "const xs = &__rig_header_xs;"
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  v: List[Int] = List()
+  fill(!v, 3)
+  print(v.len)
+
+test "held grows past its buffers", "901 65 99 120"
+  # The header held for the call is the String's own once it returns:
+  # its buffer moved as it grew, and the caller sees the last one.
+  sub fill(out: !String, n: Int)
+    for _ in 0..n
+      !out.push(65)
+    for i in 0..n
+      !out.push[U64, .big](U64(i))
+
+  s = String("x")
+  fill(!s, 100)
+  b = ?s[..]
+  print(s.len, b[1], b[b.len - 1], b[0])
+
+test "held through a failure", "3 7"
+  # A failure leaves the function as a return does: the header goes back.
+  error Full
+    full
+
+  sub fill(xs: !List[Int], n: Int)!Full
+    for i in 0..n
+      if xs.len == 3
+        return Full.full
+      !xs.push(i)
+
+  v: List[Int] = List()
+  fill(!v, 10) catch print(v.len, 7)
+
+test "held through a break and a callee", "AABBBB 6"
+  # A loop's `break`, and a call the held String is lent on to, both see
+  # the one header.
+  sub two(out: !String, b: U8)
+    !out.push(b)
+    !out.push(b)
+
+  sub fill(out: !String)
+    for i in 0..10
+      break if out.len == 6
+      two(!out, 65 if i == 0 else 66)
+    print(out, out.len)
+
+  s = String()
+  fill(!s)
+
+test "held lent to a task", seeds: 20, "3 6"
+  # A task lent the String to write holds its header for the call; its
+  # owner reads it once the task is done.
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  sub twice(xs: !List[Int], n: Int)
+    t = fill(!xs, n)&
+    >t
+    print(xs.len, 6)
+
+  v: List[Int] = List()
+  twice(!v, 3)
+
+test "held not when lent on as the result", "abc!! 5"
+  # A function whose result is the write view it was lent hands back the
+  # caller's String, not a header of its own.
+  fun loud(s: !String) -> !String
+    for _ in 0..2
+      !s.push('!')
+    s
+
+  t = String("abc")
+  u = loud(!t)
+  print(u, u.len)
+
+test "held not with inline room", "8 7"
+  # A List with inline room keeps its first elements in its header.
+  sub fill(xs: !List[Int, inline: 4], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  v = List[Int, inline: 4]()
+  fill(!v, 8)
+  print(v.len, v[7])
+
+test "held seen by a defer", '''
+  AAA 3
+  AAAAB 5
+'''
+  # A `defer` of the body runs before the header goes back, so it reads
+  # and changes the held header, and the caller sees what it left.
+  sub show(out: !String, n: Int)
+    defer print(out, out.len)
+    for _ in 0..n
+      !out.push(65)
+
+  sub grow(out: !String, n: Int)
+    defer !out.push(66)
+    for _ in 0..n
+      !out.push(65)
+
+  s = String()
+  show(!s, 3)
+  t = String()
+  grow(!t, 4)
+  print(t, t.len)
+
+test "held grown by a defer past its buffer", "1001 66"
+  # The `defer` grows the String past its buffer, so the header it
+  # leaves points at a new one, which the caller reads.
+  sub grow(out: !String, n: Int)
+    defer
+      for _ in 0..n
+        !out.push(66)
+    for _ in 0..1
+      !out.push(65)
+
+  t = String()
+  grow(!t, 1000)
+  b = ?t[..]
+  print(t.len, b[t.len - 1])

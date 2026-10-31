@@ -62,3 +62,21 @@ fail "supervise options", "`task.supervise` takes the function to run, then `res
 fail "supervise lends nothing to write", "`task.supervise` drops what a panic in it half-changed"
   n = 0
   _ = task.supervise(|!n| n) catch 0
+
+test "supervise restarts after a String it grew", seeds: 20, "800 2"
+  # A run that panics in a function lent a String it made, after the
+  # String grew past several buffers, leaves that String to the panic;
+  # the next run makes its own.
+  sub fill(out: !String, n: Int, last: Int)
+    for i in 0..n
+      !out.push[U64, .big](U64(i))
+    !out.push(U8([1, 2, 3][last]))
+
+  fun attempt(tries: *Cell[Int]) -> Int
+    k = (!tries).add(1)
+    s = String()
+    fill(!s, 100, 5 - 2 * k)
+    s.len - 1
+
+  tries = *Cell(0)
+  print(task.supervise(|+tries| attempt(+tries)) catch -1, tries.get())

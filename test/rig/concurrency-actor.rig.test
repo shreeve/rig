@@ -647,3 +647,68 @@ test "actor made where its type is expected", seeds: 20, "1 2 3 4"
     .act(a: a) => a.get()
     .null => 0
   print(x.get(), take(*Actor(Counter(n: 2))), b.a.get(), m)
+
+test "actor dies holding a String it grew", seeds: 20, '''
+  caught Stop.panicked
+  -2
+  after
+'''
+  # A panic in a function lent the actor's String to write, after the
+  # String grew past several buffers, ends the actor: its state, the
+  # String with it, is abandoned, never read or dropped again, and the
+  # next call learns the actor died.
+  use std.task
+
+  sub fill(out: !String, xs: ?List[Int], n: Int)
+    for i in 0..n
+      !out.push[U64, .big](U64(xs[i % 3]))
+    !out.push(U8(xs[n]))
+
+  obj Log
+    text: String
+    xs: List[Int]
+
+    sub add(!@, n: Int)
+      fill(!@text, ?@xs, n)
+
+    fun size(?@) -> Int
+      @text.len
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  !xs.push(2)
+  !xs.push(3)
+  a = *Actor(Log(text: String(), xs: <xs))
+  task.isolate(|+a| (!a).add(5000)) catch |e|
+    print("caught", e)
+  print(task.isolate(|+a| a.size()) catch -2)
+  print("after")
+
+test "actor supervised restarts after a String it grew", seeds: 20, '''
+  -1
+  10
+'''
+  # A supervised actor whose method panics in a function lent its String
+  # to write starts again from a new value; the old one, String and all,
+  # is abandoned, so nothing reads or frees its buffer again.
+  use std.task
+
+  sub fill(out: !String, n: Int)
+    for i in 0..n
+      !out.push[U64, .big](U64(i))
+    !out.push(U8([1, 2, 3][n]))
+
+  obj Log
+    text: String
+
+    sub add(!@, n: Int)
+      fill(!@text, n)
+
+    fun size(?@) -> Int
+      @text.len
+
+  a = *Actor.supervised(*|| Log(text: String()), restarts: 2)
+  task.isolate(|+a| (!a).add(5000)) catch print(-1)
+  !a.add(0)
+  !a.add(1)
+  print(a.size())
