@@ -92,6 +92,10 @@ A new session, human or agent, takes these steps in order:
   waiter spun about 2.4 ms a Trig run (item 1's profile,
   ~/Data/Code/Claude/rig/rig/item1/FINDINGS.md). Gates and the Trig A/B
   running.
+- **`file.unlink` and `file.rmdir`** (queue row 25b; the owner approved
+  the names): std.file removes one kind at a path, each by one system
+  call, so the coreutils port's `rm`, `rmdir`, and `unlink` drop their
+  `stat` first and its race; `remove` stays either. In review as one PR.
 - **Two more accepted programs that Zig rejected** (queue row 29): a
   `?[N]T` view passed bare where a `[]T` goes is lent from the address
   it holds, and a short form a `??` or `catch` fallback gives through a

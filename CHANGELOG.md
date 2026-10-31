@@ -310,6 +310,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   with `t.add(ns)` and `Instant.at(ns)` for code handed the time. A
   Zig-backed function of the standard library may take bare type
   parameters, which its Zig function takes first, when it cannot fail.
+- **`file.unlink` and `file.rmdir` remove one kind.** `unlink(path)`
+  removes anything but a directory, a symbolic link itself and never
+  what it names, and `rmdir(path)` only an empty directory; each gives
+  `false` when nothing was there, as `remove` does. Each is one system
+  call, so a program that must refuse the other kind needs no `stat`
+  first, and each failure is the system's own: `rmdir` of a file is
+  `FileError.not_directory`, `unlink` of a directory `is_directory` on
+  Linux and `not_permitted` on macOS. `remove` stays either, as C's
+  `remove` and Go's `os.Remove` are.
 - **std.io gives the standard streams.** `io.stdin()`, `io.stdout()`,
   and `io.stderr()` are `file.File`s on descriptors 0, 1, and 2, left
   open when dropped, so `cat` is `io.copy(!f, !out)` and stdin reads as

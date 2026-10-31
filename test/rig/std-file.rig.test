@@ -153,3 +153,26 @@ test "file calls from many tasks on the pool", "true 8"
     same = same and (>t)! == 200
     done += 1
   print(same, done)
+
+test "file unlink and rmdir refuse the other kind", '''
+  FileError.not_directory
+  FileError.not_directory
+  false false false
+'''
+  # rmdir(2) takes only a directory, and a file on the way is not one;
+  # unlink(2) never takes a directory, failing with each system's own
+  # reason. Nothing at the path is `false`.
+  use std.target
+
+  _ = file.rmdir("AGENTS.md") catch |e|
+    print(e)
+    false
+  _ = file.rmdir("AGENTS.md/x") catch |e|
+    print(e)
+    false
+  wrong = file.unlink("examples") catch |e|
+    if target.os == .linux
+      e != file.FileError.is_directory
+    else
+      e != file.FileError.not_permitted
+  print(wrong, file.unlink("no/such/f")!, file.rmdir("no/such/dir")!)
