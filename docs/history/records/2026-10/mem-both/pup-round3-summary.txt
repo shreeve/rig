@@ -1,0 +1,7 @@
+test      arm    best         vs main2      median       vs main2     RSS MB median (range)  n
+kv64k     main2   260386.000  0.0% faster  253876.000  0.0% faster     59 (47-75)  10
+kv64k     pr      254160.000  2.4% slower  248029.000  2.3% slower     44 (33-74)  10
+xmalloc   main2        0.787  0.0% faster       0.903  0.0% faster    271 (253-297)  10
+xmalloc   pr           0.874 10.0% slower       0.958  5.7% slower     78 (71-96)  10
+sh8bench  main2        0.610  0.0% faster       0.700  0.0% faster    324 (285-357)  10
+sh8bench  pr           0.600  1.7% faster       0.725  3.4% slower    323 (186-352)  10

@@ -1,0 +1,84 @@
+== tasks main2 pass 1
+        rig-fast          vs rig-fast
+spawn   80 ns/task        
+chain   86 ns/task        
+fanout  593.8 ms/run      
+yield   35 ns/yield       
+hog     176.35 us/step    
+memory  4.5 KiB/task      
+== tasks pr pass 1
+        rig-fast          vs rig-fast
+spawn   79 ns/task        
+chain   85 ns/task        
+fanout  593.6 ms/run      
+yield   34 ns/yield       
+hog     176.30 us/step    
+memory  4.5 KiB/task      
+== tasks main2 pass 2
+        rig-fast          vs rig-fast
+spawn   78 ns/task        
+chain   85 ns/task        
+fanout  594.1 ms/run      
+yield   35 ns/yield       
+hog     176.54 us/step    
+memory  4.5 KiB/task      
+== tasks pr pass 2
+        rig-fast          vs rig-fast
+spawn   79 ns/task        
+chain   85 ns/task        
+fanout  593.3 ms/run      
+yield   34 ns/yield       
+hog     176.25 us/step    
+memory  4.5 KiB/task      
+== actors main2 pass 1
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  11 ns/call  
+spread   12 ns/call  
+== actors pr pass 1
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  11 ns/call  
+spread   12 ns/call  
+== actors main2 pass 2
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  11 ns/call  
+spread   12 ns/call  
+== actors pr pass 2
+         rig-fast    vs rig-fast
+solo     11 ns/call  
+contend  11 ns/call  
+spread   11 ns/call  
+== net main2 pass 1
+         rig-fast      vs rig-fast
+pingpong 4.83 us/trip  
+echo     4.63 us/trip  
+connect  29.83 us/conn 
+== net pr pass 1
+         rig-fast      vs rig-fast
+pingpong 4.80 us/trip  
+echo     4.67 us/trip  
+connect  29.53 us/conn 
+== net main2 pass 2
+         rig-fast      vs rig-fast
+pingpong 4.84 us/trip  
+echo     4.61 us/trip  
+connect  29.37 us/conn 
+== net pr pass 2
+         rig-fast      vs rig-fast
+pingpong 4.86 us/trip  
+echo     4.65 us/trip  
+connect  29.47 us/conn 
+== http main2 pass 1
+                 req/s       p50       p99 per idle conn
+rig-fast        143160     195 us    4364 us       8.6 KiB
+== http pr pass 1
+                 req/s       p50       p99 per idle conn
+rig-fast        148259     318 us    3070 us       8.6 KiB
+== http main2 pass 2
+                 req/s       p50       p99 per idle conn
+rig-fast        145485     283 us    3459 us       8.6 KiB
+== http pr pass 2
+                 req/s       p50       p99 per idle conn
+rig-fast        146592     326 us    3064 us       8.6 KiB

@@ -1,0 +1,38 @@
+--- /private/tmp/claude-501/-Users-shreeve-Data-Claude-Worktrees-rig-practical-hypatia-3af8bd/dbe54b0f-c953-450b-9882-0ae1b99f5bc5/scratchpad/arms/up/alloc-pr.zig	2026-10-31 14:42:44.460130529 -0600
++++ /private/tmp/claude-501/-Users-shreeve-Data-Claude-Worktrees-rig-practical-hypatia-3af8bd/dbe54b0f-c953-450b-9882-0ae1b99f5bc5/scratchpad/arms/up/alloc-hyst.zig	2026-10-31 14:42:44.478378878 -0600
+@@ -656,6 +656,23 @@
+ }
+ 
+ /// The bytes of freed large blocks `h` keeps, resident and cold.
++/// PROTOTYPE: move the oldest resident blocks (each bucket's last) to the
++/// cold list, their pages given back, until `h` keeps `to` bytes resident.
++fn evictOldest(h: *Heap, to: usize) void {
++    while (h.kept.bytes > to) {
++        const j = lastHeld(&h.kept) orelse return;
++        var at = &h.kept.large[j];
++        while (at.*.?.next != null) at = &at.*.?.next;
++        const f = at.*.?;
++        at.* = null;
++        if (h.kept.large[j] == null) h.kept.held[j / 64] &= ~(@as(u64, 1) << @intCast(j % 64));
++        h.kept.bytes -= f.len;
++        const len = f.len;
++        decommit(@intFromPtr(f), len);
++        keepPiece(&h.cold, @intFromPtr(f), len);
++    }
++}
++
+ fn heldLarge(h: *const Heap) usize {
+     return h.kept.bytes + h.cold.bytes;
+ }
+@@ -698,9 +715,8 @@
+     if (heldLarge(h) + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
+     // A heap that does not do much of the work keeps `keep_resident`
+     // bytes resident, and the rest by address only.
+-    if (faultsAhead(h) or h.kept.bytes + size <= keep_resident) return keepPiece(&h.kept, @intFromPtr(p), size);
+-    decommit(@intFromPtr(p), size);
+-    keepPiece(&h.cold, @intFromPtr(p), size);
++    keepPiece(&h.kept, @intFromPtr(p), size);
++    if (!faultsAhead(h) and h.kept.bytes > 2 * keep_resident) evictOldest(h, keep_resident);
+ }
+ 
+ // -----------------------------------------------------------------------------

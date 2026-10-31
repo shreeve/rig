@@ -18,8 +18,11 @@
 //! `keep_large` more (`keepBound`). So a growth's moment, the old block
 //! and the new one handed out together, does not raise what it may keep,
 //! and a table that grows does not leave the block it grew from
-//! resident. Segments are never returned to the system: memory freed
-//! stays for reuse. On Linux,
+//! resident. A heap that does not fault in ahead (`faultsAhead`), as a
+//! server's worker's, keeps only `keep_resident` bytes of them resident
+//! and gives the pages of the rest back to the system, keeping their
+//! addresses for its next (`cold`). Segments are never returned to the
+//! system: memory freed stays for reuse. On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`)
@@ -216,13 +219,12 @@ pub const Heap = struct {
     carve_end: [class_count]usize = @splat(0),
     /// The segment pages come from.
     segment: ?*Segment = null,
-    /// Large blocks freed and kept for the next (`keepLarge`), by bucket
-    /// (four per doubling of pages, each block at least its bucket's
-    /// size); which buckets hold any, a bit each; and how many bytes
-    /// they hold.
-    large: [large_buckets]?*LargeFree = @splat(null),
-    large_held: [large_words]u64 = @splat(0),
-    large_bytes: usize = 0,
+    /// Large blocks freed and kept for the next, their pages resident.
+    kept: Kept = .{},
+    /// Large blocks freed and kept whose pages past the first were given
+    /// back to the system (`decommit`): a heap that does not fault in
+    /// ahead keeps only `keep_resident` bytes resident.
+    cold: Kept = .{},
     /// The bytes of the large blocks this heap has handed out and not
     /// had back, and the most they have been just after a free, its
     /// settled peak (`keepBound`).
@@ -339,6 +341,60 @@ const LargeFree = struct { next: ?*LargeFree, len: usize };
 const large_buckets = 4 * 40;
 const large_words = (large_buckets + 63) / 64;
 
+/// Freed large blocks kept, by bucket (four per doubling of pages, each
+/// block at least its bucket's size); which buckets hold any, a bit
+/// each; and how many bytes they hold.
+const Kept = struct {
+    large: [large_buckets]?*LargeFree = @splat(null),
+    held: [large_words]u64 = @splat(0),
+    bytes: usize = 0,
+};
+
+/// The most bytes of freed large blocks a heap that does not fault in
+/// ahead (`faultsAhead`) keeps resident; the pages of those it frees past
+/// them go back to the system (`decommit`), and the blocks stay kept, by
+/// address, for its next (`Heap.cold`). The workers of a server each
+/// take blocks that other workers freed and free blocks others made, so
+/// what each keeps follows a random walk that grows with time. Kept
+/// resident up to `keepBound`, a 22-worker server with 64 KiB values held
+/// 60 MB, where with this bound it holds 39 MB at the same speed, and
+/// xmalloc-test's freeing threads, which never allocate, kept 16 MiB each
+/// (docs/history/records/2026-10/mem-both/).
+/// A heap that does the program's work, as each of Trig's checkers', keeps
+/// every block resident, within `keepBound`.
+const keep_resident: usize = 1 << 20;
+
+/// Give the pages of the kept block of `len` bytes at `p` back to the
+/// system, all but its first, which holds its header: on Linux with
+/// `MADV_DONTNEED`, which lowers what the program holds at once, as
+/// `MADV_FREE` does only when the system runs short (xmalloc-test held
+/// 289 MB with `MADV_FREE` and 93 MB with this, on pup), and on macOS with
+/// `MADV_FREE_REUSABLE`. Its addresses stay the heap's, and its pages
+/// fault in again, zeroed, as the block is used.
+fn decommit(p: usize, len: usize) void {
+    const pg = std.heap.pageSize();
+    if (len <= pg) return;
+    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p + pg);
+    const advice: u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else if (builtin.os.tag.isDarwin()) madv_free_reusable else return;
+    std.posix.madvise(at, len - pg, advice) catch {};
+}
+
+/// The `len` bytes at `p`, taken from the heap's cold blocks, used
+/// again: on macOS the pages `decommit` gave back are claimed
+/// (`MADV_FREE_REUSE`), as the system's own allocator does, so they count
+/// as the program's again; elsewhere nothing is needed.
+fn recommit(p: usize, len: usize) void {
+    if (!builtin.os.tag.isDarwin()) return;
+    const pg = std.heap.pageSize();
+    if (len <= pg) return;
+    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p + pg);
+    std.posix.madvise(at, len - pg, madv_free_reuse) catch {};
+}
+
+/// macOS's `MADV_FREE_REUSABLE` and `MADV_FREE_REUSE`.
+const madv_free_reusable: u32 = 7;
+const madv_free_reuse: u32 = 8;
+
 /// The bytes a large block takes: its length rounded up to its bucket's
 /// size, so a kept block of that bucket, at least its size, fits it.
 fn largeSize(len: usize) usize {
@@ -393,7 +449,12 @@ fn keepBound(h: *const Heap) usize {
 fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
     mustOwn(h);
     const size = largeSize(len);
-    if (takeKept(h, size)) |p| {
+    if (takeKept(&h.kept, size)) |p| {
+        lent(h, size);
+        return p;
+    }
+    if (takeKept(&h.cold, size)) |p| {
+        recommit(@intFromPtr(p), size);
         lent(h, size);
         return p;
     }
@@ -530,83 +591,94 @@ fn lent(h: *Heap, size: usize) void {
     h.large_live += size;
 }
 
-/// A kept block for `size` bytes, best fit by bucket: the first of the
-/// lowest bucket from `size`'s that holds one at least `size` long. What
-/// it holds past `size` is kept on its own.
-fn takeKept(h: *Heap, size: usize) ?[*]u8 {
-    var j = nextHeld(h, largeBucket(size));
-    while (j) |b| : (j = nextHeld(h, b + 1)) {
-        const f = unkeep(h, b, size) orelse continue;
+/// A kept block of `k` for `size` bytes, best fit by bucket: the first
+/// of the lowest bucket from `size`'s that holds one at least `size`
+/// long. What it holds past `size` is kept on its own, in `k`.
+fn takeKept(k: *Kept, size: usize) ?[*]u8 {
+    var j = nextHeld(k, largeBucket(size));
+    while (j) |b| : (j = nextHeld(k, b + 1)) {
+        const f = unkeep(k, b, size) orelse continue;
         const p = @intFromPtr(f);
         const len = f.len;
-        if (len > size) keepPiece(h, p + size, len - size);
+        if (len > size) keepPiece(k, p + size, len - size);
         return @ptrFromInt(p);
     }
     return null;
 }
 
-/// Take from bucket `j` its first kept block at least `len` long.
-fn unkeep(h: *Heap, j: usize, len: usize) ?*LargeFree {
-    var at = &h.large[j];
+/// Take from bucket `j` of `k` its first kept block at least `len` long.
+fn unkeep(k: *Kept, j: usize, len: usize) ?*LargeFree {
+    var at = &k.large[j];
     while (at.*) |f| : (at = &f.next) {
         if (f.len < len) continue;
         at.* = f.next;
-        if (h.large[j] == null) h.large_held[j / 64] &= ~(@as(u64, 1) << @intCast(j % 64));
-        h.large_bytes -= f.len;
+        if (k.large[j] == null) k.held[j / 64] &= ~(@as(u64, 1) << @intCast(j % 64));
+        k.bytes -= f.len;
         return f;
     }
     return null;
 }
 
-/// The lowest bucket from `k` that holds a kept block, or null.
-fn nextHeld(h: *const Heap, k: usize) ?usize {
-    var w = k / 64;
+/// The lowest bucket of `k` from `from` that holds a kept block, or null.
+fn nextHeld(k: *const Kept, from: usize) ?usize {
+    var w = from / 64;
     if (w >= large_words) return null;
-    var bits = h.large_held[w] & (~@as(u64, 0) << @intCast(k % 64));
+    var bits = k.held[w] & (~@as(u64, 0) << @intCast(from % 64));
     while (true) {
         if (bits != 0) return w * 64 + @ctz(bits);
         w += 1;
         if (w >= large_words) return null;
-        bits = h.large_held[w];
+        bits = k.held[w];
     }
 }
 
-/// The highest bucket that holds a kept block, or null.
-fn lastHeld(h: *const Heap) ?usize {
+/// The highest bucket of `k` that holds a kept block, or null.
+fn lastHeld(k: *const Kept) ?usize {
     var w: usize = large_words;
     while (w > 0) {
         w -= 1;
-        const bits = h.large_held[w];
+        const bits = k.held[w];
         if (bits != 0) return w * 64 + 63 - @clz(bits);
     }
     return null;
 }
 
-/// Keep the `len` bytes at `p`, or give them back to the system if no
-/// large request could take them.
-fn keepPiece(h: *Heap, p: usize, len: usize) void {
+/// Keep the `len` bytes at `p` in `k`, or give them back to the system
+/// if no large request could take them.
+fn keepPiece(k: *Kept, p: usize, len: usize) void {
     if (len < minLarge()) return unmapLarge(p, len);
     const f: *LargeFree = @ptrFromInt(p);
-    const k = largeBucket(len);
-    f.* = .{ .next = h.large[k], .len = len };
-    h.large[k] = f;
-    h.large_held[k / 64] |= @as(u64, 1) << @intCast(k % 64);
-    h.large_bytes += len;
+    const b = largeBucket(len);
+    f.* = .{ .next = k.large[b], .len = len };
+    k.large[b] = f;
+    k.held[b / 64] |= @as(u64, 1) << @intCast(b % 64);
+    k.bytes += len;
+}
+
+/// The bytes of freed large blocks `h` keeps, resident and cold.
+fn heldLarge(h: *const Heap) usize {
+    return h.kept.bytes + h.cold.bytes;
 }
 
 /// Give kept blocks back to the system until the heap keeps no more
 /// than `keepBound`, after it has taken new pages for a block no kept
-/// one fitted: the smallest block that alone brings it within the
-/// bound, or else the largest, and again. So the heap keeps its largest
-/// blocks, a program's tables built again, which cost the most pages
-/// to fault in afresh.
+/// one fitted: its cold blocks first, whose pages are already given
+/// back, then its resident ones; of each, the smallest block that alone
+/// brings it within the bound, or else the largest, and again. So the
+/// heap keeps its largest blocks, a program's tables built again, which
+/// cost the most pages to fault in afresh.
 fn trimKept(h: *Heap) void {
-    while (h.large_bytes > keepBound(h)) {
-        const over = h.large_bytes - keepBound(h);
-        var j = nextHeld(h, largeBucket(over));
-        const f = while (j) |b| : (j = nextHeld(h, b + 1)) {
-            if (unkeep(h, b, over)) |f| break f;
-        } else unkeep(h, lastHeld(h) orelse return, 0).?;
+    trimFrom(h, &h.cold);
+    trimFrom(h, &h.kept);
+}
+
+fn trimFrom(h: *Heap, k: *Kept) void {
+    while (heldLarge(h) > keepBound(h)) {
+        const over = heldLarge(h) - keepBound(h);
+        var j = nextHeld(k, largeBucket(over));
+        const f = while (j) |b| : (j = nextHeld(k, b + 1)) {
+            if (unkeep(k, b, over)) |f| break f;
+        } else unkeep(k, lastHeld(k) orelse return, 0).?;
         unmapLarge(@intFromPtr(f), f.len);
     }
 }
@@ -623,8 +695,12 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     // free is the settled peak's measure.
     h.large_live -|= size;
     h.large_peak = @max(h.large_peak, h.large_live);
-    if (h.large_bytes + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
-    keepPiece(h, @intFromPtr(p), size);
+    if (heldLarge(h) + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
+    // A heap that does not do much of the work keeps `keep_resident`
+    // bytes resident, and the rest by address only.
+    if (faultsAhead(h) or h.kept.bytes + size <= keep_resident) return keepPiece(&h.kept, @intFromPtr(p), size);
+    decommit(@intFromPtr(p), size);
+    keepPiece(&h.cold, @intFromPtr(p), size);
 }
 
 // -----------------------------------------------------------------------------
@@ -933,7 +1009,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     const h = heap() orelse return null;
     const old_size = largeSize(memory.len);
     const new_size = largeSize(new_len);
-    if (takeKept(h, new_size)) |p| {
+    if (takeKept(&h.kept, new_size)) |p| {
         lent(h, new_size);
         @memcpy(p[0..memory.len], memory);
         freeLarge(h, memory.ptr, memory.len);
@@ -1126,13 +1202,13 @@ test "a freed large block serves a smaller request and keeps the rest, and a tab
     for (blocks) |p| freeLarge(&h, p, 512 << 10);
     // What it holds stays within the most it handed out, and
     // `keep_large`.
-    try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
+    try std.testing.expect(heldLarge(&h) + h.large_live <= h.large_peak + keep_large);
     // A block larger than any kept takes new pages, past the settled
     // peak, and gives back kept ones past the bound: no more than
     // `keep_large` stay.
     const huge = allocLarge(&h, 64 * mib).?;
-    try std.testing.expect(h.large_bytes <= keepBound(&h));
-    try std.testing.expect(h.large_bytes <= keep_large);
+    try std.testing.expect(heldLarge(&h) <= keepBound(&h));
+    try std.testing.expect(heldLarge(&h) <= keep_large);
     freeLarge(&h, huge, 64 * mib);
     trimAllForTest(&h);
 }
@@ -1149,13 +1225,13 @@ test "a block grown as a List grows it, to past `keep_large`, keeps no more than
         const q = allocLarge(&h, 2 * len).?;
         freeLarge(&h, p, len);
         p = q;
-        try std.testing.expect(h.large_bytes <= keep_large);
+        try std.testing.expect(heldLarge(&h) <= keep_large);
     }
     // Dropped, the last block is kept: it is what the heap held at its
     // settled peak.
     freeLarge(&h, p, len);
-    try std.testing.expect(h.large_bytes + h.large_live <= h.large_peak + keep_large);
-    try std.testing.expect(h.large_bytes > keep_large);
+    try std.testing.expect(heldLarge(&h) + h.large_live <= h.large_peak + keep_large);
+    try std.testing.expect(heldLarge(&h) > keep_large);
     trimAllForTest(&h);
 }
 
@@ -1180,6 +1256,42 @@ test "tables grown past `keep_large` in all, dropped, and built again take no ne
         for (tables) |t| freeLarge(&h, t, 512 << 10);
     }
     trimAllForTest(&h);
+}
+
+test "a heap that does not fault in ahead keeps `keep_resident` bytes of the large blocks it frees resident and the rest by address, and a busy heap keeps them all resident" {
+    // The thread's heap holds a segment, so a new heap beside it does not lead.
+    const one = try allocator.alloc(u8, 64);
+    defer allocator.free(one);
+    var h = testHeap();
+    try std.testing.expect(!faultsAhead(&h));
+    // 32 blocks of 64 KiB, 2 MiB in all, written and freed.
+    var blocks: [32][*]u8 = undefined;
+    for (&blocks) |*p| {
+        p.* = allocLarge(&h, 64 << 10).?;
+        @memset(p.*[0 .. 64 << 10], 1);
+    }
+    const taken = h.taken;
+    for (blocks) |p| freeLarge(&h, p, 64 << 10);
+    try std.testing.expect(h.kept.bytes <= keep_resident);
+    try std.testing.expectEqual(@as(usize, 2 << 20), h.kept.bytes + h.cold.bytes);
+    // Taken again, the cold blocks serve them: no new pages, and each
+    // block can be written whole.
+    for (&blocks) |*p| {
+        p.* = allocLarge(&h, 64 << 10).?;
+        @memset(p.*[0 .. 64 << 10], 2);
+    }
+    try std.testing.expectEqual(taken, h.taken);
+    try std.testing.expectEqual(@as(usize, 0), heldLarge(&h));
+    for (blocks) |p| freeLarge(&h, p, 64 << 10);
+    trimAllForTest(&h);
+    // A heap that faults in ahead keeps every block resident.
+    var busy = testHeap();
+    busy.taken = prefault_big;
+    for (&blocks) |*p| p.* = allocLarge(&busy, 64 << 10).?;
+    for (blocks) |p| freeLarge(&busy, p, 64 << 10);
+    try std.testing.expectEqual(@as(usize, 2 << 20), busy.kept.bytes);
+    try std.testing.expectEqual(@as(usize, 0), busy.cold.bytes);
+    trimAllForTest(&busy);
 }
 
 test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them while 2 MiB blocks are free, and a smaller one does not" {
@@ -1244,7 +1356,7 @@ test "on Linux a large block from 64 KiB that no kept block fits grows by moving
     try std.testing.expectEqual(@as(u8, 9), g[(64 << 10) - 1]);
     // Only the growth is new; the block it grew from is not kept.
     try std.testing.expectEqual(taken + largeSize(128 << 10) - largeSize(64 << 10), h.taken);
-    try std.testing.expectEqual(@as(usize, 0), h.large_bytes);
+    try std.testing.expectEqual(@as(usize, 0), heldLarge(h));
     a.free(g);
     trimAllForTest(h);
 }
@@ -1381,10 +1493,10 @@ fn advisedHugeForTest(p: usize) !bool {
 
 /// Give back every block `h` keeps.
 fn trimAllForTest(h: *Heap) void {
-    while (lastHeld(h)) |j| {
-        const f = unkeep(h, j, 0).?;
+    for ([_]*Kept{ &h.kept, &h.cold }) |k| while (lastHeld(k)) |j| {
+        const f = unkeep(k, j, 0).?;
         unmapLarge(@intFromPtr(f), f.len);
-    }
+    };
 }
 
 test "every large size is its bucket's size" {

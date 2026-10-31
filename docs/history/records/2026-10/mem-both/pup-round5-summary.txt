@@ -1,0 +1,19 @@
+Each build against main 144f70057 in the same round (above 1 is faster): median, geomean, wins; median peak RSS
+kv64k     main2  median 249061.500  rss    56 MB
+kv64k     pr     median 0.989  geomean 0.958  wins 3/10  rss    34 MB
+kv64k     r2     median 0.965  geomean 0.946  wins 1/10  rss    39 MB
+kv64k     r4     median 0.915  geomean 0.915  wins 1/10  rss    46 MB
+kv64k     lifo   median 0.951  geomean 0.938  wins 1/10  rss    47 MB
+kv64k     hyst   median 0.957  geomean 0.939  wins 2/10  rss    38 MB
+xmalloc   main2  median      0.991  rss   270 MB
+xmalloc   pr     median 0.955  geomean 0.946  wins 3/10  rss    80 MB
+xmalloc   r2     median 0.989  geomean 0.968  wins 5/10  rss    89 MB
+xmalloc   r4     median 0.915  geomean 0.924  wins 4/10  rss   122 MB
+xmalloc   lifo   median 0.983  geomean 0.989  wins 4/10  rss    92 MB
+xmalloc   hyst   median 0.988  geomean 0.960  wins 5/10  rss    88 MB
+sh8bench  main2  median      0.790  rss   317 MB
+sh8bench  pr     median 0.986  geomean 0.894  wins 3/10  rss   301 MB
+sh8bench  r2     median 1.007  geomean 0.927  wins 5/10  rss   318 MB
+sh8bench  r4     median 1.008  geomean 0.955  wins 7/10  rss   329 MB
+sh8bench  lifo   median 1.039  geomean 1.042  wins 8/10  rss   307 MB
+sh8bench  hyst   median 1.042  geomean 0.973  wins 7/10  rss   326 MB

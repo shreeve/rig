@@ -380,6 +380,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   blake2; the AEAD beats ring at 8192 bytes and on most opens, and
   trails it on shorter seals (record:
   docs/history/records/2026-10/std-crypto/).
+- **ChaCha20-Poly1305 on x86-64 MACs a block at a time.** Past 192
+  bytes, the loop on x86-64 runs Poly1305 on 64-bit limbs, four blocks
+  one at a time after each of the first 8 double rounds, as a measured
+  Zig ceiling does: its one multiplier port makes arm64's 44-bit,
+  four-block step twice the work. arm64 keeps that step, as fast as it
+  was. The loop is one function, generic over its MAC, and
+  `rig test std.crypto` checks both MACs on any machine.
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,
@@ -1812,6 +1819,20 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   again still take their pages from what the heap kept, and bench/hash
   runs at its speed (all rows within 0.3%). Trig's time, instructions
   and peak memory are unchanged.
+- **Release allocator:** a heap that does not fault in ahead, as a
+  server's worker's, keeps 1 MiB of the large blocks it frees resident.
+  Past that, it gives the pages of each block after its first back to
+  the system (`MADV_DONTNEED` on Linux, `MADV_FREE_REUSABLE` on macOS)
+  and keeps the block by address for its next request. A server's
+  workers free blocks that other workers made, so what each kept grew
+  toward 16 MiB. On pup's 22 workers, kv with 64 KiB values peaks at
+  34% less memory (34-40 MB rather than 56-61) for 1.1-1.5% fewer
+  requests a second by the median of 50 interleaved pairs (3.3-4.2% by
+  the geometric mean), a trade the owner accepted; mimalloc-bench's
+  xmalloc-test peaks at 71% less (80 MB rather than 275) at its speed,
+  and sh8bench is level. A heap that does the program's work, as each
+  of Trig's checkers', is unchanged: Trig's time and peak memory, and
+  the task, actor, net and http benches, are as before.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig

@@ -3,10 +3,13 @@
 # buffer into another.
 #
 # ChaCha20 runs 8 blocks at once, one per vector lane, so a round needs
-# no lane shuffles. Poly1305 runs on three 44-bit limbs, four blocks a
-# step, in the same loop as the cipher, one step after each double
-# round; a message of up to 192 bytes takes 4 blocks in lanes and
-# Poly1305 on 64-bit limbs a block at a time.
+# no lane shuffles. Poly1305 runs in the same loop as the cipher, four
+# blocks after each of the first 8 double rounds: on arm64 on three
+# 44-bit limbs, four blocks a step, whose products its two multipliers
+# take at once; on x86-64 on 64-bit limbs a block at a time, since its
+# one multiplier makes the four-block step twice the work. A message of
+# up to 192 bytes takes 4 blocks in lanes and Poly1305 on 64-bit limbs a
+# block at a time, on every target.
 #
 # Constant time: no branch and no index depends on the key, the
 # keystream, the message, or the tag. Branches test lengths only, and
@@ -16,7 +19,11 @@
 #
 # Each function that touches the message takes `ip`: true when it works
 # in place on `dst` (and `src` is empty), false when it reads `src` and
-# writes `dst`, of the same length.
+# writes `dst`, of the same length. The AEAD's functions take `arch`,
+# the target whose MAC the loop uses: `target.arch`, or in a test
+# another's (aead_test.rig).
+
+use std.target
 
 type V = Simd[U32, 8]      # word i of 8 blocks, one per lane
 type Q = Simd[U32, 4]      # word i of 4 blocks, or 4 words of one block
@@ -49,25 +56,25 @@ pub obj ChaCha: Print
 
   # Encrypts `buf` where it lies, and gives the tag of it and `header`.
   pub fun seal(?@, buf: ![]U8, nonce: [12]U8, header: []U8) -> [16]U8
-    seal_with(?@key, !buf, ?nonce, header)
+    seal_with[target.arch](?@key, !buf, ?nonce, header)
 
   # Decrypts `buf` where it lies when `tag` is its tag with `header`;
   # otherwise zeroes it and fails with `Forged.tag`.
   pub sub open(?@, buf: ![]U8, tag: [16]U8, nonce: [12]U8, header: []U8)!Forged
-    open_with(?@key, !buf, ?tag, ?nonce, header)!
+    open_with[target.arch](?@key, !buf, ?tag, ?nonce, header)!
 
   # Encrypts `src` into `dst`, followed by zeros to 16 bytes from the
   # end, and writes the tag in those 16. Panics unless
   # `dst.len >= src.len + 16`.
   pub sub seal_into(?@, dst: ![]U8, src: []U8, nonce: [12]U8, header: []U8)
-    seal_into_with(?@key, !dst, src, ?nonce, header)
+    seal_into_with[target.arch](?@key, !dst, src, ?nonce, header)
 
   # Decrypts `src`, a message and its 16-byte tag, into the first
   # `src.len - 16` bytes of `dst`; when the tag is wrong, zeroes them and
   # fails with `Forged.tag`, as it does when `src` is shorter than a tag.
   # Panics unless `src.len <= dst.len + 16`.
   pub sub open_into(?@, dst: ![]U8, src: []U8, nonce: [12]U8, header: []U8)!Forged
-    open_into_with(?@key, !dst, src, ?nonce, header)!
+    open_into_with[target.arch](?@key, !dst, src, ?nonce, header)!
 
 # An XChaCha20-Poly1305 key, wiped when it drops and printed as
 # `XChaCha(…)`. Its nonce is 24 bytes, enough to be drawn at random for
@@ -89,7 +96,7 @@ pub obj XChaCha: Print
   pub fun seal(?@, buf: ![]U8, nonce: [24]U8, header: []U8) -> [16]U8
     k = subkey(?@key, ?nonce)
     n = short_nonce(?nonce)
-    tag = seal_with(?k, !buf, ?n, header)
+    tag = seal_with[target.arch](?k, !buf, ?n, header)
     wipe(!k)
     tag
 
@@ -99,13 +106,13 @@ pub obj XChaCha: Print
     defer
       wipe(!k)
     n = short_nonce(?nonce)
-    open_with(?k, !buf, ?tag, ?n, header)!
+    open_with[target.arch](?k, !buf, ?tag, ?n, header)!
 
   # As `ChaCha.seal_into`, with a 24-byte nonce.
   pub sub seal_into(?@, dst: ![]U8, src: []U8, nonce: [24]U8, header: []U8)
     k = subkey(?@key, ?nonce)
     n = short_nonce(?nonce)
-    seal_into_with(?k, !dst, src, ?n, header)
+    seal_into_with[target.arch](?k, !dst, src, ?n, header)
     wipe(!k)
 
   # As `ChaCha.open_into`, with a 24-byte nonce.
@@ -114,7 +121,7 @@ pub obj XChaCha: Print
     defer
       wipe(!k)
     n = short_nonce(?nonce)
-    open_into_with(?k, !dst, src, ?n, header)!
+    open_into_with[target.arch](?k, !dst, src, ?n, header)!
 
 # ------------------------------------------------------------ the AEAD
 
@@ -126,23 +133,23 @@ sub check_len(n: Int)
   if n > MAX_LEN
     panic("crypto: a ChaCha20-Poly1305 message holds at most 274877906880 bytes")
 
-fun seal_with(key: ?[32]U8, buf: ![]U8, nonce: ?[12]U8, aad: []U8) -> [16]U8
+fun seal_with[arch: Arch](key: ?[32]U8, buf: ![]U8, nonce: ?[12]U8, aad: []U8) -> [16]U8
   check_len(buf.len)
   s = state(key, nonce)
   nob: [0]U8 = []
-  t0, t1 = run[true](!buf, nob, aad, s, false)
+  t0, t1 = run[true, arch](!buf, nob, aad, s, false)
   tag_of(t0, t1)
 
-sub open_with(key: ?[32]U8, buf: ![]U8, tag: ?[16]U8, nonce: ?[12]U8, aad: []U8)!Forged
+sub open_with[arch: Arch](key: ?[32]U8, buf: ![]U8, tag: ?[16]U8, nonce: ?[12]U8, aad: []U8)!Forged
   check_len(buf.len)
   s = state(key, nonce)
   nob: [0]U8 = []
-  t0, t1 = run[true](!buf, nob, aad, s, true)
+  t0, t1 = run[true, arch](!buf, nob, aad, s, true)
   if not same_tag(t0, t1, tag)
     wipe(!buf)
     return Forged.tag
 
-sub seal_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U8)
+sub seal_into_with[arch: Arch](key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U8)
   if dst.len < src.len + 16
     panic("crypto: seal_into needs room for the message and its 16-byte tag")
   n = dst.len - 16
@@ -151,7 +158,7 @@ sub seal_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U
   t0: U64 = 0
   t1: U64 = 0
   if src.len == n
-    t0, t1 = run[false](!dst[..n], src, aad, s, false)
+    t0, t1 = run[false, arch](!dst[..n], src, aad, s, false)
   else
     # Padded: the message is `src` and then zeros, encrypted in place.
     for i in 0..src.len
@@ -159,11 +166,11 @@ sub seal_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U
     for i in src.len..n
       dst[i] = 0
     nob: [0]U8 = []
-    t0, t1 = run[true](!dst[..n], nob, aad, s, false)
+    t0, t1 = run[true, arch](!dst[..n], nob, aad, s, false)
   !dst.write[U64, .little](n, t0)
   !dst.write[U64, .little](n + 8, t1)
 
-sub open_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U8)!Forged
+sub open_into_with[arch: Arch](key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U8)!Forged
   # Shorter than a tag, `src` cannot be a sealed message.
   return Forged.tag if src.len < 16
   n = src.len - 16
@@ -171,7 +178,7 @@ sub open_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U
     panic("crypto: open_into needs room in `dst` for the message before the tag")
   check_len(n)
   s = state(key, nonce)
-  t0, t1 = run[false](!dst[..n], src[..n], aad, s, true)
+  t0, t1 = run[false, arch](!dst[..n], src[..n], aad, s, true)
   d = (t0 ^ src.read[U64, .little](n)) | (t1 ^ src.read[U64, .little](n + 8))
   if barrier(d) != 0
     wipe(!dst[..n])
@@ -500,6 +507,10 @@ obj Mac
     @h1 = h1
     @h2 = h2
 
+  # The four blocks at `at`, the loop's step after a double round.
+  sub step(!@, data: []U8, at: Int)
+    !@block4(data, at)
+
   # Any number of bytes, the last block padded with zeros.
   sub blocks(!@, data: []U8)
     i = 0
@@ -568,9 +579,11 @@ inline fun add_c(a: U64, b: U64) -> (U64, U64)
   t = U128(a) +% U128(b)
   return U64.wrap(t), U64.wrap(t >> 64)
 
-# Poly1305 on 64-bit limbs, for short messages, where precomputing r^2 to
-# r^4 costs more than it saves. r is clamped, so r1 is a multiple of 4 and
-# s1 = r1 + r1 / 4 folds the product's 2^128 terms back in.
+# Poly1305 on 64-bit limbs: for short messages, where precomputing r^2
+# to r^4 costs more than it saves, and in x86-64's loop, where it takes
+# five products a block to the 44-bit step's twelve. r is clamped, so r1
+# is a multiple of 4 and s1 = r1 + r1 / 4 folds the product's 2^128
+# terms back in.
 obj Mac64
   h0: U64
   h1: U64
@@ -604,6 +617,13 @@ obj Mac64
     @h1 = mid
     @h2 = (d2 & 3) +% k1
 
+  # The four blocks at `at`, one at a time: the loop's step after a
+  # double round.
+  sub step(!@, data: []U8, at: Int)
+    for j in 0..4
+      o = at + 16 * j
+      !@block(data.read[U64, .little](o), data.read[U64, .little](o + 8))
+
   sub blocks(!@, data: []U8)
     i = 0
     while i + 16 <= data.len : i += 16
@@ -635,8 +655,10 @@ fun mac64_of(w: [16]U32) -> Mac64
 
 # Keystream for the message, MACed as `open` (before the xor) or not
 # (`seal`, after). In place (`ip`), the message is `dst`; otherwise it is
-# read from `src` and written to `dst`, of the same length.
-fun run[ip: Bool](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool) -> (U64, U64)
+# read from `src` and written to `dst`, of the same length. Past 192
+# bytes, `run_long`. `called` keeps it a call: inlined, it would make
+# its callers too large to inline.
+called fun run[ip: Bool, arch: Arch](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool) -> (U64, U64)
   n = dst.len
   if n <= 192
     x = blocks4(s, 0)
@@ -651,7 +673,26 @@ fun run[ip: Bool](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool) 
     if not opening
       !p.blocks(dst)
     return (!p).final(aad.len, n)
-  p = mac_of(block1(s, 0))
+  return run_long[ip, arch](!dst, src, aad, s, opening)
+
+# `run` past 192 bytes, with the MAC `arch` chooses at compile time.
+# `called` keeps it a call, so the short path's code and frame are not
+# the loop's.
+called fun run_long[ip: Bool, arch: Arch](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool) -> (U64, U64)
+  w = block1(s, 0)
+  if arch == .x86_64
+    return long[ip, Mac64](!dst, src, aad, s, opening, mac64_of(w))
+  return long[ip, Mac](!dst, src, aad, s, opening, mac_of(w))
+
+# A message of more than 192 bytes, MACed by `mac`, a `Mac` or a `Mac64`:
+# 8 blocks of keystream a turn, and the MAC's step over four of the
+# message's blocks after each of the first 8 double rounds, so the
+# multiplier runs while the vector unit does. Opening MACs a group's
+# ciphertext in its own rounds, before the xor; sealing MACs it in the
+# next group's.
+fun long[ip: Bool, M](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool, mac: M) -> (U64, U64)
+  n = dst.len
+  new p = mac
   !p.blocks(aad)
   i = 0
   ctr: U32 = 1
@@ -667,11 +708,11 @@ fun run[ip: Bool](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool) 
       if r < 8
         if opening
           if ip
-            !p.block4(dst, i + 64 * r)
+            !p.step(?dst[..], i + 64 * r)
           else
-            !p.block4(src, i + 64 * r)
+            !p.step(src, i + 64 * r)
         else if pending
-          !p.block4(dst, prev + 64 * r)
+          !p.step(?dst[..], prev + 64 * r)
     for j in 0..16
       x[j] = x[j] +% V.splat(s[j])
     x[12] = x[12] +% IOTA8 +% V.splat(ctr) -% V.splat(s[12])
@@ -682,21 +723,21 @@ fun run[ip: Bool](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool) 
   if i < n
     if opening
       if ip
-        !p.blocks(dst[i..])
+        !p.blocks(?dst[i..])
       else
         !p.blocks(src[i..])
     if n - i > 256
       x = blocks8(s, ctr)
       if pending and not opening
-        !p.blocks(dst[prev..prev + 512])
+        !p.blocks(?dst[prev..prev + 512])
       tail8[ip](!dst, src, i, x)
     else
       x = blocks4(s, ctr)
       if pending and not opening
-        !p.blocks(dst[prev..prev + 512])
+        !p.blocks(?dst[prev..prev + 512])
       tail4[ip](!dst, src, i, x)
     if not opening
-      !p.blocks(dst[i..])
+      !p.blocks(?dst[i..])
   else if pending and not opening
-    !p.blocks(dst[prev..prev + 512])
+    !p.blocks(?dst[prev..prev + 512])
   return (!p).final(aad.len, n)

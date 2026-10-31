@@ -1,0 +1,215 @@
+
+## innermost file (of 19922 samples)
+ 31.87%  runtime.zig
+ 25.71%  mem.zig
+ 20.41%  ordered.zig
+ 14.31%  checker.zig
+  4.55%  memcpy.zig
+  1.08%  lexer.zig
+  0.45%  parser.zig
+  0.42%  wyhash.zig
+  0.22%  enums.zig
+  0.21%  ast.zig
+  0.14%  jsnum.zig
+  0.12%  binder.zig
+  0.09%  __rig_std_text.zig
+  0.08%  vfsmatch.zig
+  0.07%  __rig_std_utf16.zig
+  0.05%  table.zig
+  0.05%  stringutil.zig
+  0.05%  memmove.zig
+  0.04%  tspath.zig
+  0.03%  compiler.zig
+  0.03%  printer.zig
+  0.02%  diagnosticwriter.zig
+  0.02%  packagejson.zig
+  0.01%  sched.zig
+  0.01%  Threaded.zig
+  0.01%  module.zig
+  0.01%  diagnostics.zig
+
+## innermost function (of 19922 samples)
+ 24.94%  mem.zig  mem.eqlBytes
+ 12.22%  runtime.zig  rig.runtime.rt__func_5112
+ 11.17%  runtime.zig  rig.runtime.rt__func_3295
+  8.08%  checker.zig  checker.Checker.get_conditional_flow_type_of_type
+  6.72%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).put
+  3.79%  memcpy.zig  compiler_rt.memcpy.copyFixedLength
+  3.01%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).put
+  2.95%  runtime.zig  rig.runtime.rt__func_3321
+  2.54%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,void).put_new
+  2.31%  checker.zig  checker.Checker.infer_types
+  2.25%  checker.zig  checker.Checker.alloc_inference_info
+  1.50%  runtime.zig  rig.runtime.rt__func_3322
+  1.14%  ordered.zig  rig.ordered.Ordered(checker.InferenceKey,i32).put
+  0.82%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findHashed
+  0.81%  runtime.zig  rig.runtime.rt__func_2896
+  0.76%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).probePastHome
+  0.74%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findHashed
+  0.71%  memcpy.zig  compiler_rt.memcpy.copyBlocks
+  0.67%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).probePastHome
+  0.65%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,void).isGone
+  0.58%  lexer.zig  lexer.Scanner.mark
+  0.45%  mem.zig  mem.swap__func_3749
+  0.40%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).probePastHome
+  0.39%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll
+  0.37%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).findHashed
+  0.34%  runtime.zig  rig.runtime.reallocSlice__func_1162
+  0.34%  runtime.zig  rig.runtime.ListOf(rig.runtime.String,0).push
+  0.31%  mem.zig  mem.readInt
+  0.31%  lexer.zig  lexer.Scanner.has_preceding_js_doc_leading_asterisks
+  0.31%  wyhash.zig  hash.wyhash.Wyhash.smallKey
+  0.30%  runtime.zig  rig.runtime.swapValue__func_1093
+  0.28%  checker.zig  checker.Checker.check_type_related_to_ex_output
+  0.26%  parser.zig  parser.Parser.in_disallow_conditional_types_context
+  0.26%  ordered.zig  rig.ordered.Ordered(u32,i64).matchAll
+  0.25%  runtime.zig  rig.runtime.ListOf(checker.InferenceInfo,0).push
+  0.23%  checker.zig  checker.Checker.get_type_with_this_argument
+  0.22%  runtime.zig  rig.runtime.rt__func_3681
+  0.21%  runtime.zig  rig.runtime.rt__func_3636
+  0.20%  enums.zig  checker.Checker.is_mapped_type_with_keyof_constraint_declaration
+  0.18%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).match
+  0.18%  ordered.zig  rig.ordered.Ordered(u32,checker.SymbolReferenceLinks).probePastHome
+  0.18%  checker.zig  checker.Checker.is_tuple_type_structure_matching
+  0.17%  runtime.zig  rig.runtime.ListOf(u32,0).push
+  0.17%  ordered.zig  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).probePastHome
+  0.16%  runtime.zig  rig.runtime.ListOf(checker.ElementInfo,0).atProven
+  0.14%  ast.zig  ast.Ast.finish_node
+  0.14%  ordered.zig  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).findHashed
+  0.14%  jsnum.zig  jsnum.to_string
+  0.13%  ordered.zig  rig.ordered.Ordered(u32,u32).matchAll
+  0.13%  runtime.zig  rig.runtime.rt__func_3613
+  0.12%  runtime.zig  rig.runtime.String.copyFresh
+  0.12%  parser.zig  parser.Parser.next_token
+  0.12%  binder.zig  binder.set_value_declaration
+  0.11%  ordered.zig  rig.ordered.Ordered(u32,u32).findHashed
+  0.11%  checker.zig  checker.Checker.check_expression_ex
+  0.11%  ordered.zig  rig.ordered.Ordered(checker.UnionOfUnionKey,u32).put
+  0.10%  ordered.zig  rig.ordered.Ordered(checker.CachedSignatureKey,u32).put
+  0.10%  runtime.zig  rig.runtime.hashAs__func_3693
+  0.10%  lexer.zig  lexer.get_text_of_node_from_source_text
+  0.10%  ordered.zig  rig.ordered.Ordered(u32,i64).writeLane
+  0.10%  runtime.zig  rig.runtime.eqlAs__func_3696
+  0.10%  checker.zig  checker.Checker.create_normalized_tuple_type_ex
+  0.09%  wyhash.zig  hash.wyhash.Wyhash.final1
+  0.09%  __rig_std_text.zig  __rig_std_text.Interner.find
+  0.09%  runtime.zig  rig.runtime.ListOf(u32,0).mem
+  0.08%  runtime.zig  rig.runtime.lend__func_2210
+  0.08%  checker.zig  checker.Checker.is_evolving_array_operation_target
+  0.08%  checker.zig  checker.Checker.get_flow_type_of_reference_in
+  0.08%  checker.zig  checker.Checker.get_reference_root
+  0.07%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).writeLane
+  0.07%  runtime.zig  rig.runtime.Niche(checker.Relater,.{ .offset = 125, .Word = u8, .value = 2, .spare = 254 }).unwrap
+  0.07%  ordered.zig  rig.ordered.Ordered(rig.runtime.String,u32).insertHashed
+  0.07%  runtime.zig  rig.runtime.ListOf(checker.Relater,0).pop
+  0.07%  checker.zig  checker.Checker.should_check_as_excess_property
+  0.07%  __rig_std_utf16.zig  __rig_std_utf16.lanes_sum
+  0.06%  checker.zig  checker.Checker.concatenate_index_infos
+  0.05%  ast.zig  ast.Ast.for_each_return_statement_traverse
+  0.05%  memcpy.zig  compiler_rt.memcpy.copyLessThan16
+  0.05%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,void).__rig_drop
+  0.05%  runtime.zig  rig.runtime.rt__func_705
+
+## outermost function (the symbol perf names) (of 19922 samples)
+ 15.29%  checker.Checker.instantiate_type_with_alias
+ 11.65%  checker.Checker.resolve_external_module
+  8.75%  checker.Checker.get_conditional_type_worker
+  8.08%  checker.Checker.get_conditional_flow_type_of_type
+  6.01%  checker.Checker.is_related_to_ex
+  4.82%  checker.Checker.check_collisions_for_declaration_name
+  4.62%  mem.eql__func_63
+  4.55%  memcpy
+  4.17%  checker.Checker.is_type_related_to
+  3.22%  checker.Checker.resolve_structured_type_members_worker
+  2.49%  compiler.Program.get_default_resolution_mode_for_file
+  2.35%  checker.Checker.infer_types
+  1.85%  checker.Checker.infer_from_types
+  1.41%  checker.Checker.structured_type_related_to
+  1.12%  compiler.Program.get_emit_module_format_of_file
+  1.03%  checker.Checker.get_intersection_type_ex
+  1.02%  checker.Checker.get_tail_recursion_root
+  0.87%  checker.Checker.get_literal_type_from_property
+  0.85%  rig.ordered.Ordered(checker.CacheKey,u32).probePastHome
+  0.85%  rig.ordered.Ordered(checker.InstantiationKey,u32).probePastHome
+  0.80%  checker.Checker.get_union_type_of
+  0.78%  checker.Checker.get_element_types
+  0.69%  checker.Checker.get_inferred_type
+  0.64%  checker.Checker.set_structured_type_members
+  0.61%  checker.Checker.infer_from_object_types
+  0.60%  checker.Checker.get_union_type_ex
+  0.45%  checker.Checker.create_type_reference_ex
+  0.40%  rig.ordered.Ordered(checker.CachedTypeKey,u32).probePastHome
+  0.39%  checker.Checker.get_reduced_type_worker
+  0.34%  rig.runtime.ListOf(i64,0).growBy
+  0.34%  parser.Parser.create_identifier_with_diagnostic
+  0.34%  checker.Checker.get_type_with_this_argument
+  0.31%  parser.Parser.parse_modifiers_ex
+  0.31%  checker.Checker.invoke_once
+  0.30%  parser.Parser.parse_type
+  0.28%  checker.Checker.create_normalized_tuple_type_ex
+  0.27%  tspath.CaseSensitivity.relative_path_from_path
+  0.26%  checker.Checker.instantiate_types
+  0.25%  checker.Checker.compare_signatures_related_with
+  0.23%  parser.Parser.parse_list
+
+## innermost function within outermost (of 19922 samples)
+ 11.56%  mem.zig  mem.eqlBytes  checker.Checker.resolve_external_module
+  8.08%  checker.zig  checker.Checker.get_conditional_flow_type_of_type  checker.Checker.get_conditional_flow_type_of_type
+  6.03%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.instantiate_type_with_alias
+  6.00%  runtime.zig  rig.runtime.rt__func_5112  checker.Checker.get_conditional_type_worker
+  4.82%  mem.zig  mem.eqlBytes  checker.Checker.check_collisions_for_declaration_name
+  4.62%  mem.zig  mem.eqlBytes  mem.eql__func_63
+  4.10%  runtime.zig  rig.runtime.rt__func_5112  checker.Checker.is_type_related_to
+  3.87%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).put  checker.Checker.instantiate_type_with_alias
+  3.79%  memcpy.zig  compiler_rt.memcpy.copyFixedLength  memcpy
+  2.70%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).put  checker.Checker.instantiate_type_with_alias
+  2.54%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,void).put_new  checker.Checker.is_related_to_ex
+  2.49%  mem.zig  mem.eqlBytes  compiler.Program.get_default_resolution_mode_for_file
+  2.31%  checker.zig  checker.Checker.infer_types  checker.Checker.infer_types
+  2.20%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).put  checker.Checker.is_related_to_ex
+  2.10%  checker.zig  checker.Checker.alloc_inference_info  checker.Checker.get_conditional_type_worker
+  1.47%  runtime.zig  rig.runtime.rt__func_5112  checker.Checker.instantiate_type_with_alias
+  1.40%  runtime.zig  rig.runtime.rt__func_3321  checker.Checker.resolve_structured_type_members_worker
+  1.11%  mem.zig  mem.eqlBytes  compiler.Program.get_emit_module_format_of_file
+  1.02%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.get_tail_recursion_root
+  0.95%  runtime.zig  rig.runtime.rt__func_3321  checker.Checker.structured_type_related_to
+  0.84%  ordered.zig  rig.ordered.Ordered(checker.InferenceKey,i32).put  checker.Checker.infer_from_types
+  0.78%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.get_element_types
+  0.77%  runtime.zig  rig.runtime.rt__func_3322  checker.Checker.resolve_structured_type_members_worker
+  0.76%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).probePastHome  rig.ordered.Ordered(checker.InstantiationKey,u32).probePastHome
+  0.71%  memcpy.zig  compiler_rt.memcpy.copyBlocks  memcpy
+  0.69%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.get_inferred_type
+  0.67%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).probePastHome  rig.ordered.Ordered(checker.CacheKey,u32).probePastHome
+  0.65%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,void).isGone  checker.Checker.is_related_to_ex
+  0.62%  runtime.zig  rig.runtime.rt__func_3322  checker.Checker.set_structured_type_members
+  0.62%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).findHashed  checker.Checker.instantiate_type_with_alias
+  0.55%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).findHashed  checker.Checker.is_related_to_ex
+  0.54%  runtime.zig  rig.runtime.rt__func_5112  checker.Checker.infer_from_types
+  0.47%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.get_intersection_type_ex
+  0.45%  runtime.zig  rig.runtime.rt__func_2896  checker.Checker.resolve_structured_type_members_worker
+  0.45%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.get_union_type_of
+  0.44%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).put  checker.Checker.get_intersection_type_ex
+  0.40%  ordered.zig  rig.ordered.Ordered(checker.CachedTypeKey,u32).probePastHome  rig.ordered.Ordered(checker.CachedTypeKey,u32).probePastHome
+  0.39%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).matchAll  checker.Checker.instantiate_type_with_alias
+  0.38%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.structured_type_related_to
+  0.34%  runtime.zig  rig.runtime.reallocSlice__func_1162  rig.runtime.ListOf(i64,0).growBy
+  0.31%  lexer.zig  lexer.Scanner.has_preceding_js_doc_leading_asterisks  parser.Parser.create_identifier_with_diagnostic
+  0.31%  mem.zig  mem.readInt  checker.Checker.get_literal_type_from_property
+  0.30%  lexer.zig  lexer.Scanner.mark  parser.Parser.parse_modifiers_ex
+  0.30%  ordered.zig  rig.ordered.Ordered(checker.InferenceKey,i32).put  checker.Checker.invoke_once
+  0.30%  wyhash.zig  hash.wyhash.Wyhash.smallKey  checker.Checker.get_literal_type_from_property
+  0.29%  runtime.zig  rig.runtime.rt__func_3321  checker.Checker.infer_from_object_types
+  0.27%  runtime.zig  rig.runtime.ListOf(rig.runtime.String,0).push  tspath.CaseSensitivity.relative_path_from_path
+  0.26%  parser.zig  parser.Parser.in_disallow_conditional_types_context  parser.Parser.parse_type
+  0.26%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.resolve_structured_type_members_worker
+  0.26%  ordered.zig  rig.ordered.Ordered(u32,i64).matchAll  checker.Checker.get_reduced_type_worker
+  0.26%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.instantiate_types
+  0.23%  mem.zig  mem.swap__func_3749  checker.Checker.get_union_type_of
+  0.23%  checker.zig  checker.Checker.get_type_with_this_argument  checker.Checker.get_type_with_this_argument
+  0.21%  ordered.zig  rig.ordered.Ordered(checker.InstantiationKey,u32).put  checker.Checker.create_type_reference_ex
+  0.21%  runtime.zig  rig.runtime.rt__func_3295  checker.Checker.get_union_type_ex
+  0.19%  runtime.zig  rig.runtime.swapValue__func_1093  parser.Parser.parse_list
+  0.19%  checker.zig  checker.Checker.check_type_related_to_ex_output  checker.Checker.get_conditional_type_worker
+  0.19%  runtime.zig  rig.runtime.ListOf(checker.InferenceInfo,0).push  checker.Checker.get_conditional_type_worker
+  0.18%  ordered.zig  rig.ordered.Ordered(checker.CacheKey,u32).match  rig.ordered.Ordered(checker.CacheKey,u32).probePastHome
+  0.18%  ordered.zig  rig.ordered.Ordered(u32,checker.SymbolReferenceLinks).probePastHome  rig.ordered.Ordered(u32,checker.SymbolReferenceLinks).probePastHome

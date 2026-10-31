@@ -1,0 +1,7 @@
+project         main best/median ms    a best/median ms     a vs main (best, median)   peak RSS MB main/a   n
+ts-pattern         721.3 /    730.7      721.3 /    733.4    0.0% faster    0.4% slower      247.0 /  249.9  21
+zod3               147.1 /    149.2      147.6 /    150.0    0.3% slower    0.5% slower       77.3 /   79.8  21
+mitt                24.5 /     28.1       25.7 /     27.4    4.4% slower    2.3% faster       31.2 /   33.6  21
+neverthrow          26.6 /     29.0       26.7 /     29.3    0.3% slower    0.8% slower       30.6 /   32.7  21
+superstruct         31.7 /     33.4       32.3 /     34.8    2.0% slower    4.2% slower       23.0 /   25.1  21
+tiny-invariant      68.6 /     71.5       69.4 /     71.3    1.2% slower    0.3% faster       49.1 /   51.5  21

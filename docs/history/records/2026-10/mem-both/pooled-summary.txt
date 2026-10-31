@@ -1,0 +1,19 @@
+Paired ratio of arm a's code to main's in the same round (above 1 is faster), and peak RSS
+  kv64k     round 2 a vs main: median 0.994  geomean 0.931  arm faster in 4/10
+  kv64k     round 3 pr vs main2: median 0.971  geomean 0.974  arm faster in 1/10
+  kv64k     round 4 a vs main: median 0.974  geomean 0.978  arm faster in 2/10
+  kv64k     round 4 pr vs main2: median 0.991  geomean 0.986  arm faster in 4/10
+  kv64k     POOLED (40 pairs): median 0.985  geomean 0.967  arm faster in 11/40  | RSS median arm 40 MB, main 61 MB
+  xmalloc   round 2 a vs main: median 0.990  geomean 0.959  arm faster in 5/10
+  xmalloc   round 3 pr vs main2: median 0.934  geomean 0.943  arm faster in 2/10
+  xmalloc   round 4 a vs main: median 1.032  geomean 1.060  arm faster in 6/10
+  xmalloc   round 4 pr vs main2: median 0.995  geomean 0.979  arm faster in 5/10
+  xmalloc   POOLED (40 pairs): median 0.981  geomean 0.984  arm faster in 18/40  | RSS median arm 80 MB, main 275 MB
+  sh8bench  round 2 a vs main: median 1.054  geomean 1.063  arm faster in 9/10
+  sh8bench  round 3 pr vs main2: median 1.007  geomean 0.985  arm faster in 6/10
+  sh8bench  round 4 a vs main: median 1.062  geomean 1.060  arm faster in 7/10
+  sh8bench  round 4 pr vs main2: median 1.021  geomean 1.057  arm faster in 6/10
+  sh8bench  POOLED (40 pairs): median 1.016  geomean 1.041  arm faster in 28/40  | RSS median arm 323 MB, main 321 MB
+  noise floor kv64k: main@144 vs main@179 (xmalloc's shim is the same source): median 0.978, range 0.853-1.177
+  noise floor xmalloc: main@144 vs main@179 (xmalloc's shim is the same source): median 0.981, range 0.752-1.545
+  noise floor sh8bench: main@144 vs main@179 (xmalloc's shim is the same source): median 1.041, range 0.643-1.224

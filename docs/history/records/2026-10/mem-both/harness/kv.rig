@@ -1,0 +1,86 @@
+# A GET/SET server over RESP: each connection a task, the store an actor.
+use std.net
+use std.os
+use std.text
+
+obj Db
+  entries: Map[String, String]
+
+  fun get(?@, key: ?String) -> String?
+    if @entries.get(key) as v
+      return String(v)
+    none
+
+  sub set(!@, key: String, value: String)
+    !@entries.put(<key, <value)
+
+obj Span
+  lo: Int
+  hi: Int
+  next: Int
+
+# One bulk string `$n\r\n...\r\n` at `i`: its start, its end, and the next index; none when incomplete.
+fun bulk(buf: ?String, i: Int) -> Span?
+  if i >= buf.len
+    return none
+  if text.find(?buf[i..], "\r\n") as e
+    n = text.parse_int(?buf[i + 1..i + e]) catch -1
+    start = i + e + 2
+    if start + n + 2 > buf.len
+      return none
+    return Span(lo: start, hi: start + n, next: start + n + 2)
+  none
+
+fun handle(c: net.Stream, db: *Actor[Db]) -> Int!
+  new s = <c
+  buf = String()
+  served = 0
+  while true
+    n = (!s).read(!buf, 16384)!
+    if n == 0
+      break
+    out = String()
+    pos = 0
+    while pos < buf.len
+      # `*<count>\r\n` then that many bulk strings
+      if text.find(?buf[pos..], "\r\n") as e
+        count = text.parse_int(?buf[pos + 1..pos + e]) catch 0
+        i = pos + e + 2
+        if count == 2
+          if bulk(?buf, i) as a
+            if bulk(?buf, a.next) as k
+              if db.get(?buf[k.lo..k.hi]) as v
+                !out.add("$", v.len, "\r\n", ?v, "\r\n")
+              else
+                !out.add("$-1\r\n")
+              pos = k.next
+              served += 1
+              continue
+        else if count == 3
+          if bulk(?buf, i) as a
+            if bulk(?buf, a.next) as k
+              if bulk(?buf, k.next) as v
+                (!db).set(String(?buf[k.lo..k.hi]), String(?buf[v.lo..v.hi]))
+                !out.add("+OK\r\n")
+                pos = v.next
+                served += 1
+                continue
+      break
+    if out.len > 0
+      (!s).write(?out)!
+    buf = String(?buf[pos..])
+  served
+
+# A connection's task: its errors end it alone.
+sub conn(c: net.Stream, db: *Actor[Db])
+  _ = handle(<c, +db) catch 0
+
+sub main()!
+  args = os.args()
+  port = text.parse_int(?args[1])!
+  l = net.listen(String("127.0.0.1:", port))!
+  db = *Actor(Db(entries: Map[String, String]()))
+  ts = Tasks[Void]()
+  while true
+    c = l.accept()!
+    !ts.add(conn(<c, +db)&)
