@@ -29,9 +29,11 @@ for proj in PROJ:
     for n in names:
         outs[n] = one(n, proj)[3]
     if len(set(outs.values())) != 1: sys.exit("census-time: %s prints differently" % proj)
+# Each round starts with the next build: the first run after a switch
+# meets a core that idled, at a lower clock (3.8 GHz against 4.4 on pup).
 for r in range(rounds):
     for proj in PROJ:
-        for n in names:
+        for n in names[r % len(names):] + names[:r % len(names)]:
             w, c, i, _ = one(n, proj); k = (proj, n)
             b = best.get(k, (9e9, 1 << 62, 1 << 62))
             best[k] = (min(b[0], w), min(b[1], c), min(b[2], i))
@@ -39,7 +41,7 @@ for r in range(rounds):
 mem = {}
 for r in range(3):
     for proj in PROJ:
-        for n in names:
+        for n in names[r % len(names):] + names[:r % len(names)]:
             mem[(proj, n)] = min(mem.get((proj, n), 1 << 62), rss(n, proj))
 def pct(a, b): s = a / b; return "%.1f%% %s" % (abs(s - 1) * 100, "faster" if s >= 1 else "slower")
 def less(a, b): s = b / a; return "%.1f%% %s" % (abs(s - 1) * 100, "fewer" if s <= 1 else "more")
