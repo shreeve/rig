@@ -1,0 +1,28 @@
+base | queue free | 0.022 0.023 0.020 ms
+base | queue calls | 0.026 0.025 0.025 ms
+base | timer free | 10.003 10.003 10.003 ms
+base | timer calls | 10.002 10.004 10.004 ms
+turn-1 | queue free | 1231.166 1232.105 1230.415 ms
+turn-1 | queue calls | 1144.098 1146.632 1147.627 ms
+turn-1 | timer free | 11.012 11.016 11.014 ms
+turn-1 | timer calls | 11.006 11.013 11.012 ms
+turn-3 (flag, never cleared: prototype bug) | queue free | 0.017 0.025 0.015 ms
+turn-3 (flag, never cleared: prototype bug) | queue calls | 0.019 0.022 0.019 ms
+turn-3 (flag, never cleared: prototype bug) | timer free | 1251.915 1257.816 1231.881 ms
+turn-3 (flag, never cleared: prototype bug) | timer calls | 1149.881 1150.928 1150.506 ms
+callfree | queue free | 0.017 0.017 0.018 ms
+callfree | queue calls | 1150.864 1150.648 1152.596 ms
+callfree | timer free | 10.003 10.003 10.006 ms
+callfree | timer calls | 11.009 11.014 11.007 ms
+entry_callfree | queue free | 0.031 0.023 0.024 ms
+entry_callfree | queue calls | 0.017 0.020 0.023 ms
+entry_callfree | timer free | 10.003 10.004 10.004 ms
+entry_callfree | timer calls | 1150.645 1150.472 1149.031 ms
+entry_turn-1 | queue free | 1231.169 1231.072 1231.970 ms
+entry_turn-1 | queue calls | 0.015 0.019 0.019 ms
+entry_turn-1 | timer free | 11.010 10.576 11.015 ms
+entry_turn-1 | timer calls | 1150.575 1173.650 1148.468 ms
+turn-3 (flag, clears) | queue free | 0.021 0.019 0.018 ms
+turn-3 (flag, clears) | queue calls | 0.016 0.019 0.017 ms
+turn-3 (flag, clears) | timer free | 1238.374 1237.016 1237.689 ms
+turn-3 (flag, clears) | timer calls | 1155.027 1162.287 1156.053 ms
