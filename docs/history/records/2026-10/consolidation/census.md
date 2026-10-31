@@ -47,6 +47,7 @@ total; "Trig run" is ts-pattern and zod3.
 | 2026-10-24 | 122597c52 | Mac | twitter 3.3-4.7%, citm 4.1-5.1%, gsoc 1.9-3.0%, canada 1.9-3.1% slower; github 1.7-4.9% faster | canada 2.7-3.7% slower (#538, accepted); rest 1.0% slower to 5.2% faster | tasks spawn 22-29% slower; actors spread 3.0% slower; the rest within 2%, or faster (yield, contend) | 2.5-3.0% slower | 4.1% faster, 1.0% slower | json safe: #617; spawn: #621 |
 | 2026-10-24 | 122597c52, against f55fe3d9a | pup | canada 2.0% slower; rest 2.3-8.2% faster | canada 2.3% slower; rest 0.6% slower to 7.5% faster | within 2% (actors solo 1.2%, http 1.4% slower) | 1.0% slower (typecheck 3.1-3.5% slower) | 0.2% slower, 0.9% slower | typecheck: no one merge past 1.7% (#616) |
 | 2026-10-24 | 122597c52 | pup | 1.0% slower to 1.8% faster | 0.0-19.9% faster | within 2%, or faster (pingpong 2.17x, http 7.0%) | 3.2% slower | 0.2% slower, 0.7% slower | check: a creep over both rounds, no merge past 1.3% |
+| 2026-10-30 | 45b1dbdbf, against 5ff20458a | pup | | | | | 1.8% faster, 2.0% faster; Trig's other four projects 0.4-2.9% faster | none |
 
 The night rows time the round's merges alone: their reference is
 463de5898, main before the round, which already holds #538, so #538's
@@ -132,3 +133,34 @@ that is a creep with no step past 1.3% (ace79d579 5924 ms, c77a86b07
 typecheck (891 → 938 ms) and storage (1840 → 1926 ms) before Stage 3.
 Nothing was bisected to a single merge, because no merge is responsible
 for more than 2%.
+
+## After the merges of 2026-10-29 and 30
+
+Main at 45b1dbdbf (#783), and at 344257fc0 (#780, before #783), timed
+against 5ff20458a: main before #776, #773, #775, #777, #779, #781, #780
+and #783. Trig only, on pup; std.json, the runtime benchmarks, and the
+Mac were not timed in this run.
+
+- **Builds.** Each Rig from a `git archive` copy under
+  `/zfs/worktrees/rig/census-1030/`, ReleaseSafe; Trig 2ba0719 (main
+  on 2026-10-30) built by each with `rig build --release`, every build
+  through `slot.sh`. The three trig builds print the same output on
+  every project.
+- **Timing.** `census/census-time.py 20`: Trig's six projects, the three
+  builds interleaved, 20 rounds on core 6 with its sibling 7 idle, the
+  fastest wall and the fewest user cycles (`perf stat`, `cycles:u`)
+  kept; peak RSS the fewest of 3 more runs. No other timing ran on pup,
+  and builds were held to the E-cores. 19:25 to 19:27 pup time.
+
+| project | wall | user cycles | instructions | peak RSS |
+|---|---|---|---|---|
+| ts-pattern | 0.914 → 0.898 s (1.8% faster) | 3.885G → 3.829G (1.5% fewer) | 9.547G → 9.523G | 273.1 → 272.8 MB |
+| zod3 | 0.236 → 0.232 s (2.0% faster) | 0.930G → 0.911G (2.1% fewer) | 2.234G → 2.229G | 110.3 → 109.6 MB |
+| mitt | 0.035 → 0.034 s (0.6% faster) | 0.085G → 0.083G (2.1% fewer) | 0.229G → 0.229G | 35.7 → 35.4 MB |
+| neverthrow | 0.039 → 0.039 s (0.4% faster) | 0.105G → 0.103G (2.2% fewer) | 0.264G → 0.263G | 37.3 → 36.9 MB |
+| superstruct | 0.046 → 0.045 s (1.9% faster) | 0.138G → 0.136G (1.6% fewer) | 0.308G → 0.306G | 30.6 → 30.0 MB |
+| tiny-invariant | 0.087 → 0.085 s (2.9% faster) | 0.303G → 0.295G (2.7% fewer) | 0.934G → 0.933G | 55.7 → 55.1 MB |
+
+344257fc0 lies between the two on every project (ts-pattern 2.0%
+faster, zod3 3.0% faster than 5ff20458a), so #783 changed Trig by no
+more than the noise. Nothing is slower, and nothing was bisected.
