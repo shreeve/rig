@@ -243,6 +243,20 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A lent String or List is appended to in registers.** A function
+  lent a `String`, or a `List` with no inline room, to write, which uses
+  it in a loop, holds the String's or List's header (its pointer,
+  length, and capacity) in a local for its body and writes it back as it
+  returns: the storage fact `held_header`. The call's write loan is the
+  header's only one while the function runs, so no other code can see
+  the difference, and a loop of appends no longer stores and reloads the
+  length each time. coreutils' `basenc --base16` encode, whose loop
+  appends to a lent String, takes 81 ms of user time on the Mac, where
+  it took 218 (and 119 before #780, whose paired load of the length and
+  capacity stalled on Apple cores). Not held: a parameter a task, a
+  closure, or a `raw` block names, or one of a function whose result
+  holds a view (docs/history/records/2026-10/store-forward/).
+
 - **`std.hint.keep`, `net.Ip` and `net.Addr`, and an `Instant` that
   adds and orders.** `hint.keep(?x)` is Rust's `black_box`: an empty
   `asm volatile` that takes `x`'s address and clobbers memory, so a

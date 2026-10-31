@@ -2236,6 +2236,12 @@ pub const StorageKind = enum {
     /// destructure's, `q, r = f()`. A result no target takes (`_`) it
     /// drops at the statement's end.
     results,
+    /// The header (pointer, length, and capacity) of a String or List a
+    /// parameter is lent to write, held in a local for the function's
+    /// body and written back as it returns (`__rig_header`;
+    /// `storage.planHeldHeaders`): the parameter's name views the local,
+    /// so a loop keeps the header in registers.
+    held_header,
     /// A value made here whose address emit takes where Zig holds it, in
     /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
     /// `made`, and not `dropsTemp`), or a literal, reached by address.

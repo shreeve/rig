@@ -1419,6 +1419,7 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     planHolds(ctx);
     try p.walk(tree);
     try planConsumed(ctx, tree);
+    try rig.eachBody(tree, ctx, planHeldHeaders);
     try rig.eachBody(tree, ctx, planUnits);
     verifyDecisions(ctx);
 }
@@ -1431,6 +1432,101 @@ fn planHolds(ctx: *SemContext) void {
         .param, .local, .capture => s.hold = if (known(ctx, s.ty)) |t| sema.resourceKind(ctx, t) else null,
         else => {},
     };
+}
+
+/// Record the parameters whose header the function holds in a local
+/// (`held_header`): a parameter lent a `String`, or a `List`
+/// with no inline room, to write, which the body uses in a loop. Emit
+/// copies the header in at the top of the body, binds the parameter's
+/// name to the copy, and writes it back by `defer`, so the loop keeps
+/// the length and capacity in registers. The call's write loan is the
+/// caller's place's only loan while the body runs (Core §2, sentence 5),
+/// and nothing else reaches a lent String or List (no shared storage
+/// holds one to write), so the copy cannot be told apart from the place.
+/// None is held where the body could hand the copy's address beyond the
+/// call: a task or closure that names the parameter, a `raw` block, or a
+/// result that holds a view. A List with inline room keeps elements in
+/// its header, and is not held.
+fn planHeldHeaders(ctx: *SemContext, decl: Sexp, body: Sexp) !void {
+    switch (decl.kind() orelse return) {
+        .fun, .sub => {},
+        else => return,
+    }
+    const params = ir.get(decl, .params);
+    if (params != .list) return;
+    const fn_ty = typeOf(ctx, ir.get(decl, .name)) orelse return;
+    const f = switch (ctx.types.get(fn_ty)) {
+        .function => |f| f,
+        else => return,
+    };
+    if (sema.mayHoldMarkedView(ctx, f.returns)) return;
+    if (containsKind(body, .raw_block)) return;
+    for (params.items()) |par| {
+        const name_node = sema.paramNameNode(par) orelse continue;
+        if (std.mem.eql(u8, srcText(ctx, name_node), "@")) continue;
+        const sym = ctx.symbolOf(name_node) orelse continue;
+        const ty = known(ctx, ctx.symbols.items[sym].ty) orelse continue;
+        if (!holdsHeaderType(ctx, ty)) continue;
+        if (!usedIn(ctx, body, sym, .loop)) continue;
+        if (usedIn(ctx, body, sym, .escape)) continue;
+        try ctx.recordStorage(name_node, .{ .kind = .held_header, .by = .copy, .life = .block });
+    }
+}
+
+/// Whether a parameter of type `ty` may hold its header: a write view of
+/// a `String`, or of a `List[T]` with no inline room, lent by pointer.
+fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
+    const inner = switch (ctx.types.get(ty)) {
+        .write_view => |inner| inner,
+        else => return false,
+    };
+    if (!sema.viewHeldAsPointer(ctx, ty) or sema.containsTypeVar(ctx, inner)) return false;
+    if (inner == ctx.types.string_id) return true;
+    if (sema.listElem(ctx, inner) == null) return false;
+    return switch (ctx.types.get(inner)) {
+        .parameterized_nominal => |pn| pn.inline_len == 0,
+        else => false,
+    };
+}
+
+const Within = enum {
+    /// Inside a `while` or `for`.
+    loop,
+    /// Inside a task's call, a closure, or a `raw` block.
+    escape,
+};
+
+/// Whether `e` names `sym` within a node of the kind `within` asks for.
+fn usedIn(ctx: *const SemContext, e: Sexp, sym: SymbolId, within: Within) bool {
+    if (e == .src) return false;
+    if (e != .list) return false;
+    const inside = switch (within) {
+        .loop => e.isKind(.@"while") or e.isKind(.@"for"),
+        .escape => e.isKind(.lambda) or e.isKind(.raw_block) or (e.isKind(.call) and ir.get(e, .task) != .nil),
+    };
+    if (inside) return namesSym(ctx, e, sym);
+    // A closure's body is its own: a loop in it is not the function's.
+    if (within == .loop and e.isKind(.lambda)) return false;
+    for (e.items()) |c| if (usedIn(ctx, c, sym, within)) return true;
+    return false;
+}
+
+/// Whether `e` names `sym` anywhere, a closure's capture of it included.
+fn namesSym(ctx: *const SemContext, e: Sexp, sym: SymbolId) bool {
+    if (e == .src) {
+        const s = ctx.symbolOf(e) orelse return false;
+        return s == sym or (ctx.symbols.items[s].kind == .capture and ctx.symbols.items[s].origin == sym);
+    }
+    if (e != .list) return false;
+    for (e.items()) |c| if (namesSym(ctx, c, sym)) return true;
+    return false;
+}
+
+fn containsKind(e: Sexp, kind: Tag) bool {
+    if (e != .list) return false;
+    if (e.isKind(kind)) return true;
+    for (e.items()) |c| if (containsKind(c, kind)) return true;
+    return false;
 }
 
 /// Record the units of a body (`rig.eachUnit`): the innermost one

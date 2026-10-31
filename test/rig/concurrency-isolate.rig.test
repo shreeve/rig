@@ -200,6 +200,30 @@ test "isolate leaves a handle it holds", seeds: 20, "-1 after"
   r = task.isolate(|+b| boom(+b, 9)) catch -1
   print(r, "after")
 
+test "isolate leaves a lent String it grew", seeds: 20, "-1 after"
+  # A panic in a function lent a String to write, after the String grew
+  # past several buffers, leaves the String's newest buffer, not leaked,
+  # wherever the function kept its header when it panicked.
+  use std.task
+
+  sub fill(out: !String, xs: ?List[Int], n: Int)
+    for i in 0..n
+      !out.push(65)
+      !out.push[U64, .big](U64(xs[i % 3]))
+    !out.push(U8(xs[n]))
+
+  fun run() -> Int
+    s = String()
+    xs: List[Int] = List()
+    !xs.push(1)
+    !xs.push(2)
+    !xs.push(3)
+    fill(!s, ?xs, 5000)
+    s.len
+
+  r = task.isolate(|| run()) catch -1
+  print(r, "after")
+
 fail "isolate generic task owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
   # A task started under an isolate takes what any task takes.
   use std.task

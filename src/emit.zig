@@ -184,6 +184,11 @@ const Local = struct {
     /// A parameter of an inlined function, bound through `rig.rt`
     /// (`emitFunPrologue`).
     launder: bool = false,
+    /// The name of a parameter whose header is held in a local for the
+    /// body (the storage fact `held_header`): the Zig parameter is
+    /// `param_name`, and the name is bound to the local's address
+    /// (`bindParamLocal`).
+    held: ?Sexp = null,
     /// The fields a use may move out of it (`Facts.fieldMoves`), each a
     /// path of Rig field names, and the flag that says it is still held,
     /// which its move clears and its assignment sets (Core §5).
@@ -1968,6 +1973,10 @@ pub const Emitter = struct {
                     try self.fmt("__rig_in_{s}", .{rig_name});
                 local.launder = true;
             }
+            if (self.facts.storageOf(name_node, .held_header) != null) {
+                local.held = name_node;
+                if (local.param_name.len == 0) local.param_name = if (isPlainIdent(rig_name)) try self.fmt("__rig_lent_{s}", .{rig_name}) else try self.fmt("__rig_lent_{d}", .{self.nextId()});
+            }
             _ = try self.declare(local, rig_name);
         }
     }
@@ -2052,7 +2061,14 @@ pub const Emitter = struct {
     /// copied into its binding at the top of the body, and its drop
     /// armed (`emitFunPrologue`).
     fn bindParamLocal(self: *Emitter, local: *Local) Error!void {
-        if (local.param_name.len > 0) {
+        if (local.held) |at| {
+            // The header is held in a local for the body and written back
+            // on every way out (`held_header`); the name views it.
+            const held = try self.hiddenStorage(at, .held_header, .copy, if (isPlainIdent(local.zig_name)) .{ .named = local.zig_name } else .next);
+            try self.line("var {s} = {s}.*;", .{ held, local.param_name });
+            try self.line("defer {s}.* = {s};", .{ local.param_name, held });
+            try self.line("const {s} = &{s};", .{ local.zig_name, held });
+        } else if (local.param_name.len > 0) {
             // Zig analyzes an inlined body at each call, so an argument
             // known at compile time would be known inside; `rig.rt`
             // keeps the arithmetic and the indexing on it checked when
@@ -2197,6 +2213,9 @@ pub const Emitter = struct {
         fresh,
         /// A copy of the storage named here: `__rig_opt_5_v`.
         copy_of: []const u8,
+        /// The name of the binding it serves, a plain identifier no
+        /// other local has: `__rig_header_out`.
+        named: []const u8,
     };
 
     /// The Zig name of the hidden storage of `kind` emit makes for
@@ -2207,7 +2226,7 @@ pub const Emitter = struct {
         const fact = self.facts.storageOf(node, kind) orelse return self.unsupported(node, "hidden storage the storage facts do not record");
         // A statement's slot is declared before it runs; its value is
         // written where the temporary is.
-        if (kind != .temp) try self.inUnit(node);
+        if (kind != .temp and kind != .held_header) try self.inUnit(node);
         if (fact.by != by) return self.unsupported(node, "hidden storage held other than its storage fact says");
         const base: []const u8 = switch (kind) {
             .temp => "__rig_tmp",
@@ -2236,6 +2255,7 @@ pub const Emitter = struct {
             .index => "__rig_ix",
             .slot => "__rig_slot",
             .results => "__rig_res",
+            .held_header => "__rig_header",
             // The storage of these is another's: the header's value, the
             // capture it copies, or Zig's (`zigTemporary`).
             .header_copy, .as_copy, .zig_temp => "",
@@ -2246,6 +2266,7 @@ pub const Emitter = struct {
             .pair => |p| self.fmt("{s}_{d}_{d}", .{ base, p[0], p[1] }),
             .fresh => self.fresh(base),
             .copy_of => |of| self.fmt("{s}_v", .{of}),
+            .named => |n| self.fmt("{s}_{s}", .{ base, n }),
         };
     }
 
