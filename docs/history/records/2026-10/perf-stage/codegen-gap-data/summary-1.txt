@@ -1,0 +1,18 @@
+## ts-pattern (medians of 20 runs)
+main     wall   758.9 ms  user  3.230G  kernel   346M  instr  7.960G  rss  246.9 MB  faults  40244  dtlb walks  1.98M  same 20/20
+nochk    wall   720.3 ms  user  3.041G  kernel   340M  instr  7.101G  rss  249.7 MB  faults  40284  dtlb walks  1.93M  same 20/20
+tsrs     wall   651.9 ms  user  2.880G  kernel   213M  instr  7.233G  rss  201.6 MB  faults  18946  dtlb walks  0.60M  same 20/20
+  nochk against main: wall   5.1% less, user cycles   5.9% fewer, kernel   1.9%, instructions  10.8% fewer, rss  -1.1% less
+  tsrs against main: wall  14.1% less, user cycles  10.8% fewer, kernel  38.6%, instructions   9.1% fewer, rss  18.4% less
+  main / tsrs: wall 1.164x, user cycles 1.122x, instructions 1.101x, rss 1.225x
+  nochk / tsrs: wall 1.105x, user cycles 1.056x, instructions 0.982x, rss 1.239x
+  free 2 MiB blocks before runs: 33-64
+## zod3 (medians of 20 runs)
+main     wall   153.3 ms  user  0.608G  kernel    94M  instr  1.404G  rss   77.2 MB  faults   9926  dtlb walks  0.20M  same 20/20
+nochk    wall   145.7 ms  user  0.569G  kernel    95M  instr  1.216G  rss   79.3 MB  faults   9897  dtlb walks  0.19M  same 20/20
+tsrs     wall   116.2 ms  user  0.484G  kernel    53M  instr  1.210G  rss   53.8 MB  faults   5416  dtlb walks  0.06M  same 20/20
+  nochk against main: wall   4.9% less, user cycles   6.4% fewer, kernel  -0.4%, instructions  13.4% fewer, rss  -2.8% less
+  tsrs against main: wall  24.2% less, user cycles  20.3% fewer, kernel  43.5%, instructions  13.8% fewer, rss  30.3% less
+  main / tsrs: wall 1.319x, user cycles 1.255x, instructions 1.160x, rss 1.434x
+  nochk / tsrs: wall 1.254x, user cycles 1.175x, instructions 1.005x, rss 1.474x
+  free 2 MiB blocks before runs: 51-65

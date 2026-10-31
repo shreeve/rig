@@ -1,0 +1,24 @@
+## ts-pattern (medians of 20 runs)
+main810  wall   877.5 ms  user  3.775G  kernel   350M  instr  7.959G  rss  246.9 MB  faults  40245  dtlb walks  2.01M  same 20/20
+hand810  wall   867.5 ms  user  3.733G  kernel   343M  instr  7.912G  rss  250.1 MB  faults  40246  dtlb walks  2.02M  same 20/20
+hashmap810 wall   889.1 ms  user  3.796G  kernel   381M  instr  8.156G  rss  276.7 MB  faults  44054  dtlb walks  1.80M  same 20/20
+tsrs     wall   704.8 ms  user  3.137G  kernel   178M  instr  7.232G  rss  201.9 MB  faults  17798  dtlb walks  0.61M  same 20/20
+  hand810 against main810: wall   1.1% less, user cycles   1.1% fewer, kernel   1.8%, instructions   0.6% fewer, rss  -1.3% less
+  hashmap810 against main810: wall  -1.3% less, user cycles  -0.6% fewer, kernel  -9.0%, instructions  -2.5% fewer, rss -12.0% less
+  tsrs against main810: wall  19.7% less, user cycles  16.9% fewer, kernel  49.0%, instructions   9.1% fewer, rss  18.2% less
+  main810 / tsrs: wall 1.245x, user cycles 1.203x, instructions 1.101x, rss 1.223x
+  hand810 / tsrs: wall 1.231x, user cycles 1.190x, instructions 1.094x, rss 1.239x
+  hashmap810 / tsrs: wall 1.261x, user cycles 1.210x, instructions 1.128x, rss 1.370x
+  free 2 MiB blocks before runs: 33-65
+## zod3 (medians of 20 runs)
+main810  wall   170.0 ms  user  0.678G  kernel   101M  instr  1.403G  rss   77.3 MB  faults   9924  dtlb walks  0.21M  same 20/20
+hand810  wall   169.5 ms  user  0.677G  kernel   101M  instr  1.397G  rss   79.9 MB  faults   9924  dtlb walks  0.21M  same 20/20
+hashmap810 wall   170.9 ms  user  0.680G  kernel   103M  instr  1.411G  rss   86.4 MB  faults  10150  dtlb walks  0.21M  same 20/20
+tsrs     wall   126.0 ms  user  0.521G  kernel    56M  instr  1.209G  rss   53.7 MB  faults   5416  dtlb walks  0.06M  same 20/20
+  hand810 against main810: wall   0.3% less, user cycles   0.2% fewer, kernel   0.2%, instructions   0.4% fewer, rss  -3.4% less
+  hashmap810 against main810: wall  -0.5% less, user cycles  -0.3% fewer, kernel  -2.3%, instructions  -0.6% fewer, rss -11.8% less
+  tsrs against main810: wall  25.9% less, user cycles  23.1% fewer, kernel  44.5%, instructions  13.8% fewer, rss  30.5% less
+  main810 / tsrs: wall 1.349x, user cycles 1.301x, instructions 1.160x, rss 1.439x
+  hand810 / tsrs: wall 1.345x, user cycles 1.299x, instructions 1.156x, rss 1.487x
+  hashmap810 / tsrs: wall 1.356x, user cycles 1.305x, instructions 1.167x, rss 1.609x
+  free 2 MiB blocks before runs: 1-64
