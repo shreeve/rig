@@ -4498,6 +4498,9 @@ pub const Printer = struct {
 
 /// Rig's `Arch`: the target's processor architecture, Zig's own enum.
 pub const Arch = std.Target.Cpu.Arch;
+/// Rig's `Os`: the operating system the program is compiled for, Zig's
+/// own enum.
+pub const Os = std.Target.Os.Tag;
 
 /// `bytes.read[T, e](at)`: the integer or float `T` stored in the
 /// `@sizeOf(T)` bytes from `at`, in byte order `e`; panics unless they

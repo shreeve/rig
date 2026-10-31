@@ -1117,18 +1117,22 @@ The target, the machine the program is compiled for, as compile-time
 facts. `target.arch` is its processor architecture, a value of the
 built-in enum `Arch`, whose variants are Zig's names for every
 architecture it compiles for: `.x86_64`, `.aarch64`, `.wasm32`,
-`.wasm64`, `.riscv64`, and the rest.
+`.wasm64`, `.riscv64`, and the rest. `target.os` is the operating
+system the program is compiled for, a value of the built-in enum `Os`,
+whose variants are Zig's names for every system it compiles for:
+`.macos`, `.linux`, `.freebsd`, `.windows`, `.wasi`, and the rest.
 
 | Constant | Value |
 |---|---|
 | `arch: Arch` | the target's processor architecture |
+| `os: Os` | the operating system the program is compiled for |
 
-Rig knows its type, never its value: Zig sets it when it compiles the
-program, so `rig check` gives the same verdict on every machine, and a
-choice on it is Zig's, made when it compiles. A constant that branches
-on it serves code tuned per target; a place that needs a value when
-Rig checks the program, such as an array length, rejects one
-([SPEC §3](../SPEC.md#the-target)).
+Rig knows each one's type, never its value: Zig sets it when it
+compiles the program, so `rig check` gives the same verdict on every
+machine, and a choice on it is Zig's, made when it compiles. A constant
+that branches on it serves code tuned per target; a place that needs a
+value when Rig checks the program, such as an array length, rejects
+one ([SPEC §3](../SPEC.md#the-target)).
 
 ```rig
 use std.target
@@ -1143,7 +1147,24 @@ sub main()
 true
 ```
 
-The operating system and the CPU's features are not built yet.
+A number the systems differ in, such as a signal's, is a constant
+that branches on `target.os`; `.linux` is Linux with glibc or musl
+alike:
+
+```rig
+use std.target
+
+SIGBUS = 7 if target.os == .linux else 10
+
+sub main()
+  print(target.os == .macos or target.os == .linux, SIGBUS == 7 or SIGBUS == 10)
+```
+
+```output
+true true
+```
+
+The CPU's features are not built yet.
 
 ## std.hint
 

@@ -3888,6 +3888,7 @@ pub const SemContext = struct {
     printer_sym_id: SymbolId = symbol_invalid,
     hasher_sym_id: SymbolId = symbol_invalid,
     arch_sym_id: SymbolId = symbol_invalid,
+    os_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -10318,10 +10319,10 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
-/// One of the built-in enums, `Endian` and `Arch`: the runtime's own
-/// type, one in every module.
+/// One of the built-in enums, `Endian`, `Arch`, `Os`, and `Order`: the
+/// runtime's own type, one in every module.
 pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.order_sym_id;
+    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.os_sym_id or sym == ctx.order_sym_id;
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
@@ -12704,12 +12705,14 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // Every module has its own `Endian`, `Arch`, `Order`, `Printer`,
-        // and `Hasher`, and each is one type.
+        // Every module has its own `Endian`, `Arch`, `Os`, `Order`,
+        // `Printer`, and `Hasher`, and each is one type.
         .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
         else if (sym_id == foreign_ctx.arch_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.arch_sym_id })
+        else if (sym_id == foreign_ctx.os_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.os_sym_id })
         else if (sym_id == foreign_ctx.order_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.order_sym_id })
         else if (sym_id == foreign_ctx.printer_sym_id)
