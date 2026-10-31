@@ -332,6 +332,64 @@ Neither clears Trig's bar alone on this evidence; row 1 complete (call
 results too) and row 2 together are the candidates to build and time as
 one change.
 
+## 5. The checks, by kind
+
+What the checks' 5.9% and 6.4% are made of, and how much of each the
+proofs pass could take without a language change. Every conditional jump
+in Trig PGO (#810's build) whose target reaches a panic within a few
+instructions is a check, of the kind its panic names (`chk.py`: Rig's
+`indexPanic`, `slicePanic` and the like are bounds; Zig's
+`integerOverflow` overflow, `integerOutOfBounds` a cast, `unwrapNull` an
+optional, `invalidEnumValue` and `corruptSwitch` a tag). Retired
+instructions were sampled precisely on E-core 19 (`instructions/upp`,
+23,858 samples on ts-pattern, 55,853 on zod3), and each check counted as
+its jump and the instruction before it, which sets its flags. 137,795
+check sites in the binary.
+
+| kind | sites | ts-pattern | zod3 |
+|---|---:|---:|---:|
+| bounds (List, slice, Table index) | 77,477 | **6.10%** | **7.33%** |
+| integer overflow | 28,722 | 1.94% | 1.90% |
+| casts (`@intCast` range) | 25,449 | 0.49% | 0.84% |
+| tags (enum value, switch) | 2,314 | 0.12% | 0.36% |
+| a Table full | 1,086 | 0.19% | 0.18% |
+| optionals (`.?`), errors | 323 | 0.00% | 0.00% |
+| all checks | 137,795 | 9.32% | 10.74% |
+
+Shares of retired instructions; `nochk` removed 10.8% and 13.4%. Bounds
+are two thirds of the checks; optionals cost nothing, since Rig unwraps
+by test, not by `.?`. (`mapper_kind`'s `enumFromInt(...) orelse
+.Unknown`, 0.43% on ts-pattern, is Trig's code, not a check.)
+
+Each check line, by what its index or operand is (`chkclass.py`, every
+line with samples; [checks-lines-ts-pattern.txt](codegen-gap-data/checks-lines-ts-pattern.txt)):
+
+| class | ts-pattern | zod3 | what removes it |
+|---|---:|---:|---|
+| bounds: an index read from memory (`sym_loc.at(s)`, `recs.at(n.id)`, `bindings[f].symbols[local_sym(s)]`, `syms.atInt(checker_symbol(s))`, `node_base.at(file - 1)`) | **3.10%** | **4.69%** | an index type (`Slot`, `Table`) and Trig's ids on it: a language change |
+| bounds: a Table read at a list's start plus `k` (`type_at`, `sym_at`) | 0.99% | 0.40% | a span type (`Span[n]`, built and closed in #686): a language or std change |
+| bounds: a countdown or loop index over the same List, or the side a proven test left (`find_active_mapper`, `sort`'s `j - 1`, `atProven`) | 0.72% | 0.39% | the proofs pass, with the no-write fact (se4) |
+| bounds: the rest | 0.90% | 1.57% | not classed |
+| overflow: an `Int` or a length stepped by a small constant (`instantiation_count += 1`, a Set's `len += 1`, `steps += 1`) | 0.64% | 0.46% | a rule the owner would decide: a counter stepped by a constant cannot reach 2^63 in a run |
+| overflow: an id sum or difference Trig keeps in range (`node_base[f - 1] + id`, `(t - binder_tabs) - 1`) | 0.43% | 0.61% | Trig (a `node_base` with a slot at 0), or range facts no proof reaches |
+| overflow: the rest | 0.80% | 0.74% | not classed |
+| casts: a Table's length to `U32`, below its `n` | 0.07% | 0.02% | the proofs pass (the Table's `n` is a type fact) |
+| casts: the rest (a slice's or List's length to `U32`) | 0.38% | 0.80% | range facts no proof reaches |
+
+**So the proofs pass reaches little:** about 0.8% and 0.4% of
+instructions (9% and 4% of the checks), 0.5% and 0.25% of user cycles at
+`nochk`'s ratio of cycles to instructions. **An index type reaches the
+most:** ids read from memory are a third of ts-pattern's check
+instructions and 44% of zod3's (about 2% and 2.8% of user cycles at that
+ratio), and the span reads add 0.99% and 0.40% of instructions. A
+counter rule would take 0.64% and 0.46% more, with no syntax change but
+an owner's decision. Item 4 of §4 is the one worth taking to the owner
+as a language change.
+
+Limits: E-core samples (Crestmont), shares of instructions, not cycles;
+the classes come from the emitted Zig's text by pattern, and the
+unclassed rows (1.7% and 2.3% of instructions) were not read.
+
 ## Trig-side findings
 
 For Trig, which owns its algorithm and data:

@@ -1,0 +1,130 @@
+## bounds: 6.10% in 226 lines; the top lines
+ 0.86% checker.zig:75693      return self.store.type_lists.atInt(@as(i64, @intCast(@as(u32, list.start))) + k);
+ 0.38% checker.zig:91158      return @as(i64, @intCast(@as(u32, self.sym_loc.at(@as(i64, @intCast(@as(u32, s)))).file)));
+ 0.28% checker.zig:46421      if (self.active_mappers.at(i) == mapper) {
+ 0.21% checker.zig:91140      return self.node_base.at(@as(i64, @intCast(@as(u32, n.file))) - 1) + n.node.id;
+ 0.19% checker.zig:2529       const d: u32 = self.syms.atInt(rig.rt(self.checker_symbol(s))).data;
+ 0.18% ast.zig:169            return self.recs.at(n.id).kind;
+ 0.16% checker.zig:2572       return self.syms.atInt(rig.rt(self.checker_symbol(s))).flags;
+ 0.16% checker.zig:2570       return self.program.*.bindings.constSlot(rig.rt(self.ids.sym_file_of(s))).*.symbols.constSlot(@as(i64, @intCast(@as(u32, rig.rt(self.ids.local_sym(s)))))).*.flags;
+ 0.14% checker.zig:2671       return rig.rt(self.program.*.bindings.constSlot(rig.rt(self.ids.sym_file_of(s))).*.symbols.constSlot(@as(i64, @intCast(@as(u32, rig.rt(self.ids.local_sym(s)))))).*.declar
+ 0.12% checker.zig:2656       if (rig.some(self.program.*.bindings.constSlot(f).*.symbols.constSlot(@as(i64, @intCast(@as(u32, rig.rt(self.ids.local_sym(s)))))).*.value_declaration)) |v| {
+ 0.12% checker.zig:2685       return rig.rt(node_ref(f, rig.rt(self.program.*.bindings.constSlot(f).*.symbols.constSlot(@as(i64, @intCast(@as(u32, rig.rt(self.ids.local_sym(s)))))).*.declaration(k))))
+ 0.10% checker.zig:46340      rig.rt(self.active_type_mappers_caches.slot(index).*.put(key, result));
+ 0.09% __rig_std_text.zig:698 const end: i64 = @as(i64, @intCast(@as(u32, self.ends.atProven(i, .lower))));
+ 0.09% checker.zig:2579       return self.program.*.bindings.constSlot(rig.rt(self.ids.sym_file_of(s))).*.symbols.constSlot(@as(i64, @intCast(@as(u32, rig.rt(self.ids.local_sym(s)))))).*.check_flags;
+ 0.09% checker.zig:6536       const known: u32 = self.conditional_flow_steps.constSlotProven(p, .lower).*.at(@as(i64, @intCast(@as(u32, rig.rem(id, 256)))));
+ 0.09% __rig_std_text.zig:700 return rig.slice(self.bytes.bytes(), start, end);
+ 0.08% ?                      
+ 0.08% checker.zig:46408      rig.rt(self.active_type_mappers_caches.slot(rig.lenOf(self.active_mappers)).*.clear());
+ 0.08% checker.zig:46329      if ((__rig_rt_7219: { var __rig_v_7219 = self.active_type_mappers_caches.constSlot(index).*.get(&key); _ = &__rig_v_7219; break :__rig_rt_7219 __rig_v_7219; })) |cached_t
+ 0.07% checker.zig:75743      return self.store.sym_lists.atInt(@as(i64, @intCast(@as(u32, list.start))) + k);
+ 0.07% ast.zig:402            return (__rig_rt_35: { var __rig_v_35 = as_node(self.words.at(@as(i64, @intCast(@as(u32, self.recs.at(n.id).data))) + off)); _ = &__rig_v_35; break :__rig_rt_35 __rig_v_3
+ 0.07% __rig_std_sort.zig:90  if (!((j > 0) and less.call(.{ rig.lend(&rig.elemPtrProven(xs, j, .lower).*), rig.lend(&rig.elemPtr(xs, j - 1).*) }))) break;
+ 0.06% checker.zig:0          
+ 0.06% checker.zig:6571       const tree = &self.program.*.files.constSlot(@as(i64, @intCast(@as(u32, check_node.file))) - 1).*.ast;
+ 0.05% checker.zig:2581       return self.syms.atInt(rig.rt(self.checker_symbol(s))).check_flags;
+ 0.05% checker.zig:2591       return self.program.*.bindings.constSlot(rig.rt(self.ids.sym_file_of(s))).*.symbols.constSlot(@as(i64, @intCast(@as(u32, rig.rt(self.ids.local_sym(s)))))).*.name;
+ 0.05% checker.zig:2687       return self.symbol_data.constSlot(at).*.declarations.at(k);
+ 0.05% checker.zig:42832      const tree = &program.files.constSlot(@as(i64, @intCast(@as(u32, node.file))) - 1).*.ast;
+ 0.05% checker.zig:75710      const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.type_lists))))));
+ 0.04% checker.zig:91146      return (s != 0) and (s <= self.binder_syms);
+
+## overflow: 1.94% in 90 lines; the top lines
+ 0.17% __rig_std_prelude.zig:66 self.len += 1;
+ 0.14% checker.zig:91140      return self.node_base.at(@as(i64, @intCast(@as(u32, n.file))) - 1) + n.node.id;
+ 0.12% checker.zig:2768       return @as(i64, @intCast(@as(u32, (t - self.ids.binder_tabs) - 1)));
+ 0.11% ?                      
+ 0.10% checker.zig:46333      self.total_instantiation_count += 1;
+ 0.10% __rig_std_prelude.zig:65 if (self.t.put(rig.take(&__rig_alive_k, k), rig.take(&__rig_alive_v, v))) {
+ 0.09% checker.zig:46334      self.instantiation_count += 1;
+ 0.09% checker.zig:75715      _ = self.store.type_lists.push(x);
+ 0.07% checker.zig:0          
+ 0.05% checker.zig:82742      return (@as(i64, @intCast(@as(u32, d.file))) * 0x100000000) + rig.rt(self.program.*.files.constSlot(@as(i64, @intCast(@as(u32, d.file))) - 1).*.ast.pos(d.node));
+ 0.05% ast.zig:18285          return 1 + rig.lenOf(self.more_declarations);
+ 0.05% checker.zig:48091      steps += 1;
+ 0.05% checker.zig:87952      self.n += 4;
+ 0.05% ast.zig:402            return (__rig_rt_35: { var __rig_v_35 = as_node(self.words.at(@as(i64, @intCast(@as(u32, self.recs.at(n.id).data))) + off)); _ = &__rig_v_35; break :__rig_rt_35 __rig_v_3
+ 0.03% ast.zig:412            return (__rig_rt_36: { var __rig_v_36 = as_list(self.words.at(@as(i64, @intCast(@as(u32, self.recs.at(n.id).data))) + off)); _ = &__rig_v_36; break :__rig_rt_36 __rig_v_3
+ 0.03% checker.zig:91124      return (self.sym_base.at(f) + s) - 1;
+ 0.03% checker.zig:75765      _ = self.store.sym_lists.push(x);
+ 0.03% __rig_std_prelude.zig:288 var key = self.t.take(k);
+ 0.02% checker.zig:4080       self.type_count += 1;
+ 0.02% checker.zig:53739      return self.ids.binder_syms + @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.syms))))));
+ 0.02% checker.zig:87927      self.n += 1;
+ 0.02% text.zig:22            
+ 0.02% checker.zig:77978      return self.store.structured.push(StructuredType{});
+ 0.02% checker.zig:77877      self.mapper_count = k + 1;
+ 0.02% checker.zig:5313       const mid: i64 = @divTrunc(lo + hi, 2);
+ 0.02% checker.zig:36962      self.infer_steps += 1;
+ 0.02% checker.zig:75743      return self.store.sym_lists.atInt(@as(i64, @intCast(@as(u32, list.start))) + k);
+ 0.02% checker.zig:48251      if (tail.root != 0) {
+ 0.02% binder.zig:2062        const w: u32 = rig.rt(self.file.ast.word(d + i));
+ 0.01% checker.zig:75693      return self.store.type_lists.atInt(@as(i64, @intCast(@as(u32, list.start))) + k);
+
+## cast: 0.49% in 28 lines; the top lines
+ 0.12% checker.zig:91028      return NodeRef{ .file = @as(u32, @intCast(@as(u64, @intCast(@as(i64, f + 1))))), .node = n };
+ 0.08% ?                      
+ 0.06% checker.zig:75718      return TypeList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+ 0.03% checker.zig:75710      const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.type_lists))))));
+ 0.03% __rig_std_prelude.zig:65 if (self.t.put(rig.take(&__rig_alive_k, k), rig.take(&__rig_alive_v, v))) {
+ 0.03% checker.zig:53739      return self.ids.binder_syms + @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.syms))))));
+ 0.02% ast.zig:615            { const __rig_new_69: i32 = @as(i32, @intCast(@as(i64, __rig_local_pos_67))); const __rig_ix_69_1: u32 = n.id; self.recs.slot(__rig_ix_69_1).*.pos = __rig_new_69; }
+ 0.01% checker.zig:4460       return @as(u32, @intCast(@as(u64, (rig.rt(self.literal_value(t))).bits)));
+ 0.01% checker.zig:2553       return self.ids.binder_syms + @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.syms))))));
+ 0.01% ast.zig:305            return Node{ .id = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.recs) - 1))))) };
+ 0.01% checker.zig:87974      rig.rt(self.write_uint64(@as(u64, @intCast(@as(i64, value)))));
+ 0.01% checker.zig:2813       var out: rig.List(TableEntry) = rig.List(TableEntry).initCapacity(rig.rt(self.table_len(t)));
+ 0.01% checker.zig:2774       return self.ids.binder_tabs + @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.tabs))))));
+ 0.01% checker.zig:75768      return SymList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+ 0.01% __rig_std_text.zig:744 var i: i64 = @as(i64, @intCast(@as(u64, h & @as(u64, @intCast(@as(i64, rig.lenOf(ts) - 1))))));
+ 0.00% Allocator.zig:159      
+ 0.00% ast.zig:304            self.recs.push(NodeRec{ .kind = __rig_local_kind_2, .keyword = .Unknown, .flags = __rig_local_flags_3 | self.on_create_flags, .pos = @as(i32, -1), .end = @as(i32, -1), .p
+ 0.00% ast.zig:616            { const __rig_new_70: i32 = @as(i32, @intCast(@as(i64, __rig_local_end_68))); const __rig_ix_70_1: u32 = n.id; self.recs.slot(__rig_ix_70_1).*.end = __rig_new_70; }
+ 0.00% ast.zig:353            self.lists.push(ListRec{ .pos = @as(i32, @intCast(@as(i64, __rig_local_pos_18))), .end = @as(i32, @intCast(@as(i64, __rig_local_end_19))), .start = @as(u32, @intCast(@as(
+ 0.00% checker.zig:42018      var rest: rig.List(u32) = rig.List(u32).initCapacity(rig.lenOf(entries));
+ 0.00% checker.zig:82676      var keyed: rig.List(KeyedSym) = rig.List(KeyedSym).initCapacity(rig.lenOf(symbols));
+ 0.00% checker.zig:75810      const start: u32 = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.store.sig_lists))))));
+ 0.00% checker.zig:75818      return SigList{ .start = start, .count = @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(items)))))) };
+ 0.00% checker.zig:2773       self.tabs.push(__rig_m4_std_prelude.Map(u32, u32){});
+ 0.00% __rig_std_prelude.zig:288 var key = self.t.take(k);
+ 0.00% checker.zig:67637      rig.rt(self.set_signature_resolved_min_argument_count(signature, @as(i32, @intCast(@as(i64, min_argument_count)))));
+ 0.00% binder.zig:211         return @as(u32, @intCast(@as(u64, @intCast(@as(i64, rig.lenOf(self.binding.symbols) - 1)))));
+ 0.00% __rig_std_text.zig:678 self.ends.push(@as(u32, @intCast(@as(u64, @intCast(@as(i64, self.bytes.length()))))));
+
+## tag: 0.12% in 14 lines; the top lines
+ 0.02% checker.zig:55524      switch (rig.rt(tree.kind(location))) {
+ 0.02% checker.zig:89483      return @as(i64, switch (relation) {
+ 0.01% ast.zig:18581          return switch (kind) {
+ 0.01% checker.zig:88493      return switch (rig.rt(tree.kind(node))) {
+ 0.01% ast.zig:15465          return switch (kind) {
+ 0.01% ast.zig:18589          return switch (kind) {
+ 0.01% ast.zig:10543          return switch (rig.rt(self.kind(node))) {
+ 0.01% ast.zig:11485          switch (rig.rt(self.kind(declaration))) {
+ 0.00% ast.zig:767            return switch (rig.rt(self.kind(n))) {
+ 0.00% ast.zig:11861          switch (rig.rt(self.kind(n))) {
+ 0.00% checker.zig:70106      switch (rig.rt(tree.kind(target_declaration.node))) {
+ 0.00% checker.zig:46826      switch (rig.rt(tree.kind(n))) {
+ 0.00% ast.zig:11091          return switch (rig.rt(self.kind(node))) {
+ 0.00% binder.zig:721         switch (rig.rt(self.kind(n))) {
+
+## other panic: 0.48% in 8 lines; the top lines
+ 0.43% checker.zig:77731      return (rig.enumFromInt(TypeMapperKind, @as(u32, @as(u32, self.store.mappers.at(x).b) >> @intCast(rig.rt(MAPPER_KIND_SHIFT)))) orelse .Unknown);
+ 0.01% checker.zig:77812      return (rig.enumFromInt(FunctionMapper, @as(u32, self.store.mappers.at(x).b & MAPPER_PAYLOAD)) orelse .None);
+ 0.01% checker.zig:4182       } else if ((object_flags & OBJECT_FLAGS_ANONYMOUS) != 0) {
+ 0.01% checker.zig:91146      return (s != 0) and (s <= self.binder_syms);
+ 0.01% ?                      
+ 0.00% checker.zig:42018      var rest: rig.List(u32) = rig.List(u32).initCapacity(rig.lenOf(entries));
+ 0.00% checker.zig:2813       var out: rig.List(TableEntry) = rig.List(TableEntry).initCapacity(rig.rt(self.table_len(t)));
+ 0.00% checker.zig:2540       if ((d & BINDER_DATA) != 0) {
+
+## table full: 0.19% in 9 lines; the top lines
+ 0.06% checker.zig:75715      _ = self.store.type_lists.push(x);
+ 0.04% checker.zig:75765      _ = self.store.sym_lists.push(x);
+ 0.02% checker.zig:4082       const t: rig.SlotOf(134217728) = self.store.types.push(Type{ .flags = flags, .object_flags = object, .kind = kind, .data = data, .structured = structured });
+ 0.02% checker.zig:77879      return self.store.mappers.push(TypeMapper{});
+ 0.02% checker.zig:53738      _ = self.syms.push(CheckerSymbol{ .flags = rig.rt(self.symbol_flags(symbol)) | __rig_m3_ast.SYMBOL_FLAGS_TRANSIENT, .check_flags = 0, .data = rig.rt(self.data_ref(symbol)
+ 0.01% checker.zig:77978      return self.store.structured.push(StructuredType{});
+ 0.00% checker.zig:77943      return self.store.type_parameters.push(TypeParameter{});
+ 0.00% checker.zig:77973      return self.store.conditionals.push(ConditionalType{});
+ 0.00% checker.zig:77938      return self.store.union_or_intersections.push(UnionOrIntersectionType{});
