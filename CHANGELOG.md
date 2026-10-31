@@ -225,6 +225,20 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A HashMap's `ensure` lends the value where its table found the
+  key.** The table's `ensure` peels the home group, as a lookup does, so
+  a key found there returns before the probe keeps a free lane, and it
+  lends the value from the slot it found rather than giving an index
+  that `value_mut` turns back into the slot; it writes the HashMap's
+  `len` only for a new key. A put keeps its own pass, which lays out
+  faster for new keys. `ensure_with` and `ensure_by` lend a key's
+  value from `edit` when it is there. knucleotide's counts on tables of
+  4, 16, and 256 keys (`kn12.rig`) take 9%, 15%, and 13% less time on
+  the Mac, within 5% of Rust's hashbrown either way, and 33%, 28%, and
+  34% less on pup, less than hashbrown's; bench/hash's `ensure` and
+  `ensure_with` rows take up to 13% less on the Mac and 24% on pup, no
+  row slower
+  ([small-table.md](docs/history/records/2026-10/hash-race/small-table.md)).
 - **A large optional result through an API object goes out through
   the caller's place.** A table entry whose result is an optional wider
   than three words, a `Hit?`, writes the value through a place the

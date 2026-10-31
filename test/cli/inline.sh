@@ -218,6 +218,63 @@ expect_has "$lib" 'pub inline fn edit(' "Map.edit"
 out=$(rig run ensure.rig 2>&1) || fail "rig run ensure.rig: $out"
 expect_eq "$out" "9 2" "ensure.rig"
 
+# HashMap's `ensure` and `ensure_added` take the value's view from the
+# table's `ensure`, which lends it where its probe found or put the key,
+# and `ensure_with` and `ensure_by` from `edit` when the key is there:
+# none makes a slot index and reads it back (`value_mut`) on the way to
+# a key it finds (docs/history/records/2026-10/hash-race/small-table.md).
+cat >hensure.rig <<'RIG'
+
+fun zero(k: ?Int) -> Int
+  0
+
+fun same(k: ?Int) -> Int
+  +k
+
+sub main()
+  m = HashMap[Int, Int]()
+  (!m).ensure(1, 5) += 1
+  w, added = (!m).ensure_added(1, 0)
+  w += 1
+  (!m).ensure_with(2, zero) += 2
+  (!m).ensure_by(2, same, 0) += 3
+  print(m.get(1), m.get(2), added, m.len)
+RIG
+emit hensure.rig >/dev/null
+lib=$(cat "$RIG_OUT_DIR"/programs/hensure/__rig_std_prelude.zig) || fail "std's module is not in the package"
+python3 - "$lib" <<'PY' || fail "HashMap's ensure family reads a slot index back"
+import re, sys
+src = sys.argv[1]
+start = src.index('pub fn HashMap(')
+end = src.index('\npub fn ', start + 1)
+block = src[start:end].split('\n')
+bodies, name, depth = {}, None, 0
+for line in block:
+    m = re.match(r'^(\s*)pub inline fn (ensure\w*)\(', line)
+    if m:
+        name, indent, bodies[m.group(2)] = m.group(2), m.group(1), []
+        continue
+    if name:
+        if line == indent + '}':
+            name = None
+        else:
+            bodies[name].append(line)
+bad = []
+for n in ['ensure', 'ensure_added']:
+    body = '\n'.join(bodies.get(n, []))
+    if 'self.t.ensure(' not in body or 'value_mut' in body:
+        bad.append(f'HashMap.{n} does not lend the value its table ensure finds')
+for n in ['ensure_with', 'ensure_by']:
+    body = '\n'.join(bodies.get(n, []))
+    if 'self.t.edit(' not in body:
+        bad.append(f'HashMap.{n} does not lend the value edit finds')
+if bad:
+    print('\n'.join(bad))
+    sys.exit(1)
+PY
+out=$(rig run hensure.rig 2>&1) || fail "rig run hensure.rig: $out"
+expect_eq "$out" "7 5 false 2" "hensure.rig"
+
 # A Map's or Set's write method is inlined into its caller, a call of
 # its table's member, which is inline too (src/ordered.zig): the method
 # holds no loop, and the table's slow paths (making room, a walk past

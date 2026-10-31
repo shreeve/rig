@@ -1,0 +1,15 @@
+--- pkg-orig/__rig_std_prelude.zig	2026-10-30 17:06:07.319316797 -0600
++++ pkg-nm-lenval/__rig_std_prelude.zig	2026-10-30 17:21:53.454890617 -0600
+@@ -516,9 +516,9 @@
+             var v = rig.rt(__rig_arg_42);
+             var __rig_alive_v = true;
+             defer if (__rig_alive_v) { __rig_alive_v = false; rig.drop(&v); };
+-            const j: i64 = self.t.ensure(rig.take(&__rig_alive_k, k), rig.take(&__rig_alive_v, v));
+-            { const __rig_new_43: i64 = self.t.count(); self.len = __rig_new_43; }
+-            return self.t.value_mut(j);
++            const r = self.t.ensure_value(rig.take(&__rig_alive_k, k), rig.take(&__rig_alive_v, v));
++            if (r.new) self.len += 1;
++            return r.p;
+         }
+ 
+         pub inline fn ensure_added(__rig_in_self: *__rig_Self, __rig_arg_44: K, __rig_arg_45: V) @Tuple(&.{ *V, bool }) {

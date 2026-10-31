@@ -585,6 +585,65 @@ fn Unordered(comptime K: type, comptime V: type) type {
             return .{ .i = emplaceFrom(a, pb, h.tag), .new = true };
         }
 
+        /// `claim` with its home group's tags matched before the pass
+        /// starts, so a key found there costs that group's compare alone,
+        /// and the slot's address handed back, not its index: `ensure`'s,
+        /// whose keys are mostly there. A put, mostly of new keys, takes
+        /// `claim`, which lays out faster for them
+        /// (docs/history/records/2026-10/hash-race/small-table.md).
+        const ClaimAt = struct { p: *Element, new: bool };
+
+        inline fn claimHomeFirst(self: *Self, k: KeyView, hash: u64) ClaimAt {
+            const h = homeOf(hash, self.shift);
+            var pb: Prober = .{ .pos = h.pos };
+            var pg = &self.groups[h.pos];
+            var vec = load(pg);
+            var m = matchTag(vec, h.vtag);
+            while (m != 0) : (m &= m - 1) {
+                const p = slotOf(self.elements.?, h.pos, m);
+                if (keyMatches(p, k)) return .{ .p = p, .new = false };
+            }
+            var free_pg: ?*Group = null;
+            var free_pos: usize = 0;
+            var free_lane: usize = 0;
+            while (true) {
+                if (free_pg == null) {
+                    const f = matchFree(vec);
+                    if (f != 0) {
+                        free_pg = pg;
+                        free_pos = pb.pos;
+                        free_lane = laneOf(f);
+                    }
+                }
+                if (classClear(pg, h.class)) break;
+                if (!pb.next(self.mask)) break;
+                pg = &self.groups[pb.pos];
+                vec = load(pg);
+                m = matchTag(vec, h.vtag);
+                while (m != 0) : (m &= m - 1) {
+                    const p = slotOf(self.elements.?, pb.pos, m);
+                    if (keyMatches(p, k)) return .{ .p = p, .new = false };
+                }
+            }
+            const i: usize = blk: {
+                if (self.size >= self.ml) {
+                    @branchHint(.unlikely);
+                    break :blk self.claimGrown(hash);
+                }
+                self.size += 1;
+                if (free_pg) |fpg| {
+                    @branchHint(.likely);
+                    fpg.m[free_lane] = h.tag;
+                    break :blk free_pos * NL + free_lane;
+                }
+                const a = self.arrays();
+                markOverflow(&a.groups[pb.pos], h.tag);
+                _ = pb.next(a.mask);
+                break :blk emplaceFrom(a, pb, h.tag);
+            };
+            return .{ .p = &self.elements.?[i], .new = true };
+        }
+
         /// A slot claimed for a key known to be absent.
         inline fn claimNew(self: *Self, hash: u64) usize {
             if (self.size >= self.ml) {
@@ -796,10 +855,26 @@ fn Unordered(comptime K: type, comptime V: type) type {
             return self.put_new(k, {});
         }
 
-        /// `ensure(!@, k: K, v: V) -> Int`: the slot of `k`, made of `k`
-        /// and `v` when `k` is new; otherwise both are dropped.
-        pub inline fn ensure(self: *Self, k: K, v: V) i64 {
-            return @intCast(self.ensureAt(k, v).i);
+        /// `ensure(!@, k: K, v: V, len: !Int) -> !V`: the value of `k`,
+        /// lent to write where the probe found or put it, its home group
+        /// matched first (`claimHomeFirst`), so a key found there costs
+        /// that group's compare and no index made and read back. When `k`
+        /// is new, its entry is made of `k` and `v` and the count of
+        /// entries written to `len` (the HashMap's); otherwise both are
+        /// dropped and `len` is left alone.
+        pub inline fn ensure(self: *Self, k: K, v: V, len: *i64) *V {
+            var kk = k;
+            var vv = v;
+            const h = hashKey(rt.lend(&kk));
+            const c = self.claimHomeFirst(rt.lend(&kk), h);
+            if (!c.new) {
+                rt.dropElement(K, &kk);
+                rt.dropElement(V, &vv);
+                return &c.p.value;
+            }
+            c.p.* = makeElement(kk, vv, h);
+            len.* = @intCast(self.size);
+            return &c.p.value;
         }
 
         inline fn ensureAt(self: *Self, k: K, v: V) Claim {
@@ -1108,6 +1183,28 @@ test "unordered: growth moves every entry, crowded and overflowed ones too" {
         while (i < 20_000) : (i += 1) try testing.expectEqual(i, m.value(m.find(i << shift).?));
         try testing.expect(m.find(@as(i64, 20_000) << shift) == null);
     }
+}
+
+test "unordered: ensure lends the value where it finds or puts its key, and counts only a new key" {
+    var m: UnorderedMap(i64, i64) = .{};
+    defer m.__rig_drop();
+    var len: i64 = -1;
+    // Strided keys crowd a few home groups, so many sit past theirs.
+    var i: i64 = 0;
+    while (i < 2000) : (i += 1) {
+        m.ensure(@mod(i, 500) << 20, 0, &len).* += 1;
+        try testing.expectEqual(@min(i + 1, 500), len);
+    }
+    i = 0;
+    while (i < 500) : (i += 1) {
+        len = -1;
+        const p = m.ensure(i << 20, 9, &len);
+        try testing.expectEqual(@as(i64, 4), p.*);
+        try testing.expectEqual(@as(i64, -1), len);
+        try testing.expectEqual(p, m.edit(i << 20).?);
+    }
+    try testing.expectEqual(@as(i64, 500), m.count());
+    try m.verify();
 }
 
 test "unordered: random writes, takes, retains, and clears against a model" {

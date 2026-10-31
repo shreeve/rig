@@ -1,0 +1,11 @@
+uptime: 17:22  up 3 days, 17:56, 4 users, load averages: 4.96 4.91 6.03
+rust             k1   160.2  k2   156.3  k4   154.2
+rig-real         k1   168.8  k2   184.1  k4   182.3
+pkg-all          k1   139.4  k2   154.2  k4   148.0
+pkg-nomix        k1   153.2  k2   169.5  k4   177.5
+pkg-nomix-all    k1   127.4  k2   134.4  k4   140.9
+pkg-nm-len       k1   130.5  k2   133.5  k4   142.8
+pkg-nm-lenval    k1   123.7  k2   135.3  k4   142.9
+z-ceil           k1   114.7  k2   123.7  k4   130.8
+z-ceil_tick      k1   118.8  k2   128.1  k4   131.4
+z-ceil_keepregs  k1   115.9  k2   121.6  k4   129.4

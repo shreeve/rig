@@ -383,29 +383,24 @@ pub obj HashMap[K: Hash, V]
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
   pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
-    j = (!@t).ensure(<k, <v)
-    @len = @t.count()
-    (!@t).value_mut(j)
+    (!@t).ensure(<k, <v, !@len)
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
   pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     was = @len
-    j = (!@t).ensure(<k, <v)
-    @len = @t.count()
-    return (!@t).value_mut(j), @len > was
+    w = (!@t).ensure(<k, <v, !@len)
+    return w, @len > was
 
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
   pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k
-    j = 0
-    if @t.find(?k) as at
+    if (!@t).edit(?k) as w
       <k
-      j = at
-    else
-      j = (!@).add_made(<k, make)
+      return w
+    j = (!@).add_made(<k, make)
     (!@t).value_mut(j)
 
   # Add the entry of `k`, whose key is new, with the value `make(k)`, and
@@ -426,15 +421,13 @@ pub obj HashMap[K: Hash, V]
   # HashMap would hold another key where `k` was looked up, perhaps one
   # it holds already: a key that differs panics.
   pub inline fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
-    j = 0
-    if @t.find(k) as at
+    if (!@t).edit(k) as w
       <v
-      j = at
-    else
-      made = key(k)
-      panic("HashMap: `ensure_by`'s `key(k)` made a key other than `k`") if made != k
-      j = (!@t).insert_new(<made, <v)
-      @len += 1
+      return w
+    made = key(k)
+    panic("HashMap: `ensure_by`'s `key(k)` made a key other than `k`") if made != k
+    j = (!@t).insert_new(<made, <v)
+    @len += 1
     (!@t).value_mut(j)
 
   # Keep the entries for which `f` is true. `f` gets each key to read

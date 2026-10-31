@@ -1,0 +1,111 @@
+--- pkg-orig/rig/unordered.zig	2026-10-30 17:06:07.323152743 -0600
++++ pkg-nm-lenval/rig/unordered.zig	2026-10-30 17:21:53.454759950 -0600
+@@ -343,8 +343,8 @@
+             const t = std.math.rotl(u64, hash, 8);
+             return .{
+                 .pos = @intCast(t >> @intCast(shift)),
+-                .tag = reduced_table[@as(u8, @truncate(t))],
+-                .vtag = tagVector(@truncate(t)),
++                .tag = if (arch == .neon) @as(u8, @truncate(t)) | 0x80 else reduced_table[@as(u8, @truncate(t))],
++                .vtag = if (arch == .neon) @splat(@as(u8, @truncate(t)) | 0x80) else tagVector(@truncate(t)),
+                 // From the hash byte, which has the tag's class mod 8, so
+                 // not waiting on the table.
+                 .class = @truncate(t),
+@@ -569,7 +569,9 @@
+             }
+             if (self.size >= self.ml) {
+                 @branchHint(.unlikely);
+-                return .{ .i = self.claimGrown(hash), .new = true };
++                const r = grownClaim(self.*, hash);
++                self.* = r.t;
++                return .{ .i = r.i, .new = true };
+             }
+             self.size += 1;
+             if (free_pg) |pg| {
+@@ -596,7 +598,14 @@
+         }
+ 
+         /// The table grown, then a slot claimed in it.
+-        noinline fn claimGrown(self: *Self, hash: u64) usize {
++        const GrownClaim = struct { t: Self, i: usize };
++        noinline fn grownClaim(t: Self, hash: u64) GrownClaim {
++            var s = t;
++            const i = s.claimGrown(hash);
++            return .{ .t = s, .i = i };
++        }
++
++        fn claimGrown(self: *Self, hash: u64) usize {
+             if (self.size >= max_entries) tooMany();
+             self.rehash(self.growthSlots());
+             self.size += 1;
+@@ -750,10 +759,51 @@
+             return @intCast(self.ensureAt(k, v).i);
+         }
+ 
++        /// The slot of `k` when its home group holds it: no probe, no
++        /// overflow byte, no free lane kept.
++        inline fn homeHit(self: *const Self, k: KeyView, hash: u64) ?*Element {
++            const h = homeOf(hash, self.shift);
++            var m = matchTag(load(&self.groups[h.pos]), h.vtag);
++            if (m == 0) return null;
++            const es = self.elements.?;
++            while (m != 0) : (m &= m - 1) {
++                const p = slotOf(es, h.pos, m);
++                if (keyMatches(p, k)) return p;
++            }
++            return null;
++        }
++
++        pub const Ensured = struct { p: *V, new: bool };
++        pub inline fn ensure_value(self: *Self, k: K, v: V) Ensured {
++            var kk = k;
++            var vv = v;
++            const h = hashKey(rt.lend(&kk));
++            if (self.homeHit(rt.lend(&kk), h)) |p| {
++                @branchHint(.likely);
++                rt.dropElement(K, &kk);
++                rt.dropElement(V, &vv);
++                return .{ .p = &p.value, .new = false };
++            }
++            const c = self.claim(rt.lend(&kk), h);
++            if (!c.new) {
++                rt.dropElement(K, &kk);
++                rt.dropElement(V, &vv);
++                return .{ .p = &self.elements.?[c.i].value, .new = false };
++            }
++            self.elements.?[c.i] = makeElement(kk, vv, h);
++            return .{ .p = &self.elements.?[c.i].value, .new = true };
++        }
++
+         inline fn ensureAt(self: *Self, k: K, v: V) Claim {
+             var kk = k;
+             var vv = v;
+             const h = hashKey(rt.lend(&kk));
++            if (self.homeHit(rt.lend(&kk), h)) |p| {
++                @branchHint(.likely);
++                rt.dropElement(K, &kk);
++                rt.dropElement(V, &vv);
++                return .{ .i = indexOf(self.elements.?, p), .new = false };
++            }
+             const c = self.claim(rt.lend(&kk), h);
+             if (!c.new) {
+                 rt.dropElement(K, &kk);
+@@ -897,11 +947,15 @@
+ 
+         /// What `rt.dropElement` runs: every entry dropped, then the block
+         /// freed.
+-        pub fn __rig_drop(self: *Self) void {
+-            self.dropLive();
+-            freeArrays(self.elements, self.mask);
++        pub inline fn __rig_drop(self: *Self) void {
++            dropBlock(self.*);
+             self.* = .{};
+         }
++        noinline fn dropBlock(t: Self) void {
++            var s = t;
++            s.dropLive();
++            freeArrays(s.elements, s.mask);
++        }
+ 
+         /// `+m`: a new table of the entries, each cloned.
+         pub fn clone(self: *const Self) Self {

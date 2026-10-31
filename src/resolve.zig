@@ -5246,7 +5246,11 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
             try tableMethod(ctx, "put", .write, &.{ write_self, k, v }, boolean),
             try tableMethod(ctx, "replace", .write, &.{ write_self, k, v }, opt_v),
             try tableMethod(ctx, "put_new", .write, &.{ write_self, k, v }, boolean),
-            try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v }, int),
+            // The unordered table's `ensure` lends the value where its
+            // probe found or put the key, and writes the count to the
+            // HashMap's `len` only for a new one (`notFromLen`); the
+            // ordered table's gives the entry's index.
+            if (ordered) try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v }, int) else try notFromLen(try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v, try ctx.intern(.{ .write_view = int }) }, write_v)),
             try tableMethod(ctx, "insert_new", .write, &.{ write_self, k, v }, int),
             try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_v),
             try lendsEntries(try tableMethod(ctx, "update", .write, &.{ write_self, update_f }, void_id)),
@@ -5313,6 +5317,17 @@ fn tableMethod(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, par
 fn lendsEntries(f: Field) Error!Field {
     var out = f;
     out.lends_entries = true;
+    return out;
+}
+
+/// The unordered table's `ensure` with its result's origin narrowed to
+/// self, its key, and its value, as `from @, k, v` narrows a Rig
+/// declaration's (`registerTable`): its last parameter, the HashMap's
+/// `len`, is only written with the count, never handed back or stored.
+fn notFromLen(f: Field) Error!Field {
+    var out = f;
+    out.origins.result &= sema.paramBit(0) | sema.paramBit(1) | sema.paramBit(2);
+    out.origins.declared = true;
     return out;
 }
 
