@@ -3,7 +3,7 @@
 The owner's words: "We need BOTH the SPEED and the MEMORY wins". The goal is #785's memory cut
 (tag `archive/mem-alloc-b`) with every row, and Trig's time and RSS, within 2% of main.
 
-**Round 1's verdict: no arm is shown to meet the bar, and none is shown to miss it.** On pup the
+**Round 2's verdict (quiet, 10 rounds): arms a and ac are within 2% of main on every row by the median, with the memory cut kept. Trig remains to time.** Round 1's verdict was that no arm is shown to meet the bar, and none is shown to miss it. On pup the
 harness's spread between rounds is 3-12% on rows an arm does not touch. For example, arm a
 changes only large blocks, yet its kv 32 B median is 10.8% below main's. That spread is wider
 than the 2% bar, so four rounds cannot settle 2% either way. The memory cuts are clear:
@@ -106,15 +106,42 @@ heap on main's path, so Trig's checker changes only in code layout:
 - b adds a test of the pool's byte count before mapping;
 - c adds one heap-list walk per page carved, with one heap on one checker.
 
-## Next (round 2, for Rig - Swiss to schedule)
+## Round 2 on pup (quiet, 10:46-11:09, 10 rounds, the first arm rotated each round)
 
-1. Time main, a, ac and b2c only, 10 rounds rotated (about 25 minutes), so a median of 10 can
-   resolve 2%. Default: yes.
-2. Build Trig PGO for a and ac on the E-cores when release builds are allowed, and time ts-pattern
-   and zod3 against main's build (`harness/trigtime.sh`, core 3, about 10 minutes). Default: yes.
-3. The arm to build into a PR, if round 2 shows it within 2%: ac if xmalloc's memory counts, a
-   if only kv's does. Default: ac. It has 46 MB on kv64k and 57 MB on xmalloc-test, against #785's
-   31-33 and 38-53, and it has no lock and no shared pool.
+pup was quiet: every other job was paused. The harness was round 1's, with arms main, a, ac and
+b2c. Every arm, main included, is built on Rig 179c50afa. Main moved since (#810), but the
+comparison stays on one base.
+
+Raw rows: [pup-round2.txt](pup-round2.txt); summary: [pup-round2-summary.txt](pup-round2-summary.txt).
+
+Median of 10 against main (best of 10 in brackets), and median peak RSS:
+
+| Row | main | a | ac | b2c |
+|---|---|---|---|---|
+| kv64k | 248k req/s, 60 MB | 0.2% slower (0.5%), **39 MB** | 1.5% slower (1.4%), **38 MB** | 0.4% faster (0.2% slower), 62 MB |
+| kv32 | 934k | 0.3% faster (1.0% slower) | level (1.1% slower) | level (2.4% slower) |
+| kv32c1000 | 760k | 1.2% slower (1.0% faster) | 0.3% slower (0.9% faster) | level (0.8% slower) |
+| kvP16 | 1.61M | 2.1% faster (6.0% slower) | 2.0% faster (8.6% slower) | 0.7% faster (9.8% slower) |
+| xmalloc | 0.950, 273 MB | 0.4% faster (1.7% slower), **78 MB** | 6.4% faster (6.8%), **62 MB** | 5.9% faster (11.8%), 66 MB |
+| sh8bench | 0.705 s, 319 MB | 9.3% faster (3.4%), 322 MB | 0.7% faster (3.4%), 298 MB | **9.6% slower** (level), 286 MB |
+
+- **a and ac stay within 2% of main on every row by the median.** kvP16's best-of-10 gap comes
+  from one run of main's at 1.90M req/s, against its median of 1.61M. Main's second best,
+  1.79M, is 1.8% above a's best. kvP16 holds no large blocks, so neither arm changes its code.
+- **b2c misses the bar:** sh8bench is 9.6% slower by the median.
+- **Memory:** kv64k's RSS is 39 MB with a (30-71 MB) and 38 MB with ac (30-46 MB), against main's
+  60 MB (51-72 MB). xmalloc-test's is 78 and 62 MB against 273 MB. #785 reached 31-33 MB and
+  38-53 MB, so a keeps about two thirds of #785's kv cut, and ac a little more on xmalloc-test.
+
+## Next
+
+1. Build Trig PGO for arm a on the E-cores, and time ts-pattern and zod3 against main's build
+   (`harness/trigtime.sh`, core 3, about 10 minutes). Default: yes, with a only.
+2. If Trig is within 2% with RSS no higher, Rig builds arm a as a PR on current main, with the
+   full gates. Default: a over ac, because a has no cross-heap list walk, kv64k is 0.2% slower
+   against ac's 1.5%, and its memory differs from ac's only on xmalloc-test (78 MB against 62).
+3. ac's per-page remote walk (c) waits as its own row, since its gain is xmalloc's 16 MB.
+   Default: backlog.
 
 Prototypes and builds on pup: /zfs/worktrees/rig/mem-both (rig-ARM, kv-ARM, shim/ARM,
 packs/main-pgo).
