@@ -107,26 +107,25 @@ fn readHere(path: []const u8) FileError!?rig.String {
     if (st.kind == .directory) return error.@"std.file.FileError.is_directory";
     const size = std.math.cast(usize, st.size) orelse rig.oom();
     const sized = st.kind == .file and size > 0;
-    const gpa = rig.defaultAllocator();
-    var list: std.ArrayList(u8) = .empty;
-    errdefer list.deinit(gpa);
-    list.ensureTotalCapacityPrecise(gpa, size) catch rig.oom();
+    var s: rig.String = .empty;
+    errdefer rig.dropElement(rig.String, &s);
+    _ = s.roomFor(size);
     // Read into the spare capacity; once it is full, a sized file is done,
     // and any other goes on into `probe`, which finds its end without
     // growing the buffer.
     var probe: [4096]u8 = undefined;
     while (true) {
-        const spare = list.unusedCapacitySlice();
+        const spare = s.list.unusedCapacitySlice();
         if (spare.len == 0 and sized) break;
         const into = if (spare.len > 0) spare else &probe;
         const n = file.readStreaming(io, &.{into}) catch |err| switch (err) {
             error.EndOfStream => break,
             else => return failure(err),
         };
-        if (spare.len > 0) list.items.len += n else list.appendSlice(gpa, probe[0..n]) catch rig.oom();
+        if (spare.len > 0) s.list.items.len += n else s.appendBytes(probe[0..n]);
     }
-    if (list.capacity != list.items.len) list.shrinkAndFreePrecise(gpa, list.items.len) catch rig.oom();
-    return .{ .list = list };
+    s.fit();
+    return s;
 }
 
 /// Write `data` as the whole file at `path`, creating it or emptying it
@@ -416,7 +415,7 @@ pub fn read_from(fd: i64, into: *rig.String, max: i64) Error!i64 {
     defer rig.dropElement(rig.String, &got);
     const n = got.list.items.len;
     // Into a String with no buffer yet, the read's own is taken, not copied.
-    if (into.list.capacity == 0) std.mem.swap(rig.String, into, &got) else into.list.appendSlice(rig.defaultAllocator(), got.list.items) catch rig.oom();
+    if (into.list.capacity == 0) std.mem.swap(rig.String, into, &got) else into.appendBytes(got.list.items);
     return @intCast(n);
 }
 
@@ -442,7 +441,5 @@ pub fn close(fd: i64) void {
 
 /// A fresh String of `bytes`.
 fn fresh(bytes: []const u8) rig.String {
-    var s: rig.String = .empty;
-    s.list.appendSlice(rig.defaultAllocator(), bytes) catch rig.oom();
-    return s;
+    return .ofBytes(bytes);
 }

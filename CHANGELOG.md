@@ -1885,6 +1885,12 @@ first step is on `main` (SPEC §18):
   workers, 5.0 MB at 50, was 14.5, and 10.6 MB at 1,000, was 128 to
   137. The same server in Tokio holds 5.6 to 5.7 MB and 25 MB on the
   Mac, 5.9 and 21 MB on pup.
+- **Reads grow a String unfilled:** std.file's reads, std.http's
+  strings, and net's reads grow a String through the runtime's raw
+  growth, as every String append does, so a safe build writes no 0xAA
+  over the room a read makes, and a socket read without tasks reserves
+  exactly `max`, 16 KiB for a read of 16 KiB where it took 28. A read
+  of 64 MiB that five bytes fill holds no pages for the rest.
 - **A stream sends each write at once:** every accepted and connected
   `net.Stream` sets `TCP_NODELAY`, so a request written in pieces, or
   pipelined behind one not yet answered, no longer waits for the other

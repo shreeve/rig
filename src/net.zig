@@ -265,8 +265,7 @@ pub fn read_from(fd: i64, reg: i64, into: *rig.String, max: i64) Error!i64 {
     if (want == 0) return 0;
     const s: i32 = @intCast(fd);
     if (into.list.unusedCapacitySlice().len < want and reg != 0 and rig.sched.current() != null) return @intCast(try readKept(s, reg, into, want));
-    into.list.ensureUnusedCapacity(rig.defaultAllocator(), want) catch rig.oom();
-    const n = try readSome(s, reg, into.list.unusedCapacitySlice()[0..want], .{});
+    const n = try readSome(s, reg, into.roomFor(want), .{});
     into.list.items.len += n;
     return @intCast(n);
 }
@@ -285,7 +284,13 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
         const e = posix.errno(rc);
         if (e == .SUCCESS) {
             const n: usize = @intCast(rc);
-            into.list.appendSlice(rig.defaultAllocator(), b[0..n]) catch rig.oom();
+            // Room as Zig's lists grow, half as much again and a cache
+            // line more, so a server's small reads fall in few size
+            // classes, each of which every worker's heap holds a page of:
+            // grown exactly, a server of 22 workers holds 0.9 MB more.
+            const used = into.list.items.len;
+            if (into.list.unusedCapacitySlice().len < n) _ = into.roomFor(std.ArrayList(u8).growCapacity(used + n) - used);
+            into.appendBytes(b[0..n]);
             rig.sched.giveBlock(b);
             if (n < asked or n == want) return n;
             return n + readMore(s, into, want - n);
@@ -303,9 +308,9 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
 /// and no others: 0 when none are, or on any failure, which the next
 /// read meets again.
 fn readMore(s: i32, into: *rig.String, more: usize) usize {
-    into.list.ensureUnusedCapacity(rig.defaultAllocator(), more) catch rig.oom();
+    const room = into.roomFor(more);
     while (true) {
-        const rc = sys.read(s, into.list.unusedCapacitySlice().ptr, more);
+        const rc = sys.read(s, room.ptr, more);
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 const n: usize = @intCast(rc);
@@ -403,9 +408,8 @@ pub fn release(fd: i64, reg: i64, pair: i64) void {
 /// blocking pool (`std/file.zig`); the checker allows nothing else
 /// (`Checker.ioCopy`).
 pub fn copy(from: anytype, to: anytype) anyerror!i64 {
-    const gpa = rig.defaultAllocator();
-    const buf = gpa.alloc(u8, copy_block) catch rig.oom();
-    defer gpa.free(buf);
+    const buf = rig.allocSlice(u8, copy_block);
+    defer rig.freeSlice(u8, buf);
     var total: i64 = 0;
     while (true) {
         const n = try copyRead(from, buf);
@@ -517,13 +521,13 @@ fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
         }
     }
     var s: rig.String = .empty;
-    s.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), want) catch rig.oom();
+    const room = s.roomFor(want);
     while (true) {
-        const rc = sys.read(fd, s.list.items.ptr, want);
+        const rc = sys.read(fd, room.ptr, want);
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 s.list.items.len = @intCast(rc);
-                if (s.list.items.len < want) s.list.shrinkAndFreePrecise(rig.defaultAllocator(), s.list.items.len) catch rig.oom();
+                s.fit();
                 return s;
             },
             .INTR => stopped() catch |err| {
@@ -783,9 +787,7 @@ fn refuse(request: *std.http.Server.Request, status: std.http.Status, body: []co
 
 /// A fresh String of `bytes`.
 fn fresh(bytes: []const u8) rig.String {
-    var s: rig.String = .empty;
-    s.list.appendSlice(rig.defaultAllocator(), bytes) catch rig.oom();
-    return s;
+    return .ofBytes(bytes);
 }
 
 /// A connection's socket, as the reader and writer Zig's HTTP server
