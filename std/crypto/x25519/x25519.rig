@@ -1,0 +1,202 @@
+# std.crypto.x25519: Diffie-Hellman on Curve25519 (RFC 7748). A
+# `Secret` gives its public key by a fixed-base comb on edwards25519 and
+# a shared secret by the Montgomery ladder.
+#
+# Constant time: no branch and no index depends on the secret. The
+# ladder swaps by masks, and the comb reads every entry of a table row
+# and keeps one by a mask. Arm's DIT bit is set around both, since
+# without it Apple's cores time a multiply by its operands.
+
+# A peer's key that cannot give a shared secret.
+pub error KeyError
+  # The peer's key has low order, so the shared secret would be zero.
+  low_order
+
+# An X25519 secret key, wiped when it drops.
+pub obj Secret
+  pub key: [32]U8
+
+  drop(!@)
+    wipe(!@key)
+
+  # A new secret from the operating system's entropy.
+  pub fun new() -> Secret
+    k: [32]U8 = [32 of 0]
+    entropy(!k)
+    s = Secret(key: k)
+    wipe(!k)
+    s
+
+  # The public key: this secret times the base point, u = 9.
+  pub fun public(?@) -> [32]U8
+    old = dit_on()
+    defer
+      dit_restore(old)
+    public_key(?@key)
+
+  # The secret shared with the holder of `peer`, a public key; fails with
+  # `KeyError.low_order` when `peer` has low order, which would make it
+  # zero.
+  pub fun share(?@, peer: [32]U8) -> ([32]U8)!KeyError
+    old = dit_on()
+    out = scalarmult(?@key, ?peer)
+    dit_restore(old)
+    if is_zero(?out)
+      return KeyError.low_order
+    out
+
+# Clamped as RFC 7748 §5 says: a multiple of 8, below 2^255, with bit 254.
+fun clamp(k_in: ?[32]U8) -> [32]U8
+  k = +k_in
+  k[0] &= 248
+  k[31] &= 127
+  k[31] |= 64
+  k
+
+# Swaps a and b when bit is 1, by a mask.
+inline sub cswap(a: !Fe, b: !Fe, bit: U64)
+  mask = barrier(0 -% bit)
+  for i in 0..5
+    t = mask & (a[i] ^ b[i])
+    a[i] ^= t
+    b[i] ^= t
+
+# RFC 7748 §5: the u-coordinate of k·u, k clamped.
+fun scalarmult(k_in: ?[32]U8, u: ?[32]U8) -> [32]U8
+  k = clamp(k_in)
+  x1 = from_bytes(u)
+  x2 = fe(1)
+  z2 = fe(0)
+  x3 = x1
+  z3 = fe(1)
+  swap: U64 = 0
+  t = 255
+  while t > 0
+    t -= 1
+    bit = U64((k[t >> 3] >> U8(t & 7)) & 1)
+    swap ^= bit
+    cswap(!x2, !x3, swap)
+    cswap(!z2, !z3, swap)
+    swap = bit
+    a = add(x2, z2)
+    aa = sq(a)
+    b = fsub(x2, z2)
+    bb = sq(b)
+    e = fsub(aa, bb)
+    c = add(x3, z3)
+    d = fsub(x3, z3)
+    da = mul(d, a)
+    cb = mul(c, b)
+    x3 = sq(add(da, cb))
+    z3 = mul(x1, sq(fsub(da, cb)))
+    x2 = mul(aa, bb)
+    z2 = mul(e, add(aa, mul_small(e, 121665)))
+  cswap(!x2, !x3, swap)
+  cswap(!z2, !z3, swap)
+  wipe(!k)
+  to_bytes(mul(x2, invert(z2)))
+
+# True when every byte is zero, in time independent of the bytes.
+fun is_zero(s: ?[32]U8) -> Bool
+  acc: U8 = 0
+  for b in s
+    acc |= b
+  barrier(U64(acc)) == 0
+
+# ------------------------------------------------------------ the fixed-base comb
+
+obj P3
+  x: Fe
+  y: Fe
+  z: Fe
+  t: Fe
+
+obj Niels
+  ypx: Fe
+  ymx: Fe
+  xy2d: Fe
+
+type V2 = Simd[U64, 2]
+
+# |e|·256^j·B, negated when e < 0; the identity when e is 0. Every entry
+# of row j is read, as vectors of two limbs, and kept by a vector mask
+# where its k is |e|.
+inline fun select(j: Int, e: I8) -> Niels
+  eb = U8.wrap(e)
+  neg = U64(eb >> 7)
+  absv = U64(eb ^ U8.wrap(0 -% neg)) +% neg
+  acc: [8]V2 = [8 of V2.splat(0)]
+  acc[0] = V2([1, 0])
+  acc[2] = V2([0, 1])
+  for k in 0..8
+    diff = absv ^ U64(k + 1)
+    mask = V2.splat(barrier(0 -% ((diff -% 1) >> 63)))
+    at = (j * 8 + k) * 16
+    for i in 0..8
+      v = V2([BASE[at + 2 * i], BASE[at + 2 * i + 1]])
+      acc[i] ^= mask & (acc[i] ^ v)
+  ypx = [acc[0][0], acc[0][1], acc[1][0], acc[1][1], acc[2][0]]
+  ymx = [acc[2][1], acc[3][0], acc[3][1], acc[4][0], acc[4][1]]
+  xy2d = [acc[5][0], acc[5][1], acc[6][0], acc[6][1], acc[7][0]]
+  nm = 0 -% neg
+  for i in 0..5
+    s = nm & (ypx[i] ^ ymx[i])
+    ypx[i] ^= s
+    ymx[i] ^= s
+  negxy = fsub(fe(0), xy2d)
+  for i in 0..5
+    xy2d[i] ^= nm & (xy2d[i] ^ negxy[i])
+  Niels(ypx: ypx, ymx: ymx, xy2d: xy2d)
+
+inline fun madd(p: ?P3, q: ?Niels) -> P3
+  a = mul(fsub(p.y, p.x), q.ymx)
+  b = mul(add(p.y, p.x), q.ypx)
+  c = mul(p.t, q.xy2d)
+  d = add(p.z, p.z)
+  e = fsub(b, a)
+  f = fsub(d, c)
+  g = add(d, c)
+  h = add(b, a)
+  P3(x: mul(e, f), y: mul(g, h), t: mul(e, h), z: mul(f, g))
+
+fun dbl(p: ?P3) -> P3
+  a = sq(p.x)
+  b = sq(p.y)
+  zz = sq(p.z)
+  c = add(zz, zz)
+  h = add(a, b)
+  e = fsub(h, sq(add(p.x, p.y)))
+  g = fsub(a, b)
+  f = add(c, g)
+  P3(x: mul(e, f), y: mul(g, h), t: mul(e, h), z: mul(f, g))
+
+# The public key k·9, by 64 signed digits of 4 bits: the odd digits'
+# points, times 16 by four doublings, plus the even digits' points.
+fun public_key(k_in: ?[32]U8) -> [32]U8
+  k = clamp(k_in)
+  e: [64]I8 = [64 of 0]
+  for i in 0..32
+    e[2 * i] = I8(k[i] & 15)
+    e[2 * i + 1] = I8(k[i] >> 4)
+  wipe(!k)
+  cy: I8 = 0
+  for i in 0..63
+    e[i] = e[i] +% cy
+    cy = (e[i] +% 8) >> 4
+    e[i] = e[i] -% cy *% 16
+  e[63] = e[63] +% cy
+  h = P3(x: fe(0), y: fe(1), z: fe(1), t: fe(0))
+  for j in 0..32
+    h = madd(h, select(j, e[2 * j + 1]))
+  h = dbl(dbl(dbl(dbl(h))))
+  for j in 0..32
+    h = madd(h, select(j, e[2 * j]))
+  # Montgomery's u is (z + y) / (z - y).
+  to_bytes(mul(add(h.z, h.y), invert(fsub(h.z, h.y))))
+
+extern zig "crypto.zig"
+  sub wipe(b: ![]U8)
+  fun barrier(x: U64) -> U64
+  fun dit_on() -> U64
+  sub dit_restore(old: U64)
+  sub entropy(b: ![]U8)

@@ -1,0 +1,261 @@
+# std.crypto.blake2s: BLAKE2s (RFC 7693), keyed BLAKE2s, and
+# HMAC-BLAKE2s (RFC 2104), as WireGuard uses them.
+#
+# Constant time: a block is compressed by adds, xors, and rotations of
+# 32-bit words, with message words picked by the round's fixed schedule;
+# no branch and no index depends on the key or the data, only on
+# lengths.
+
+IV: [8]U32 = [0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19]
+
+# The state of an unkeyed hash of 32 bytes: IV, its first word xored
+# with the parameter block (digest length 32, fanout 1, depth 1).
+H32: [8]U32 = [0x6B08E647, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19]
+
+SIGMA: [10][16]Int = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
+  [11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4],
+  [7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8],
+  [9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13],
+  [2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9],
+  [12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11],
+  [13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10],
+  [6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5],
+  [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0]]
+
+# The BLAKE2s hash of `data`, 32 bytes.
+pub fun hash(data: []U8) -> [32]U8
+  h = H32
+  run(!h, EMPTY[..], data)
+  digest(h)
+
+# Keyed BLAKE2s of `data`, `n` bytes from 1 to 32, with a key of up to
+# 32 bytes: WireGuard's MAC is `blake2s.mac[16](key, packet)`. With an
+# empty key it is the unkeyed hash of `n` bytes. Panics when `n` or the
+# key's length is out of range.
+pub fun mac[n: Int](key: []U8, data: []U8) -> [n]U8
+  if n < 1 or n > 32
+    panic("blake2s: a MAC is 1 to 32 bytes")
+  if key.len > 32
+    panic("blake2s: a key holds at most 32 bytes")
+  h = IV
+  h[0] ^= 0x01010000 ^ (U32(key.len) <<% 8) ^ U32(n)
+  if key.len == 0
+    run(!h, EMPTY[..], data)
+  else
+    kb: [64]U8 = [64 of 0]
+    for i in 0..key.len
+      kb[i] = key[i]
+    run(!h, kb[..], data)
+    wipe(!kb)
+  d = digest(h)
+  out: [n]U8 = [n of 0]
+  for i in 0..n
+    out[i] = d[i]
+  out
+
+# HMAC-BLAKE2s of `data` with `key` (RFC 2104): H((K ^ opad) || H((K ^ ipad)
+# || data)), where K is the key, or its hash when it is longer than a
+# block of 64 bytes.
+pub fun hmac(key: []U8, data: []U8) -> [32]U8
+  pad = key_block(key)
+  for i in 0..64
+    pad[i] ^= 0x36
+  h = H32
+  run(!h, pad[..], data)
+  for i in 0..64
+    pad[i] ^= 0x36 ^ 0x5C
+  o = H32
+  compress(!o, pad[..], 0, 64, false)
+  wipe(!pad[..])
+  outer_done(!o, ?h)
+
+# The key as HMAC pads it: a block of 64 bytes, the key or its hash, then
+# zeros.
+fun key_block(key: []U8) -> [64]U8
+  pad: [64]U8 = [64 of 0]
+  if key.len > 64
+    k = hash(key)
+    for i in 0..32
+      pad[i] = k[i]
+    wipe(!k[..])
+  else
+    for i in 0..key.len
+      pad[i] = key[i]
+  pad
+
+# Finishes an HMAC: the outer hash, past its pad block, of the inner
+# digest `h`.
+fun outer_done(o: ![8]U32, h: ?[8]U32) -> [32]U8
+  blk: [64]U8 = [64 of 0]
+  for i in 0..8
+    !blk.write[U32, .little](4 * i, h[i])
+  compress(!o, blk[..], 0, 96, true)
+  digest(o)
+
+# An incremental BLAKE2s hash: `add` bytes as they come, then `done`.
+pub obj Hasher unique
+  h: [8]U32 = H32
+  t: U64 = 0
+  buf: [64]U8 = [64 of 0]
+  n: Int = 0
+
+  # Adds `data` to what is hashed.
+  pub sub add(!@, data: []U8)
+    return if data.len == 0
+    at = 0
+    room = 64 - @n
+    if data.len > room
+      for i in 0..room
+        @buf[@n + i] = data[i]
+      at = room
+      @t += 64
+      compress(!@h, @buf[..], 0, @t, false)
+      @n = 0
+      while data.len - at > 64
+        @t += 64
+        compress(!@h, data, at, @t, false)
+        at += 64
+    for i in 0..(data.len - at)
+      @buf[@n + i] = data[at + i]
+    @n += data.len - at
+
+  # The hash of everything added.
+  pub fun done(<@) -> [32]U8
+    h = @h
+    last = @buf
+    for i in @n..64
+      last[i] = 0
+    compress(!h, last[..], 0, @t + U64(@n), true)
+    digest(?h)
+
+# HMAC-BLAKE2s with a key used again: `of` compresses the key's two pad
+# blocks once, so each `mac` of up to 64 bytes costs two compressions,
+# where `hmac` costs four. Its states are wiped when it drops.
+pub obj Hmac
+  # The states past the inner and outer pad blocks, and the inner hash
+  # of no data, which ends on the inner pad block itself.
+  inner: [8]U32
+  outer: [8]U32
+  empty: [8]U32
+
+  drop(!@)
+    wipe_words(!@inner[..])
+    wipe_words(!@outer[..])
+    wipe_words(!@empty[..])
+
+  # The MAC of `key`, ready for any number of messages.
+  pub fun of(key: []U8) -> Hmac
+    pad = key_block(key)
+    for i in 0..64
+      pad[i] ^= 0x36
+    s = Hmac(inner: H32, outer: H32, empty: H32)
+    compress(!s.inner, pad[..], 0, 64, false)
+    compress(!s.empty, pad[..], 0, 64, true)
+    for i in 0..64
+      pad[i] ^= 0x36 ^ 0x5C
+    compress(!s.outer, pad[..], 0, 64, false)
+    wipe(!pad[..])
+    s
+
+  # The HMAC of `data`.
+  pub fun mac(?@, data: []U8) -> [32]U8
+    h = @empty
+    if data.len > 0
+      h = @inner
+      t: U64 = 64
+      at = 0
+      while data.len - at > 64
+        t += 64
+        compress(!h, data, at, t, false)
+        at += 64
+      last: [64]U8 = [64 of 0]
+      n = data.len - at
+      for i in 0..n
+        last[i] = data[at + i]
+      compress(!h, last[..], 0, t + U64(n), true)
+    o = @outer
+    outer_done(!o, ?h)
+
+EMPTY: [0]U8 = []
+
+inline fun rotr(x: U32, n: U32) -> U32
+  (x >> n) | (x <<% (32 - n))
+
+inline sub g[a: Int, b: Int, c: Int, d: Int](v: ![16]U32, x: U32, y: U32)
+  v[a] = v[a] +% v[b] +% x
+  v[d] = rotr(v[d] ^ v[a], 16)
+  v[c] = v[c] +% v[d]
+  v[b] = rotr(v[b] ^ v[c], 12)
+  v[a] = v[a] +% v[b] +% y
+  v[d] = rotr(v[d] ^ v[a], 8)
+  v[c] = v[c] +% v[d]
+  v[b] = rotr(v[b] ^ v[c], 7)
+
+inline sub round[r: Int](v: ![16]U32, m: ?[16]U32)
+  g[0, 4, 8, 12](!v, m[SIGMA[r][0]], m[SIGMA[r][1]])
+  g[1, 5, 9, 13](!v, m[SIGMA[r][2]], m[SIGMA[r][3]])
+  g[2, 6, 10, 14](!v, m[SIGMA[r][4]], m[SIGMA[r][5]])
+  g[3, 7, 11, 15](!v, m[SIGMA[r][6]], m[SIGMA[r][7]])
+  g[0, 5, 10, 15](!v, m[SIGMA[r][8]], m[SIGMA[r][9]])
+  g[1, 6, 11, 12](!v, m[SIGMA[r][10]], m[SIGMA[r][11]])
+  g[2, 7, 8, 13](!v, m[SIGMA[r][12]], m[SIGMA[r][13]])
+  g[3, 4, 9, 14](!v, m[SIGMA[r][14]], m[SIGMA[r][15]])
+
+# RFC 7693 §3.2: F(h, m, t, f) on the 64 bytes of `b` from `at`.
+sub compress(h: ![8]U32, b: []U8, at: Int, t: U64, last: Bool)
+  m: [16]U32 = [16 of 0]
+  for i in 0..16
+    m[i] = b.read[U32, .little](at + 4 * i)
+  v: [16]U32 = [16 of 0]
+  for i in 0..8
+    v[i] = h[i]
+    v[i + 8] = IV[i]
+  v[12] ^= U32.wrap(t)
+  v[13] ^= U32.wrap(t >> 32)
+  if last
+    v[14] = v[14].not()
+  round[0](!v, m)
+  round[1](!v, m)
+  round[2](!v, m)
+  round[3](!v, m)
+  round[4](!v, m)
+  round[5](!v, m)
+  round[6](!v, m)
+  round[7](!v, m)
+  round[8](!v, m)
+  round[9](!v, m)
+  for i in 0..8
+    h[i] ^= v[i] ^ v[i + 8]
+
+# Compresses an optional first block, then `data`, the last block flagged.
+inline sub run(h: ![8]U32, prefix: []U8, data: []U8)
+  t: U64 = 0
+  at = 0
+  if prefix.len == 64
+    t = 64
+    if data.len == 0
+      compress(!h, prefix, 0, 64, true)
+      return
+    compress(!h, prefix, 0, 64, false)
+  while data.len - at > 64
+    t += 64
+    compress(!h, data, at, t, false)
+    at += 64
+  last: [64]U8 = [64 of 0]
+  n = data.len - at
+  for i in 0..n
+    last[i] = data[at + i]
+  t += U64(n)
+  compress(!h, last[..], 0, t, true)
+
+inline fun digest(h: ?[8]U32) -> [32]U8
+  out: [32]U8 = [32 of 0]
+  for i in 0..8
+    !out.write[U32, .little](4 * i, h[i])
+  out
+
+extern zig "crypto.zig"
+  sub wipe(b: ![]U8)
+  sub wipe_words(w: ![]U32)

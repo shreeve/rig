@@ -1,0 +1,660 @@
+# std.crypto: ChaCha20-Poly1305 (RFC 8439) and XChaCha20-Poly1305
+# (draft-irtf-cfrg-xchacha-03), sealed and opened in place or from one
+# buffer into another.
+#
+# ChaCha20 runs 8 blocks at once, one per vector lane, so a round needs
+# no lane shuffles. Poly1305 runs on three 44-bit limbs, four blocks a
+# step, in the same loop as the cipher, one step after each double
+# round; a message of up to 192 bytes takes 4 blocks in lanes and
+# Poly1305 on 64-bit limbs a block at a time.
+#
+# Constant time: no branch and no index depends on the key, the
+# keystream, the message, or the tag. Branches test lengths only, and
+# the tag is compared by or-ing the xors of its halves. Every operation
+# on secret words is an add, xor, shift, or multiply, which take the
+# same time whatever their operands on the cores Rig targets.
+#
+# Each function that touches the message takes `ip`: true when it works
+# in place on `dst` (and `src` is empty), false when it reads `src` and
+# writes `dst`, of the same length.
+
+type V = Simd[U32, 8]      # word i of 8 blocks, one per lane
+type Q = Simd[U32, 4]      # word i of 4 blocks, or 4 words of one block
+
+SIGMA: [4]U32 = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574]
+IOTA8 = V([0, 1, 2, 3, 4, 5, 6, 7])
+IOTA4 = Q([0, 1, 2, 3])
+M44: U64 = 0xFFFFFFFFFFF
+M42: U64 = 0x3FFFFFFFFFF
+
+# A message that fails to open: its tag is not the one its key, nonce,
+# and header give, so it was changed or forged.
+pub error Forged
+  tag
+
+# A ChaCha20-Poly1305 key, wiped when it drops.
+pub obj ChaCha
+  pub key: [32]U8
+
+  drop(!@)
+    wipe(!@key)
+
+  # Encrypts `buf` where it lies, and gives the tag of it and `header`.
+  pub fun seal(?@, buf: ![]U8, nonce: [12]U8, header: []U8) -> [16]U8
+    seal_with(?@key, !buf, ?nonce, header)
+
+  # Decrypts `buf` where it lies when `tag` is its tag with `header`;
+  # otherwise zeroes it and fails with `Forged.tag`.
+  pub sub open(?@, buf: ![]U8, tag: [16]U8, nonce: [12]U8, header: []U8)!Forged
+    open_with(?@key, !buf, ?tag, ?nonce, header)!
+
+  # Encrypts `src` into `dst`, followed by zeros to 16 bytes from the
+  # end, and writes the tag in those 16. Panics unless
+  # `dst.len >= src.len + 16`.
+  pub sub seal_into(?@, dst: ![]U8, src: []U8, nonce: [12]U8, header: []U8)
+    seal_into_with(?@key, !dst, src, ?nonce, header)
+
+  # Decrypts `src`, a message and its 16-byte tag, into the first
+  # `src.len - 16` bytes of `dst`; when the tag is wrong, zeroes them and
+  # fails with `Forged.tag`. Panics unless `16 <= src.len <= dst.len + 16`.
+  pub sub open_into(?@, dst: ![]U8, src: []U8, nonce: [12]U8, header: []U8)!Forged
+    open_into_with(?@key, !dst, src, ?nonce, header)!
+
+# An XChaCha20-Poly1305 key, wiped when it drops. Its nonce is 24 bytes,
+# enough to be drawn at random for each message.
+pub obj XChaCha
+  pub key: [32]U8
+
+  drop(!@)
+    wipe(!@key)
+
+  # As `ChaCha.seal`, with a 24-byte nonce.
+  pub fun seal(?@, buf: ![]U8, nonce: [24]U8, header: []U8) -> [16]U8
+    k = subkey(?@key, ?nonce)
+    n = short_nonce(?nonce)
+    tag = seal_with(?k, !buf, ?n, header)
+    wipe(!k)
+    tag
+
+  # As `ChaCha.open`, with a 24-byte nonce.
+  pub sub open(?@, buf: ![]U8, tag: [16]U8, nonce: [24]U8, header: []U8)!Forged
+    k = subkey(?@key, ?nonce)
+    defer
+      wipe(!k)
+    n = short_nonce(?nonce)
+    open_with(?k, !buf, ?tag, ?n, header)!
+
+  # As `ChaCha.seal_into`, with a 24-byte nonce.
+  pub sub seal_into(?@, dst: ![]U8, src: []U8, nonce: [24]U8, header: []U8)
+    k = subkey(?@key, ?nonce)
+    n = short_nonce(?nonce)
+    seal_into_with(?k, !dst, src, ?n, header)
+    wipe(!k)
+
+  # As `ChaCha.open_into`, with a 24-byte nonce.
+  pub sub open_into(?@, dst: ![]U8, src: []U8, nonce: [24]U8, header: []U8)!Forged
+    k = subkey(?@key, ?nonce)
+    defer
+      wipe(!k)
+    n = short_nonce(?nonce)
+    open_into_with(?k, !dst, src, ?n, header)!
+
+# ------------------------------------------------------------ the AEAD
+
+fun seal_with(key: ?[32]U8, buf: ![]U8, nonce: ?[12]U8, aad: []U8) -> [16]U8
+  s = state(key, nonce)
+  nob: [0]U8 = []
+  t0, t1 = run[true](!buf, nob, aad, s, false)
+  tag_of(t0, t1)
+
+sub open_with(key: ?[32]U8, buf: ![]U8, tag: ?[16]U8, nonce: ?[12]U8, aad: []U8)!Forged
+  s = state(key, nonce)
+  nob: [0]U8 = []
+  t0, t1 = run[true](!buf, nob, aad, s, true)
+  if not same_tag(t0, t1, tag)
+    wipe(!buf)
+    return Forged.tag
+
+sub seal_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U8)
+  if dst.len < src.len + 16
+    panic("crypto: seal_into needs room for the message and its 16-byte tag")
+  n = dst.len - 16
+  s = state(key, nonce)
+  t0: U64 = 0
+  t1: U64 = 0
+  if src.len == n
+    t0, t1 = run[false](!dst[..n], src, aad, s, false)
+  else
+    # Padded: the message is `src` and then zeros, encrypted in place.
+    for i in 0..src.len
+      dst[i] = src[i]
+    for i in src.len..n
+      dst[i] = 0
+    nob: [0]U8 = []
+    t0, t1 = run[true](!dst[..n], nob, aad, s, false)
+  !dst.write[U64, .little](n, t0)
+  !dst.write[U64, .little](n + 8, t1)
+
+sub open_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U8)!Forged
+  if src.len < 16 or src.len - 16 > dst.len
+    panic("crypto: open_into needs a 16-byte tag at the end of `src`, and room in `dst` for what it holds before it")
+  n = src.len - 16
+  s = state(key, nonce)
+  t0, t1 = run[false](!dst[..n], src[..n], aad, s, true)
+  d = (t0 ^ src.read[U64, .little](n)) | (t1 ^ src.read[U64, .little](n + 8))
+  if barrier(d) != 0
+    wipe(!dst[..n])
+    return Forged.tag
+
+fun tag_of(t0: U64, t1: U64) -> [16]U8
+  tag: [16]U8 = [16 of 0]
+  !tag.write[U64, .little](0, t0)
+  !tag.write[U64, .little](8, t1)
+  tag
+
+# Whether (t0, t1) is `tag`, by its bits all at once.
+fun same_tag(t0: U64, t1: U64, tag: ?[16]U8) -> Bool
+  d = (t0 ^ tag.read[U64, .little](0)) | (t1 ^ tag.read[U64, .little](8))
+  barrier(d) == 0
+
+# HChaCha20's subkey of `key` for the first 16 bytes of `nonce`.
+fun subkey(key: ?[32]U8, nonce: ?[24]U8) -> [32]U8
+  x: [16]U32 = [16 of 0]
+  for i in 0..4
+    x[i] = SIGMA[i]
+  for i in 0..8
+    x[4 + i] = key.read[U32, .little](4 * i)
+  for i in 0..4
+    x[12 + i] = nonce.read[U32, .little](4 * i)
+  for _ in 0..10
+    double1(!x)
+  out: [32]U8 = [32 of 0]
+  for i in 0..4
+    !out.write[U32, .little](4 * i, x[i])
+    !out.write[U32, .little](16 + 4 * i, x[12 + i])
+  out
+
+# The 12-byte nonce XChaCha20 gives ChaCha20: four zeros, then the
+# last 8 bytes of `nonce`.
+fun short_nonce(nonce: ?[24]U8) -> [12]U8
+  n: [12]U8 = [12 of 0]
+  for i in 0..8
+    n[4 + i] = nonce[16 + i]
+  n
+
+# ------------------------------------------------------------ ChaCha20
+
+inline fun rot8v[n: U32](v: V) -> V
+  (v <<% n) | (v >> (32 - n))
+
+inline fun rot4v[n: U32](v: Q) -> Q
+  (v <<% n) | (v >> (32 - n))
+
+inline fun rot1[n: U32](v: U32) -> U32
+  (v <<% n) | (v >> (32 - n))
+
+inline sub qr8[a: Int, b: Int, c: Int, d: Int](x: ![16]V)
+  x[a] = x[a] +% x[b]
+  x[d] = rot8v[16](x[d] ^ x[a])
+  x[c] = x[c] +% x[d]
+  x[b] = rot8v[12](x[b] ^ x[c])
+  x[a] = x[a] +% x[b]
+  x[d] = rot8v[8](x[d] ^ x[a])
+  x[c] = x[c] +% x[d]
+  x[b] = rot8v[7](x[b] ^ x[c])
+
+inline sub qr4[a: Int, b: Int, c: Int, d: Int](x: ![16]Q)
+  x[a] = x[a] +% x[b]
+  x[d] = rot4v[16](x[d] ^ x[a])
+  x[c] = x[c] +% x[d]
+  x[b] = rot4v[12](x[b] ^ x[c])
+  x[a] = x[a] +% x[b]
+  x[d] = rot4v[8](x[d] ^ x[a])
+  x[c] = x[c] +% x[d]
+  x[b] = rot4v[7](x[b] ^ x[c])
+
+inline sub qr1[a: Int, b: Int, c: Int, d: Int](x: ![16]U32)
+  x[a] = x[a] +% x[b]
+  x[d] = rot1[16](x[d] ^ x[a])
+  x[c] = x[c] +% x[d]
+  x[b] = rot1[12](x[b] ^ x[c])
+  x[a] = x[a] +% x[b]
+  x[d] = rot1[8](x[d] ^ x[a])
+  x[c] = x[c] +% x[d]
+  x[b] = rot1[7](x[b] ^ x[c])
+
+inline sub double8(x: ![16]V)
+  qr8[0, 4, 8, 12](!x)
+  qr8[1, 5, 9, 13](!x)
+  qr8[2, 6, 10, 14](!x)
+  qr8[3, 7, 11, 15](!x)
+  qr8[0, 5, 10, 15](!x)
+  qr8[1, 6, 11, 12](!x)
+  qr8[2, 7, 8, 13](!x)
+  qr8[3, 4, 9, 14](!x)
+
+inline sub double4(x: ![16]Q)
+  qr4[0, 4, 8, 12](!x)
+  qr4[1, 5, 9, 13](!x)
+  qr4[2, 6, 10, 14](!x)
+  qr4[3, 7, 11, 15](!x)
+  qr4[0, 5, 10, 15](!x)
+  qr4[1, 6, 11, 12](!x)
+  qr4[2, 7, 8, 13](!x)
+  qr4[3, 4, 9, 14](!x)
+
+inline sub double1(x: ![16]U32)
+  qr1[0, 4, 8, 12](!x)
+  qr1[1, 5, 9, 13](!x)
+  qr1[2, 6, 10, 14](!x)
+  qr1[3, 7, 11, 15](!x)
+  qr1[0, 5, 10, 15](!x)
+  qr1[1, 6, 11, 12](!x)
+  qr1[2, 7, 8, 13](!x)
+  qr1[3, 4, 9, 14](!x)
+
+# The 16 input words: constants, key, counter 0, nonce.
+fun state(key: ?[32]U8, nonce: ?[12]U8) -> [16]U32
+  s: [16]U32 = [16 of 0]
+  for i in 0..4
+    s[i] = SIGMA[i]
+  for i in 0..8
+    s[4 + i] = key.read[U32, .little](4 * i)
+  for i in 0..3
+    s[13 + i] = nonce.read[U32, .little](4 * i)
+  s
+
+# 8 blocks of keystream from counter `ctr`: word i of block b in lane b of x[i].
+inline fun blocks8(s: ?[16]U32, ctr: U32) -> [16]V
+  x: [16]V = [16 of V.splat(0)]
+  for i in 0..16
+    x[i] = V.splat(s[i])
+  x[12] = V.splat(ctr) +% IOTA8
+  for _ in 0..10
+    double8(!x)
+  for i in 0..16
+    x[i] = x[i] +% V.splat(s[i])
+  x[12] = x[12] +% IOTA8 +% V.splat(ctr) -% V.splat(s[12])
+  x
+
+inline fun blocks4(s: ?[16]U32, ctr: U32) -> [16]Q
+  x: [16]Q = [16 of Q.splat(0)]
+  for i in 0..16
+    x[i] = Q.splat(s[i])
+  x[12] = Q.splat(ctr) +% IOTA4
+  for _ in 0..10
+    double4(!x)
+  for i in 0..16
+    x[i] = x[i] +% Q.splat(s[i])
+  x[12] = x[12] +% IOTA4 +% Q.splat(ctr) -% Q.splat(s[12])
+  x
+
+inline fun block1(s: ?[16]U32, ctr: U32) -> [16]U32
+  x = +s
+  x[12] = ctr
+  for _ in 0..10
+    double1(!x)
+  for i in 0..16
+    x[i] = x[i] +% s[i]
+  x[12] = x[12] +% ctr -% s[12]
+  x
+
+# Xors 16 bytes at `o` with `w`.
+inline sub xor_quarter[ip: Bool](dst: ![]U8, src: []U8, o: Int, w: Q)
+  if ip
+    !dst.write[Q, .little](o, dst.read[Q, .little](o) ^ w)
+  else
+    !dst.write[Q, .little](o, src.read[Q, .little](o) ^ w)
+
+# Xors 64 bytes at `at` with block `b` of 8 lanes. `b` and the four
+# quarters are constants, so each lane is read from a register.
+inline sub xor_block8[ip: Bool, b: Int](dst: ![]U8, src: []U8, at: Int, x: ?[16]V)
+  xor_quarter[ip](!dst, src, at, Q([x[0][b], x[1][b], x[2][b], x[3][b]]))
+  xor_quarter[ip](!dst, src, at + 16, Q([x[4][b], x[5][b], x[6][b], x[7][b]]))
+  xor_quarter[ip](!dst, src, at + 32, Q([x[8][b], x[9][b], x[10][b], x[11][b]]))
+  xor_quarter[ip](!dst, src, at + 48, Q([x[12][b], x[13][b], x[14][b], x[15][b]]))
+
+inline sub xor_group8[ip: Bool](dst: ![]U8, src: []U8, at: Int, x: ?[16]V)
+  xor_block8[ip, 0](!dst, src, at, x)
+  xor_block8[ip, 1](!dst, src, at + 64, x)
+  xor_block8[ip, 2](!dst, src, at + 128, x)
+  xor_block8[ip, 3](!dst, src, at + 192, x)
+  xor_block8[ip, 4](!dst, src, at + 256, x)
+  xor_block8[ip, 5](!dst, src, at + 320, x)
+  xor_block8[ip, 6](!dst, src, at + 384, x)
+  xor_block8[ip, 7](!dst, src, at + 448, x)
+
+inline sub xor_block4[ip: Bool, b: Int](dst: ![]U8, src: []U8, at: Int, x: ?[16]Q)
+  xor_quarter[ip](!dst, src, at, Q([x[0][b], x[1][b], x[2][b], x[3][b]]))
+  xor_quarter[ip](!dst, src, at + 16, Q([x[4][b], x[5][b], x[6][b], x[7][b]]))
+  xor_quarter[ip](!dst, src, at + 32, Q([x[8][b], x[9][b], x[10][b], x[11][b]]))
+  xor_quarter[ip](!dst, src, at + 48, Q([x[12][b], x[13][b], x[14][b], x[15][b]]))
+
+# Xors the bytes from `at` to the end, fewer than 64, with the 16 words
+# of a block.
+sub xor_partial[ip: Bool](dst: ![]U8, src: []U8, at: Int, w: [16]U32)
+  ks: [64]U8 = [64 of 0]
+  for i in 0..16
+    !ks.write[U32, .little](4 * i, w[i])
+  for i in at..dst.len
+    if ip
+      dst[i] = dst[i] ^ ks[i - at]
+    else
+      dst[i] = src[i] ^ ks[i - at]
+  wipe(!ks)
+
+inline fun lanes8[b: Int](x: ?[16]V) -> [16]U32
+  w: [16]U32 = [16 of 0]
+  for i in 0..16
+    w[i] = x[i][b]
+  w
+
+inline fun lanes4[b: Int](x: ?[16]Q) -> [16]U32
+  w: [16]U32 = [16 of 0]
+  for i in 0..16
+    w[i] = x[i][b]
+  w
+
+# Xors block b of x in at `at`, whole or in part, where the message reaches.
+inline sub put8[ip: Bool, b: Int](dst: ![]U8, src: []U8, at: Int, x: ?[16]V)
+  if at + 64 <= dst.len
+    xor_block8[ip, b](!dst, src, at, x)
+  else if at < dst.len
+    xor_partial[ip](!dst, src, at, lanes8[b](x))
+
+inline sub put4[ip: Bool, b: Int](dst: ![]U8, src: []U8, at: Int, x: ?[16]Q)
+  if at + 64 <= dst.len
+    xor_block4[ip, b](!dst, src, at, x)
+  else if at < dst.len
+    xor_partial[ip](!dst, src, at, lanes4[b](x))
+
+# Xors the message from `at`, fewer than 8 blocks, with x's blocks from block 0.
+inline sub tail8[ip: Bool](dst: ![]U8, src: []U8, at: Int, x: ?[16]V)
+  put8[ip, 0](!dst, src, at, x)
+  put8[ip, 1](!dst, src, at + 64, x)
+  put8[ip, 2](!dst, src, at + 128, x)
+  put8[ip, 3](!dst, src, at + 192, x)
+  put8[ip, 4](!dst, src, at + 256, x)
+  put8[ip, 5](!dst, src, at + 320, x)
+  put8[ip, 6](!dst, src, at + 384, x)
+  put8[ip, 7](!dst, src, at + 448, x)
+
+inline sub tail4[ip: Bool](dst: ![]U8, src: []U8, at: Int, x: ?[16]Q)
+  put4[ip, 0](!dst, src, at, x)
+  put4[ip, 1](!dst, src, at + 64, x)
+  put4[ip, 2](!dst, src, at + 128, x)
+  put4[ip, 3](!dst, src, at + 192, x)
+
+# A short message: blocks 1 to 3 of x (block 0 is the Poly1305 key).
+inline sub short4[ip: Bool](dst: ![]U8, src: []U8, x: ?[16]Q)
+  put4[ip, 1](!dst, src, 0, x)
+  put4[ip, 2](!dst, src, 64, x)
+  put4[ip, 3](!dst, src, 128, x)
+
+# ------------------------------------------------------------ Poly1305, 4 blocks a step
+
+# A power of r on 44-bit limbs, with 20 times its upper limbs (2^132 is 20 mod p).
+obj Pow
+  l0: U64
+  l1: U64
+  l2: U64
+  s1: U64
+  s2: U64
+
+fun pow_of(l0: U64, l1: U64, l2: U64) -> Pow
+  Pow(l0: l0, l1: l1, l2: l2, s1: l1 *% 20, s2: l2 *% 20)
+
+inline fun wide(a: U64, b: U64) -> U128
+  U128(a) *% U128(b)
+
+# a times k, as three columns; each limb product is below 2^93.
+inline fun mul(a0: U64, a1: U64, a2: U64, k: ?Pow) -> (U128, U128, U128)
+  d0 = wide(a0, k.l0) +% wide(a1, k.s2) +% wide(a2, k.s1)
+  d1 = wide(a0, k.l1) +% wide(a1, k.l0) +% wide(a2, k.s2)
+  d2 = wide(a0, k.l2) +% wide(a1, k.l1) +% wide(a2, k.l0)
+  return d0, d1, d2
+
+inline fun carry(d0: U128, d1: U128, d2: U128) -> (U64, U64, U64)
+  c = U64.wrap(d0 >> 44)
+  h0 = U64.wrap(d0) & M44
+  e1 = d1 +% U128(c)
+  c = U64.wrap(e1 >> 44)
+  h1 = U64.wrap(e1) & M44
+  e2 = d2 +% U128(c)
+  c = U64.wrap(e2 >> 42)
+  h2 = U64.wrap(e2) & M42
+  g0 = h0 +% c *% 5
+  return g0 & M44, h1 +% (g0 >> 44), h2
+
+# The limbs of the 16-byte block at `at`, with its 2^128 bit.
+inline fun limbs(data: []U8, at: Int) -> (U64, U64, U64)
+  t0 = data.read[U64, .little](at)
+  t1 = data.read[U64, .little](at + 8)
+  return t0 & M44, ((t0 >> 44) | (t1 <<% 20)) & M44, (t1 >> 24) | (1 << 40)
+
+obj Mac
+  h0: U64
+  h1: U64
+  h2: U64
+  k1: Pow
+  k2: Pow
+  k3: Pow
+  k4: Pow
+  pad0: U64
+  pad1: U64
+
+  # One block.
+  inline sub block(!@, m0: U64, m1: U64, m2: U64)
+    d0, d1, d2 = mul(@h0 +% m0, @h1 +% m1, @h2 +% m2, @k1)
+    h0, h1, h2 = carry(d0, d1, d2)
+    @h0 = h0
+    @h1 = h1
+    @h2 = h2
+
+  # Four blocks in one step: h = (h + m1) r^4 + m2 r^3 + m3 r^2 + m4 r.
+  inline sub block4(!@, data: []U8, at: Int)
+    a0, a1, a2 = limbs(data, at)
+    x0, x1, x2 = mul(@h0 +% a0, @h1 +% a1, @h2 +% a2, @k4)
+    b0, b1, b2 = limbs(data, at + 16)
+    y0, y1, y2 = mul(b0, b1, b2, @k3)
+    c0, c1, c2 = limbs(data, at + 32)
+    z0, z1, z2 = mul(c0, c1, c2, @k2)
+    e0, e1, e2 = limbs(data, at + 48)
+    w0, w1, w2 = mul(e0, e1, e2, @k1)
+    h0, h1, h2 = carry(x0 +% y0 +% z0 +% w0, x1 +% y1 +% z1 +% w1, x2 +% y2 +% z2 +% w2)
+    @h0 = h0
+    @h1 = h1
+    @h2 = h2
+
+  # Any number of bytes, the last block padded with zeros.
+  sub blocks(!@, data: []U8)
+    i = 0
+    while i + 64 <= data.len : i += 64
+      !@block4(data, i)
+    while i + 16 <= data.len : i += 16
+      m0, m1, m2 = limbs(data, i)
+      !@block(m0, m1, m2)
+    if i < data.len
+      tmp: [16]U8 = [16 of 0]
+      for j in i..data.len
+        tmp[j - i] = data[j]
+      m0, m1, m2 = limbs(tmp, 0)
+      !@block(m0, m1, m2)
+
+  fun final(!@, aad_len: Int, ct_len: Int) -> (U64, U64)
+    lens: [16]U8 = [16 of 0]
+    !lens.write[U64, .little](0, U64(aad_len))
+    !lens.write[U64, .little](8, U64(ct_len))
+    m0, m1, m2 = limbs(lens, 0)
+    !@block(m0, m1, m2)
+    h0 = @h0
+    h1 = @h1
+    h2 = @h2
+    for _ in 0..2
+      h2 = h2 +% (h1 >> 44)
+      h1 = h1 & M44
+      h0 = h0 +% (h2 >> 42) *% 5
+      h2 = h2 & M42
+      h1 = h1 +% (h0 >> 44)
+      h0 = h0 & M44
+    # g = h + 5 - 2^130; h >= p exactly when g is not negative.
+    g0 = h0 +% 5
+    g1 = h1 +% (g0 >> 44)
+    g0 = g0 & M44
+    g2 = h2 +% (g1 >> 44) -% (U64(1) << 42)
+    g1 = g1 & M44
+    mask = barrier((g2 >> 63) -% 1)
+    h0 = (h0 & mask.not()) | (g0 & mask)
+    h1 = (h1 & mask.not()) | (g1 & mask)
+    h2 = (h2 & mask.not()) | (g2 & M42 & mask)
+    t0 = h0 | (h1 <<% 44)
+    t1 = (h1 >> 20) | (h2 <<% 24)
+    lo, up = add_c(t0, @pad0)
+    return lo, t1 +% @pad1 +% up
+
+fun mac_of(w: [16]U32) -> Mac
+  r0 = (U64(w[0]) | (U64(w[1]) << 32)) & 0x0ffffffc0fffffff
+  r1 = (U64(w[2]) | (U64(w[3]) << 32)) & 0x0ffffffc0ffffffc
+  k1 = pow_of(r0 & M44, ((r0 >> 44) | (r1 <<% 20)) & M44, r1 >> 24)
+  a0, a1, a2 = mul(k1.l0, k1.l1, k1.l2, k1)
+  q0, q1, q2 = carry(a0, a1, a2)
+  k2 = pow_of(q0, q1, q2)
+  b0, b1, b2 = mul(q0, q1, q2, k1)
+  t0, t1, t2 = carry(b0, b1, b2)
+  c0, c1, c2 = mul(q0, q1, q2, k2)
+  f0, f1, f2 = carry(c0, c1, c2)
+  Mac(h0: 0, h1: 0, h2: 0, k1: k1, k2: k2, k3: pow_of(t0, t1, t2), k4: pow_of(f0, f1, f2),
+      pad0: U64(w[4]) | (U64(w[5]) << 32), pad1: U64(w[6]) | (U64(w[7]) << 32))
+
+# ------------------------------------------------------------ Poly1305, a block at a time
+
+# `a + b` and its carry, 0 or 1, by a wide add: an add and an add with
+# carry, never a branch.
+inline fun add_c(a: U64, b: U64) -> (U64, U64)
+  t = U128(a) +% U128(b)
+  return U64.wrap(t), U64.wrap(t >> 64)
+
+# Poly1305 on 64-bit limbs, for short messages, where precomputing r^2 to
+# r^4 costs more than it saves. r is clamped, so r1 is a multiple of 4 and
+# s1 = r1 + r1 / 4 folds the product's 2^128 terms back in.
+obj Mac64
+  h0: U64
+  h1: U64
+  h2: U64
+  r0: U64
+  r1: U64
+  s1: U64
+  pad0: U64
+  pad1: U64
+
+  inline sub block(!@, m0: U64, m1: U64)
+    a0, c0 = add_c(@h0, m0)
+    b1, c1 = add_c(@h1, m1)
+    a1, c2 = add_c(b1, c0)
+    a2 = @h2 +% 1 +% c1 +% c2
+    d0 = wide(a0, @r0) +% wide(a1, @s1)
+    d1 = wide(a0, @r1) +% wide(a1, @r0) +% U128(a2 *% @s1) +% (d0 >> 64)
+    d2 = a2 *% @r0 +% U64.wrap(d1 >> 64)
+    c = (d2 >> 2) +% (d2 & 0xFFFFFFFFFFFFFFFC)
+    lo, k0 = add_c(U64.wrap(d0), c)
+    mid, k1 = add_c(U64.wrap(d1), k0)
+    @h0 = lo
+    @h1 = mid
+    @h2 = (d2 & 3) +% k1
+
+  sub blocks(!@, data: []U8)
+    i = 0
+    while i + 16 <= data.len : i += 16
+      !@block(data.read[U64, .little](i), data.read[U64, .little](i + 8))
+    if i < data.len
+      tmp: [16]U8 = [16 of 0]
+      for j in i..data.len
+        tmp[j - i] = data[j]
+      !@block(tmp.read[U64, .little](0), tmp.read[U64, .little](8))
+
+  fun final(!@, aad_len: Int, ct_len: Int) -> (U64, U64)
+    !@block(U64(aad_len), U64(ct_len))
+    g0, k0 = add_c(@h0, 5)
+    g1, k1 = add_c(@h1, k0)
+    g2 = @h2 +% k1
+    mask = barrier(U64(0) -% (g2 >> 2))
+    h0 = (@h0 & mask.not()) | (g0 & mask)
+    h1 = (@h1 & mask.not()) | (g1 & mask)
+    lo, up = add_c(h0, @pad0)
+    return lo, h1 +% @pad1 +% up
+
+fun mac64_of(w: [16]U32) -> Mac64
+  r0 = (U64(w[0]) | (U64(w[1]) << 32)) & 0x0ffffffc0fffffff
+  r1 = (U64(w[2]) | (U64(w[3]) << 32)) & 0x0ffffffc0ffffffc
+  Mac64(h0: 0, h1: 0, h2: 0, r0: r0, r1: r1, s1: r1 +% (r1 >> 2),
+      pad0: U64(w[4]) | (U64(w[5]) << 32), pad1: U64(w[6]) | (U64(w[7]) << 32))
+
+# ------------------------------------------------------------ the fused loop
+
+# Keystream for the message, MACed as `open` (before the xor) or not
+# (`seal`, after). In place (`ip`), the message is `dst`; otherwise it is
+# read from `src` and written to `dst`, of the same length.
+fun run[ip: Bool](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bool) -> (U64, U64)
+  n = dst.len
+  if n <= 192
+    x = blocks4(s, 0)
+    p = mac64_of(lanes4[0](x))
+    !p.blocks(aad)
+    if opening
+      if ip
+        !p.blocks(dst)
+      else
+        !p.blocks(src)
+    short4[ip](!dst, src, x)
+    if not opening
+      !p.blocks(dst)
+    return (!p).final(aad.len, n)
+  p = mac_of(block1(s, 0))
+  !p.blocks(aad)
+  i = 0
+  ctr: U32 = 1
+  prev = 0
+  pending = false
+  while i + 512 <= n : i += 512
+    x: [16]V = [16 of V.splat(0)]
+    for j in 0..16
+      x[j] = V.splat(s[j])
+    x[12] = V.splat(ctr) +% IOTA8
+    for r in 0..10
+      double8(!x)
+      if r < 8
+        if opening
+          if ip
+            !p.block4(dst, i + 64 * r)
+          else
+            !p.block4(src, i + 64 * r)
+        else if pending
+          !p.block4(dst, prev + 64 * r)
+    for j in 0..16
+      x[j] = x[j] +% V.splat(s[j])
+    x[12] = x[12] +% IOTA8 +% V.splat(ctr) -% V.splat(s[12])
+    xor_group8[ip](!dst, src, i, x)
+    prev = i
+    pending = true
+    ctr = ctr +% 8
+  if i < n
+    if opening
+      if ip
+        !p.blocks(dst[i..])
+      else
+        !p.blocks(src[i..])
+    if n - i > 256
+      x = blocks8(s, ctr)
+      if pending and not opening
+        !p.blocks(dst[prev..prev + 512])
+      tail8[ip](!dst, src, i, x)
+    else
+      x = blocks4(s, ctr)
+      if pending and not opening
+        !p.blocks(dst[prev..prev + 512])
+      tail4[ip](!dst, src, i, x)
+    if not opening
+      !p.blocks(dst[i..])
+  else if pending and not opening
+    !p.blocks(dst[prev..prev + 512])
+  return (!p).final(aad.len, n)
