@@ -109,3 +109,47 @@ test "file errors are the system's", '''
     none
   # A directory moved into itself.
   file.rename("examples", "examples/inside") catch |e| show(e)
+
+test "file calls from many tasks", seeds: 20, "true 8"
+  # Each task resolves the same path on the blocking pool, its waiter
+  # parked while the call runs and released when it is done.
+  use std.file
+
+  fun resolve(n: Int) -> Int!
+    k = 0
+    for 0..n
+      p = file.realpath(".")!
+      k += 1 if p != none
+    k
+
+  ts: List[Task[Int!]] = List()
+  for 0..8
+    !ts.push(resolve(40)&)
+  done = 0
+  same = true
+  for t in <ts
+    same = same and (>t)! == 40
+    done += 1
+  print(same, done)
+
+test "file calls from many tasks on the pool", "true 8"
+  # As above, on the real scheduler: each call goes to the pool's thread,
+  # which wakes its waiter before it marks the call done.
+  use std.file
+
+  fun resolve(n: Int) -> Int!
+    k = 0
+    for 0..n
+      p = file.realpath(".")!
+      k += 1 if p != none
+    k
+
+  ts: List[Task[Int!]] = List()
+  for 0..8
+    !ts.push(resolve(200)&)
+  done = 0
+  same = true
+  for t in <ts
+    same = same and (>t)! == 200
+    done += 1
+  print(same, done)

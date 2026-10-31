@@ -78,6 +78,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A pool call's waiter yields while the call finishes** (impact item
+  1's Rig-side lead, branch `pool-yield`): pinned to one core, the
+  waiter spun about 2.4 ms a Trig run (item 1's profile,
+  ~/Data/Code/Claude/rig/rig/item1/FINDINGS.md). Gates and the Trig A/B
+  running.
 - **Two more accepted programs that Zig rejected** (queue row 29): a
   `?[N]T` view passed bare where a `[]T` goes is lent from the address
   it holds, and a short form a `??` or `catch` fallback gives through a

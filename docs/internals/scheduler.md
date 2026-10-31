@@ -390,7 +390,12 @@ every time; the suite runs each concurrency case again under seeds 1 to
     has waited that long, up to 64, so calls that block for long (a pipe,
     a slow disk) still run. `RIG_BLOCKING_THREADS` sets both bounds. A
     thread idle 10 s ends; a cancel or a deadline ends a wait on the pool
-    (`rig.blockingStop`).
+    (`rig.blockingStop`). A call's thread wakes its waiter before it
+    marks the call done, and the waiter that finds it not yet done spins
+    64 times, then yields its thread (`sched.poolCall`): on one core the
+    wake can preempt the call's thread, which a waiter that only spun
+    held off until the kernel took the core back, about 0.6 ms a call
+    (2.4 ms a run of Trig pinned to one core).
 
 13. **Checks of where work runs**: with `RIG_SCHED_STATS=1` set, a
     program prints, as `main` ends, what each worker did, to stderr:

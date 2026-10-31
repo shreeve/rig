@@ -1915,6 +1915,11 @@ The model and its plan are
 [docs/design/concurrency-panel/](docs/design/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
+- **A call on the blocking pool no longer spins its core away.** The
+  waiter of a file call (`realpath`, `stat`, `read`) spins 64 times while
+  the call's thread finishes, then yields its thread. Pinned to one
+  core, it spun until the kernel preempted it, about 2.4 ms of every
+  Trig run: 37% of its gap to tsrs on a small project.
 - **Tasks:** `f(x)&` runs a call as a task and gives a `Task[T]`,
   which keeps its arguments' loans until `>t` takes its
   result; a task is never left running past its scope.
