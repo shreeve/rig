@@ -134,8 +134,6 @@ and run the suite after.
 
 These belong to the design owner.
 
-- **The kind of an object of `?String` values:** CORE calls it a view, SPEC plain
-  data; the compiler treats it as CORE's read-view kind.
 - **A branching self:** a pointer per leaf (built) or a rejection?
 - **Clone limits:** are the missing clones of a type from another
   module, or one holding a `Signal`, rules or gaps?
@@ -146,5 +144,7 @@ decided and built (CORE sentences 1, 6, and 7): a call's result that
 holds no write view keeps a write argument lent to read, and that
 argument's write lend ends as the call returns; dropping a container of
 views uses them only through a `drop` body; a bare name or place only
-reads, so `x = h.w`, like `x = w`, of a `!Int` copies the Int.
-Field-precise re-pointing waits for its own round.
+reads, so `x = h.w`, like `x = w`, of a `!Int` copies the Int. An
+object of `?String` values is a view, as CORE §1 says, and never plain
+data; a `Cell` or `Signal` still holds one, since it copies and its
+only views are `?String`s. Field-precise re-pointing waits for its own round.

@@ -252,6 +252,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Plain data views nothing.** SPEC's "Plain data" is CORE's plain
+  kind: a value that copies, owns nothing, and views nothing. A
+  `?String`, and an object, enum, optional, or array holding one, is a
+  view, as CORE §1 says and as the compiler already treats it
+  (`$plain(?String)` is `false`). A `Cell` or `Signal` holds a value
+  that copies and whose only views are `?String`s, as before. Docs
+  only: no program's meaning changes.
+
 - **`target.has(f)`, the CPU's features.** `std.target` gives
   `has(f: Feature) -> Bool`, whether the CPU the program is compiled for
   has feature `f`: a value of the built-in enum `Feature`, whose
