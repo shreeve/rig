@@ -386,3 +386,92 @@ fail "net split no write after the writer's close", "5:3: use of `w` after move"
   r, w = <c.split()
   <w.close()
   (!w).write("x")!
+
+test "net ip parse and print", '''
+  10.0.0.1 0.0.0.0 255.255.255.255
+  :: ::1 1:: 2001:db8::1
+  2001:db8::1:0:0:1 1:2:3:4:5:6:7:8 1:2:3:4:5:6:7:0
+  ::ffff:10.0.0.1 64:ff9b::102:304
+'''
+  # An address prints in the usual text: IPv6 by RFC 5952, lowercase,
+  # without leading zeros, the first longest run of zero groups as `::`,
+  # an IPv4-mapped address with its IPv4 part dotted.
+  fun show(s: ?String) -> String!
+    String(net.Ip.parse(s)!)
+
+  print(show("10.0.0.1")!, show("0.0.0.0")!, show("255.255.255.255")!)
+  print(show("::")!, show("::1")!, show("1::")!, show("2001:0DB8:0:0:0:0:0:1")!)
+  print(show("2001:db8:0:0:1:0:0:1")!, show("1:2:3:4:5:6:7:8")!, show("1:2:3:4:5:6:7::")!)
+  print(show("::ffff:10.0.0.1")!, show("64:ff9b::1.2.3.4")!)
+
+test "net ip rejects", "18 of 18"
+  # What is not an address fails with `NetError.address`: a part out of
+  # range or with a leading zero, too few or too many parts, `::` twice,
+  # a group of five digits, a zone, or a stray colon.
+  bad = 0
+  all = ["", "1.2.3", "1.2.3.4.5", "01.2.3.4", "256.1.1.1", "1..2.3", ":", ":::", "1:::2", "1::2::3", "1:2:3:4:5:6:7:8:9", "12345::", "1:2:3:4:5:6:7:8::", ":1::", "1:", "::1.2.3", "fe80::1%eth0", "g::"]
+  for s in all
+    _ = net.Ip.parse(s) catch |e|
+      bad += 1 if e == net.NetError.address else 0
+      net.Ip.v4(0)
+  print(bad, "of", all.len)
+
+test "net ip values", "true false true 10.0.0.1 true"
+  # An `Ip` is plain data: its variants hold its bits, and `==` compares
+  # the family and the bits.
+  a = net.Ip.parse("10.0.0.1")!
+  b: net.Ip = .v4(0x0a00_0001)
+  six = net.Ip.parse("::ffff:10.0.0.1")!
+  print(a == b, a == six, six == net.Ip.v6(0xffff_0a00_0001), b, a.hash() == b.hash())
+
+test "net ip prefix", '''
+  10.1.2.0 10.0.0.0 0.0.0.0 10.1.2.3
+  2001:db8:1:2:: :: 2001:db8:1:2:3:4:5:6
+  2
+'''
+  # `prefix(n)` keeps the first `n` bits: an IPv4 /32 is the address, an
+  # IPv6 /64 its network, so two hosts of one /64 share a key.
+  v4 = net.Ip.parse("10.1.2.3")!
+  print(v4.prefix(24), v4.prefix(8), v4.prefix(0), v4.prefix(32))
+  v6 = net.Ip.parse("2001:db8:1:2:3:4:5:6")!
+  print(v6.prefix(64), v6.prefix(0), v6.prefix(128))
+  seen = Set[net.Ip]()
+  for s in ["2001:db8:1:2::1", "2001:db8:1:2::2", "2001:db8:1:3::1", "10.1.2.3"]
+    _ = !seen.add(net.Ip.parse(s)!.prefix(64))
+  print(seen.len - 1)
+
+bomb "net ip prefix negative", "net.Ip.prefix: a negative length, -1"
+  print(net.Ip.v4(1).prefix(-1))
+
+test "net addr parse and print", '''
+  10.0.0.1:51820 [::1]:51820 [2001:db8::1]:0 1.2.3.4:65535
+  51820 true
+  9 of 9
+'''
+  # An `Addr` is an IP address and a port, an IPv6 address in brackets;
+  # the port is a `U16`.
+  fun show(s: ?String) -> String!
+    String(net.Addr.parse(s)!)
+
+  print(show("10.0.0.1:51820")!, show("[::1]:51820")!, show("[2001:db8::1]:0")!, show("1.2.3.4:65535")!)
+  a = net.Addr.parse("10.0.0.1:51820")!
+  print(a.port, a.ip == net.Ip.v4(0x0a00_0001))
+  bad = 0
+  all = ["10.0.0.1", "10.0.0.1:", ":80", "[::1]", "::1:80", "[::1]80", "1.2.3.4:65536", "[1.2.3.4]:5", "1.2.3.4:-1"]
+  for s in all
+    _ = net.Addr.parse(s) catch |e|
+      bad += 1 if e == net.NetError.address else 0
+      net.Addr(ip: .v4(0), port: 0)
+  print(bad, "of", all.len)
+
+test "net addr keys a map", '''
+  {10.0.0.1:1: 2, [::1]:1: 3} 2
+  true
+'''
+  # Equal addresses are one key, however each was made.
+  m = Map[net.Addr, Int]()
+  !m.put(net.Addr.parse("10.0.0.1:1")!, 1)
+  !m.put(net.Addr(ip: .v4(0x0a00_0001), port: 1), 2)
+  !m.put(net.Addr.parse("[::1]:1")!, 3)
+  print(m, m.len)
+  print(net.Addr.parse("[::1]:2")! != net.Addr.parse("[::1]:1")!)

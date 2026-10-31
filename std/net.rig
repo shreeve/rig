@@ -23,6 +23,227 @@ pub error NetError
   # Anything else the system reports.
   failed
 
+# An IPv4 or IPv6 address, as plain data: `==` compares two, a `Map`
+# keys on one, and `print` writes the usual text, `10.0.0.1` or
+# `2001:db8::1`.
+pub enum Ip: Eq + Hash + Print
+  # An IPv4 address: `a.b.c.d` is `a << 24 | b << 16 | c << 8 | d`.
+  v4(bits: U32)
+  # An IPv6 address, its first group the top 16 bits.
+  v6(bits: U128)
+
+  # The address `s` writes: an IPv4 address, `10.0.0.1`, or an IPv6
+  # one, `::1` or `::ffff:10.0.0.1`, without brackets or a zone. Fails
+  # with `NetError.address` when `s` is not written so.
+  pub fun parse(s: ?String) -> Ip!
+    for i in 0..s.len
+      if s[i] == COLON
+        return .v6(parse_v6(s, 0, s.len)!)
+    .v4(parse_v4(s, 0, s.len)!)
+
+  # The address with all but its first `n` bits zero, the network of an
+  # `/n` prefix: a rate limit by an IPv6 /64 keys on `ip.prefix(64)`.
+  # An `n` past the address's width keeps all of it; a negative `n`
+  # panics.
+  pub fun prefix(?@, n: Int) -> Ip
+    if n < 0
+      panic("net.Ip.prefix: a negative length, ", n)
+    match @
+      .v4(b) => .v4(b if n >= 32 else b & (U32.max >> n).not())
+      .v6(b) => .v6(b if n >= 128 else b & (U128.max >> n).not())
+
+  sub print(?@, out: !Printer)
+    match @
+      .v4(b) => print_v4(!out, b)
+      .v6(b) => print_v6(!out, b)
+
+# An IP address and a port, as plain data: `==` compares two, a `Map`
+# keys on one, and `print` writes `10.0.0.1:51820` or `[::1]:51820`.
+pub obj Addr: Eq + Hash + Print
+  pub ip: Ip
+  pub port: U16
+
+  # The address `s` writes: an IPv4 address and a port,
+  # `10.0.0.1:51820`, or an IPv6 address in brackets and a port,
+  # `[::1]:51820`. Fails with `NetError.address` when `s` is not
+  # written so.
+  pub fun parse(s: ?String) -> Addr!
+    # The port follows the last `:`.
+    c = s.len - 1
+    while c >= 0 and s[c] != COLON
+      c -= 1
+    if c < 1 or c == s.len - 1
+      return NetError.address
+    port = 0
+    for i in c + 1..s.len
+      if s[i] < 48 or s[i] > 57
+        return NetError.address
+      port = port * 10 + Int(s[i] - 48)
+      if port > 65535
+        return NetError.address
+    ip: Ip = .v4(0)
+    if s[0] == OPEN
+      if s[c - 1] != CLOSE
+        return NetError.address
+      ip = .v6(parse_v6(s, 1, c - 1)!)
+    else
+      ip = .v4(parse_v4(s, 0, c)!)
+    Addr(ip: ip, port: U16(port))
+
+  sub print(?@, out: !Printer)
+    match @ip
+      .v4(b) => print_v4(!out, b)
+      .v6(b)
+        !out.text("[")
+        print_v6(!out, b)
+        !out.text("]")
+    !out.text(":")
+    !out.value(Int(@port))
+
+# The bytes of addresses' text.
+COLON: U8 = 58
+DOT: U8 = 46
+OPEN: U8 = 91
+CLOSE: U8 = 93
+HEX = "0123456789abcdef"
+
+# The IPv4 address `s[from..to]` writes, four decimal parts each 0 to
+# 255, with no leading zero.
+fun parse_v4(s: ?String, from: Int, to: Int) -> U32!
+  bits: U32 = 0
+  # The parts done, and the one being read.
+  parts = 0
+  n = 0
+  digits = 0
+  for i in from..to
+    c = s[i]
+    if c == DOT
+      if digits == 0 or parts == 3
+        return NetError.address
+      bits = bits << 8 | U32(n)
+      parts += 1
+      n = 0
+      digits = 0
+    else if c >= 48 and c <= 57
+      if digits > 0 and n == 0
+        return NetError.address
+      n = n * 10 + Int(c - 48)
+      digits += 1
+      if n > 255
+        return NetError.address
+    else
+      return NetError.address
+  if parts != 3 or digits == 0
+    return NetError.address
+  bits << 8 | U32(n)
+
+# The IPv6 address `s[from..to]` writes: eight groups of one to four hex
+# digits, `::` once for one or more groups of zeros, and the last two
+# groups as an IPv4 address if it ends so.
+fun parse_v6(s: ?String, from: Int, to: Int) -> U128!
+  # The groups before `::` (all of them without it), and after it.
+  head: U128 = 0
+  tail: U128 = 0
+  groups = 0
+  before = 0
+  gap = false
+  i = from
+  if to - from >= 2 and s[from] == COLON and s[from + 1] == COLON
+    gap = true
+    i += 2
+  while i < to
+    start = i
+    g = 0
+    while i < to and i - start < 5 and hex_digit(s[i]) >= 0
+      g = g * 16 + hex_digit(s[i])
+      i += 1
+    # An IPv4 address ends the text, as two groups.
+    w = 16
+    if i < to and s[i] == DOT
+      g = Int(parse_v4(s, start, to)!)
+      w = 32
+      i = to
+    else if i == start or i - start > 4
+      return NetError.address
+    groups += w / 16
+    if groups > 8
+      return NetError.address
+    if gap
+      tail = tail << w | U128(g)
+    else
+      head = head << w | U128(g)
+      before = groups
+    if i == to
+      break
+    if s[i] != COLON or i + 1 == to
+      return NetError.address
+    i += 1
+    if s[i] == COLON
+      if gap
+        return NetError.address
+      gap = true
+      i += 1
+  if (gap and groups > 7) or (not gap and groups != 8)
+    return NetError.address
+  if before == 0
+    return tail
+  head << (16 * (8 - before)) | tail
+
+# The value of the hex digit `c`, or -1.
+fun hex_digit(c: U8) -> Int
+  if c >= 48 and c <= 57
+    return Int(c - 48)
+  l = c | 32
+  if l >= 97 and l <= 102
+    return Int(l - 87)
+  -1
+
+sub print_v4(out: !Printer, b: U32)
+  !out.value(Int(b >> 24))
+  !out.text(".")
+  !out.value(Int(b >> 16 & 255))
+  !out.text(".")
+  !out.value(Int(b >> 8 & 255))
+  !out.text(".")
+  !out.value(Int(b & 255))
+
+# RFC 5952's form: lowercase groups without leading zeros, the first
+# longest run of two or more zero groups as `::`, and an IPv4-mapped
+# address as `::ffff:a.b.c.d`.
+sub print_v6(out: !Printer, b: U128)
+  if b >> 32 == 0xffff
+    !out.text("::ffff:")
+    print_v4(!out, U32(b & 0xffff_ffff))
+    return
+  best = -1
+  best_len = 1
+  run = 0
+  for k in 0..8
+    if b >> (16 * (7 - k)) & 0xffff == 0
+      run += 1
+      if run > best_len
+        best = k + 1 - run
+        best_len = run
+    else
+      run = 0
+  k = 0
+  while k < 8
+    if k == best
+      !out.text("::")
+      k += best_len
+      continue
+    if k > 0 and k != best + best_len
+      !out.text(":")
+    g = Int(b >> (16 * (7 - k)) & 0xffff)
+    shift = 12
+    while shift > 0 and g >> shift == 0
+      shift -= 4
+    while shift >= 0
+      d = g >> shift & 15
+      !out.text(HEX[d..d + 1])
+      shift -= 4
+    k += 1
+
 # A socket that takes connections. Its fields are the runtime's.
 pub obj Listener
   fd: Int
