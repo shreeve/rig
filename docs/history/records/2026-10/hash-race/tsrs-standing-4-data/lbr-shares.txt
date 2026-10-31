@@ -1,0 +1,18 @@
+by-zod3: 928 samples
+| checker.Checker.resolve_external_module | 5.0% | 3.6% |
+| compiler.Program.get_emit_module_format_of_file | 0.9% | 0.8% |
+| checker.Checker.check_collisions_for_declaration_name | 2.3% | 2.0% |
+| rig.alloc.alloc | 1.4% | 1.4% |
+| rig.alloc.free | 0.9% | 0.9% |
+| parser.Parser.parse_source_file_worker | 10.1% | 0.0% |
+| binder.Binder.bind | 4.3% | 1.7% |
+| checker.Checker.instantiate_type_with_alias | 19.5% | 5.6% |
+by-ts-pattern: 4931 samples
+| checker.Checker.resolve_external_module | 1.2% | 1.0% |
+| compiler.Program.get_emit_module_format_of_file | 0.0% | 0.0% |
+| checker.Checker.check_collisions_for_declaration_name | 0.4% | 0.4% |
+| rig.alloc.alloc | 1.3% | 1.3% |
+| rig.alloc.free | 0.9% | 0.9% |
+| parser.Parser.parse_source_file_worker | 1.6% | 0.0% |
+| binder.Binder.bind | 0.9% | 0.5% |
+| checker.Checker.instantiate_type_with_alias | 68.7% | 18.3% |

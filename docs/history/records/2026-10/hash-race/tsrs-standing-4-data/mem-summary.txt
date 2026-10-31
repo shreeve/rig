@@ -1,0 +1,30 @@
+diag-af6/strace-mem.trig
+     47 calls   185120.5 MiB  mmap MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE
+    111 calls    53981.0 MiB  munmap
+     48 calls    53828.0 MiB  madvise MADV_HUGEPAGE
+     43 calls       86.0 MiB  madvise MADV_NOHUGEPAGE
+    167 calls       32.6 MiB  madvise MADV_POPULATE_WRITE
+    103 calls       29.0 MiB  mmap MAP_PRIVATE|MAP_ANONYMOUS
+     88 calls       19.2 MiB  mremap
+     14 calls        5.9 MiB  mmap MAP_PRIVATE
+      1 calls        2.1 MiB  mmap MAP_PRIVATE|MAP_DENYWRITE
+      3 calls        1.9 MiB  mmap MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE
+      1 calls        0.1 MiB  mmap MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS
+      1 calls        0.0 MiB  mmap MAP_SHARED
+      3 calls        0.0 MiB  brk
+      5 calls        0.0 MiB  mprotect
+diag-af6/strace-mem.tsrs
+      4 calls    33794.3 MiB  mmap MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE
+      6 calls      768.1 MiB  mmap MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK
+      9 calls      640.3 MiB  munmap
+     12 calls      516.9 MiB  madvise MADV_DONTNEED
+      9 calls      256.1 MiB  mmap MAP_PRIVATE|MAP_ANONYMOUS
+      4 calls       30.0 MiB  madvise MADV_HUGEPAGE
+      9 calls        9.9 MiB  mmap MAP_PRIVATE|MAP_DENYWRITE
+     27 calls        9.1 MiB  mmap MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE
+     16 calls        6.1 MiB  mmap MAP_PRIVATE
+      4 calls        0.2 MiB  mmap MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS
+      1 calls        0.0 MiB  mmap MAP_SHARED
+      2 calls        0.0 MiB  madvise MADV_GUARD_INSTALL
+     10 calls        0.0 MiB  brk
+     27 calls        0.0 MiB  mprotect
