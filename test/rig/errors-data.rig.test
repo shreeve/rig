@@ -1235,3 +1235,191 @@ code "a program with no fields passes no slot", "fn f(__rig_in_n: i64) E!i64 {"
 
   sub main()
     print(f(0) catch -1)
+
+# A member written `.name(fields)`, without its set, wherever the set is
+# the type its context gives: the checker names the set, and the value is
+# the one `E.name(fields)` makes.
+test "a short-form member with fields wherever its set goes", '''
+  Oops.bad(at: 1)
+  Oops.bad(at: 2)
+  Oops.bad(at: 3) Oops.bad(at: 4) Oops.bad(at: 5)
+  Oops.bad(at: 6)
+  Oops.bad(at: 8)
+  Oops.bad(at: 9) Oops.named(msg: "a")
+  Oops.bad(at: 10) Oops.bad(at: 11)
+  Oops.bad(at: 12) Oops.bad(at: 13)
+  Oops.plain
+  Oops.bad(at: 14) Oops.bad(at: 15)
+  1 1 0
+  Oops.bad(at: 18) Oops.bad(at: 19)
+'''
+  error Oops
+    bad(at: Int)
+    named(msg: String)
+    plain
+
+  error Other
+    gone
+
+  obj Box
+    v: Oops
+
+  sub take(e: Oops)
+    print(e)
+
+  sub view(e: ?Oops)
+    print(e)
+
+  fun ret(n: Int) -> Oops
+    return .bad(at: n)
+
+  fun last(n: Int) -> Oops
+    .bad(at: n)
+
+  fun either(n: Int) -> Oops
+    return .bad(at: n) if n > 0 else .plain
+
+  fun fails() -> Int!Oops
+    return Oops.bad(at: 0)
+
+  fun gone() -> Oops?!Other
+    return Other.gone
+
+  sub main()
+    take(.bad(at: 1))
+    view(.bad(at: 2))
+    print(ret(3), last(4), either(5))
+    x: Oops = .bad(at: 7)
+    x = .bad(at: 6)
+    print(x)
+    b = Box(v: .plain)
+    b.v = .bad(at: 8)
+    print(b.v)
+    print(Box(v: .bad(9)).v, Box(v: .named(msg: String("a"))).v)
+    o: Oops? = none
+    print(o ?? .bad(at: 10), gone() catch .bad(at: 11))
+    n = 1
+    m: Oops = match n
+      1 => .bad(at: 12)
+      _ => .plain
+    i: Oops = .bad(at: 13) if n == 1 else .plain
+    print(m, i)
+    take(.plain())
+    xs: List[Oops] = List()
+    !xs.push(.bad(at: 14))
+    arr: [2]Oops = [.plain, .bad(at: 15)]
+    print(xs[0], arr[1])
+    mp = Map[Int, Oops]()
+    !mp.put(1, .bad(at: 16))
+    s = Set[Oops]()
+    !s.add(.bad(at: 17))
+    print(mp.len, s.len, fails() catch 0)
+    g: fun(Int) -> Oops = |k| .bad(at: k)
+    print(g(18), g(19))
+
+test "a short-form member where an optional of its set goes", "Oops.bad(at: 1) Oops.bad(at: 2) none Oops.bad(at: 3)"
+  error Oops
+    bad(at: Int)
+    plain
+
+  obj Slot
+    e: Oops?
+
+  fun pick(n: Int) -> Oops?
+    return none if n == 0
+    .bad(at: n)
+
+  sub main()
+    a: Oops? = .bad(at: 1)
+    s = Slot(e: .bad(at: 2))
+    print(a, s.e, pick(0), pick(3))
+
+test "a short-form member where `error` or a union goes, and as a default", '''
+  Oops.bad(at: 1)
+  Oops.plain
+  Oops.bad(at: 2)
+  Oops.plain
+  Oops.plain Oops.plain Oops.plain
+  Oops.bad(at: 3) Other.gone
+  Other.gone
+  Oops.bad(at: 4)
+'''
+  error Oops
+    bad(at: Int)
+    plain
+
+  error Other
+    gone
+
+  error Both = Oops | Other
+
+  obj Holder
+    e: Oops = .plain
+    a: error = .plain
+    u: Both = .plain
+
+  sub any(e: error = .plain)
+    print(e)
+
+  sub joined(e: Both = .plain)
+    print(e)
+
+  sub lend(e: ?Both)
+    print(e)
+
+  sub main()
+    any(.bad(at: 1))
+    any()
+    joined(.bad(at: 2))
+    joined()
+    h = Holder()
+    print(h.e, h.a, h.u)
+    xs: List[error] = List()
+    !xs.push(.bad(at: 3))
+    !xs.push(.gone)
+    print(xs[0], xs[1])
+    lend(.gone)
+    k: Both = .bad(at: 4)
+    lend(?k)
+
+fail "a short-form member with fields made without them", "13:9: variant `bad` carries a payload; construct it with `.bad(...)`", "14:9: variant `bad` carries a payload; construct it with `.bad(...)`", errors: 2
+  error Oops
+    bad(at: Int)
+
+  error Other
+    gone
+
+  error Both = Oops | Other
+
+  sub take(e: error, u: Both)
+    print(e, u)
+
+  sub main()
+    take(.bad,
+      u: .bad)
+
+fail "a short-form member with fields lent where a view of a union or `error` goes", "type mismatch: expected `?Both`, got `Oops`; bind it first, `k: Both = .bad(at: 1)`, then lend `?k`", "type mismatch: expected `?error`, got `Oops`; bind it first, `k: error = .plain`, then lend `?k`", errors: 2
+  error Oops
+    bad(at: Int)
+    plain
+
+  error Other
+    gone
+
+  error Both = Oops | Other
+
+  sub lend(u: ?Both, e: ?error)
+    print(u, e)
+
+  sub main()
+    lend(.bad(at: 1), .plain)
+
+fail "a short-form member with fields where a `T!` goes", "5:11: `.bad` is not a value of `Int`; to fail, name the error set: `Oops.bad`"
+  error Oops
+    bad(at: Int)
+
+  fun f() -> Int!
+    return .bad(at: 1)
+
+  sub main()
+    print(f() catch 0)

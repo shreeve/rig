@@ -954,3 +954,25 @@ test "enum a variant with an empty payload is bare", "true 1 true 0 1"
 
   x = E.b
   print(x > E.a, Int(x), x == E.b, Int(E.a), $variants(E).len - 1)
+
+test "a payload variant written short as a fallback in print's arguments", '''
+  .circle(r: 1) .circle(r: 2)
+  .circle(r: 3) .circle(r: 4)
+'''
+  enum Shape
+    circle(r: Int)
+    dot
+
+  error Oops
+    bad(at: Int)
+
+  fun fails() -> Shape!Oops
+    return Oops.bad(at: 0)
+
+  fun maybe() -> Shape?!Oops
+    return Oops.bad(at: 0)
+
+  sub main()
+    o: Shape? = none
+    print(o ?? .circle(r: 1), fails() catch .circle(r: 2))
+    print(maybe() catch .circle(r: 3), fails() catch .circle(4))
