@@ -202,8 +202,8 @@ fn isFile(path: []const u8) bool {
     return s.kind != .directory;
 }
 
-/// Remove the file or empty directory at `path`: false when nothing was
-/// there.
+/// Remove the file or empty directory at `path`, whichever is there, as
+/// C's `remove(3)` does: false when nothing was there.
 pub fn remove(path: []const u8) Error!bool {
     return pool(bool, removeHere, .{path});
 }
@@ -211,17 +211,53 @@ pub fn remove(path: []const u8) Error!bool {
 fn removeHere(path: []const u8) FileError!bool {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const z = try terminated(path, &buf);
-    const unlinked = posix.errno(sys.unlink(z));
-    if (unlinked == .SUCCESS) return true;
-    if (unlinked == .NOENT) return false;
-    // A directory, which `unlink` will not remove (EISDIR on Linux,
-    // EPERM on macOS), or `unlink`'s own failure.
-    const removed = posix.errno(sys.rmdir(z));
-    return switch (removed) {
-        .SUCCESS => true,
-        .NOENT => false,
-        .NOTDIR => errnoFailure(unlinked),
-        else => errnoFailure(removed),
+    return unlinkAt(z) catch |unlinked| {
+        // A directory, which `unlink` will not remove (EISDIR on Linux,
+        // EPERM on macOS), or `unlink`'s own failure, which a path that
+        // is no directory makes the one to report.
+        return rmdirAt(z) catch |removed|
+            if (removed == error.@"std.file.FileError.not_directory") unlinked else removed;
+    };
+}
+
+/// Remove what is at `path` but a directory, a symbolic link itself and
+/// not what it names: false when nothing was there. A directory fails
+/// with the system's reason: EISDIR on Linux, EPERM on macOS.
+pub fn unlink(path: []const u8) Error!bool {
+    return pool(bool, unlinkHere, .{path});
+}
+
+fn unlinkHere(path: []const u8) FileError!bool {
+    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    return unlinkAt(try terminated(path, &buf));
+}
+
+fn unlinkAt(z: [*:0]const u8) FileError!bool {
+    while (true) switch (posix.errno(sys.unlink(z))) {
+        .SUCCESS => return true,
+        .NOENT => return false,
+        .INTR => {},
+        else => |e| return errnoFailure(e),
+    };
+}
+
+/// Remove the empty directory at `path`: false when nothing was there.
+/// A file, or a file on the way, fails with ENOTDIR.
+pub fn rmdir(path: []const u8) Error!bool {
+    return pool(bool, rmdirHere, .{path});
+}
+
+fn rmdirHere(path: []const u8) FileError!bool {
+    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    return rmdirAt(try terminated(path, &buf));
+}
+
+fn rmdirAt(z: [*:0]const u8) FileError!bool {
+    while (true) switch (posix.errno(sys.rmdir(z))) {
+        .SUCCESS => return true,
+        .NOENT => return false,
+        .INTR => {},
+        else => |e| return errnoFailure(e),
     };
 }
 

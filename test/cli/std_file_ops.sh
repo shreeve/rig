@@ -1,4 +1,5 @@
-# std.file's layer of operations: append, rename, mkdir, remove, exists,
+# std.file's layer of operations: append, rename, mkdir, remove, unlink,
+# rmdir, exists,
 # open and create giving a File read and written as a net.Stream is,
 # missing parents made only with `parents: true`, each failure a
 # FileError; and every call a fallible waiting point, failing in a
@@ -60,6 +61,32 @@ sub main()!
   if file.read_dir("d")! as es
     for e in es
       print(" ", e.name, e.kind)
+EOF2
+
+# `unlink` removes anything but a directory, a link itself and not what
+# it names; `rmdir` only an empty directory. Each is one system call, so
+# where the systems differ (a trailing `/`), each gives its own answer.
+cat >rm.rig <<'EOF2'
+use std.file
+
+sub main()!
+  print(file.unlink("u/f")!, file.unlink("u/link")!, file.unlink("u/fifo")!, file.unlink("u/none")!)
+  print(file.exists("u/d")!, file.exists("u/link")!)
+  _ = file.rmdir("u/full") catch |e|
+    print("rmdir a full directory", e)
+    false
+  _ = file.rmdir("u/elink") catch |e|
+    print("rmdir a link to a directory", e)
+    false
+  slash = file.rmdir("u/elink/") catch |e|
+    print("rmdir link/", e)
+    false
+  print("rmdir link/", slash, file.exists("u/e")!)
+  dir = file.unlink("u/d/") catch |e|
+    print("unlink dir/", e)
+    false
+  print("unlink dir/", dir)
+  print(file.rmdir("u/d")!, file.rmdir("u/d")!, file.rmdir("u/none")!, file.exists("u/full/x")!)
 EOF2
 
 # Past a deadline, or canceled, a call fails before it reaches the pool;
@@ -129,6 +156,12 @@ sub main()
     print("append", e)
   _ = file.remove("ro/f.txt") catch |e|
     print("remove", e)
+    false
+  _ = file.unlink("ro/f.txt") catch |e|
+    print("unlink", e)
+    false
+  _ = file.rmdir("ro/sub") catch |e|
+    print("rmdir", e)
     false
   file.rename("ro/f.txt", "g.txt") catch |e|
     print("rename", e)
@@ -221,6 +254,23 @@ read a directory FileError.is_directory
   long2.txt .file
   new .directory
   x .directory'
+# macOS follows the link in `link/` and removes the directory it names,
+# where Linux will not; and `unlink` of a directory fails with each
+# system's reason.
+if [[ $(uname -s) == Darwin ]]; then
+    want_slash='rmdir link/ true false'
+    want_dir=$'unlink dir/ FileError.not_permitted\nunlink dir/ false'
+else
+    want_slash=$'rmdir link/ FileError.not_directory\nrmdir link/ false true'
+    want_dir=$'unlink dir/ FileError.is_directory\nunlink dir/ false'
+fi
+want_rm="true true true false
+true false
+rmdir a full directory FileError.not_empty
+rmdir a link to a directory FileError.not_directory
+$want_slash
+$want_dir
+true false false true"
 out=$(rig run --release fds.rig 2>&1); expect_rc $? 0 "fds: $out"
 expect_eq "$out" "true true" "canceled reads leave no descriptor open"
 
@@ -232,14 +282,18 @@ for mode in debug release; do
     mkdir d; ln -s nowhere d/link
     out=$(RIG_SANITIZE=1 rig run $flag ops.rig 2>&1); expect_rc $? 0 "$mode ops: $out"
     expect_eq "$out" "$want_ops" "$mode: append, mkdir, rename, remove, open, create"
+    rm -rf u; mkdir -p u/d u/e u/full; printf 'f' >u/f; printf 'x' >u/full/x
+    ln -s d u/link; ln -s e u/elink; mkfifo u/fifo
+    out=$(RIG_SANITIZE=1 rig run $flag rm.rig 2>&1); expect_rc $? 0 "$mode rm: $out"
+    expect_eq "$out" "$want_rm" "$mode: unlink and rmdir"
     out=$(RIG_SANITIZE=1 rig run $flag stop.rig 2>&1); expect_rc $? 0 "$mode stop: $out"
     expect_eq "$out" $'hello world\nsleep Stop.timeout\n-1\n-2\ntrue\n-3\n-4\ntrue' "$mode: past a deadline, and canceled, before and on the pool"
     if [[ $(id -u) -ne 0 ]]; then
-        rm -rf ro shut; mkdir ro shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
+        rm -rf ro shut; mkdir ro ro/sub shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?
         chmod 700 ro shut
         expect_rc $rc 0 "$mode denied: $out"
-        expect_eq "$out" $'append FileError.denied\nremove FileError.denied\nrename FileError.denied\ncreate FileError.denied\nexists FileError.denied' "$mode: denied"
+        expect_eq "$out" $'append FileError.denied\nremove FileError.denied\nunlink FileError.denied\nrmdir FileError.denied\nrename FileError.denied\ncreate FileError.denied\nexists FileError.denied' "$mode: denied"
     fi
 done
 exit 0
