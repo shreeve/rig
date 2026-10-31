@@ -93,3 +93,7 @@ which is why that row reads faster.
 | 2026-10-30 | #783: a stream splits; an end wakes only its waits (pup core 6) | rig-fast | 148130 | 342 us | 2746 us | 8.6 KiB |
 | 2026-10-30 | main before #788, alternated (pup core 6) | rig-fast | 204149 | 189 us | 3421 us | 8.6 KiB |
 | 2026-10-30 | #788: reads grow a String unfilled (pup core 6) | rig-fast | 203772 | 194 us | 3428 us | 8.6 KiB |
+| 2026-10-31 | main 1ac34e1bb before #819, alternated (pup core 6) | rig-fast | 199504 | 182 us | 3454 us | 8.6 KiB |
+| 2026-10-31 | #819: a pool call's waiter yields while the call finishes (pup core 6) | rig-fast | 198715 | 183 us | 3450 us | 8.6 KiB |
+| 2026-10-31 | main 1ac34e1bb before #819, alternated (Mac, load 8-11) | rig-fast | 167443 | 358 us | 799 us | 16.6 KiB |
+| 2026-10-31 | #819: a pool call's waiter yields while the call finishes (Mac, load 8-11) | rig-fast | 162179 | 386 us | 638 us | 16.6 KiB |
