@@ -210,6 +210,14 @@ Other:
     opened to read), once `denied`, is `bad_descriptor`; a program that
     caught `denied` for those catches the new member too. What was
     `failed` for these reasons is its own member now.
+53. *Unsound:* a member with fields written short without them, `.bad`,
+    where an `error` or a union goes, was accepted and printed fields
+    never written. Give it its fields, `.bad(at: 3)`, or name its set
+    with them, `Oops.bad(at: 3)`.
+54. A short-form member lent where a view of a union or of
+    `error` goes, `.plain` passed to a `?Both`, is rejected, as
+    `Oops.plain` there is. Bind it first, `k: Both = .plain`, then lend
+    `?k`. Trig needs no migration: its emitted Zig is unchanged.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
