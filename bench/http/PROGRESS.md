@@ -91,3 +91,5 @@ which is why that row reads faster.
 | 2026-10-30 | #783: a stream splits; an end wakes only its waits (no idle run, the Mac busy) | rig-safe | 157041 | 379 us | 1156 us |  |
 | 2026-10-30 | main 344257fc0 before #783, alternated (pup core 6) | rig-fast | 149186 | 339 us | 2750 us | 8.6 KiB |
 | 2026-10-30 | #783: a stream splits; an end wakes only its waits (pup core 6) | rig-fast | 148130 | 342 us | 2746 us | 8.6 KiB |
+| 2026-10-30 | main before #788, alternated (pup core 6) | rig-fast | 204149 | 189 us | 3421 us | 8.6 KiB |
+| 2026-10-30 | #788: reads grow a String unfilled (pup core 6) | rig-fast | 203772 | 194 us | 3428 us | 8.6 KiB |

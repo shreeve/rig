@@ -92,3 +92,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-30 | #783: a stream splits; an end wakes only its waits | rig-safe | 5.2 ns | 26 ns | 0.9 ns |
 | 2026-10-30 | main 344257fc0 before #783, alternated (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
 | 2026-10-30 | #783: a stream splits; an end wakes only its waits (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
+| 2026-10-30 | main before #788, alternated (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
+| 2026-10-30 | #788: reads grow a String unfilled (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
