@@ -1,0 +1,86 @@
+
+ts-pattern
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| af6-pgo | 40 | 783.1 | 771.2 | 703.6 | 81.1 | 3.341G | 340M | 7.960G | 40,245 | 2,017k | 426k | 79.2M | 1,401k | 249.9 | same exit 2 |
+| af6-pgo/small | 40 | 783.1 | 771.2 | 703.6 | 81.1 | 3.341G | 340M | 7.960G | 40,245 | 2,017k | 426k | 79.2M | 1,401k | 249.9 | same exit 2 |
+| 1b2-pgo | 40 | 792.1 | 776.0 | 711.2 | 79.5 | 3.398G | 339M | 7.979G | 40,415 | 2,034k | 451k | 85.7M | 1,451k | 247.7 | same exit 2 |
+| 1b2-pgo/small | 40 | 792.1 | 776.0 | 711.2 | 79.5 | 3.398G | 339M | 7.979G | 40,415 | 2,034k | 451k | 85.7M | 1,451k | 247.7 | same exit 2 |
+| tsrs | 40 | 658.6 | 650.1 | 615.8 | 43.0 | 2.938G | 180M | 7.227G | 17,792 | 615k | 588k | 21.5M | 1,188k | 201.9 | same exit 2 |
+
+af6-pgo / tsrs: wall median 1.189, fastest 1.186, user 1.143, system 1.887, user cycles 1.1373, kernel cycles 1.886, instructions 1.1014, faults 2.262, dTLB load walks 3.277, dTLB store walks 0.725, iTLB walks 1.180, RSS 1.238
+af6-pgo/small / tsrs: wall median 1.189, fastest 1.186, user 1.143, system 1.887, user cycles 1.1373, kernel cycles 1.886, instructions 1.1014, faults 2.262, dTLB load walks 3.277, dTLB store walks 0.725, iTLB walks 1.180, RSS 1.238
+1b2-pgo / tsrs: wall median 1.203, fastest 1.194, user 1.155, system 1.849, user cycles 1.1567, kernel cycles 1.882, instructions 1.1041, faults 2.272, dTLB load walks 3.305, dTLB store walks 0.767, iTLB walks 1.222, RSS 1.227
+af6-pgo / 1b2-pgo: wall median 0.989, fastest 0.994, user 0.989, system 1.020, user cycles 0.9833, kernel cycles 1.002, instructions 0.9976, faults 0.996, dTLB load walks 0.992, dTLB store walks 0.946, iTLB walks 0.966, RSS 1.009
+af6-pgo/small / 1b2-pgo/small: wall median 0.989, fastest 0.994, user 0.989, system 1.020, user cycles 0.9833, kernel cycles 1.002, instructions 0.9976, faults 0.996, dTLB load walks 0.992, dTLB store walks 0.946, iTLB walks 0.966, RSS 1.009
+load: 1.35 to 2.4
+free 2 MiB blocks before a run: 5 to 68, median 40.0
+
+zod3
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| af6-pgo | 40 | 159.1 | 153.2 | 134.9 | 24.0 | 0.625G | 95M | 1.401G | 9,920 | 209k | 100k | 10.7M | 262k | 79.9 | same exit 2 |
+| af6-pgo/small | 40 | 159.1 | 153.2 | 134.9 | 24.0 | 0.625G | 95M | 1.401G | 9,920 | 209k | 100k | 10.7M | 262k | 79.9 | same exit 2 |
+| 1b2-pgo | 40 | 156.9 | 151.5 | 133.9 | 22.9 | 0.631G | 97M | 1.410G | 10,061 | 209k | 104k | 11.2M | 271k | 77.9 | same exit 2 |
+| 1b2-pgo/small | 40 | 156.9 | 151.5 | 133.9 | 22.9 | 0.631G | 97M | 1.410G | 10,061 | 209k | 104k | 11.2M | 271k | 77.9 | same exit 2 |
+| tsrs | 40 | 116.8 | 115.1 | 103.0 | 13.1 | 0.490G | 54M | 1.206G | 5,416 | 60k | 73k | 3.1M | 207k | 53.7 | same exit 2 |
+
+af6-pgo / tsrs: wall median 1.362, fastest 1.331, user 1.310, system 1.833, user cycles 1.2741, kernel cycles 1.767, instructions 1.1614, faults 1.832, dTLB load walks 3.477, dTLB store walks 1.359, iTLB walks 1.266, RSS 1.488
+af6-pgo/small / tsrs: wall median 1.362, fastest 1.331, user 1.310, system 1.833, user cycles 1.2741, kernel cycles 1.767, instructions 1.1614, faults 1.832, dTLB load walks 3.477, dTLB store walks 1.359, iTLB walks 1.266, RSS 1.488
+1b2-pgo / tsrs: wall median 1.343, fastest 1.316, user 1.300, system 1.753, user cycles 1.2875, kernel cycles 1.792, instructions 1.1688, faults 1.858, dTLB load walks 3.475, dTLB store walks 1.418, iTLB walks 1.309, RSS 1.451
+af6-pgo / 1b2-pgo: wall median 1.015, fastest 1.011, user 1.007, system 1.046, user cycles 0.9895, kernel cycles 0.986, instructions 0.9937, faults 0.986, dTLB load walks 1.000, dTLB store walks 0.958, iTLB walks 0.967, RSS 1.026
+af6-pgo/small / 1b2-pgo/small: wall median 1.015, fastest 1.011, user 1.007, system 1.046, user cycles 0.9895, kernel cycles 0.986, instructions 0.9937, faults 0.986, dTLB load walks 1.000, dTLB store walks 0.958, iTLB walks 0.967, RSS 1.026
+load: 1.4 to 2.0
+free 2 MiB blocks before a run: 46 to 68, median 60.0
+
+neverthrow
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| af6-pgo | 20 | 29.1 | 26.2 | 19.0 | 10.0 | 0.082G | 28M | 0.187G | 3,083 | 13k | 30k | 0.7M | 34k | 32.7 | same exit 2 |
+| 1b2-pgo | 20 | 27.2 | 26.4 | 19.7 | 7.5 | 0.088G | 30M | 0.191G | 3,221 | 13k | 32k | 0.8M | 35k | 31.2 | same exit 2 |
+| tsrs | 20 | 17.7 | 16.9 | 11.2 | 6.0 | 0.055G | 21M | 0.134G | 2,356 | 9k | 34k | 0.3M | 25k | 17.8 | same exit 2 |
+
+af6-pgo / tsrs: wall median 1.643, fastest 1.548, user 1.703, system 1.660, user cycles 1.4718, kernel cycles 1.339, instructions 1.4012, faults 1.309, dTLB load walks 1.372, dTLB store walks 0.906, iTLB walks 1.338, RSS 1.841
+1b2-pgo / tsrs: wall median 1.537, fastest 1.562, user 1.767, system 1.256, user cycles 1.5858, kernel cycles 1.428, instructions 1.4279, faults 1.367, dTLB load walks 1.373, dTLB store walks 0.963, iTLB walks 1.381, RSS 1.756
+af6-pgo / 1b2-pgo: wall median 1.069, fastest 0.991, user 0.964, system 1.321, user cycles 0.9281, kernel cycles 0.938, instructions 0.9813, faults 0.957, dTLB load walks 0.999, dTLB store walks 0.941, iTLB walks 0.969, RSS 1.049
+load: 1.63 to 1.69
+free 2 MiB blocks before a run: 64 to 66, median 64.0
+
+superstruct
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| af6-pgo | 20 | 34.9 | 33.6 | 26.1 | 9.5 | 0.114G | 26M | 0.236G | 2,741 | 18k | 24k | 1.5M | 43k | 25.1 | same exit 2 |
+| 1b2-pgo | 20 | 33.3 | 32.2 | 25.0 | 8.0 | 0.119G | 27M | 0.237G | 2,882 | 18k | 26k | 1.6M | 45k | 23.6 | same exit 2 |
+| tsrs | 20 | 21.8 | 20.4 | 15.4 | 6.1 | 0.074G | 22M | 0.158G | 2,085 | 9k | 21k | 0.6M | 39k | 18.8 | same exit 2 |
+
+af6-pgo / tsrs: wall median 1.600, fastest 1.649, user 1.697, system 1.572, user cycles 1.5469, kernel cycles 1.168, instructions 1.4912, faults 1.315, dTLB load walks 1.881, dTLB store walks 1.145, iTLB walks 1.109, RSS 1.336
+1b2-pgo / tsrs: wall median 1.525, fastest 1.584, user 1.625, system 1.320, user cycles 1.6212, kernel cycles 1.222, instructions 1.5002, faults 1.382, dTLB load walks 1.870, dTLB store walks 1.249, iTLB walks 1.168, RSS 1.254
+af6-pgo / 1b2-pgo: wall median 1.049, fastest 1.041, user 1.044, system 1.191, user cycles 0.9541, kernel cycles 0.956, instructions 0.9940, faults 0.951, dTLB load walks 1.006, dTLB store walks 0.917, iTLB walks 0.949, RSS 1.065
+load: 1.61 to 1.92
+free 2 MiB blocks before a run: 57 to 66, median 62.0
+
+mitt
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| af6-pgo | 20 | 27.4 | 26.2 | 17.8 | 9.2 | 0.073G | 29M | 0.176G | 2,639 | 12k | 27k | 0.4M | 28k | 33.6 | same exit 2 |
+| 1b2-pgo | 20 | 24.8 | 24.2 | 14.6 | 10.6 | 0.077G | 30M | 0.180G | 2,770 | 12k | 29k | 0.5M | 29k | 31.8 | same exit 2 |
+| tsrs | 20 | 16.8 | 15.8 | 9.6 | 6.8 | 0.049G | 23M | 0.127G | 2,393 | 10k | 34k | 0.3M | 21k | 17.8 | same exit 2 |
+
+af6-pgo / tsrs: wall median 1.630, fastest 1.656, user 1.859, system 1.366, user cycles 1.4791, kernel cycles 1.266, instructions 1.3897, faults 1.103, dTLB load walks 1.247, dTLB store walks 0.790, iTLB walks 1.341, RSS 1.892
+1b2-pgo / tsrs: wall median 1.478, fastest 1.531, user 1.521, system 1.573, user cycles 1.5711, kernel cycles 1.322, instructions 1.4207, faults 1.158, dTLB load walks 1.195, dTLB store walks 0.842, iTLB walks 1.380, RSS 1.793
+af6-pgo / 1b2-pgo: wall median 1.103, fastest 1.082, user 1.222, system 0.869, user cycles 0.9415, kernel cycles 0.958, instructions 0.9782, faults 0.953, dTLB load walks 1.044, dTLB store walks 0.939, iTLB walks 0.972, RSS 1.055
+load: 1.71 to 1.83
+free 2 MiB blocks before a run: 62 to 64, median 62.0
+
+tiny-invariant
+| variant | n | wall median ms | wall fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | dTLB load walks | dTLB store walks | STLB hits | iTLB walks | peak RSS MB | output |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| af6-pgo | 20 | 72.7 | 71.0 | 59.2 | 13.6 | 0.265G | 52M | 0.795G | 6,043 | 47k | 53k | 3.8M | 63k | 51.5 | same exit 2 |
+| 1b2-pgo | 20 | 70.7 | 69.2 | 56.4 | 14.0 | 0.268G | 53M | 0.794G | 6,178 | 49k | 56k | 4.0M | 66k | 49.9 | same exit 2 |
+| tsrs | 20 | 52.6 | 50.4 | 42.2 | 10.0 | 0.200G | 35M | 0.603G | 4,350 | 18k | 52k | 1.3M | 53k | 35.5 | same exit 2 |
+
+af6-pgo / tsrs: wall median 1.380, fastest 1.408, user 1.402, system 1.349, user cycles 1.3269, kernel cycles 1.457, instructions 1.3190, faults 1.389, dTLB load walks 2.629, dTLB store walks 1.021, iTLB walks 1.201, RSS 1.448
+1b2-pgo / tsrs: wall median 1.342, fastest 1.372, user 1.336, system 1.390, user cycles 1.3426, kernel cycles 1.492, instructions 1.3172, faults 1.420, dTLB load walks 2.695, dTLB store walks 1.079, iTLB walks 1.259, RSS 1.403
+af6-pgo / 1b2-pgo: wall median 1.028, fastest 1.026, user 1.050, system 0.970, user cycles 0.9883, kernel cycles 0.976, instructions 1.0013, faults 0.978, dTLB load walks 0.975, dTLB store walks 0.947, iTLB walks 0.954, RSS 1.032
+load: 1.76 to 1.95
+free 2 MiB blocks before a run: 60 to 64, median 63.0

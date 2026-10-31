@@ -1,0 +1,6 @@
+| project | variant | n | wall median ms | fastest ms | user ms | system ms | user cycles | kernel cycles | instructions | page faults | peak RSS MB |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| empty | trig | 20 | 26.6 | 22.3 | 16.8 | 9.1 | 66M | 25M | 165M | 2,330 | 30.3 |
+| empty | tsrs | 20 | 15.5 | 13.8 | 8.9 | 6.0 | 43M | 22M | 115M | 2,290 | 17.2 |
+| nolib | trig | 20 | 9.5 | 6.5 | 4.5 | 4.5 | 7M | 6M | 2M | 414 | 17.2 |
+| nolib | tsrs | 20 | 6.4 | 5.3 | 1.8 | 4.3 | 5M | 10M | 4M | 1,137 | 17.2 |

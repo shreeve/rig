@@ -1,0 +1,320 @@
+== trig zod3 1
+Files:             180
+Lines:           76405
+Identifiers:     79970
+Symbols:        199073
+Types:           90910
+Instantiations: 287551
+Memory used:        0K
+Memory allocs:       0
+Config time:    0.001s
+Parse time:     0.023s
+Bind time:      0.007s
+Check time:     0.114s
+Emit time:      0.000s
+Total time:     0.147s
+== trig zod3 2
+Files:             180
+Lines:           76405
+Identifiers:     79970
+Symbols:        199073
+Types:           90910
+Instantiations: 287551
+Memory used:        0K
+Memory allocs:       0
+Config time:    0.001s
+Parse time:     0.021s
+Bind time:      0.007s
+Check time:     0.113s
+Emit time:      0.000s
+Total time:     0.142s
+== trig zod3 3
+Files:             180
+Lines:           76405
+Identifiers:     79970
+Symbols:        199073
+Types:           90910
+Instantiations: 287551
+Memory used:        0K
+Memory allocs:       0
+Config time:    0.001s
+Parse time:     0.020s
+Bind time:      0.007s
+Check time:     0.114s
+Emit time:      0.000s
+Total time:     0.143s
+== trig zod3 4
+Files:             180
+Lines:           76405
+Identifiers:     79970
+Symbols:        199073
+Types:           90910
+Instantiations: 287551
+Memory used:        0K
+Memory allocs:       0
+Config time:    0.001s
+Parse time:     0.020s
+Bind time:      0.007s
+Check time:     0.113s
+Emit time:      0.000s
+Total time:     0.142s
+== trig zod3 5
+Files:             180
+Lines:           76405
+Identifiers:     79970
+Symbols:        199073
+Types:           90910
+Instantiations: 287551
+Memory used:        0K
+Memory allocs:       0
+Config time:    0.001s
+Parse time:     0.020s
+Bind time:      0.007s
+Check time:     0.115s
+Emit time:      0.000s
+Total time:     0.144s
+== tsrs zod3 1
+Files:             177
+Lines:           75267
+Identifiers:     79096
+Symbols:        178125
+Types:           90555
+Instantiations: 287438
+Memory used:    55212K
+Memory allocs:       0
+Config time:    0.006s
+Parse time:     0.011s
+Bind time:      0.003s
+Check time:     0.092s
+Emit time:      0.000s
+Total time:     0.113s
+Config: include glob:                  0.004s
+Program: root file lookups:            0.000s
+== tsrs zod3 2
+Files:             177
+Lines:           75267
+Identifiers:     79096
+Symbols:        178125
+Types:           90555
+Instantiations: 287438
+Memory used:    55272K
+Memory allocs:       0
+Config time:    0.000s
+Parse time:     0.011s
+Bind time:      0.003s
+Check time:     0.091s
+Emit time:      0.000s
+Total time:     0.107s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== tsrs zod3 3
+Files:             177
+Lines:           75267
+Identifiers:     79096
+Symbols:        178125
+Types:           90555
+Instantiations: 287438
+Memory used:    55312K
+Memory allocs:       0
+Config time:    0.000s
+Parse time:     0.012s
+Bind time:      0.003s
+Check time:     0.091s
+Emit time:      0.000s
+Total time:     0.107s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== tsrs zod3 4
+Files:             177
+Lines:           75267
+Identifiers:     79096
+Symbols:        178125
+Types:           90555
+Instantiations: 287438
+Memory used:    55268K
+Memory allocs:       0
+Config time:    0.000s
+Parse time:     0.011s
+Bind time:      0.003s
+Check time:     0.095s
+Emit time:      0.000s
+Total time:     0.110s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== tsrs zod3 5
+Files:             177
+Lines:           75267
+Identifiers:     79096
+Symbols:        178125
+Types:           90555
+Instantiations: 287438
+Memory used:    55268K
+Memory allocs:       0
+Config time:    0.000s
+Parse time:     0.012s
+Bind time:      0.003s
+Check time:     0.090s
+Emit time:      0.000s
+Total time:     0.107s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== trig ts-pattern 1
+Files:              172
+Lines:            78745
+Identifiers:      79298
+Symbols:         954642
+Types:           508937
+Instantiations: 3638908
+Memory used:         0K
+Memory allocs:        0
+Config time:     0.001s
+Parse time:      0.021s
+Bind time:       0.007s
+Check time:      0.705s
+Emit time:       0.000s
+Total time:      0.737s
+== trig ts-pattern 2
+Files:              172
+Lines:            78745
+Identifiers:      79298
+Symbols:         954642
+Types:           508937
+Instantiations: 3638908
+Memory used:         0K
+Memory allocs:        0
+Config time:     0.001s
+Parse time:      0.022s
+Bind time:       0.008s
+Check time:      0.702s
+Emit time:       0.000s
+Total time:      0.735s
+== trig ts-pattern 3
+Files:              172
+Lines:            78745
+Identifiers:      79298
+Symbols:         954642
+Types:           508937
+Instantiations: 3638908
+Memory used:         0K
+Memory allocs:        0
+Config time:     0.001s
+Parse time:      0.021s
+Bind time:       0.007s
+Check time:      0.695s
+Emit time:       0.000s
+Total time:      0.726s
+== trig ts-pattern 4
+Files:              172
+Lines:            78745
+Identifiers:      79298
+Symbols:         954642
+Types:           508937
+Instantiations: 3638908
+Memory used:         0K
+Memory allocs:        0
+Config time:     0.001s
+Parse time:      0.021s
+Bind time:       0.007s
+Check time:      0.717s
+Emit time:       0.000s
+Total time:      0.748s
+== trig ts-pattern 5
+Files:              172
+Lines:            78745
+Identifiers:      79298
+Symbols:         954642
+Types:           508937
+Instantiations: 3638908
+Memory used:         0K
+Memory allocs:        0
+Config time:     0.001s
+Parse time:      0.019s
+Bind time:       0.007s
+Check time:      0.698s
+Emit time:       0.000s
+Total time:      0.728s
+== tsrs ts-pattern 1
+Files:              169
+Lines:            77607
+Identifiers:      78424
+Symbols:         933321
+Types:           506567
+Instantiations: 3638700
+Memory used:    207080K
+Memory allocs:        0
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.003s
+Check time:      0.633s
+Emit time:       0.000s
+Total time:      0.651s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== tsrs ts-pattern 2
+Files:              169
+Lines:            77607
+Identifiers:      78424
+Symbols:         933321
+Types:           506567
+Instantiations: 3638700
+Memory used:    207048K
+Memory allocs:        0
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.003s
+Check time:      0.621s
+Emit time:       0.000s
+Total time:      0.639s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== tsrs ts-pattern 3
+Files:              169
+Lines:            77607
+Identifiers:      78424
+Symbols:         933321
+Types:           506567
+Instantiations: 3638700
+Memory used:    207048K
+Memory allocs:        0
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.003s
+Check time:      0.619s
+Emit time:       0.000s
+Total time:      0.637s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== tsrs ts-pattern 4
+Files:              169
+Lines:            77607
+Identifiers:      78424
+Symbols:         933321
+Types:           506567
+Instantiations: 3638700
+Memory used:    207028K
+Memory allocs:        0
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.003s
+Check time:      0.615s
+Emit time:       0.000s
+Total time:      0.633s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+== tsrs ts-pattern 5
+Files:              169
+Lines:            77607
+Identifiers:      78424
+Symbols:         933321
+Types:           506567
+Instantiations: 3638700
+Memory used:    207052K
+Memory allocs:        0
+Config time:     0.000s
+Parse time:      0.012s
+Bind time:       0.003s
+Check time:      0.622s
+Emit time:       0.000s
+Total time:      0.639s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s

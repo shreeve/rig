@@ -1,0 +1,140 @@
+######## zod3
+
+trig: 3 runs, 9,920 faults a run
+      9817  user
+        96  kernel: __x64_sys_readv
+         5  exec
+         1  kernel: __x64_sys_openat
+         1  kernel: __x64_sys_statx
+  in user code, by function:
+      1764  checker.Checker.resolve_structured_type_members_worker
+      1623  checker.Checker.instantiate_type_with_alias
+       419  compiler_rt.memcpy.memcpyFast
+       336  checker.Checker.get_resolved_signature
+       334  checker.Checker.get_type_of_symbol
+       304  parser.Parser.create_identifier_with_diagnostic
+       277  compiler_rt.memmove.memmoveFast
+       266  checker.Checker.instantiate_mapped_constituent
+       261  checker.Checker.get_signature_from_declaration
+       251  compiler_rt.fastMemset
+       248  checker.Checker.set_structured_type_members
+       247  checker.Checker.get_type_from_type_node_worker
+       184  parser.Parser.parse_postfix_type_or_higher
+       161  binder.Binder.declare_symbol_and_add_to_symbol_table
+       157  checker.Checker.instantiate_signature_ex
+       132  checker.Checker.get_union_type_ex
+       131  checker.Checker.get_union_type_worker
+       123  parser.Parser.parse_list
+       118  checker.Checker.check_identifier
+       111  checker.Checker.instantiate_symbol
+        99  checker.Checker.is_related_to_ex
+        98  checker.Checker.get_intersection_type_ex
+        95  parser.Parser.parse_parameter_ex
+        86  checker.Checker.get_type_with_this_argument
+        77  parser.Parser.new
+
+tsrs: 3 runs, 5,416 faults a run
+      4648  user
+       754  kernel: __x64_sys_read
+         9  exec
+         1  kernel: __x64_sys_openat
+         1  kernel: __x64_sys_rt_sigprocmask
+         1  kernel: __x64_sys_statx
+         1  kernel: __x64_sys_getdents64
+         1  kernel: [unknown]
+  in user code, by function:
+      3404  [unknown]
+       449  _dl_relocate_object_no_relro
+       353  __memset_avx2_unaligned_erms
+       140  __memmove_avx_unaligned_erms
+        36  _int_malloc
+        28  _dl_map_object_from_fd
+        23  ?
+        13  _nl_intern_locale_data
+        12  _dl_start
+        12  __libc_early_init
+        11  _dl_process_pt_gnu_property
+        11  dl_main
+         9  memset
+         6  __x86_cacheinfo_ifunc
+         6  __getrandom_early_init
+         6  _int_realloc
+         5  __memcmp_avx2_movbe
+         5  strcmp
+         5  _dl_allocate_tls_storage
+         4  _dl_cache_libcmp
+         4  __vfscanf_internal
+         4  __GI___tunables_init
+         3  _start
+         3  _dl_init_paths
+         3  _dl_load_cache_lookup
+######## ts-pattern
+
+trig: 3 runs, 31,865 faults a run
+     31788  user
+        69  kernel: __x64_sys_readv
+         6  exec
+         1  kernel: __x64_sys_openat
+         1  kernel: __x64_sys_statx
+  in user code, by function:
+      6985  checker.Checker.instantiate_type_with_alias
+      6932  checker.Checker.resolve_structured_type_members_worker
+      1586  checker.Checker.get_intersection_type_ex
+      1279  checker.Checker.get_conditional_type_worker
+      1173  checker.Checker.add_mapped_members_for_key_type
+       859  checker.Checker.instantiate_symbol
+       836  checker.Checker.set_structured_type_members
+       799  compiler_rt.fastMemset
+       713  checker.Checker.get_type_of_symbol
+       653  checker.Checker.get_tail_recursion_root
+       627  checker.Checker.is_related_to_ex
+       601  checker.Checker.get_union_type_ex
+       570  checker.Checker.instantiate_mapped_constituent
+       540  checker.Checker.create_type_reference_ex
+       486  checker.Checker.new_inference_context_worker
+       409  checker.Checker.instantiate_signature_ex
+       382  checker.Checker.create_union_or_intersection_property
+       347  checker.Checker.get_type_with_this_argument
+       342  compiler_rt.memcpy.memcpyFast
+       333  checker.Checker.get_type_from_type_node_worker
+       303  checker.Checker.get_union_type_worker
+       288  parser.Parser.create_identifier_with_diagnostic
+       263  checker.Checker.get_union_type_of
+       242  compiler_rt.memmove.memmoveFast
+       195  checker.Checker.get_signature_from_declaration
+
+tsrs: 3 runs, 17,793 faults a run
+     17013  user
+       764  kernel: __x64_sys_read
+        10  exec
+         1  kernel: __x64_sys_statx
+         1  kernel: __x64_sys_openat
+         1  kernel: __x64_sys_rt_sigprocmask
+         1  kernel: __x64_sys_getdents64
+         1  kernel: [unknown]
+  in user code, by function:
+     14865  [unknown]
+      1258  __memset_avx2_unaligned_erms
+       449  _dl_relocate_object_no_relro
+       138  __memmove_avx_unaligned_erms
+        37  _int_malloc
+        28  _dl_map_object_from_fd
+        25  ?
+        13  _nl_intern_locale_data
+        13  _dl_start
+        12  __libc_early_init
+        12  _dl_process_pt_gnu_property
+        11  dl_main
+         9  memset
+         6  __x86_cacheinfo_ifunc
+         6  __getrandom_early_init
+         6  _int_realloc
+         5  strcmp
+         5  _dl_allocate_tls_storage
+         4  _dl_cache_libcmp
+         4  __vfscanf_internal
+         3  __GI___tunables_init
+         3  _dl_load_cache_lookup
+         3  __memcmp_avx2_movbe
+         3  _start
+         3  _dl_init_paths
