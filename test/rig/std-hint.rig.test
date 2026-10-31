@@ -40,7 +40,7 @@ test "hint keep keeps each round's work", "500500", release: true
 code "hint keep calls the module's function with the type first", /__rig_m\d+_std_hint\.keep\(i64, 3\)/
   hint.keep(3)
 
-fail "hint keep reads only", "3:13: `!n` here is read, not held: `hint.keep` only reads `n`; write `hint.keep(?n)`"
+fail "hint keep reads only", "3:11: `!n` here is read, not held: `hint.keep` only reads `n`; write `hint.keep(?n)`"
   # `keep` lends a read view, so it takes no `!x`.
   n = 1
   hint.keep(!n)

@@ -877,7 +877,7 @@ test "for over iterators", release: true, '''
     "none"
   print(n)
 
-fail "instant is not int", "5:24: operator `-` requires numeric operands", "6:13: only the standard library's module `std.time` can construct `std.time.Instant`", errors: 2
+fail "instant is not int", "6:24: operator `-` requires numeric operands", "7:13: only the standard library's module `std.time` can construct `std.time.Instant`", errors: 2
   # A monotonic reading is an `Instant`, not a number: it cannot be mixed
   # with the wall clock, nor made from its field; only `Instant.at` says
   # a number is one.

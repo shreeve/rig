@@ -440,7 +440,7 @@ test "net ip prefix", '''
     _ = !seen.add(net.Ip.parse(s)!.prefix(64))
   print(seen.len - 1)
 
-bomb "net ip prefix negative", "net.Ip.prefix: a negative length, -1"
+bomb "net ip prefix negative", "net.Ip.prefix: the length -1 is negative"
   print(net.Ip.v4(1).prefix(-1))
 
 test "net addr parse and print", '''

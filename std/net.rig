@@ -47,7 +47,7 @@ pub enum Ip: Eq + Hash + Print
   # panics.
   pub fun prefix(?@, n: Int) -> Ip
     if n < 0
-      panic("net.Ip.prefix: a negative length, ", n)
+      panic("net.Ip.prefix: the length", n, "is negative")
     match @
       .v4(b) => .v4(b if n >= 32 else b & (U32.max >> n).not())
       .v6(b) => .v6(b if n >= 128 else b & (U128.max >> n).not())

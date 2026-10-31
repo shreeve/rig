@@ -2714,7 +2714,7 @@ pub const TypeResolver = struct {
         const name = ir.get(node, .name);
         const text = identAt(self.ctx.source, name) orelse "it";
         const tparams = sema.tparamsOf(node).items();
-        for (tparams) |tp| if (tp != .src) {
+        for (tparams) |tp| if (tp != .src or sema.hasBounds(self.ctx.symbols.items[self.ctx.symbolOf(tp) orelse continue])) {
             try self.ctx.errAt(tp, "a Zig-backed function takes only type parameters, each a bare name: write `{s}` in Rig", .{text});
             break;
         };
