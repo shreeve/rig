@@ -16,13 +16,14 @@ move. This record measures the other five projects too.
 - The cost is the hand-off of `stat`. zod3 makes 290 of its 387 pool
   calls to `stat`, each about 1.6 µs of work and 4 µs of hand-off on a
   quiet Mac.
-- Made on the calling thread, the metadata calls make zod3 2.2-2.9%
-  faster by the median and mitt 3.5-3.9% on the Mac. That is over the
-  bar.
-- tiny-invariant, superstruct and neverthrow gain 0.5-1.6%, under it.
-  ts-pattern is within the noise, as inline-idle found.
-- pup (x86, the machine standing-4 timed) is not measured yet. It waits
-  for a pup slot. No Rig change is proposed until it is.
+- On the Mac, unpinned, the metadata calls run on the calling thread
+  make zod3 2.2-2.9% faster by the median and mitt 3.5-3.9%, over the
+  bar. The other projects gain 0.5-1.6%, and ts-pattern is within the
+  noise, as inline-idle found.
+- **On pup, as standing-4 times Trig (PGO, one P-core), the same change
+  saves 0.4-0.9% of user and kernel cycles together and no wall time.**
+  Kernel cycles are 2-4% fewer and user cycles level. That is under the
+  bar, so no fix is built.
 
 ## Method
 
@@ -115,7 +116,54 @@ Wall time by median (and by minimum), against `main`
 - **ts-pattern's 255 metadata calls** are about 1 ms of a 550-650 ms run,
   within its noise, as inline-idle found.
 
-## What would carry it, if pup confirms
+## The ceiling on pup (x86)
+
+- **Builds.** Trig `2ba0719` by Rig main's code (`179c50afa`; `src/` and
+  `std/` are the same at `36be46744`), `rig build --release --pgo` trained
+  by `tools/trig/bolt-train`, one build at a time through `slot.sh`
+  ([pgo-one.sh](data/pgo-one.sh), [pup-build.out](data/pup-build.out)):
+  - `main`, sha256 `8311f3f91fe96faa`;
+  - `meta` (as on the Mac), `5eebe3d827fb43eb`.
+- **Timing.** [time-rot.sh](data/time-rot.sh), standing-4's harness: P-core
+  6 with its sibling 7 idle, `perf stat`, peak RSS. The variants run in
+  turn, the first rotated each round, 20 rounds of each project. Load was
+  1.4-3.1, and both arms printed the same bytes on every project.
+  - Raw: [pup-times-rot.txt](data/pup-times-rot.txt).
+  - Medians: [pup-summary.txt](data/pup-summary.txt), by
+    [summarize.py](data/summarize.py).
+
+`meta` against `main`, medians of 20:
+
+| project | wall | user cycles | kernel cycles | user + kernel | page faults |
+|---|---:|---:|---:|---:|---:|
+| zod3 | 155.4 → 154.8 ms (0.4% faster) | 0.618G, level | 2.8% fewer | 0.4% fewer | 2.3% fewer |
+| ts-pattern | 816.6 → 820.6 ms (0.5% slower) | 0.9% more | 0.2% more | 0.8% more | 0.6% fewer |
+| tiny-invariant | 73.4 → 74.8 ms | 0.2% more | 1.8% fewer | 0.2% fewer | 3.6% fewer |
+| superstruct | 34.0 → 34.0 ms | 1.8% more | 2.8% fewer | 0.3% more | 8.3% fewer |
+| mitt | 26.3 → 27.7 ms | 0.3% fewer | 3.0% fewer | 0.9% fewer | 7.7% fewer |
+| neverthrow | 27.7 → 29.1 ms | 0.2% fewer | 3.7% fewer | 1.0% fewer | 5.6% fewer |
+
+- **The small projects' wall times fall into two groups**, about 24 and
+  28 ms for mitt, in both arms. Their medians land in one group or the
+  other by chance, so the 5% slower medians of mitt and neverthrow are
+  not the arms. Their fastest runs favor `meta` by 0.5-2%. Cycles, which
+  do not depend on the clock, are the measure here.
+- **Pinned to one core, a hand-off costs only system calls and two
+  context switches.** The pool thread runs on the core the worker has
+  just left idle, so nothing waits on a sleeping core to wake. On the
+  Mac the pool thread runs on another core, and each wake waits for that
+  core. That is where the Mac's 2-4% comes from.
+- **The waiter does not spin on one shared core either.** If it did,
+  `meta` would save user cycles on the 290 `stat` calls, and it saves
+  none. So the instrumented spin build was not needed. standing-4's 2.0
+  ms under `__rig_std_file.realpath` is neither `realpath`'s work nor the
+  pool's wait; the PGO build's symbols are the remaining explanation.
+
+## If it is taken up again
+
+The gain is real only on unpinned runs, which standing-4's harness does
+not measure. Trig's real runs are unpinned, and loco's walks are too. A
+change that carries it:
 
 - **The smallest form** runs `stat`, `exists`, `read_dir` and `realpath`
   on the calling thread. These calls never read a file's contents, so no
@@ -136,16 +184,13 @@ Wall time by median (and by minimum), against `main`
     rescue, and accept that a hang stalls the fibers that come to that
     worker later.
 - **Either choice changes how the scheduler behaves,** so it goes to the
-  owner with the pup numbers.
+  owner. It is worth his time only if pup's unpinned Trig runs show the
+  Mac's gain.
 
-## Not yet measured
+## Not measured
 
-- **The x86 ceiling:** `main` against `meta` on pup, the six projects
-  pinned to P-core 6 as standing-4 timed them, with a PGO build of each
-  arm. It needs a pup timing slot and one release build per arm.
-- **The waiter's spins on one shared core:** the instrumented build
-  under `taskset -c 12`, which tests the second explanation of
-  standing-4's 2.0 ms.
+- **Trig on pup unpinned**, where the Mac's 2-4% would show if it shows
+  on x86.
 - **The runtime benches** (tasks, actors, net, http) do not call
-  `std.file`'s metadata calls, so the `meta` arm cannot change them. A
-  built change would still run them.
+  `std.file`'s metadata calls, so `meta` cannot change them. A built
+  change would still run them.
