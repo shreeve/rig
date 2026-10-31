@@ -119,6 +119,22 @@ sub main()!
   print()
 EOF2
 
+# A write larger than print's buffer, between prints: it goes after what
+# the buffer holds, and before what comes next.
+cat >big.rig <<'EOF2'
+use std.io
+
+sub main()!
+  out = io.stdout()
+  big = String()
+  for _ in 0..20000
+    !big.add("x")
+  print("start")
+  (!out).write(big)!
+  (!out).write("\n")!
+  print("end")
+EOF2
+
 # A write that fails: to stdin, to stdout read, to a full disk, to a
 # closed pipe. Each prints its error and the system's words to stderr.
 cat >fail.rig <<'EOF2'
@@ -167,6 +183,8 @@ for mode in debug release; do
     expect_eq "$out" "300000" "$mode: stdin from a task"
     out=$(RIG_SANITIZE=1 rig run $flag order.rig 2>&1); expect_rc $? 0 "$mode order: $out"
     expect_eq "$out" $'1 2 3\n4\n56' "$mode: stdout and stderr in the order written"
+    out=$(RIG_SANITIZE=1 rig run $flag big.rig 2>&1); expect_rc $? 0 "$mode big: $out"
+    expect_eq "$out" "start"$'\n'"$(printf 'x%.0s' {1..20000})"$'\nend' "$mode: a write larger than print's buffer"
     out=$(RIG_SANITIZE=1 rig run $flag fail.rig -- stdin </dev/null 2>&1); expect_rc $? 0 "$mode stdin write: $out"
     expect_eq "$out" "FileError.bad_descriptor Bad file descriptor" "$mode: a write to stdin"
     out=$(RIG_SANITIZE=1 rig run $flag fail.rig -- read 2>&1 >out.txt); expect_rc $? 0 "$mode stdout read: $out"

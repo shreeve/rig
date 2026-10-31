@@ -50,6 +50,7 @@ fail "io copy takes two ends", "`io.copy` takes what to read and what to write"
 test "io stdout writes bytes as they are", '''
   abc
   d
+  end
 '''
   # No newline is added, and none is needed.
   out = io.stdout()
@@ -57,6 +58,7 @@ test "io stdout writes bytes as they are", '''
   (!out).write("bc\nd")!
   (!out).write("")!
   (!out).write("\n")!
+  print("end")
 
 test "io stdout writes in order with print", '''
   one two
@@ -71,17 +73,6 @@ test "io stdout writes in order with print", '''
   (!out).flush()!
   print("four")
 
-test "io stdout takes a large write in order", "true"
-  # A write larger than print's buffer goes after what the buffer holds.
-  out = io.stdout()
-  big = String()
-  for i in 0..5000
-    !big.add(i % 10)
-  print("start")
-  (!out).write(big)!
-  (!out).write("\n")!
-  print(big.len == 5000)
-
 test "io stdout is a File, kept open when dropped", '''
   first
   second
@@ -89,7 +80,7 @@ test "io stdout is a File, kept open when dropped", '''
   # Each call gives a handle on the same stream; dropping one leaves the
   # stream open for the next, and for print.
   sub say(f: !file.File, s: ?String)!
-    f.write(s)!
+    !f.write(s)!
 
   a = io.stdout()
   say(!a, "first\n")!
