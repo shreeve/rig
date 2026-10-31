@@ -273,7 +273,7 @@ pub const Heap = struct {
         }
         const size = classSize(c);
         if (h.carve[c] + size > h.carve_end[c]) {
-            if (h.segmentFull()) if (takeRemote(h, c)) |b| return b;
+            if (takeRemote(h, c)) |b| return b;
             const page = h.newPage() orelse return null;
             h.carve[c] = page;
             h.carve_end[c] = page + page_size - page_size % size;
@@ -284,8 +284,7 @@ pub const Heap = struct {
     }
 
     /// The blocks of class `c` other threads freed into another heap,
-    /// before `h` maps a new segment to carve a page for that class (a
-    /// new heap, or one whose segment is full): the first such heap's
+    /// before `h` carves a page for that class: the first such heap's
     /// list, taken whole, as its owner takes it back (`alloc`), the first
     /// block handed out and the rest on `h`'s own list. They stay the
     /// other heap's, in its segments, so each goes back on its remote
@@ -293,13 +292,9 @@ pub const Heap = struct {
     /// into it would, in a server whose tasks resume on any worker and
     /// free their buffers there, carve pages for the most buffers it
     /// ever had out at once, and the program's segments would grow with
-    /// workers times connections. Taken only before a new segment, not
-    /// before each page: blocks another heap's thread freed come cache
-    /// cold and go back through its remote list when freed, which made a
-    /// server of 22 workers with 64 KiB values answer 10 to 20% fewer
-    /// requests when taken before each page. It costs a load of each
-    /// heap's list head once per segment, and nothing on the paths that
-    /// find a block.
+    /// workers times connections. It costs a load of each heap's list
+    /// head once per page carved, and nothing on the paths that find a
+    /// block.
     fn takeRemote(h: *Heap, c: usize) ?[*]u8 {
         var at = all_heaps.load(.acquire);
         while (at) |o| : (at = o.next_made) {
@@ -310,12 +305,6 @@ pub const Heap = struct {
             }
         }
         return null;
-    }
-
-    /// Whether the next page this heap carves needs a new segment.
-    fn segmentFull(h: *const Heap) bool {
-        const s = h.segment orelse return true;
-        return s.used >= pages_per_segment;
     }
 
     fn newPage(h: *Heap) ?usize {
@@ -1614,10 +1603,10 @@ fn trimAllForTest(h: *Heap) void {
     flushLarge(h);
 }
 
-test "a heap whose blocks of a class run out takes the ones other threads freed into another heap before it maps a segment" {
+test "a heap whose blocks of a class run out takes the ones other threads freed into another heap before it carves a page" {
     // Three blocks of 20 KiB from one heap, freed on another thread's:
     // they go on the first heap's remote list. The second heap, with no
-    // block of that class and no segment, takes them before it maps one.
+    // block of that class, takes them before it carves a page of its own.
     const o = madeHeapForTest().?;
     const h = madeHeapForTest().?;
     const c = classOf(20 << 10, .@"8").?;
