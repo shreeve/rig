@@ -548,27 +548,94 @@ const huge_floor: usize = 8;
 /// 2 to 60 times a small page's, and Trig ran 34 to 41% slower than with
 /// no huge pages (docs/history/records/2026-10/perf-stage/
 /// thp-fragmented.md).
+///
+/// A reading taken in the last `reading_life` answers it (`keptReading`),
+/// so the burst of Tables a program makes at once, 43 for each of Trig's
+/// checkers, reads the file once. A kept reading may open the gate: a
+/// Table takes no block as it is reserved, only as it is later written,
+/// over the whole run, and `huge_spare` is there for what memory gives
+/// up meanwhile; a reading a few milliseconds older adds nothing to that.
 pub fn hugeFree() bool {
-    return freeHugeNow() > huge_spare;
+    if (builtin.os.tag != .linux) return false;
+    return (keptReading() orelse readNow()) > huge_spare;
 }
 
 /// Whether Linux has free blocks of 2 MiB or more for `need` huge pages
 /// and `huge_floor` more: the test a new segment or large block makes
-/// before it asks (`adviseHuge`).
+/// before it asks (`adviseHuge`). Its blocks are taken moments later, as
+/// its pages fault, so only a reading taken now may say yes; a kept one
+/// may say no, which costs at most huge pages missed, never a stall. A
+/// yes takes its `need` from the reading kept.
 fn hugeFreeFor(need: usize) bool {
-    return freeHugeNow() >= need + huge_floor;
+    if (builtin.os.tag != .linux) return false;
+    if (keptReading()) |blocks| if (blocks < need + huge_floor) return false;
+    if (readNow() < need + huge_floor) return false;
+    spendReading(need);
+    return true;
 }
 
-/// The free blocks of 2 MiB or more Linux has now (`/proc/buddyinfo`).
-/// The file is read each time, never kept: it is read once for each new
-/// segment, new large block of `huge_large`, and reserved Table, 55
-/// times on Trig's ts-pattern, and a reading kept would be out of date
-/// as memory fragments. A file that cannot be read counts none, so
-/// nothing asks.
+/// How long a reading of /proc/buddyinfo answers the gates: a few
+/// milliseconds, the span of a burst of Tables (Trig's checkers make 43
+/// each in about one), short beside the seconds a Table is written over.
+const reading_life_ns: u64 = 4 * std.time.ns_per_ms;
+
+/// The reading kept: the monotonic clock in units of 2^16 ns (about 65
+/// microseconds) in the top 40 bits, which last 2^56 ns, two years; its
+/// free blocks, at most `count_max`, in the low 24; or 0, none. One
+/// word, so a thread never pairs one reading's time with another's count.
+var kept_reading: std.atomic.Value(u64) = .init(0);
+const count_bits = 24;
+const count_max: u64 = (1 << count_bits) - 1;
+
+/// The monotonic clock in units of 2^16 ns, through the vDSO: tens of
+/// nanoseconds, where a reading costs microseconds. 0 if it fails.
+fn clockUnits() u64 {
+    if (comptime builtin.is_test) if (clock_for_test) |ns| return ns >> 16;
+    var ts: std.os.linux.timespec = undefined;
+    if (std.os.linux.clock_gettime(.MONOTONIC, &ts) != 0) return 0;
+    const ns = @as(u64, @intCast(ts.sec)) *% std.time.ns_per_s +% @as(u64, @intCast(ts.nsec));
+    return ns >> 16;
+}
+
+/// The free blocks of the reading kept, if it was taken in the last
+/// `reading_life_ns`.
+fn keptReading() ?usize {
+    const k = kept_reading.load(.monotonic);
+    if (k == 0) return null;
+    const now = clockUnits();
+    if (now == 0 or now -% (k >> count_bits) >= reading_life_ns >> 16) return null;
+    return @intCast(k & count_max);
+}
+
+/// Read /proc/buddyinfo, keep the reading, and give its free blocks.
+fn readNow() usize {
+    const blocks = freeHugeNow();
+    const now = clockUnits();
+    if (now != 0) kept_reading.store(now << count_bits | @min(blocks, count_max), .monotonic);
+    return blocks;
+}
+
+/// Take `need` blocks from the reading kept, as a range that asked for
+/// them is about to fault them in.
+fn spendReading(need: usize) void {
+    var k = kept_reading.load(.monotonic);
+    while (k != 0) {
+        const left = (k & count_max) -| need;
+        k = kept_reading.cmpxchgWeak(k, (k & ~count_max) | left, .monotonic, .monotonic) orelse return;
+    }
+}
+
+/// The free blocks of 2 MiB or more Linux has now (`/proc/buddyinfo`),
+/// read once for each new segment, new large block of `huge_large`, and
+/// burst of reserved Tables (`keptReading`). A file that cannot be read
+/// counts none, so nothing asks.
 noinline fn freeHugeNow() usize {
     @branchHint(.cold);
     if (builtin.os.tag != .linux) return 0;
-    if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text);
+    if (comptime builtin.is_test) {
+        buddyinfo_reads += 1;
+        if (buddyinfo_for_test) |text| return freeHugeBlocks(text);
+    }
     const linux = std.os.linux;
     const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (@as(isize, @bitCast(rc)) < 0) return 0;
@@ -587,8 +654,17 @@ noinline fn freeHugeNow() usize {
     return freeHugeBlocks(buf[0..len]);
 }
 
-/// What a test reads in place of /proc/buddyinfo.
+/// What a test reads in place of /proc/buddyinfo, the readings it has
+/// made, and the clock it sees, in nanoseconds.
 var buddyinfo_for_test: ?[]const u8 = null;
+var buddyinfo_reads: usize = 0;
+var clock_for_test: ?u64 = null;
+
+/// Read `text` in place of /proc/buddyinfo from now, with no reading kept.
+fn useBuddyinfoForTest(text: ?[]const u8) void {
+    buddyinfo_for_test = text;
+    kept_reading.store(0, .monotonic);
+}
 
 /// The free blocks of 2 MiB in a reading of /proc/buddyinfo: each line
 /// is `Node N, zone NAME` and a count of free blocks for each order from
@@ -1324,8 +1400,8 @@ test "a heap that does not fault in ahead keeps `keep_resident` bytes of the lar
 
 test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them while 2 MiB blocks are free, and a smaller one does not" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    buddyinfo_for_test = buddyinfo_plenty;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
     var h = testHeap();
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
@@ -1391,8 +1467,8 @@ test "on Linux a large block from 64 KiB that no kept block fits grows by moving
 
 test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them while 2 MiB blocks are free, and one of a heap that does not keeps small pages" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    buddyinfo_for_test = buddyinfo_plenty;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
     // The thread's heap takes two segments' worth, so a new heap of one
     // segment beside it does not lead.
     const mine = try allocator.alloc(u8, prefault_big);
@@ -1450,10 +1526,10 @@ test "on Linux a Table asks for huge pages with 100 free 2 MiB blocks, a quiet h
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 100), freeHugeBlocks(buddyinfo_idle));
     try std.testing.expectEqual(@as(usize, 55), freeHugeBlocks(buddyinfo_partly));
-    defer buddyinfo_for_test = null;
-    buddyinfo_for_test = buddyinfo_idle;
+    defer useBuddyinfoForTest(null);
+    useBuddyinfoForTest(buddyinfo_idle);
     try std.testing.expect(hugeFree());
-    buddyinfo_for_test = buddyinfo_partly;
+    useBuddyinfoForTest(buddyinfo_partly);
     try std.testing.expect(!hugeFree());
 }
 
@@ -1469,18 +1545,23 @@ const buddyinfo_low =
 test "on Linux a new segment or large block asks for huge pages while free 2 MiB blocks number its own and 8 more, where a Table asks for none" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 17), freeHugeBlocks(buddyinfo_low));
-    buddyinfo_for_test = buddyinfo_low;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_low);
+    defer useBuddyinfoForTest(null);
     try std.testing.expect(!hugeFree());
     try std.testing.expect(hugeFreeFor(9));
+    // Each test from here reads afresh, as nothing took the blocks it
+    // asked for.
+    useBuddyinfoForTest(buddyinfo_low);
     try std.testing.expect(!hugeFreeFor(10));
     // A segment needs 2 blocks, a block of 16 MiB 8: both leave 8 free.
+    useBuddyinfoForTest(buddyinfo_low);
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
     var busy = testHeap();
     busy.taken = prefault_big;
     const p = busy.newPage().?;
     try std.testing.expect(try advisedHugeForTest(p & ~(segment_size - 1)));
+    useBuddyinfoForTest(buddyinfo_low);
     var h = testHeap();
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
@@ -1489,10 +1570,52 @@ test "on Linux a new segment or large block asks for huge pages while free 2 MiB
     trimAllForTest(&h);
 }
 
+test "on Linux a burst of Tables reads /proc/buddyinfo once, and a reading older than a few milliseconds is read again" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_idle);
+    defer useBuddyinfoForTest(null);
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const before = buddyinfo_reads;
+    for (0..43) |_| try std.testing.expect(hugeFree());
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    // Memory fragments: the reading kept answers until its life is over.
+    buddyinfo_for_test = buddyinfo_partly;
+    clock_for_test.? += reading_life_ns - (1 << 17);
+    try std.testing.expect(hugeFree());
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    clock_for_test.? += 1 << 17;
+    try std.testing.expect(!hugeFree());
+    try std.testing.expectEqual(before + 2, buddyinfo_reads);
+}
+
+test "on Linux a kept reading may tell a new segment no, but a yes is read again and takes the segment's blocks from the reading kept" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_low);
+    defer useBuddyinfoForTest(null);
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const before = buddyinfo_reads;
+    // 17 free: a Table's reading is kept, then too few for 10 blocks and
+    // 8 more answers with no new reading.
+    try std.testing.expect(!hugeFree());
+    try std.testing.expect(!hugeFreeFor(10));
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    // Enough for 2 and 8 more: read again, and the 2 are taken from it.
+    try std.testing.expect(hugeFreeFor(2));
+    try std.testing.expectEqual(before + 2, buddyinfo_reads);
+    try std.testing.expectEqual(@as(?usize, 15), keptReading());
+    try std.testing.expect(hugeFreeFor(7));
+    try std.testing.expectEqual(@as(?usize, 10), keptReading());
+    // The reading kept now says 10: too few for 3 and 8 more.
+    try std.testing.expect(!hugeFreeFor(3));
+    try std.testing.expectEqual(before + 3, buddyinfo_reads);
+}
+
 test "on Linux, with memory fragmented, no block, segment, or growth asks for huge pages" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    buddyinfo_for_test = buddyinfo_fragmented;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
     try std.testing.expect(!hugeFree());
     var h = testHeap();
     const mib: usize = 1 << 20;
