@@ -547,17 +547,25 @@ obj Mac64
   pad0: U64
   pad1: U64
 
+  # The carries are compares, which become `cmp` and `cset` (`setb` on
+  # x86): faster here than `add_c`'s wide add, which is used where a
+  # carry is taken once.
   inline sub block(!@, m0: U64, m1: U64)
-    a0, c0 = add_c(@h0, m0)
-    b1, c1 = add_c(@h1, m1)
-    a1, c2 = add_c(b1, c0)
+    a0 = @h0 +% m0
+    c0: U64 = 1 if a0 < m0 else 0
+    b1 = @h1 +% m1
+    c1: U64 = 1 if b1 < m1 else 0
+    a1 = b1 +% c0
+    c2: U64 = 1 if a1 < c0 else 0
     a2 = @h2 +% 1 +% c1 +% c2
     d0 = wide(a0, @r0) +% wide(a1, @s1)
     d1 = wide(a0, @r1) +% wide(a1, @r0) +% U128(a2 *% @s1) +% (d0 >> 64)
     d2 = a2 *% @r0 +% U64.wrap(d1 >> 64)
     c = (d2 >> 2) +% (d2 & 0xFFFFFFFFFFFFFFFC)
-    lo, k0 = add_c(U64.wrap(d0), c)
-    mid, k1 = add_c(U64.wrap(d1), k0)
+    lo = U64.wrap(d0) +% c
+    k0: U64 = 1 if lo < c else 0
+    mid = U64.wrap(d1) +% k0
+    k1: U64 = 1 if mid < k0 else 0
     @h0 = lo
     @h1 = mid
     @h2 = (d2 & 3) +% k1
