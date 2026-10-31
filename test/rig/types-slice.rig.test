@@ -580,3 +580,35 @@ test "slice prefetch kernels", "45 12", release: true
   warm(?xs, 3)
   warm(?xs, 30)
   print(sum_ahead(?xs, ?keys), sum_ahead(?xs, ?keys[..3]) - 12)
+
+test "an array view held where a slice goes, in each position", "10 50 2"
+  obj Span
+    s: []U8
+
+  fun total(b: []U8) -> Int
+    n = 0
+    for x in b
+      n += Int(x)
+    n
+
+  fun first(k: ?[4]U8) -> Int
+    total(k)
+
+  fun spans(k: ?[4]U8) -> Int
+    s: []U8 = k
+    e: [1]U8 = [9]
+    t: []U8 = ?e
+    t = k
+    sp = Span(s: k)
+    xs: [2][]U8 = [k, k]
+    v = k
+    total(s) + total(t) + total(sp.s) + total(xs[1]) + total(v)
+
+  fun strings(k: ?[2]String) -> Int
+    s: []String = k
+    s.len
+
+  sub main()
+    k: [4]U8 = [1, 2, 3, 4]
+    w: [2]String = [String("a"), String("b")]
+    print(first(k), spans(k), strings(w))

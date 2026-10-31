@@ -78,6 +78,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Two more accepted programs that Zig rejected** (queue row 29): a
+  `?[N]T` view passed bare where a `[]T` goes is lent from the address
+  it holds, and a short form a `??` or `catch` fallback gives through a
+  branch or a bound handler is recorded and written with its type. In
+  review as one PR.
 - **A lent String or List held in registers** (queue row 28, branch
   `store-forward`): the storage fact `held_header` and its emit; fixes
   #780's Mac stall on a lent String (basenc 218 to 81 ms). Its gates are

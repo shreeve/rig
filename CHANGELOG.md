@@ -243,6 +243,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A view of an array held where a slice goes is lent as one.** A
+  `?[4]U8` parameter or binding passed bare where a `[]U8` goes, as an
+  argument, a binding's value, or an assignment's, reaches Zig as the
+  address it holds, where it was written as the array and rejected by
+  Zig; a field or an element always was.
+- **A short form a fallback gives is written with its type.** The
+  checker records each `.name` and `.name(fields)` a `??` or `catch`
+  fallback gives, through a branch, an arm, or a block, a bound
+  `catch |e|`'s handler included, since its enum's type comes from the
+  value the fallback stands for, which Zig does not see: `f() catch |e|
+  .err(e)` for an `Out?!E`, and `o ?? (.red if n == 1 else .blue)`,
+  were accepted and then rejected by Zig.
 - **A lent String or List is appended to in registers.** A function
   lent a `String`, or a `List` with no inline room, to write, which uses
   it in a loop, holds the String's or List's header (its pointer,

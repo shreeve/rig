@@ -597,6 +597,9 @@ pub const Facts = struct {
     pub fn isCodeWidening(f: Facts, node: Sexp) bool {
         return f.c().isCodeWidening(node);
     }
+    pub fn isTypedLiteral(f: Facts, node: Sexp) bool {
+        return f.c().isTypedLiteral(node);
+    }
     pub fn isFailingLeaf(f: Facts, node: Sexp) bool {
         return f.c().isFailingLeaf(node);
     }
