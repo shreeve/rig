@@ -34,7 +34,7 @@ def vs(proj, mode, v, base):
     return f"{pct(med(rs))} [{(q(rs, .25) - 1) * 100:+.1f}%, {(q(rs, .75) - 1) * 100:+.1f}%]"
 
 modes = ['natural', 'quiet', 'leave35', 'light']
-arms = ['main', 'jit']
+arms = ['main', 'jit', 'hybrid', 'hybrid2']
 for proj in ['ts-pattern', 'zod3', 'tiny-invariant', 'superstruct', 'mitt', 'neverthrow']:
     print(f"\n## {proj}\n")
     print("| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |")

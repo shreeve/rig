@@ -10,31 +10,32 @@ every run of [tsrs-standing-4.md](../hash-race/tsrs-standing-4.md) (5 to
 How can Tables get huge pages, or fewer faults, while memory is
 fragmented, without compaction stalls?
 
-**Answer.** Ask for each 2 MiB window as the Table first reaches it,
-gated on a few free blocks at that moment (`jit`), not for the whole
-reservation at reserve time. It takes the free blocks there are and
-never stalls: on Trig at pup's fragmentation (30-45 free 2 MiB blocks)
-and below it, jit is 1.2-2.8% faster than main on ts-pattern and zod3,
-with 8-30% fewer page faults on ts-pattern, no compaction stall in 240
-runs, and every output tsrs's bytes. It is not yet a clean win:
+**Answer.** No change to the Tables clears the bar yet. Asking for each
+2 MiB window as the Table first reaches it, gated on a few free blocks
+at that moment (`jit`), takes the free blocks there are and never
+stalls: 0 compaction stalls in 240 Trig runs, every output tsrs's bytes.
+But its hook in `push` costs Trig 0.8% more instructions in every form
+built, and most of jit's gain came from the segments, not the Tables:
 
-- **Quiet, main is 1.8% faster on ts-pattern.** jit took 64 huge pages
-  where main took 76: windows Trig writes through `t[s]` past `len` are
-  never reached by `push`, so jit never asks for them.
-- **jit runs 0.8% more user instructions** on ts-pattern: five more
-  Tables' `push` were outlined, as in fault-ahead's first try.
-- **Peak RSS is higher** wherever jit takes huge pages and main does
-  not: 1.3-1.5% on ts-pattern, 6.5% on zod3, 8-13% (2.6-4 MB) on the
-  small projects. Huge pages commit a window whole; main pays the same
-  when its gate is open.
+- **jit** (Tables a window at a time; segments and large blocks gated
+  on 8 free blocks more than they need): 1.2-2.8% faster than main on
+  ts-pattern and zod3 where main's gate is shut, 1.8% slower on
+  ts-pattern quiet, peak RSS 1.5% (ts-pattern) to 6.5% (zod3) higher.
+- **hybrid** (main's gate at reserve when open, jit's windows when
+  shut; segments keep main's gate): level with main quiet in huge pages
+  (76) but 0.9% slower; 1.4% faster on ts-pattern and 0.8% slower on
+  zod3 at the partly fragmented level; 0.7% slower at 6 free blocks.
+- **hybrid2** (the same, with `push` tail-calling its slow path): no
+  better; the five extra `push` bodies stay outlined.
 
-The design that keeps both is a **hybrid**: main's gate at reserve when
-it is open, and jit's window-at-a-time asks only when it was shut, with
-the slow path in `push` marked cold so `push` inlines as before. That
-is one more build to measure (below). `MADV_COLLAPSE`, a compacting
+What jit had and hybrid lacks is huge pages for **segments** at a low
+floor: zod3 took 11 huge pages under jit and 2 under hybrid. A segment
+asks just before it is populated, so its check is current, and a floor
+of 8 never stalled. That is a change to `alloc.zig` alone, with no hook
+in `push`, and the next arm to build. `MADV_COLLAPSE`, a compacting
 "breaker", and a helper thread that faults pages in ahead all lose on
-one core or stall. Peak RSS rises with any form, so the trade goes to
-the foreman.
+one core or stall. Any huge pages raise peak RSS where main's gate is
+shut; that trade is the owner's.
 
 Scripts, patches and raw output are in [table-huge-data/](table-huge-data/).
 
@@ -235,32 +236,86 @@ Read from these:
   Trig's bar of 1.5%.
 - **Quiet, jit loses 1.8% on ts-pattern** by asking for 12 fewer
   windows, those written past the push frontier, and by its 0.8% more
-  instructions. Both are fixable, below.
+  instructions. The hybrid (below) restores the windows; the
+  instructions stay.
 - **Peak RSS:** ts-pattern 1.3-1.5% higher, zod3 6.5% (5 MB), the small
   projects 2.6-4 MB higher, wherever jit takes huge pages and main
   does not. Where both take them (quiet), jit's RSS is the same or
   lower. This is the cost of huge pages, which main also pays when its
   gate is open.
 
-## The hybrid, and what it would cost
+## The hybrid, built and timed
 
-Keep main's `reserve` when its gate is open (more than 64 free blocks):
-the whole reservation asks at once, as today, and `edge` is `n`. When
-the gate is shut, leave the reservation unadvised and ask a window at
-a time as `push` reaches `edge`, gated on 8 free blocks more than the
-window needs, with one reading of `/proc/buddyinfo` granting up to 16
-windows. Mark the call to `reach` cold at its call site, so that
-LLVM's inliner weighs `push` as it does main's. Expected: quiet and
-idle levels exactly as main; fragmented levels as jit, less the 0.8%
-instructions. Segments and large blocks keep main's gate: jit's
-lower floor for them likely accounts for part of the RSS rise on the
-small projects, and their faults are not the Tables'.
+Two more plain builds of Trig `2ba0719`, by main with
+[hybrid.patch](table-huge-data/hybrid.patch) (`ecaedd71c02d4f6d`) and
+[hybrid2.patch](table-huge-data/hybrid2.patch) (`5a002a964a0f2ff3`):
 
-It costs one 8-byte `edge` field and one `asked` field in a reserved
-Table on Linux, about 30 lines in `table.zig` and 25 in `alloc.zig`,
-and a unit test of `reach` on a buddyinfo reading for the test. It
-needs one more PGO build and a 25-minute slot to confirm before any
-change to `src/`.
+- **hybrid**: `reserve` asks for the whole reservation, as main does,
+  while main's gate is open (more than 64 free blocks), and sets `edge`
+  to `n`, so `push` never calls `reach`; while it is shut, jit's
+  windows. Segments and large blocks keep main's gate. The call to
+  `reach` is marked cold.
+- **hybrid2**: hybrid, with `push` tail-calling an out-of-line
+  `pushPast` at `edge`, so that its fast path is main's shape: a
+  compare and a cold call.
+
+`nm` shows 15 Table `push` bodies outlined in both, as in jit, against
+main's 10; neither form restored main's inlining.
+
+Timed as before, three arms rotated, 20 rounds: natural and quiet at
+09:23-09:30 (a release build on the E-cores held pup at 6 free blocks,
+so the natural level here is below the gate's floor), leave35 at
+09:31-09:41 with nothing else on pup. Raw:
+[times-h-nq.txt](table-huge-data/times-h-nq.txt),
+[times-h-l35.txt](table-huge-data/times-h-l35.txt); medians:
+[summary-hybrid.txt](table-huge-data/summary-hybrid.txt).
+
+| project, level | free | main | hybrid vs main | hybrid2 vs main | huge pages main / hybrid | user instructions main / hybrid / hybrid2 | peak RSS main / hybrid / hybrid2 |
+|---|---:|---:|---|---|---|---|---|
+| ts-pattern, 6 free | 6 | 800 ms | 0.7% slower [+0.2%, +1.7%] | 1.7% slower | 0 / 0 | 7.970G / 8.035G / 8.039G | 247.1 / 246.7 / 249.9 MB |
+| ts-pattern, quiet | 273 | 841 ms | 0.9% slower [+0.4%, +2.4%] | 1.5% slower | 76 / 76 | 7.972G / 8.037G / 8.041G | 259.1 / 259.0 / 261.9 MB |
+| ts-pattern, leave35 | 36 | 774 ms | **1.4% faster** [-2.9%, -0.0%] | 0.9% faster | 0 / 28 | | 247.1 / 247.0 / 249.9 MB |
+| zod3, 6 free | 6 | 160 ms | 0.9% slower | 0.5% slower | 0 / 0 | 1.402G / 1.408G / 1.409G | 77.3 / 77.2 / 79.9 MB |
+| zod3, quiet | 264 | 173 ms | 0.4% slower | 1.1% slower | 15 / 15 | 1.403G / 1.410G / 1.411G | 84.1 / 84.2 / 86.7 MB |
+| zod3, leave35 | 44 | 156 ms | 0.8% slower | 3.0% slower | 0 / 2 | | 77.3 / 79.5 / 82.0 MB |
+
+The small projects at 6 free blocks: hybrid within 1.7% of main either
+way, hybrid2 within 2.7%, inside their quartiles. 0 compaction stalls
+and tsrs's bytes throughout.
+
+Read from these:
+
+- **The hook costs 0.8% of instructions** on ts-pattern (0.5% on zod3)
+  in jit, hybrid and hybrid2 alike, and about 1% of time where no
+  window asks (quiet, or too few free blocks). The cold hint and the
+  tail call did not change it: the five extra outlined `push` bodies
+  are the Tables whose reservations pass 2 MiB, and the outlining
+  follows from the `edge` compare itself, not from what the slow path
+  returns.
+- **The Tables' windows alone are worth 1.4% on ts-pattern** with 34-56
+  free blocks (28 huge pages), net of that cost; nothing on zod3, whose
+  Tables take 2.
+- **jit's larger gains were the segments'.** jit gave zod3 11 huge pages
+  and 1.6-2.8%, hybrid 2 and a loss; on ts-pattern jit took 37 at the
+  natural level and hybrid 28 at leave35.
+- hybrid2's peak RSS is 2.5-2.9 MB higher than hybrid's on every
+  project at every level, huge pages or none: a property of that PGO
+  build, as thp-spare found for two of its builds, not of the change.
+  Between separately trained PGO builds, differences of about 1% in
+  user cycles are within the builds' own spread.
+
+## Next: segments at a low floor
+
+`newPage` asks for huge pages for a new 4 MiB segment and populates its
+first 1 MiB at once; `allocLarge` does the same for a block of 16 MiB or
+more, populating three quarters. Both check `hugeFree` (64 spare)
+moments before the pages fault, so the check is current, unlike a
+Table's at reserve. Gating them on the blocks they need plus 8, as jit
+did, is a change to `alloc.zig` alone: no field, no hook in `push`, no
+instruction on any hot path. From jit's runs, expected: zod3 1.6-2.8%
+faster where main's gate is shut, ts-pattern part of jit's 1.2-2.6%, 0
+stalls (jit had none in 240 runs at this floor), and peak RSS up to 5
+MB higher on zod3 where it takes them. One build and a 25-minute slot.
 
 ## Stash on the blocking pool (not built)
 
@@ -278,18 +333,18 @@ Trig against tsrs should then be timed so, is the owner's call.
 
 ## Recommendation
 
-1. **Build and time the hybrid** (default): one PGO build, 20 rotated
-   rounds at quiet, natural and leave35. Land it in `table.zig` and
-   `alloc.zig` only if it is level with main quiet and more than 1.5%
-   faster on ts-pattern where the gate is shut, with the RSS trade
-   approved.
-2. **Peak RSS**: any form of huge pages for Tables raises it 1.5% on
-   ts-pattern and 6.5% on zod3 where main's gate is shut. Accept for
-   the speed (default), or keep main.
-3. **Drop** `MADV_COLLAPSE` (9-22% slower in every state), the breaker
+1. **Do not land** jit, hybrid or hybrid2. The Tables' windows earn
+   1.4% on ts-pattern where the gate is shut and cost about 1%
+   wherever no window asks, from the hook in `push`.
+2. **Next arm: segments at a low floor** (default), `alloc.zig` only,
+   one build and a 25-minute slot at quiet, natural and leave35.
+3. **Peak RSS**: any huge pages where main's gate is shut raise it
+   (1.5% ts-pattern, up to 6.5% zod3). The owner asked for less memory
+   as well as speed; his call.
+4. **Drop** `MADV_COLLAPSE` (9-22% slower in every state), the breaker
    (bounds how many stalls, not how long: one window took 84 ms), and
    the stash thread (owner's principle; loses on one core).
-4. **Machine settings, not Rig's:** 64 KiB multi-size THP
+5. **Machine settings, not Rig's:** 64 KiB multi-size THP
    (`hugepages-64kB/enabled=madvise`) would cut Tables' faults 16-fold
    with no 2 MiB slack and need no free 2 MiB block; it is off on pup
    and on every default system, so Rig cannot count on it.

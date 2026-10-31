@@ -1,0 +1,72 @@
+
+## ts-pattern
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 6 (6-6) | 800 | 3.44G | 0.34G | 40246 | 0 | 0 | 247.1 |  |  |
+| natural | hybrid | 20 | 6 (6-6) | 811 | 3.47G | 0.35G | 40244 | 0 | 0 | 246.7 | 0.7% slower [+0.2%, +1.7%] |  |
+| natural | hybrid2 | 20 | 6 (6-6) | 814 | 3.49G | 0.35G | 40240 | 0 | 0 | 249.9 | 1.7% slower [+0.8%, +2.3%] |  |
+| quiet | main | 20 | 273 (206-275) | 841 | 3.72G | 0.25G | 14893 | 76 | 0 | 259.1 |  |  |
+| quiet | hybrid | 20 | 273 (238-275) | 863 | 3.82G | 0.25G | 14892 | 76 | 0 | 259.0 | 0.9% slower [+0.4%, +2.4%] |  |
+| quiet | hybrid2 | 20 | 273 (238-275) | 853 | 3.77G | 0.25G | 14888 | 76 | 0 | 261.9 | 1.5% slower [+0.5%, +2.1%] |  |
+| leave35 | main | 20 | 36 (34-56) | 774 | 3.31G | 0.33G | 40245 | 0 | 0 | 247.1 |  |  |
+| leave35 | hybrid | 20 | 36 (34-57) | 758 | 3.31G | 0.28G | 25937 | 28 | 0 | 247.0 | 1.4% faster [-2.9%, -0.0%] |  |
+| leave35 | hybrid2 | 20 | 36 (20-58) | 762 | 3.32G | 0.28G | 25933 | 28 | 0 | 249.9 | 0.9% faster [-3.1%, +0.8%] |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## zod3
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 6 (6-6) | 160 | 0.64G | 0.10G | 9924 | 0 | 0 | 77.3 |  |  |
+| natural | hybrid | 20 | 6 (6-6) | 162 | 0.64G | 0.10G | 9923 | 0 | 0 | 77.2 | 0.9% slower [-0.4%, +2.6%] |  |
+| natural | hybrid2 | 20 | 6 (6-6) | 161 | 0.64G | 0.10G | 9921 | 0 | 0 | 79.9 | 0.5% slower [-1.6%, +2.7%] |  |
+| quiet | main | 20 | 264 (233-273) | 173 | 0.69G | 0.10G | 7775 | 15 | 0 | 84.1 |  |  |
+| quiet | hybrid | 20 | 255 (244-273) | 173 | 0.69G | 0.10G | 7772 | 15 | 0 | 84.2 | 0.4% slower [-2.8%, +1.2%] |  |
+| quiet | hybrid2 | 20 | 272 (235-274) | 175 | 0.69G | 0.10G | 7770 | 15 | 0 | 86.7 | 1.1% slower [-0.5%, +3.2%] |  |
+| leave35 | main | 20 | 44 (34-56) | 156 | 0.62G | 0.09G | 9924 | 0 | 0 | 77.3 |  |  |
+| leave35 | hybrid | 20 | 37 (34-87) | 159 | 0.63G | 0.10G | 9470 | 2 | 0 | 79.5 | 0.8% slower [+0.2%, +3.1%] |  |
+| leave35 | hybrid2 | 20 | 40 (34-87) | 160 | 0.63G | 0.10G | 9467 | 2 | 0 | 82.0 | 3.0% slower [-0.3%, +4.6%] |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## tiny-invariant
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 6 (6-6) | 74 | 0.28G | 0.05G | 6042 | 0 | 0 | 49.2 |  |  |
+| natural | hybrid | 20 | 6 (6-6) | 74 | 0.27G | 0.05G | 6037 | 0 | 0 | 48.9 | 0.1% slower [-5.7%, +3.4%] |  |
+| natural | hybrid2 | 20 | 6 (6-6) | 74 | 0.28G | 0.05G | 6036 | 0 | 0 | 51.3 | 0.9% faster [-4.7%, +2.2%] |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## superstruct
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 6 (6-6) | 35 | 0.12G | 0.03G | 2743 | 0 | 0 | 23.0 |  |  |
+| natural | hybrid | 20 | 6 (6-6) | 34 | 0.12G | 0.03G | 2743 | 0 | 0 | 22.8 | 1.7% slower [-7.0%, +6.1%] |  |
+| natural | hybrid2 | 20 | 6 (6-6) | 35 | 0.12G | 0.03G | 2742 | 0 | 0 | 25.2 | 0.4% slower [-6.2%, +8.3%] |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## mitt
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 6 (6-6) | 26 | 0.07G | 0.03G | 2624 | 0 | 0 | 31.3 |  |  |
+| natural | hybrid | 20 | 6 (6-6) | 27 | 0.07G | 0.03G | 2620 | 0 | 0 | 31.2 | 0.2% slower [-4.8%, +15.8%] |  |
+| natural | hybrid2 | 20 | 6 (6-6) | 27 | 0.08G | 0.03G | 2619 | 0 | 0 | 33.4 | 1.1% slower [-4.1%, +9.1%] |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## neverthrow
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 6 (6-6) | 29 | 0.08G | 0.03G | 3072 | 0 | 0 | 30.6 |  |  |
+| natural | hybrid | 20 | 6 (6-6) | 29 | 0.09G | 0.03G | 3068 | 0 | 0 | 30.3 | 1.0% slower [-7.1%, +9.7%] |  |
+| natural | hybrid2 | 20 | 6 (6-6) | 29 | 0.09G | 0.03G | 3067 | 0 | 0 | 32.4 | 2.7% slower [-3.8%, +8.0%] |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
