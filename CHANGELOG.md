@@ -1819,6 +1819,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   again still take their pages from what the heap kept, and bench/hash
   runs at its speed (all rows within 0.3%). Trig's time, instructions
   and peak memory are unchanged.
+- **Release allocator:** a heap that does not fault in ahead, as a
+  server's worker's, keeps 1 MiB of the large blocks it frees resident.
+  Past that, it gives the pages of each block after its first back to
+  the system (`MADV_DONTNEED` on Linux, `MADV_FREE_REUSABLE` on macOS)
+  and keeps the block by address for its next request. A server's
+  workers free blocks that other workers made, so what each kept grew
+  toward 16 MiB: kv with 64 KiB values on pup's 22 workers peaks at
+  39 MB rather than 60, and mimalloc-bench's xmalloc-test at 78 MB
+  rather than 273, with every kv row, xmalloc-test and sh8bench within
+  2% of main's speed. A heap that does the program's work, as each of
+  Trig's checkers', is unchanged.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig
