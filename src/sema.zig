@@ -1930,6 +1930,11 @@ pub const Facts = struct {
     /// (`SemContext.recordCodeWidening`). Emit makes each a
     /// `rig.ErrorValue` with none.
     code_widenings: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The short forms (`.name`, `.name(fields)`) that a `??` or `catch`
+    /// fallback gives, whose enum type comes from the value the fallback
+    /// stands for, which Zig cannot see (`SemContext.recordTypedLiteral`).
+    /// Emit writes each with its type, `@as(T, ...)`.
+    typed_literals: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Whether the fields of each error-set member that has them compare
     /// with `==` and hash, by the member's name in its declaration
     /// (`SemContext.recordMemberCompares`): the program's glue compares
@@ -4883,6 +4888,14 @@ pub const SemContext = struct {
 
     pub fn isCodeWidening(self: *const SemContext, node: Sexp) bool {
         return self.facts.code_widenings.contains(exprKey(node) orelse return false);
+    }
+
+    pub fn recordTypedLiteral(self: *SemContext, node: Sexp) !void {
+        try self.facts.typed_literals.put(self.allocator, exprKey(node) orelse return, {});
+    }
+
+    pub fn isTypedLiteral(self: *const SemContext, node: Sexp) bool {
+        return self.facts.typed_literals.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordFailingLeaf(self: *SemContext, node: Sexp) !void {

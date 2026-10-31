@@ -6171,6 +6171,7 @@ const Checker = struct {
         } else view_result;
         if (try self.errorAsFallback(right, result, "??")) return result;
         try self.checkExpr(right, result);
+        try self.recordFallbackLiterals(right);
         return result;
     }
 
@@ -6279,6 +6280,27 @@ const Checker = struct {
     /// its value: a view held by address stays the view, and the whole
     /// `??` or `catch` is copied out where its context expects the value
     /// (`copiedOut`).
+    /// The short forms a fallback gives (`sema.yieldedLeaves`) take their
+    /// enum's type from the value the fallback stands for, which Zig's
+    /// `orelse` and `catch` do not hand them: each is recorded to be
+    /// written with its type (`SemContext.recordTypedLiteral`). A payload
+    /// variant always is, being a struct of no type in Zig; a bare `.name`
+    /// is where it is a branch's or a block's value, since Zig joins an
+    /// enum literal with its enum only where it stands as the fallback
+    /// itself. An error set's member is its error value, typed already.
+    fn recordFallbackLiterals(self: *Checker, fallback: Sexp) Error!void {
+        var leaves: std.ArrayList(Sexp) = .empty;
+        defer leaves.deinit(self.ctx.allocator);
+        try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, fallback, &leaves);
+        for (leaves.items) |leaf| {
+            const payload = leaf.isKind(.call) and ir.Call.callee(leaf).isKind(.enum_lit);
+            if (!payload and !(leaf.isKind(.enum_lit) and !sameNode(leaf, fallback))) continue;
+            const ty = self.ctx.typeOf(leaf) orelse continue;
+            if (self.isPoison(ty) or ty == self.t().any_error_id or sema.isErrorSet(self.ctx, sema.unwrapViews(self.ctx, ty))) continue;
+            try self.ctx.recordTypedLiteral(leaf);
+        }
+    }
+
     fn fallbackType(self: *Checker, inner: TypeId, expected: ?TypeId) TypeId {
         const e = expected orelse return inner;
         return switch (self.ctx.types.get(e)) {
@@ -6345,6 +6367,7 @@ const Checker = struct {
         } else view_result;
         if (try self.errorAsFallback(handler, result, "catch")) return result;
         try self.checkExpr(handler, result);
+        try self.recordFallbackLiterals(handler);
         return result;
     }
 

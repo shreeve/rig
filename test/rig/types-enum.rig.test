@@ -976,3 +976,42 @@ test "a payload variant written short as a fallback in print's arguments", '''
     o: Shape? = none
     print(o ?? .circle(r: 1), fails() catch .circle(r: 2))
     print(maybe() catch .circle(r: 3), fails() catch .circle(4))
+
+test "a short form a fallback gives through a branch, a block, or a bound catch", '''
+  .err(e: E.bad)
+  .red
+  .idle
+  E.bad
+  .ip(n: 7) .ip(n: 4)
+'''
+  error E
+    bad
+
+  enum Out
+    ip(n: Int)
+    err(e: E)
+    idle
+
+  enum Color
+    red
+    blue
+
+  fun handle(n: Int) -> Out?!E
+    return E.bad if n < 0
+    return none if n == 0
+    .ip(n)
+
+  sub main()
+    out = handle(-1) catch |e| .err(e)
+    print(out)
+    n = 1
+    o: Color? = none
+    print(o ?? (.red if n == 1 else .blue))
+    c = handle(-2) catch |e|
+      match e
+        E.bad => .idle
+    print(c)
+    d = handle(-3) catch |e|
+      print(e)
+      .ip(7)
+    print(d, handle(4) catch |e| (.err(e) if n == 1 else .idle))

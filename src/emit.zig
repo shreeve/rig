@@ -441,9 +441,6 @@ pub const Emitter = struct {
     failing: Sexp = .nil,
     /// The code-only error being made a `rig.ErrorValue` (`isCodeWidening`).
     widening: Sexp = .nil,
-    /// A fallback, `a ?? b` or `a catch b`, written where Zig gives it no
-    /// result type: a payload variant literal there names its enum.
-    fallback: Sexp = .nil,
     /// The scalar operand being written splatted (`sema.splatOf`).
     splatting: Sexp = .nil,
     /// The box being erased to a box of an API object (`emitValue`).
@@ -5803,12 +5800,19 @@ pub const Emitter = struct {
                 }
                 from = self.facts.unwrapViews(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped lend"));
             } else if (!(written or lend.implicit) or (written and first == .unbox and !lend.has(.text))) {
-                try self.w.writeAll("(");
-                self.bare = true;
-                try self.emitValue(sexp, tail and !written);
-                try self.w.writeAll(")");
-                at.ptr = written or self.isPtrViewExpr(sexp);
                 from = self.facts.unwrapViews(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped lend"));
+                at.ptr = written or self.isPtrViewExpr(sexp);
+                // A view held as a pointer is lent from the pointer it
+                // holds, in any position, so each row reaches through it
+                // (an array's elements are its address); a List's items
+                // are read through the value as well.
+                const list = first == .elems and self.facts.types.get(from) == .parameterized_nominal;
+                try self.w.writeAll("(");
+                if (at.ptr and !written and !list) try self.emitWriteViewPtr(sexp) else {
+                    self.bare = true;
+                    try self.emitValue(sexp, tail and !written);
+                }
+                try self.w.writeAll(")");
             } else {
                 const operand = if (written) ir.get(sexp, .operand) else sexp;
                 from = self.facts.unwrapViews(self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped lend"));
@@ -6666,7 +6670,7 @@ pub const Emitter = struct {
             .enum_lit => {
                 const name = self.srcText(ir.EnumLit.name(sexp));
                 if (self.typeOf(sexp)) |t| if (self.isErrorSetTy(t)) return self.writeErrorMemberValue(self.peelViews(t), name, sexp);
-                try self.w.print(".{f}", .{ident(name)});
+                try self.writeEnumLiteral(sexp, name);
             },
             // `:width`: the tag `__rig_sym.Symbol.@"width"`, never its id.
             .symbol => {
@@ -6745,7 +6749,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(" orelse ");
                 const some_right = packed_into != null and self.typeOf(right) != self.facts.types.noreturn_id;
                 if (some_right) try self.w.writeAll("rig.some(");
-                try self.emitFallback(right);
+                try self.emitValue(right, true);
                 if (some_right) try self.w.writeAll(")");
                 try self.w.writeAll(")");
                 if (packed_into != null) try self.w.writeAll(")");
@@ -6787,7 +6791,7 @@ pub const Emitter = struct {
                     // A catch that binds no error drops its fields first.
                     if (slot) |s| try self.w.print("|{s}_c| if (rig.dropFailure({s}_c, &{s})) ", .{ s.name, s.name, s.name });
                     if (some_handler) try self.w.writeAll("rig.some(");
-                    try self.emitFallback(handler);
+                    try self.emitValue(handler, true);
                     if (some_handler) try self.w.writeAll(")");
                     if (slot != null) try self.w.writeAll(" else unreachable");
                 }
@@ -6821,16 +6825,6 @@ pub const Emitter = struct {
             .panic => try self.emitPanic(sexp),
             else => return self.unsupported(sexp, "this expression"),
         }
-    }
-
-    /// The fallback of `a ?? b` or `a catch b`, which Zig joins with the
-    /// value's type only when it has one: a payload variant literal, which
-    /// in Zig is a struct of no type, names its enum (`emitVariantLit`).
-    fn emitFallback(self: *Emitter, fallback: Sexp) Error!void {
-        const saved = self.fallback;
-        defer self.fallback = saved;
-        self.fallback = fallback;
-        try self.emitValue(fallback, true);
     }
 
     /// A `catch` whose value goes nowhere, with a handler that gives
@@ -10008,12 +10002,21 @@ pub const Emitter = struct {
             if (payload.len > 0) return self.emitErrorMember(call, set, vname);
             return self.writeErrorMemberValue(set, vname, call);
         };
-        if (ir.Call.args(call).len == 0) return self.w.print(".{f}", .{ident(vname)});
+        if (ir.Call.args(call).len == 0) return self.writeEnumLiteral(call, vname);
         const enum_ty = self.typeOf(call) orelse return self.unsupported(call, "an untyped variant");
-        if (!sameNode(call, self.fallback)) return self.emitVariantPayload(call, enum_ty, vname);
+        if (!self.facts.isTypedLiteral(call)) return self.emitVariantPayload(call, enum_ty, vname);
         try self.writeAsOpen(enum_ty);
         try self.emitVariantPayload(call, enum_ty, vname);
         try self.w.writeAll(")");
+    }
+
+    /// `.name`, written with its enum's type where the checker recorded
+    /// that Zig cannot give it one (`isTypedLiteral`).
+    fn writeEnumLiteral(self: *Emitter, node: Sexp, name: []const u8) Error!void {
+        const ty = if (self.facts.isTypedLiteral(node)) self.typeOf(node) else null;
+        if (ty) |t| try self.writeAsOpen(t);
+        try self.w.print(".{f}", .{ident(name)});
+        if (ty != null) try self.w.writeAll(")");
     }
 
     fn emitVariantPayload(self: *Emitter, call: Sexp, enum_ty: TypeId, vname: []const u8) Error!void {
