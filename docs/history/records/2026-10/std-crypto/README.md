@@ -217,6 +217,21 @@ this core: the public key 1.37x as fast as dalek, the shared secret 1.31x,
 BLAKE2s 5% to 14% faster than blake2, HMAC 2% to 3% faster, keyed BLAKE2s
 5% faster, and a reused Hmac 2.1x as fast as an HMAC.
 
+**After the review's fixes** (2026-10-31, the fixed std against the
+version above, interleaved, 11 rounds for the AEAD and 9 for the rest,
+load 4 to 6): every cell within 2%, in both modes. AEAD seal / open, ns:
+
+| size | before fast | after fast | before `--release` | after `--release` |
+|---|---|---|---|---|
+| 64 | 147.1 / 153.1 | 146.6 / 152.2 | 147.8 / 153.6 | 149.4 / 154.3 |
+| 192 | 185.8 / 200.2 | 185.9 / 200.0 | 185.0 / 199.6 | 188.3 / 199.6 |
+| 1280 | 738.5 / 653.1 | 741.3 / 643.7 | 747.9 / 653.7 | 747.9 / 654.2 |
+| 8192 | 3208.7 / 3175.0 | 3206.8 / 3122.1 | 3255.6 / 3184.3 | 3211.0 / 3144.2 |
+
+X25519 and BLAKE2s, fast: public key 5.13 / 5.11 µs, shared secret 14.52 /
+14.29 µs, hash of 32 bytes 66.3 / 66.1 ns, hmac of 32 bytes 274.3 / 274.5
+ns, a reused Hmac 135.1 / 136.3 ns, `mac[16]` of 128 bytes 205.0 / 205.2 ns.
+
 **Not measured:** `seal_into` and `open_into` (the same fused loop,
 reading `src`), XChaCha (one HChaCha20 more, about 64 ns), and x86, which
 the coordinator runs on pup.
@@ -253,6 +268,17 @@ std.crypto's, rerun 2026-10-31 (two seeds each, DIT as std sets it):
 | `Secret.public` | 2.11 | 1.26 |
 | `blake2s.hmac`, 32 bytes, key fixed against random | 1.87 | 1.28 |
 | `ChaCha.seal`, 1280 bytes, key fixed against random | 0.71 | 2.07 |
+
+All pass. Rerun after the review's fixes (carries by `below`), with a
+64-byte seal, which takes the 64-bit Poly1305 whose carries changed:
+
+| operation | seed 1 | seed 2 |
+|---|---|---|
+| `Secret.share` | 2.99 | 2.32 |
+| `Secret.public` | 2.10 | 1.30 |
+| `blake2s.hmac`, 32 bytes | 0.75 | 2.46 |
+| `ChaCha.seal`, 1280 bytes | 1.62 | 1.14 |
+| `ChaCha.seal`, 64 bytes | 1.85 | 1.04 |
 
 All pass.
 

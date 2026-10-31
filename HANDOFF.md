@@ -96,7 +96,8 @@ A new session, human or agent, takes these steps in order:
 - **`std.crypto`** (#800, owner 2026-10-30, for the sanstun port):
   ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and
   HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value
-  barrier. A draft until its light gates run.
+  barrier. Its adversarial review's findings are fixed; a draft until
+  its light gates run.
 
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig

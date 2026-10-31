@@ -269,7 +269,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   device` prints as the system's tools print it, not as `Input/output
   error`.
 - **`std.crypto`: WireGuard's primitives, in Rig and in constant
-  time.** `crypto.ChaCha(key)` and `crypto.XChaCha(key)` seal and open
+  time.** `crypto.ChaCha.of(key)` and `crypto.XChaCha.of(key)` seal and open
   ChaCha20-Poly1305 and XChaCha20-Poly1305 in place
   (`tag = c.seal(!packet, nonce, header)`, `c.open(!packet, tag, nonce,
   header)!`) or from one buffer into another (`seal_into`,
@@ -277,9 +277,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   leaves zeros. `std.crypto.x25519` has `Secret` with `public()` and
   `share(peer)!`, which refuses a low-order key with
   `KeyError.low_order`; `std.crypto.blake2s` has `hash`, `mac[n]`,
-  `Hasher`, `hmac`, and `Hmac.of(key)`; `crypto.wipe` and
-  `crypto.equal` round it out. Key objects wipe themselves when they
-  drop. A small Zig file sets Arm's DIT bit around X25519, wipes so the
+  `Hasher`, `hmac`, and `Hmac.of(key)`; `crypto.wipe`,
+  `crypto.equal`, and `crypto.random` round it out. Key objects keep
+  their keys private, print as `ChaCha(…)` and the like, and wipe
+  themselves when they drop. A small Zig file sets Arm's DIT bit around X25519, wipes so the
   optimizer keeps it, and keeps masks from becoming branches. On the
   Mac X25519 is 1.3x as fast as dalek and BLAKE2s 5% to 14% faster than
   blake2; the AEAD beats ring at 8192 bytes and on most opens, and
