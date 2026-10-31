@@ -59,6 +59,73 @@ fn fold(h: u64, k: anytype) u64 {
     };
 }
 
+/// A fact table keyed by a `u64` whose list nodes are dense: a key
+/// `1 << 32 | id` (sema's `exprKey` of a list node the parser numbered)
+/// is stored at index `id` of an array, any other key in a `Map`. `V`
+/// is an integer; its largest value marks an index with no entry.
+pub fn DenseMap(comptime V: type) type {
+    return struct {
+        dense: std.ArrayList(V) = .empty,
+        sparse: Map(u64, V) = .empty,
+
+        const Self = @This();
+        const none = std.math.maxInt(V);
+
+        pub const empty: Self = .{};
+
+        pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+            self.dense.deinit(a);
+            self.sparse.deinit(a);
+        }
+
+        fn denseId(key: u64) ?u32 {
+            return if (key >> 32 == 1) @truncate(key) else null;
+        }
+
+        pub fn get(self: *const Self, key: u64) ?V {
+            const id = denseId(key) orelse return self.sparse.get(key);
+            if (id >= self.dense.items.len) return null;
+            const v = self.dense.items[id];
+            return if (v == none) null else v;
+        }
+
+        pub const KV = struct { key: u64, value: V };
+        pub const Entry = struct { key_ptr: *const u64, value_ptr: *V };
+
+        /// Each entry: the dense ones by id, then the others. An entry's
+        /// key lives in the iterator until its next `next`.
+        pub fn iterator(self: *const Self) Iterator {
+            return .{ .dense = self.dense.items, .sparse = self.sparse.iterator() };
+        }
+
+        pub const Iterator = struct {
+            dense: []V,
+            i: u32 = 0,
+            key: u64 = 0,
+            sparse: Map(u64, V).Iterator,
+
+            pub fn next(it: *Iterator) ?Entry {
+                while (it.i < it.dense.len) {
+                    defer it.i += 1;
+                    if (it.dense[it.i] != none) {
+                        it.key = 1 << 32 | @as(u64, it.i);
+                        return .{ .key_ptr = &it.key, .value_ptr = &it.dense[it.i] };
+                    }
+                }
+                const e = it.sparse.next() orelse return null;
+                return .{ .key_ptr = e.key_ptr, .value_ptr = e.value_ptr };
+            }
+        };
+
+        pub fn put(self: *Self, a: std.mem.Allocator, key: u64, v: V) std.mem.Allocator.Error!void {
+            std.debug.assert(v != none);
+            const id = denseId(key) orelse return self.sparse.put(a, key, v);
+            if (id >= self.dense.items.len) try self.dense.appendNTimes(a, none, id + 1 - self.dense.items.len);
+            self.dense.items[id] = v;
+        }
+    };
+}
+
 test "fastmap: integer and object keys" {
     var m: Map(u64, u32) = .empty;
     defer m.deinit(std.testing.allocator);
@@ -72,4 +139,15 @@ test "fastmap: integer and object keys" {
     try o.put(std.testing.allocator, .{ .node = 3, .q = .a, .flag = true }, {});
     try std.testing.expect(o.contains(.{ .node = 3, .q = .a, .flag = true }));
     try std.testing.expect(!o.contains(.{ .node = 3, .q = .b, .flag = true }));
+}
+
+test "fastmap: dense map" {
+    var m: DenseMap(u32) = .empty;
+    defer m.deinit(std.testing.allocator);
+    try m.put(std.testing.allocator, 1 << 32 | 5, 9);
+    try m.put(std.testing.allocator, 77, 3);
+    try std.testing.expectEqual(@as(?u32, 9), m.get(1 << 32 | 5));
+    try std.testing.expectEqual(@as(?u32, null), m.get(1 << 32 | 4));
+    try std.testing.expectEqual(@as(?u32, null), m.get(1 << 32 | 500));
+    try std.testing.expectEqual(@as(?u32, 3), m.get(77));
 }

@@ -1390,13 +1390,12 @@ pub fn verifyDecisions(ctx: *const SemContext) void {
     ctx.decided.sealed = true;
     // A module with errors is not emitted; its diagnostics come first.
     if (ctx.hasErrors()) return;
-    var it = ctx.decided.map.iterator();
-    while (it.next()) |entry| switch (entry.key_ptr.q) {
+    for (ctx.decided.entries.items) |d| switch (d.q) {
         inline else => |q| {
-            const now = encode(q, decider(q)(ctx, entry.value_ptr.node, entry.value_ptr.at));
-            if (now != entry.value_ptr.answer) {
-                const lc = @import("diag.zig").lineCol(ctx.source, ctx.startOf(entry.value_ptr.node));
-                std.debug.panic("{d}:{d}: internal error: {s} was decided as {d}, but the facts now give {d}", .{ lc.line, lc.col, @tagName(q), entry.value_ptr.answer, now });
+            const now = encode(q, decider(q)(ctx, d.node, d.at));
+            if (now != d.answer) {
+                const lc = @import("diag.zig").lineCol(ctx.source, ctx.startOf(d.node));
+                std.debug.panic("{d}:{d}: internal error: {s} was decided as {d}, but the facts now give {d}", .{ lc.line, lc.col, @tagName(q), d.answer, now });
             }
         },
     };

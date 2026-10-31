@@ -1820,7 +1820,7 @@ pub const Facts = struct {
     /// Identifier leaf position -> the symbol it names.
     names: FastMap(u32, SymbolId) = .empty,
     /// Expression (`exprKey`) -> its type.
-    types: FastMap(u64, TypeId) = .empty,
+    types: fastmap.DenseMap(TypeId) = .empty,
     /// Expressions lent where a view of another type is expected ->
     /// the rows of the lend table that make it (`Lend`, `lendsAs`).
     lends: FastMap(u64, Lend) = .empty,
@@ -2444,8 +2444,9 @@ pub const Question = enum(u8) {
     drop_kind,
 };
 
-/// A recorded answer to a `Question`, with the node it is about.
-pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8 };
+/// A recorded answer to a `Question`, with the node it is about, and the
+/// next decision about that node (`Decided`: its index + 1, or 0).
+pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8, q: Question, next: u32 = 0 };
 
 /// The `Question`s decided so far. Held behind a pointer, so a pass that
 /// reads the context as constant still records the answer it is first to
@@ -2485,12 +2486,66 @@ pub const TypeMemo = struct {
 };
 
 pub const Decided = struct {
-    map: FastMap(struct { node: u64, q: Question }, Decision) = .empty,
+    /// Every decision, in the order recorded; those about one node are
+    /// chained through `Decision.next`.
+    entries: std.ArrayList(Decision) = .empty,
+    /// The first decision about a list node the parser numbered (index +
+    /// 1, or 0), at its node id.
+    by_list: std.ArrayList(u32) = .empty,
+    /// The first decision about any other node, by `decisionKey`.
+    by_key: FastMap(u64, u32) = .empty,
     /// Set when the storage plan has verified every answer: a question
     /// asked after that (by a classifier emit still calls, `Pending`) is
     /// answered but not recorded, so a record always comes from a pass
     /// the checkers ran.
     sealed: bool = false,
+
+    fn deinit(self: *Decided, a: std.mem.Allocator) void {
+        self.entries.deinit(a);
+        self.by_list.deinit(a);
+        self.by_key.deinit(a);
+    }
+
+    /// The node id a `decisionKey` holds, for a list node the parser
+    /// numbered.
+    fn listId(key: u64) ?u32 {
+        return if (key >> 32 == 1) @truncate(key) else null;
+    }
+
+    fn first(self: *const Decided, key: u64) u32 {
+        if (listId(key)) |id| return if (id < self.by_list.items.len) self.by_list.items[id] else 0;
+        return self.by_key.get(key) orelse 0;
+    }
+
+    /// The decision recorded for `q` about the node of `key`.
+    pub fn get(self: *const Decided, key: u64, q: Question) ?*Decision {
+        var i = self.first(key);
+        while (i != 0) {
+            const d = &self.entries.items[i - 1];
+            if (d.q == q) return d;
+            i = d.next;
+        }
+        return null;
+    }
+
+    /// Record `d` about the node of `key`, in place of any decision of
+    /// its question there.
+    fn put(self: *Decided, a: std.mem.Allocator, key: u64, d: Decision) std.mem.Allocator.Error!void {
+        if (self.get(key, d.q)) |old| {
+            const next = old.next;
+            old.* = d;
+            old.next = next;
+            return;
+        }
+        var e = d;
+        e.next = self.first(key);
+        try self.entries.append(a, e);
+        const index: u32 = @intCast(self.entries.items.len);
+        if (listId(key)) |id| {
+            if (id >= self.by_list.items.len) try self.by_list.appendNTimes(a, 0, id + 1 - self.by_list.items.len);
+            self.by_list.items[id] = index;
+        } else try self.by_key.put(a, key, index);
+    }
 };
 
 /// The key of a storage fact: the expression or construct (`exprKey`)
@@ -4448,7 +4503,7 @@ pub const SemContext = struct {
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
         self.ct.deinit(self.allocator);
-        self.decided.map.deinit(self.allocator);
+        self.decided.deinit(self.allocator);
         self.allocator.destroy(self.decided);
         self.type_memo.deinit(self.allocator);
         self.allocator.destroy(self.type_memo);
@@ -5262,7 +5317,7 @@ pub const SemContext = struct {
     /// The recorded answer to `q` about `node`; null when no pass has
     /// asked it.
     pub fn decision(self: *const SemContext, node: Sexp, q: Question) ?u8 {
-        const d = self.decided.map.get(.{ .node = decisionKey(node) orelse return null, .q = q }) orelse return null;
+        const d = self.decided.get(decisionKey(node) orelse return null, q) orelse return null;
         // Two nodes never share a key: the parser numbers each list node,
         // and a rewrite that keeps a number replaces the node it took it
         // from.
@@ -5281,7 +5336,7 @@ pub const SemContext = struct {
     pub fn recordDecision(self: *const SemContext, node: Sexp, at: Sexp, q: Question, answer: u8) void {
         if (self.decided.sealed) return;
         const key = decisionKey(node) orelse return;
-        self.decided.map.put(self.allocator, .{ .node = key, .q = q }, .{ .node = node, .at = at, .answer = answer }) catch std.debug.panic("out of memory", .{});
+        self.decided.put(self.allocator, key, .{ .node = node, .at = at, .answer = answer, .q = q }) catch std.debug.panic("out of memory", .{});
     }
 
     /// Emit holds a value of `node` in hidden storage `s`
