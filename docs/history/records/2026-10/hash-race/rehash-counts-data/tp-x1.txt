@@ -1,0 +1,134 @@
+row                          main           PR0000
+int16 insert                 6.32    0.996        
+int16 remove                 4.64    1.000        
+int16 hit                    1.02    1.003        
+int16 miss                   0.81    1.002        
+int16 iterate                0.54    0.995        
+int1000 insert              12.83    0.641 faster 
+int1000 remove               3.37    0.971        
+int1000 hit                  1.02    1.001        
+int1000 miss                 0.81    1.001        
+int1000 iterate              0.52    1.002        
+int100000 insert             8.61    0.791 faster 
+int100000 remove             3.87    0.994        
+int100000 hit                1.80    1.001        
+int100000 miss               1.25    1.001        
+int100000 iterate            0.58    1.049        
+int4000000 insert           33.44    0.928 faster 
+int4000000 remove           20.65    1.015        
+int4000000 hit              14.24    0.972        
+int4000000 miss              1.95    1.016        
+int4000000 iterate           2.27    1.004        
+rnd16 insert                 6.61    1.000        
+rnd16 remove                 5.70    1.008        
+rnd16 hit                    0.98    1.012        
+rnd16 miss                   0.83    1.001        
+rnd16 iterate                0.54    0.998        
+rnd24 insert                 6.68    1.013        
+rnd24 remove                 5.86    1.008        
+rnd24 hit                    1.07    0.951        
+rnd24 miss                   0.82    1.004        
+rnd24 iterate                0.50    1.003        
+rnd1000 insert              14.90    0.744 faster 
+rnd1000 remove               4.66    0.891 faster 
+rnd1000 hit                  1.14    1.002        
+rnd1000 miss                 0.91    0.994        
+rnd1000 iterate              0.51    1.002        
+rnd1500 insert              11.03    0.788 faster 
+rnd1500 remove               3.93    0.986        
+rnd1500 hit                  1.22    0.980        
+rnd1500 miss                 0.93    1.007        
+rnd1500 iterate              0.50    1.026        
+rnd100000 insert            11.82    0.794 faster 
+rnd100000 remove             5.56    0.981        
+rnd100000 hit                2.35    0.992        
+rnd100000 miss               2.43    1.000        
+rnd100000 iterate            0.86    0.995        
+rnd150000 insert            12.42    0.779 faster 
+rnd150000 remove             5.37    0.995        
+rnd150000 hit                2.27    1.048        
+rnd150000 miss               1.49    1.001        
+rnd150000 iterate            1.14    1.014        
+rnd3000000 insert           17.04    0.908 faster 
+rnd3000000 remove           14.26    1.004        
+rnd3000000 hit              10.44    1.009        
+rnd3000000 miss              3.96    0.999        
+rnd3000000 iterate           1.23    0.997        
+rnd4000000 insert           34.60    0.924 faster 
+rnd4000000 remove           20.84    0.981        
+rnd4000000 hit              14.64    0.999        
+rnd4000000 miss              5.00    0.978        
+rnd4000000 iterate           2.52    1.003        
+lat16 chain                  5.44    1.001        
+lat1000 chain                5.47    0.999        
+lat100000 chain             11.22    0.998        
+lat4000000 chain           145.41    1.001        
+churn16 turnover             5.58    1.001        
+churn1000 turnover           3.29    1.020        
+churn100000 turnover         4.08    0.983        
+churn4000000 turnover       18.09    1.001        
+mix16 half                   0.93    0.993        
+mix1000 half                 0.89    1.012        
+mix100000 half               6.47    0.988        
+mix4000000 half             13.16    0.986        
+str16 insert                24.16    1.000        
+str16 remove                12.70    1.008        
+str16 hit                    3.87    0.996        
+str16 miss                   1.70    1.000        
+str1000 insert              25.35    0.697 faster 
+str1000 remove              15.13    0.978        
+str1000 hit                  3.60    0.994        
+str1000 miss                 2.30    1.001        
+str100000 insert            22.42    0.774 faster 
+str100000 remove            18.86    0.990        
+str100000 hit               10.63    0.995        
+str100000 miss               4.67    1.001        
+str1000000 insert           67.86    0.948 faster 
+str1000000 remove           54.87    1.000        
+str1000000 hit              46.75    1.018        
+str1000000 miss              7.69    0.998        
+big16 insert                20.71    0.999        
+big16 remove                17.85    1.001        
+big16 hit                    0.99    1.173        
+big16 iterate                0.54    1.001        
+big1000 insert              23.94    0.699 faster 
+big1000 remove               8.68    0.981        
+big1000 hit                  1.19    0.966        
+big1000 iterate              0.54    0.981        
+big100000 insert            27.46    0.870 faster 
+big100000 remove            17.17    0.999        
+big100000 hit                3.86    1.017        
+big100000 iterate            1.24    1.003        
+big1000000 insert           85.43    0.943 faster 
+big1000000 remove           23.05    1.009        
+big1000000 hit              15.90    1.061        
+big1000000 iterate           6.09    1.000        
+int insert                  15.98    0.740 faster 
+int hit                     10.18    0.999        
+int miss                     1.56    1.000        
+int iterate                  2.12    0.992        
+string insert               65.73    0.945 faster 
+string hit                  28.60    1.002        
+string miss                  8.70    1.015        
+string iterate               4.65    0.999        
+pair insert                 25.70    0.716 faster 
+pair hit                    15.43    0.987        
+pair miss                    1.79    1.001        
+triple insert               47.07    0.878 faster 
+triple hit                  24.58    0.990        
+triple miss                  5.36    0.993        
+small 4                      1.97    1.000        
+small 8                      1.97    1.000        
+string intern                9.68    1.001        
+int ensure-miss             19.41    0.775 faster 
+int ensure-hit              13.11    1.011        
+int ensure_with-miss        20.76    0.806 faster 
+int ensure_with-hit         11.52    1.027        
+int edit_put-miss           15.03    0.708 faster 
+int edit_put-hit            10.12    0.995        
+string ensure-miss          70.52    0.946 faster 
+string ensure-hit           41.04    1.014        
+string ensure_with-miss     80.65    0.937 faster 
+string ensure_with-hit      61.94    1.006        
+string edit_put-miss        73.51    0.917 faster 
+string edit_put-hit         60.57    1.009        

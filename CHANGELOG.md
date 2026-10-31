@@ -405,6 +405,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   compiled for itself and not with the other rows of its group. Every
   line's checksum is unchanged; the guard's program already timed each
   row alone, and its baseline is unchanged.
+- **A HashMap grows without waiting on its own stores, on x86-64.** A
+  growth to twice the groups places each entry at the next free lane
+  of its new group, kept as a count, where it loaded the group's control
+  bytes just after the entry before it wrote a tag there, a load that
+  waits for the store to commit. bench/hash's growing inserts are 5-36%
+  faster on pup and no row is slower; arm64, whose random-key inserts
+  were 4-6% slower with the counts, keeps its placement
+  ([rehash-counts.md](docs/history/records/2026-10/hash-race/rehash-counts.md)).
 - **The built-in tables have a guard.** `bench/hash/guard.py` counts the
   instructions per operation of `Map` and `HashMap` on Int, text, and
   two-word keys, and fails any row more than 2% over its baseline, as
