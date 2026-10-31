@@ -551,7 +551,7 @@ pub const ModuleGraph = struct {
             for (std_lib.files) |f| {
                 const n = f[0];
                 if (n.len > rel.len + 1 and std.mem.startsWith(u8, n, rel) and n[rel.len] == '/' and std.mem.findScalar(u8, n[rel.len + 1 ..], '/') == null) {
-                    if (belongs(n[rel.len + 1 ..], false)) try names.append(a, n[rel.len + 1 ..]);
+                    if (belongs(n[rel.len + 1 ..], own_tests)) try names.append(a, n[rel.len + 1 ..]);
                 }
             }
         } else {

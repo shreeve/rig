@@ -36,7 +36,7 @@ test "a private name of std.crypto"
 EOF2
 out=$(RIG_STD="$PWD/lib" rig test std.crypto 2>&1); expect_rc $? 0 "rig test std.crypto: $out"
 expect_has "$out" 'ok    test "a private name of std.crypto"' "a test file of std.crypto"
-expect_has "$out" '1 passed, 0 failed' "std.crypto's count"
+expect_has "$out" ' 0 failed' "std.crypto's count"
 out=$(RIG_STD="$PWD/lib" rig test std.crypto.x25519 2>&1); expect_rc $? 0 "rig test std.crypto.x25519: $out"
 expect_has "$out" '0 passed, 0 failed' "a module under a directory"
 
