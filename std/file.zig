@@ -391,19 +391,44 @@ fn entriesHere(path: []const u8) FileError!?Entries {
 // -----------------------------------------------------------------------------
 
 /// A descriptor of the file at `path` open to read, or null when nothing
-/// is there.
-pub fn open_fd(path: []const u8) Error!?i64 {
-    const got = (try pool(?Fd, openHere, .{path})) orelse return null;
+/// is there. Without `wait`, the open does not wait for a FIFO's writer
+/// or a device to be ready: it opens with O_NONBLOCK, then clears it, so
+/// the reads after it wait as any read does.
+pub fn open_fd(path: []const u8, wait: bool) Error!?i64 {
+    const got = (try pool(?Fd, openHere, .{ path, wait })) orelse return null;
     return got.fd;
 }
 
-fn openHere(path: []const u8) FileError!?Fd {
+fn openHere(path: []const u8, wait: bool) FileError!?Fd {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    const fd = openAt(try terminated(path, &buf), .{ .ACCMODE = .RDONLY, .CLOEXEC = true }) catch |err| {
+    const fd = openAt(try terminated(path, &buf), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = !wait }) catch |err| {
         try absent(err);
         return null;
     };
-    return .{ .fd = fd };
+    var got: Fd = .{ .fd = fd };
+    if (!wait) blocking(fd) catch |err| {
+        got.__rig_drop();
+        return err;
+    };
+    return got;
+}
+
+/// Clear O_NONBLOCK on `fd`, so its reads wait.
+fn blocking(fd: i32) FileError!void {
+    const flags = try fcntl(fd, posix.F.GETFL, 0);
+    const nonblock: usize = @as(u32, @bitCast(posix.O{ .NONBLOCK = true }));
+    _ = try fcntl(fd, posix.F.SETFL, flags & ~nonblock);
+}
+
+fn fcntl(fd: i32, cmd: i32, arg: usize) FileError!usize {
+    while (true) {
+        const rc = sys.fcntl(fd, cmd, arg);
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => {},
+            else => |e| return errnoFailure(e),
+        }
+    }
 }
 
 /// A descriptor of the file at `path`, created or emptied, open to
@@ -470,6 +495,19 @@ pub fn write_to(fd: i64, bytes: []const u8) Error!void {
 /// `File.flush`: what `print` buffered, written out, for stdout.
 pub fn flush_fd(fd: i64) Error!void {
     return rig.net.fileFlush(fd);
+}
+
+/// `File.sync`, `sync_data`, and `sync_fs` (`how` 0, 1, 2): the file
+/// written out to its device, on the blocking pool (`rig.net.fileSync`).
+pub fn sync_fd(fd: i64, how: i64) Error!void {
+    return rig.net.fileSync(fd, @enumFromInt(how));
+}
+
+/// `File.is_terminal`: isatty, on the task's own thread, as a standard
+/// stream's write runs. A descriptor that is not open is no terminal.
+pub fn terminal_fd(fd: i64) bool {
+    const f: std.Io.File = .{ .handle = @intCast(fd), .flags = .{ .nonblocking = false } };
+    return f.isTty(rig.io()) catch false;
 }
 
 fn writeAll(fd: i32, bytes: []const u8) FileError!void {

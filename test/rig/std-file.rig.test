@@ -176,3 +176,20 @@ test "file unlink and rmdir refuse the other kind", '''
     else
       e != file.FileError.not_permitted
   print(wrong, file.unlink("no/such/f")!, file.rmdir("no/such/dir")!)
+
+test "file sync of a file open to read", "true"
+  # A file open to read can be synced on both systems; `sync_fs` is
+  # syncfs on Linux, and `os.sync()` elsewhere.
+  f = file.open("examples/hello.rig")! ?? return
+  (!f).sync()!
+  (!f).sync_data()!
+  (!f).sync_fs()!
+  os.sync()
+  true
+
+test "file is_terminal of a file", "false false"
+  # The suite runs each case with stdin from /dev/null, not a terminal.
+  use std.io
+
+  f = file.open("examples/hello.rig", wait: false)! ?? return
+  print(f.is_terminal(), io.stdin().is_terminal())

@@ -95,6 +95,11 @@ A new session, human or agent, takes these steps in order:
   waiter spun about 2.4 ms a Trig run (item 1's profile,
   ~/Data/Code/Claude/rig/rig/item1/FINDINGS.md). Gates and the Trig A/B
   running.
+- **`File.sync`, `sync_data`, `sync_fs`, `os.sync()`, `File.is_terminal`,
+  and `file.open(p, wait: false)`** (queue row 25c; the owner approved
+  the names): the descriptor calls the coreutils port's `sync`, `dd`,
+  `shred`, `tty`, `ls`, and `tail --pid` need, with `File.fd` still
+  private; macOS syncs by `F_FULLFSYNC`. In review as one PR.
 - **`file.unlink` and `file.rmdir`** (queue row 25b; the owner approved
   the names): std.file removes one kind at a path, each by one system
   call, so the coreutils port's `rm`, `rmdir`, and `unlink` drop their

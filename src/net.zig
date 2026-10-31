@@ -533,6 +533,57 @@ pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
     return try (try rig.blockingStop(writeLent, .{ token, bytes }));
 }
 
+/// What `fileSync` writes out: the file's bytes and what the file system
+/// records of it, the bytes and what reading them back needs, or the
+/// whole file system that holds it.
+pub const Sync = enum(u2) { all, data, fs };
+
+/// Write out the file `fd` to its device and wait until the device has
+/// it, on the blocking pool as `fileRead` reads, on a duplicate of `fd`;
+/// for stdout, what `print` buffered is written out first. On macOS
+/// `all` and `data` are `F_FULLFSYNC`, which also asks the drive to
+/// empty its cache, falling back to `fsync` where a file system or a
+/// kind of file does not take it; `fs` is Linux's `syncfs`, and on
+/// other systems `sync`, which writes out every file system.
+pub fn fileSync(fd: i64, how: Sync) (rig.Stop || FileError)!void {
+    try fileFlush(fd);
+    const token = try lend(fd);
+    defer takeBack(token);
+    return try (try rig.blockingStop(syncLent, .{ token, how }));
+}
+
+/// Whether the system has `syncfs`, which writes out one file system.
+const has_syncfs = builtin.os.tag == .linux;
+
+fn syncLent(token: u64, how: Sync) (rig.Stop || FileError)!void {
+    const fd = claim(token) orelse return error.@"std.file.FileError.failed";
+    defer _ = sys.close(fd);
+    if (how == .fs and !has_syncfs) return sys.sync();
+    if (darwin) {
+        while (true) switch (posix.errno(sys.fcntl(fd, posix.F.FULLFSYNC, @as(usize, 0)))) {
+            .SUCCESS => return,
+            .INTR => try stopped(),
+            // A file system that does not take it (an SMB mount gives
+            // ENOTSUP), or a kind of file (a pipe gives EBADF): `fsync`,
+            // whose reason is the answer.
+            .INVAL, .OPNOTSUPP, .NOTTY, .BADF => break,
+            else => |e| return fileFailure(e),
+        };
+    }
+    while (true) {
+        const rc = switch (how) {
+            .all => sys.fsync(fd),
+            .data => if (darwin) sys.fsync(fd) else sys.fdatasync(fd),
+            .fs => if (has_syncfs) sys.syncfs(fd) else unreachable,
+        };
+        switch (posix.errno(rc)) {
+            .SUCCESS => return,
+            .INTR => try stopped(),
+            else => |e| return fileFailure(e),
+        }
+    }
+}
+
 /// The descriptors lent to calls on the blocking pool, each a duplicate
 /// of a file's under a token. Whoever removes one owns it and closes it:
 /// the call, once it starts (`claim`), or else its caller, once the call

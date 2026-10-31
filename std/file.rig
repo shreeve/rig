@@ -105,6 +105,34 @@ pub obj File
   pub sub flush(!@)!
     flush_fd(@fd)!
 
+  # Write the file's bytes, and what the file system records of it (its
+  # size, its times), out to the device, and wait until the device has
+  # them: Unix's fsync, or on macOS `F_FULLFSYNC`, which also asks the
+  # drive to empty its cache. On stdout, what `print` buffered is
+  # written out first. A pipe or a socket cannot be synced
+  # (`FileError.invalid`); a terminal can on macOS, not on Linux.
+  pub sub sync(!@)!
+    sync_fd(@fd, 0)!
+
+  # The same for the bytes, and what reading them back needs (the
+  # size), but not the times: fdatasync. On macOS it is `sync`.
+  pub sub sync_data(!@)!
+    sync_fd(@fd, 1)!
+
+  # Write out everything waiting for the file system that holds this
+  # file: Linux's syncfs. Other systems have no such call, and write out
+  # every file system, as `os.sync()` does.
+  pub sub sync_fs(!@)!
+    sync_fd(@fd, 2)!
+
+  # Whether this file is a terminal: isatty. A standard stream asks
+  # about the stream the program was started with:
+  # `io.stdout().is_terminal()` is how a program decides to print
+  # columns, or colors. A closed stream is not a terminal. It runs on
+  # the task's own thread, and is no waiting point.
+  pub fun is_terminal(?@) -> Bool
+    terminal_fd(@fd)
+
   drop(!@)
     close(@fd)
 
@@ -160,9 +188,12 @@ pub fun read_dir(path: ?String) -> List[Entry]?!
     !entries.push(Entry(name: <name, kind: kind_of(c % 4), link: c / 4 == 1))
   <entries
 
-# The file at `path` to read, or `none` when nothing is there.
-pub fun open(path: ?String) -> File?!
-  if open_fd(path)! as fd
+# The file at `path` to read, or `none` when nothing is there. With
+# `wait: false` the open does not wait for a FIFO's writer, or a device
+# to be ready; the reads after it wait as any read does (a FIFO with no
+# writer reads as its end, 0 bytes).
+pub fun open(path: ?String, wait: Bool = true) -> File?!
+  if open_fd(path, wait)! as fd
     return File(fd: fd)
   none
 
@@ -243,8 +274,9 @@ extern zig "file.zig"
   # is at `path`.
   fun dir_entries(path: ?String, names: !List[String], codes: !List[Int]) -> Bool!
 
-  # A descriptor of the file at `path` open to read, or none.
-  fun open_fd(path: ?String) -> Int?!
+  # A descriptor of the file at `path` open to read, or none; without
+  # `wait`, opened without waiting for a writer, then made to wait.
+  fun open_fd(path: ?String, wait: Bool) -> Int?!
 
   # A descriptor of the file at `path`, created or emptied, open to write.
   fun create_fd(path: ?String, parents: Bool) -> Int!
@@ -252,6 +284,9 @@ extern zig "file.zig"
   fun read_from(fd: Int, into: !String, max: Int) -> Int!
   sub write_to(fd: Int, bytes: ?String)!
   sub flush_fd(fd: Int)!
+  # `sync` (0), `sync_data` (1), or `sync_fs` (2) of `fd`.
+  sub sync_fd(fd: Int, how: Int)!
+  fun terminal_fd(fd: Int) -> Bool
   # Close `fd`, unless it is a standard stream's (0, 1, or 2).
   sub close(fd: Int)
 

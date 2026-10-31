@@ -1,6 +1,7 @@
 # std.file's layer of operations: append, rename, mkdir, remove, unlink,
 # rmdir, exists,
 # open and create giving a File read and written as a net.Stream is,
+# an open of a FIFO that does not wait for its writer (`wait: false`),
 # missing parents made only with `parents: true`, each failure a
 # FileError; and every call a fallible waiting point, failing in a
 # task past its deadline or canceled. In debug (sanitized) and --release.
@@ -139,6 +140,42 @@ sub main()!
   print(<r.cancel() catch |e| -4)
   print(t0.elapsed() < 5 * time.SECOND)
   file.append("fifo", "x")!
+  time.sleep(300 * time.MS)!
+EOF2
+
+# A FIFO opened with `wait: false`, which no writer has opened: the open
+# returns at once and reads its end. Then a writer opens it and waits
+# before writing: a read waits for the bytes, since the File is not left
+# nonblocking (a nonblocking read would fail). An open that waits for a
+# writer that never comes is stopped by its deadline, and the writer the
+# program opens then lets the abandoned open end.
+cat >fifo.rig <<'EOF2'
+use std.file
+use std.time
+
+fun opens() -> Int!
+  if file.open("p")! as f
+    return 1
+  0
+
+fun opens_within() -> Int!
+  time.within(100 * time.MS, opens)!
+
+sub main()!
+  f = file.open("p", wait: false)! ?? return
+  buf = String()
+  print((!f).read(!buf, 10)!)
+  file.write("opened", "")!
+  while not file.exists("ready")!
+    time.sleep(10 * time.MS)!
+  print((!f).read(!buf, 10)!, buf)
+  print((!f).read(!buf, 10)!)
+  # From a task, so the scheduler runs the open on its pool.
+  t = opens_within()&
+  _ = >t catch |e|
+    print(e)
+    -1
+  file.append("p", "x")!
   time.sleep(300 * time.MS)!
 EOF2
 
@@ -288,6 +325,15 @@ for mode in debug release; do
     expect_eq "$out" "$want_rm" "$mode: unlink and rmdir"
     out=$(RIG_SANITIZE=1 rig run $flag stop.rig 2>&1); expect_rc $? 0 "$mode stop: $out"
     expect_eq "$out" $'hello world\nsleep Stop.timeout\n-1\n-2\ntrue\n-3\n-4\ntrue' "$mode: past a deadline, and canceled, before and on the pool"
+    rig build $flag -o nowait fifo.rig >build.log 2>&1 || fail "$mode build fifo: $(cat build.log)"
+    rm -f p opened ready; mkfifo p
+    RIG_SANITIZE=1 "$TIMEOUT_CMD" 20 ./nowait >fifo.out 2>&1 &
+    pid=$!
+    while [[ ! -e opened ]] && kill -0 $pid 2>/dev/null; do sleep 0.02; done
+    [[ -e opened ]] && "$TIMEOUT_CMD" 10 bash -c 'exec 3>p; touch ready; sleep 0.3; printf hi >&3'
+    wait $pid; rc=$?
+    out=$(cat fifo.out); expect_rc $rc 0 "$mode fifo: $out"
+    expect_eq "$out" $'0\n2 hi\n0\nStop.timeout' "$mode: a FIFO opened without waiting, then read waiting"
     if [[ $(id -u) -ne 0 ]]; then
         rm -rf ro shut; mkdir ro ro/sub shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?

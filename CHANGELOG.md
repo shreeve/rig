@@ -344,6 +344,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `FileError.not_directory`, `unlink` of a directory `is_directory` on
   Linux and `not_permitted` on macOS. `remove` stays either, as C's
   `remove` and Go's `os.Remove` are.
+- **A `file.File` syncs, says whether it is a terminal, and opens a
+  FIFO without waiting.** `f.sync()` writes the file and what the file
+  system records of it out to the device and waits until it has them
+  (fsync, or `F_FULLFSYNC` on macOS, which also empties the drive's
+  cache), `f.sync_data()` the bytes alone (fdatasync), and
+  `f.sync_fs()` the file system that holds it (Linux's syncfs; every
+  file system elsewhere); `os.sync()` writes out every file system, as
+  sync(2) does, on the blocking pool. `f.is_terminal()` asks isatty, so
+  `io.stdout().is_terminal()` decides whether to print columns.
+  `file.open(p, wait: false)` does not wait for a FIFO's writer, and
+  the File's reads wait as any File's do. The descriptor stays private.
 - **std.io gives the standard streams.** `io.stdin()`, `io.stdout()`,
   and `io.stderr()` are `file.File`s on descriptors 0, 1, and 2, left
   open when dropped, so `cat` is `io.copy(!f, !out)` and stdin reads as

@@ -5,7 +5,9 @@
 # test/rig/std-io.rig.test. The standard streams: stdin read from a pipe
 # a block at a time and copied whole, from tasks too; stderr in order
 # with stdout; and a write that fails reported as its FileError, with
-# the system's words.
+# the system's words. Whether a standard stream is a terminal, under a
+# pseudo-terminal, piped, and closed; and stdout synced, to a file and
+# to a pipe.
 # timeout: 300
 source "$ROOT/test/cli/_lib.sh"
 
@@ -200,4 +202,37 @@ for mode in debug release; do
     err=$( { ./fail pipe | head -1 >/dev/null; echo "status ${PIPESTATUS[0]}" >&2; } 2>&1 )
     [[ $err == $'FileError.broken_pipe Broken pipe\nstatus 0' || $err == "status 141" ]] || fail "$mode: a closed pipe: $err"
 done
+
+# Whether stdin and stdout are terminals, and stdout synced: what
+# `print` buffered goes out first, then the file is synced; a pipe
+# cannot be, on either system.
+cat >tty.rig <<'EOF2'
+use std.io
+
+sub main()
+  print(io.stdin().is_terminal(), io.stdout().is_terminal())
+  out = io.stdout()
+  (!out).sync() catch |e|
+    warn(e)
+    return
+  warn("synced")
+EOF2
+rig build -o tty tty.rig >build.log 2>&1 || fail "build tty: $(cat build.log)"
+# A terminal can be synced on macOS, not on Linux. macOS's script echoes
+# the end of its empty input, ^D and two backspaces, first.
+if [[ $(uname -s) == Darwin ]]; then
+    out=$("$TIMEOUT_CMD" 20 script -q /dev/null ./tty </dev/null 2>&1 | tr -d '\r\b' | sed 's/^^D//')
+    want=$'true true\nsynced'
+else
+    out=$("$TIMEOUT_CMD" 20 script -qec ./tty /dev/null </dev/null 2>&1 | tr -d '\r')
+    want=$'true true\nFileError.invalid'
+fi
+expect_eq "$out" "$want" "under a pseudo-terminal"
+err=$(./tty </dev/null 2>&1 >out.txt); expect_rc $? 0 "tty to a file: $err"
+expect_eq "$(cat out.txt)" "false false" "stdout to a file"
+expect_eq "$err" "synced" "stdout to a file is synced"
+out=$(printf '' | ./tty 2>&1 | cat); expect_rc $? 0 "tty piped: $out"
+expect_eq "$out" $'false false\nFileError.invalid' "piped, and a pipe cannot be synced"
+out=$(./tty <&- 2>/dev/null); expect_rc $? 0 "tty with stdin closed: $out"
+expect_eq "$out" "false false" "a closed stdin is no terminal"
 exit 0
