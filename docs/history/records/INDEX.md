@@ -112,6 +112,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Atomics without orderings (2026-10-30, proposed) | seq_cst costs nothing against acquire, release or acq_rel on Apple M5 (the same instructions, or equal speed), and only the seq_cst store differs on x86-64; ordering costs only against relaxed, in four places, two of which move inside built-in forms: a cache line per shared Cell (adjacent ones 4–29× slower), `update(f)` (2.4× faster on one thread), a per-core counter (88× at 8 threads), `wait_until`, and a snapshot Cell; Zig ceilings and Rust measured | [atomics/](2026-10/atomics/) |
 | Split builds (2026-10-31) | Trig's release build spends 440 of 448 s in LLVM on one core; 8 units cut by the call graph build Zig's part in 56 s at the same peak memory, but Trig runs 7.5-9.4% slower (4 or 8 module units, 14-21%), and the Mac has no LTO; approved: split debug builds, test packs and `rig run`, `--release` one unit unless `--units N`, ThinLTO measured on pup next | [build-split/](2026-10/build-split/) |
 | Cheaper yield checks (2026-10-31) | the per-loop count stays: a flag per turn starves timers (a 10 ms sleep waited 1.2 s), loops that call left unchecked starve a queued task (1.15 s), and a check at every function entry costs 2.2-3.9% more instructions; with no loop checks Trig takes 2.5% fewer instructions, time within the Mac's noise; #782's strips closed and archived; the owner's four decisions | [sched-check/](2026-10/sched-check/) |
+| The timing audit (2026-10-31) | decisions timed with one variant first in every round, ranked by how likely each is to flip, and the likeliest timed again on pup with the order rotated: no decision flips; #678's zod3 gain was the order, but on today's main it makes ts-pattern 3.4% faster at four checkers; #754 costs zod3 about 1%, not 1.8%; #674's `leads` is level on today's main, since #678's rule covers it, and stays | [timing-audit/](2026-10/timing-audit/README.md) |
 | Inlining ray_color (2026-10-30, a study) | #777 changed no machine code for ray-dyn: LLVM already inlined what the size rule now inlines, and its recorded 6% x86 loss does not reproduce (all arms within 0.6% on pup). On arm64 keeping `ray_color` out of line runs 6.2% fewer instructions and 2.2% fewer cycles, as the merged function leaves no callee-saved FP register for World.hit's loop invariant; a rule for it waits on 20 quiet rounds and Trig | [ray-inline/](2026-10/ray-inline/) |
 | std.crypto (#800, 2026-10-31) | ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value barrier; the panel's speed in both release modes, X25519 1.3x dalek, BLAKE2s 5-14% faster than blake2, the AEAD 13-16% faster than ring at 8192 bytes and 7-15% slower on short seals; dudect passes with DIT around X25519 only; eight Rig gaps worked around | [std-crypto/](2026-10/std-crypto/) |
 
@@ -687,6 +688,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [review-1-holes.md](2026-10/table-slot/review-1-holes.md): Table/Slot: holes for the builder (adversarial review of A-typed-ids.md, option B)
 - [review-2-holes.md](2026-10/table-slot/review-2-holes.md): Table/Slot: second review, against 6fde90632 (table-slot)
 - [store-unchecked-ab.txt](2026-10/table-slot/store-unchecked-ab.txt)
+
+### 2026-10/timing-audit/
+
+- [README.md](2026-10/timing-audit/README.md): the timing audit: which decisions rest on a fixed order, the three re-timed with it rotated (#678, #754, #674), and the numbers each record now has
+- [data/](2026-10/timing-audit/data/): the ranked candidates, the harnesses and scripts, and every re-timed table
 
 ### 2026-10/wview-return/
 
