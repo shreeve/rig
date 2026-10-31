@@ -785,8 +785,56 @@ pub const ImportedNominal = struct {
     sym_id: SymbolId,
 };
 
-/// Module id -> the module's context.
-pub const ModuleMap = FastMap(u32, *SemContext);
+/// Module id -> the module's context, at index id. Ids run from 1, one
+/// per module in the order the graph adds them (`ModuleGraph.add`).
+pub const ModuleMap = struct {
+    /// Index 0 is no module.
+    items: std.ArrayList(?*SemContext) = .empty,
+
+    pub const empty: ModuleMap = .{};
+
+    pub fn deinit(self: *ModuleMap, a: std.mem.Allocator) void {
+        self.items.deinit(a);
+    }
+
+    pub fn get(self: *const ModuleMap, id: u32) ?*SemContext {
+        return if (id < self.items.items.len) self.items.items[id] else null;
+    }
+
+    /// The number of modules.
+    pub fn count(self: *const ModuleMap) u32 {
+        return @intCast(self.items.items.len -| 1);
+    }
+
+    pub fn ensureUnusedCapacity(self: *ModuleMap, a: std.mem.Allocator, n: u32) std.mem.Allocator.Error!void {
+        try self.items.ensureTotalCapacity(a, @max(self.items.items.len, 1) + n);
+    }
+
+    /// Add module `id`, the next one.
+    pub fn putAssumeCapacity(self: *ModuleMap, id: u32, ctx: *SemContext) void {
+        if (self.items.items.len == 0) self.items.appendAssumeCapacity(null);
+        std.debug.assert(id == self.items.items.len);
+        self.items.appendAssumeCapacity(ctx);
+    }
+
+    /// Each module's context, by id.
+    pub fn valueIterator(self: *const ModuleMap) ValueIterator {
+        return .{ .items = self.items.items };
+    }
+
+    pub const ValueIterator = struct {
+        items: []const ?*SemContext,
+        i: usize = 1,
+
+        pub fn next(it: *ValueIterator) ?*const *SemContext {
+            while (it.i < it.items.len) {
+                defer it.i += 1;
+                if (it.items[it.i]) |*ctx| return ctx;
+            }
+            return null;
+        }
+    };
+};
 const no_modules: ModuleMap = .empty;
 
 /// A `use`: the file of a directory module it is in (`SemContext.parts`;
@@ -2411,6 +2459,29 @@ pub const TypeMemo = struct {
     drop_body: FastMap(TypeId, bool) = .empty,
     /// `printable` of a type.
     printable: FastMap(TypeId, bool) = .empty,
+    /// Whether what a type's values hold no longer changes: set once its
+    /// module's declarations and contents are worked out
+    /// (`computeOrigins`), before which the view memos below are not used.
+    holds_final: bool = false,
+    /// What a view of a type points into, and what memory one parameter
+    /// of a type may store to (`viewTargets`, `storeTargets`).
+    view_targets: FastMap(TypeId, ViewTargets) = .empty,
+    store_targets: FastMap(TypeId, ViewTargets) = .empty,
+    /// How a holder leads to the memory of such targets (`reachTargets`).
+    reach: FastMap(ReachKey, ViewReach) = .empty,
+
+    pub const ReachKey = struct { holder: TypeId, of: TypeId, store: bool, from: ReachFrom };
+
+    fn deinit(self: *TypeMemo, a: std.mem.Allocator) void {
+        self.drop_body.deinit(a);
+        self.printable.deinit(a);
+        for ([_]*FastMap(TypeId, ViewTargets){ &self.view_targets, &self.store_targets }) |m| {
+            var it = m.valueIterator();
+            while (it.next()) |t| t.atoms.deinit(a);
+            m.deinit(a);
+        }
+        self.reach.deinit(a);
+    }
 };
 
 pub const Decided = struct {
@@ -3641,8 +3712,8 @@ fn computePlainBits(ctx: *SemContext) std.mem.Allocator.Error!void {
     // Nothing to pass on unless a body here tests `$plain`, or a generic
     // of another module takes a bit.
     const foreign_bits = blk: {
-        var it = ctx.foreign_semas.iterator();
-        while (it.next()) |e| if (e.value_ptr.*.plain_bits.count() > 0) break :blk true;
+        var it = ctx.foreign_semas.valueIterator();
+        while (it.next()) |m| if (m.*.plain_bits.count() > 0) break :blk true;
         break :blk false;
     };
     if (!changed and !foreign_bits) return;
@@ -4379,8 +4450,7 @@ pub const SemContext = struct {
         self.ct.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
-        self.type_memo.drop_body.deinit(self.allocator);
-        self.type_memo.printable.deinit(self.allocator);
+        self.type_memo.deinit(self.allocator);
         self.allocator.destroy(self.type_memo);
         self.arena.deinit();
     }
@@ -11643,8 +11713,7 @@ pub const ReachFrom = enum { all, views };
 /// How a value of type `holder` leads to the memory a value of type
 /// `view` points into (`ViewReach`).
 pub fn viewReach(ctx: *const SemContext, a: std.mem.Allocator, holder: TypeId, view: TypeId) std.mem.Allocator.Error!ViewReach {
-    const targets = try viewTargets(ctx, a, view);
-    return reachTargets(ctx, a, holder, targets, .all);
+    return viewReachOf(ctx, a, holder, .{ .view = view }, .all);
 }
 
 /// How a value of type `holder` leads to memory `targets` names,
@@ -11749,13 +11818,64 @@ const ReachWalk = struct {
 /// hold anything, never an instance's.
 pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o: Origins = .{ .result = 0, .stores = 0 };
-    const results = try viewTargets(ctx, a, f.returns);
-    const stored = try storeTargets(ctx, a, f.params);
     for (f.params, 0..) |p, i| {
-        if (try reachTargets(ctx, a, p, results, .views) != .none) o.result |= paramBit(i);
-        if (try reachTargets(ctx, a, p, stored, .views) != .none) o.stores |= paramBit(i);
+        if (try viewReachOf(ctx, a, p, .{ .view = f.returns }, .views) != .none) o.result |= paramBit(i);
+        // What the parameters may store is the union of what each may,
+        // and a holder reaches a union where it reaches any part of it.
+        for (f.params) |q| {
+            if (try viewReachOf(ctx, a, p, .{ .store = q }, .views) != .none) {
+                o.stores |= paramBit(i);
+                break;
+            }
+        }
     }
     return o;
+}
+
+/// The targets `viewReachOf` reaches: what a view of type `view` points into,
+/// or what a parameter of type `store` may store to.
+pub const TargetsOf = union(enum) { view: TypeId, store: TypeId };
+
+/// `reachTargets` of `holder` and the targets `of` names, worked out once
+/// per pair of types (`TypeMemo.reach`) when what types hold is final.
+/// Self-checking builds work each memo out again and compare.
+pub fn viewReachOf(ctx: *const SemContext, a: std.mem.Allocator, holder: TypeId, of: TargetsOf, from: ReachFrom) std.mem.Allocator.Error!ViewReach {
+    const memo = ctx.type_memo;
+    if (!memo.holds_final) return reachTargets(ctx, a, holder, try freshTargets(ctx, a, of), from);
+    const key: TypeMemo.ReachKey = switch (of) {
+        .view => |t| .{ .holder = holder, .of = t, .store = false, .from = from },
+        .store => |t| .{ .holder = holder, .of = t, .store = true, .from = from },
+    };
+    if (memo.reach.get(key)) |r| {
+        if (@import("build_options").self_check) std.debug.assert(r == try reachTargets(ctx, a, holder, try freshTargets(ctx, a, of), from));
+        return r;
+    }
+    const r = try reachTargets(ctx, a, holder, try targetsOf(ctx, of), from);
+    memo.reach.put(ctx.allocator, key, r) catch std.debug.panic("out of memory", .{});
+    return r;
+}
+
+/// The targets `of` names, worked out now.
+fn freshTargets(ctx: *const SemContext, a: std.mem.Allocator, of: TargetsOf) std.mem.Allocator.Error!ViewTargets {
+    return switch (of) {
+        .view => |t| viewTargets(ctx, a, t),
+        .store => |t| storeTargets(ctx, a, &.{t}),
+    };
+}
+
+/// The targets `of` names, worked out once per type (`TypeMemo`); only
+/// once what types hold is final. The memo owns what it returns.
+fn targetsOf(ctx: *const SemContext, of: TargetsOf) std.mem.Allocator.Error!ViewTargets {
+    const memo = ctx.type_memo;
+    std.debug.assert(memo.holds_final);
+    const map, const ty = switch (of) {
+        .view => |t| .{ &memo.view_targets, t },
+        .store => |t| .{ &memo.store_targets, t },
+    };
+    if (map.get(ty)) |t| return t;
+    const t = try freshTargets(ctx, ctx.allocator, of);
+    map.put(ctx.allocator, ty, t) catch std.debug.panic("out of memory", .{});
+    return t;
 }
 
 /// Whether a parameter of type `ty` is lent: a view (`isViewType`), or
@@ -11800,10 +11920,9 @@ fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, po
     const masks = try a.alloc(ParamMask, parts.len);
     for (parts, masks) |part, *m| {
         m.* = 0;
-        const targets = try viewTargets(ctx, a, part);
         for (f.params, 0..) |p, i| {
             if (mask & paramBit(i) == 0) continue;
-            if (try reachTargets(ctx, a, p, targets, .views) != .none) m.* |= paramBit(i);
+            if (try viewReachOf(ctx, a, p, .{ .view = part }, .views) != .none) m.* |= paramBit(i);
         }
     }
     for (parts, masks, 0..) |part, m, i| {
@@ -11863,7 +11982,7 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
             } else try ctx.errAt(n, "`{s}` has no parameter `{s}`; `from` names parameters, `@`, or `static` alone", .{ name, text });
             continue;
         };
-        if (i < f.params.len and try reachTargets(ctx, a, f.params[i], results, .views) == .none) {
+        if (i < f.params.len and try viewReachOf(ctx, a, f.params[i], .{ .view = f.returns }, .views) == .none) {
             try ctx.errAt(n, "`{s}: {s}` cannot hold a view of what `{s}` returns, so its result never views it", .{ text, try formatType(ctx, f.params[i]), name });
             continue;
         }
@@ -12022,6 +12141,7 @@ pub fn signatureOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: Functio
 /// (`defaultOrigins`); the built-in generics' methods keep every
 /// argument's loans.
 fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
+    ctx.type_memo.holds_final = true;
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     for (ctx.symbols.items) |*sym| {
