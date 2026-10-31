@@ -380,6 +380,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   blake2; the AEAD beats ring at 8192 bytes and on most opens, and
   trails it on shorter seals (record:
   docs/history/records/2026-10/std-crypto/).
+- **ChaCha20-Poly1305 on x86-64 MACs a block at a time.** Past 192
+  bytes, the loop on x86-64 runs Poly1305 on 64-bit limbs, four blocks
+  one at a time after each of the first 8 double rounds, as a measured
+  Zig ceiling does: its one multiplier port makes arm64's 44-bit,
+  four-block step twice the work. arm64 keeps that step, as fast as it
+  was. The loop is one function, generic over its MAC, and
+  `rig test std.crypto` checks both MACs on any machine.
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,

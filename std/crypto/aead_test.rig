@@ -1,0 +1,111 @@
+# std.crypto's AEAD, tested with each target's loop MAC on every
+# machine (`rig test std.crypto`): x86-64's Poly1305 on 64-bit limbs a
+# block at a time, and arm64's on 44-bit limbs four blocks a step.
+
+# The key and nonce of message length `n`, as Zig's std.crypto checksum
+# below was made with.
+fun test_key(n: Int) -> [32]U8
+  key: [32]U8 = [32 of 0]
+  for i in 0..32
+    key[i] = U8.wrap(n +% i)
+  key
+
+fun test_nonce(n: Int) -> [12]U8
+  nonce: [12]U8 = [12 of 0]
+  nonce[0] = U8.wrap(n)
+  nonce[11] = U8.wrap(n >> 8)
+  nonce
+
+fun test_message() -> List[U8]
+  msg: List[U8] = List()
+  for i in 0..2100
+    !msg.push(U8.wrap(i *% 131 +% 7))
+  msg
+
+fun test_header() -> List[U8]
+  aad: List[U8] = List()
+  for i in 0..80
+    !aad.push(U8.wrap(i *% 17 +% 3))
+  aad
+
+# The bytes and tag of length `n` sealed in place with `arch`'s MAC, then
+# sealed into another buffer; and whether the two agree, each open gives
+# `msg` back, and a forged tag fails and zeroes, in place and into.
+fun test_trace[arch: Arch](n: Int, msg: []U8, aad: []U8) -> (List[U8], Bool)
+  key = test_key(n)
+  nonce = test_nonce(n)
+  out: List[U8] = List()
+  ok = true
+  buf: List[U8] = List()
+  for i in 0..n
+    !buf.push(msg[i])
+  tag = seal_with[arch](?key, !buf, ?nonce, aad)
+  for i in 0..n
+    !out.push(buf[i])
+  for i in 0..16
+    !out.push(tag[i])
+  sealed: List[U8] = List()
+  for _ in 0..(n + 16)
+    !sealed.push(0)
+  seal_into_with[arch](?key, !sealed, msg[0..n], ?nonce, aad)
+  for i in 0..(n + 16)
+    ok = ok and sealed[i] == out[i]
+  back: List[U8] = List()
+  for _ in 0..n
+    !back.push(0)
+  open_into_with[arch](?key, !back, sealed, ?nonce, aad) catch |_|
+    ok = false
+  open_with[arch](?key, !buf, ?tag, ?nonce, aad) catch |_|
+    ok = false
+  for i in 0..n
+    ok = ok and buf[i] == msg[i] and back[i] == msg[i]
+  sealed[n + n % 16] ^= 1
+  bad = tag
+  bad[n % 16] ^= 1
+  _ = seal_with[arch](?key, !buf, ?nonce, aad)
+  forged = 0
+  open_with[arch](?key, !buf, ?bad, ?nonce, aad) catch |_|
+    forged += 1
+  open_into_with[arch](?key, !back, sealed, ?nonce, aad) catch |_|
+    forged += 1
+  ok = ok and forged == 2
+  for i in 0..n
+    ok = ok and buf[i] == 0 and back[i] == 0
+  return out, ok
+
+# The tags and texts of every length to 2100, under six header lengths,
+# sealed in place with `arch`'s MAC, folded into one checksum.
+fun test_digest[arch: Arch](msg: []U8, aad: []U8) -> U64
+  acc: U64 = 0
+  for n in 0..2101
+    al = [0, 1, 13, 16, 33, 80][n % 6]
+    key = test_key(n)
+    nonce = test_nonce(n)
+    buf: List[U8] = List()
+    for i in 0..n
+      !buf.push(msg[i])
+    tag = seal_with[arch](?key, !buf, ?nonce, aad[0..al])
+    for i in 0..n
+      acc = (acc *% 1099511628211) ^ U64(buf[i])
+    for i in 0..16
+      acc = (acc *% 1099511628211) ^ U64(tag[i])
+  acc
+
+test "each MAC gives Zig's checksum at every length to 2100"
+  msg = test_message()
+  aad = test_header()
+  # Zig's std.crypto gives 11258623874660040186.
+  test_digest[.x86_64](msg, aad) == 11258623874660040186 and test_digest[.aarch64](msg, aad) == 11258623874660040186
+
+test "both MACs agree from 193 to 2100 bytes, in place and into"
+  msg = test_message()
+  aad = test_header()
+  ok = true
+  for n in 193..2101
+    al = [0, 1, 13, 16, 33, 80][n % 6]
+    a, a_ok = test_trace[.x86_64](n, msg, aad[0..al])
+    b, b_ok = test_trace[.aarch64](n, msg, aad[0..al])
+    ok = ok and a_ok and b_ok and a.len == b.len
+    for i in 0..a.len
+      ok = ok and a[i] == b[i]
+  ok

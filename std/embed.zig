@@ -14,6 +14,7 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "hint.zig", @embedFile("hint.zig") },
     .{ "crypto.zig", @embedFile("crypto.zig") },
     .{ "crypto/aead.rig", @embedFile("crypto/aead.rig") },
+    .{ "crypto/aead_test.rig", @embedFile("crypto/aead_test.rig") },
     .{ "crypto/ct.rig", @embedFile("crypto/ct.rig") },
     .{ "crypto/blake2s/blake2s.rig", @embedFile("crypto/blake2s/blake2s.rig") },
     .{ "crypto/x25519/field.rig", @embedFile("crypto/x25519/field.rig") },

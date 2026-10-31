@@ -194,6 +194,59 @@ test "crypto chacha out of place", "true true true"
     zeroed = e == crypto.Forged.tag and back[0] == 0 and back[15] == 0 and back[16] == 7
   print(same, pad_ok, zeroed)
 
+test "crypto chacha rfc 8439 past the short path", '''
+  Internet-Drafts are draft documents valid for a maximum of six months
+  eead9d67890cbb22392336fea1851f38 true
+  d31a8d34648e60db7b86afbc53ef7ec2 1ae10b594f09e26a7e902ecbd0600691
+'''
+  # §A.5's 265 bytes, past the short path, opened and sealed again; and
+  # §2.8.2's 114, on it. std.crypto's own tests check each target's
+  # loop MAC on every machine (`rig test std.crypto`).
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  fun unhex[n: Int](h: ?String) -> [n]U8
+    out: [n]U8 = [n of 0]
+    for i in 0..n
+      hi = h[2 * i]
+      lo = h[2 * i + 1]
+      out[i] = (hi - 48 if hi <= 57 else hi - 87) * 16 + (lo - 48 if lo <= 57 else lo - 87)
+    out
+
+  fun show(b: []U8) -> String
+    s = String()
+    for x in b
+      !s.push(x)
+    s
+
+  sub vectors()!
+    c = crypto.ChaCha.of(unhex[32]("1c9240a5eb55d38af333888604f6b5f0473917c1402b80099dca5cbc207075c0"))
+    nonce = unhex[12]("000000000102030405060708")
+    header = unhex[12]("f33388860000000000004e91")
+    sealed = unhex[265]("64a0861575861af460f062c79be643bd5e805cfd345cf389f108670ac76c8cb24c6cfc18755d43eea09ee94e382d26b0bdb7b73c321b0100d4f03b7f355894cf332f830e710b97ce98c8a84abd0b948114ad176e008d33bd60f982b1ff37c8559797a06ef4f0ef61c186324e2b3506383606907b6a7c02b0f9f6157b53c867e4b9166c767b804d46a59b5216cde7a4e99040c5a40433225ee282a1b0a06c523eaf4534d7f83fa1155b0047718cbc546a0d072b04b3564eea1b422273f548271a0bb2316053fa76991955ebd63159434ecebb4e466dae5a1073a6727627097a1049e617d91d361094fa68f0ff77987130305beaba2eda04df997b714d6c6f2c29a6ad5cb4022b02709b")
+    buf = sealed
+    c.open(!buf, unhex[16]("eead9d67890cbb22392336fea1851f38"), nonce, header)!
+    print(show(buf[0..69]))
+    tag = c.seal(!buf, nonce, header)
+    same = true
+    for i in 0..265
+      same = same and buf[i] == sealed[i]
+    print(hx(tag), same)
+    sun = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
+    text: List[U8] = List()
+    for b in sun
+      !text.push(b)
+    d = crypto.ChaCha.of(unhex[32]("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
+    t = d.seal(!text, unhex[12]("070000004041424344454647"), unhex[12]("50515253c0c1c2c3c4c5c6c7"))
+    print(hx(text[0..16]), hx(t))
+
+  vectors()!
+
 test "crypto xchacha draft", '''
   bd6d179d3e83d43b9576579493c0e939572a1700252bfaccbed2902c21396cbb731c7f1b0b4aa6440bf3a82f4eda7e39ae64c6708c54c216cb96b72e1213b4522f8c9ba40db5d945b11b69b982c1bb9e3f3fac2bc369488f76b2383565d3fff921f9664c97637da9768812f615c68b13b52e
   c0875924c1c7987947deafd8780acf49
