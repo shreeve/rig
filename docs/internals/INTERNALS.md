@@ -5535,7 +5535,33 @@ installed. A fault taken while that handler walks the stack (on x86_64
 Linux the walk from inside Zig's stack-probe routine, whose stack
 pointer is already in the guard, reads the guard) comes back to it, and
 it aborts. So a stack overflow ends with SIGABRT (status 134) in every
-build mode.
+build mode. A fault outside the guard puts back the handlers it
+replaced and returns, so the access faults again into them, the
+sanitizer's (`Sanitizer.onFault`, which does the same for an address
+outside its spans) or Zig's.
+
+**A signal that was sent.** A SIGSEGV or SIGBUS that `kill`, `raise`,
+or `sigqueue` sent has no access to fault again, so both handlers ask
+first whether it was sent (`sentSignal`), and end the program by it if
+so, as its default action does (`dieOf`: status 139, or 138 on macOS
+and 135 on Linux for SIGBUS; no message, no trace). On Linux a sent
+signal's `si_code` is 0 or less (`SI_USER`, `SI_QUEUE`, `SI_TKILL`), a
+fault's above 0, exactly. On macOS `si_code` cannot tell, as the kernel
+fills a sent signal's from the thread's last exception, and
+`darwinFault` reads that exception from the signal's context instead:
+on arm64 its syndrome says a system call when the signal arrived as the
+thread left the kernel, and an abort or an alignment fault when it
+faulted. The last exception may be a page fault the kernel resolved
+before a sent signal arrived (a thread touching fresh pages, about one
+signal in ten), so an abort counts only if its address still cannot be
+accessed as the abort tried to (`mach_vm_region`). The kernel can leave
+0 as that address, and does for most signals sent to a debug build's
+loop of allocations, so an abort at 0 counts only if the thread stopped
+at a load or store through a register that points into the first page,
+as a real access of address 0 does. On x86-64 macOS every such signal
+still counts as a fault. `test/cli/fault_signal.sh` checks each case in
+every build mode and under `RIG_SANITIZE=1`, with a real overflow and a
+real use of freed memory beside them.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address
