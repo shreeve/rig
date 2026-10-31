@@ -1,0 +1,284 @@
+# start 04:46:06 N=20 cpus=all load 0.34 0.72 3.67
+# zod3: same output
+zod3 round=1 v=main duration_time=152731285 user_time=117863000 system_time=33960000 cycles/u=591011321 cycles/k=85009533 instructions/u=1429121062 page-faults=7798 rss_kb=88476 exit=2 load=0.31
+zod3 round=1 v=meta duration_time=139684509 user_time=114615000 system_time=24129000 cycles/u=596827891 cycles/k=85270351 instructions/u=1446256443 page-faults=7765 rss_kb=88208 exit=2 load=0.31
+zod3 round=2 v=meta duration_time=149143277 user_time=117528000 system_time=29628000 cycles/u=606392384 cycles/k=83046283 instructions/u=1462985396 page-faults=7763 rss_kb=88400 exit=2 load=0.31
+zod3 round=2 v=main duration_time=149582807 user_time=126983000 system_time=22171000 cycles/u=608918899 cycles/k=86188026 instructions/u=1428367701 page-faults=7797 rss_kb=88372 exit=2 load=0.31
+zod3 round=3 v=main duration_time=149959297 user_time=123763000 system_time=25155000 cycles/u=609264852 cycles/k=85485192 instructions/u=1463851110 page-faults=7798 rss_kb=88544 exit=2 load=0.31
+zod3 round=3 v=meta duration_time=143837747 user_time=116726000 system_time=26708000 cycles/u=598690741 cycles/k=84445345 instructions/u=1448255144 page-faults=7766 rss_kb=88476 exit=2 load=0.31
+zod3 round=4 v=meta duration_time=148706198 user_time=117004000 system_time=30480000 cycles/u=599044961 cycles/k=82770216 instructions/u=1439422624 page-faults=7765 rss_kb=88300 exit=2 load=0.29
+zod3 round=4 v=main duration_time=150020550 user_time=125247000 system_time=24047000 cycles/u=602208651 cycles/k=82113742 instructions/u=1439281679 page-faults=7799 rss_kb=88296 exit=2 load=0.29
+# 04:46:14 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+zod3 round=5 v=main duration_time=150514494 user_time=123761000 system_time=26160000 cycles/u=605910796 cycles/k=90819938 instructions/u=1455153423 page-faults=7797 rss_kb=88440 exit=2 load=0.27
+zod3 round=5 v=meta duration_time=141727791 user_time=113756000 system_time=27697000 cycles/u=600601657 cycles/k=82476310 instructions/u=1444128922 page-faults=7764 rss_kb=88404 exit=2 load=0.27
+zod3 round=6 v=meta duration_time=147265928 user_time=116406000 system_time=29594000 cycles/u=600534160 cycles/k=82507520 instructions/u=1452578510 page-faults=7764 rss_kb=88396 exit=2 load=0.27
+zod3 round=6 v=main duration_time=151226935 user_time=127195000 system_time=23218000 cycles/u=642146896 cycles/k=89722542 instructions/u=1543708243 page-faults=7797 rss_kb=88488 exit=2 load=0.27
+zod3 round=7 v=main duration_time=150076415 user_time=127556000 system_time=21923000 cycles/u=617986839 cycles/k=80613929 instructions/u=1469052580 page-faults=7800 rss_kb=88304 exit=2 load=0.25
+zod3 round=7 v=meta duration_time=154202614 user_time=125301000 system_time=28067000 cycles/u=650445678 cycles/k=80757316 instructions/u=1515860071 page-faults=7765 rss_kb=88316 exit=2 load=0.25
+zod3 round=8 v=meta duration_time=145721251 user_time=119834000 system_time=25175000 cycles/u=604008742 cycles/k=84847545 instructions/u=1431044133 page-faults=7764 rss_kb=88636 exit=2 load=0.25
+zod3 round=8 v=main duration_time=142779609 user_time=116233000 system_time=26052000 cycles/u=591649135 cycles/k=85766992 instructions/u=1415890904 page-faults=7799 rss_kb=88672 exit=2 load=0.25
+# 04:46:41 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+zod3 round=9 v=main duration_time=171879890 user_time=136124000 system_time=34776000 cycles/u=683782741 cycles/k=100554521 instructions/u=1554102282 page-faults=7799 rss_kb=88416 exit=2 load=0.18
+zod3 round=9 v=meta duration_time=140109795 user_time=105384000 system_time=34124000 cycles/u=595802336 cycles/k=86060183 instructions/u=1412943817 page-faults=7764 rss_kb=88652 exit=2 load=0.18
+zod3 round=10 v=meta duration_time=182082939 user_time=139264000 system_time=41779000 cycles/u=730808437 cycles/k=75282742 instructions/u=1738783806 page-faults=7762 rss_kb=88440 exit=2 load=0.16
+zod3 round=10 v=main duration_time=149524337 user_time=122968000 system_time=25993000 cycles/u=613486100 cycles/k=87915307 instructions/u=1454884358 page-faults=7799 rss_kb=88628 exit=2 load=0.16
+zod3 round=11 v=main duration_time=148640119 user_time=120498000 system_time=27339000 cycles/u=601547629 cycles/k=82785145 instructions/u=1453038318 page-faults=7799 rss_kb=88568 exit=2 load=0.16
+zod3 round=11 v=meta duration_time=154015591 user_time=121547000 system_time=31881000 cycles/u=614285669 cycles/k=99671028 instructions/u=1436570739 page-faults=7764 rss_kb=88344 exit=2 load=0.16
+zod3 round=12 v=meta duration_time=155440364 user_time=122910000 system_time=31231000 cycles/u=642077822 cycles/k=83595050 instructions/u=1473891209 page-faults=7764 rss_kb=88348 exit=2 load=0.16
+zod3 round=12 v=main duration_time=142856942 user_time=119349000 system_time=22875000 cycles/u=580401773 cycles/k=85236753 instructions/u=1408814451 page-faults=7800 rss_kb=88452 exit=2 load=0.16
+zod3 round=13 v=main duration_time=151859226 user_time=127056000 system_time=24010000 cycles/u=608526189 cycles/k=80829388 instructions/u=1464384204 page-faults=7798 rss_kb=88444 exit=2 load=0.15
+zod3 round=13 v=meta duration_time=184503105 user_time=146968000 system_time=36991000 cycles/u=769854214 cycles/k=85623959 instructions/u=1846322028 page-faults=7766 rss_kb=87876 exit=2 load=0.15
+zod3 round=14 v=meta duration_time=148898380 user_time=120779000 system_time=26950000 cycles/u=606260659 cycles/k=81946553 instructions/u=1458038497 page-faults=7765 rss_kb=88356 exit=2 load=0.15
+zod3 round=14 v=main duration_time=149673294 user_time=116199000 system_time=33056000 cycles/u=604780833 cycles/k=82142003 instructions/u=1428776112 page-faults=7797 rss_kb=88352 exit=2 load=0.15
+zod3 round=15 v=main duration_time=147193235 user_time=117945000 system_time=28226000 cycles/u=612951966 cycles/k=83224640 instructions/u=1461198983 page-faults=7797 rss_kb=88628 exit=2 load=0.15
+zod3 round=15 v=meta duration_time=165395862 user_time=140292000 system_time=24699000 cycles/u=645871785 cycles/k=94314750 instructions/u=1532255037 page-faults=7765 rss_kb=87848 exit=2 load=0.15
+# 04:47:12 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 04:47:32 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 04:47:53 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+zod3 round=16 v=meta duration_time=158700638 user_time=123718000 system_time=34198000 cycles/u=670065593 cycles/k=77569654 instructions/u=1578002664 page-faults=7766 rss_kb=88560 exit=2 load=0.09
+zod3 round=16 v=main duration_time=156581229 user_time=127019000 system_time=29004000 cycles/u=633386633 cycles/k=80076391 instructions/u=1480718557 page-faults=7798 rss_kb=88224 exit=2 load=0.09
+zod3 round=17 v=main duration_time=160504321 user_time=118166000 system_time=40712000 cycles/u=631085243 cycles/k=85700833 instructions/u=1471769570 page-faults=7799 rss_kb=88332 exit=2 load=0.09
+zod3 round=17 v=meta duration_time=140052027 user_time=112690000 system_time=26925000 cycles/u=589164673 cycles/k=87596966 instructions/u=1413284352 page-faults=7765 rss_kb=88660 exit=2 load=0.09
+zod3 round=18 v=meta duration_time=155690725 user_time=126853000 system_time=26968000 cycles/u=649455577 cycles/k=81625824 instructions/u=1548889310 page-faults=7764 rss_kb=88412 exit=2 load=0.09
+zod3 round=18 v=main duration_time=148107119 user_time=123671000 system_time=24130000 cycles/u=612364730 cycles/k=84039599 instructions/u=1421314862 page-faults=7799 rss_kb=88364 exit=2 load=0.16
+# 04:48:18 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 04:48:38 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+zod3 round=19 v=main duration_time=147459338 user_time=125157000 system_time=21852000 cycles/u=604633866 cycles/k=83378604 instructions/u=1450500715 page-faults=7799 rss_kb=88588 exit=2 load=0.14
+zod3 round=19 v=meta duration_time=145607131 user_time=114107000 system_time=31029000 cycles/u=592767883 cycles/k=85253878 instructions/u=1410632451 page-faults=7765 rss_kb=88516 exit=2 load=0.14
+zod3 round=20 v=meta duration_time=150095404 user_time=125029000 system_time=24199000 cycles/u=617079701 cycles/k=81751573 instructions/u=1473927258 page-faults=7766 rss_kb=88336 exit=2 load=0.14
+zod3 round=20 v=main duration_time=148712849 user_time=118414000 system_time=29852000 cycles/u=619293075 cycles/k=86497639 instructions/u=1463706794 page-faults=7797 rss_kb=88364 exit=2 load=0.14
+# 04:49:02 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# ts-pattern: same output
+ts-pattern round=1 v=main duration_time=687159279 user_time=616989000 system_time=68887000 cycles/u=3156064733 cycles/k=243083044 instructions/u=8016817832 page-faults=15132 rss_kb=267068 exit=2 load=0.30
+ts-pattern round=1 v=meta duration_time=686514206 user_time=627663000 system_time=58061000 cycles/u=3186396549 cycles/k=241395754 instructions/u=8037496164 page-faults=15097 rss_kb=266648 exit=2 load=0.36
+# 04:49:29 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 04:49:50 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+ts-pattern round=2 v=meta duration_time=708596085 user_time=638842000 system_time=68089000 cycles/u=3215741359 cycles/k=261094051 instructions/u=7997102512 page-faults=14879 rss_kb=267844 exit=2 load=0.25
+ts-pattern round=2 v=main duration_time=690734775 user_time=633713000 system_time=55974000 cycles/u=3124073613 cycles/k=236910099 instructions/u=7964358144 page-faults=14917 rss_kb=267904 exit=2 load=0.25
+ts-pattern round=3 v=main duration_time=702200191 user_time=636627000 system_time=63962000 cycles/u=3194509085 cycles/k=233546446 instructions/u=8110156249 page-faults=14918 rss_kb=267652 exit=2 load=0.23
+ts-pattern round=3 v=meta duration_time=682484297 user_time=620479000 system_time=60948000 cycles/u=3139996439 cycles/k=234870491 instructions/u=7991158797 page-faults=14879 rss_kb=267816 exit=2 load=0.23
+ts-pattern round=4 v=meta duration_time=701088090 user_time=629026000 system_time=70890000 cycles/u=3232732461 cycles/k=241612365 instructions/u=8040480093 page-faults=14882 rss_kb=267760 exit=2 load=0.23
+ts-pattern round=4 v=main duration_time=705842929 user_time=639510000 system_time=64151000 cycles/u=3207851576 cycles/k=236247525 instructions/u=8058814160 page-faults=14918 rss_kb=267744 exit=2 load=0.23
+# 04:50:18 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+ts-pattern round=5 v=main duration_time=705916117 user_time=639162000 system_time=64914000 cycles/u=3244238173 cycles/k=223573512 instructions/u=8291070338 page-faults=14917 rss_kb=267868 exit=2 load=0.26
+ts-pattern round=5 v=meta duration_time=680781212 user_time=623990000 system_time=55909000 cycles/u=3124456778 cycles/k=230339685 instructions/u=8007771049 page-faults=14881 rss_kb=267704 exit=2 load=0.26
+ts-pattern round=6 v=meta duration_time=704144952 user_time=631513000 system_time=69835000 cycles/u=3178469032 cycles/k=237732617 instructions/u=8031744220 page-faults=14882 rss_kb=267412 exit=2 load=0.26
+ts-pattern round=6 v=main duration_time=708351700 user_time=639049000 system_time=68005000 cycles/u=3220686580 cycles/k=262480241 instructions/u=7998793367 page-faults=14917 rss_kb=267924 exit=2 load=0.32
+ts-pattern round=7 v=main duration_time=698456044 user_time=635039000 system_time=62101000 cycles/u=3191788727 cycles/k=227373497 instructions/u=8110956968 page-faults=14916 rss_kb=267824 exit=2 load=0.32
+ts-pattern round=7 v=meta duration_time=687910245 user_time=630897000 system_time=55990000 cycles/u=3147958517 cycles/k=236916140 instructions/u=8012003337 page-faults=14883 rss_kb=267848 exit=2 load=0.32
+ts-pattern round=8 v=meta duration_time=704974313 user_time=640218000 system_time=63021000 cycles/u=3208259363 cycles/k=228537131 instructions/u=8102727919 page-faults=14882 rss_kb=267524 exit=2 load=0.38
+ts-pattern round=8 v=main duration_time=695678771 user_time=628202000 system_time=65916000 cycles/u=3152435273 cycles/k=233141776 instructions/u=8019316647 page-faults=14916 rss_kb=267992 exit=2 load=0.38
+ts-pattern round=9 v=main duration_time=689304463 user_time=619875000 system_time=67094000 cycles/u=3183465011 cycles/k=236932578 instructions/u=8073508264 page-faults=14918 rss_kb=268060 exit=2 load=0.38
+ts-pattern round=9 v=meta duration_time=685380676 user_time=626998000 system_time=57090000 cycles/u=3153513452 cycles/k=225014721 instructions/u=8025953711 page-faults=14879 rss_kb=267656 exit=2 load=0.38
+ts-pattern round=10 v=meta duration_time=703855955 user_time=634616000 system_time=67852000 cycles/u=3173430352 cycles/k=233765243 instructions/u=8019058181 page-faults=14882 rss_kb=267488 exit=2 load=0.51
+ts-pattern round=10 v=main duration_time=693193482 user_time=631356000 system_time=60841000 cycles/u=3202026641 cycles/k=225039074 instructions/u=8108409669 page-faults=14917 rss_kb=268096 exit=2 load=0.51
+ts-pattern round=11 v=main duration_time=697266338 user_time=620611000 system_time=75074000 cycles/u=3184203054 cycles/k=223767144 instructions/u=8125212998 page-faults=14916 rss_kb=268056 exit=2 load=0.51
+ts-pattern round=11 v=meta duration_time=699337862 user_time=630140000 system_time=68123000 cycles/u=3173248012 cycles/k=270043095 instructions/u=8001869765 page-faults=14881 rss_kb=267840 exit=2 load=0.51
+ts-pattern round=12 v=meta duration_time=693216434 user_time=625077000 system_time=66794000 cycles/u=3176230092 cycles/k=241761731 instructions/u=7982308802 page-faults=14880 rss_kb=267740 exit=2 load=0.47
+ts-pattern round=12 v=main duration_time=710669841 user_time=646488000 system_time=62853000 cycles/u=3208542184 cycles/k=240031451 instructions/u=8172222233 page-faults=14918 rss_kb=267668 exit=2 load=0.47
+ts-pattern round=13 v=main duration_time=697594273 user_time=635470000 system_time=59855000 cycles/u=3139431093 cycles/k=245202592 instructions/u=7972891038 page-faults=14916 rss_kb=267764 exit=2 load=0.47
+ts-pattern round=13 v=meta duration_time=694547583 user_time=642104000 system_time=51008000 cycles/u=3166337561 cycles/k=240483504 instructions/u=7986075050 page-faults=15097 rss_kb=266664 exit=2 load=0.47
+ts-pattern round=14 v=meta duration_time=705265365 user_time=647673000 system_time=55799000 cycles/u=3177997279 cycles/k=235380692 instructions/u=8022044942 page-faults=14881 rss_kb=267476 exit=2 load=0.51
+ts-pattern round=14 v=main duration_time=716862279 user_time=651889000 system_time=62989000 cycles/u=3214374364 cycles/k=246799805 instructions/u=7980805965 page-faults=15133 rss_kb=266812 exit=2 load=0.51
+ts-pattern round=15 v=main duration_time=701074368 user_time=636022000 system_time=63002000 cycles/u=3179149305 cycles/k=230585463 instructions/u=8032115378 page-faults=15132 rss_kb=266756 exit=2 load=0.51
+ts-pattern round=15 v=meta duration_time=714864364 user_time=646833000 system_time=66982000 cycles/u=3234123854 cycles/k=281767150 instructions/u=8012002262 page-faults=15097 rss_kb=266644 exit=2 load=0.51
+ts-pattern round=16 v=meta duration_time=698407150 user_time=643182000 system_time=53097000 cycles/u=3164810032 cycles/k=230664647 instructions/u=8048321771 page-faults=14883 rss_kb=267780 exit=2 load=0.47
+ts-pattern round=16 v=main duration_time=698022826 user_time=633162000 system_time=64016000 cycles/u=3137793752 cycles/k=229341154 instructions/u=7974524807 page-faults=14916 rss_kb=267936 exit=2 load=0.47
+ts-pattern round=17 v=main duration_time=712864090 user_time=657258000 system_time=53020000 cycles/u=3176162158 cycles/k=244808385 instructions/u=8017333219 page-faults=14917 rss_kb=267848 exit=2 load=0.47
+ts-pattern round=17 v=meta duration_time=707070329 user_time=658324000 system_time=47094000 cycles/u=3170002986 cycles/k=232524190 instructions/u=8015499104 page-faults=14882 rss_kb=267640 exit=2 load=0.47
+ts-pattern round=18 v=meta duration_time=700043829 user_time=642222000 system_time=54848000 cycles/u=3157883402 cycles/k=234940590 instructions/u=8047290711 page-faults=14880 rss_kb=267576 exit=2 load=0.43
+ts-pattern round=18 v=main duration_time=705832188 user_time=644949000 system_time=59087000 cycles/u=3185135065 cycles/k=236193363 instructions/u=8021225657 page-faults=14918 rss_kb=267860 exit=2 load=0.43
+ts-pattern round=19 v=main duration_time=726774746 user_time=662279000 system_time=61118000 cycles/u=3274200588 cycles/k=233936187 instructions/u=8353917785 page-faults=14918 rss_kb=267436 exit=2 load=0.43
+ts-pattern round=19 v=meta duration_time=706110836 user_time=650814000 system_time=52984000 cycles/u=3174360591 cycles/k=226109390 instructions/u=8006965495 page-faults=14881 rss_kb=267560 exit=2 load=0.48
+ts-pattern round=20 v=meta duration_time=703353513 user_time=636569000 system_time=64956000 cycles/u=3169170463 cycles/k=228809794 instructions/u=8043593101 page-faults=14881 rss_kb=267708 exit=2 load=0.48
+ts-pattern round=20 v=main duration_time=701505759 user_time=649362000 system_time=50950000 cycles/u=3121279115 cycles/k=239765129 instructions/u=7959596253 page-faults=15133 rss_kb=266728 exit=2 load=0.48
+# tiny-invariant: same output
+# 04:51:22 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+tiny-invariant round=1 v=main duration_time=85122787 user_time=53318000 system_time=31021000 cycles/u=340102461 cycles/k=41664975 instructions/u=1085926689 page-faults=5654 rss_kb=53964 exit=2 load=0.39
+tiny-invariant round=1 v=meta duration_time=68938940 user_time=47579000 system_time=20816000 cycles/u=259044297 cycles/k=52181776 instructions/u=837757953 page-faults=5617 rss_kb=53564 exit=2 load=0.39
+tiny-invariant round=2 v=meta duration_time=77047231 user_time=56567000 system_time=19848000 cycles/u=286172745 cycles/k=42527086 instructions/u=921043221 page-faults=5614 rss_kb=53604 exit=2 load=0.39
+tiny-invariant round=2 v=main duration_time=85103698 user_time=60553000 system_time=23824000 cycles/u=312257244 cycles/k=48382180 instructions/u=987428597 page-faults=5654 rss_kb=53844 exit=2 load=0.39
+# 04:51:45 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+tiny-invariant round=3 v=main duration_time=67792846 user_time=56280000 system_time=10861000 cycles/u=259799441 cycles/k=52576744 instructions/u=830563374 page-faults=5654 rss_kb=53952 exit=2 load=0.66
+tiny-invariant round=3 v=meta duration_time=73908745 user_time=52360000 system_time=20746000 cycles/u=284021996 cycles/k=49176117 instructions/u=880232370 page-faults=5617 rss_kb=53668 exit=2 load=0.66
+# 04:52:07 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+tiny-invariant round=4 v=meta duration_time=70524209 user_time=57997000 system_time=11999000 cycles/u=268181843 cycles/k=51363423 instructions/u=846207348 page-faults=5617 rss_kb=53816 exit=2 load=0.43
+tiny-invariant round=4 v=main duration_time=71131992 user_time=52673000 system_time=17557000 cycles/u=258813506 cycles/k=47733483 instructions/u=819041557 page-faults=5653 rss_kb=53828 exit=2 load=0.43
+# 04:52:29 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+tiny-invariant round=5 v=main duration_time=78669110 user_time=59063000 system_time=19020000 cycles/u=287809494 cycles/k=46191264 instructions/u=913159400 page-faults=5654 rss_kb=53876 exit=2 load=0.31
+tiny-invariant round=5 v=meta duration_time=73939079 user_time=57051000 system_time=16014000 cycles/u=268796369 cycles/k=48925857 instructions/u=833759527 page-faults=5615 rss_kb=53692 exit=2 load=0.31
+tiny-invariant round=6 v=meta duration_time=81515652 user_time=64526000 system_time=15883000 cycles/u=328029066 cycles/k=42978561 instructions/u=1002889443 page-faults=5617 rss_kb=53740 exit=2 load=0.31
+tiny-invariant round=6 v=main duration_time=69956288 user_time=56521000 system_time=12890000 cycles/u=260667417 cycles/k=48754188 instructions/u=830121230 page-faults=5654 rss_kb=53848 exit=2 load=0.31
+tiny-invariant round=7 v=main duration_time=73686485 user_time=53754000 system_time=18913000 cycles/u=276393480 cycles/k=50620723 instructions/u=893927151 page-faults=5651 rss_kb=53844 exit=2 load=0.28
+tiny-invariant round=7 v=meta duration_time=72637180 user_time=54770000 system_time=16929000 cycles/u=279193009 cycles/k=48998350 instructions/u=857726595 page-faults=5617 rss_kb=53920 exit=2 load=0.28
+tiny-invariant round=8 v=meta duration_time=70668521 user_time=45771000 system_time=23880000 cycles/u=262133580 cycles/k=50406726 instructions/u=829799088 page-faults=5615 rss_kb=53752 exit=2 load=0.28
+tiny-invariant round=8 v=main duration_time=73060337 user_time=56592000 system_time=15885000 cycles/u=262916696 cycles/k=49588839 instructions/u=825840001 page-faults=5654 rss_kb=53900 exit=2 load=0.28
+# 04:52:55 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+tiny-invariant round=9 v=main duration_time=80169699 user_time=59512000 system_time=19164000 cycles/u=274341839 cycles/k=51108717 instructions/u=897012556 page-faults=5654 rss_kb=53668 exit=2 load=0.20
+tiny-invariant round=9 v=meta duration_time=75008429 user_time=61446000 system_time=13095000 cycles/u=275198267 cycles/k=49928090 instructions/u=850017050 page-faults=5616 rss_kb=53592 exit=2 load=0.20
+tiny-invariant round=10 v=meta duration_time=73824264 user_time=52648000 system_time=20474000 cycles/u=289399635 cycles/k=45693199 instructions/u=935150720 page-faults=5618 rss_kb=53872 exit=2 load=0.18
+tiny-invariant round=10 v=main duration_time=68517967 user_time=46973000 system_time=20987000 cycles/u=262955274 cycles/k=49412695 instructions/u=818908856 page-faults=5654 rss_kb=53684 exit=2 load=0.18
+tiny-invariant round=11 v=main duration_time=75550246 user_time=53623000 system_time=21247000 cycles/u=280197442 cycles/k=49993765 instructions/u=915400065 page-faults=5654 rss_kb=53852 exit=2 load=0.18
+tiny-invariant round=11 v=meta duration_time=69636178 user_time=47047000 system_time=22022000 cycles/u=269450348 cycles/k=51674819 instructions/u=832122546 page-faults=5615 rss_kb=53716 exit=2 load=0.18
+# 04:53:20 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+tiny-invariant round=12 v=meta duration_time=71558986 user_time=50390000 system_time=20156000 cycles/u=270207465 cycles/k=50912534 instructions/u=868971272 page-faults=5615 rss_kb=53876 exit=2 load=0.13
+tiny-invariant round=12 v=main duration_time=79475272 user_time=56885000 system_time=21955000 cycles/u=285344386 cycles/k=50289972 instructions/u=905649952 page-faults=5654 rss_kb=53612 exit=2 load=0.13
+tiny-invariant round=13 v=main duration_time=75803509 user_time=57518000 system_time=16573000 cycles/u=256620654 cycles/k=49950192 instructions/u=807422710 page-faults=5652 rss_kb=53868 exit=2 load=0.12
+tiny-invariant round=13 v=meta duration_time=68662667 user_time=54106000 system_time=14027000 cycles/u=253891006 cycles/k=49576598 instructions/u=814243266 page-faults=5617 rss_kb=53704 exit=2 load=0.12
+tiny-invariant round=14 v=meta duration_time=81811432 user_time=60940000 system_time=19658000 cycles/u=288943651 cycles/k=55288587 instructions/u=920966757 page-faults=5617 rss_kb=53692 exit=2 load=0.12
+tiny-invariant round=14 v=main duration_time=74858569 user_time=53994000 system_time=20375000 cycles/u=270666100 cycles/k=50317234 instructions/u=843914657 page-faults=5654 rss_kb=53436 exit=2 load=0.12
+tiny-invariant round=15 v=main duration_time=68141114 user_time=45948000 system_time=21507000 cycles/u=261249776 cycles/k=48821174 instructions/u=838602590 page-faults=5652 rss_kb=53944 exit=2 load=0.12
+tiny-invariant round=15 v=meta duration_time=69850326 user_time=62387000 system_time=7043000 cycles/u=267960139 cycles/k=51335929 instructions/u=853519041 page-faults=5615 rss_kb=53704 exit=2 load=0.12
+tiny-invariant round=16 v=meta duration_time=77301713 user_time=58114000 system_time=17729000 cycles/u=275054526 cycles/k=46622917 instructions/u=877833961 page-faults=5617 rss_kb=53448 exit=2 load=0.12
+tiny-invariant round=16 v=main duration_time=88749819 user_time=62188000 system_time=26079000 cycles/u=334992707 cycles/k=44564935 instructions/u=1056769922 page-faults=5651 rss_kb=53612 exit=2 load=0.12
+tiny-invariant round=17 v=main duration_time=83024099 user_time=62106000 system_time=20034000 cycles/u=292374656 cycles/k=57589363 instructions/u=875945497 page-faults=5654 rss_kb=53624 exit=2 load=0.11
+tiny-invariant round=17 v=meta duration_time=72789867 user_time=59187000 system_time=13041000 cycles/u=267059108 cycles/k=48566881 instructions/u=849372613 page-faults=5615 rss_kb=53916 exit=2 load=0.11
+tiny-invariant round=18 v=meta duration_time=70984352 user_time=52263000 system_time=18091000 cycles/u=270776333 cycles/k=50405714 instructions/u=850692019 page-faults=5616 rss_kb=53820 exit=2 load=0.11
+tiny-invariant round=18 v=main duration_time=74625280 user_time=59659000 system_time=14156000 cycles/u=271421059 cycles/k=52300640 instructions/u=848355114 page-faults=5652 rss_kb=53448 exit=2 load=0.11
+tiny-invariant round=19 v=main duration_time=88776474 user_time=59937000 system_time=27970000 cycles/u=319857400 cycles/k=43022183 instructions/u=1073549177 page-faults=5653 rss_kb=53532 exit=2 load=0.11
+tiny-invariant round=19 v=meta duration_time=70336090 user_time=48250000 system_time=21663000 cycles/u=268461276 cycles/k=50741302 instructions/u=832365787 page-faults=5616 rss_kb=53712 exit=2 load=0.11
+# 04:53:53 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+tiny-invariant round=20 v=meta duration_time=82930396 user_time=58702000 system_time=23878000 cycles/u=329663733 cycles/k=42408109 instructions/u=1072313369 page-faults=5618 rss_kb=53740 exit=2 load=0.13
+tiny-invariant round=20 v=main duration_time=82982119 user_time=54250000 system_time=28130000 cycles/u=325268299 cycles/k=51400997 instructions/u=990593721 page-faults=5652 rss_kb=53848 exit=2 load=0.13
+# superstruct: same output
+superstruct round=1 v=main duration_time=45591788 user_time=34686000 system_time=10201000 cycles/u=152492366 cycles/k=21073090 instructions/u=310065166 page-faults=2117 rss_kb=26236 exit=2 load=0.13
+superstruct round=1 v=meta duration_time=35896545 user_time=27756000 system_time=7196000 cycles/u=109840646 cycles/k=23660512 instructions/u=246347724 page-faults=2086 rss_kb=26192 exit=2 load=0.13
+superstruct round=2 v=meta duration_time=40510614 user_time=27669000 system_time=11858000 cycles/u=130684657 cycles/k=21131803 instructions/u=280156593 page-faults=2088 rss_kb=26192 exit=2 load=0.28
+superstruct round=2 v=main duration_time=36349311 user_time=22734000 system_time=12849000 cycles/u=120108753 cycles/k=20451510 instructions/u=269226923 page-faults=2120 rss_kb=26064 exit=2 load=0.28
+superstruct round=3 v=main duration_time=40985483 user_time=25599000 system_time=14769000 cycles/u=141814780 cycles/k=17407184 instructions/u=306603787 page-faults=2119 rss_kb=26192 exit=2 load=0.28
+superstruct round=3 v=meta duration_time=40855614 user_time=26665000 system_time=13332000 cycles/u=124262879 cycles/k=21783796 instructions/u=274829472 page-faults=2086 rss_kb=26092 exit=2 load=0.28
+# 04:54:20 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 04:54:41 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+superstruct round=4 v=meta duration_time=34676338 user_time=25114000 system_time=8693000 cycles/u=120449774 cycles/k=21617671 instructions/u=268736937 page-faults=2086 rss_kb=26084 exit=2 load=0.14
+superstruct round=4 v=main duration_time=35312993 user_time=18913000 system_time=15926000 cycles/u=132226166 cycles/k=21634197 instructions/u=294159108 page-faults=2118 rss_kb=26068 exit=2 load=0.14
+superstruct round=5 v=main duration_time=33018022 user_time=22257000 system_time=10117000 cycles/u=115831434 cycles/k=22028579 instructions/u=259222657 page-faults=2118 rss_kb=25976 exit=2 load=0.29
+superstruct round=5 v=meta duration_time=34328497 user_time=26001000 system_time=8000000 cycles/u=126044107 cycles/k=20854715 instructions/u=278064540 page-faults=2086 rss_kb=26044 exit=2 load=0.29
+# 04:55:04 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+superstruct round=6 v=meta duration_time=45478371 user_time=35011000 system_time=10003000 cycles/u=136091353 cycles/k=18289030 instructions/u=282564555 page-faults=2085 rss_kb=25856 exit=2 load=0.21
+superstruct round=6 v=main duration_time=49295367 user_time=34473000 system_time=13580000 cycles/u=157807103 cycles/k=22079680 instructions/u=332184623 page-faults=2119 rss_kb=26060 exit=2 load=0.21
+superstruct round=7 v=main duration_time=46834432 user_time=33503000 system_time=12810000 cycles/u=136114815 cycles/k=18818740 instructions/u=266715141 page-faults=2119 rss_kb=25872 exit=2 load=0.21
+superstruct round=7 v=meta duration_time=39860921 user_time=25328000 system_time=14183000 cycles/u=127414188 cycles/k=19230624 instructions/u=283756623 page-faults=2086 rss_kb=25924 exit=2 load=0.21
+# 04:55:27 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 04:55:47 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 04:56:08 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+superstruct round=8 v=meta duration_time=49902587 user_time=39288000 system_time=10073000 cycles/u=129192887 cycles/k=24890080 instructions/u=219116708 page-faults=2087 rss_kb=26212 exit=2 load=0.23
+superstruct round=8 v=main duration_time=44086571 user_time=31770000 system_time=11913000 cycles/u=142922795 cycles/k=17901392 instructions/u=304143257 page-faults=2119 rss_kb=25888 exit=2 load=0.23
+superstruct round=9 v=main duration_time=35324039 user_time=23003000 system_time=12001000 cycles/u=128319023 cycles/k=22508835 instructions/u=279249876 page-faults=2119 rss_kb=26208 exit=2 load=0.23
+superstruct round=9 v=meta duration_time=33306327 user_time=24800000 system_time=7936000 cycles/u=125516965 cycles/k=21482799 instructions/u=271682580 page-faults=2085 rss_kb=26192 exit=2 load=0.23
+# 04:56:31 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+superstruct round=10 v=meta duration_time=41727083 user_time=31162000 system_time=9738000 cycles/u=142720364 cycles/k=16703101 instructions/u=298101969 page-faults=2086 rss_kb=26036 exit=2 load=0.16
+superstruct round=10 v=main duration_time=36380891 user_time=27037000 system_time=9012000 cycles/u=131487274 cycles/k=20106203 instructions/u=289619767 page-faults=2119 rss_kb=26148 exit=2 load=0.16
+superstruct round=11 v=main duration_time=38636046 user_time=24400000 system_time=13217000 cycles/u=118283669 cycles/k=21620607 instructions/u=262862777 page-faults=2117 rss_kb=25984 exit=2 load=0.15
+superstruct round=11 v=meta duration_time=39799569 user_time=28831000 system_time=9942000 cycles/u=133167226 cycles/k=21714931 instructions/u=295648858 page-faults=2086 rss_kb=26112 exit=2 load=0.15
+superstruct round=12 v=meta duration_time=31366149 user_time=24267000 system_time=6794000 cycles/u=109139856 cycles/k=19014406 instructions/u=240965698 page-faults=2086 rss_kb=26196 exit=2 load=0.15
+superstruct round=12 v=main duration_time=36462391 user_time=22916000 system_time=12953000 cycles/u=123019267 cycles/k=23496470 instructions/u=271718919 page-faults=2121 rss_kb=25888 exit=2 load=0.15
+superstruct round=13 v=main duration_time=40991752 user_time=26888000 system_time=12946000 cycles/u=131222244 cycles/k=19014646 instructions/u=284829636 page-faults=2118 rss_kb=26208 exit=2 load=0.15
+superstruct round=13 v=meta duration_time=36248350 user_time=27902000 system_time=7972000 cycles/u=130011639 cycles/k=18979773 instructions/u=289930081 page-faults=2088 rss_kb=26116 exit=2 load=0.15
+superstruct round=14 v=meta duration_time=36526074 user_time=26891000 system_time=8963000 cycles/u=124851258 cycles/k=21451202 instructions/u=262251081 page-faults=2086 rss_kb=25900 exit=2 load=0.15
+superstruct round=14 v=main duration_time=35274910 user_time=28737000 system_time=6157000 cycles/u=117803570 cycles/k=22010864 instructions/u=264528681 page-faults=2119 rss_kb=26108 exit=2 load=0.15
+superstruct round=15 v=main duration_time=40531949 user_time=29039000 system_time=9679000 cycles/u=125314578 cycles/k=24567536 instructions/u=274990787 page-faults=2119 rss_kb=26140 exit=2 load=0.30
+superstruct round=15 v=meta duration_time=36542804 user_time=28178000 system_time=8051000 cycles/u=118392354 cycles/k=21132648 instructions/u=252458472 page-faults=2085 rss_kb=26036 exit=2 load=0.30
+superstruct round=16 v=meta duration_time=38422492 user_time=27146000 system_time=10054000 cycles/u=131677685 cycles/k=21380685 instructions/u=291863457 page-faults=2085 rss_kb=26192 exit=2 load=0.30
+superstruct round=16 v=main duration_time=37075144 user_time=24822000 system_time=11914000 cycles/u=137213204 cycles/k=25792404 instructions/u=281902894 page-faults=2117 rss_kb=26204 exit=2 load=0.30
+superstruct round=17 v=main duration_time=51373304 user_time=29348000 system_time=20544000 cycles/u=145258060 cycles/k=21461142 instructions/u=301762632 page-faults=2117 rss_kb=26236 exit=2 load=0.30
+superstruct round=17 v=meta duration_time=33855504 user_time=21780000 system_time=11363000 cycles/u=116445303 cycles/k=21700165 instructions/u=260285315 page-faults=2087 rss_kb=25988 exit=2 load=0.30
+superstruct round=18 v=meta duration_time=43839264 user_time=29340000 system_time=13692000 cycles/u=152187666 cycles/k=20242186 instructions/u=317437139 page-faults=2086 rss_kb=26212 exit=2 load=0.30
+superstruct round=18 v=main duration_time=34979665 user_time=27439000 system_time=7114000 cycles/u=114367692 cycles/k=21357196 instructions/u=252270113 page-faults=2119 rss_kb=25968 exit=2 load=0.30
+# 04:57:04 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+superstruct round=19 v=main duration_time=39500695 user_time=28361000 system_time=10128000 cycles/u=134396739 cycles/k=20201844 instructions/u=279130148 page-faults=2118 rss_kb=26160 exit=2 load=0.41
+superstruct round=19 v=meta duration_time=56520885 user_time=42842000 system_time=12952000 cycles/u=66867469 cycles/k=33187698 instructions/u=102701690 page-faults=2086 rss_kb=26212 exit=2 load=0.41
+superstruct round=20 v=meta duration_time=39464288 user_time=27190000 system_time=11077000 cycles/u=138480565 cycles/k=19773382 instructions/u=292440764 page-faults=2088 rss_kb=26092 exit=2 load=0.41
+superstruct round=20 v=main duration_time=33485260 user_time=24016000 system_time=9006000 cycles/u=126625943 cycles/k=19733194 instructions/u=282023274 page-faults=2118 rss_kb=26096 exit=2 load=0.41
+# mitt: same output
+mitt round=1 v=main duration_time=36145424 user_time=20117000 system_time=15088000 cycles/u=81255107 cycles/k=30008162 instructions/u=177745558 page-faults=2282 rss_kb=34872 exit=2 load=0.38
+mitt round=1 v=meta duration_time=29888429 user_time=19719000 system_time=9859000 cycles/u=73313140 cycles/k=28255550 instructions/u=198673574 page-faults=2247 rss_kb=34560 exit=2 load=0.38
+mitt round=2 v=meta duration_time=32977331 user_time=15400000 system_time=17325000 cycles/u=81312312 cycles/k=42513229 instructions/u=201332577 page-faults=2247 rss_kb=34660 exit=2 load=0.38
+mitt round=2 v=main duration_time=25480487 user_time=15110000 system_time=10073000 cycles/u=74159529 cycles/k=28173769 instructions/u=197997851 page-faults=2281 rss_kb=34960 exit=2 load=0.38
+mitt round=3 v=main duration_time=33864460 user_time=17885000 system_time=14120000 cycles/u=78658869 cycles/k=29112297 instructions/u=201817102 page-faults=2280 rss_kb=34928 exit=2 load=0.38
+mitt round=3 v=meta duration_time=29247353 user_time=13917000 system_time=14911000 cycles/u=77386737 cycles/k=28327143 instructions/u=204342867 page-faults=2243 rss_kb=34564 exit=2 load=0.38
+mitt round=4 v=meta duration_time=30636683 user_time=20747000 system_time=9430000 cycles/u=73907878 cycles/k=25626968 instructions/u=196686934 page-faults=2245 rss_kb=34756 exit=2 load=0.35
+mitt round=4 v=main duration_time=28799071 user_time=16602000 system_time=11719000 cycles/u=79884583 cycles/k=29014101 instructions/u=208330875 page-faults=2282 rss_kb=34932 exit=2 load=0.35
+# 04:57:34 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+mitt round=5 v=main duration_time=27526380 user_time=14425000 system_time=12502000 cycles/u=77427513 cycles/k=30223801 instructions/u=199453507 page-faults=2280 rss_kb=34988 exit=2 load=0.25
+mitt round=5 v=meta duration_time=29849446 user_time=15257000 system_time=14240000 cycles/u=74939851 cycles/k=34247261 instructions/u=200543176 page-faults=2244 rss_kb=34740 exit=2 load=0.25
+mitt round=6 v=meta duration_time=28628647 user_time=13418000 system_time=14376000 cycles/u=70151046 cycles/k=26962990 instructions/u=184442759 page-faults=2246 rss_kb=34776 exit=2 load=0.25
+mitt round=6 v=main duration_time=27690449 user_time=18087000 system_time=9043000 cycles/u=75619834 cycles/k=28950641 instructions/u=200738180 page-faults=2281 rss_kb=34980 exit=2 load=0.25
+mitt round=7 v=main duration_time=43793989 user_time=24661000 system_time=17756000 cycles/u=42823827 cycles/k=27507723 instructions/u=64072870 page-faults=2280 rss_kb=34872 exit=2 load=0.25
+mitt round=7 v=meta duration_time=30230329 user_time=18440000 system_time=11268000 cycles/u=78807745 cycles/k=30284876 instructions/u=198991912 page-faults=2246 rss_kb=34748 exit=2 load=0.25
+# 04:57:58 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+mitt round=8 v=meta duration_time=31579504 user_time=19993000 system_time=10996000 cycles/u=76882172 cycles/k=31034630 instructions/u=199685972 page-faults=2246 rss_kb=34712 exit=2 load=0.33
+mitt round=8 v=main duration_time=28526506 user_time=18041000 system_time=10022000 cycles/u=79231853 cycles/k=30294913 instructions/u=198301939 page-faults=2279 rss_kb=34924 exit=2 load=0.33
+mitt round=9 v=main duration_time=31147058 user_time=19968000 system_time=9984000 cycles/u=81016295 cycles/k=30977396 instructions/u=213815313 page-faults=2279 rss_kb=34728 exit=2 load=0.33
+mitt round=9 v=meta duration_time=32459142 user_time=20464000 system_time=11694000 cycles/u=87960749 cycles/k=34755392 instructions/u=213587875 page-faults=2245 rss_kb=34744 exit=2 load=0.33
+# 04:58:22 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+mitt round=10 v=meta duration_time=32357529 user_time=18990000 system_time=12343000 cycles/u=82732767 cycles/k=34723285 instructions/u=203130381 page-faults=2246 rss_kb=34800 exit=2 load=0.28
+mitt round=10 v=main duration_time=33148426 user_time=21039000 system_time=10519000 cycles/u=83451056 cycles/k=36572311 instructions/u=205116768 page-faults=2279 rss_kb=34744 exit=2 load=0.28
+mitt round=11 v=main duration_time=27500163 user_time=15115000 system_time=12092000 cycles/u=71864125 cycles/k=27698368 instructions/u=192338500 page-faults=2281 rss_kb=35008 exit=2 load=0.28
+mitt round=11 v=meta duration_time=29041208 user_time=15759000 system_time=12804000 cycles/u=72610550 cycles/k=28344452 instructions/u=194859655 page-faults=2246 rss_kb=34648 exit=2 load=0.28
+mitt round=12 v=meta duration_time=43475711 user_time=24724000 system_time=17801000 page-faults=2246 rss_kb=34824 exit=2 load=0.28
+mitt round=12 v=main duration_time=36881367 user_time=23456000 system_time=12237000 cycles/u=86645218 cycles/k=30552003 instructions/u=203850029 page-faults=2280 rss_kb=34868 exit=2 load=0.28
+# 04:58:46 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+mitt round=13 v=main duration_time=29108902 user_time=17185000 system_time=11457000 cycles/u=79592246 cycles/k=34372002 instructions/u=190454368 page-faults=2281 rss_kb=34992 exit=2 load=0.20
+mitt round=13 v=meta duration_time=27225855 user_time=12877000 system_time=13867000 cycles/u=77277028 cycles/k=27416589 instructions/u=207893684 page-faults=2248 rss_kb=34664 exit=2 load=0.20
+# 04:59:08 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+mitt round=14 v=meta duration_time=34049720 user_time=19122000 system_time=14090000 cycles/u=80483856 cycles/k=36143536 instructions/u=205493059 page-faults=2247 rss_kb=34700 exit=2 load=0.13
+mitt round=14 v=main duration_time=34657770 user_time=19063000 system_time=15050000 cycles/u=86363906 cycles/k=39411671 instructions/u=214373445 page-faults=2279 rss_kb=34932 exit=2 load=0.13
+mitt round=15 v=main duration_time=32756753 user_time=20705000 system_time=11388000 cycles/u=81819590 cycles/k=33700593 instructions/u=200600940 page-faults=2281 rss_kb=34788 exit=2 load=0.13
+mitt round=15 v=meta duration_time=27369285 user_time=17569000 system_time=9301000 cycles/u=71303265 cycles/k=24010404 instructions/u=190167202 page-faults=2246 rss_kb=34516 exit=2 load=0.13
+mitt round=16 v=meta duration_time=30997421 user_time=19611000 system_time=10786000 cycles/u=78574715 cycles/k=30923485 instructions/u=190161030 page-faults=2246 rss_kb=34688 exit=2 load=0.13
+mitt round=16 v=main duration_time=24958373 user_time=16158000 system_time=8554000 cycles/u=70492781 cycles/k=28381394 instructions/u=187777360 page-faults=2279 rss_kb=35016 exit=2 load=0.13
+mitt round=17 v=main duration_time=29200067 user_time=14930000 system_time=13934000 cycles/u=79097239 cycles/k=30822043 instructions/u=210727423 page-faults=2280 rss_kb=34708 exit=2 load=0.20
+mitt round=17 v=meta duration_time=29517631 user_time=22157000 system_time=7049000 cycles/u=77797071 cycles/k=36929908 instructions/u=185217234 page-faults=2247 rss_kb=34788 exit=2 load=0.20
+mitt round=18 v=meta duration_time=36713334 user_time=18937000 system_time=17043000 cycles/u=77640986 cycles/k=31876327 instructions/u=179650196 page-faults=2249 rss_kb=34648 exit=2 load=0.20
+mitt round=18 v=main duration_time=28967925 user_time=19605000 system_time=8822000 cycles/u=71960278 cycles/k=25387661 instructions/u=193725813 page-faults=2280 rss_kb=34636 exit=2 load=0.20
+mitt round=19 v=main duration_time=28633607 user_time=19597000 system_time=8818000 cycles/u=78892532 cycles/k=33556171 instructions/u=208147555 page-faults=2280 rss_kb=34956 exit=2 load=0.20
+mitt round=19 v=meta duration_time=30318659 user_time=18001000 system_time=12000000 cycles/u=86115654 cycles/k=32937945 instructions/u=217118217 page-faults=2247 rss_kb=34788 exit=2 load=0.20
+# 04:59:36 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+mitt round=20 v=meta duration_time=36545571 user_time=21345000 system_time=14553000 cycles/u=27884831 cycles/k=30577888 instructions/u=35603149 page-faults=2246 rss_kb=34824 exit=2 load=0.14
+mitt round=20 v=main duration_time=29020617 user_time=19076000 system_time=9538000 cycles/u=78080186 cycles/k=30433740 instructions/u=200400073 page-faults=2280 rss_kb=34984 exit=2 load=0.21
+# neverthrow: same output
+neverthrow round=1 v=main duration_time=32026748 user_time=16371000 system_time=14445000 cycles/u=82349275 cycles/k=28735246 instructions/u=206597388 page-faults=2584 rss_kb=35248 exit=2 load=0.21
+neverthrow round=1 v=meta duration_time=29739921 user_time=20204000 system_time=9091000 cycles/u=84375812 cycles/k=30010774 instructions/u=208785315 page-faults=2550 rss_kb=35612 exit=2 load=0.21
+neverthrow round=2 v=meta duration_time=47434312 user_time=27945000 system_time=18309000 cycles/u=91792023 cycles/k=26137296 instructions/u=124819709 page-faults=2551 rss_kb=35456 exit=2 load=0.21
+neverthrow round=2 v=main duration_time=38509259 user_time=20099000 system_time=18089000 cycles/u=107181656 cycles/k=29460503 instructions/u=203680734 page-faults=2583 rss_kb=35368 exit=2 load=0.21
+neverthrow round=3 v=main duration_time=33778234 user_time=16184000 system_time=16184000 cycles/u=93168182 cycles/k=34028870 instructions/u=208992917 page-faults=2586 rss_kb=35356 exit=2 load=0.19
+neverthrow round=3 v=meta duration_time=27563818 user_time=16115000 system_time=11079000 cycles/u=79646667 cycles/k=28786715 instructions/u=197204397 page-faults=2552 rss_kb=35380 exit=2 load=0.19
+neverthrow round=4 v=meta duration_time=35400233 user_time=24407000 system_time=10169000 cycles/u=94129251 cycles/k=36046850 instructions/u=216104595 page-faults=2553 rss_kb=35488 exit=2 load=0.19
+neverthrow round=4 v=main duration_time=34164998 user_time=22645000 system_time=10293000 cycles/u=95530278 cycles/k=34929891 instructions/u=221532969 page-faults=2584 rss_kb=35448 exit=2 load=0.19
+neverthrow round=5 v=main duration_time=30849998 user_time=19696000 system_time=10833000 cycles/u=92881111 cycles/k=31022117 instructions/u=219036759 page-faults=2583 rss_kb=35376 exit=2 load=0.19
+neverthrow round=5 v=meta duration_time=32938699 user_time=23977000 system_time=8631000 cycles/u=95443575 cycles/k=33069966 instructions/u=220359555 page-faults=2551 rss_kb=35328 exit=2 load=0.19
+neverthrow round=6 v=meta duration_time=32635879 user_time=21800000 system_time=9909000 cycles/u=86938299 cycles/k=28167277 instructions/u=215300639 page-faults=2551 rss_kb=35404 exit=2 load=0.19
+neverthrow round=6 v=main duration_time=32132013 user_time=16177000 system_time=15166000 cycles/u=86278442 cycles/k=28074581 instructions/u=213381645 page-faults=2584 rss_kb=35300 exit=2 load=0.19
+neverthrow round=7 v=main duration_time=35339540 user_time=17131000 system_time=17131000 cycles/u=93020905 cycles/k=34406293 instructions/u=217403285 page-faults=2583 rss_kb=35372 exit=2 load=0.18
+neverthrow round=7 v=meta duration_time=32023043 user_time=20745000 system_time=10866000 cycles/u=88714280 cycles/k=32296772 instructions/u=211523527 page-faults=2551 rss_kb=35328 exit=2 load=0.18
+# 05:00:09 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+neverthrow round=8 v=meta duration_time=29714299 user_time=19476000 system_time=9738000 cycles/u=85332979 cycles/k=29769518 instructions/u=209648220 page-faults=2550 rss_kb=35388 exit=2 load=0.13
+neverthrow round=8 v=main duration_time=29515451 user_time=14905000 system_time=13911000 cycles/u=91700274 cycles/k=31169562 instructions/u=227252028 page-faults=2584 rss_kb=35404 exit=2 load=0.13
+neverthrow round=9 v=main duration_time=36555808 user_time=17075000 system_time=18079000 cycles/u=91877023 cycles/k=32789296 instructions/u=220538000 page-faults=2585 rss_kb=35300 exit=2 load=0.13
+neverthrow round=9 v=meta duration_time=29254446 user_time=18414000 system_time=10230000 cycles/u=85212021 cycles/k=27828420 instructions/u=213528917 page-faults=2552 rss_kb=35572 exit=2 load=0.13
+neverthrow round=10 v=meta duration_time=36942324 user_time=23778000 system_time=11889000 cycles/u=93966503 cycles/k=36101042 instructions/u=208084449 page-faults=2549 rss_kb=35296 exit=2 load=0.13
+neverthrow round=10 v=main duration_time=31097102 user_time=16933000 system_time=13944000 cycles/u=94344281 cycles/k=31351165 instructions/u=222955216 page-faults=2585 rss_kb=35408 exit=2 load=0.13
+neverthrow round=11 v=main duration_time=37390344 user_time=23036000 system_time=13020000 cycles/u=87759430 cycles/k=28483905 instructions/u=201874577 page-faults=2585 rss_kb=35220 exit=2 load=0.28
+neverthrow round=11 v=meta duration_time=30022139 user_time=15748000 system_time=13895000 cycles/u=83345496 cycles/k=27386066 instructions/u=208721365 page-faults=2551 rss_kb=35304 exit=2 load=0.28
+neverthrow round=12 v=meta duration_time=39773772 user_time=25298000 system_time=13622000 cycles/u=89800335 cycles/k=24636402 instructions/u=192840264 page-faults=2551 rss_kb=35404 exit=2 load=0.28
+neverthrow round=12 v=main duration_time=35173690 user_time=16805000 system_time=17855000 cycles/u=89959849 cycles/k=30419307 instructions/u=211026651 page-faults=2583 rss_kb=35080 exit=2 load=0.28
+# 05:00:35 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+# 05:00:55 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+neverthrow round=13 v=main duration_time=47777010 user_time=28869000 system_time=17918000 cycles/u=75240314 cycles/k=24316961 instructions/u=120124437 page-faults=2584 rss_kb=35292 exit=2 load=0.21
+neverthrow round=13 v=meta duration_time=28257776 user_time=19009000 system_time=9004000 cycles/u=89266564 cycles/k=29468348 instructions/u=212792545 page-faults=2551 rss_kb=35312 exit=2 load=0.21
+neverthrow round=14 v=meta duration_time=40611656 user_time=24686000 system_time=14400000 cycles/u=86230824 cycles/k=31494335 instructions/u=184441339 page-faults=2552 rss_kb=35240 exit=2 load=0.36
+neverthrow round=14 v=main duration_time=33504922 user_time=18990000 system_time=13993000 cycles/u=85438890 cycles/k=29117341 instructions/u=208316479 page-faults=2583 rss_kb=35216 exit=2 load=0.36
+neverthrow round=15 v=main duration_time=34751487 user_time=19504000 system_time=14628000 cycles/u=88370243 cycles/k=28694726 instructions/u=200716944 page-faults=2584 rss_kb=35148 exit=2 load=0.36
+neverthrow round=15 v=meta duration_time=34530289 user_time=26143000 system_time=8044000 cycles/u=94166661 cycles/k=32544987 instructions/u=215838104 page-faults=2551 rss_kb=35200 exit=2 load=0.36
+neverthrow round=16 v=meta duration_time=32425787 user_time=15187000 system_time=16199000 cycles/u=84856138 cycles/k=31321599 instructions/u=207872642 page-faults=2551 rss_kb=35436 exit=2 load=0.36
+neverthrow round=16 v=main duration_time=29423969 user_time=15999000 system_time=12999000 cycles/u=86403602 cycles/k=27734137 instructions/u=212577571 page-faults=2584 rss_kb=35304 exit=2 load=0.36
+neverthrow round=17 v=main duration_time=29221330 user_time=16888000 system_time=11921000 cycles/u=81080205 cycles/k=29839295 instructions/u=200965356 page-faults=2585 rss_kb=35440 exit=2 load=0.36
+neverthrow round=17 v=meta duration_time=31049072 user_time=19293000 system_time=11169000 cycles/u=87457987 cycles/k=29740781 instructions/u=215698131 page-faults=2551 rss_kb=35388 exit=2 load=0.36
+neverthrow round=18 v=meta duration_time=34659101 user_time=24782000 system_time=8921000 cycles/u=88544930 cycles/k=31570197 instructions/u=205790250 page-faults=2550 rss_kb=35324 exit=2 load=0.33
+neverthrow round=18 v=main duration_time=34146045 user_time=21768000 system_time=11873000 cycles/u=88129218 cycles/k=30130451 instructions/u=212653198 page-faults=2583 rss_kb=35196 exit=2 load=0.33
+neverthrow round=19 v=main duration_time=34685118 user_time=22076000 system_time=12041000 cycles/u=95070789 cycles/k=34692309 instructions/u=208395188 page-faults=2583 rss_kb=35292 exit=2 load=0.33
+neverthrow round=19 v=meta duration_time=33089957 user_time=21297000 system_time=11616000 cycles/u=88656992 cycles/k=27151683 instructions/u=215819966 page-faults=2552 rss_kb=35296 exit=2 load=0.33
+# 05:01:25 waiting: a process runs on one of cores 0 1 2 3 4 5 6 7 8 9 10 11
+neverthrow round=20 v=meta duration_time=46296410 user_time=26857000 system_time=18224000 cycles/u=49792315 cycles/k=27873917 instructions/u=80007534 page-faults=2550 rss_kb=35456 exit=2 load=0.31
+neverthrow round=20 v=main duration_time=32033734 user_time=19433000 system_time=11660000 cycles/u=83710193 cycles/k=28428583 instructions/u=210459174 page-faults=2585 rss_kb=35208 exit=2 load=0.31
+# done 05:01:46

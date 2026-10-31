@@ -210,6 +210,14 @@ Other:
     opened to read), once `denied`, is `bad_descriptor`; a program that
     caught `denied` for those catches the new member too. What was
     `failed` for these reasons is its own member now.
+53. *Unsound:* a member with fields written short without them, `.bad`,
+    where an `error` or a union goes, was accepted and printed fields
+    never written. Give it its fields, `.bad(at: 3)`, or name its set
+    with them, `Oops.bad(at: 3)`.
+54. A short-form member lent where a view of a union or of
+    `error` goes, `.plain` passed to a `?Both`, is rejected, as
+    `Oops.plain` there is. Bind it first, `k: Both = .plain`, then lend
+    `?k`. Trig needs no migration: its emitted Zig is unchanged.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -268,6 +276,37 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   system's words for it, as `strerror` does: `true: No space left on
   device` prints as the system's tools print it, not as `Input/output
   error`.
+- **A member written short, `.name` or `.name(fields)`, is the error
+  value its set makes, wherever the set goes.** The checker records the
+  set it names, and emit writes from that: `.bad(at: 3)` passed for an
+  `Oops`, returned, held in a field, a List, an array, a Map, a branch,
+  an arm, a closure, or a fallback was accepted and then rejected by Zig
+  as a field of `rig.ErrorValue`, and so was `.plain()`. Where `error` or
+  a union goes, `.name(fields)` is the member of the one set that has
+  it, as `.name` was; `.bad` without its fields there is rejected, where
+  it was accepted and read fields never written (*unsound*). A member of
+  a set without fields is widened to an error value there, and a
+  default `.plain` of a set with fields is one. A short-form member lent
+  where a view of `error` or a union goes is rejected as `E.name` is.
+  `.bad(at: 3)` where a `T!` goes says to name the error set. A payload
+  variant as a `??` or `catch` fallback in print's arguments names its
+  enum, which Zig needs there.
+- **`os.on_broken_pipe(how)`:** a program that calls
+  `os.on_broken_pipe(.die)` dies by SIGPIPE when the reader of its
+  stdout closes the pipe, as a C program does, so `yes | head -1` gives
+  a shell status 141, whether it writes by `print` or through
+  `io.stdout()`; `.exit`, the default, still ends a `print` quietly with
+  status 0 and fails an `io.stdout()` write with
+  `FileError.broken_pipe`. A failed `warn` is still dropped, and a socket's closed peer
+  is still `net.NetError.closed`.
+- **A SIGSEGV or SIGBUS that was sent ends the program by that
+  signal.** `kill -SEGV`, `kill -BUS`, or a program's own `kill` of
+  itself ends it as the signal's default action does, status 139, or
+  138 for SIGBUS on macOS and 135 on Linux, with no message. The stack
+  guard's handler and the sanitizer's took every such signal for a
+  fault outside their pages and returned, so a sent one was lost: the
+  program went on, a second one aborted it (134), and a later stack
+  overflow lost its message. A real fault is reported as before.
 - **`std.crypto`: WireGuard's primitives, in Rig and in constant
   time.** `crypto.ChaCha.of(key)` and `crypto.XChaCha.of(key)` seal and open
   ChaCha20-Poly1305 and XChaCha20-Poly1305 in place
@@ -286,7 +325,6 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   blake2; the AEAD beats ring at 8192 bytes and on most opens, and
   trails it on shorter seals (record:
   docs/history/records/2026-10/std-crypto/).
-
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,

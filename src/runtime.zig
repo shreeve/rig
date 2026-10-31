@@ -6469,7 +6469,9 @@ const Sanitizer = struct {
 
     // The fault handler. It runs before Zig's, which it restores and
     // returns to: the access runs again and faults into Zig's handler,
-    // which prints the stack trace.
+    // which prints the stack trace. A signal another process sent, or
+    // the program itself, ends the program by that signal instead
+    // (`sentSignal`).
 
     var previous: [2]std.posix.Sigaction = undefined;
     const signals = [2]std.posix.SIG{ .SEGV, .BUS };
@@ -6484,8 +6486,9 @@ const Sanitizer = struct {
         for (signals, &previous) |sig, *old| std.posix.sigaction(sig, &act, old);
     }
 
-    fn onFault(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
-        for (signals, &previous) |sig, *old| std.posix.sigaction(sig, old, null);
+    fn onFault(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+        if (sentSignal(info, ctx)) dieOf(sig);
+        for (signals, &previous) |s, *old| std.posix.sigaction(s, old, null);
         const addr = faultAddress(info);
         if (!sanitizer.owns(addr)) return;
         flushQuietly();
@@ -6864,6 +6867,9 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
 // aborts, rather than reaching the default action and ending the program
 // by SIGSEGV. A fault elsewhere restores the replaced handlers, as the
 // sanitizer's does, and returns, so the access faults again into them.
+// A SIGSEGV or SIGBUS that was sent, not raised by the faulting
+// instruction, has no access to run again: it ends the program by that
+// signal (`sentSignal`).
 
 var overflow_previous: [2]std.posix.Sigaction = undefined;
 var overflow_handling: bool = false;
@@ -6878,6 +6884,7 @@ fn installOverflowHandler() void {
 }
 
 fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+    if (sentSignal(info, ctx)) dieOf(sig);
     // A fault inside the handler that prints the trace.
     if (@atomicLoad(bool, &overflow_handling, .seq_cst)) std.process.abort();
     const addr = faultAddress(info);
@@ -6911,6 +6918,121 @@ fn faultAddress(info: *const std.posix.siginfo_t) usize {
         .linux => @intFromPtr(info.fields.sigfault.addr),
         else => @intFromPtr(info.addr),
     };
+}
+
+/// Whether the SIGSEGV or SIGBUS `info` describes was sent (`kill`,
+/// `raise`, `sigqueue`), by another process or the program itself,
+/// rather than raised by the instruction the thread was running. Both
+/// fault handlers ask it first: a sent signal has no instruction to
+/// fault again, so returning from the handler would lose it.
+fn sentSignal(info: *const std.posix.siginfo_t, ctx: ?*anyopaque) bool {
+    return switch (builtin.target.os.tag) {
+        // Exact: SI_USER (0), SI_QUEUE (-1), SI_TKILL (-6) and the rest
+        // are 0 or less; a fault's SEGV_* or BUS_* code, or SI_KERNEL
+        // (an x86-64 general-protection fault), is above 0. The address
+        // of a sent signal is the sender's ids, which can lie in a guard.
+        .linux => info.code <= 0,
+        .macos => !darwinFault(ctx),
+        else => false,
+    };
+}
+
+/// Whether the thread whose signal context is `ctx` took a fault, on
+/// macOS, where the kernel fills a sent signal's `si_code` from the
+/// thread's last exception. On arm64 that exception's syndrome (ESR)
+/// says a system call when the signal arrived as the thread left the
+/// kernel, an abort or an alignment fault when it faulted. The last
+/// exception may be a page fault the kernel resolved before a sent
+/// signal arrived, so an abort counts only if its address (FAR) still
+/// cannot be accessed as the abort tried to: read, write when ESR's bit
+/// 6 says it wrote, run at the instruction the thread stopped at. The
+/// kernel can leave 0 there, so an abort at 0 counts only if it is a
+/// real access of the first page (`throughNull`). On x86-64 every
+/// signal counts as a fault.
+fn darwinFault(ctx: ?*anyopaque) bool {
+    if (builtin.target.cpu.arch != .aarch64) return true;
+    const uc: *const DarwinContext = @ptrCast(@alignCast(ctx orelse return true));
+    const m = uc.mcontext;
+    return switch (m.esr >> 26) {
+        // A misaligned program counter or stack pointer.
+        0x22, 0x26 => true,
+        0x20 => m.pc == m.far and !darwinAccessible(m.far, Protection.run),
+        0x24 => m.esr & 0x3f == 0x21 or // an alignment fault
+            (!darwinAccessible(m.far, if (m.esr & (1 << 6) != 0) Protection.write else Protection.read) and (m.far != 0 or throughNull(m))),
+        else => false,
+    };
+}
+
+/// Whether the instruction at the program counter of `m` loads or
+/// stores through a base register (bits 9 to 5) that holds an address
+/// in the first page.
+fn throughNull(m: *const DarwinContext.Machine) bool {
+    if (!darwinAccessible(m.pc, Protection.read)) return false;
+    const insn = @as(*const u32, @ptrFromInt(m.pc)).*;
+    if (insn & 0x0a000000 != 0x08000000) return false;
+    return m.regs[(insn >> 5) & 31] < std.heap.pageSize();
+}
+
+/// The start of a signal's context on arm64 macOS (`ucontext_t`, its
+/// exception state and its registers, from <sys/_types/_ucontext.h>
+/// and <mach/arm/_structs.h>), which Zig's library keeps private.
+const DarwinContext = extern struct {
+    onstack: c_int,
+    sigmask: u32,
+    stack: extern struct { sp: ?*anyopaque, size: usize, flags: c_int },
+    link: ?*anyopaque,
+    mcsize: usize,
+    mcontext: *const Machine,
+
+    const Machine = extern struct {
+        far: u64,
+        esr: u32,
+        exception: u32,
+        /// x0 to x28, the frame pointer, the link register, and the
+        /// stack pointer: indexed by a register number, 31 the stack.
+        regs: [32]u64,
+        pc: u64,
+    };
+
+    comptime {
+        std.debug.assert(@offsetOf(DarwinContext, "mcontext") == 48);
+        std.debug.assert(@offsetOf(Machine, "pc") == 272);
+    }
+};
+
+/// `vm_prot_t`'s protections.
+const Protection = struct {
+    const read: u32 = 1;
+    const write: u32 = 2;
+    const run: u32 = 4;
+};
+
+/// Whether the page at `addr` is mapped with every protection in
+/// `need` (`Protection`).
+fn darwinAccessible(addr: u64, need: u32) bool {
+    var base: u64 = addr;
+    var size: u64 = 0;
+    // `vm_region_basic_info_64`, whose first word is its protection.
+    var info: [16]c_int = undefined;
+    var count: std.c.mach_msg_type_number_t = info.len;
+    var object: std.c.mach_port_t = 0;
+    const flavor = std.c.VM.REGION.BASIC_INFO_64;
+    if (std.c.mach_vm_region(std.c.mach_task_self(), &base, &size, flavor, &info[0], &count, &object) != 0) return false;
+    // The region found is the first at or above `addr`.
+    if (base > addr) return false;
+    return @as(u32, @bitCast(info[0])) & need == need;
+}
+
+/// End the program by `sig`, as its default action does: no message, no
+/// trace, and no flush, as a C program a SIGSEGV or SIGBUS ends. The
+/// handler runs with `sig` blocked unless it was installed with
+/// `SA.NODEFER`, so it is unblocked for the default action to take it.
+fn dieOf(sig: std.posix.SIG) noreturn {
+    defaultFor(sig);
+    var set = std.posix.sigemptyset();
+    std.posix.sigaddset(&set, sig);
+    std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &set, null);
+    endBy(sig);
 }
 
 /// Whether `start` reads the clock: only in a program that names
@@ -6952,10 +7074,11 @@ var process_args: []const []const u8 = &.{};
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
-    // A write to a closed pipe (`prog | head`) fails with BrokenPipe,
-    // which `stdoutFailed` ends the program on with status 0, instead of
-    // killing it by SIGPIPE. A handler that does nothing, unlike ignoring
-    // the signal, is reset in a process this one starts.
+    // A write to a closed pipe (`prog | head`) or socket fails with
+    // BrokenPipe, instead of killing the program by SIGPIPE: a socket's
+    // write gets an error, and `stdoutFailed` ends the program as
+    // `broken_pipe_dies` says. A handler that does nothing, unlike
+    // ignoring the signal, is reset in a process this one starts.
     if (std.posix.Sigaction != void and @hasField(std.posix.SIG, "PIPE")) {
         const act: std.posix.Sigaction = .{
             .handler = .{ .handler = onBrokenPipe },
@@ -7013,6 +7136,19 @@ pub fn start(init: std.process.Init.Minimal) void {
 }
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
+
+/// What a write to stdout does once its reader has closed the pipe, as
+/// `os.on_broken_pipe` sets it: false ends a `print` with status 0 and
+/// fails a write of `io.stdout()` with `FileError.broken_pipe`; true ends
+/// the program by SIGPIPE on either, as a C program dies
+/// (`dieOfBrokenPipe`).
+var broken_pipe_dies = std.atomic.Value(bool).init(false);
+
+/// `os.on_broken_pipe(how)`: whether a closed stdout pipe kills the
+/// program by SIGPIPE.
+pub fn setBrokenPipeDies(dies: bool) void {
+    broken_pipe_dies.store(dies, .seq_cst);
+}
 
 /// No crash report for this process's death, on Linux: a core limit of
 /// exactly 1, at which the kernel starts no `core_pattern` pipe (apport)
@@ -7352,15 +7488,17 @@ fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
 }
 
 /// The one place a failed write to stdout lands. A closed pipe (`prog |
-/// head`) ends the program quietly with status 0, unless a panic is being
-/// reported or `rig test` has not finished (its verdict is lost, so it is
-/// status 1); any other failure ends it with `error: stdout: <reason>` and
+/// head`) ends the program quietly with status 0, or by SIGPIPE once
+/// `os.on_broken_pipe(.die)` has set `broken_pipe_dies`, unless a panic
+/// is being reported or `rig test` has not finished (its verdict is lost,
+/// so it is status 1); any other failure ends it with `error: stdout: <reason>` and
 /// status 1. Either way it ends as a panic does: no drop, `defer`, or leak
 /// check runs.
 noinline fn stdoutFailed() noreturn {
     @branchHint(.cold);
-    if (pgo) writeProfile();
     const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
+    if (err == error.BrokenPipe) dieOfBrokenPipe();
+    if (pgo) writeProfile();
     if (err == error.BrokenPipe) {
         std.process.exit(if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) 1 else 0);
     }
@@ -7369,6 +7507,20 @@ noinline fn stdoutFailed() noreturn {
     ls.file_writer.interface.print("error: stdout: {s}\n", .{writeFailure(err)}) catch {};
     ls.file_writer.interface.flush() catch {};
     std.process.exit(1);
+}
+
+/// The one place a closed stdout pipe ends the program by SIGPIPE, for
+/// `print` (`stdoutFailed`) and for a write or flush of `io.stdout()`
+/// (`writeStandard`, `flushStandard`): nothing unless
+/// `os.on_broken_pipe(.die)` has set `broken_pipe_dies`. A panic being
+/// reported, or a `rig test` not finished, ends with status 1 instead,
+/// as its report or verdict is lost.
+fn dieOfBrokenPipe() void {
+    if (comptime std.posix.Sigaction == void or !@hasField(std.posix.SIG, "PIPE")) return;
+    if (!broken_pipe_dies.load(.seq_cst)) return;
+    if (pgo) writeProfile();
+    if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) std.process.exit(1);
+    endBy(.PIPE);
 }
 
 /// Why a write failed, as `error: stdout:` says it.
@@ -7424,7 +7576,9 @@ noinline fn outLine(text: []const u8) void {
 /// is; to stderr after what `print` buffered is written out, as by
 /// `warn`. The system's errno when the write fails, `.SUCCESS` when it
 /// is done. Unlike `print`'s, a failure is the caller's: the bytes it
-/// could not write are dropped, and the program goes on.
+/// could not write are dropped, and the program goes on; but a closed
+/// stdout pipe ends it by SIGPIPE once `os.on_broken_pipe(.die)` is set
+/// (`dieOfBrokenPipe`).
 pub fn writeStandard(fd: i64, bytes: []const u8) std.posix.E {
     lockOutput();
     defer unlockOutput();
@@ -7432,6 +7586,13 @@ pub fn writeStandard(fd: i64, bytes: []const u8) std.posix.E {
         flush();
         return writeAllTo(2, bytes);
     }
+    const e = writeStdout(bytes);
+    if (e == .PIPE) dieOfBrokenPipe();
+    return e;
+}
+
+/// `bytes` into `print`'s buffer, under the output lock.
+fn writeStdout(bytes: []const u8) std.posix.E {
     const w = stdout();
     if (bytes.len > w.buffer.len - w.end) {
         const e = drainStdout(w);
@@ -7445,11 +7606,13 @@ pub fn writeStandard(fd: i64, bytes: []const u8) std.posix.E {
 
 /// Write out what `print` has buffered, for `File.flush` of stdout: the
 /// system's errno when the write fails, after which the buffer is empty.
+/// A closed pipe ends the program as in `writeStandard`.
 pub fn flushStandard() std.posix.E {
     lockOutput();
     defer unlockOutput();
-    if (stdout_writer) |*sw| return drainStdout(&sw.interface);
-    return .SUCCESS;
+    const e = if (stdout_writer) |*sw| drainStdout(&sw.interface) else .SUCCESS;
+    if (e == .PIPE) dieOfBrokenPipe();
+    return e;
 }
 
 /// Write `print`'s buffer to stdout and empty it, whether or not the

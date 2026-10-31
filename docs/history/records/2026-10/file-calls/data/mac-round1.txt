@@ -1,0 +1,12 @@
+zod3            main       wall med  110.26 min  106.43  user   96.96 sys  10.91  vs first: med +0.0% min +0.0%
+zod3            direct     wall med  105.79 min  103.71  user   94.46 sys   9.29  vs first: med -4.1% min -2.6%
+ts-pattern      main       wall med  551.11 min  507.24  user  516.43 sys  30.18  vs first: med +0.0% min +0.0%
+ts-pattern      direct     wall med  538.91 min  506.40  user  506.73 sys  28.74  vs first: med -2.2% min -0.2%
+tiny-invariant  main       wall med   56.57 min   54.18  user   48.23 sys   6.14  vs first: med +0.0% min +0.0%
+tiny-invariant  direct     wall med   55.52 min   53.30  user   47.97 sys   5.50  vs first: med -1.9% min -1.6%
+superstruct     main       wall med   23.65 min   23.00  user   17.92 sys   3.90  vs first: med +0.0% min +0.0%
+superstruct     direct     wall med   22.86 min   22.53  user   17.64 sys   3.47  vs first: med -3.4% min -2.1%
+mitt            main       wall med   20.44 min   20.04  user   14.49 sys   4.10  vs first: med +0.0% min +0.0%
+mitt            direct     wall med   19.65 min   19.23  user   14.37 sys   3.53  vs first: med -3.9% min -4.0%
+neverthrow      main       wall med   21.09 min   20.56  user   15.27 sys   3.96  vs first: med +0.0% min +0.0%
+neverthrow      direct     wall med   20.76 min   20.22  user   15.24 sys   3.66  vs first: med -1.6% min -1.6%

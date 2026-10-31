@@ -91,14 +91,28 @@ A new session, human or agent, takes these steps in order:
   the three streams as `file.File`s, stdout through `print`'s buffer;
   `File.read` into the caller's buffer, with no allocation when it has
   room; `FileError` with a member per errno and `file.reason(e)`, the
-  system's words. The owner approved the member names and `reason`;
-  the gates are green, and it waits to merge.
+  system's words, the names the owner's. On main.
+- **A short-form member is its set's error value** (queue row 24): the
+  checker records the set a `.name` or `.name(fields)` names, where its
+  set, `error`, a union, or an optional of one goes, and emit writes
+  the error value from it; `.bad(at: 3)` for an `Oops` was accepted and
+  then rejected by Zig. In review as one PR.
+- **`os.on_broken_pipe(.die)`** (owner, 2026-10-30: exit 0 stays the
+  default): a program can choose to die by SIGPIPE when its stdout's
+  reader closes, as the coreutils port's `yes`, `seq`, `cat`, `tee`,
+  `sort` and `env` need; sockets and stderr are unchanged. In review as
+  one PR.
+- **A SIGSEGV or SIGBUS that was sent ends the program** (queue row
+  25e): the stack guard's and the sanitizer's fault handlers ask
+  `sentSignal` first, `si_code` on Linux and the thread's exception
+  state on arm64 macOS, and a sent signal ends the program by its
+  default action (139, 138 or 135) instead of being lost. In review as
+  one PR; SIGILL and SIGFPE wait for the owner.
 - **`std.crypto`** (#800, owner 2026-10-30, for the sanstun port):
   ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and
   HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value
-  barrier. Its adversarial review's findings are fixed; a draft until
-  its light gates run.
-
+  barrier. Its review's findings are fixed and its
+  gates are green; it waits to merge.
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review

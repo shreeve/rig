@@ -37,6 +37,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Memory traffic, Trig against tsrs (2026-10-28) | Trig and tsrs miss L1 and L2 alike; Trig has 1.9× tsrs's L3 misses, 3.2× its STLB misses and 2.2× its faults. Map indexes take a third of its L3 and half its STLB misses, Tables a quarter and a third, and 81% of its faults, where tsrs keeps the same data in one arena on huge pages. By bytes Trig allocates about what tsrs does (the "6.4×" was instructions); 81% of its blocks are copies of stored lists. Ceilings: Tables faulted in 64 KiB ahead, 2.7% fewer cycles and 64% fewer faults, for 0.6-2.0% more memory; the Relater copied in place, 2.0% fewer user cycles; huge pages for large indexes, 24% fewer STLB misses and no cycles. Ranked Rig-side requirements and Trig-side findings | [perf-stage/memory-traffic.md](2026-10/perf-stage/memory-traffic.md) |
 | Table fault-ahead (2026-10-28) | built into the runtime, it cut Trig's faults 65% but its cycles only 0.4%: populating a page saves only its trap, about 850 of 5,000-5,600 kernel cycles, and the frontier check stopped `push` from inlining; the kernel gap to tsrs is page size, 53,600 pages of 4 KiB against 63 of 2 MiB; archived for huge pages | [perf-stage/fault-ahead/](2026-10/perf-stage/fault-ahead/README.md) |
 | The kernel time Rig's allocator causes in Trig (2026-10-31) | each `madvise`, `munmap` and `mremap` of a Trig run attributed to its site: `madvise` is all prefault, whose cost is the pages' own (0.93 µs a page against a fault's 1.0); 6% (ts-pattern) and 12% (zod3) of prefaulted pages are never touched, the class pages' unused ends; `keepBound` never binds; the `munmap` time is the Tables' teardown at exit, the same wall time as leaving it to the exit, which `perf stat` does not count; Tables take 77% of ts-pattern's faults; no allocator change worth timing | [perf-stage/kernel-time.md](2026-10/perf-stage/kernel-time.md) |
+| Huge pages for Tables while memory is fragmented (2026-10-31) | asking for each 2 MiB Table window as `push` first reaches it, gated on 8 free blocks then, never stalls (0 in 240 Trig runs) and takes the free blocks there are, but its hook in `push` costs 0.8% of instructions in every form built (jit, hybrid, hybrid2): the Tables' windows net 1.4% on ts-pattern where main's gate is shut and lose about 1% elsewhere; most of jit's 1.2-2.8% came from segments at a low floor, the next arm (`alloc.zig` only); `MADV_COLLAPSE`, a compacting breaker, and a helper thread lose on one core or stall; any huge pages raise peak RSS where the gate is shut | [perf-stage/table-huge.md](2026-10/perf-stage/table-huge.md) |
 | Which checks cost Trig's time (2026-10-28) | the 6-8% that every check costs Trig is diffuse: each kind and each group costs in proportion to the instructions and code it removes, and they add up; no hot sites; builds that change no check read up to 1.3% either way (the layout lottery); List index tests 4.6-6.3% of the instructions, of them the checker's id accessors 1.6-2.2% and the AST's record reads 1.1-2.3%, together 2.3% and 3.6% faster with PGO, both Trig-side moves onto `Table`/`Slot`; Zig's overflow tests 1.9-2.3%; Zig's tests in the runtime's own Zig 1.3-1.7%, the one group a Rig change alone could take | [perf-stage/check-bisect.md](2026-10/perf-stage/check-bisect.md) |
 | The runtime's proven checks (2026-10-28) | fourteen blocks in runtime.zig, table.zig, and alloc.zig leave out, in an optimized build, the Zig checks the runtime's own invariants prove (debug builds keep them and assert the invariant): Trig 1.66% and 1.35% fewer instructions (PGO 1.71% and 1.07%), as many as all of the runtime's Zig checks; 0.8% and 1.4% faster plain, 1.2% and 0.5% with PGO; over the instruction bar, under the time bar; most of the share is the checks' cost in their callers, not their own compare and branch | [perf-stage/runtime-unchecked.md](2026-10/perf-stage/runtime-unchecked.md) |
 | Huge pages when memory is fragmented (2026-10-28) | with no free 2 MiB block left, every `MADV_HUGEPAGE` fault compacts (`defrag=madvise`): Trig PGO on ts-pattern 34-41% slower than with no huge pages (kernel cycles 0.25G to 2G), zod3 up to 78%; the Tables' advice (#754) stalls most, the segments' (#740) too, the large blocks' not measurably; quiet, huge pages are 5.3% (ts-pattern) and 4.8% (zod3) faster. A check of free 2 MiB blocks in `/proc/buddyinfo` with 128 to spare kept the quiet gain and never stalled; `MADV_COLLAPSE` and a `defrag` test do not; recommended: gate all three, close #760 | [perf-stage/thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md) |
@@ -89,6 +90,8 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Huge pages for large tables (consolidation round 2) | `MADV_HUGEPAGE` past a table's first 2 MiB: ts-pattern 2.4% faster with one checker, zod3 0.9% slower, nothing with all cores on top of prefault; over the whole table up to 5.2% faster but 49% to 144% more RSS; Trig's 2 million dTLB misses were never the cost; not taken | [consolidation-2/hugepages.md](2026-10/consolidation-2/hugepages.md) |
 | Faulting large tables in ahead (2026-10-26) | `MADV_POPULATE_WRITE` and `MADV_HUGEPAGE` per 2 MiB stretch of a large table, on pushes and slot writes or on pushes alone, measured on Trig main and arena-tables: Trig's faults at one checker fall to about tsrs's (19.0K against 17.8K), but kernel time follows memory touched (about 1.6 times tsrs's), not faults; huge pages with populate save 1.2% of cycles at one checker for 9.4% more RSS at four, huge pages on pushes alone save nothing within 4% RSS; not taken, code on branches `table-prefault` and `table-prefault-arm6` | [table-prefault/](2026-10/table-prefault/README.md) |
 | Inline file calls on an idle worker (consolidation round 2) | a bounded file call runs on its worker when the worker has nothing else to run: futex calls 702 to 32 and Trig's front end 5% faster, but Trig's whole run and loco unchanged, for 736 lines; not taken, code on branch `inline-idle` | [consolidation-2/inline-idle.md](2026-10/consolidation-2/inline-idle.md) |
+| Trig's file calls and the blocking pool (2026-10-31) | Trig makes 4 `realpath` calls a run on every project (0.1-0.2 ms); zod3's pool cost is its 290 `stat` calls, about 4 µs of hand-off each on a quiet Mac; the metadata calls run on the calling thread make zod3 2.2-2.9% and mitt 3.5-3.9% faster on the Mac, unpinned, but on pup as standing-4 times Trig (PGO, one P-core) only 0.4-0.9% fewer cycles and no wall time, under the bar; not built | [file-calls/zod3-file-calls.md](2026-10/file-calls/zod3-file-calls.md) |
+| Trig's file calls across cores on pup (2026-10-31) | the metadata calls on the calling thread, against the bar of zod3 or mitt more than 1.5% faster with nothing slower: on two physical P-cores zod3 1.5% faster, ts-pattern 1.2% and neverthrow 2.3% slower; unpinned zod3 0.5% faster, mitt 4.9% slower; kernel cycles 2-6% fewer; not built | [file-calls/cross-core.md](2026-10/file-calls/cross-core.md) |
 | A smaller Map for many small ones (Trig NEEDS 58) | where a Map's 104 bytes and its blocks go on Trig; a table only past 16 entries tried and not landed (String lookups 6-9% slower on x86, Trig unchanged); the table behind a box tried and not landed (bench/hash's lookups 1-7% slower, Trig 2 MB smaller); the Map left as it is | [compact-map/](2026-10/compact-map/README.md) |
 | The Map/Set stage's survey and design (2026-10-24) | SwissTable, hashbrown, F14, Go 1.24, Boost, Python's compact dict, indexmap, and others against Rig's ordered Map; the table grows four times over, not twice (20-80% full); the top candidate keeps small plain entries in their table slots with Swiss control bytes and a List of slot numbers for the order, and the rest dense behind the same SIMD index; why it should not repeat the slots experiment; a small path with no hash; judged by a replay of Trig's map operations, which bounds it (2026-10-25): as written it saves 1.0% of ts-pattern's cycles, below the 2% bar; with a rebuild in memory order, a first table of 32 slots, and no `V?` in the slot, 3.1-3.7% | [map-stage/](2026-10/map-stage/) |
 | The Map stage built (2026-10-26): measured, not taken | entries of plain keys and values in Swiss-probed slots (`$plain` fills the free ones), on branch `map-stage` (#702, closed): ts-pattern 2.5-4.5% fewer cycles and 5.4% less RSS, but the shipping PGO build 1.5-3.8% slower in wall time at four checkers, zod3 5% more RSS with PGO, and bench/hash's million-key inserts 70-96% slower with the walk 10.7 times as slow. Inlining the hot path cut the Map's spills and reloads in Trig's PGO build from 426M to 82M instructions, the piece tried next on its own; U32 to U32 maps dense until 64 entries, a rebuild in place, and a called probe were measured and dropped | [map-stage/build.md](2026-10/map-stage/build.md) |
@@ -210,6 +213,32 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [review-1.md](2026-10/errors-r2/review-1.md): Review: declared error sets (branch `errsets`, PR #542)
 - [review-1-fixes.md](2026-10/errors-r2/review-1-fixes.md): how each of review 1's findings was fixed
+
+### 2026-10/file-calls/
+
+- [cross-core.md](2026-10/file-calls/cross-core.md): Trig's file calls across cores on pup, two physical P-cores and unpinned, against the bar for building the change
+- [zod3-file-calls.md](2026-10/file-calls/zod3-file-calls.md): Trig's file calls and the blocking pool: which calls, their hand-off, and the Zig ceiling on the Mac
+
+### 2026-10/file-calls/data/
+
+- [buildtrig.sh](2026-10/file-calls/data/buildtrig.sh)
+- [direct.diff](2026-10/file-calls/data/direct.diff)
+- [instrument.patch](2026-10/file-calls/data/instrument.patch)
+- [mac-counts.txt](2026-10/file-calls/data/mac-counts.txt)
+- [mac-round1.txt](2026-10/file-calls/data/mac-round1.txt)
+- [mac-round2.txt](2026-10/file-calls/data/mac-round2.txt)
+- [meta.diff](2026-10/file-calls/data/meta.diff)
+- [pgo-one.sh](2026-10/file-calls/data/pgo-one.sh)
+- [pup-build.out](2026-10/file-calls/data/pup-build.out)
+- [pup-summary.txt](2026-10/file-calls/data/pup-summary.txt)
+- [pup-summary-2.txt](2026-10/file-calls/data/pup-summary-2.txt)
+- [pup-times-6-8.txt](2026-10/file-calls/data/pup-times-6-8.txt)
+- [pup-times-all.txt](2026-10/file-calls/data/pup-times-all.txt)
+- [pup-times-rot.txt](2026-10/file-calls/data/pup-times-rot.txt)
+- [summarize.py](2026-10/file-calls/data/summarize.py)
+- [time-rot.sh](2026-10/file-calls/data/time-rot.sh)
+- [time-rot-2.sh](2026-10/file-calls/data/time-rot-2.sh)
+- [timetrig.py](2026-10/file-calls/data/timetrig.py)
 
 ### 2026-10/fixes/
 
@@ -362,6 +391,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [scaling-2.md](2026-10/perf-stage/scaling-2.md): Why Trig loses more than tsrs from one checker to four, ranked by milliseconds (2026-10-28)
 - [trig-zig-ceiling.md](2026-10/perf-stage/trig-zig-ceiling.md): The speed ceiling of Trig's emitted Zig, safe and unchecked, against main and tsrs (2026-10-27)
 - [kernel-time.md](2026-10/perf-stage/kernel-time.md): The kernel time Rig's allocator causes in Trig, call by call, and the prefaulted pages never touched (2026-10-31)
+- [table-huge.md](2026-10/perf-stage/table-huge.md): Huge pages for Tables while memory is fragmented: a window at a time, MADV_COLLAPSE, a breaker, a helper thread (2026-10-31)
 
 ### 2026-10/perf-stage/loop-hoist-data/
 
@@ -386,6 +416,35 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [times-leave35.txt](2026-10/perf-stage/thp-spare-data/times-leave35.txt)
 - [times.txt](2026-10/perf-stage/thp-spare-data/times.txt)
 - [unfrag.c](2026-10/perf-stage/thp-spare-data/unfrag.c)
+
+### 2026-10/perf-stage/table-huge-data/
+
+- [build-hybrid.log](2026-10/perf-stage/table-huge-data/build-hybrid.log)
+- [build-hybrid2.log](2026-10/perf-stage/table-huge-data/build-hybrid2.log)
+- [build-jit.log](2026-10/perf-stage/table-huge-data/build-jit.log)
+- [build-main.log](2026-10/perf-stage/table-huge-data/build-main.log)
+- [build.sh](2026-10/perf-stage/table-huge-data/build.sh)
+- [cmds.sh](2026-10/perf-stage/table-huge-data/cmds.sh)
+- [frag.c](2026-10/perf-stage/table-huge-data/frag.c)
+- [hybrid.patch](2026-10/perf-stage/table-huge-data/hybrid.patch)
+- [hybrid2.patch](2026-10/perf-stage/table-huge-data/hybrid2.patch)
+- [jit.patch](2026-10/perf-stage/table-huge-data/jit.patch)
+- [micro-summary.txt](2026-10/perf-stage/table-huge-data/micro-summary.txt)
+- [micro.sh](2026-10/perf-stage/table-huge-data/micro.sh)
+- [micro.txt](2026-10/perf-stage/table-huge-data/micro.txt)
+- [microsumm.py](2026-10/perf-stage/table-huge-data/microsumm.py)
+- [stash.patch](2026-10/perf-stage/table-huge-data/stash.patch)
+- [summ.py](2026-10/perf-stage/table-huge-data/summ.py)
+- [summary-hybrid.txt](2026-10/perf-stage/table-huge-data/summary-hybrid.txt)
+- [summary.txt](2026-10/perf-stage/table-huge-data/summary.txt)
+- [tabcheck.rig](2026-10/perf-stage/table-huge-data/tabcheck.rig)
+- [tabjit.c](2026-10/perf-stage/table-huge-data/tabjit.c)
+- [time.sh](2026-10/perf-stage/table-huge-data/time.sh)
+- [times-frag.txt](2026-10/perf-stage/table-huge-data/times-frag.txt)
+- [times-h-l35.txt](2026-10/perf-stage/table-huge-data/times-h-l35.txt)
+- [times-h-nq.txt](2026-10/perf-stage/table-huge-data/times-h-nq.txt)
+- [times-natural.txt](2026-10/perf-stage/table-huge-data/times-natural.txt)
+- [unfrag.c](2026-10/perf-stage/table-huge-data/unfrag.c)
 
 ### 2026-10/perf-stage/kernel-time-data/
 

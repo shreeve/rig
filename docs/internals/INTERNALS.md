@@ -5091,7 +5091,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer, written under `output_lock` in a program that makes tasks; flushed by `finish`, before a panic message, before a thread blocks on I/O or time (`flushBeforeWait`, from the scheduler's poller, a socket's wait outside it, and a sleep outside it), and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer, written under `output_lock` in a program that makes tasks; flushed by `finish`, before a panic message, before a thread blocks on I/O or time (`flushBeforeWait`, from the scheduler's poller, a socket's wait outside it, and a sleep outside it), and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, or, once `os.on_broken_pipe(.die)` has set `broken_pipe_dies`, ends the process by SIGPIPE (`dieOfBrokenPipe`, then `endBy`: the default disposition, then `raise`; status 141 if that does not end it). `dieOfBrokenPipe` is the one place that reads the setting, for both ways of writing stdout: `print` (`stdoutFailed`) and a write or flush of `io.stdout()` (`writeStandard`, `flushStandard`), which with `.exit` return EPIPE for `FileError.broken_pipe`. `start` installs a SIGPIPE handler that does nothing, so a write to any closed pipe or socket fails with EPIPE rather than killing the program: sockets get `net.NetError.closed` whatever the setting, and a process the program starts gets the default back, as a handler (unlike an ignored signal) is reset by `exec`. A panic, or a `rig test` run, exits 1 on a closed pipe either way, since its report or verdict is lost; and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
 | `warn`, `fail` | `warn(a, b)` and `panic(a, b)`: `flush`, then the pieces `print` takes written to stderr under `std.debug.lockStderr`; `warn` writes through a 4 KiB buffer, so a line up to that size is one write. `fail` reports the test it ended (`beginPanic`) and ends the program by `std.process.abort`, status 134, after the line |
 | `concurrent`, `TaskState`, `task` | in a program that makes tasks (its root module declares `__rig_tasks`) and in the runtime's unit tests, each task is a fiber on the scheduler (`sched.zig`, [docs/internals/scheduler.md](scheduler.md)), run by one of its worker threads, so `TaskState`, what the runtime keeps for one task (the depth and queue of nested `*T` releases, the nesting of `print`, the guard below the task's stack, the deadline of `time.within`), is the fiber's (`Fiber.state`), and output and the debug leak checker take a lock (`output_lock`, `alloc_lock`); any other program compiles as if there were one thread, at no cost |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
@@ -5535,7 +5535,33 @@ installed. A fault taken while that handler walks the stack (on x86_64
 Linux the walk from inside Zig's stack-probe routine, whose stack
 pointer is already in the guard, reads the guard) comes back to it, and
 it aborts. So a stack overflow ends with SIGABRT (status 134) in every
-build mode.
+build mode. A fault outside the guard puts back the handlers it
+replaced and returns, so the access faults again into them, the
+sanitizer's (`Sanitizer.onFault`, which does the same for an address
+outside its spans) or Zig's.
+
+**A signal that was sent.** A SIGSEGV or SIGBUS that `kill`, `raise`,
+or `sigqueue` sent has no access to fault again, so both handlers ask
+first whether it was sent (`sentSignal`), and end the program by it if
+so, as its default action does (`dieOf`: status 139, or 138 on macOS
+and 135 on Linux for SIGBUS; no message, no trace). On Linux a sent
+signal's `si_code` is 0 or less (`SI_USER`, `SI_QUEUE`, `SI_TKILL`), a
+fault's above 0, exactly. On macOS `si_code` cannot tell, as the kernel
+fills a sent signal's from the thread's last exception, and
+`darwinFault` reads that exception from the signal's context instead:
+on arm64 its syndrome says a system call when the signal arrived as the
+thread left the kernel, and an abort or an alignment fault when it
+faulted. The last exception may be a page fault the kernel resolved
+before a sent signal arrived (a thread touching fresh pages, about one
+signal in ten), so an abort counts only if its address still cannot be
+accessed as the abort tried to (`mach_vm_region`). The kernel can leave
+0 as that address, and does for most signals sent to a debug build's
+loop of allocations, so an abort at 0 counts only if the thread stopped
+at a load or store through a register that points into the first page,
+as a real access of address 0 does. On x86-64 macOS every such signal
+still counts as a fault. `test/cli/fault_signal.sh` checks each case in
+every build mode and under `RIG_SANITIZE=1`, with a real overflow and a
+real use of freed memory beside them.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address

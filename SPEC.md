@@ -657,7 +657,9 @@ before writing beyond the stack, in every build mode. A program that
 cannot reserve its stack and the guard stops before it runs, with `rig:
 cannot reserve the program's stack and the guard below it` and exit
 status 1 ([INTERNALS](docs/internals/INTERNALS.md#the-programs-stack) describes the
-mechanism).
+mechanism). A SIGSEGV or SIGBUS that another process sends, or the
+program sends itself, ends the program by that signal, as its default
+action does.
 
 ```rig reject
 obj Grid
@@ -11143,7 +11145,12 @@ type mismatch: expected `Int`, got `ParseError`
 
 The type `error` holds an error of any set, wherever a type goes: a
 parameter, a field, a result, an optional, a List's element. A member of
-any set is accepted where an `error` is expected. `error` is owning in
+any set is accepted where an `error` is expected. Written without its
+set, `.name` or `.name(fields)`, a member where an `error` goes is of the
+one set that may mean it, as one compared with `err` is
+([Naming the error](#naming-the-error)), and where a union goes, of the
+one set the union joins that has it; it then goes there as `E.name`
+does. `error` is owning in
 every program ([kinds](#kinds-of-value)): a bare use where its value is
 taken is rejected, `<e` moves it, `+e` clones it, and `?e` lends it. It
 is compared, matched, and printed as `err` is above, and a fallible
@@ -11177,6 +11184,30 @@ sub main()
 0
 3
 Net.timeout
+Disk.full
+```
+
+```rig
+error Parse
+  bad(at: Int)
+
+error Disk
+  full
+
+error Load = Parse | Disk
+
+sub report(e: error, why: Load)
+  print(e, why)
+
+sub main()
+  report(.bad(at: 3), .full)
+  seen: List[error] = List()
+  !seen.push(.full)
+  print(seen[0])
+```
+
+```output
+Parse.bad(at: 3) Disk.full
 Disk.full
 ```
 
@@ -12350,7 +12381,10 @@ when stdout is a terminal.
 
 When stdout is a pipe whose reader has closed it (`prog | head -1`), the
 program ends at once with status 0 and writes nothing more: its drops,
-`defer`s, and leak check do not run. Any other failure to write stdout
+`defer`s, and leak check do not run. A program that calls
+`os.on_broken_pipe(.die)` ([std.os](docs/STD.md#stdos)) dies by SIGPIPE
+there instead, as a C program does, so a shell sees status 141; a
+socket's closed peer is still a `net.NetError.closed`. Any other failure to write stdout
 (a full disk, a closed file) ends the program the same way, with
 `error: stdout: <reason>` on stderr and status 1. A `warn` whose write
 to stderr fails writes nothing, and the program goes on.
