@@ -1,4 +1,6 @@
-# std.io: tests whose names start `io`.
+# std.io: tests whose names start `io`. Standard input from a pipe,
+# standard error, and failed writes: test/cli/std_io.sh.
+use std.file
 use std.io
 use std.net
 
@@ -44,3 +46,70 @@ fail "io copy through a write view still says so", "write `!c`: the call writes 
 fail "io copy takes two ends", "`io.copy` takes what to read and what to write"
   fun run(c: !net.Stream) -> Int!
     io.copy(!c)!
+
+test "io stdout writes bytes as they are", '''
+  abc
+  d
+'''
+  # No newline is added, and none is needed.
+  out = io.stdout()
+  (!out).write("a")!
+  (!out).write("bc\nd")!
+  (!out).write("")!
+  (!out).write("\n")!
+
+test "io stdout writes in order with print", '''
+  one two
+  three
+  four
+'''
+  # Writes go through print's own buffer, so the two never cross.
+  out = io.stdout()
+  (!out).write("one ")!
+  print("two")
+  (!out).write("three\n")!
+  (!out).flush()!
+  print("four")
+
+test "io stdout takes a large write in order", "true"
+  # A write larger than print's buffer goes after what the buffer holds.
+  out = io.stdout()
+  big = String()
+  for i in 0..5000
+    !big.add(i % 10)
+  print("start")
+  (!out).write(big)!
+  (!out).write("\n")!
+  print(big.len == 5000)
+
+test "io stdout is a File, kept open when dropped", '''
+  first
+  second
+'''
+  # Each call gives a handle on the same stream; dropping one leaves the
+  # stream open for the next, and for print.
+  sub say(f: !file.File, s: ?String)!
+    f.write(s)!
+
+  a = io.stdout()
+  say(!a, "first\n")!
+  _ = <a
+  b = io.stdout()
+  say(!b, "second")!
+  _ = <b
+  print()
+
+test "io copy writes a file to stdout", '''
+  # The smallest meaningful Rig program.
+
+  sub main()
+    print("hello, rig")
+
+  # expect:
+  # hello, rig
+  97
+'''
+  out = io.stdout()
+  if file.open("examples/hello.rig")! as f
+    n = io.copy(!f, !out)!
+    print(n)

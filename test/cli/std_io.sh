@@ -2,7 +2,10 @@
 # byte, in 64 KiB blocks and a short last one, an empty file, a file
 # served on a socket, and a socket read into a file; in debug
 # (sanitized) and --release, and under 20 seeds. Between sockets:
-# test/rig/std-io.rig.test.
+# test/rig/std-io.rig.test. The standard streams: stdin read from a pipe
+# a block at a time and copied whole, from tasks too; stderr in order
+# with stdout; and a write that fails reported as its FileError, with
+# the system's words.
 # timeout: 300
 source "$ROOT/test/cli/_lib.sh"
 
@@ -55,5 +58,128 @@ for mode in debug release; do
         out=$(RIG_SEED=$run ./cp 2>&1); expect_rc $? 0 "$mode seed $run: $out"
         expect_eq "$out" "$want" "$mode: seed $run"
     done
+done
+# Standard input, read into one buffer a block at a time, then copied:
+# how many bytes, their sum, and what `io.copy` gave.
+cat >cat.rig <<'EOF2'
+use std.io
+use std.os
+
+fun main() -> Int!
+  input = io.stdin()
+  if os.args().len > 1
+    out = io.stdout()
+    return io.copy(!input, !out)! % 2
+  buf = String()
+  total = 0
+  sum = 0
+  while true
+    !buf.clear()
+    n = (!input).read(!buf, 4096)!
+    break if n == 0
+    total += n
+    for b in ?buf[..]
+      sum += Int(b)
+  print(total, sum)
+  0
+EOF2
+
+# The same from a task, which reads on the blocking pool.
+cat >tasked.rig <<'EOF2'
+use std.io
+
+fun count() -> Int!
+  input = io.stdin()
+  buf = String()
+  total = 0
+  while (!input).read(!buf, 65536)! > 0
+    total += buf.len
+    !buf.clear()
+  total
+
+sub main()!
+  t = count()&
+  print(>t!)
+EOF2
+
+# stderr between lines of stdout, each stream through its own handle
+# and through print and warn.
+cat >order.rig <<'EOF2'
+use std.io
+
+sub main()!
+  out = io.stdout()
+  err = io.stderr()
+  (!out).write("1 ")!
+  (!err).write("2 ")!
+  print("3")
+  warn("4")
+  (!out).write("5")!
+  (!err).write("6\n")!
+  print()
+EOF2
+
+# A write that fails: to stdin, to stdout read, to a full disk, to a
+# closed pipe. Each prints its error and the system's words to stderr.
+cat >fail.rig <<'EOF2'
+use std.file
+use std.io
+use std.os
+
+sub tell(e: ?error)
+  err = io.stderr()
+  match e
+    f: file.FileError => (!err).write(String(e, " ", file.reason(f), "\n")) catch return
+    _ => (!err).write(String(e, "\n")) catch return
+
+sub main()
+  how = os.args()[1]
+  if how == "stdin"
+    input = io.stdin()
+    (!input).write("x") catch |e| tell(e)
+  elif how == "read"
+    out = io.stdout()
+    buf = String()
+    _ = (!out).read(!buf, 10) catch |e|
+      tell(e)
+      0
+  else
+    out = io.stdout()
+    big = String()
+    for i in 0..20000
+      !big.add("line ", i, "\n")
+    for i in 0..10
+      (!out).write(big) catch |e|
+        tell(e)
+        return
+    (!out).flush() catch |e| tell(e)
+EOF2
+
+big=$(python3 -c "import sys; sys.stdout.buffer.write(bytes(i % 7 for i in range(300000)))" | tee piped.dat | wc -c | tr -d ' ')
+for mode in debug release; do
+    flag=; [[ $mode == release ]] && flag=--release
+    out=$(RIG_SANITIZE=1 rig run $flag cat.rig <piped.dat 2>&1); expect_rc $? 0 "$mode cat: $out"
+    expect_eq "$out" "300000 899997" "$mode: stdin read a block at a time"
+    out=$(printf 'abc' | RIG_SANITIZE=1 rig run $flag cat.rig 2>&1); expect_rc $? 0 "$mode cat pipe: $out"
+    expect_eq "$out" "3 294" "$mode: stdin from a pipe"
+    out=$(RIG_SANITIZE=1 rig run $flag cat.rig -- copy <piped.dat 2>/dev/null | cmp - piped.dat 2>&1); expect_rc $? 0 "$mode copy: $out"
+    out=$(RIG_SANITIZE=1 rig run $flag tasked.rig <piped.dat 2>&1); expect_rc $? 0 "$mode tasked: $out"
+    expect_eq "$out" "300000" "$mode: stdin from a task"
+    out=$(RIG_SANITIZE=1 rig run $flag order.rig 2>&1); expect_rc $? 0 "$mode order: $out"
+    expect_eq "$out" $'1 2 3\n4\n56' "$mode: stdout and stderr in the order written"
+    out=$(RIG_SANITIZE=1 rig run $flag fail.rig -- stdin </dev/null 2>&1); expect_rc $? 0 "$mode stdin write: $out"
+    expect_eq "$out" "FileError.bad_descriptor Bad file descriptor" "$mode: a write to stdin"
+    out=$(RIG_SANITIZE=1 rig run $flag fail.rig -- read 2>&1 >out.txt); expect_rc $? 0 "$mode stdout read: $out"
+    expect_eq "$out" "FileError.bad_descriptor Bad file descriptor" "$mode: a read of stdout"
+    rig build $flag -o fail fail.rig >build.log 2>&1 || fail "$mode build fail: $(cat build.log)"
+    if [[ -e /dev/full ]]; then
+        out=$(./fail full 2>&1 >/dev/full); expect_rc $? 0 "$mode full: $out"
+        expect_eq "$out" "FileError.no_space No space left on device" "$mode: a full disk"
+    fi
+    # The reader leaves after one line. Whether the program then sees the
+    # failed write or ends by SIGPIPE is the runtime's choice: either way
+    # it does not go on writing.
+    err=$( { ./fail pipe | head -1 >/dev/null; echo "status ${PIPESTATUS[0]}" >&2; } 2>&1 )
+    [[ $err == $'FileError.broken_pipe Broken pipe\nstatus 0' || $err == "status 141" ]] || fail "$mode: a closed pipe: $err"
 done
 exit 0

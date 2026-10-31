@@ -1,0 +1,112 @@
+# std.file: tests whose names start `file`. Each runs from the
+# repository's root and changes nothing there; the calls that make and
+# remove files are test/cli/std_file*.sh.
+use std.file
+use std.os
+
+test "file read reads into the buffer it is given", "true 0 true"
+  # A read into a String with room takes no allocation: the bytes go
+  # into the room, onto what the String holds.
+  whole = file.read("examples/hello.rig")! ?? String()
+  f = file.open("examples/hello.rig")! ?? return
+  buf = String()
+  !buf.reserve(65536)
+  !buf.add("> ")
+  before = os.memory().allocs
+  n = (!f).read(!buf, 65536)!
+  same = buf == String("> ", whole) and n == whole.len
+  allocs = os.memory().allocs - before
+  !buf.clear()
+  print(same, allocs, (!f).read(!buf, 65536)! == 0 and buf.len == 0)
+
+test "file read reuses its buffer", "true 0"
+  # Cleared, the buffer is read into again, a block at a time, with no
+  # allocation after the first.
+  whole = file.read("SPEC.md")! ?? String()
+  f = file.open("SPEC.md")! ?? return
+  buf = String()
+  total = 0
+  allocs = 0
+  while true
+    !buf.clear()
+    before = os.memory().allocs
+    n = (!f).read(!buf, 4096)!
+    allocs += os.memory().allocs - before if total > 0
+    break if n == 0
+    total += n
+  print(total == whole.len, allocs)
+
+test "file read into a fresh String keeps only what came", "5 true"
+  # Room for a large read that a small file fills is given back.
+  f = file.open("examples/hello.rig")! ?? return
+  buf = String()
+  n = (!f).read(!buf, 5)!
+  print(n, buf == "# The")
+
+test "file reason is the system's text", '''
+  No such file or directory
+  File exists
+  Permission denied
+  Operation not permitted
+  Read-only file system
+  Not a directory
+  Is a directory
+  Directory not empty
+  Too many levels of symbolic links
+  File name too long
+  true
+  true
+  No space left on device
+  Invalid argument
+  Bad file descriptor
+  Broken pipe
+  Input/output error
+  Unknown error
+'''
+  es = [file.FileError.not_found, file.FileError.exists, file.FileError.denied, file.FileError.not_permitted, file.FileError.read_only, file.FileError.not_directory, file.FileError.is_directory, file.FileError.not_empty, file.FileError.loop, file.FileError.name_too_long]
+  for e in es
+    print(file.reason(e))
+  # The two whose words differ between macOS and glibc.
+  busy = file.reason(file.FileError.busy)
+  print(busy == "Resource busy" or busy == "Device or resource busy")
+  cross = file.reason(file.FileError.cross_device)
+  print(cross == "Cross-device link" or cross == "Invalid cross-device link")
+  rest = [file.FileError.no_space, file.FileError.invalid, file.FileError.bad_descriptor, file.FileError.broken_pipe, file.FileError.io, file.FileError.failed]
+  for e in rest
+    print(file.reason(e))
+
+test "file errors are the system's", '''
+  FileError.not_found No such file or directory
+  FileError.exists File exists
+  FileError.is_directory Is a directory
+  FileError.not_empty Directory not empty
+  FileError.not_directory Not a directory
+  FileError.name_too_long File name too long
+  FileError.invalid Invalid argument
+'''
+  sub show(e: ?error)
+    match e
+      f: file.FileError => print(e, file.reason(f))
+      _ => print(e)
+
+  long = String()
+  for i in 0..300
+    !long.add("a")
+  _ = file.create("no/such/dir/f") catch |e|
+    show(e)
+    none
+  file.mkdir("AGENTS.md") catch |e| show(e)
+  _ = file.create("examples") catch |e|
+    show(e)
+    none
+  _ = file.remove("examples") catch |e|
+    show(e)
+    false
+  _ = file.create("AGENTS.md/f") catch |e|
+    show(e)
+    none
+  _ = file.open(long) catch |e|
+    show(e)
+    none
+  # A directory moved into itself.
+  file.rename("examples", "examples/inside") catch |e| show(e)
