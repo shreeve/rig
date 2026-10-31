@@ -135,6 +135,11 @@ A new session, human or agent, takes these steps in order:
   standard library module's name and runs its own test blocks, so
   std's private code is tested in place; first for #814's two MACs. A
   draft PR, waiting on the light gates.
+- **ChaCha20-Poly1305's x86-64 loop on 64-bit limbs** (queue row 16c,
+  on #817): past 192 bytes x86-64 MACs a block at a time, arm64 keeps
+  the four-block step, from one loop generic over the MAC; both are
+  tested on every machine by `rig test std.crypto`. A draft PR,
+  waiting on x86 timing on pup and the light gates.
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review
