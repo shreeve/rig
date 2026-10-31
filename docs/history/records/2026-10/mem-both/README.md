@@ -3,7 +3,7 @@
 The owner's words: "We need BOTH the SPEED and the MEMORY wins". The goal is #785's memory cut
 (tag `archive/mem-alloc-b`) with every row, and Trig's time and RSS, within 2% of main.
 
-**Round 2's verdict (quiet, 10 rounds): arms a and ac are within 2% of main on every row by the median, with the memory cut kept. Trig remains to time.** Round 1's verdict was that no arm is shown to meet the bar, and none is shown to miss it. On pup the
+**Round 3's verdict: arm a's memory cut holds and Trig is level, but on the PR's own base kv 64 KiB is 2.3% slower and xmalloc-test 5.7% slower, so it is not shown within 2%.** Round 2 (quiet, 10 rounds) found arms a and ac within 2% of main on every row by the median. Round 1's verdict was that no arm is shown to meet the bar, and none is shown to miss it. On pup the
 harness's spread between rounds is 3-12% on rows an arm does not touch. For example, arm a
 changes only large blocks, yet its kv 32 B median is 10.8% below main's. That spread is wider
 than the 2% bar, so four rounds cannot settle 2% either way. The memory cuts are clear:
@@ -132,6 +132,50 @@ Median of 10 against main (best of 10 in brackets), and median peak RSS:
 - **Memory:** kv64k's RSS is 39 MB with a (30-71 MB) and 38 MB with ac (30-46 MB), against main's
   60 MB (51-72 MB). xmalloc-test's is 78 and 62 MB against 273 MB. #785 reached 31-33 MB and
   38-53 MB, so a keeps about two thirds of #785's kv cut, and ac a little more on xmalloc-test.
+
+## Round 3 on pup (quiet, 13:24-13:36): Trig, and the PR on its own base
+
+The PR (#815, arm a ported to main 144f70057, head 05f201c42) is timed against main 144f70057;
+Trig's arm a and main are both on 179c50afa. Raw: [pup-trig.txt](pup-trig.txt),
+[pup-round3.txt](pup-round3.txt), [pup-bench.txt](pup-bench.txt). Summaries are in the
+`-summary.txt` files beside them.
+
+**Trig** (PGO, one checker, core 3 with its sibling idle, 21 rounds rotated):
+
+| Project | main median | a, best / median |
+|---|---|---|
+| ts-pattern | 730.7 ms | level / 0.4% slower |
+| zod3 | 149.2 ms | 0.3% / 0.5% slower |
+| mitt, neverthrow, superstruct, tiny-invariant | 28-72 ms | 4.4% slower to 2.3% faster |
+
+The four small projects take 25-70 ms each, where a run's spread is 10%.
+
+Peak RSS was 2.1-2.9 MB higher for a on every project and every run. With both executables
+copied fresh, so both are wholly in the page cache, it is equal (ts-pattern 255.87 MB against
+255.87, superstruct 25.5 against 25.7). The difference was the executable's pages, not the
+allocator. Trig's heaps take main's path in every arm.
+
+**kv 64 KiB and xmalloc-test on the new base** (10 rounds rotated, median; best in brackets):
+
+| Row | main 144f70057 | PR |
+|---|---|---|
+| kv64k | 254k req/s, 59 MB | **2.3% slower** (2.4%), 44 MB |
+| xmalloc | 0.903, 271 MB | **5.7% slower** (10.0%), 78 MB |
+| sh8bench | 0.700 s | 3.4% slower (1.7% faster) |
+
+Round by round, the PR's xmalloc-test was slower in 8 of the 10 pairs. Round 2 had the same
+code level, at 0.2% and 0.4%. Rounds 2 and 3 disagree by more than the bar.
+
+**The runtime benches** (pup core 6, two passes alternated): tasks, actors, net and http are
+level: fanout 593.3-593.6 ms against 593.8-594.1, pingpong 4.80-4.86 us against 4.83-4.84, and
+http 146.6-148.3k req/s against 143.2-145.5k.
+
+**Verdict after three rounds:** arm a cuts memory as measured, but it is not shown within 2%:
+- kv 64 KiB: 0.2% slower in round 2 and 2.3% slower in round 3;
+- xmalloc-test: 0.4% faster in round 2 and 5.7% slower in round 3.
+
+A heap that crosses its 1 MiB bound pays a `madvise` on the free, and later page faults on the
+reuse, where main reuses resident pages. Round 3 is the likelier measure of that cost.
 
 ## Next
 
