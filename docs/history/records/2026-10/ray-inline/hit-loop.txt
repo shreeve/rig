@@ -1,0 +1,106 @@
+# arm64 (Mac): World.hit's loop over the objects. G: all inlined into the row task; F: ray_color noinline
+## G
+100021450:     	add	x19, x19, #0x10
+100021454:     	subs	x28, x28, #0x1
+100021458:     	b.eq	0x1000214d8 
+10002145c:     	subs	w20, w20, #0x1
+100021460:     	b.eq	0x1000214bc 
+100021464:     	ldp	x0, x8, [x19, #-0x8]
+100021468:     	ldr	x9, [x8]
+10002146c:     	mov	x8, #0xa9fc             ; =43516
+100021470:     	movk	x8, #0xd2f1, lsl #16
+100021474:     	movk	x8, #0x624d, lsl #32
+100021478:     	movk	x8, #0x3f50, lsl #48
+10002147c:     	fmov	d0, x8
+100021480:     	add	x8, sp, #0x370
+100021484:     	add	x1, sp, #0x330
+100021488:     	mov.16b	v1, v8
+10002148c:     	blr	x9
+100021490:     	ldrb	w8, [sp, #0x3c0]
+100021494:     	cmp	w8, #0x2
+100021498:     	b.eq	0x100021450 
+10002149c:     	ldp	q0, q1, [sp, #0x370]
+1000214a0:     	stp	q1, q0, [sp, #0x150]
+1000214a4:     	ldp	q0, q1, [sp, #0x390]
+1000214a8:     	stp	q0, q1, [sp, #0x130]
+1000214ac:     	ldr	d8, [sp, #0x3b0]
+1000214b0:     	mov	x26, x8
+1000214b4:     	ldr	x27, [sp, #0x3b8]
+1000214b8:     	b	0x100021450 
+## F
+100021860:     	b	0x100021870 
+100021864:     	add	x20, x20, #0x10
+100021868:     	subs	x27, x27, #0x1
+10002186c:     	b.eq	0x1000218dc 
+100021870:     	subs	w23, w23, #0x1
+100021874:     	b.eq	0x1000218c0 
+100021878:     	ldp	x0, x8, [x20, #-0x8]
+10002187c:     	ldr	x9, [x8]
+100021880:     	add	x8, sp, #0x2b0
+100021884:     	add	x1, sp, #0x270
+100021888:     	mov.16b	v0, v8
+10002188c:     	mov.16b	v1, v9
+100021890:     	blr	x9
+100021894:     	ldrb	w8, [sp, #0x300]
+100021898:     	cmp	w8, #0x2
+10002189c:     	b.eq	0x100021864 
+1000218a0:     	ldp	q0, q1, [sp, #0x2b0]
+1000218a4:     	stp	q0, q1, [sp, #0xd0]
+1000218a8:     	ldp	q0, q1, [sp, #0x2d0]
+1000218ac:     	stp	q1, q0, [sp, #0xb0]
+1000218b0:     	ldr	d9, [sp, #0x2f0]
+1000218b4:     	mov	x22, x8
+1000218b8:     	ldr	x25, [sp, #0x2f8]
+1000218bc:     	b	0x100021864 
+
+# x86-64 (meteorlake): the same loop, G then F
+## G
+ 10882a7:      	vxorpd	%xmm7, %xmm7, %xmm7
+ 10882ab:      	je	0x1088350 
+ 10882b1:      	decl	%ebx
+ 10882b3:      	je	0x108832f 
+ 10882b5:      	movq	-0x8(%r13), %rsi
+ 10882b9:      	movq	(%r13), %rax
+ 10882bd:      	leaq	0x1e0(%rsp), %rdi
+ 10882c5:      	leaq	0x2a0(%rsp), %rdx
+ 10882cd:      	vmovsd	-0x68aad(%rip), %xmm0   # 0x101f828 
+ 10882d5:      	vmovsd	0x58(%rsp), %xmm1
+ 10882db:      	vzeroupper
+ 10882de:      	callq	*(%rax)
+ 10882e0:      	movzbl	0x230(%rsp), %eax
+ 10882e8:      	cmpb	$0x2, %al
+ 10882ea:      	je	0x10882a0 
+ 10882ec:      	vmovaps	0x1e0(%rsp), %ymm0
+ 10882f5:      	vmovaps	%ymm0, 0x80(%rsp)
+ 10882fe:      	vmovaps	0x200(%rsp), %ymm0
+ 1088307:      	vmovaps	%ymm0, 0xc0(%rsp)
+ 1088310:      	vmovsd	0x220(%rsp), %xmm0
+ 1088319:      	vmovsd	%xmm0, 0x58(%rsp)
+ 108831f:      	movq	0x228(%rsp), %r12
+ 1088327:      	movl	%eax, %r15d
+ 108832a:      	jmp	0x10882a0 
+## F
+ 10885f7:      	vmovsd	-0x68e7f(%rip), %xmm7   # 0x101f780 
+ 10885ff:      	je	0x10886a0 
+ 1088605:      	decl	%ebx
+ 1088607:      	je	0x1088680 
+ 1088609:      	movq	-0x8(%r13), %rsi
+ 108860d:      	movq	(%r13), %rax
+ 1088611:      	leaq	0x1a0(%rsp), %rdi
+ 1088619:      	leaq	0x160(%rsp), %rdx
+ 1088621:      	vmovsd	-0x68df9(%rip), %xmm0   # 0x101f830 
+ 1088629:      	vmovsd	0x58(%rsp), %xmm1
+ 108862f:      	vzeroupper
+ 1088632:      	callq	*(%rax)
+ 1088634:      	movzbl	0x1f0(%rsp), %eax
+ 108863c:      	cmpb	$0x2, %al
+ 108863e:      	je	0x10885f0 
+ 1088640:      	vmovaps	0x1a0(%rsp), %ymm0
+ 1088649:      	vmovaps	%ymm0, 0x60(%rsp)
+ 108864f:      	vmovaps	0x1c0(%rsp), %ymm0
+ 1088658:      	vmovaps	%ymm0, 0x80(%rsp)
+ 1088661:      	vmovsd	0x1e0(%rsp), %xmm0
+ 108866a:      	vmovsd	%xmm0, 0x58(%rsp)
+ 1088670:      	movq	0x1e8(%rsp), %r12
+ 1088678:      	movl	%eax, %r15d
+ 108867b:      	jmp	0x10885f0 

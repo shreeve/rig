@@ -105,6 +105,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
 | A frozen value's allocation (#767, 2026-10-28) | `*Frozen[T]` holds a strong count and the value, no weak count (8 bytes less), and its last drop is one atomic decrement; the weak count's cost to every `*T` on Trig measured: one `*T` allocation of 3.4M on ts-pattern, so storing it only when a weak handle exists is not worth a design round | [frozen-no-weak/](2026-10/frozen-no-weak/) |
 | Atomics without orderings (2026-10-30, proposed) | seq_cst costs nothing against acquire, release or acq_rel on Apple M5 (the same instructions, or equal speed), and only the seq_cst store differs on x86-64; ordering costs only against relaxed, in four places, two of which move inside built-in forms: a cache line per shared Cell (adjacent ones 4–29× slower), `update(f)` (2.4× faster on one thread), a per-core counter (88× at 8 threads), `wait_until`, and a snapshot Cell; Zig ceilings and Rust measured | [atomics/](2026-10/atomics/) |
+| Inlining ray_color (2026-10-30, a study) | #777 changed no machine code for ray-dyn: LLVM already inlined what the size rule now inlines, and its recorded 6% x86 loss does not reproduce (all arms within 0.6% on pup). On arm64 keeping `ray_color` out of line runs 6.2% fewer instructions and 2.2% fewer cycles, as the merged function leaves no callee-saved FP register for World.hit's loop invariant; a rule for it waits on 20 quiet rounds and Trig | [ray-inline/](2026-10/ray-inline/) |
 
 ## Every record
 
@@ -506,6 +507,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [1-design.md](2026-10/partial-moves/1-design.md), [2-adversary.md](2026-10/partial-moves/2-adversary.md), [4-review.md](2026-10/partial-moves/4-review.md): the panel's reports
 - [4-census.txt](2026-10/partial-moves/4-census.txt): Trig's `swap(!x.f, empty)` sites by binding kind
 - [review.md](2026-10/partial-moves/review.md): the adversarial review of the build: a parent and a child both moved out, and fields Zig renames, fixed in the drops
+
+### 2026-10/ray-inline/
+
+- [README.md](2026-10/ray-inline/README.md): the study: the arms, pup's cycles and frontend counters, the Mac's cycles, World.hit's loop on arm64 and x86-64, and the recommendation for the size rule
+- [hit-loop.txt](2026-10/ray-inline/hit-loop.txt), [mac-rounds.txt](2026-10/ray-inline/mac-rounds.txt), [pup-rounds.txt](2026-10/ray-inline/pup-rounds.txt), [pup-perf.txt](2026-10/ray-inline/pup-perf.txt): the loop excerpts and every run
 
 ### 2026-10/safety-checks/
 
