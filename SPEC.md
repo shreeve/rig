@@ -1385,10 +1385,14 @@ what it views, and every copy carries the same loan. Owning values and
 handles have **drop glue** ([§8](#8-drop-and-drop-glue)): code the
 compiler generates to release them.
 
-**Plain data**, in this reference, is a value that owns nothing and
-holds no `?T`, `!T`, or slice: a plain value, a `?String`, or an
-optional, array, object, or enum of them. It copies freely. A `?String` in
-it is still a view, which may carry a String's loan ([strings](#strings)).
+**Plain data**, in this reference, is a value of the plain kind: it
+copies, owns nothing, and views nothing, as a type that provides both
+`Copy` and `Owned` does. It is a number, a `Bool`, a plain enum, a
+`Static`, a `Symbol`, a vector, or an optional, array, object, or enum
+of them. A `?String` is a view, not plain data, and so is any optional,
+array, object, or enum that holds one ([CORE §1](docs/CORE.md#1-four-kinds-of-value)):
+it copies freely too, but each copy carries the loan of the text it
+views ([strings](#strings)).
 
 A **unique** value owns nothing to release but must not be copied: a
 object declared `unique` (`obj Random unique`, a generator whose
@@ -8787,16 +8791,17 @@ default (`hits: Cell[Int] = Cell(0)`).
 | Member | Meaning |
 |---|---|
 | `*Cell(v)` | construct, behind a shared handle |
-| `c.get()` | a copy of the value (a `T` of plain data only) |
+| `c.get()` | a copy of the value (a `T` that copies only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
 | `(!c).swap(v)` | store `v` and return the old value |
 | `(!c).compare_swap(old, new)` | store `new` if the value is `old`, at once; whether it did (a Cell of one word) |
 | `(!c).add(n)`, `(!c).sub(n)` | count, and return the new value (a `Cell[Int]`) |
 | `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
-| `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` of plain data: an element, bounds-checked, or `T?` |
+| `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` whose `T` copies: an element, bounds-checked, or `T?` |
 
-`T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
-declared `unique`. An owning or unique value is never copied out of a
+`T` is plain data ([§2](#kinds-of-value)), a value that copies and
+whose only views are `?String`s (a `?String`, or an object holding
+one), an owning type, or a type declared `unique`. An owning or unique value is never copied out of a
 cell: it moves in with `set` / `swap` and moves out with `swap`.
 What goes into a cell, by any of its members or `c[i] = x`, carries no
 loan: it holds no `?T`, `!T`, or slice, nor a `?String` that may view a
@@ -8810,7 +8815,7 @@ hands the last one out as `T?`, `keep(n)` drops all but the first `n`, and
 elements, and `keep` pops each element before it drops it, so a `drop`
 body that reaches back into the cell finds a valid List. For the same reason an element is a
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
-when `T` is plain data, an element cannot be lent, and a field of one is
+when `T` copies, an element cannot be lent, and a field of one is
 not written in place. The elements of a List of handles are taken out
 with `pop`, or by taking the whole List out with `swap`.
 
@@ -9737,7 +9742,8 @@ cannot store a view of `s` in a `Cell`
 
 ### Signal
 
-`Signal[T]` holds a value of plain data and a list of subscribers, owned
+`Signal[T]` holds a value of plain data, or a value that copies and
+whose only views are `?String`s, and a list of subscribers, owned
 closures of type `*sub()`. It lives behind a shared handle: a stack
 `Signal` is rejected.
 
