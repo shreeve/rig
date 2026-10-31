@@ -294,8 +294,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **`os.on_broken_pipe(how)`:** a program that calls
   `os.on_broken_pipe(.die)` dies by SIGPIPE when the reader of its
   stdout closes the pipe, as a C program does, so `yes | head -1` gives
-  a shell status 141; `.exit`, the default, still ends it quietly with
-  status 0. A failed `warn` is still dropped, and a socket's closed peer
+  a shell status 141, whether it writes by `print` or through
+  `io.stdout()`; `.exit`, the default, still ends a `print` quietly with
+  status 0 and fails an `io.stdout()` write with
+  `FileError.broken_pipe`. A failed `warn` is still dropped, and a socket's closed peer
   is still `net.NetError.closed`.
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
