@@ -367,13 +367,13 @@ Trig against tsrs should then be timed so, is the owner's call.
 
 ## Recommendation
 
-1. **seg** (default: build it properly): segments and large blocks ask
-   for huge pages while free blocks number their need plus 8, in
-   `alloc.zig` alone. zod3 2.6% and the small projects 3.2-5.4% faster
-   where main's gate is shut, level quiet, no stall, level instructions,
-   peak RSS up to 2 MB higher. Before a PR: the leave35 part, a test of
-   the floor on a buddyinfo reading, and the comparison with row 21's
-   `alloc.zig` prototype.
+1. **seg**, built in `alloc.zig` (`hugeFreeFor`, `huge_floor`, with a
+   test of the floor on a buddyinfo reading of 17 free blocks):
+   segments and large blocks ask for huge pages while free blocks
+   number their need plus 8. zod3 2.6% and the small projects 3.2-5.4%
+   faster where main's gate is shut, level quiet, no stall, level
+   instructions, peak RSS up to 2 MB higher. The partly fragmented
+   level (leave35) is still to time.
 2. **Do not land** jit, hybrid or hybrid2. The Tables' windows earn
    1.4% on ts-pattern where the gate is shut and cost about 1%
    wherever no window asks, from the hook in `push`.
