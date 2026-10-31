@@ -1,5 +1,6 @@
 # std.net: tests whose names start `net`.
 use std.net
+use std.os
 
 test "net echo", seeds: 20, '''
   true
@@ -369,6 +370,27 @@ test "net a write fails once the other end closes", seeds: 20, "failed"
     _ = (!s).read(!got, 1)!
     0
 
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = close_after(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  text = String()
+  for 0..8000000
+    !text.push(U8(120))
+  (!c).write(?text) catch |e|
+    print("failed")
+  _ = >t!
+
+test "net a write to a closed peer fails when a broken pipe dies", seeds: 20, "failed"
+  # `os.on_broken_pipe(.die)` is about stdout alone: a socket whose
+  # other end closes still fails the write, and the program goes on.
+  fun close_after(l: net.Listener) -> Int!
+    s = l.accept()!
+    got = String()
+    _ = (!s).read(!got, 1)!
+    0
+
+  os.on_broken_pipe(.die)
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   t = close_after(<l)&

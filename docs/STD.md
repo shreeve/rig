@@ -257,6 +257,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 | `cwd() -> String!` | the working directory, as an absolute path, its links resolved; fails with a `file.FileError` ([std.file](#stdfile)) when it was removed or cannot be read |
 | `memory() -> Memory` | what the program's allocations come to now: `live`, the bytes of its live allocations; `peak`, the most `live` has been; and `allocs`, how many it has made |
 | `exit(code: Int)` | ends the program now, with exit status `code` |
+| `on_broken_pipe(how: BrokenPipe)` | what a write to stdout does once its reader has closed the pipe: `.exit`, the default, ends the program with status 0; `.die` kills it by SIGPIPE |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -314,6 +315,37 @@ sub main()
 
 ```output
 done early
+```
+
+When stdout is a pipe whose reader has closed it (`prog | head -1`),
+the program ends quietly with status 0 by default ([SPEC
+§17](../SPEC.md#output)). `on_broken_pipe(.die)` makes it die
+by SIGPIPE there instead, as a C program and Go's do, so a shell sees
+status 141 and a script under `set -o pipefail` sees the program was
+cut off; `on_broken_pipe(.exit)` puts the default back. The choice is
+the program's, from `main` or any task, and covers both ways of writing
+stdout: a `print`, and a write or flush of `io.stdout()`
+([std.io](#stdio)), which by default fails with
+`file.FileError.broken_pipe` and with `.die` ends the program the same
+way. It covers stdout alone: a failed write to stderr is still dropped
+or failed, and a socket whose other end closes still fails the write
+with `net.NetError.closed`. `yes` calls
+`os.on_broken_pipe(.die)`, so `yes | head -1` ends it with status 141,
+as it ends GNU's.
+
+```rig
+use std.os
+
+sub main()
+  os.on_broken_pipe(.die)
+  for 0..3
+    print("y")
+```
+
+```output
+y
+y
+y
 ```
 
 `memory()` reads the totals the allocator keeps as it goes, for a
@@ -579,7 +611,9 @@ own thread, as `print` does, so it is not a waiting point.
 
 **A write that fails is an error**, a `file.FileError`
 (`broken_pipe`, `no_space`, `bad_descriptor`), and the program goes on;
-the bytes it could not write are dropped. What a `print` buffered after
+the bytes it could not write are dropped. A program that calls
+`os.on_broken_pipe(.die)` ([std.os](#stdos)) dies by SIGPIPE instead of
+seeing `broken_pipe` on stdout. What a `print` buffered after
 a write is written out as `print`'s own are, and a failure then ends the
 program as `print`'s does: a program that must report its own failures,
 as the system's tools do, ends with `!out.flush()!`.
