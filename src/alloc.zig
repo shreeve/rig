@@ -231,6 +231,13 @@ pub const Heap = struct {
     /// bounds what each keeps (`keepBound`): `large_totals`, or a test's
     /// own.
     large_all: *LargeTotals = &large_totals,
+    /// The bytes of large blocks this heap has handed out, less those
+    /// freed here, and the bytes it has kept, less those taken, that
+    /// `large_all` does not count yet: added to it once either is
+    /// `flush_large` from it (`largeCount`), so the totals' cache lines
+    /// are written once a MiB, not at every large block.
+    large_live_pend: isize = 0,
+    large_kept_pend: isize = 0,
     /// What this thread counted and has not yet added to the program's
     /// totals (`count`); nothing in a program that does not count.
     pending: Pending = .{},
@@ -427,9 +434,12 @@ const move_large: usize = 64 << 10;
 /// own, as the program's other totals do (`total_live`); only large
 /// blocks, of more than `max_small` bytes, touch them.
 const LargeTotals = struct {
-    live: std.atomic.Value(usize) align(128) = .init(0),
-    peak: std.atomic.Value(usize) align(128) = .init(0),
-    kept: std.atomic.Value(usize) align(128) = .init(0),
+    /// Signed: a heap adds its counts in batches (`largeCount`), so one
+    /// that frees what another made and has not added yet may take a
+    /// total below zero for a while; each reader clamps it at zero.
+    live: std.atomic.Value(isize) align(128) = .init(0),
+    peak: std.atomic.Value(isize) align(128) = .init(0),
+    kept: std.atomic.Value(isize) align(128) = .init(0),
     /// Large blocks freed past what a heap keeps for itself (`keep_own`),
     /// for any heap to take before it maps pages: a server's values are
     /// made on one worker and freed on another, so a heap that only
@@ -478,13 +488,44 @@ var large_totals: LargeTotals = .{};
 /// pages can pass the bound (`trimKept`); while they take it past its
 /// settled peak, the heaps keep no more than `keep_large`.
 fn keepBound(h: *const Heap) usize {
+    const peak: usize = @intCast(@max(0, h.large_all.peak.load(.monotonic)));
+    return (peak -| liveAll(h)) + keep_large;
+}
+
+/// The bytes of large blocks handed out, as `h` sees them: the program's
+/// count and what `h` has not added to it.
+fn liveAll(h: *const Heap) usize {
+    return @intCast(@max(0, h.large_all.live.load(.monotonic) +| h.large_live_pend));
+}
+
+/// How far a heap's large-block counts run from the program's before
+/// they are added to it: what each heap keeps or bounds may be off by
+/// this much.
+const flush_large: isize = 1 << 20;
+
+/// `live` more bytes of large blocks handed out (less when negative) and
+/// `kept` more kept, counted on `h` and added to the program's totals
+/// once either is `flush_large` from them. A flush after a free raises
+/// the settled peak to what stays handed out.
+inline fn largeCount(h: *Heap, live: isize, kept: isize) void {
+    h.large_live_pend += live;
+    h.large_kept_pend += kept;
+    if (@abs(h.large_live_pend) >= flush_large or @abs(h.large_kept_pend) >= flush_large) flushLarge(h);
+}
+
+fn flushLarge(h: *Heap) void {
+    @branchHint(.cold);
     const t = h.large_all;
-    return (t.peak.load(.monotonic) -| t.live.load(.monotonic)) + keep_large;
+    const now = t.live.fetchAdd(h.large_live_pend, .monotonic) +| h.large_live_pend;
+    if (h.large_live_pend < 0) _ = t.peak.fetchMax(now, .monotonic);
+    _ = t.kept.fetchAdd(h.large_kept_pend, .monotonic);
+    h.large_live_pend = 0;
+    h.large_kept_pend = 0;
 }
 
 /// The bytes of freed large blocks every heap keeps.
 fn keptAll(h: *const Heap) usize {
-    return h.large_all.kept.load(.monotonic);
+    return @intCast(@max(0, h.large_all.kept.load(.monotonic) +| h.large_kept_pend));
 }
 
 fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
@@ -624,54 +665,55 @@ fn freeHugeBlocks(text: []const u8) usize {
 /// raised by a free (`freeLarge`), not here, so a block handed out
 /// before the one it replaces is freed does not count twice.
 fn lent(h: *Heap, size: usize) void {
-    _ = h.large_all.live.fetchAdd(size, .monotonic);
+    largeCount(h, @intCast(size), 0);
 }
 
 /// A kept block of `h`'s own for `size` bytes, or else one from the
 /// program's pool.
 fn takeAny(h: *Heap, size: usize) ?[*]u8 {
-    if (takeKept(&h.kept, h.large_all, size)) |p| return p;
+    if (takeKept(&h.kept, h, size)) |p| return p;
     const t = h.large_all;
     if (!t.poolHolds()) return null;
     t.lock();
     defer t.unlock();
-    return takeKept(&t.pool, t, size);
+    return takeKept(&t.pool, h, size);
 }
 
 /// A freed block of `size` bytes at `p`, kept: by `h` while it keeps
 /// fewer than `keep_own` bytes, else in the program's pool.
 fn keepFreed(h: *Heap, p: usize, size: usize) void {
-    if (h.kept.bytes + size <= keep_own) return keepPiece(&h.kept, h.large_all, p, size);
+    if (h.kept.bytes + size <= keep_own) return keepPiece(&h.kept, h, p, size);
     const t = h.large_all;
     t.lock();
     defer t.unlock();
-    keepPiece(&t.pool, t, p, size);
+    keepPiece(&t.pool, h, p, size);
 }
 
 /// A kept block for `size` bytes, best fit by bucket: the first of the
 /// lowest bucket from `size`'s that holds one at least `size` long. What
 /// it holds past `size` is kept on its own.
-fn takeKept(k: *Kept, t: *LargeTotals, size: usize) ?[*]u8 {
+fn takeKept(k: *Kept, h: *Heap, size: usize) ?[*]u8 {
     var j = nextHeld(k, largeBucket(size));
     while (j) |b| : (j = nextHeld(k, b + 1)) {
-        const f = unkeep(k, t, b, size) orelse continue;
+        const f = unkeep(k, h, b, size) orelse continue;
         const p = @intFromPtr(f);
         const len = f.len;
-        if (len > size) keepPiece(k, t, p + size, len - size);
+        if (len > size) keepPiece(k, h, p + size, len - size);
         return @ptrFromInt(p);
     }
     return null;
 }
 
-/// Take from bucket `j` its first kept block at least `len` long.
-fn unkeep(k: *Kept, t: *LargeTotals, j: usize, len: usize) ?*LargeFree {
+/// Take from bucket `j` its first kept block at least `len` long,
+/// counted on `h`.
+fn unkeep(k: *Kept, h: *Heap, j: usize, len: usize) ?*LargeFree {
     var at = &k.large[j];
     while (at.*) |f| : (at = &f.next) {
         if (f.len < len) continue;
         at.* = f.next;
         if (k.large[j] == null) k.held[j / 64] &= ~(@as(u64, 1) << @intCast(j % 64));
         @atomicStore(usize, &k.bytes, k.bytes - f.len, .monotonic);
-        _ = t.kept.fetchSub(f.len, .monotonic);
+        largeCount(h, 0, -@as(isize, @intCast(f.len)));
         return f;
     }
     return null;
@@ -701,9 +743,9 @@ fn lastHeld(k: *const Kept) ?usize {
     return null;
 }
 
-/// Keep the `len` bytes at `p`, or give them back to the system if no
-/// large request could take them.
-fn keepPiece(k: *Kept, t: *LargeTotals, p: usize, len: usize) void {
+/// Keep the `len` bytes at `p`, counted on `h`, or give them back to the
+/// system if no large request could take them.
+fn keepPiece(k: *Kept, h: *Heap, p: usize, len: usize) void {
     if (len < minLarge()) return unmapLarge(p, len);
     const f: *LargeFree = @ptrFromInt(p);
     const b = largeBucket(len);
@@ -711,7 +753,7 @@ fn keepPiece(k: *Kept, t: *LargeTotals, p: usize, len: usize) void {
     k.large[b] = f;
     k.held[b / 64] |= @as(u64, 1) << @intCast(b % 64);
     @atomicStore(usize, &k.bytes, k.bytes + len, .monotonic);
-    _ = t.kept.fetchAdd(len, .monotonic);
+    largeCount(h, 0, @intCast(len));
 }
 
 /// Give kept blocks back to the system until the heaps keep no more
@@ -736,7 +778,6 @@ fn trimKept(h: *Heap) void {
 /// blocks stay, a program's tables built again, which cost the most
 /// pages to fault in afresh.
 fn trimFrom(k: *Kept, h: *Heap) void {
-    const t = h.large_all;
     while (true) {
         // Read once each pass: other heaps change both meanwhile.
         const kept = keptAll(h);
@@ -745,8 +786,8 @@ fn trimFrom(k: *Kept, h: *Heap) void {
         const over = kept - bound;
         var j = nextHeld(k, largeBucket(over));
         const f = while (j) |b| : (j = nextHeld(k, b + 1)) {
-            if (unkeep(k, t, b, over)) |f| break f;
-        } else unkeep(k, t, lastHeld(k) orelse return, 0).?;
+            if (unkeep(k, h, b, over)) |f| break f;
+        } else unkeep(k, h, lastHeld(k) orelse return, 0).?;
         unmapLarge(@intFromPtr(f), f.len);
     }
 }
@@ -760,10 +801,7 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     const size = largeSize(len);
     // What stays handed out after the free, by every heap, is the
     // settled peak's measure, whichever heap handed the block out.
-    const t = h.large_all;
-    const before = t.live.fetchSub(size, .monotonic);
-    if (builtin.mode == .debug) std.debug.assert(before >= size);
-    _ = t.peak.fetchMax(before -% size, .monotonic);
+    largeCount(h, -@as(isize, @intCast(size)), 0);
     if (keptAll(h) + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
     keepFreed(h, @intFromPtr(p), size);
 }
@@ -965,6 +1003,7 @@ fn makeHeap() ?*Heap {
 pub noinline fn threadExit() void {
     const h = my_heap orelse return;
     if (counts) h.flush();
+    flushLarge(h);
     my_heap = null;
     while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
     h.next_free = spare_heaps.load(.monotonic);
@@ -1269,9 +1308,10 @@ fn testHeap(t: *LargeTotals) Heap {
 
 /// Whether what `h`'s program holds in large blocks, handed out and
 /// kept, is past its settled peak and `keep_large`.
-fn heldPastBound(h: *const Heap) bool {
+fn heldPastBound(h: *Heap) bool {
+    flushLarge(h);
     const t = h.large_all;
-    return t.kept.load(.monotonic) + t.live.load(.monotonic) > t.peak.load(.monotonic) + keep_large;
+    return t.kept.load(.monotonic) + t.live.load(.monotonic) > t.peak.load(.monotonic) + @as(isize, keep_large);
 }
 
 test "a freed large block serves a smaller request and keeps the rest, and a table dropped and built again takes no new pages" {
@@ -1567,10 +1607,11 @@ fn trimAllForTest(h: *Heap) void {
     const t = h.large_all;
     for ([_]*Kept{ &h.kept, &t.pool }) |k| {
         while (lastHeld(k)) |j| {
-            const f = unkeep(k, t, j, 0).?;
+            const f = unkeep(k, h, j, 0).?;
             unmapLarge(@intFromPtr(f), f.len);
         }
     }
+    flushLarge(h);
 }
 
 test "a heap whose blocks of a class run out takes the ones other threads freed into another heap before it maps a segment" {
@@ -1603,11 +1644,14 @@ test "heaps keep no more freed large blocks in all than the program's settled pe
         for (blocks) |p| freeLarge(freer, p, mib);
     }
     var kept: usize = program.pool.bytes;
-    for (&heaps) |*h| kept += h.kept.bytes;
+    for (&heaps) |*h| {
+        kept += h.kept.bytes;
+        flushLarge(h);
+    }
     try std.testing.expect(kept <= 16 * mib + keep_large);
-    try std.testing.expectEqual(kept, program.kept.load(.monotonic));
+    try std.testing.expectEqual(@as(isize, @intCast(kept)), program.kept.load(.monotonic));
     // Every block made is counted back, whichever heap freed it.
-    try std.testing.expectEqual(@as(usize, 0), program.live.load(.monotonic));
+    try std.testing.expectEqual(@as(isize, 0), program.live.load(.monotonic));
     for (&heaps) |*h| trimAllForTest(h);
 }
 
@@ -1637,6 +1681,7 @@ test "threads that make large blocks and free each other's at once count every o
             threadExit();
         }
     };
+    flushLarge(heap().?);
     const live = large_totals.live.load(.monotonic);
     var sh: Shared = .{};
     var threads: [8]std.Thread = undefined;
@@ -1648,6 +1693,7 @@ test "threads that make large blocks and free each other's at once count every o
         const q: [*]u8 = @ptrFromInt(old & ~@as(usize, 0xfff));
         allocator.free(q[0 .. (old & 0xfff) << 16]);
     }
+    flushLarge(heap().?);
     try std.testing.expectEqual(live, large_totals.live.load(.monotonic));
 }
 
