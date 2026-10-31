@@ -1,0 +1,12 @@
+# Pushes 3 million Ints (24 MB) into a reserved table and reads each back
+# by its slot: a check of the jit arm's window path (`reach`).
+sub main()
+  t = Table[Int, 100000000]()
+  sum = 0
+  i = 0
+  while i < 3000000
+    s = (!t).push(i * 3)
+    sum += t[s]
+    i += 1
+  print(sum)
+  print(t.len)
