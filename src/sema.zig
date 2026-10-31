@@ -6093,6 +6093,12 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     errdefer ctx.deinit();
 
     ctx.parser = opts.parser;
+    // The facts kept by node id take an entry for each node.
+    if (opts.parser) |p| {
+        const ids = p.base.nodeCount() + 1;
+        try ctx.facts.types.dense.ensureTotalCapacityPrecise(allocator, ids);
+        try ctx.decided.by_list.ensureTotalCapacityPrecise(allocator, ids);
+    }
     ctx.module_id = opts.module_id;
     ctx.is_root = opts.is_root;
     ctx.name = opts.name;
@@ -11928,7 +11934,12 @@ fn targetsOf(ctx: *const SemContext, of: TargetsOf) std.mem.Allocator.Error!View
         .store => |t| .{ &memo.store_targets, t },
     };
     if (map.get(ty)) |t| return t;
-    const t = try freshTargets(ctx, ctx.allocator, of);
+    // The walk leaves what it used in the scratch arena; the memo keeps
+    // only the targets.
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    var t = try freshTargets(ctx, scratch.allocator(), of);
+    t.atoms = .fromOwnedSlice(try ctx.allocator.dupe(u64, t.atoms.items));
     map.put(ctx.allocator, ty, t) catch std.debug.panic("out of memory", .{});
     return t;
 }
