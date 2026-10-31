@@ -42,6 +42,7 @@ never read as the library's.
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
 | [`std.hint`](#stdhint) | what the optimizer must not see through, for benchmarks: `keep` |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
+| [`std.crypto`](#stdcrypto) | WireGuard's cryptography, in constant time: ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and HMAC-BLAKE2s, `wipe`, `equal` |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
 | [`std.iter`](#stditer) | counting and summing what any iterator gives |
@@ -1196,6 +1197,102 @@ sub main()
 true
 true true
 15
+```
+
+## std.crypto
+
+`std.crypto` is the cryptography WireGuard uses: ChaCha20-Poly1305 and
+XChaCha20-Poly1305 (RFC 8439 and draft-irtf-cfrg-xchacha), X25519 (RFC
+7748), and BLAKE2s, keyed BLAKE2s, and HMAC-BLAKE2s (RFC 7693 and RFC
+2104). It is Rig, with a small Zig file for three things Rig cannot
+say: Arm's data-independent timing bit (DIT), a wipe the optimizer
+keeps, and a value barrier. It is three modules: `use std.crypto` for
+the AEADs, `wipe`, and `equal`; `use std.crypto.x25519`, named
+`x25519`; and `use std.crypto.blake2s`, named `blake2s`.
+
+Each runs in constant time: no branch and no index depends on a key, a
+message, or a tag, and a tag is compared by all its bits at once. A
+key object (`ChaCha`, `XChaCha`, `x25519.Secret`, `blake2s.Hmac`) has
+a `drop` body that wipes it, so it moves and is never copied; copies
+the arithmetic leaves in registers and on the stack are not wiped. X25519 sets DIT around its arithmetic on an Arm core
+that has it, and restores it after; the AEADs and BLAKE2s do not need
+it.
+
+| Member of `crypto` | Result |
+|---|---|
+| `ChaCha(key: [32]U8)` | a ChaCha20-Poly1305 key, wiped when it drops |
+| `c.seal(!buf, nonce: [12]U8, header: []U8) -> [16]U8` | encrypts `buf` where it lies and gives the tag of it and `header` |
+| `c.open(!buf, tag: [16]U8, nonce: [12]U8, header: []U8)!Forged` | decrypts `buf` where it lies when `tag` is its tag; otherwise zeroes it and fails with `Forged.tag` |
+| `c.seal_into(!dst, src: []U8, nonce, header)` | encrypts `src`, then zeros up to 16 bytes from the end of `dst`, into `dst`, and writes the tag in its last 16 bytes; panics unless `dst.len >= src.len + 16` |
+| `c.open_into(!dst, src: []U8, nonce, header)!Forged` | decrypts `src`, a message and its 16-byte tag, into the first `src.len - 16` bytes of `dst`; when the tag is wrong, zeroes them and fails with `Forged.tag`; panics unless `16 <= src.len <= dst.len + 16` |
+| `XChaCha(key: [32]U8)` | an XChaCha20-Poly1305 key: the same four methods, with a 24-byte nonce, enough to draw at random for each message |
+| `Forged` | the error set of a failed open: `Forged.tag` |
+| `wipe(b: ![]U8)` | zeroes `b` with stores the optimizer keeps |
+| `equal(a: []U8, b: []U8) -> Bool` | whether `a` and `b` hold the same bytes, in a time that depends on their lengths alone |
+
+| Member of `x25519` | Result |
+|---|---|
+| `Secret(key: [32]U8)` | a secret key, wiped when it drops |
+| `Secret.new() -> Secret` | a secret drawn from the operating system's entropy |
+| `s.public() -> [32]U8` | its public key, the secret times the base point |
+| `s.share(peer: [32]U8) -> ([32]U8)!KeyError` | the secret shared with the holder of the public key `peer`; fails with `KeyError.low_order` when `peer` has low order, so the shared secret would be zero |
+
+| Member of `blake2s` | Result |
+|---|---|
+| `hash(data: []U8) -> [32]U8` | the BLAKE2s hash of `data` |
+| `mac[n](key: []U8, data: []U8) -> [n]U8` | keyed BLAKE2s of `n` bytes, 1 to 32, with a key of up to 32 bytes (the unkeyed hash of `n` bytes when the key is empty); panics when either is out of range |
+| `Hasher()` | an incremental hash: `!h.add(data)` adds bytes, and `<h.done() -> [32]U8` gives the hash of all of them |
+| `hmac(key: []U8, data: []U8) -> [32]U8` | HMAC-BLAKE2s; a key longer than 64 bytes is hashed first |
+| `Hmac.of(key: []U8) -> Hmac` | HMAC-BLAKE2s with the key's pads compressed once: `m.mac(data) -> [32]U8` costs half what `hmac` does on a short message; wiped when it drops |
+
+```rig
+use std.crypto
+use std.crypto.x25519
+use std.crypto.blake2s
+
+sub main()!
+  alice = x25519.Secret.new()
+  bob = x25519.Secret.new()
+  shared = alice.share(bob.public())!
+  print(crypto.equal(shared, bob.share(alice.public())!))
+
+  c = crypto.ChaCha(blake2s.hash(shared))
+  nonce: [12]U8 = [12 of 0]
+  header: [4]U8 = [1, 2, 3, 4]
+  hello: [5]U8 = [104, 101, 108, 108, 111]
+  packet = hello
+  tag = c.seal(!packet, nonce, header)
+  print(crypto.equal(packet, hello))
+  c.open(!packet, tag, nonce, header)!
+  print(crypto.equal(packet, hello))
+
+  tag[0] ^= 1
+  c.open(!packet, tag, nonce, header) catch |e|
+    print(e, packet[0])
+```
+
+```output
+true
+false
+true
+Forged.tag 0
+```
+
+A low-order key fails rather than give a zero secret:
+
+```rig
+use std.crypto.x25519
+
+sub main()
+  s = x25519.Secret([32 of 7])
+  zero: [32]U8 = [32 of 0]
+  _ = s.share(zero) catch |e|
+    print(e)
+    zero
+```
+
+```output
+KeyError.low_order
 ```
 
 ## std.sort

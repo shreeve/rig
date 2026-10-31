@@ -268,6 +268,22 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   system's words for it, as `strerror` does: `true: No space left on
   device` prints as the system's tools print it, not as `Input/output
   error`.
+- **`std.crypto`: WireGuard's primitives, in Rig and in constant
+  time.** `crypto.ChaCha(key)` and `crypto.XChaCha(key)` seal and open
+  ChaCha20-Poly1305 and XChaCha20-Poly1305 in place
+  (`tag = c.seal(!packet, nonce, header)`, `c.open(!packet, tag, nonce,
+  header)!`) or from one buffer into another (`seal_into`,
+  `open_into`); an open with a wrong tag fails with `crypto.Forged` and
+  leaves zeros. `std.crypto.x25519` has `Secret` with `public()` and
+  `share(peer)!`, which refuses a low-order key with
+  `KeyError.low_order`; `std.crypto.blake2s` has `hash`, `mac[n]`,
+  `Hasher`, `hmac`, and `Hmac.of(key)`; `crypto.wipe` and
+  `crypto.equal` round it out. Key objects wipe themselves when they
+  drop. A small Zig file sets Arm's DIT bit around X25519, wipes so the
+  optimizer keeps it, and keeps masks from becoming branches. On the
+  Mac it beats ring, dalek, and blake2 (record:
+  docs/history/records/2026-10/std-crypto/).
+
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,

@@ -93,6 +93,11 @@ A new session, human or agent, takes these steps in order:
   room; `FileError` with a member per errno and `file.reason(e)`, the
   system's words. The owner approved the member names and `reason`;
   the gates are green, and it waits to merge.
+- **`std.crypto`** (#800, owner 2026-10-30, for the sanstun port):
+  ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and
+  HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value
+  barrier. A draft until its light gates run.
+
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review
