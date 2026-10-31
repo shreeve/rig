@@ -12636,10 +12636,13 @@ const Checker = struct {
     /// of its fields is `pub`; a private field is that module's to set.
     /// (`T()` of a type whose every field has a default is made anywhere:
     /// `construct`.) `empty` is a call with no arguments, which names the
-    /// fields with no default.
+    /// fields with no default. The standard library is one library: its
+    /// modules construct one another's objects (`io.stdin()` makes a
+    /// `file.File`).
     fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Field, module: ?u32, pos: u32, empty: bool) Error!void {
         const m = module orelse if (sema.isProxy(sym)) sym.from.module_id else return;
         const foreign = self.ctx.foreign_semas.get(m) orelse return;
+        if (foreign.is_std and self.ctx.is_std) return;
         var private: std.ArrayList(u8) = .empty;
         defer private.deinit(self.ctx.allocator);
         var count: usize = 0;

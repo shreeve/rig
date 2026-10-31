@@ -201,6 +201,16 @@ Other:
     your own (`mine = +n`, then `!mine.c.set(5)`), or take a write view
     (`n: !*Node`, `if !o as x`, `for h in !hs`, `!@`).
 
+52. `file.FileError` gains a member for each reason the system gives:
+    `not_permitted`, `read_only`, `loop`, `name_too_long`, `busy`,
+    `cross_device`, `no_space`, `invalid`, `bad_descriptor`,
+    `broken_pipe`, and `io`. A `match` over a `FileError` with no `_`
+    arm names them or adds one. `denied` is now only EACCES: EPERM is
+    `not_permitted` and EROFS `read_only`, and EBADF (a write to a file
+    opened to read), once `denied`, is `bad_descriptor`; a program that
+    caught `denied` for those catches the new member too. What was
+    `failed` for these reasons is its own member now.
+
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
 then `break slot(!n)`) holds the write view, as an `if` does, so `l = 1`
@@ -237,6 +247,27 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   with `t.add(ns)` and `Instant.at(ns)` for code handed the time. A
   Zig-backed function of the standard library may take bare type
   parameters, which its Zig function takes first, when it cannot fail.
+- **std.io gives the standard streams.** `io.stdin()`, `io.stdout()`,
+  and `io.stderr()` are `file.File`s on descriptors 0, 1, and 2, left
+  open when dropped, so `cat` is `io.copy(!f, !out)` and stdin reads as
+  any file does, a block at a time, without opening `/dev/stdin` (which
+  on Linux opens the file again, losing a shared offset and truncating
+  a `>>` target). A write to stdout goes through `print`'s buffer, and
+  one to stderr writes that buffer out first, so all four stay in order;
+  a write adds no newline, and `File.flush` writes the buffer out. A
+  write that fails is a `FileError`, not the end of the program.
+- **`File.read` reads into the caller's buffer.** The read fills the
+  room `into` has, on the blocking pool, and allocates nothing when it
+  has room for `max` more: one buffer, cleared and read into again,
+  carries a whole file. Reading 247 MB 64 KiB at a time into one buffer
+  takes 19.3 ms on an M-series Mac, against 32.6 ms before (24.9 ms with
+  a fresh String for each read, now 19.7 ms) and 19.6 ms for `cat`.
+- **`FileError` keeps the system's reason.** Each errno a file call
+  meets is its own member (`no_space`, `broken_pipe`, `loop`,
+  `cross_device`, and seven more), and `file.reason(e)` gives the
+  system's words for it, as `strerror` does: `true: No space left on
+  device` prints as the system's tools print it, not as `Input/output
+  error`.
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,

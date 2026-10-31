@@ -450,9 +450,84 @@ pub fn fileRead(fd: i64, want: usize) (rig.Stop || FileError)!rig.String {
     return try (try rig.blockingStop(readLent, .{ token, want }));
 }
 
+/// Read up to `want` bytes of the file `fd` onto the end of `into`, into
+/// its own buffer, on the blocking pool as `fileRead` reads: how many,
+/// 0 at the end of the file. The String grows first, here, when it has
+/// no room for `want` more; then it moves into the call with the
+/// duplicate descriptor (`lendBuffer`), which the call fills and gives
+/// back, so the bytes are read where they stay and nothing is copied. A
+/// call that never runs, because a cancel or a deadline came first,
+/// leaves `into` as it was; one its task stopped waiting for keeps the
+/// buffer, so `into` is left empty. A String with no buffer before the
+/// read is cut to what came, so a small read keeps no room for `want`.
+pub fn fileReadInto(fd: i64, into: *rig.String, want: usize) (rig.Stop || FileError)!usize {
+    if (want == 0) return 0;
+    const bare = into.list.capacity == 0;
+    _ = into.roomFor(want);
+    const token = try lendBuffer(fd, into);
+    defer takeBackBuffer(token, into);
+    var got = try rig.blockingStop(readFilling, .{ token, want });
+    // `into` is empty: the call holds its buffer, and gives it back here.
+    std.mem.swap(rig.String, into, &got.buf);
+    if (got.failure) |e| return e;
+    if (bare) into.fit();
+    return got.n;
+}
+
+/// What `readFilling` gives back: the buffer it was lent, with what it
+/// read on its end, and how many bytes; or the buffer as it was, and
+/// why the read failed.
+const Filled = struct {
+    buf: rig.String = .empty,
+    n: usize = 0,
+    failure: ?(rig.Stop || FileError) = null,
+};
+
+fn readFilling(token: u64, want: usize) Filled {
+    const got = claimBuffer(token) orelse return .{ .failure = error.@"std.file.FileError.failed" };
+    defer _ = sys.close(got.fd);
+    var out: Filled = .{ .buf = got.buf };
+    const l = &out.buf.list;
+    while (true) {
+        const rc = sys.read(got.fd, l.items.ptr + l.items.len, want);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                out.n = @intCast(rc);
+                l.items.len += out.n;
+                return out;
+            },
+            .INTR => stopped() catch |err| {
+                out.failure = err;
+                return out;
+            },
+            else => |e| {
+                out.failure = fileFailure(e);
+                return out;
+            },
+        }
+    }
+}
+
+/// A write to stdout through `print`'s buffer, or to stderr after it
+/// (`rig.writeStandard`): on the task's own thread, as `print` writes,
+/// so not a waiting point.
+fn standardWrite(fd: i64, bytes: []const u8) FileError!void {
+    const e = rig.writeStandard(fd, bytes);
+    if (e != .SUCCESS) return fileFailure(e);
+}
+
+/// Write out what `print` has buffered, for `File.flush` of stdout;
+/// nothing for any other descriptor, whose writes are not buffered.
+pub fn fileFlush(fd: i64) FileError!void {
+    if (fd != 1) return;
+    const e = rig.flushStandard();
+    if (e != .SUCCESS) return fileFailure(e);
+}
+
 /// Write all of `bytes` to the file `fd` on the blocking pool, as
 /// `fileRead` reads.
 pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
+    if (fd == 1 or fd == 2) return standardWrite(fd, bytes);
     const token = try lend(fd);
     defer takeBack(token);
     return try (try rig.blockingStop(writeLent, .{ token, bytes }));
@@ -469,25 +544,66 @@ pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
 const lent = struct {
     var lock: rig.sched.SpinLock = .{};
     var fds: std.AutoHashMapUnmanaged(u64, i32) = .empty;
+    /// The same for `fileReadInto`: each duplicate with the String it
+    /// reads into, which moves with it.
+    var buffers: std.AutoHashMapUnmanaged(u64, LentBuffer) = .empty;
     var next: u64 = 1;
 };
 
+const LentBuffer = struct { fd: i32, buf: rig.String };
+
+/// A token for a duplicate of `fd` and the String `into`, which moves
+/// into `lent` and leaves `into` empty.
+fn lendBuffer(fd: i64, into: *rig.String) FileError!u64 {
+    const dup = try duplicate(fd);
+    lent.lock.lock();
+    defer lent.lock.unlock();
+    const token = lent.next;
+    lent.next += 1;
+    lent.buffers.put(std.heap.smp_allocator, token, .{ .fd = dup, .buf = into.* }) catch rig.oom();
+    into.* = .empty;
+    return token;
+}
+
+/// The descriptor and String lent under `token`, now the caller's, or
+/// null when they were taken back already.
+fn claimBuffer(token: u64) ?LentBuffer {
+    lent.lock.lock();
+    defer lent.lock.unlock();
+    const kv = lent.buffers.fetchRemove(token) orelse return null;
+    return kv.value;
+}
+
+/// Close the descriptor lent under `token` and give its String back to
+/// `into`, unless a call claimed them.
+fn takeBackBuffer(token: u64, into: *rig.String) void {
+    var got = claimBuffer(token) orelse return;
+    _ = sys.close(got.fd);
+    std.mem.swap(rig.String, into, &got.buf);
+    rig.dropElement(rig.String, &got.buf);
+}
+
 /// A token for a duplicate of `fd`, held in `lent`.
 fn lend(fd: i64) FileError!u64 {
-    const dup = while (true) {
-        const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
-        switch (posix.errno(rc)) {
-            .SUCCESS => break @as(i32, @intCast(rc)),
-            .INTR => {},
-            else => |e| return fileFailure(e),
-        }
-    };
+    const dup = try duplicate(fd);
     lent.lock.lock();
     defer lent.lock.unlock();
     const token = lent.next;
     lent.next += 1;
     lent.fds.put(std.heap.smp_allocator, token, dup) catch rig.oom();
     return token;
+}
+
+/// A duplicate of `fd`, closed on exec.
+fn duplicate(fd: i64) FileError!i32 {
+    while (true) {
+        const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => {},
+            else => |e| return fileFailure(e),
+        }
+    }
 }
 
 /// The descriptor lent under `token`, now the caller's to close, or null
@@ -559,16 +675,52 @@ fn writeLent(token: u64, bytes: []const u8) (rig.Stop || FileError)!void {
     }
 }
 
+/// `std.file.FileError`, every member: the emitter names each
+/// `error.@"std.file.FileError.name"`, and std/file.zig fails with the
+/// same set.
 pub const FileError = error{
-    @"std.file.FileError.is_directory",
+    @"std.file.FileError.not_found",
+    @"std.file.FileError.exists",
     @"std.file.FileError.denied",
+    @"std.file.FileError.not_permitted",
+    @"std.file.FileError.read_only",
+    @"std.file.FileError.not_directory",
+    @"std.file.FileError.is_directory",
+    @"std.file.FileError.not_empty",
+    @"std.file.FileError.loop",
+    @"std.file.FileError.name_too_long",
+    @"std.file.FileError.busy",
+    @"std.file.FileError.cross_device",
+    @"std.file.FileError.no_space",
+    @"std.file.FileError.invalid",
+    @"std.file.FileError.bad_descriptor",
+    @"std.file.FileError.broken_pipe",
+    @"std.file.FileError.io",
     @"std.file.FileError.failed",
 };
 
-fn fileFailure(e: posix.E) FileError {
+/// The FileError for a failed system call's `errno`: the one place an
+/// errno becomes a member, for std/file.zig as for the reads and writes
+/// here.
+pub fn fileFailure(e: posix.E) FileError {
     return switch (e) {
+        .NOENT => error.@"std.file.FileError.not_found",
+        .EXIST => error.@"std.file.FileError.exists",
+        .ACCES => error.@"std.file.FileError.denied",
+        .PERM => error.@"std.file.FileError.not_permitted",
+        .ROFS => error.@"std.file.FileError.read_only",
+        .NOTDIR => error.@"std.file.FileError.not_directory",
         .ISDIR => error.@"std.file.FileError.is_directory",
-        .ACCES, .PERM, .BADF => error.@"std.file.FileError.denied",
+        .NOTEMPTY => error.@"std.file.FileError.not_empty",
+        .LOOP => error.@"std.file.FileError.loop",
+        .NAMETOOLONG => error.@"std.file.FileError.name_too_long",
+        .BUSY => error.@"std.file.FileError.busy",
+        .XDEV => error.@"std.file.FileError.cross_device",
+        .NOSPC => error.@"std.file.FileError.no_space",
+        .INVAL => error.@"std.file.FileError.invalid",
+        .BADF => error.@"std.file.FileError.bad_descriptor",
+        .PIPE => error.@"std.file.FileError.broken_pipe",
+        .IO => error.@"std.file.FileError.io",
         else => error.@"std.file.FileError.failed",
     };
 }

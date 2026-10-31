@@ -379,15 +379,46 @@ not be read, a directory where a file is wanted, an I/O error. So
 `file.read(p)! ?? String()` treats a missing file as empty and still
 reports a file it may not read.
 
-| Error | When |
-|---|---|
-| `not_found` | nothing is at the path, or at a directory on the way to it (an empty path), for a call that needs something there; a missing directory on the way without `parents: true` |
-| `exists` | something is at the path already: `mkdir` where a file is |
-| `denied` | the system does not allow it: permissions, or a read-only file system |
-| `not_directory` | the path given `read_dir` names a file, or a file stands where a call that makes something needs a directory on the way |
-| `is_directory` | the path names a directory, where a file is wanted |
-| `not_empty` | `remove` of a directory that holds entries |
-| `failed` | anything else: no space left, too many open files, an I/O error |
+| Error | When | `reason` |
+|---|---|---|
+| `not_found` | nothing is at the path, or at a directory on the way to it (an empty path), for a call that needs something there; a missing directory on the way without `parents: true` | No such file or directory |
+| `exists` | something is at the path already: `mkdir` where a file is | File exists |
+| `denied` | the permissions do not allow it | Permission denied |
+| `not_permitted` | the system does not allow it whatever the permissions: removing a device, another user's file in a sticky directory | Operation not permitted |
+| `read_only` | the file system is read-only | Read-only file system |
+| `not_directory` | the path given `read_dir` names a file, or a file stands where a call needs a directory on the way | Not a directory |
+| `is_directory` | the path names a directory, where a file is wanted | Is a directory |
+| `not_empty` | `remove` of a directory that holds entries | Directory not empty |
+| `loop` | symbolic links on the path name one another, or too many of them | Too many levels of symbolic links |
+| `name_too_long` | the path, or a name in it, is longer than the system takes | File name too long |
+| `busy` | what the call needs is in use: a mount point | Resource busy (macOS), Device or resource busy (glibc) |
+| `cross_device` | `rename` across file systems | Cross-device link (macOS), Invalid cross-device link (glibc) |
+| `no_space` | no space is left on the device | No space left on device |
+| `invalid` | the system rejects an argument: a directory moved into itself, a path with a 0 byte | Invalid argument |
+| `bad_descriptor` | the file is not open for this: a write to a file opened to read, a read of stdout, a standard stream the program was started without | Bad file descriptor |
+| `broken_pipe` | a write to a pipe or a socket whose reader has closed it | Broken pipe |
+| `io` | the device failed to read or write | Input/output error |
+| `failed` | anything else: too many open files, a file too large, a quota | Unknown error |
+
+Each member is one reason the system gives (an `errno`), and
+`file.reason(e) -> Static` is the system's own words for it, as
+`strerror` gives them, so a program reports a failure as the system's
+tools do: `cat: f: No such file or directory`.
+
+```rig
+use std.file
+
+sub main()
+  _ = file.create("no/such/dir/f") catch |e|
+    match e
+      f: file.FileError => print(String("f: ", file.reason(f)))
+      _ => print(e)
+    return
+```
+
+```output
+f: No such file or directory
+```
 
 **Each call is a fallible waiting point.** It runs on the blocking pool
 while its task waits, so other tasks go on; to do several at once, make
@@ -401,24 +432,36 @@ gives is dropped: a write may still happen, and a file it opened is
 closed.
 
 A `File` reads and writes from where its last read or write ended, with
-the methods a `net.Stream` has, and closes when it is dropped:
+the methods a `net.Stream` has, and closes when it is dropped. The
+standard streams are `File`s too ([std.io](#stdio)), which stay open:
 
 | Method | Result |
 |---|---|
-| `f.read(!@, into: !String, max: Int) -> Int!` | reads up to `max` bytes onto the end of `into`: how many, or 0 at the end of the file |
-| `f.write(!@, bytes: ?String)!` | writes all of `bytes` |
+| `f.read(!@, into: !String, max: Int) -> Int!` | reads up to `max` bytes onto the end of `into`, into its own buffer: how many, or 0 at the end of the file |
+| `f.write(!@, bytes: ?String)!` | writes all of `bytes`, with nothing added |
+| `f.flush(!@)!` | writes out what `print` has buffered, when `f` is stdout; nothing for any other file, whose writes are not buffered |
+
+**A read goes into the caller's buffer.** When `into` has room for `max`
+more bytes, the read fills that room and allocates nothing, so one
+buffer, cleared with `!buf.clear()` and read into again, carries a whole
+file through: `!buf.reserve(n)` makes the room once. A buffer without
+room grows first, and a `String` with no buffer at all gets one cut to
+what came, so a small read keeps no room for `max`. A read that a cancel
+or a deadline ends before it starts leaves `into` as it was; one that
+ends while the read is under way leaves `into` empty, its buffer kept by
+the read.
 
 ```rig
 use std.file
 
-# Copy the file at `from` to `to`, a block at a time.
+# Copy the file at `from` to `to`, a block at a time, through one buffer.
 sub copy(from: ?String, to: ?String)!
   if file.open(from)! as src
     dst = file.create(to, parents: true)!
     buf = String()
     while (!src).read(!buf, 65536)! > 0
       (!dst).write(buf)!
-      buf = String()
+      !buf.clear()
 
 sub main()!
   copy("examples/hello.rig", "out/hello.rig")!
@@ -506,20 +549,69 @@ sub main()
 
 ## std.io
 
-Moving bytes between what reads and what writes. A `file.File`
-([std.file](#stdfile)) and a `net.Stream` ([std.net](#stdnet)) read and
-write with the same two methods, `read(!@, into, max) -> Int!` and
-`write(!@, bytes)!`, and `io.copy` takes either at each end.
+The standard streams, and moving bytes between what reads and what
+writes. A `file.File` ([std.file](#stdfile)) and a `net.Stream`
+([std.net](#stdnet)) read and write with the same two methods,
+`read(!@, into, max) -> Int!` and `write(!@, bytes)!`, and `io.copy`
+takes either at each end.
 
 | Function | Result |
 |---|---|
+| `stdin() -> file.File` | standard input, descriptor 0, to read |
+| `stdout() -> file.File` | standard output, descriptor 1, to write through `print`'s buffer |
+| `stderr() -> file.File` | standard error, descriptor 2, to write after what `print` buffered |
 | `copy(!from, !to) -> Int!` | reads `from` to its end, writing all of it to `to`, 64 KiB at a time: how many bytes |
+
+**The standard streams are `File`s**, so a function that takes a
+`file.File` takes one, and `io.copy` copies to or from one: `cat` is
+`io.copy(!f, !out)` for each file, with standard input for `-`. Each call
+gives a handle on the same stream, and dropping one leaves the stream
+open. A write takes bytes as they are, with no newline added.
+
+**stdout and `print` share one buffer**, so what each writes comes out
+in the order written ([SPEC §17](../SPEC.md#output)): a write goes into
+the buffer, which is written out when it fills, when stdout is a
+terminal, before anything goes to stderr, at `!out.flush()`, and as
+the program ends. A write to stderr first writes out that buffer, as
+`warn` does, then goes straight to the stream, so a prompt with no
+newline shows at once. A write to a standard stream runs on the task's
+own thread, as `print` does, so it is not a waiting point.
+
+**A write that fails is an error**, a `file.FileError`
+(`broken_pipe`, `no_space`, `bad_descriptor`), and the program goes on;
+the bytes it could not write are dropped. What a `print` buffered after
+a write is written out as `print`'s own are, and a failure then ends the
+program as `print`'s does: a program that must report its own failures,
+as the system's tools do, ends with `!out.flush()!`.
+
+```rig
+use std.io
+
+sub main()!
+  out = io.stdout()
+  err = io.stderr()
+  (!out).write("1 + 1 = ")!
+  print(1 + 1)
+  (!err).write("checked\n")!
+  (!out).write("done")!
+  (!out).write("\n")!
+  (!out).flush()!
+```
+
+```output
+1 + 1 = 2
+done
+```
+
+```stderr
+checked
+```
 
 It fails as the reads and writes fail, with a `file.FileError`, a
 `net.NetError`, or a `task.Stop`, once what it read before has been
 written. Rig has no interfaces, so the checker types the call, as it
-does `http.serve`: each end must be a `file.File` or a `net.Stream`,
-lent to write.
+does `http.serve`: each end must be a `file.File` (a standard stream
+among them) or a `net.Stream`, lent to write.
 
 ```rig
 use std.file
