@@ -11962,7 +11962,10 @@ is checked exactly as a call to a Rig function with that signature
 (moves, lends, and the loans its result carries) and needs no `raw`:
 the Zig file is trusted as the runtime is, and each function's Zig type
 is checked, when the program is compiled, to be the one its Rig
-signature lowers to. Such a function takes no compile-time parameters.
+signature lowers to. Its only compile-time parameters are bare type
+parameters, with no bound, which its Zig function takes first, as
+`comptime T: type`, and Zig checks at each instance; such a generic
+function cannot fail. `std.hint.keep[T](x: ?T)` is one.
 A constant `name: T` inside the block, of type `Bool`, an integer, or a
 built-in enum, is the Zig constant of that name, which Zig sets for the
 target it compiles for: Rig knows its type and never its value

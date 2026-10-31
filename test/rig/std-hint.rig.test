@@ -1,0 +1,46 @@
+# std.hint: tests whose names start `hint`.
+use std.hint
+
+test "hint keep takes any value", "ok"
+  # `keep` lends a read view of any type: a number, text, a List, an
+  # object. It changes nothing, so what it is given reads the same after.
+  obj Peer
+    port: Int
+    name: String
+
+  hint.keep(3)
+  hint.keep(1.5)
+  s = String("ab")
+  hint.keep(?s)
+  xs = List[Int]()
+  !xs.push(1)
+  hint.keep(?xs)
+  p = Peer(port: 51820, name: String("a"))
+  hint.keep(?p)
+  print("ok" if s == "ab" and xs.len == 1 and p.port == 51820 else "changed")
+
+test "hint keep keeps each round's work", "500500", release: true
+  # Each round's sum is kept, so the loop runs in full under release
+  # builds; the sum read after it is the last round's.
+  fun total(xs: ?List[Int]) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  xs = List[Int]()
+  for i in 1..1001
+    !xs.push(i)
+  last = 0
+  for _ in 0..1000
+    last = total(?xs)
+    hint.keep(?last)
+  last
+
+code "hint keep calls the module's function with the type first", /__rig_m\d+_std_hint\.keep\(i64, 3\)/
+  hint.keep(3)
+
+fail "hint keep reads only", "3:11: `!n` here is read, not held: `hint.keep` only reads `n`; write `hint.keep(?n)`"
+  # `keep` lends a read view, so it takes no `!x`.
+  n = 1
+  hint.keep(!n)

@@ -9,18 +9,25 @@ mkdir lib
 printf 'use std.half\n\nsub main()\n  print(half.half(8))\n' >main.rig
 printf 'pub fn half(x: i64) i64 {\n    return @divTrunc(x, 2);\n}\n' >lib/half.zig
 
-# The checker rejects a generic Zig-backed function, a fallible one in
-# a module that declares no error set, and a Zig file that is missing
-# or not a plain name.
+# The checker rejects a Zig-backed function with a compile-time value
+# or a bound, a fallible one in a module that declares no error set, a
+# generic one that can fail, and a Zig file that is missing or not a
+# plain name. A bare type parameter it takes (`same`).
 cat >lib/half.rig <<'EOF2'
 extern zig "half.zig"
   pub fun half(x: Int) -> Int
-  pub fun same[T](x: T) -> T
+  pub fun sized[n: Int](x: Int) -> Int
   pub fun parse(s: ?String) -> Int!
   pub sub save(s: ?String)!
+  pub fun same[T](x: T) -> T
+  pub fun maybe[T](x: ?T) -> Int!
+  pub fun bound[T: Eq](x: ?T) -> Bool
 EOF2
 out=$(RIG_STD="$PWD/lib" "$RIG" check main.rig 2>&1); expect_rc $? 1 "untrusted signatures"
-expect_has "$out" "half.rig:3:11: error: a Zig-backed function cannot take compile-time parameters: write \`same\` in Rig" "generic"
+expect_has "$out" "half.rig:3:17: error: a Zig-backed function takes only type parameters, each a bare name: write \`sized\` in Rig" "compile-time value"
+expect_has "$out" "half.rig:8:17: error: a Zig-backed function takes only type parameters, each a bare name: write \`bound\` in Rig" "bound"
+expect_has "$out" "half.rig:7:11: error: a Zig-backed function with type parameters cannot fail: write \`maybe\` in Rig" "generic fallible"
+grep -qF "half.rig:6:" <<<"$out" && fail "generic: a bare type parameter is rejected: $out"
 expect_has "$out" "half.rig:4:11: error: \`parse\` can fail, so its module must declare the errors its Zig function returns: add an error set, \`error Name\`" "fallible fun"
 expect_has "$out" "half.rig:5:11: error: \`save\` can fail, so its module must declare the errors" "fallible sub"
 printf 'extern zig "../half.zig"\n  pub fun half(x: Int) -> Int\n' >lib/half.rig
@@ -35,7 +42,8 @@ expect_has "$out" "half.rig:1:12: error: the standard library has no Zig file \`
 # `error.@"std.half.Odd.odd"`. The failure is an ordinary Rig error: it
 # propagates, is caught, compared, and matched, and the function is a
 # value of its Rig type. Beside it, a shim that cannot fail, whose
-# function has the type its Rig signature lowers to, builds and runs.
+# function has the type its Rig signature lowers to, builds and runs,
+# and so does a generic one, whose Zig function takes the type first.
 cat >lib/half.rig <<'EOF2'
 pub error Odd
   odd
@@ -47,9 +55,15 @@ extern zig "half.zig"
   pub fun half(x: Int) -> Int!
   pub sub even(x: Int)!
   pub fun third(x: Int) -> Int
+  pub fun first[T](a: T, b: T) -> T
 EOF2
 cat >lib/half.zig <<'EOF2'
 const Odd = error{@"std.half.Odd.odd"};
+
+pub fn first(comptime T: type, a: T, b: T) T {
+    _ = b;
+    return a;
+}
 
 pub fn third(x: i64) i64 {
     return @divTrunc(x, 3);
@@ -80,11 +94,11 @@ sub main()!
       half.Odd.odd => print("odd", n)
       _ => print("other")
   half.even(4)!
-  print(half.third(9))
+  print(half.third(9), half.first(5, 6), half.first(1.5, 2.5))
   print(twice(half.half, 6)!)
 EOF2
 out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "fallible shim: $out"
-expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\n3\nerror: Odd.odd' "fallible shim"
+expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\n3 5 1.5\nerror: Odd.odd' "fallible shim"
 
 # A shim whose function's type differs from what its Rig signature
 # lowers to fails the build, naming the declaration, so the program does

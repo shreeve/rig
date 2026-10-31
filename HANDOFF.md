@@ -78,6 +78,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Small std additions for the sanstun port** (owner, approved with
+  the port's panel): `std.hint.keep[T](x: ?T)`, Rust's `black_box`, as
+  an empty `asm volatile` with a memory clobber, which needed a
+  Zig-backed function to take a bare type parameter; `net.Ip` and
+  `net.Addr`, addresses as plain data that parse, print, hash, and
+  give an `/n` prefix; `time.Instant` `: Ord` with `add` and
+  `Instant.at`. In review as one draft PR; the names are the owner's
+  to confirm.
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review

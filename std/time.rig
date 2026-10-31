@@ -10,9 +10,21 @@ pub MINUTE = 60_000_000_000
 
 # A reading of the monotonic clock, which never goes back. Only the
 # time between two readings means anything: `since` and `elapsed` give
-# it, and nothing mixes a reading with the wall clock.
-pub obj Instant
+# it, and nothing mixes a reading with the wall clock. Instants order
+# by time, so `<` and `math.max` take them.
+pub obj Instant: Ord
   ns: Int
+
+  # The instant `ns` nanoseconds on the monotonic clock, for a test or
+  # code that is handed the time rather than reading it:
+  # `Instant.at(0).add(SECOND)`.
+  pub fun at(ns: Int) -> Instant
+    Instant(ns: ns)
+
+  # The instant `ns` nanoseconds after this one; before it when `ns` is
+  # negative.
+  pub fun add(?@, ns: Int) -> Instant
+    Instant(ns: @ns + ns)
 
   # Nanoseconds from `earlier` to this reading; negative when `earlier`
   # is the later one.

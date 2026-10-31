@@ -37,9 +37,10 @@ never read as the library's.
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
-| [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing |
+| [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing; IP addresses and ports as data |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
+| [`std.hint`](#stdhint) | what the optimizer must not see through, for benchmarks: `keep` |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
@@ -539,11 +540,14 @@ The monotonic clock, the wall clock, and sleeping. A duration is an
 `Int` of nanoseconds, with the constants `NS`, `US`, `MS`, `SECOND`,
 and `MINUTE` to write one: `250 * time.MS`. A reading of the monotonic
 clock is an `Instant`, which only gives the time between readings, so
-it cannot be mixed up with the wall clock's nanoseconds.
+it cannot be mixed up with the wall clock's nanoseconds; only
+`Instant.at` names a number as one.
 
 | Member | Result |
 |---|---|
 | `now() -> Instant` | the monotonic clock now: it never goes back |
+| `Instant.at(ns: Int) -> Instant` | the instant `ns` nanoseconds on the monotonic clock, for a test or code handed the time rather than reading it |
+| `t.add(ns: Int) -> Instant` | the instant `ns` nanoseconds after `t`; before it when `ns` is negative |
 | `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
 | `sleep(ns: Int)!task.Stop` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
@@ -568,6 +572,28 @@ true
 true
 true
 true
+```
+
+Instants order by time (`: Ord`), so `<`, `math.max`, and a `Map`'s
+keys take them. Code handed the time, a protocol's timers or a test,
+names instants with `Instant.at` and moves them with `add`:
+
+```rig
+use std.math
+use std.time
+
+sub main()
+  start = time.Instant.at(0)
+  rekey = start.add(120 * time.SECOND)
+  reject = start.add(180 * time.SECOND)
+  now = start.add(150 * time.SECOND)
+  print(now >= rekey, now >= reject, math.max(rekey, reject) == reject)
+  print(reject.since(now) / time.SECOND)
+```
+
+```output
+true false true
+30
 ```
 
 ## std.task
@@ -725,6 +751,48 @@ An address is `host:port`. The host is an IPv4 address, an IPv6
 address in brackets (`[::1]:8080`), `localhost`, or nothing for every
 address of the machine (`:8080`); port 0 lets the system choose one.
 Host names are not looked up yet.
+
+`Ip` is an IPv4 or IPv6 address and `Addr` one with a port, as plain
+data: `==` compares two, a `Map` or a `Set` keys on one, and `print`
+writes the usual text, IPv6 as RFC 5952 says (lowercase, no leading
+zeros, the first longest run of zero groups as `::`, an IPv4-mapped
+address as `::ffff:a.b.c.d`). `String(a)` is that text, which
+`connect` and `listen` take.
+
+| Member | Result |
+|---|---|
+| `enum Ip`, `.v4(bits: U32)`, `.v6(bits: U128)` | an IPv4 address, `a.b.c.d` held as `a << 24 \| b << 16 \| c << 8 \| d`, or an IPv6 one, its first group the top 16 bits |
+| `Ip.parse(s)!` | the address `s` writes, `10.0.0.1`, `::1`, or `::ffff:10.0.0.1`, without brackets or a zone; fails with `NetError.address` |
+| `ip.prefix(n)` | the address with all but its first `n` bits zero, the network of an `/n` prefix; `n` past its width keeps all of it, and a negative `n` panics |
+| `obj Addr`, `Addr(ip: ip, port: p)` | an `Ip` and a `U16` port, its fields `ip` and `port` |
+| `Addr.parse(s)!` | the address and port `s` writes, `10.0.0.1:51820` or `[::1]:51820`; fails with `NetError.address` |
+
+A limit by sender keys on an IPv4 address whole and on an IPv6
+address's /64, which one host may hold all of:
+
+```rig
+use std.net
+
+fun key(a: ?net.Addr) -> net.Ip
+  match a.ip
+    .v4(_) => a.ip
+    .v6(_) => a.ip.prefix(64)
+
+sub main()!
+  seen = Map[net.Ip, Int]()
+  for s in ["10.0.0.1:51820", "[2001:db8::1]:1", "[2001:db8::2]:2", "10.0.0.1:9"]
+    a = net.Addr.parse(s)!
+    (!seen).ensure(key(?a), 0) += 1
+  for e in ?seen.items()
+    print(e.key, e.value)
+  print(net.Addr(ip: .v6(1), port: 51820))
+```
+
+```output
+10.0.0.1 2
+2001:db8:: 2
+[::1]:51820
+```
 
 | Member | Result |
 |---|---|
@@ -949,6 +1017,52 @@ true
 ```
 
 The operating system and the CPU's features are not built yet.
+
+## std.hint
+
+What the optimizer must not see through, for benchmarks. `keep` is
+Rust's `std::hint::black_box`: an empty `asm volatile` that takes the
+address of what it is lent and clobbers memory. The optimizer must
+compute the value, hold it in memory, and assume the call read it and
+read and wrote any other memory, so no load or store moves across it.
+
+| Member | Result |
+|---|---|
+| `keep[T](x: ?T)` | nothing; lends `x` to read for the call, and costs no instruction beyond holding `x` in memory |
+
+A benchmark keeps each round's result, so the round's work is done
+however little else reads it, and since any memory may have changed,
+work that reads memory (a List's elements, an object's fields) is done
+again each round rather than once before the loop:
+
+```rig
+use std.hint
+
+fun total(xs: ?List[Int]) -> Int
+  s = 0
+  for x in xs
+    s += x
+  s
+
+sub main()
+  xs = List[Int]()
+  for i in 1..101
+    !xs.push(i)
+  last = 0
+  for _ in 0..1000
+    last = total(?xs)
+    hint.keep(?last)
+  print(last)
+```
+
+```output
+5050
+```
+
+`keep` gives nothing back, so it hides nothing about a value from the
+code after it: an input the optimizer could fold, a constant or a value
+in registers, is held in memory first, a List's element or an object's
+field, which the clobber makes it read again.
 
 ## std.random
 

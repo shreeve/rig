@@ -225,6 +225,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`std.hint.keep`, `net.Ip` and `net.Addr`, and an `Instant` that
+  adds and orders.** `hint.keep(?x)` is Rust's `black_box`: an empty
+  `asm volatile` that takes `x`'s address and clobbers memory, so a
+  benchmark's result is computed and no load moves out of its round.
+  `net.Ip` is an IPv4 or IPv6 address and `net.Addr` one with a `U16`
+  port, plain data that compares, hashes, prints in the usual text
+  (RFC 5952 for IPv6), and parses (`Ip.parse("::1")`,
+  `Addr.parse("[::1]:51820")`); `ip.prefix(n)` keeps the first `n`
+  bits, the key of a limit by /32 or /64. `time.Instant` is `: Ord`,
+  with `t.add(ns)` and `Instant.at(ns)` for code handed the time. A
+  Zig-backed function of the standard library may take bare type
+  parameters, which its Zig function takes first, when it cannot fail.
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,

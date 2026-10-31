@@ -765,6 +765,24 @@ pub const Emitter = struct {
                 continue;
             }
             const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
+            // Type parameters: a function of them that calls the Zig
+            // one with them first, which Zig checks at each instance.
+            const tparams = facts.syntax.tparamsOf(d).items();
+            if (tparams.len > 0) {
+                try self.w.print("pub inline fn {f}(", .{ident(self.srcText(name))});
+                for (tparams, 0..) |tp, i| try self.w.print("{s}comptime {f}: type", .{ if (i > 0) ", " else "", ident(self.srcText(tp)) });
+                for (f.params, 0..) |p, i| {
+                    try self.w.print(", __rig_a{d}: ", .{i});
+                    try self.emitTypeTy(p);
+                }
+                try self.w.writeAll(") ");
+                if (f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+                try self.w.print(" {{\n    return {s}.{f}(", .{ shim, exactIdent(self.srcText(name)) });
+                for (tparams, 0..) |tp, i| try self.w.print("{s}{f}", .{ if (i > 0) ", " else "", ident(self.srcText(tp)) });
+                for (0..f.params.len) |i| try self.w.print(", __rig_a{d}", .{i});
+                try self.w.writeAll(");\n}\n");
+                continue;
+            }
             if (self.facts.types.get(f.returns) == .fallible) {
                 try self.w.print("pub fn {f}(", .{ident(self.srcText(name))});
                 for (f.params, 0..) |p, i| {

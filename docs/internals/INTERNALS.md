@@ -761,7 +761,8 @@ standard library: its declarations are `fun` and `sub` nodes (or `pub`
 of one) whose `body` is `_`. Every pass reads them as the module-level
 functions they are, and skips the body that is not there: the resolver
 declares and types them (and rejects the block outside the standard
-library, a compile-time parameter, and a fallible signature in a module
+library, a compile-time parameter other than a bare type parameter, a
+generic signature that can fail, and a fallible signature in a module
 that declares no error set), the type
 checker checks the signature and default values, the ownership checker
 has no body to walk, and calls to them are ordinary calls. A
@@ -4911,6 +4912,13 @@ symbols); a query that decides more than that is a recorded fact.
   `pub fn parse_int(__rig_a0: []const u8) anyerror!i64 { return __rig_shim_1.parse_int(__rig_a0); }`,
   so it is a value of that type, and a `match` on its error sees every
   error, as for a Rig function.
+  A generic declaration, whose compile-time parameters are bare type
+  parameters, has no one Zig type to check: it is an inline function of
+  them that calls the shim with them first,
+  `pub inline fn keep(comptime T: type, __rig_a0: rig.ReadView(T)) void { return __rig_shim_1.keep(T, __rig_a0); }`,
+  so Zig checks the shim's types at each instance a program makes. It
+  cannot fail, since the errors of a function of no fixed type are not
+  checked against the module's.
 - **`main`** of the root module takes `std.process.Init.Minimal`, the
   only way Zig hands a program its arguments and environment. Its body
   is emitted as `fn __rig_run_main(init)`, returning `void` or `i64`

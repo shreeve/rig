@@ -877,9 +877,10 @@ test "for over iterators", release: true, '''
     "none"
   print(n)
 
-fail "instant is not int", "5:24: operator `-` requires numeric operands", "6:13: only the standard library's module `std.time` can construct `std.time.Instant`", errors: 2
+fail "instant is not int", "6:24: operator `-` requires numeric operands", "7:13: only the standard library's module `std.time` can construct `std.time.Instant`", errors: 2
   # A monotonic reading is an `Instant`, not a number: it cannot be mixed
-  # with the wall clock, nor made from one.
+  # with the wall clock, nor made from its field; only `Instant.at` says
+  # a number is one.
 
   start = time.now()
   print(time.unix_ns() - start)
@@ -2612,6 +2613,25 @@ test "time", '''
   print(waited(start) >= took, start.elapsed() >= took)
   print(time.unix_ns() > 1_700_000_000 * time.SECOND)
   print(time.NS, time.US, time.MS, time.SECOND, time.MINUTE)
+
+test "time instant at add order", '''
+  true false true true
+  3000000000 -6 Instant(ns: 5)
+  2 true
+'''
+  # `Instant.at(ns)` names an instant, for code handed the time; `add`
+  # moves one by a duration, and instants order by time, so `<`,
+  # `math.max`, and a Map's keys take them.
+  a = time.Instant.at(5)
+  b = a.add(3 * time.SECOND)
+  print(a < b, b <= a, a == time.Instant.at(5), math.max(a, b) == b)
+  print(b.since(a), a.add(-6).since(a), a)
+  m = Map[time.Instant, Int]()
+  !m.put(a, 1)
+  !m.put(b, 2)
+  !m.put(time.Instant.at(5), 3)
+  start = time.now()
+  print(m.len, time.now() >= start)
 
 test "os memory", "true true true true true", seeds: 3
   # `os.memory()`: live bytes rise by what a List holds and fall back when
