@@ -72,13 +72,19 @@ sub main()
   print(dive(0, ?first))
 EOF2
 
+# run <program> [args...]: the program under `quiet`, its stderr in
+# err.txt. It runs in place of a shell (exec), so the report a shell
+# writes of the signal that ended a child (bash's "Segmentation fault" on
+# Linux) goes to the caller's stderr, not into err.txt.
+run() { quiet bash -c 'exec "$@" 2>err.txt' _ "$@"; }
+
 # send <program> <signal> <what>: run the program, send it the signal
 # once it has started, and check that the signal ended it.
 send() {
     local prog=$1 sig=$2 what=$3 want job pid i
     want=$segv; [[ $sig == BUS ]] && want=$bus
     rm -f out.txt err.txt
-    quiet ./$prog >out.txt 2>err.txt &
+    run ./$prog >out.txt 2>/dev/null &
     job=$!
     for ((i = 0; i < 200; i++)); do
         [[ -s err.txt ]] && break
@@ -117,12 +123,12 @@ for how in debug release fast sanitized; do
     send sleeps-$how BUS $how
     send touches-$how SEGV $how
     send touches-$how BUS $how
-    out=$(quiet ./raises-$how 2>err.txt); expect_rc $? $segv "a program that sends itself SIGSEGV, $how"
+    out=$(run ./raises-$how 2>/dev/null); expect_rc $? $segv "a program that sends itself SIGSEGV, $how"
     expect_eq "$out" "" "stdout of a program that sends itself SIGSEGV, $how"
     expect_eq "$(cat err.txt)" "" "stderr of a program that sends itself SIGSEGV, $how"
     # `--release=fast` folds the recursion into a loop that never ends.
     if [[ $how != fast ]]; then
-        out=$(quiet ./dives-$how 2>err.txt); expect_rc $? 134 "a stack overflow, $how ($(head -c 300 err.txt))"
+        out=$(run ./dives-$how 2>/dev/null); expect_rc $? 134 "a stack overflow, $how ($(head -c 300 err.txt))"
         expect_eq "$out" "before" "stdout of a stack overflow, $how"
         expect_has "$(cat err.txt)" "error: rig: stack overflow" "a stack overflow, $how"
     fi
@@ -143,7 +149,7 @@ pkg=$RIG_OUT_DIR/programs/freed+RIG_SANITIZE=1
 perl -0pi -e 's/(pub noinline fn freed\(i: i64\) i64 \{).*?\n\}/$1\n    const a = rig.defaultAllocator();\n    const b = a.alloc(i64, 4) catch unreachable;\n    a.free(b);\n    return \@as(*volatile i64, \&b[\@intCast(i)]).*;\n}/s' "$pkg/__rig_main.zig"
 grep -q 'a.free(b)' "$pkg/__rig_main.zig" || fail "the use of freed memory was not written into the package"
 (cd "$pkg" && zig_once "$PWD/../freed-debug" -- . -- "${ZIG:-zig}" build-exe -O Debug -femit-bin="$PWD/../freed-debug" __rig_main.zig) >build.log 2>&1 || fail "build freed: $(cat build.log)"
-out=$(quiet "$RIG_OUT_DIR/programs/freed-debug" 2>err.txt); rc=$?
+out=$(run "$RIG_OUT_DIR/programs/freed-debug" 2>/dev/null); rc=$?
 expect_rc $rc 134 "a use of freed memory ($(head -c 300 err.txt))"
 expect_eq "$out" "before" "stdout of a use of freed memory"
 expect_has "$(cat err.txt)" "error: rig: use of freed memory at address 0x" "a use of freed memory"
