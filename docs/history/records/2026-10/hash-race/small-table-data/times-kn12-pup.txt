@@ -1,0 +1,4 @@
+pup (Core Ultra 9 185H, core 8), fastest of 8 interleaved, ms
+rust             k1   198.8  k2   197.2  k4   203.2
+rig-main         k1   259.9  k2   272.0  k4   286.6
+rig-new          k1   174.5  k2   196.1  k4   189.8

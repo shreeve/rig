@@ -5238,9 +5238,12 @@ unspecified (SPEC §10, STD).
   (`sema.signatureOrigins`), as the ordered table's do, but `get` and
   `edit`, which hand back the value's view where the lookup found its
   slot: `fromSelf` narrows their result to self, as `from @` narrows a
-  Rig declaration's, since the key is only hashed and compared. A slot
-  index the table hands out (`find`, `ensure`, `insert_new`) names its
-  slot until the next write.
+  Rig declaration's, since the key is only hashed and compared. Its
+  `ensure` lends the value where its probe found or put the key, and
+  writes the count to the HashMap's `len` (its last parameter) only
+  for a new key; `notFromLen` narrows its result to self, the key, and
+  the value. A slot index the table hands out (`find`, `insert_new`)
+  names its slot until the next write.
 - **Facts.** As the ordered tables' (`sema.isHashTable`), at 48 bytes
   (`isUnorderedTable`); a `HashMap` is 56.
 - **Hash and `==`** (the panel's decisions 7 and 8, inside the table):
@@ -5258,7 +5261,9 @@ unspecified (SPEC §10, STD).
   lookup peels its home group, prefetches the group's first slot line
   inside the tag-match branch for slots of 32 bytes or fewer, reads the
   overflow byte only on the way to a miss, and walks on by quadratic
-  probing. An insert is one pass. A take writes 0 to its tag and lowers
+  probing. An insert is one pass. `ensure`'s pass peels the home group
+  as a lookup does, so a key found there returns before the pass keeps
+  a free lane; a put's does not, which lays out faster for new keys. A take writes 0 to its tag and lowers
   the maximum load where the group marks the tag's class; a rehash that
   drift forces sizes the table to at most 0.5 full (0.6 on x86-64). A
   key over 8 bytes keeps its hash in its slot. On x86-64 a growth to

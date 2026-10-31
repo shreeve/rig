@@ -174,3 +174,38 @@ if it matters.
 x86 numbers would settle two things this record cannot: whether change 1
 gains as much on pup, and whether the header reloads cost nothing there
 too. A pup slot is needed for that; change 2 is arm64's alone.
+
+## Change 1, built
+
+`ensure` builds as change 1 says, with one difference the bench/hash
+rows forced. Peeling the home group in `claim` itself, the pass every
+put takes, made two put rows slower in both runs of the layout protocol
+(the four layouts of each arm made by `layout-build.sh`, nops in
+`claimGrown`; bench/hash's map.rig with its Maps made HashMaps, fastest
+of 5 each, the Mac under `tools/low`): `churn16 turnover` 8.5% and
+`string edit_put-miss` 10% (`bench-hash-mac-claim-peeled*.txt`). Trying
+the home group with a lookup before `claim` instead made `string
+ensure-miss` 5% slower, a second look at the group for every new key.
+So `ensure` has a pass of its own, `claimHomeFirst`, whose home group is
+peeled, and a put keeps main's `claim` unchanged. A version whose two
+passes shared their free-lane bookkeeping and tail, and whose put took
+its slot's address rather than its index, put 2-3% more instructions on
+bench/hash's guard rows (`int-hit`, `int-churn`, `pair-hit`); with main's
+`claim` kept whole, every guard row is within 0.1%.
+
+Built at 45b1dbdbf (`bench-hash-mac-ensure1.txt`, `-ensure2.txt`): no
+row is slower in either run; `int ensure-hit` 11-13% faster, `int
+ensure_with-hit` 10-12%, `string ensure-hit` 7%, `string ensure_with-hit`
+8%, and `string ensure-miss` 11-12%. `int ensure-miss`'s median is 1.5%
+and 3.0% over main's, inside the protocol's 2% between the arms'
+spreads. kn12 (fastest of 8): 153, 164, and 158 ms against main's 169,
+192, and 183, so 9%, 15%, and 13% less time; hashbrown takes 161, 157,
+and 156.
+
+On pup (x86-64, core 8, its sibling idle; `times-kn12-pup.txt`), kn12
+takes 175, 196, and 190 ms against main's 260, 272, and 287, so 33%,
+28%, and 34% less time, and less than hashbrown's 199, 197, and 203.
+bench/hash under the layout protocol, two runs
+(`bench-hash-pup-ensure*.txt`): no row slower; `int ensure-miss` 18%
+faster, `int ensure-hit` 21-24%, `int ensure_with-miss` 9-12%, `int
+ensure_with-hit` 4-10%; every insert and churn row within 2% by median.
