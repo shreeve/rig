@@ -596,3 +596,51 @@ fail "optional named none declarations", "4:3: an object names its none by its o
 
   sub main()
     print(1)
+
+test "a large optional is set, cleared and set again", '''
+  7 3
+  true
+  .done
+  9 4
+'''
+  # A payload enum's optional and a large object's: `none` writes the
+  # flag alone and leaves the payload's bytes, which nothing reads.
+
+  obj Packet
+    bytes: [64]U8
+    len: Int
+
+  enum Event
+    send(p: Packet)
+    done
+
+  obj Ring
+    slots: [4]Event?
+    big: Packet?
+
+  r = Ring(slots: [4 of none], big: none)
+  r.slots[1] = Event.send(p: Packet(bytes: [64 of 7], len: 3))
+  r.big = Packet(bytes: [64 of 9], len: 4)
+  if r.slots[1] as e
+    match e
+      .send(p) => print(p.bytes[0], p.len)
+      .done => print("done")
+  r.slots[1] = none
+  print(r.slots[1] == none)
+  r.slots[1] = Event.done
+  print(r.slots[1] ?? Event.send(p: Packet(bytes: [64 of 0], len: 0)))
+  r.big = none
+  r.big = Packet(bytes: [64 of 9], len: 4)
+  b = r.big ?? Packet(bytes: [64 of 0], len: 0)
+  print(b.bytes[63], b.len)
+
+code "a payload enum's optional goes through the optional helpers", "return rig.pack(rig.Opt(Event), null);"
+  enum Event
+    send(n: Int)
+    done
+
+  fun next(k: Int) -> Event?
+    return none if k == 0
+    Event.send(n: k)
+
+  print(next(1) ?? Event.done)

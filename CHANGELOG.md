@@ -247,6 +247,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`none` of a large optional is one store.** A `T?` over 16 bytes
+  whose `T` is an object, a payload enum, or an array writes `none` by
+  its flag alone, where Zig wrote every byte of it zero: an empty pop of
+  sanstun's 176-byte `Event?` takes 0.26 ns, from 1.9. A payload enum's
+  optional now goes through the optional helpers, as an object's does,
+  and under `RIG_STRICT_OPTIONALS` is a tagged struct too. A payload
+  variant literal compared with an optional (`o == .square(side: 2)`)
+  is its payload's value.
 - **`target.os`, the operating system a program is compiled for.**
   `std.target` gives `os: Os` beside `arch: Arch`: a value of the
   built-in enum `Os`, whose variants are Zig's (`std.Target.Os.Tag`:
@@ -255,6 +263,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   signal's number or a `sysconf` name, branches on it,
   `SIGBUS = 7 if target.os == .linux else 10`, and Zig keeps the branch
   the target picks.
+
 - **`rig test std.NAME` runs a standard library module's own tests.**
   `rig test std.crypto` loads `std.crypto` from the library in use, the
   one built into `rig` or `RIG_STD`'s, as the library loads it, and runs

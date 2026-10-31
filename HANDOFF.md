@@ -82,6 +82,11 @@ A new session, human or agent, takes these steps in order:
   std.target gives the operating system as a built-in enum of Zig's
   `std.Target.Os.Tag`, built as `Arch` is, so the coreutils port can
   choose signal numbers and errors by system. In review as one PR.
+- **`none` of a large optional is one store** (queue row 30, branch
+  `opt-flag`, the owner's ask): `rig.pack` writes a `?T` over 16 bytes
+  by its flag alone, and a payload enum's optional is routed through
+  the helpers; sanstun's empty `poll_event` 1.9 ns to 0.26; Trig level. Ready
+  to merge.
 - **Two more accepted programs that Zig rejected** (queue row 29): a
   `?[N]T` view passed bare where a `[]T` goes is lent from the address
   it holds, and a short form a `??` or `catch` fallback gives through a
