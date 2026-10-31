@@ -1,0 +1,38 @@
+641a642,649
+>                 // The groups the last two entries went to, and the lanes
+>                 // they took: an entry homed to one of them takes the next
+>                 // lane with no load of a group just written.
+>                 var p1: usize = std.math.maxInt(usize);
+>                 var l1: usize = 0;
+>                 var p2: usize = std.math.maxInt(usize);
+>                 var l2: usize = 0;
+>                 const last = new.mask;
+646c654,679
+<                         new.elements[emplace(new, hashOf(e))] = e.*;
+---
+>                         const hash = hashOf(e);
+>                         const h = homeOf(hash, new.shift);
+>                         const n1 = l1 + 1;
+>                         const n2 = l2 + 1;
+>                         const cap1: usize = if (p1 == last) NL - 1 else NL;
+>                         const cap2: usize = if (p2 == last) NL - 1 else NL;
+>                         const in1 = h.pos == p1 and n1 < cap1;
+>                         const in2 = h.pos == p2 and n2 < cap2;
+>                         var slot: usize = undefined;
+>                         var lane: usize = undefined;
+>                         if (in1 or in2) {
+>                             lane = if (in1) n1 else n2;
+>                             new.groups[h.pos].m[lane] = h.tag;
+>                             slot = h.pos * NL + lane;
+>                         } else {
+>                             slot = emplace(new, hash);
+>                             lane = slot % NL;
+>                         }
+>                         const pos = slot / NL;
+>                         if (pos != p1) {
+>                             p2 = p1;
+>                             l2 = l1;
+>                         }
+>                         p1 = pos;
+>                         l1 = lane;
+>                         new.elements[slot] = e.*;

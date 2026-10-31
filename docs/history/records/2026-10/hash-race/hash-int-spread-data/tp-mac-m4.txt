@@ -1,0 +1,134 @@
+row                          main           RC4b33           RCfb59           RCa1b9
+int16 insert                 4.87    0.978            0.961            0.972        
+int16 remove                 3.94    0.995            0.943 faster     0.946        
+int16 hit                    0.76    1.002            1.001            1.000        
+int16 miss                   0.62    1.015            0.983            0.989        
+int16 iterate                0.50    1.016            0.983            0.990        
+int1000 insert               5.88    1.172 SLOWER     1.114 SLOWER     1.108 SLOWER 
+int1000 remove               2.45    0.998            0.955            0.979        
+int1000 hit                  0.82    1.022            0.994            0.989        
+int1000 miss                 0.60    0.988            0.963            0.970        
+int1000 iterate              0.54    1.014            0.972            0.976        
+int100000 insert             6.57    1.218 SLOWER     1.143 SLOWER     1.170 SLOWER 
+int100000 remove             4.29    1.049            0.825 faster     0.794 faster 
+int100000 hit                1.18    0.998            1.013            0.994        
+int100000 miss               0.61    1.002            1.064 SLOWER     0.985        
+int100000 iterate            0.60    0.994            0.973            1.002        
+int4000000 insert           10.67    1.167 SLOWER     1.162 SLOWER     1.109 SLOWER 
+int4000000 remove            8.80    1.032            1.018            1.035        
+int4000000 hit               6.20    1.043            1.025            1.017        
+int4000000 miss              0.75    1.006            1.002            1.377 SLOWER 
+int4000000 iterate           0.53    1.010            1.010            1.036        
+rnd16 insert                 5.38    1.013            1.002            0.997        
+rnd16 remove                 3.94    1.009            1.000            1.003        
+rnd16 hit                    0.80    1.037            0.998            0.991        
+rnd16 miss                   0.65    0.995            0.959            0.892        
+rnd16 iterate                0.50    1.043            1.007            1.037        
+rnd24 insert                 9.11    1.410 SLOWER     1.368 SLOWER     1.364 SLOWER 
+rnd24 remove                 3.65    1.030            0.999            0.987        
+rnd24 hit                    0.83    1.039            0.998            0.989        
+rnd24 miss                   0.58    1.090            0.992            0.993        
+rnd24 iterate                0.54    1.030            0.980            0.989        
+rnd1000 insert               7.92    1.806 SLOWER     1.760 SLOWER     1.765 SLOWER 
+rnd1000 remove               2.83    1.035            0.987            0.984        
+rnd1000 hit                  0.93    0.954            0.884 faster     0.897        
+rnd1000 miss                 0.67    1.049            0.991            0.983        
+rnd1000 iterate              0.54    0.979            0.967            0.963        
+rnd1500 insert               9.39    1.903 SLOWER     1.874 SLOWER     1.875 SLOWER 
+rnd1500 remove               3.07    0.954            0.972            0.963        
+rnd1500 hit                  0.85    1.012            0.950 faster     0.942 faster 
+rnd1500 miss                 0.68    0.977            0.960            0.937        
+rnd1500 iterate              0.57    1.001            0.975            0.972        
+rnd100000 insert             8.91    1.913 SLOWER     1.889 SLOWER     1.887 SLOWER 
+rnd100000 remove             3.94    0.933            0.926            0.928        
+rnd100000 hit                1.32    1.009            0.990            0.998        
+rnd100000 miss               0.80    1.014            0.997            0.993        
+rnd100000 iterate            1.32    1.031            0.983            0.989        
+rnd150000 insert             6.49    1.736 SLOWER     1.709 SLOWER     1.716 SLOWER 
+rnd150000 remove             3.35    0.920            0.945            0.925        
+rnd150000 hit                1.59    0.948            0.936            0.909        
+rnd150000 miss               0.95    1.028            1.016            1.018        
+rnd150000 iterate            1.10    0.951            0.978            0.913        
+rnd3000000 insert           12.32    1.513 SLOWER     1.494 SLOWER     1.447 SLOWER 
+rnd3000000 remove            7.37    0.999            0.998            1.007        
+rnd3000000 hit               5.16    1.010            1.002            0.994        
+rnd3000000 miss              1.30    0.978            0.991            0.972        
+rnd3000000 iterate           1.91    1.001            0.995            0.997        
+rnd4000000 insert           12.13    1.532 SLOWER     1.517 SLOWER     1.503 SLOWER 
+rnd4000000 remove            8.65    1.114            1.070            1.107        
+rnd4000000 hit               6.96    1.035            1.007            1.015        
+rnd4000000 miss              2.03    0.995            0.954            0.968        
+rnd4000000 iterate           1.99    1.002            0.999            0.998        
+lat16 chain                  6.43    0.992            0.995            0.995        
+lat1000 chain                6.44    0.996            1.000            0.995        
+lat100000 chain             11.55    0.994            0.994            1.005        
+lat4000000 chain            90.67    1.044            0.999            0.986        
+churn16 turnover             3.83    0.998            0.996            0.993        
+churn1000 turnover           1.69    1.024            1.000            0.992        
+churn100000 turnover         2.52    1.039            0.998            0.993        
+churn4000000 turnover        8.39    1.015            0.975            1.003        
+mix16 half                   0.68    1.016            0.981            0.970        
+mix1000 half                 0.72    1.050            1.032            1.038        
+mix100000 half               4.06    1.011            1.017            0.986        
+mix4000000 half              8.77    1.003            0.947            0.974        
+str16 insert                 9.90    1.010            0.944            0.949        
+str16 remove                 8.28    1.023            0.940            0.967        
+str16 hit                    2.80    1.002            0.992            0.991        
+str16 miss                   1.58    1.018            1.000            1.005        
+str1000 insert              11.02    1.580 SLOWER     1.516 SLOWER     1.512 SLOWER 
+str1000 remove              12.75    1.031            0.988            0.976        
+str1000 hit                  2.69    1.025            1.000            0.996        
+str1000 miss                 2.05    1.034            1.002            1.002        
+str100000 insert            17.48    1.549 SLOWER     1.426 SLOWER     1.415 SLOWER 
+str100000 remove            29.65    0.977            0.956            0.968        
+str100000 hit                6.65    1.046            0.957            1.000        
+str100000 miss               2.43    1.037            0.966            0.980        
+str1000000 insert           27.63    1.185            1.129 SLOWER     1.148 SLOWER 
+str1000000 remove           44.28    0.971            0.966            0.948        
+str1000000 hit              26.95    0.971            0.952            0.968        
+str1000000 miss              4.46    0.983            0.930            0.968        
+big16 insert                 6.27    1.024            0.985            1.001        
+big16 remove                 4.24    1.002            0.966            0.979        
+big16 hit                    0.89    1.028            1.002            1.012        
+big16 iterate                0.51    1.004            1.005            1.036        
+big1000 insert               9.72    1.609 SLOWER     1.568 SLOWER     1.572 SLOWER 
+big1000 remove               5.37    0.993            0.973            0.985        
+big1000 hit                  0.98    1.025            0.905 faster     1.026        
+big1000 iterate              0.54    1.021            1.001            1.027        
+big100000 insert            17.17    1.367 SLOWER     1.357 SLOWER     1.363 SLOWER 
+big100000 remove             9.33    0.970            0.949            0.956        
+big100000 hit                2.24    1.002            0.931            0.959        
+big100000 iterate            1.45    0.997            1.005            0.979        
+big1000000 insert           26.39    1.188 SLOWER     1.085 SLOWER     1.161 SLOWER 
+big1000000 remove           10.34    0.977            0.960            0.974        
+big1000000 hit               7.86    0.989            0.975            0.993        
+big1000000 iterate           2.08    0.997            0.986            0.980        
+int insert                   5.59    1.274 SLOWER     1.284 SLOWER     1.305 SLOWER 
+int hit                      5.18    0.943            1.013            1.005        
+int miss                     0.68    0.995            1.014            1.009        
+int iterate                  0.52    0.978            1.023            1.137 SLOWER 
+string insert               25.30    1.171 SLOWER     1.170 SLOWER     1.173 SLOWER 
+string hit                  16.17    0.970            0.973            0.971        
+string miss                  4.42    0.902            0.932            0.920        
+string iterate               2.19    1.009            0.972            0.986        
+pair insert                 10.07    1.313 SLOWER     1.309 SLOWER     1.323 SLOWER 
+pair hit                     6.83    1.007            0.963            0.974        
+pair miss                    1.03    0.966            0.968            0.968        
+triple insert               15.83    1.362 SLOWER     1.330 SLOWER     1.355 SLOWER 
+triple hit                   9.92    0.991            0.952 faster     0.978        
+triple miss                  2.17    0.966            0.943            0.967        
+small 4                      1.11    0.985            0.995            0.993        
+small 8                      1.10    1.012            0.991            1.006        
+string intern                6.49    0.959            0.969            0.968        
+int ensure-miss              8.29    1.140            1.115 SLOWER     1.102 SLOWER 
+int ensure-hit               7.60    0.992            0.993            1.028        
+int ensure_with-miss        11.64    1.019            0.999            0.976        
+int ensure_with-hit          6.29    1.019            0.936            1.049        
+int edit_put-miss            5.77    1.205 SLOWER     1.186 SLOWER     1.188 SLOWER 
+int edit_put-hit             5.72    0.845            0.846            0.961        
+string ensure-miss          29.54    1.155 SLOWER     1.123 SLOWER     1.136 SLOWER 
+string ensure-hit           26.44    0.960            0.965            0.979        
+string ensure_with-miss     42.14    1.130 SLOWER     1.105 SLOWER     1.093 SLOWER 
+string ensure_with-hit      36.37    1.009            0.959            0.987        
+string edit_put-miss        35.72    1.133 SLOWER     1.105 SLOWER     1.115 SLOWER 
+string edit_put-hit         33.37    0.964            0.973            0.980        

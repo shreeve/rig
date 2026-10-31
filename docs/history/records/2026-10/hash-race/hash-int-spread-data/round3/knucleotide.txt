@@ -1,0 +1,10 @@
+knucleotide-fast (rig/compare benchmarksgame), fasta 25,000,000 input (243 MB), Mac M5,
+fastest of 5 interleaved runs, nice 19; "nomix" keys the map by the code itself
+(mix(code) = code), "mix" by code ^ (code << 32) as the port does. Output identical in all.
+main 4b33  mix    0.576 s
+main 4b33  nomix  1.551 s
+83ae       mix    0.568 s
+83ae       nomix  0.538 s
+6b72       nomix  0.529 s
+b186       nomix  0.545 s
+6f95       nomix  0.545 s

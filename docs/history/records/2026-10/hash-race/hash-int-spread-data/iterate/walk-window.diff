@@ -1,0 +1,41 @@
+926a927,946
+>         /// Groups a walk reads at once: their full lanes, a bit each,
+>         /// fill one word, so the walk leaves its loop once a window, not
+>         /// once a group.
+>         const window: usize = if (group8) 8 else 4;
+> 
+>         /// The full lanes of the `window` groups from `at`, lane `i` of
+>         /// group `at + j` at bit `j * NL + i`, so bit `b` is slot
+>         /// `at * NL + b`. A table of fewer groups fills only its own.
+>         inline fn windowFull(self: *const Self, at: usize) u64 {
+>             var m: u64 = 0;
+>             inline for (0..window) |j| {
+>                 if (j <= self.mask) {
+>                     const f: u64 = matchFull(&self.groups[at + j]);
+>                     const lanes = if (group8) ((f *% 0x0002040810204081) >> 49) & 0x7f else f;
+>                     m |= lanes << (j * NL);
+>                 }
+>             }
+>             return m;
+>         }
+> 
+930c950
+<             var m: Mask = @truncate(@as(u64, @bitCast(lanes.*)));
+---
+>             var m: u64 = @bitCast(lanes.*);
+932c952
+<                 at +%= 1;
+---
+>                 at = (at +% @as(i64, window)) & ~@as(i64, window - 1);
+938c958
+<                 m = matchFull(&self.groups[@as(usize, @bitCast(at))]);
+---
+>                 m = self.windowFull(@as(usize, @bitCast(at)));
+940c960
+<             const slot = @as(usize, @bitCast(at)) * NL + laneOf(m);
+---
+>             const slot = @as(usize, @bitCast(at)) * NL + @ctz(m);
+942c962
+<             lanes.* = @bitCast(@as(u64, m & (m -% 1)));
+---
+>             lanes.* = @bitCast(m & (m -% 1));
