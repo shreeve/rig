@@ -299,6 +299,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   status 0 and fails an `io.stdout()` write with
   `FileError.broken_pipe`. A failed `warn` is still dropped, and a socket's closed peer
   is still `net.NetError.closed`.
+- **A SIGSEGV or SIGBUS that was sent ends the program by that
+  signal.** `kill -SEGV`, `kill -BUS`, or a program's own `kill` of
+  itself ends it as the signal's default action does, status 139, or
+  138 for SIGBUS on macOS and 135 on Linux, with no message. The stack
+  guard's handler and the sanitizer's took every such signal for a
+  fault outside their pages and returned, so a sent one was lost: the
+  program went on, a second one aborted it (134), and a later stack
+  overflow lost its message. A real fault is reported as before.
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,
