@@ -1,0 +1,30 @@
+# std.crypto: wiping secrets, comparing them in constant time, and the
+# operating system's entropy.
+
+# True when `a` and `b` hold the same bytes, in a time that depends on
+# their lengths alone: every byte is read, whatever the first difference.
+pub fun equal(a: []U8, b: []U8) -> Bool
+  return false if a.len != b.len
+  d: U8 = 0
+  for i in 0..a.len
+    d |= a[i] ^ b[i]
+  barrier(U64(d)) == 0
+
+extern zig "crypto.zig"
+  # Zeroes `b` with stores the optimizer keeps, even when nothing reads
+  # `b` again.
+  pub sub wipe(b: ![]U8)
+
+  # Fills `b` from the operating system's entropy, for keys and nonces;
+  # panics when the system has none.
+  pub sub random(b: ![]U8)
+
+  # Zeroes the words of `w` as `wipe` zeroes bytes.
+  sub wipe_words(w: ![]U32)
+
+  # `x`, through an empty `asm` the optimizer cannot see into, so a mask
+  # made from a secret stays a mask and never becomes a branch.
+  fun barrier(x: U64) -> U64
+
+  # 1 when `a < b`, else 0, by a flag: never a branch, in any build.
+  fun below(a: U64, b: U64) -> U64

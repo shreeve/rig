@@ -108,6 +108,11 @@ A new session, human or agent, takes these steps in order:
   state on arm64 macOS, and a sent signal ends the program by its
   default action (139, 138 or 135) instead of being lost. In review as
   one PR; SIGILL and SIGFPE wait for the owner.
+- **`std.crypto`** (#800, owner 2026-10-30, for the sanstun port):
+  ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and
+  HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value
+  barrier. Its review's findings are fixed and its
+  gates are green; it waits to merge.
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review

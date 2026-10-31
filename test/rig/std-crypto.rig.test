@@ -1,0 +1,579 @@
+# std.crypto: the published vectors of each primitive, forgeries, low-order
+# keys, and wipes. Tests whose names start `crypto`. Each case that needs
+# them declares `hx` (bytes as hex) and `unhex` (hex as bytes).
+use std.crypto
+use std.crypto.x25519
+use std.crypto.blake2s
+
+test "crypto chacha rfc 8439", '''
+  d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116
+  1ae10b594f09e26a7e902ecbd0600691
+  Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.
+  6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40b8eedf2785e42874d
+  a0784d7a4716f3feb4f64e7f4b39bf04
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  fun unhex[n: Int](h: ?String) -> [n]U8
+    out: [n]U8 = [n of 0]
+    for i in 0..n
+      hi = h[2 * i]
+      lo = h[2 * i + 1]
+      out[i] = (hi - 48 if hi <= 57 else hi - 87) * 16 + (lo - 48 if lo <= 57 else lo - 87)
+    out
+
+  fun text(s: ?String) -> List[U8]
+    out: List[U8] = List()
+    for b in s
+      !out.push(b)
+    out
+
+  fun show(b: []U8) -> String
+    s = String()
+    for x in b
+      !s.push(x)
+    s
+
+  sun = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
+  # §2.8.2: seal, then open.
+  c = crypto.ChaCha.of(unhex[32]("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
+  nonce = unhex[12]("070000004041424344454647")
+  header = unhex[12]("50515253c0c1c2c3c4c5c6c7")
+  buf = text(sun)
+  tag = c.seal(!buf, nonce, header)
+  print(hx(buf))
+  print(hx(tag))
+  c.open(!buf, tag, nonce, header)!
+  print(show(buf))
+  # §2.4.2: the AEAD's keystream starts at counter 1, as 2.4.2's does, so
+  # a seal with no header gives 2.4.2's ciphertext.
+  d = crypto.ChaCha.of(unhex[32]("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"))
+  nob: [0]U8 = []
+  plain = text(sun)
+  _ = d.seal(!plain, unhex[12]("000000000000004a00000000"), nob)
+  print(hx(plain))
+  # An empty message has a tag alone.
+  empty: [0]U8 = []
+  print(hx(c.seal(!empty, nonce, nob)))
+
+test "crypto chacha forged", '''
+  Forged.tag 0
+  Forged.tag 0
+  Forged.tag 0
+  Forged.tag 0
+  open true
+'''
+  fun sum(b: []U8) -> Int
+    t = 0
+    for x in b
+      t += Int(x)
+    t
+
+  c = crypto.ChaCha.of([32 of 9])
+  nonce: [12]U8 = [12 of 1]
+  header: [5]U8 = [5 of 2]
+  sealed: [300]U8 = [300 of 77]
+  tag = c.seal(!sealed, nonce, header)
+  # A tag, a message byte, the header, or the nonce changed: open fails,
+  # and leaves zeros where the message was.
+  for which in 0..4
+    buf = sealed
+    t = tag
+    h = header
+    n = nonce
+    match which
+      0 => t[15] ^= 0x80
+      1 => buf[299] ^= 1
+      2 => h[0] ^= 1
+      _ => n[11] ^= 1
+    c.open(!buf, t, n, h) catch |e|
+      print(e, sum(buf))
+  buf = sealed
+  c.open(!buf, tag, nonce, header)!
+  print("open", buf[0] == 77 and buf[299] == 77)
+
+test "crypto chacha every length", "11258623874660040186 true"
+  # The tags and texts of messages of every length to 2100, under six
+  # header lengths, folded into one checksum: Zig's std.crypto gives the
+  # same, 11258623874660040186.
+  msg: List[U8] = List()
+  for i in 0..2100
+    !msg.push(U8.wrap(i *% 131 +% 7))
+  aad: List[U8] = List()
+  for i in 0..80
+    !aad.push(U8.wrap(i *% 17 +% 3))
+  key: [32]U8 = [32 of 0]
+  nonce: [12]U8 = [12 of 0]
+  acc: U64 = 0
+  ok = true
+  for n in 0..2101
+    for i in 0..32
+      key[i] = U8.wrap(n +% i)
+    nonce[0] = U8.wrap(n)
+    nonce[11] = U8.wrap(n >> 8)
+    al = [0, 1, 13, 16, 33, 80][n % 6]
+    c = crypto.ChaCha.of(key)
+    buf: List[U8] = List()
+    for i in 0..n
+      !buf.push(msg[i])
+    tag = c.seal(!buf, nonce, aad[0..al])
+    for i in 0..n
+      acc = (acc *% 1099511628211) ^ U64(buf[i])
+    for i in 0..16
+      acc = (acc *% 1099511628211) ^ U64(tag[i])
+    c.open(!buf, tag, nonce, aad[0..al])!
+    for i in 0..n
+      ok = ok and buf[i] == msg[i]
+  print(acc, ok)
+
+test "crypto chacha out of place", "true true true"
+  # seal_into and open_into give what seal and open give, at every length to
+  # 600, from one buffer into another; a padded seal_into seals the message
+  # and its zeros.
+  c = crypto.ChaCha.of([32 of 3])
+  x = crypto.XChaCha.of([32 of 4])
+  nonce: [12]U8 = [12 of 5]
+  xnonce: [24]U8 = [24 of 6]
+  header: [7]U8 = [7 of 8]
+  same = true
+  for n in 0..601
+    src: List[U8] = List()
+    for i in 0..n
+      !src.push(U8.wrap(i *% 7 +% n))
+    inplace: List[U8] = List()
+    for i in 0..n
+      !inplace.push(src[i])
+    tag = c.seal(!inplace, nonce, header)
+    sealed: List[U8] = List()
+    for _ in 0..(n + 16)
+      !sealed.push(0)
+    c.seal_into(!sealed, src, nonce, header)
+    for i in 0..n
+      same = same and sealed[i] == inplace[i]
+    for i in 0..16
+      same = same and sealed[n + i] == tag[i]
+    out: List[U8] = List()
+    for _ in 0..(n + 3)
+      !out.push(1)
+    c.open_into(!out, sealed, nonce, header)!
+    for i in 0..n
+      same = same and out[i] == src[i]
+    same = same and out[n] == 1
+    xs: List[U8] = List()
+    for _ in 0..(n + 16)
+      !xs.push(0)
+    x.seal_into(!xs, src, xnonce, header)
+    xo: List[U8] = List()
+    for _ in 0..n
+      !xo.push(0)
+    x.open_into(!xo, xs, xnonce, header)!
+    for i in 0..n
+      same = same and xo[i] == src[i]
+  # Padding: 5 bytes into a message of 16.
+  five: [5]U8 = [5 of 9]
+  padded: [32]U8 = [32 of 0xff]
+  c.seal_into(!padded, five, nonce, header)
+  msg: [16]U8 = [16 of 0]
+  for i in 0..5
+    msg[i] = 9
+  t = c.seal(!msg, nonce, header)
+  pad_ok = true
+  for i in 0..16
+    pad_ok = pad_ok and padded[i] == msg[i] and padded[16 + i] == t[i]
+  # A forged open_into zeroes what it wrote.
+  padded[0] ^= 1
+  back: [20]U8 = [20 of 7]
+  zeroed = false
+  c.open_into(!back, padded, nonce, header) catch |e|
+    zeroed = e == crypto.Forged.tag and back[0] == 0 and back[15] == 0 and back[16] == 7
+  print(same, pad_ok, zeroed)
+
+test "crypto xchacha draft", '''
+  bd6d179d3e83d43b9576579493c0e939572a1700252bfaccbed2902c21396cbb731c7f1b0b4aa6440bf3a82f4eda7e39ae64c6708c54c216cb96b72e1213b4522f8c9ba40db5d945b11b69b982c1bb9e3f3fac2bc369488f76b2383565d3fff921f9664c97637da9768812f615c68b13b52e
+  c0875924c1c7987947deafd8780acf49
+  true
+  Forged.tag
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  fun unhex[n: Int](h: ?String) -> [n]U8
+    out: [n]U8 = [n of 0]
+    for i in 0..n
+      hi = h[2 * i]
+      lo = h[2 * i + 1]
+      out[i] = (hi - 48 if hi <= 57 else hi - 87) * 16 + (lo - 48 if lo <= 57 else lo - 87)
+    out
+
+  # draft-irtf-cfrg-xchacha-03 §A.3.1, whose HChaCha20 subkey is §2.2.1's.
+  sun = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
+  x = crypto.XChaCha.of(unhex[32]("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
+  nonce = unhex[24]("404142434445464748494a4b4c4d4e4f5051525354555657")
+  header = unhex[12]("50515253c0c1c2c3c4c5c6c7")
+  buf: List[U8] = List()
+  for b in sun
+    !buf.push(b)
+  tag = x.seal(!buf, nonce, header)
+  print(hx(buf))
+  print(hx(tag))
+  x.open(!buf, tag, nonce, header)!
+  back = true
+  for i in 0..sun.len
+    back = back and buf[i] == sun[i]
+  print(back)
+  tag[0] ^= 1
+  x.open(!buf, tag, nonce, header) catch |e|
+    print(e)
+
+test "crypto x25519 rfc 7748", '''
+  c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552
+  95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957
+  8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a
+  de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f
+  4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742
+  4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  fun unhex[n: Int](h: ?String) -> [n]U8
+    out: [n]U8 = [n of 0]
+    for i in 0..n
+      hi = h[2 * i]
+      lo = h[2 * i + 1]
+      out[i] = (hi - 48 if hi <= 57 else hi - 87) * 16 + (lo - 48 if lo <= 57 else lo - 87)
+    out
+
+  # §5.2: two scalars and u-coordinates.
+  s1 = x25519.Secret.of(unhex[32]("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"))
+  print(hx(s1.share(unhex[32]("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"))!))
+  s2 = x25519.Secret.of(unhex[32]("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d"))
+  print(hx(s2.share(unhex[32]("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493"))!))
+  # §6.1: Alice's and Bob's public keys, and the secret they share.
+  alice = x25519.Secret.of(unhex[32]("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"))
+  bob = x25519.Secret.of(unhex[32]("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"))
+  print(hx(alice.public()))
+  print(hx(bob.public()))
+  print(hx(alice.share(bob.public())!))
+  print(hx(bob.share(alice.public())!))
+
+test "crypto x25519 iterated", '''
+  422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079
+  684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  # §5.2, iterated: k and u start at 9; each step k, u = X25519(k, u), k.
+  k: [32]U8 = [32 of 0]
+  k[0] = 9
+  u = k
+  for i in 0..1000
+    r = x25519.Secret.of(k).share(u)!
+    u = k
+    k = r
+    if i == 0
+      print(hx(k))
+  print(hx(k))
+
+test "crypto x25519 low order", '''
+  KeyError.low_order
+  KeyError.low_order
+  KeyError.low_order
+  KeyError.low_order
+  KeyError.low_order
+'''
+  # Points of order 1, 2, 4, and 8, and p (u = 0 again), each give a
+  # shared secret of zero, which `share` refuses.
+  s = x25519.Secret.of([32 of 0x5a])
+  peers: [5][32]U8 = [[32 of 0], [32 of 0], [32 of 0], [32 of 0], [32 of 0xff]]
+  peers[1][0] = 1
+  low = [0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f, 0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16, 0x5f, 0x49, 0xb8, 0x00]
+  high = [0x5f, 0x9c, 0x95, 0xbc, 0xa3, 0x50, 0x8c, 0x24, 0xb1, 0xd0, 0xb1, 0x55, 0x9c, 0x83, 0xef, 0x5b, 0x04, 0x44, 0x5c, 0xc4, 0x58, 0x1c, 0x8e, 0x86, 0xd8, 0x22, 0x4e, 0xdd, 0xd0, 0x9f, 0x11, 0x57]
+  for i in 0..32
+    peers[2][i] = U8(low[i])
+    peers[3][i] = U8(high[i])
+  peers[4][0] = 0xed
+  peers[4][31] = 0x7f
+  for p in peers
+    _ = s.share(p) catch |e|
+      print(e)
+      [32 of 0]
+
+test "crypto x25519 comb and ladder agree", "true true"
+  # The public key, by the comb, is the ladder's product with the base
+  # point, for 64 keys; and two new secrets share one secret.
+  base: [32]U8 = [32 of 0]
+  base[0] = 9
+  same = true
+  z: U64 = 0x9e3779b97f4a7c15
+  for _ in 0..64
+    k: [32]U8 = [32 of 0]
+    for j in 0..4
+      z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9 +% 0x94d049bb133111eb
+      !k.write[U64, .little](8 * j, z)
+    s = x25519.Secret.of(k)
+    same = same and crypto.equal(s.public(), s.share(base)!)
+  a = x25519.Secret.new()
+  b = x25519.Secret.new()
+  print(same, crypto.equal(a.share(b.public())!, b.share(a.public())!))
+
+test "crypto blake2s rfc 7693", '''
+  508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982
+  6a411f08ce25adcdfb02aba641451cec53c598b24f4fc787fbdc88797f4c1dfe
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  # Appendix E's sequence: a Fibonacci stream's top bytes.
+  fun seq(n: Int, seed: U32) -> List[U8]
+    a: U32 = 0xDEAD4BAD *% seed
+    b: U32 = 1
+    out: List[U8] = List()
+    for _ in 0..n
+      t = a +% b
+      a = b
+      b = t
+      !out.push(U8.wrap(t >> 24))
+    out
+
+  # One output length of Appendix E: unkeyed and keyed hashes of six
+  # lengths, added to the grand hash.
+  sub feed[n: Int](grand: !blake2s.Hasher)
+    nob: [0]U8 = []
+    for inlen in [0, 3, 64, 65, 255, 1024]
+      input = seq(inlen, U32(inlen))
+      !grand.add(blake2s.mac[n](nob, input))
+      !grand.add(blake2s.mac[n](seq(n, U32(n)), input))
+
+  # Appendix B: "abc".
+  abc: [3]U8 = [0x61, 0x62, 0x63]
+  print(hx(blake2s.hash(abc)))
+  # Appendix E: the self-test's grand hash, over output lengths 16, 20,
+  # 28, and 32.
+  grand = blake2s.Hasher()
+  feed[16](!grand)
+  feed[20](!grand)
+  feed[28](!grand)
+  feed[32](!grand)
+  print(hx(<grand.done()))
+
+test "crypto blake2s keyed", '''
+  48a8997da407876b3d79c0d92325ad3b89cbb754d86ab71aee047ad345fd2c49
+  40d15fee7c328830166ac3f918650f807e7e01e177258cdc0a39b11f598066f1
+  3fb735061abc519dfe979e54c1ee5bfad0a9d858b3315bad34bde999efd724dd
+  cd075928ab7e6883e697fe7fd3ac43ee
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  # The BLAKE2 team's keyed known answers (blake2s-kat.txt): key 00..1f,
+  # inputs of 0, 1, and 255 bytes 00, 01, ...; and the 16-byte MAC of the
+  # last, as Zig's std.crypto gives it.
+  key: [32]U8 = [32 of 0]
+  input: [255]U8 = [255 of 0]
+  for i in 0..32
+    key[i] = U8(i)
+  for i in 0..255
+    input[i] = U8(i)
+  print(hx(blake2s.mac[32](key, input[..0])))
+  print(hx(blake2s.mac[32](key, input[..1])))
+  print(hx(blake2s.mac[32](key, input)))
+  print(hx(blake2s.mac[16](key, input)))
+
+test "crypto blake2s hmac", '''
+  e2641d24dfa8dd89e8cb77f1cdc77d8c006e5bebdfc4d6a3a3a6f8d5b7586fb0
+  82623be5bc0a391b24dce53e67d028eff92d586de0485ac37822e597d049c74f
+  9b73679035213d2d7000d8d61e7e2e12fcd284dad2237473759fc4d744568623
+  f47e6d5742db959c51458b29d6498e9ed851d80aba62052450dae78993dedc2f
+  c1b751501db12b753069a918627b623179be55c8cc7ca5c4e14bdf32274ac656
+  4a79a31b10a8c34b7c89735b8088e6b810b4bad4f36d671b65ca2ea0914952bf
+  true
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  # HMAC-BLAKE2s as Zig's std.crypto.auth.hmac gives it, with keys of 32,
+  # 64, 100 (hashed first), and 1 bytes.
+  key: [100]U8 = [100 of 0]
+  input: [255]U8 = [255 of 0]
+  for i in 0..100
+    key[i] = U8(i)
+  for i in 0..255
+    input[i] = U8(i)
+  abc: [3]U8 = [0x61, 0x62, 0x63]
+  print(hx(blake2s.hmac(key[..32], input[..0])))
+  print(hx(blake2s.hmac(key[..32], abc)))
+  print(hx(blake2s.hmac(key[..32], input)))
+  print(hx(blake2s.hmac(key[..64], input)))
+  print(hx(blake2s.hmac(key, abc)))
+  print(hx(blake2s.hmac(key[..1], abc)))
+  # A key used again gives what `hmac` gives, at every length to 300.
+  m = blake2s.Hmac.of(key[..32])
+  long: List[U8] = List()
+  for i in 0..300
+    !long.push(U8.wrap(i *% 13))
+  same = true
+  for n in 0..301
+    same = same and crypto.equal(m.mac(long[..n]), blake2s.hmac(key[..32], long[..n]))
+  print(same)
+
+test "crypto blake2s wireguard", '''
+  60e26daef327efc02ec335e2a025d2d016eb4206f87277f52d38d1988b78cd36
+  2211b361081ac566691243db458ad5322d9c6c662293e8b70ee19c65ba079ef3
+'''
+  fun hx(b: []U8) -> String
+    d = "0123456789abcdef"
+    s = String()
+    for x in b
+      !s.push(d[Int(x >> 4)])
+      !s.push(d[Int(x & 15)])
+    s
+
+  fun text(s: ?String) -> List[U8]
+    out: List[U8] = List()
+    for b in s
+      !out.push(b)
+    out
+
+  # WireGuard's first chaining key, the hash of its construction, and its
+  # first hash, of that key and its identifier.
+  ck = blake2s.hash(text("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s"))
+  print(hx(ck))
+  h = blake2s.Hasher()
+  !h.add(ck)
+  !h.add(text("WireGuard v1 zx2c4 Jason@zx2c4.com"))
+  print(hx(<h.done()))
+
+test "crypto blake2s hasher", true
+  # Added in two pieces, at every split of every length to 300, a Hasher
+  # gives the one-shot hash.
+  data: List[U8] = List()
+  for i in 0..300
+    !data.push(U8.wrap(i *% 31 +% 1))
+  same = true
+  for n in 0..301
+    for cut in [0, n / 3, n / 2, n]
+      h = blake2s.Hasher()
+      !h.add(data[..cut])
+      !h.add(data[cut..n])
+      same = same and crypto.equal(<h.done(), blake2s.hash(data[..n]))
+  same
+
+test "crypto wipe and equal", "0 true false false true"
+  b: [40]U8 = [40 of 0xab]
+  crypto.wipe(!b[..33])
+  t = 0
+  for x in ?b[..33]
+    t += Int(x)
+  c: [3]U8 = [1, 2, 3]
+  d: [3]U8 = [1, 2, 4]
+  print(t, b[33] == 0xab, crypto.equal(c, d), crypto.equal(c, d[..2]), crypto.equal(c[..0], d[..0]))
+
+fail "crypto open fails visibly", "must be wrapped with `!`"
+  c = crypto.ChaCha.of([32 of 1])
+  buf: [4]U8 = [4 of 0]
+  nonce: [12]U8 = [12 of 0]
+  nob: [0]U8 = []
+  tag = c.seal(!buf, nonce, nob)
+  c.open(!buf, tag, nonce, nob)
+
+fail "crypto a key moves", "`c`"
+  c = crypto.ChaCha.of([32 of 1])
+  d = c
+  print(d, c)
+
+fail "crypto a key is private", "private"
+  c = crypto.ChaCha.of([32 of 1])
+  print(c.key[0])
+
+test "crypto key objects print no key", "ChaCha(…) XChaCha(…) Secret(…) Hmac(…)"
+  k: [32]U8 = [32 of 1]
+  print(crypto.ChaCha.of(k), crypto.XChaCha.of(k), x25519.Secret.of(k), blake2s.Hmac.of(?k))
+
+test "crypto open_into fails on a short message", '''
+  Forged.tag
+  Forged.tag
+  7
+'''
+  c = crypto.ChaCha.of([32 of 1])
+  nonce: [12]U8 = [12 of 0]
+  nob: [0]U8 = []
+  dst: [4]U8 = [4 of 7]
+  short: [15]U8 = [15 of 0]
+  c.open_into(!dst, short, nonce, nob) catch |e|
+    print(e)
+  c.open_into(!dst, nob, nonce, nob) catch |e|
+    print(e)
+  print(dst[0])
+
+bomb "crypto open_into needs room", "crypto: open_into needs room in `dst`"
+  c = crypto.ChaCha.of([32 of 1])
+  nonce: [12]U8 = [12 of 0]
+  nob: [0]U8 = []
+  dst: [4]U8 = [4 of 7]
+  src: [21]U8 = [21 of 0]
+  c.open_into(!dst, src, nonce, nob) catch |e|
+    print(e)
+
+test "crypto random", "true true"
+  a: [32]U8 = [32 of 0]
+  b: [32]U8 = [32 of 0]
+  crypto.random(!a)
+  crypto.random(!b)
+  z: [32]U8 = [32 of 0]
+  print(not crypto.equal(a, b), not crypto.equal(a, z))
+
+fail "crypto share fails visibly", "must be wrapped with `!`"
+  s = x25519.Secret.of([32 of 1])
+  k = s.share(s.public())
+  print(k[0])
+
+bomb "crypto seal_into needs room", "crypto: seal_into needs room for the message and its 16-byte tag"
+  c = crypto.ChaCha.of([32 of 1])
+  src: [10]U8 = [10 of 0]
+  dst: [20]U8 = [20 of 0]
+  nonce: [12]U8 = [12 of 0]
+  nob: [0]U8 = []
+  c.seal_into(!dst, src, nonce, nob)
+
+bomb "crypto mac length", "blake2s: a key holds at most 32 bytes"
+  key: [33]U8 = [33 of 0]
+  nob: [0]U8 = []
+  print(blake2s.mac[16](key, nob)[0])

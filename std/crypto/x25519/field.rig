@@ -1,0 +1,142 @@
+# std.crypto.x25519: GF(2^255 - 19) in five 51-bit limbs, with U128
+# products.
+#
+# Bounds: `reduce` gives limbs below 2^51 + 2^12, and the table holds
+# canonical limbs below 2^51. The largest limb a sum of the curve's
+# formulas reaches is below 5 * 2^51 (about 2^53.33): `dbl`'s `f`, twice a
+# square plus `fsub`'s a + 2p - b, which is below 3 * 2^51; every other
+# sum is below 2^53. So a limb times 19 is below 2^57.6, a column of a
+# product or square below 2^114 (and `r4`, which has no factor 19, below
+# 2^109), `r0 >> 51` fits a U64, and `reduce`'s `(s4 >> 51) * 19` is
+# below 2^62.3. Nothing overflows, so the arithmetic wraps (`+%`, `*%`),
+# which a release build does not check: a check on a secret limb would be
+# a branch on it, however rarely taken. A change that adds a larger sum
+# must check these bounds again: wrapping arithmetic would not report an
+# overflow, even in a debug build.
+
+type Fe = [5]U64
+
+M51: U64 = 0x7FFFFFFFFFFFF
+TWO_P0: U64 = 0xFFFFFFFFFFFDA
+TWO_PI: U64 = 0xFFFFFFFFFFFFE
+
+fun fe(n: U64) -> Fe
+  [n, 0, 0, 0, 0]
+
+# The field element of 32 little-endian bytes, the top bit ignored.
+inline fun from_bytes(b: ?[32]U8) -> Fe
+  [b.read[U64, .little](0) & M51,
+   (b.read[U64, .little](6) >> 3) & M51,
+   (b.read[U64, .little](12) >> 6) & M51,
+   (b.read[U64, .little](19) >> 1) & M51,
+   (b.read[U64, .little](24) >> 12) & M51]
+
+inline fun carry(a: Fe) -> Fe
+  h = a
+  h[1] = h[1] +% (h[0] >> 51)
+  h[0] &= M51
+  h[2] = h[2] +% (h[1] >> 51)
+  h[1] &= M51
+  h[3] = h[3] +% (h[2] >> 51)
+  h[2] &= M51
+  h[4] = h[4] +% (h[3] >> 51)
+  h[3] &= M51
+  h[0] = h[0] +% 19 *% (h[4] >> 51)
+  h[4] &= M51
+  h
+
+# The canonical bytes: fully reduced below p.
+fun to_bytes(a: Fe) -> [32]U8
+  h = carry(a)
+  q = (h[0] +% 19) >> 51
+  q = (h[1] +% q) >> 51
+  q = (h[2] +% q) >> 51
+  q = (h[3] +% q) >> 51
+  q = (h[4] +% q) >> 51
+  h[0] = h[0] +% 19 *% q
+  h[1] = h[1] +% (h[0] >> 51)
+  h[0] &= M51
+  h[2] = h[2] +% (h[1] >> 51)
+  h[1] &= M51
+  h[3] = h[3] +% (h[2] >> 51)
+  h[2] &= M51
+  h[4] = h[4] +% (h[3] >> 51)
+  h[3] &= M51
+  h[4] &= M51
+  out: [32]U8 = [32 of 0]
+  !out.write[U64, .little](0, h[0] | (h[1] <<% 51))
+  !out.write[U64, .little](8, (h[1] >> 13) | (h[2] <<% 38))
+  !out.write[U64, .little](16, (h[2] >> 26) | (h[3] <<% 25))
+  !out.write[U64, .little](24, (h[3] >> 39) | (h[4] <<% 12))
+  out
+
+inline fun add(a: Fe, b: Fe) -> Fe
+  [a[0] +% b[0], a[1] +% b[1], a[2] +% b[2], a[3] +% b[3], a[4] +% b[4]]
+
+# a - b + 2p, for b's limbs below 2^52 - 38, as every product's are.
+inline fun fsub(a: Fe, b: Fe) -> Fe
+  [a[0] +% TWO_P0 -% b[0], a[1] +% TWO_PI -% b[1], a[2] +% TWO_PI -% b[2], a[3] +% TWO_PI -% b[3], a[4] +% TWO_PI -% b[4]]
+
+inline fun m(x: U64, y: U64) -> U128
+  U128(x) *% U128(y)
+
+inline fun reduce(r0: U128, r1: U128, r2: U128, r3: U128, r4: U128) -> Fe
+  h0 = U64.wrap(r0) & M51
+  s1 = r1 +% U128(U64.wrap(r0 >> 51))
+  h1 = U64.wrap(s1) & M51
+  s2 = r2 +% U128(U64.wrap(s1 >> 51))
+  h2 = U64.wrap(s2) & M51
+  s3 = r3 +% U128(U64.wrap(s2 >> 51))
+  h3 = U64.wrap(s3) & M51
+  s4 = r4 +% U128(U64.wrap(s3 >> 51))
+  h4 = U64.wrap(s4) & M51
+  g0 = h0 +% U64.wrap(s4 >> 51) *% 19
+  [g0 & M51, h1 +% (g0 >> 51), h2, h3, h4]
+
+inline fun mul(a: Fe, b: Fe) -> Fe
+  b1 = b[1] *% 19
+  b2 = b[2] *% 19
+  b3 = b[3] *% 19
+  b4 = b[4] *% 19
+  r0 = m(a[0], b[0]) +% m(a[1], b4) +% m(a[2], b3) +% m(a[3], b2) +% m(a[4], b1)
+  r1 = m(a[0], b[1]) +% m(a[1], b[0]) +% m(a[2], b4) +% m(a[3], b3) +% m(a[4], b2)
+  r2 = m(a[0], b[2]) +% m(a[1], b[1]) +% m(a[2], b[0]) +% m(a[3], b4) +% m(a[4], b3)
+  r3 = m(a[0], b[3]) +% m(a[1], b[2]) +% m(a[2], b[1]) +% m(a[3], b[0]) +% m(a[4], b4)
+  r4 = m(a[0], b[4]) +% m(a[1], b[3]) +% m(a[2], b[2]) +% m(a[3], b[1]) +% m(a[4], b[0])
+  reduce(r0, r1, r2, r3, r4)
+
+inline fun sq(a: Fe) -> Fe
+  d0 = a[0] *% 2
+  d1 = a[1] *% 2
+  a3_19 = a[3] *% 19
+  a4_19 = a[4] *% 19
+  r0 = m(a[0], a[0]) +% m(d1, a4_19) +% m(a[2] *% 2, a3_19)
+  r1 = m(d0, a[1]) +% m(a[2] *% 2, a4_19) +% m(a[3], a3_19)
+  r2 = m(d0, a[2]) +% m(a[1], a[1]) +% m(a[3] *% 2, a4_19)
+  r3 = m(d0, a[3]) +% m(d1, a[2]) +% m(a[4], a4_19)
+  r4 = m(d0, a[4]) +% m(d1, a[3]) +% m(a[2], a[2])
+  reduce(r0, r1, r2, r3, r4)
+
+fun sqn(a: Fe, n: Int) -> Fe
+  r = a
+  for _ in 0..n
+    r = sq(r)
+  r
+
+inline fun mul_small(a: Fe, k: U64) -> Fe
+  reduce(m(a[0], k), m(a[1], k), m(a[2], k), m(a[3], k), m(a[4], k))
+
+# 1/z = z^(p-2), by the addition chain of 2^255 - 21; 0 for 0.
+fun invert(z: Fe) -> Fe
+  z2 = sq(z)
+  z9 = mul(sqn(z2, 2), z)
+  z11 = mul(z9, z2)
+  z5 = mul(sq(z11), z9)
+  z10 = mul(sqn(z5, 5), z5)
+  z20 = mul(sqn(z10, 10), z10)
+  z40 = mul(sqn(z20, 20), z20)
+  z50 = mul(sqn(z40, 10), z10)
+  z100 = mul(sqn(z50, 50), z50)
+  z200 = mul(sqn(z100, 100), z100)
+  z250 = mul(sqn(z200, 50), z50)
+  mul(sqn(z250, 5), z11)

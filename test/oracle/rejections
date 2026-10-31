@@ -3757,6 +3757,7 @@ test/reject/ownership/write_view_returned_while_a_task_holds_it.rig Tab.tail
 test/reject/ownership/write_view_view_in_loop.rig main
 test/reject/ownership/write_view_while_read_live.rig main
 test/reject/std/bigint_use_after_move.rig main
+test/reject/std/crypto_a_key_moves.rig main
 test/reject/std/hashmap_value_view_keeps_its_loan.rig main
 test/reject/std/net_split_no_write_after_the_writer's_close.rig main
 test/reject/std/random_holder_moves.rig main
