@@ -206,7 +206,40 @@ xmalloc-test is level, within the noise floor, and sh8bench is faster. kv 64 KiB
 edge of the bar. The likely mechanism is the 1 MiB bound: a heap whose kept bytes cross it pays a
 `madvise` on the free, then zero-fill faults on the block's reuse.
 
-## Next
+## Round 5 on pup (quiet, 14:58-15:11): targeted variants for kv's large-block path
+
+Swiss asked for one round on kv's cost. The Mac showed kv level by cycles, because macOS's
+`MADV_FREE_REUSABLE` is lazy, so the round ran on pup. Four variants of the PR's alloc.zig
+([variants/](variants/)) ran against main 144f70057 and the PR, for 10 rounds. Raw rows:
+[pup-round5.txt](pup-round5.txt).
+
+kv 64 KiB, paired against main in the same round (above 1 is faster), with the median peak RSS:
+
+| Build | median | geomean | faster in | RSS |
+|---|---|---|---|---|
+| main 144f70057 | (249k req/s) | | | 56 MB |
+| PR (1 MiB resident) | 0.989 | 0.958 | 3 of 10 | 34 MB |
+| r2 (2 MiB) | 0.965 | 0.946 | 1 of 10 | 39 MB |
+| r4 (4 MiB) | 0.915 | 0.915 | 1 of 10 | 46 MB |
+| lifo (keep the newest, give back the oldest) | 0.951 | 0.938 | 1 of 10 | 47 MB |
+| hyst (give back past 2 MiB, down to 1 MiB) | 0.957 | 0.939 | 2 of 10 | 38 MB |
+
+No variant brings kv within 1%. A larger bound or LIFO order is slower, not faster, so the cost
+is not the number of `madvise` calls at the bound. xmalloc-test was 0.955-0.989 for all of them
+(r4 0.915), and sh8bench 0.986-1.042.
+
+## The trade (for the owner)
+
+Arm a, PR #815:
+- kv with 64 KiB values on 22 workers: 34-40 MB rather than 56-61 MB (about 34% less), for
+  1.1-1.5% fewer requests a second by the median of 50 pairs, 3.3-4.2% by the geomean.
+- xmalloc-test: 80 MB rather than 275 MB (71% less), level within the noise floor.
+- sh8bench: level to 1.6% faster.
+- Trig's time and memory, and every other bench, unchanged.
+
+The brief's bar is "nothing slower", so the work stops here.
+
+## Next (superseded by the trade above)
 
 1. Build Trig PGO for arm a on the E-cores, and time ts-pattern and zod3 against main's build
    (`harness/trigtime.sh`, core 3, about 10 minutes). Default: yes, with a only.
