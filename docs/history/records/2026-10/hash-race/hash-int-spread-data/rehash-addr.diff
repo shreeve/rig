@@ -1,0 +1,104 @@
+diff --git a/src/unordered.zig b/src/unordered.zig
+index 71135a060..044bab2aa 100644
+--- a/src/unordered.zig
++++ b/src/unordered.zig
+@@ -624,13 +624,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
+         fn rehash(self: *Self, n: usize) void {
+             const new = newArrays(n);
+             if (self.elements) |es| {
+-                for (0..self.mask + 1) |g| {
+-                    var m = matchFull(&self.groups[g]);
+-                    while (m != 0) : (m &= m - 1) {
+-                        const e = &es[g * NL + laneOf(m)];
+-                        new.elements[emplace(new, hashOf(e))] = e.*;
+-                    }
+-                }
++                self.moveAll(es, new);
+             }
+             freeArrays(self.elements, self.mask);
+             self.groups = new.groups;
+@@ -640,6 +634,52 @@ fn Unordered(comptime K: type, comptime V: type) type {
+             self.ml = self.initialMaxLoad();
+         }
+ 
++        /// Every entry moved into `new`. The groups the last two entries
++        /// went to, and the lanes they took, are kept: an entry homed to
++        /// one of them takes the lane after, and loads a spare group in
++        /// place of its own, so no entry loads a group a tag was just
++        /// stored into, a load the store would hold up (a 16-byte load over
++        /// a pending 1-byte store waits for it to commit). An entry whose
++        /// group is full is placed by `emplace`.
++        fn moveAll(self: *const Self, es: [*]Element, new: Arrays) void {
++            const spare: Group = .{ .m = @splat(0) };
++            var p1: usize = std.math.maxInt(usize);
++            var l1: usize = 0;
++            var p2: usize = std.math.maxInt(usize);
++            var l2: usize = 0;
++            for (0..self.mask + 1) |g| {
++                var m = matchFull(&self.groups[g]);
++                while (m != 0) : (m &= m - 1) {
++                    const e = &es[g * NL + laneOf(m)];
++                    const hash = hashOf(e);
++                    const h = homeOf(hash, new.shift);
++                    const in1 = h.pos == p1;
++                    const in2 = h.pos == p2;
++                    const kept = in1 or in2;
++                    const free = matchFree(load(if (kept) &spare else &new.groups[h.pos]));
++                    const next = (if (in1) l1 else l2) + 1;
++                    const lanes = NL - @intFromBool(h.pos == new.mask);
++                    var pos = h.pos;
++                    var lane = if (kept) next else laneOf(free);
++                    if (if (kept) next < lanes else free != 0) {
++                        @branchHint(.likely);
++                        new.groups[pos].m[lane] = h.tag;
++                    } else {
++                        const slot = emplace(new, hash);
++                        pos = slot / NL;
++                        lane = slot - pos * NL;
++                    }
++                    new.elements[pos * NL + lane] = e.*;
++                    if (pos != p1) {
++                        p2 = p1;
++                        l2 = l1;
++                    }
++                    p1 = pos;
++                    l1 = lane;
++                }
++            }
++        }
++
+         /// The slot `p`, whose entry is moved out or dropped, freed; the
+         /// maximum load lowered by one where a probe may walk past it.
+         inline fn recover(self: *Self, pg: *Group, lane: usize) void {
+@@ -1033,6 +1073,31 @@ test "unordered: a set of strided keys" {
+     while (i < 20_000) : (i += 1) try testing.expect(s.find(i << 20) != null and s.find((i << 20) + 1) == null);
+ }
+ 
++test "unordered: growth moves every entry, crowded and overflowed ones too" {
++    // Dense keys and multiples of 2^32 crowd some groups under a
++    // one-multiply hash, so entries overflow past home before growth
++    // moves them; the table is checked after each growth.
++    for ([_]u6{ 0, 32 }) |shift| {
++        var m: UnorderedMap(i64, i64) = .{};
++        defer m.__rig_drop();
++        var mask = m.mask;
++        var grown: usize = 0;
++        var i: i64 = 0;
++        while (i < 20_000) : (i += 1) {
++            try testing.expect(m.put(i << shift, i));
++            if (m.mask != mask) {
++                mask = m.mask;
++                grown += 1;
++                try m.verify();
++            }
++        }
++        try testing.expect(grown >= 8);
++        i = 0;
++        while (i < 20_000) : (i += 1) try testing.expectEqual(i, m.value(m.find(i << shift).?));
++        try testing.expect(m.find(@as(i64, 20_000) << shift) == null);
++    }
++}
++
+ test "unordered: random writes, takes, retains, and clears against a model" {
+     const gpa = testing.allocator;
+     for ([_]u64{ 40, 3000, 100_000 }, 0..) |range, seed| {

@@ -1,0 +1,22 @@
+547a548,564
+>         /// emplace for a rehash: the free lane found by byte loads, so no
+>         /// load waits on the tag just stored into the same group.
+>         inline fn emplaceGrown(a: Arrays, hash: u64) usize {
+>             const h = homeOf(hash, a.shift);
+>             var pb: Prober = .{ .pos = h.pos };
+>             while (true) : (_ = pb.next(a.mask)) {
+>                 const pg = &a.groups[pb.pos];
+>                 var lane: usize = 0;
+>                 while (lane < NL and @as(*volatile u8, &pg.m[lane]).* != 0) lane += 1;
+>                 if (lane < NL) {
+>                     pg.m[lane] = h.tag;
+>                     return pb.pos * NL + lane;
+>                 }
+>                 markOverflow(pg, h.tag);
+>             }
+>         }
+> 
+646c663
+<                         new.elements[emplace(new, hashOf(e))] = e.*;
+---
+>                         new.elements[emplaceGrown(new, hashOf(e))] = e.*;

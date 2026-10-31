@@ -558,6 +558,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   compiled for itself and not with the other rows of its group. Every
   line's checksum is unchanged; the guard's program already timed each
   row alone, and its baseline is unchanged.
+- **A HashMap spreads dense and strided Int keys.** Its integer hash
+  multiplies by `0xa46445d6b41313ff`, where `0x4b33a62ed433d4a3` crowded
+  dense keys into a few groups: 4096 keys 0 to 4095 walked 5 groups past
+  home a lookup, and knucleotide-fast without its key mix took 1.55 s,
+  now 0.52 s (0.55 s with the mix under the old multiplier). Dense,
+  strided and golden-ratio keys stay at their home group at every size a
+  new test tries, and a test asks that the multiplier be odd. On the
+  Mac two bench/hash rows are slower, as the owner accepted: int
+  iterate (1M keys) by 7.0-7.5% and int1000 remove by 9.0-9.7%
+  ([hash-int-spread.md](docs/history/records/2026-10/hash-race/hash-int-spread.md)).
 - **A HashMap grows without waiting on its own stores, on x86-64.** A
   growth to twice the groups places each entry at the next free lane
   of its new group, kept as a count, where it loaded the group's control

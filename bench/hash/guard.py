@@ -23,7 +23,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 BASE = os.path.join(HERE, "guard.txt")
 ROWS = ["int-hit", "int-miss", "int-churn", "int-iterate", "text-hit", "text-miss",
-        "text-churn", "pair-hit", "small-hit"]
+        "text-churn", "pair-hit", "small-hit", "dense-count"]
 TABLES = {"map": lambda s: s,
           "hashmap": lambda s: s.replace("Map[", "HashMap[").replace("Set[", "HashSet[")}
 N = 100000           # the operations of one repetition (guard.rig's N)

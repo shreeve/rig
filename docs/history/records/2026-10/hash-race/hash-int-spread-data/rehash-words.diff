@@ -1,0 +1,86 @@
+diff --git a/src/unordered.zig b/src/unordered.zig
+index 6ae3d705d..19a11eaaa 100644
+--- a/src/unordered.zig
++++ b/src/unordered.zig
+@@ -644,45 +644,56 @@ fn Unordered(comptime K: type, comptime V: type) type {
+             self.ml = self.initialMaxLoad();
+         }
+ 
++        /// A group's control bytes as one integer, lane `i` its byte `i`.
++        const Word = @Int(.unsigned, W * 8);
++
+         /// Every entry moved into `new`, of twice the groups. An entry at
+         /// home in old group `g` is at home in new group `2g` or `2g + 1`,
+-        /// and a group's lanes fill in order, so the pair's next free lanes
+-        /// are kept as counts, read once for `g`: no entry loads a group the
+-        /// entry before it wrote a tag into, a load the store would hold up
+-        /// (a 16-byte load over a pending 1-byte store waits for it to
+-        /// commit: bench/hash's 100,000-key inserts 12% slower on pup when
+-        /// half the entries met it). An entry that overflowed, or whose new
+-        /// group is full, is placed by `emplace`, and the counts follow it.
++        /// and a group's lanes fill in order, so for each `g` the pair's
++        /// control words are read once, its entries' tags set into them in
++        /// registers at the next free lanes, and the words stored once: no
++        /// entry loads a group a tag was just stored into, a load the store
++        /// would hold up (a 16-byte load over a pending 1-byte store waits
++        /// for it to commit: bench/hash's 100,000-key inserts 12% slower on
++        /// pup when half the entries met it). The loop has no branch on an
++        /// entry: one that overflowed, or whose new group is full, writes
++        /// its element aside and is placed by `emplace` after the stores.
+         fn moveDoubled(self: *const Self, es: [*]Element, new: Arrays) void {
++            var aside: Element = undefined;
+             for (0..self.mask + 1) |g| {
+                 var m = matchFull(&self.groups[g]);
+                 if (m == 0) continue;
+                 const pair = 2 * g;
+-                var even: usize = @popCount(matchFull(&new.groups[pair]));
+-                var odd: usize = @popCount(matchFull(&new.groups[pair + 1]));
++                const pe = &new.groups[pair];
++                const po = &new.groups[pair + 1];
++                var even: usize = @popCount(matchFull(pe));
++                var odd: usize = @popCount(matchFull(po));
++                var we: Word = @bitCast(pe.m);
++                var wo: Word = @bitCast(po.m);
+                 // The last group's last lane holds the sentinel.
+                 const odd_lanes: usize = if (pair + 1 == new.mask) NL - 1 else NL;
++                var later: Mask = 0;
+                 while (m != 0) : (m &= m - 1) {
+                     const e = &es[g * NL + laneOf(m)];
+-                    const hash = hashOf(e);
+-                    const h = homeOf(hash, new.shift);
++                    const h = homeOf(hashOf(e), new.shift);
+                     const is_odd = h.pos & 1 != 0;
+                     const lane = if (is_odd) odd else even;
+                     const lanes = if (is_odd) odd_lanes else NL;
+-                    var slot: usize = undefined;
+-                    if (h.pos >> 1 == g and lane < lanes) {
+-                        @branchHint(.likely);
+-                        new.groups[h.pos].m[lane] = h.tag;
+-                        slot = h.pos * NL + lane;
+-                        even += @intFromBool(!is_odd);
+-                        odd += @intFromBool(is_odd);
+-                    } else {
+-                        slot = emplace(new, hash);
+-                        const pos = slot / NL;
+-                        if (pos == pair) even += 1;
+-                        if (pos == pair + 1) odd += 1;
+-                    }
+-                    new.elements[slot] = e.*;
++                    const fits = h.pos >> 1 == g and lane < lanes;
++                    const bits = @as(Word, if (fits) h.tag else 0) << @intCast(lane * 8);
++                    we |= if (is_odd) 0 else bits;
++                    wo |= if (is_odd) bits else 0;
++                    even += @intFromBool(fits and !is_odd);
++                    odd += @intFromBool(fits and is_odd);
++                    const to = if (fits) &new.elements[h.pos * NL + lane] else &aside;
++                    to.* = e.*;
++                    later |= if (fits) 0 else m & (~m +% 1);
++                }
++                pe.m = @bitCast(we);
++                po.m = @bitCast(wo);
++                while (later != 0) : (later &= later - 1) {
++                    const e = &es[g * NL + laneOf(later)];
++                    new.elements[emplace(new, hashOf(e))] = e.*;
+                 }
+             }
+         }

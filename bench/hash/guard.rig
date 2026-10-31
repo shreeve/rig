@@ -155,6 +155,20 @@ called fun small_hit(reps: Int) -> Int
         sum += v
   sum
 
+# N counts into a Map of the 4096 keys 0 to 4095, in a scrambled order,
+# as a count of short codes makes them.
+called fun dense_count(reps: Int) -> Int
+  ks: List[Int] = List(capacity: N)
+  for i in 0..N
+    !ks.push(scatter(i) & 4095)
+  m = IntMap()
+  for k in ?ks
+    (!m).ensure(k, 0) += 1
+  for _ in 0..reps
+    for k in ?ks
+      (!m).ensure(k, 0) += 1
+  m.len
+
 sub main()
   args = os.args()
   if args.len < 3
@@ -180,5 +194,7 @@ sub main()
     print(pair_hit(reps))
   else if row == "small-hit"
     print(small_hit(reps))
+  else if row == "dense-count"
+    print(dense_count(reps))
   else
     print("guard: no row", row)

@@ -1,0 +1,47 @@
+pup, P-core 6, probe.rig built by mkm.sh per multiplier (perf stat, user events)
+
+insert 100000 (int_insert_maps only: 40 maps of 100,000 golden-stride keys, 4M inserts)
+                       main 4b33a6   6f95cb      f560ea
+row ns per 1M          9414207       10275140    9222647
+cycles                 155684558     176121081   156847085
+instructions           414698392     415868879   390145034
+l1_miss                4907369       4819128     3167138
+l2_miss                147358        119409      6908
+ld_blocks.store_fwd    409301        1946589     1187289
+branch-misses          81544         174756      164196
+page-faults            1484          1484        1484
+perf record: every ld_blocks.store_forward sample is in Unordered.rehash;
+cycles: rehash 44.7% (main) and 53.5% (6f95), int_insert_maps 50.0% and 41.9%.
+Rehash model (rh.py, K1 = a placement into the group the placement
+before it filled): 0.078 / 0.504 / 0.287 per insert; measured blocks per
+insert 0.10 / 0.49 / 0.30.
+
+ints (1M golden-stride keys: insert, hit, miss, iterate)
+                       main 4b33a6   f560ea      6f95cb
+int insert ns          28101461      28773724    26483860
+int miss ns            1592666       1811315     1631662
+l2_miss                1659958       2029609     2344795
+ld_blocks.store_fwd    521290        799949      243752
+model K1 at 1M         0.535         0.903       0.257
+(blocks per insert 0.52 / 0.80 / 0.24)
+
+walk 100000 (iterate only), best of 3: cycles, instructions, branch-misses, l1_miss
+main 4b33a6   15716941 52123019  88135 173846
+6f95cb        16478123 52097893  96968 162501
+f560ea        17375569 51569445 141850 113802
+aba113        16331296 51570600 120080  99183
+d26f35        15546086 51569420  87831 127675
+walk 1000
+main 4b33a6    9994167 45403637   1011    267
+6f95cb        10126374 45403681   5148    276
+f560ea        10047619 45403685   2938    303
+aba113        10264994 45403706   9866    495
+d26f35        10957183 45403661  31863    259
+
+random 24 (cycles, branch-misses, machine_clears.memory_ordering, ld_blocks.store_forward)
+main 4b33a6   364902458 578764 152897 3849491
+34a465        374046083 683972 152482 3855916
+3b8477        375592722 702296 151450 3852991
+685f22        369519862 582831 152348 3848464
+(34a4 and 3b84 put 15 of the 24 keys home in the last group, whose last
+lane is the sentinel: one key displaced, its hits probe a second group)
