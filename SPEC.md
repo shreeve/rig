@@ -1342,6 +1342,7 @@ sub main()
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Arch` | built-in enum: the target's processor architecture, `target.arch` | [§3](#the-target) |
 | `Os` | built-in enum: the operating system the program is compiled for, `target.os` | [§3](#the-target) |
+| `Feature` | built-in enum: a CPU feature, which `target.has(f)` tests | [§3](#the-target) |
 | `Simd[T, n]` | vector: `n` lanes of a number or `Bool`, operated on together; `Simd[Bool, n]` is a mask | [§2](#vectors) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -2347,7 +2348,8 @@ The conversion is checked: a variant named through its type
 (`Status.missing`) must fit the target at compile time, and any other
 value that does not fit panics when the program runs. A payload enum
 has no integer values, nor does a built-in enum (`Endian`, `Arch`,
-`Os`, whose variants are Zig's), and no enum converts to a float directly.
+`Os`, `Feature`, whose variants are Zig's), and no enum converts to a
+float directly.
 
 ```rig
 enum Status
@@ -2389,7 +2391,7 @@ from the other, as beside `==`. A plain enum meets a generic body's
 ordering, so `std.math.max` and `std.sort.sort` take one
 ([Generic bodies](#generic-bodies)). Two different enums, an enum and a
 number, an enum with a payload variant, a built-in enum (`Endian`,
-`Arch`, `Os`), and an error set have no order.
+`Arch`, `Os`, `Feature`), and an error set have no order.
 
 ```rig
 use std.math
@@ -2501,7 +2503,8 @@ name must match whole and byte for byte, so a prefix, another case, or
 an integer value's digits find nothing. Neither allocates:
 `from_text` hashes `word` once and looks it up in a table of the
 enum's names, which the compiler builds for each enum the program
-calls it on. The built-in enums `Endian`, `Arch`, and `Os` have both too.
+calls it on. The built-in enums `Endian`, `Arch`, `Os`, and `Feature`
+have both too.
 
 `.text` is a member, not a method: `e.text`, not `e.text()`. It is
 read as it is, never written or lent: the name belongs to the enum's
@@ -4754,18 +4757,30 @@ value of the built-in enum `Os`, whose variants are Zig's
 (`std.Target.Os.Tag`): `.macos`, `.linux`, `.freebsd`, `.windows`,
 `.wasi`, and the rest, built as `Arch` is. Two of Zig's names, `3ds`
 and `switch`, are not Rig names: they print as `.3ds` and `.switch`
-and are matched only by `_`. `Arch` and `Os` are built-in names, like
-`Endian`, and are reserved.
+and are matched only by `_`. `target.has(f)` is whether the CPU the
+program is compiled for has feature `f`, a value of the built-in enum
+`Feature`, whose variants are Zig's names for the features of x86-64
+and arm64 (`std.Target.x86.Feature` and `std.Target.aarch64.Feature`),
+merged: `.avx2`, `.bmi2`, `.sse4_2`, `.neon`, `.sha3`, `.sve`, and the
+rest. It is false when the target's architecture has no feature by that
+name, so `target.has(.avx2)` is false on arm64; a name both have, such
+as `.aes`, is each one's own feature. Five of Zig's names, such as
+`3dnow` and `64bit`, are not Rig names, and print and match as `Os`'s
+do. `Arch`, `Os`, and `Feature` are built-in names, like `Endian`, and
+are reserved.
 
-`target.arch` and `target.os` are known at compile time and stand
+`target.arch` and `target.os` are known at compile time, as is
+`target.has(f)` for an `f` known at compile time, and each stands
 wherever a constant can: in a module constant's initializer, as a
 compile-time argument of type `Arch` or `Os`, and in ordinary code,
 where `==` and `!=` compare one with a variant. Rig never knows their
 values: Zig sets them when it compiles the program for a target, so
 `rig check` gives a program the same verdict on every machine. Rig
 checks both branches of `a if target.arch == .x86_64 else b`, and Zig
-keeps the one the target picks, when it compiles. A constant whose
-value names `target.arch` or `target.os` is set by the target too.
+keeps the one the target picks, when it compiles, so a function called
+only in the other branch is never compiled or linked. A constant whose
+value names `target.arch`, `target.os`, or `target.has` is set by the
+target too.
 
 ```rig
 use std.target
@@ -4810,8 +4825,6 @@ sub main()
 the operands of a module constant's arithmetic must be known when Rig checks the program; the value of `TIER` is chosen for each target when Zig compiles the program, so Rig does not know it
 an array length must be known when Rig checks the program; the value of `TIER`
 ```
-
-`std.target` has `arch` and `os`; the CPU's features are not built.
 
 ### Other declarations
 

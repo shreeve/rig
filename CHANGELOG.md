@@ -222,6 +222,11 @@ Other:
     so a program's own type may not take the name, as it may not take
     `Arch`. No program in Rig, Trig, or loco declares one, so Trig needs
     no migration.
+56. `Feature` names a built-in type, the CPU feature `target.has(f)`
+    tests, so a program's own type may not take the name, as it may not
+    take `Os`. Rig makes `Feature` a reserved built-in type (std.target's
+    `target.has(.avx2)`); Trig declares no type named `Feature`, so no
+    migration is needed.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -247,6 +252,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`target.has(f)`, the CPU's features.** `std.target` gives
+  `has(f: Feature) -> Bool`, whether the CPU the program is compiled for
+  has feature `f`: a value of the built-in enum `Feature`, whose
+  variants are Zig's names for the features of x86-64 and arm64, merged
+  (`.avx2`, `.bmi2`, `.sse4_2`, `.neon`, `.sha3`, `.sve`, ...), false
+  where the architecture has no feature by that name. Called on a
+  variant it is a constant, checked as `target.arch` is, so
+  `LANES = 8 if target.has(.avx2) else 4` keeps both branches and Zig
+  takes the one the CPU picks. A Zig-backed function may be an
+  `inline fn`.
+
 - **`none` of a large optional is one store.** A `T?` over 16 bytes
   whose `T` is an object, a payload enum, or an array writes `none` by
   its flag alone, where Zig wrote every byte of it zero: an empty pop of
@@ -255,6 +271,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   and under `RIG_STRICT_OPTIONALS` is a tagged struct too. A payload
   variant literal compared with an optional (`o == .square(side: 2)`)
   is its payload's value.
+
 - **`target.os`, the operating system a program is compiled for.**
   `std.target` gives `os: Os` beside `arch: Arch`: a value of the
   built-in enum `Os`, whose variants are Zig's (`std.Target.Os.Tag`:

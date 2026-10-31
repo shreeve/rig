@@ -1031,9 +1031,10 @@ pub const SymbolFlags = packed struct(u64) {
     /// included): a `match`, `as`, or loop binding.
     access_decided: bool = false,
     /// A compile-time constant whose value Zig sets for the target it
-    /// compiles for: a Zig-backed constant (`target.arch`), or a module
-    /// constant whose value names one. Rig knows its type, never its
-    /// value, so its verdict is the same on every machine.
+    /// compiles for: a Zig-backed constant (`target.arch`), a module
+    /// constant whose value names one, or a function of `std.target`
+    /// (`target.has`), whose call on constants is one. Rig knows its
+    /// type, never its value, so its verdict is the same on every machine.
     per_target: bool = false,
     /// A function declared `inline fun`: it has no address, so it is only
     /// called, never a value.
@@ -3889,6 +3890,7 @@ pub const SemContext = struct {
     hasher_sym_id: SymbolId = symbol_invalid,
     arch_sym_id: SymbolId = symbol_invalid,
     os_sym_id: SymbolId = symbol_invalid,
+    feature_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -10326,10 +10328,10 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
-/// One of the built-in enums, `Endian`, `Arch`, `Os`, and `Order`: the
-/// runtime's own type, one in every module.
+/// One of the built-in enums, `Endian`, `Arch`, `Os`, `Feature`, and
+/// `Order`: the runtime's own type, one in every module.
 pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.os_sym_id or sym == ctx.order_sym_id;
+    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.os_sym_id or sym == ctx.feature_sym_id or sym == ctx.order_sym_id;
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
@@ -12712,14 +12714,16 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // Every module has its own `Endian`, `Arch`, `Os`, `Order`,
-        // `Printer`, and `Hasher`, and each is one type.
+        // Every module has its own `Endian`, `Arch`, `Os`, `Feature`,
+        // `Order`, `Printer`, and `Hasher`, and each is one type.
         .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
         else if (sym_id == foreign_ctx.arch_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.arch_sym_id })
         else if (sym_id == foreign_ctx.os_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.os_sym_id })
+        else if (sym_id == foreign_ctx.feature_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.feature_sym_id })
         else if (sym_id == foreign_ctx.order_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.order_sym_id })
         else if (sym_id == foreign_ctx.printer_sym_id)
@@ -15161,8 +15165,8 @@ fn scalarOf(ctx: *const SemContext, e: Sexp, depth: u32) ?ConstScalar {
 }
 
 /// The first name or `module.name` in `e` that is set for each target
-/// (`SymbolFlags.per_target`): `target.arch`, or a constant whose value
-/// names it. Null when `e` names none.
+/// (`SymbolFlags.per_target`): `target.arch`, `target.has`, or a
+/// constant whose value names one. Null when `e` names none.
 pub fn perTargetLeaf(ctx: *const SemContext, e: Sexp) ?Sexp {
     switch (e) {
         .src => {
