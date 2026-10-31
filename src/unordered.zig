@@ -246,10 +246,29 @@ inline fn textEql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
-/// The multiplier of the table's integer hash: odd, and not the golden
-/// ratio's 0x9e3779b97f4a7c15, a common stride, whose square spreads
-/// keys of that stride into a few groups.
-const int_mul: u64 = 0x4b33a62ed433d4a3;
+/// The multiplier of the table's integer hash. The home group is the
+/// rotated hash's top bits, so keys `i * stride` step their homes by
+/// `d = stride * int_mul * 256 / 2^64`, mod 1. Two things are asked of
+/// `d`, for the strides programs use:
+/// - Spread: dense keys and keys of common strides, the golden ratio's
+///   0x9e3779b97f4a7c15 among them, walk at most a quarter of a group
+///   past home a lookup at every size the test "dense and strided
+///   integer keys stay at their home group" tries, on both group widths.
+///   Under 0x4b33a62ed433d4a3, 4096 keys 0 to 4095 walked 5 groups past
+///   home a lookup, and knucleotide-fast without its key mix took
+///   nearly three times as long as with it.
+/// - Distance: `d` is within 0.05 of a half for the golden ratio's
+///   stride (0.474) and at least 0.25 from a whole number for stride 1
+///   (0.392), so keys put or taken one after another land in other
+///   groups. In one group, each put or take writes a control byte the
+///   next one's group load reads back, which waits on the store:
+///   bench/hash's 16-key maps took 24-42% longer to fill and empty under
+///   a multiplier whose `d` for the golden stride was 0.926.
+/// Of those that meet both, it is one whose random-key rows on bench/hash
+/// meet false tag matches, probed groups and displaced keys no more often
+/// than the last one's (docs/history/records/2026-10/hash-race/
+/// hash-int-spread.md).
+const int_mul: u64 = 0xa46445d6b41313ff;
 
 /// `HashMap[K, V]`'s table.
 pub fn UnorderedMap(comptime K: type, comptime V: type) type {
@@ -1092,6 +1111,21 @@ fn Unordered(comptime K: type, comptime V: type) type {
             }
             if (full != self.size) return error.Corrupt;
         }
+
+        /// The groups a lookup walks past its home, over every entry: a
+        /// test's measure of how well the hash spreads its keys.
+        fn probeSteps(self: *const Self) usize {
+            const elements = self.elements orelse return 0;
+            var steps: usize = 0;
+            for (0..self.mask + 1) |g| {
+                var m = matchFull(&self.groups[g]);
+                while (m != 0) : (m &= m - 1) {
+                    var pb: Prober = .{ .pos = homeOf(hashOf(&elements[g * NL + laneOf(m)]), self.shift).pos };
+                    while (pb.pos != g) : (steps += 1) _ = pb.next(self.mask);
+                }
+            }
+            return steps;
+        }
     };
 }
 
@@ -1160,10 +1194,29 @@ test "unordered: a set of strided keys" {
     while (i < 20_000) : (i += 1) try testing.expect(s.find(i << 20) != null and s.find((i << 20) + 1) == null);
 }
 
+test "unordered: the integer hash's multiplier is odd, so no two keys share a hash" {
+    // An even multiplier loses the key's top bits: under a multiple of 4,
+    // 1 and 1 + 2^62 hash alike.
+    try testing.expect(int_mul & 1 == 1);
+    try testing.expect(@as(u64, @bitCast(homedAtZero(12345))) *% int_mul == std.math.rotr(u64, 12345, 8));
+}
+
+/// A key whose rotated hash is `j`: every such key with `j` below 2^40
+/// is at home in group 0, at any table size, so a test can crowd one
+/// group whatever `int_mul` is.
+fn homedAtZero(j: u64) i64 {
+    const inverse = comptime blk: {
+        var x: u64 = int_mul;
+        for (0..6) |_| x *%= 2 -% int_mul *% x;
+        break :blk x;
+    };
+    return @bitCast(std.math.rotr(u64, j, 8) *% inverse);
+}
+
 test "unordered: growth moves every entry, crowded and overflowed ones too" {
-    // Dense keys and multiples of 2^32 crowd some groups under a
-    // one-multiply hash, so entries overflow past home before growth
-    // moves them; the table is checked after each growth.
+    // Dense keys and multiples of 2^32 at home, with 300 keys all homed
+    // to group 0, so entries overflow past home before growth moves
+    // them; the table is checked after each growth.
     for ([_]u6{ 0, 32 }) |shift| {
         var m: UnorderedMap(i64, i64) = .{};
         defer m.__rig_drop();
@@ -1172,6 +1225,7 @@ test "unordered: growth moves every entry, crowded and overflowed ones too" {
         var i: i64 = 0;
         while (i < 20_000) : (i += 1) {
             try testing.expect(m.put(i << shift, i));
+            if (i < 300) try testing.expect(m.put(homedAtZero(@intCast(i + 1)), -i));
             if (m.mask != mask) {
                 mask = m.mask;
                 grown += 1;
@@ -1181,6 +1235,8 @@ test "unordered: growth moves every entry, crowded and overflowed ones too" {
         try testing.expect(grown >= 8);
         i = 0;
         while (i < 20_000) : (i += 1) try testing.expectEqual(i, m.value(m.find(i << shift).?));
+        i = 0;
+        while (i < 300) : (i += 1) try testing.expectEqual(-i, m.value(m.find(homedAtZero(@intCast(i + 1))).?));
         try testing.expect(m.find(@as(i64, 20_000) << shift) == null);
     }
 }
@@ -1189,22 +1245,43 @@ test "unordered: ensure lends the value where it finds or puts its key, and coun
     var m: UnorderedMap(i64, i64) = .{};
     defer m.__rig_drop();
     var len: i64 = -1;
-    // Strided keys crowd a few home groups, so many sit past theirs.
+    // Keys all homed to group 0, so most sit past their home.
     var i: i64 = 0;
     while (i < 2000) : (i += 1) {
-        m.ensure(@mod(i, 500) << 20, 0, &len).* += 1;
+        m.ensure(homedAtZero(@intCast(@mod(i, 500) + 1)), 0, &len).* += 1;
         try testing.expectEqual(@min(i + 1, 500), len);
     }
     i = 0;
     while (i < 500) : (i += 1) {
         len = -1;
-        const p = m.ensure(i << 20, 9, &len);
+        const k = homedAtZero(@intCast(i + 1));
+        const p = m.ensure(k, 9, &len);
         try testing.expectEqual(@as(i64, 4), p.*);
         try testing.expectEqual(@as(i64, -1), len);
-        try testing.expectEqual(p, m.edit(i << 20).?);
+        try testing.expectEqual(p, m.edit(k).?);
     }
     try testing.expectEqual(@as(i64, 500), m.count());
     try m.verify();
+}
+
+test "unordered: dense and strided integer keys stay at their home group" {
+    // Keys 0 to n-1 times a stride, at sizes on both sides of each
+    // table size, as a count by small codes or ids makes them. A hash
+    // whose top bits step unevenly with the key crowds such keys into
+    // some groups at the table sizes its steps line up with.
+    const strides = [_]u64{ 1, 2, 3, 5, 7, 8, 16, 64, 100, 1000, 1_000_000, 1 << 10, 1 << 20, 1 << 32, 1 << 40, (1 << 32) + 1, 0x9e3779b97f4a7c15 };
+    const sizes = [_]u64{ 16, 100, 256, 500, 1000, 2000, 3000, 4096, 5000, 8192, 10_000, 16_384, 20_000, 50_000, 100_000 };
+    for (strides) |stride| for (sizes) |n| {
+        var s: UnorderedSet(u64) = .{};
+        defer s.__rig_drop();
+        for (0..n) |i| _ = s.add(i *% stride);
+        try s.verify();
+        // A quarter of a group a lookup, on average, at most.
+        if (s.probeSteps() * 4 > n) {
+            std.debug.print("stride {x}, {d} keys: {d} steps past home\n", .{ stride, n, s.probeSteps() });
+            return error.TestUnexpectedResult;
+        }
+    };
 }
 
 test "unordered: random writes, takes, retains, and clears against a model" {

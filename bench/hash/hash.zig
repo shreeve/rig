@@ -341,10 +341,11 @@ inline fn textEql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
-/// The multiplier of the table's integer hash: odd, and not the golden
-/// ratio's 0x9e3779b97f4a7c15, a common stride (bench/hash's int keys are its
-/// multiples), whose square spreads such keys into a few groups.
-const fib: u64 = 0x4b33a62ed433d4a3;
+/// The multiplier of the table's integer hash, src/unordered.zig's
+/// `int_mul`, which says how it was chosen: dense keys and keys of common
+/// strides, bench/hash's int keys (multiples of the golden ratio's
+/// 0x9e3779b97f4a7c15) among them, crowd into no group at any table size.
+const fib: u64 = 0xa46445d6b41313ff;
 
 noinline fn outOfBounds() noreturn {
     @branchHint(.cold);

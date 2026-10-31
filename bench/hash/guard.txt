@@ -8,6 +8,7 @@ map text-miss 104.29
 map text-churn 1079.35
 map pair-hit 56.31
 map small-hit 28.01
+map dense-count 39.07
 hashmap int-hit 36.18
 hashmap int-miss 20.28
 hashmap int-churn 190.35
@@ -17,3 +18,4 @@ hashmap text-miss 61.98
 hashmap text-churn 1010.95
 hashmap pair-hit 43.00
 hashmap small-hit 37.01
+hashmap dense-count 40.04
