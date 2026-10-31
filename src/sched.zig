@@ -1527,6 +1527,10 @@ pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@Ty
     return poolCall(f, args, true);
 }
 
+/// Spins a pool call's waiter makes while the call is `finishing`
+/// before it yields its thread (`poolCall`).
+const finishing_spins = 64;
+
 fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
     const Args = @TypeOf(args);
@@ -1576,11 +1580,17 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
     c.epoch.store(beginWait(stoppable), .seq_cst);
     pool.submit(&c.call);
     const deadline = if (stoppable) fiber.state.deadline else null;
+    var spins: u32 = 0;
     while (true) {
         switch (c.state.load(.seq_cst)) {
             C.done => break,
+            // The pool's thread has woken this one and has a store left.
+            // On another core that takes nanoseconds; on this core (a
+            // program pinned to one) the wake may have preempted it, so
+            // after a few spins this thread gives the core up.
             C.finishing => {
-                std.atomic.spinLoopHint();
+                spins += 1;
+                if (spins < finishing_spins) std.atomic.spinLoopHint() else std.Thread.yield() catch {};
                 continue;
             },
             else => {},
