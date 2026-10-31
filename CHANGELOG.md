@@ -281,7 +281,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `crypto.equal` round it out. Key objects wipe themselves when they
   drop. A small Zig file sets Arm's DIT bit around X25519, wipes so the
   optimizer keeps it, and keeps masks from becoming branches. On the
-  Mac it beats ring, dalek, and blake2 (record:
+  Mac X25519 is 1.3x as fast as dalek and BLAKE2s 5% to 14% faster than
+  blake2; the AEAD beats ring at 8192 bytes and on most opens, and
+  trails it on shorter seals (record:
   docs/history/records/2026-10/std-crypto/).
 
 - **A range's counter has its bounds' type.** The counter of `for _ in
