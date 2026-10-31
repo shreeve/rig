@@ -10,3 +10,8 @@ extern zig "target.zig"
   # The operating system the program is compiled for, one of the built-in
   # enum `Os`'s variants (`.macos`, `.linux`, `.freebsd`, `.windows`, ...).
   pub os: Os
+  # Whether the CPU the program is compiled for has feature `f`, one of
+  # the built-in enum `Feature`'s variants (`.avx2`, `.bmi2`, `.neon`,
+  # `.sha3`, ...); false when its architecture has no feature by that
+  # name, as `.avx2` on arm64.
+  pub fun has(f: Feature) -> Bool

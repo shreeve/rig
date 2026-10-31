@@ -189,6 +189,35 @@ test "target os is a variant", "true"
 
   print(target.os == .macos or target.os == .linux)
 
+fail "feature reserved", "3:6: `Feature` is a reserved built-in nominal name and cannot be redefined"
+  # `Feature` is a built-in type: a module cannot declare its own.
+
+  enum Feature
+    fast
+    small
+
+  print(Feature.fast)
+
+fail "feature variants", "7:17: no variant `avx3` on enum `Feature`", "10:19: `Int(x)` takes a declared enum's value; the built-in enum `Feature` has no integer value", "11:15: `Feature.from_int(n)` takes a declared enum; the built-in enum `Feature` has no integer value", "12:17: `$variants(T)` takes a declared enum; `Feature` is a built-in enum", errors: 4
+  # `Feature`'s variants are Zig's names for the CPU features of x86-64
+  # and arm64, no others, and like `Arch`'s they have no integer value,
+  # so `Feature` has no `from_int` and no `$variants`.
+  use std.target
+
+  fun pick() -> Bool
+    x: Feature = .avx3
+    x == .avx2
+
+  print(pick(), Int(Feature.avx2))
+  print(Feature.from_int(1))
+  print($variants(Feature).len)
+
+test "target has a feature or not", "true"
+  # `target.has(f)` is a Bool the target sets: here, whichever it is.
+  use std.target
+
+  print(target.has(.avx2) or not target.has(.avx2))
+
 fail "arith mixed int sizes", "operands have different types `I32` and `Int`"
   # Arithmetic operands must have one type; `I32 + I64` is rejected
   # (`I64` is `Int`).
