@@ -35,25 +35,55 @@ are not public API.
   back. A no-op off aarch64. On aarch64 the target's features decide at
   compile time when they include FEAT_DIT (every Apple core); on Linux
   otherwise the kernel's `AT_HWCAP` is asked once, so a core without DIT
-  (Cortex-A72, Neoverse N1) never executes the instruction.
-- `wipe(![]U8)` and `wipe_words(![]U32)`: `std.crypto.secureZero`, volatile
-  stores the optimizer keeps.
+  (Cortex-A72, Neoverse N1) never executes the instruction. On another
+  aarch64 system without FEAT_DIT at compile time, DIT is off.
+  test/cli/std_crypto_targets.sh compiles the package for aarch64 Linux
+  (neoverse_n1, cortex_a72, baseline, neoverse_v1), x86-64 Linux, and
+  macOS on both.
+- `wipe(![]U8)`, `wipe_words(![]U32)`, and `wipe_digits(![]I8)`:
+  `std.crypto.secureZero`, volatile stores the optimizer keeps.
 - `barrier(U64) -> U64`: an empty `asm volatile` with the value as an
   in-out register, so LLVM cannot see that a mask is 0 or all ones and
   turn it back into a branch.
-- `entropy(![]U8)`: the operating system's `randomSecure`, for
-  `Secret.new`; it panics when the system has none.
+- `below(U64, U64) -> U64`: 1 when `a < b`, by `@intFromBool`, a flag set
+  in every build mode, for Poly1305's carries.
+- `random(![]U8)`: the operating system's `randomSecure`, public as
+  `crypto.random` for keys and XChaCha nonces, and used by `Secret.new`;
+  it panics when the system has none. (std.random seeds from `Io.random`,
+  which may draw from process memory.)
 
 **Key objects.** `ChaCha`, `XChaCha`, `x25519.Secret`, and `blake2s.Hmac`
-have a `drop` body that wipes the key or the key-derived states. A type
-with a `drop` body is owning, so it moves and is never copied (SPEC,
-"Kinds of value"). The key field is `pub key: [32]U8`: positional
-construction from another module, `crypto.ChaCha(key)`, needs every field
-`pub`, and `pub ?key` (read-only) does not allow it. Copies the arithmetic
-leaves in registers and on the stack (the ChaCha state words, the clamped
-scalar's limbs) are not wiped, as Rust's `zeroize` does not; the clamped
-scalar, the comb's key bytes, the XChaCha subkey and the partial block's
-keystream are wiped where Rig holds them.
+are made by `of(key)` and keep the key, or the key-derived states, in a
+private field. Each names `Print` and prints as `ChaCha(…)`, `XChaCha(…)`,
+`Secret(…)`, `Hmac(…)`, so neither `print` nor a field read shows a key.
+Each has a `drop` body that wipes it; a type with a `drop` body is
+owning, so it moves and is never copied (SPEC, "Kinds of value"), though
+a move, as in Rust, leaves the old bytes where they were.
+
+**What is wiped.** Through `wipe`, `wipe_words`, or `wipe_digits`, volatile
+stores the optimizer keeps:
+- a key object's key or states, when it drops;
+- the AEAD: HChaCha20's 16 words (from which the key could be computed
+  back) and the subkey they give, after each XChaCha call; the partial
+  block's keystream; a message that fails to open;
+- X25519: the clamped scalar of the ladder and of the comb, the comb's 64
+  signed digits, and the 32 bytes `Secret.new` draws;
+- BLAKE2s: `mac[n]`'s key block; HMAC's key block (`pad`) and the hashed
+  key of a key longer than 64 bytes.
+
+Overwritten rather than wiped: `mac[n]`'s state after the key block, and
+HMAC's states after the inner and outer pad blocks, are compressed into
+in place, so each ends as a digest, which is the output; wiping that
+made `mac[16]` of 128 bytes 10% slower and removed nothing secret.
+
+Not wiped: the AEAD's 16 input words (`state`, which hold the key's 8):
+like the working words in registers they stay live through the cipher,
+and wiping them after the call made a 64-byte open 14% slower wherever
+the wipe stood (after the tag compare, before it, or deferred); what the
+arithmetic leaves in registers and spills (the ChaCha working words, the
+ladder's field elements, BLAKE2s's working vector), as Rust's `zeroize`
+does not; the shared secret `share` returns, a plain `[32]U8` the caller
+owns; and an unkeyed `Hasher`.
 
 **Parameters.** Nonces, tags, and peers are taken by value (`[12]U8`,
 `[16]U8`, `[32]U8`): a `?[32]U8` parameter cannot take a call's result
@@ -84,23 +114,34 @@ overflow checks on them: the panel counted 167 never-taken checks in the
 comb, each a branch on a secret, and 1% to 5% of its time. The bounds are
 argued in field.rig's header. Lengths, indexes, and counters stay checked.
 
-**Carries.** Poly1305's 64-bit carries in the block loop are compares,
-`c0: U64 = 1 if a0 < m0 else 0`, as the panel wrote them; LLVM makes them
-`cmp`/`cset` (`setb` on x86), which the panel checked in the disassembly.
-Written as a wide add, `U128(a) +% U128(b)` with the high word the carry,
-they were a branch-free construction by design, but 5% to 13% slower on
-messages of 64 to 192 bytes (measured, below), so the wide add is kept
-only where a carry is taken once (the final additions of the pad).
+**Carries.** Poly1305's 64-bit carries in the block loop are
+`below(sum, addend)`, a shim function returning `@intFromBool(a < b)`: a
+compare and a flag set (`cset`, `setb`) in every build mode. The panel's
+compares, `1 if a0 < m0 else 0`, became `cset` in release builds but a
+branch on secret data in a debug build (the review's finding 4). Rig has
+no conversion from `Bool` to an integer that would say it in Rig (gap
+10). Two branch-free forms in Rig were slower: the carry's bits,
+`((a & b) | ((a | b) & s.not())) >> 63`, made 64-byte messages 15% and
+192-byte ones 11% slower; a wide add, `U128(a) +% U128(b)` with the high
+word the carry, 5% to 13% slower at 64 to 192 bytes. The wide add stays
+where a carry is taken once (the final additions of the pad).
+
+**Lengths.** A message is at most 274,877,906,880 bytes (2^38 - 64), as
+RFC 8439 and Zig's std allow: past that the 32-bit block counter would
+wrap to block 0, the Poly1305 key. All four entry points panic past it;
+no case runs it, since it needs a 256 GiB buffer. `open_into` with a `src`
+shorter than a tag fails with `Forged.tag`, as ring does; a `dst` too
+short for the message still panics.
 
 ## Constant time, primitive by primitive
 
 | Primitive | Why it is constant time | DIT |
 |---|---|---|
 | ChaCha20 | adds, xors, and rotations of 32-bit words, in vectors; no table, no branch on data; the keystream's lanes are picked by compile-time indexes | not set |
-| Poly1305 | 44-bit limbs multiplied as U128 (`mul`/`umulh`), carries by shifts and masks; the final reduction keeps `h` or `h - p` by a mask through the barrier; 64-bit carries by compares, which become `cset` | not set |
+| Poly1305 | 44-bit limbs multiplied as U128 (`mul`/`umulh`), carries by shifts and masks; the final reduction keeps `h` or `h - p` by a mask through the barrier; 64-bit carries by the shim's `below`, a flag set, never a branch in any build mode | not set |
 | The tag | compared by or-ing the xors of its two halves, through the barrier; a failed open zeroes the message with `wipe` | not set |
 | X25519 ladder | five 51-bit limbs, U128 products; the swap is a mask from the scalar's bit, through the barrier; the loop runs 255 times whatever the scalar; Fermat inversion by a fixed chain | set around `share` |
-| X25519 comb | signed 4-bit digits recoded by arithmetic shifts; each row's 8 entries are all read, as vectors of two limbs, and one kept by a vector mask through the barrier; negation by a mask | set around `public` |
+| X25519 comb | signed 4-bit digits recoded by arithmetic shifts; each row's 8 entries are all read, as vectors of two limbs, and one kept by a vector mask through the barrier; negation by a mask, also through the barrier | set around `public` |
 | Low-order check | the shared secret's bytes or-ed together, through the barrier; the branch is on the result, which `share` reports anyway | (inside the DIT span's result) |
 | BLAKE2s | adds, xors, and rotations of 32-bit words; message words picked by the round's fixed schedule, a compile-time index; branches test lengths only | not set |
 | HMAC, keyed BLAKE2s | BLAKE2s compressions; a key longer than 64 bytes is hashed (a branch on its public length) | not set |
@@ -227,8 +268,8 @@ All pass.
 3. **A call's result cannot be lent to a `?[32]U8` parameter**
    (`s.share(t.public())`), so nonces, tags, and peers are taken by value.
 4. **Positional construction from another module needs every field `pub`**,
-   and `pub ?key` does not count, so `crypto.ChaCha(key)` makes the key a
-   `pub` field anyone can read or write.
+   and `pub ?key` does not count, so the approved `crypto.ChaCha(key)` is
+   written `crypto.ChaCha.of(key)`, which keeps the key private.
 5. **A module is not a member of another**: `crypto.x25519.Secret` is
    `x25519.Secret` after `use std.crypto.x25519`.
 6. **A `<@` method cannot write self's fields**, so `Hasher.done` copies
@@ -237,16 +278,37 @@ All pass.
    `rotl`/`rotr`, lane shuffles): the AEAD keeps the panel's hand-written
    eight blocks and compile-time lane indexes.
 8. **No inline assembly or DIT in Rig**: the shim, as approved.
+9. **A compile-time parameter's range cannot be checked when Rig checks
+   the call**: `blake2s.mac[0]` and `mac[40]` panic when they run.
+10. **No conversion from `Bool` to an integer** (`U64(a < b)` is
+    rejected), so the branch-free carry is the shim's `below`.
 
 ## Open for the owner
 
 1. `x25519.Secret.new()` draws a secret from the operating system's
    entropy; it was not among the approved names (it follows
    `random.Random.new()`). Default: keep it.
-2. The key objects' `pub key` field (gap 4). Default: keep it until
-   positional construction allows a private field.
+2. `ChaCha.of(key)` and the like, for the approved `ChaCha(key)` (gap 4).
+   Default: keep `of`, as `Hmac.of` has it.
 3. A form that sets DIT around a batch of AEAD calls (for M3 and later,
    where DIT also turns off the prefetcher GoFetch used). Default: not now;
    decide with the sanstun port's numbers.
 4. `seal_into` and `open_into`, with `(!dst, src, ...)` as the sanstun
    stand-in has them. Default: keep.
+5. `crypto.random(![]U8)`, public for XChaCha nonces (the coordinator's
+   ask after the review). Default: keep.
+
+## The adversarial review (2026-10-31)
+
+A review of #800 compared every primitive with Zig's std.crypto on random
+and edge inputs (byte for byte identical) and found seven defects, all
+fixed in the PR: the shim's `std.elf.AT_HWCAP` (Zig 0.17 names it
+`std.elf.AT.HWCAP`), which broke X25519 on aarch64 Linux without DIT at
+compile time; no length limit; keys readable and printed; debug-build
+branches on Poly1305's carries; uneven wiping; the field bound comment;
+and `open_into` panicking on a short `src`. Its plausible items, not
+changed: the X25519 loops carry yield checks, none of which reaches
+1,024 turns, so no X25519 call yields today, though a batch-DIT form
+would have to keep a task from moving threads inside its span; the
+`msr` does not fence register-only arithmetic, which was not seen to
+move in the builds inspected.

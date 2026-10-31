@@ -32,12 +32,20 @@ M42: U64 = 0x3FFFFFFFFFF
 pub error Forged
   tag
 
-# A ChaCha20-Poly1305 key, wiped when it drops.
-pub obj ChaCha
-  pub key: [32]U8
+# A ChaCha20-Poly1305 key, wiped when it drops. It prints as
+# `ChaCha(…)`, never its key.
+pub obj ChaCha: Print
+  key: [32]U8
 
   drop(!@)
     wipe(!@key)
+
+  # The key object of `key`.
+  pub fun of(key: [32]U8) -> ChaCha
+    ChaCha(key: key)
+
+  sub print(?@, out: !Printer)
+    !out.text("ChaCha(…)")
 
   # Encrypts `buf` where it lies, and gives the tag of it and `header`.
   pub fun seal(?@, buf: ![]U8, nonce: [12]U8, header: []U8) -> [16]U8
@@ -56,17 +64,26 @@ pub obj ChaCha
 
   # Decrypts `src`, a message and its 16-byte tag, into the first
   # `src.len - 16` bytes of `dst`; when the tag is wrong, zeroes them and
-  # fails with `Forged.tag`. Panics unless `16 <= src.len <= dst.len + 16`.
+  # fails with `Forged.tag`, as it does when `src` is shorter than a tag.
+  # Panics unless `src.len <= dst.len + 16`.
   pub sub open_into(?@, dst: ![]U8, src: []U8, nonce: [12]U8, header: []U8)!Forged
     open_into_with(?@key, !dst, src, ?nonce, header)!
 
-# An XChaCha20-Poly1305 key, wiped when it drops. Its nonce is 24 bytes,
-# enough to be drawn at random for each message.
-pub obj XChaCha
-  pub key: [32]U8
+# An XChaCha20-Poly1305 key, wiped when it drops and printed as
+# `XChaCha(…)`. Its nonce is 24 bytes, enough to be drawn at random for
+# each message (`crypto.random`).
+pub obj XChaCha: Print
+  key: [32]U8
 
   drop(!@)
     wipe(!@key)
+
+  # The key object of `key`.
+  pub fun of(key: [32]U8) -> XChaCha
+    XChaCha(key: key)
+
+  sub print(?@, out: !Printer)
+    !out.text("XChaCha(…)")
 
   # As `ChaCha.seal`, with a 24-byte nonce.
   pub fun seal(?@, buf: ![]U8, nonce: [24]U8, header: []U8) -> [16]U8
@@ -101,13 +118,23 @@ pub obj XChaCha
 
 # ------------------------------------------------------------ the AEAD
 
+# The longest message RFC 8439 allows: 2^32 - 1 blocks of 64 bytes after
+# block 0, the Poly1305 key, before the 32-bit counter would wrap to it.
+MAX_LEN = 274877906880
+
+sub check_len(n: Int)
+  if n > MAX_LEN
+    panic("crypto: a ChaCha20-Poly1305 message holds at most 274877906880 bytes")
+
 fun seal_with(key: ?[32]U8, buf: ![]U8, nonce: ?[12]U8, aad: []U8) -> [16]U8
+  check_len(buf.len)
   s = state(key, nonce)
   nob: [0]U8 = []
   t0, t1 = run[true](!buf, nob, aad, s, false)
   tag_of(t0, t1)
 
 sub open_with(key: ?[32]U8, buf: ![]U8, tag: ?[16]U8, nonce: ?[12]U8, aad: []U8)!Forged
+  check_len(buf.len)
   s = state(key, nonce)
   nob: [0]U8 = []
   t0, t1 = run[true](!buf, nob, aad, s, true)
@@ -119,6 +146,7 @@ sub seal_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U
   if dst.len < src.len + 16
     panic("crypto: seal_into needs room for the message and its 16-byte tag")
   n = dst.len - 16
+  check_len(n)
   s = state(key, nonce)
   t0: U64 = 0
   t1: U64 = 0
@@ -136,9 +164,12 @@ sub seal_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U
   !dst.write[U64, .little](n + 8, t1)
 
 sub open_into_with(key: ?[32]U8, dst: ![]U8, src: []U8, nonce: ?[12]U8, aad: []U8)!Forged
-  if src.len < 16 or src.len - 16 > dst.len
-    panic("crypto: open_into needs a 16-byte tag at the end of `src`, and room in `dst` for what it holds before it")
+  # Shorter than a tag, `src` cannot be a sealed message.
+  return Forged.tag if src.len < 16
   n = src.len - 16
+  if n > dst.len
+    panic("crypto: open_into needs room in `dst` for the message before the tag")
+  check_len(n)
   s = state(key, nonce)
   t0, t1 = run[false](!dst[..n], src[..n], aad, s, true)
   d = (t0 ^ src.read[U64, .little](n)) | (t1 ^ src.read[U64, .little](n + 8))
@@ -172,6 +203,7 @@ fun subkey(key: ?[32]U8, nonce: ?[24]U8) -> [32]U8
   for i in 0..4
     !out.write[U32, .little](4 * i, x[i])
     !out.write[U32, .little](16 + 4 * i, x[12 + i])
+  wipe_words(!x)
   out
 
 # The 12-byte nonce XChaCha20 gives ChaCha20: four zeros, then the
@@ -253,7 +285,9 @@ inline sub double1(x: ![16]U32)
   qr1[2, 7, 8, 13](!x)
   qr1[3, 4, 9, 14](!x)
 
-# The 16 input words: constants, key, counter 0, nonce.
+# The 16 input words: constants, key, counter 0, nonce. The caller does
+# not wipe them: like the working words in registers they stay live
+# through the cipher, and wiping them costs 14% on a 64-byte open.
 fun state(key: ?[32]U8, nonce: ?[12]U8) -> [16]U32
   s: [16]U32 = [16 of 0]
   for i in 0..4
@@ -547,25 +581,25 @@ obj Mac64
   pad0: U64
   pad1: U64
 
-  # The carries are compares, which become `cmp` and `cset` (`setb` on
-  # x86): faster here than `add_c`'s wide add, which is used where a
-  # carry is taken once.
+  # Each carry is `below(sum, addend)`, a compare and a flag set, which
+  # is never a branch: `1 if a0 < m0 else 0` is a branch in a debug build,
+  # and the carry's bits by `and`, `or`, and `not` cost 15% at 64 bytes.
   inline sub block(!@, m0: U64, m1: U64)
     a0 = @h0 +% m0
-    c0: U64 = 1 if a0 < m0 else 0
+    c0 = below(a0, m0)
     b1 = @h1 +% m1
-    c1: U64 = 1 if b1 < m1 else 0
+    c1 = below(b1, m1)
     a1 = b1 +% c0
-    c2: U64 = 1 if a1 < c0 else 0
+    c2 = below(a1, c0)
     a2 = @h2 +% 1 +% c1 +% c2
     d0 = wide(a0, @r0) +% wide(a1, @s1)
     d1 = wide(a0, @r1) +% wide(a1, @r0) +% U128(a2 *% @s1) +% (d0 >> 64)
     d2 = a2 *% @r0 +% U64.wrap(d1 >> 64)
     c = (d2 >> 2) +% (d2 & 0xFFFFFFFFFFFFFFFC)
     lo = U64.wrap(d0) +% c
-    k0: U64 = 1 if lo < c else 0
+    k0 = below(lo, c)
     mid = U64.wrap(d1) +% k0
-    k1: U64 = 1 if mid < k0 else 0
+    k1 = below(mid, k0)
     @h0 = lo
     @h1 = mid
     @h2 = (d2 & 3) +% k1

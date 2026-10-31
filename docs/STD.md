@@ -1204,35 +1204,38 @@ true true
 `std.crypto` is the cryptography WireGuard uses: ChaCha20-Poly1305 and
 XChaCha20-Poly1305 (RFC 8439 and draft-irtf-cfrg-xchacha), X25519 (RFC
 7748), and BLAKE2s, keyed BLAKE2s, and HMAC-BLAKE2s (RFC 7693 and RFC
-2104). It is Rig, with a small Zig file for three things Rig cannot
-say: Arm's data-independent timing bit (DIT), a wipe the optimizer
-keeps, and a value barrier. It is three modules: `use std.crypto` for
-the AEADs, `wipe`, and `equal`; `use std.crypto.x25519`, named
+2104). It is Rig, with a small Zig file for what Rig cannot say: Arm's
+data-independent timing bit (DIT), a wipe the optimizer keeps, a value
+barrier, a compare that is never a branch, and the operating system's
+entropy. It is three
+modules: `use std.crypto` for the AEADs, `wipe`, `equal`, and `random`; `use std.crypto.x25519`, named
 `x25519`; and `use std.crypto.blake2s`, named `blake2s`.
 
 Each runs in constant time: no branch and no index depends on a key, a
 message, or a tag, and a tag is compared by all its bits at once. A
-key object (`ChaCha`, `XChaCha`, `x25519.Secret`, `blake2s.Hmac`) has
-a `drop` body that wipes it, so it moves and is never copied; copies
-the arithmetic leaves in registers and on the stack are not wiped. X25519 sets DIT around its arithmetic on an Arm core
+key object (`ChaCha`, `XChaCha`, `x25519.Secret`, `blake2s.Hmac`) is
+made by `of(key)`, keeps its key private, prints as `ChaCha(…)` and the
+like, and has a `drop` body that wipes it, so it moves and is never
+copied; copies the arithmetic leaves in registers are not wiped. X25519 sets DIT around its arithmetic on an Arm core
 that has it, and restores it after; the AEADs and BLAKE2s do not need
 it.
 
 | Member of `crypto` | Result |
 |---|---|
-| `ChaCha(key: [32]U8)` | a ChaCha20-Poly1305 key, wiped when it drops |
-| `c.seal(!buf, nonce: [12]U8, header: []U8) -> [16]U8` | encrypts `buf` where it lies and gives the tag of it and `header` |
+| `ChaCha.of(key: [32]U8) -> ChaCha` | a ChaCha20-Poly1305 key, wiped when it drops |
+| `c.seal(!buf, nonce: [12]U8, header: []U8) -> [16]U8` | encrypts `buf` where it lies and gives the tag of it and `header`; a message holds at most 274,877,906,880 bytes (RFC 8439), and each of the four panics past that |
 | `c.open(!buf, tag: [16]U8, nonce: [12]U8, header: []U8)!Forged` | decrypts `buf` where it lies when `tag` is its tag; otherwise zeroes it and fails with `Forged.tag` |
 | `c.seal_into(!dst, src: []U8, nonce, header)` | encrypts `src`, then zeros up to 16 bytes from the end of `dst`, into `dst`, and writes the tag in its last 16 bytes; panics unless `dst.len >= src.len + 16` |
-| `c.open_into(!dst, src: []U8, nonce, header)!Forged` | decrypts `src`, a message and its 16-byte tag, into the first `src.len - 16` bytes of `dst`; when the tag is wrong, zeroes them and fails with `Forged.tag`; panics unless `16 <= src.len <= dst.len + 16` |
-| `XChaCha(key: [32]U8)` | an XChaCha20-Poly1305 key: the same four methods, with a 24-byte nonce, enough to draw at random for each message |
+| `c.open_into(!dst, src: []U8, nonce, header)!Forged` | decrypts `src`, a message and its 16-byte tag, into the first `src.len - 16` bytes of `dst`; when the tag is wrong, zeroes them and fails with `Forged.tag`, as it does when `src` is shorter than a tag; panics unless `src.len <= dst.len + 16` |
+| `XChaCha.of(key: [32]U8) -> XChaCha` | an XChaCha20-Poly1305 key: the same four methods, with a 24-byte nonce, enough to draw at random for each message with `random` |
 | `Forged` | the error set of a failed open: `Forged.tag` |
 | `wipe(b: ![]U8)` | zeroes `b` with stores the optimizer keeps |
 | `equal(a: []U8, b: []U8) -> Bool` | whether `a` and `b` hold the same bytes, in a time that depends on their lengths alone |
+| `random(b: ![]U8)` | fills `b` from the operating system's entropy, for keys and nonces; panics when the system has none |
 
 | Member of `x25519` | Result |
 |---|---|
-| `Secret(key: [32]U8)` | a secret key, wiped when it drops |
+| `Secret.of(key: [32]U8) -> Secret` | a secret key, wiped when it drops |
 | `Secret.new() -> Secret` | a secret drawn from the operating system's entropy |
 | `s.public() -> [32]U8` | its public key, the secret times the base point |
 | `s.share(peer: [32]U8) -> ([32]U8)!KeyError` | the secret shared with the holder of the public key `peer`; fails with `KeyError.low_order` when `peer` has low order, so the shared secret would be zero |
@@ -1256,7 +1259,7 @@ sub main()!
   shared = alice.share(bob.public())!
   print(crypto.equal(shared, bob.share(alice.public())!))
 
-  c = crypto.ChaCha(blake2s.hash(shared))
+  c = crypto.ChaCha.of(blake2s.hash(shared))
   nonce: [12]U8 = [12 of 0]
   header: [4]U8 = [1, 2, 3, 4]
   hello: [5]U8 = [104, 101, 108, 108, 111]
@@ -1284,7 +1287,7 @@ A low-order key fails rather than give a zero secret:
 use std.crypto.x25519
 
 sub main()
-  s = x25519.Secret([32 of 7])
+  s = x25519.Secret.of([32 of 7])
   zero: [32]U8 = [32 of 0]
   _ = s.share(zero) catch |e|
     print(e)

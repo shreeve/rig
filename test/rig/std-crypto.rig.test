@@ -527,7 +527,11 @@ test "crypto key objects print no key", "ChaCha(…) XChaCha(…) Secret(…) Hm
   k: [32]U8 = [32 of 1]
   print(crypto.ChaCha.of(k), crypto.XChaCha.of(k), x25519.Secret.of(k), blake2s.Hmac.of(?k))
 
-test "crypto open_into fails on a short message", "Forged.tag Forged.tag 7"
+test "crypto open_into fails on a short message", '''
+  Forged.tag
+  Forged.tag
+  7
+'''
   c = crypto.ChaCha.of([32 of 1])
   nonce: [12]U8 = [12 of 0]
   nob: [0]U8 = []

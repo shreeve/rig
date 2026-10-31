@@ -1,12 +1,18 @@
 # std.crypto.x25519: GF(2^255 - 19) in five 51-bit limbs, with U128
 # products.
 #
-# Bounds: a product or square gives limbs below 2^52, and no sum the
-# curve's formulas make of them reaches 2^55. So a limb times 19 is below
-# 2^60, a limb product below 2^115, and a sum of five products below
-# 2^118. Nothing overflows, so the arithmetic wraps
-# (`+%`, `*%`), which a release build does not check: a check on a secret
-# limb would be a branch on it, however rarely taken.
+# Bounds: `reduce` gives limbs below 2^51 + 2^12, and the table holds
+# canonical limbs below 2^51. The largest limb a sum of the curve's
+# formulas reaches is below 5 * 2^51 (about 2^53.33): `dbl`'s `f`, twice a
+# square plus `fsub`'s a + 2p - b, which is below 3 * 2^51; every other
+# sum is below 2^53. So a limb times 19 is below 2^57.6, a column of a
+# product or square below 2^114 (and `r4`, which has no factor 19, below
+# 2^109), `r0 >> 51` fits a U64, and `reduce`'s `(s4 >> 51) * 19` is
+# below 2^62.3. Nothing overflows, so the arithmetic wraps (`+%`, `*%`),
+# which a release build does not check: a check on a secret limb would be
+# a branch on it, however rarely taken. A change that adds a larger sum
+# must check these bounds again: wrapping arithmetic would not report an
+# overflow, even in a debug build.
 
 type Fe = [5]U64
 

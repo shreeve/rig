@@ -1,7 +1,8 @@
 //! `std.crypto`: what its Rig code cannot say. Arm's data-independent
 //! timing bit (DIT), set and restored around secret arithmetic; a wipe
-//! the optimizer keeps; a value barrier; and the operating system's
-//! entropy, for a new secret key.
+//! the optimizer keeps; a value barrier and a carry that are never
+//! branches; and the operating system's
+//! entropy, for keys and nonces.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -26,7 +27,7 @@ fn hasDit() bool {
         1 => return false,
         2 => return true,
         else => {
-            const yes = std.os.linux.getauxval(std.elf.AT_HWCAP) & std.os.linux.HWCAP.DIT != 0;
+            const yes = std.os.linux.getauxval(std.elf.AT.HWCAP) & std.os.linux.HWCAP.DIT != 0;
             dit_known.store(if (yes) 2 else 1, .monotonic);
             return yes;
         },
@@ -76,11 +77,22 @@ pub fn barrier(x: u64) u64 {
 }
 
 /// Fills `b` from the operating system's entropy; panics when it has none.
-pub fn entropy(b: []u8) void {
+pub fn random(b: []u8) void {
     rig.io().randomSecure(b) catch |err| std.debug.panic("crypto: no entropy from the operating system ({s})", .{@errorName(err)});
 }
 
 /// Zeroes the words of `w` as `wipe` zeroes bytes.
 pub fn wipe_words(w: []u32) void {
     std.crypto.secureZero(u32, w);
+}
+
+/// Zeroes the signed bytes of `d` as `wipe` zeroes bytes.
+pub fn wipe_digits(d: []i8) void {
+    std.crypto.secureZero(i8, d);
+}
+
+/// 1 when `a < b`, else 0: a compare and a flag set, never a branch, in a
+/// debug build as in a release one, for Poly1305's carries.
+pub fn below(a: u64, b: u64) u64 {
+    return @intFromBool(a < b);
 }

@@ -12,20 +12,28 @@ pub error KeyError
   # The peer's key has low order, so the shared secret would be zero.
   low_order
 
-# An X25519 secret key, wiped when it drops.
-pub obj Secret
-  pub key: [32]U8
+# An X25519 secret key, wiped when it drops. It prints as `Secret(…)`,
+# never its key.
+pub obj Secret: Print
+  key: [32]U8
 
   drop(!@)
     wipe(!@key)
 
+  # The secret of `key`'s 32 bytes.
+  pub fun of(key: [32]U8) -> Secret
+    Secret(key: key)
+
   # A new secret from the operating system's entropy.
   pub fun new() -> Secret
     k: [32]U8 = [32 of 0]
-    entropy(!k)
+    random(!k)
     s = Secret(key: k)
     wipe(!k)
     s
+
+  sub print(?@, out: !Printer)
+    !out.text("Secret(…)")
 
   # The public key: this secret times the base point, u = 9.
   pub fun public(?@) -> [32]U8
@@ -138,7 +146,7 @@ inline fun select(j: Int, e: I8) -> Niels
   ypx = [acc[0][0], acc[0][1], acc[1][0], acc[1][1], acc[2][0]]
   ymx = [acc[2][1], acc[3][0], acc[3][1], acc[4][0], acc[4][1]]
   xy2d = [acc[5][0], acc[5][1], acc[6][0], acc[6][1], acc[7][0]]
-  nm = 0 -% neg
+  nm = barrier(0 -% neg)
   for i in 0..5
     s = nm & (ypx[i] ^ ymx[i])
     ypx[i] ^= s
@@ -191,6 +199,7 @@ fun public_key(k_in: ?[32]U8) -> [32]U8
   h = dbl(dbl(dbl(dbl(h))))
   for j in 0..32
     h = madd(h, select(j, e[2 * j]))
+  wipe_digits(!e)
   # Montgomery's u is (z + y) / (z - y).
   to_bytes(mul(add(h.z, h.y), invert(fsub(h.z, h.y))))
 
@@ -199,4 +208,5 @@ extern zig "crypto.zig"
   fun barrier(x: U64) -> U64
   fun dit_on() -> U64
   sub dit_restore(old: U64)
-  sub entropy(b: ![]U8)
+  sub random(b: ![]U8)
+  sub wipe_digits(d: ![]I8)
