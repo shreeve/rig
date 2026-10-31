@@ -244,6 +244,15 @@ pub const Facts = struct {
     pub fn typeOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().typeOf(node);
     }
+    /// The element type of the range `a..b` a `for` walks: the bounds'
+    /// type, which the checker records on the range (`checkFor`).
+    pub fn rangeElem(f: Facts, range: Sexp) ?TypeId {
+        const ty = f.c().typeOf(range) orelse return null;
+        return switch (f.types.get(ty)) {
+            .range => |e| e,
+            else => null,
+        };
+    }
     pub fn startOf(f: Facts, node: Sexp) u32 {
         return f.c().startOf(node);
     }

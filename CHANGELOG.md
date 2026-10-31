@@ -225,6 +225,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A range's counter has its bounds' type.** The counter of `for _ in
+  a..b`, and of a bare `for a..=b`, has the type the checker records on
+  the range, as a named binding's always did: a range of `U64`, `U128`,
+  or `I128` bounds was accepted and then rejected by Zig, which got an
+  `i64` counter, and a narrower one counted in `i64`. Every integer type
+  runs through its largest value with `..=` and from its smallest.
 - **A HashMap's `ensure` lends the value where its table found the
   key.** The table's `ensure` peels the home group, as a lookup does, so
   a key found there returns before the probe keeps a free lane, and it

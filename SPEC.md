@@ -5917,7 +5917,7 @@ cannot lend `v` to write while a read loan is live
 `List`, an iterator (below), or a range: `a..b` from `a` up to, not
 including, `b`, or `a..=b` from `a` through `b`, which may be its
 type's largest value (`for b in 0..=U8.max` runs 256 times); the
-bounds are evaluated once. `for x, i in xs` also binds the index (not for
+bounds have one integer type, the element's, and are evaluated once. `for x, i in xs` also binds the index (not for
 ranges); the element comes first, the reverse of Python's
 `enumerate`, and where a loop written index first gives a binding the
 other's type, the error says so. An `else` block runs when the loop ends without `break`. A
