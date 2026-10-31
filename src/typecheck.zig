@@ -9620,8 +9620,8 @@ const Checker = struct {
 
     /// Whether `ty` is a plain enum, every variant without a payload: one
     /// whose values are integers (`enumValues`), or a built-in one,
-    /// `Endian`, `Arch`, or `Os`, whose values are Zig's. Each has `e.text` and
-    /// `E.from_text(word)`.
+    /// `Endian`, `Arch`, `Os`, or `Feature`, whose values are Zig's. Each
+    /// has `e.text` and `E.from_text(word)`.
     fn hasVariantNames(self: *Checker, ty: TypeId) bool {
         if (self.enumValues(ty) == true) return true;
         const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
@@ -9629,8 +9629,8 @@ const Checker = struct {
     }
 
     /// Whether `ty`, read through views, is a built-in enum, `Endian`,
-    /// `Arch`, or `Os`: no payloads, but variants that are Zig's, with no integer
-    /// Rig fixes.
+    /// `Arch`, `Os`, or `Feature`: no payloads, but variants that are Zig's,
+    /// with no integer Rig fixes.
     fn isBuiltinEnumTy(self: *Checker, ty: TypeId) bool {
         const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
         return sema.isBuiltinEnum(decl.ctx, decl.sym);
@@ -12499,8 +12499,9 @@ const Checker = struct {
                     // checker computed.
                     .ct_call => if (self.ctx.ctCallOf(e)) |c| c.result != null else false,
                     .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants"),
-                    // `U8(65)`: a constant integer as an integer type.
-                    .call => self.constInt(e) != null,
+                    // `U8(65)`: a constant integer as an integer type;
+                    // `target.has(.avx2)`: a fact of the target.
+                    .call => self.constInt(e) != null or self.isTargetCall(e),
                     .not => self.isComptimeKnown(ir.get(e, .operand)),
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time
@@ -12528,6 +12529,18 @@ const Checker = struct {
             },
             else => return false,
         }
+    }
+
+    /// A call of a function of `std.target` on constants,
+    /// `target.has(.avx2)`: known at compile time, to Zig alone
+    /// (`SymbolFlags.per_target`).
+    fn isTargetCall(self: *Checker, e: Sexp) bool {
+        const callee = ir.Call.callee(e);
+        if (!callee.isKind(.member)) return false;
+        const f = self.foreignMember(callee) orelse return false;
+        if (f.kind != .function or !f.flags.per_target) return false;
+        for (ir.Call.args(e)) |a| if (!self.isComptimeKnown(a)) return false;
+        return true;
     }
 
     /// Whether `obj` names a number type: a built-in one, or an alias of

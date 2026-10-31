@@ -145,6 +145,7 @@ pub const Facts = struct {
     hasher_sym_id: SymbolId,
     arch_sym_id: SymbolId,
     os_sym_id: SymbolId,
+    feature_sym_id: SymbolId,
 
     pub fn of(ctx: *const SemContext) Facts {
         return .{
@@ -171,6 +172,7 @@ pub const Facts = struct {
             .hasher_sym_id = ctx.hasher_sym_id,
             .arch_sym_id = ctx.arch_sym_id,
             .os_sym_id = ctx.os_sym_id,
+            .feature_sym_id = ctx.feature_sym_id,
         };
     }
 

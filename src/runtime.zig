@@ -3848,7 +3848,7 @@ pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime Errors: type
     const F = @TypeOf(f);
     const rig_ret = @typeInfo(Rig).@"fn".return_type.?;
     if (@typeInfo(rig_ret) != .error_union) {
-        if (F != Rig) shimMismatch(F, @typeName(Rig), name);
+        if (F != Rig and !inlineOf(F, Rig)) shimMismatch(F, @typeName(Rig), name);
         return;
     }
     const rig_name = @typeName(Rig);
@@ -3872,6 +3872,20 @@ pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime Errors: type
         } else false;
         if (!known) @compileError("rig: the Zig function of `" ++ name ++ "` returns `error." ++ e ++ "`, which is not an error of module `" ++ moduleOf(name) ++ "`: its errors are named `error.@\"" ++ moduleOf(name) ++ ".Set.name\"`");
     }
+}
+
+/// Whether `F` is the function type `Rig` called inline: a Zig-backed
+/// function may be an `inline fn`, so that a call on constants is a
+/// constant (`target.has(.avx2)`, a fact of the target).
+fn inlineOf(comptime F: type, comptime Rig: type) bool {
+    const fi = switch (@typeInfo(F)) {
+        .@"fn" => |fi| fi,
+        else => return false,
+    };
+    const ri = @typeInfo(Rig).@"fn";
+    if (fi.attrs.@"callconv" != .@"inline" or fi.attrs.varargs or fi.is_generic or fi.return_type != ri.return_type or fi.param_types.len != ri.param_types.len) return false;
+    for (fi.param_types, ri.param_types, fi.param_attrs, ri.param_attrs) |p, q, pa, qa| if (p != q or pa.@"noalias" != qa.@"noalias") return false;
+    return true;
 }
 
 fn shimMismatch(comptime F: type, comptime lowered: []const u8, comptime name: []const u8) noreturn {
@@ -4525,6 +4539,46 @@ pub const Arch = std.Target.Cpu.Arch;
 /// Rig's `Os`: the operating system the program is compiled for, Zig's
 /// own enum.
 pub const Os = std.Target.Os.Tag;
+/// Rig's `Feature`: a CPU feature, by Zig's name for it, the names of
+/// x86-64's features (`std.Target.x86.Feature`) and then arm64's
+/// (`std.Target.aarch64.Feature`) not among them. A name both have, such
+/// as `aes`, is each architecture's own feature.
+pub const Feature = feature: {
+    @setEvalBranchQuota(200_000);
+    const x86 = @typeInfo(std.Target.x86.Feature).@"enum".field_names;
+    const arm = @typeInfo(std.Target.aarch64.Feature).@"enum".field_names;
+    var names: [x86.len + arm.len][]const u8 = undefined;
+    var n: usize = 0;
+    for (x86) |name| {
+        names[n] = name;
+        n += 1;
+    }
+    for (arm) |name| {
+        if (@hasField(std.Target.x86.Feature, name)) continue;
+        names[n] = name;
+        n += 1;
+    }
+    const values: [n]u16 = std.simd.iota(u16, n);
+    break :feature @Enum(u16, .exhaustive, names[0..n], &values);
+};
+
+/// `target.has(f)`: whether the CPU the program is compiled for has
+/// feature `f`; false when its architecture has no feature by that name.
+/// For a compile-time `f`, Zig folds it to a constant.
+pub inline fn hasFeature(f: Feature) bool {
+    return switch (f) {
+        inline else => |c| comptime featureNamed(@tagName(c)),
+    };
+}
+
+fn featureNamed(comptime name: []const u8) bool {
+    const cpu = builtin.cpu;
+    if (cpu.arch.isX86() and @hasField(std.Target.x86.Feature, name))
+        return std.Target.x86.featureSetHas(cpu.features, @field(std.Target.x86.Feature, name));
+    if (cpu.arch.isAARCH64() and @hasField(std.Target.aarch64.Feature, name))
+        return std.Target.aarch64.featureSetHas(cpu.features, @field(std.Target.aarch64.Feature, name));
+    return false;
+}
 
 /// `bytes.read[T, e](at)`: the integer or float `T` stored in the
 /// `@sizeOf(T)` bytes from `at`, in byte order `e`; panics unless they

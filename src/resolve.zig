@@ -23,6 +23,7 @@ const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const sema = @import("sema.zig");
 const typecheck = @import("typecheck.zig");
+const runtime = @import("runtime.zig");
 const Wide = sema.Wide;
 
 const Sexp = parser.Sexp;
@@ -147,6 +148,12 @@ const SymbolResolver = struct {
                     const m: rig.Marker = if (f.isKind(.fun) or f.isKind(.sub)) rig.markerOf(f) else .none;
                     if (m != .none) try self.ctx.errAt(rig.markNode(f), "`{s}` is an `extern zig` function, whose body is Zig code: it takes no `{s}`", .{ identAt(self.ctx.source, ir.get(f, .name)) orelse "", @tagName(m) });
                     try self.walk(d);
+                    // A function of `std.target`, `target.has(f)`: its value
+                    // is a fact of the target, as `target.arch` is, and a
+                    // call on constants is a constant.
+                    if (f.isKind(.fun) and std.mem.eql(u8, self.ctx.name, "std.target")) {
+                        if (self.ctx.symbolOf(ir.get(f, .name))) |id| self.ctx.symbols.items[id].flags.per_target = true;
+                    }
                 }
             },
             .@"test" => try self.walkTest(sexp),
@@ -5084,6 +5091,25 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         try ctx.addToScope(module_scope, sym);
         ctx.os_sym_id = sym;
         const names = @typeInfo(std.Target.Os.Tag).@"enum".field_names;
+        var variants: [names.len]sema.Field = undefined;
+        for (names, &variants) |n, *v| v.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true };
+        try setFields(ctx, sym, &variants);
+    }
+
+    // Feature: a CPU feature, which `std.target`'s `has` tests. Its
+    // variants are the runtime's `Feature`: Zig's names for the features
+    // of x86-64 and arm64, merged, and it lowers to that type.
+    {
+        const sym = try ctx.addSymbol(.{
+            .name = "Feature",
+            .kind = .nominal_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_pos,
+            .scope = module_scope,
+        });
+        try ctx.addToScope(module_scope, sym);
+        ctx.feature_sym_id = sym;
+        const names = @typeInfo(runtime.Feature).@"enum".field_names;
         var variants: [names.len]sema.Field = undefined;
         for (names, &variants) |n, *v| v.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true };
         try setFields(ctx, sym, &variants);

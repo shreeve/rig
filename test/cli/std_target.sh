@@ -1,7 +1,8 @@
 # std.target: `target.arch` is the architecture of the machine the
 # program is compiled for, which is this one (`uname -m`), `target.os`
-# its operating system (`uname -s`), and a choice on either reaches Zig
-# as a compile-time choice, both branches intact.
+# its operating system (`uname -s`), `target.has(f)` whether its CPU has
+# feature `f`, and a choice on any of them reaches Zig as a compile-time
+# choice, both branches intact.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >arch.rig <<'EOF'
@@ -60,6 +61,92 @@ expect_has "$(cat os.zig)" ".@\"os'\" == .linux) 7 else 10);" "both of the syste
 grep -q "pub const @\"os'\": rig.Os = " "$RIG_OUT_DIR"/*.zig || fail "std.target's os is not Rig's Os"
 expect_has "$(cat "$RIG_OUT_DIR/rig/std/target.zig")" "pub const os = builtin.os.tag;" "Zig's os"
 expect_has "$(cat "$RIG_OUT_DIR/rig/runtime.zig")" "pub const Os = std.Target.Os.Tag;" "Rig's Os is Zig's"
+
+# `target.has(f)` is whether this machine's CPU has feature `f`: the Mac
+# has NEON and no AVX2, and an x86-64 Linux machine the opposite. A
+# constant chosen by it keeps both branches.
+cat >has.rig <<'EOF'
+use std.target
+
+LANES = 8 if target.has(.avx2) or target.arch == .aarch64 else 4
+
+sub main()
+  print(target.has(.neon), target.has(.avx2), LANES)
+EOF
+
+case "$(uname -m)" in
+    arm64 | aarch64) want="true false 8" ;;
+    x86_64 | amd64) want="false true 8" ;;
+    *) want="" ;;
+esac
+out=$(rig run has.rig 2>&1); expect_rc $? 0 "rig run has.rig: $out"
+if [[ -n $want ]]; then
+    expect_eq "$out" "$want" "target.has answers for this machine's CPU"
+fi
+"$RIG" emit has.rig >has.zig 2>err.txt || fail "rig emit: $(cat err.txt)"
+expect_has "$(cat has.zig)" 'pub const LANES: i64 = @as(i64, if (' "a compile-time choice on a feature"
+expect_has "$(cat has.zig)" '.has(.avx2) or ' "the feature's branch survives"
+expect_has "$(cat has.zig)" '.arch == .aarch64)) 8 else 4);' "both of the feature's branches survive"
+expect_has "$(cat "$RIG_OUT_DIR/rig/std/target.zig")" "return rig.hasFeature(f);" "Zig's feature test"
+
+# The emitted package compiles for x86-64 Linux, arm64 Linux, and arm64
+# macOS: on each, a feature of the other architecture is false.
+cat >cross.rig <<'EOF'
+use std.target
+
+LANES = 8 if target.has(.avx2) or target.has(.neon) else 4
+
+fun has(f: Feature) -> Bool
+  target.has(f)
+
+sub main()
+  print(LANES, has(.sha3), has(.bmi2))
+EOF
+pkg=$RIG_OUT_DIR/cross
+rm -rf "$pkg"
+RIG_OUT_DIR="$pkg" "$RIG" emit cross.rig >/dev/null 2>err.txt || fail "rig emit cross.rig: $(cat err.txt)"
+for t in x86_64-linux aarch64-linux aarch64-macos; do
+    (cd "$pkg" && "${ZIG:-zig}" build-exe -target "$t" -fno-emit-bin __rig_main.zig) >build.log 2>&1 \
+        || fail "target.has for $t: $(head -20 build.log)"
+done
+
+# A value the target sets is rejected where Rig needs it while checking.
+cat >has_len.rig <<'EOF'
+use std.target
+
+WIDE = 8 if target.has(.avx2) else 4
+
+sub main()
+  a: [WIDE]U8 = [4 of 0]
+  print(a)
+EOF
+out=$("$RIG" check has_len.rig 2>&1); expect_rc $? 1 "a feature test in an array length"
+expect_has "$out" "has_len.rig:6:7: error: an array length must be known when Rig checks the program; the value of \`WIDE\` is chosen for each target" "a feature test in an array length"
+
+# An `extern fun` called only under a branch the target does not take is
+# never referenced, so it is never linked: `syncfs` is Linux's alone, and
+# no CPU has both NEON and AVX2, so no machine links a function that is
+# nowhere.
+cat >syncfs.rig <<'EOF'
+use std.target
+
+extern fun syncfs(fd: I32) -> I32
+extern fun rig_nowhere() -> I32
+
+fun flush() -> I32
+  if target.os == .linux
+    raw
+      return syncfs(1)
+  if target.has(.neon) and target.has(.avx2)
+    raw
+      return rig_nowhere()
+  0
+
+sub main()
+  print(flush() <= 0)
+EOF
+out=$(rig run syncfs.rig 2>&1); expect_rc $? 0 "an extern called only on Linux: $out"
+expect_eq "$out" "true" "an extern called only on Linux"
 
 # A Zig-backed constant may also be a `Bool` or an integer: Rig knows its
 # type, and Zig its value, so a place that needs the value rejects it.
