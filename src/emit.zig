@@ -4332,7 +4332,9 @@ pub const Emitter = struct {
         const counter = try self.hiddenStorage(sexp, .range_start, .owned, .{ .id = id });
         const end = try self.hiddenStorage(sexp, .range_end, .owned, .{ .id = id });
         const sym = self.facts.symbolOf(binding);
-        const int_ty: TypeId = if (sym) |s| (self.symType(s) orelse self.facts.types.int_id) else self.facts.types.int_id;
+        // The counter and the element have the bounds' type, which the
+        // checker records on the range (`checkFor`), named or `_`.
+        const int_ty = self.facts.rangeElem(range) orelse return self.unsupported(range, "a range of no recorded type");
 
         try self.openLoopBlock(lp);
         for ([2][]const u8{ counter, end }, [2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "var", "const" }) |name, bound, decl| {

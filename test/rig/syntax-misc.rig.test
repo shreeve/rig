@@ -3661,6 +3661,191 @@ test "range inclusive for", '''
   else
     print(none_run, "empty")
 
+test "range for every integer type at its ends", '''
+  U8 14
+  U16 14
+  U32 14
+  U64 14
+  U128 14
+  I8 14
+  I16 14
+  I32 14
+  I64 14
+  I128 14
+'''
+  # A range's counter has its bounds' type, named, `_`, or bare, so a
+  # range of any integer type runs, through its largest value with
+  # `..=` and from its smallest.
+
+  hiU8: U8 = U8.max
+  loU8: U8 = U8.min
+  nU8 = 0
+  for _ in (hiU8 - 2)..=hiU8
+    nU8 += 1
+  for (hiU8 - 2)..=hiU8
+    nU8 += 1
+  for i in (hiU8 - 1)..=hiU8
+    nU8 += 1 if i >= hiU8 - 1 else 0
+  for _ in (hiU8 - 2)..hiU8
+    nU8 += 1
+  for _ in loU8..=(loU8 + 2)
+    nU8 += 1
+  for loU8..(loU8 + 1)
+    nU8 += 1
+  print("U8", nU8)
+  hiU16: U16 = U16.max
+  loU16: U16 = U16.min
+  nU16 = 0
+  for _ in (hiU16 - 2)..=hiU16
+    nU16 += 1
+  for (hiU16 - 2)..=hiU16
+    nU16 += 1
+  for i in (hiU16 - 1)..=hiU16
+    nU16 += 1 if i >= hiU16 - 1 else 0
+  for _ in (hiU16 - 2)..hiU16
+    nU16 += 1
+  for _ in loU16..=(loU16 + 2)
+    nU16 += 1
+  for loU16..(loU16 + 1)
+    nU16 += 1
+  print("U16", nU16)
+  hiU32: U32 = U32.max
+  loU32: U32 = U32.min
+  nU32 = 0
+  for _ in (hiU32 - 2)..=hiU32
+    nU32 += 1
+  for (hiU32 - 2)..=hiU32
+    nU32 += 1
+  for i in (hiU32 - 1)..=hiU32
+    nU32 += 1 if i >= hiU32 - 1 else 0
+  for _ in (hiU32 - 2)..hiU32
+    nU32 += 1
+  for _ in loU32..=(loU32 + 2)
+    nU32 += 1
+  for loU32..(loU32 + 1)
+    nU32 += 1
+  print("U32", nU32)
+  hiU64: U64 = U64.max
+  loU64: U64 = U64.min
+  nU64 = 0
+  for _ in (hiU64 - 2)..=hiU64
+    nU64 += 1
+  for (hiU64 - 2)..=hiU64
+    nU64 += 1
+  for i in (hiU64 - 1)..=hiU64
+    nU64 += 1 if i >= hiU64 - 1 else 0
+  for _ in (hiU64 - 2)..hiU64
+    nU64 += 1
+  for _ in loU64..=(loU64 + 2)
+    nU64 += 1
+  for loU64..(loU64 + 1)
+    nU64 += 1
+  print("U64", nU64)
+  hiU128: U128 = U128.max
+  loU128: U128 = U128.min
+  nU128 = 0
+  for _ in (hiU128 - 2)..=hiU128
+    nU128 += 1
+  for (hiU128 - 2)..=hiU128
+    nU128 += 1
+  for i in (hiU128 - 1)..=hiU128
+    nU128 += 1 if i >= hiU128 - 1 else 0
+  for _ in (hiU128 - 2)..hiU128
+    nU128 += 1
+  for _ in loU128..=(loU128 + 2)
+    nU128 += 1
+  for loU128..(loU128 + 1)
+    nU128 += 1
+  print("U128", nU128)
+  hiI8: I8 = I8.max
+  loI8: I8 = I8.min
+  nI8 = 0
+  for _ in (hiI8 - 2)..=hiI8
+    nI8 += 1
+  for (hiI8 - 2)..=hiI8
+    nI8 += 1
+  for i in (hiI8 - 1)..=hiI8
+    nI8 += 1 if i >= hiI8 - 1 else 0
+  for _ in (hiI8 - 2)..hiI8
+    nI8 += 1
+  for _ in loI8..=(loI8 + 2)
+    nI8 += 1
+  for loI8..(loI8 + 1)
+    nI8 += 1
+  print("I8", nI8)
+  hiI16: I16 = I16.max
+  loI16: I16 = I16.min
+  nI16 = 0
+  for _ in (hiI16 - 2)..=hiI16
+    nI16 += 1
+  for (hiI16 - 2)..=hiI16
+    nI16 += 1
+  for i in (hiI16 - 1)..=hiI16
+    nI16 += 1 if i >= hiI16 - 1 else 0
+  for _ in (hiI16 - 2)..hiI16
+    nI16 += 1
+  for _ in loI16..=(loI16 + 2)
+    nI16 += 1
+  for loI16..(loI16 + 1)
+    nI16 += 1
+  print("I16", nI16)
+  hiI32: I32 = I32.max
+  loI32: I32 = I32.min
+  nI32 = 0
+  for _ in (hiI32 - 2)..=hiI32
+    nI32 += 1
+  for (hiI32 - 2)..=hiI32
+    nI32 += 1
+  for i in (hiI32 - 1)..=hiI32
+    nI32 += 1 if i >= hiI32 - 1 else 0
+  for _ in (hiI32 - 2)..hiI32
+    nI32 += 1
+  for _ in loI32..=(loI32 + 2)
+    nI32 += 1
+  for loI32..(loI32 + 1)
+    nI32 += 1
+  print("I32", nI32)
+  hiI64: I64 = I64.max
+  loI64: I64 = I64.min
+  nI64 = 0
+  for _ in (hiI64 - 2)..=hiI64
+    nI64 += 1
+  for (hiI64 - 2)..=hiI64
+    nI64 += 1
+  for i in (hiI64 - 1)..=hiI64
+    nI64 += 1 if i >= hiI64 - 1 else 0
+  for _ in (hiI64 - 2)..hiI64
+    nI64 += 1
+  for _ in loI64..=(loI64 + 2)
+    nI64 += 1
+  for loI64..(loI64 + 1)
+    nI64 += 1
+  print("I64", nI64)
+  hiI128: I128 = I128.max
+  loI128: I128 = I128.min
+  nI128 = 0
+  for _ in (hiI128 - 2)..=hiI128
+    nI128 += 1
+  for (hiI128 - 2)..=hiI128
+    nI128 += 1
+  for i in (hiI128 - 1)..=hiI128
+    nI128 += 1 if i >= hiI128 - 1 else 0
+  for _ in (hiI128 - 2)..hiI128
+    nI128 += 1
+  for _ in loI128..=(loI128 + 2)
+    nI128 += 1
+  for loI128..(loI128 + 1)
+    nI128 += 1
+  print("I128", nI128)
+
+code "range for bare U64 counter", ": u64 = a;", ": u64 = b;"
+  a: U64 = 1
+  b: U64 = 3
+  n = 0
+  for _ in a..=b
+    n += 1
+  print(n)
+
 test "range inclusive slice", '''
   [2, 3] [1, 2, 3] [4]
   hello

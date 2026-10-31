@@ -78,6 +78,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A range's counter has its bounds' type** (queue row 13): a bare
+  or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
+  rejected; the counter now reads the range's recorded type. In review
+  as one PR.
 - **`net.Stream.split()` and `batch`** (owner, 2026-10-30): a stream
   splits into a `Reader` and a `Writer` two tasks own, the writer's
   close a half-close; `batch(on)` lets the system hold small writes.
