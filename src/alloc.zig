@@ -29,6 +29,8 @@
 //! and asks for huge pages for each new segment, and a new large block
 //! of 16 MiB or more asks for huge pages (`huge_large`), each while the
 //! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`).
+//! Reserved Tables (`table.zig`) take ranges of an address space of
+//! their own, which none of this touches (`reserveTable`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
