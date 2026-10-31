@@ -356,6 +356,20 @@ Read from these:
   and 3.0% on zod3, taking 23 and 9 huge pages, with 0.6% and 0.5% more
   peak RSS.
 
+**Runtime benches** ([runtime-bench.sh](table-huge-data/runtime-bench.sh)):
+bench/tasks, actors, net and http, `rig-fast`, built by Rig main
+`1ac34e1bb` and by seg rebased onto it (`e2067c6f3`), 10 rounds with
+the two arms rotated, 3 reps a run, pinned to P-core 6 and its sibling
+7, 15:40-15:50 on pup (about 390 free blocks, so both arms ask; seg
+changes only which fragmented hosts do). Raw:
+[runtime-benches.txt](table-huge-data/runtime-benches.txt); bests:
+[runtime-summary.txt](table-huge-data/runtime-summary.txt). Medians of
+the rounds are within 1% on every case (http 0.8% more requests a
+second, net's connect 1.3% faster, tasks' hog 0.2% faster). The bests
+differ within noise, connect 2.3% slower and http 1.2% fewer requests,
+each the other way by median; round 4 ran slow for both arms. The
+benches are level.
+
 ## Stash on the blocking pool (not built)
 
 The stash's measured gain is the second core: on one core it is a
