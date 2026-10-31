@@ -49,10 +49,12 @@ def run(rounds, pdir, specs):
         for n in names[1:]:
             if out[(proj, n)] != first:
                 sys.exit("trigtime: %s prints differently under %s" % (proj, n))
+    # Each round starts with the next build: the first run after a switch
+    # meets a core that idled, at a lower clock (3.8 GHz against 4.4 on pup).
     for r in range(rounds):
         for proj in PROJECTS:
             d = os.path.join(pdir, proj)
-            for n in names:
+            for n in names[r % len(names):] + names[:r % len(names)]:
                 w, i, c, _ = timed([exe[n], "-p", "tsconfig.trig.json", "--noEmit"], d)
                 k = (proj, n)
                 if k not in best or w < best[k][0]:
@@ -80,7 +82,7 @@ def check(rounds, src, specs):
     best = {}
     tmp = tempfile.mkdtemp(prefix="trigtime-")
     for r in range(rounds):
-        for n in names:
+        for n in names[r % len(names):] + names[:r % len(names)]:
             env = dict(os.environ, RIG_OUT_DIR=os.path.join(tmp, n))
             p = subprocess.run([rig[n], "check", "--time", "main.rig"], cwd=src, capture_output=True, text=True, env=env)
             if p.returncode != 0:
