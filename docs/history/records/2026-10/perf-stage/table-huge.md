@@ -319,15 +319,19 @@ main `3296a2feb` with the patch, PGO as before (`d055c9ad9ef0f919`).
 
 Timed as before, two arms rotated, 20 rounds: natural (all six
 projects) and quiet, 12:50-12:58 after Trig's 12:00 suite, with a
-release build on the E-cores (pup at 12-17 free blocks). Raw:
-[times-s-nq.txt](table-huge-data/times-s-nq.txt); medians:
+release build on the E-cores (pup at 12-17 free blocks); leave35,
+14:22-14:31, with nothing else on pup. Raw:
+[times-s-nq.txt](table-huge-data/times-s-nq.txt),
+[times-s-l35.txt](table-huge-data/times-s-l35.txt); medians:
 [summary-seg.txt](table-huge-data/summary-seg.txt).
 
 | project, level | free | main | seg | seg vs main [25th, 75th] | huge pages main / seg | faults main / seg | peak RSS main / seg |
 |---|---:|---:|---:|---|---|---|---|
 | ts-pattern, natural | 14 | 881 ms | 872 ms | 0.8% faster [-1.2%, -0.1%] | 0 / 6 | 40,245 / 39,814 | 246.7 / 246.9 MB |
 | ts-pattern, quiet | 257 | 912 ms | 907 ms | 0.6% faster [-2.3%, +0.7%] | 76 / 76 | 14,894 / 14,893 | 259.1 / 259.0 MB |
+| ts-pattern, leave35 | 35 | 767 ms | 753 ms | **2.1% faster** [-2.6%, -0.8%] | 0 / 23 | 40,245 / 39,599 | 247.1 / 248.5 MB |
 | zod3, natural | 16 | 177 ms | 173 ms | **2.6% faster** [-4.0%, -1.4%] | 0 / 7 | 9,924 / 9,498 | 77.2 / 77.5 MB |
+| zod3, leave35 | 34 | 158 ms | 154 ms | **3.0% faster** [-4.3%, -1.8%] | 0 / 9 | 9,925 / 9,498 | 77.3 / 77.7 MB |
 | zod3, quiet | 262 | 175 ms | 176 ms | 0.2% slower [-2.7%, +1.8%] | 15 / 15 | 7,774 / 7,774 | 84.1 / 84.1 MB |
 | tiny-invariant, natural | 17 | 78 ms | 75 ms | 3.2% faster [-4.7%, -1.2%] | 0 / 7 | 6,042 / 5,636 | 49.2 / 50.3 MB |
 | superstruct, natural | 17 | 36 ms | 34 ms | 5.4% faster [-9.9%, -2.0%] | 0 / 4 | 2,742 / 2,097 | 22.9 / 23.3 MB |
@@ -340,16 +344,17 @@ User instructions are level (ts-pattern 7.971G main, 7.959G seg; zod3
 Read from these:
 
 - **Where main's gate is shut, seg is faster on five of six projects**:
-  zod3 2.6%, the small projects 3.2-5.4%, ts-pattern 0.8% (its
-  footprint is Tables', which keep main's gate). neverthrow is level.
+  zod3 2.6-3.0%, the small projects 3.2-5.4%, ts-pattern 0.8% at 14
+  free blocks and 2.1% at 35 (its footprint is mostly Tables', which
+  keep main's gate). neverthrow is level.
 - **Quiet, seg is main**: the same 76 and 15 huge pages, within 0.6%.
 - **Peak RSS rises 0.1-2.0 MB** where seg takes huge pages: 0.4% on
   zod3, 0.1% on ts-pattern, 1-7% on the small projects (2.0 MB on
   neverthrow). Far less than jit's, since a segment's huge pages are
   filled densely.
-- At 12-17 free blocks seg takes 3-7 huge pages a run. At the partly
-  fragmented level (leave35) it would take more; that part waits for a
-  quiet slot.
+- With about 35 free blocks (leave35) seg is 2.1% faster on ts-pattern
+  and 3.0% on zod3, taking 23 and 9 huge pages, with 0.6% and 0.5% more
+  peak RSS.
 
 ## Stash on the blocking pool (not built)
 
@@ -372,8 +377,8 @@ Trig against tsrs should then be timed so, is the owner's call.
    segments and large blocks ask for huge pages while free blocks
    number their need plus 8. zod3 2.6% and the small projects 3.2-5.4%
    faster where main's gate is shut, level quiet, no stall, level
-   instructions, peak RSS up to 2 MB higher. The partly fragmented
-   level (leave35) is still to time.
+   instructions, peak RSS up to 2 MB higher; with about 35 free blocks,
+   ts-pattern 2.1% and zod3 3.0% faster.
 2. **Do not land** jit, hybrid or hybrid2. The Tables' windows earn
    1.4% on ts-pattern where the gate is shut and cost about 1%
    wherever no window asks, from the hook in `push`.

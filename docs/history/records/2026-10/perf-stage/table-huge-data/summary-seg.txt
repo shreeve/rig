@@ -5,6 +5,7 @@
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
 | natural | main | 20 | 14 (12-15) | 881 | 3.72G | 0.35G | 40245 | 0 | 0 | 246.7 |  |  |
 | quiet | main | 20 | 257 (233-279) | 912 | 3.65G | 0.24G | 14894 | 76 | 0 | 259.1 |  |  |
+| leave35 | main | 20 | 35 (34-35) | 767 | 3.31G | 0.32G | 40245 | 0 | 0 | 247.1 |  |  |
 
 Runs whose output differs from the reference: 0; exit statuses: [2.0]
 
@@ -14,6 +15,7 @@ Runs whose output differs from the reference: 0; exit statuses: [2.0]
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
 | natural | main | 20 | 16 (15-17) | 177 | 0.68G | 0.10G | 9924 | 0 | 0 | 77.2 |  |  |
 | quiet | main | 20 | 262 (223-279) | 175 | 0.67G | 0.09G | 7774 | 15 | 0 | 84.1 |  |  |
+| leave35 | main | 20 | 34 (30-35) | 158 | 0.62G | 0.09G | 9925 | 0 | 0 | 77.3 |  |  |
 
 Runs whose output differs from the reference: 0; exit statuses: [2.0]
 
