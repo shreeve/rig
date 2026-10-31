@@ -123,3 +123,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-31 | #819: a pool call's waiter yields while the call finishes (pup core 6) | rig-fast | 60 ns | 86 ns | 310.3 ms | 22 ns | 130.69 us | 4.6 KiB |
 | 2026-10-31 | main 1ac34e1bb before #819, alternated (Mac, load 8-11) | rig-fast | 109 ns | 45 ns | 85.9 ms | 5 ns | 79.55 us | 16.6 KiB |
 | 2026-10-31 | #819: a pool call's waiter yields while the call finishes (Mac, load 8-11) | rig-fast | 95 ns | 45 ns | 85.0 ms | 5 ns | 77.77 us | 16.6 KiB |
+| 2026-10-31 | main 1ac34e1bb before row 22 seg, alternated (pup core 6) | rig-fast | 60 ns | 86 ns | 310.3 ms | 22 ns | 130.14 us | 4.5 KiB |
+| 2026-10-31 | row 22 seg: segments ask for huge pages at a low floor (pup core 6) | rig-fast | 60 ns | 86 ns | 310.7 ms | 22 ns | 130.97 us | 4.6 KiB |

@@ -90,3 +90,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-31 | #819: a pool call's waiter yields while the call finishes (pup core 6) | rig-fast | 5.04 us | 3.79 us | 29.57 us |
 | 2026-10-31 | main 1ac34e1bb before #819, alternated (Mac, load 8-11) | rig-fast | 15.64 us | 6.11 us | 50.38 us |
 | 2026-10-31 | #819: a pool call's waiter yields while the call finishes (Mac, load 8-11) | rig-fast | 14.72 us | 6.09 us | 49.77 us |
+| 2026-10-31 | main 1ac34e1bb before row 22 seg, alternated (pup core 6) | rig-fast | 5.08 us | 3.80 us | 29.73 us |
+| 2026-10-31 | row 22 seg: segments ask for huge pages at a low floor (pup core 6) | rig-fast | 5.05 us | 3.78 us | 30.41 us |

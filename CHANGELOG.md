@@ -1809,6 +1809,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   free it is within 1.4% of 128, and with memory partly fragmented (35
   to 65 free) it asks for none and runs as with no huge pages, where
   spares of 32 and 16 stalled in compaction. Peak memory is unchanged.
+- **Release runtime:** on Linux, a heap's new segment and a new large
+  block of 16 MiB or more ask for huge pages while free 2 MiB blocks
+  number what they need and 8 more, where they waited for more than 64;
+  a reserved Table keeps the spare of 64. A segment or block asks just
+  before its pages fault, so the count is current, where a Table asks
+  once for a reservation it grows into all run. With 12 to 17 free
+  blocks on pup, Trig runs zod3 2.6% faster and its small projects 3.2
+  to 5.4%, ts-pattern 0.8%; with 35 free, ts-pattern 2.1% and zod3 3.0%.
+  No compaction stall, peak memory up to 2 MB higher; with memory free
+  it runs as before.
 - **Release allocator:** a heap keeps freed large blocks within its
   settled peak, the most it has had handed out just after a free, and
   16 MiB, where the peak was the most handed out at any moment. That

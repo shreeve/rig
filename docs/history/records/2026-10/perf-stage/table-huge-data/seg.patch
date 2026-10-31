@@ -1,0 +1,52 @@
+diff -ru a/src/alloc.zig f/src/alloc.zig
+--- a/src/alloc.zig	2026-10-31 02:23:46.409494057 -0600
++++ f/src/alloc.zig	2026-10-31 09:43:06.129172288 -0600
+@@ -442,7 +442,9 @@
+ /// leaves them as they are.
+ fn adviseHuge(p: usize, len: usize) void {
+     if (builtin.os.tag != .linux) return;
+-    if (!hugeFree()) return;
++    // (arm seg) A segment or large block asks moments before its pages
++    // fault, so it needs only its own blocks free, and `huge_floor` more.
++    if (hugeCount() < huge_floor + (len + huge_page - 1) / huge_page) return;
+     const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+     std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
+ }
+@@ -476,13 +478,20 @@
+ /// reserved Table, 55 times on Trig's ts-pattern, and a reading kept
+ /// would be out of date as memory fragments. A file that cannot be read
+ /// asks for none.
++/// (arm seg) The free 2 MiB blocks a segment or large block leaves.
++const huge_floor: usize = 8;
++
+ pub noinline fn hugeFree() bool {
++    return hugeCount() > huge_spare;
++}
++
++noinline fn hugeCount() usize {
+     @branchHint(.cold);
+-    if (builtin.os.tag != .linux) return false;
+-    if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text) > huge_spare;
++    if (builtin.os.tag != .linux) return 0;
++    if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text);
+     const linux = std.os.linux;
+     const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+-    if (@as(isize, @bitCast(rc)) < 0) return false;
++    if (@as(isize, @bitCast(rc)) < 0) return 0;
+     const fd: linux.fd_t = @intCast(rc);
+     defer _ = linux.close(fd);
+     // A line per zone of each node, about 100 bytes: a host of 10 nodes
+@@ -491,11 +500,11 @@
+     var len: usize = 0;
+     while (len < buf.len) {
+         const r: isize = @bitCast(linux.read(fd, buf[len..].ptr, buf.len - len));
+-        if (r < 0) return false;
++        if (r < 0) return 0;
+         if (r == 0) break;
+         len += @intCast(r);
+     }
+-    return freeHugeBlocks(buf[0..len]) > huge_spare;
++    return freeHugeBlocks(buf[0..len]);
+ }
+ 
+ /// What a test reads in place of /proc/buddyinfo.

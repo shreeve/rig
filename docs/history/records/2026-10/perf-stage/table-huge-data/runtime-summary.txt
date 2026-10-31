@@ -1,0 +1,18 @@
+| bench | case | unit | main | seg | seg vs main |
+|---|---|---|---:|---:|---:|
+| tasks | spawn | ns/task | 60 | 60 | same |
+| tasks | chain | ns/task | 86 | 86 | same |
+| tasks | fanout | ms/run | 310.3 | 310.7 | 0.1% slower |
+| tasks | yield | ns/yield | 22 | 22 | same |
+| tasks | hog | us/step | 130.14 | 130.97 | 0.6% slower |
+| tasks | memory | KiB/task | 4.5 | 4.6 | 2.2% more |
+| actors | solo | ns/call | 11 | 11 | same |
+| actors | contend | ns/call | 14 | 14 | same |
+| actors | spread | ns/call | 10 | 10 | same |
+| net | pingpong | us/trip | 5.08 | 5.05 | 0.6% faster |
+| net | echo | us/trip | 3.8 | 3.78 | 0.5% faster |
+| net | connect | us/conn | 29.73 | 30.41 | 2.3% slower |
+| http | req/s | req/s | 199924 | 197521 | 1.2% slower |
+| http | p50 | us | 192 | 186 | 3.1% faster |
+| http | p99 | us | 3471 | 3461 | 0.3% faster |
+| http | idle conn | KiB | 8.6 | 8.6 | same |
