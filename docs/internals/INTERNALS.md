@@ -206,7 +206,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian` and `Arch` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian`, `Arch`, and `Os` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
@@ -1005,9 +1005,9 @@ later pass reads. It runs these steps in order:
 1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `List[T]`,
    `^T`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
-   and substitution as user generics, and `Endian` and `Arch` as enums
-   (`Arch`'s variants are `std.Target.Cpu.Arch`'s, read when the
-   compiler is built). The
+   and substitution as user generics, and `Endian`, `Arch`, and `Os` as
+   enums (`Arch`'s variants are `std.Target.Cpu.Arch`'s and `Os`'s
+   `std.Target.Os.Tag`'s, read when the compiler is built). The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
    slices, arrays, Lists, and `?String` values, which have no symbol, are checked
    by `elemsCall` and recorded as `elemCallOf` facts. `String` is a

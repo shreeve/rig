@@ -7,3 +7,6 @@ extern zig "target.zig"
   # The target's processor architecture, one of the built-in enum
   # `Arch`'s variants (`.x86_64`, `.aarch64`, `.wasm32`, ...).
   pub arch: Arch
+  # The operating system the program is compiled for, one of the built-in
+  # enum `Os`'s variants (`.macos`, `.linux`, `.freebsd`, `.windows`, ...).
+  pub os: Os

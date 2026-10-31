@@ -160,6 +160,35 @@ fail "arch variants", "5:14: no variant `amd64` on enum `Arch`", "8:19: `Int(x)`
 
   print(pick(), Int(Arch.x86_64), Int(Endian.big))
 
+fail "os reserved", "3:6: `Os` is a reserved built-in nominal name and cannot be redefined"
+  # `Os` is a built-in type: a module cannot declare its own.
+
+  enum Os
+    mac
+    linux
+
+  print(Os.mac)
+
+fail "os variants", "7:12: no variant `darwin` on enum `Os`", "10:19: `Int(x)` takes a declared enum's value; the built-in enum `Os` has no integer value", "11:10: `Os.from_int(n)` takes a declared enum; the built-in enum `Os` has no integer value", "12:17: `$variants(T)` takes a declared enum; `Os` is a built-in enum", errors: 4
+  # `Os`'s variants are Zig's names for the systems, no others, and like
+  # `Arch`'s they have no integer value, so `Os` has no `from_int` and no
+  # `$variants`.
+  use std.target
+
+  fun pick() -> Bool
+    x: Os = .darwin
+    x == .macos
+
+  print(pick(), Int(target.os))
+  print(Os.from_int(1))
+  print($variants(Os).len)
+
+test "target os is a variant", "true"
+  # `target.os` is one of `Os`'s variants: here, the Mac's or Linux's.
+  use std.target
+
+  print(target.os == .macos or target.os == .linux)
+
 fail "arith mixed int sizes", "operands have different types `I32` and `Int`"
   # Arithmetic operands must have one type; `I32 + I64` is rejected
   # (`I64` is `Int`).

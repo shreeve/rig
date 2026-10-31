@@ -591,7 +591,7 @@ pub const Emitter = struct {
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
         if (self.uses_names) try self.emitNamesTable();
-        for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id, self.facts.order_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
+        for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id, self.facts.os_sym_id, self.facts.order_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
         if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
     }
 
@@ -977,7 +977,7 @@ pub const Emitter = struct {
     /// `sym`'s names, in declaration order, which `E.from_text(word)`
     /// looks `word` up in (`rig.enumFromText`). A declared enum holds it
     /// as `E.__rig_text`; a module that looks up a built-in enum's names
-    /// holds the table itself, as `__rig_text_Endian` or `__rig_text_Arch`.
+    /// holds the table itself, as `__rig_text_Endian` or `__rig_text_Os`.
     fn emitTextTable(self: *Emitter, sym: SymbolId) Error!void {
         const a = self.arena.allocator();
         var names: std.ArrayList([]const u8) = .empty;
@@ -7980,7 +7980,7 @@ pub const Emitter = struct {
             if (t == .any_error) try self.w.writeAll("rig.ErrorValue") else try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
-        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.order_sym_id, ctx.printer_sym_id, ctx.hasher_sym_id }) |sym| {
+        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.os_sym_id, ctx.order_sym_id, ctx.printer_sym_id, ctx.hasher_sym_id }) |sym| {
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, .{ .nominal = sym })});
