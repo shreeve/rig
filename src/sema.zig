@@ -3888,6 +3888,7 @@ pub const SemContext = struct {
     printer_sym_id: SymbolId = symbol_invalid,
     hasher_sym_id: SymbolId = symbol_invalid,
     arch_sym_id: SymbolId = symbol_invalid,
+    os_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -8503,6 +8504,11 @@ pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
     return declaredKind(ctx, sym_id) == .object;
 }
 
+/// Whether `sym` declares an object or an enum with a payload.
+pub fn isCompoundSym(ctx: *const SemContext, sym_id: SymbolId) bool {
+    return declaredKind(ctx, sym_id) != .other;
+}
+
 /// An object, or an enum with a payload, declared in Rig, generic or
 /// not: a Zig struct or union in every instance, so a read view of one
 /// is a pointer whatever its type arguments (`copiedByReadView`).
@@ -8542,20 +8548,22 @@ fn declaredKind(ctx: *const SemContext, sym_id: SymbolId) enum { object, payload
 /// `somePtr`, `pack`): where its representation may differ from Zig's
 /// `?T`. A type parameter's may, since its instance decides; so may an
 /// object's, which holds `none` in a niche where it has one, and an
-/// optional of such an optional (`rig.Opt`). A box's `^T?` and a weak
+/// optional of such an optional (`rig.Opt`). An object's or a payload
+/// enum's `none` is written by `pack`, which sets only the flag of a
+/// large Zig `?T` (runtime `FlagNone`). A box's `^T?` and a weak
 /// handle's `~T?` hold `none` as the null address, a pointer's size, as
 /// a `*T?` does: Zig gives that only to a bare pointer, and a box and a
 /// weak handle are each a struct around one. `pack` writes an object's
 /// flag optional in one store where it fits (runtime `OneStore`).
-/// `strict` (`RIG_STRICT_OPTIONALS`) holds each object's as a tagged
-/// struct.
+/// `strict` (`RIG_STRICT_OPTIONALS`) holds each object's and payload
+/// enum's as a tagged struct.
 pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
     return switch (ctx.types.get(inner)) {
         .type_var => true,
         .optional => |payload| optionalRouted(ctx, payload, strict),
         .weak => objectHeld(ctx, inner) == null,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id) objectHeld(ctx, inner) == null else isObject(ctx, inner),
-        else => isObject(ctx, inner),
+        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id) objectHeld(ctx, inner) == null else isCompound(ctx, inner),
+        else => isCompound(ctx, inner),
     };
 }
 
@@ -10318,10 +10326,10 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
-/// One of the built-in enums, `Endian` and `Arch`: the runtime's own
-/// type, one in every module.
+/// One of the built-in enums, `Endian`, `Arch`, `Os`, and `Order`: the
+/// runtime's own type, one in every module.
 pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.order_sym_id;
+    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.os_sym_id or sym == ctx.order_sym_id;
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
@@ -12704,12 +12712,14 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // Every module has its own `Endian`, `Arch`, `Order`, `Printer`,
-        // and `Hasher`, and each is one type.
+        // Every module has its own `Endian`, `Arch`, `Os`, `Order`,
+        // `Printer`, and `Hasher`, and each is one type.
         .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
         else if (sym_id == foreign_ctx.arch_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.arch_sym_id })
+        else if (sym_id == foreign_ctx.os_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.os_sym_id })
         else if (sym_id == foreign_ctx.order_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.order_sym_id })
         else if (sym_id == foreign_ctx.printer_sym_id)

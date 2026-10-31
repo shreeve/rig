@@ -124,6 +124,8 @@ than tsrs; on zod3 nothing moved.
   commits a huge page it does not fill. zod3 runs about 160 ms, so its
   user and system times move by the kernel's ticks; its cycles are the
   better guide, and they show no loss.
+  Timed again with the order rotated (2026-10-31), #754 is 1.1-1.4%
+  slower on zod3, within the noise ([timing-audit](../timing-audit/README.md)).
 - **#740 to #749 together:** 2.9% faster on ts-pattern by the median
   (0.3% by the fastest), 1.4% fewer user cycles, 3.4% less peak memory;
   on zod3 within the noise.

@@ -78,6 +78,15 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **`target.os: Os`** (queue row 25a; the owner approved the name):
+  std.target gives the operating system as a built-in enum of Zig's
+  `std.Target.Os.Tag`, built as `Arch` is, so the coreutils port can
+  choose signal numbers and errors by system. In review as one PR.
+- **`none` of a large optional is one store** (queue row 30, branch
+  `opt-flag`, the owner's ask): `rig.pack` writes a `?T` over 16 bytes
+  by its flag alone, and a payload enum's optional is routed through
+  the helpers; sanstun's empty `poll_event` 1.9 ns to 0.26; Trig level. On
+  main (#818).
 - **A pool call's waiter yields while the call finishes** (impact item
   1's Rig-side lead, branch `pool-yield`): pinned to one core, the
   waiter spun about 2.4 ms a Trig run (item 1's profile,
@@ -127,6 +136,10 @@ A new session, human or agent, takes these steps in order:
   HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value
   barrier. Its review's findings are fixed and its
   gates are green; it waits to merge.
+- **`rig test std.NAME`** (owner, 2026-10-31): `rig test` takes a
+  standard library module's name and runs its own test blocks, so
+  std's private code is tested in place; first for #814's two MACs. A
+  draft PR, waiting on the light gates.
 - **A range's counter has its bounds' type** (queue row 13): a bare
   or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
   rejected; the counter now reads the range's recorded type. In review

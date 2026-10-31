@@ -626,7 +626,7 @@ test {
 // and `pack`, which are the identity on a `?T`: Zig rejects `orelse`,
 // `null`, and a payload where a struct optional goes, so an operation
 // that skips them fails to compile. Under `RIG_STRICT_OPTIONALS`, every
-// object declares `__rig_strict_optional`, and its optional (and an
+// object and payload enum declares `__rig_strict_optional`, and its optional (and an
 // optional of that) is a `Strict` wrapper, so the whole suite checks
 // that emit and this file route every such operation, niche or not.
 
@@ -636,7 +636,7 @@ pub fn Opt(comptime T: type) type {
     // `none`, under `RIG_STRICT_OPTIONALS` too: its optional is the size
     // of the object, which the object asserts.
     if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_none_field")) return Niche(T, nicheOf(T).?);
-    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_strict_optional")) return Strict(T);
+    if (comptime (@typeInfo(T) == .@"struct" or @typeInfo(T) == .@"union") and @hasDecl(T, "__rig_strict_optional")) return Strict(T);
     // An object with a niche (`nicheOf`) holds `none` there, and so does
     // an optional of one, with the next value. Only an object the emitter
     // writes (`__rig_name`) and its optionals: every optional of one goes
@@ -841,6 +841,7 @@ fn PayloadPtr(comptime P: type) type {
 pub inline fn pack(comptime O: type, x: ?Payload(O)) O {
     if (comptime isOptStruct(O)) return O.wrap(x);
     if (comptime OneStore(O) != void) return packOneStore(O, x);
+    if (comptime FlagNone(O)) if (x == null and !@inComptime()) return flagNone(O);
     return x;
 }
 
@@ -914,6 +915,29 @@ fn OneStore(comptime O: type) type {
         8 => u64,
         else => void,
     };
+}
+
+/// Whether `none` of the Zig optional `O` is written by its flag alone
+/// (`flagNone`): a `?T` with a flag byte after a `T` too large for one
+/// store (`OneStore`). Zig writes a `null` of `?T` as every byte of it
+/// zero, a store for each 16 bytes of `T`; its flag alone is one.
+fn FlagNone(comptime O: type) bool {
+    if (@typeInfo(O) != .optional) return false;
+    const T = @typeInfo(O).optional.child;
+    switch (@typeInfo(T)) {
+        .array, .@"struct", .@"union" => {},
+        else => return false,
+    }
+    return @sizeOf(O) > 16 and @sizeOf(O) > @sizeOf(T);
+}
+
+/// `none` of the Zig optional `O`, its flag byte (just past its `T`,
+/// as `OneStore` reads it) zero and its `T` bytes left as they are:
+/// nothing reads a `none`'s payload.
+inline fn flagNone(comptime O: type) O {
+    var o = uninit(O);
+    @as(*[@sizeOf(O)]u8, @ptrCast(&o))[@sizeOf(Payload(O))] = 0;
+    return o;
 }
 
 inline fn packOneStore(comptime O: type, x: ?Payload(O)) O {
@@ -4498,6 +4522,9 @@ pub const Printer = struct {
 
 /// Rig's `Arch`: the target's processor architecture, Zig's own enum.
 pub const Arch = std.Target.Cpu.Arch;
+/// Rig's `Os`: the operating system the program is compiled for, Zig's
+/// own enum.
+pub const Os = std.Target.Os.Tag;
 
 /// `bytes.read[T, e](at)`: the integer or float `T` stored in the
 /// `@sizeOf(T)` bytes from `at`, in byte order `e`; panics unless they
@@ -8951,6 +8978,32 @@ test "pack writes a flag optional in one store, as Zig's own ?T" {
         var n: ?T = v;
         n = pack(?T, null);
         try testing.expect(n == null);
+    }
+}
+
+test "pack writes none of a large ?T by its flag, which Zig reads" {
+    const Big = struct { bytes: [148]u8, len: i64 };
+    const Event = union(enum) { send: Big, done };
+    try testing.expect(FlagNone(?Big) and FlagNone(?Event) and FlagNone(?[40]u8));
+    try testing.expect(!FlagNone(?i64) and !FlagNone(?[]const u8) and !FlagNone(?*u8) and !FlagNone(?[2]u32));
+    var big: Big = .{ .bytes = @splat(7), .len = 3 };
+    _ = &big;
+    inline for (.{ big, Event{ .send = big }, Event.done, @as([40]u8, @splat(1)) }) |value| {
+        const T = @TypeOf(value);
+        var v: T = value;
+        _ = &v;
+        // Zig's `?T`: the payload, then the flag byte, 1 or 0.
+        const some_v: ?T = v;
+        const none_v: ?T = null;
+        try testing.expectEqual(1, std.mem.asBytes(&some_v)[@sizeOf(T)]);
+        try testing.expectEqual(0, std.mem.asBytes(&none_v)[@sizeOf(T)]);
+        // Set, cleared by its flag, and set again, each read back.
+        var o = pack(?T, v);
+        try testing.expect(o != null and std.meta.eql(o.?, v));
+        o = pack(?T, null);
+        try testing.expect(o == null);
+        o = pack(?T, v);
+        try testing.expect(o != null and std.meta.eql(o.?, v));
     }
 }
 

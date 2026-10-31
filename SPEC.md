@@ -1341,6 +1341,7 @@ sub main()
 | `String` | owned, growable text | [§10](#string) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Arch` | built-in enum: the target's processor architecture, `target.arch` | [§3](#the-target) |
+| `Os` | built-in enum: the operating system the program is compiled for, `target.os` | [§3](#the-target) |
 | `Simd[T, n]` | vector: `n` lanes of a number or `Bool`, operated on together; `Simd[Bool, n]` is a mask | [§2](#vectors) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -2346,7 +2347,7 @@ The conversion is checked: a variant named through its type
 (`Status.missing`) must fit the target at compile time, and any other
 value that does not fit panics when the program runs. A payload enum
 has no integer values, nor does a built-in enum (`Endian`, `Arch`,
-whose variants are Zig's), and no enum converts to a float directly.
+`Os`, whose variants are Zig's), and no enum converts to a float directly.
 
 ```rig
 enum Status
@@ -2388,7 +2389,7 @@ from the other, as beside `==`. A plain enum meets a generic body's
 ordering, so `std.math.max` and `std.sort.sort` take one
 ([Generic bodies](#generic-bodies)). Two different enums, an enum and a
 number, an enum with a payload variant, a built-in enum (`Endian`,
-`Arch`), and an error set have no order.
+`Arch`, `Os`), and an error set have no order.
 
 ```rig
 use std.math
@@ -2500,7 +2501,7 @@ name must match whole and byte for byte, so a prefix, another case, or
 an integer value's digits find nothing. Neither allocates:
 `from_text` hashes `word` once and looks it up in a table of the
 enum's names, which the compiler builds for each enum the program
-calls it on. The built-in enums `Endian` and `Arch` have both too.
+calls it on. The built-in enums `Endian`, `Arch`, and `Os` have both too.
 
 `.text` is a member, not a method: `e.text`, not `e.text()`. It is
 read as it is, never written or lent: the name belongs to the enum's
@@ -4576,7 +4577,14 @@ body decides its result:
 Go's `go test pkg` does: the test blocks of the file `X`, or, when `X` is a
 directory module, those of its files and its `*_test.rig` files
 ([§14](#directory-modules)). The test blocks of the modules `X` imports,
-the standard library's included, are checked and not run. It prints
+the standard library's included, are checked and not run. `X` may also
+name a module of the standard library, `rig test std.NAME`
+(`std.crypto`, `std.crypto.x25519`): the module the library in use
+holds, the one built into `rig` or `RIG_STD`'s, loaded as the library
+loads it, its `extern zig` blocks included, and its test blocks run as a
+program's are, a directory module's `*_test.rig` files with them.
+`rig test std` names no module and is rejected, and a path is always a
+program's file or directory. It prints
 `ok    test "name"` for each test that passes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
 For a `false`, the reason is the source of the `Bool`
@@ -4741,17 +4749,23 @@ variants are Zig's names for every architecture Zig compiles for
 (`std.Target.Cpu.Arch`): `.x86_64`, `.aarch64`, `.wasm32`, `.wasm64`,
 `.riscv64`, and the rest. `Arch` lowers to that Zig enum, all of it, so
 every target has a name and each name means what it means to Zig.
-`Arch` is a built-in name, like `Endian`, and is reserved.
+`target.os` is the operating system the program is compiled for, a
+value of the built-in enum `Os`, whose variants are Zig's
+(`std.Target.Os.Tag`): `.macos`, `.linux`, `.freebsd`, `.windows`,
+`.wasi`, and the rest, built as `Arch` is. Two of Zig's names, `3ds`
+and `switch`, are not Rig names: they print as `.3ds` and `.switch`
+and are matched only by `_`. `Arch` and `Os` are built-in names, like
+`Endian`, and are reserved.
 
-`target.arch` is known at compile time and stands wherever a constant
-can: in a module constant's initializer, as a compile-time argument of
-type `Arch`, and in ordinary code, where `==` and `!=` compare it with
-a variant. Rig never knows its value: Zig sets it when it compiles the
-program for a target, so `rig check` gives a program the same verdict
-on every machine. Rig checks both branches of `a if target.arch ==
-.x86_64 else b`, and Zig keeps the one the target picks, when it
-compiles. A constant whose value names `target.arch` is set by the
-target too.
+`target.arch` and `target.os` are known at compile time and stand
+wherever a constant can: in a module constant's initializer, as a
+compile-time argument of type `Arch` or `Os`, and in ordinary code,
+where `==` and `!=` compare one with a variant. Rig never knows their
+values: Zig sets them when it compiles the program for a target, so
+`rig check` gives a program the same verdict on every machine. Rig
+checks both branches of `a if target.arch == .x86_64 else b`, and Zig
+keeps the one the target picks, when it compiles. A constant whose
+value names `target.arch` or `target.os` is set by the target too.
 
 ```rig
 use std.target
@@ -4797,8 +4811,7 @@ the operands of a module constant's arithmetic must be known when Rig checks the
 an array length must be known when Rig checks the program; the value of `TIER`
 ```
 
-`std.target` has only `arch`: the operating system and the CPU's
-features are not built.
+`std.target` has `arch` and `os`; the CPU's features are not built.
 
 ### Other declarations
 

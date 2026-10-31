@@ -218,6 +218,10 @@ Other:
     `error` goes, `.plain` passed to a `?Both`, is rejected, as
     `Oops.plain` there is. Bind it first, `k: Both = .plain`, then lend
     `?k`. Trig needs no migration: its emitted Zig is unchanged.
+55. `Os` names a built-in type, the operating system `target.os` gives,
+    so a program's own type may not take the name, as it may not take
+    `Arch`. No program in Rig, Trig, or loco declares one, so Trig needs
+    no migration.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -243,6 +247,30 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`none` of a large optional is one store.** A `T?` over 16 bytes
+  whose `T` is an object, a payload enum, or an array writes `none` by
+  its flag alone, where Zig wrote every byte of it zero: an empty pop of
+  sanstun's 176-byte `Event?` takes 0.26 ns, from 1.9. A payload enum's
+  optional now goes through the optional helpers, as an object's does,
+  and under `RIG_STRICT_OPTIONALS` is a tagged struct too. A payload
+  variant literal compared with an optional (`o == .square(side: 2)`)
+  is its payload's value.
+- **`target.os`, the operating system a program is compiled for.**
+  `std.target` gives `os: Os` beside `arch: Arch`: a value of the
+  built-in enum `Os`, whose variants are Zig's (`std.Target.Os.Tag`:
+  `.macos`, `.linux`, `.freebsd`, `.windows`, ...), lowered to Zig's own
+  type and checked as `Arch` is. A constant that differs by system, a
+  signal's number or a `sysconf` name, branches on it,
+  `SIGBUS = 7 if target.os == .linux else 10`, and Zig keeps the branch
+  the target picks.
+
+- **`rig test std.NAME` runs a standard library module's own tests.**
+  `rig test std.crypto` loads `std.crypto` from the library in use, the
+  one built into `rig` or `RIG_STD`'s, as the library loads it, and runs
+  its test blocks, a directory module's `*_test.rig` files included, so
+  a test reaches the module's private names. `rig test std` is rejected,
+  and a path still names a program's file.
+
 - **A view of an array held where a slice goes is lent as one.** A
   `?[4]U8` parameter or binding passed bare where a `[]U8` goes, as an
   argument, a binding's value, or an assignment's, reaches Zig as the
@@ -255,6 +283,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   value the fallback stands for, which Zig does not see: `f() catch |e|
   .err(e)` for an `Out?!E`, and `o ?? (.red if n == 1 else .blue)`,
   were accepted and then rejected by Zig.
+
 - **A lent String or List is appended to in registers.** A function
   lent a `String`, or a `List` with no inline room, to write, which uses
   it in a loop, holds the String's or List's header (its pointer,
