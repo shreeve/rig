@@ -11143,7 +11143,12 @@ type mismatch: expected `Int`, got `ParseError`
 
 The type `error` holds an error of any set, wherever a type goes: a
 parameter, a field, a result, an optional, a List's element. A member of
-any set is accepted where an `error` is expected. `error` is owning in
+any set is accepted where an `error` is expected. Written without its
+set, `.name` or `.name(fields)`, a member where an `error` goes is of the
+one set that may mean it, as one compared with `err` is
+([Naming the error](#naming-the-error)), and where a union goes, of the
+one set the union joins that has it; it then goes there as `E.name`
+does. `error` is owning in
 every program ([kinds](#kinds-of-value)): a bare use where its value is
 taken is rejected, `<e` moves it, `+e` clones it, and `?e` lends it. It
 is compared, matched, and printed as `err` is above, and a fallible
@@ -11177,6 +11182,30 @@ sub main()
 0
 3
 Net.timeout
+Disk.full
+```
+
+```rig
+error Parse
+  bad(at: Int)
+
+error Disk
+  full
+
+error Load = Parse | Disk
+
+sub report(e: error, why: Load)
+  print(e, why)
+
+sub main()
+  report(.bad(at: 3), .full)
+  seen: List[error] = List()
+  !seen.push(.full)
+  print(seen[0])
+```
+
+```output
+Parse.bad(at: 3) Disk.full
 Disk.full
 ```
 

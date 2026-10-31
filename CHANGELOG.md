@@ -268,6 +268,21 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   system's words for it, as `strerror` does: `true: No space left on
   device` prints as the system's tools print it, not as `Input/output
   error`.
+- **A member written short, `.name` or `.name(fields)`, is the error
+  value its set makes, wherever the set goes.** The checker records the
+  set it names, and emit writes from that: `.bad(at: 3)` passed for an
+  `Oops`, returned, held in a field, a List, an array, a Map, a branch,
+  an arm, a closure, or a fallback was accepted and then rejected by Zig
+  as a field of `rig.ErrorValue`, and so was `.plain()`. Where `error` or
+  a union goes, `.name(fields)` is the member of the one set that has
+  it, as `.name` was; `.bad` without its fields there is rejected, where
+  it was accepted and read fields never written (*unsound*). A member of
+  a set without fields is widened to an error value there, and a
+  default `.plain` of a set with fields is one. A short-form member lent
+  where a view of `error` or a union goes is rejected as `E.name` is.
+  `.bad(at: 3)` where a `T!` goes says to name the error set. A payload
+  variant as a `??` or `catch` fallback in print's arguments names its
+  enum, which Zig needs there.
 - **A range's counter has its bounds' type.** The counter of `for _ in
   a..b`, and of a bare `for a..=b`, has the type the checker records on
   the range, as a named binding's always did: a range of `U64`, `U128`,

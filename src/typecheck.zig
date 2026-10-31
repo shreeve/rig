@@ -15631,7 +15631,11 @@ const Checker = struct {
         if (try self.checkContextual(e, viewed orelse expected)) |ty| {
             if (try self.cellMadeAway(e, ty)) return self.ctx.recordType(e, self.t().invalid_id);
             try self.ctx.recordType(e, ty);
-            if (viewed == null or self.isPoison(ty)) return;
+            if (self.isPoison(ty)) return;
+            // A member of a set without fields (`.name`, `checkShortForm`)
+            // where one that may carry them goes becomes an error value,
+            // as `E.name` does there.
+            if (viewed == null) return self.recordCodeWidening(e, ty, expected);
             return self.checkActual(e, ty, expected);
         }
 
@@ -16452,6 +16456,8 @@ const Checker = struct {
     /// type, as `Val.V(...)` has, so the literal is a value made where it
     /// stands, lent as one is or rejected. A view that holds a copy of
     /// the value (`?Color`, `sema.lendByValue`) takes the literal itself.
+    /// Any view of `error` or of a union takes the error union or `error`,
+    /// whose member the literal names (`checkShortForm`).
     /// Null for any other form or expected type, and for a name that is
     /// no variant of the viewed enum, which `checkContextual` reports
     /// (an error's name where a `T!` goes, too).
@@ -16464,10 +16470,14 @@ const Checker = struct {
             return null;
         const view = self.liftTarget(expected);
         switch (self.ctx.types.get(view)) {
-            .read_view, .write_view => if (!sema.viewHeldAsPointer(self.ctx, view)) return null,
+            .read_view, .write_view => {},
             else => return null,
         }
         const viewed = sema.unwrapViews(self.ctx, view);
+        // A member where a view of `error` or of a union goes is of its
+        // own set, as `E.name` is, and is lent as that value is.
+        if (viewed == self.t().any_error_id or sema.isErrorUnion(self.ctx, viewed)) return viewed;
+        if (!sema.viewHeldAsPointer(self.ctx, view)) return null;
         if (try sema.lookupVariant(self.ctx, viewed, self.text(name)) == null) return null;
         return viewed;
     }
@@ -16545,6 +16555,45 @@ const Checker = struct {
         return null;
     }
 
+    /// A short form, `.name` or `.name(fields)`, which names a variant
+    /// or a member of the type its context gives, `target`: the type
+    /// recorded for it, which emit reads. Where any error or a union goes,
+    /// it is the member of the one set that has it (the set's type, as
+    /// `E.name` has); where a `T!` goes, a variant of `T`, since a function
+    /// fails only by naming the error set. The member's fields are then
+    /// checked against its set's, as `E.name(fields)`'s are.
+    fn checkShortForm(self: *Checker, e: Sexp, expected: TypeId, target: TypeId) Error!TypeId {
+        const call: ?Sexp = if (e.isKind(.call)) e else null;
+        const name = ir.EnumLit.name(if (call) |c| ir.Call.callee(c) else e);
+        const ty = if (target == self.t().any_error_id)
+            try self.resolveErrorName(name)
+        else if (sema.isErrorUnion(self.ctx, target))
+            try self.unionMemberSet(target, name)
+        else blk: {
+            if (self.ctx.types.get(expected) == .fallible and !self.isPoison(target) and
+                (try sema.lookupVariant(self.ctx, target, self.text(name))) == null)
+            {
+                const sets = try sema.errorSetsWith(self.ctx, self.text(name));
+                if (sets.len > 0) {
+                    try self.bareErrorName(name, target, sets);
+                    break :blk self.t().invalid_id;
+                }
+            }
+            break :blk target;
+        };
+        const c = call orelse {
+            try self.checkEnumLit(name, ty);
+            return ty;
+        };
+        if (self.isPoison(ty)) {
+            try self.synthArgs(ir.Call.args(c));
+            return ty;
+        }
+        try self.checkPayloadVariant(c, ty);
+        try self.ctx.recordType(ir.Call.callee(c), ty);
+        return ty;
+    }
+
     fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
         const target = self.liftTarget(expected);
         switch (e) {
@@ -16591,33 +16640,10 @@ const Checker = struct {
                 try self.ctx.recordType(operand, target);
                 return target;
             },
-            .enum_lit => {
-                // Where a `T!` is expected, `.name` is a variant of `T`: a
-                // function fails only by naming the error set.
-                const name = ir.EnumLit.name(e);
-                if (target == self.t().any_error_id) return try self.resolveErrorName(name);
-                // Against a union, `.name` is the member of the one set it
-                // joins that has it.
-                if (sema.isErrorUnion(self.ctx, target)) return try self.unionMemberSet(target, name);
-                if (self.ctx.types.get(expected) == .fallible and !self.isPoison(target) and
-                    (try sema.lookupVariant(self.ctx, target, self.text(name))) == null)
-                {
-                    const sets = try sema.errorSetsWith(self.ctx, self.text(name));
-                    if (sets.len > 0) {
-                        try self.bareErrorName(name, target, sets);
-                        return self.t().invalid_id;
-                    }
-                }
-                try self.checkEnumLit(name, target);
-                return target;
-            },
+            .enum_lit => return try self.checkShortForm(e, expected, target),
             .call => {
                 const callee = ir.Call.callee(e);
-                if (callee.isKind(.enum_lit)) {
-                    try self.checkPayloadVariant(e, target);
-                    try self.ctx.recordType(callee, target);
-                    return target;
-                }
+                if (callee.isKind(.enum_lit)) return try self.checkShortForm(e, expected, target);
                 // `Wrap(...)` where a `Wrap[Int]` is expected.
                 const tt = self.ctx.types.get(target);
                 if (callee != .src or tt != .parameterized_nominal) return null;
