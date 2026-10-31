@@ -377,10 +377,10 @@ line with samples; [checks-lines-ts-pattern.txt](codegen-gap-data/checks-lines-t
 | casts: the rest (a slice's or List's length to `U32`) | 0.38% | 0.80% | range facts no proof reaches |
 
 **So the proofs pass reaches little:** about 0.8% and 0.4% of
-instructions (9% and 4% of the checks), 0.5% and 0.25% of user cycles at
+instructions (9% and 4% of the checks), 0.4% and 0.2% of user cycles at
 `nochk`'s ratio of cycles to instructions. **An index type reaches the
 most:** ids read from memory are a third of ts-pattern's check
-instructions and 44% of zod3's (about 2% and 2.8% of user cycles at that
+instructions and 44% of zod3's (about 1.7% and 2.2% of user cycles at that
 ratio), and the span reads add 0.99% and 0.40% of instructions. A
 counter rule would take 0.64% and 0.46% more, with no syntax change but
 an owner's decision. Item 4 of §4 is the one worth taking to the owner
