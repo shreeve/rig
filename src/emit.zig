@@ -357,17 +357,6 @@ const Nominal = struct {
     methods: []const []const u8,
 };
 
-/// Facts about bindings the emitter derives from one walk over the
-/// module, keyed by symbol.
-const Usage = struct {
-    /// Referenced somewhere after the declaration.
-    used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-
-    fn deinit(self: *Usage, a: std.mem.Allocator) void {
-        self.used.deinit(a);
-    }
-};
-
 pub const Emitter = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
@@ -389,7 +378,6 @@ pub const Emitter = struct {
     /// The modules whose `@import` is emitted so far: in a directory
     /// module, several files may each use one module.
     used_modules: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{ .quota = false },
@@ -549,7 +537,6 @@ pub const Emitter = struct {
         self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
         self.used_modules.deinit(self.allocator);
-        self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
@@ -572,8 +559,6 @@ pub const Emitter = struct {
             const set = try self.fmt("{f}", .{ident(self.srcText(ir.Errors.name(d)))});
             self.module_errors = if (std.mem.eql(u8, self.module_errors, "error{}")) set else try self.fmt("{s} || {s}", .{ self.module_errors, set });
         }
-        var scan: Scan = .{ .e = self };
-        try scan.walk(sexp);
         for (decls) |decl| {
             // A compile-time function runs in the checker; its calls are
             // the values it computed. An addition's methods are written in
@@ -2083,7 +2068,7 @@ pub const Emitter = struct {
             try self.writeIndent(self.indent);
             try self.emitGuard(local);
             try self.w.writeAll("\n");
-        } else if (!self.usage.used.contains(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
+        } else if (!self.facts.isUsed(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
             // Zig discards no error by value, so an error, or a value
             // whose type an instance gives (which may be one), is
             // discarded by address.
@@ -4200,7 +4185,7 @@ pub const Emitter = struct {
     /// The index binding of `for x, i in ...` when the body reads it.
     fn loopIndex(self: *Emitter, sexp: Sexp) ?SymbolId {
         const sym = self.facts.symbolOf(ir.For.index(sexp)) orelse return null;
-        return if (self.usage.used.contains(sym)) sym else null;
+        return if (self.facts.isUsed(sym)) sym else null;
     }
 
     /// `const i: Int = @as(i64, @bitCast(@as(u64, counter)));` at the top of a
@@ -4301,7 +4286,7 @@ pub const Emitter = struct {
         var elem_name: []const u8 = "_";
         var bytes_of: []const u8 = "";
         var bytes_name: []const u8 = "";
-        if (elem_sym) |s| if (self.usage.used.contains(s)) {
+        if (elem_sym) |s| if (self.facts.isUsed(s)) {
             const stored = try self.declare(.{ .sym = s, .ty = elem_ty, .is_ptr = by_ptr and !string_bytes }, self.srcText(binding));
             if (string_bytes) {
                 bytes_of = try self.hiddenStorage(sexp, .element, .pointer, .next);
@@ -4355,7 +4340,7 @@ pub const Emitter = struct {
         const ty: ?TypeId = if (sym) |s| self.symType(s) else null;
         if (sym != null and self.holdOf(sym.?) != null) {
             try self.bindOptionalResource(.{ .cond = sexp, .name = binding, .tmp = tmp });
-        } else if (sym != null and self.usage.used.contains(sym.?)) {
+        } else if (sym != null and self.facts.isUsed(sym.?)) {
             const local = try self.declare(.{ .sym = sym.?, .ty = ty }, self.srcText(binding));
             try self.line("const {s} = {s};", .{ local.zig_name, tmp });
         } else try self.line("_ = {s};", .{tmp});
@@ -4400,7 +4385,7 @@ pub const Emitter = struct {
             try self.writeStep(lp, try self.fmt("{s} += 1", .{counter}));
         }
         const body = try self.openLoopBody(lp);
-        if (sym) |s| if (self.usage.used.contains(s)) {
+        if (sym) |s| if (self.facts.isUsed(s)) {
             const stored = try self.declare(.{ .sym = s, .ty = int_ty }, self.srcText(binding));
             try self.line("const {s} = {s};", .{ stored.zig_name, counter });
         };
@@ -5254,7 +5239,7 @@ pub const Emitter = struct {
     /// A payload binding local, viewing the scrutinee.
     fn payloadLocal(self: *Emitter, name_node: Sexp) ?Local {
         const sym = self.facts.symbolOf(name_node) orelse return null;
-        if (!self.usage.used.contains(sym)) return null;
+        if (!self.facts.isUsed(sym)) return null;
         const ty = self.symType(sym);
         return .{ .sym = sym, .ty = ty, .kind = self.holdOf(sym) };
     }
@@ -5411,7 +5396,7 @@ pub const Emitter = struct {
                 if (routed) try self.w.writeAll(")");
             }
             try self.w.writeAll(if (routed) ")) " else ") ");
-            if (sym == null or !self.usage.used.contains(sym.?)) {
+            if (sym == null or !self.facts.isUsed(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
@@ -5432,7 +5417,7 @@ pub const Emitter = struct {
             try self.emitWriteViewPtr(value);
             try self.closeHeader(h);
             try self.w.writeAll(")) ");
-            if (sym == null or !self.usage.used.contains(sym.?)) {
+            if (sym == null or !self.facts.isUsed(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
@@ -5453,7 +5438,7 @@ pub const Emitter = struct {
             try self.w.writeAll(").*");
             try self.closeHeader(h);
             try self.w.writeAll(if (routed) ")) " else ") ");
-            if (sym == null or !self.usage.used.contains(sym.?)) {
+            if (sym == null or !self.facts.isUsed(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
@@ -5481,7 +5466,7 @@ pub const Emitter = struct {
                 try self.emitWriteViewPtr(value);
                 try self.w.writeAll(if (routed) ")) " else ").*) ");
             }
-            if (sym == null or !self.usage.used.contains(sym.?)) {
+            if (sym == null or !self.facts.isUsed(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
@@ -5512,7 +5497,7 @@ pub const Emitter = struct {
             try self.w.print("|{s}| ", .{tmp});
             return .{ .optional = .{ .cond = cond, .name = if (sym != null) name else .nil, .tmp = tmp } };
         }
-        if (sym == null or !self.usage.used.contains(sym.?)) {
+        if (sym == null or !self.facts.isUsed(sym.?)) {
             try self.w.writeAll("|_| ");
         } else if (self.facts.optionalBindsStringBytes(cond)) {
             const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
@@ -6781,7 +6766,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(" catch ");
                 const name = ir.Catch.name(sexp);
                 const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
-                if (sym != null and self.usage.used.contains(sym.?)) {
+                if (sym != null and self.facts.isUsed(sym.?)) {
                     const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
@@ -6854,7 +6839,7 @@ pub const Emitter = struct {
         try self.w.print(") |{s}| {{ var {s} = {s}; rig.drop(&{s}); }} else ", .{ ok, kept, ok, kept });
         const name = ir.Catch.name(sexp);
         const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
-        if (sym != null and self.usage.used.contains(sym.?)) {
+        if (sym != null and self.facts.isUsed(sym.?)) {
             const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
             try self.pushScope();
@@ -7632,7 +7617,7 @@ pub const Emitter = struct {
                 const name = ir.Catch.name(e);
                 const handler = ir.Catch.handler(e);
                 const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
-                if (sym != null and self.usage.used.contains(sym.?)) {
+                if (sym != null and self.facts.isUsed(sym.?)) {
                     const tmp = try self.hiddenStorage(e, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
@@ -10200,7 +10185,7 @@ pub const Emitter = struct {
                 uses_env = true;
                 continue;
             }
-            uses_env = uses_env or self.usage.used.contains(c.sym);
+            uses_env = uses_env or self.facts.isUsed(c.sym);
             // Inside the body, a capture is a field of the environment.
             _ = try self.declare(.{ .sym = c.sym, .zig_name = field, .ty = c.ty }, c.name);
         }
@@ -11194,50 +11179,6 @@ pub const Emitter = struct {
         const lc = diag.lineCol(self.source, self.facts.startOf(if (node == .nil) self.stmt else node));
         std.debug.print("{d}:{d}: internal error: cannot emit {s} (sema should have rejected it)\n", .{ lc.line, lc.col, what });
         return error.Unsupported;
-    }
-};
-
-// =============================================================================
-// Usage scan
-// =============================================================================
-
-/// One walk over the module that records, per symbol, what the emitter
-/// needs before it writes a binding: whether it is used or consumed, and
-/// which match bindings view which scrutinee.
-const Scan = struct {
-    e: *Emitter,
-
-    fn put(s: *Scan, set: *std.AutoHashMapUnmanaged(SymbolId, void), sym: SymbolId) Error!void {
-        try set.put(s.e.allocator, sym, {});
-    }
-
-    fn walk(s: *Scan, sexp: Sexp) Error!void {
-        switch (sexp) {
-            .src => |leaf| {
-                const sym = s.e.facts.symbolOf(sexp) orelse return;
-                if (s.e.facts.symbols.items[sym].decl_pos != leaf.pos) try s.put(&s.e.usage.used, sym);
-                return;
-            },
-            .list => {},
-            else => return,
-        }
-        // A group (parameters, a function type's parameters) names
-        // what it holds, too.
-        const head = sexp.kind() orelse {
-            for (sexp.items()) |c| try s.walk(c);
-            return;
-        };
-        switch (head) {
-            .cap_clone, .cap_weak, .cap_move, .cap_read, .cap_write => {
-                const cap = s.e.facts.symbolOf(ir.get(sexp, .name)) orelse return;
-                try s.put(&s.e.usage.used, s.e.facts.symbols.items[cap].origin);
-                return;
-            },
-            // A compile-time function is not emitted.
-            .fun => if (rig.isCtFun(sexp)) return,
-            else => {},
-        }
-        for (rig.children(sexp)) |c| try s.walk(c);
     }
 };
 

@@ -1408,13 +1408,13 @@ pub fn verifyDecisions(ctx: *const SemContext) void {
 /// Record the hidden storage emit makes for module `tree`.
 pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     var p: Planner = .{ .ctx = ctx };
-    defer p.used.deinit(ctx.allocator);
     // A binding is read where a name other than its declaration names
-    // it, or a closure captures it.
-    p.used = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
+    // it, or a closure captures it (`SemContext.used`).
+    ctx.used.deinit(ctx.allocator);
+    ctx.used = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     var names = ctx.facts.names.iterator();
-    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.*) p.used.set(e.value_ptr.*);
-    for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < p.used.bit_length) p.used.set(s.origin);
+    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.*) ctx.used.set(e.value_ptr.*);
+    for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < ctx.used.bit_length) ctx.used.set(s.origin);
     planHolds(ctx);
     try p.walk(tree);
     try planConsumed(ctx, tree);
@@ -1648,7 +1648,6 @@ pub fn lambdaYields(ctx: *const SemContext, lambda: Sexp) bool {
 
 const Planner = struct {
     ctx: *SemContext,
-    used: std.bit_set.Dynamic = .{},
     /// The several results of the function or closure being walked.
     results: ?[]const TypeId = null,
 
@@ -1684,7 +1683,7 @@ const Planner = struct {
     fn isUsed(p: *Planner, name: Sexp) bool {
         if (name != .src) return false;
         const sym = p.ctx.symbolOf(name) orelse return false;
-        return p.used.isSet(sym);
+        return p.ctx.isUsed(sym);
     }
 
     fn walk(p: *Planner, e: Sexp) std.mem.Allocator.Error!void {

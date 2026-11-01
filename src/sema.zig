@@ -4261,6 +4261,10 @@ pub const SemContext = struct {
     /// `header_copies`): recorded after the expressions are checked
     /// (`storage.plan`).
     storage: FastMap(StorageKey, Storage) = .empty,
+    /// The symbols a name reads after its declaration, or a closure
+    /// captures (`storage.plan`, `isUsed`): emit discards a binding none
+    /// reads, and keeps a `catch`'s error value only for one that does.
+    used: std.bit_set.Dynamic = .{},
     /// The values expression statements discard (`discardsValue`).
     discards: FastMap(u64, void) = .empty,
     /// The functions and methods Zig inlines at every call, by where
@@ -4478,6 +4482,7 @@ pub const SemContext = struct {
         self.item_views.deinit(self.allocator);
         self.generic_methods.deinit(self.allocator);
         self.storage.deinit(self.allocator);
+        self.used.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
         self.entry_checks.deinit(self.allocator);
@@ -4720,6 +4725,12 @@ pub const SemContext = struct {
     // ---- facts: queries ---------------------------------------------------
 
     /// The symbol an identifier leaf names (declaration or use).
+    /// Whether symbol `sym` is read after its declaration, or captured
+    /// (`used`).
+    pub fn isUsed(self: *const SemContext, sym: SymbolId) bool {
+        return sym < self.used.bit_length and self.used.isSet(sym);
+    }
+
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
         return if (node == .src) self.symbolAt(node.src.pos) else null;
     }
@@ -13785,7 +13796,7 @@ pub fn breaksOut(source: []const u8, e: Sexp, valued: bool) bool {
 /// `if`, each arm of a `match`, the right of `??`, a `catch` handler,
 /// and a loop's `else`. A bare name reached through these where the
 /// value leaves (a binding, an argument, a result) leaves its binding:
-/// emit takes it (`Scan.consumeTail`), and the ownership checker moves
+/// emit takes it, and the ownership checker moves
 /// it at that point, before the scopes the value leaves run their
 /// defers. Nothing else yields a value through its parts.
 pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {

@@ -245,6 +245,11 @@ pub const Facts = struct {
     pub fn symbolOf(f: Facts, node: Sexp) ?SymbolId {
         return f.c().symbolOf(node);
     }
+    /// Whether `sym` is read after its declaration, or captured
+    /// (`SemContext.used`, which `storage.plan` records).
+    pub fn isUsed(f: Facts, sym: SymbolId) bool {
+        return f.c().isUsed(sym);
+    }
     pub fn typeOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().typeOf(node);
     }
