@@ -103,9 +103,10 @@ and run the suite after.
     rejects both): a `?@` result reaching an owned field beside a
     held view (`x77`), and re-pointing a write view a closure has lent
     (`x68`). Add them as `# oracle:` tests when the oracle learns them.
-  - Whether an expression is a view is not one fact yet (CORE §9,
-    *planned*): a loop over a call's returned view of a List of owners is
-    rejected as if the List were made there.
+  - A loop header over a `from @field` method's view lends all of self
+    for the loop, where a binding of it (`r = ?b.all()`) lends only the
+    field: narrowing the header's loan is the ownership checker's (the
+    known case in `test/rig/ownership-views.rig.test`).
   - `bin/rig-oracle` in a worktree goes stale; `test/rig.rip` rebuilds it,
     so rebuild before using it by hand.
 
@@ -127,7 +128,6 @@ and run the suite after.
 - A header that copies a value made in it: what the header temporaries
   rule leaves.
 - The structural address chokepoint (see "Addresses of Zig rvalues").
-- The per-expression "is a view" fact.
 - The held items, as their prerequisites land.
 
 ## Open questions

@@ -2401,6 +2401,9 @@ pub const Question = enum(u8) {
     /// What an expression hands over (`handsOver`'s kind), which the plan
     /// decides for every expression (`storage.handsKind`).
     hands,
+    /// Of a loop's source or a header's subject: what the loans of the
+    /// memory it reads in place name (`livesIn`, `storage.livesIn`).
+    lives_in,
     /// Of a header's subject: whether its block yields the address of the
     /// place the subject reaches (`storage.headerPoints`).
     header_points,
@@ -14454,12 +14457,13 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
     }
     const root = pathRoot(e);
     // A path through a lend or a view made here reaches a place. An
-    // optional there is not emptied where the view sees only values made
-    // in the statement (`(!mk()).o`); any other part is rejected as one
-    // reached through a view.
+    // optional there is not emptied where the view's loans name only
+    // values made in the statement (`(!mk()).o`, `viewsOf`); any other
+    // part is rejected as one reached through a view.
     if (root != .src) {
         const source = partSource(ctx, e);
-        return if (source == .optional_part and viewsOnlyMade(ctx, root)) .made_part else source;
+        const roots = viewsOf(ctx, root);
+        return if (source == .optional_part and roots.made and !roots.place) .made_part else source;
     }
     const sym = ctx.symbols.items[
         ctx.symbolOf(root) orelse {
@@ -14541,37 +14545,144 @@ pub fn undroppable(ctx: *const SemContext, name: Sexp) ?Undroppable {
     return null;
 }
 
-/// Whether `v`, a view made here, sees only values made in its statement:
-/// a lend of one (`!mk()`, `?mk().w`), or a call's view result whose
-/// every argument it carries a view from is such a view (`gw(!mk())`).
-fn viewsOnlyMade(ctx: *const SemContext, v: Sexp) bool {
-    if (v.isKind(.read) or v.isKind(.write)) {
-        const operand = ir.get(v, .operand);
-        return switch (handsOver(ctx, operand).kind) {
-            .made => true,
-            // A part of a branching value may be a binding's.
-            .part_of_made => handsOver(ctx, pathRoot(operand)).kind != .branches,
-            .place, .lend, .branches, .jump, .none => false,
-        };
+/// What the loans a value carries name (CORE §9): a binding or a path
+/// from one, a value made in the value's statement, both, or neither
+/// (`viewsOf`). Where a value lives is `livesIn`'s.
+pub const LoanRoots = packed struct(u8) {
+    /// A loan on a binding, or on a path from one.
+    place: bool = false,
+    /// A loan on a value made in the statement, which its end drops.
+    made: bool = false,
+    _: u6 = 0,
+
+    pub fn join(a: LoanRoots, b: LoanRoots) LoanRoots {
+        return .{ .place = a.place or b.place, .made = a.made or b.made };
     }
-    if (!v.isKind(.call)) return false;
-    const params = ctx.callParamsOf(v) orelse return false;
-    var seen = false;
-    const callee = ir.Call.callee(v);
-    if (callee.isKind(.member) and params.resultCarriesReceiver()) {
-        if (!viewsOnlyMade(ctx, ir.Member.object(callee))) return false;
-        seen = true;
+
+    /// Whether every loan names a place: a view of memory that outlives
+    /// the statement.
+    pub fn onlyPlaces(v: LoanRoots) bool {
+        return v.place and !v.made;
     }
-    for (ir.Call.args(v), 0..) |arg, i| {
-        if (!params.resultCarries(i)) continue;
-        const value = if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg;
-        // An argument that holds no view gives the result none.
-        const ty = ctx.typeOf(value) orelse return false;
-        if (!mayHoldView(ctx, ty)) continue;
-        if (!viewsOnlyMade(ctx, value)) return false;
-        seen = true;
+};
+
+/// What the loans the value of `e` carries name (CORE §9), decided here,
+/// once, from what it hands over (`handsOver`), its type, and a call's
+/// recorded origins, by a positive list: a value whose type may hold no
+/// view names neither; a name, a place; a path, what its root names; a
+/// lend, where its operand lives (`livesIn`); a call, the join over the
+/// inputs whose loans its result carries; a block or a `match`, the join
+/// of its values; a branching value, the join of its parts. A value
+/// whose type sema does not know, or that it does not classify, names a
+/// made value, so nothing reads it in place.
+pub fn viewsOf(ctx: *const SemContext, e: Sexp) LoanRoots {
+    return viewsAt(ctx, e, null);
+}
+
+/// Where the value of `e` lives, for a reader that reads it in place (a
+/// loop's source, a header's subject): a view lives where its loans name
+/// (`viewsOf`); a binding, a path from one, or a path through a view,
+/// where its root does; any other value is made in its statement.
+pub fn livesIn(ctx: *const SemContext, e: Sexp) LoanRoots {
+    return livesAt(ctx, e, null);
+}
+
+/// The value made in its statement that `livesIn(e)` finds, the first in
+/// order, for a message to name (`bind mk() to a name first`); null when
+/// `e` lives in none.
+pub fn madeIn(ctx: *const SemContext, e: Sexp) ?Sexp {
+    var at: ?Sexp = null;
+    _ = livesAt(ctx, e, &at);
+    return at;
+}
+
+/// A made value, at `node`, noted for `madeIn`.
+fn madeAt(node: Sexp, at: ?*?Sexp) LoanRoots {
+    if (at) |a| if (a.* == null) {
+        a.* = node;
+    };
+    return .{ .made = true };
+}
+
+fn viewsAt(ctx: *const SemContext, e: Sexp, at: ?*?Sexp) LoanRoots {
+    const ty = ctx.typeOf(e) orelse return madeAt(e, at);
+    if (!mayHoldView(ctx, ty)) return .{};
+    return switch (handsOver(ctx, e).kind) {
+        .place => rootViews(ctx, pathRoot(e), at),
+        // A view kept in a value made here carries that value's loans;
+        // any other part of it is the value's own.
+        .part_of_made => if (isViewType(ctx, ty)) viewsAt(ctx, pathRoot(e), at) else madeAt(pathRoot(e), at),
+        .lend => livesAt(ctx, ir.get(e, .operand), at),
+        .made => madeViews(ctx, e, at),
+        .branches => partsViews(ctx, e, at, viewsAt),
+        .jump, .none => .{},
+    };
+}
+
+fn livesAt(ctx: *const SemContext, e: Sexp, at: ?*?Sexp) LoanRoots {
+    const ty = ctx.typeOf(e) orelse return madeAt(e, at);
+    if (isViewType(ctx, ty)) return viewsAt(ctx, e, at);
+    return switch (handsOver(ctx, e).kind) {
+        .place => rootViews(ctx, pathRoot(e), at),
+        .branches => partsViews(ctx, e, at, livesAt),
+        .jump, .none => .{},
+        .part_of_made => madeAt(pathRoot(e), at),
+        .made, .lend => madeAt(e, at),
+    };
+}
+
+/// What a place's root names: a binding or a constant, a place; a view
+/// the place is read through (`mk_ref().f`), what that view names.
+fn rootViews(ctx: *const SemContext, root: Sexp, at: ?*?Sexp) LoanRoots {
+    if (root == .src) return .{ .place = true };
+    return viewsAt(ctx, root, at);
+}
+
+/// The join of `f` over the values a branching or compound value may be
+/// (`valueParts`); a value with none is counted as made.
+fn partsViews(ctx: *const SemContext, e: Sexp, at: ?*?Sexp, comptime f: fn (*const SemContext, Sexp, ?*?Sexp) LoanRoots) LoanRoots {
+    var out: LoanRoots = .{};
+    var parts = valueParts(e);
+    var any = false;
+    while (parts.next()) |part| {
+        any = true;
+        out = out.join(f(ctx, part.node, at));
     }
-    return seen;
+    return if (any) out else madeAt(e, at);
+}
+
+/// What a made value's loans name: a call's, the join over the inputs
+/// whose loans its result carries (CORE sentence 7), self and the
+/// arguments; `<x`, `+x`, `*<x`, `^<x`, what `x` names; a block, a
+/// `match`, or an `if`, the join of its values. Any other, and a call
+/// sema checked against no signature (a constructor among them), is
+/// counted as made, so nothing reads it in place.
+fn madeViews(ctx: *const SemContext, e: Sexp, at: ?*?Sexp) LoanRoots {
+    switch (e.kind() orelse return .{}) {
+        .call => {
+            const params = ctx.callParamsOf(e) orelse return madeAt(e, at);
+            var out: LoanRoots = .{};
+            const callee = ir.Call.callee(e);
+            if (callee.isKind(.member) and params.resultCarriesReceiver()) out = out.join(inputViews(ctx, ir.Member.object(callee), at));
+            for (ir.Call.args(e), 0..) |arg, i| {
+                if (!params.resultCarries(i)) continue;
+                out = out.join(inputViews(ctx, if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg, at));
+            }
+            return out;
+        },
+        .move, .clone, .share, .box => return viewsAt(ctx, ir.get(e, .operand), at),
+        .block, .match, .@"if" => return partsViews(ctx, e, at, viewsAt),
+        else => return madeAt(e, at),
+    }
+}
+
+/// What an input a call's result carries the loans of names: a view
+/// passed names what it names; a value passed where a view goes is lent
+/// there unwritten (CORE sentence 4), so it names where it lives.
+fn inputViews(ctx: *const SemContext, input: Sexp, at: ?*?Sexp) LoanRoots {
+    const ty = ctx.typeOf(input) orelse return madeAt(input, at);
+    if (isViewType(ctx, ty)) return viewsAt(ctx, input, at);
+    return livesAt(ctx, input, at);
 }
 
 /// A field or element of a place: emptied when it holds an optional.

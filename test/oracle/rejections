@@ -3295,6 +3295,9 @@ test/reject/ownership/field_write_param_whole_assign.rig reset
 test/reject/ownership/for_consuming_iteration_moves.rig main
 test/reject/ownership/for_loop_move.rig main
 test/reject/ownership/for_move_element_keeps_view.rig main
+test/reject/ownership/for_over_a_call's_view:_no_drop_of_the_owner.rig main
+test/reject/ownership/for_over_a_call's_view:_stored_element_keeps_the_loan.rig main
+test/reject/ownership/for_over_a_call's_view_keeps_the_owner_lent.rig main
 test/reject/ownership/for_temporary_source_loans.rig main
 test/reject/ownership/for_through_a_shared_handle_holds_it.rig main
 test/reject/ownership/for_write_iteration_conflicts_ownership.rig main

@@ -813,6 +813,13 @@ fn decidePrintsByAddress(ctx: *const SemContext, a: Sexp) bool {
     return place and sema.readByAddress(ctx, sema.unwrapViews(ctx, ty));
 }
 
+/// What the loans of the memory `e` reads in place name (`sema.livesIn`,
+/// CORE §9), decided once and recorded: the type checker asks it of a
+/// loop's source, and `verifyDecisions` fails a pass that sees another.
+pub fn livesIn(ctx: *const SemContext, e: Sexp) sema.LoanRoots {
+    return decide(ctx, e, .lives_in);
+}
+
 /// What expression `e` hands over (`sema.handsOver`'s kind), decided by
 /// the plan for every expression, for emit to read.
 pub fn handsKind(ctx: *const SemContext, e: Sexp) sema.Hands.Kind {
@@ -1295,6 +1302,7 @@ pub fn Answer(comptime q: sema.Question) type {
         .argument_hold => ArgumentHold,
         .match_mode => MatchMode,
         .hands => sema.Hands.Kind,
+        .lives_in => sema.LoanRoots,
         .subject_hold => ?StorageBy,
         .set_order => SetOrder,
         .step_point => StepPoint,
@@ -1330,6 +1338,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .print_by_address => Node.of(decidePrintsByAddress),
         .drops_when_tested => Node.of(decideDropsWhenTested),
         .hands => Node.of(decideHands),
+        .lives_in => Node.of(sema.livesIn),
         .header_points => Node.of(decideHeaderPoints),
         .views_optional_value => Node.of(decideViewsOptionalValue),
         .hoists_args => Node.of(decideHoistsArgs),

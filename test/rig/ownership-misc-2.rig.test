@@ -1990,13 +1990,13 @@ test "vec for moving elements bound", '''
   for x in w
     print(x)
 
-fail "vec for moving elements source", "25:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "27:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "29:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "31:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "33:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `items(?v, ?k)` to a name first", "35:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first", "37:10: cannot lend `v if c else k`: it may be `v`, a value a name holds", errors: 7
-  # A loop over a List whose elements move walks a List a name holds, or a
-  # field or element of one. Any other source, a List made here (bare,
-  # taken, or lent), a call's returned view of one, a part of a value made
-  # here, or a branching value, gets one diagnostic, whose hint compiles
-  # (`test/behavior/ownership/vec_for_moving_elements_bound.rig`); a
-  # branching value is read in place, so it is a lend of a name it may be.
+fail "vec for moving elements source", "25:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "27:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "29:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "31:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "35:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first", "37:10: cannot lend `v if c else k`: it may be `v`, a value a name holds", errors: 6
+  # A loop over a List whose elements move walks a List a name holds, a
+  # field or element of one, or one a view of only places reaches (`items(?v,
+  # ?k)`, CORE §9). Any other source, a List made here (bare, taken, or
+  # lent), a part of a value made here, or a branching value, gets one
+  # diagnostic, whose hint compiles (`test/behavior/ownership/vec_for_moving_
+  # elements_bound.rig`); a branching value is a lend of a name it may be.
 
   obj H
     items: List[String]

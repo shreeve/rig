@@ -1166,6 +1166,30 @@ sub main()
 ada
 ```
 
+**A loop reads a view a call returns where it points.** What the
+loans of a value name is one fact (§9): `first(?ls)` views `ls`, so a
+`for` over it walks `ls[0]` in place, as it walks a place, and `ls`
+stays lent while the loop runs. A view whose loans name a value made
+in the header is rejected: the value ends with the header, so it is
+bound to a name first. *(built)*
+
+```rig
+fun first(lists: ?List[List[String]]) -> ?List[String]
+  ?lists[0]
+
+sub main()
+  ls: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !ls.push(<inner)
+  for x in first(?ls)
+    print(x)
+```
+
+```output
+a
+```
+
 ## 4. One lend table
 
 `?x` and `!x` lend the view the context expects; where the context
@@ -2112,8 +2136,12 @@ no pass decides them again by looking at syntax.
   a loan; cloneable; how a read view is represented (a copy, or a
   pointer). *(built)*
 - **Per expression, one classification** of what it hands over: a
-  place, a made value, a lend, branches, or a jump *(built)*; whether it
-  is a view, and whether the value lives for the whole program
+  place, a made value, a lend, branches, or a jump; and of what the
+  loans its value carries name: a place, a value made in its statement,
+  both, or neither, composed from its parts (a name names a place, a
+  path what its root names, a lend where its operand lives, a call what
+  the inputs its result carries name, and every other value what its
+  parts name) *(built)*; whether the value lives for the whole program
   *(planned)*.
 - **Per path, one exit primitive,** which runs defers, reports any loan
   it would drop, and rewinds when the path goes on. *(built)*
