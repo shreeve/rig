@@ -8,7 +8,11 @@
 # (UNLISTED) and on a listed function the oracle decides and no longer
 # rejects (LOST): a weaker reference checker shows, whatever the
 # compiler decides (test/README.md, "The reference ownership checker").
+array.arg_then_write.destructure_view run
+array.arg_then_write.destructure_write run
 array.arg_then_write.move run
+array.arg_then_write.read_view run
+array.arg_then_write.write_view run
 array.eq.move run
 array.slice_arg_then_write.destructure run
 array.slice_arg_then_write.destructure_view run
@@ -24,6 +28,7 @@ array.write_held.move run
 box.arg_then_write.catch run
 box.arg_then_write.destructure run
 box.arg_then_write.destructure_branch run
+box.arg_then_write.destructure_view run
 box.arg_then_write.destructure_write run
 box.arg_then_write.field run
 box.arg_then_write.move run
@@ -762,7 +767,10 @@ field.self.write.sib.assign.closure.fall P.run
 field.self.write.sib.read.closure.fall P.run
 field.self.write.sib.take.closure.fall P.run
 field.self.write.sib.write.closure.fall P.run
+int.arg_then_write.destructure_write run
 int.arg_then_write.move run
+int.arg_then_write.read_view run
+int.arg_then_write.write_view run
 int.eq.move run
 int.eq_then_write.move run
 int.write_held.call run
@@ -1248,8 +1256,15 @@ payload.plain.param.guard inner
 payload.plain.param.guard_store inner
 payload.plain.param.return inner
 payload.plain.param.store inner
+plain.arg_then_write.destructure_view run
+plain.arg_then_write.destructure_write run
 plain.arg_then_write.move run
+plain.arg_then_write.read_view run
+plain.arg_then_write.write_view run
+simd.arg_then_write.destructure_write run
 simd.arg_then_write.move run
+simd.arg_then_write.read_view run
+simd.arg_then_write.write_view run
 plain.eq.move run
 simd.eq.move run
 plain.write_held.call run
@@ -1501,7 +1516,10 @@ sliceview.write.array.arg.live main
 sliceview.write.text.arg.live main
 sliceview.write.list.arg.live main
 sliceview.wshared.text.arg.live main
+static.arg_then_write.destructure_write run
 static.arg_then_write.move run
+static.arg_then_write.read_view run
+static.arg_then_write.write_view run
 static.eq.move run
 static.eq_then_write.move run
 static.write_held.call run
@@ -1906,6 +1924,7 @@ test/reject/ownership/last_String_operand's_write_view_while_it_is_read.rig main
 test/reject/ownership/last_String_view_operand_while_a_later_one_writes.rig main
 test/reject/ownership/last_binding_read_in_a_loop_it_was_declared_outside_of.rig main
 test/reject/ownership/last_earlier_argument's_binding_view_while_a_later_one_writes.rig main
+test/reject/ownership/last_earlier_argument's_view_while_a_later_one_writes.rig main
 test/reject/ownership/last_for_over_a_lend_whose_body_writes.rig main
 test/reject/ownership/last_for_over_a_made_view_whose_body_writes.rig main
 test/reject/ownership/last_for_over_a_view_binding_whose_body_writes.rig main
@@ -2281,6 +2300,7 @@ test/reject/probes/r3-s36-n06_box_lend_then_reassign.rig main
 test/reject/probes/r3-s36-n07_match_box_payload_reassign.rig main
 test/reject/probes/r3-s36-n10_for_vec_box_push_in_body.rig main
 test/reject/probes/r3-s36-n11_fixed_view_then_push.rig main
+test/reject/probes/r3-s36-n13_new_shadow_wb_old_alive.rig main
 test/reject/probes/r3-s36-n25_match_value_bare_owner.rig main
 test/reject/probes/r3-s36-n26_ternary_value_bare_owner.rig main
 test/reject/probes/r3-s36-n27_if_value_outer_owner_bare.rig main
