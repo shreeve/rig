@@ -6,6 +6,9 @@ The owner asked where Trig stands now. This is [tsrs-standing-5.md](tsrs-standin
 
 ## Method
 
+*Later finding:* this run's order rotated its first arm each round, but trig1 still always followed tsrs4 or the wait for quiet cores. That costs the arm 1–2 ms on a 25 ms project ([../timing-audit/harness.md](../timing-audit/harness.md)). So Trig's one-checker numbers on mitt, neverthrow, superstruct and tiny-invariant read slow against tsrs by several points; ts-pattern and zod3 by under 2%. Standing-7 uses the shuffled harness.
+
+
 As standing-5's, with these differences:
 - **Trig.** Main `806e0a1` (the lexer and the parser) with PGO, built by Rig main `928b44bf2`:
   - `rig build --release --pgo`, trained by `tools/trig/bolt-train`;
