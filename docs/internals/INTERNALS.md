@@ -156,7 +156,8 @@ cannot say what it is builds every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
 or `-Ofast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. A release build adds `-fomit-frame-pointer`
-(`Mode.frameFlags`): every function gets a register back and loses
+and `-fno-stack-protector` (`Mode.releaseFlags`). Without frame
+pointers every function gets a register back and loses
 the instructions that save and set the frame pointer, about 3% of
 the instructions Trig runs. Nothing Rig reads needs them: a release
 panic prints its message and no trace, and Zig's unwinder, which a
@@ -168,7 +169,14 @@ macOS's `sample` and Instruments, since Apple's arm64 ABI keeps them.
 `perf record --call-graph dwarf` would read the tables instead, but
 `perf` 7.0 recovers no callers from a Zig executable
 that way, with frame pointers or without. `RIG_FRAME_POINTERS=1` at
-build time keeps them, for a profile with its callers. `emit` prints the root module's Zig and names the
+build time keeps them, for a profile with its callers. Zig adds a
+stack canary to each function that keeps an array on its stack
+wherever libc is linked (every macOS program, and on Linux a program
+with an `extern`): a load, a compare and a branch at its return.
+Safe Rig cannot write past an array, so a canary guards only `raw`
+code and the runtime's Zig, and a release build leaves them out:
+Trig on the Mac retires 6-7% fewer instructions without them.
+`RIG_STACK_PROTECTOR=1` at build time keeps them. `emit` prints the root module's Zig and names the
 package directory on stderr; `build` names it when Zig fails. The
 package is the same in every mode, so `emit` takes none: a mode is
 only Zig's `-O` flag, which the runtime reads (`builtin.mode`) to
