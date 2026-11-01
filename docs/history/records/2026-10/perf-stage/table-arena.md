@@ -166,6 +166,14 @@ the owner as layout, 2026-10-31. The evidence:
 - On E-cores 16-19, eight interleaved runs give `contend` medians of
   43.7 and 45.5 ns, with each spread wider than that gap.
 
+On the Mac (load 12 to 16, 3 rounds, through `tools/low`;
+[runtime-benches-mac.txt](table-arena-data/runtime-benches-mac.txt)) the
+rows move both ways within the load's noise. That includes `hog`: 75.52
+us for base against 97.06 us, best of each, with medians of 98.46 and
+109.27. Neither change is compiled on macOS: `hugeFree`, `hugeFreeFor`
+and `reserveTable` give false or null at compile time off Linux, as
+before.
+
 ## Tests
 
 - Zig unit tests in `alloc.zig`, all passing on pup in debug, safe and

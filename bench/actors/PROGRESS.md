@@ -103,3 +103,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-31 | row 22 seg: segments ask for huge pages at a low floor (pup core 6) | rig-fast | 11 ns | 14 ns | 10 ns |
 | 2026-10-31 | a5a78efbb before #832 (main's alloc.zig and table.zig), alternated (pup core 6) | rig-fast | 11 ns | 14 ns | 10 ns |
 | 2026-10-31 | #832: Tables take ranges of one address space (pup core 6; contend accepted by the owner as layout) | rig-fast | 11 ns | 15 ns | 10 ns |
+| 2026-10-31 | main caa6f8560 before #832, alternated (Mac, load 12-16) | rig-fast | 5.1 ns | 38 ns | 1.0 ns |
+| 2026-10-31 | #832: Tables take ranges of one address space; its code is Linux-only (Mac, load 12-16) | rig-fast | 5.1 ns | 39 ns | 0.9 ns |
