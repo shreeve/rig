@@ -1845,11 +1845,17 @@ sub main()
 [0, 1, 0]
 ```
 
-A call evaluates its self and arguments left to right, then runs. A
-value an earlier argument reads stays lent until the call returns, so a
-later argument can't change it. A write lend of a method's self
-acts as a read loan until the call starts, so `!v.push(v.len)` works; a
-write lend in any other argument is a write loan at once, so
+A call evaluates its self and arguments left to right, then runs; an
+operator evaluates its operands left to right, then yields. Plain data
+read as a value (an operand, a field or element read, an argument to a
+parameter of a plain type) is copied where it stands, through a view
+too, and keeps nothing lent there. Whatever else an earlier argument or
+operand hands over (a view, which `print` and `String` arguments are; a
+value that shares storage its place owns; what a write view reaches)
+stays lent, to read, until the call returns or the operator yields, so
+a later one can't change it. A write lend of a method's self acts as a
+read loan until the call starts, so `!v.push(v.len)` works; a write
+lend in any other argument is a write loan at once, so
 `grow(!v, v.len)` is rejected. *(built)*
 
 ```rig
@@ -1876,6 +1882,24 @@ sub main()
 
 ```error
 while an earlier argument's read of it is in use
+```
+
+A field copied out of a view keeps nothing lent, so the view's last use
+is behind the write lend after it:
+
+```rig
+fun bump(a: ![3]Int) -> Int
+  a[0] = 9
+  0
+
+sub main()
+  a = [1, 2, 3]
+  r = ?a
+  print(r[1] + bump(!a), a)
+```
+
+```output
+2 [9, 2, 3]
 ```
 
 **Bindings.** A local binding may be reassigned. Parameters and fixed

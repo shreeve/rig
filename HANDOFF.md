@@ -78,6 +78,17 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A statement's loans end at their last use** (queue row 33D, branch
+  `last-use`): CORE §6's evaluation-order paragraph replaced (plain data
+  read as a value is copied where it stands; what an earlier argument
+  or operand hands over stays lent until its call returns or its
+  operator yields), and the checker ends a loan at the last use of the
+  value carrying it, within its statement too. It only accepts more
+  programs (19 matrix lines and 4 programs leave
+  `test/oracle/differences`); emit is identical. Next: the oracle
+  taught CORE §6, a tests-only row, and the `for` header (t05) as a
+  row of its own. In its gates.
+
 - **Split builds** (queue row 23c, branch `split-units`): a large
   program's debug build compiles as units on every core when Zig uses
   LLVM (the Mac), `--units=N` otherwise; Trig's debug build on the Mac

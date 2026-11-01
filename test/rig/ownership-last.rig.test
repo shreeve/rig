@@ -1,0 +1,472 @@
+# ownership: tests whose names start `last`.
+#
+# A loan a statement takes ends at the last use of the value carrying it
+# (Core sentence 6), in the order Core §6 gives: a binding's last use
+# within its statement, an operand or argument once its consumer is done
+# with it. Plain data read as a value is copied where it stands, through
+# a view too, and keeps nothing lent there. Each `bump` grows the List
+# past its capacity, so a wrong acceptance reads freed memory.
+
+test "last binding copied out before a write lend", "2"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  x = ?v[0]
+  !v.push(Item(n: x.n))
+  print(v.len)
+
+test "last binding copied out before a growing write lend", "65 1"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  for i in 0..64
+    !v.push(Item(n: i + 1))
+  x = ?v[0]
+  !v.push(Item(n: x.n))
+  print(v.len, v[64].n)
+
+test "last binding passed by value to a growing push", "65 1"
+  obj Item
+    n: Int
+    m: Int
+
+  v: List[Item] = List()
+  for i in 0..64
+    !v.push(Item(n: i + 1, m: 2))
+  r = ?v[0]
+  !v.push(r)
+  print(v.len, v[64].n)
+
+test "last if as payload read before the branch writes", "2"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  o: (?Item)? = ?v[0]
+  if o as it
+    !v.push(Item(n: it.n))
+  print(v.len)
+
+test "last match on a made value whose arm writes", "2"
+  obj Item
+    n: Int
+
+  enum Res
+    found(it: ?Item)
+    missing
+
+  fun find(v: !List[Item]) -> Res
+    if v.len == 0
+      return Res.missing
+    Res.found(it: ?v[0])
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  match find(!v)
+    .found(_) => !v.push(Item(n: 0))
+    .missing => print("none")
+  print(v.len)
+
+test "last match payload read before its arm writes", "2 1"
+  obj Item
+    n: Int
+
+  enum Res
+    found(it: ?Item)
+    missing
+
+  fun find(v: !List[Item]) -> Res
+    if v.len == 0
+      return Res.missing
+    Res.found(it: ?v[0])
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  match find(!v)
+    .found(it)
+      k = it.n
+      !v.push(Item(n: k))
+    .missing => print("none")
+  print(v.len, v[1].n)
+
+test "last match payload copied out in the arm's write", "2 1"
+  obj Item
+    n: Int
+
+  enum Res
+    found(it: ?Item)
+    missing
+
+  fun find(v: !List[Item]) -> Res
+    if v.len == 0
+      return Res.missing
+    Res.found(it: ?v[0])
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  match find(!v)
+    .found(it) => !v.push(Item(n: it.n))
+    .missing => print("none")
+  print(v.len, v[1].n)
+
+test "last write result's field before a read", "1 1"
+  obj Item
+    n: Int
+
+  fun firstw(v: !List[Item]) -> !Item
+    !v[0]
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  print(firstw(!v).n, v.len)
+
+test "last read result's field before a write lend", "1 0"
+  obj Item
+    n: Int
+
+  fun id(v: ?Item) -> ?Item
+    v
+
+  fun bump(s: !Item) -> Int
+    s.n = 0
+    0
+
+  s = Item(n: 1)
+  print(id(?s).n, bump(!s))
+
+test "last write view operand before a read", "true"
+  a = 1
+  w = !a
+  print(w == a)
+
+test "last write view of an array operand before a read", "true"
+  a = [1, 2, 3]
+  w = !a
+  print(w == a)
+
+test "last read view operand before a write lend", "true [9, 2, 3]"
+  fun bump(a: ![3]Int) -> [3]Int
+    a[0] = 9
+    [1, 2, 3]
+
+  a = [1, 2, 3]
+  r = ?a
+  print(r == bump(!a), a)
+
+test "last read view of an Int operand before a write lend", "1 2"
+  fun bump(a: !Int) -> Int
+    a += 1
+    0
+
+  a = 1
+  r = ?a
+  print(r + bump(!a), a)
+
+test "last owning temporary read before a write lend", "2"
+  fun mk(v: ?List[Int]) -> List[?Int]
+    out: List[?Int] = List()
+    !out.push(?v[0])
+    out
+
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..64
+      !v.push(i)
+    0
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(mk(?v).len + grow(!v) + 1)
+
+test "last result discarded before its source is bound", '''
+  init
+  new
+'''
+  fun mk(s: ?String) -> (?String, String)
+    return s, String("new")
+
+  s = String("old")
+  v: ?String = "init"
+  print(v)
+  v, s = mk(?s)
+  print(s)
+
+test "last generic comparison then a store of a type parameter's value", "1 0"
+  # A value of a type parameter's type compared where it stands is not
+  # stored, so the store after it keeps nothing of `value`.
+  obj Multi[K, V: Eq]
+    m: Map[K, List[V]] = Map()
+
+    sub remove(!@, key: ?K, value: ?V) keeps key
+      at = -1
+      if @m.get(key) as values
+        for v, i in values
+          if v == value
+            at = i
+            break
+      return if at < 0
+      if (!@m).edit(key) as values
+        old = (!values).remove(at)
+        <old
+
+  mm: Multi[Int, Int] = Multi()
+  l: List[Int] = List()
+  !l.push(2)
+  !mm.m.put(1, <l)
+  !mm.remove(1, 2)
+  if mm.m.get(1) as left
+    print(mm.m.len, left.len)
+
+# A view handed over stays lent until its consumer is done (Core §6).
+
+fail "last earlier argument's view while a later one writes", "cannot lend `v` to write while a read loan is live"
+  fun first(v: ?List[Int]) -> ?Int
+    ?v[0]
+
+  fun bump(v: !List[Int]) -> Int
+    for i in 0..64
+      !v.push(i)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(5)
+  print(first(?v), bump(!v))
+
+fail "last earlier argument's binding view while a later one writes", "cannot lend `v` to write while a read loan is live"
+  fun bump(v: !List[Int]) -> Int
+    for i in 0..64
+      !v.push(i)
+    v.len
+
+  fun f(a: ?Int, n: Int) -> Int
+    a + n
+
+  v: List[Int] = List()
+  !v.push(5)
+  r = ?v[0]
+  print(f(r, bump(!v)))
+
+fail "last String operand's write view while it is read", "use of `a` while a write loan is live"
+  a = String("x")
+  w = !a
+  print(w == a)
+
+fail "last String view operand while a later one writes", "cannot lend `t` to write while a read loan is live"
+  fun mk(t: !String) -> String
+    for _ in 0..64
+      !t.add("grow-grow-grow")
+    String("x")
+
+  t = String("x")
+  z = ?t
+  print(z == mk(!t))
+
+fail "last List field of an earlier argument while a later one writes", "cannot lend `v` to write"
+  obj Bag
+    items: List[Int]
+
+  fun bump(v: !List[Bag]) -> Int
+    for _ in 0..64
+      !v.push(Bag(items: List()))
+    0
+
+  v: List[Bag] = List()
+  !v.push(Bag(items: List()))
+  w = !v[0]
+  print(w.items, bump(!v))
+
+fail "last binding read in a loop it was declared outside of", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  x = ?v[0]
+  for _ in 0..3
+    !v.push(Item(n: x.n))
+  print(v.len)
+
+# What emit reads at its consumer, after later operands, is used there.
+
+fail "last keyword argument read after a later one writes", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    0
+
+  fun f(a: Int, b: Item) -> Int
+    a + b.n
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r =! ?v[0]
+  print(f(b: r, a: bump(!v)))
+
+fail "last write view keyword argument read after a later one writes", "cannot lend `v` to write"
+  fun bump(v: !List[Int]) -> Int
+    for _ in 0..64
+      !v.push(2)
+    0
+
+  fun f(a: Int, b: Int) -> Int
+    a + b
+
+  v: List[Int] = List()
+  !v.push(1)
+  w =! !v[0]
+  print(f(b: w, a: bump(!v)))
+
+fail "last hoisted argument read after a later one writes", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int!
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    0
+
+  fun g(s: String, b: Item, n: Int) -> Int
+    s.len + b.n + n
+
+  sub run()!
+    v: List[Item] = List()
+    !v.push(Item(n: 1))
+    r =! ?v[0]
+    print(g(String("x"), r, bump(!v)!))
+
+  run() catch print("failed")
+
+fail "last argument beside a lent closure read after a later one writes", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    0
+
+  fun apply(it: Item, f: ?fun(Int) -> Int, n: Int) -> Int
+    f(it.n) + n
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r =! ?v[0]
+  print(apply(r, |x| x + 1, bump(!v)))
+
+fail "last assigned value read after its index writes", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    0
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  xs: List[Item] = List()
+  !xs.push(Item(n: 0))
+  r =! ?v[0]
+  xs[bump(!v)] = r
+  print(xs[0])
+
+fail "last compound assigned value read after its index writes", "cannot lend `v` to write"
+  fun bump(v: !List[Int]) -> Int
+    for _ in 0..64
+      !v.push(2)
+    0
+
+  v: List[Int] = List()
+  !v.push(1)
+  xs: List[Int] = List()
+  !xs.push(0)
+  w =! !v[0]
+  xs[bump(!v)] += w
+  print(xs[0])
+
+# A loop reads its source on every pass, and a match its subject until
+# an arm is chosen.
+
+fail "last for over a made view whose body writes", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun all(v: ?List[Item]) -> ?List[Item]
+    v
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  for x in all(?v)
+    k = x.n
+    for _ in 0..64
+      !v.push(Item(n: k))
+  print(v.len)
+
+fail "last for over a view binding whose body writes", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v
+  for x in r
+    k = x.n
+    for _ in 0..64
+      !v.push(Item(n: k))
+  print(v.len)
+
+fail "last for over a lend whose body writes", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  for x in ?v
+    k = x.n
+    for _ in 0..64
+      !v.push(Item(n: k))
+  print(v.len)
+
+fail "last match guard writes what a later arm reads", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  enum Res
+    found(it: ?Item)
+    missing
+
+  fun find(v: ?List[Item]) -> Res
+    if v.len == 0
+      return Res.missing
+    Res.found(it: ?v[0])
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  match find(?v)
+    .found(_) if bump(!v) < 0 => print("a")
+    .found(it) => print(it.n)
+    .missing => print("none")
+
+fail "last while condition's view while the body writes", "use of `xs` while a write loan is live"
+  obj A3
+    arr: [3]Int
+
+  xs: List[A3] = List()
+  !xs.push(A3(arr: [1, 2, 3]))
+  a = !xs[0]
+  i = 0
+  while i < a.arr[0]
+    !xs.push(A3(arr: [0, 0, 0]))
+    i += 1
+  print(i)

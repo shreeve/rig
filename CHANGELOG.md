@@ -259,6 +259,27 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A statement's loans end at their last use.** A loan a statement
+  took lasted to the statement's end; it now ends at the last use of
+  the value that carries it (CORE sentence 6), in the order CORE §6
+  gives: a binding's last use in its statement, and an argument or
+  operand once its call returns or its operator yields. Plain data read
+  as a value (an operand, a field or element read, an argument of a
+  plain type) is copied where it stands, through a view too, and keeps
+  nothing lent. So `x = ?v[0]` then `!v.push(Item(n: x.n))`,
+  `print(firstw(!v).n, v.len)`, `print(w == a)` with `w = !a` and `a`
+  plain data, `print(r == bump(!a))` with `r = ?a`, a `match find(!v)`
+  or `if o as it` whose body writes `v` after its payload's last use,
+  `mk(?v).len + grow(!v)`, and `v, s = mk(?s)` with `v` not read again
+  are accepted. Still rejected: a view an earlier argument or operand
+  hands over while a later one writes what it views
+  (`print(first(?v), bump(!v))`, `f(r, bump(!v))`), a binding read in
+  a loop it was declared outside of, a match guard that writes what a
+  later arm reads, and a name that a call, an array, or an assignment
+  reads where it runs, after a later operand (`f(b: r, a: bump(!v))`,
+  `xs[bump(!v)] = r`). This only accepts more programs; the emitted Zig
+  of every program accepted before is the same.
+
 - **An argument evaluated first reads a held view into a value.** A
   call whose arguments go into temporaries first (keyword arguments
   given out of order, or an owned argument before one that may fail)
