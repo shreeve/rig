@@ -244,7 +244,8 @@ operator `<` orders values of one type that provides `Ord`, and `bigint.BigInt` 
 ## std.os
 
 The arguments and environment the program started with, what its
-allocations come to, and ending it now. Their text
+allocations come to, ending it now, and writing out every file system.
+Their text
 lives as long as the program, as a literal's does, and views no `String`,
 so both are a `Static` ([SPEC §2](../SPEC.md#static)). They hold the
 bytes the operating system gave, which are not checked to be UTF-8.
@@ -259,6 +260,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 | `memory() -> Memory` | what the program's allocations come to now: `live`, the bytes of its live allocations; `peak`, the most `live` has been; and `allocs`, how many it has made |
 | `exit(code: Int)` | ends the program now, with exit status `code` |
 | `on_broken_pipe(how: BrokenPipe)` | what a write to stdout does once its reader has closed the pipe: `.exit`, the default, ends the program with status 0; `.die` kills it by SIGPIPE |
+| `sync()` | writes out everything every file system holds for its devices, as sync(2) does; it runs on the blocking pool, so only its task waits, and cannot fail. `File.sync_fs` ([std.file](#stdfile)) writes out one file system |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -397,7 +399,7 @@ directory.
 | `remove(path: ?String) -> Bool!` | removes the file, or empty directory, at `path`, whichever is there, as C's `remove` does: `true`, or `false` when nothing was there |
 | `unlink(path: ?String) -> Bool!` | removes what is at `path` but a directory, a symbolic link itself and never what it names: `true`, or `false` when nothing was there. A directory fails with the system's reason: `is_directory` on Linux, `not_permitted` on macOS |
 | `rmdir(path: ?String) -> Bool!` | removes the empty directory at `path`: `true`, or `false` when nothing was there. A file fails with `not_directory`, a directory that holds entries with `not_empty` |
-| `open(path: ?String) -> File?!` | the file at `path`, to read; `none` when nothing is there |
+| `open(path: ?String, wait: Bool = true) -> File?!` | the file at `path`, to read; `none` when nothing is there. With `wait: false` the open does not wait for a FIFO's writer or a device to be ready, and the reads after it wait as any read does |
 | `create(path: ?String, parents: Bool = false) -> File!` | the file at `path`, created or emptied, to write |
 
 **`rmdir` removes an empty directory, as `mkdir` makes one; `unlink`
@@ -501,6 +503,46 @@ standard streams are `File`s too ([std.io](#stdio)), which stay open:
 | `f.read(!@, into: !String, max: Int) -> Int!` | reads up to `max` bytes onto the end of `into`, into its own buffer: how many, or 0 at the end of the file |
 | `f.write(!@, bytes: ?String)!` | writes all of `bytes`, with nothing added |
 | `f.flush(!@)!` | writes out what `print` has buffered, when `f` is stdout; nothing for any other file, whose writes are not buffered |
+| `f.sync(!@)!` | writes the file's bytes and what the file system records of it (its size, its times) out to the device, and waits until the device has them: fsync, or on macOS `F_FULLFSYNC`, which also asks the drive to empty its cache. On stdout, what `print` buffered goes first |
+| `f.sync_data(!@)!` | the same for the bytes and what reading them back needs (the size), not the times: fdatasync; on macOS, `sync` |
+| `f.sync_fs(!@)!` | writes out everything waiting for the file system that holds the file: Linux's syncfs; other systems have no such call, and write out every file system, as `os.sync()` does |
+| `f.is_terminal(?@) -> Bool` | whether the file is a terminal (isatty); for a standard stream, the stream the program was started with; a closed one is not |
+
+**`sync` makes a write last.** A write is done when the system has the
+bytes, before its device does; `sync` waits until the device has them,
+so a crash or power loss after it keeps them, which `dd conv=fsync` and
+`shred` need. It is a fallible waiting point on the blocking pool, as a
+read is, and a file open to read can be synced too. A pipe or a socket
+cannot be (`FileError.invalid`); a terminal can on macOS, not on Linux.
+`is_terminal` is one question to the system, asked on the task's own
+thread, so it is no waiting point and cannot fail: `ls` prints columns
+when `io.stdout().is_terminal()`.
+
+**`wait: false` opens a FIFO without its writer.** An open of a FIFO to
+read waits until something opens it to write; with `wait: false` it
+returns at once, as `sync` and `tail --pid` need, and a read with no
+writer gives the end of the file, 0 bytes. The File waits on its reads
+as any File does: std never leaves one nonblocking, since its reads run
+on the blocking pool and concurrency comes from tasks.
+
+```rig
+use std.file
+use std.io
+
+sub main()!
+  file.write("out/sync/f", "kept\n", parents: true)!
+  if file.open("out/sync/f", wait: false)! as f
+    (!f).sync_data()!
+    print(f.is_terminal())
+  print(io.stdout().is_terminal())
+  _ = file.remove("out/sync/f")!
+  _ = file.remove("out/sync")!
+```
+
+```output
+false
+false
+```
 
 **A read goes into the caller's buffer.** When `into` has room for `max`
 more bytes, the read fills that room and allocates nothing, so one

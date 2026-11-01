@@ -1,6 +1,6 @@
 # std.os: the process's arguments, environment, working directory, what
-# its allocations come to, ending it now, and what a closed stdout pipe
-# does.
+# its allocations come to, ending it now, what a closed stdout pipe
+# does, and writing out every file system.
 
 use std.file
 
@@ -69,6 +69,12 @@ extern zig "os.zig"
   # runs: no drop, `defer`, `errdefer`, or leak check, and the program's
   # other tasks end with it, wherever they are.
   pub sub exit(code: Int)
+
+  # Write out everything every file system holds for its devices:
+  # sync(2). It can take seconds, so it runs on the blocking pool, and
+  # only the task that calls it waits; it cannot fail, and is no
+  # fallible waiting point. `File.sync_fs` writes out one file system.
+  pub sub sync()
 
   # `memory()`'s parts.
   fun memory_live() -> Int
