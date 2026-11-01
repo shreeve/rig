@@ -305,6 +305,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
         // whose `paren` is dropped: each before any pass reads a statement.
         .wait, .once, .@"..=", .paren => .none,
+        // A function's and a loop's markers, never a statement.
+        .outside, .lent => .none,
     };
 }
 
@@ -2306,8 +2308,8 @@ pub const IterSource = enum {
     moved,
     /// A value a method call makes, with the loop's `?` on the call's
     /// receiver by the receiver-sigil rule (`for x in ?b.each()` is
-    /// `for x in (?b).each()`), held in a hidden binding as `made` is
-    /// (`Parser.loopReceiverSource`).
+    /// `for x in (?b).each()`), held in a hidden binding as `made` is:
+    /// the loop's `lent` tag (`Parser.lentSource`).
     lent,
 };
 
@@ -2338,30 +2340,10 @@ pub const Parser = struct {
     /// `(move place)` receivers written in front of the call
     /// (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The node ids of the parameters written `f: once ?fun() -> T`,
-    /// each made a `(: f type)` (`isOnceParam`).
-    once_params: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// Each `rarely` that starts a body it may mark (`placeRarely`).
-    placed_rarely: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// For each `for` whose `?` before its source reaches the receiver
-    /// of a method call by the receiver-sigil rule
-    /// (`for x in ?b.each()`), the source with the sigil there,
-    /// `(?b).each()`: what the loop holds when the call makes an
-    /// iterator (`IterSource.lent`).
-    loop_receivers: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
     paren_suffixes: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The node ids of the fields and methods declared `pub`, which the
-    /// member list holds without their `(pub ...)` wrapper.
-    pub_members: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The node ids of the fields declared `pub ?name: T`, which other
-    /// modules read and only their own module writes (`isReadOnlyMember`).
-    read_only_members: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// Where the names of the methods declared outside their type's body
-    /// are (`attachMethods`).
-    outside_members: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// The methods declared outside a body that name no type of this
     /// module as it declares it (`fun Nope.m()`, `fun geo.Point.m()`),
     /// each as written, `pub` included; the checker says why.
@@ -3254,11 +3236,10 @@ pub const Parser = struct {
         dropParens(sexp.kind(), walked);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
-        try self.placeRarely(out);
         switch (out.kind() orelse return out) {
             .module => {
                 stripParens(out);
-                self.strayRarely(out, false);
+                self.strayRarely(out, false, false);
                 self.moduleConsts(out);
                 return self.builtinRefs(try self.attachMethods(out));
             },
@@ -3289,11 +3270,8 @@ pub const Parser = struct {
                 self.touchesOperand(out);
                 return self.waitCall(out);
             },
-            .once => {
-                const param = try self.base.newNode(.@":", &.{ ir.get(out, .name), ir.get(out, .type) }, self.span(out));
-                try self.once_params.put(self.allocator(), param.list.id, {});
-                return param;
-            },
+            // A function records which (`onceParams`).
+            .once => return self.base.newNode(.@":", &.{ ir.get(out, .name), ir.get(out, .type) }, self.span(out)),
             .@"..=" => return self.base.newNode(.@"..", &.{ ir.get(out, .left), ir.get(out, .right), .{ .tag = .inclusive } }, self.span(out)),
             .member, .index, .inst => self.waitTakesName(out, ir.get(out, .object)),
             .call => self.waitTakesName(out, ir.Call.callee(out)),
@@ -3307,15 +3285,24 @@ pub const Parser = struct {
             .fun => {
                 try self.tparamBounds(walked, ir.slot(.fun, .tparams), ir.slot(.fun, .bounds), false);
                 try self.tparamBounds(walked, ir.slot(.fun, .owner_params), ir.slot(.fun, .owner_bounds), true);
+                try self.onceParams(items[ir.slot(.fun, .params)], walked, ir.slot(.fun, .params), ir.slot(.fun, .once));
                 try self.paramList(out);
                 if (ir.Fun.returns(out) != .nil) try self.valueTail(&walked[ir.slot(.fun, .body)]);
             },
             .sub => {
                 try self.tparamBounds(walked, ir.slot(.sub, .tparams), ir.slot(.sub, .bounds), false);
                 try self.tparamBounds(walked, ir.slot(.sub, .owner_params), ir.slot(.sub, .owner_bounds), true);
+                try self.onceParams(items[ir.slot(.sub, .params)], walked, ir.slot(.sub, .params), ir.slot(.sub, .once));
                 try self.paramList(out);
             },
-            .extern_fun, .extern_sub => try self.paramList(out),
+            .extern_fun => {
+                try self.onceParams(items[ir.slot(.extern_fun, .params)], walked, ir.slot(.extern_fun, .params), ir.slot(.extern_fun, .once));
+                try self.paramList(out);
+            },
+            .extern_sub => {
+                try self.onceParams(items[ir.slot(.extern_sub, .params)], walked, ir.slot(.extern_sub, .params), ir.slot(.extern_sub, .once));
+                try self.paramList(out);
+            },
             // The expression's value is bound or returned.
             .set => try self.valueTail(&walked[ir.slot(.set, .value)]),
             .@"return" => try self.valueTail(&walked[ir.slot(.@"return", .value)]),
@@ -3591,6 +3578,38 @@ pub const Parser = struct {
         walked[into] = try self.base.newList(moved.items, self.span(group));
     }
 
+    /// The parameters of a function written `f: once ?fun() -> T`, each
+    /// a `(once f type)` among `written`, its parameters as parsed, and a
+    /// `(: f type)` among `walked[slot]`, as rewritten: their names, in
+    /// the group at `walked[into]`, which resolve reads (`inNames`).
+    fn onceParams(self: *Parser, written: Sexp, walked: []Sexp, slot: usize, into: usize) std.mem.Allocator.Error!void {
+        if (written != .list) return;
+        var names: std.ArrayList(Sexp) = .empty;
+        for (written.items(), walked[slot].items()) |w, p| {
+            if (w.isKind(.once)) try names.append(self.allocator(), ir.get(p, .name));
+        }
+        if (names.items.len > 0) walked[into] = try self.base.newList(names.items, self.span(walked[slot]));
+    }
+
+    /// Whether `group`, a declaration's `once`, `pubs`, or `read_only`
+    /// group of name leaves, holds the name `name` is: the same leaf.
+    pub fn inNames(group: Sexp, name: Sexp) bool {
+        if (group != .list or name != .src) return false;
+        for (group.items()) |n| {
+            if (n == .src and n.src.pos == name.src.pos) return true;
+        }
+        return false;
+    }
+
+    /// The name of a member of a type's body: a field's, a method's, or a
+    /// variant's.
+    pub fn memberName(m: Sexp) Sexp {
+        return switch (m.kind() orelse return m) {
+            .@":", .default, .fun, .sub, .variant, .valued => ir.get(m, .name),
+            else => .nil,
+        };
+    }
+
     /// The APIs a bound in a `bounds` or `owner_bounds` group names: a
     /// `(: T Ord)`'s one, or a `(bound K (Hash Print))`'s; empty for
     /// anything else.
@@ -3616,35 +3635,42 @@ pub const Parser = struct {
         return &.{};
     }
 
-    /// A `rarely` that starts the body of a function, a branch of `if` or
-    /// `match`, a `catch` handler, or a loop marks it: the block rarely
-    /// runs. Emit starts a function with Zig's cold hint, and any other
-    /// block with its unlikely hint (`funRarely`).
-    fn placeRarely(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
-        const bodies: [2]Sexp = switch (node.kind() orelse return) {
+    /// The blocks a `rarely` may mark, as their first line: the body of a
+    /// function, a branch of `if` or `match`, a `catch` handler, or a
+    /// loop. The block then rarely runs: emit starts a function with
+    /// Zig's cold hint, and any other block with its unlikely hint
+    /// (`funRarely`).
+    fn markableBodies(node: Sexp) [2]Sexp {
+        return switch (node.kind() orelse return .{ .nil, .nil }) {
             .fun, .sub => .{ ir.get(node, .body), .nil },
             .@"if" => .{ ir.If.then(node), ir.If.@"else"(node) },
             .arm => .{ ir.Arm.body(node), .nil },
             .@"while" => .{ ir.While.body(node), .nil },
             .@"for" => .{ ir.For.body(node), .nil },
             .@"catch" => .{ ir.Catch.handler(node), .nil },
-            else => return,
+            else => .{ .nil, .nil },
         };
-        for (bodies) |b| if (startsRarely(b)) try self.placed_rarely.put(self.allocator(), ir.Block.stmts(b)[0].list.id, {});
     }
 
-    /// A `rarely` anywhere else is rejected: after a block's first line,
-    /// or starting a block it may not mark.
-    fn strayRarely(self: *Parser, node: Sexp, first: bool) void {
+    /// A `rarely` anywhere but the first line of a block it may mark
+    /// (`markableBodies`) is rejected: `first` says it is a block's first
+    /// line, and `marks` that the block is one it may mark.
+    fn strayRarely(self: *Parser, node: Sexp, first: bool, marks: bool) void {
         if (node != .list) return;
-        if (node.isKind(.rarely) and !self.placed_rarely.contains(node.list.id)) return self.reject(node, if (first)
+        if (node.isKind(.rarely) and !(first and marks)) return self.reject(node, if (first)
             "`rarely` marks the body of a function, a branch of `if` or `match`, a `catch` handler, or a loop"
         else
             "`rarely` is the first line of the block it marks");
         const block = node.isKind(.block);
+        const bodies = markableBodies(node);
         // A group (a parameter list) has no kind in front.
         const kids = if (node.kind() != null) node.items()[1..] else node.items();
-        for (kids, 0..) |child, i| self.strayRarely(child, block and i == 0);
+        for (kids, 0..) |child, i| {
+            const body = child == .list and for (bodies) |b| {
+                if (b == .list and b.list.id == child.list.id) break true;
+            } else false;
+            self.strayRarely(child, block and i == 0, if (block) marks and i == 0 else body);
+        }
     }
 
     /// `q, r = f()`: each target but `_` takes the result in its position,
@@ -3823,10 +3849,13 @@ pub const Parser = struct {
     }
 
     /// `pub` on a field or method: the member stands in the member list
-    /// as itself, as every pass reads it, and its id is recorded
-    /// (`isPubMember`).
+    /// as itself, as every pass reads it, and its name is in the type's
+    /// `pubs` group; a field declared `pub ?name: T` is also in its
+    /// `read_only` group (`inNames`).
     fn pubMembers(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
         const is_enum = node.isKind(.@"enum") or node.isKind(.generic_enum) or node.isKind(.errors);
+        var pubs: std.ArrayList(Sexp) = .empty;
+        var read_only: std.ArrayList(Sexp) = .empty;
         for (@constCast(ir.rest(node, .members))) |*m| {
             // `?len: Int` alone: `?` says who may read a field, and only a
             // `pub` field is read by anyone but its own module.
@@ -3840,7 +3869,7 @@ pub const Parser = struct {
             // `pub ?len: Int`: public to read, written only by this module.
             if (readOnlyField(inner)) |field| {
                 if (is_enum) self.reject(m.*, "an enum has no fields to make read-only");
-                try self.read_only_members.put(self.allocator(), field.list.id, {});
+                try read_only.append(self.allocator(), memberName(field));
                 inner = field;
             }
             // A bare name is a variant; in a struct, the checker rejects
@@ -3851,9 +3880,40 @@ pub const Parser = struct {
                 .@"pub" => self.reject(inner, "`pub` is written once"),
                 else => if (is_enum) self.reject(m.*, "an enum's variants are always public; remove the `pub`"),
             }
-            if (inner == .list) try self.pub_members.put(self.allocator(), inner.list.id, {});
+            if (inner == .list) try pubs.append(self.allocator(), memberName(inner));
             m.* = inner;
         }
+        try self.memberGroups(node, pubs.items, read_only.items);
+    }
+
+    /// The slot of a type declaration of `kind`'s `pubs` group; its
+    /// `read_only` group is the next.
+    fn pubsSlot(kind: parser.Tag) usize {
+        return switch (kind) {
+            .@"struct" => ir.slot(.@"struct", .pubs),
+            .@"enum" => ir.slot(.@"enum", .pubs),
+            .errors => ir.slot(.errors, .pubs),
+            .generic_struct => ir.slot(.generic_struct, .pubs),
+            .generic_enum => ir.slot(.generic_enum, .pubs),
+            .api => ir.slot(.api, .pubs),
+            .api_add => ir.slot(.api_add, .pubs),
+            else => unreachable,
+        };
+    }
+
+    comptime {
+        for ([_]parser.Tag{ .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .api, .api_add }) |k|
+            std.debug.assert(ir.slot(k, .read_only) == ir.slot(k, .pubs) + 1);
+    }
+
+    /// Sets the type declaration `node`'s `pubs` and `read_only` groups,
+    /// each the names given, or `_` where none.
+    fn memberGroups(self: *Parser, node: Sexp, pubs: []const Sexp, read_only: []const Sexp) std.mem.Allocator.Error!void {
+        const slot = pubsSlot(node.kind().?);
+        const items = @constCast(node.items());
+        const at = self.span(node);
+        if (pubs.len > 0) items[slot] = try self.base.newList(pubs, at);
+        if (read_only.len > 0) items[slot + 1] = try self.base.newList(read_only, at);
     }
 
     /// A method declared outside its type's body is the member it names
@@ -3871,6 +3931,8 @@ pub const Parser = struct {
         const src = self.base.source;
         // Each type's members, with the methods it gains appended.
         var added = std.AutoArrayHashMapUnmanaged(usize, std.ArrayList(Sexp)).empty;
+        // The names of the `pub` methods each type gains.
+        var added_pubs = std.AutoArrayHashMapUnmanaged(usize, std.ArrayList(Sexp)).empty;
         var kept: std.ArrayList(Sexp) = .empty;
         const head = module.items().len - decls.len;
         try kept.appendSlice(a, module.items()[0..head]);
@@ -3893,9 +3955,12 @@ pub const Parser = struct {
             const fun = method.isKind(.fun);
             items[if (fun) ir.slot(.fun, .owner) else ir.slot(.sub, .owner)] = .nil;
             items[if (fun) ir.slot(.fun, .owner_params) else ir.slot(.sub, .owner_params)] = .nil;
-            if (d.isKind(.@"pub")) try self.pub_members.put(a, method.list.id, {});
-            const name = ir.get(method, .name);
-            if (name == .src) try self.outside_members.put(a, name.src.pos, {});
+            items[if (fun) ir.slot(.fun, .outside) else ir.slot(.sub, .outside)] = .{ .tag = .outside };
+            if (d.isKind(.@"pub")) {
+                const pubs = try added_pubs.getOrPut(a, at);
+                if (!pubs.found_existing) pubs.value_ptr.* = .empty;
+                try pubs.value_ptr.append(a, ir.get(method, .name));
+            }
             const entry = try added.getOrPut(a, at);
             if (!entry.found_existing) entry.value_ptr.* = .empty;
             try entry.value_ptr.append(a, method);
@@ -3907,6 +3972,11 @@ pub const Parser = struct {
             const ty = unpub(d.*);
             const members = try std.mem.concat(a, Sexp, &.{ ty.items(), extra });
             const node: Sexp = .{ .list = parser.List.withId(members, ty.list.id) };
+            if (added_pubs.get(indexIn(decls, d.*).?)) |names| {
+                const slot = pubsSlot(ty.kind().?);
+                const had: []const Sexp = if (members[slot] == .list) members[slot].items() else &.{};
+                members[slot] = try self.base.newList(try std.mem.concat(a, Sexp, &.{ had, names.items }), self.span(ty));
+            }
             if (d.isKind(.@"pub")) {
                 @constCast(d.items())[ir.slot(.@"pub", .decl)] = node;
             } else d.* = node;
@@ -3959,17 +4029,6 @@ pub const Parser = struct {
         return true;
     }
 
-    /// Whether `member`, a field or method, is declared `pub`.
-    pub fn isPubMember(self: *const Parser, member: Sexp) bool {
-        return member == .list and self.pub_members.contains(member.list.id);
-    }
-
-    /// Whether `member`, a field, is declared `pub ?name: T`: other
-    /// modules may read it, and only its own module may write it.
-    pub fn isReadOnlyMember(self: *const Parser, member: Sexp) bool {
-        return member == .list and self.read_only_members.contains(member.list.id);
-    }
-
     /// The field `?name: T` (or `?name: T = v`) declares, or null: the
     /// grammar reads the `?` as a read sigil around the field.
     fn readOnlyField(m: Sexp) ?Sexp {
@@ -3982,8 +4041,7 @@ pub const Parser = struct {
     /// ?? c`, and every pass reads it nested to the right, `a ?? (b ??
     /// c)`, which gives the same value and lets each fallback have the
     /// payload's type. A parenthesized left side keeps its grouping: it
-    /// starts after the node that holds it. A jump fallback is
-    /// `nearestFallback`'s.
+    /// is a `paren`. A jump fallback is `nearestFallback`'s.
     fn rightNested(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const right = ir.@"??".right(node);
         if (right.kind()) |k| switch (k) {
@@ -4068,15 +4126,25 @@ pub const Parser = struct {
         return node == .list and self.paren_suffixes.contains(node.list.id);
     }
 
-    /// Record, for the `for` loop `loop` whose source was written after
-    /// `sigil`, a `?`, the source with that sigil on the receiver of its
-    /// first method call, when the receiver-sigil rule puts it there
-    /// (`loop_receivers`).
+    /// Mark the `for` loop `loop` whose source was written after `sigil`,
+    /// a `?`, `lent`, when the self-sigil rule puts that sigil on the self
+    /// of the source's first method call (`lentSource`).
     fn loopReceiver(self: *Parser, loop: Sexp, sigil: Sexp) std.mem.Allocator.Error!void {
         const lent = try self.base.newNode(sigil.kind().?, &.{ir.For.source(loop)}, self.span(sigil));
         const moved = try self.receiverSigil(lent);
         if (moved.list.id == lent.list.id) return;
-        try self.loop_receivers.put(self.allocator(), loop.list.id, moved);
+        @constCast(loop.items())[ir.slot(.@"for", .lent)] = .{ .tag = .lent };
+    }
+
+    /// The source of the `for` loop `loop`, marked `lent`, with its `?` on
+    /// the self of its first method call: `for x in ?b.each()` holds
+    /// `(?b).each()`. A prefix sigil touches its operand, so the `?`
+    /// stands right before the source.
+    fn lentSource(self: *Parser, loop: Sexp) std.mem.Allocator.Error!Sexp {
+        const source = ir.For.source(loop);
+        const at = self.span(source);
+        const lent = try self.base.newNode(.read, &.{source}, .{ .start = at.start -| 1, .end = at.end });
+        return self.receiverSigil(lent);
     }
 
     /// `>t`: the call `<t.wait()` makes, `(call _ (member (move t) wait))`,
@@ -4127,22 +4195,10 @@ pub const Parser = struct {
         };
     }
 
-    /// The source of the `for` loop `loop` with its sigil on the
-    /// receiver of its first method call (`loop_receivers`), or null.
-    pub fn loopReceiverSource(self: *const Parser, loop: Sexp) ?Sexp {
-        return if (loop == .list) self.loop_receivers.get(loop.list.id) else null;
-    }
-
     /// Whether `node` is a receiver sigil the wrapper moved onto the
     /// receiver: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
     pub fn isReceiverSigil(self: *const Parser, node: Sexp) bool {
         return node == .list and self.receiver_sigils.contains(node.list.id);
-    }
-
-    /// Whether `node`, a `(: name type)`, was written `name: once type`:
-    /// a parameter the function calls at most once.
-    pub fn isOnceParam(self: *const Parser, node: Sexp) bool {
-        return node == .list and self.once_params.contains(node.list.id);
     }
 
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
@@ -4578,7 +4634,7 @@ pub const Parser = struct {
         if (l.source != .place) {
             const value = switch (l.source) {
                 .moved => try self.base.newNode(.move, &.{source}, at),
-                .lent => self.loopReceiverSource(loop).?,
+                .lent => try self.lentSource(loop),
                 else => source,
             };
             // `h` is declared before the loop, at the position before

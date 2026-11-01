@@ -292,7 +292,7 @@ in the `mark` role of `fun` and `sub`; it adds no conflict.
 alone on its line, and a name everywhere else. The grammar takes it as
 a statement, `(rarely)`; the Parser wrapper keeps the one that starts
 the body of a function, a branch of `if` or `match`, a `catch` handler,
-or a loop (`placeRarely`) and rejects any other (`strayRarely`). Every
+or a loop (`markableBodies`) and rejects any other (`strayRarely`). Every
 pass reads it as `pass`. Emit writes the one that starts a function's
 body (`rig.funRarely`) `rig.cold();`, an inline function whose body is
 `@branchHint(.cold)`, and any other `rig.unlikely();`, whose body is
@@ -472,10 +472,11 @@ rejected at its name with the header to write (`sub main()`). The
 wrapper also makes the only rewrites that need to inspect the tree:
 
 - `pub` on a field or method is taken off: the member list holds the
-  member itself, as every pass reads it, and the wrapper records its
-  node id (`Parser.isPubMember`), which the resolver copies into the
-  member's `Field.is_pub`; `pub` on an enum's variant, a `drop` body,
-  or another `pub` is an error;
+  member itself, as every pass reads it, and its name goes in the
+  type's `pubs` group, a field declared `pub ?name: T` also in its
+  `read_only` group, which the resolver copies into the member's
+  `Field.is_pub` and `Field.read_only` (`Parser.inNames`); `pub` on an
+  enum's variant, a `drop` body, or another `pub` is an error;
 - a module-level binding, written `name = value`, is a constant: its
   `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
@@ -949,7 +950,9 @@ Ring[T, n: Int]`). A method naming no such type is set aside
 (`Parser.detached`), and `resolve.checkDetachedMethods` says why: a
 qualified owner (`fun geo.Point.m`, whose type another module
 declares), an alias, a built-in type, a name no type of the module
-has, or parameters named otherwise. A `drop` body stays in the body,
+has, or parameters named otherwise. An attached method carries the
+tag `outside`, which the resolver copies into `Field.outside`, so a
+diagnostic names it as written, `T.m`. A `drop` body stays in the body,
 since it decides the type's kind (docs/CORE.md, §1). The importer sees
 a closed set of members, and privacy stays per module.
 
@@ -3732,8 +3735,8 @@ collection overlap, which the hint `!a.swap(i, j)` says once
 
 **Closures called once.** A third set, `once`, holds the closure
 parameters written `f: once ?fun() -> T`. The Parser wrapper turns the
-`(once name type)` node into a `(: name type)` and records it
-(`Parser.isOnceParam`); `resolve.recordOnce` checks that each is a
+`(once name type)` node into a `(: name type)` and puts its name in
+the function's `once` group; `resolve.recordOnce` checks that each is a
 closure and records the mask by the function's name, and
 `sema.declaredOrigins` reads it into the origins, which an importer
 reads with the rest. Where a call fills a `once` parameter with a
@@ -4047,7 +4050,7 @@ what it hands over (`sema.handsOver`), as every header does:
 | a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
 | a made value `e` | `{ h = e; while (!h).next() as x }` |
 | `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
-| `?e`, a made value whose `?` the self-sigil rule puts on a place's method call (`?b.each()`, `Parser.loopReceiverSource`) | `{ h = (?b).each(); while (!h).next() as x }` |
+| `?e`, a made value whose `?` the self-sigil rule puts on a place's method call (`?b.each()`: the loop's `lent` tag, `Parser.lentSource`) | `{ h = (?b).each(); while (!h).next() as x }` |
 | `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made

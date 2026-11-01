@@ -3242,10 +3242,10 @@ const Checker = struct {
     }
 
     /// Whether the `?` of the `for` loop `node` reaches the receiver of
-    /// its source's first method call (`Parser.loopReceiverSource`).
+    /// its source's first method call: the loop's `lent` tag.
     fn loopLendsReceiver(self: *Checker, node: Sexp) bool {
-        const p = self.ctx.parser orelse return false;
-        return p.loopReceiverSource(node) != null;
+        _ = self;
+        return ir.For.lent(node) != .nil;
     }
 
     /// A method call on a name or fields from one (`b.each()`), where a
@@ -7913,8 +7913,7 @@ const Checker = struct {
                 try self.err(pos, "method `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
             } else {
                 // A method declared outside its type's body names the type.
-                const outside = if (foreign.parser) |fp| fp.outside_members.contains(f.decl_pos) else false;
-                const shown = if (outside) try self.ctx.arena.allocator().print("{s}.{s}", .{ owner.name, f.name }) else f.name;
+                const shown = if (f.outside) try self.ctx.arena.allocator().print("{s}.{s}", .{ owner.name, f.name }) else f.name;
                 try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, shown });
             }
         } else if (foreign.is_std) {

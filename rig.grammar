@@ -391,24 +391,24 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group?
-    sub                         name:leaf tparams:group? params:group? fails? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group? outside:tag(outside)? once:group?
+    sub                         name:leaf tparams:group? params:group? fails? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group? outside:tag(outside)? once:group?
     lambda                      captures:captures? params:group? body:block
-    struct                      name:leaf unique:tag(unique)? apis:group? ...members
-    enum                        name:leaf apis:group? ...members
-    errors                      name:leaf ...members
+    struct                      name:leaf unique:tag(unique)? apis:group? pubs:group? read_only:group? ...members
+    enum                        name:leaf apis:group? pubs:group? read_only:group? ...members
+    errors                      name:leaf pubs:group? read_only:group? ...members
     error_join                  name:leaf parts:group ...members
-    generic_struct              name:leaf tparams:group bounds:group? unique:tag(unique)? apis:group? ...members
-    generic_enum                name:leaf tparams:group bounds:group? apis:group? ...members
-    api                         name:leaf apis:group? ...members   # `api Shape: Print`, its methods
+    generic_struct              name:leaf tparams:group bounds:group? unique:tag(unique)? apis:group? pubs:group? read_only:group? ...members
+    generic_enum                name:leaf tparams:group bounds:group? apis:group? pubs:group? read_only:group? ...members
+    api                         name:leaf apis:group? pubs:group? read_only:group? ...members   # `api Shape: Print`, its methods
     api_type                    name:leaf                          # `type Item` in an API: an associated type
-    api_add                     type apis:group ...members         # `add Int: Shape`, its methods
+    api_add                     type apis:group pubs:group? read_only:group? ...members         # `add Int: Shape`, its methods
     type                        name:leaf type
     test                        name:leaf body:block
     pub                         decl
     extern                      name:leaf type
-    extern_fun                  name:leaf params:group? returns? origins:group? keeps:group?
-    extern_sub                  name:leaf params:group? keeps:group?
+    extern_fun                  name:leaf params:group? returns? origins:group? keeps:group? once:group?
+    extern_sub                  name:leaf params:group? keeps:group? once:group?
     zig_extern                  file:leaf ...decls
     zig_const                   name:leaf type
     drop_decl                   params:group body:block
@@ -444,7 +444,7 @@ tokens
     as_pattern                  value pattern      # `if s as .circle(r)`, as parsed
     as_match                    @wrapper           # the one-arm `match` it is (`Parser.asMatch`)
     while                       cond step? body:block else:block?
-    for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block?
+    for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block? lent:tag(lent)?   # `for x in ?b.each()`: the `?` reaches `b`, the self of the source's first method call
     match                       subject ...arms:arm
     arm                         pattern guard? body
     alt_pattern                 ...alts
