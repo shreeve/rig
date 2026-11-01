@@ -3540,6 +3540,9 @@ const Lowerer = struct {
         // generic's `T`), even where it is a view.
         var stored: []const bool = &.{};
         var all_read = false;
+        // `print`, `warn`, and `String`, whose arguments are views (Core
+        // §6): a view handed over stays lent until the call returns.
+        var view_args = false;
         // `copy`'s element type: what it stores is a copy of each element
         // its argument's slice views.
         var elem_copy: ?TypeId = null;
@@ -3570,6 +3573,7 @@ const Lowerer = struct {
             const builtin = sym == null or sym.?.decl_pos == sema.builtin_decl_pos;
             if (builtin and (std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn"))) {
                 all_read = true;
+                view_args = true;
             } else if (builtin and std.mem.eql(u8, name, "swap")) {
                 // `swap(!a, !b)` exchanges two places; `swap(!p, v)` puts a
                 // value in one and gives back what was there.
@@ -3579,6 +3583,7 @@ const Lowerer = struct {
             } else if (self.ctx.stringCallOf(e) == .new) {
                 // `String(...)` formats its arguments as `print` does.
                 all_read = true;
+                view_args = true;
             } else if (sym == null) {
                 // A conversion, `Int(x)`, reads its argument.
                 all_read = true;
@@ -3837,7 +3842,17 @@ const Lowerer = struct {
             // Where a write view goes, a bare one would be copied (SPEC §7).
             const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, leafText(ir.Kwarg.name(arg), self.src));
             var v = try self.eval(val, arg_how, if (wants_view) self.ctx.typeOf(val) else null) orelse continue;
+            const before = v;
             if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
+            // Core §6: "Whatever else an earlier argument or operand hands
+            // over (a view, which `print` and `String` arguments are; ...)
+            // stays lent, to read, until the call returns, so a later one
+            // can't change it." A view argument is formatted where it
+            // stands, so the view the copy was read through is used at the
+            // call: its loans last through the later arguments. Plain data
+            // read as a value (`r[1]`, `a`, `w.x`) is no view, and keeps
+            // nothing lent.
+            if (view_args) if (try self.handedView(val, before, v)) |hv| try uses.append(self.a, hv);
             if (elem_copy) |et| {
                 // The elements read through the slice carry their own
                 // loans, not the slice's loan on what holds them (Core s7).
@@ -3967,6 +3982,21 @@ const Lowerer = struct {
             if (n > 0) try self.emit(.{ .pos = pos, .what = .assign, .reads = others[0..n], .weak = root, .paths = swapped.items });
         }
         return result;
+    }
+
+    /// The var holding the view a `print` or `String` argument hands
+    /// over (Core §6), when the argument is a view whose value the
+    /// lowering copied out: the view temporary it was copied through
+    /// (`before`), or a write-view binding named bare, which a read of
+    /// its value copies through (`placeValue`). Null when the argument
+    /// is no view, or the call reads the view itself.
+    fn handedView(self: *Lowerer, val: Sexp, before: VarId, after: VarId) Error!?VarId {
+        if (before != after) return before;
+        const ty = self.ctx.typeOf(val) orelse return null;
+        if (self.ctx.types.get(ty) != .write_view or val != .src) return null;
+        const wv = self.varOf(val) orelse return null;
+        if (wv == after or self.f.vars.items[wv].kind != .write_view) return null;
+        return wv;
     }
 
     /// Where an argument's vars start in a call's `reads` and `moves`,

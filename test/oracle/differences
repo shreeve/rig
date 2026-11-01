@@ -121,9 +121,7 @@ test/reject/probes/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` v
 # re-pointed field may view what outlives its holder.
 test/reject/probes/review-step45-g09_repoint_closure.rig main prod-rejects prod-strict `w = !n` while `f = |!w| ...` holds a write loan on `m`, what `w` saw
 
-# A lint that is not ownership, and a header subject of plain data,
-# which copies (Core s1).
-test/reject/probes/r3-s36-n13_new_shadow_wb_old_alive.rig main prod-rejects prod-strict the lint "assigned but never read" on a shadowed write view
+# A header subject of plain data, which copies (Core s1).
 test/reject/probes/r3-s36-reads-f06_for_array_write_in_body.rig main prod-rejects prod-strict `for x in a` of a `[3]Int` copies it (Core s1), so `a[0] = 9` in the body is free
 
 # A generic body that reads `if o as v` of a `T?` where it stands copies
@@ -145,37 +143,17 @@ test/reject/probes/review-step45-r2-e14_match.rig main prod-rejects prod-strict 
 # statement, as it lends `.line(...)`.
 vlit.bare.kept main prod-rejects prod-strict `x = keep(.dot)` keeps a view of a bare variant literal past its statement
 
-# The matrix's view forms (`r = ?a`, `w = !a`) meet rules older than
-# them, which a number already met in v0.2.2. A read view read by an
-# earlier argument keeps its owner lent until the call returns (Core §6),
-# which the oracle does not model for a view it copies out; a write
-# view's loan lasts through its statement where the compiler reads it as
-# an operand; `_ = w` discards a write view without reading its value;
-# and a String a read view of a local reaches is returned only as a
-# view of the local.
-int.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-plain.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-array.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-box.arg_then_write.destructure_view run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-simd.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-int.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-plain.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-array.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-simd.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
+# The matrix's view forms (`r = ?a`, `w = !a`) meet a rule older than
+# them, which a number already met in v0.2.2: `_ = w` discards a write
+# view without reading its value.
 int.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 plain.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 array.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 simd.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 
-# The same rules where the view is a result taken out of several:
+# The same rule where the view is a result taken out of several:
 # `d1, _ = views2(?a)` binds a read view of `a`, and `d1, _ = wv(!a)` a
 # write view of it, as `r = ?a` and `w = !a` do.
-plain.arg_then_write.destructure_view run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-array.arg_then_write.destructure_view run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-int.arg_then_write.destructure_write run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-plain.arg_then_write.destructure_write run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-array.arg_then_write.destructure_write run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
-simd.arg_then_write.destructure_write run prod-rejects ref-gap `print(d1, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 int.discard.destructure_write run prod-rejects prod-strict `_ = d1` does not read the value a write view sees
 plain.discard.destructure_write run prod-rejects prod-strict `_ = d1` does not read the value a write view sees
 array.discard.destructure_write run prod-rejects prod-strict `_ = d1` does not read the value a write view sees
