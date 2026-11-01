@@ -232,8 +232,8 @@ Other:
     the branch views: `print(r.n) if bump(!v) > 0`, `x = r.n if
     bump(!v) > 0 else 0`, and `return r.n if take(<v) > 0`, with `r =
     ?v[0]`, read freed memory. Read the view into a value first (`n =
-    r.n`), or run the condition as a statement of its own.
-    TRIG_NOTE
+    r.n`), or run the condition as a statement of its own. Trig needs
+    no migration: it has no such form.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
