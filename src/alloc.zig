@@ -28,7 +28,7 @@
 //! worth, faults in at once the memory it is about to fill (`prefault`)
 //! and asks for huge pages for each new segment, and a new large block
 //! of 16 MiB or more asks for huge pages (`huge_large`), each while the
-//! system has free 2 MiB blocks to spare (`hugeFree`).
+//! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -499,18 +499,22 @@ fn mapPages(size: usize) ?usize {
 
 /// Ask Linux to back the `len` bytes at `p` with transparent huge pages,
 /// where it is set to do so for a range that asks (`madvise` mode), while
-/// it has free 2 MiB blocks to spare (`hugeFree`). A system that cannot
+/// it has free 2 MiB blocks for them and `huge_floor` more
+/// (`hugeFreeFor`). A new segment and a new large block ask just before
+/// their pages fault, as they are faulted in ahead (`prefault`), so the
+/// count is current when they need the blocks. A system that cannot
 /// leaves them as they are.
 fn adviseHuge(p: usize, len: usize) void {
     if (builtin.os.tag != .linux) return;
-    if (!hugeFree()) return;
+    if (!hugeFreeFor((len + huge_page - 1) / huge_page)) return;
     const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
     std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
 }
 
 /// The free blocks of 2 MiB or more that Linux must have, more than
-/// this many, before Rig asks it for huge pages (`hugeFree`): about what
-/// one program takes for itself (Trig 76 on ts-pattern, 15 on zod3), so a
+/// this many, before a reserved Table asks it for huge pages for all of
+/// its reservation (`hugeFree`), which it then grows into over the whole
+/// run: about what one program takes for itself (Trig 76 on ts-pattern, 15 on zod3), so a
 /// program that asks finds free blocks for its faults rather than
 /// compacting in them. A quiet host idles above it (pup at about 90 to
 /// 140), where asking does not stall; a spare of 128, within that idle
@@ -524,26 +528,50 @@ fn adviseHuge(p: usize, len: usize) void {
 /// (docs/history/records/2026-10/perf-stage/thp-spare.md).
 const huge_spare: usize = 64;
 
+/// The free blocks of 2 MiB or more that a new segment or large block
+/// leaves when it asks for huge pages (`hugeFreeFor`). It asks moments
+/// before its pages fault, so it needs only its own blocks free, and
+/// this many more for other programs that take them meanwhile. Where
+/// the Tables' spare of 64 shut the gate (12 to 17 free blocks on pup),
+/// segments asking at this floor ran Trig's zod3 2.6% faster and the
+/// small projects 3.2 to 5.4%, level when memory was quiet, with no
+/// compaction stall (docs/history/records/2026-10/perf-stage/
+/// table-huge.md).
+const huge_floor: usize = 8;
+
 /// Whether Linux has more than `huge_spare` free blocks of 2 MiB or more
-/// (`/proc/buddyinfo`), the test made before every request for huge pages
-/// (`adviseHuge` here, a Table's `reserve` in `table.zig`). Under the
+/// (`/proc/buddyinfo`), the test a Table's `reserve` in `table.zig` makes
+/// before it asks for huge pages. Under the
 /// default `defrag` setting, `madvise`, a fault in a range that asked for
 /// huge pages finds a free 2 MiB block or compacts memory to make one, in
 /// the fault; with none free the compaction mostly fails, a fault costs
 /// 2 to 60 times a small page's, and Trig ran 34 to 41% slower than with
 /// no huge pages (docs/history/records/2026-10/perf-stage/
-/// thp-fragmented.md). The file is read each time, never kept: it is read
-/// once for each new segment, new large block of `huge_large`, and
-/// reserved Table, 55 times on Trig's ts-pattern, and a reading kept
-/// would be out of date as memory fragments. A file that cannot be read
-/// asks for none.
-pub noinline fn hugeFree() bool {
+/// thp-fragmented.md).
+pub fn hugeFree() bool {
+    return freeHugeNow() > huge_spare;
+}
+
+/// Whether Linux has free blocks of 2 MiB or more for `need` huge pages
+/// and `huge_floor` more: the test a new segment or large block makes
+/// before it asks (`adviseHuge`).
+fn hugeFreeFor(need: usize) bool {
+    return freeHugeNow() >= need + huge_floor;
+}
+
+/// The free blocks of 2 MiB or more Linux has now (`/proc/buddyinfo`).
+/// The file is read each time, never kept: it is read once for each new
+/// segment, new large block of `huge_large`, and reserved Table, 55
+/// times on Trig's ts-pattern, and a reading kept would be out of date
+/// as memory fragments. A file that cannot be read counts none, so
+/// nothing asks.
+noinline fn freeHugeNow() usize {
     @branchHint(.cold);
-    if (builtin.os.tag != .linux) return false;
-    if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text) > huge_spare;
+    if (builtin.os.tag != .linux) return 0;
+    if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text);
     const linux = std.os.linux;
     const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    if (@as(isize, @bitCast(rc)) < 0) return false;
+    if (@as(isize, @bitCast(rc)) < 0) return 0;
     const fd: linux.fd_t = @intCast(rc);
     defer _ = linux.close(fd);
     // A line per zone of each node, about 100 bytes: a host of 10 nodes
@@ -552,11 +580,11 @@ pub noinline fn hugeFree() bool {
     var len: usize = 0;
     while (len < buf.len) {
         const r: isize = @bitCast(linux.read(fd, buf[len..].ptr, buf.len - len));
-        if (r < 0) return false;
+        if (r < 0) return 0;
         if (r == 0) break;
         len += @intCast(r);
     }
-    return freeHugeBlocks(buf[0..len]) > huge_spare;
+    return freeHugeBlocks(buf[0..len]);
 }
 
 /// What a test reads in place of /proc/buddyinfo.
@@ -1418,7 +1446,7 @@ const buddyinfo_partly =
     \\
 ;
 
-test "on Linux huge pages are asked for with 100 free 2 MiB blocks, a quiet host's idle level, and not with 55, memory partly fragmented" {
+test "on Linux a Table asks for huge pages with 100 free 2 MiB blocks, a quiet host's idle level, and not with 55, memory partly fragmented" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 100), freeHugeBlocks(buddyinfo_idle));
     try std.testing.expectEqual(@as(usize, 55), freeHugeBlocks(buddyinfo_partly));
@@ -1427,6 +1455,38 @@ test "on Linux huge pages are asked for with 100 free 2 MiB blocks, a quiet host
     try std.testing.expect(hugeFree());
     buddyinfo_for_test = buddyinfo_partly;
     try std.testing.expect(!hugeFree());
+}
+
+/// A reading of /proc/buddyinfo for the tests: 17 free 2 MiB blocks, a
+/// build host's level, where a Table's spare of 64 is not there.
+const buddyinfo_low =
+    \\Node 0, zone      DMA      0      0      0      0      0      0      0      0      1      1      2
+    \\Node 0, zone    DMA32    644    647    573    798    522    427    347    248    119      1      0
+    \\Node 0, zone   Normal 166456 136034  11485  85382  67040  16083   9468   1953    108     14      1
+    \\
+;
+
+test "on Linux a new segment or large block asks for huge pages while free 2 MiB blocks number its own and 8 more, where a Table asks for none" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try std.testing.expectEqual(@as(usize, 17), freeHugeBlocks(buddyinfo_low));
+    buddyinfo_for_test = buddyinfo_low;
+    defer buddyinfo_for_test = null;
+    try std.testing.expect(!hugeFree());
+    try std.testing.expect(hugeFreeFor(9));
+    try std.testing.expect(!hugeFreeFor(10));
+    // A segment needs 2 blocks, a block of 16 MiB 8: both leave 8 free.
+    const mine = try allocator.alloc(u8, prefault_big);
+    defer allocator.free(mine);
+    var busy = testHeap();
+    busy.taken = prefault_big;
+    const p = busy.newPage().?;
+    try std.testing.expect(try advisedHugeForTest(p & ~(segment_size - 1)));
+    var h = testHeap();
+    const mib: usize = 1 << 20;
+    const big = allocLarge(&h, 16 * mib).?;
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(big)));
+    freeLarge(&h, big, 16 * mib);
+    trimAllForTest(&h);
 }
 
 test "on Linux, with memory fragmented, no block, segment, or growth asks for huge pages" {

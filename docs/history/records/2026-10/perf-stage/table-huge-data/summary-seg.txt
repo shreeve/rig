@@ -1,0 +1,52 @@
+
+## ts-pattern
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 14 (12-15) | 881 | 3.72G | 0.35G | 40245 | 0 | 0 | 246.7 |  |  |
+| quiet | main | 20 | 257 (233-279) | 912 | 3.65G | 0.24G | 14894 | 76 | 0 | 259.1 |  |  |
+| leave35 | main | 20 | 35 (34-35) | 767 | 3.31G | 0.32G | 40245 | 0 | 0 | 247.1 |  |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## zod3
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 16 (15-17) | 177 | 0.68G | 0.10G | 9924 | 0 | 0 | 77.2 |  |  |
+| quiet | main | 20 | 262 (223-279) | 175 | 0.67G | 0.09G | 7774 | 15 | 0 | 84.1 |  |  |
+| leave35 | main | 20 | 34 (30-35) | 158 | 0.62G | 0.09G | 9925 | 0 | 0 | 77.3 |  |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## tiny-invariant
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 17 (17-17) | 78 | 0.28G | 0.05G | 6042 | 0 | 0 | 49.2 |  |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## superstruct
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 17 (17-17) | 36 | 0.12G | 0.02G | 2742 | 0 | 0 | 22.9 |  |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## mitt
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 17 (17-17) | 28 | 0.07G | 0.03G | 2624 | 0 | 0 | 31.3 |  |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
+
+## neverthrow
+
+| level | arm | runs | free at start | wall ms | user cycles | kernel cycles | faults | thp_fault_alloc | compact_stall | peak RSS MB | wall vs main [25th, 75th] | wall vs jit [25th, 75th] |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| natural | main | 20 | 17 (17-17) | 29 | 0.08G | 0.03G | 3072 | 0 | 0 | 30.6 |  |  |
+
+Runs whose output differs from the reference: 0; exit statuses: [2.0]
