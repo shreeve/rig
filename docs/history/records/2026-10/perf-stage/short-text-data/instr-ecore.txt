@@ -1,0 +1,6 @@
+# pup E-core 13, cpu_atom/instructions/u, 10 runs each, 2026-11-01 ~01:47
+# perf stat -x, -e cpu_atom/instructions/u taskset -c 13 BIN -p tsconfig.trig.json --noEmit --singleThreaded
+empty  base  min 174.346M  med 174.346M  max 174.350M
+empty  c38   min 173.292M  med 173.292M  max 173.292M
+mitt   base  min 191.113M  med 191.113M  max 191.449M
+mitt   c38   min 189.969M  med 189.969M  max 189.971M

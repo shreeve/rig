@@ -1,0 +1,5 @@
+# confirm.sh, pup core 3 (sibling 4 idle), 30 rounds alternating, 2026-11-01 01:47:27-31, load 2.71
+empty  base  time fastest 17.13 med 17.93 ms  cycles fastest 61.482M med 64.917M  instr min 177.793M med 178.718M max 186.727M
+empty  c38   time fastest 16.77 med 17.89 ms  cycles fastest 60.623M med 65.028M  instr min 173.292M med 178.638M max 185.987M
+mitt   base  time fastest 19.23 med 19.79 ms  cycles fastest 70.325M med 72.815M  instr min 191.112M med 195.286M max 202.550M
+mitt   c38   time fastest 19.13 med 19.93 ms  cycles fastest 70.496M med 73.201M  instr min 193.257M med 194.449M max 202.586M
