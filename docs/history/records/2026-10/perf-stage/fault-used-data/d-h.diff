@@ -1,0 +1,9 @@
+diff -r pkg/rig/alloc.zig p-h/rig/alloc.zig
+500c500
+<     prefault(h, got, likelyFilled(size - size / 4));
+---
+>     prefault(h, got, likelyFilled(size / 2));
+1375c1375
+<     prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 2));
+---
+>     
