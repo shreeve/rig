@@ -1,0 +1,12 @@
+| mitt | 1 | c | 22.8 | 21.5 | 5.8% less | 7.3% less | 5.1% more | the same | same |
+| mitt | 4 | c | 27.7 | 27.1 | 2.4% less | the same | 0.7% more | the same | same |
+| neverthrow | 1 | c | 25.2 | 24.0 | 4.6% less | 1.6% less | 4.4% more | the same | same |
+| neverthrow | 4 | c | 28.1 | 28.2 | 0.4% more | 0.2% less | 1.1% fewer | the same | same |
+| zod3 | 1 | c | 151.4 | 147.8 | 2.4% less | 2.1% less | 1.3% fewer | the same | same |
+| zod3 | 4 | c | 100.9 | 100.3 | 0.6% less | 0.3% more | 0.3% more | the same | same |
+| ts-pattern | 1 | c | 761.5 | 754.6 | 0.9% less | 0.5% less | 0.6% fewer | the same | same |
+| ts-pattern | 4 | c | 319.3 | 320.3 | 0.3% more | 0.3% more | 0.3% more | the same | same |
+| superstruct | 1 | c | 31.8 | 31.2 | 1.9% less | 1.1% less | 2.1% more | the same | same |
+| superstruct | 4 | c | 25.7 | 24.4 | 5.0% less | 1.7% less | 1.1% fewer | the same | same |
+| tiny-invariant | 1 | c | 69.5 | 67.0 | 3.7% less | 3.3% less | 0.6% more | the same | same |
+| tiny-invariant | 4 | c | 72.1 | 71.2 | 1.2% less | 1.9% less | 0.6% fewer | the same | same |
