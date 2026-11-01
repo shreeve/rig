@@ -336,6 +336,12 @@ const FunState = struct {
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
+    /// In a split build, the call of the unit that owns the function,
+    /// which every other unit's copy makes first (`emitCut`).
+    cut: []const u8 = "",
+    /// The function is cut: its call of the owner reads every parameter,
+    /// so none is discarded unused.
+    cut_reads: bool = false,
     /// The function is one every cycle of calls passes through some
     /// one of: its body starts with a yield check
     /// (`Emitter.yield_checks`, `Facts.hasEntryCheck`).
@@ -516,6 +522,12 @@ pub const Emitter = struct {
     /// The module's files, each by its path from the package root, which
     /// a `panic` names where it stands.
     file: diag.File = .{ .source = "", .path = "" },
+    /// In a split build, what the module's emitted file is named, without
+    /// `.zig`, which starts the symbol of each function it cuts.
+    split_stem: []const u8 = "",
+    /// The functions the module cuts, each exported by the unit that owns
+    /// it (`emitCut`).
+    cut_exports: std.ArrayList([]const u8) = .empty,
     /// The value being written inside the `rig.pack` of the optional it
     /// becomes (`emitLift`), or written where it is held as itself.
     lifting: Sexp = .nil,
@@ -542,6 +554,7 @@ pub const Emitter = struct {
         self.temp_slots.deinit(self.allocator);
         self.targets.deinit(self.allocator);
         self.units.deinit(self.allocator);
+        self.cut_exports.deinit(self.allocator);
         self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
         self.arena.deinit();
@@ -578,6 +591,11 @@ pub const Emitter = struct {
         if (self.uses_names) try self.emitNamesTable();
         for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id, self.facts.os_sym_id, self.facts.feature_sym_id, self.facts.order_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
         if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
+        if (self.cut_exports.items.len > 0) {
+            try self.w.writeAll("\ncomptime {\n    if (rig.split.on) {\n        @setEvalBranchQuota(rig.eval_quota);\n");
+            for (self.cut_exports.items) |e| try self.w.print("        {s}\n", .{e});
+            try self.w.writeAll("    }\n}\n");
+        }
     }
 
     // =========================================================================
@@ -1890,6 +1908,8 @@ pub const Emitter = struct {
         // for each that names an API of a program's own, after self.
         self.fun.owner_witnesses = try self.ownerWitnessParams(name_node);
         var n: usize = 0;
+        // The arguments a cut function passes on to the unit that owns it.
+        var args: std.Io.Writer.Allocating = .init(self.arena.allocator());
         for ([_][]const Sexp{ rt[0..recv], tparams.items(), rt[recv..] }, 0..) |group, g| {
             if (g == 1) for (self.fun.owner_witnesses) |w| {
                 if (n > 0) try self.w.writeAll(", ");
@@ -1900,6 +1920,8 @@ pub const Emitter = struct {
                 if (n > 0) try self.w.writeAll(", ");
                 n += 1;
                 try self.emitParam(p, g == 1);
+                const local = self.localOf(facts.syntax.paramNameNode(p).?).?;
+                try args.writer.print("{s}{s}", .{ if (args.written().len > 0) ", " else "", if (local.param_name.len > 0) local.param_name else local.zig_name });
             }
         }
         // A function that may fail with fields stores them through the
@@ -1908,7 +1930,9 @@ pub const Emitter = struct {
             self.fun.has_out = true;
             self.fun.out_unmarked = true;
             try self.w.writeAll(if (n > 0) ", __out: rig.ErrSlot" else "__out: rig.ErrSlot");
+            try args.writer.print("{s}__out", .{if (args.written().len > 0) ", " else ""});
         }
+        if (!is_main) if (self.facts.splitUnitOf(name_node)) |unit| try self.emitCut(name, unit, args.written());
         try self.w.writeAll(") ");
         if (main_fails) {
             // `anyerror!void`, `anyerror!i64`: whether or not `-> Int!` says so.
@@ -1919,6 +1943,29 @@ pub const Emitter = struct {
         // A `sub` yields no value, even one that may fail (`Void!`).
         if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.w.writeAll("\n");
+    }
+
+    /// A function a split build cuts (`units.decide`): in every unit but
+    /// the one that owns it, its body is a call of that unit's, which
+    /// Zig analyzes in place of the rest (`rig.split.call`); at compile
+    /// time, its body runs. The owner exports it at the end of the module
+    /// (`cut_exports`). Whether Zig can pass its arguments and result
+    /// between units is `rig.split.away`'s to say, alike in every unit.
+    fn emitCut(self: *Emitter, name: []const u8, unit: u16, args: []const u8) Error!void {
+        var sym: std.Io.Writer.Allocating = .init(self.arena.allocator());
+        try sym.writer.print("rigx_{s}", .{self.split_stem});
+        const owner = if (self.nominal) |nom| nom.name else "";
+        for ([_][]const u8{ owner, name }) |part| if (part.len > 0) {
+            try sym.writer.writeAll("__");
+            for (part) |c| {
+                if (std.ascii.isAlphanumeric(c) or c == '_') try sym.writer.writeByte(c) else try sym.writer.print("_{x:0>2}", .{c});
+            }
+        };
+        const zig_name = try self.fmt("{f}", .{ident(name)});
+        self.fun.cut_reads = true;
+        self.fun.cut = try self.fmt("if (!@inComptime() and comptime rig.split.away(@This().{s}, {d})) return rig.split.call(@This().{s}, \"{s}\", .{{{s}}});", .{ zig_name, unit, zig_name, sym.written(), args });
+        const path = if (owner.len > 0) try self.fmt("{s}.{s}", .{ owner, zig_name }) else zig_name;
+        try self.cut_exports.append(self.allocator, try self.fmt("rig.split.exportFn({s}, \"{s}\", {d});", .{ path, sym.written(), unit }));
     }
 
     /// Bind each parameter in the current scope. An owned value (or one
@@ -1999,6 +2046,10 @@ pub const Emitter = struct {
         if (self.fun.quota) {
             self.fun.quota = false;
             if (self.fun.cold) try self.line("@branchHint(.cold);", .{});
+            if (self.fun.cut.len > 0) {
+                try self.line("{s}", .{self.fun.cut});
+                self.fun.cut = "";
+            }
             if (!self.fun.inlined) try self.line("@setEvalBranchQuota(rig.eval_quota);", .{});
             if (self.fun.entry_check) try self.line("rig.tickCall();", .{});
         }
@@ -2068,7 +2119,7 @@ pub const Emitter = struct {
             try self.writeIndent(self.indent);
             try self.emitGuard(local);
             try self.w.writeAll("\n");
-        } else if (!self.facts.isUsed(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
+        } else if (!self.facts.isUsed(local.sym) and !std.mem.eql(u8, local.zig_name, "_") and !(self.fun.cut_reads and local.param_name.len == 0)) {
             // Zig discards no error by value, so an error, or a value
             // whose type an instance gives (which may be one), is
             // discarded by address.

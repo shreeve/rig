@@ -275,6 +275,11 @@ pub const Facts = struct {
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }
+    /// In a split build, the unit that owns the function or method whose
+    /// name leaf is `name`, when it is cut (`units.decide`).
+    pub fn splitUnitOf(f: Facts, name: Sexp) ?u16 {
+        return f.c().split_units.get(f.c().startOf(name));
+    }
     /// Whether the function or method whose name leaf is `name` checks
     /// for work left waiting at its entry: one of a set every cycle of
     /// calls passes through (`inlining.decide`).

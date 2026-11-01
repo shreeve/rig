@@ -78,6 +78,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Split builds** (queue row 23c, branch `split-units`): a large
+  program's debug build compiles as units on every core when Zig uses
+  LLVM (the Mac), `--units=N` otherwise; Trig's debug build on the Mac
+  takes 30 s of Zig against 291 s, its output on the six cli projects
+  the same. The runtime's state is one per process through cells
+  (`src/split.zig`), a one-unit build compiling as before. The
+  measurement is docs/history/records/2026-10/build-split/debug.md.
+  In its gates.
 - **`rig check` faster and smaller** (queue row 33A, branch
   `check-speed`, #834): sema's tables hashed by one multiply, view reach
   once per pair of types, decisions and types by node id, and the

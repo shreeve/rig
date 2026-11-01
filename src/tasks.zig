@@ -9,6 +9,15 @@
 
 const std = @import("std");
 const rt = @import("runtime.zig");
+const split = rt.split;
+
+// Unit 0 of a split build defines every cell of this file
+// (`split.cell`).
+comptime {
+    if (split.on and split.main) _ = .{
+        select_turn,
+    };
+}
 
 const Int = rt.Int;
 const List = rt.List;
@@ -947,7 +956,7 @@ fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, compt
     const workers: usize = if (rt.scheduled) rt.sched.workersRunning() else 1;
     // Deterministic, on one thread, the elements are still split among
     // tasks, so the seed tries their interleavings.
-    const want: usize = if (limit > 0) @intCast(limit) else if (rt.sched.deterministic) 4 else workers;
+    const want: usize = if (limit > 0) @intCast(limit) else if (rt.sched.deterministic.*) 4 else workers;
     const count = @min(want, n);
     const chunk = @max(1, n / (count * 8));
     if (count <= 1 or chunk >= n) {
@@ -1695,7 +1704,8 @@ fn selectArms(arms: anytype) anyerror!u32 {
     return winner;
 }
 
-var select_turn: std.atomic.Value(u32) = .init(0);
+var select_turn_var: std.atomic.Value(u32) = .init(0);
+const select_turn = split.cell(&select_turn_var, "tasks.select_turn");
 
 fn rotation() usize {
     return select_turn.fetchAdd(1, .monotonic);
@@ -2191,7 +2201,7 @@ fn actorName(comptime T: type) []const u8 {
 /// `Actor.claim` after its first try failed: spin while the actor runs
 /// inline with no mail, up to `claim_spins` times, then give up.
 noinline fn claimSpinning(state: *std.atomic.Value(u8)) bool {
-    if (rt.sched.deterministic) return false;
+    if (rt.sched.deterministic.*) return false;
     for (0..claim_spins) |_| {
         for (0..32) |_| std.atomic.spinLoopHint();
         const seen = state.load(.monotonic);
@@ -2457,7 +2467,7 @@ pub fn setWorkers(n: Int) bool {
 /// otherwise lets other tasks run; in a program that makes none, it
 /// only checks the deadline.
 pub fn check() Stop!void {
-    if (rt.sched.deterministic) rt.sched.computed();
+    if (rt.sched.deterministic.*) rt.sched.computed();
     if (canceledHere()) return canceled_error;
     if (pastDeadline()) return timeout_error;
     if (rt.scheduled) rt.sched.yield();
@@ -2474,7 +2484,7 @@ pub fn sleep(ns: i64) Stop!void {
     const until = nowNs() + ns;
     const deadline = task().deadline;
     // Deterministic and with no tasks, the clock jumps.
-    if (!rt.scheduled and rt.sched.deterministic) {
+    if (!rt.scheduled and rt.sched.deterministic.*) {
         if (deadline) |d| if (d < until) {
             rt.sched.advanceTo(d);
             return timeout_error;

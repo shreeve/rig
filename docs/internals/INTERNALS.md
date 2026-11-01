@@ -36,12 +36,14 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
 inlining         src/inlining.zig  which small functions Zig inlines, program-wide
+units            src/units.zig     in a split build, which unit owns each function
 symbols          src/symbols.zig   the program's symbols, numbered
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig,
                                    with sched, tasks, alloc, net, and table
   ▼
-zig run / zig build-exe            debug (leak-checked), safe, or fast
+zig run / zig build-exe            debug (leak-checked), safe, or fast;
+  or zig build-obj per unit, linked  a split build (Split builds)
   ▼
 rig build        src/frames.zig    warns of a frame larger than a page
                  src/bolt.zig      lays the executable out by a workload (--bolt)
@@ -212,6 +214,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
+| `src/units.zig` | a split build: how many units a program is built as, and which unit owns each function it cuts, decided once for the whole program ([Split builds](#split-builds)) |
 | `src/symbols.zig` | the program's symbols: every `:name` of every module, numbered once for the whole program, and `__rig_symbols.zig`, which holds them ([Symbols](#symbols)) |
 | `src/proofs.zig` | the proven checks: which index, byte-access, and add tests a guard or a check already made |
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig |
@@ -221,6 +224,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/tasks.zig` | the task runtime: `Task`, `Tasks`, cancellation and deadlines, `par`, `task.isolate`, actors, `Chan` and `select`, over the scheduler |
 | `src/net.zig` | sockets and the HTTP server for `std.net` and `std.http`, registered with the workers' pollers |
 | `src/table.zig` | `Table[T, n]` and `Slot[n]`: how a table holds its slots (reserved, made, or committed), written beside the runtime as `rig/table.zig` ([Tables](#tables)) |
+| `src/split.zig` | the runtime's side of a split build, written beside it as `rig/split.zig`: each module-level variable of the runtime a cell unit 0 defines, its thread-locals a block unit 0 defines, calls between units, and each unit's start ([Split builds](#split-builds)) |
 | `src/alloc.zig` | the allocator of release builds, a heap per thread, written beside the runtime as `rig/alloc.zig` (`defaultAllocator`, [The runtime](#the-runtime)) |
 | `src/nametable.zig` | the table of names a plain enum's `E.from_text` reads, built by the compiler and emitted as constant data |
 | `src/timing.zig` | the pass times `rig check --time` reports |
@@ -5113,6 +5117,79 @@ arms name every tag, and a program with no symbol has a `Symbol` with
 no tags whose `text` is `unreachable`. The runtime knows a symbol type
 by its `__rig_symbol` declaration: `print` writes `:` and its text,
 `rig.nameOf` gives `Symbol`, and `rig.enumText` reads `text`.
+
+### Split builds
+
+One `zig build-exe` compiles a program as one LLVM module, on one
+core, and LLVM's cost grows faster than the module. A split build
+compiles it as N units instead, each a `zig build-obj` on its own core
+with a Zig cache of its own, and links their objects with the entry
+(`main.buildSplit`). Trig's debug build on the Mac takes 291 s as one
+unit and 30 s of Zig as ten. `rig build`, `run`, and `test` split a
+debug build when Zig builds it with LLVM (every target but x86-64, whose
+own backend compiles a debug build on every core already, and links
+units slower than it compiles them) and the program's own modules hold
+at least two chunks of `units.chunk_lines` lines: one unit a chunk, up
+to the cores at hand (`units.count`). `--units=N` sets the count, and
+`--units=1` never splits. A release build is one unit unless `--units`
+says otherwise: a call between units is a call LLVM cannot inline.
+
+Every unit compiles the whole package; what differs is its root:
+
+- **Which unit owns a function.** `units.decide` walks the program in
+  order, modules then declarations, and cuts it into N runs of about
+  equal source size, so a unit owns neighbors that mostly call each
+  other. It cuts a function or method declared at a module's top level
+  or in an object or enum with no type parameters, not inlined, with
+  no type parameters of its own, every parameter named, and not the
+  root's `main`; the rest compile in every unit that uses them, as the
+  runtime and std's Zig do.
+- **A cut function** (`emit.emitCut`) starts, after a cold hint, with
+  `if (!@inComptime() and comptime rig.split.away(@This().f, K)) return
+  rig.split.call(@This().f, "rigx_...", .{args});`. In every unit but K
+  the condition is known at compile time, and Zig analyzes none of the
+  rest of the body: the unit compiles a call. At compile time the body
+  runs, as it does whole. Unit K exports the function (the module's
+  last `comptime` block, `rig.split.exportFn`): as itself, in the C
+  calling convention, when C takes its parameters and result, else as a
+  thunk taking its arguments as a tuple and the place for its result.
+  Every unit is compiled by one Zig from one package, so the tuple has
+  one layout in all of them. Whether Zig can pass the call at all
+  (`rig.split.crosses`: no compile-time parameter, and it returns) is
+  decided alike in every unit, from the lowered signature only Zig
+  knows. A cut function reads every parameter in its call, so emit
+  discards none of them unused.
+- **The runtime's state** is one per process: each module-level
+  variable of the runtime is a cell (`rig.split.cell`), which unit 0
+  defines and exports as its bytes and every other unit reaches by its
+  symbol; each file lists its cells in a `comptime` block, so unit 0
+  defines them all. Its thread-locals are slots of one thread-local
+  block unit 0 defines (`rig.split.local`), each set on a thread's
+  first use from the unit's own copy. A build of one unit declares no
+  `__rig_unit`, and each cell is the variable itself, compiled as it
+  was before cells.
+- **Errors.** Each compilation numbers errors in the order it first
+  meets their names, and an error reaches another unit as its number.
+  So every unit's root first names every error name the program can
+  make, read from the package and Zig's std (`__rig_errseed.zig`,
+  `main.splitFiles`), and the program checks as it starts that every
+  unit numbered them alike (`rig.split.exportUnit`).
+- **The roots.** `__rig_unit_K.zig` names the seed, declares
+  `__rig_unit` (its id and the count), re-exports what the runtime and
+  std read from the root (`panic`, `std_options`, the `__rig_` settings)
+  from the program's root or `rig test`'s driver, imports every module,
+  and exports its error numbering and a way to take std's process state
+  (`rig.split.exportUnit`). The executable's root, `__rig_entry.zig`,
+  declares itself unit N, so its runtime's cells are unit 0's, and its
+  `main` (`rig.split.start`) hands each unit what Zig's start code set
+  only in its own std (on Linux without libc, the thread-local layout
+  and the auxiliary vector) and calls unit 0's start, which runs the
+  program's `main`.
+
+What stays one per unit: Zig std's own globals beyond those (the
+stderr lock, std.debug's state), and the heap profile's record of each
+type's owner, so a profile of a split build may list a type once per
+unit.
 
 ## The runtime
 
