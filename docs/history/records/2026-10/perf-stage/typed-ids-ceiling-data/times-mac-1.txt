@@ -1,0 +1,10 @@
+# start 2026-11-01 00:51:27 load { 4.82 4.57 4.42 }
+ts-pattern base   | user min 0.57 (+0.00%) med 0.615 (+0.00%) | wall min 0.61 (+0.00%) med 0.665 (+0.00%) | cycles min 2.28e+09 (+0.00%) med 2.451e+09 (+0.00%) | instr min 9.675e+09 (+0.00%) med 9.692e+09 (+0.00%) | rss med 273.1MB
+ts-pattern hot    | user min 0.55 (-3.51%) med 0.6 (-2.44%) | wall min 0.58 (-4.92%) med 0.65 (-2.26%) | cycles min 2.256e+09 (-1.04%) med 2.445e+09 (-0.25%) | instr min 9.325e+09 (-3.63%) med 9.351e+09 (-3.52%) | rss med 272.9MB
+ts-pattern ids    | user min 0.55 (-3.51%) med 0.605 (-1.63%) | wall min 0.59 (-3.28%) med 0.645 (-3.01%) | cycles min 2.192e+09 (-3.87%) med 2.453e+09 (+0.10%) | instr min 9.273e+09 (-4.15%) med 9.282e+09 (-4.24%) | rss med 272.9MB
+ts-pattern idspan | user min 0.54 (-5.26%) med 0.585 (-4.88%) | wall min 0.58 (-4.92%) med 0.635 (-4.51%) | cycles min 2.255e+09 (-1.08%) med 2.409e+09 (-1.73%) | instr min 9.103e+09 (-5.91%) med 9.115e+09 (-5.95%) | rss med 272.8MB
+zod3       base   | user min 0.1 (+0.00%) med 0.11 (+0.00%) | wall min 0.12 (+0.00%) med 0.13 (+0.00%) | cycles min 4.879e+08 (+0.00%) med 5.138e+08 (+0.00%) | instr min 1.864e+09 (+0.00%) med 1.87e+09 (+0.00%) | rss med 84.0MB
+zod3       hot    | user min 0.1 (+0.00%) med 0.11 (+0.00%) | wall min 0.12 (+0.00%) med 0.13 (+0.00%) | cycles min 4.678e+08 (-4.11%) med 4.962e+08 (-3.43%) | instr min 1.769e+09 (-5.13%) med 1.775e+09 (-5.09%) | rss med 84.0MB
+zod3       ids    | user min 0.1 (+0.00%) med 0.11 (+0.00%) | wall min 0.11 (-8.33%) med 0.13 (+0.00%) | cycles min 4.728e+08 (-3.11%) med 4.965e+08 (-3.37%) | instr min 1.753e+09 (-5.99%) med 1.761e+09 (-5.85%) | rss med 84.0MB
+zod3       idspan | user min 0.1 (+0.00%) med 0.11 (+0.00%) | wall min 0.11 (-8.33%) med 0.13 (+0.00%) | cycles min 4.66e+08 (-4.48%) med 4.904e+08 (-4.56%) | instr min 1.729e+09 (-7.27%) med 1.736e+09 (-7.19%) | rss med 83.9MB
+# done 2026-11-01 00:52:32 load { 5.37 4.79 4.51 }

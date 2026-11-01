@@ -1,0 +1,16 @@
+
+ts-pattern
+| variant | rounds | wall ms | total cycles G | user instructions G | peak RSS MB | vs base: faster (IQR) / fewer total cycles / fewer user cycles / fewer instructions |
+|---|---:|---:|---:|---:|---:|---|
+| hot | 20 | 852.4 | 4.026 | 8.717 | 245.4 | 1.22% (0.48 to 1.79) / 1.26% / 1.43% / 3.69% |
+| ids | 20 | 851.5 | 4.026 | 8.649 | 245.3 | 1.17% (0.27 to 1.88) / 1.21% / 1.42% / 4.44% |
+| idspan | 20 | 841.5 | 3.972 | 8.572 | 245.4 | 2.66% (1.97 to 3.15) / 2.68% / 3.31% / 5.29% |
+| base | 20 | 863.5 | 4.084 | 9.050 | 245.8 |  |
+
+zod3
+| variant | rounds | wall ms | total cycles G | user instructions G | peak RSS MB | vs base: faster (IQR) / fewer total cycles / fewer user cycles / fewer instructions |
+|---|---:|---:|---:|---:|---:|---|
+| idspan | 20 | 161.4 | 0.754 | 1.527 | 76.2 | 3.34% (2.56 to 5.33) / 3.78% / 4.45% / 6.74% |
+| base | 20 | 167.9 | 0.785 | 1.637 | 76.3 |  |
+| hot | 20 | 165.5 | 0.765 | 1.552 | 76.2 | 1.43% (0.12 to 2.90) / 2.02% / 2.52% / 5.20% |
+| ids | 20 | 163.6 | 0.759 | 1.538 | 76.3 | 2.59% (1.51 to 3.78) / 2.96% / 3.20% / 6.06% |

@@ -41,6 +41,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Tables' address space and a kept buddyinfo reading (2026-10-31) | beat-tsrs item 15, Rig side (#832): a reading of `/proc/buddyinfo` answers for 4 ms (a kept yes opens only a Table's gate; a segment's yes is read afresh), and release builds on Linux hand reserved Tables ranges of 256 GiB regions with no system call per Table while the gate is shut, `MADV_DONTNEED` at drop; at 4 checkers buddyinfo reads 174 to 4 and `mmap` 240 to 69, 3.4-4.3% fewer instructions on E-cores and 1.8-3.7% on P-cores on the small projects, wall within the noise alone and 1.6-4.5% less stacked with Trig's checker-tasks; outputs identical, peak RSS level | [perf-stage/table-arena.md](2026-10/perf-stage/table-arena.md) |
 | How much of Trig's gap to tsrs is Rig's code generation (2026-10-31) | Trig PGO profiled and its hottest code read; ceilings built and timed on pup: every check removed takes 5.9% and 6.4% of user cycles, 54% of ts-pattern's user-cycle gap to tsrs and 31% of zod3's; otherwise the emitted code matches hand-written Zig. New cost: store forwarding, 13.9M blocked loads against tsrs's 6.2M, a third `rig.rt` copies of small objects, a quarter Map inserts copying 16-byte keys; a hand ceiling with object parameters bound directly is 1.1% and 0.2% fewer cycles. Trig's caches as HashMap: 12% more memory, no faster. Trig's excess peak memory is zero bytes in Table records holding Go's extras. Changes ranked by gain per line. The checks by kind: all checks are 9.3% of ts-pattern's retired instructions and 10.7% of zod3's, bounds two thirds of them; ids read from memory are a third of ts-pattern's check instructions and 44% of zod3's, which only an index type removes; the proofs pass reaches about 0.8% and 0.4%. Row 1 built in full (#816, `archive/rt-by-value`): Trig 0.6-1.1% slower on ts-pattern and 1.7-2.2% on zod3, not taken; a volatile Map key copy 2.0-2.7% slower | [perf-stage/codegen-gap.md](2026-10/perf-stage/codegen-gap.md) |
 | More proven indexes and length adds, measured before building (2026-10-31) | beat-tsrs items 2 and 3 as a hand ceiling on Trig's emitted Zig: a countdown, an index one below a guarded one, a loop's exit edge, and every add of a literal to a length or `+= 1` to a Map's len, taken out at the hot sites; 0.61-0.64% fewer instructions on ts-pattern and 0.16-0.23% on zod3, cycles unchanged, under the bar, so nothing was built; lengths are 0.08-0.16% and 0.09-0.12% of it, counters (the owner's call) another 0.34-0.38% and 0.24-0.25% | [perf-stage/proof-pass.md](2026-10/perf-stage/proof-pass.md) |
+| Typed table ids, measured before designing (2026-11-01) | beat-tsrs item 1 as a hand ceiling on Trig's emitted Zig, plain release builds, pup 20 rounds: every lookup by an id read from memory unchecked is 1.17% faster on ts-pattern and 2.59% on zod3 (4.44% and 6.06% fewer instructions), and with span reads 2.66% and 3.34% faster (5.29% and 6.74% fewer), peak RSS level: the cycles move, and ids with spans clear Trig's bar on both; the hot sites codegen-gap sampled (files, `recs[n.id]`, binder symbols, symbol data, Ids) are 83-86% of the ids' instructions, the tail of 1,336 sites the rest | [perf-stage/typed-ids-ceiling.md](2026-10/perf-stage/typed-ids-ceiling.md) |
 | Which checks cost Trig's time (2026-10-28) | the 6-8% that every check costs Trig is diffuse: each kind and each group costs in proportion to the instructions and code it removes, and they add up; no hot sites; builds that change no check read up to 1.3% either way (the layout lottery); List index tests 4.6-6.3% of the instructions, of them the checker's id accessors 1.6-2.2% and the AST's record reads 1.1-2.3%, together 2.3% and 3.6% faster with PGO, both Trig-side moves onto `Table`/`Slot`; Zig's overflow tests 1.9-2.3%; Zig's tests in the runtime's own Zig 1.3-1.7%, the one group a Rig change alone could take | [perf-stage/check-bisect.md](2026-10/perf-stage/check-bisect.md) |
 | The runtime's proven checks (2026-10-28) | fourteen blocks in runtime.zig, table.zig, and alloc.zig leave out, in an optimized build, the Zig checks the runtime's own invariants prove (debug builds keep them and assert the invariant): Trig 1.66% and 1.35% fewer instructions (PGO 1.71% and 1.07%), as many as all of the runtime's Zig checks; 0.8% and 1.4% faster plain, 1.2% and 0.5% with PGO; over the instruction bar, under the time bar; most of the share is the checks' cost in their callers, not their own compare and branch | [perf-stage/runtime-unchecked.md](2026-10/perf-stage/runtime-unchecked.md) |
 | Huge pages when memory is fragmented (2026-10-28) | with no free 2 MiB block left, every `MADV_HUGEPAGE` fault compacts (`defrag=madvise`): Trig PGO on ts-pattern 34-41% slower than with no huge pages (kernel cycles 0.25G to 2G), zod3 up to 78%; the Tables' advice (#754) stalls most, the segments' (#740) too, the large blocks' not measurably; quiet, huge pages are 5.3% (ts-pattern) and 4.8% (zod3) faster. A check of free 2 MiB blocks in `/proc/buddyinfo` with 128 to spare kept the quiet gain and never stalled; `MADV_COLLAPSE` and a `defrag` test do not; recommended: gate all three, close #760 | [perf-stage/thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md) |
@@ -389,6 +390,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [bounds-enum.md](2026-10/perf-stage/bounds-enum.md): Bounds tests and checked enum conversion in Trig, what they execute, and the one two-test shape made one (2026-10-26)
 - [codegen-gap.md](2026-10/perf-stage/codegen-gap.md): How much of Trig's gap to tsrs is Rig's code generation (2026-10-31)
 - [proof-pass.md](2026-10/perf-stage/proof-pass.md): More proven indexes and length adds, measured before building (2026-10-31)
+- [typed-ids-ceiling.md](2026-10/perf-stage/typed-ids-ceiling.md): Typed table ids, measured before designing (2026-11-01)
 
 ### 2026-10/perf-stage/proof-pass-data/
 
@@ -399,6 +401,21 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [shapes.rig](2026-10/perf-stage/proof-pass-data/shapes.rig)
 - [times-1.txt](2026-10/perf-stage/proof-pass-data/times-1.txt)
 - [times-2.txt](2026-10/perf-stage/proof-pass-data/times-2.txt)
+
+### 2026-10/perf-stage/typed-ids-ceiling-data/
+
+- [arms.txt](2026-10/perf-stage/typed-ids-ceiling-data/arms.txt)
+- [bench.py](2026-10/perf-stage/typed-ids-ceiling-data/bench.py)
+- [builds.txt](2026-10/perf-stage/typed-ids-ceiling-data/builds.txt)
+- [ceil.py](2026-10/perf-stage/typed-ids-ceiling-data/ceil.py)
+- [mk.sh](2026-10/perf-stage/typed-ids-ceiling-data/mk.sh)
+- [sites.txt](2026-10/perf-stage/typed-ids-ceiling-data/sites.txt)
+- [summ.py](2026-10/perf-stage/typed-ids-ceiling-data/summ.py)
+- [summary-pup.txt](2026-10/perf-stage/typed-ids-ceiling-data/summary-pup.txt)
+- [time.sh](2026-10/perf-stage/typed-ids-ceiling-data/time.sh)
+- [times-mac-1.txt](2026-10/perf-stage/typed-ids-ceiling-data/times-mac-1.txt)
+- [times-mac-2.txt](2026-10/perf-stage/typed-ids-ceiling-data/times-mac-2.txt)
+- [times-pup.txt](2026-10/perf-stage/typed-ids-ceiling-data/times-pup.txt)
 
 ### 2026-10/perf-stage/codegen-gap-data/
 
