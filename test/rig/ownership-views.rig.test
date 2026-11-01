@@ -189,10 +189,10 @@ test "for over a view field of a made object", "w"
   for x in wrap(?xs).items
     print(x)
 
-# A loop header lends all of self for the loop, where a bound
-# `r = ?b.all()` lends only `b.items`: narrowing the header's loan to a
-# `from @field` path is the ownership checker's, a change of its own.
-test "for over a from-path view leaves other fields free", "[1]", known: true
+# A header's loans end with it (Core §3); the loop holds only what its
+# source carries: `b.items`, by the method's `from @items`, as a bound
+# `r = ?b.all()` does, and of `find(?lss, ?k)` only `lss`.
+test "for over a from-path view leaves other fields free", "[1]"
   obj Bag
     items: List[Int]
     other: List[Int]
@@ -205,6 +205,45 @@ test "for over a from-path view leaves other fields free", "[1]", known: true
   for x in b.all()
     !b.other.push(x)
   print(b.other)
+
+test "for over a call leaves a key argument free", "[1]"
+  fun find(lss: ?List[List[Int]], key: ?List[Int]) -> ?List[Int] from lss
+    ?lss[0]
+
+  lss: List[List[Int]] = List()
+  inner: List[Int] = List()
+  !inner.push(1)
+  !lss.push(<inner)
+  k: List[Int] = List()
+  for x in find(?lss, ?k)
+    !k.push(x)
+  print(k)
+
+fail "for over a from-path view keeps that field lent", "cannot lend `b.items` to write"
+  obj Bag
+    items: List[Int]
+    other: List[Int]
+
+    fun all(?@) -> ?List[Int] from @items
+      ?@items
+
+  b = Bag(items: List(), other: List())
+  !b.items.push(1)
+  for x in b.all()
+    !b.items.push(x)
+
+fail "for over a call keeps its origin lent past the element's last use", "cannot lend `lss` to write"
+  fun find(lss: ?List[List[Int]], key: ?List[Int]) -> ?List[Int] from lss
+    ?lss[0]
+
+  lss: List[List[Int]] = List()
+  inner: List[Int] = List()
+  !inner.push(1)
+  !lss.push(<inner)
+  k: List[Int] = List()
+  for x in find(?lss, ?k)
+    print(x)
+    !lss.push(List())
 
 test "for over a call with a temporary key", "z"
   fun find(lss: ?List[List[String]], key: ?String) -> ?List[String] from lss
