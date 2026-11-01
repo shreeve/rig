@@ -2431,6 +2431,18 @@ fn canceledHere() bool {
     return control.canceled.load(.seq_cst);
 }
 
+/// Where a blocking system call that a signal interrupted (EINTR) asks
+/// whether to try again: it fails when the running task is canceled, by
+/// its owner or, for `main`, by an interrupt (`rt.cancelOnInterrupt`),
+/// or its deadline has passed, and otherwise returns so the call retries.
+/// On the blocking pool's thread, a call is canceled once its waiter has
+/// stopped waiting for it (`rt.sched.Waker`). Every retry loop of a
+/// blocking call in the runtime and std asks here.
+pub fn checkStop() Stop!void {
+    if (canceledHere()) return canceled_error;
+    if (pastDeadline()) return timeout_error;
+}
+
 /// `task.workers(n)`: run tasks on `n` workers (1 to 64), in place of
 /// one per core or `RIG_WORKERS`; whether it took effect, which it does
 /// only before the program's first task starts the workers, and in a
@@ -2491,8 +2503,8 @@ pub fn sleep(ns: i64) Stop!void {
 /// Sleep `ns` nanoseconds on this thread, outside the scheduler. An
 /// interrupt that cancels `main` ends the sleep (its handler leaves
 /// system calls to fail with EINTR, `rt.cancelOnInterrupt`), and the
-/// sleep fails with `Stop.canceled`; Zig's own sleep would go back to
-/// sleeping.
+/// sleep fails with `Stop.canceled` (`checkStop`); Zig's own sleep
+/// would go back to sleeping.
 fn sleepHere(ns: i64) Stop!void {
     const posix = std.posix;
     if (canceledHere()) return canceled_error;
@@ -2500,7 +2512,7 @@ fn sleepHere(ns: i64) Stop!void {
     rt.flushBeforeWait();
     while (true) {
         switch (posix.errno(posix.system.nanosleep(&left, &left))) {
-            .INTR => if (canceledHere()) return canceled_error,
+            .INTR => try checkStop(),
             else => return,
         }
     }

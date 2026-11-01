@@ -166,6 +166,13 @@ A new session, human or agent, takes these steps in order:
   program by it too (132, 136): `onTrap` runs in front of Zig's handler
   of a fault in debug and `--release` builds, which reported it as a
   fault and aborted. In review with row 25f.
+- **Blocking calls stop with their task** (queue row 25g, found in
+  #831): every EINTR retry of a blocking system call asks
+  `rt.checkStop`; with no tasks a deadline sets an alarm (SIGALRM) that
+  wakes the call, and on the blocking pool a waiter that leaves cancels
+  its call and wakes the thread, so a FIFO's open ends on SIGTERM and at
+  a `time.within` deadline, and an abandoned pipe read no longer leaks
+  its buffer. Built on row 25f; a draft PR.
 - **`std.crypto`** (#800, owner 2026-10-30, for the sanstun port):
   ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and
   HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value

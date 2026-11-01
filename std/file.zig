@@ -2,7 +2,11 @@
 //! allocator owns, so the leak checker and the sanitizer see it, writing
 //! one, open files, and what is at a path. Every call that reaches the
 //! file system runs on the blocking pool (`pool`), so only the task
-//! making it waits, and is a fallible waiting point.
+//! making it waits, and is a fallible waiting point. A call that may
+//! wait on another process (an open or a read of a FIFO, a write to a
+//! full pipe) makes its own system calls, whose retry after a signal
+//! (EINTR) stops when the task does (`rig.checkStop`); Zig's retry
+//! inside std.Io would not.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -20,7 +24,8 @@ const not_found = error.@"std.file.FileError.not_found";
 
 /// Run `f` on the blocking pool as a fallible waiting point: a cancel of
 /// the task, or its deadline, ends the wait with a `task.Stop` while `f`
-/// runs on to its end and its result is dropped (`rig.blockingStop`).
+/// runs on to its end, or to its next retry of a system call a signal
+/// ended (`rig.checkStop`), and its result is dropped (`rig.blockingStop`).
 /// So `args` hold nothing the task may free meanwhile: paths and bytes,
 /// which the pool copies, and plain values; a result that owns something
 /// (a String, a descriptor, `Fd`) is freed by its drop.
@@ -71,8 +76,10 @@ fn errnoFailure(e: posix.E) FileError {
 
 /// Nothing for a failure that means nothing is at the path: nothing at
 /// it, or a file on the way to it, which some systems report as one and
-/// some as the other. The error for any other failure.
-fn absent(err: anyerror) FileError!void {
+/// some as the other. The error for any other failure; a `task.Stop` as
+/// it is.
+fn absent(err: anyerror) Error!void {
+    if (std.mem.startsWith(u8, @errorName(err), "std.task.Stop.")) return @errorCast(err);
     const e = failure(err);
     if (e == not_found or e == error.@"std.file.FileError.not_directory") return;
     return e;
@@ -92,16 +99,21 @@ pub fn read(path: []const u8) Error!?rig.String {
     return pool(?rig.String, readHere, .{path});
 }
 
-fn readHere(path: []const u8) FileError!?rig.String {
-    const io = rig.io();
-    // Opened as a directory may be, so that one stat gives both what it is
-    // and its size: Zig's own check for a directory is a second.
-    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| {
+fn readHere(path: []const u8) Error!?rig.String {
+    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    const z = terminated(path, &buf) catch |err| {
         try absent(err);
         return null;
     };
-    defer file.close(io);
-    const st = file.stat(io) catch |err| return failure(err);
+    // Opened as a directory may be, so that one stat gives both what it is
+    // and its size.
+    const fd = openAt(z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }) catch |err| {
+        try absent(err);
+        return null;
+    };
+    defer _ = sys.close(fd);
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
+    const st = file.stat(rig.io()) catch |err| return failure(err);
     if (st.kind == .directory) return error.@"std.file.FileError.is_directory";
     const size = std.math.cast(usize, st.size) orelse rig.oom();
     const sized = st.kind == .file and size > 0;
@@ -116,10 +128,8 @@ fn readHere(path: []const u8) FileError!?rig.String {
         const spare = s.list.unusedCapacitySlice();
         if (spare.len == 0 and sized) break;
         const into = if (spare.len > 0) spare else &probe;
-        const n = file.readStreaming(io, &.{into}) catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => return failure(err),
-        };
+        const n = try readSome(fd, into);
+        if (n == 0) break;
         if (spare.len > 0) s.list.items.len += n else s.appendBytes(probe[0..n]);
     }
     s.fit();
@@ -133,7 +143,7 @@ pub fn write_file(path: []const u8, data: []const u8, at_end: bool, parents: boo
     return pool(void, writeHere, .{ path, data, at_end, parents });
 }
 
-fn writeHere(path: []const u8, data: []const u8, at_end: bool, parents: bool) FileError!void {
+fn writeHere(path: []const u8, data: []const u8, at_end: bool, parents: bool) Error!void {
     const fd = try openMaking(path, if (at_end) .append else .truncate, parents);
     defer _ = sys.close(fd);
     try writeAll(fd, data);
@@ -147,7 +157,7 @@ pub fn rename(from: []const u8, to: []const u8) Error!void {
 /// A system call of its own, so each errno is the system's reason: Zig's
 /// `Dir.rename` takes EINVAL (a directory moved into itself) for its
 /// caller's bug and panics.
-fn renameHere(from: []const u8, to: []const u8) FileError!void {
+fn renameHere(from: []const u8, to: []const u8) Error!void {
     var from_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     var to_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const a = try terminated(from, &from_buf);
@@ -155,7 +165,7 @@ fn renameHere(from: []const u8, to: []const u8) FileError!void {
     while (true) {
         switch (posix.errno(sys.renameat(posix.AT.FDCWD, a, posix.AT.FDCWD, b))) {
             .SUCCESS => return,
-            .INTR => {},
+            .INTR => try rig.checkStop(),
             else => |e| return errnoFailure(e),
         }
     }
@@ -188,7 +198,7 @@ pub fn exists_at(path: []const u8) Error!bool {
     return pool(bool, existsHere, .{path});
 }
 
-fn existsHere(path: []const u8) FileError!bool {
+fn existsHere(path: []const u8) Error!bool {
     _ = std.Io.Dir.cwd().statFile(rig.io(), path, .{}) catch |err| {
         try absent(err);
         return false;
@@ -208,10 +218,11 @@ pub fn remove(path: []const u8) Error!bool {
     return pool(bool, removeHere, .{path});
 }
 
-fn removeHere(path: []const u8) FileError!bool {
+fn removeHere(path: []const u8) Error!bool {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const z = try terminated(path, &buf);
     return unlinkAt(z) catch |unlinked| {
+        if (unlinked == error.@"std.task.Stop.canceled" or unlinked == error.@"std.task.Stop.timeout") return unlinked;
         // A directory, which `unlink` will not remove (EISDIR on Linux,
         // EPERM on macOS), or `unlink`'s own failure, which a path that
         // is no directory makes the one to report.
@@ -227,16 +238,16 @@ pub fn unlink(path: []const u8) Error!bool {
     return pool(bool, unlinkHere, .{path});
 }
 
-fn unlinkHere(path: []const u8) FileError!bool {
+fn unlinkHere(path: []const u8) Error!bool {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     return unlinkAt(try terminated(path, &buf));
 }
 
-fn unlinkAt(z: [*:0]const u8) FileError!bool {
+fn unlinkAt(z: [*:0]const u8) Error!bool {
     while (true) switch (posix.errno(sys.unlink(z))) {
         .SUCCESS => return true,
         .NOENT => return false,
-        .INTR => {},
+        .INTR => try rig.checkStop(),
         else => |e| return errnoFailure(e),
     };
 }
@@ -247,16 +258,16 @@ pub fn rmdir(path: []const u8) Error!bool {
     return pool(bool, rmdirHere, .{path});
 }
 
-fn rmdirHere(path: []const u8) FileError!bool {
+fn rmdirHere(path: []const u8) Error!bool {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     return rmdirAt(try terminated(path, &buf));
 }
 
-fn rmdirAt(z: [*:0]const u8) FileError!bool {
+fn rmdirAt(z: [*:0]const u8) Error!bool {
     while (true) switch (posix.errno(sys.rmdir(z))) {
         .SUCCESS => return true,
         .NOENT => return false,
-        .INTR => {},
+        .INTR => try rig.checkStop(),
         else => |e| return errnoFailure(e),
     };
 }
@@ -267,7 +278,7 @@ pub fn realpath(path: []const u8) Error!?rig.String {
     return pool(?rig.String, realpathHere, .{path});
 }
 
-fn realpathHere(path: []const u8) FileError!?rig.String {
+fn realpathHere(path: []const u8) Error!?rig.String {
     var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const n = std.Io.Dir.cwd().realPathFile(rig.io(), path, &buf) catch |err| {
         try absent(err);
@@ -288,7 +299,7 @@ pub fn stat_into(path: []const u8, info: *rig.List(i64)) Error!bool {
     return true;
 }
 
-fn statHere(path: []const u8) FileError!?[4]i64 {
+fn statHere(path: []const u8) Error!?[4]i64 {
     const io = rig.io();
     const cwd = std.Io.Dir.cwd();
     const here = cwd.statFile(io, path, .{ .follow_symlinks = false }) catch |err| {
@@ -340,7 +351,7 @@ const Entries = struct {
     codes: rig.List(i64) = .empty,
 };
 
-fn entriesHere(path: []const u8) FileError!?Entries {
+fn entriesHere(path: []const u8) Error!?Entries {
     const io = rig.io();
     var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch |err| {
         // A file at the path, or on the way to it, is not a directory.
@@ -399,7 +410,7 @@ pub fn open_fd(path: []const u8, wait: bool) Error!?i64 {
     return got.fd;
 }
 
-fn openHere(path: []const u8, wait: bool) FileError!?Fd {
+fn openHere(path: []const u8, wait: bool) Error!?Fd {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const fd = openAt(try terminated(path, &buf), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = !wait }) catch |err| {
         try absent(err);
@@ -437,14 +448,14 @@ pub fn create_fd(path: []const u8, parents: bool) Error!i64 {
     return (try pool(Fd, createHere, .{ path, parents })).fd;
 }
 
-fn createHere(path: []const u8, parents: bool) FileError!Fd {
+fn createHere(path: []const u8, parents: bool) Error!Fd {
     return .{ .fd = try openMaking(path, .truncate, parents) };
 }
 
 /// Open `path` to write, creating it when it is not there, and each
 /// missing directory on the way to it when `parents`: emptied, or to
 /// write at its end.
-fn openMaking(path: []const u8, how: enum { truncate, append }, parents: bool) FileError!i32 {
+fn openMaking(path: []const u8, how: enum { truncate, append }, parents: bool) Error!i32 {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const z = try terminated(path, &buf);
     var flags: posix.O = .{ .ACCMODE = .WRONLY, .CREAT = true, .CLOEXEC = true };
@@ -459,12 +470,14 @@ fn openMaking(path: []const u8, how: enum { truncate, append }, parents: bool) F
     };
 }
 
-fn openAt(path: [*:0]const u8, flags: posix.O) FileError!i32 {
+/// Open `path`, which may wait: a FIFO's open waits for its other end.
+fn openAt(path: [*:0]const u8, flags: posix.O) Error!i32 {
+    try rig.checkStop();
     while (true) {
         const rc = sys.openat(posix.AT.FDCWD, path, flags, @as(posix.mode_t, 0o666));
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
-            .INTR => {},
+            .INTR => try rig.checkStop(),
             else => |e| return errnoFailure(e),
         }
     }
@@ -510,13 +523,28 @@ pub fn terminal_fd(fd: i64) bool {
     return f.isTty(rig.io()) catch false;
 }
 
-fn writeAll(fd: i32, bytes: []const u8) FileError!void {
+/// Read what comes into `into`, once any does: how many bytes, 0 at the
+/// end of the file.
+fn readSome(fd: i32, into: []u8) Error!usize {
+    try rig.checkStop();
+    while (true) {
+        const rc = sys.read(fd, into.ptr, into.len);
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => try rig.checkStop(),
+            else => |e| return errnoFailure(e),
+        }
+    }
+}
+
+fn writeAll(fd: i32, bytes: []const u8) Error!void {
+    try rig.checkStop();
     var at: usize = 0;
     while (at < bytes.len) {
         const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
-            .INTR => {},
+            .INTR => try rig.checkStop(),
             else => |e| return errnoFailure(e),
         }
     }

@@ -24,8 +24,9 @@ a program that makes none starts no workers.
   never blocks; every `std.file` call does so. `rig.blockingStop` makes
   such a call a fallible waiting point: a cancel or the task's deadline
   ends the wait, and the call runs on to its end on its thread, which
-  drops its result; its arguments live in the call's own state, a byte
-  slice among them copied, so nothing it reads is freed under it; an
+  drops its result, unless it waits in a system call that its waiter's
+  wake ends ("Waiting", below); its arguments live in the call's own
+  state, a byte slice among them copied, so nothing it reads is freed under it; an
   argument it could write through (`[]u8`, `*T`) does not compile, since
   the waiter may leave while it still writes, so it reads into memory it
   owns and returns it. `rig.blocking`'s waiter waits for the call, which
@@ -160,8 +161,35 @@ pending flag and ends `main`'s wait (`sched.deliverInterrupt`), the
 second half. A program without the scheduler has one thread: its
 handler is installed without `SA_RESTART`, so the system call `main`
 blocks in fails with EINTR, and the waiting points that make their own
-calls (`tasks.sleepHere`, `net.waitFor` and its reads and writes) look
-at the flag then; Zig's own calls would only restart. The second
+calls look at the flag then; Zig's own calls would only restart. Every
+retry of a blocking system call in the runtime and std asks one helper,
+`rt.checkStop`, whether the task is canceled or past its deadline:
+`tasks.sleepHere`, `net.waitFor` and the socket and file reads and
+writes, and std.file's opens, reads, and writes, which make their own
+system calls for that reason.
+
+A deadline has no handler to wake a system call, so a blocking call
+makes one. With no scheduler, `rt.blockingStop` under a deadline sets
+an alarm (`ITIMER_REAL`, SIGALRM, whose handler does nothing and is
+installed without `SA_RESTART`) to fire at the deadline and every 10 ms
+after until the call returns; the repeat wakes a call the first signal
+reached just before it entered the kernel. On the scheduler the call
+runs on the blocking pool, and a waiter that stops waiting for it, by a
+cancel, a deadline, or the interrupt's cancel of `main`, cancels the
+call through its thread's `Waker`, a `Control` that thread's task state
+points to, and sends that thread SIGALRM (`rt.wakeThread`); the call's
+retry loop sees the cancel and ends, its result is dropped, and its
+thread goes back to the pool. The thread publishes its waker before it
+reads the call's state, and the waiter reads the waker after it marks
+the call left, so either the waiter wakes the thread or the call never
+runs; the thread does not leave a left call until its waiter has woken
+it, so the signal never reaches a thread that has ended. Each retry
+loop asks `rt.checkStop` before its first system call too, so a wake
+lands unseen only in the few instructions between that check and the
+call. As the program ends, before its leak check, `rt.finish` waits
+for every left call to end and drop what it holds (`Pool.left_calls`,
+`sched.settleLeftCalls`), waking the threads still running one each
+millisecond (`Pool.wakers`), for up to a second. The second
 signal, or a failure out of `main` with the cancel it sent, ends the
 process by the signal itself, its default put back (`rt.endBy`), so a
 shell sees it end as by the signal.

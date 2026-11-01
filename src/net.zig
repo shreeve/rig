@@ -115,14 +115,6 @@ fn nonblocking(fd: i32) void {
     _ = std.c.fcntl(fd, std.c.F.SETFD, @as(c_int, std.c.FD_CLOEXEC));
 }
 
-/// A fallible waiting point: fail when the task is canceled or its
-/// deadline has passed.
-fn stopped() rig.Stop!void {
-    const t = rig.task();
-    if (t.control) |c| if (c.canceled.load(.seq_cst)) return canceled;
-    if (t.deadline) |d| if (rig.sched.nowNs() >= d) return timeout;
-}
-
 /// How long a wait may last besides the task's own deadline: until an
 /// instant (`at`), and no longer than `idle` from when it begins. The
 /// HTTP server sets these for its connections (`Conn`); a call from
@@ -171,7 +163,7 @@ fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) rig.Stop!void {
         const rc = sys.poll(&fds, fds.len, ms);
         switch (posix.errno(rc)) {
             .SUCCESS => return if (rc == 0) timeout else {},
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             else => return,
         }
     }
@@ -191,7 +183,7 @@ pub fn listen_on(addr: []const u8) Error!i64 {
 }
 
 pub fn open_to(addr: []const u8) Error!i64 {
-    try stopped();
+    try rig.checkStop();
     const sa = SockAddr.of(try parse(addr));
     const fd = try socket(sa.family);
     noDelay(fd);
@@ -227,7 +219,7 @@ pub fn accept_on(fd: i64, reg: i64) Error!i64 {
 /// The next connection on `s`, once one comes, or null when the process
 /// or the system has run out of descriptors or memory for one.
 fn acceptOne(s: i32, reg: i64) Error!?i32 {
-    try stopped();
+    try rig.checkStop();
     while (true) {
         const rc = if (darwin) sys.accept(s, null, null) else sys.accept4(s, null, null, posix.SOCK.NONBLOCK | posix.SOCK.CLOEXEC);
         switch (posix.errno(rc)) {
@@ -239,7 +231,7 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
             },
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
             .CONNABORTED => {},
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             .MFILE, .NFILE, .NOBUFS, .NOMEM => return null,
             else => |e| return failure(e),
         }
@@ -276,7 +268,7 @@ pub fn read_from(fd: i64, reg: i64, into: *rig.String, max: i64) Error!i64 {
 /// back full may have more waiting behind it, which is read straight
 /// into `into`, so a large read copies no more than a block.
 fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
-    try stopped();
+    try rig.checkStop();
     while (true) {
         const b = rig.sched.takeBlock();
         const asked = @min(want, b.len);
@@ -298,7 +290,7 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
         rig.sched.giveBlock(b);
         switch (e) {
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             else => return failure(e),
         }
     }
@@ -326,13 +318,13 @@ fn readMore(s: i32, into: *rig.String, more: usize) usize {
 /// Read what comes into `dest`, once any does: how many bytes, or 0 once
 /// the other end has closed.
 fn readSome(s: i32, reg: i64, dest: []u8, limit: Limit) Error!usize {
-    try stopped();
+    try rig.checkStop();
     while (true) {
         const rc = sys.read(s, dest.ptr, dest.len);
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, limit),
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             else => |e| return failure(e),
         }
     }
@@ -344,14 +336,14 @@ pub fn write_to(fd: i64, reg: i64, bytes: []const u8) Error!void {
 
 /// Write all of `bytes`, each wait no longer than `limit` allows.
 fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
-    try stopped();
+    try rig.checkStop();
     var at: usize = 0;
     while (at < bytes.len) {
         const rc = sys.write(s, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable, limit),
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             else => |e| return failure(e),
         }
     }
@@ -487,6 +479,10 @@ fn readFilling(token: u64, want: usize) Filled {
     const got = claimBuffer(token) orelse return .{ .failure = error.@"std.file.FileError.failed" };
     defer _ = sys.close(got.fd);
     var out: Filled = .{ .buf = got.buf };
+    rig.checkStop() catch |err| {
+        out.failure = err;
+        return out;
+    };
     const l = &out.buf.list;
     while (true) {
         const rc = sys.read(got.fd, l.items.ptr + l.items.len, want);
@@ -496,7 +492,7 @@ fn readFilling(token: u64, want: usize) Filled {
                 l.items.len += out.n;
                 return out;
             },
-            .INTR => stopped() catch |err| {
+            .INTR => rig.checkStop() catch |err| {
                 out.failure = err;
                 return out;
             },
@@ -562,7 +558,7 @@ fn syncLent(token: u64, how: Sync) (rig.Stop || FileError)!void {
     if (darwin) {
         while (true) switch (posix.errno(sys.fcntl(fd, posix.F.FULLFSYNC, @as(usize, 0)))) {
             .SUCCESS => return,
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             // A file system that does not take it (an SMB mount gives
             // ENOTSUP), or a kind of file (a pipe gives EBADF): `fsync`,
             // whose reason is the answer.
@@ -578,7 +574,7 @@ fn syncLent(token: u64, how: Sync) (rig.Stop || FileError)!void {
         };
         switch (posix.errno(rc)) {
             .SUCCESS => return,
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             else => |e| return fileFailure(e),
         }
     }
@@ -674,6 +670,7 @@ fn takeBack(token: u64) void {
 fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";
     defer _ = sys.close(fd);
+    try rig.checkStop();
     // A read of up to `small_read` goes through the stack, so the String
     // holds only what came, and nothing at the end of the file.
     if (want <= small_read) {
@@ -682,7 +679,7 @@ fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
             const rc = sys.read(fd, &buf, want);
             switch (posix.errno(rc)) {
                 .SUCCESS => return fresh(buf[0..@intCast(rc)]),
-                .INTR => try stopped(),
+                .INTR => try rig.checkStop(),
                 else => |e| return fileFailure(e),
             }
         }
@@ -697,7 +694,7 @@ fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
                 s.fit();
                 return s;
             },
-            .INTR => stopped() catch |err| {
+            .INTR => rig.checkStop() catch |err| {
                 rig.dropElement(rig.String, &s);
                 return err;
             },
@@ -715,12 +712,13 @@ const small_read = 64 << 10;
 fn writeLent(token: u64, bytes: []const u8) (rig.Stop || FileError)!void {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";
     defer _ = sys.close(fd);
+    try rig.checkStop();
     var at: usize = 0;
     while (at < bytes.len) {
         const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
-            .INTR => try stopped(),
+            .INTR => try rig.checkStop(),
             else => |e| return fileFailure(e),
         }
     }
@@ -1059,7 +1057,7 @@ const Conn = struct {
         c.reader.seek = 0;
         c.reader.end = 0;
         while (true) {
-            stopped() catch return false;
+            rig.checkStop() catch return false;
             const rc = sys.read(c.fd, c.reader.buffer.ptr, c.reader.buffer.len);
             switch (posix.errno(rc)) {
                 .SUCCESS => {
@@ -1093,7 +1091,7 @@ const Conn = struct {
         var left: usize = linger_bytes;
         var waited: i64 = 0;
         while (left > 0) {
-            stopped() catch return;
+            rig.checkStop() catch return;
             const rc = sys.read(c.fd, &buf, @min(buf.len, left));
             switch (posix.errno(rc)) {
                 .SUCCESS => {

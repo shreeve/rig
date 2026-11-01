@@ -1255,6 +1255,14 @@ const Pool = struct {
     monitor_word: std.atomic.Value(u32) = .init(0),
     monitoring: bool = false,
     ticking: bool = false,
+    /// Each running pool thread's waker, under the lock: a thread lists
+    /// its own as it starts and takes it off before it ends, so a waker
+    /// listed names a live thread (`stop`).
+    wakers: ?*Waker = null,
+    /// Calls a waiter left that are not yet freed: each still runs, or
+    /// waits for a thread, and may hold what its result owns
+    /// (`settleLeftCalls`).
+    left_calls: std.atomic.Value(u32) = .init(0),
     /// When a thread last ended a call, or the monitor last started one:
     /// the pool grows past `soft` only once no thread has ended one for
     /// `grow_after`, so its threads are blocked, not merely behind.
@@ -1332,8 +1340,9 @@ const Pool = struct {
 
     /// As `main` ends: wake the idle threads, which end, and wait for
     /// every thread to end, up to `stop_wait` for one still running a
-    /// call a fiber gave up waiting for (`blockingStop`), which may never
-    /// return: the process then ends under it.
+    /// call a fiber gave up waiting for (`blockingStop`) that its wake
+    /// did not end, which may never return: the process then ends under
+    /// it.
     fn stop(p: *Pool) void {
         const since = nowReal();
         _ = p.monitor_word.fetchAdd(1, .seq_cst);
@@ -1352,6 +1361,32 @@ const Pool = struct {
     }
 
     const stop_wait: i96 = std.time.ns_per_s;
+    const wake_again: i96 = std.time.ns_per_ms;
+
+    /// Wake each thread whose call was left again: for a wake that came
+    /// before the call entered its system call, and so was lost.
+    fn wakeLeft(p: *Pool) void {
+        p.lock.lock();
+        defer p.lock.unlock();
+        var w = p.wakers;
+        while (w) |k| : (w = k.next) if (k.control.canceled.load(.seq_cst)) rt.wakeThread(k.thread);
+    }
+
+    /// List the running thread's waker; under the lock.
+    fn listWaker(p: *Pool, w: *Waker) void {
+        w.prev = null;
+        w.next = p.wakers;
+        if (p.wakers) |h| h.prev = w;
+        p.wakers = w;
+    }
+
+    /// Take the running thread's waker off the list; under the lock.
+    fn unlistWaker(p: *Pool, w: *Waker) void {
+        if (w.prev) |a| a.next = w.next else p.wakers = w.next;
+        if (w.next) |b| b.prev = w.prev;
+        w.prev = null;
+        w.next = null;
+    }
 
     /// How long the oldest queued call waits before the pool grows past
     /// `soft`, and how often the monitor looks.
@@ -1446,7 +1481,10 @@ fn poolMain(p: *Pool) void {
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attach();
     defer alt.detach();
+    waker.thread = rt.threadId();
+    rt.task().control = &waker.control;
     p.lock.lock();
+    p.listWaker(&waker);
     // Started for a call: it is busy, not among the threads waiting.
     var waited = false;
     while (true) {
@@ -1462,6 +1500,7 @@ fn poolMain(p: *Pool) void {
         }
         if (stopping.load(.acquire)) {
             p.threads -= 1;
+            p.unlistWaker(&waker);
             p.lock.unlock();
             return;
         }
@@ -1479,6 +1518,7 @@ fn poolMain(p: *Pool) void {
             if (stopping.load(.acquire) or nowReal() - since >= retire_after) {
                 p.idle -= 1;
                 p.threads -= 1;
+                p.unlistWaker(&waker);
                 p.lock.unlock();
                 return;
             }
@@ -1513,7 +1553,11 @@ pub fn PoolResult(comptime R: type) type {
 /// `f(args...)` on the blocking pool as a waiting point: a cancel of the
 /// running task, or its deadline, ends the wait (`.canceled`,
 /// `.timeout`) while the call runs on to its end on its thread, which
-/// then drops its result (`rt.dropElement`). So the call must not point
+/// then drops its result (`rt.dropElement`). The waiter that leaves
+/// cancels the call and wakes the system call it blocks in (`Waker`),
+/// so a call that waits on another process (a FIFO's open, a pipe's
+/// read) ends at its next retry (`rt.checkStop`); one not yet started
+/// never starts. So the call must not point
 /// into the waiter's frame: `args` are copied into the call's own state,
 /// a `[]const u8` among them copied with what it points to, and freed
 /// once `f` returns; anything else they point to must outlive the call.
@@ -1527,9 +1571,43 @@ pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@Ty
     return poolCall(f, args, true);
 }
 
+/// As the program ends, before its leak check (`rt.finish`): wait for
+/// each call a waiter left to end and drop what its result owns, up to
+/// `Pool.stop_wait` for one its wake does not end, waking the threads of
+/// those still running every `Pool.wake_again`. A waiter wakes its call
+/// as it leaves, but the call's thread may not have run since.
+pub fn settleLeftCalls() void {
+    if (pool.left_calls.load(.seq_cst) == 0) return;
+    const since = nowReal();
+    var woke = since;
+    while (pool.left_calls.load(.seq_cst) != 0) {
+        const now = nowReal();
+        if (now - since >= Pool.stop_wait) return;
+        if (now - woke >= Pool.wake_again) {
+            woke = now;
+            pool.wakeLeft();
+        }
+        std.Thread.yield() catch {};
+    }
+}
+
 /// Spins a pool call's waiter makes while the call is `finishing`
 /// before it yields its thread (`poolCall`).
 const finishing_spins = 64;
+
+/// How a waiter that stops waiting for a pool call stops the call: its
+/// thread, to wake the system call it blocks in (`rt.wakeThread`), and
+/// the cancel flag that thread's task state points to, which the call's
+/// retry loop sees (`rt.checkStop`). Each pool thread has one, cleared
+/// as it starts each call, and listed in `Pool.wakers` while it runs.
+pub const Waker = struct {
+    thread: usize = 0,
+    control: rt.Control = .{},
+    prev: ?*Waker = null,
+    next: ?*Waker = null,
+};
+
+threadlocal var waker: Waker = .{};
 
 fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
@@ -1545,6 +1623,11 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
         state: std.atomic.Value(u8) = .init(pending),
         fiber: *Fiber,
         epoch: std.atomic.Value(u32) = .init(0),
+        /// The waker of the pool thread running the call, null before
+        /// one starts it; and whether a waiter that gave up has used it,
+        /// before which the thread does not leave the call.
+        waker: std.atomic.Value(?*Waker) = .init(null),
+        left: std.atomic.Value(bool) = .init(false),
 
         const pending = 0;
         const finishing = 1;
@@ -1554,6 +1637,20 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
 
         fn run(c: *Call) void {
             const self: *Self = @fieldParentPtr("call", c);
+            waker.control.canceled.store(false, .seq_cst);
+            if (stoppable) {
+                // The waker is published before the state is read, and a
+                // waiter that gives up reads it after it marks the state:
+                // so either it cancels and wakes this thread, or the call
+                // does not run.
+                self.waker.store(&waker, .seq_cst);
+                if (self.state.load(.seq_cst) == abandoned) {
+                    freeArgs(&self.args);
+                    _ = pool.finishing.fetchAdd(1, .seq_cst);
+                    self.free();
+                    return;
+                }
+            }
             self.result = @call(.auto, f, self.args);
             if (stoppable) freeArgs(&self.args);
             // Counted on its way back before the fiber can call again
@@ -1562,11 +1659,24 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
             if (self.state.cmpxchgStrong(pending, finishing, .seq_cst, .seq_cst) != null) {
                 // The waiter gave up: no one takes the result.
                 rt.dropElement(R, &self.result);
-                std.heap.smp_allocator.destroy(self);
+                self.free();
                 return;
             }
             _ = interrupt(self.fiber, self.epoch.load(.seq_cst), false);
             self.state.store(done, .seq_cst);
+        }
+
+        /// Free a call its waiter gave up on, once the waiter has woken
+        /// this thread: until then the thread stays, so the signal finds
+        /// it.
+        fn free(self: *Self) void {
+            var spins: u32 = 0;
+            while (!self.left.load(.acquire)) {
+                spins += 1;
+                if (spins < finishing_spins) std.atomic.spinLoopHint() else std.Thread.yield() catch {};
+            }
+            std.heap.smp_allocator.destroy(self);
+            _ = pool.left_calls.fetchSub(1, .seq_cst);
         }
     };
     const c = std.heap.smp_allocator.create(C) catch rt.oom();
@@ -1596,7 +1706,18 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
             else => {},
         }
         if (stoppable) if (stopReason(fiber)) |why| {
-            if (c.state.cmpxchgStrong(C.pending, C.abandoned, .seq_cst, .seq_cst) == null) return stopped(R, why);
+            if (c.state.cmpxchgStrong(C.pending, C.abandoned, .seq_cst, .seq_cst) == null) {
+                // Cancel the call and wake the system call it may block
+                // in, so it stops (`rt.checkStop`); then the call is its
+                // thread's to free.
+                _ = pool.left_calls.fetchAdd(1, .seq_cst);
+                if (c.waker.load(.seq_cst)) |w| {
+                    w.control.canceled.store(true, .seq_cst);
+                    rt.wakeThread(w.thread);
+                }
+                c.left.store(true, .release);
+                return stopped(R, why);
+            }
             continue;
         };
         commitWait(c.epoch.load(.monotonic), deadline);
