@@ -1,0 +1,91 @@
+use std.os
+
+obj Big
+  a: Int
+  b: Int
+  c: Int
+  d: Int
+  e: Int
+  f: Int
+  g: Int
+  h: Int
+
+sub map_u32u32(n: Int)
+  a = os.memory()
+  m = Map[U32, U32]()
+  for i in 0..n
+    !m.put(U32(i), U32(i))
+  b = os.memory()
+  print("Map u32u32", n, b.live - a.live, m.len)
+
+sub hashmap_u32u32(n: Int)
+  a = os.memory()
+  m = HashMap[U32, U32]()
+  for i in 0..n
+    !m.put(U32(i), U32(i))
+  b = os.memory()
+  print("HashMap u32u32", n, b.live - a.live, m.len)
+
+sub map_intint(n: Int)
+  a = os.memory()
+  m = Map[Int, Int]()
+  for i in 0..n
+    !m.put(i, i)
+  b = os.memory()
+  print("Map intint", n, b.live - a.live, m.len)
+
+sub hashmap_intint(n: Int)
+  a = os.memory()
+  m = HashMap[Int, Int]()
+  for i in 0..n
+    !m.put(i, i)
+  b = os.memory()
+  print("HashMap intint", n, b.live - a.live, m.len)
+
+sub map_intbig(n: Int)
+  a = os.memory()
+  m = Map[Int, Big]()
+  for i in 0..n
+    !m.put(i, Big(a: i, b: i, c: i, d: i, e: i, f: i, g: i, h: i))
+  b = os.memory()
+  print("Map intbig", n, b.live - a.live, m.len)
+
+sub hashmap_intbig(n: Int)
+  a = os.memory()
+  m = HashMap[Int, Big]()
+  for i in 0..n
+    !m.put(i, Big(a: i, b: i, c: i, d: i, e: i, f: i, g: i, h: i))
+  b = os.memory()
+  print("HashMap intbig", n, b.live - a.live, m.len)
+
+sub map_strint(n: Int)
+  a = os.memory()
+  m = Map[String, Int]()
+  for i in 0..n
+    !m.put(String("key", i), i)
+  b = os.memory()
+  print("Map strint", n, b.live - a.live, m.len)
+
+sub hashmap_strint(n: Int)
+  a = os.memory()
+  m = HashMap[String, Int]()
+  for i in 0..n
+    !m.put(String("key", i), i)
+  b = os.memory()
+  print("HashMap strint", n, b.live - a.live, m.len)
+
+sub main()
+  sizes = List[Int]()
+  for n in 0..65
+    !sizes.push(n)
+  for n in [96, 100, 128, 129, 200, 256, 257, 448, 512, 513, 1000, 1500, 1792, 2048, 2049, 4096, 7168, 8192, 8193, 10000, 14336, 16384, 16385, 100000, 114688, 131072, 131073, 150000, 1000000, 1048576, 1048577]
+    !sizes.push(n)
+  for n in sizes
+    map_u32u32(n)
+    hashmap_u32u32(n)
+    map_intint(n)
+    hashmap_intint(n)
+    map_intbig(n)
+    hashmap_intbig(n)
+    map_strint(n)
+    hashmap_strint(n)
