@@ -2,7 +2,7 @@
 
 The owner asked where Trig stands now. This is [tsrs-standing-5.md](tsrs-standing-5.md)'s measurement again, run after Trig's lexer (#230) and parser (#231) were shaped as tsrs's and after Rig's pool-yield (#819) and table address space (#832). Measurement only; no code changed. Scripts and raw output are in [tsrs-standing-6-data/](tsrs-standing-6-data/).
 
-**In one line:** at the same thread count, Trig is slower than tsrs on every project: 12–35% at one checker and 20–43% at four. The small projects gained 2–8% since standing-5. ts-pattern did not move once runs are compared by huge-page mode, and that mode moved Trig's peak memory more than any code did.
+**In one line:** at the same thread count, Trig is slower than tsrs on every project: 12–35% at one checker and 20–43% at four. The small projects gained 2–8% since standing-5. ts-pattern did not move once runs are compared by huge-page mode, and that mode, not the code, moved Trig's peak memory.
 
 ## Method
 
@@ -60,10 +60,11 @@ Which mode a run gets depends on the machine's free memory at that moment, not o
 - **What moved the medians since standing-5 was the mode, not the code.**
   - Zod3 at four hit the high mode in 18 runs of 20, against 3 in standing-5, so its median peak RSS rose 20% (111.6 to 134.1 MB).
   - ts-pattern hit it in 10 or 11 of 20, against 1 or 2, so its median looked faster than it was.
-- **Like with like, the code's own shift is small:**
-  - zod3 at four, low mode: 111.6 to 114.3 MB. Three runs each of existing builds on the E-cores put it at about 3 MB (2.5%): 113.7 MB for standing-5's binary, 115.8 MB for Trig `aa3994b` by Rig `1684f645a` and by `95fffb6cf` (#832), and 116.9 MB for this standing's.
-  - #832 moved nothing, and at one checker the low mode did not move (77.3 MB both times).
-  - A bisect of the 3 MB is under way, in three non-PGO builds.
+- **Like with like, the code did not move Trig's peak memory.**
+  - zod3 at four, low mode, went from 111.6 to 114.3 MB. A bisect over non-PGO builds of Trig `2ba0719`, `aa3994b` and `806e0a1`, by Rig `1684f645a`, `95fffb6cf` (#832) and `928b44bf2`, found one step: 2.5 MB, the same at one checker and at four, between Rig `95fffb6cf` and `928b44bf2`.
+  - That step follows the file, not the code. Copied to tmpfs, the two binaries measure the same: 80.4 MB at one checker and about 118 MB at four. A copy of the older binary rose to the newer one's number.
+  - `/usr/bin/time`'s peak RSS counts the binary's text pages that are mapped resident: up to 17 MB of `.text`, and how much of it shows depends on the file's cache state, here ZFS against tmpfs. That moves peak RSS by 1 to 3 MB between builds, with the same fault count.
+  - Later standings copy every binary to tmpfs before timing, so text pages count the same for each.
 - **tsrs** is in one mode on every project at one thread, and in one mode or nearly so at four.
 
 ## Since standing-4 and standing-5
