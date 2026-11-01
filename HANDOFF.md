@@ -100,6 +100,11 @@ A new session, human or agent, takes these steps in order:
   four checkers: 1.8 to 3.7% fewer instructions, 1.6 to 4.5% less time
   stacked with Trig's checker-tasks (docs/history/records/2026-10/
   perf-stage/table-arena.md). In review.
+- **`target.debug`** (the name the owner approved through Swiss, to be
+  confirmed with him before merge): std.target says whether the build is
+  a debug build, which checks for leaks, so Trig can end with `os.exit`
+  after its output in a release build alone (about 4-5% on the small
+  projects; its A/B with an A/A arm is next). In review.
 - **`target.has(.avx2)`** (queue row 32; the owner approved the
   names): std.target tests the CPU's features, as the built-in enum
   `Feature` of Zig's x86-64 and arm64 feature names, beside

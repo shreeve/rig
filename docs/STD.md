@@ -39,7 +39,7 @@ never read as the library's.
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing; IP addresses and ports as data |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
-| [`std.target`](#stdtarget) | the target the program is compiled for: its architecture, system, and CPU features |
+| [`std.target`](#stdtarget) | the target the program is compiled for: its architecture, system, and CPU features, and whether the build is a debug build |
 | [`std.hint`](#stdhint) | what the optimizer must not see through, for benchmarks: `keep` |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.crypto`](#stdcrypto) | WireGuard's cryptography, in constant time: ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and HMAC-BLAKE2s, `wipe`, `equal` |
@@ -1212,6 +1212,7 @@ and the rest.
 | `arch: Arch` | the target's processor architecture |
 | `os: Os` | the operating system the program is compiled for |
 | `has(f: Feature) -> Bool` | whether the target's CPU has feature `f`; false when its architecture has no feature by that name |
+| `debug: Bool` | whether the build is a debug build, which checks for leaks |
 
 Rig knows each one's type, never its value: Zig sets it when it
 compiles the program, so `rig check` gives the same verdict on every
@@ -1275,6 +1276,30 @@ true
 A branch the target does not take is never compiled, so a function
 called only in it, such as an `extern fun` of one system's C library,
 is never linked where the system lacks it.
+
+`target.debug` is whether the build is a debug build: what `rig run`,
+`rig test`, and `rig build` without `--release` make, which checks for
+leaks when the program ends. It is false in a release build. A program
+that ends once its work is written out can leave its memory to the
+operating system in a release build, and still have the leak check in a
+debug one:
+
+```rig
+use std.os
+use std.target
+
+sub main()
+  results: List[String] = List()
+  !results.push(String("done"))
+  print(results[0])
+  # A release build ends here, without freeing `results`; a debug
+  # build goes on to drop it and check that nothing leaked.
+  os.exit(0) if not target.debug
+```
+
+```output
+done
+```
 
 ## std.hint
 
