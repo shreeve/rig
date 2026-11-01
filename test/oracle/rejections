@@ -3475,6 +3475,15 @@ test/reject/ownership/nll_returned_view_still_used.rig main
 test/reject/ownership/nll_view_used_later.rig main
 test/reject/ownership/nll_viewed_view.rig main
 test/reject/ownership/nullish_continue_stores.rig main
+test/reject/ownership/order_postfix_assignment_reads_a_view_its_condition_grows.rig main
+test/reject/ownership/order_postfix_guard_over_a_ternary.rig main
+test/reject/ownership/order_postfix_guard_reads_a_view_its_condition_grows.rig main
+test/reject/ownership/order_postfix_guard_reads_a_view_its_condition_moves.rig main
+test/reject/ownership/order_postfix_return_reads_a_view_its_condition_grows.rig f
+test/reject/ownership/order_ternary_bound_reads_a_view_its_condition_grows.rig main
+test/reject/ownership/order_ternary_branch_reads_a_view_its_condition_grows.rig main
+test/reject/ownership/order_ternary_copies_out_a_view_its_condition_grows.rig main
+test/reject/ownership/order_ternary_reads_a_write_view_its_condition_writes.rig main
 test/reject/ownership/origin_from_body_exceeds.rig branch
 test/reject/ownership/origin_from_body_exceeds.rig early
 test/reject/ownership/origin_from_body_exceeds.rig fallback

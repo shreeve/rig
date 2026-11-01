@@ -6789,7 +6789,9 @@ pub const Checker = struct {
         const then_b = ir.If.then(node);
         const else_b = ir.If.@"else"(node);
         // The condition is a header, its own statement.
+        const mark = try self.useBranchesAfter(node, cond);
         try self.walkStmt(cond);
+        self.after_value.shrinkRetainingCapacity(@min(mark, self.after_value.items.len));
         const base = try self.here();
         const past = resumeAt(.nil, node);
         const v1 = try self.walkTailPart(then_b, t);
@@ -6798,6 +6800,25 @@ pub const Checker = struct {
         const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
+    }
+
+    /// A branch before its condition in the source (`stmt if cond`, `a if
+    /// cond else b`) runs after it: what the branch reads is used after
+    /// the condition, so it is live while the condition is walked, as an
+    /// assignment's target is while its value is (`after_value`). A name
+    /// the branch binds counts as `useAfterValue` counts a target.
+    /// Returns the mark to drop them back to once the condition is walked.
+    fn useBranchesAfter(self: *Checker, node: Sexp, cond: Sexp) Error!usize {
+        const mark = self.after_value.items.len;
+        const at = extent(cond).lo;
+        for ([_]Sexp{ ir.If.then(node), ir.If.@"else"(node) }) |b| {
+            if (b == .nil or extent(b).lo >= at) continue;
+            if (b.isKind(.set)) {
+                _ = try self.useAfterValue(b);
+                try self.useAfterValueIn(ir.Set.value(b));
+            } else try self.useAfterValueIn(b);
+        }
+        return mark;
     }
 
     /// `if a as x` and `if a as x and ...`: the parts run in order, each
