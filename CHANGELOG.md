@@ -252,6 +252,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A member's facts live in the tree.** A type declaration holds the
+  names of its `pub` members and its read-only fields in its `pubs` and
+  `read_only` groups; a function the names of its `once` parameters in
+  its `once` group; a method declared outside its type's body the tag
+  `outside`; and a `for` whose `?` reaches the self of its source's
+  first method call the tag `lent`. They replace five tables of the
+  parser wrapper's, keyed by node id or source position, and the
+  ownership checker reads a `once` parameter from the function's
+  recorded origins. A stray `rarely` is found from the tree. No
+  program's meaning changes: the emitted Zig is the same.
+
 - **Parentheses and bounds live in the tree.** The grammar keeps a
   parenthesized expression or type as `(paren e)`, which the parser
   wrapper reads for the self-sigil rule (`!(v.pop())` against

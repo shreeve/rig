@@ -2515,7 +2515,8 @@ pub const Checker = struct {
             .kind = .param,
             .ref = ref,
             .param_index = if (self.func.binding_params and index < @bitSizeOf(sema.ParamMask)) @intCast(index) else null,
-            .once = if (self.sema) |ctx| if (ctx.parser) |prs| prs.isOnceParam(p) else false else false,
+            // Written `f: once ?fun() -> T`, as the function's origins record.
+            .once = self.func.binding_params and index < @bitSizeOf(sema.ParamMask) and self.func.origins.once & sema.paramBit(index) != 0,
         }, .{});
         // Views handed in by the caller: an external loan on the param
         // itself marks them as returnable and conflict-free. It is a

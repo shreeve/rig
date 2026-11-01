@@ -652,7 +652,7 @@ const SymbolResolver = struct {
         self.ctx.symbols.items[id].user_apis = header.user;
         self.type_params = self.ctx.symbols.items[id].type_params.?;
         defer self.type_params = &.{};
-        try self.walkMembers(ir.rest(node, .members), stated);
+        try self.walkMembers(node, stated);
     }
 
     /// A `struct`, `enum`, or `errors`.
@@ -664,7 +664,7 @@ const SymbolResolver = struct {
             self.ctx.symbols.items[id].apis = header.apis;
             self.ctx.symbols.items[id].user_apis = header.user;
         }
-        try self.walkMembers(ir.rest(node, .members), stated);
+        try self.walkMembers(node, stated);
     }
 
     /// The bounds `written` on the type parameter named at `name_node`
@@ -931,13 +931,13 @@ const SymbolResolver = struct {
         try self.ctx.errAt(name_node, "a type parameter starts with a capital letter: `[{s}]`; a compile-time value parameter has a type: `[{s}: Int]`", .{ cap, name });
     }
 
-    /// The methods of a type, `pub` (`type_pub`) or not: a `pub` method
-    /// of a `pub` type states the bounds of its own type parameters.
-    fn walkMembers(self: *SymbolResolver, members: []const Sexp, type_pub: bool) Error!void {
-        for (members) |m| {
+    /// The methods of the type `node`, `pub` (`type_pub`) or not: a `pub`
+    /// method of a `pub` type states the bounds of its own type parameters.
+    fn walkMembers(self: *SymbolResolver, node: Sexp, type_pub: bool) Error!void {
+        for (ir.rest(node, .members)) |m| {
             if (m.isKind(.fun) or m.isKind(.sub)) try self.ownerBounds(m);
             if (m.isKind(.fun) or m.isKind(.sub) or m.isKind(.drop_decl)) {
-                self.pub_decl = type_pub and if (self.ctx.parser) |p| p.isPubMember(m) else false;
+                self.pub_decl = type_pub and rig.Parser.inNames(ir.get(node, .pubs), rig.Parser.memberName(m));
                 try self.walkFun(m);
             }
         }
@@ -2168,7 +2168,7 @@ pub const TypeResolver = struct {
         var names: std.StringHashMapUnmanaged(u32) = .empty;
         defer names.deinit(self.ctx.allocator);
         for (ir.rest(node, .members)) |m| {
-            if (self.isPubMember(m)) switch (of) {
+            if (isPubMember(node, m)) switch (of) {
                 .api => try self.ctx.errAt(m, "an API's methods take no `pub`: they are as public as the API (`pub api {s}`)", .{owner}),
                 .add => try self.ctx.errAt(m, "an addition's methods take no `pub`: they belong to its API, which says who may call them", .{}),
             };
@@ -2806,11 +2806,15 @@ pub const TypeResolver = struct {
     /// calls at most once, as a mask over its run-time parameters, which
     /// `sema.computeOrigins` reads into its origins. Only a closure is.
     fn recordOnce(self: *TypeResolver, node: Sexp, params: Sexp) Error!void {
-        const p = self.ctx.parser orelse return;
+        const once = switch (node.kind() orelse return) {
+            .fun, .sub, .extern_fun, .extern_sub => ir.get(node, .once),
+            else => return,
+        };
+        if (once == .nil) return;
         var mask: sema.ParamMask = 0;
         for (params.items(), 0..) |param, i| {
-            if (!p.isOnceParam(param)) continue;
             const pn = sema.paramNameNode(param) orelse continue;
+            if (!rig.Parser.inNames(once, pn)) continue;
             const ty = if (self.ctx.symbolOf(pn)) |id| self.ctx.symbols.items[id].ty else continue;
             if (sema.callableFn(self.ctx, ty) == null) {
                 try self.ctx.errAt(param, "`once` marks a closure the function calls at most once, and `{s}` is a `{s}`: write it before a closure's type, `{s}: once ?fun() -> T`", .{ identAt(self.ctx.source, pn) orelse "f", try sema.formatType(self.ctx, ty), identAt(self.ctx.source, pn) orelse "f" });
@@ -3032,7 +3036,7 @@ pub const TypeResolver = struct {
                             if (try self.checkDuplicateMember(&names, fname, fpos, sym_name)) continue;
                             var fty = try self.resolveType(ir.get(m, .type));
                             if (try self.fieldCallable(ir.get(m, .type), fty) or try self.misplacedAt(ir.get(m, .type), fty, .field)) fty = self.ctx.types.invalid_id;
-                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = self.isPubMember(m), .read_only = self.isReadOnlyMember(m) });
+                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = isPubMember(node, m), .read_only = isReadOnlyMember(node, m) });
                         },
                         .valued => {
                             const name_node = ir.Valued.name(m);
@@ -3079,7 +3083,7 @@ pub const TypeResolver = struct {
                             }
                             const mname_node = ir.get(m, .name);
                             if (try self.reservedEnumMember(plain_enum, .method, identAt(self.ctx.source, mname_node) orelse "", mname_node.src.pos)) continue;
-                            try self.resolveMethod(m, sym_id, &fields, &names);
+                            try self.resolveMethod(m, isPubMember(node, m), sym_id, &fields, &names);
                         },
                         .none_value => {
                             const marker = ir.NoneValue.marker(m);
@@ -3692,18 +3696,20 @@ pub const TypeResolver = struct {
         });
     }
 
-    /// Whether a field or method is declared `pub`.
-    fn isPubMember(self: *const TypeResolver, member: Sexp) bool {
-        const p = self.ctx.parser orelse return false;
-        return p.isPubMember(member);
+    /// Whether `member`, a field or method of the type `ty`, is declared
+    /// `pub`: its name is in the type's `pubs` group.
+    fn isPubMember(ty: Sexp, member: Sexp) bool {
+        return rig.Parser.inNames(ir.get(ty, .pubs), rig.Parser.memberName(member));
     }
 
-    fn isReadOnlyMember(self: *const TypeResolver, member: Sexp) bool {
-        const p = self.ctx.parser orelse return false;
-        return p.isReadOnlyMember(member);
+    /// Whether `member`, a field of the type `ty`, is declared `pub ?name:
+    /// T`: its name is in the type's `read_only` group.
+    fn isReadOnlyMember(ty: Sexp, member: Sexp) bool {
+        return rig.Parser.inNames(ir.get(ty, .read_only), rig.Parser.memberName(member));
     }
 
-    fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayList(Field), names: *std.StringHashMapUnmanaged(u32)) Error!void {
+    /// The method `node`, declared `pub` (`is_pub`) or not.
+    fn resolveMethod(self: *TypeResolver, node: Sexp, is_pub: bool, nominal_sym: SymbolId, fields: *std.ArrayList(Field), names: *std.StringHashMapUnmanaged(u32)) Error!void {
         const name = ir.get(node, .name);
         const mname = identAt(self.ctx.source, name).?;
         const mpos = name.src.pos;
@@ -3737,7 +3743,8 @@ pub const TypeResolver = struct {
             .decl_pos = mpos,
             .is_method = true,
             .owner_bounds = owner_bounds,
-            .is_pub = self.isPubMember(node),
+            .is_pub = is_pub,
+            .outside = (node.isKind(.fun) or node.isKind(.sub)) and ir.get(node, .outside) != .nil,
             .inline_marked = marked,
             .receiver = receiver,
             .param_names = try self.paramNames(params),

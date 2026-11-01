@@ -1121,6 +1121,9 @@ pub const Field = struct {
     /// A field declared `pub ?name: T`: other modules read it, and only
     /// its own module writes it.
     read_only: bool = false,
+    /// A method declared outside its type's body (`fun T.m()`), which a
+    /// diagnostic names with its type (`T.m`).
+    outside: bool = false,
     /// A method declared `inline fun`, which is only called.
     inline_marked: bool = false,
     /// An API's method with a body: a default, which a type that
@@ -14494,6 +14497,8 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // `>t`, `f: once T`, `a..=b`, and `(e)`'s `paren`, which the Parser
         // wrapper rewrites or drops first.
         .wait, .once, .@"..=", .paren => .none,
+        // A function's and a loop's markers.
+        .outside, .lent => .none,
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,
