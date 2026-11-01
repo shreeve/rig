@@ -7531,7 +7531,14 @@ deferred code, and the drop at scope exit of a value whose drop runs a
 read the view. Any other drop only releases memory, so a `List[?T]`, or
 an object holding views without a `drop` body, keeps their loans only
 until its last use. The binding's block ending, `<r`, or reassigning it
-also end the view.
+also end the view. Within its own statement a use counts while it is
+ahead, in the order the statement runs ("Evaluation order within a
+call", below): `!v.push(Item(n: x.n))` with `x = ?v[0]`
+reads `x.n` before the push lends `v`, so it is accepted, while
+`f(x, grow(!v))` hands `x` over as a view, which stays lent until `f`
+returns. A name a call or an assignment reads where it runs, after a
+later operand (a keyword argument given out of its parameter's order,
+an assigned value read after the target's indexes), is used there.
 
 ```rig
 obj Wrap

@@ -3544,9 +3544,9 @@ test "review-move-done-p73 advice works", '''
   # oracle: ret accept
   # oracle: main accept
 
-fail "review-move-done-p74 print read then write lend", "cannot lend `s` to write while a read loan is live"
-  # aside (pre-existing, not this branch): a copied-out read of `id(?s).n`
-  # keeps `s` lent for the rest of the call's arguments
+test "review-move-done-p74 print read then write lend", "1 2"
+  # A field copied out of a read view keeps nothing lent (Core §6), so a
+  # later argument may lend `s` to write.
   obj S
     n: Int
 

@@ -374,6 +374,9 @@ const Var = struct {
     /// while the call runs (`sema.Storage` of life `call`): the receiver
     /// or argument it is lent (`holdForCall`).
     call_held: bool = false,
+    /// An owning temporary its statement holds (`holdTemp`): in use while
+    /// a value in flight views it, or its drop runs a `drop` body.
+    temp_value: bool = false,
     /// The copy an API object views (`sema.Erasure.copy`), a local of the
     /// erasing block: the view it copies, as written, and the object's
     /// type, for the error when a loan on it outlives the block.
@@ -728,6 +731,18 @@ pub const Checker = struct {
     /// symbols used in deferred code, which runs at scope exit.
     last_use: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
     defer_used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// Every position each symbol is used at (`indexUses`), so a use in
+    /// the statement being walked counts only while it is ahead
+    /// (`useAhead`).
+    uses: std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32)) = .empty,
+    /// The positions of the uses walked so far in the statements being
+    /// walked, each statement's dropped when it ends (`walkStmtValue`).
+    walked: std.ArrayList(u32) = .empty,
+    /// The uses a consumer being walked reads where it runs, after the
+    /// operands that follow them (`storage.isPureArg` parts of a call
+    /// that evaluates its arguments first, an assignment's value): walked
+    /// only once that consumer is done (`walkLate`).
+    late: std.ArrayList(u32) = .empty,
     /// `last_use` describes the code being walked.
     nll: bool = false,
     /// The innermost statement being walked.
@@ -898,6 +913,9 @@ pub const Checker = struct {
         self.scratch.deinit(self.gpa);
         self.last_use.deinit(self.gpa);
         self.defer_used.deinit(self.gpa);
+        self.uses.deinit(self.gpa);
+        self.walked.deinit(self.gpa);
+        self.late.deinit(self.gpa);
         self.defer_loops.deinit(self.gpa);
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
@@ -2177,6 +2195,9 @@ pub const Checker = struct {
         const gop = try self.last_use.getOrPut(self.gpa, sym);
         if (!gop.found_existing or gop.value_ptr.* < pos) gop.value_ptr.* = pos;
         if (in_defer) try self.defer_used.put(self.gpa, sym, {});
+        const at = try self.uses.getOrPut(self.gpa, sym);
+        if (!at.found_existing) at.value_ptr.* = .empty;
+        try at.value_ptr.append(self.arena(), pos);
     }
 
     /// Whether `holder` still uses what it views once a statement's
@@ -2223,6 +2244,12 @@ pub const Checker = struct {
         if (!self.nll or depth > 16) return true;
         const ctx = self.sema;
         const v = self.vars.items[id];
+        // An owning temporary is used by its `drop` body, or through what
+        // views it.
+        if (v.temp_value) {
+            if (v.ty == null or sema.dropRunsBody(ctx, v.ty.?) != .no) return true;
+            return self.viewedByLive(id, at, depth);
+        }
         // A parameter is live at every exit: the caller uses the value
         // it lent a viewed one after the return.
         if (v.kind == .hidden or v.kind == .param or v.env_drop_reads or self.isGlobal(id)) return true;
@@ -2235,7 +2262,18 @@ pub const Checker = struct {
         // viewed loop element only views a value.)
         const owns = !v.payload_view and !v.loop_view and v.ref == .none;
         if (owns and sema.dropRunsBody(ctx, ty) != .no) return true;
-        if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
+        if (self.last_use.get(sym)) |last| {
+            // A use in the statement being walked counts while it is
+            // ahead; in a loop the var was declared outside of, every use
+            // in the loop runs again.
+            const from = self.liveFrom(v.decl, at);
+            if (last >= from and (at != null or from < self.stmtStart() or last >= self.stmtEnd() or self.useAhead(sym, from))) return true;
+        }
+        return self.viewedByLive(id, at, depth);
+    }
+
+    /// Whether a live var or a temporary views var `id`.
+    fn viewedByLive(self: *const Checker, id: VarId, at: ?u32, depth: u8) bool {
         if (self.isLent(id)) for (self.flows.items, 0..) |f, j| {
             if (j == id) continue;
             for (f.loans) |l| if (l.root == id and !l.ext) {
@@ -2245,6 +2283,59 @@ pub const Checker = struct {
         };
         for (self.temps.items) |l| if (l.root == id) return true;
         return false;
+    }
+
+    /// Whether symbol `sym` has a use at or after `from` not walked yet.
+    fn useAhead(self: *const Checker, sym: SymbolId, from: u32) bool {
+        const all = self.uses.get(sym) orelse return true;
+        for (all.items) |p| {
+            if (p >= from and std.mem.findScalar(u32, self.walked.items, p) == null) return true;
+        }
+        return false;
+    }
+
+    /// The use at `pos` is walked: unless a consumer being walked reads
+    /// it where it runs (`late`).
+    fn markWalked(self: *Checker, pos: u32) Error!void {
+        if (!self.nll or std.mem.findScalar(u32, self.late.items, pos) != null) return;
+        try self.walked.append(self.gpa, pos);
+    }
+
+    /// The uses `late` gained since `mark` are walked: their consumer is
+    /// done.
+    fn endLate(self: *Checker, mark: usize) Error!void {
+        const from = @min(mark, self.late.items.len);
+        try self.walked.appendSlice(self.gpa, self.late.items[from..]);
+        self.late.shrinkRetainingCapacity(from);
+    }
+
+    /// Mark the name `e` reads (a name, or a view or move of one), a part
+    /// a consumer reads where it runs, as used there (`late`).
+    fn holdLate(self: *Checker, e: Sexp) Error!void {
+        const name = switch (e) {
+            .src => e,
+            .list => if ((e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) and ir.get(e, .operand) == .src) ir.get(e, .operand) else return,
+            else => return,
+        };
+        try self.late.append(self.gpa, name.src.pos);
+    }
+
+    /// The parts of `node`, a call or an array literal, that it reads
+    /// where it runs (`storage.isPureArg`), after the others: where it
+    /// evaluates the rest into temporaries first (`storage.hoistsArgs`),
+    /// or passes its keyword arguments in its parameters' order.
+    fn holdLateParts(self: *Checker, node: Sexp, parts: []const Sexp) Error!void {
+        const ctx = self.sema;
+        if (!self.nll) return;
+        if (!storage.hoistsArgs(ctx, node)) {
+            for (parts) |a| {
+                if (a.isKind(.kwarg)) break;
+            } else return;
+        }
+        for (parts) |a| {
+            const v = storage.argValue(a);
+            if (storage.isPureArg(ctx, v)) try self.holdLate(v);
+        }
     }
 
     /// The first position whose uses of a var declared at `decl` still
@@ -2420,6 +2511,7 @@ pub const Checker = struct {
         if (top) {
             self.last_use.clearRetainingCapacity();
             self.defer_used.clearRetainingCapacity();
+            self.uses.clearRetainingCapacity();
             try self.indexUses(params, false, null);
             try self.indexUses(body, false, null);
             self.nll = true;
@@ -2546,6 +2638,8 @@ pub const Checker = struct {
         const saved_stmt = self.cur_stmt;
         self.cur_stmt = stmt;
         defer self.cur_stmt = saved_stmt;
+        const walked = self.walked.items.len;
+        defer self.walked.shrinkRetainingCapacity(@min(walked, self.walked.items.len));
         const drops = self.stmt_drops.items.len;
         const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
         self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
@@ -2559,13 +2653,19 @@ pub const Checker = struct {
     /// handler's scope opened (`holdPartTemps`).
     fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
         const pos = self.startOf(node);
-        if (node == .list) if (self.part_temps.fetchRemove(node.list.id)) |kv| if (self.isStmtTempVar(kv.value, pos)) {
-            try self.setFlow(kv.value, .{ .loans = v.loans });
-            return .{ .loans = try self.oneLoan(.{ .root = kv.value, .kind = .read, .pos = pos }) };
+        const id = blk: {
+            if (node == .list) if (self.part_temps.fetchRemove(node.list.id)) |kv| if (self.isStmtTempVar(kv.value, pos)) {
+                try self.setFlow(kv.value, .{ .loans = v.loans });
+                break :blk kv.value;
+            };
+            const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden, .temp_value = true }, .{ .loans = v.loans });
+            try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+            break :blk id;
         };
-        const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden }, .{ .loans = v.loans });
-        try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
-        return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
+        // The temporary is in use until its consumer is done with it.
+        const loan: Loan = .{ .root = id, .kind = .read, .pos = pos };
+        try self.addTemp(loan);
+        return .{ .loans = try self.oneLoan(loan) };
     }
 
     /// Make the hidden vars for the statement temporaries `part`, a
@@ -2581,7 +2681,7 @@ pub const Checker = struct {
         try sema.stmtTemps(ctx, self.arena(), part, &temps);
         for (temps.items) |node| {
             const pos = self.startOf(node);
-            const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden }, .{});
+            const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden, .temp_value = true }, .{});
             try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
             try self.part_temps.put(self.gpa, node.list.id, id);
         }
@@ -2724,8 +2824,22 @@ pub const Checker = struct {
     }
 
     fn walkUnerased(self: *Checker, sexp: Sexp) Error!Value {
+        const ctx = self.sema;
         switch (sexp) {
-            .src => return self.walkName(sexp, false),
+            // Plain data read through a view is copied where it stands,
+            // and keeps nothing lent (Core §6).
+            .src => {
+                if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| {
+                    const reached = sema.unwrapViews(ctx, ty);
+                    if (!self.mayCarryLoan(reached) and !self.genericType(reached)) {
+                        const temps_start = self.temps.items.len;
+                        _ = try self.walkName(sexp, false);
+                        self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+                        return .{};
+                    }
+                };
+                return self.walkName(sexp, false);
+            },
             .list => {},
             else => return .{},
         }
@@ -2737,7 +2851,6 @@ pub const Checker = struct {
         };
         // A temporary is taken into its statement's slot: a block or
         // `match` value's tail leaves its scope as it would for a binding.
-        const ctx = self.sema;
         if (ctx.dropsTemp(sexp)) {
             try self.checkNoImplicitCopy(sexp, .binding, false);
             self.setTail(sexp, .binding);
@@ -2749,7 +2862,25 @@ pub const Checker = struct {
             const temps_start = self.temps.items.len;
             return self.copiedOut(sema.unwrapViews(ctx, ty), temps_start, try self.walkList(sexp, kind));
         };
-        return self.walkList(sexp, kind);
+        const temps_start = self.temps.items.len;
+        const v = try self.walkList(sexp, kind);
+        // A value that can hold no view carries no loan: the loans taken
+        // to make it end here, but for those something else holds (a
+        // store, a temporary's `drop` body), which are not temporaries
+        // (Core §6, sentence 6).
+        if (self.carriesNoLoan(sexp)) self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        return v;
+    }
+
+    /// Whether the value of `e` can carry no loan: its type holds no
+    /// view, it is no callable, whose captures it carries, and no value
+    /// of a type parameter's type, which an instance's may hold.
+    fn carriesNoLoan(self: *const Checker, e: Sexp) bool {
+        if (isLambda(e)) return false;
+        const ty = self.exprType(e) orelse return false;
+        if (self.mayCarryLoan(ty) or self.genericType(ty)) return false;
+        const ctx = self.sema;
+        return sema.calledFn(ctx, ty) == null and !sema.holdsCallable(ctx, ty);
     }
 
     /// `v`, a view walked from `temps_start`, read through for the value
@@ -2823,8 +2954,11 @@ pub const Checker = struct {
                 .member, .index, .inst => if (self.isInstance(sexp)) .{} else self.walkMember(sexp),
                 .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
                 .array => blk: {
+                    const late = self.late.items.len;
+                    try self.holdLateParts(sexp, ir.Array.elems(sexp));
                     var v: Value = .{};
                     for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
+                    try self.endLate(late);
                     break :blk v;
                 },
                 .array_fill => self.walkConsumed(ir.ArrayFill.value(sexp), .element),
@@ -2977,8 +3111,16 @@ pub const Checker = struct {
         }
         const place = self.takePlaceRead(node);
         try self.checkReadable(id, place, pos);
-        if (self.isSelfVar(id)) if (place) |e| if (self.resolvePlace(e)) |p| if (p.root == id) return self.tagSelf(self.varValue(id), id, p.path);
-        return self.varValue(id);
+        try self.markWalked(pos);
+        var value = self.varValue(id);
+        if (self.isSelfVar(id)) if (place) |e| if (self.resolvePlace(e)) |p| if (p.root == id) {
+            value = try self.tagSelf(value, id, p.path);
+        };
+        // What the binding carries is in use until its consumer is done
+        // with the value read here (Core §6), whether or not the binding
+        // is used again.
+        try self.holdMoved(value);
+        return value;
     }
 
     /// The place `walkMember` reads from `base`, once: a use touches the
@@ -4721,8 +4863,13 @@ pub const Checker = struct {
                 }
             };
             var steps: Steps = .{ .c = self, .set = node, .placed = self.resolvePlace(target) != null };
+            // A value read where it runs (`storage.isPureArg`) is read at
+            // the store, after the target's base and indexes.
+            const late = self.late.items.len;
+            if (self.nll and storage.isPureArg(self.sema, expr)) try self.holdLate(expr);
             try storage.eachSetStep(node, &steps);
-            return self.walkFieldAssign(node, target, steps.value, steps.base, steps.base_node);
+            try self.walkFieldAssign(node, target, steps.value, steps.base, steps.base_node);
+            return self.endLate(late);
         }
 
         const pos = target.src.pos;
@@ -4755,6 +4902,9 @@ pub const Checker = struct {
             else => try self.walk(expr),
         };
         self.after_value.shrinkRetainingCapacity(mark);
+        // The target takes the value: its old value is used no more, and
+        // the new one from the next use on.
+        try self.markWalked(pos);
 
         if (std.mem.eql(u8, name, "_")) return;
 
@@ -5158,7 +5308,10 @@ pub const Checker = struct {
         const mark = self.call_held.items.len;
         const once_mark = self.once_uses.items.len;
         const used = try self.onceUses(node);
+        const late = self.late.items.len;
+        try self.holdLateParts(node, ir.Call.args(node));
         const v = try self.walkCallBody(node);
+        try self.endLate(late);
         self.once_uses.shrinkRetainingCapacity(once_mark);
         // A `once` parameter called, or passed to another, is used up.
         for (used) |u| if (self.flowLive(u.id)) try self.markInvalid(u.id, .moved, u.pos);
@@ -5692,15 +5845,17 @@ pub const Checker = struct {
             h.* = t.isKind(.set) or k >= tys.len or sema.dropRunsBody(self.sema, tys[k]) != .no;
             if (h.*) kept = try self.valueUnion(kept, part);
         }
-        for (held, parts) |h, part| if (!h) for (part.loans) |l| {
-            if (containsLoan(kept.loans, l)) continue;
+        const pos = self.startOf(node);
+        const id = try self.addVar(.{ .name = "the call's results", .decl = pos, .ty = self.exprType(value), .kind = .hidden }, .{ .loans = kept.loans });
+        // That var holds what the results carry from here, and each
+        // target what it takes (Core sentence 6). What else the call
+        // keeps lent (`callResults`) stays.
+        for (parts) |part| for (part.loans) |l| {
             var i = @min(temps_start, self.temps.items.len);
             while (i < self.temps.items.len) {
                 if (self.temps.items[i].sameAs(l)) _ = self.temps.orderedRemove(i) else i += 1;
             }
         };
-        const pos = self.startOf(node);
-        const id = try self.addVar(.{ .name = "the call's results", .decl = pos, .ty = self.exprType(value), .kind = .hidden }, .{ .loans = kept.loans });
         try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
         const saved_part = self.part_value;
         defer self.part_value = saved_part;
@@ -7038,9 +7193,10 @@ pub const Checker = struct {
         }
         try self.dropStmtTemps(drops);
         var outlived = false;
-        // A payload binding holds its own loan on the matched place, so
-        // the view of the subject ends with the bindings, not the match.
-        if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
+        // The subject's loans end with its header: the match holds what
+        // its value carries until an arm is chosen (`hold`), and each
+        // payload binding its own loans on what it views.
+        self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
         // The match reads its subject again after a guard runs, to test
         // the next arm's pattern: what the subject views stays lent while
         // the arm is chosen, through every guard. (An arm's bindings hold
@@ -7171,8 +7327,9 @@ pub const Checker = struct {
             };
         }
         try self.dropStmtTemps(drops);
-        // A payload binding holds its own loan on the matched place.
-        if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
+        // The subject's loans end with its header: each payload binding
+        // holds its own loans on what it views.
+        self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
         try self.pushScopeFor(.block, body);
         self.arm_var = null;
         self.arm_subject = self.spanText(scrut);

@@ -1594,7 +1594,7 @@ test "review-lend-base-2-p-h12", "4"
   sub bump(q: !Q)
     q.n += 3
 
-fail "review-lend-base-2-p-h15", "cannot lend `p.v` to write while a read loan is live"
+test "review-lend-base-2-p-h15", "[2, 2]"
   obj Q
     n: Int
 

@@ -3123,8 +3123,15 @@ records the last source position each symbol is used at (a capture's
 leaf counts as a use of what it captures; a use in a `while` loop's
 step counts where the step runs, just past the body, `stepAt`, which
 also stands for the step's statements while it is walked) and the
-symbols deferred code uses. A var is live after the current statement when it is used at or
-after the statement's start, or anywhere in an enclosing loop it was
+symbols deferred code uses, with every position each symbol is used at
+(`uses`). A var is live after the current point when it is used after
+the current statement, or at a use in it not walked yet (`useAhead`:
+`walkName` marks each use it walks in `walked`, which each statement
+drops as it ends, and a use its consumer reads where it runs, after
+later operands, is marked only when that consumer is done: a pure part
+of a call that evaluates the rest first or passes keyword arguments in
+its parameters' order, and an assigned value read after its target's
+indexes, `late`), or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or in
 the target of an assignment whose value is being walked
 ([Assignments](#assignments)), or when
@@ -3133,7 +3140,15 @@ it owns a value whose drop at scope exit may run a `drop` body
 or `depends` for a value holding a type parameter), which could read
 what the value views, or when a live var or temporary holds a loan of
 it. Any other drop only releases memory and uses no view (Core sentence
-6), so a `List[?Int]`'s loans end at its last use. A closure binding
+6), so a `List[?Int]`'s loans end at its last use. A binding read
+puts what it carries into the statement's temporaries (`temps`), held
+until its consumer is done: a node whose value can carry no loan
+(`carriesNoLoan`: no view, no callable, no type parameter's value)
+ends the temporaries taken since it started, and a name that plain
+data is read through (`readsThrough`) keeps nothing (Core §6). An
+owning temporary its statement holds (`holdTemp`, `Var.temp_value`)
+is in use while a temporary or a live var views it, or its drop runs a
+`drop` body. A closure binding
 whose environment's drop may run a `drop` body (`env_drop_reads`), a
 parameter, and the hidden var that keeps a `for` source lent are always
 live. Desugared, a drop that runs no `drop` body is a release of memory
@@ -3156,7 +3171,11 @@ branching value, or a part of either, is viewed the same way: a binding
 that is not a view by its type does not own what it binds
 (`Var.payload_view`), so a generic body that gives away a `T` bound so
 copies it, and records it in `plain_reqs`. `match <x` moves `x` first,
-and its bindings are owned vars holding what `x` held. A guard that fails runs on the way to
+and its bindings are owned vars holding what `x` held. The subject's
+temporaries end with its header, a made subject's too: the match holds
+what its value carries in a hidden var (`hold`) until an arm is chosen,
+through every guard, and each binding holds its own loans, so an arm
+may write the subject's owner after its bindings' last use. A guard that fails runs on the way to
 the later arms: they, and the path where no arm runs, start from the
 join of the entry state with what each failed guard left. That path,
 like the one where a part of `if a as x and ...` fails, leaves the
@@ -3662,7 +3681,7 @@ it views, so every loan it keeps is a read loan (`carryResult`), also
 one of an argument or receiver lent to write: after `r = first(!v)`,
 `v` may be read while `r` lives, and not written. The write lends its
 arguments made then end as the call returns (`endWriteLends`), and what
-the result keeps stays lent, to read, for the rest of the statement, so
+the result keeps stays lent, to read, while it is in use, so
 `print(first(!v).n, v.len)`, a `for` over such a call, and a `match`
 on one read `v` as the split forms do. What the call stores
 keeps its own loans where it stores them, and the write lend it stored

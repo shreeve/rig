@@ -737,7 +737,10 @@ fail "review-results-p03 for write chain", "`d` does not live long enough"
     !w.put(?d)
   print(l[0].a)
 
-fail "review-results-v07", "cannot reassign `s` while it is lent"
+test "review-results-v07", '''
+  init
+  new
+'''
   fun mk(s: ?String) -> (?String, String)
     return s, String("new")
 

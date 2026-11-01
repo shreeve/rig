@@ -1901,6 +1901,16 @@ test/reject/errors/a_narrowed_error_under_`match_e`_is_a_view_of_the_caught_one.
 test/reject/ownership/apis_a_result_from_the_API's_parameter.rig take
 test/reject/ownership/closure_write_capture_returns_no_owner.rig main
 test/reject/ownership/field_view_loop_elements_keep_the_list_lent.rig main
+test/reject/ownership/last_List_field_of_an_earlier_argument_while_a_later_one_writes.rig main
+test/reject/ownership/last_String_operand's_write_view_while_it_is_read.rig main
+test/reject/ownership/last_String_view_operand_while_a_later_one_writes.rig main
+test/reject/ownership/last_binding_read_in_a_loop_it_was_declared_outside_of.rig main
+test/reject/ownership/last_earlier_argument's_binding_view_while_a_later_one_writes.rig main
+test/reject/ownership/last_for_over_a_lend_whose_body_writes.rig main
+test/reject/ownership/last_for_over_a_made_view_whose_body_writes.rig main
+test/reject/ownership/last_for_over_a_view_binding_whose_body_writes.rig main
+test/reject/ownership/last_match_guard_writes_what_a_later_arm_reads.rig main
+test/reject/ownership/last_while_condition's_view_while_the_body_writes.rig main
 test/reject/ownership/once_only_where_passed.rig main
 test/reject/probes/R11a-d1l.rig main
 test/reject/probes/R13-s-m-lib.rig Opt.or
