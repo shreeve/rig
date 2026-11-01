@@ -270,8 +270,8 @@ until its rule is built. docs/internals/tests.md has the rest.
 Machine-specific practice (the owner's machines):
 
 - **Several agents on one machine:** run builds and Swarm runs through
-  `tools/heavy CMD`, which takes them one at a time in the order they
-  ask, across every worktree; run proof runs, benchmarks, and profiles
+  `tools/heavy CMD`, which takes them two at a time (`RIG_HEAVY_SLOTS`)
+  in the order they ask, across every worktree; run proof runs, benchmarks, and profiles
   through `tools/low CMD`. Heavy's lock and the suite's build store live
   in Rig's git directory, which `tools/gitdir` finds: from a plain copy
   of Rig with no `.git` of its own, these tools stop unless `GIT_DIR`

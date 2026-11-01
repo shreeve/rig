@@ -1,18 +1,20 @@
 #!/bin/bash
-# tools/heavy CMD...: run CMD holding the repository's heavy lock, so
-# builds and Swarm runs from several worktrees or agents on one machine
-# go one at a time, in the order they asked. The lock is a directory in
-# the repository's shared git directory, which every worktree sees; a
-# holder that died leaves it, and the next waiter clears it. The
+# tools/heavy CMD...: run CMD holding one of the repository's heavy slots,
+# so builds and Swarm runs from several worktrees or agents on one machine
+# go at most RIG_HEAVY_SLOTS at a time (default 2), in the order they
+# asked. Each slot is a directory in the repository's shared git
+# directory, which every worktree sees: slot 0 is the lock a single-slot
+# copy of this script takes, so old and new copies share it. A holder
+# that died leaves its slot, and the next waiter clears it. The
 # repository is the one this script is in, found by tools/gitdir: from a
 # plain copy of Rig, set GIT_DIR, or the runs would not queue with the
 # worktrees'.
 G=$("$(dirname "${BASH_SOURCE[0]}")/gitdir" tools/heavy) || exit 2
 L=$G/rig-heavy.lock
-# Under a holder of this lock (tools/heavy tools/baseline, whose build
-# asks for it again), the command runs at once: waiting would wait on
-# itself.
-if [[ ${RIG_HEAVY_HELD:-} == "$L" ]]; then exec "$@"; fi
+N=${RIG_HEAVY_SLOTS:-2}
+# Under a holder of a slot (tools/heavy tools/baseline, whose build asks
+# for it again), the command runs at once: waiting would wait on itself.
+if [[ -n ${RIG_HEAVY_HELD:-} && ${RIG_HEAVY_HELD} == "$L"* ]]; then exec "$@"; fi
 Q=$L.q
 mkdir -p "$Q"
 T="$Q/$(perl -MTime::HiRes=time -e 'printf "%d", time*1e9')-$$"
@@ -26,13 +28,26 @@ first() {
         rm -f "$Q/$f"
     done
 }
+slot() {
+    if (($1 == 0)); then echo "$L"; else echo "$L.$1"; fi
+}
+S=
 while :; do
-    if [[ "$(first)" == "$T" ]] && mkdir "$L" 2>/dev/null; then break; fi
-    pid=$(cat "$L/pid" 2>/dev/null)
-    if [[ -n $pid ]] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$L"; continue; fi
+    for ((i = 0; i < N; i++)); do
+        s=$(slot $i)
+        pid=$(cat "$s/pid" 2>/dev/null)
+        if [[ -n $pid ]] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$s"; fi
+    done
+    if [[ "$(first)" == "$T" ]]; then
+        for ((i = 0; i < N; i++)); do
+            s=$(slot $i)
+            if mkdir "$s" 2>/dev/null; then S=$s; break; fi
+        done
+        [[ -n $S ]] && break
+    fi
     sleep 2
 done
-echo $$ >"$L/pid"
+echo $$ >"$S/pid"
 rm -f "$T"
-trap '[[ "$(cat "$L/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$L"' EXIT
-RIG_HEAVY_HELD=$L "$@"
+trap '[[ "$(cat "$S/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$S"' EXIT
+RIG_HEAVY_HELD=$S "$@"
