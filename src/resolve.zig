@@ -353,8 +353,9 @@ const SymbolResolver = struct {
         const prev = try self.enter(node, .function);
         defer self.scope = prev;
         const tparams = sema.tparamsOf(node);
-        try self.bindParams(tparams, .compile_time, .nil, &.{});
-        try self.bindParams(ir.get(node, .params), .run_time, tparams, &.{});
+        const bounds = if (node.isKind(.fun) or node.isKind(.sub)) ir.get(node, .bounds) else Sexp.nil;
+        try self.bindParams(tparams, .compile_time, .nil, &.{}, bounds);
+        try self.bindParams(ir.get(node, .params), .run_time, tparams, &.{}, .nil);
         if (tparams != .nil) {
             for (ir.get(node, .params).items()) |p| self.markSetParams(p);
             self.markSetParams(rig.returnType(node));
@@ -471,14 +472,15 @@ const SymbolResolver = struct {
             if (!sema.pathHolds(outer, inner)) continue;
             try self.ctx.errAt(sema.captureNameNode(cap).?, "capture `{s}` or `{s}`, not both: one holds the other", .{ outer, inner });
         };
-        try self.bindParams(ir.Lambda.params(node), .run_time, .nil, captures);
+        try self.bindParams(ir.Lambda.params(node), .run_time, .nil, captures, .nil);
         try self.walk(ir.Lambda.body(node));
     }
 
     /// `params`: a parameter group, or `_`. `earlier`: the group bound
     /// before it (a function's compile-time parameters, before its
-    /// run-time ones), whose names it may not reuse, or `_`.
-    fn bindParams(self: *SymbolResolver, params: Sexp, when: enum { compile_time, run_time }, earlier: Sexp, captures: []const Sexp) Error!void {
+    /// run-time ones), whose names it may not reuse, or `_`. `bounds`:
+    /// the declaration's `bounds` group for compile-time parameters, or `_`.
+    fn bindParams(self: *SymbolResolver, params: Sexp, when: enum { compile_time, run_time }, earlier: Sexp, captures: []const Sexp, bounds: Sexp) Error!void {
         const ct = when == .compile_time;
         for (params.items(), 0..) |p, i| {
             const name_node = sema.paramNameNode(p) orelse continue;
@@ -510,20 +512,21 @@ const SymbolResolver = struct {
                 try self.checkShadowsDeclaration(name_node, "parameter");
             }
             // A bare name among compile-time parameters is a type
-            // parameter, its bounds recorded apart (`Parser.bounds`).
+            // parameter, its bounds in the declaration's `bounds` group.
             if (ct and p == .src) {
+                const written = rig.Parser.boundsIn(bounds, name_node);
                 // `[N: Int]`: a value parameter, written with a capital.
-                if (self.boundNamesType(name_node)) |ty| {
+                if (self.boundNamesType(written)) |ty| {
                     try self.checkParamCase(name_node, ty);
                     _ = try self.declare(name_node, .param, .{ .comptime_known = true });
                     continue;
                 }
                 try self.checkParamCase(name_node, null);
-                const b = try self.boundsOf(name_node);
+                const b = try self.boundsOf(name_node, written);
                 if (try self.declare(name_node, .generic_param, .{})) |id| {
                     self.ctx.symbols.items[id].apis = b.apis;
                     self.ctx.symbols.items[id].user_apis = b.user;
-                    try self.noteAssocBounds(name_node, id);
+                    try self.noteAssocBounds(bounds, name_node, id);
                 }
                 continue;
             }
@@ -607,6 +610,7 @@ const SymbolResolver = struct {
         const id = (try self.declare(name_node, .generic_type, .{ .unique = unique })) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .tparams);
+        const bounds = ir.get(node, .bounds);
         var ids: std.ArrayList(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
         for (params.items(), 0..) |p, i| {
@@ -623,9 +627,10 @@ const SymbolResolver = struct {
             // name is a type parameter; `n: Int` a compile-time value,
             // whose type `resolveNominal` resolves.
             const value = p.isKind(.@":") and !objectBound(self.ctx.source, p);
-            const typed = if (value or p.isKind(.@":")) null else self.boundNamesType(pnode);
+            const written = rig.Parser.boundsIn(bounds, pnode);
+            const typed = if (value or p.isKind(.@":")) null else self.boundNamesType(written);
             try self.checkParamCase(pnode, if (p.isKind(.@":")) ir.get(p, .type) else typed);
-            const b: Bounds = if (value or typed != null) .{} else try self.boundsOf(pnode);
+            const b: Bounds = if (value or typed != null) .{} else try self.boundsOf(pnode, written);
             const pid = try self.ctx.addSymbol(.{
                 .name = pname,
                 .kind = if (value) .param else .generic_param,
@@ -637,7 +642,7 @@ const SymbolResolver = struct {
                 .user_apis = b.user,
             });
             try self.ctx.recordName(pnode, pid);
-            try self.noteAssocBounds(pnode, pid);
+            try self.noteAssocBounds(bounds, pnode, pid);
             try ids.append(self.ctx.allocator, pid);
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
@@ -662,15 +667,14 @@ const SymbolResolver = struct {
         try self.walkMembers(ir.rest(node, .members), stated);
     }
 
-    /// The bounds written on the type parameter named at `name_node`
-    /// (`Parser.bounds`), as written; `sema.implied` adds what they
-    /// imply. Each is a built-in API; another name is reported.
-    fn boundsOf(self: *SymbolResolver, name_node: Sexp) Error!Bounds {
-        const p = self.ctx.parser orelse return .{};
+    /// The bounds `written` on the type parameter named at `name_node`
+    /// (`Parser.boundsIn`); `sema.implied` adds what they imply. Each is
+    /// an API; another name is reported.
+    fn boundsOf(self: *SymbolResolver, name_node: Sexp, written: []const Sexp) Error!Bounds {
         if (name_node != .src) return .{};
         var out: Bounds = .{};
         var user: std.ArrayList(sema.ApiRef) = .empty;
-        for (p.boundsAt(name_node.src.pos)) |leaf| {
+        for (written) |leaf| {
             const text = diag.textOf(self.ctx.source, self.ctx.span(leaf));
             switch (try apiNamed(self.ctx, self.scope, leaf)) {
                 .builtin => |api| {
@@ -689,13 +693,12 @@ const SymbolResolver = struct {
         return out;
     }
 
-    /// The type a capital parameter's one bound names, as `[N: Int]`
-    /// does: it is a value parameter written with a capital, reported
-    /// so (`checkParamCase`). Null when it names an API, or anything else.
-    fn boundNamesType(self: *SymbolResolver, name_node: Sexp) ?Sexp {
-        const p = self.ctx.parser orelse return null;
-        if (name_node != .src) return null;
-        const bounds = p.boundsAt(name_node.src.pos);
+    /// The type a capital parameter's one bound, `written`, names, as
+    /// `[N: Int]` does: it is a value parameter written with a capital,
+    /// reported so (`checkParamCase`). Null when it names an API, or
+    /// anything else.
+    fn boundNamesType(self: *SymbolResolver, written: []const Sexp) ?Sexp {
+        const bounds = written;
         if (bounds.len != 1) return null;
         const leaf = bounds[0];
         if (leaf != .src) {
@@ -941,29 +944,38 @@ const SymbolResolver = struct {
     }
 
     /// The bounds written on associated types of type parameter `id`,
-    /// named at `name_node` (`[S: Source, S.Item: Ord]`), for
-    /// `resolveAssocBounds`.
-    fn noteAssocBounds(self: *SymbolResolver, name_node: Sexp, id: SymbolId) Error!void {
-        const p = self.ctx.parser orelse return;
-        if (name_node != .src) return;
-        for (p.assocBoundsAt(name_node.src.pos)) |entry| try self.ctx.assoc_bound_decls.append(self.ctx.allocator, .{ .param = id, .node = entry });
+    /// named at `name_node` (`[S: Source, S.Item: Ord]`), from the
+    /// declaration's `bounds` group, for `resolveAssocBounds`.
+    fn noteAssocBounds(self: *SymbolResolver, bounds: Sexp, name_node: Sexp, id: SymbolId) Error!void {
+        if (bounds != .list or name_node != .src) return;
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        for (bounds.items()) |entry| {
+            if (!entry.isKind(.assoc_bound)) continue;
+            const owner = identAt(self.ctx.source, ir.get(entry, .owner)) orelse continue;
+            if (std.mem.eql(u8, owner, name)) try self.ctx.assoc_bound_decls.append(self.ctx.allocator, .{ .param = id, .node = entry });
+        }
     }
 
     /// The bounds a method declared outside its type's body adds to the
     /// type's parameters (`fun Wrap[T: Print].show(?@)`), recorded for its
     /// `Field` (`SemContext.owner_bounds`).
     fn ownerBounds(self: *SymbolResolver, decl: Sexp) Error!void {
-        const p = self.ctx.parser orelse return;
         const name = ir.get(decl, .name);
         if (name != .src) return;
-        const params = p.ownerBoundsAt(name.src.pos);
-        if (params.len == 0) return;
+        // The type's parameters as the method names them, in order, each
+        // bare or bound (`Parser.tparamBounds`), and its `assoc_bound`s.
+        const params = ir.get(decl, .owner_bounds);
+        if (params != .list) return;
         var out: std.ArrayList(sema.OwnerBound) = .empty;
-        for (params, 0..) |leaf, i| {
-            if (leaf == .src) for (p.assocBoundsAt(leaf.src.pos)) |entry| {
+        var i: usize = 0;
+        for (params.items()) |entry| {
+            if (entry.isKind(.assoc_bound)) {
                 try self.ctx.errAt(entry, "a method's bound on an associated type is not built yet: bound it in its type's own brackets", .{});
-            };
-            const b = try self.boundsOf(leaf);
+                continue;
+            }
+            defer i += 1;
+            const leaf = if (entry == .src) entry else ir.get(entry, .name);
+            const b = try self.boundsOf(leaf, rig.Parser.boundApis(entry));
             if (b.apis.count() == 0 and b.user.len == 0) continue;
             try out.append(self.ctx.arena.allocator(), .{ .param = @intCast(i), .apis = b.apis, .user_apis = b.user });
         }

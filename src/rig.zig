@@ -2362,22 +2362,10 @@ pub const Parser = struct {
     /// Where the names of the methods declared outside their type's body
     /// are (`attachMethods`).
     outside_members: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    /// The bounds of the type parameters written with them (`[T: Ord]`,
-    /// `[K: Hash + Print]`), by where each parameter's name is: the
-    /// parameter itself is left a bare name, as `[T]` (`tparamBounds`).
-    bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
     /// The methods declared outside a body that name no type of this
     /// module as it declares it (`fun Nope.m()`, `fun geo.Point.m()`),
     /// each as written, `pub` included; the checker says why.
     detached: std.ArrayList(Sexp) = .empty,
-    /// The type's parameters as a method declared outside its type's
-    /// body names them, by where the method's name is, for a method that
-    /// bounds one of them (`fun Wrap[T: Print].show(?@)`): each a bare
-    /// name, its bounds recorded by where it is (`bounds`).
-    owner_bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
-    /// The bounds on associated types (`[S: Source, S.Item: Ord]`), by
-    /// where the name of the parameter whose types they bound is.
-    assoc_bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
 
     /// How many `obj` or `enum` bodies the node being rewritten is in: a
     /// function there is a method.
@@ -3274,11 +3262,11 @@ pub const Parser = struct {
             },
             .@"struct", .@"enum", .errors, .api, .api_add => try self.pubMembers(out),
             .generic_struct => {
-                try self.tparamBounds(walked, ir.slot(.generic_struct, .tparams));
+                try self.tparamBounds(walked, ir.slot(.generic_struct, .tparams), ir.slot(.generic_struct, .bounds), false);
                 try self.pubMembers(out);
             },
             .generic_enum => {
-                try self.tparamBounds(walked, ir.slot(.generic_enum, .tparams));
+                try self.tparamBounds(walked, ir.slot(.generic_enum, .tparams), ir.slot(.generic_enum, .bounds), false);
                 try self.pubMembers(out);
             },
             .lambda => {
@@ -3315,14 +3303,14 @@ pub const Parser = struct {
             .read_view, .write_view, .shared, .boxed => self.touchesOperand(out),
             // The body's value is returned.
             .fun => {
-                try self.tparamBounds(walked, ir.slot(.fun, .tparams));
-                try self.tparamBounds(walked, ir.slot(.fun, .owner_params));
+                try self.tparamBounds(walked, ir.slot(.fun, .tparams), ir.slot(.fun, .bounds), false);
+                try self.tparamBounds(walked, ir.slot(.fun, .owner_params), ir.slot(.fun, .owner_bounds), true);
                 try self.paramList(out);
                 if (ir.Fun.returns(out) != .nil) try self.valueTail(&walked[ir.slot(.fun, .body)]);
             },
             .sub => {
-                try self.tparamBounds(walked, ir.slot(.sub, .tparams));
-                try self.tparamBounds(walked, ir.slot(.sub, .owner_params));
+                try self.tparamBounds(walked, ir.slot(.sub, .tparams), ir.slot(.sub, .bounds), false);
+                try self.tparamBounds(walked, ir.slot(.sub, .owner_params), ir.slot(.sub, .owner_bounds), true);
                 try self.paramList(out);
             },
             .extern_fun, .extern_sub => try self.paramList(out),
@@ -3480,37 +3468,50 @@ pub const Parser = struct {
     /// compile-time parameters, written with bounds: `[T: Ord]`, whose
     /// name after the colon is a built-in API (`Api`), `[T: Shape]`, a
     /// type parameter (a capital letter) named after the colon, and `[K:
-    /// Hash + Print]`. Each becomes a bare name, as `[T]`, and its bounds
-    /// are recorded by where its name is (`bounds`); resolve tells an API
-    /// from a type. `[n: Int]` names a type and stays a compile-time
-    /// value.
-    fn tparamBounds(self: *Parser, walked: []Sexp, slot: usize) std.mem.Allocator.Error!void {
+    /// Hash + Print]`. Each becomes a bare name, as `[T]`, and the node
+    /// that bounds it moves to the group at `walked[into]`, which
+    /// `boundsIn` reads by the name's leaf; resolve tells an API from a
+    /// type. `[S: Source, S.Item: Ord]` bounds an associated type, and
+    /// its `assoc_bound` moves there too. `[n: Int]` names a type and
+    /// stays a compile-time value. With `whole`, the group holds every
+    /// parameter as written, bare or bound, in order: the type's
+    /// parameters as a method declared outside its body names them
+    /// (`owner_bounds`), whose list the wrapper drops (`attachMethods`).
+    fn tparamBounds(self: *Parser, walked: []Sexp, slot: usize, into: usize, whole: bool) std.mem.Allocator.Error!void {
         const group = walked[slot];
         if (group != .list) return;
         const items = try self.allocator().dupe(Sexp, group.items());
+        var moved: std.ArrayList(Sexp) = .empty;
         var changed = false;
         for (items) |*p| {
-            const name: Sexp, const apis: []const Sexp = switch (p.kind() orelse continue) {
+            const name: Sexp = switch (p.kind() orelse {
+                if (whole) try moved.append(self.allocator(), p.*);
+                continue;
+            }) {
                 .@":" => blk: {
                     const ty = ir.get(p.*, .type);
                     const pname = ir.get(p.*, .name);
                     const builtin = ty == .src and Api.named(leafText(self.base.source, ty.src)) != null;
                     const capital = pname == .src and std.ascii.isUpper(leafText(self.base.source, pname.src)[0]);
                     const named = (ty == .src and std.ascii.isUpper(leafText(self.base.source, ty.src)[0])) or ty.isKind(.member);
-                    if (!builtin and !(capital and named)) continue;
-                    break :blk .{ pname, try self.allocator().dupe(Sexp, &.{ty}) };
+                    if (!builtin and !(capital and named)) {
+                        // `[n: Int]`: a value, whose name stands for it in a
+                        // whole group, so a `:` there is always a bound.
+                        if (whole) try moved.append(self.allocator(), pname);
+                        continue;
+                    }
+                    break :blk pname;
                 },
-                .bound => .{ ir.get(p.*, .name), ir.get(p.*, .apis).items() },
+                .bound => ir.get(p.*, .name),
                 else => continue,
             };
             if (name != .src) continue;
-            try self.bounds.put(self.allocator(), name.src.pos, apis);
+            try moved.append(self.allocator(), p.*);
             p.* = name;
             changed = true;
         }
         // `S.Item: Ord`: bounds on an associated type of a parameter the
-        // same brackets name, recorded by where that parameter's name is
-        // (`assoc_bounds`), and no parameter of its own.
+        // same brackets name, and no parameter of its own.
         var kept: std.ArrayList(Sexp) = .empty;
         for (items) |p| {
             if (!p.isKind(.assoc_bound)) {
@@ -3519,37 +3520,44 @@ pub const Parser = struct {
             }
             changed = true;
             const owner = ir.get(p, .owner);
-            const base = for (items) |q| {
+            const named = for (items) |q| {
                 const qn = if (q == .src) q else if (q.isKind(.@":") or q.isKind(.bound)) ir.get(q, .name) else Sexp.nil;
-                if (qn == .src and owner == .src and std.mem.eql(u8, leafText(self.base.source, qn.src), leafText(self.base.source, owner.src))) break qn;
-            } else {
+                if (qn == .src and owner == .src and std.mem.eql(u8, leafText(self.base.source, qn.src), leafText(self.base.source, owner.src))) break true;
+            } else false;
+            if (!named) {
                 self.reject(p, "an associated type's bound names a parameter of the same brackets: `[S: Source, S.Item: Ord]`");
                 continue;
-            };
-            const entry = try self.assoc_bounds.getOrPut(self.allocator(), base.src.pos);
-            if (!entry.found_existing) entry.value_ptr.* = &.{};
-            entry.value_ptr.* = try std.mem.concat(self.allocator(), Sexp, &.{ entry.value_ptr.*, &.{p} });
+            }
+            try moved.append(self.allocator(), p);
         }
-        if (changed) walked[slot] = .{ .list = parser.List.withId(kept.items, group.list.id) };
+        if (!changed) return;
+        walked[slot] = .{ .list = parser.List.withId(kept.items, group.list.id) };
+        walked[into] = try self.base.newList(moved.items, self.span(group));
     }
 
-    /// The bounds on associated types of the type parameter whose name is
-    /// at `pos`, each an `assoc_bound` (`[S: Source, S.Item: Ord]`).
-    pub fn assocBoundsAt(self: *const Parser, pos: u32) []const Sexp {
-        return self.assoc_bounds.get(pos) orelse &.{};
+    /// The APIs a bound in a `bounds` or `owner_bounds` group names: a
+    /// `(: T Ord)`'s one, or a `(bound K (Hash Print))`'s; empty for
+    /// anything else.
+    pub fn boundApis(entry: Sexp) []const Sexp {
+        return switch (entry.kind() orelse return &.{}) {
+            .@":" => entry.items()[ir.slot(.@":", .type)..][0..1],
+            .bound => ir.get(entry, .apis).items(),
+            else => &.{},
+        };
     }
 
-    /// The bounds written on the type parameter whose name is at `pos`
-    /// (`tparamBounds`); empty for one written bare.
-    pub fn boundsAt(self: *const Parser, pos: u32) []const Sexp {
-        return self.bounds.get(pos) orelse &.{};
-    }
-
-    /// The type's parameters as the method whose name is at `pos` names
-    /// them, when it bounds one (`fun Wrap[T: Print].show(?@)`); each
-    /// one's bounds are `boundsAt` its name. Empty for any other method.
-    pub fn ownerBoundsAt(self: *const Parser, pos: u32) []const Sexp {
-        return self.owner_bounds.get(pos) orelse &.{};
+    /// The APIs written on the type parameter `name`, a bare name of a
+    /// declaration's `tparams`, from the declaration's `bounds` group
+    /// (`tparamBounds`): its bound's name is that same leaf. Empty for one
+    /// written bare.
+    pub fn boundsIn(group: Sexp, name: Sexp) []const Sexp {
+        if (group != .list or name != .src) return &.{};
+        for (group.items()) |e| {
+            if (!e.isKind(.@":") and !e.isKind(.bound)) continue;
+            const n = ir.get(e, .name);
+            if (n == .src and n.src.pos == name.src.pos) return boundApis(e);
+        }
+        return &.{};
     }
 
     /// A `rarely` that starts the body of a function, a branch of `if` or
@@ -3825,14 +3833,6 @@ pub const Parser = struct {
                 try self.detached.append(a, d);
                 continue;
             }
-            const owner_params = ir.get(method, .owner_params);
-            const named = ir.get(method, .name);
-            if (named == .src and owner_params != .nil) for (owner_params.items()) |p| {
-                if (p == .src and self.bounds.contains(p.src.pos)) {
-                    try self.owner_bounds.put(a, named.src.pos, owner_params.items());
-                    break;
-                }
-            };
             const items = @constCast(method.items());
             const fun = method.isKind(.fun);
             items[if (fun) ir.slot(.fun, .owner) else ir.slot(.sub, .owner)] = .nil;
