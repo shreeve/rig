@@ -302,9 +302,9 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
-        // parameter; and `a..=b`, rewritten to an inclusive `..`: each
-        // before any pass reads a statement.
-        .wait, .once, .@"..=" => .none,
+        // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
+        // whose `paren` is dropped: each before any pass reads a statement.
+        .wait, .once, .@"..=", .paren => .none,
     };
 }
 
@@ -2362,22 +2362,10 @@ pub const Parser = struct {
     /// Where the names of the methods declared outside their type's body
     /// are (`attachMethods`).
     outside_members: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    /// The bounds of the type parameters written with them (`[T: Ord]`,
-    /// `[K: Hash + Print]`), by where each parameter's name is: the
-    /// parameter itself is left a bare name, as `[T]` (`tparamBounds`).
-    bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
     /// The methods declared outside a body that name no type of this
     /// module as it declares it (`fun Nope.m()`, `fun geo.Point.m()`),
     /// each as written, `pub` included; the checker says why.
     detached: std.ArrayList(Sexp) = .empty,
-    /// The type's parameters as a method declared outside its type's
-    /// body names them, by where the method's name is, for a method that
-    /// bounds one of them (`fun Wrap[T: Print].show(?@)`): each a bare
-    /// name, its bounds recorded by where it is (`bounds`).
-    owner_bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
-    /// The bounds on associated types (`[S: Source, S.Item: Ord]`), by
-    /// where the name of the parameter whose types they bound is.
-    assoc_bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
 
     /// How many `obj` or `enum` bodies the node being rewritten is in: a
     /// function there is a method.
@@ -3263,22 +3251,24 @@ pub const Parser = struct {
         if (in_type) self.type_depth += 1;
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         if (in_type) self.type_depth -= 1;
+        dropParens(sexp.kind(), walked);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
         try self.placeRarely(out);
         switch (out.kind() orelse return out) {
             .module => {
+                stripParens(out);
                 self.strayRarely(out, false);
                 self.moduleConsts(out);
                 return self.builtinRefs(try self.attachMethods(out));
             },
             .@"struct", .@"enum", .errors, .api, .api_add => try self.pubMembers(out),
             .generic_struct => {
-                try self.tparamBounds(walked, ir.slot(.generic_struct, .tparams));
+                try self.tparamBounds(walked, ir.slot(.generic_struct, .tparams), ir.slot(.generic_struct, .bounds), false);
                 try self.pubMembers(out);
             },
             .generic_enum => {
-                try self.tparamBounds(walked, ir.slot(.generic_enum, .tparams));
+                try self.tparamBounds(walked, ir.slot(.generic_enum, .tparams), ir.slot(.generic_enum, .bounds), false);
                 try self.pubMembers(out);
             },
             .lambda => {
@@ -3315,14 +3305,14 @@ pub const Parser = struct {
             .read_view, .write_view, .shared, .boxed => self.touchesOperand(out),
             // The body's value is returned.
             .fun => {
-                try self.tparamBounds(walked, ir.slot(.fun, .tparams));
-                try self.tparamBounds(walked, ir.slot(.fun, .owner_params));
+                try self.tparamBounds(walked, ir.slot(.fun, .tparams), ir.slot(.fun, .bounds), false);
+                try self.tparamBounds(walked, ir.slot(.fun, .owner_params), ir.slot(.fun, .owner_bounds), true);
                 try self.paramList(out);
                 if (ir.Fun.returns(out) != .nil) try self.valueTail(&walked[ir.slot(.fun, .body)]);
             },
             .sub => {
-                try self.tparamBounds(walked, ir.slot(.sub, .tparams));
-                try self.tparamBounds(walked, ir.slot(.sub, .owner_params));
+                try self.tparamBounds(walked, ir.slot(.sub, .tparams), ir.slot(.sub, .bounds), false);
+                try self.tparamBounds(walked, ir.slot(.sub, .owner_params), ir.slot(.sub, .owner_bounds), true);
                 try self.paramList(out);
             },
             .extern_fun, .extern_sub => try self.paramList(out),
@@ -3334,6 +3324,60 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// The slot of a node of `kind` whose parentheses, a `paren` the
+    /// grammar keeps, the wrapper still reads once the node is walked:
+    /// a link of a chain, where the self-sigil rule stops at a
+    /// parenthesized part (`selfSigil`), a handle's operand, where a
+    /// suffix may sit inside them (`noteParenSuffix`). Null for every
+    /// other node, whose children lose their parentheses as soon as it is
+    /// walked, but a fallback, `??`, which keeps both sides' for its
+    /// grouping (`rightNested`).
+    fn parenSlot(kind: parser.Tag) ?usize {
+        return switch (kind) {
+            .member => ir.slot(.member, .object),
+            .index => ir.slot(.index, .object),
+            .inst => ir.slot(.inst, .object),
+            .call => ir.slot(.call, .callee),
+            .propagate => ir.slot(.propagate, .value),
+            .propagate_none => ir.slot(.propagate_none, .value),
+            .read => ir.slot(.read, .operand),
+            .write => ir.slot(.write, .operand),
+            .move => ir.slot(.move, .operand),
+            .share => ir.slot(.share, .operand),
+            .weak => ir.slot(.weak, .operand),
+            .box => ir.slot(.box, .operand),
+            else => null,
+        };
+    }
+
+    /// The node inside any parentheses around `e`.
+    fn unparen(e: Sexp) Sexp {
+        var x = e;
+        while (x.isKind(.paren)) x = ir.Paren.value(x);
+        return x;
+    }
+
+    /// Drops the parentheses around each child of a node of `kind` just
+    /// walked, `walked`, but the one its `parenSlot` keeps.
+    fn dropParens(kind: ?parser.Tag, walked: []Sexp) void {
+        if (kind == .@"??") return;
+        const keep = if (kind) |k| parenSlot(k) else null;
+        for (walked, 0..) |*c, i| {
+            if (keep != null and keep.? == i) continue;
+            c.* = unparen(c.*);
+        }
+    }
+
+    /// Drops every `paren` left in the tree under `e`, in place, so no
+    /// pass after the wrapper sees one.
+    fn stripParens(e: Sexp) void {
+        if (e != .list) return;
+        for (@constCast(e.items())) |*c| {
+            c.* = unparen(c.*);
+            stripParens(c.*);
+        }
     }
 
     /// A name of a built-in type written in Rig (`builtin_type_names`),
@@ -3480,37 +3524,50 @@ pub const Parser = struct {
     /// compile-time parameters, written with bounds: `[T: Ord]`, whose
     /// name after the colon is a built-in API (`Api`), `[T: Shape]`, a
     /// type parameter (a capital letter) named after the colon, and `[K:
-    /// Hash + Print]`. Each becomes a bare name, as `[T]`, and its bounds
-    /// are recorded by where its name is (`bounds`); resolve tells an API
-    /// from a type. `[n: Int]` names a type and stays a compile-time
-    /// value.
-    fn tparamBounds(self: *Parser, walked: []Sexp, slot: usize) std.mem.Allocator.Error!void {
+    /// Hash + Print]`. Each becomes a bare name, as `[T]`, and the node
+    /// that bounds it moves to the group at `walked[into]`, which
+    /// `boundsIn` reads by the name's leaf; resolve tells an API from a
+    /// type. `[S: Source, S.Item: Ord]` bounds an associated type, and
+    /// its `assoc_bound` moves there too. `[n: Int]` names a type and
+    /// stays a compile-time value. With `whole`, the group holds every
+    /// parameter as written, bare or bound, in order: the type's
+    /// parameters as a method declared outside its body names them
+    /// (`owner_bounds`), whose list the wrapper drops (`attachMethods`).
+    fn tparamBounds(self: *Parser, walked: []Sexp, slot: usize, into: usize, whole: bool) std.mem.Allocator.Error!void {
         const group = walked[slot];
         if (group != .list) return;
         const items = try self.allocator().dupe(Sexp, group.items());
+        var moved: std.ArrayList(Sexp) = .empty;
         var changed = false;
         for (items) |*p| {
-            const name: Sexp, const apis: []const Sexp = switch (p.kind() orelse continue) {
+            const name: Sexp = switch (p.kind() orelse {
+                if (whole) try moved.append(self.allocator(), p.*);
+                continue;
+            }) {
                 .@":" => blk: {
                     const ty = ir.get(p.*, .type);
                     const pname = ir.get(p.*, .name);
                     const builtin = ty == .src and Api.named(leafText(self.base.source, ty.src)) != null;
                     const capital = pname == .src and std.ascii.isUpper(leafText(self.base.source, pname.src)[0]);
                     const named = (ty == .src and std.ascii.isUpper(leafText(self.base.source, ty.src)[0])) or ty.isKind(.member);
-                    if (!builtin and !(capital and named)) continue;
-                    break :blk .{ pname, try self.allocator().dupe(Sexp, &.{ty}) };
+                    if (!builtin and !(capital and named)) {
+                        // `[n: Int]`: a value, whose name stands for it in a
+                        // whole group, so a `:` there is always a bound.
+                        if (whole) try moved.append(self.allocator(), pname);
+                        continue;
+                    }
+                    break :blk pname;
                 },
-                .bound => .{ ir.get(p.*, .name), ir.get(p.*, .apis).items() },
+                .bound => ir.get(p.*, .name),
                 else => continue,
             };
             if (name != .src) continue;
-            try self.bounds.put(self.allocator(), name.src.pos, apis);
+            try moved.append(self.allocator(), p.*);
             p.* = name;
             changed = true;
         }
         // `S.Item: Ord`: bounds on an associated type of a parameter the
-        // same brackets name, recorded by where that parameter's name is
-        // (`assoc_bounds`), and no parameter of its own.
+        // same brackets name, and no parameter of its own.
         var kept: std.ArrayList(Sexp) = .empty;
         for (items) |p| {
             if (!p.isKind(.assoc_bound)) {
@@ -3519,37 +3576,44 @@ pub const Parser = struct {
             }
             changed = true;
             const owner = ir.get(p, .owner);
-            const base = for (items) |q| {
+            const named = for (items) |q| {
                 const qn = if (q == .src) q else if (q.isKind(.@":") or q.isKind(.bound)) ir.get(q, .name) else Sexp.nil;
-                if (qn == .src and owner == .src and std.mem.eql(u8, leafText(self.base.source, qn.src), leafText(self.base.source, owner.src))) break qn;
-            } else {
+                if (qn == .src and owner == .src and std.mem.eql(u8, leafText(self.base.source, qn.src), leafText(self.base.source, owner.src))) break true;
+            } else false;
+            if (!named) {
                 self.reject(p, "an associated type's bound names a parameter of the same brackets: `[S: Source, S.Item: Ord]`");
                 continue;
-            };
-            const entry = try self.assoc_bounds.getOrPut(self.allocator(), base.src.pos);
-            if (!entry.found_existing) entry.value_ptr.* = &.{};
-            entry.value_ptr.* = try std.mem.concat(self.allocator(), Sexp, &.{ entry.value_ptr.*, &.{p} });
+            }
+            try moved.append(self.allocator(), p);
         }
-        if (changed) walked[slot] = .{ .list = parser.List.withId(kept.items, group.list.id) };
+        if (!changed) return;
+        walked[slot] = .{ .list = parser.List.withId(kept.items, group.list.id) };
+        walked[into] = try self.base.newList(moved.items, self.span(group));
     }
 
-    /// The bounds on associated types of the type parameter whose name is
-    /// at `pos`, each an `assoc_bound` (`[S: Source, S.Item: Ord]`).
-    pub fn assocBoundsAt(self: *const Parser, pos: u32) []const Sexp {
-        return self.assoc_bounds.get(pos) orelse &.{};
+    /// The APIs a bound in a `bounds` or `owner_bounds` group names: a
+    /// `(: T Ord)`'s one, or a `(bound K (Hash Print))`'s; empty for
+    /// anything else.
+    pub fn boundApis(entry: Sexp) []const Sexp {
+        return switch (entry.kind() orelse return &.{}) {
+            .@":" => entry.items()[ir.slot(.@":", .type)..][0..1],
+            .bound => ir.get(entry, .apis).items(),
+            else => &.{},
+        };
     }
 
-    /// The bounds written on the type parameter whose name is at `pos`
-    /// (`tparamBounds`); empty for one written bare.
-    pub fn boundsAt(self: *const Parser, pos: u32) []const Sexp {
-        return self.bounds.get(pos) orelse &.{};
-    }
-
-    /// The type's parameters as the method whose name is at `pos` names
-    /// them, when it bounds one (`fun Wrap[T: Print].show(?@)`); each
-    /// one's bounds are `boundsAt` its name. Empty for any other method.
-    pub fn ownerBoundsAt(self: *const Parser, pos: u32) []const Sexp {
-        return self.owner_bounds.get(pos) orelse &.{};
+    /// The APIs written on the type parameter `name`, a bare name of a
+    /// declaration's `tparams`, from the declaration's `bounds` group
+    /// (`tparamBounds`): its bound's name is that same leaf. Empty for one
+    /// written bare.
+    pub fn boundsIn(group: Sexp, name: Sexp) []const Sexp {
+        if (group != .list or name != .src) return &.{};
+        for (group.items()) |e| {
+            if (!e.isKind(.@":") and !e.isKind(.bound)) continue;
+            const n = ir.get(e, .name);
+            if (n == .src and n.src.pos == name.src.pos) return boundApis(e);
+        }
+        return &.{};
     }
 
     /// A `rarely` that starts the body of a function, a branch of `if` or
@@ -3825,14 +3889,6 @@ pub const Parser = struct {
                 try self.detached.append(a, d);
                 continue;
             }
-            const owner_params = ir.get(method, .owner_params);
-            const named = ir.get(method, .name);
-            if (named == .src and owner_params != .nil) for (owner_params.items()) |p| {
-                if (p == .src and self.bounds.contains(p.src.pos)) {
-                    try self.owner_bounds.put(a, named.src.pos, owner_params.items());
-                    break;
-                }
-            };
             const items = @constCast(method.items());
             const fun = method.isKind(.fun);
             items[if (fun) ir.slot(.fun, .owner) else ir.slot(.sub, .owner)] = .nil;
@@ -3934,16 +3990,13 @@ pub const Parser = struct {
             .@"return", .@"break", .@"continue" => return node,
             else => {},
         };
+        // A parenthesized left side, `(a ?? b) ?? c`, is a group of its own.
         const left = ir.@"??".left(node);
-        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        if (!left.isKind(.@"??")) return node;
         const middle = ir.@"??".right(left);
-        // The new right side starts where `middle` is written, with any
-        // parentheses around it, so a grouped `middle` stays grouped.
-        const src = self.base.source;
-        var start = self.span(middle).start;
-        while (start > 0 and (src[start - 1] == '(' or isSpaceBefore(src[start - 1]))) start -= 1;
-        while (start < self.span(middle).start and isSpaceBefore(src[start])) start += 1;
-        const inner = try self.rightNested(try self.base.newNode(.@"??", &.{ middle, right }, .{ .start = start, .end = self.span(node).end }));
+        // The new right side starts where `middle` is written; a grouped
+        // `middle` is a `paren`, whose span holds its parentheses.
+        const inner = try self.rightNested(try self.base.newNode(.@"??", &.{ middle, right }, .{ .start = self.span(middle).start, .end = self.span(node).end }));
         return self.base.newNode(.@"??", &.{ ir.@"??".left(left), inner }, self.span(node));
     }
 
@@ -3951,15 +4004,16 @@ pub const Parser = struct {
     /// whole chain before it, `(a ?? b) ?? return v`; `??` is
     /// right-associative, so the jump goes to the innermost right side,
     /// `a ?? (b ?? return v)`. A parenthesized left side keeps its
-    /// grouping: it starts after the node that holds it.
+    /// grouping: it is a `paren`.
     fn nearestFallback(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const right = ir.@"??".right(node);
         switch (right.kind() orelse return node) {
             .@"return", .@"break", .@"continue" => {},
             else => return node,
         }
+        // A parenthesized left side, `(a ?? b) ?? c`, is a group of its own.
         const left = ir.@"??".left(node);
-        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        if (!left.isKind(.@"??")) return node;
         return self.attachFallback(left, right);
     }
 
@@ -3967,7 +4021,7 @@ pub const Parser = struct {
     /// `??` chain that is not parenthesized.
     fn attachFallback(self: *Parser, chain: Sexp, jump: Sexp) std.mem.Allocator.Error!Sexp {
         const inner = ir.@"??".right(chain);
-        const grouped = !inner.isKind(.@"??") or self.span(inner).end != self.span(chain).end;
+        const grouped = !inner.isKind(.@"??");
         const new_right = if (grouped)
             try self.base.newNode(.@"??", &.{ inner, jump }, .{ .start = self.span(inner).start, .end = self.span(jump).end })
         else
@@ -3978,28 +4032,21 @@ pub const Parser = struct {
     /// `*(T?)`, `~(T?)`, `*(~T?)`: a `?` suffix sits inside parentheses
     /// within a chain of handles, so it belongs to what a handle holds.
     /// In `*T?`, `*~T?`, and `*(T)?` every suffix follows the whole chain:
-    /// each handle and each suffix layer starts at the token after the
-    /// sigil before it.
+    /// no `?` is inside a `paren` the handles and suffixes reach.
     fn noteParenSuffix(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
-        var e = node;
-        while (true) {
-            const at = self.afterSigil(e);
-            var op = ir.get(e, .operand);
-            if (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) {
-                if (self.span(op).start == at) {
-                    e = op;
-                    continue;
-                }
+        var op = ir.get(node, .operand);
+        while (true) switch (op.kind() orelse return) {
+            .share, .weak, .box => op = ir.get(op, .operand),
+            .propagate_none => op = ir.PropagateNone.value(op),
+            .paren => {
                 // `*(~T?)`: a parenthesized handle with a suffix of its own.
-                while (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) op = ir.get(op, .operand);
-                if (op.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
+                var inner = ir.Paren.value(op);
+                while (inner.isKind(.share) or inner.isKind(.weak) or inner.isKind(.box)) inner = ir.get(inner, .operand);
+                if (inner.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
                 return;
-            }
-            while (op.isKind(.propagate_none)) : (op = ir.PropagateNone.value(op)) {
-                if (self.span(op).start != at) return self.paren_suffixes.put(self.allocator(), node.list.id, {});
-            }
-            return;
-        }
+            },
+            else => return,
+        };
     }
 
     /// A type's prefix sigil touches its operand. The lexer checks every
@@ -4051,11 +4098,9 @@ pub const Parser = struct {
     fn waitTakesName(self: *Parser, node: Sexp, head: Sexp) void {
         var w = head;
         while (w.isKind(.propagate) or w.isKind(.propagate_none)) w = ir.get(w, .value);
+        // `(>t).len`: a parenthesized wait is a `paren`, and no wait call.
         if (!isWaitCall(w) or self.failure != null) return;
         const src = self.base.source;
-        var after = self.span(head).end;
-        while (after < src.len and (src[after] == ' ' or src[after] == '\t')) after += 1;
-        if (after < src.len and src[after] == ')') return;
         const whole = self.span(node);
         const written = diag.textBetween(src, self.span(head).start, self.span(head).end);
         const rest = diag.textBetween(src, self.span(head).end, whole.end);
@@ -4100,20 +4145,6 @@ pub const Parser = struct {
         return node == .list and self.once_params.contains(node.list.id);
     }
 
-    /// Where the token after the sigil that starts `node` starts, past
-    /// any whitespace, line joins, and comments.
-    fn afterSigil(self: *const Parser, node: Sexp) u32 {
-        var probe = BaseLexer.init(self.base.source);
-        probe.pos = self.span(node).start + 1;
-        while (true) {
-            const t = probe.next();
-            switch (t.cat) {
-                .comment, .newline, .skip => continue,
-                else => return t.pos,
-            }
-        }
-    }
-
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
     /// after it) followed by a method call apply to the place; the call
     /// and every postfix after it apply to the lent or moved place:
@@ -4128,11 +4159,10 @@ pub const Parser = struct {
     /// else keeps its
     /// sigil outside: a chain that is all place (`!x.v`), a `?` or `<`
     /// chain whose head is called (`<f(x).g()`), and one whose spine is
-    /// parenthesized (`!(v.pop())`), which starts after the token after
-    /// the sigil, a `(`.
+    /// parenthesized (`!(v.pop())`): the chain stops at a `paren`, which
+    /// links of a chain keep until this rule has read them (`parenSlot`).
     fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const tag: parser.Tag = node.kind().?;
-        const at = self.afterSigil(node);
         // `!` lends any value to write, so its chain may start from a
         // value no name holds: a call that is no method call
         // (`!mk().bump()`), a literal (`![a, b][0].bump()`), or a
@@ -4142,7 +4172,7 @@ pub const Parser = struct {
         var chain: std.ArrayList(Sexp) = .empty;
         var e = ir.get(node, .operand);
         while (true) {
-            if (self.span(e).start != at) {
+            if (e.isKind(.paren)) {
                 if (!any_head or chain.items.len == 0) return node;
                 try chain.append(self.allocator(), e);
                 break;

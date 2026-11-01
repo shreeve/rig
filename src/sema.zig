@@ -14491,8 +14491,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern, .set_pattern => .none,
-        // `>t`, `f: once T`, and `a..=b`, which the Parser wrapper rewrites first.
-        .wait, .once, .@"..=" => .none,
+        // `>t`, `f: once T`, `a..=b`, and `(e)`'s `paren`, which the Parser
+        // wrapper rewrites or drops first.
+        .wait, .once, .@"..=", .paren => .none,
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,

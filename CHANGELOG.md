@@ -252,6 +252,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Parentheses and bounds live in the tree.** The grammar keeps a
+  parenthesized expression or type as `(paren e)`, which the parser
+  wrapper reads for the self-sigil rule (`!(v.pop())` against
+  `!v.pop()`), a handle's suffix (`*(T?)`), and a `??` chain's grouping,
+  then drops, so the wrapper no longer lexes the source again after a
+  sigil or compares where nodes start. A declaration's type-parameter
+  bounds are its `bounds` group in the IR (`owner_bounds` for a method
+  declared outside its type's body), which the resolver reads from the
+  declaration, in place of three tables keyed by source position.
+  `rig parse` shows `(paren e)`, and `rig normalize` each declaration's
+  bounds. No program's meaning changes: the emitted Zig is the same.
+
 - **Plain data views nothing.** SPEC's "Plain data" is CORE's plain
   kind: a value that copies, owns nothing, and views nothing. A
   `?String`, and an object, enum, optional, or array holding one, is a

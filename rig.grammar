@@ -391,15 +391,15 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
-    sub                         name:leaf tparams:group? params:group? fails? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group?
+    sub                         name:leaf tparams:group? params:group? fails? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? apis:group? ...members
     enum                        name:leaf apis:group? ...members
     errors                      name:leaf ...members
     error_join                  name:leaf parts:group ...members
-    generic_struct              name:leaf tparams:group unique:tag(unique)? apis:group? ...members
-    generic_enum                name:leaf tparams:group apis:group? ...members
+    generic_struct              name:leaf tparams:group bounds:group? unique:tag(unique)? apis:group? ...members
+    generic_enum                name:leaf tparams:group bounds:group? apis:group? ...members
     api                         name:leaf apis:group? ...members   # `api Shape: Print`, its methods
     api_type                    name:leaf                          # `type Item` in an API: an associated type
     api_add                     type apis:group ...members         # `add Int: Shape`, its methods
@@ -474,6 +474,7 @@ tokens
     call                        task:tag(task)? callee ...args
     builtin                     name:leaf ...args
     member                      object name:leaf
+    paren                       value   # `(e)`, `(T)`: the Parser wrapper reads where parentheses are, then drops it
     wait                        operand          # `>t`: rewritten by the Parser wrapper to `<t.wait()`'s tree; no pass sees it
     index                       object index
     inst                        object ...args
@@ -957,7 +958,7 @@ thandle  = "*" type:thandle                         → (shared)
 tatom    = tname
          | ERROR                                    # `error`: an error of any set
          | ccall
-         | "(" type ")"                             → 2
+         | "(" type ")"                             → (paren 2)
          | "(" type "," rtypes ![","] ")"           → (results_type 2 ...4)
          | "(" rnamed ![","] ")"                    → (results_type ...2)
          | "{" oapis "}"                            → (api_object ...2)
@@ -1347,7 +1348,7 @@ atom     = name
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)
          | "[" size:expr OF value:expr "]"          → (array_fill)  # `[n of 0]`
-         | "(" expr ")"                             → 2
+         | "(" expr ")"                             → (paren 2)
          | "(" cclosure ")"                         → 2
          | "(" expr "," texprs ![","] ")"           → (tuple 2 ...4)
 
