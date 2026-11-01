@@ -516,7 +516,21 @@ wrapper also makes the only rewrites that need to inspect the tree:
   tag;
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
-  the grammar reads the jump after the whole chain;
+  the grammar reads the jump after the whole chain; a parenthesized
+  side of a `??` is a `paren`, a group of its own;
+- parentheses, which the grammar keeps as `(paren e)`, are dropped: a
+  node's children lose theirs as soon as it is walked, but for the
+  child where the self-sigil rule, a handle's suffix, or a fallback's
+  grouping reads them (`Parser.parenSlot`), which keeps them until a
+  last walk of the module (`stripParens`), so no pass after the
+  wrapper sees a `paren`;
+- a type parameter written with bounds (`[T: Ord]`, `[K: Hash +
+  Print]`, `[S: Source, S.Item: Ord]`) is left a bare name in its
+  declaration's `tparams`, and the nodes that bound it move to the
+  declaration's `bounds` group, which the resolver reads by the
+  parameter's own leaf (`Parser.boundsIn`); a method declared outside
+  its type's body keeps the type's parameters as it names them, bare or
+  bound, in `owner_bounds`;
 - a `?`, `!`, or `<` before a place (a name and the fields and elements
   after it) followed by a method call moves onto the place, the method's
   receiver: `!x.v.push(1)` parses as
@@ -536,11 +550,11 @@ wrapper also makes the only rewrites that need to inspect the tree:
   receiver the sigil reaches, `(!a).b(x)(y).g()`. A chain that is all place
   (`!x.v`), a `?` or `<` chain whose head is called (`?f(x).g()`), or
   a chain that is parenthesized whole (`!(v.pop())`) keeps the sigil
-  outside. The grammar drops parentheses, so the last two are told by
-  span: every node of the chain must start at the token after the
-  sigil, where a `(` stands instead when the chain is parenthesized; a
-  `!` chain whose nodes start there down to a node that starts later
-  has a parenthesized head, that node. The wrapper records the new
+  outside. The grammar keeps parentheses as a `paren`, which each link
+  of a chain holds until this rule has read it (`Parser.parenSlot`), so
+  the last two are told by the tree: the chain stops at a `paren`, where
+  a `?` or `<` keeps its sigil outside and a `!` takes the parenthesized
+  part as the head of its place. The wrapper records the new
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!@` (the habit of `!` as negation),
@@ -728,11 +742,10 @@ A few kinds serve more than one surface form:
   `(weak (box (propagate_none T)))`, which `typeArg` reads as optional
   handles, as the type grammar does: the suffixes under a chain of
   handles move outside the whole chain. A handle to an optional,
-  `*(T?)` or `~(T?)`, has no expression spelling; the tree drops its
-  parentheses, so the parser wrapper records each `share` or `weak`
-  whose chain has a suffix inside parentheses (`hasParenSuffix`, from
-  the spans, as it finds self sigils), and `typeArg` rejects it
-  with a hint.
+  `*(T?)` or `~(T?)`, has no expression spelling; before it drops the
+  parentheses, the parser wrapper records each `share` or `weak` whose
+  chain reaches a suffix inside a `paren` (`hasParenSuffix`), and
+  `typeArg` rejects it with a hint.
 - `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
   only), or `+ - * / %` over those; sema reads a name by the slot it

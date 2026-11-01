@@ -474,6 +474,7 @@ tokens
     call                        task:tag(task)? callee ...args
     builtin                     name:leaf ...args
     member                      object name:leaf
+    paren                       value   # `(e)`, `(T)`: the Parser wrapper reads where parentheses are, then drops it
     wait                        operand          # `>t`: rewritten by the Parser wrapper to `<t.wait()`'s tree; no pass sees it
     index                       object index
     inst                        object ...args
@@ -957,7 +958,7 @@ thandle  = "*" type:thandle                         → (shared)
 tatom    = tname
          | ERROR                                    # `error`: an error of any set
          | ccall
-         | "(" type ")"                             → 2
+         | "(" type ")"                             → (paren 2)
          | "(" type "," rtypes ![","] ")"           → (results_type 2 ...4)
          | "(" rnamed ![","] ")"                    → (results_type ...2)
          | "{" oapis "}"                            → (api_object ...2)
@@ -1347,7 +1348,7 @@ atom     = name
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)
          | "[" size:expr OF value:expr "]"          → (array_fill)  # `[n of 0]`
-         | "(" expr ")"                             → 2
+         | "(" expr ")"                             → (paren 2)
          | "(" cclosure ")"                         → 2
          | "(" expr "," texprs ![","] ")"           → (tuple 2 ...4)
 

@@ -302,9 +302,9 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
-        // parameter; and `a..=b`, rewritten to an inclusive `..`: each
-        // before any pass reads a statement.
-        .wait, .once, .@"..=" => .none,
+        // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
+        // whose `paren` is dropped: each before any pass reads a statement.
+        .wait, .once, .@"..=", .paren => .none,
     };
 }
 
@@ -3251,11 +3251,13 @@ pub const Parser = struct {
         if (in_type) self.type_depth += 1;
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         if (in_type) self.type_depth -= 1;
+        dropParens(sexp.kind(), walked);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
         try self.placeRarely(out);
         switch (out.kind() orelse return out) {
             .module => {
+                stripParens(out);
                 self.strayRarely(out, false);
                 self.moduleConsts(out);
                 return self.builtinRefs(try self.attachMethods(out));
@@ -3322,6 +3324,60 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// The slot of a node of `kind` whose parentheses, a `paren` the
+    /// grammar keeps, the wrapper still reads once the node is walked:
+    /// a link of a chain, where the self-sigil rule stops at a
+    /// parenthesized part (`selfSigil`), a handle's operand, where a
+    /// suffix may sit inside them (`noteParenSuffix`). Null for every
+    /// other node, whose children lose their parentheses as soon as it is
+    /// walked, but a fallback, `??`, which keeps both sides' for its
+    /// grouping (`rightNested`).
+    fn parenSlot(kind: parser.Tag) ?usize {
+        return switch (kind) {
+            .member => ir.slot(.member, .object),
+            .index => ir.slot(.index, .object),
+            .inst => ir.slot(.inst, .object),
+            .call => ir.slot(.call, .callee),
+            .propagate => ir.slot(.propagate, .value),
+            .propagate_none => ir.slot(.propagate_none, .value),
+            .read => ir.slot(.read, .operand),
+            .write => ir.slot(.write, .operand),
+            .move => ir.slot(.move, .operand),
+            .share => ir.slot(.share, .operand),
+            .weak => ir.slot(.weak, .operand),
+            .box => ir.slot(.box, .operand),
+            else => null,
+        };
+    }
+
+    /// The node inside any parentheses around `e`.
+    fn unparen(e: Sexp) Sexp {
+        var x = e;
+        while (x.isKind(.paren)) x = ir.Paren.value(x);
+        return x;
+    }
+
+    /// Drops the parentheses around each child of a node of `kind` just
+    /// walked, `walked`, but the one its `parenSlot` keeps.
+    fn dropParens(kind: ?parser.Tag, walked: []Sexp) void {
+        if (kind == .@"??") return;
+        const keep = if (kind) |k| parenSlot(k) else null;
+        for (walked, 0..) |*c, i| {
+            if (keep != null and keep.? == i) continue;
+            c.* = unparen(c.*);
+        }
+    }
+
+    /// Drops every `paren` left in the tree under `e`, in place, so no
+    /// pass after the wrapper sees one.
+    fn stripParens(e: Sexp) void {
+        if (e != .list) return;
+        for (@constCast(e.items())) |*c| {
+            c.* = unparen(c.*);
+            stripParens(c.*);
+        }
     }
 
     /// A name of a built-in type written in Rig (`builtin_type_names`),
@@ -3934,16 +3990,13 @@ pub const Parser = struct {
             .@"return", .@"break", .@"continue" => return node,
             else => {},
         };
+        // A parenthesized left side, `(a ?? b) ?? c`, is a group of its own.
         const left = ir.@"??".left(node);
-        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        if (!left.isKind(.@"??")) return node;
         const middle = ir.@"??".right(left);
-        // The new right side starts where `middle` is written, with any
-        // parentheses around it, so a grouped `middle` stays grouped.
-        const src = self.base.source;
-        var start = self.span(middle).start;
-        while (start > 0 and (src[start - 1] == '(' or isSpaceBefore(src[start - 1]))) start -= 1;
-        while (start < self.span(middle).start and isSpaceBefore(src[start])) start += 1;
-        const inner = try self.rightNested(try self.base.newNode(.@"??", &.{ middle, right }, .{ .start = start, .end = self.span(node).end }));
+        // The new right side starts where `middle` is written; a grouped
+        // `middle` is a `paren`, whose span holds its parentheses.
+        const inner = try self.rightNested(try self.base.newNode(.@"??", &.{ middle, right }, .{ .start = self.span(middle).start, .end = self.span(node).end }));
         return self.base.newNode(.@"??", &.{ ir.@"??".left(left), inner }, self.span(node));
     }
 
@@ -3951,15 +4004,16 @@ pub const Parser = struct {
     /// whole chain before it, `(a ?? b) ?? return v`; `??` is
     /// right-associative, so the jump goes to the innermost right side,
     /// `a ?? (b ?? return v)`. A parenthesized left side keeps its
-    /// grouping: it starts after the node that holds it.
+    /// grouping: it is a `paren`.
     fn nearestFallback(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const right = ir.@"??".right(node);
         switch (right.kind() orelse return node) {
             .@"return", .@"break", .@"continue" => {},
             else => return node,
         }
+        // A parenthesized left side, `(a ?? b) ?? c`, is a group of its own.
         const left = ir.@"??".left(node);
-        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        if (!left.isKind(.@"??")) return node;
         return self.attachFallback(left, right);
     }
 
@@ -3967,7 +4021,7 @@ pub const Parser = struct {
     /// `??` chain that is not parenthesized.
     fn attachFallback(self: *Parser, chain: Sexp, jump: Sexp) std.mem.Allocator.Error!Sexp {
         const inner = ir.@"??".right(chain);
-        const grouped = !inner.isKind(.@"??") or self.span(inner).end != self.span(chain).end;
+        const grouped = !inner.isKind(.@"??");
         const new_right = if (grouped)
             try self.base.newNode(.@"??", &.{ inner, jump }, .{ .start = self.span(inner).start, .end = self.span(jump).end })
         else
@@ -3978,28 +4032,21 @@ pub const Parser = struct {
     /// `*(T?)`, `~(T?)`, `*(~T?)`: a `?` suffix sits inside parentheses
     /// within a chain of handles, so it belongs to what a handle holds.
     /// In `*T?`, `*~T?`, and `*(T)?` every suffix follows the whole chain:
-    /// each handle and each suffix layer starts at the token after the
-    /// sigil before it.
+    /// no `?` is inside a `paren` the handles and suffixes reach.
     fn noteParenSuffix(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
-        var e = node;
-        while (true) {
-            const at = self.afterSigil(e);
-            var op = ir.get(e, .operand);
-            if (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) {
-                if (self.span(op).start == at) {
-                    e = op;
-                    continue;
-                }
+        var op = ir.get(node, .operand);
+        while (true) switch (op.kind() orelse return) {
+            .share, .weak, .box => op = ir.get(op, .operand),
+            .propagate_none => op = ir.PropagateNone.value(op),
+            .paren => {
                 // `*(~T?)`: a parenthesized handle with a suffix of its own.
-                while (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) op = ir.get(op, .operand);
-                if (op.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
+                var inner = ir.Paren.value(op);
+                while (inner.isKind(.share) or inner.isKind(.weak) or inner.isKind(.box)) inner = ir.get(inner, .operand);
+                if (inner.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
                 return;
-            }
-            while (op.isKind(.propagate_none)) : (op = ir.PropagateNone.value(op)) {
-                if (self.span(op).start != at) return self.paren_suffixes.put(self.allocator(), node.list.id, {});
-            }
-            return;
-        }
+            },
+            else => return,
+        };
     }
 
     /// A type's prefix sigil touches its operand. The lexer checks every
@@ -4051,11 +4098,9 @@ pub const Parser = struct {
     fn waitTakesName(self: *Parser, node: Sexp, head: Sexp) void {
         var w = head;
         while (w.isKind(.propagate) or w.isKind(.propagate_none)) w = ir.get(w, .value);
+        // `(>t).len`: a parenthesized wait is a `paren`, and no wait call.
         if (!isWaitCall(w) or self.failure != null) return;
         const src = self.base.source;
-        var after = self.span(head).end;
-        while (after < src.len and (src[after] == ' ' or src[after] == '\t')) after += 1;
-        if (after < src.len and src[after] == ')') return;
         const whole = self.span(node);
         const written = diag.textBetween(src, self.span(head).start, self.span(head).end);
         const rest = diag.textBetween(src, self.span(head).end, whole.end);
@@ -4100,20 +4145,6 @@ pub const Parser = struct {
         return node == .list and self.once_params.contains(node.list.id);
     }
 
-    /// Where the token after the sigil that starts `node` starts, past
-    /// any whitespace, line joins, and comments.
-    fn afterSigil(self: *const Parser, node: Sexp) u32 {
-        var probe = BaseLexer.init(self.base.source);
-        probe.pos = self.span(node).start + 1;
-        while (true) {
-            const t = probe.next();
-            switch (t.cat) {
-                .comment, .newline, .skip => continue,
-                else => return t.pos,
-            }
-        }
-    }
-
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
     /// after it) followed by a method call apply to the place; the call
     /// and every postfix after it apply to the lent or moved place:
@@ -4128,11 +4159,10 @@ pub const Parser = struct {
     /// else keeps its
     /// sigil outside: a chain that is all place (`!x.v`), a `?` or `<`
     /// chain whose head is called (`<f(x).g()`), and one whose spine is
-    /// parenthesized (`!(v.pop())`), which starts after the token after
-    /// the sigil, a `(`.
+    /// parenthesized (`!(v.pop())`): the chain stops at a `paren`, which
+    /// links of a chain keep until this rule has read them (`parenSlot`).
     fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const tag: parser.Tag = node.kind().?;
-        const at = self.afterSigil(node);
         // `!` lends any value to write, so its chain may start from a
         // value no name holds: a call that is no method call
         // (`!mk().bump()`), a literal (`![a, b][0].bump()`), or a
@@ -4142,7 +4172,7 @@ pub const Parser = struct {
         var chain: std.ArrayList(Sexp) = .empty;
         var e = ir.get(node, .operand);
         while (true) {
-            if (self.span(e).start != at) {
+            if (e.isKind(.paren)) {
                 if (!any_head or chain.items.len == 0) return node;
                 try chain.append(self.allocator(), e);
                 break;
