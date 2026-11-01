@@ -321,7 +321,9 @@ const Env = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+    // A general allocator, not `init.arena`: the checkers' tables grow,
+    // and an arena would keep every buffer a table grew out of.
+    const allocator = std.heap.smp_allocator;
     const io = init.io;
     const env: Env = .{ .map = init.environ_map };
     const args = try init.minimal.args.toSlice(allocator);
