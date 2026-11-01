@@ -138,6 +138,15 @@ fn prefault(h: *const Heap, p: usize, len: usize) void {
     }
 }
 
+/// A stretch of a segment, faulted in at once on Linux by every heap,
+/// its first segment's included (kernel-leads arm 3).
+fn prefaultSegment(p: usize, len: usize) void {
+    if (builtin.os.tag == .linux) {
+        const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+        std.posix.madvise(at, len, madv_populate_write) catch {};
+    }
+}
+
 /// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has
 /// taken from the system `prefault_big` bytes or more, more than its
 /// first segment, as the heap of each of several parallel checkers does
@@ -308,7 +317,7 @@ pub const Heap = struct {
     fn newPage(h: *Heap) ?usize {
         if (h.segment) |s| if (s.used < pages_per_segment) {
             const p = @intFromPtr(s) + s.used * page_size;
-            if (s.used % pages_per_prefault == 0) prefault(h, p, prefault_size);
+            if (s.used % pages_per_prefault == 0) prefaultSegment(p, prefault_size);
             s.used += 1;
             return p;
         };
@@ -320,7 +329,7 @@ pub const Heap = struct {
         // keeps small pages, as a huge page would commit 2 MiB of it.
         if (builtin.os.tag == .linux and faultsAhead(h)) adviseHuge(@intFromPtr(s), segment_size);
         // The header's page, and the first stretch the heap carves from.
-        prefault(h, @intFromPtr(s), prefault_size);
+        prefaultSegment(@intFromPtr(s), prefault_size);
         s.* = .{ .heap = h, .used = 2 };
         h.segment = s;
         return @intFromPtr(s) + page_size;
@@ -508,7 +517,7 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
 /// and blocks taken from those kept, stay as they are: huge pages for
 /// every new block of 2 MiB or more raise Trig's peak memory, and from
 /// 16 MiB they do not (docs/history/records/2026-10/alloc-thp16/).
-const huge_large: usize = 16 << 20;
+const huge_large: usize = 2 << 20;
 
 /// A transparent huge page on Linux.
 const huge_page: usize = 2 << 20;
@@ -975,7 +984,7 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     unlockTables();
     if (huge) if (p) |at| {
         tables_asked_huge.store(true, .monotonic);
-        std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+        std.posix.madvise(@ptrFromInt(at), bytes, std.os.linux.MADV.HUGEPAGE) catch {};
     };
     return @ptrFromInt(p orelse return null);
 }
