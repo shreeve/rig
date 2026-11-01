@@ -1,0 +1,13 @@
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 8b4364788..310890199 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -508,7 +508,7 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
+ /// and blocks taken from those kept, stay as they are: huge pages for
+ /// every new block of 2 MiB or more raise Trig's peak memory, and from
+ /// 16 MiB they do not (docs/history/records/2026-10/alloc-thp16/).
+-const huge_large: usize = 16 << 20;
++const huge_large: usize = 2 << 20;
+ 
+ /// A transparent huge page on Linux.
+ const huge_page: usize = 2 << 20;

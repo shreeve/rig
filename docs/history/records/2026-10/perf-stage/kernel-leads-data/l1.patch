@@ -1,0 +1,13 @@
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 8b4364788..0ba38dfcf 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -975,7 +975,7 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
+     unlockTables();
+     if (huge) if (p) |at| {
+         tables_asked_huge.store(true, .monotonic);
+-        std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
++        std.posix.madvise(@ptrFromInt(at), bytes, std.os.linux.MADV.HUGEPAGE) catch {};
+     };
+     return @ptrFromInt(p orelse return null);
+ }

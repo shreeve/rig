@@ -1,0 +1,5 @@
+14:57:35 main exit=0 in 1773 s 30a7b78a285f280c
+15:05:33 l2 exit=0 in 2251 s 4be117bda244955b
+15:05:36 l3 exit=0 in 2254 s 9bb36a0fc9af5934
+15:13:26 l1 exit=0 in 2724 s 4fb27d83fb1d54d8
+15:13:26 all exit=0 in 2724 s 942ef746700061a7

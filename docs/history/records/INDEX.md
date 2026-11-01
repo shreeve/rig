@@ -47,6 +47,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Faulting in only what a large List uses (2026-11-01) | row 45, measured: a new large block faulting in only the half its copy writes, and none on an `mremap` grow, lowers Trig's peak RSS 0.2-2.4 MB at one checker and 6.0 MB (2.4%) on ts-pattern at four, for 1.5-2.1% more cycles on mitt and neverthrow; faulting in nothing ahead saves no more and costs up to 5%; large Lists grown by half again save nothing; nothing built | [perf-stage/fault-used.md](2026-10/perf-stage/fault-used.md) |
 | Typed table ids, measured before designing (2026-11-01) | beat-tsrs item 1 as a hand ceiling on Trig's emitted Zig, plain release builds, pup 20 rounds: every lookup by an id read from memory unchecked is 1.17% faster on ts-pattern and 2.59% on zod3 (4.44% and 6.06% fewer instructions), and with span reads 2.66% and 3.34% faster (5.29% and 6.74% fewer), peak RSS level: the cycles move, and ids with spans clear Trig's bar on both; the hot sites codegen-gap sampled (files, `recs[n.id]`, binder symbols, symbol data, Ids) are 83-86% of the ids' instructions, the tail of 1,336 sites the rest | [perf-stage/typed-ids-ceiling.md](2026-10/perf-stage/typed-ids-ceiling.md) |
 | A Table that reserves at its first write (2026-11-01) | queue row 50, for Trig's phase B (a Table per Ast): built (`archive/lazy-table`) and correct, with no view of a table living across its first write, but not merged. Phase B's Asts all write at birth (the nil record), so it changes nothing as written. With the nil record deferred, phase B's kernel cost on pup halves, yet it still loses: 1.8-24% slower on E-cores, 1.2-84% more instructions on the Mac. On Trig main it costs 0.08-0.36% user instructions and up to 1.5% peak RSS for no gain. macOS charges a mapping by its width and commits a page per read fault | [perf-stage/lazy-table.md](2026-10/perf-stage/lazy-table.md) |
+| Three kernel-time leads (2026-11-01) | queue row 44, built as plain arms and measured on pup's E-cores at three levels of free memory: a Table's first 2 MiB on a huge page raises Trig's peak RSS 27-408% (2 MiB per Table written), large blocks on huge pages from 2 MiB raise ts-pattern's 0.96% (unwritten tails) for 0.8-3.6% faster runs with free blocks only, and every heap's first segment faulted in ahead raises it 1.2-34% for no gain (ceiling under 0.1% of cycles); none lands, the code kept as `archive/kernel-leads` | [perf-stage/kernel-leads.md](2026-10/perf-stage/kernel-leads.md) |
 | Which checks cost Trig's time (2026-10-28) | the 6-8% that every check costs Trig is diffuse: each kind and each group costs in proportion to the instructions and code it removes, and they add up; no hot sites; builds that change no check read up to 1.3% either way (the layout lottery); List index tests 4.6-6.3% of the instructions, of them the checker's id accessors 1.6-2.2% and the AST's record reads 1.1-2.3%, together 2.3% and 3.6% faster with PGO, both Trig-side moves onto `Table`/`Slot`; Zig's overflow tests 1.9-2.3%; Zig's tests in the runtime's own Zig 1.3-1.7%, the one group a Rig change alone could take | [perf-stage/check-bisect.md](2026-10/perf-stage/check-bisect.md) |
 | The runtime's proven checks (2026-10-28) | fourteen blocks in runtime.zig, table.zig, and alloc.zig leave out, in an optimized build, the Zig checks the runtime's own invariants prove (debug builds keep them and assert the invariant): Trig 1.66% and 1.35% fewer instructions (PGO 1.71% and 1.07%), as many as all of the runtime's Zig checks; 0.8% and 1.4% faster plain, 1.2% and 0.5% with PGO; over the instruction bar, under the time bar; most of the share is the checks' cost in their callers, not their own compare and branch | [perf-stage/runtime-unchecked.md](2026-10/perf-stage/runtime-unchecked.md) |
 | Huge pages when memory is fragmented (2026-10-28) | with no free 2 MiB block left, every `MADV_HUGEPAGE` fault compacts (`defrag=madvise`): Trig PGO on ts-pattern 34-41% slower than with no huge pages (kernel cycles 0.25G to 2G), zod3 up to 78%; the Tables' advice (#754) stalls most, the segments' (#740) too, the large blocks' not measurably; quiet, huge pages are 5.3% (ts-pattern) and 4.8% (zod3) faster. A check of free 2 MiB blocks in `/proc/buddyinfo` with 128 to spare kept the quiet gain and never stalled; `MADV_COLLAPSE` and a `defrag` test do not; recommended: gate all three, close #760 | [perf-stage/thp-fragmented.md](2026-10/perf-stage/thp-fragmented.md) |
@@ -430,6 +431,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [fault-used-data/](2026-10/perf-stage/fault-used-data/): the arms' patches and builds, the time-ab.sh config, and every timed run
 - [typed-ids-ceiling.md](2026-10/perf-stage/typed-ids-ceiling.md): Typed table ids, measured before designing (2026-11-01)
 - [lazy-table.md](2026-10/perf-stage/lazy-table.md): A Table that reserves at its first write: built, measured, stopped (2026-11-01)
+- [kernel-leads.md](2026-10/perf-stage/kernel-leads.md): Three kernel-time leads, measured as one set of arms (2026-11-01)
 - [scan-yield.md](2026-10/perf-stage/scan-yield.md): Yield checks in scan loops bounded by their input: the reach, the sound form, and the guarantee (2026-10-31)
 
 ### 2026-10/perf-stage/scan-yield-data/
@@ -473,6 +475,31 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [shapes.rig](2026-10/perf-stage/proof-pass-data/shapes.rig)
 - [times-1.txt](2026-10/perf-stage/proof-pass-data/times-1.txt)
 - [times-2.txt](2026-10/perf-stage/proof-pass-data/times-2.txt)
+
+### 2026-10/perf-stage/kernel-leads-data/
+
+- [ab.sh](2026-10/perf-stage/kernel-leads-data/ab.sh)
+- [build.sh](2026-10/perf-stage/kernel-leads-data/build.sh)
+- [builds.txt](2026-10/perf-stage/kernel-leads-data/builds.txt)
+- [e1.conf](2026-10/perf-stage/kernel-leads-data/e1.conf)
+- [e2.conf](2026-10/perf-stage/kernel-leads-data/e2.conf)
+- [emit.sh](2026-10/perf-stage/kernel-leads-data/emit.sh)
+- [full.sh](2026-10/perf-stage/kernel-leads-data/full.sh)
+- [l1.patch](2026-10/perf-stage/kernel-leads-data/l1.patch)
+- [l2.patch](2026-10/perf-stage/kernel-leads-data/l2.patch)
+- [l3.patch](2026-10/perf-stage/kernel-leads-data/l3.patch)
+- [mk.sh](2026-10/perf-stage/kernel-leads-data/mk.sh)
+- [n.conf](2026-10/perf-stage/kernel-leads-data/n.conf)
+- [q.conf](2026-10/perf-stage/kernel-leads-data/q.conf)
+- [summ.py](2026-10/perf-stage/kernel-leads-data/summ.py)
+- [summary-e1.txt](2026-10/perf-stage/kernel-leads-data/summary-e1.txt)
+- [summary-e2.txt](2026-10/perf-stage/kernel-leads-data/summary-e2.txt)
+- [summary-n.txt](2026-10/perf-stage/kernel-leads-data/summary-n.txt)
+- [summary-q.txt](2026-10/perf-stage/kernel-leads-data/summary-q.txt)
+- [times-e1.txt](2026-10/perf-stage/kernel-leads-data/times-e1.txt)
+- [times-e2.txt](2026-10/perf-stage/kernel-leads-data/times-e2.txt)
+- [times-n.txt](2026-10/perf-stage/kernel-leads-data/times-n.txt)
+- [times-q.txt](2026-10/perf-stage/kernel-leads-data/times-q.txt)
 
 ### 2026-10/perf-stage/lazy-table-data/
 
