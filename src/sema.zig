@@ -3545,6 +3545,7 @@ pub const PlainArg = struct { arg: u32, bit: PlainBit };
 /// `plainLeaves` of `ty` as the bit a generic passes on.
 pub fn plainBitOf(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!PlainBit {
     var leaves: std.ArrayList(SymbolId) = .empty;
+    defer leaves.deinit(ctx.allocator);
     if (!try plainLeaves(ctx, ty, &leaves)) return .{ .known = false };
     if (leaves.items.len == 0) return .{ .known = true };
     return .{ .leaves = try ctx.arena.allocator().dupe(SymbolId, leaves.items) };
@@ -3624,14 +3625,13 @@ fn recordArgsPlain(ctx: *SemContext, params: []const SymbolId, args: []const Typ
 /// of it is plain, and otherwise whether every type parameter it reaches
 /// (`reachedTypeVars`) is, which `out` lists (none for a type plain in
 /// every instance). Each listed parameter takes its instance's answer as
-/// a compile-time Bool (`plain_bits`).
+/// a compile-time Bool (`plain_bits`). `out` grows on `ctx.allocator`.
 pub fn plainLeaves(ctx: *SemContext, ty: TypeId, out: *std.ArrayList(SymbolId)) std.mem.Allocator.Error!bool {
     out.clearRetainingCapacity();
     if (!ctx.typeInfo(ty).has_type_var) return isPlain(ctx, ty);
-    const a = ctx.arena.allocator();
-    try reachedTypeVars(ctx, ty, out, a);
+    try reachedTypeVars(ctx, ty, out, ctx.allocator);
     // Plain where each is: as it is where each is an `Int`.
-    const ints = try a.alloc(TypeId, out.items.len);
+    const ints = try ctx.arena.allocator().alloc(TypeId, out.items.len);
     @memset(ints, ctx.types.int_id);
     const skeleton = try substituteType(ctx, ty, .{ .params = out.items, .args = ints });
     if (!ctx.typeInfo(skeleton).has_type_var and try isPlain(ctx, skeleton)) return true;
