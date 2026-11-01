@@ -1,0 +1,26 @@
+| project | variant | low runs | low RSS MB | low wall ms | high runs | high RSS MB | high wall ms |
+|---|---|---:|---:|---:|---:|---:|---:|
+| ts-pattern | trig1 | 9 | 248.3 | 803.7 | 11 | 258.9 | 764.7 |
+| ts-pattern | trig4 | 10 | 278.8 | 325.9 | 10 | 317.4 | 315.7 |
+| ts-pattern | tsrs1 | 20 | 201.8 | 681.2 | 0 | |  |
+| ts-pattern | tsrs4 | 20 | 227.8 | 247.5 | 0 | |  |
+| zod3 | trig1 | 1 | 77.3 | 148.2 | 19 | 83.9 | 151.8 |
+| zod3 | trig4 | 2 | 114.3 | 99.4 | 18 | 134.1 | 100.3 |
+| zod3 | tsrs1 | 20 | 53.7 | 121.2 | 0 | |  |
+| zod3 | tsrs4 | 20 | 85.5 | 70.0 | 0 | |  |
+| mitt | trig1 | 20 | 31.7 | 22.9 | 0 | |  |
+| mitt | trig4 | 20 | 34.6 | 28.7 | 0 | |  |
+| mitt | tsrs1 | 20 | 17.8 | 18.7 | 0 | |  |
+| mitt | tsrs4 | 1 | 24.5 | 22.4 | 19 | 28.6 | 21.6 |
+| neverthrow | trig1 | 20 | 32.4 | 25.1 | 0 | |  |
+| neverthrow | trig4 | 20 | 37.1 | 28.9 | 0 | |  |
+| neverthrow | tsrs1 | 20 | 17.9 | 19.6 | 0 | |  |
+| neverthrow | tsrs4 | 3 | 27.5 | 22.4 | 17 | 29.5 | 24.1 |
+| superstruct | trig1 | 20 | 23.4 | 31.0 | 0 | |  |
+| superstruct | trig4 | 20 | 30.4 | 25.9 | 0 | |  |
+| superstruct | tsrs1 | 20 | 19.0 | 22.9 | 0 | |  |
+| superstruct | tsrs4 | 20 | 27.2 | 18.9 | 0 | |  |
+| tiny-invariant | trig1 | 20 | 50.3 | 69.7 | 0 | |  |
+| tiny-invariant | trig4 | 20 | 56.0 | 73.0 | 0 | |  |
+| tiny-invariant | tsrs1 | 20 | 35.7 | 55.5 | 0 | |  |
+| tiny-invariant | tsrs4 | 20 | 40.4 | 59.3 | 0 | |  |
