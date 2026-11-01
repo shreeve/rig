@@ -1,0 +1,70 @@
+rig: heap profile: 44.5 MiB live at the peak, in 171 owners; by what owned them then:
+       MiB  share     blocks    avg B   ever made  owner: a List's or slice's element, a box's value; u8 is text
+      6.59  14.8%        189    36553        1886  ast.NodeRec
+      6.49  14.6%       5789     1175      188134  u32
+      4.89  11.0%       6547      783      158281  u8
+      3.78   8.5%       5702      695       11464  u64
+      3.41   7.7%      31313      114       57528  rig.ordered.Ordered(u32,u32).E__struct_914
+      3.41   7.7%        180    19855         934  ast.SymbolRec
+      3.06   6.9%        182    17645         730  __rig_std_prelude.Map(u32,u32)
+      2.00   4.5%          1  2097152          16  rig.ordered.Ordered(checker.InstantiationKey,u32).E__struct_2990
+      1.98   4.4%         26    79750         145  rig.ordered.Ordered(checker.CacheKey,u32).E__struct_2982
+      1.55   3.5%        189     8616        1469  ast.ListRec
+      1.05   2.4%        378     2902        2451  ast.TextRec
+      0.88   2.0%          1   917504          13  checker.SymbolData
+      0.81   1.8%        181     4710         822  ast.FlowRec
+      0.63   1.4%          2   327680          28  checker.Loc
+      0.47   1.1%          1   491520          11  checker.InferenceContext
+      0.45   1.0%       2006      236       17810  ast.Node
+      0.35   0.8%      10679       34       23465  checker.NodeRef
+      0.28   0.6%          1   294912           7  ast.File
+      0.28   0.6%          1   294912          11  checker.InferenceInfo
+      0.25   0.6%          1   262144          13  rig.ordered.Ordered(checker.CachedSignatureKey,u32).E__struct_2996
+      0.22   0.5%        180     1306         197  compiler.FileIncludeReason
+      0.16   0.4%          1   163840          61  checker.SpellingCandidate
+      0.11   0.2%          1   114688           7  ast.Binding
+      0.10   0.2%         79     1393          84  module.ResolvedModule
+      0.10   0.2%         11     9451          70  tsoptions.CommandLineOption
+      0.09   0.2%          1    98304          13  rig.ordered.Ordered(checker.CachedTypeKey,u32).E__struct_2986
+      0.09   0.2%          1    98304          11  rig.ordered.Ordered(checker.UnionOfUnionKey,u32).E__struct_2989
+      0.09   0.2%          1    98304          13  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).E__struct_2937
+      0.06   0.1%        456      146        1530  rig.runtime.String
+      0.05   0.1%          1    57344           8  checker.Diag
+      0.05   0.1%         79      597         188  ast.Diagnostic
+      0.04   0.1%          1    44736           1  checker.Checker
+      0.04   0.1%        139      320         139  ast.PragmaArgument
+      0.04   0.1%        180      228         490  ast.FlowListRec
+      0.03   0.1%          2    16416          12  rig.ordered.Ordered(u64,bool).E__struct_2993
+      0.03   0.1%          1    32768          12  rig.ordered.Ordered(u32,checker.SymbolReferenceLinks).E__struct_2936
+      0.03   0.1%          1    32768          11  rig.ordered.Ordered(checker.NodeRef,checker.NodeLinks).E__struct_2929
+      0.03   0.1%         19     1600          84  checker.CacheKey
+      0.03   0.1%          1    28672           8  rig.ordered.Ordered(rig.runtime.String,ast.SourceFileMetaData).E__struct_2799
+      0.03   0.1%         19     1438          86  rig.ordered.Ordered(checker.CacheKey,void).E__struct_3015
+rig: large blocks at the last snapshot (132 snapshots, live 44.2 MiB): 102 blocks, asked 29.81 MiB, block size 30.69 MiB, used 23.61 MiB, resident 29.90 MiB
+  blocks     asked      size      used     final  resident  used% final%  owner (MiB)
+      25      5.53      5.53      4.45      4.45      5.53  80.5%  80.5%  ast.NodeRec
+      19      4.15      4.50      3.74      3.74      4.19  83.0%  83.0%  u32
+      12      3.87      4.24      3.58      3.58      3.90  84.3%  84.3%  u8
+       4      2.75      2.75      1.83      1.86      2.75  66.5%  67.6%  __rig_std_prelude.Map(u32,u32)
+       4      2.56      2.56      1.99      1.99      2.56  77.5%  77.5%  ast.SymbolRec
+       1      2.00      2.00      1.86      1.91      2.00  93.2%  95.3%  rig.ordered.Ordered(checker.InstantiationKey,u32).E__struct_2990
+       5      1.92      1.92      1.18      1.20      1.92  61.2%  62.5%  rig.ordered.Ordered(checker.CacheKey,u32).E__struct_2982
+       7      1.30      1.30      1.25      1.25      1.30  96.1%  96.1%  u64
+       4      1.03      1.03      0.59      0.59      1.03  57.1%  57.1%  ast.ListRec
+       1      0.88      0.88      0.64      0.66      0.88  73.3%  75.9%  checker.SymbolData
+       3      0.69      0.69      0.44      0.44      0.69  64.5%  64.5%  ast.TextRec
+       2      0.63      0.63      0.42      0.42      0.63  66.8%  66.8%  checker.Loc
+       4      0.49      0.55      0.32      0.32      0.50  58.7%  58.7%  ast.FlowRec
+       1      0.47      0.50      0.27      0.28      0.47  54.2%  56.2%  checker.InferenceContext
+       1      0.28      0.31      0.20      0.20      0.28  63.3%  63.3%  ast.File
+       1      0.28      0.31      0.20      0.21      0.28  64.6%  66.6%  checker.InferenceInfo
+       1      0.25      0.25      0.15      0.15      0.25  59.5%  59.5%  ast.Node
+       1      0.25      0.25      0.15      0.16      0.25  61.2%  62.6%  rig.ordered.Ordered(checker.CachedSignatureKey,u32).E__struct_2996
+       1      0.11      0.11      0.08      0.08      0.11  70.3%  70.3%  ast.Binding
+       1      0.09      0.09      0.09      0.09      0.09  96.6%  97.3%  rig.ordered.Ordered(checker.CachedTypeKey,u32).E__struct_2986
+       1      0.09      0.09      0.08      0.08      0.09  87.8%  89.8%  rig.ordered.Ordered(checker.UnionOfUnionKey,u32).E__struct_2989
+       1      0.09      0.09      0.07      0.07      0.09  70.4%  73.3%  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).E__struct_2937
+       1      0.05      0.05      0.04      0.04      0.05  73.0%  77.3%  checker.Diag
+       1      0.04      0.05      0.01      0.01      0.05  22.7%  22.7%  checker.Checker
+rig: large-block paths: new 93 (17.5 MiB), kept 56 (2.9 MiB), cold 0 (0.0 MiB); grows into kept 15 (1.6 MiB), by mremap 69 (28.5 MiB), by copy 28; frees kept 164, cold 0, unmapped 0 (0.0 MiB)
+rig: final used of the snapshot's blocks: 23.76 MiB
