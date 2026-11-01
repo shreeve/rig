@@ -488,9 +488,15 @@ sub main()
 f: No such file or directory
 ```
 
-**Each call is a fallible waiting point.** It runs on the blocking pool
-while its task waits, so other tasks go on; to do several at once, make
-them tasks and wait with `>`, as for any call. Like a socket's calls
+**Each call is a fallible waiting point.** One that may wait runs on
+the blocking pool while its task waits, so other tasks go on: a read of
+anything but a regular file (a FIFO, a device), every open of a `File`,
+and every write, rename, `mkdir`, and removal. A read of a regular file,
+and `exists`, `stat`, `realpath`, and `read_dir`, which only look at a
+path, run in the task, as Go's and Rust's do: on a local disk the call
+takes less time than a trip to the pool and back, and none of them
+waits on another process. To do several at once, make them tasks and
+wait with `>`, as for any call. Like a socket's calls
 ([std.net](#stdnet)), it fails with `task.Stop.canceled` in a canceled
 task and with `task.Stop.timeout` past the task's deadline
 (`time.within`): before it starts, and while it waits, so a cancel or a
@@ -499,7 +505,9 @@ writes), with or without tasks. A call waiting on another process (an
 open of a FIFO, a read of an empty pipe, a write to a full one) stops
 there; one still to start never starts; one under way on the disk runs
 on to its end, and what it gives is dropped: a write may still happen,
-and a file it opened is closed.
+and a file it opened is closed. A call in the task runs to its end
+before its task stops: on a slow disk, or a network file system, it
+holds its worker as long as the system takes.
 
 A `File` reads and writes from where its last read or write ended, with
 the methods a `net.Stream` has, and closes when it is dropped. The

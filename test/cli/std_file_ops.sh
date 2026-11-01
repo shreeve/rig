@@ -177,6 +177,31 @@ sub main()!
   time.sleep(300 * time.MS)!
 EOF2
 
+# FIFOs whose writers wait in their opens before the program reads them,
+# from a task and from `main`: each read takes its writer's bytes, as a
+# read that opens nothing until its open waits on the pool does. And a
+# FIFO no one writes, which `exists`, `stat`, `realpath`, and `read_dir`
+# of its directory look at without opening it, so none waits.
+cat >fiforead.rig <<'EOF2'
+use std.file
+
+fun got(path: ?String) -> String!
+  file.read(path)! ?? String()
+
+fun looks() -> Bool!
+  s = file.stat("q/idle")! ?? return false
+  real = file.realpath("q/idle")! ?? return false
+  entries = file.read_dir("q")! ?? return false
+  file.exists("q/idle")! and s.kind == file.Kind.other and real.len > 6 and entries.len == 3
+
+sub main()!
+  t = got("q/w")&
+  print(>t!)
+  print(got("q/w2")!)
+  l = looks()&
+  print(>l!, looks()!)
+EOF2
+
 # In a directory the program may not write; root may, so it is left out
 # then.
 cat >denied.rig <<'EOF2'
@@ -332,6 +357,14 @@ for mode in debug release; do
     wait $pid; rc=$?
     out=$(cat fifo.out); expect_rc $rc 0 "$mode fifo: $out"
     expect_eq "$out" $'0\n2 hi\n0\nStop.timeout' "$mode: a FIFO opened without waiting, then read waiting"
+    rig build $flag -o fiforead fiforead.rig >build.log 2>&1 || fail "$mode build fiforead: $(cat build.log)"
+    rm -rf q; mkdir q; mkfifo q/w q/w2 q/idle
+    "$TIMEOUT_CMD" 10 sh -c 'printf hi >q/w' & w1=$!
+    "$TIMEOUT_CMD" 10 sh -c 'printf yo >q/w2' & w2=$!
+    sleep 0.1
+    out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" -s KILL 10 ./fiforead 2>&1); expect_rc $? 0 "$mode fiforead: $out"
+    wait $w1 $w2
+    expect_eq "$out" $'hi\nyo\ntrue true' "$mode: FIFOs read with their writers waiting, and one looked at"
     if [[ $(id -u) -ne 0 ]]; then
         rm -rf ro shut; mkdir ro ro/sub shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?

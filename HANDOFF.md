@@ -89,6 +89,16 @@ A new session, human or agent, takes these steps in order:
   taught CORE §6, a tests-only row, and the `for` header (t05) as a
   row of its own. In its gates.
 
+- **A regular file's read runs in its task** (queue row 52, branch
+  `pool-inline-read`; the owner approved it, look-first, 2026-11-01):
+  std.file reads a regular file, and looks at a path (`exists`, `stat`,
+  `realpath`, `read_dir`), in the calling task; FIFOs, devices, opens
+  of a `File`, and every write stay on the blocking pool. Trig 1.0 to
+  3.9% faster at one checker, 4.9 to 6.4% at four; loco 10.8 to 28.5%
+  (design note ~/Data/Code/Claude/rig/rig/pool-inline/DESIGN.md). A
+  read looks at the path before it opens anything, so no FIFO is
+  opened in a task. #856, its gates green; the runtime benches' code
+  is unchanged.
 - **Split builds** (queue row 23c, branch `split-units`): a large
   program's debug build compiles as units on every core when Zig uses
   LLVM (the Mac), `--units=N` otherwise; Trig's debug build on the Mac

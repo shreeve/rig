@@ -1,8 +1,13 @@
 //! `std.file`: reading a whole file into a `String` the runtime's
 //! allocator owns, so the leak checker and the sanitizer see it, writing
 //! one, open files, and what is at a path. Every call that reaches the
-//! file system runs on the blocking pool (`pool`), so only the task
-//! making it waits, and is a fallible waiting point. A call that may
+//! file system is a fallible waiting point. A whole read of a regular
+//! file, and a call that only looks at a path (`exists_at`, `stat_into`,
+//! `realpath`, `dir_entries`), runs in the task making it: on a local
+//! disk the system call takes less than a trip to the pool and back.
+//! Every other call runs on the blocking pool (`pool`), so only the task
+//! making it waits: a read of anything but a regular file, and every
+//! open of a File, write, rename, mkdir, and removal. A call that may
 //! wait on another process (an open or a read of a FIFO, a write to a
 //! full pipe) makes its own system calls, whose retry after a signal
 //! (EINTR) stops when the task does (`rig.checkStop`); Zig's retry
@@ -95,8 +100,57 @@ fn absent(err: anyerror) Error!void {
 /// writer adds meanwhile are left out, as if they came after. One that
 /// reports no size (a pipe, a device, a Linux `/proc` file) is read to
 /// its end and the buffer trimmed.
+///
+/// A regular file is read in the task (`readInline`); anything else, a
+/// FIFO, a device, or a failure to report, on the pool (`readHere`).
 pub fn read(path: []const u8) Error!?rig.String {
-    return pool(?rig.String, readHere, .{path});
+    return switch (try readInline(path)) {
+        .got => |s| s,
+        .pool => pool(?rig.String, readHere, .{path}),
+    };
+}
+
+/// What `readInline` did: read the file, or found nothing at the path;
+/// or left the read to the pool.
+const Inline = union(enum) { got: ?rig.String, pool };
+
+/// `read` in the task, for a regular file. The path is looked at first,
+/// so that nothing but a regular file is opened here: an open of a FIFO
+/// would let a writer waiting for its reader go on, and the pool's open
+/// after it would not see that writer. The open takes O_NONBLOCK, so it
+/// never waits, even for what is put at the path after the look; and
+/// the descriptor's own stat decides, so only what was opened as a
+/// regular file is read here. Nothing at the path is null, as on the
+/// pool; any other failure, and a read that would wait (a regular file
+/// a lock holds), is left to the pool, which reports or waits as it
+/// would.
+fn readInline(path: []const u8) Error!Inline {
+    try rig.checkStop();
+    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    const z = terminated(path, &buf) catch |err| {
+        try absent(err);
+        return .{ .got = null };
+    };
+    const io = rig.io();
+    const named = std.Io.Dir.cwd().statFile(io, path, .{}) catch |err| {
+        const e = failure(err);
+        if (e == not_found or e == error.@"std.file.FileError.not_directory") return .{ .got = null };
+        return .pool;
+    };
+    if (named.kind != .file) return .pool;
+    const fd = openAt(z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }) catch |err| {
+        if (std.mem.startsWith(u8, @errorName(err), "std.task.Stop.")) return err;
+        return .pool;
+    };
+    defer _ = sys.close(fd);
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
+    const st = file.stat(io) catch return .pool;
+    if (st.kind != .file) return .pool;
+    const s = readOpen(fd, st) catch |err| switch (err) {
+        error.WouldBlock => return .pool,
+        else => |e| return e,
+    };
+    return .{ .got = s };
 }
 
 fn readHere(path: []const u8) Error!?rig.String {
@@ -115,6 +169,16 @@ fn readHere(path: []const u8) Error!?rig.String {
     const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
     const st = file.stat(rig.io()) catch |err| return failure(err);
     if (st.kind == .directory) return error.@"std.file.FileError.is_directory";
+    return readOpen(fd, st) catch |err| switch (err) {
+        error.WouldBlock => error.@"std.file.FileError.failed",
+        else => |e| e,
+    };
+}
+
+/// The bytes of the file open at `fd`, whose stat is `st`, as `read`
+/// gives them; `WouldBlock` when `fd` is nonblocking and a read would
+/// wait.
+fn readOpen(fd: i32, st: std.Io.File.Stat) (Error || error{WouldBlock})!rig.String {
     const size = std.math.cast(usize, st.size) orelse rig.oom();
     const sized = st.kind == .file and size > 0;
     var s: rig.String = .empty;
@@ -193,9 +257,12 @@ fn mkdirHere(path: []const u8, parents: bool) FileError!void {
 }
 
 /// Whether anything is at `path`, links followed: a link that names
-/// nothing is not. Any failure but "nothing there" is an error.
+/// nothing is not. Any failure but "nothing there" is an error. In the
+/// task, as each call that only looks at a path is: none opens what is
+/// there, so none waits on another process.
 pub fn exists_at(path: []const u8) Error!bool {
-    return pool(bool, existsHere, .{path});
+    try rig.checkStop();
+    return existsHere(path);
 }
 
 fn existsHere(path: []const u8) Error!bool {
@@ -273,9 +340,12 @@ fn rmdirAt(z: [*:0]const u8) Error!bool {
 }
 
 /// The absolute path `path` names, links resolved, or null when nothing
-/// is there.
+/// is there. In the task: resolving a path reads links, and opens
+/// nothing that waits (Zig's own, without libc, opens with O_PATH and
+/// O_NONBLOCK).
 pub fn realpath(path: []const u8) Error!?rig.String {
-    return pool(?rig.String, realpathHere, .{path});
+    try rig.checkStop();
+    return realpathHere(path);
 }
 
 fn realpathHere(path: []const u8) Error!?rig.String {
@@ -292,9 +362,10 @@ fn realpathHere(path: []const u8) Error!?rig.String {
 // -----------------------------------------------------------------------------
 
 /// `stat`'s answer onto `info` (std/file.rig), or false when nothing is
-/// at `path`.
+/// at `path`. In the task.
 pub fn stat_into(path: []const u8, info: *rig.List(i64)) Error!bool {
-    const got = (try pool(?[4]i64, statHere, .{path})) orelse return false;
+    try rig.checkStop();
+    const got = (try statHere(path)) orelse return false;
     for (got) |n| info.push(n);
     return true;
 }
@@ -335,17 +406,19 @@ fn kindCode(kind: std.Io.File.Kind) i64 {
 
 /// The entries of the directory at `path`, last name first, onto `names`,
 /// and each one's kind, plus 4 for a link, onto `codes`; false when
-/// nothing is at `path`.
+/// nothing is at `path`. In the task: the directory is opened with
+/// O_DIRECTORY, which fails on anything else without opening it.
 pub fn dir_entries(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(i64)) Error!bool {
-    var got = (try pool(?Entries, entriesHere, .{path})) orelse return false;
+    try rig.checkStop();
+    var got = (try entriesHere(path)) orelse return false;
     std.mem.swap(rig.List(rig.String), names, &got.names);
     std.mem.swap(rig.List(i64), codes, &got.codes);
     rig.dropElement(Entries, &got);
     return true;
 }
 
-/// A directory's entries as `dir_entries` gives them, which a pool call
-/// owns until it returns.
+/// A directory's entries as `dir_entries` gives them, dropped whole when
+/// reading them fails.
 const Entries = struct {
     names: rig.List(rig.String) = .empty,
     codes: rig.List(i64) = .empty,
@@ -524,14 +597,16 @@ pub fn terminal_fd(fd: i64) bool {
 }
 
 /// Read what comes into `into`, once any does: how many bytes, 0 at the
-/// end of the file.
-fn readSome(fd: i32, into: []u8) Error!usize {
+/// end of the file; `WouldBlock` when `fd` is nonblocking and nothing
+/// has come.
+fn readSome(fd: i32, into: []u8) (Error || error{WouldBlock})!usize {
     try rig.checkStop();
     while (true) {
         const rc = sys.read(fd, into.ptr, into.len);
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => try rig.checkStop(),
+            .AGAIN => return error.WouldBlock,
             else => |e| return errnoFailure(e),
         }
     }
