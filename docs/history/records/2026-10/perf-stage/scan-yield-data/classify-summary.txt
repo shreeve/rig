@@ -1,0 +1,159 @@
+turn sites: 3354; covered: 761
+  for    covered=False: 947
+  for    covered=True: 591
+  range  covered=False: 819
+  range  covered=True: 86
+  while  covered=False: 827
+  while  covered=True: 84
+covered per file (covered / sites):
+  checker.zig: 237 / 1507
+  transformers.zig: 116 / 306
+  declarations.zig: 53 / 129
+  parser.zig: 36 / 145
+  compiler.zig: 36 / 130
+  tsoptions.zig: 29 / 113
+  printer.zig: 29 / 86
+  ast.zig: 29 / 129
+  core.zig: 27 / 83
+  lexer.zig: 21 / 101
+  __rig_std_bigint.zig: 15 / 30
+  __rig_std_text.zig: 12 / 26
+  tspath.zig: 12 / 73
+  stringutil.zig: 11 / 27
+  __rig_std_json.zig: 10 / 19
+  jsnum.zig: 10 / 21
+  sourcemap.zig: 9 / 40
+  vfsmatch.zig: 9 / 36
+  execute.zig: 7 / 18
+  __rig_std_utf8.zig: 7 / 11
+  module.zig: 7 / 51
+  locale.zig: 6 / 13
+  modulespecifiers.zig: 6 / 40
+  diagnosticwriter.zig: 5 / 23
+  packagejson.zig: 5 / 33
+  collections.zig: 5 / 21
+  __rig_std_utf16.zig: 3 / 6
+  semver.zig: 2 / 26
+  __rig_main.zig: 2 / 3
+  binder.zig: 2 / 41
+  bundled.zig: 1 / 2
+  vfs.zig: 1 / 18
+  diagnostics.zig: 1 / 4
+first reason a site is not covered (top 40):
+    758 condition not a length
+    680 range end not a length
+    127 nested loop not covered
+    125 rig.eql
+     77 rig.String.of
+     59 rig.drop
+     18 self.check_source_element
+     18 add
+     10 self.get_type_from_type_node
+     10 length place assigned
+      8 self.get_symbol_of_declaration
+      6 self.is_context_sensitive
+      6 rig.cloneValue
+      6 self.infer_from_types
+      6 bytes
+      6 with_file
+      6 suggestion.consider
+      5 self.atom
+      5 push
+      5 add_name
+      5 create_export_expression
+      4 self.type_types
+      4 tree.is_entity_name_expression
+      4 self.check_expression
+      4 self.get_signatures_of_type
+      4 self.may_resolve_type_alias
+      4 self.type_parameter_contains_reference
+      4 self.get_type_of_symbol
+      4 program.skip_type_checking
+      4 tree.is_prologue_directive
+      4 __rig_module.source_file_may_be_emitted
+      4 add_once
+      4 is_class_named_evaluation_helper_block
+      3 self.is_possibly_discriminant_value
+      3 self.check_module_augmentation_element
+      3 self.mark_decorator_meda_data_type_node_as_referenced
+      3 self.create_diagnostic_for_node
+      3 self.grammar_error_on_first_token
+      3 self.is_unreferenced_variable_declaration
+      3 self.get_type_of_module_import_attributes
+Zig std calls met (top 30):
+     12 std.math.cast
+      6 std.math.maxInt
+      3 std.math.isPowerOfTwo
+      3 std.mem.readInt
+      3 std.mem.swap
+      2 std.debug.panic
+      2 std.hash.Wyhash.hash
+      2 std.mem.eql
+      2 std.mem.copyForwards
+      2 std.atomic.spinLoopHint
+      1 std.debug.assert
+      1 std.fmt.comptimePrint
+      1 std.debug.print
+      1 std.math.add
+      1 std.enums.fromInt
+      1 std.atomic.Value
+      1 std.math.ceilPowerOfTwoAssert
+      1 std.mem.alignForward
+      1 std.simd.iota
+      1 std.math.rotl
+      1 std.mem.find
+      1 std.c.kevent
+      1 std.heap.smp_allocator.destroy
+      1 std.mem.sort
+      1 std.mem.indexOfScalar
+      1 std.mem.nativeToBig
+      1 std.mem.asBytes
+      1 std.mem.order
+covered sites:
+  __rig_std_bigint.zig:137 for for (x) |v|
+  __rig_std_bigint.zig:146 for for (x) |v|
+  __rig_std_bigint.zig:176 for for (rig.slice(x, q, null)) |v|
+  __rig_std_bigint.zig:185 while while (true) : ({ rig.turn(&__rig_turns_25); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:247 for for (x) |v|
+  __rig_std_bigint.zig:387 while while (true) : ({ rig.turn(&__rig_turns_55); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:459 while while (true) : ({ rig.turn(&__rig_turns_65); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:478 while while (true) : ({ rig.turn(&__rig_turns_72); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:497 while while (true) : ({ rig.turn(&__rig_turns_78); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:503 while while (true) : ({ rig.turn(&__rig_turns_78); { j = rig.addProven(j, 1); } }) {
+  __rig_std_bigint.zig:540 while while (true) : ({ rig.turn(&__rig_turns_93); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:605 while while (true) : ({ rig.turn(&__rig_turns_102); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:616 while while (true) : ({ rig.turn(&__rig_turns_108); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:641 while while (true) : ({ rig.turn(&__rig_turns_114); { i = rig.addProven(i, 1); } }) {
+  __rig_std_bigint.zig:652 while while (true) : ({ rig.turn(&__rig_turns_120); { i = rig.addProven(i, 1); } }) {
+  __rig_std_utf16.zig:133 while while (true) : (rig.turn(&__rig_turns_23)) {
+  __rig_std_utf16.zig:181 for for (@as([16]u8, v)) |x|
+  __rig_std_utf16.zig:195 while while (true) : (rig.turn(&__rig_turns_33)) {
+  __rig_std_json.zig:407 for for (word, 0..) |b, __rig_i_21|
+  __rig_std_json.zig:520 range __rig_for_31: while (__rig_i_34 < __rig_end_34) : ({ rig.turn(&__rig_turns_33); __rig_i_34 += 1; }) {
+  __rig_std_json.zig:698 range while (__rig_i_58 < __rig_end_58) : ({ rig.turn(&__rig_turns_57); __rig_i_58 += 1; }) {
+  __rig_std_json.zig:864 while while (true) : (rig.turn(&__rig_turns_74)) {
+  __rig_std_json.zig:894 while while (true) : (rig.turn(&__rig_turns_78)) {
+  __rig_std_json.zig:924 while while (true) : (rig.turn(&__rig_turns_85)) {
+  __rig_std_json.zig:963 while while (true) : (rig.turn(&__rig_turns_90)) {
+  __rig_std_json.zig:977 while while (true) : ({ rig.turn(&__rig_turns_94); { i = rig.addProven(i, 16); } }) {
+  __rig_std_json.zig:995 while while (true) : (rig.turn(&__rig_turns_99)) {
+  __rig_std_json.zig:1009 for for (rig.slice(s, i, null), 0..) |c, __rig_i_104|
+  __rig_std_utf8.zig:238 while while (true) : (rig.turn(&__rig_turns_27)) {
+  __rig_std_utf8.zig:305 for for (@as([16]u8, v)) |x|
+  __rig_std_utf8.zig:317 while while (true) : (rig.turn(&__rig_turns_37)) {
+  __rig_std_utf8.zig:340 while while (true) : (rig.turn(&__rig_turns_42)) {
+  __rig_std_utf8.zig:352 while while (true) : (rig.turn(&__rig_turns_46)) {
+  __rig_std_utf8.zig:438 while __rig_while_51: while (true) : ({ rig.turn(&__rig_turns_53); { k = rig.addProven(k, 64); } }) {
+  __rig_std_utf8.zig:449 while while (true) : ({ rig.turn(&__rig_turns_58); { k = rig.addProven(k, 16); } }) {
+  __rig_std_text.zig:38 while while (true) : ({ rig.turn(&__rig_turns_4); { j = rig.addProven(j, 16); } }) {
+  __rig_std_text.zig:63 while while (true) : ({ rig.turn(&__rig_turns_9); { j = rig.addProven(j, 1); } }) {
+  __rig_std_text.zig:67 for for (set) |b|
+  __rig_std_text.zig:87 for for (set) |b|
+  __rig_std_text.zig:100 for for (set) |b|
+  __rig_std_text.zig:117 while while (true) : (rig.turn(&__rig_turns_29)) {
+  __rig_std_text.zig:144 while while (true) : (rig.turn(&__rig_turns_33)) {
+  __rig_std_text.zig:301 while while (true) : (rig.turn(&__rig_turns_46)) {
+  __rig_std_text.zig:457 range while (__rig_i_63 < __rig_end_63) : ({ rig.turn(&__rig_turns_62); __rig_i_63 += 1; }) {
+  __rig_std_text.zig:780 range while (__rig_i_106 < __rig_end_106) : ({ rig.turn(&__rig_turns_105); __rig_i_106 += 1; }) {
+  __rig_std_text.zig:813 range while (__rig_i_113 < __rig_end_113) : ({ rig.turn(&__rig_turns_112); __rig_i_113 += 1; }) {
+  __rig_std_text.zig:814 while while (true) : (rig.turn(&__rig_turns_112)) {

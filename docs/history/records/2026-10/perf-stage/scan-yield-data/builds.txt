@@ -1,0 +1,14 @@
+# Mac (tools/heavy queue time included)
+22:58:38 base -Osafe exit=0 in 503 s
+23:14:33 std -Osafe exit=0 in 955 s
+23:33:13 all -Osafe exit=0 in 1120 s
+23:50:11 none -Osafe exit=0 in 1018 s
+01:05:40 ver -Osafe exit=0 in 1306 s
+# pup, slot.sh on the E-cores (slot wait included)
+23:32:46 base -Osafe exit=0 in 2453 s
+00:02:21 std -Osafe exit=0 in 1775 s
+23:52:37 all -Osafe exit=1 in 3644 s   (no slot free after an hour; all and none not rebuilt on pup)
+01:49:42 ver -Osafe exit=0 in 3939 s
+# sizes
+pup  .text: base 11,271,801  std 11,266,681  ver 11,280,825; file: base 125,667,528  std 125,614,888  ver 125,737,864
+Mac  __text: base 9,526,524  std 9,538,960  ver 9,533,184; file: base 16,626,160  std 16,642,576  ver 16,626,256
