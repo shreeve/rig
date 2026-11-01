@@ -274,6 +274,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   accepts more programs; the emitted Zig of every program accepted
   before is the same.
 
+- **A `for` over a call keeps lent only what its view carries.** The
+  loans its header takes end with the header (CORE §3), and the loop
+  holds what the source's value carries: of `b.all()`, whose method
+  says `from @items`, only `b.items`, as `r = ?b.all()` does; of
+  `find(?lss, ?k)`, only `lss`. So the body may write `b.other` or `k`,
+  where all of `b`, and `k`, stayed lent for the loop.
+
 - **A member's facts live in the tree.** A type declaration holds the
   names of its `pub` members and its read-only fields in its `pubs` and
   `read_only` groups; a function the names of its `once` parameters in

@@ -103,10 +103,6 @@ and run the suite after.
     rejects both): a `?@` result reaching an owned field beside a
     held view (`x77`), and re-pointing a write view a closure has lent
     (`x68`). Add them as `# oracle:` tests when the oracle learns them.
-  - A loop header over a `from @field` method's view lends all of self
-    for the loop, where a binding of it (`r = ?b.all()`) lends only the
-    field: narrowing the header's loan is the ownership checker's (the
-    known case in `test/rig/ownership-views.rig.test`).
   - `bin/rig-oracle` in a worktree goes stale; `test/rig.rip` rebuilds it,
     so rebuild before using it by hand.
 

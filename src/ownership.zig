@@ -7304,6 +7304,11 @@ pub const Checker = struct {
         /// `for x in <v`, or a collection the source makes: the loans it
         /// held, which its elements carry.
         moved: []const Loan = &.{},
+        /// A source made in the header and walked in place (a call's
+        /// view): the loans its value carries, which the loop holds for
+        /// its whole run, as it holds a place's loan, while the header's
+        /// own loans end with it (Core §3).
+        held: []const Loan = &.{},
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
         resource_list: bool = false,
@@ -7390,6 +7395,7 @@ pub const Checker = struct {
         } else {
             spec.elem_view = true;
             const found = self.errors_found;
+            const temps_start = self.temps.items.len;
             const value = try self.walk(source);
             // The type checker let the loop read a source a call gives in
             // place where the recorded fact says its loans name only places
@@ -7402,7 +7408,12 @@ pub const Checker = struct {
             if (self.headerTempLoan(drops, value)) |l| try self.reportTempOutlived(l, null);
             // The elements of a collection the source makes (an array of
             // views, a call's result) carry the views it holds.
-            if (self.resolvePlace(source) == null) spec.moved = value.loans;
+            if (self.resolvePlace(source) == null) {
+                spec.moved = value.loans;
+                spec.held = value.loans;
+                spec.source_pos = self.startOf(source);
+                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+            }
             // A source already reported (used while a write loan is live) is
             // not reported again as a conflicting view.
             // A read view held in a part of a value (`s.names`, a
@@ -7581,6 +7592,7 @@ pub const Checker = struct {
             elem_loans = if (self.throughBinding(root, on).deref) (try self.lendOn(root, on)).loans else try self.oneLoan(on);
             _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = elem_loans });
         };
+        if (spec.held.len > 0) _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = spec.held });
         if (spec.elem1 == .src) {
             const pos = spec.elem1.src.pos;
             const ty = self.symType(pos);
