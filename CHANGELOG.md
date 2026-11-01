@@ -263,6 +263,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   recorded origins. A stray `rarely` is found from the tree. No
   program's meaning changes: the emitted Zig is the same.
 
+- **`rig check` of Trig is twice as fast in a third of the memory.**
+  On the Mac it takes 1.9 s where it took 3.9, with 58% fewer
+  instructions, and peaks at 0.65 GB where it peaked at 2.15. Sema's
+  integer-keyed tables hash by one multiply, not Wyhash; what a view of a
+  type could hold is worked out once per pair of types; decisions and
+  expression types are kept by node id; and the compiler allocates from
+  `smp_allocator`, not one arena that kept every buffer a table grew out
+  of. What `rig check` accepts and the Zig it emits are unchanged
+  (docs/history/records/2026-10/check-speed/).
+
 - **Parentheses and bounds live in the tree.** The grammar keeps a
   parenthesized expression or type as `(paren e)`, which the parser
   wrapper reads for the self-sigil rule (`!(v.pop())` against

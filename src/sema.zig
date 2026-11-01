@@ -58,6 +58,9 @@ const typecheck = @import("typecheck.zig");
 const storage = @import("storage.zig");
 const timing = @import("timing.zig");
 pub const cteval = @import("cteval.zig");
+const fastmap = @import("fastmap.zig");
+/// The hash map of the fact tables and memos (`fastmap.zig`).
+pub const FastMap = fastmap.Map;
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -320,7 +323,7 @@ pub fn taskGuard(largest: u64) u64 {
 /// Record that the frame owner declared at `pos` may take `bytes` of
 /// stack, a large frame (`SemContext.large_frames`): the most of all its
 /// instances.
-pub fn markLarge(frames: *std.AutoHashMapUnmanaged(u32, u64), allocator: std.mem.Allocator, pos: u32, bytes: u64) !void {
+pub fn markLarge(frames: *FastMap(u32, u64), allocator: std.mem.Allocator, pos: u32, bytes: u64) !void {
     const gop = try frames.getOrPut(allocator, pos);
     gop.value_ptr.* = if (gop.found_existing) @max(gop.value_ptr.*, bytes) else bytes;
 }
@@ -782,8 +785,56 @@ pub const ImportedNominal = struct {
     sym_id: SymbolId,
 };
 
-/// Module id -> the module's context.
-pub const ModuleMap = std.AutoHashMapUnmanaged(u32, *SemContext);
+/// Module id -> the module's context, at index id. Ids run from 1, one
+/// per module in the order the graph adds them (`ModuleGraph.add`).
+pub const ModuleMap = struct {
+    /// Index 0 is no module.
+    items: std.ArrayList(?*SemContext) = .empty,
+
+    pub const empty: ModuleMap = .{};
+
+    pub fn deinit(self: *ModuleMap, a: std.mem.Allocator) void {
+        self.items.deinit(a);
+    }
+
+    pub fn get(self: *const ModuleMap, id: u32) ?*SemContext {
+        return if (id < self.items.items.len) self.items.items[id] else null;
+    }
+
+    /// The number of modules.
+    pub fn count(self: *const ModuleMap) u32 {
+        return @intCast(self.items.items.len -| 1);
+    }
+
+    pub fn ensureUnusedCapacity(self: *ModuleMap, a: std.mem.Allocator, n: u32) std.mem.Allocator.Error!void {
+        try self.items.ensureTotalCapacity(a, @max(self.items.items.len, 1) + n);
+    }
+
+    /// Add module `id`, the next one.
+    pub fn putAssumeCapacity(self: *ModuleMap, id: u32, ctx: *SemContext) void {
+        if (self.items.items.len == 0) self.items.appendAssumeCapacity(null);
+        std.debug.assert(id == self.items.items.len);
+        self.items.appendAssumeCapacity(ctx);
+    }
+
+    /// Each module's context, by id.
+    pub fn valueIterator(self: *const ModuleMap) ValueIterator {
+        return .{ .items = self.items.items };
+    }
+
+    pub const ValueIterator = struct {
+        items: []const ?*SemContext,
+        i: usize = 1,
+
+        pub fn next(it: *ValueIterator) ?*const *SemContext {
+            while (it.i < it.items.len) {
+                defer it.i += 1;
+                if (it.items[it.i]) |*ctx| return ctx;
+            }
+            return null;
+        }
+    };
+};
 const no_modules: ModuleMap = .empty;
 
 /// A `use`: the file of a directory module it is in (`SemContext.parts`;
@@ -1767,215 +1818,215 @@ pub const LocalTask = struct { pos: u32, call: []const u8, why: []const u8 };
 
 pub const Facts = struct {
     /// Identifier leaf position -> the symbol it names.
-    names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
+    names: FastMap(u32, SymbolId) = .empty,
     /// Expression (`exprKey`) -> its type.
-    types: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    types: fastmap.DenseMap(TypeId) = .empty,
     /// Expressions lent where a view of another type is expected ->
     /// the rows of the lend table that make it (`Lend`, `lendsAs`).
-    lends: std.AutoHashMapUnmanaged(u64, Lend) = .empty,
+    lends: FastMap(u64, Lend) = .empty,
     /// Slices (`xs[a..b]`) -> what they lend of the value they slice
     /// (`sliceLend`).
-    slice_lends: std.AutoHashMapUnmanaged(NodeKey, Lend) = .empty,
+    slice_lends: FastMap(NodeKey, Lend) = .empty,
     /// Expressions that yield a view where their context reads the
     /// value it reaches (`SemContext.recordRead`).
-    reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    reads: FastMap(u64, void) = .empty,
     /// Expressions whose value becomes an optional where it goes (`Lift`):
     /// `none`, and a `T` where a `T?` goes, which Zig lifts on its own
     /// (`SemContext.recordLift`).
-    lifts: std.AutoHashMapUnmanaged(u64, Lift) = .empty,
+    lifts: FastMap(u64, Lift) = .empty,
     /// `a ?? b` and `a catch b` whose fallback is a value, not a view, of
     /// what the payload of `a`, a view, reaches: the payload's value is
     /// copied out (`SemContext.recordPayloadCopy`).
-    payload_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    payload_copies: FastMap(NodeKey, void) = .empty,
     /// Scope-opening node -> the scope it opens.
-    scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
+    scopes: FastMap(NodeKey, ScopeId) = .empty,
     /// Call node -> how its arguments fill the parameters, for calls
     /// with keyword arguments or omitted (defaulted) parameters.
-    call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
+    call_slots: FastMap(NodeKey, []const ArgSlot) = .empty,
     /// Checked call node -> what fills each of its callee's run-time
     /// parameters, and which arguments it passes loans on from
     /// (`CallParams`).
-    call_params: std.AutoHashMapUnmanaged(NodeKey, CallParams) = .empty,
+    call_params: FastMap(NodeKey, CallParams) = .empty,
     /// Match nodes whose non-default arms cover every value.
-    exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    exhaustive: FastMap(NodeKey, void) = .empty,
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
     /// for one that gives compile-time arguments rather than an index.
-    instances: std.AutoHashMapUnmanaged(NodeKey, Instance) = .empty,
+    instances: FastMap(NodeKey, Instance) = .empty,
     /// A compile-time function's call -> its value (`CtCall`).
-    ct_calls: std.AutoHashMapUnmanaged(NodeKey, CtCall) = .empty,
+    ct_calls: FastMap(NodeKey, CtCall) = .empty,
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
-    generic_calls: std.AutoHashMapUnmanaged(NodeKey, GenericCall) = .empty,
+    generic_calls: FastMap(NodeKey, GenericCall) = .empty,
     /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
-    writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    writes: FastMap(u32, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
-    elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
+    elem_calls: FastMap(NodeKey, ElemCall) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
     /// no view of them (`SemContext.lendsTempArray`).
-    temp_arrays: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    temp_arrays: FastMap(NodeKey, void) = .empty,
     /// Owning temporaries only read where they stand (a `print`
     /// argument, a view lent to a call, an `==` operand, a `?@`
     /// receiver): each is dropped at the end of its statement, or of
     /// its header.
-    temp_drops: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    temp_drops: FastMap(NodeKey, void) = .empty,
     /// Temporaries lent to write (`!mk()`, `!(a if c else b).f`), or the
     /// value a written part of one starts from: written in their
     /// statement's slot.
-    written_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    written_temps: FastMap(NodeKey, void) = .empty,
     /// Branches of a read branching value that a name holds (`a` in
     /// `print(a if c else b)`): read where they are, never moved out.
-    in_place_reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    in_place_reads: FastMap(u64, void) = .empty,
     /// The `Bool`s that decide a test, its last line and each `return`
     /// with a value in it -> what a failing one reports.
-    test_checks: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
+    test_checks: FastMap(u64, []const u8) = .empty,
     /// The calls of `task.all`, which wait for the tasks they take
     /// (`Checker.taskJoin`).
-    task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    task_joins: FastMap(u64, void) = .empty,
     /// The calls of `par.map`, `par.each`, and `par.workers`, which run a
     /// function on several tasks (`Checker.parCall`).
-    par_calls: std.AutoHashMapUnmanaged(u64, ParCall) = .empty,
+    par_calls: FastMap(u64, ParCall) = .empty,
     /// `*Actor(x)` calls (`Checker.actorMake`) and method calls through
     /// an actor's handle (`Checker.actorCall`).
-    actor_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    frozen_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    actor_makes: FastMap(u64, void) = .empty,
+    frozen_makes: FastMap(u64, void) = .empty,
     /// `*Chan[T](n)` calls (`Checker.chanMake`), `task.select` calls
     /// (`Checker.taskSelect`), and their arms, receiving or sending.
-    chan_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    select_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    select_arms: std.AutoHashMapUnmanaged(u64, SelectArm) = .empty,
+    chan_makes: FastMap(u64, void) = .empty,
+    select_calls: FastMap(u64, void) = .empty,
+    select_arms: FastMap(u64, SelectArm) = .empty,
     /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
-    actor_supervised: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    actor_supervised: FastMap(u64, void) = .empty,
+    actor_calls: FastMap(u64, void) = .empty,
     /// The method calls made on a value of a type parameter
     /// (`Checker.typeParamCall`), whose method each instance gives.
-    type_param_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    type_param_calls: FastMap(u64, void) = .empty,
     /// The calls of `task.isolate` (`Checker.isolateCall`).
-    isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    isolate_calls: FastMap(u64, void) = .empty,
     /// The calls of `task.supervise` (`Checker.isolateCall`).
-    supervise_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    supervise_calls: FastMap(u64, void) = .empty,
     /// The calls of `http.serve` (`Checker.httpServe`).
-    http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    http_serves: FastMap(u64, void) = .empty,
     /// The calls of `io.copy` (`Checker.ioCopy`).
-    io_copies: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    io_copies: FastMap(u64, void) = .empty,
     /// The calls of `xs.reduce(start, f)` (`Checker.reduceCall`).
-    reduce_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    reduce_calls: FastMap(u64, void) = .empty,
     /// Closure literals called at most once, by the call they are passed
     /// to (`SemContext.recordOnceClosure`).
-    once_closures: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    once_closures: FastMap(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
     /// that makes them (`Checker.crossCheck`), with what pins each.
-    local_tasks: std.AutoHashMapUnmanaged(u64, LocalTask) = .empty,
+    local_tasks: FastMap(u64, LocalTask) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
     /// its binding only where the value is taken.
-    uses: std.AutoHashMapUnmanaged(u64, Use) = .empty,
+    uses: FastMap(u64, Use) = .empty,
     /// Header nodes (`for`, `match`, `as`) whose subject is bare and
     /// not plain data -> how the header has it (`Header`).
-    headers: std.AutoHashMapUnmanaged(NodeKey, HeaderFact) = .empty,
+    headers: FastMap(NodeKey, HeaderFact) = .empty,
     /// `String(...)` call node, or `t.add` / `t.clear` callee node -> the
     /// built-in String operation it is (`StringCall`).
-    string_calls: std.AutoHashMapUnmanaged(NodeKey, StringCall) = .empty,
+    string_calls: FastMap(NodeKey, StringCall) = .empty,
     /// `t.push[T, e]` callee node -> the integer type `T` it appends.
-    string_nums: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
+    string_nums: FastMap(NodeKey, TypeId) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
-    takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    takes: FastMap(NodeKey, void) = .empty,
     /// Assignments to a field that holds `none` wherever they run: the
     /// ownership checker found it taken with `<p.f`, and neither written
     /// nor lent to write since, on every path (`SemContext.recordOldNone`).
     /// The store drops no old value.
-    old_nones: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    old_nones: FastMap(NodeKey, void) = .empty,
     /// `*w` nodes that upgrade a weak handle -> whether each reads or
     /// takes it (`SemContext.recordUpgrade`).
-    upgrades: std.AutoHashMapUnmanaged(NodeKey, Upgrade) = .empty,
+    upgrades: FastMap(NodeKey, Upgrade) = .empty,
     /// Header nodes (`match`, `for`, `as`) emitted over a copy of their
     /// subject: the subject makes a statement temporary, reaches no
     /// place, and the construct does not own what it binds
     /// (`SemContext.recordHeaderCopy`).
-    header_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    header_copies: FastMap(NodeKey, void) = .empty,
     /// Assignments of a view to a `!T` or `![]T` local, which point it
     /// at another place (`SemContext.recordRepoint`).
-    repoints: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    repoints: FastMap(NodeKey, void) = .empty,
     /// Assignments of a value to a `!T` binding, which write the value it
     /// views rather than give the binding another
     /// (`SemContext.recordWriteThrough`).
-    write_throughs: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    write_throughs: FastMap(NodeKey, void) = .empty,
     /// Element reads (`x[i]`) that copy the element's value out
     /// (`SemContext.copiesElem`).
-    elem_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    elem_copies: FastMap(NodeKey, void) = .empty,
     /// Element reads on the path of a self a method call lends, which
     /// are reached where they are whatever their type
     /// (`SemContext.recordElemLent`).
-    elem_lent: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    elem_lent: FastMap(NodeKey, void) = .empty,
     /// Payload bindings of a variant pattern -> the type of the field
     /// each binds, at the matched instance and in this module's types
     /// (`SemContext.recordPayloadField`).
-    payload_fields: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    payload_fields: FastMap(u64, TypeId) = .empty,
     /// `E.name` nodes that name a member of an error set `E`, through
     /// its module or an alias (`SemContext.recordErrorMember`).
-    error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    error_members: FastMap(NodeKey, void) = .empty,
     /// `x == K.name` nodes whose side `K.name` names a variant of `x`'s
     /// enum: a test of which variant `x` holds, comparing no payload
     /// (`SemContext.recordMemberTest`).
-    member_tests: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    member_tests: FastMap(NodeKey, void) = .empty,
     /// A `g: E =>` pattern -> the members of `E` it covers that no arm
     /// before it did: what its Zig prong lists
     /// (`SemContext.recordSetPatternMembers`).
-    set_pattern_members: std.AutoHashMapUnmanaged(NodeKey, []const SetMember) = .empty,
+    set_pattern_members: FastMap(NodeKey, []const SetMember) = .empty,
     /// The error values that leave their function by failing: a
     /// `return`'s operand, or a branch of one, of an error type where a
     /// `T!` goes (`SemContext.recordFailingLeaf`). Emit stores the fields
     /// of one with fields through the function's `__out`.
-    failing_leaves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    failing_leaves: FastMap(u64, void) = .empty,
     /// The errors of a set without fields that go where an error that
     /// carries fields goes, `error` or a set with fields
     /// (`SemContext.recordCodeWidening`). Emit makes each a
     /// `rig.ErrorValue` with none.
-    code_widenings: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    code_widenings: FastMap(u64, void) = .empty,
     /// The short forms (`.name`, `.name(fields)`) that a `??` or `catch`
     /// fallback gives, whose enum type comes from the value the fallback
     /// stands for, which Zig cannot see (`SemContext.recordTypedLiteral`).
     /// Emit writes each with its type, `@as(T, ...)`.
-    typed_literals: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    typed_literals: FastMap(u64, void) = .empty,
     /// Whether the fields of each error-set member that has them compare
     /// with `==` and hash, by the member's name in its declaration
     /// (`SemContext.recordMemberCompares`): the program's glue compares
     /// and hashes only those.
-    member_compares: std.AutoHashMapUnmanaged(u64, MemberCompares) = .empty,
+    member_compares: FastMap(u64, MemberCompares) = .empty,
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
-    enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    enum_texts: FastMap(NodeKey, void) = .empty,
     /// `t[s]` index nodes of a table that a write reaches: assigned, lent
     /// to write, written through, or taken from (`Checker.requireAccess`).
     /// Every other slot is read, and is reached read-only, so a table
     /// held as it is written never grows for a read
     /// (`SemContext.recordTableWrite`).
-    table_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    table_writes: FastMap(NodeKey, void) = .empty,
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
-    payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
+    payload_binds: FastMap(NodeKey, []const Sexp) = .empty,
     /// `break` and `continue` nodes -> where each goes (`JumpDest`),
     /// which the type checker resolves (`SemContext.jumpDestOf`).
-    jump_dests: std.AutoHashMapUnmanaged(NodeKey, JumpDest) = .empty,
+    jump_dests: FastMap(NodeKey, JumpDest) = .empty,
     /// Scalar operands of a lane-wise operator or of `select` (`exprKey`)
     /// -> the vector type they stand for, every lane theirs
     /// (`SemContext.recordSplat`).
-    splats: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    splats: FastMap(u64, TypeId) = .empty,
 
     /// A member access `x.f` whose field another module declared `pub
     /// ?f: T`: read-only here (`Checker.placeOf` blocks every write
     /// through it).
-    read_only_fields: std.AutoHashMapUnmanaged(NodeKey, ReadOnlyField) = .empty,
+    read_only_fields: FastMap(NodeKey, ReadOnlyField) = .empty,
     /// Method call node -> how it reaches its method (`Dispatch`).
-    dispatch: std.AutoHashMapUnmanaged(NodeKey, Dispatch) = .empty,
+    dispatch: FastMap(NodeKey, Dispatch) = .empty,
     /// A call of a method under bounds -> the witnesses it passes for
     /// them (`OwnerWitnesses`).
-    owner_witnesses: std.AutoHashMapUnmanaged(NodeKey, OwnerWitnesses) = .empty,
+    owner_witnesses: FastMap(NodeKey, OwnerWitnesses) = .empty,
     /// A value erased to an API object (`exprKey`) -> what was erased,
     /// to which object, by which witness (`Erasure`).
-    erasures: std.AutoHashMapUnmanaged(u64, Erasure) = .empty,
+    erasures: FastMap(u64, Erasure) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
@@ -2393,8 +2444,9 @@ pub const Question = enum(u8) {
     drop_kind,
 };
 
-/// A recorded answer to a `Question`, with the node it is about.
-pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8 };
+/// A recorded answer to a `Question`, with the node it is about, and the
+/// next decision about that node (`Decided`: its index + 1, or 0).
+pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8, q: Question, next: u32 = 0 };
 
 /// The `Question`s decided so far. Held behind a pointer, so a pass that
 /// reads the context as constant still records the answer it is first to
@@ -2405,18 +2457,95 @@ pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8 };
 /// answer can no longer change.
 pub const TypeMemo = struct {
     /// `runsDropBody` of a type, with nothing yet looked into.
-    drop_body: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
+    drop_body: FastMap(TypeId, bool) = .empty,
     /// `printable` of a type.
-    printable: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
+    printable: FastMap(TypeId, bool) = .empty,
+    /// Whether what a type's values hold no longer changes: set once its
+    /// module's declarations and contents are worked out
+    /// (`computeOrigins`), before which the view memos below are not used.
+    holds_final: bool = false,
+    /// What a view of a type points into, and what memory one parameter
+    /// of a type may store to (`viewTargets`, `storeTargets`).
+    view_targets: FastMap(TypeId, ViewTargets) = .empty,
+    store_targets: FastMap(TypeId, ViewTargets) = .empty,
+    /// How a holder leads to the memory of such targets (`reachTargets`).
+    reach: FastMap(ReachKey, ViewReach) = .empty,
+
+    pub const ReachKey = struct { holder: TypeId, of: TypeId, store: bool, from: ReachFrom };
+
+    fn deinit(self: *TypeMemo, a: std.mem.Allocator) void {
+        self.drop_body.deinit(a);
+        self.printable.deinit(a);
+        for ([_]*FastMap(TypeId, ViewTargets){ &self.view_targets, &self.store_targets }) |m| {
+            var it = m.valueIterator();
+            while (it.next()) |t| t.atoms.deinit(a);
+            m.deinit(a);
+        }
+        self.reach.deinit(a);
+    }
 };
 
 pub const Decided = struct {
-    map: std.AutoHashMapUnmanaged(struct { node: u64, q: Question }, Decision) = .empty,
+    /// Every decision, in the order recorded; those about one node are
+    /// chained through `Decision.next`.
+    entries: std.ArrayList(Decision) = .empty,
+    /// The first decision about a list node the parser numbered (index +
+    /// 1, or 0), at its node id.
+    by_list: std.ArrayList(u32) = .empty,
+    /// The first decision about any other node, by `decisionKey`.
+    by_key: FastMap(u64, u32) = .empty,
     /// Set when the storage plan has verified every answer: a question
     /// asked after that (by a classifier emit still calls, `Pending`) is
     /// answered but not recorded, so a record always comes from a pass
     /// the checkers ran.
     sealed: bool = false,
+
+    fn deinit(self: *Decided, a: std.mem.Allocator) void {
+        self.entries.deinit(a);
+        self.by_list.deinit(a);
+        self.by_key.deinit(a);
+    }
+
+    /// The node id a `decisionKey` holds, for a list node the parser
+    /// numbered.
+    fn listId(key: u64) ?u32 {
+        return if (key >> 32 == 1) @truncate(key) else null;
+    }
+
+    fn first(self: *const Decided, key: u64) u32 {
+        if (listId(key)) |id| return if (id < self.by_list.items.len) self.by_list.items[id] else 0;
+        return self.by_key.get(key) orelse 0;
+    }
+
+    /// The decision recorded for `q` about the node of `key`.
+    pub fn get(self: *const Decided, key: u64, q: Question) ?*Decision {
+        var i = self.first(key);
+        while (i != 0) {
+            const d = &self.entries.items[i - 1];
+            if (d.q == q) return d;
+            i = d.next;
+        }
+        return null;
+    }
+
+    /// Record `d` about the node of `key`, in place of any decision of
+    /// its question there.
+    fn put(self: *Decided, a: std.mem.Allocator, key: u64, d: Decision) std.mem.Allocator.Error!void {
+        if (self.get(key, d.q)) |old| {
+            const next = old.next;
+            old.* = d;
+            old.next = next;
+            return;
+        }
+        var e = d;
+        e.next = self.first(key);
+        try self.entries.append(a, e);
+        const index: u32 = @intCast(self.entries.items.len);
+        if (listId(key)) |id| {
+            if (id >= self.by_list.items.len) try self.by_list.appendNTimes(a, 0, id + 1 - self.by_list.items.len);
+            self.by_list.items[id] = index;
+        } else try self.by_key.put(a, key, index);
+    }
 };
 
 /// The key of a storage fact: the expression or construct (`exprKey`)
@@ -2862,8 +2991,8 @@ pub const CallParams = struct {
 /// spelled), so two compilers' dumps of one program diff cleanly.
 /// `root` is the module's IR; a node outside it prints as `node#ID`.
 pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *std.Io.Writer) !void {
-    var nodes: std.AutoHashMapUnmanaged(NodeKey, Sexp) = .empty;
-    var leaves: std.AutoHashMapUnmanaged(u32, Sexp) = .empty;
+    var nodes: FastMap(NodeKey, Sexp) = .empty;
+    var leaves: FastMap(u32, Sexp) = .empty;
     var stack: std.ArrayList(Sexp) = .empty;
     try stack.append(a, root);
     while (stack.pop()) |s| switch (s) {
@@ -3416,6 +3545,7 @@ pub const PlainArg = struct { arg: u32, bit: PlainBit };
 /// `plainLeaves` of `ty` as the bit a generic passes on.
 pub fn plainBitOf(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!PlainBit {
     var leaves: std.ArrayList(SymbolId) = .empty;
+    defer leaves.deinit(ctx.allocator);
     if (!try plainLeaves(ctx, ty, &leaves)) return .{ .known = false };
     if (leaves.items.len == 0) return .{ .known = true };
     return .{ .leaves = try ctx.arena.allocator().dupe(SymbolId, leaves.items) };
@@ -3495,14 +3625,13 @@ fn recordArgsPlain(ctx: *SemContext, params: []const SymbolId, args: []const Typ
 /// of it is plain, and otherwise whether every type parameter it reaches
 /// (`reachedTypeVars`) is, which `out` lists (none for a type plain in
 /// every instance). Each listed parameter takes its instance's answer as
-/// a compile-time Bool (`plain_bits`).
+/// a compile-time Bool (`plain_bits`). `out` grows on `ctx.allocator`.
 pub fn plainLeaves(ctx: *SemContext, ty: TypeId, out: *std.ArrayList(SymbolId)) std.mem.Allocator.Error!bool {
     out.clearRetainingCapacity();
     if (!ctx.typeInfo(ty).has_type_var) return isPlain(ctx, ty);
-    const a = ctx.arena.allocator();
-    try reachedTypeVars(ctx, ty, out, a);
+    try reachedTypeVars(ctx, ty, out, ctx.allocator);
     // Plain where each is: as it is where each is an `Int`.
-    const ints = try a.alloc(TypeId, out.items.len);
+    const ints = try ctx.arena.allocator().alloc(TypeId, out.items.len);
     @memset(ints, ctx.types.int_id);
     const skeleton = try substituteType(ctx, ty, .{ .params = out.items, .args = ints });
     if (!ctx.typeInfo(skeleton).has_type_var and try isPlain(ctx, skeleton)) return true;
@@ -3638,8 +3767,8 @@ fn computePlainBits(ctx: *SemContext) std.mem.Allocator.Error!void {
     // Nothing to pass on unless a body here tests `$plain`, or a generic
     // of another module takes a bit.
     const foreign_bits = blk: {
-        var it = ctx.foreign_semas.iterator();
-        while (it.next()) |e| if (e.value_ptr.*.plain_bits.count() > 0) break :blk true;
+        var it = ctx.foreign_semas.valueIterator();
+        while (it.next()) |m| if (m.*.plain_bits.count() > 0) break :blk true;
         break :blk false;
     };
     if (!changed and !foreign_bits) return;
@@ -3844,11 +3973,11 @@ pub const SemContext = struct {
     /// Each error reported, by position and message hash -> its index in
     /// `diagnostics`: the same finding reached twice is reported once.
     /// (A check whose diagnostics are dropped truncates `diagnostics`.)
-    reported: std.AutoHashMapUnmanaged(struct { pos: u32, message: u64 }, usize) = .empty,
+    reported: FastMap(struct { pos: u32, message: u64 }, usize) = .empty,
     /// Optional fields and elements that `<` could not take out, since
     /// the path to them allows no write (`recordUntakeable`). Only a
     /// diagnostic's hint reads it, so it is no fact.
-    untakeable: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    untakeable: FastMap(NodeKey, void) = .empty,
     facts: Facts = .{},
 
     cell_sym_id: SymbolId = symbol_invalid,
@@ -3907,7 +4036,7 @@ pub const SemContext = struct {
     is_std: bool = false,
     imports: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
-    module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
+    module_refs: FastMap(SymbolId, u32) = .empty,
     /// A directory module: where each of its files starts in `source`.
     /// Empty for a module of one file.
     parts: []const diag.Part = &.{},
@@ -3927,19 +4056,19 @@ pub const SemContext = struct {
     conformances: std.ArrayList(Conformance) = .empty,
     /// Each instance of a generic type bounded by an API of a program's
     /// own -> the witnesses among its arguments (`recordTypeWitnesses`).
-    type_witnesses: std.AutoHashMapUnmanaged(TypeId, []const ArgWitness) = .empty,
+    type_witnesses: FastMap(TypeId, []const ArgWitness) = .empty,
     /// Where the name of each method declared under bounds on its type's
     /// parameters is -> those bounds, as resolve reads them, for the
     /// method's `Field` (`Field.owner_bounds`).
-    owner_bounds: std.AutoHashMapUnmanaged(u32, []const OwnerBound) = .empty,
+    owner_bounds: FastMap(u32, []const OwnerBound) = .empty,
     /// Each type parameter of a `pub` declaration of this module
     /// (`SymbolFlags.states_bounds`) -> the declaration as written, `pub
     /// fun sum[T]`, as the error that it states its bounds names it.
-    stated: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
+    stated: FastMap(SymbolId, []const u8) = .empty,
     /// Each API this module declares -> its table's entries, the methods
     /// a call through an object of it reaches (`TableEntry`), from which
     /// emit writes `__rig_table_Shape` (`typecheck.checkApiDecl`).
-    object_tables: std.AutoHashMapUnmanaged(SymbolId, []const TableEntry) = .empty,
+    object_tables: FastMap(SymbolId, []const TableEntry) = .empty,
     /// Each generic type named in a signature with a type parameter of
     /// the declaration as its argument `index`: the parameter has the
     /// built-in bounds of the one it fills (`resolve.TypeResolver.implyBounds`).
@@ -3954,13 +4083,13 @@ pub const SemContext = struct {
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
-    alias_targets: std.AutoHashMapUnmanaged(SymbolId, Sexp) = .empty,
+    alias_targets: FastMap(SymbolId, Sexp) = .empty,
     /// Aliases currently being resolved, to report cycles.
-    alias_in_progress: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    alias_in_progress: FastMap(SymbolId, void) = .empty,
     /// Operations generic bodies apply to their type parameters.
     generic_requirements: std.ArrayList(GenericRequirement) = .empty,
     /// Instantiated generic type -> position of its first spelling.
-    instantiation_sites: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
+    instantiation_sites: FastMap(TypeId, u32) = .empty,
     /// Instances of user generics spelled with type parameters, inside
     /// generic declarations (`Opt[T]` in `Wrap[T]`'s methods). See
     /// `expandInstantiations`.
@@ -3999,28 +4128,28 @@ pub const SemContext = struct {
     /// are folded once, in declaration order, before any type is
     /// resolved (`resolve.foldModuleConsts`), so a type anywhere in the
     /// module can name them.
-    const_ints: std.AutoHashMapUnmanaged(SymbolId, ConstVal) = .empty,
+    const_ints: FastMap(SymbolId, ConstVal) = .empty,
     /// The bindings a use may move, drop, or give away (`consumes`,
     /// recorded by `storage.plan`): emit arms such a binding's drop
     /// behind an alive flag, and the ownership checker moves no other.
-    consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    consumed: FastMap(SymbolId, void) = .empty,
     /// The fields a use may move out of a binding (`fieldMoves`,
     /// recorded by `storage.plan` with `consumed`, under its contract):
     /// each a path of field names below the binding, `a.b` for `<p.a.b`.
     /// Emit gives each a drop flag, and the ownership checker moves no
     /// other field out (Core §5, "A field of an owned object moves like
     /// a name").
-    field_moves: std.AutoHashMapUnmanaged(SymbolId, std.ArrayList([]const u8)) = .empty,
+    field_moves: FastMap(SymbolId, std.ArrayList([]const u8)) = .empty,
     /// The several results a `destructure` takes, or a `return a, b`
     /// makes into storage one by one (`storage.hoistsResults`): how each
     /// part is held (`resourceKind` of its type), recorded by the storage
     /// plan (`partDrops`).
-    part_drops: std.AutoHashMapUnmanaged(u64, []const ?ResourceKind) = .empty,
+    part_drops: FastMap(u64, []const ?ResourceKind) = .empty,
     /// The captures of a closure called exactly once that it owns
     /// (`|<x|`, `|+x|`, `|~x|`; `recordOnceClosure`): its one call takes
     /// them, as a function takes a parameter given by value, so its body
     /// may move them out, and drops what it leaves.
-    once_captures: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    once_captures: FastMap(SymbolId, void) = .empty,
     /// The array types spelled or built in generic declarations, which
     /// each instance checks against `max_value_bytes`; `module_id` is
     /// the module whose source `pos` is in (0 for this one).
@@ -4056,34 +4185,34 @@ pub const SemContext = struct {
     /// positions of the list's entries that mention the parameter, in
     /// order: an instance visits only the entries over its own parameters
     /// (`genericEntries`).
-    generic_index: std.AutoHashMapUnmanaged(struct { list: GenericList, param: SymbolId }, std.ArrayList(u32)) = .empty,
+    generic_index: FastMap(struct { list: GenericList, param: SymbolId }, std.ArrayList(u32)) = .empty,
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
-    oversized: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+    oversized: FastMap(TypeId, void) = .empty,
     /// Nonzero while an expression is checked with its diagnostics
     /// dropped (`typecheck.synthQuiet`): an array too large is left to
     /// the check that keeps them.
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
-    byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
+    byte_sizes: FastMap(TypeId, ?u128) = .empty,
     /// `valueDepth` of each type measured so far.
-    value_depths: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
+    value_depths: FastMap(TypeId, u32) = .empty,
     /// A local `k =! n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
-    ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
+    ct_locals: FastMap(SymbolId, TypeId) = .empty,
     /// An object that names its none (`none id == 0`) -> its none
     /// (`TypeResolver.resolveNominal`).
-    named_nones: std.AutoHashMapUnmanaged(SymbolId, NamedNone) = .empty,
+    named_nones: FastMap(SymbolId, NamedNone) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
-    imported: std.AutoHashMapUnmanaged(ForeignRef, SymbolId) = .empty,
+    imported: FastMap(ForeignRef, SymbolId) = .empty,
     /// How many imports `importSymbol` is nested in, and the proxies made
     /// past its limit, which the outermost fills in.
     import_depth: u32 = 0,
     import_pending: std.ArrayList(PendingProxy) = .empty,
     /// The entries of other modules' lists copied here (`importParam`).
-    imported_entries: std.AutoHashMapUnmanaged(ImportedEntry, void) = .empty,
+    imported_entries: FastMap(ImportedEntry, void) = .empty,
     /// The copies of type parameters' values generic bodies make, which
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
@@ -4099,20 +4228,20 @@ pub const SemContext = struct {
     /// instance's `$plain` its generics take as a compile-time Bool,
     /// after the parameter and its witnesses (`computePlainBits`). Empty
     /// for a program that tests no `$plain`, whose Zig takes none.
-    plain_bits: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    plain_bits: FastMap(SymbolId, void) = .empty,
     /// A generic here or in a module this one uses takes a bit
     /// (`plain_bits`).
     uses_plain_bits: bool = false,
     /// Whether each type is plain data (`isPlain`), as it is asked.
-    plain_answers: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
+    plain_answers: FastMap(TypeId, bool) = .empty,
     /// Whether each associated type is plain data at an instance whose
     /// base is a type (`recordInstancePlain`).
-    plain_items: std.AutoHashMapUnmanaged(ItemView, bool) = .empty,
+    plain_items: FastMap(ItemView, bool) = .empty,
     /// The bits each generic type's instance passes after its arguments
     /// (`recordPlainFacts`), for emit.
-    type_plain_bits: std.AutoHashMapUnmanaged(TypeId, []const PlainArg) = .empty,
+    type_plain_bits: FastMap(TypeId, []const PlainArg) = .empty,
     /// What `$plain` of each tested type gives (`recordPlainFacts`).
-    plain_test_bits: std.AutoHashMapUnmanaged(TypeId, PlainBit) = .empty,
+    plain_test_bits: FastMap(TypeId, PlainBit) = .empty,
     /// For each entry of `generic_uses`, the parameters narrowed where it
     /// is made (`PlainRegion`), or null: an instance makes it only where
     /// each is plain data (`guardLive`).
@@ -4124,37 +4253,37 @@ pub const SemContext = struct {
     /// there, what the instance gives the associated type. The ownership
     /// checker rejects such an instance of a body that holds a value of
     /// it past a change of its base (`PlainRequirement.item`).
-    item_views: std.AutoHashMapUnmanaged(ItemView, TypeId) = .empty,
+    item_views: FastMap(ItemView, TypeId) = .empty,
     /// The method calls generic bodies make on type parameters.
     generic_methods: std.ArrayList(GenericMethodCall) = .empty,
     /// The hidden storage emit makes (`Storage`), but for the kinds the
     /// facts table keeps (`temp` is `temp_drops`, `header_copy` is
     /// `header_copies`): recorded after the expressions are checked
     /// (`storage.plan`).
-    storage: std.AutoHashMapUnmanaged(StorageKey, Storage) = .empty,
+    storage: FastMap(StorageKey, Storage) = .empty,
     /// The values expression statements discard (`discardsValue`).
-    discards: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    discards: FastMap(u64, void) = .empty,
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
-    inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    inlined: FastMap(u32, void) = .empty,
     /// The functions and methods whose entry checks for work left
     /// waiting, by where their names are declared: a set every cycle of
     /// calls passes through (`inlining.decide`).
-    entry_checks: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    entry_checks: FastMap(u32, void) = .empty,
     /// This module's functions and methods declared `inline fun`, by
     /// where their names are declared: their declarations (`resolve`).
-    inline_decls: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    inline_decls: FastMap(u32, Sexp) = .empty,
     /// What each of them lands in the frame of a call of it: its own
     /// values and those of the `inline` functions it calls, in this
     /// module's types, over its own and its type's parameters; null while
     /// it is being worked out (`typecheck.inlineFrame`).
-    inline_frames: std.AutoHashMapUnmanaged(u32, ?[]const FrameSlot) = .empty,
+    inline_frames: FastMap(u32, ?[]const FrameSlot) = .empty,
     /// How deep the calls of marked `inline` functions nest below each of
     /// them, which `typecheck.max_inline_depth` limits.
-    inline_heights: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    inline_heights: FastMap(u32, u32) = .empty,
     /// A call (`decisionKey`) of a marked `inline` function -> the
     /// function and the instance it makes (`InlineCall`).
-    inline_calls: std.AutoHashMapUnmanaged(u64, InlineCall) = .empty,
+    inline_calls: FastMap(u64, InlineCall) = .empty,
     /// The frames `checkFrames` counted, each of its owner or, for a
     /// generic one, of one instance of it.
     frame_sizes: std.ArrayList(FrameSize) = .empty,
@@ -4165,24 +4294,24 @@ pub const SemContext = struct {
     /// Every call, in the order the walk met them, with its owner.
     frame_calls: std.ArrayList(FrameCall) = .empty,
     /// A call (`decisionKey`) -> its index in `frame_calls` (`ownerOf`).
-    call_index: std.AutoHashMapUnmanaged(u64, u32) = .empty,
+    call_index: FastMap(u64, u32) = .empty,
     /// A call (`decisionKey`) -> what it reaches (`callTargetOf`).
-    call_targets: std.AutoHashMapUnmanaged(u64, CallTarget) = .empty,
+    call_targets: FastMap(u64, CallTarget) = .empty,
     /// The functions, by where their names are declared, whose code may
     /// take `noinline_reach` of stack or more, and the most it may take:
     /// emitted `noinline`, never inlined, and sizing the program's task
     /// guard (`taskGuard`; `typecheck.checkFrames`, `inlining.decide`).
-    large_frames: std.AutoHashMapUnmanaged(u32, u64) = .empty,
+    large_frames: FastMap(u32, u64) = .empty,
     /// Those of other modules, found large at an instance made here;
     /// `inlining.decide` marks them in their own modules.
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
     /// The plain enums of this module, by symbol, that the program calls
     /// `from_text` on (`recordTextTable`).
-    text_tables: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    text_tables: FastMap(SymbolId, void) = .empty,
     /// Those of other modules, called here.
     foreign_text_tables: std.ArrayList(ForeignRef) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
-    inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    inlined_calls: FastMap(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
     /// Facts of types worked out on their first ask (`TypeMemo`).
@@ -4190,14 +4319,14 @@ pub const SemContext = struct {
     /// The `from` clause of each function and method that writes one
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
-    declared_origins: std.AutoHashMapUnmanaged(u32, DeclaredOrigins) = .empty,
+    declared_origins: FastMap(u32, DeclaredOrigins) = .empty,
     /// The `keeps` clause of each function and method that writes one
     /// (`keeps s, @`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
-    declared_keeps: std.AutoHashMapUnmanaged(u32, DeclaredKeeps) = .empty,
+    declared_keeps: FastMap(u32, DeclaredKeeps) = .empty,
     /// The parameters each function and method calls at most once, those
     /// written `f: once ?fun() -> T`, by where its name is declared.
-    declared_once: std.AutoHashMapUnmanaged(u32, ParamMask) = .empty,
+    declared_once: FastMap(u32, ParamMask) = .empty,
     /// The `for` loops over an iterator that typecheck found, each to be
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
@@ -4209,31 +4338,31 @@ pub const SemContext = struct {
     byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
     /// beside the facts table, not in `check --facts=sema`.
-    write_sites: std.AutoHashMapUnmanaged(NodeKey, WriteSite) = .empty,
+    write_sites: FastMap(NodeKey, WriteSite) = .empty,
     /// The tests each node is known to pass (`Proven`), written only by
     /// `src/proofs.zig` once the ownership checker accepted the module.
     /// Printed by `check --facts=proofs`, not `--facts=sema`.
-    proven: std.AutoHashMapUnmanaged(NodeKey, Proven) = .empty,
+    proven: FastMap(NodeKey, Proven) = .empty,
     /// The tests each node is known to pass while a flag holds
     /// (`ProvenIf`), and each flag's tests, by the statement it is made
     /// before (`FlagTest`): written only by `src/proofs.zig`, with the
     /// tests above, and allocated in `arena`.
-    proven_if: std.AutoHashMapUnmanaged(NodeKey, ProvenIf) = .empty,
-    flags: std.AutoHashMapUnmanaged(NodeKey, []const FlagTest) = .empty,
+    proven_if: FastMap(NodeKey, ProvenIf) = .empty,
+    flags: FastMap(NodeKey, []const FlagTest) = .empty,
     /// What each function of the module bounds of its result
     /// (`ResultBound`), by where its name is declared: written only by
     /// `src/proofs.zig`, with the tests above.
-    result_bounds: std.AutoHashMapUnmanaged(u32, ResultBound) = .empty,
+    result_bounds: FastMap(u32, ResultBound) = .empty,
     /// Each node of a body -> the root of the innermost unit holding it
     /// (`rig.eachUnit`), recorded by the storage plan (`storage.plan`).
     /// Kept beside the facts table, not in `check --facts=sema`.
-    unit_of: std.AutoHashMapUnmanaged(NodeKey, NodeKey) = .empty,
+    unit_of: FastMap(NodeKey, NodeKey) = .empty,
     /// The root of each unit -> its kind.
-    unit_roots: std.AutoHashMapUnmanaged(NodeKey, rig.UnitKind) = .empty,
+    unit_roots: FastMap(NodeKey, rig.UnitKind) = .empty,
     /// The members of each declaration with many fields, by name and
     /// kind, keyed by where its fields are (`indexMembers`), so that
     /// finding one walks no others. Lives in the arena.
-    member_index: std.AutoHashMapUnmanaged(usize, MemberIndex) = .empty,
+    member_index: FastMap(usize, MemberIndex) = .empty,
     /// The module's compile-time functions, what their calls computed, and
     /// the hidden constants emit writes for the arrays among them
     /// (`cteval.State`).
@@ -4374,10 +4503,9 @@ pub const SemContext = struct {
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
         self.ct.deinit(self.allocator);
-        self.decided.map.deinit(self.allocator);
+        self.decided.deinit(self.allocator);
         self.allocator.destroy(self.decided);
-        self.type_memo.drop_body.deinit(self.allocator);
-        self.type_memo.printable.deinit(self.allocator);
+        self.type_memo.deinit(self.allocator);
         self.allocator.destroy(self.type_memo);
         self.arena.deinit();
     }
@@ -5189,7 +5317,7 @@ pub const SemContext = struct {
     /// The recorded answer to `q` about `node`; null when no pass has
     /// asked it.
     pub fn decision(self: *const SemContext, node: Sexp, q: Question) ?u8 {
-        const d = self.decided.map.get(.{ .node = decisionKey(node) orelse return null, .q = q }) orelse return null;
+        const d = self.decided.get(decisionKey(node) orelse return null, q) orelse return null;
         // Two nodes never share a key: the parser numbers each list node,
         // and a rewrite that keeps a number replaces the node it took it
         // from.
@@ -5208,7 +5336,7 @@ pub const SemContext = struct {
     pub fn recordDecision(self: *const SemContext, node: Sexp, at: Sexp, q: Question, answer: u8) void {
         if (self.decided.sealed) return;
         const key = decisionKey(node) orelse return;
-        self.decided.map.put(self.allocator, .{ .node = key, .q = q }, .{ .node = node, .at = at, .answer = answer }) catch std.debug.panic("out of memory", .{});
+        self.decided.put(self.allocator, key, .{ .node = node, .at = at, .answer = answer, .q = q }) catch std.debug.panic("out of memory", .{});
     }
 
     /// Emit holds a value of `node` in hidden storage `s`
@@ -5965,6 +6093,12 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     errdefer ctx.deinit();
 
     ctx.parser = opts.parser;
+    // The facts kept by node id take an entry for each node.
+    if (opts.parser) |p| {
+        const ids = p.base.nodeCount() + 1;
+        try ctx.facts.types.dense.ensureTotalCapacityPrecise(allocator, ids);
+        try ctx.decided.by_list.ensureTotalCapacityPrecise(allocator, ids);
+    }
     ctx.module_id = opts.module_id;
     ctx.is_root = opts.is_root;
     ctx.name = opts.name;
@@ -6178,10 +6312,10 @@ fn deepInstance(ctx: *SemContext, item: ExpandItem, callee: []const SymbolId, ki
 /// (`checkSelfNesting`), which the program does not make.
 const Reached = struct {
     fns: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
-    types: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+    types: FastMap(TypeId, void) = .empty,
     /// The methods reached, each by its body and the type it is reached
     /// on.
-    bodies: std.AutoHashMapUnmanaged(struct { fun: FnRef, recv: TypeId }, void) = .empty,
+    bodies: FastMap(struct { fun: FnRef, recv: TypeId }, void) = .empty,
 
     fn deinit(self: *Reached, a: std.mem.Allocator) void {
         self.fns.deinit(a);
@@ -7715,7 +7849,7 @@ fn sizeHeld(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!void {
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var open: std.AutoHashMapUnmanaged(TypeId, void) = .empty;
+    var open: FastMap(TypeId, void) = .empty;
     var stack: std.ArrayList(SizePending) = .empty;
     try open.put(a, ty, {});
     try stack.append(a, .{ .ty = ty, .parts = try sizedParts(ctx, a, ty) });
@@ -7963,7 +8097,7 @@ pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var open: std.AutoHashMapUnmanaged(TypeId, void) = .empty;
+    var open: FastMap(TypeId, void) = .empty;
     var stack: std.ArrayList(SizePending) = .empty;
     try open.put(a, ty, {});
     try stack.append(a, .{ .ty = ty, .parts = try sizedParts(ctx, a, ty) });
@@ -8838,7 +8972,7 @@ pub fn objectUnprinted(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Err
     const a = ctx.allocator;
     var todo: std.ArrayList(ByteSliceItem) = .empty;
     defer todo.deinit(a);
-    var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+    var seen: FastMap(ByteSliceVisit, void) = .empty;
     defer seen.deinit(a);
     try todo.append(a, .{ .ctx = ctx, .ty = ty });
     while (todo.pop()) |item| {
@@ -8884,7 +9018,7 @@ pub fn objectUnprinted(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Err
 /// an owned closure, keeps it only as a `^{A + Owned}`. Null when every
 /// object it may hold names `Owned`, or it holds none.
 pub fn objectUnowned(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
-    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    var seen: FastMap(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
     return objectUnownedIn(ctx, ty, &seen);
 }
@@ -8919,7 +9053,7 @@ pub fn heldObjectOwned(ctx: *const SemContext, ty: TypeId, h: ObjectHeld) bool {
     return objectBounds(ctx, h.object).contains(.Owned) or (h.form == .shared and frozenObject(ctx, ctx.types.get(ty).shared));
 }
 
-fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
+fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
     if (objectHeld(ctx, ty)) |h| return if (heldObjectOwned(ctx, ty, h)) null else ty;
     if (apiObject(ctx, ty)) |o| return if (objectBounds(ctx, o).contains(.Owned)) null else ty;
     switch (ctx.types.get(ty)) {
@@ -8946,7 +9080,7 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnm
     }
 }
 
-fn objectUnownedFields(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
+fn objectUnownedFields(ctx: *const SemContext, sym: SymbolId, seen: *FastMap(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
     const got = try seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym });
     if (got.found_existing) return null;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
@@ -10000,7 +10134,7 @@ const EquatableWalk = struct {
     work: std.ArrayList(u32) = .empty,
     /// Declared types checked or being checked: one reached again,
     /// through itself or another path, adds nothing new.
-    visited: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+    visited: FastMap(TypeId, void) = .empty,
 
     fn deinit(self: *EquatableWalk) void {
         self.items.deinit(self.ctx.allocator);
@@ -10993,7 +11127,7 @@ const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 /// A walk of `blockerIn`: the declared types it has looked into, and,
 /// when collected, the type parameters it reaches (`taskParams`).
 const Walk = struct {
-    seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty,
+    seen: FastMap(SymbolKey, void) = .empty,
     reached: ?*std.ArrayList(TaskParam) = null,
     failed: bool = false,
 };
@@ -11081,13 +11215,13 @@ fn atomicReach(ctx: *const SemContext, inner: TypeId, walk: *Walk) ?Blocker {
 /// `List`s, objects and enums of such, and other frozen values. A generic
 /// parameter with no bound is checked in each instance.
 pub fn frozenBlocker(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
-    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    var seen: FastMap(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
     const b = frozenIn(ctx, ty, &seen) orelse return null;
     return try localized(ctx, b);
 }
 
-fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
+fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) ?Blocker {
     const here: Blocker = .{ .ctx = ctx, .ty = ty };
     return switch (ctx.types.get(ty)) {
         // Another frozen value's handle, a `*{A + Syncs}` included.
@@ -11124,7 +11258,7 @@ fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(
     };
 }
 
-fn fieldsFrozen(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
+fn fieldsFrozen(ctx: *const SemContext, sym: SymbolId, seen: *FastMap(SymbolKey, void)) ?Blocker {
     const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
     if (got.found_existing) return null;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
@@ -11171,12 +11305,12 @@ pub fn frozenReason(ctx: *SemContext, ty: TypeId, blocker: TypeId) std.mem.Alloc
 /// element, an argument, a field, or a payload. A task started in
 /// `task.isolate(f)` ends in `f`, so `f` gives no value that holds one.
 pub fn holdsTask(ctx: *const SemContext, ty: TypeId) bool {
-    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    var seen: FastMap(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
     return taskIn(ctx, ty, &seen);
 }
 
-fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
+fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) bool {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view, .optional, .shared, .weak, .range => |inner| taskIn(ctx, inner, seen),
         .fallible => |inner| taskIn(ctx, inner.ok, seen),
@@ -11200,7 +11334,7 @@ fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(Sy
     };
 }
 
-fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
+fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *FastMap(SymbolKey, void)) bool {
     const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return false;
     if (got.found_existing) return false;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
@@ -11492,7 +11626,7 @@ pub fn viewTargets(ctx: *const SemContext, a: std.mem.Allocator, view: TypeId) s
 const TargetWalk = struct {
     a: std.mem.Allocator,
     out: ViewTargets = .{},
-    seen: std.AutoHashMapUnmanaged(SeenKey, void) = .empty,
+    seen: FastMap(SeenKey, void) = .empty,
     /// Only the views of written memory: storage a write view leads to.
     written_only: bool = false,
     written: bool = false,
@@ -11640,8 +11774,7 @@ pub const ReachFrom = enum { all, views };
 /// How a value of type `holder` leads to the memory a value of type
 /// `view` points into (`ViewReach`).
 pub fn viewReach(ctx: *const SemContext, a: std.mem.Allocator, holder: TypeId, view: TypeId) std.mem.Allocator.Error!ViewReach {
-    const targets = try viewTargets(ctx, a, view);
-    return reachTargets(ctx, a, holder, targets, .all);
+    return viewReachOf(ctx, a, holder, .{ .view = view }, .all);
 }
 
 /// How a value of type `holder` leads to memory `targets` names,
@@ -11663,7 +11796,7 @@ const ReachWalk = struct {
     from: ReachFrom,
     found: ViewReach = .none,
     queue: std.ArrayList(Item) = .empty,
-    seen: std.AutoHashMapUnmanaged(SeenKey, void) = .empty,
+    seen: FastMap(SeenKey, void) = .empty,
     /// How the parts `ownedParts` passes to `visit` are reached.
     cur: Path = .{},
 
@@ -11746,13 +11879,69 @@ const ReachWalk = struct {
 /// hold anything, never an instance's.
 pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o: Origins = .{ .result = 0, .stores = 0 };
-    const results = try viewTargets(ctx, a, f.returns);
-    const stored = try storeTargets(ctx, a, f.params);
     for (f.params, 0..) |p, i| {
-        if (try reachTargets(ctx, a, p, results, .views) != .none) o.result |= paramBit(i);
-        if (try reachTargets(ctx, a, p, stored, .views) != .none) o.stores |= paramBit(i);
+        if (try viewReachOf(ctx, a, p, .{ .view = f.returns }, .views) != .none) o.result |= paramBit(i);
+        // What the parameters may store is the union of what each may,
+        // and a holder reaches a union where it reaches any part of it.
+        for (f.params) |q| {
+            if (try viewReachOf(ctx, a, p, .{ .store = q }, .views) != .none) {
+                o.stores |= paramBit(i);
+                break;
+            }
+        }
     }
     return o;
+}
+
+/// The targets `viewReachOf` reaches: what a view of type `view` points into,
+/// or what a parameter of type `store` may store to.
+pub const TargetsOf = union(enum) { view: TypeId, store: TypeId };
+
+/// `reachTargets` of `holder` and the targets `of` names, worked out once
+/// per pair of types (`TypeMemo.reach`) when what types hold is final.
+/// Self-checking builds work each memo out again and compare.
+pub fn viewReachOf(ctx: *const SemContext, a: std.mem.Allocator, holder: TypeId, of: TargetsOf, from: ReachFrom) std.mem.Allocator.Error!ViewReach {
+    const memo = ctx.type_memo;
+    if (!memo.holds_final) return reachTargets(ctx, a, holder, try freshTargets(ctx, a, of), from);
+    const key: TypeMemo.ReachKey = switch (of) {
+        .view => |t| .{ .holder = holder, .of = t, .store = false, .from = from },
+        .store => |t| .{ .holder = holder, .of = t, .store = true, .from = from },
+    };
+    if (memo.reach.get(key)) |r| {
+        if (@import("build_options").self_check) std.debug.assert(r == try reachTargets(ctx, a, holder, try freshTargets(ctx, a, of), from));
+        return r;
+    }
+    const r = try reachTargets(ctx, a, holder, try targetsOf(ctx, of), from);
+    memo.reach.put(ctx.allocator, key, r) catch std.debug.panic("out of memory", .{});
+    return r;
+}
+
+/// The targets `of` names, worked out now.
+fn freshTargets(ctx: *const SemContext, a: std.mem.Allocator, of: TargetsOf) std.mem.Allocator.Error!ViewTargets {
+    return switch (of) {
+        .view => |t| viewTargets(ctx, a, t),
+        .store => |t| storeTargets(ctx, a, &.{t}),
+    };
+}
+
+/// The targets `of` names, worked out once per type (`TypeMemo`); only
+/// once what types hold is final. The memo owns what it returns.
+fn targetsOf(ctx: *const SemContext, of: TargetsOf) std.mem.Allocator.Error!ViewTargets {
+    const memo = ctx.type_memo;
+    std.debug.assert(memo.holds_final);
+    const map, const ty = switch (of) {
+        .view => |t| .{ &memo.view_targets, t },
+        .store => |t| .{ &memo.store_targets, t },
+    };
+    if (map.get(ty)) |t| return t;
+    // The walk leaves what it used in the scratch arena; the memo keeps
+    // only the targets.
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    var t = try freshTargets(ctx, scratch.allocator(), of);
+    t.atoms = .fromOwnedSlice(try ctx.allocator.dupe(u64, t.atoms.items));
+    map.put(ctx.allocator, ty, t) catch std.debug.panic("out of memory", .{});
+    return t;
 }
 
 /// Whether a parameter of type `ty` is lent: a view (`isViewType`), or
@@ -11797,10 +11986,9 @@ fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, po
     const masks = try a.alloc(ParamMask, parts.len);
     for (parts, masks) |part, *m| {
         m.* = 0;
-        const targets = try viewTargets(ctx, a, part);
         for (f.params, 0..) |p, i| {
             if (mask & paramBit(i) == 0) continue;
-            if (try reachTargets(ctx, a, p, targets, .views) != .none) m.* |= paramBit(i);
+            if (try viewReachOf(ctx, a, p, .{ .view = part }, .views) != .none) m.* |= paramBit(i);
         }
     }
     for (parts, masks, 0..) |part, m, i| {
@@ -11860,7 +12048,7 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
             } else try ctx.errAt(n, "`{s}` has no parameter `{s}`; `from` names parameters, `@`, or `static` alone", .{ name, text });
             continue;
         };
-        if (i < f.params.len and try reachTargets(ctx, a, f.params[i], results, .views) == .none) {
+        if (i < f.params.len and try viewReachOf(ctx, a, f.params[i], .{ .view = f.returns }, .views) == .none) {
             try ctx.errAt(n, "`{s}: {s}` cannot hold a view of what `{s}` returns, so its result never views it", .{ text, try formatType(ctx, f.params[i]), name });
             continue;
         }
@@ -12019,6 +12207,7 @@ pub fn signatureOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: Functio
 /// (`defaultOrigins`); the built-in generics' methods keep every
 /// argument's loans.
 fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
+    ctx.type_memo.holds_final = true;
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     for (ctx.symbols.items) |*sym| {
@@ -12166,7 +12355,7 @@ const PrintedVars = struct { out: *std.ArrayList(SymbolId), a: std.mem.Allocator
 fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, vars: ?PrintedVars) !bool {
     var todo: std.ArrayList(ByteSliceItem) = .empty;
     defer todo.deinit(a);
-    var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+    var seen: FastMap(ByteSliceVisit, void) = .empty;
     defer seen.deinit(a);
     try todo.append(a, .{ .ctx = ctx, .ty = ty, .top = true });
     while (todo.pop()) |item| {

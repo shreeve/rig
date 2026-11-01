@@ -1600,6 +1600,25 @@ default) it is the mismatch `E.v(...)` is. A plain enum's read view
 holds a copy (`sema.lendByValue`), so there the literal is that copy,
 typed as the view, wherever the view goes.
 
+**How the facts are kept.** A fact about a list node is keyed by its
+node id, and one about a leaf by its source position (`exprKey`). The
+two densest, an expression's type and the decisions below, are kept by
+node id: a type in an array indexed by the id (`fastmap.DenseMap`), and
+the decisions in one list, those about one node chained from an array
+indexed by its id (`sema.Decided`); a leaf's go to a hash map. The other
+tables, and the memos, are hash maps keyed by integers, addresses, or
+objects of them (`fastmap.Map`), hashed by one 128-bit multiply rather
+than by Wyhash over the key's bytes. What a view of a type points into,
+what a parameter of a type may store to, and how a holder reaches those
+are worked out once per type, or pair of types, after the module's
+declarations and contents are final (`TypeMemo`, `sema.viewReachOf`);
+self-checking builds work each again and compare. The module table is
+indexed by module id (`sema.ModuleMap`). The compiler allocates from
+`std.heap.smp_allocator`, so a table that grows, and a module's first
+check, which a second replaces, give their memory back: from one arena,
+`rig check` of Trig peaked at 2.1 GB, against 0.65 GB
+(docs/history/records/2026-10/check-speed/).
+
 **Decisions.** A few questions about a node that emit, the storage plan,
 and the checkers all act on are recorded as answered the first time a
 pass asks them (`sema.Question`, `SemContext.decided`): every later

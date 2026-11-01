@@ -117,6 +117,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | The timing audit (2026-10-31) | decisions timed with one variant first in every round, ranked by how likely each is to flip, and the likeliest timed again on pup with the order rotated: no decision flips; #678's zod3 gain was the order, but on today's main it makes ts-pattern 3.4% faster at four checkers; #754 costs zod3 about 1%, not 1.8%; #674's `leads` is level on today's main, since #678's rule covers it, and stays | [timing-audit/](2026-10/timing-audit/README.md) |
 | Inlining ray_color (2026-10-30, a study) | #777 changed no machine code for ray-dyn: LLVM already inlined what the size rule now inlines, and its recorded 6% x86 loss does not reproduce (all arms within 0.6% on pup). On arm64 keeping `ray_color` out of line runs 6.2% fewer instructions and 2.2% fewer cycles, as the merged function leaves no callee-saved FP register for World.hit's loop invariant; a rule for it waits on 20 quiet rounds and Trig | [ray-inline/](2026-10/ray-inline/) |
 | std.crypto (#800, 2026-10-31) | ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value barrier; the panel's speed in both release modes, X25519 1.3x dalek, BLAKE2s 5-14% faster than blake2, the AEAD 13-16% faster than ring at 8192 bytes and 7-15% slower on short seals; dudect passes with DIT around X25519 only; eight Rig gaps worked around | [std-crypto/](2026-10/std-crypto/) |
+| `rig check` faster and smaller (#834, 2026-10-31) | Trig's check 3.9 s to 1.9 s and 2.15 GB to 0.65 GB on the Mac, emit identical: integer keys hashed by one multiply (35% fewer instructions), view reach once per pair of types (resolve 750 to 124 ms), decisions and types by node id (storage 1,015 to 620 ms), and the compiler on `smp_allocator`, which a one-arena compiler had hidden a wrong free in `sema.plainLeaves` from; `rig build --release` of Trig level | [check-speed/](2026-10/check-speed/README.md) |
 
 ## Every record
 
@@ -186,6 +187,10 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [README.md](2026-10/build-split/README.md): building Trig as several units compiled in parallel: what Zig 0.17 offers, the prototype, build time and memory, the run-time cost, what blocks a split, the compiler work, and the owner's decisions
 - [data/](2026-10/build-split/data/): each build's `/usr/bin/time -l`, the cut's statistics, and every timed run
+
+### 2026-10/check-speed/
+
+- [README.md](2026-10/check-speed/README.md): `rig check` of Trig faster and smaller, step by step (multiply hash, module contexts by id, view reach memo, facts by node id, `smp_allocator`), the wrong free the arena hid, and the gates
 
 ### 2026-10/clone/
 
