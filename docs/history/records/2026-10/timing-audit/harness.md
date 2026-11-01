@@ -48,7 +48,20 @@ Standing-6's Trig (`s`) and two byte-identical copies (`c`, `d`), at one checker
 
 The copies now fall on both sides of the original, and cycles stay within 1.7% everywhere. What remains on the 25 ms projects is noise, not position.
 
-## The rules since
+## Counts that repeat (row 49)
+
+The first version ran perf on the E-cores, `taskset -c 12-19 perf stat ... -- taskset -c CORE trig`. The counted program started on an E-core, where a `cpu_core` event is enabled but can't run, and reached its P-core only once taskset set its affinity. perf then scaled each count by enabled over running time (93–98%), so instructions and cycles swung 7–10M a run (4.3% on mitt, 0.6% on zod3) while wall time didn't move. Rig - Language analysis found it (row 49).
+
+time-ab.sh now runs perf pinned to the arm's own cores, with `--no-scale`, and perf starts Trig directly, with no taskset after it. mitt's user instructions at one checker on a P-core, six runs:
+
+| how | instructions |
+|---|---|
+| perf on the E-cores, then taskset (before) | 168.1M to 174.4M, scaled at 93–97% |
+| perf pinned, then taskset | 163,669,931 to 163,680,010 |
+| perf pinned, Trig directly (now) | 163,395,152 to 163,395,168 |
+
+A config's commands still begin `taskset -c CORES`. time-ab.sh takes the cores from there for perf and runs the rest under it.
+
 
 1. **Every Trig timing on pup uses time-ab.sh** or the same shuffle and warm-up.
 2. **The 25 ms projects (mitt, neverthrow, superstruct) take 60 rounds,** which cuts the spread by about √3.
