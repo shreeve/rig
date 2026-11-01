@@ -1,5 +1,10 @@
 # Trig's large blocks: growth slack and how they grow (2026-11-01)
 
+**Correction ([slack-sources.md](slack-sources.md)):** the residency
+below was read by `mincore` after the zero scan had mapped the zero page
+into every page it read, so it is overstated. Counted from
+`/proc/self/pagemap`, ts-pattern's slack at the peak is 4.3 MiB, not 14.2.
+
 Queue row 43, measured only; nothing was built. Its data is in
 [large-blocks-data/](large-blocks-data/):
 

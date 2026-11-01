@@ -1,5 +1,9 @@
 # Faulting in only what a large List uses (2026-11-01)
 
+**Correction ([slack-sources.md](slack-sources.md)):** row 43's 14.2 MiB
+was mostly a miscount; ts-pattern's large blocks hold 4.3 MiB unwritten at
+the peak, most of it faulted in ahead. The RSS measured here stands.
+
 Queue row 45, from row 43 ([large-blocks.md](large-blocks.md)), which
 found 14.2 MiB of ts-pattern's large blocks resident but never written
 at its heap peak, 18% of their room. Two levers were named: fault in

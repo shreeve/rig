@@ -1,0 +1,4 @@
+511c511
+< const huge_large: usize = 16 << 20;
+---
+> const huge_large: usize = std.math.maxInt(usize);

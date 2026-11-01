@@ -1,0 +1,359 @@
+diff --git c/src/alloc.zig w/src/alloc.zig
+index 8b4364788..82bd75561 100644
+--- c/src/alloc.zig
++++ w/src/alloc.zig
+@@ -431,7 +431,7 @@ const madv_free_reuse: u32 = 8;
+ 
+ /// The bytes a large block takes: its length rounded up to its bucket's
+ /// size, so a kept block of that bucket, at least its size, fits it.
+-fn largeSize(len: usize) usize {
++pub fn largeSize(len: usize) usize {
+     const pages = std.mem.alignForward(usize, len, std.heap.pageSize());
+     if (pages <= 4 * std.heap.pageSize()) return pages;
+     const log: usize = std.math.log2_int(usize, pages - 1);
+@@ -480,19 +480,41 @@ fn keepBound(h: *const Heap) usize {
+     return (h.large_peak -| h.large_live) + keep_large;
+ }
+ 
++/// MEASUREMENT (row 43): how large blocks are made, grown and freed.
++pub var lg: struct {
++    fresh_n: usize = 0, fresh_b: usize = 0,
++    kept_n: usize = 0, kept_b: usize = 0,
++    cold_n: usize = 0, cold_b: usize = 0,
++    rk_n: usize = 0, rk_b: usize = 0,
++    rm_n: usize = 0, rm_b: usize = 0,
++    rnull_n: usize = 0,
++    fk_n: usize = 0, fc_n: usize = 0, fu_n: usize = 0, fu_b: usize = 0,
++} = .{};
++/// MEASUREMENT (slack sources): how the last large block this thread got
++/// was made: 1 new, 2 kept, 3 cold, 4 grown into a kept block, 5 grown by
++/// `mremap`; plus 8 when it was advised for huge pages.
++pub threadlocal var lg_last: u8 = 0;
++pub threadlocal var lg_huge: bool = false;
++
+ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
++    lg_huge = false;
+     mustOwn(h);
+     const size = largeSize(len);
+     if (takeKept(&h.kept, size)) |p| {
+         lent(h, size);
++        lg.kept_n += 1; lg.kept_b += size; lg_last = 2;
++        @memset(p[0..size], 0);
+         return p;
+     }
+     if (takeKept(&h.cold, size)) |p| {
+         recommit(@intFromPtr(p), size);
+         lent(h, size);
++        lg.cold_n += 1; lg.cold_b += size; lg_last = 3;
++        @memset(p[0..size], 0);
+         return p;
+     }
+     const got = mapLarge(size) orelse return null;
++    lg.fresh_n += 1; lg.fresh_b += size; lg_last = 1;
+     if (size >= huge_large) adviseHuge(got, size);
+     h.took(size);
+     lent(h, size);
+@@ -542,7 +564,8 @@ fn adviseHuge(p: usize, len: usize) void {
+     if (builtin.os.tag != .linux) return;
+     if (!hugeFreeFor((len + huge_page - 1) / huge_page)) return;
+     const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+-    std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch {};
++    std.posix.madvise(at, len, std.os.linux.MADV.HUGEPAGE) catch return;
++    lg_huge = true;
+ }
+ 
+ /// The free blocks of 2 MiB or more that Linux must have, more than
+@@ -837,7 +860,11 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
+     // free is the settled peak's measure.
+     h.large_live -|= size;
+     h.large_peak = @max(h.large_peak, h.large_live);
+-    if (heldLarge(h) + size > keepBound(h)) return unmapLarge(@intFromPtr(p), size);
++    if (heldLarge(h) + size > keepBound(h)) {
++        lg.fu_n += 1; lg.fu_b += size;
++        return unmapLarge(@intFromPtr(p), size);
++    }
++    if (faultsAhead(h) or h.kept.bytes + size <= keep_resident) lg.fk_n += 1 else lg.fc_n += 1;
+     // A heap that does not do much of the work keeps `keep_resident`
+     // bytes resident, and the rest by address only.
+     if (faultsAhead(h) or h.kept.bytes + size <= keep_resident) return keepPiece(&h.kept, @intFromPtr(p), size);
+@@ -1344,6 +1371,7 @@ fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: us
+ /// (`mremap`). Anything else, or a block that shrinks, is left to the
+ /// caller, which copies it into a new block.
+ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
++    lg_huge = false;
+     if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
+     if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
+     if (new_len < memory.len) return null;
+@@ -1353,11 +1381,16 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+     if (takeKept(&h.kept, new_size)) |p| {
+         lent(h, new_size);
+         @memcpy(p[0..memory.len], memory);
++        @memset(p[memory.len..new_size], 0);
++        lg.rk_n += 1; lg.rk_b += new_size; lg_last = 4;
+         freeLarge(h, memory.ptr, memory.len);
+         if (counts) h.count(@intCast(new_size - old_size), 0);
+         return p;
+     }
+-    if (builtin.os.tag != .linux or memory.len < move_large) return null;
++    if (builtin.os.tag != .linux or memory.len < move_large) {
++        lg.rnull_n += 1;
++        return null;
++    }
+     const linux = std.os.linux;
+     // A block grown to `huge_large` moves to pages aligned for huge ones.
+     const to = if (new_size >= huge_large) mapLarge(new_size) orelse return null else 0;
+@@ -1367,6 +1400,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+         return null;
+     }
+     if (to != 0) adviseHuge(rc, new_size);
++    lg.rm_n += 1; lg.rm_b += new_size; lg_last = 5;
+     // The pages moved stay; of the new ones, those a List is likely to
+     // fill are faulted in at once.
+     h.took(new_size - old_size);
+diff --git c/src/runtime.zig w/src/runtime.zig
+index 1ca31aedb..4b565841c 100644
+--- c/src/runtime.zig
++++ w/src/runtime.zig
+@@ -5814,6 +5814,12 @@ const HeapProfile = struct {
+         at_peak: usize = 0,
+         blocks_at_peak: usize = 0,
+         made: usize = 0,
++        // MEASUREMENT (row 43): blocks over `max_small` at the last large snapshot.
++        lg_blocks: usize = 0,
++        lg_cap: usize = 0,
++        lg_size: usize = 0,
++        lg_used: usize = 0,
++        lg_res: usize = 0,
+     };
+     /// The calls a site keeps, innermost first.
+     const depth = 24;
+@@ -5826,7 +5832,7 @@ const HeapProfile = struct {
+         at_peak: usize = 0,
+         blocks_at_peak: usize = 0,
+     };
+-    const Block = struct { size: usize, owner: *Owner, site: *Site };
++    const Block = struct { size: usize, owner: *Owner, site: *Site, origin: u8 = 0 };
+ 
+     live: std.AutoHashMapUnmanaged(usize, Block) = .empty,
+     owners: std.ArrayList(*Owner) = .empty,
+@@ -5834,6 +5840,15 @@ const HeapProfile = struct {
+     bytes: usize = 0,
+     peak: usize = 0,
+     recorded: usize = 0,
++    lg_recorded: usize = 0,
++    lg_snaps: usize = 0,
++    /// MEASUREMENT: the blocks of the last large snapshot, by address, with
++    /// the most of each later seen used: at its free, scanned; at a growth,
++    /// full.
++    lg_snap: std.AutoHashMapUnmanaged(usize, Snap) = .empty,
++    /// MEASUREMENT (slack sources): the origin a block grown in place keeps.
++    inherit: u8 = 0,
++    const Snap = struct { owner: *Owner, cap: usize, final: usize, origin: u8 = 0, size: usize = 0, res: usize = 0 };
+ 
+     var untyped_var: Owner = .{ .name = "untyped" };
+     const untyped = split.cell(&untyped_var, "runtime.profile_untyped");
+@@ -5913,7 +5928,11 @@ const HeapProfile = struct {
+ 
+     fn add(self: *HeapProfile, addr: usize, size: usize, o: *Owner, site: *Site) void {
+         if (o.made == 0 and o.live == 0 and o.blocks == 0) self.owners.append(table_allocator, o) catch oom();
+-        self.live.put(table_allocator, addr, .{ .size = size, .owner = o, .site = site }) catch oom();
++        const tag: u8 = if (fast_alloc.lg_last != 0) fast_alloc.lg_last | (if (fast_alloc.lg_huge) @as(u8, 8) else 0) else self.inherit;
++        fast_alloc.lg_last = 0;
++        fast_alloc.lg_huge = false;
++        self.inherit = 0;
++        self.live.put(table_allocator, addr, .{ .size = size, .owner = o, .site = site, .origin = tag }) catch oom();
+         o.live += size;
+         o.blocks += 1;
+         o.made += 1;
+@@ -5933,10 +5952,153 @@ const HeapProfile = struct {
+                     each.*.at_peak = each.*.live;
+                     each.*.blocks_at_peak = each.*.blocks;
+                 }
++                if (self.bytes > self.lg_recorded + self.lg_recorded / 50) {
++                    self.lg_recorded = self.bytes;
++                    self.largeSnapshot();
++                }
+             }
+         }
+     }
+ 
++    /// MEASUREMENT (row 43): for each live block over `max_small`, its
++    /// asked bytes (a List's capacity), the allocator's block size, how far
++    /// into it bytes are nonzero (fresh and reused blocks start zeroed, so
++    /// past a List's length it is zero), and its resident pages.
++    fn largeSnapshot(self: *HeapProfile) void {
++        self.lg_snaps += 1;
++        self.lg_snap.clearRetainingCapacity();
++        for (self.owners.items) |o| {
++            o.lg_blocks = 0;
++            o.lg_cap = 0;
++            o.lg_size = 0;
++            o.lg_used = 0;
++            o.lg_res = 0;
++        }
++        const pagemap_fd: isize = if (builtin.os.tag == .linux) @bitCast(std.os.linux.open("/proc/self/pagemap", .{}, 0)) else -1;
++        defer if (builtin.os.tag == .linux and pagemap_fd >= 0) {
++            _ = std.os.linux.close(@intCast(pagemap_fd));
++        };
++        var it = self.live.iterator();
++        while (it.next()) |e| {
++            const b = e.value_ptr.*;
++            if (b.size <= fast_alloc.max_small) continue;
++            const addr = e.key_ptr.*;
++            const bytes: [*]const u8 = @ptrFromInt(addr);
++            const size = fast_alloc.largeSize(b.size);
++            var res: usize = 0;
++            if (builtin.os.tag == .linux) {
++                // Present and mapped by this process alone (pagemap bits 63
++                // and 56): not the shared zero page a read of an untouched
++                // page maps, which `mincore` would count and RSS does not.
++                const page = 4096;
++                const pages = (size + page - 1) / page;
++                var vec: [512]u64 = undefined;
++                var pg: usize = 0;
++                while (pagemap_fd >= 0 and pg < pages) {
++                    const k: usize = @min(pages - pg, vec.len);
++                    const rc: isize = @bitCast(std.os.linux.pread(@intCast(pagemap_fd), @ptrCast(&vec), k * 8, @intCast((addr / page + pg) * 8)));
++                    const n: usize = if (rc > 0) @intCast(rc) else 0;
++                    for (vec[0..@min(n / 8, k)]) |v| {
++                        if (v >> 63 & 1 != 0 and v >> 56 & 1 != 0) res += page;
++                    }
++                    pg += k;
++                }
++            }
++            var used: usize = b.size;
++            while (used > 0 and bytes[used - 1] == 0) used -= 1;
++            self.lg_snap.put(table_allocator, addr, .{ .owner = b.owner, .cap = b.size, .final = used, .origin = b.origin, .size = size, .res = @min(res, size) }) catch oom();
++            const o = b.owner;
++            o.lg_blocks += 1;
++            o.lg_cap += b.size;
++            o.lg_size += size;
++            o.lg_used += used;
++            o.lg_res += @min(res, size);
++        }
++    }
++
++    /// The used extent of the `cap` bytes at `addr`: past it, zero.
++    fn usedOf(addr: usize, cap: usize) usize {
++        const bytes: [*]const u8 = @ptrFromInt(addr);
++        var used: usize = cap;
++        while (used > 0 and bytes[used - 1] == 0) used -= 1;
++        return used;
++    }
++
++    /// A snapshot block about to be freed: its final used extent.
++    fn lgFreed(self: *HeapProfile, addr: usize) void {
++        const e = self.lg_snap.getPtr(addr) orelse return;
++        e.final = @max(e.final, usedOf(addr, e.cap));
++        e.cap = 0; // settled
++    }
++
++    /// A snapshot block grown: it was full.
++    fn lgGrown(self: *HeapProfile, addr: usize) void {
++        const e = self.lg_snap.getPtr(addr) orelse return;
++        if (e.cap != 0) e.final = e.cap;
++        e.cap = 0;
++    }
++
++    fn largeReport(self: *HeapProfile) void {
++        // Blocks of the snapshot still live: scanned now.
++        var si = self.lg_snap.iterator();
++        while (si.next()) |e| {
++            if (e.value_ptr.cap != 0) e.value_ptr.final = @max(e.value_ptr.final, usedOf(e.key_ptr.*, e.value_ptr.cap));
++        }
++        var fin = std.AutoHashMapUnmanaged(*Owner, usize).empty;
++        si = self.lg_snap.iterator();
++        while (si.next()) |e| {
++            const g = fin.getOrPut(table_allocator, e.value_ptr.owner) catch oom();
++            if (!g.found_existing) g.value_ptr.* = 0;
++            g.value_ptr.* += e.value_ptr.final;
++        }
++        const mib = 1024.0 * 1024.0;
++        const items = self.owners.items;
++        std.mem.sort(*Owner, items, {}, struct {
++            fn more(_: void, a: *Owner, b: *Owner) bool {
++                return a.lg_size > b.lg_size;
++            }
++        }.more);
++        var t: [5]usize = @splat(0);
++        for (items) |o| {
++            t[0] += o.lg_blocks;
++            t[1] += o.lg_cap;
++            t[2] += o.lg_size;
++            t[3] += o.lg_used;
++            t[4] += o.lg_res;
++        }
++        std.debug.print("rig: large blocks at the last snapshot ({d} snapshots, live {d:.1} MiB): {d} blocks, asked {d:.2} MiB, block size {d:.2} MiB, used {d:.2} MiB, resident {d:.2} MiB\n", .{ self.lg_snaps, @as(f64, @floatFromInt(self.lg_recorded)) / mib, t[0], @as(f64, @floatFromInt(t[1])) / mib, @as(f64, @floatFromInt(t[2])) / mib, @as(f64, @floatFromInt(t[3])) / mib, @as(f64, @floatFromInt(t[4])) / mib });
++        std.debug.print("{s:>8} {s:>9} {s:>9} {s:>9} {s:>9} {s:>9} {s:>6} {s:>6}  {s}\n", .{ "blocks", "asked", "size", "used", "final", "resident", "used%", "final%", "owner (MiB)" });
++        var t_fin: usize = 0;
++        defer std.debug.print("rig: final used of the snapshot's blocks: {d:.2} MiB\n", .{@as(f64, @floatFromInt(t_fin)) / mib});
++        for (items) |o| {
++            if (o.lg_blocks == 0) continue;
++            const f = fin.get(o) orelse 0;
++            t_fin += f;
++            std.debug.print("{d:>8} {d:>9.2} {d:>9.2} {d:>9.2} {d:>9.2} {d:>9.2} {d:>5.1}% {d:>5.1}%  {s}\n", .{ o.lg_blocks, @as(f64, @floatFromInt(o.lg_cap)) / mib, @as(f64, @floatFromInt(o.lg_size)) / mib, @as(f64, @floatFromInt(o.lg_used)) / mib, @as(f64, @floatFromInt(f)) / mib, @as(f64, @floatFromInt(o.lg_res)) / mib, 100.0 * @as(f64, @floatFromInt(o.lg_used)) / @as(f64, @floatFromInt(@max(o.lg_size, 1))), 100.0 * @as(f64, @floatFromInt(f)) / @as(f64, @floatFromInt(@max(o.lg_size, 1))), o.name });
++        }
++        // By how each block got its pages: resident bytes past the most of
++        // it ever written.
++        const names = [_][]const u8{ "in place", "new", "kept", "cold", "grown into kept", "grown by mremap", "?6", "?7" };
++        var by: [16][5]usize = @splat(@splat(0));
++        si = self.lg_snap.iterator();
++        while (si.next()) |e| {
++            const v = e.value_ptr.*;
++            const r = &by[v.origin & 15];
++            r[0] += 1;
++            r[1] += v.size;
++            r[2] += v.res;
++            r[3] += @min(v.final, v.size);
++            r[4] += v.res -| std.mem.alignForward(usize, v.final, 4096);
++        }
++        std.debug.print("rig: by origin {s:>8} {s:>9} {s:>9} {s:>9} {s:>9}  {s}\n", .{ "blocks", "size", "resident", "final", "slack", "origin" });
++        for (by, 0..) |r, i| {
++            if (r[0] == 0) continue;
++            std.debug.print("rig: by origin {d:>8} {d:>9.2} {d:>9.2} {d:>9.2} {d:>9.2}  {s}{s}\n", .{ r[0], @as(f64, @floatFromInt(r[1])) / mib, @as(f64, @floatFromInt(r[2])) / mib, @as(f64, @floatFromInt(r[3])) / mib, @as(f64, @floatFromInt(r[4])) / mib, names[i & 7], if (i & 8 != 0) ", huge" else "" });
++        }
++        const g = fast_alloc.lg;
++        std.debug.print("rig: large-block paths: new {d} ({d:.1} MiB), kept {d} ({d:.1} MiB), cold {d} ({d:.1} MiB); grows into kept {d} ({d:.1} MiB), by mremap {d} ({d:.1} MiB), by copy {d}; frees kept {d}, cold {d}, unmapped {d} ({d:.1} MiB)\n", .{ g.fresh_n, @as(f64, @floatFromInt(g.fresh_b)) / mib, g.kept_n, @as(f64, @floatFromInt(g.kept_b)) / mib, g.cold_n, @as(f64, @floatFromInt(g.cold_b)) / mib, g.rk_n, @as(f64, @floatFromInt(g.rk_b)) / mib, g.rm_n, @as(f64, @floatFromInt(g.rm_b)) / mib, g.rnull_n, g.fk_n, g.fc_n, g.fu_n, @as(f64, @floatFromInt(g.fu_b)) / mib });
++    }
++
+     fn drop(self: *HeapProfile, addr: usize) ?Block {
+         const b = (self.live.fetchRemove(addr) orelse return null).value;
+         b.owner.live -= b.size;
+@@ -5965,8 +6127,10 @@ const HeapProfile = struct {
+         lock();
+         defer unlock();
+         // A block keeps its owner and site as it grows in place.
++        self.lgGrown(@intFromPtr(memory.ptr));
+         const was = self.drop(@intFromPtr(memory.ptr));
+         const kept = if (was) |b| b.owner else o;
++        self.inherit = if (was) |b| b.origin else 0;
+         self.add(@intFromPtr(memory.ptr), new_len, kept, if (was) |b| b.site else self.siteOf(o, @returnAddress()));
+         return true;
+     }
+@@ -5977,8 +6141,10 @@ const HeapProfile = struct {
+         const o = taken();
+         lock();
+         defer unlock();
++        self.lgGrown(@intFromPtr(memory.ptr));
+         const was = self.drop(@intFromPtr(memory.ptr));
+         const kept = if (was) |b| b.owner else o;
++        self.inherit = if (was) |b| b.origin else 0;
+         self.add(@intFromPtr(p), new_len, kept, if (was) |b| b.site else self.siteOf(o, @returnAddress()));
+         return p;
+     }
+@@ -5987,6 +6153,7 @@ const HeapProfile = struct {
+         const self: *HeapProfile = @ptrCast(@alignCast(ctx));
+         next().* = null;
+         lock();
++        self.lgFreed(@intFromPtr(memory.ptr));
+         _ = self.drop(@intFromPtr(memory.ptr));
+         unlock();
+         ownAllocator().rawFree(memory, alignment, ret_addr);
+@@ -6011,6 +6178,7 @@ const HeapProfile = struct {
+             std.debug.print("{d:>10.2} {d:>5.1}% {d:>10} {d:>8} {d:>11}  {s}\n", .{ @as(f64, @floatFromInt(o.at_peak)) / mib, share, o.blocks_at_peak, o.at_peak / @max(o.blocks_at_peak, 1), o.made, o.name });
+         }
+         if (heap_sites) self.reportSites(mib);
++        self.largeReport();
+     }
+ 
+     /// The sites that held the most at the peak, each with the calls that
