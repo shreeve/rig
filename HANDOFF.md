@@ -85,6 +85,13 @@ A new session, human or agent, takes these steps in order:
   memory 2.15 to 0.65 GB, emit identical. The arena hid a wrong free in
   `sema.plainLeaves`, fixed in the PR. The record is
   docs/history/records/2026-10/check-speed/.
+- **Tables' address space** (beat-tsrs item 15, queue row 34, #832):
+  release builds on Linux hand reserved Tables ranges of 256 GiB
+  regions, with no system call per Table while the huge-page gate is
+  shut, and a reading of `/proc/buddyinfo` answers for 4 ms. Trig at
+  four checkers: 1.8 to 3.7% fewer instructions, 1.6 to 4.5% less time
+  stacked with Trig's checker-tasks (docs/history/records/2026-10/
+  perf-stage/table-arena.md). In review.
 - **`target.has(.avx2)`** (queue row 32; the owner approved the
   names): std.target tests the CPU's features, as the built-in enum
   `Feature` of Zig's x86-64 and arm64 feature names, beside

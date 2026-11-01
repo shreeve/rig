@@ -1904,6 +1904,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   to 5.4%, ts-pattern 0.8%; with 35 free, ts-pattern 2.1% and zod3 3.0%.
   No compaction stall, peak memory up to 2 MB higher; with memory free
   it runs as before.
+- **Release runtime:** on Linux, reserved Tables take ranges of whole
+  huge pages from regions of 256 GiB, each mapped and advised for small
+  pages once, where each Table mapped, advised, and trimmed its own; a
+  Table dropped gives its pages back (`MADV_DONTNEED`) and its range to
+  the next. A reading of `/proc/buddyinfo` answers the huge-page tests
+  for 4 ms, so a burst of Tables reads it once; a segment or large block
+  asks only on a reading taken then. Trig at four checkers reads the
+  file 4 times where it read it 174, and maps 69 times where it mapped
+  240: 1.8 to 3.7% fewer instructions on its small projects, and with
+  its checkers made in tasks 1.6 to 4.5% less time. Peak memory is
+  unchanged; debug builds map each Table on their own, as before.
 - **Release allocator:** a heap keeps freed large blocks within its
   settled peak, the most it has had handed out just after a free, and
   16 MiB, where the peak was the most handed out at any moment. That

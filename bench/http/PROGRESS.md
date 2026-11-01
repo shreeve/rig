@@ -100,3 +100,5 @@ which is why that row reads faster.
 | 2026-10-31 | #819: a pool call's waiter yields while the call finishes (Mac, load 8-11) | rig-fast | 162179 | 386 us | 638 us | 16.6 KiB |
 | 2026-10-31 | main 1ac34e1bb before row 22 seg, alternated (pup core 6) | rig-fast | 199924 | 192 us | 3471 us | 8.6 KiB |
 | 2026-10-31 | row 22 seg: segments ask for huge pages at a low floor (pup core 6) | rig-fast | 197521 | 186 us | 3461 us | 8.6 KiB |
+| 2026-10-31 | a5a78efbb before #832 (main's alloc.zig and table.zig), alternated (pup core 6) | rig-fast | 212839 | 176 us | 3388 us | 8.6 KiB |
+| 2026-10-31 | #832: Tables take ranges of one address space (pup core 6) | rig-fast | 212576 | 174 us | 3393 us | 8.6 KiB |
