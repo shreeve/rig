@@ -21,7 +21,14 @@ a program that makes none starts no workers.
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
-  never blocks; every `std.file` call does so. `rig.blockingStop` makes
+  never blocks on another process; every `std.file` call that may wait
+  does so. A read of a regular file and the calls that only look at a
+  path (`exists`, `stat`, `realpath`, `read_dir`) run in the task, on
+  its worker: on a local disk each takes less than the pool's two
+  wakes, and none can wait on a writer or a device. The read looks at
+  the path, opens a regular file with O_NONBLOCK, and reads it only if
+  the descriptor's own stat says regular; anything else is opened on the
+  pool, so no FIFO is opened twice. `rig.blockingStop` makes
   such a call a fallible waiting point: a cancel or the task's deadline
   ends the wait, and the call runs on to its end on its thread, which
   drops its result, unless it waits in a system call that its waiter's
@@ -341,7 +348,7 @@ every time; the suite runs each concurrency case again under seeds 1 to
    something else ends (`sched.Wait`): a timer thread with a heap of
    deadlines, a cancel that wakes the wait it ends, a waiter that passes
    its cancel on to the task it waits on, and the blocking pool, which
-   `std.file` reads through.
+   `std.file`'s calls that may wait go through.
 5. **Yield checks**: a countdown in each outermost loop, and a flag
    read on entry to the functions that cut every cycle of calls, in
    programs that make tasks (above).

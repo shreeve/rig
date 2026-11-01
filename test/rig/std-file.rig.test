@@ -111,8 +111,8 @@ test "file errors are the system's", '''
   file.rename("examples", "examples/inside") catch |e| show(e)
 
 test "file calls from many tasks", seeds: 20, "true 8"
-  # Each task resolves the same path on the blocking pool, its waiter
-  # parked while the call runs and released when it is done.
+  # Each task resolves the same path, which runs in the task: it opens
+  # nothing that could wait.
   use std.file
 
   fun resolve(n: Int) -> Int!
@@ -132,9 +132,8 @@ test "file calls from many tasks", seeds: 20, "true 8"
     done += 1
   print(same, done)
 
-test "file calls from many tasks on the pool", "true 8"
-  # As above, on the real scheduler: each call goes to the pool's thread,
-  # which wakes its waiter before it marks the call done.
+test "file calls from many tasks on the scheduler", "true 8"
+  # As above, on the real scheduler, where each call runs in its task.
   use std.file
 
   fun resolve(n: Int) -> Int!
@@ -151,6 +150,64 @@ test "file calls from many tasks on the pool", "true 8"
   same = true
   for t in <ts
     same = same and (>t)! == 200
+    done += 1
+  print(same, done)
+
+test "file reads from many tasks", seeds: 20, "true 8"
+  # A regular file is read in its task; a device (/dev/null) and a
+  # directory go to the blocking pool, and nothing at a path is `none`.
+  use std.file
+
+  fun reads(n: Int, want: ?String) -> Int!
+    k = 0
+    for 0..n
+      got = file.read("examples/hello.rig")! ?? String()
+      k += 1 if got == want
+      dev = file.read("/dev/null")! ?? String("x")
+      k -= 1 if dev.len != 0
+      k -= 1 if file.read("no/such/file")! != none
+      _ = file.read("examples") catch |e|
+        k -= 1 if e != file.FileError.is_directory
+        none
+    k
+
+  want = file.read("examples/hello.rig")! ?? String()
+  ts: List[Task[Int!]] = List()
+  for 0..8
+    !ts.push(reads(10, ?want)&)
+  done = 0
+  same = want.len > 0
+  for t in <ts
+    same = same and (>t)! == 10
+    done += 1
+  print(same, done)
+
+test "file reads from many tasks on the scheduler", "true 8"
+  # As above, on the real scheduler: the regular file's reads run in
+  # each task, on its worker, and the others on the pool's threads.
+  use std.file
+
+  fun reads(n: Int, want: ?String) -> Int!
+    k = 0
+    for 0..n
+      got = file.read("SPEC.md")! ?? String()
+      k += 1 if got == want
+      dev = file.read("/dev/null")! ?? String("x")
+      k -= 1 if dev.len != 0
+      k -= 1 if file.read("no/such/file")! != none
+      _ = file.read("examples") catch |e|
+        k -= 1 if e != file.FileError.is_directory
+        none
+    k
+
+  want = file.read("SPEC.md")! ?? String()
+  ts: List[Task[Int!]] = List()
+  for 0..8
+    !ts.push(reads(50, ?want)&)
+  done = 0
+  same = want.len > 0
+  for t in <ts
+    same = same and (>t)! == 50
     done += 1
   print(same, done)
 

@@ -2168,6 +2168,16 @@ The model and its plan are
 [docs/design/concurrency-panel/](docs/design/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
+- **A regular file's read runs in its task.** `file.read` of a regular
+  file, and `exists`, `stat`, `realpath`, and `read_dir`, run on the
+  task's own worker, not the blocking pool, as Go's and tsrs's do; a
+  read of a FIFO or a device, every open of a `File`, and every write,
+  rename, `mkdir`, and removal stay on the pool, with their cancel and
+  SIGTERM behavior. The read opens only what the path's stat says is a
+  regular file, with O_NONBLOCK, and reads it only if the descriptor's
+  stat agrees, so no FIFO is opened twice. On pup, Trig 1.0 to 3.9%
+  faster at one checker and 4.9 to 6.4% at four; loco 10.8 to 28.5%
+  faster; instructions, user time, and peak memory level.
 - **A call on the blocking pool no longer spins its core away.** The
   waiter of a file call (`realpath`, `stat`, `read`) spins 64 times while
   the call's thread finishes, then yields its thread. Pinned to one
