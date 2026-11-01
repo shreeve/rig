@@ -1,0 +1,149 @@
+# ownership: tests whose names start `order`.
+#
+# A branch before its condition in the source (`stmt if cond`, `a if
+# cond else b`) runs after it: what the branch reads stays live while the
+# condition is walked (Core sentence 6). Each `bump` grows the List past
+# its capacity, so a wrong acceptance reads freed memory.
+
+fail "order postfix guard reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v[0]
+  print(r.n) if bump(!v) > 0
+
+fail "order ternary branch reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v[0]
+  print(r.n if bump(!v) > 0 else 0)
+
+fail "order ternary bound reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v[0]
+  x = r.n if bump(!v) > 0 else 0
+  print(x)
+
+fail "order ternary copies out a view its condition grows", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v[0]
+  x = r if bump(!v) > 0 else Item(n: 5)
+  print(x)
+
+fail "order postfix return reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  fun f(v: !List[Item]) -> Int
+    r = ?v[0]
+    return r.n if bump(!v) > 0
+    0
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  print(f(!v))
+
+fail "order postfix assignment reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  n = 0
+  r = ?v[0]
+  n = r.n if bump(!v) > 0
+  print(n)
+
+fail "order postfix guard reads a view its condition moves", "cannot move `v`"
+  obj Item
+    n: Int
+
+  fun take(v: List[Item]) -> Int
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v[0]
+  print(r.n) if take(<v) > 0
+
+fail "order ternary reads a write view its condition writes", "cannot lend `a` to write"
+  fun poke(a: !Int) -> Int
+    a += 100
+    a
+
+  a = 1
+  w = !a
+  print(w + 0 if poke(!a) > 0 else 0)
+
+fail "order postfix guard over a ternary", "cannot lend `v` to write while a read loan is live"
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2))
+    v.len
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v[0]
+  c = v.len > 0
+  print(r.n if c else 0) if bump(!v) > 0
+
+test "order postfix guard reads what its condition leaves alone", "1"
+  obj Item
+    n: Int
+
+  fun bump(u: !List[Item]) -> Int
+    for _ in 0..64
+      !u.push(Item(n: 2))
+    u.len
+
+  v: List[Item] = List()
+  u: List[Item] = List()
+  !v.push(Item(n: 1))
+  r = ?v[0]
+  print(r.n) if bump(!u) > 0
