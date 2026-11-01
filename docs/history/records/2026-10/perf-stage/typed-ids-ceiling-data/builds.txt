@@ -1,0 +1,8 @@
+23:06:58 x86 base exit=0 in 889 s
+23:25:40 x86 ids exit=0 in 1122 s
+23:42:59 x86 idspan exit=0 in 1039 s
+00:04:52 x86 hot exit=0 in 1313 s
+00:13:54 mac base exit=0 in 489 s
+00:23:47 mac ids exit=0 in 593 s
+00:33:58 mac idspan exit=0 in 611 s
+00:50:59 mac hot exit=0 in 1021 s

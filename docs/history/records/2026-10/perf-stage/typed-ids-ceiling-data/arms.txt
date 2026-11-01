@@ -1,0 +1,3 @@
+{"mode": "hot", "sites": 5036, "taken": 2155, "by class (hot)": {"id": 1336, "id hot": 2013, "other": 1275, "param-int": 230, "param-int hot": 142, "span": 40}}
+{"mode": "ids", "sites": 5036, "taken": 3491, "by class (hot)": {"id": 1336, "id hot": 2013, "other": 1275, "param-int": 230, "param-int hot": 142, "span": 40}}
+{"mode": "idspan", "sites": 5037, "taken": 3532, "by class (hot)": {"id": 1336, "id hot": 2013, "other": 1275, "param-int": 230, "param-int hot": 142, "span": 40, "span hot": 1}}
