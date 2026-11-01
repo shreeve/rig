@@ -332,6 +332,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   that copies and whose only views are `?String`s, as before. Docs
   only: no program's meaning changes.
 
+- **`target.debug`, the build mode.** `std.target` gives `debug: Bool`,
+  whether the build is a debug build, which checks for leaks (`rig run`,
+  `rig test`, and `rig build` without `--release`), false in a release
+  build. It is a constant the build sets, as `target.os` is. So a
+  program can end at once after its output in a release build, with
+  `os.exit(code) if not target.debug`, and still be dropped and
+  leak-checked in a debug one.
+
 - **`target.has(f)`, the CPU's features.** `std.target` gives
   `has(f: Feature) -> Bool`, whether the CPU the program is compiled for
   has feature `f`: a value of the built-in enum `Feature`, whose

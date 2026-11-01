@@ -2516,6 +2516,17 @@ test "target arch", '''
     x >>= 3 if target.arch == .x86_64 else 3
     print(x)
 
+test "target debug", "true"
+  # A test runs as a debug build, which checks for leaks.
+  print(target.debug)
+
+test "target debug keeps the drop", "done"
+  # Debug: no early end, so `xs` is dropped and the leak check runs.
+  xs: List[String] = List()
+  !xs.push(String("done"))
+  print(xs[0])
+  os.exit(0) if not target.debug
+
 fail "target arch const arithmetic", "8:15: the operands of a module constant's arithmetic must be known when Rig checks the program; the value of `TIER`", "9:10: the operands of a module constant's arithmetic must be known", "10:8: the operands of a module constant's arithmetic must be known", "11:10: the operands of a module constant's arithmetic must be known", "12:9: the operands of a module constant's arithmetic must be known", errors: 5
   # A module constant's arithmetic is computed when Rig checks the
   # program, and Zig computes it again when it compiles: on an operand the

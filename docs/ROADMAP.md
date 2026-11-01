@@ -17,7 +17,6 @@ items, with their probe cases, are in
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `?String`).
 - **A labeled value loop on the right of a binding** (`x = $l: for ...`), which needs a grammar change without conflicts.
 - **APIs, the rest** ([design/apis.md](design/apis.md), whose five stages are built): API objects of an API with an associated type, `^{Source[Item: Int]}`, when a program needs one (Stage 4, phase 5); owned closures as shared objects of one method, one allocation instead of two, kept only if `bench/closures` clears the speed bar (Stage 5, phase 4); and the Lean model's crossing obligation for objects (Stage 5, phase 3).
-- **Conditional compilation** on the target's operating system and CPU features and the build mode, as `std.target` gives the architecture (`target.arch`).
 - **More compile-time functions** (the first form is built, SPEC "Compile-time functions"): a call over an enclosing generic's parameter and arithmetic on one in a type (`[cap[n]]Int`, `[n * 2]Int`), by hidden compile-time arguments the checker computes per instance; then text parameters (`hash[s: Static]`), plain objects, and reading module array constants in a body.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Drop bodies for enums and generic types.**

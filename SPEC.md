@@ -4773,18 +4773,23 @@ as `.aes`, is each one's own feature. Five of Zig's names, such as
 do. `Arch`, `Os`, and `Feature` are built-in names, like `Endian`, and
 are reserved.
 
-`target.arch` and `target.os` are known at compile time, as is
-`target.has(f)` for an `f` known at compile time, and each stands
-wherever a constant can: in a module constant's initializer, as a
-compile-time argument of type `Arch` or `Os`, and in ordinary code,
-where `==` and `!=` compare one with a variant. Rig never knows their
+`target.debug` is whether the build is a debug build, which checks
+for leaks (`rig run`, `rig test`, and `rig build` without `--release`),
+and false in a release build.
+
+`target.arch`, `target.os`, and `target.debug` are known at compile
+time, as is `target.has(f)` for an `f` known at compile time, and each
+stands wherever a constant can: in a module constant's initializer, as
+a compile-time argument of type `Arch` or `Os`, and in ordinary code,
+where `==` and `!=` compare one with a variant and `target.debug` is a
+condition. Rig never knows their
 values: Zig sets them when it compiles the program for a target, so
 `rig check` gives a program the same verdict on every machine. Rig
 checks both branches of `a if target.arch == .x86_64 else b`, and Zig
 keeps the one the target picks, when it compiles, so a function called
 only in the other branch is never compiled or linked. A constant whose
-value names `target.arch`, `target.os`, or `target.has` is set by the
-target too.
+value names `target.arch`, `target.os`, `target.debug`, or
+`target.has` is set by the target too.
 
 ```rig
 use std.target

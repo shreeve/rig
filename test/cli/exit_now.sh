@@ -39,4 +39,29 @@ done
 rig run ends.rig >out.txt 2>err.txt; expect_rc $? 5 "rig run status"
 expect_eq "$(cat out.txt)" "lines 1000" "rig run stdout"
 expect_eq "$(grep -c 'memory leak' err.txt)" "0" "no leak report from os.exit"
+
+# `target.debug` is true in a debug build and false in a release one, so
+# `os.exit(0) if not target.debug` ends a release build after its output
+# and lets a debug build drop what it holds and check for leaks.
+cat >early.rig <<'EOF'
+use std.os
+use std.target
+
+sub main()
+  xs: List[String] = List()
+  !xs.push(String("done"))
+  print(xs[0], target.debug)
+  os.exit(0) if not target.debug
+  print("dropped and checked")
+EOF
+rig build -o early early.rig >build.log 2>&1 || fail "build early: $(cat build.log)"
+out=$(./early 2>err.txt); expect_rc $? 0 "early: debug status"
+expect_eq "$out" "done true
+dropped and checked" "early: a debug build goes on"
+expect_eq "$(grep -c 'memory leak' err.txt)" "0" "early: debug, no leak"
+for mode in --release --release=fast; do
+    rig build $mode -o early early.rig >build.log 2>&1 || fail "build early $mode: $(cat build.log)"
+    out=$(./early); expect_rc $? 0 "early: status $mode"
+    expect_eq "$out" "done false" "early: a release build ends after its output $mode"
+done
 exit 0
