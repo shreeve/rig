@@ -1,0 +1,20 @@
+486c486
+<     if (takeKept(&h.kept, size)) |p| {
+---
+>     if (takeKept(&h.kept, size)) |p| { const keep_w = std.mem.alignForward(usize, size / 2, std.heap.pageSize()); if (size > keep_w) decommit(@intFromPtr(p) + keep_w, size - keep_w);
+500c500
+<     prefault(h, got, likelyFilled(size - size / 4));
+---
+>     prefault(h, got, likelyFilled(size / 2));
+511c511
+< const huge_large: usize = 16 << 20;
+---
+> const huge_large: usize = std.math.maxInt(usize);
+1355c1355
+<         @memcpy(p[0..memory.len], memory);
+---
+>         @memcpy(p[0..memory.len], memory); { const keep_w = std.mem.alignForward(usize, memory.len, std.heap.pageSize()); if (new_size > keep_w) decommit(@intFromPtr(p) + keep_w, new_size - keep_w); }
+1375c1375
+<     prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 2));
+---
+>     
