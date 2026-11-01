@@ -49,3 +49,38 @@ split build was measured the same way.
    (`elf_aux_maybe`), which Zig's start code sets only in the
    executable's std. With that, the pup split binary prints the same as
    one unit's on mitt.
+
+## Release builds on pup, built by the compiler
+
+Trig main (`4bc7a9a`'s sources as of the Mac checkout), release
+(`--release`), pup E-cores; then timed on a P-core (core 6) with
+`time-ab.sh` (60 rounds on mitt, neverthrow, superstruct; 20 on zod3,
+ts-pattern, tiny-invariant; arms shuffled each round, after a warm-up),
+`--singleThreaded`.
+
+- **Build:** 28.6 min as one unit (1,677 s of CPU, 10.3 GB), 3.1 min
+  as 8 units (`--units=8`, 2.6 GB the largest process): about 9.3 times
+  faster.
+- **One unit, the branch against main:** the same instructions on every
+  project (each arm's range overlaps main's to the last few thousand),
+  and time within the A/A arm's spread (the branch 0.48% faster to
+  0.18% slower, a byte-identical copy of main 0.15% faster to 0.52%
+  slower). The cells, and the thread-locals' new order in the TLS
+  block, cost nothing.
+- **8 units against one:** 7.7% (mitt) to 14.1% (zod3) slower,
+  ts-pattern 12.9%; 6.6 to 10.2% more instructions; about 4 MB more
+  RSS. The output is the same on every project. A split release build
+  suits a check of an A/B's outputs, not its timing.
+- **The runtime benches** (`bench/tasks`, `actors`, `net`, `http`,
+  rig-fast): the binaries main and the branch build disassemble the same
+  but for one `cmp`/`je` written `test`/`jne`; two interleaved rounds
+  moved both ways within each row's own spread.
+
+## Gates
+
+The full suite, `zig build test` on the Mac and on pup (debug, safe,
+fast), `tools/emit-diff 43cdd0cc9` (every program module the same, Trig's
+included; the runtime differs by the cells), the JSON and Map guards
+(within 0.2%, or fewer instructions), Trig's light gate (GREEN, and
+GREEN again with its debug Trig built as 8 units), and loco's light gate
+(GREEN).
