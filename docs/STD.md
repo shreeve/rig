@@ -495,9 +495,11 @@ them tasks and wait with `>`, as for any call. Like a socket's calls
 task and with `task.Stop.timeout` past the task's deadline
 (`time.within`): before it starts, and while it waits, so a cancel or a
 deadline ends the wait for a call that blocks (a read of a pipe no one
-writes). The call itself runs on to its end on the pool, and what it
-gives is dropped: a write may still happen, and a file it opened is
-closed.
+writes), with or without tasks. A call waiting on another process (an
+open of a FIFO, a read of an empty pipe, a write to a full one) stops
+there; one still to start never starts; one under way on the disk runs
+on to its end, and what it gives is dropped: a write may still happen,
+and a file it opened is closed.
 
 A `File` reads and writes from where its last read or write ended, with
 the methods a `net.Stream` has, and closes when it is dropped. The

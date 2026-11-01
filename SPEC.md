@@ -12695,7 +12695,9 @@ sub main()
 **An interrupt cancels `main`.** An interrupt (Ctrl-C, SIGINT) or a
 request to end (SIGTERM) cancels `main` when `main` can fail, as a
 cancel reaches any task: `main` fails with `Stop.canceled` at its next
-waiting point (a socket's `accept`, `read`, and `write` among them),
+waiting point, or at the one it waits in (a socket's `accept`, `read`,
+and `write`, and a file's `open`, `read`, and `write`, among them, even
+one waiting on another process, as a FIFO's open waits for a writer),
 its `defer`s and drops run, and the tasks it owns are canceled as they
 drop. The program then ends as the signal ends one, with status 130 or
 143, and shows no error. A `main` that catches the cancel and returns
@@ -13007,6 +13009,10 @@ propagate with `!`, so the call can fail. Every fallible waiting point
 `f` reaches after the deadline fails with `task.Stop.timeout`:
 `time.sleep`, which sleeps only until the deadline, `task.check`, and
 a wait on a task, a set, or `task.all`, whose tasks are canceled first.
+A call that is waiting as the deadline passes fails then, with or
+without tasks: a socket's, and a file's, even one waiting on another
+process (the open of a FIFO no one writes, a read of an empty pipe, a
+write to a full one).
 
 - `within` calls `f` once (its parameter is written `f: once ?fun() ->
   R!`, [Closures called once](#closures-called-once)), so `f` may move in

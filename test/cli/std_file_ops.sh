@@ -92,8 +92,8 @@ EOF2
 
 # Past a deadline, or canceled, a call fails before it reaches the pool;
 # and a call already waiting on the pool, here opening a FIFO no one
-# writes, ends its wait at the deadline or the cancel. Writing the FIFO
-# at the end lets those calls finish, and their results are dropped.
+# writes, ends its wait at the deadline or the cancel, and the call
+# itself ends then too, so the program ends with none left waiting.
 cat >stop.rig <<'EOF2'
 use std.file
 use std.task
@@ -139,8 +139,6 @@ sub main()!
   time.sleep(50 * time.MS)!
   print(<r.cancel() catch |e| -4)
   print(t0.elapsed() < 5 * time.SECOND)
-  file.append("fifo", "x")!
-  time.sleep(300 * time.MS)!
 EOF2
 
 # A FIFO opened with `wait: false`, which no writer has opened: the open

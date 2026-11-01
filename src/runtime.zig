@@ -68,24 +68,32 @@ pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".
 /// `f(args...)`, a call that may block its thread, as a fallible waiting
 /// point: on the scheduler's blocking pool, where a cancel of the task
 /// waiting, or its deadline, ends the wait with `Stop.canceled` or
-/// `Stop.timeout` while the call runs on to its end and its result is
-/// dropped (`sched.blockingStop`). `args` are copied into the call's own
+/// `Stop.timeout` while the call runs on to its end, or to the retry of
+/// the system call its waiter's wake ended, and its result is dropped
+/// (`sched.blockingStop`). `args` are copied into the call's own
 /// state, a `[]const u8` among them with what it points to; anything else
 /// they point to must outlive the call. An argument the call could write
 /// through (`[]u8`, `*T`) does not compile: a canceled waiter goes on
 /// while the call may still write, so the call reads into memory it owns
-/// and returns it. Without the scheduler it runs here, after a look at
-/// the deadline.
+/// and returns it. Without the scheduler it runs here, once `checkStop`
+/// passes; an interrupt's cancel of `main` makes the system call it
+/// blocks in fail (EINTR), and so does an alarm at the task's deadline
+/// (`Alarm`), and the call's retry loop stops there (`checkStop`).
 pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (scheduled) return switch (sched.blockingStop(f, args)) {
         .done => |r| r,
         .canceled => error.@"std.task.Stop.canceled",
         .timeout => error.@"std.task.Stop.timeout",
     };
-    if (task().deadline) |d| if (sched.nowNs() >= d) return error.@"std.task.Stop.timeout";
+    try checkStop();
+    const d = task().deadline orelse return @call(.auto, f, args);
+    if (sched.deterministic) return @call(.auto, f, args);
+    const alarm = Alarm.set(d);
+    defer alarm.clear();
     return @call(.auto, f, args);
 }
 pub const Stop = tasks.Stop;
+pub const checkStop = tasks.checkStop;
 
 // Errors with data. A program in which a member with fields reaches
 // `error` declares `__rig_error_glue` in its root module: the size and
@@ -348,7 +356,7 @@ pub const TestErrorGlue = struct {
         return std.mem.eql(u8, &@as(*const ErrData, @ptrCast(@alignCast(a))).bytes, &@as(*const ErrData, @ptrCast(@alignCast(b))).bytes);
     }
 };
-const Control = tasks.Control;
+pub const Control = tasks.Control;
 
 /// How many turns of a loop run between a task's yield checks (`turn`).
 pub const tick_turns: u32 = 1024;
@@ -7353,6 +7361,10 @@ pub fn exitStatus(n: Int) u8 {
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    // Calls on the blocking pool that their tasks stopped waiting for
+    // end first, dropping what they hold, so the leak check does not
+    // count it.
+    if (scheduled) sched.settleLeftCalls();
     if (pgo) writeProfile();
     if (map_trace) map_tracer.close();
     if (makes_tasks) threaded.deinit();
@@ -7489,6 +7501,85 @@ fn interruptedBy() ?std.posix.SIG {
     const sig = interrupted.load(.seq_cst);
     return if (sig == 0) null else @fromBackingInt(@intCast(sig));
 }
+
+// Waking a blocked system call. A call that blocks its thread is woken
+// by a signal whose handler does nothing, installed without SA_RESTART,
+// so the system call fails with EINTR and its retry loop asks
+// `checkStop`: with no scheduler, an alarm at the task's deadline
+// (`Alarm`); on the scheduler, a signal to the blocking pool's thread
+// whose call its waiter stopped waiting for (`wakeThread`). SIGALRM,
+// which nothing else in the runtime uses.
+
+const wake_signal: std.posix.SIG = .ALRM;
+var wake_installed: std.atomic.Value(bool) = .init(false);
+
+fn installWake() void {
+    if (std.posix.Sigaction == void) return;
+    if (wake_installed.load(.acquire)) return;
+    const act: std.posix.Sigaction = .{ .handler = .{ .handler = onWake }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    std.posix.sigaction(wake_signal, &act, null);
+    wake_installed.store(true, .release);
+}
+
+fn onWake(_: std.posix.SIG) callconv(.c) void {}
+
+/// The running thread, as `wakeThread` names it.
+pub fn threadId() usize {
+    if (builtin.link_libc) return @intFromPtr(std.c.pthread_self());
+    if (builtin.os.tag == .linux) return @intCast(std.os.linux.gettid());
+    return 0;
+}
+
+/// Make the system call thread `id` blocks in, if any, fail with EINTR.
+/// The thread must be running: the blocking pool keeps a call's thread
+/// from leaving it until its waiter has woken it (`sched.poolCall`).
+pub fn wakeThread(id: usize) void {
+    if (id == 0) return;
+    installWake();
+    if (builtin.link_libc) {
+        _ = std.c.pthread_kill(@ptrFromInt(id), wake_signal);
+    } else if (builtin.os.tag == .linux) {
+        _ = std.os.linux.tgkill(std.os.linux.getpid(), @intCast(id), wake_signal);
+    }
+}
+
+/// An alarm at a deadline, for a call that blocks the only thread of a
+/// program that makes no tasks (`blockingStop`): SIGALRM at the deadline,
+/// then every `again_us`, until the call returns. The repeat wakes a
+/// call the first signal reached before it entered the system call.
+const Alarm = struct {
+    on: bool,
+
+    const again_us = 10 * std.time.us_per_ms;
+
+    const TimeVal = std.posix.timeval;
+    const ITimerVal = extern struct { interval: TimeVal, value: TimeVal };
+    extern "c" fn setitimer(which: c_int, new: *const ITimerVal, old: ?*ITimerVal) c_int;
+
+    fn set(deadline: i96) Alarm {
+        if (std.posix.Sigaction == void) return .{ .on = false };
+        installWake();
+        const us = @max(@divTrunc(deadline - sched.nowNs() + std.time.ns_per_us - 1, std.time.ns_per_us), 1);
+        arm(.{
+            .interval = .{ .sec = 0, .usec = again_us },
+            .value = .{ .sec = @intCast(@divTrunc(us, std.time.us_per_s)), .usec = @intCast(@rem(us, std.time.us_per_s)) },
+        });
+        return .{ .on = true };
+    }
+
+    fn clear(a: Alarm) void {
+        if (!a.on) return;
+        arm(.{ .interval = .{ .sec = 0, .usec = 0 }, .value = .{ .sec = 0, .usec = 0 } });
+    }
+
+    fn arm(v: ITimerVal) void {
+        if (builtin.link_libc) {
+            _ = setitimer(0, &v, null);
+        } else if (builtin.os.tag == .linux) {
+            _ = std.os.linux.syscall3(.setitimer, 0, @intFromPtr(&v), 0);
+        }
+    }
+};
 
 fn defaultFor(sig: std.posix.SIG) void {
     const dfl: std.posix.Sigaction = .{ .handler = .{ .handler = std.posix.SIG.DFL }, .mask = std.posix.sigemptyset(), .flags = 0 };

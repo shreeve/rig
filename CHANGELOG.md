@@ -447,6 +447,19 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   SIGILL or SIGFPE does the same, status 132 or 136, where a debug or
   `--release` build reported it as an illegal instruction or an
   arithmetic exception, with a trace, and aborted (134).
+- **A blocking call ends when its task stops, with or without tasks.**
+  A file's open, read, or write waiting on another process (the open of
+  a FIFO no one writes, a read of an empty pipe, a write to a full one)
+  fails with `task.Stop.timeout` at a `time.within` deadline, and SIGTERM
+  or SIGINT ends a program waiting in one with status 143 or 130. In a
+  program that made no task the open retried the signal's EINTR forever,
+  and no deadline could end any of them; in a task the wait ended but
+  the call's pool thread stayed blocked, holding a read's buffer, which
+  the leak check then reported, and the program's exit waited a second
+  for it. Every retry of a blocking system call now asks the task
+  whether to stop; with no tasks a deadline sets an alarm that wakes the
+  call, and on the blocking pool the waiter that leaves wakes the call's
+  thread.
 - **`std.crypto`: WireGuard's primitives, in Rig and in constant
   time.** `crypto.ChaCha.of(key)` and `crypto.XChaCha.of(key)` seal and open
   ChaCha20-Poly1305 and XChaCha20-Poly1305 in place
