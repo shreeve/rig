@@ -9765,12 +9765,14 @@ pub const Emitter = struct {
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
-        // literal). A view read through is read here, in argument order.
-        // A value lent has the parameter's type.
+        // literal). A view read through (`SemContext.readsThrough`: where
+        // the parameter or field takes the value, including from a name,
+        // field, or element that holds the view) is read here, in argument
+        // order. A value lent has the parameter's type.
         const shown: ?TypeId = if (lent) (if (slot < params.len) params[slot] else null) else ty;
         if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
-            try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelViews(t) else t);
+            try self.emitTypeTy(if (self.facts.readsThrough(h.node) and self.isPtrViewExpr(h.node)) self.peelViews(t) else t);
         };
         try self.w.writeAll(" = ");
         {

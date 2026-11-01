@@ -259,6 +259,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **An argument evaluated first reads a held view into a value.** A
+  call whose arguments go into temporaries first (keyword arguments
+  given out of order, or an owned argument before one that may fail)
+  gave a name, field, or element holding a view, passed where a value
+  goes (to a function, a method, or a constructor), the view's type
+  while writing its value: `g(b: r, a: bump(!v))` with `r =
+  ?u[0]` and `b: Item` was accepted and failed in Zig. The temporary
+  now has the value's type wherever the checkers recorded that the
+  parameter or field reads the view through.
+
 - **A loop reads a view a call returns where it points.** What the
   loans of a value name (a place, a value made in its statement, both,
   or neither) is one fact, decided by `sema.viewsOf` from what each part
