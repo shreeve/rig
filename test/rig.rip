@@ -1034,7 +1034,7 @@ checkMatrix = (c) ->
 
 # The oracle reads no ownership classification of the compiler's (comments
 # aside), and the compiler never imports the oracle.
-forbidden = new RegExp("ownership\\.zig|typecheck\\.zig|storage\\.zig|\\b(storageOf|recordStorage|Storage|StorageKind|StorageBy|StorageLife|copiesHeader|header_copies|dropsTemp|temp_drops|readsInPlace|in_place_reads|takesSubject|taken_subjects|readsThrough|readsAsView|unboxes|unboxed|arrayViewOf|array_views|lendsText|text_lends|takes|recordTake|moveSource|MoveSource|moveLeaves|MoveLeaf|writesThrough|through_writes|lendsCellTemp|cell_temps|handsOver)\\b|facts\\.(reads|views)")
+forbidden = new RegExp("ownership\\.zig|typecheck\\.zig|storage\\.zig|\\b(storageOf|recordStorage|Storage|StorageKind|StorageBy|StorageLife|copiesHeader|header_copies|dropsTemp|temp_drops|readsInPlace|in_place_reads|takesSubject|taken_subjects|readsThrough|readsAsView|unboxes|unboxed|arrayViewOf|array_views|lendsText|text_lends|takes|recordTake|moveSource|MoveSource|moveLeaves|MoveLeaf|writesThrough|through_writes|lendsCellTemp|cell_temps|handsOver|livesIn|madeIn|LoanRoots)\\b|sema\\.viewsOf\\b|facts\\.(reads|views)")
 checkLint = (c) ->
   for f in readdirSync(join(root, 'test', 'oracle')).filter((f) -> f.endsWith('.zig')).sort()
     for l, k in readFileSync(join(root, 'test', 'oracle', f), 'utf8').split('\n')

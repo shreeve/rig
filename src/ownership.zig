@@ -7370,6 +7370,14 @@ pub const Checker = struct {
             spec.elem_view = true;
             const found = self.errors_found;
             const value = try self.walk(source);
+            // The type checker let the loop read a source a call gives in
+            // place where the recorded fact says its loans name only places
+            // (`storage.livesIn`, CORE §9); the loans walked here agree, or
+            // the fact is wrong.
+            if (self_check) if (storage.decided(self.sema, source, .lives_in)) |roots| if (roots.onlyPlaces()) if (self.headerTempLoan(drops, value) != null) {
+                const lc = diag.lineCol(self.source, self.startOf(source));
+                std.debug.panic("{d}:{d}: internal error: the loop's source was decided to live only in places (`lives_in`), but its loans name a value made in its header", .{ lc.line, lc.col });
+            };
             if (self.headerTempLoan(drops, value)) |l| try self.reportTempOutlived(l, null);
             // The elements of a collection the source makes (an array of
             // views, a call's result) carry the views it holds.

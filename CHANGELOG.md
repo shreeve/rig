@@ -252,6 +252,21 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A loop reads a view a call returns where it points.** What the
+  loans of a value name (a place, a value made in its statement, both,
+  or neither) is one fact, decided by `sema.viewsOf` from what each part
+  hands over (CORE §9, now built), and recorded where a loop's source
+  asks it. A `for` over a call's returned view of places walks it in
+  place, as it walks a place: `for x in first(?ls)`, a path through one
+  (`pick(?lss)[0]`), a view field of a made value (`wrap(?xs).items`), a
+  lend of one (`?first(?ls)`), and a write view one returns
+  (`!first_mut(!ls)`), where a List of owners was rejected with "bind it
+  to a name first". The owner stays lent while the loop runs. A view
+  whose loans name a value made in the header is still rejected, and
+  the hint now names that value (`bind mk() to a name first`). This only
+  accepts more programs; the emitted Zig of every program accepted
+  before is the same.
+
 - **A member's facts live in the tree.** A type declaration holds the
   names of its `pub` members and its read-only fields in its `pubs` and
   `read_only` groups; a function the names of its `once` parameters in

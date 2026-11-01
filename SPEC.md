@@ -6082,9 +6082,12 @@ does. A branching value that may be a name's (`a if c else b`) is a
 value, never a place, so walking it in place would lend it, which is
 rejected ([§7](#lending)): lend each branch, `for e in ?a if c else ?b`.
 A List whose elements move (a `List[String]`, a List of
-owners) is walked only where a name holds it, or a field or element of
-one, so a call's result, or a part of a value made there (`mk().items`),
-is bound to a name first:
+owners) is walked only where it outlives the loop's header: where a
+name holds it, a field or element of one, or a view whose loans name
+only places reaches it (CORE §9), as a view a call returns does
+(`for x in first(?ls)` walks `ls[0]`). A List a call makes, a part of a
+value made there (`mk().items`), and a List a view of a value made
+there reaches (`first(?mk())`) are bound to a name first:
 
 ```rig reject
 obj H

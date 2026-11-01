@@ -3179,7 +3179,10 @@ const Checker = struct {
                 } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
                 // `for x in ?e` and `for x in !e` lend `e`: one made here would
                 // end with the header. A call's result is taken: `for x in e`.
-                if ((mode == .read or mode == .write) and !(unbound and list) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
+                // A view a call returns, whose loans name only places, is
+                // lent on (`?first(?ls)` is the view `first(?ls)` gives).
+                const lends_view_on = sema.isReadOrWriteView(self.ctx, source_ty) and storage.livesIn(self.ctx, source).onlyPlaces();
+                if ((mode == .read or mode == .write) and !lends_view_on and !(unbound and list) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
                     try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
                 }
             }
@@ -3496,6 +3499,9 @@ const Checker = struct {
     /// source must be a place the loop may write.
     fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId) Error!TypeId {
         const place = self.placeOf(inner_source);
+        // A write view a call returns, whose loans name only places
+        // (`first_mut(!ls)`), is written through where it points.
+        if (!place.named() and self.writeViewOfPlaces(inner_source)) return self.loopElement(.write, elem);
         if (!place.named()) {
             try self.errAt(source, "`for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one", .{});
         } else _ = try self.requireAccess(place, .write_iterate, source);
@@ -3532,11 +3538,26 @@ const Checker = struct {
             try self.err(pos, "`<{s}` would move the elements out of {s} that a shared handle (`*T`) holds; loop over `?{s}`", .{ shown, what, shown });
             return self.t().invalid_id;
         }
-        if (!self.placeOf(inner_source).named()) {
+        if (!self.walksPlace(inner_source)) {
             try self.err(pos, "a loop through a shared handle walks one that a name holds, or a field or element of one; bind `{s}` to a name first", .{shown});
             return self.t().invalid_id;
         }
         return try self.loopElement(.read, elem);
+    }
+
+    /// Whether `e` is a write view whose loans name only places
+    /// (`storage.livesIn`): what it points at outlives the statement.
+    fn writeViewOfPlaces(self: *Checker, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return self.ctx.types.get(ty) == .write_view and storage.livesIn(self.ctx, e).onlyPlaces();
+    }
+
+    /// Whether a loop over `source` walks memory that outlives its header,
+    /// so it reads the elements where they are: a place a name holds, or
+    /// a field or element of one, or a view whose loans name only places
+    /// (`storage.livesIn`, CORE §9): `first(?ls)` views `ls`.
+    fn walksPlace(self: *Checker, source: Sexp) bool {
+        return self.placeOf(source).named() or storage.livesIn(self.ctx, source).onlyPlaces();
     }
 
     fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
@@ -3554,7 +3575,7 @@ const Checker = struct {
                     try self.err(pos, "a loop takes no slot out of a table; loop over `?{s}` or `!{s}`", .{ shown, shown });
                     return self.t().invalid_id;
                 }
-                if (sema.moves(self.ctx, elem) == .yes and !self.placeOf(inner_source).named()) {
+                if (sema.moves(self.ctx, elem) == .yes and !self.walksPlace(inner_source)) {
                     try self.err(pos, "a loop over a table of `{s}` walks a table that a name holds, or a field or element of one; bind it to a name first", .{try self.tyName(elem)});
                     return self.t().invalid_id;
                 }
@@ -3567,11 +3588,13 @@ const Checker = struct {
                 if (is_resource) {
                     // The one diagnostic for such a loop over any other
                     // source; `checkFor` reports nothing more of it.
-                    if (!self.placeOf(inner_source).named()) {
-                        // What to bind: the value made here, of which the
-                        // source may be a part; a branching source is
-                        // bound with each name taken (`<a if c else <b`).
-                        const made = self.madeBase(inner_source);
+                    if (!self.walksPlace(inner_source)) {
+                        // What to bind: the value made here that the
+                        // source is, is a part of, or views (`mk()` in
+                        // `first(?mk())`, `sema.madeIn`); a branching
+                        // source is bound with each name taken
+                        // (`<a if c else <b`).
+                        const made = sema.madeIn(self.ctx, inner_source) orelse self.madeBase(inner_source);
                         const bind = if (made != .nil) made else inner_source;
                         const hint = if (self.hands(bind).kind == .branches) "bind the List to a name first" else try self.ctx.arena.allocator().print("bind `{s}` to a name first", .{self.sourceText(bind)});
                         try self.err(pos, "a loop over a List of `{s}` walks a List that a name holds, or a field or element of one; {s}", .{ try self.tyName(elem), hint });

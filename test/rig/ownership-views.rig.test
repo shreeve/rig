@@ -1,0 +1,218 @@
+# What a value's loans name (CORE §9): a header reads a view a call
+# returns in place, as it reads a place, and still refuses one whose
+# loans name a value made in its statement. Cases from the 33C review
+# (docs/history/records, core-33c).
+
+test "for over a call's view of a place", "a"
+  fun first_list(lists: ?List[List[String]]) -> ?List[String]
+    ?lists[0]
+
+  ls: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !ls.push(<inner)
+  for x in first_list(?ls)
+    print(x)
+
+fail "for over a call's view keeps the owner lent", "cannot lend `ls` to write while a read loan is live"
+  fun first_list(lists: ?List[List[String]]) -> ?List[String]
+    ?lists[0]
+
+  ls: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !ls.push(<inner)
+  for x in first_list(?ls)
+    !ls.push(List())
+    print(x)
+
+fail "for over a call's view: no drop of the owner", "cannot drop `ls` while it is lent"
+  fun first_list(lists: ?List[List[String]]) -> ?List[String]
+    ?lists[0]
+
+  ls: List[List[String]] = List()
+  !ls.push(List())
+  for x in first_list(?ls)
+    <ls
+    print(x)
+
+fail "for over a call's view: stored element keeps the loan", "cannot lend `ls` to write while a read loan is live"
+  fun first_list(lists: ?List[List[String]]) -> ?List[String]
+    ?lists[0]
+
+  ls: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !ls.push(<inner)
+  out: List[?String] = List()
+  for x in first_list(?ls)
+    !out.push(x)
+  !ls.push(List())
+  print(out)
+
+fail "for over a call given a made argument unmarked", "bind `mk()` to a name first"
+  fun first_list(lists: ?List[List[String]]) -> ?List[String]
+    ?lists[0]
+
+  fun mk() -> List[List[String]]
+    ls: List[List[String]] = List()
+    !ls.push(List())
+    ls
+
+  for x in first_list(mk())
+    print(x)
+
+fail "for over a method of a made self", "bind `mk()` to a name first"
+  obj Bag
+    items: List[String]
+
+    fun all(?@) -> ?List[String] from @items
+      ?@items
+
+  fun mk() -> Bag
+    Bag(items: List())
+
+  for x in mk().all()
+    print(x)
+
+fail "for over an API object made unmarked", "bind `mk()` to a name first"
+  api Src
+    fun items(?@) -> ?List[String] from @
+
+  obj Bag: Src
+    xs: List[String]
+
+    fun items(?@) -> ?List[String] from @
+      ?@xs
+
+  fun items_of(s: ?{Src}) -> ?List[String]
+    s.items()
+
+  fun mk() -> Bag
+    Bag(xs: List())
+
+  for x in items_of(mk())
+    print(x)
+
+fail "header part through a view of a made value", "a temporary it makes ends with the header"
+  fun pick(ls: ?List[String?]) -> ?List[String?]
+    ls
+
+  fun mk() -> List[String?]
+    ls: List[String?] = List()
+    !ls.push(String("abcdefghijklmnopqrstuvwxyz"))
+    ls
+
+  if pick(mk())[0] as s
+    print(s)
+
+fail "branch of a place view and a made view", "bind `mk()` to a name first"
+  fun first_list(lists: ?List[List[String]]) -> ?List[String]
+    ?lists[0]
+
+  fun mk() -> List[List[String]]
+    ls: List[List[String]] = List()
+    !ls.push(List())
+    ls
+
+  a = mk()
+  c = a.len > 0
+  for x in (first_list(?a) if c else first_list(?mk()))
+    print(x)
+
+test "for over a made iterator of the view kind is held", '''
+  p
+  p
+'''
+  obj Cur
+    xs: ?List[String]
+    i: Int
+
+    fun next(!@) -> (?String)?
+      return none if @i >= @xs.len
+      @i += 1
+      ?@xs[@i - 1]
+
+  fun cur_of(xs: ?List[String]) -> Cur
+    Cur(xs: xs, i: 0)
+
+  xs: List[String] = List()
+  !xs.push(String("p"))
+  for x in cur_of(?xs)
+    print(x)
+  for x in Cur(xs: ?xs, i: 0)
+    print(x)
+
+test "for over a lend of a call's view", "a"
+  fun first_list(lists: ?List[List[String]]) -> ?List[String]
+    ?lists[0]
+
+  ls: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !ls.push(<inner)
+  for x in ?first_list(?ls)
+    print(x)
+
+test "for writing through a call's write view", ["a!"]
+  fun first_mut(lists: !List[List[String]]) -> !List[String]
+    !lists[0]
+
+  ls: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !ls.push(<inner)
+  for x in !first_mut(!ls)
+    !x.add("!")
+  print(ls[0])
+
+test "for over a part through a call's view", "a"
+  fun pick(lss: ?List[List[String]]) -> ?List[List[String]]
+    lss
+
+  lss: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !lss.push(<inner)
+  for s in pick(?lss)[0]
+    print(s)
+
+test "for over a view field of a made object", "w"
+  obj W
+    items: ?List[String]
+
+  fun wrap(xs: ?List[String]) -> W
+    W(items: xs)
+
+  xs: List[String] = List()
+  !xs.push(String("w"))
+  for x in wrap(?xs).items
+    print(x)
+
+# A loop header lends all of self for the loop, where a bound
+# `r = ?b.all()` lends only `b.items`: narrowing the header's loan to a
+# `from @field` path is the ownership checker's, a change of its own.
+test "for over a from-path view leaves other fields free", "[1]", known: true
+  obj Bag
+    items: List[Int]
+    other: List[Int]
+
+    fun all(?@) -> ?List[Int] from @items
+      ?@items
+
+  b = Bag(items: List(), other: List())
+  !b.items.push(1)
+  for x in b.all()
+    !b.other.push(x)
+  print(b.other)
+
+test "for over a call with a temporary key", "z"
+  fun find(lss: ?List[List[String]], key: ?String) -> ?List[String] from lss
+    ?lss[0]
+
+  lss: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("z"))
+  !lss.push(<inner)
+  for x in find(?lss, ?String("a", "b"))
+    print(x)
