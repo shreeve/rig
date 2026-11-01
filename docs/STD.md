@@ -535,6 +535,8 @@ sub main()!
     (!f).sync_data()!
     print(f.is_terminal())
   print(io.stdout().is_terminal())
+  _ = file.remove("out/sync/f")!
+  _ = file.remove("out/sync")!
 ```
 
 ```output
