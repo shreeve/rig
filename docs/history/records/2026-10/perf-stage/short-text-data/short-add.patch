@@ -1,0 +1,40 @@
+diff --git a/src/runtime.zig b/src/runtime.zig
+index 10ad7ca74..19ec5d4b5 100644
+--- a/src/runtime.zig
++++ b/src/runtime.zig
+@@ -3611,11 +3611,34 @@ pub const String = struct {
+             // Both are `bytes_.len` long; a move, so it is right even if
+             // `bytes_` were this String's own spare capacity.
+             @setRuntimeSafety(proven_checks);
+-            @memmove((l.items.ptr + used)[0..bytes_.len], bytes_);
++            if (bytes_.len <= 16) moveShort(l.items.ptr + used, bytes_.ptr, bytes_.len) else @memmove((l.items.ptr + used)[0..bytes_.len], bytes_);
+         }
+         l.items.len = used +% bytes_.len;
+     }
+ 
++    /// Move `n` bytes, at most 16, from `src` to `dst` by loads that may
++    /// overlap, all done before any store, so the ranges may overlap too.
++    inline fn moveShort(dst: [*]u8, src: [*]const u8, n: usize) void {
++        if (n >= 8) {
++            const a = src[0..8].*;
++            const b = src[n - 8 ..][0..8].*;
++            dst[0..8].* = a;
++            dst[n - 8 ..][0..8].* = b;
++        } else if (n >= 4) {
++            const a = src[0..4].*;
++            const b = src[n - 4 ..][0..4].*;
++            dst[0..4].* = a;
++            dst[n - 4 ..][0..4].* = b;
++        } else if (n > 0) {
++            const a = src[0];
++            const b = src[n / 2];
++            const c = src[n - 1];
++            dst[0] = a;
++            dst[n / 2] = b;
++            dst[n - 1] = c;
++        }
++    }
++
+     /// `@memcpy` into `dst`, a block just allocated, which therefore
+     /// overlaps no other memory, of `src.len` bytes.
+     inline fn copyFresh(dst: []u8, src: []const u8) void {

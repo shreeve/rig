@@ -1,0 +1,53 @@
+diff --git a/src/runtime.zig b/src/runtime.zig
+index 10ad7ca74..52fea10b4 100644
+--- a/src/runtime.zig
++++ b/src/runtime.zig
+@@ -1791,12 +1791,48 @@ pub fn eql(a: anytype, b: anytype) bool {
+         return eql(x, y);
+     }
+     // A String compares with a String or a `?String` by its bytes.
++    // Text beside a literal: the literal's length is known here, so the
++    // lengths compare inline and a short literal's bytes too (`eqlLit`).
++    if (comptime litLen(B) != null and (isString(A) or isStringView(A))) return eqlLit(stringBytes(a), b);
++    if (comptime litLen(A) != null and (isString(B) or isStringView(B))) return eqlLit(stringBytes(b), a);
+     if (comptime isString(A) or isString(B)) return std.mem.eql(u8, stringBytes(a), stringBytes(b));
+     // The peer type of an optional error and an error is an error union.
+     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
+     return eqlAs(T, a, b);
+ }
+ 
++/// The length of a string literal's type, a pointer to a byte array
++/// with a sentinel; null for any other type.
++fn litLen(comptime T: type) ?usize {
++    return switch (@typeInfo(T)) {
++        .pointer => |p| if (p.size == .one) switch (@typeInfo(p.child)) {
++            .array => |a| if (a.child == u8 and a.sentinel_ptr != null) a.len else null,
++            else => null,
++        } else null,
++        else => null,
++    };
++}
++
++/// Whether `x` has the bytes of `lit`, a literal: the lengths first, then
++/// up to 16 bytes by loads that may overlap, the rest by `std.mem.eql`.
++inline fn eqlLit(x: []const u8, lit: anytype) bool {
++    const n = comptime litLen(@TypeOf(lit)).?;
++    if (x.len != n) return false;
++    if (n == 0) return true;
++    if (n > 16) return std.mem.eql(u8, x, lit);
++    const p = x.ptr;
++    const q: [*]const u8 = lit;
++    if (n >= 8) return (load(u64, p) ^ load(u64, q)) | (load(u64, p + n - 8) ^ load(u64, q + n - 8)) == 0;
++    if (n >= 4) return (load(u32, p) ^ load(u32, q)) | (load(u32, p + n - 4) ^ load(u32, q + n - 4)) == 0;
++    if (n >= 2) return (load(u16, p) ^ load(u16, q)) | (load(u16, p + n - 2) ^ load(u16, q + n - 2)) == 0;
++    return p[0] == q[0];
++}
++
++/// `T` read from `p`, unaligned, in native byte order.
++inline fn load(comptime T: type, p: [*]const u8) T {
++    return std.mem.readInt(T, p[0..@sizeOf(T)], builtin.cpu.arch.endian());
++}
++
+ /// A pointer to one value that is no text: a read view of a struct,
+ /// enum, or array held by address. (A shared handle has no `==`.)
+ fn isValuePointer(comptime T: type) bool {

@@ -1,0 +1,19 @@
+# timeceil.sh 20 base c38 c39 cboth call, pup core 3 (sibling 4 idle); a Nexus job on cores 5 and 14
+# Trig parser-tsrs af8d3a6; Rigs: base a15297f4e, c38 8467bd60f, c39 fe6464d1e, cboth f91c5803a, call 389093b7a (cboth + row 35 slice inline)
+start 2026-11-01 01:46:07 load 5.00 7.18 6.45
+empty  base   fastest    17.31 ms  median    17.74 ms  cycles    61.819M  instr   178.673M
+empty  c38    fastest    17.04 ms  median    17.93 ms  cycles    60.788M  instr   179.445M
+empty  c39    fastest    17.22 ms  median    17.73 ms  cycles    60.214M  instr   179.753M
+empty  cboth  fastest    17.40 ms  median    18.04 ms  cycles    62.387M  instr   178.323M
+empty  call   fastest    17.56 ms  median    18.31 ms  cycles    61.893M  instr   181.225M
+mitt   base   fastest    20.06 ms  median    20.61 ms  cycles    72.817M  instr   198.345M
+mitt   c38    fastest    19.50 ms  median    20.13 ms  cycles    69.869M  instr   194.630M
+mitt   c39    fastest    19.67 ms  median    20.28 ms  cycles    71.348M  instr   197.572M
+mitt   cboth  fastest    19.79 ms  median    20.51 ms  cycles    71.863M  instr   195.206M
+mitt   call   fastest    19.78 ms  median    20.54 ms  cycles    71.078M  instr   194.780M
+zod3   base   fastest   156.59 ms  median   159.36 ms  cycles   671.229M  instr  1606.946M
+zod3   c38    fastest   157.16 ms  median   159.17 ms  cycles   672.113M  instr  1605.515M
+zod3   c39    fastest   156.62 ms  median   158.22 ms  cycles   670.737M  instr  1610.379M
+zod3   cboth  fastest   156.02 ms  median   159.26 ms  cycles   668.851M  instr  1606.399M
+zod3   call   fastest   156.83 ms  median   159.50 ms  cycles   672.050M  instr  1607.237M
+end 2026-11-01 01:46:33
