@@ -144,14 +144,21 @@ A new session, human or agent, takes these steps in order:
 - **`os.on_broken_pipe(.die)`** (owner, 2026-10-30: exit 0 stays the
   default): a program can choose to die by SIGPIPE when its stdout's
   reader closes, as the coreutils port's `yes`, `seq`, `cat`, `tee`,
-  `sort` and `env` need; sockets and stderr are unchanged. In review as
-  one PR.
+  `sort` and `env` need; sockets and stderr are unchanged. On main.
+  `os.on_broken_pipe(.inherit)` (queue row 25f; owner, 2026-10-31:
+  "Confirmed") is `.die`, or `.exit` when the program started with
+  SIGPIPE ignored, which `start` reads from the disposition its own
+  handler replaces, so the port's `seq` can report a write error under
+  `trap '' PIPE` as uutils' does. In review as one PR.
 - **A SIGSEGV or SIGBUS that was sent ends the program** (queue row
   25e): the stack guard's and the sanitizer's fault handlers ask
   `sentSignal` first, `si_code` on Linux and the thread's exception
   state on arm64 macOS, and a sent signal ends the program by its
-  default action (139, 138 or 135) instead of being lost. In review as
-  one PR; SIGILL and SIGFPE wait for the owner.
+  default action (139, 138 or 135) instead of being lost. On main. A
+  sent SIGILL or SIGFPE (owner: "SIGILL and SIGFPE as #808") ends the
+  program by it too (132, 136): `onTrap` runs in front of Zig's handler
+  of a fault in debug and `--release` builds, which reported it as a
+  fault and aborted. In review with row 25f.
 - **`std.crypto`** (#800, owner 2026-10-30, for the sanstun port):
   ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and
   HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value

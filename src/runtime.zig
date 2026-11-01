@@ -6568,7 +6568,7 @@ const Sanitizer = struct {
     }
 
     fn onFault(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
-        if (sentSignal(info, ctx)) dieOf(sig);
+        if (sentSignal(sig, info, ctx)) dieOf(sig);
         for (signals, &previous) |s, *old| std.posix.sigaction(s, old, null);
         const addr = faultAddress(info);
         if (!sanitizer.owns(addr)) return;
@@ -6965,7 +6965,7 @@ fn installOverflowHandler() void {
 }
 
 fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
-    if (sentSignal(info, ctx)) dieOf(sig);
+    if (sentSignal(sig, info, ctx)) dieOf(sig);
     // A fault inside the handler that prints the trace.
     if (@atomicLoad(bool, &overflow_handling, .seq_cst)) std.process.abort();
     const addr = faultAddress(info);
@@ -6993,6 +6993,37 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
     std.process.abort();
 }
 
+// The handler of a SIGILL or SIGFPE, in a build whose root has Zig's
+// handler of a fault (debug and `--release`), which reports either as
+// an illegal instruction or an arithmetic exception, with a trace, and
+// aborts. It runs in front of Zig's: a signal that was sent ends the
+// program by that signal (`sentSignal`), as in `--release=fast`, which
+// has no handler; a real one puts Zig's handler back and returns, so the
+// instruction runs again and faults into it.
+
+var trap_previous: [2]std.posix.Sigaction = undefined;
+const trap_signals = [2]std.posix.SIG{ .ILL, .FPE };
+
+/// Called by `start`.
+fn installTrapHandler() void {
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .sigaction = onTrap },
+        .mask = std.posix.sigemptyset(),
+        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK,
+    };
+    for (trap_signals, &trap_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
+}
+
+fn onTrap(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+    if (sentSignal(sig, info, ctx)) dieOf(sig);
+    for (trap_signals, &trap_previous) |s, *old| std.posix.sigaction(s, old, null);
+}
+
+/// Whether `start` installs `onTrap`: on the systems whose sent signals
+/// `sentSignal` can tell, in a build with Zig's handler of a fault.
+const traps_sent = (builtin.target.os.tag == .linux or builtin.target.os.tag == .macos) and
+    std.options.enable_segfault_handler;
+
 /// The address whose access raised the fault `info` describes.
 fn faultAddress(info: *const std.posix.siginfo_t) usize {
     return switch (builtin.target.os.tag) {
@@ -7001,19 +7032,21 @@ fn faultAddress(info: *const std.posix.siginfo_t) usize {
     };
 }
 
-/// Whether the SIGSEGV or SIGBUS `info` describes was sent (`kill`,
-/// `raise`, `sigqueue`), by another process or the program itself,
-/// rather than raised by the instruction the thread was running. Both
-/// fault handlers ask it first: a sent signal has no instruction to
-/// fault again, so returning from the handler would lose it.
-fn sentSignal(info: *const std.posix.siginfo_t, ctx: ?*anyopaque) bool {
+/// Whether the SIGSEGV, SIGBUS, SIGILL, or SIGFPE `sig` that `info`
+/// describes was sent (`kill`, `raise`, `sigqueue`), by another process
+/// or the program itself, rather than raised by the instruction the
+/// thread was running. Every handler of a fault asks it first: a sent
+/// signal has no instruction to fault again, so returning from the
+/// handler would lose it.
+fn sentSignal(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) bool {
     return switch (builtin.target.os.tag) {
         // Exact: SI_USER (0), SI_QUEUE (-1), SI_TKILL (-6) and the rest
-        // are 0 or less; a fault's SEGV_* or BUS_* code, or SI_KERNEL
-        // (an x86-64 general-protection fault), is above 0. The address
-        // of a sent signal is the sender's ids, which can lie in a guard.
+        // are 0 or less; a fault's SEGV_*, BUS_*, ILL_*, or FPE_* code,
+        // or SI_KERNEL (an x86-64 general-protection fault), is above 0.
+        // The address of a sent signal is the sender's ids, which can
+        // lie in a guard.
         .linux => info.code <= 0,
-        .macos => !darwinFault(ctx),
+        .macos => !darwinFault(sig, ctx),
         else => false,
     };
 }
@@ -7028,13 +7061,21 @@ fn sentSignal(info: *const std.posix.siginfo_t, ctx: ?*anyopaque) bool {
 /// cannot be accessed as the abort tried to: read, write when ESR's bit
 /// 6 says it wrote, run at the instruction the thread stopped at. The
 /// kernel can leave 0 there, so an abort at 0 counts only if it is a
-/// real access of the first page (`throughNull`). On x86-64 every
-/// signal counts as a fault.
-fn darwinFault(ctx: ?*anyopaque) bool {
+/// real access of the first page (`throughNull`). A SIGILL is a fault
+/// when the syndrome says an undefined instruction or an illegal
+/// execution state, and a SIGFPE when it says a trapped floating-point
+/// exception. On x86-64 every signal counts as a fault.
+fn darwinFault(sig: std.posix.SIG, ctx: ?*anyopaque) bool {
     if (builtin.target.cpu.arch != .aarch64) return true;
     const uc: *const DarwinContext = @ptrCast(@alignCast(ctx orelse return true));
     const m = uc.mcontext;
-    return switch (m.esr >> 26) {
+    const class = m.esr >> 26;
+    switch (sig) {
+        .ILL => return class == 0x00 or class == 0x0e,
+        .FPE => return class == 0x28 or class == 0x2c,
+        else => {},
+    }
+    return switch (class) {
         // A misaligned program counter or stack pointer.
         0x22, 0x26 => true,
         0x20 => m.pc == m.far and !darwinAccessible(m.far, Protection.run),
@@ -7105,7 +7146,8 @@ fn darwinAccessible(addr: u64, need: u32) bool {
 }
 
 /// End the program by `sig`, as its default action does: no message, no
-/// trace, and no flush, as a C program a SIGSEGV or SIGBUS ends. The
+/// trace, and no flush, as a C program a SIGSEGV, SIGBUS, SIGILL, or
+/// SIGFPE ends. The
 /// handler runs with `sig` blocked unless it was installed with
 /// `SA.NODEFER`, so it is unblocked for the default action to take it.
 fn dieOf(sig: std.posix.SIG) noreturn {
@@ -7159,15 +7201,20 @@ pub fn start(init: std.process.Init.Minimal) void {
     // BrokenPipe, instead of killing the program by SIGPIPE: a socket's
     // write gets an error, and `stdoutFailed` ends the program as
     // `broken_pipe_dies` says. A handler that does nothing, unlike
-    // ignoring the signal, is reset in a process this one starts.
+    // ignoring the signal, is reset in a process this one starts. What
+    // it replaces says whether the program started with SIGPIPE
+    // ignored, for `os.on_broken_pipe(.inherit)`.
     if (std.posix.Sigaction != void and @hasField(std.posix.SIG, "PIPE")) {
         const act: std.posix.Sigaction = .{
             .handler = .{ .handler = onBrokenPipe },
             .mask = std.posix.sigemptyset(),
             .flags = 0,
         };
-        std.posix.sigaction(.PIPE, &act, null);
+        var old: std.posix.Sigaction = undefined;
+        std.posix.sigaction(.PIPE, &act, &old);
+        broken_pipe_ignored = old.handler.handler == std.posix.SIG.IGN;
     }
+    if (traps_sent) installTrapHandler();
     if (cancels_on_interrupt) cancelOnInterrupt();
     // The backend that runs tasks, set up after that handler, which it
     // saves and puts back when `finish` joins it. Its own allocations are
@@ -7229,6 +7276,18 @@ var broken_pipe_dies = std.atomic.Value(bool).init(false);
 /// program by SIGPIPE.
 pub fn setBrokenPipeDies(dies: bool) void {
     broken_pipe_dies.store(dies, .seq_cst);
+}
+
+/// Whether the program started with SIGPIPE ignored (`trap '' PIPE` in
+/// the shell that started it), as `start` found it before installing
+/// its own handler: `os.on_broken_pipe(.inherit)` then fails a write of
+/// `io.stdout()`, as `.exit` does, rather than dying as `.die` does.
+var broken_pipe_ignored = false;
+
+/// `os.on_broken_pipe(.inherit)`'s question: whether the program started
+/// with SIGPIPE ignored.
+pub fn brokenPipeIgnored() bool {
+    return broken_pipe_ignored;
 }
 
 /// No crash report for this process's death, on Linux: a core limit of

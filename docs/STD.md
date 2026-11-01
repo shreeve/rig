@@ -259,7 +259,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 | `cwd() -> String!` | the working directory, as an absolute path, its links resolved; fails with a `file.FileError` ([std.file](#stdfile)) when it was removed or cannot be read |
 | `memory() -> Memory` | what the program's allocations come to now: `live`, the bytes of its live allocations; `peak`, the most `live` has been; and `allocs`, how many it has made |
 | `exit(code: Int)` | ends the program now, with exit status `code` |
-| `on_broken_pipe(how: BrokenPipe)` | what a write to stdout does once its reader has closed the pipe: `.exit`, the default, ends the program with status 0; `.die` kills it by SIGPIPE |
+| `on_broken_pipe(how: BrokenPipe)` | what a write to stdout does once its reader has closed the pipe: `.exit`, the default, ends the program with status 0; `.die` kills it by SIGPIPE; `.inherit` is `.die`, or `.exit` when the program's parent ignored SIGPIPE |
 | `sync()` | writes out everything every file system holds for its devices, as sync(2) does; it runs on the blocking pool, so only its task waits, and cannot fail. `File.sync_fs` ([std.file](#stdfile)) writes out one file system |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
@@ -325,7 +325,12 @@ the program ends quietly with status 0 by default ([SPEC
 §17](../SPEC.md#output)). `on_broken_pipe(.die)` makes it die
 by SIGPIPE there instead, as a C program and Go's do, so a shell sees
 status 141 and a script under `set -o pipefail` sees the program was
-cut off; `on_broken_pipe(.exit)` puts the default back. The choice is
+cut off; `on_broken_pipe(.exit)` puts the default back.
+`on_broken_pipe(.inherit)` follows the program's parent, as uutils'
+coreutils do: it is `.die`, unless the program started with SIGPIPE
+ignored (`trap '' PIPE` in the shell that ran it), when it is `.exit`,
+so a write of `io.stdout()` fails and the program can say `write
+error` and exit 1. The choice is
 the program's, from `main` or any task, and covers both ways of writing
 stdout: a `print`, and a write or flush of `io.stdout()`
 ([std.io](#stdio)), which by default fails with
@@ -684,7 +689,9 @@ own thread, as `print` does, so it is not a waiting point.
 (`broken_pipe`, `no_space`, `bad_descriptor`), and the program goes on;
 the bytes it could not write are dropped. A program that calls
 `os.on_broken_pipe(.die)` ([std.os](#stdos)) dies by SIGPIPE instead of
-seeing `broken_pipe` on stdout. What a `print` buffered after
+seeing `broken_pipe` on stdout, as one that calls
+`os.on_broken_pipe(.inherit)` does unless it started with SIGPIPE
+ignored. What a `print` buffered after
 a write is written out as `print`'s own are, and a failure then ends the
 program as `print`'s does: a program that must report its own failures,
 as the system's tools do, ends with `!out.flush()!`.
