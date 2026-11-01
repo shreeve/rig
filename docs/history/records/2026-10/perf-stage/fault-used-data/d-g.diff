@@ -1,0 +1,5 @@
+diff -r pkg/rig/runtime.zig p-g/rig/runtime.zig
+3206c3206
+<             return reallocSlice(T, buf, @max(want, 4, buf.len *| 2));
+---
+>             return reallocSlice(T, buf, @max(want, 4, if (buf.len * @sizeOf(T) >= 32 << 10) buf.len +| buf.len / 2 else buf.len *| 2));
