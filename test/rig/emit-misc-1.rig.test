@@ -3015,6 +3015,139 @@ test "kwargs reordered sub statement", '''
 
   show(b: g(2), a: g(1))
 
+test "kwargs reordered read a held view into a value", '''
+  1 1 1 1 1
+  5
+'''
+  # A keyword argument given out of order is evaluated into a temporary
+  # first; a name or field that holds a view, passed where a value goes,
+  # is read through into it.
+
+  obj Item
+    n: Int
+
+  obj Box
+    it: ?Item
+
+  fun bump(v: !List[Item]) -> Int
+    !v.push(Item(n: 2))
+    0
+
+  fun g(a: Int, b: Item) -> Int
+    a + b.n
+
+  fun h(a: Int, b: Item?) -> Int
+    a + (b ?? Item(n: 9)).n
+
+  obj Acc
+    k: Int
+
+    fun add(!@, a: Int, b: Item) -> Int
+      @k += a + b.n
+      @k
+
+  obj Pair
+    a: Int
+    b: Item
+
+  v: List[Item] = List()
+  u: List[Item] = List()
+  !u.push(Item(n: 1))
+  r = ?u[0]
+  bx = Box(it: ?u[0])
+  acc = Acc(k: 0)
+  p = Pair(b: r, a: bump(!v))
+  print(g(b: r, a: bump(!v)), g(b: bx.it, a: bump(!v)), h(b: r, a: bump(!v)), !acc.add(b: r, a: bump(!v)), p.b.n)
+  print(v.len)
+
+test "kwargs reordered read a write view into a value", "3 8"
+  # The same for a name holding a write view, and a call that may fail.
+
+  obj Item
+    n: Int
+
+  fun bump(v: !List[Item]) -> Int!
+    !v.push(Item(n: 2))
+    0
+
+  fun g(a: Int, b: Item) -> Int
+    a + b.n
+
+  fun run() -> Int!
+    v: List[Item] = List()
+    u: List[Item] = List()
+    !u.push(Item(n: 1))
+    w = !u[0]
+    w.n = 3
+    x = g(b: w, a: bump(!v)!)
+    w.n = 8
+    print(x, u[0].n)
+    0
+
+  _ = run() catch 1
+
+test "hoisted arguments read a held view into a value", "3 1 1"
+  # Arguments are evaluated into temporaries first also when an owned
+  # one comes before one that may fail; a name holding a view, passed
+  # where a value goes, is read through into its temporary, and a view
+  # field keeps the view.
+
+  obj Item
+    n: Int
+
+  obj Box
+    s: String
+    it: ?Item
+    b: Item
+    n: Int
+
+  error Bad
+    bad
+
+  fun mks() -> String
+    String("x")
+
+  fun ki(k: Int) -> Int!
+    return Bad.bad if k < 0
+    k
+
+  fun g(s: String, b: Item, n: Int) -> Int
+    s.len + b.n + n
+
+  fun run() -> Int!
+    u: List[Item] = List()
+    !u.push(Item(n: 1))
+    r = ?u[0]
+    x = Box(s: mks(), it: r, b: r, n: ki(1)!)
+    print(g(mks(), r, ki(1)!), x.it.n, x.b.n)
+    0
+
+  _ = run() catch 9
+
+test "kwargs reordered read a held view: method and element", "2 1"
+  # The same for an argument to a method on a view, and for an element
+  # that holds a view.
+
+  obj Item
+    n: Int
+
+    fun take(?@, a: Int, b: Item) -> Int
+      @n + a + b.n
+
+  fun bump(v: !List[Item]) -> Int
+    !v.push(Item(n: 2))
+    0
+
+  fun g(a: Int, b: Item) -> Int
+    a + b.n
+
+  v: List[Item] = List()
+  u: List[Item] = List()
+  !u.push(Item(n: 1))
+  r = ?u[0]
+  vs = [r]
+  print(r.take(b: r, a: bump(!v)), g(b: vs[0], a: bump(!v)))
+
 test "labeled loop break", "1"
   # `break $outer` inside a nested loop exits the loop labeled `$outer`,
   # so the `print(99)` after the inner loop never runs.
