@@ -92,3 +92,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-31 | #819: a pool call's waiter yields while the call finishes (Mac, load 8-11) | rig-fast | 14.72 us | 6.09 us | 49.77 us |
 | 2026-10-31 | main 1ac34e1bb before row 22 seg, alternated (pup core 6) | rig-fast | 5.08 us | 3.80 us | 29.73 us |
 | 2026-10-31 | row 22 seg: segments ask for huge pages at a low floor (pup core 6) | rig-fast | 5.05 us | 3.78 us | 30.41 us |
+| 2026-10-31 | a5a78efbb before #832 (main's alloc.zig and table.zig), alternated (pup core 6) | rig-fast | 5.01 us | 3.56 us | 27.76 us |
+| 2026-10-31 | #832: Tables take ranges of one address space (pup core 6) | rig-fast | 4.94 us | 3.52 us | 27.51 us |
+| 2026-10-31 | main caa6f8560 before #832, alternated (Mac, load 12-16) | rig-fast | 13.25 us | 6.27 us | 48.47 us |
+| 2026-10-31 | #832: Tables take ranges of one address space; its code is Linux-only (Mac, load 12-16) | rig-fast | 13.69 us | 6.18 us | 49.37 us |

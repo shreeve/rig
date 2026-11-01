@@ -1,0 +1,127 @@
+== tasks base round 1 load { 13.74 16.01 12.46 }
+        rig-fast          vs rig-fast
+spawn   120 ns/task       
+chain   46 ns/task        
+fanout  86.0 ms/run       
+yield   5 ns/yield        
+hog     98.46 us/step     
+memory  16.6 KiB/task     
+== tasks fix2 round 1 load { 14.08 16.04 12.50 }
+        rig-fast          vs rig-fast
+spawn   118 ns/task       
+chain   46 ns/task        
+fanout  87.7 ms/run       
+yield   5 ns/yield        
+hog     109.27 us/step    
+memory  16.6 KiB/task     
+== actors base round 1 load { 14.07 16.01 12.50 }
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  38 ns/call  
+spread   1.2 ns/call 
+== actors fix2 round 1 load { 14.07 16.01 12.50 }
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  39 ns/call  
+spread   0.9 ns/call 
+== net base round 1 load { 14.07 16.01 12.50 }
+         rig-fast      vs rig-fast
+pingpong 15.02 us/trip 
+echo     6.29 us/trip  
+connect  52.96 us/conn 
+== net fix2 round 1 load { 14.07 16.01 12.50 }
+         rig-fast      vs rig-fast
+pingpong 17.81 us/trip 
+echo     6.18 us/trip  
+connect  75.00 us/conn 
+== http base round 1 load { 14.31 16.02 12.53 }
+                 req/s       p50       p99 per idle conn
+rig-fast        157668     369 us    1481 us      16.6 KiB
+== http fix2 round 1 load { 15.66 16.27 12.68 }
+dial: dial tcp 127.0.0.1:62434: connect: can't assign requested address
+bench-http: the idle connections did not open
+== tasks fix2 round 2 load { 15.96 16.31 12.74 }
+        rig-fast          vs rig-fast
+spawn   109 ns/task       
+chain   45 ns/task        
+fanout  105.0 ms/run      
+yield   6 ns/yield        
+hog     112.85 us/step    
+memory  16.6 KiB/task     
+== tasks base round 2 load { 15.01 16.11 12.69 }
+        rig-fast          vs rig-fast
+spawn   117 ns/task       
+chain   46 ns/task        
+fanout  106.0 ms/run      
+yield   9 ns/yield        
+hog     75.52 us/step     
+memory  16.6 KiB/task     
+== actors fix2 round 2 load { 15.01 16.11 12.69 }
+         rig-fast    vs rig-fast
+solo     5.2 ns/call 
+contend  49 ns/call  
+spread   1.2 ns/call 
+== actors base round 2 load { 15.01 16.11 12.69 }
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  48 ns/call  
+spread   1.3 ns/call 
+== net fix2 round 2 load { 15.01 16.11 12.69 }
+         rig-fast      vs rig-fast
+pingpong 13.81 us/trip 
+echo     6.26 us/trip  
+connect  49.37 us/conn 
+== net base round 2 load { 12.33 15.47 12.52 }
+         rig-fast      vs rig-fast
+pingpong 13.25 us/trip 
+echo     6.29 us/trip  
+connect  48.47 us/conn 
+== http fix2 round 2 load { 12.94 15.54 12.56 }
+                 req/s       p50       p99 per idle conn
+rig-fast        166656     364 us    1180 us      16.6 KiB
+== http base round 2 load { 13.86 15.64 12.65 }
+dial: dial tcp 127.0.0.1:63671: connect: can't assign requested address
+bench-http: the idle connections did not open
+== tasks base round 3 load { 14.39 15.70 12.70 }
+        rig-fast          vs rig-fast
+spawn   75 ns/task        
+chain   108 ns/task       
+fanout  96.2 ms/run       
+yield   6 ns/yield        
+hog     149.07 us/step    
+memory  16.6 KiB/task     
+== tasks fix2 round 3 load { 13.71 15.54 12.67 }
+        rig-fast          vs rig-fast
+spawn   78 ns/task        
+chain   109 ns/task       
+fanout  94.8 ms/run       
+yield   8 ns/yield        
+hog     97.06 us/step     
+memory  16.6 KiB/task     
+== actors base round 3 load { 13.71 15.54 12.67 }
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  40 ns/call  
+spread   1.0 ns/call 
+== actors fix2 round 3 load { 13.71 15.54 12.67 }
+         rig-fast    vs rig-fast
+solo     5.1 ns/call 
+contend  40 ns/call  
+spread   1.0 ns/call 
+== net base round 3 load { 13.71 15.54 12.67 }
+         rig-fast      vs rig-fast
+pingpong 14.20 us/trip 
+echo     6.27 us/trip  
+connect  49.00 us/conn 
+== net fix2 round 3 load { 11.53 14.97 12.51 }
+         rig-fast      vs rig-fast
+pingpong 13.69 us/trip 
+echo     6.32 us/trip  
+connect  49.88 us/conn 
+== http base round 3 load { 10.93 14.79 12.46 }
+                 req/s       p50       p99 per idle conn
+rig-fast        169051     358 us    1138 us      16.6 KiB
+== http fix2 round 3 load { 12.00 14.89 12.53 }
+dial: dial tcp 127.0.0.1:64308: connect: can't assign requested address
+bench-http: the idle connections did not open
+# done 21:45:03

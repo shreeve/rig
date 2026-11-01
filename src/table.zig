@@ -6,14 +6,16 @@
 //! How the slots are held is the element's (`sema.tableFill`, mirrored
 //! here by `fillsWithZeros`, as `needsDrop` mirrors `typeHasDropGlue`):
 //!
-//! - **Reserved.** `T` is plain data whose default is all zero bytes: one
-//!   private anonymous mapping of `n * @sizeOf(T)` bytes, made with
-//!   `MAP_NORESERVE`; on Linux its first 2 MiB keep small pages and the
-//!   rest asks for huge ones while the system has free 2 MiB blocks to
-//!   spare (`reserve`). The system gives
-//!   each page as zeros when it is first touched, so a slot never written
-//!   costs no memory. It is its own mapping, never one of `alloc.zig`'s
-//!   blocks, which are reused unzeroed and faulted in ahead.
+//! - **Reserved.** `T` is plain data whose default is all zero bytes:
+//!   `n * @sizeOf(T)` bytes of private anonymous address space, mapped
+//!   with `MAP_NORESERVE`: in a release build on Linux a range of the
+//!   allocator's address space for tables (`alloc.zig`, `reserveTable`),
+//!   elsewhere a mapping of its own. On Linux its first 2 MiB keep small
+//!   pages and the rest asks for huge ones while the system has free
+//!   2 MiB blocks to spare (`reserve`). The system gives each page as
+//!   zeros when it is first touched, so a slot never written costs no
+//!   memory. It is never one of `alloc.zig`'s blocks, which are reused
+//!   unzeroed and faulted in ahead.
 //! - **Made.** Any other `T`: `n` slots on the heap, each `T()`, dropped
 //!   all `n` when the table is, since `t[s] = x` may write past `len`.
 //! - **Committed.** A reserved table on a target with no lazily zeroed
@@ -110,7 +112,11 @@ const huge: usize = 2 << 20;
 /// (`alloc.zig`'s `hugeFree`), tested once, here: a table grown after
 /// memory fragments faults in through the compactor, as every range that
 /// asks does (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
+/// A release build on Linux takes the range from `reserveTable`, which
+/// asks the same way; a debug build, and any table it cannot place, maps
+/// its own.
 fn reserve(bytes: usize) [*]align(page) u8 {
+    if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes)) |p| return p;
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
     const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
     if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
@@ -133,8 +139,16 @@ fn reserve(bytes: usize) [*]align(page) u8 {
 }
 
 fn unreserve(p: [*]align(page) u8, bytes: usize) void {
+    if (comptime !leak_checked) if (rt.fast_alloc.unreserveTable(p, bytes)) return;
     std.posix.munmap(p[0..bytes]);
 }
+
+/// Whether the program is built with the leak checker, which maps each
+/// reserved table on its own: a table used after it is dropped faults,
+/// and one never dropped is reported. A release build takes them from
+/// the allocator's address space for tables (`alloc.zig`,
+/// `reserveTable`), with no system call for most.
+const leak_checked = builtin.optimize == .debug;
 
 /// `Table(T, n)`: `n` slots of `T`.
 pub fn Table(comptime T: type, comptime n: u64) type {
@@ -162,8 +176,6 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         pub const __rig_table = {};
         /// `Slot[n]`.
         pub const Index = Slot(n);
-
-        const leak_checked = builtin.optimize == .debug;
 
         /// `Table()`: `n` slots, each `T()`. A table made once its value
         /// is wanted, at run time: never a constant.

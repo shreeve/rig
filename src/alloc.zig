@@ -29,6 +29,8 @@
 //! and asks for huge pages for each new segment, and a new large block
 //! of 16 MiB or more asks for huge pages (`huge_large`), each while the
 //! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`).
+//! Reserved Tables (`table.zig`) take ranges of an address space of
+//! their own, which none of this touches (`reserveTable`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -548,27 +550,94 @@ const huge_floor: usize = 8;
 /// 2 to 60 times a small page's, and Trig ran 34 to 41% slower than with
 /// no huge pages (docs/history/records/2026-10/perf-stage/
 /// thp-fragmented.md).
+///
+/// A reading taken in the last `reading_life` answers it (`keptReading`),
+/// so the burst of Tables a program makes at once, 43 for each of Trig's
+/// checkers, reads the file once. A kept reading may open the gate: a
+/// Table takes no block as it is reserved, only as it is later written,
+/// over the whole run, and `huge_spare` is there for what memory gives
+/// up meanwhile; a reading a few milliseconds older adds nothing to that.
 pub fn hugeFree() bool {
-    return freeHugeNow() > huge_spare;
+    if (builtin.os.tag != .linux) return false;
+    return (keptReading() orelse readNow()) > huge_spare;
 }
 
 /// Whether Linux has free blocks of 2 MiB or more for `need` huge pages
 /// and `huge_floor` more: the test a new segment or large block makes
-/// before it asks (`adviseHuge`).
+/// before it asks (`adviseHuge`). Its blocks are taken moments later, as
+/// its pages fault, so only a reading taken now may say yes; a kept one
+/// may say no, which costs at most huge pages missed, never a stall. A
+/// yes takes its `need` from the reading kept.
 fn hugeFreeFor(need: usize) bool {
-    return freeHugeNow() >= need + huge_floor;
+    if (builtin.os.tag != .linux) return false;
+    if (keptReading()) |blocks| if (blocks < need + huge_floor) return false;
+    if (readNow() < need + huge_floor) return false;
+    spendReading(need);
+    return true;
 }
 
-/// The free blocks of 2 MiB or more Linux has now (`/proc/buddyinfo`).
-/// The file is read each time, never kept: it is read once for each new
-/// segment, new large block of `huge_large`, and reserved Table, 55
-/// times on Trig's ts-pattern, and a reading kept would be out of date
-/// as memory fragments. A file that cannot be read counts none, so
-/// nothing asks.
+/// How long a reading of /proc/buddyinfo answers the gates: a few
+/// milliseconds, the span of a burst of Tables (Trig's checkers make 43
+/// each in about one), short beside the seconds a Table is written over.
+const reading_life_ns: u64 = 4 * std.time.ns_per_ms;
+
+/// The reading kept: the monotonic clock in units of 2^16 ns (about 65
+/// microseconds) in the top 40 bits, which last 2^56 ns, two years; its
+/// free blocks, at most `count_max`, in the low 24; or 0, none. One
+/// word, so a thread never pairs one reading's time with another's count.
+var kept_reading: std.atomic.Value(u64) = .init(0);
+const count_bits = 24;
+const count_max: u64 = (1 << count_bits) - 1;
+
+/// The monotonic clock in units of 2^16 ns, through the vDSO: tens of
+/// nanoseconds, where a reading costs microseconds. 0 if it fails.
+fn clockUnits() u64 {
+    if (comptime builtin.is_test) if (clock_for_test) |ns| return ns >> 16;
+    var ts: std.os.linux.timespec = undefined;
+    if (std.os.linux.clock_gettime(.MONOTONIC, &ts) != 0) return 0;
+    const ns = @as(u64, @intCast(ts.sec)) *% std.time.ns_per_s +% @as(u64, @intCast(ts.nsec));
+    return ns >> 16;
+}
+
+/// The free blocks of the reading kept, if it was taken in the last
+/// `reading_life_ns`.
+fn keptReading() ?usize {
+    const k = kept_reading.load(.monotonic);
+    if (k == 0) return null;
+    const now = clockUnits();
+    if (now == 0 or now -% (k >> count_bits) >= reading_life_ns >> 16) return null;
+    return @intCast(k & count_max);
+}
+
+/// Read /proc/buddyinfo, keep the reading, and give its free blocks.
+fn readNow() usize {
+    const blocks = freeHugeNow();
+    const now = clockUnits();
+    if (now != 0) kept_reading.store(now << count_bits | @min(blocks, count_max), .monotonic);
+    return blocks;
+}
+
+/// Take `need` blocks from the reading kept, as a range that asked for
+/// them is about to fault them in.
+fn spendReading(need: usize) void {
+    var k = kept_reading.load(.monotonic);
+    while (k != 0) {
+        const left = (k & count_max) -| need;
+        k = kept_reading.cmpxchgWeak(k, (k & ~count_max) | left, .monotonic, .monotonic) orelse return;
+    }
+}
+
+/// The free blocks of 2 MiB or more Linux has now (`/proc/buddyinfo`),
+/// read once for each new segment, new large block of `huge_large`, and
+/// burst of reserved Tables (`keptReading`). A file that cannot be read
+/// counts none, so nothing asks.
 noinline fn freeHugeNow() usize {
     @branchHint(.cold);
     if (builtin.os.tag != .linux) return 0;
-    if (comptime builtin.is_test) if (buddyinfo_for_test) |text| return freeHugeBlocks(text);
+    if (comptime builtin.is_test) {
+        buddyinfo_reads += 1;
+        if (buddyinfo_for_test) |text| return freeHugeBlocks(text);
+    }
     const linux = std.os.linux;
     const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (@as(isize, @bitCast(rc)) < 0) return 0;
@@ -587,8 +656,17 @@ noinline fn freeHugeNow() usize {
     return freeHugeBlocks(buf[0..len]);
 }
 
-/// What a test reads in place of /proc/buddyinfo.
+/// What a test reads in place of /proc/buddyinfo, the readings it has
+/// made, and the clock it sees, in nanoseconds.
 var buddyinfo_for_test: ?[]const u8 = null;
+var buddyinfo_reads: usize = 0;
+var clock_for_test: ?u64 = null;
+
+/// Read `text` in place of /proc/buddyinfo from now, with no reading kept.
+fn useBuddyinfoForTest(text: ?[]const u8) void {
+    buddyinfo_for_test = text;
+    kept_reading.store(0, .monotonic);
+}
 
 /// The free blocks of 2 MiB in a reading of /proc/buddyinfo: each line
 /// is `Node N, zone NAME` and a count of free blocks for each order from
@@ -778,6 +856,181 @@ fn mapOwnSegment() ?*Segment {
     const tail = start + 2 * segment_size - (aligned + segment_size);
     if (tail > 0) std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(aligned + segment_size))[0..tail]);
     return @ptrFromInt(aligned);
+}
+
+// -----------------------------------------------------------------------------
+// Tables' address space
+// -----------------------------------------------------------------------------
+
+/// The address space reserved Tables (`table.zig`) are handed on Linux:
+/// regions of `table_region_size`, each mapped once, with no memory
+/// committed (`MAP_NORESERVE`), and advised for small pages once. A Table
+/// takes a range of whole huge pages from one (`reserveTable`), which
+/// makes no system call while memory has no free 2 MiB blocks to spare,
+/// and one `madvise` while it does; a Table dropped gives its pages back
+/// to the system with `MADV_DONTNEED`, which leaves the range reading as
+/// zeros, and its range to the next Table (`unreserveTable`). Trig's
+/// checkers reserve 43 Tables each, 24 MiB to 4 GiB, 53 GiB in all, and
+/// a mapping, its advice, and its unmapping for each cost about 8
+/// microseconds of system calls. Only release builds take Tables from
+/// here: a debug build maps each on its own, so a Table used after it is
+/// dropped faults and the leak checker sees each.
+const table_region_size: usize = 256 << 30;
+/// The regions there may be, 8 TiB in all; a Table that finds none with
+/// room, or is larger than a region, is mapped on its own.
+const table_regions_max = 32;
+/// The free ranges kept between Tables. A range that would be one more
+/// is given up: its pages are back with the system, and only its
+/// addresses go unused.
+const table_free_max = 128;
+
+const Range = struct { start: usize, len: usize };
+
+var tables_lock: std.atomic.Value(bool) = .init(false);
+/// The regions, in the order they were mapped; the newest is handed out
+/// from `table_next` to `table_end`.
+var table_regions: [table_regions_max]Range = undefined;
+var table_region_count: usize = 0;
+var table_next: usize = 0;
+var table_end: usize = 0;
+/// No region could be mapped (`ulimit -v`, strict overcommit): each
+/// Table is mapped on its own from then on.
+var tables_unmapped: bool = false;
+/// The ranges given back, by address, none touching another.
+var table_free: [table_free_max]Range = undefined;
+var table_free_count: usize = 0;
+/// Whether any range has asked for huge pages, so a range given back is
+/// advised for small pages again before the next Table takes it.
+var tables_asked_huge: std.atomic.Value(bool) = .init(false);
+
+fn lockTables() void {
+    while (tables_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+}
+
+fn unlockTables() void {
+    tables_lock.store(false, .release);
+}
+
+/// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
+/// Table: zeros, none committed. Its first 2 MiB keep small pages, and
+/// the rest asks for huge pages while the system has free 2 MiB blocks
+/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes. Null
+/// where Tables are not taken from here: off Linux, a Table larger than
+/// a region, or no region to be had.
+pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
+    if (builtin.os.tag != .linux) return null;
+    const len = std.mem.alignForward(usize, bytes, huge_page);
+    if (len > table_region_size) return null;
+    const huge = len > huge_page and hugeFree();
+    lockTables();
+    const p = takeTableRange(len);
+    unlockTables();
+    if (huge) if (p) |at| {
+        tables_asked_huge.store(true, .monotonic);
+        std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+    };
+    return @ptrFromInt(p orelse return null);
+}
+
+/// Give back the range of a Table of `bytes` at `p`, if it is one
+/// `reserveTable` handed out: its pages to the system, and the range,
+/// advised for small pages again, to the next Table.
+pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
+    if (builtin.os.tag != .linux) return false;
+    const at = @intFromPtr(p);
+    const len = std.mem.alignForward(usize, bytes, huge_page);
+    lockTables();
+    var mine = false;
+    for (table_regions[0..table_region_count]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
+    unlockTables();
+    if (!mine) return false;
+    const range: [*]align(huge_page) u8 = @alignCast(p);
+    std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
+    if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+    lockTables();
+    giveTableRange(at, len);
+    unlockTables();
+    return true;
+}
+
+/// `len` bytes of the Tables' address space: the smallest free range
+/// that holds them, else the newest region's rest, else a new region.
+/// Under `tables_lock`.
+fn takeTableRange(len: usize) ?usize {
+    var best: ?usize = null;
+    for (table_free[0..table_free_count], 0..) |r, i| {
+        if (r.len >= len and (best == null or r.len < table_free[best.?].len)) best = i;
+    }
+    if (best) |i| {
+        const r = &table_free[i];
+        const p = r.start;
+        r.start += len;
+        r.len -= len;
+        if (r.len == 0) {
+            std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
+            table_free_count -= 1;
+        }
+        return p;
+    }
+    if (table_end - table_next < len and !newTableRegion()) return null;
+    const p = table_next;
+    table_next += len;
+    return p;
+}
+
+/// Map a new region, advised for small pages, and give the newest one's
+/// rest to the free ranges. Under `tables_lock`.
+fn newTableRegion() bool {
+    @branchHint(.cold);
+    if (tables_unmapped or table_region_count == table_regions_max) return false;
+    const raw = std.posix.mmap(null, table_region_size + huge_page, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
+        tables_unmapped = true;
+        return false;
+    };
+    std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+    const start = std.mem.alignForward(usize, @intFromPtr(raw.ptr), huge_page);
+    if (table_end > table_next) giveTableRange(table_next, table_end - table_next);
+    table_regions[table_region_count] = .{ .start = start, .len = table_region_size };
+    table_region_count += 1;
+    table_next = start;
+    table_end = start + table_region_size;
+    return true;
+}
+
+/// Put `len` bytes at `p` back: onto the newest region's rest when they
+/// end there, else among the free ranges, joined to those they touch.
+/// Under `tables_lock`.
+fn giveTableRange(p: usize, len: usize) void {
+    if (p + len == table_next) {
+        table_next = p;
+        // A free range that now ends at the rest joins it.
+        for (table_free[0..table_free_count], 0..) |r, i| if (r.start + r.len == p) {
+            table_next = r.start;
+            std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
+            table_free_count -= 1;
+            break;
+        };
+        return;
+    }
+    // The first free range after `p`.
+    var i: usize = 0;
+    while (i < table_free_count and table_free[i].start < p) i += 1;
+    const joins_before = i > 0 and table_free[i - 1].start + table_free[i - 1].len == p;
+    const joins_after = i < table_free_count and p + len == table_free[i].start;
+    if (joins_before and joins_after) {
+        table_free[i - 1].len += len + table_free[i].len;
+        std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
+        table_free_count -= 1;
+    } else if (joins_before) {
+        table_free[i - 1].len += len;
+    } else if (joins_after) {
+        table_free[i].start = p;
+        table_free[i].len += len;
+    } else if (table_free_count < table_free_max) {
+        std.mem.copyBackwards(Range, table_free[i + 1 .. table_free_count + 1], table_free[i..table_free_count]);
+        table_free[i] = .{ .start = p, .len = len };
+        table_free_count += 1;
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -1324,8 +1577,8 @@ test "a heap that does not fault in ahead keeps `keep_resident` bytes of the lar
 
 test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them while 2 MiB blocks are free, and a smaller one does not" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    buddyinfo_for_test = buddyinfo_plenty;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
     var h = testHeap();
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
@@ -1391,8 +1644,8 @@ test "on Linux a large block from 64 KiB that no kept block fits grows by moving
 
 test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them while 2 MiB blocks are free, and one of a heap that does not keeps small pages" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    buddyinfo_for_test = buddyinfo_plenty;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
     // The thread's heap takes two segments' worth, so a new heap of one
     // segment beside it does not lead.
     const mine = try allocator.alloc(u8, prefault_big);
@@ -1450,10 +1703,10 @@ test "on Linux a Table asks for huge pages with 100 free 2 MiB blocks, a quiet h
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 100), freeHugeBlocks(buddyinfo_idle));
     try std.testing.expectEqual(@as(usize, 55), freeHugeBlocks(buddyinfo_partly));
-    defer buddyinfo_for_test = null;
-    buddyinfo_for_test = buddyinfo_idle;
+    defer useBuddyinfoForTest(null);
+    useBuddyinfoForTest(buddyinfo_idle);
     try std.testing.expect(hugeFree());
-    buddyinfo_for_test = buddyinfo_partly;
+    useBuddyinfoForTest(buddyinfo_partly);
     try std.testing.expect(!hugeFree());
 }
 
@@ -1469,18 +1722,23 @@ const buddyinfo_low =
 test "on Linux a new segment or large block asks for huge pages while free 2 MiB blocks number its own and 8 more, where a Table asks for none" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 17), freeHugeBlocks(buddyinfo_low));
-    buddyinfo_for_test = buddyinfo_low;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_low);
+    defer useBuddyinfoForTest(null);
     try std.testing.expect(!hugeFree());
     try std.testing.expect(hugeFreeFor(9));
+    // Each test from here reads afresh, as nothing took the blocks it
+    // asked for.
+    useBuddyinfoForTest(buddyinfo_low);
     try std.testing.expect(!hugeFreeFor(10));
     // A segment needs 2 blocks, a block of 16 MiB 8: both leave 8 free.
+    useBuddyinfoForTest(buddyinfo_low);
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
     var busy = testHeap();
     busy.taken = prefault_big;
     const p = busy.newPage().?;
     try std.testing.expect(try advisedHugeForTest(p & ~(segment_size - 1)));
+    useBuddyinfoForTest(buddyinfo_low);
     var h = testHeap();
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
@@ -1489,10 +1747,52 @@ test "on Linux a new segment or large block asks for huge pages while free 2 MiB
     trimAllForTest(&h);
 }
 
+test "on Linux a burst of Tables reads /proc/buddyinfo once, and a reading older than a few milliseconds is read again" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_idle);
+    defer useBuddyinfoForTest(null);
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const before = buddyinfo_reads;
+    for (0..43) |_| try std.testing.expect(hugeFree());
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    // Memory fragments: the reading kept answers until its life is over.
+    buddyinfo_for_test = buddyinfo_partly;
+    clock_for_test.? += reading_life_ns - (1 << 17);
+    try std.testing.expect(hugeFree());
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    clock_for_test.? += 1 << 17;
+    try std.testing.expect(!hugeFree());
+    try std.testing.expectEqual(before + 2, buddyinfo_reads);
+}
+
+test "on Linux a kept reading may tell a new segment no, but a yes is read again and takes the segment's blocks from the reading kept" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_low);
+    defer useBuddyinfoForTest(null);
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const before = buddyinfo_reads;
+    // 17 free: a Table's reading is kept, then too few for 10 blocks and
+    // 8 more answers with no new reading.
+    try std.testing.expect(!hugeFree());
+    try std.testing.expect(!hugeFreeFor(10));
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    // Enough for 2 and 8 more: read again, and the 2 are taken from it.
+    try std.testing.expect(hugeFreeFor(2));
+    try std.testing.expectEqual(before + 2, buddyinfo_reads);
+    try std.testing.expectEqual(@as(?usize, 15), keptReading());
+    try std.testing.expect(hugeFreeFor(7));
+    try std.testing.expectEqual(@as(?usize, 10), keptReading());
+    // The reading kept now says 10: too few for 3 and 8 more.
+    try std.testing.expect(!hugeFreeFor(3));
+    try std.testing.expectEqual(before + 3, buddyinfo_reads);
+}
+
 test "on Linux, with memory fragmented, no block, segment, or growth asks for huge pages" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    buddyinfo_for_test = buddyinfo_fragmented;
-    defer buddyinfo_for_test = null;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
     try std.testing.expect(!hugeFree());
     var h = testHeap();
     const mib: usize = 1 << 20;
@@ -1512,6 +1812,85 @@ test "on Linux, with memory fragmented, no block, segment, or growth asks for hu
     const p = busy.newPage().?;
     try std.testing.expect(faultsAhead(&busy));
     try std.testing.expect(!try advisedHugeForTest(p));
+}
+
+test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with one reading of /proc/buddyinfo, and gives them back to the region's rest" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const reads = buddyinfo_reads;
+    const next = table_next;
+    var got: [43][*]u8 = undefined;
+    for (&got, 0..) |*g, i| {
+        g.* = reserveTable((i + 1) * (3 << 20) + 4096).?;
+        try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % huge_page);
+    }
+    try std.testing.expectEqual(reads + 1, buddyinfo_reads);
+    try std.testing.expect(table_region_count >= 1);
+    // Given back in another order than taken, they join one another and
+    // then the region's rest.
+    for (got, 0..) |g, i| if (i % 2 == 1) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
+    try std.testing.expect(table_free_count > 0);
+    for (got, 0..) |g, i| if (i % 2 == 0) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+    if (next != 0) try std.testing.expectEqual(next, table_next);
+}
+
+test "on Linux a Table's range given back has its pages back with the system, and the next Table that takes it reads zeros" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    const mib: usize = 1 << 20;
+    const a = reserveTable(6 * mib).?;
+    const b = reserveTable(4 * mib).?;
+    @memset(a[0 .. 6 * mib], 7);
+    try std.testing.expectEqual(@as(usize, 6 * mib), try residentForTest(a, 6 * mib));
+    // `a` is not at the region's rest, so its range is kept apart.
+    try std.testing.expect(unreserveTable(a, 6 * mib));
+    try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 6 * mib));
+    const c = reserveTable(5 * mib + 4096).?;
+    try std.testing.expectEqual(a, c);
+    for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
+    try std.testing.expect(unreserveTable(b, 4 * mib));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+    // A mapping of its own is not the Tables'.
+    var own: [4096]u8 align(4096) = undefined;
+    try std.testing.expect(!unreserveTable(&own, own.len));
+}
+
+test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    const mib: usize = 1 << 20;
+    const t = reserveTable(24 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    const small = reserveTable(2 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
+    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    useBuddyinfoForTest(buddyinfo_partly);
+    const u = reserveTable(24 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
+    try std.testing.expect(unreserveTable(u, 24 * mib));
+    try std.testing.expect(unreserveTable(small, 2 * mib));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+}
+
+/// The bytes of the `len` at `p` resident in memory (`mincore`).
+fn residentForTest(p: [*]u8, len: usize) !usize {
+    const pages = len / std.heap.pageSize();
+    var vec: [4096]u8 = undefined;
+    if (pages > vec.len) return error.TooLong;
+    const rc: isize = @bitCast(std.os.linux.syscall3(.mincore, @intFromPtr(p), len, @intFromPtr(&vec)));
+    if (rc < 0) return error.NoMincore;
+    var n: usize = 0;
+    for (vec[0..pages]) |v| n += v & 1;
+    return n * std.heap.pageSize();
 }
 
 /// Whether the mapping that holds `p` asks for huge pages: its `VmFlags`

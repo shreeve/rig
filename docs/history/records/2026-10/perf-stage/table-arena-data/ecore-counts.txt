@@ -1,0 +1,49 @@
+## empty, 1 checker
+  base     task 35.74 ms  ins 233.66M (k 30.22M)  cyc 124.4M (k 36.7M)  flt 2205  rss 26.6 MB
+           bud 45 nohuge 43 huge 0 mmap 93 munmap 59 madvise 108
+  fix2     task 35.12 ms (-1.75%)  ins 231.44M (-0.95%) (k 28.14M (-6.91%))  cyc 123.6M (-0.65%) (k 36.2M (-1.48%))  flt 2204  rss 29.5 MB out same
+           bud 3 nohuge 1 huge 0 mmap 51 munmap 16 madvise 109
+  fix2-ct  task 34.75 ms (-2.76%)  ins 230.89M (-1.19%) (k 27.64M (-8.56%))  cyc 119.3M (-4.12%) (k 33.4M (-9.03%))  flt 2214  rss 26.0 MB out same
+           bud 3 nohuge 1 huge 0 mmap 51 munmap 16 madvise 109
+## empty, 4 checkers
+  base     task 42.31 ms  ins 261.94M (k 50.12M)  cyc 149.8M (k 55.4M)  flt 2542  rss 29.4 MB
+           bud 174 nohuge 172 huge 0 mmap 240 munmap 202 madvise 307
+  fix2     task 40.23 ms (-4.93%)  ins 252.33M (-3.67%) (k 41.09M (-18.03%))  cyc 144.3M (-3.61%) (k 51.3M (-7.45%))  flt 2540  rss 32.4 MB out same
+           bud 4 nohuge 1 huge 0 mmap 69 munmap 32 madvise 308
+  fix2-ct  task 40.54 ms (-4.20%)  ins 251.23M (-4.09%) (k 40.14M (-19.92%))  cyc 141.7M (-5.35%) (k 48.5M (-12.44%))  flt 2854  rss 28.9 MB out same
+           bud 4 nohuge 1 huge 0 mmap 71 munmap 31 madvise 296
+## mitt, 1 checker
+  base     task 41.62 ms  ins 254.48M (k 33.66M)  cyc 146.6M (k 41.7M)  flt 2496  rss 14.5 MB
+           bud 45 nohuge 43 huge 0 mmap 94 munmap 59 madvise 109
+  fix2     task 41.33 ms (-0.70%)  ins 252.44M (-0.80%) (k 31.75M (-5.67%))  cyc 145.3M (-0.92%) (k 41.0M (-1.56%))  flt 2494  rss 16.3 MB out same
+           bud 3 nohuge 1 huge 0 mmap 52 munmap 16 madvise 110
+  fix2-ct  task 40.02 ms (-3.84%)  ins 251.94M (-1.00%) (k 31.30M (-7.00%))  cyc 143.4M (-2.20%) (k 39.6M (-4.95%))  flt 2503  rss 14.6 MB out same
+           bud 3 nohuge 1 huge 0 mmap 52 munmap 15 madvise 110
+## mitt, 4 checkers
+  base     task 48.05 ms  ins 283.16M (k 53.91M)  cyc 172.5M (k 60.8M)  flt 2973  rss 15.9 MB
+           bud 174 nohuge 172 huge 0 mmap 241 munmap 197 madvise 307
+  fix2     task 47.28 ms (-1.60%)  ins 273.15M (-3.54%) (k 44.44M (-17.56%))  cyc 169.8M (-1.56%) (k 57.4M (-5.54%))  flt 2970  rss 17.7 MB out same
+           bud 4 nohuge 1 huge 0 mmap 70 munmap 24 madvise 261
+  fix2-ct  task 47.26 ms (-1.66%)  ins 269.77M (-4.73%) (k 41.56M (-22.91%))  cyc 167.0M (-3.20%) (k 54.1M (-11.04%))  flt 3247  rss 16.0 MB out same
+           bud 4 nohuge 1 huge 0 mmap 72 munmap 32 madvise 292
+## neverthrow, 1 checker
+  base     task 44.51 ms  ins 262.24M (k 31.69M)  cyc 158.5M (k 40.1M)  flt 2939  rss 14.3 MB
+           bud 45 nohuge 43 huge 0 mmap 93 munmap 52 madvise 97
+  fix2     task 44.09 ms (-0.95%)  ins 260.17M (-0.79%) (k 29.76M (-6.08%))  cyc 157.1M (-0.90%) (k 39.0M (-2.67%))  flt 2939  rss 15.9 MB out same
+           bud 2 nohuge 1 huge 0 mmap 51 munmap 9 madvise 98
+  fix2-ct  task 44.45 ms (-0.12%)  ins 259.76M (-0.94%) (k 29.39M (-7.24%))  cyc 156.8M (-1.11%) (k 38.5M (-3.88%))  flt 2952  rss 14.3 MB out same
+           bud 2 nohuge 1 huge 0 mmap 51 munmap 9 madvise 98
+## neverthrow, 4 checkers
+  base     task 58.28 ms  ins 317.43M (k 54.04M)  cyc 208.6M (k 64.3M)  flt 4038  rss 16.5 MB
+           bud 174 nohuge 172 huge 0 mmap 241 munmap 191 madvise 247
+  fix2     task 56.19 ms (-3.59%)  ins 306.63M (-3.40%) (k 43.89M (-18.78%))  cyc 201.1M (-3.59%) (k 59.0M (-8.24%))  flt 4026  rss 18.1 MB out same
+           bud 3 nohuge 1 huge 0 mmap 70 munmap 19 madvise 248
+  fix2-ct  task 57.46 ms (-1.39%)  ins 307.19M (-3.23%) (k 44.46M (-17.73%))  cyc 202.7M (-2.84%) (k 60.3M (-6.34%))  flt 4300  rss 16.7 MB out same
+           bud 2 nohuge 1 huge 0 mmap 71 munmap 24 madvise 231
+## zod3, 4 checkers
+  base     task 472.34 ms  ins 2401.38M (k 167.93M)  cyc 1728.1M (k 249.9M)  flt 17134  rss 53.7 MB
+           bud 179 nohuge 172 huge 0 mmap 334 munmap 243 madvise 417
+  fix2     task 464.63 ms (-1.63%)  ins 2393.26M (-0.34%) (k 160.12M (-4.65%))  cyc 1706.5M (-1.25%) (k 247.2M (-1.08%))  flt 17136  rss 55.0 MB out same
+           bud 8 nohuge 1 huge 0 mmap 161 munmap 40 madvise 417
+  fix2-ct  task 463.21 ms (-1.93%)  ins 2392.84M (-0.36%) (k 159.75M (-4.87%))  cyc 1697.1M (-1.79%) (k 246.1M (-1.54%))  flt 17415  rss 53.8 MB out same
+           bud 9 nohuge 1 huge 0 mmap 159 munmap 83 madvise 400
