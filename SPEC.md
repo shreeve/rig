@@ -1342,6 +1342,7 @@ sub main()
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Arch` | built-in enum: the target's processor architecture, `target.arch` | [§3](#the-target) |
 | `Os` | built-in enum: the operating system the program is compiled for, `target.os` | [§3](#the-target) |
+| `Feature` | built-in enum: a CPU feature, which `target.has(f)` tests | [§3](#the-target) |
 | `Simd[T, n]` | vector: `n` lanes of a number or `Bool`, operated on together; `Simd[Bool, n]` is a mask | [§2](#vectors) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -1384,10 +1385,14 @@ what it views, and every copy carries the same loan. Owning values and
 handles have **drop glue** ([§8](#8-drop-and-drop-glue)): code the
 compiler generates to release them.
 
-**Plain data**, in this reference, is a value that owns nothing and
-holds no `?T`, `!T`, or slice: a plain value, a `?String`, or an
-optional, array, object, or enum of them. It copies freely. A `?String` in
-it is still a view, which may carry a String's loan ([strings](#strings)).
+**Plain data**, in this reference, is a value of the plain kind: it
+copies, owns nothing, and views nothing, as a type that provides both
+`Copy` and `Owned` does. It is a number, a `Bool`, a plain enum, a
+`Static`, a `Symbol`, a vector, or an optional, array, object, or enum
+of them. A `?String` is a view, not plain data, and so is any optional,
+array, object, or enum that holds one ([CORE §1](docs/CORE.md#1-four-kinds-of-value)):
+it copies freely too, but each copy carries the loan of the text it
+views ([strings](#strings)).
 
 A **unique** value owns nothing to release but must not be copied: a
 object declared `unique` (`obj Random unique`, a generator whose
@@ -2347,7 +2352,8 @@ The conversion is checked: a variant named through its type
 (`Status.missing`) must fit the target at compile time, and any other
 value that does not fit panics when the program runs. A payload enum
 has no integer values, nor does a built-in enum (`Endian`, `Arch`,
-`Os`, whose variants are Zig's), and no enum converts to a float directly.
+`Os`, `Feature`, whose variants are Zig's), and no enum converts to a
+float directly.
 
 ```rig
 enum Status
@@ -2389,7 +2395,7 @@ from the other, as beside `==`. A plain enum meets a generic body's
 ordering, so `std.math.max` and `std.sort.sort` take one
 ([Generic bodies](#generic-bodies)). Two different enums, an enum and a
 number, an enum with a payload variant, a built-in enum (`Endian`,
-`Arch`, `Os`), and an error set have no order.
+`Arch`, `Os`, `Feature`), and an error set have no order.
 
 ```rig
 use std.math
@@ -2501,7 +2507,8 @@ name must match whole and byte for byte, so a prefix, another case, or
 an integer value's digits find nothing. Neither allocates:
 `from_text` hashes `word` once and looks it up in a table of the
 enum's names, which the compiler builds for each enum the program
-calls it on. The built-in enums `Endian`, `Arch`, and `Os` have both too.
+calls it on. The built-in enums `Endian`, `Arch`, `Os`, and `Feature`
+have both too.
 
 `.text` is a member, not a method: `e.text`, not `e.text()`. It is
 read as it is, never written or lent: the name belongs to the enum's
@@ -4754,18 +4761,30 @@ value of the built-in enum `Os`, whose variants are Zig's
 (`std.Target.Os.Tag`): `.macos`, `.linux`, `.freebsd`, `.windows`,
 `.wasi`, and the rest, built as `Arch` is. Two of Zig's names, `3ds`
 and `switch`, are not Rig names: they print as `.3ds` and `.switch`
-and are matched only by `_`. `Arch` and `Os` are built-in names, like
-`Endian`, and are reserved.
+and are matched only by `_`. `target.has(f)` is whether the CPU the
+program is compiled for has feature `f`, a value of the built-in enum
+`Feature`, whose variants are Zig's names for the features of x86-64
+and arm64 (`std.Target.x86.Feature` and `std.Target.aarch64.Feature`),
+merged: `.avx2`, `.bmi2`, `.sse4_2`, `.neon`, `.sha3`, `.sve`, and the
+rest. It is false when the target's architecture has no feature by that
+name, so `target.has(.avx2)` is false on arm64; a name both have, such
+as `.aes`, is each one's own feature. Five of Zig's names, such as
+`3dnow` and `64bit`, are not Rig names, and print and match as `Os`'s
+do. `Arch`, `Os`, and `Feature` are built-in names, like `Endian`, and
+are reserved.
 
-`target.arch` and `target.os` are known at compile time and stand
+`target.arch` and `target.os` are known at compile time, as is
+`target.has(f)` for an `f` known at compile time, and each stands
 wherever a constant can: in a module constant's initializer, as a
 compile-time argument of type `Arch` or `Os`, and in ordinary code,
 where `==` and `!=` compare one with a variant. Rig never knows their
 values: Zig sets them when it compiles the program for a target, so
 `rig check` gives a program the same verdict on every machine. Rig
 checks both branches of `a if target.arch == .x86_64 else b`, and Zig
-keeps the one the target picks, when it compiles. A constant whose
-value names `target.arch` or `target.os` is set by the target too.
+keeps the one the target picks, when it compiles, so a function called
+only in the other branch is never compiled or linked. A constant whose
+value names `target.arch`, `target.os`, or `target.has` is set by the
+target too.
 
 ```rig
 use std.target
@@ -4810,8 +4829,6 @@ sub main()
 the operands of a module constant's arithmetic must be known when Rig checks the program; the value of `TIER` is chosen for each target when Zig compiles the program, so Rig does not know it
 an array length must be known when Rig checks the program; the value of `TIER`
 ```
-
-`std.target` has `arch` and `os`; the CPU's features are not built.
 
 ### Other declarations
 
@@ -8774,16 +8791,17 @@ default (`hits: Cell[Int] = Cell(0)`).
 | Member | Meaning |
 |---|---|
 | `*Cell(v)` | construct, behind a shared handle |
-| `c.get()` | a copy of the value (a `T` of plain data only) |
+| `c.get()` | a copy of the value (a `T` that copies only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
 | `(!c).swap(v)` | store `v` and return the old value |
 | `(!c).compare_swap(old, new)` | store `new` if the value is `old`, at once; whether it did (a Cell of one word) |
 | `(!c).add(n)`, `(!c).sub(n)` | count, and return the new value (a `Cell[Int]`) |
 | `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
-| `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` of plain data: an element, bounds-checked, or `T?` |
+| `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` whose `T` copies: an element, bounds-checked, or `T?` |
 
-`T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
-declared `unique`. An owning or unique value is never copied out of a
+`T` is plain data ([§2](#kinds-of-value)), a value that copies and
+whose only views are `?String`s (a `?String`, or an object holding
+one), an owning type, or a type declared `unique`. An owning or unique value is never copied out of a
 cell: it moves in with `set` / `swap` and moves out with `swap`.
 What goes into a cell, by any of its members or `c[i] = x`, carries no
 loan: it holds no `?T`, `!T`, or slice, nor a `?String` that may view a
@@ -8797,7 +8815,7 @@ hands the last one out as `T?`, `keep(n)` drops all but the first `n`, and
 elements, and `keep` pops each element before it drops it, so a `drop`
 body that reaches back into the cell finds a valid List. For the same reason an element is a
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
-when `T` is plain data, an element cannot be lent, and a field of one is
+when `T` copies, an element cannot be lent, and a field of one is
 not written in place. The elements of a List of handles are taken out
 with `pop`, or by taking the whole List out with `swap`.
 
@@ -9724,7 +9742,8 @@ cannot store a view of `s` in a `Cell`
 
 ### Signal
 
-`Signal[T]` holds a value of plain data and a list of subscribers, owned
+`Signal[T]` holds a value of plain data, or a value that copies and
+whose only views are `?String`s, and a list of subscribers, owned
 closures of type `*sub()`. It lives behind a shared handle: a stack
 `Signal` is rejected.
 

@@ -214,9 +214,20 @@ extern zig "file.zig"
   # Whether anything is at `path`, links followed.
   fun exists_at(path: ?String) -> Bool!
 
-  # Remove the file, or the empty directory, at `path`: true, or false
-  # when nothing was there.
+  # Remove the file, or the empty directory, at `path`, whichever is
+  # there, as C's `remove` does: true, or false when nothing was there.
   pub fun remove(path: ?String) -> Bool!
+
+  # Remove the file at `path`, whatever its kind but a directory: a
+  # symbolic link itself, never what it names. `true`, or `false` when
+  # nothing was there. A directory fails: `FileError.is_directory` on
+  # Linux, `not_permitted` on macOS, each the system's own reason.
+  pub fun unlink(path: ?String) -> Bool!
+
+  # Remove the empty directory at `path`: `true`, or `false` when nothing
+  # was there. A file fails with `FileError.not_directory`, a directory
+  # that holds entries with `not_empty`.
+  pub fun rmdir(path: ?String) -> Bool!
 
   # The absolute path `path` names, every symbolic link in it resolved,
   # or `none` when nothing is there.

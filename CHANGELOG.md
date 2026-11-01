@@ -222,6 +222,11 @@ Other:
     so a program's own type may not take the name, as it may not take
     `Arch`. No program in Rig, Trig, or loco declares one, so Trig needs
     no migration.
+56. `Feature` names a built-in type, the CPU feature `target.has(f)`
+    tests, so a program's own type may not take the name, as it may not
+    take `Os`. Rig makes `Feature` a reserved built-in type (std.target's
+    `target.has(.avx2)`); Trig declares no type named `Feature`, so no
+    migration is needed.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -247,6 +252,25 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Plain data views nothing.** SPEC's "Plain data" is CORE's plain
+  kind: a value that copies, owns nothing, and views nothing. A
+  `?String`, and an object, enum, optional, or array holding one, is a
+  view, as CORE §1 says and as the compiler already treats it
+  (`$plain(?String)` is `false`). A `Cell` or `Signal` holds a value
+  that copies and whose only views are `?String`s, as before. Docs
+  only: no program's meaning changes.
+
+- **`target.has(f)`, the CPU's features.** `std.target` gives
+  `has(f: Feature) -> Bool`, whether the CPU the program is compiled for
+  has feature `f`: a value of the built-in enum `Feature`, whose
+  variants are Zig's names for the features of x86-64 and arm64, merged
+  (`.avx2`, `.bmi2`, `.sse4_2`, `.neon`, `.sha3`, `.sve`, ...), false
+  where the architecture has no feature by that name. Called on a
+  variant it is a constant, checked as `target.arch` is, so
+  `LANES = 8 if target.has(.avx2) else 4` keeps both branches and Zig
+  takes the one the CPU picks. A Zig-backed function may be an
+  `inline fn`.
+
 - **`none` of a large optional is one store.** A `T?` over 16 bytes
   whose `T` is an object, a payload enum, or an array writes `none` by
   its flag alone, where Zig wrote every byte of it zero: an empty pop of
@@ -255,6 +279,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   and under `RIG_STRICT_OPTIONALS` is a tagged struct too. A payload
   variant literal compared with an optional (`o == .square(side: 2)`)
   is its payload's value.
+
 - **`target.os`, the operating system a program is compiled for.**
   `std.target` gives `os: Os` beside `arch: Arch`: a value of the
   built-in enum `Os`, whose variants are Zig's (`std.Target.Os.Tag`:
@@ -310,6 +335,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   with `t.add(ns)` and `Instant.at(ns)` for code handed the time. A
   Zig-backed function of the standard library may take bare type
   parameters, which its Zig function takes first, when it cannot fail.
+- **`file.unlink` and `file.rmdir` remove one kind.** `unlink(path)`
+  removes anything but a directory, a symbolic link itself and never
+  what it names, and `rmdir(path)` only an empty directory; each gives
+  `false` when nothing was there, as `remove` does. Each is one system
+  call, so a program that must refuse the other kind needs no `stat`
+  first, and each failure is the system's own: `rmdir` of a file is
+  `FileError.not_directory`, `unlink` of a directory `is_directory` on
+  Linux and `not_permitted` on macOS. `remove` stays either, as C's
+  `remove` and Go's `os.Remove` are.
 - **std.io gives the standard streams.** `io.stdin()`, `io.stdout()`,
   and `io.stderr()` are `file.File`s on descriptors 0, 1, and 2, left
   open when dropped, so `cat` is `io.copy(!f, !out)` and stdin reads as

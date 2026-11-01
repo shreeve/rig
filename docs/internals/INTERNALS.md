@@ -206,7 +206,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian`, `Arch`, and `Os` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian`, `Arch`, `Os`, and `Feature` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
@@ -1005,9 +1005,11 @@ later pass reads. It runs these steps in order:
 1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `List[T]`,
    `^T`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
-   and substitution as user generics, and `Endian`, `Arch`, and `Os` as
-   enums (`Arch`'s variants are `std.Target.Cpu.Arch`'s and `Os`'s
-   `std.Target.Os.Tag`'s, read when the compiler is built). The
+   and substitution as user generics, and `Endian`, `Arch`, `Os`, and
+   `Feature` as enums (`Arch`'s variants are `std.Target.Cpu.Arch`'s,
+   `Os`'s `std.Target.Os.Tag`'s, and `Feature`'s the runtime's
+   `Feature`, Zig's x86-64 and arm64 feature names merged, read when
+   the compiler is built). The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
    slices, arrays, Lists, and `?String` values, which have no symbol, are checked
    by `elemsCall` and recorded as `elemCallOf` facts. `String` is a
@@ -4910,7 +4912,13 @@ symbols); a query that decides more than that is a recorded fact.
   library, so no such mismatch reaches a program. A constant is
   Zig's, coerced to its Rig type, `pub const arch: rig.Arch =
   __rig_shim_1.arch;`, so a choice on it is one Zig makes when it
-  compiles.
+  compiles. The Zig function of a declaration that cannot fail may be
+  an `inline fn` of the same type, so that a call on constants is a
+  constant: `target.has(.avx2)` is std.target's `inline fn has`, which
+  calls the runtime's `hasFeature`, and folds to a Bool, so Zig keeps
+  only the branch the CPU takes. Every function of `std.target` is a
+  fact of the target (`SymbolFlags.per_target`), and its call on
+  constants is known at compile time to Zig alone, as `target.arch` is.
   A fallible declaration lowers to `anyerror!T`, but its Zig function
   returns `E!T` for an error set `E` it spells out, not `anyerror`.
   The third argument of `expectShim` is every error of the module's
@@ -5124,7 +5132,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body or on a plain enum: numbers by the operator, a plain enum's values by `@intFromEnum`, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
-| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
+| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, or that type called inline, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler, for a runtime panic: flush `print` output, then `panic: msg` on stderr (and the stack trace in a debug build), then `abort`, as `fail` does |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use, synchronous on the calling thread: `std.Io.Threaded.global_single_threaded`, or, in a program that makes tasks, a `Threaded` instance `start` sets up, which the scheduler's threads call into and which runs no tasks |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int`. With `RIG_NO_CRASH_REPORT=1` in its environment, in every build mode, on Linux `start` first sets its core limit to exactly 1 (`RLIMIT_CORE` {1, 1}), at which the kernel passes it to no `core_pattern` pipe (apport) and writes no core. On macOS the program does nothing itself: clearing its own crash handler would stop only the user's ReportCrash, and the system's would still file the crash in /Library/Logs/DiagnosticReports. The process that starts it answers its crash as handled instead: `rig run` and `rig test`, always, with or without the variable (`CrashCatcher` in main.zig, around their `zig run` child; a panic's message and trace are on stderr already), or `cpuq cap --no-crash-report` for a built program a harness runs directly. The trade-off: `zig run` compiles and runs in one process, so inside such a run a compiler crash files no .ips either; it still fails the run loudly (no `RIG_RUN_STARTED`, a nonzero status). It still dies by its signal, its stderr unchanged. A test harness sets it for programs that panic on purpose |
