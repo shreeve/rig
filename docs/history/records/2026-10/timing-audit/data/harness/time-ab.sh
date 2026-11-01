@@ -38,9 +38,20 @@ quiet() {
   while pgrep -f "tools/full-main" > /dev/null; do echo "# $(date +%T) waiting: Trig's full suite"; sleep 60; done
   while busy; do echo "# $(date +%T) waiting: a process runs on the timing cores"; sleep 20; done
 }
+# Run PROJ's arm V once, under perf stat, and print its fields. An arm's
+# command starts `taskset -c CORES`: perf runs pinned to the same cores,
+# so the counted program starts where it runs, and with --no-scale. A
+# cpu_core event cannot run while the program is on an E-core; started
+# there (perf on 12-19, the program pinned only once taskset ran), perf
+# scaled its counts by enabled over running time, a swing of 7-10M
+# instructions a run (row 49).
 run() { # run PROJ V -> fields
   e=0
-  /usr/bin/time -f "%M %e %R" -o $O/time taskset -c 12-19 perf stat -x, -e $EV -o $O/perf $(cmd_of $2) > $O/out.$1.$2 2>&1 || e=$?
+  set -- $1 $2 $(cmd_of $2)
+  proj=$1 arm=$2; shift 2
+  [ "$1" = taskset ] && [ "$2" = -c ] || { echo "# $arm: command must start with taskset -c CORES" >&2; exit 2; }
+  cores=$3; shift 3
+  /usr/bin/time -f "%M %e %R" -o $O/time taskset -c $cores perf stat --no-scale -x, -e $EV -o $O/perf "$@" > $O/out.$proj.$arm 2>&1 || e=$?
   f=$(awk -F, '/^[0-9]/ { k=$3; sub("cpu_core/", "", k); sub("/$", "", k); printf "%s=%s ", k, $1 }' $O/perf)
   set -- $(tail -n 1 $O/time)
   echo "${f}rss_kb=$1 minflt=$3 exit=$e"
