@@ -1,0 +1,11 @@
+diff -r t-pb/src/ast/ast.rig t-pbdefer/src/ast/ast.rig
+172d171
+<     _ = !ast.recs.push(NodeRec(kind: .Unknown, keyword: .Unknown, flags: 0, pos: -1, end: -1, parent: 0, data: 0))
+205a205,206
+>     if @recs.len == 0
+>       return 0
+310a312,315
+>     # MEASUREMENT ARM (Rig row 50): the nil record is pushed with the first node,
+>     # so an Ast that makes no node never writes its table.
+>     if @recs.len == 0
+>       _ = !@recs.push(NodeRec(kind: .Unknown, keyword: .Unknown, flags: 0, pos: -1, end: -1, parent: 0, data: 0))

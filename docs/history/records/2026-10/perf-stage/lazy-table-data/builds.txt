@@ -1,0 +1,11 @@
+10:45:23 mac mainbase exit=0 in 409 s
+10:54:19 mac pblazy exit=0 in 536 s
+11:04:08 mac mainlazy exit=0 in 589 s
+11:11:32 mac pbdefer exit=0 in 666 s
+11:33:26 mac pbbase exit=0 in 1758 s
+11:48:51 mac mainlazy2 exit=0 in 454 s
+11:59:25 mac pbdefer2 exit=0 in 634 s
+12:10:15 x86 mainbase exit=0 in 650 s
+12:20:43 x86 mainlazy2 exit=0 in 628 s
+12:30:01 x86 pbbase exit=0 in 558 s
+12:39:53 x86 pbdefer2 exit=0 in 592 s

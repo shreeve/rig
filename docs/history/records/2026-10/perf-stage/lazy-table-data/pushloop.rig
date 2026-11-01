@@ -1,0 +1,24 @@
+# A tight push loop into a reserved Table: held in a local, and held in an object.
+N = 1 << 26
+
+obj Holder
+  t: Table[U8, N]
+
+fun fill_local(k: Int) -> Int
+  t: Table[U8, N] = Table()
+  for i in 0..k
+    _ = (!t).push(U8(i & 255))
+  Int(t.len) + Int(t[3])
+
+sub fill_held(h: !Holder, k: Int)
+  for i in 0..k
+    _ = (!h.t).push(U8(i & 255))
+
+sub main()
+  s = 0
+  for _ in 0..8
+    s += fill_local(20000000)
+    h = Holder(t: Table())
+    fill_held(!h, 20000000)
+    s += Int(h.t.len)
+  print(s)
