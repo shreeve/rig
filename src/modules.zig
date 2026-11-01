@@ -869,7 +869,7 @@ pub const ModuleGraph = struct {
             return;
         }
         const t0 = timing.start(self.timing);
-        var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
+        var own = try ownership.Checker.init(self.allocator, m.source, m.sema);
         defer own.deinit();
         try own.check(m.ir);
         timing.stop(self.timing, .ownership, t0);

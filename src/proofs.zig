@@ -2203,7 +2203,7 @@ fn dumpOf(source: []const u8) ![]u8 {
     const tree = try p.parseProgram();
     var ctx = try sema.check(a, source, tree, .{ .parser = &p, .is_root = true });
     defer ctx.deinit();
-    var own = try ownership.Checker.initWithSema(a, source, &ctx);
+    var own = try ownership.Checker.init(a, source, &ctx);
     defer own.deinit();
     try own.check(tree);
     if (ctx.hasErrors() or own.diagnostics.items.len > 0) {
