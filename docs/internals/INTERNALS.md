@@ -1616,7 +1616,7 @@ self-checking builds work each again and compare. The module table is
 indexed by module id (`sema.ModuleMap`). The compiler allocates from
 `std.heap.smp_allocator`, so a table that grows, and a module's first
 check, which a second replaces, give their memory back: from one arena,
-`rig check` of Trig peaked at 2.0 GB, against 0.63 GB
+`rig check` of Trig peaked at 2.1 GB, against 0.65 GB
 (docs/history/records/2026-10/check-speed/).
 
 **Decisions.** A few questions about a node that emit, the storage plan,
