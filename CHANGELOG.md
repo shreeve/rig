@@ -2072,6 +2072,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `--units=N` sets the count, for a release build too (which then runs
   slower, its calls between units not inlined), and `--units=1` never
   splits.
+- **Stack canaries:** release builds leave out the canaries Zig adds
+  wherever libc is linked (every macOS program; on Linux, a program
+  that declares an `extern`). Safe Rig checks or proves every index, so
+  a canary guards only `raw` code and the runtime's Zig. Trig on the
+  Mac checks with 6.2-7.0% fewer instructions and 2.5-4.5% fewer
+  cycles. Debug builds keep them; `RIG_STACK_PROTECTOR=1` keeps them in
+  a release build.
 - **BOLT:** `rig build --release --bolt -- WORKLOAD` lays the
   executable out again with LLVM's BOLT, by a `perf` profile of the
   workload (Linux), and `--bolt-profile=FILE` keeps that profile or
