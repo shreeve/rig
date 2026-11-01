@@ -2063,6 +2063,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   and 1-2% faster. Debug builds keep them. A profiler that walks them
   (`perf record -g`, macOS's `sample`) sees no callers in a release
   build unless `RIG_FRAME_POINTERS=1` was set when it was built.
+- **Split builds:** a large program's debug build (`rig build`, `run`,
+  `test`) compiles as several units at once, each a `zig build-obj` on
+  its own core, linked into one executable, when Zig builds it with
+  LLVM (every target but x86-64) and its own modules hold at least 18k
+  lines: one unit for each 9k lines, up to the cores. Trig's debug build
+  on the Mac goes from 291 s of Zig to 30 s, its output the same.
+  `--units=N` sets the count, for a release build too (which then runs
+  slower, its calls between units not inlined), and `--units=1` never
+  splits.
 - **BOLT:** `rig build --release --bolt -- WORKLOAD` lays the
   executable out again with LLVM's BOLT, by a `perf` profile of the
   workload (Linux), and `--bolt-profile=FILE` keeps that profile or

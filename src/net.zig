@@ -10,6 +10,18 @@ const std = @import("std");
 const builtin = @import("builtin");
 const rig = @import("runtime.zig");
 const tasks = @import("tasks.zig");
+const split = rig.split;
+
+// Unit 0 of a split build defines every cell of this file
+// (`split.cell`).
+comptime {
+    if (split.on and split.main) _ = .{
+        lent.lock,
+        lent.fds,
+        lent.buffers,
+        lent.next,
+    };
+}
 const posix = std.posix;
 const sys = posix.system;
 const IpAddress = std.Io.net.IpAddress;
@@ -589,12 +601,16 @@ fn syncLent(token: u64, how: Sync) (rig.Stop || FileError)!void {
 /// and none uses a descriptor its task may have closed and the system
 /// given out again.
 const lent = struct {
-    var lock: rig.sched.SpinLock = .{};
-    var fds: std.AutoHashMapUnmanaged(u64, i32) = .empty;
+    var lock_var: rig.sched.SpinLock = .{};
+    const lock = split.cell(&lock_var, "net.lent_lock");
+    var fds_var: std.AutoHashMapUnmanaged(u64, i32) = .empty;
+    const fds = split.cell(&fds_var, "net.lent_fds");
     /// The same for `fileReadInto`: each duplicate with the String it
     /// reads into, which moves with it.
-    var buffers: std.AutoHashMapUnmanaged(u64, LentBuffer) = .empty;
-    var next: u64 = 1;
+    var buffers_var: std.AutoHashMapUnmanaged(u64, LentBuffer) = .empty;
+    const buffers = split.cell(&buffers_var, "net.lent_buffers");
+    var next_var: u64 = 1;
+    const next = split.cell(&next_var, "net.lent_next");
 };
 
 const LentBuffer = struct { fd: i32, buf: rig.String };
@@ -605,8 +621,8 @@ fn lendBuffer(fd: i64, into: *rig.String) FileError!u64 {
     const dup = try duplicate(fd);
     lent.lock.lock();
     defer lent.lock.unlock();
-    const token = lent.next;
-    lent.next += 1;
+    const token = lent.next.*;
+    lent.next.* += 1;
     lent.buffers.put(std.heap.smp_allocator, token, .{ .fd = dup, .buf = into.* }) catch rig.oom();
     into.* = .empty;
     return token;
@@ -635,8 +651,8 @@ fn lend(fd: i64) FileError!u64 {
     const dup = try duplicate(fd);
     lent.lock.lock();
     defer lent.lock.unlock();
-    const token = lent.next;
-    lent.next += 1;
+    const token = lent.next.*;
+    lent.next.* += 1;
     lent.fds.put(std.heap.smp_allocator, token, dup) catch rig.oom();
     return token;
 }
@@ -805,7 +821,7 @@ const Settings = struct {
     /// The positive whole number the environment variable `name` holds,
     /// or null.
     fn setting(name: []const u8) ?u64 {
-        const p = rig.process orelse return null;
+        const p = rig.process.* orelse return null;
         const text = p.environ.getPosix(name) orelse return null;
         const n = std.fmt.parseInt(u64, text, 10) catch return null;
         return if (n > 0 and n < 1 << 53) n else null;

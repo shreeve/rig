@@ -43,6 +43,37 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const root = @import("root");
+const split = @import("split.zig");
+
+// Unit 0 of a split build defines every cell of this file
+// (`split.cell`).
+comptime {
+    if (split.on and split.main) _ = .{
+        taken_all,
+        kept_reading,
+        buddyinfo_for_test,
+        buddyinfo_reads,
+        clock_for_test,
+        region_next,
+        region_end,
+        region_lock,
+        tables_lock,
+        table_regions,
+        table_region_count,
+        table_next,
+        table_end,
+        tables_unmapped,
+        table_free,
+        table_free_count,
+        tables_asked_huge,
+        total_live,
+        total_peak,
+        total_allocs,
+        owner_lost,
+        spare_heaps,
+        spare_lock,
+    };
+}
 
 /// Whether the heaps count what they hand out: only in a program that
 /// names `os.memory`, whose root declares `__rig_memory` (and in this
@@ -66,7 +97,8 @@ const pages_per_prefault = prefault_size / page_size;
 const madv_populate_write: u32 = 23;
 
 /// What every heap has taken from the system together (`Heap.taken`).
-var taken_all: std.atomic.Value(usize) = .init(0);
+var taken_all_var: std.atomic.Value(usize) = .init(0);
+const taken_all = split.cell(&taken_all_var, "alloc.taken_all");
 
 /// A heap faults in ahead while it has taken from the system at least
 /// this many times what every other heap has together (`leads`).
@@ -585,14 +617,15 @@ const reading_life_ns: u64 = 4 * std.time.ns_per_ms;
 /// microseconds) in the top 40 bits, which last 2^56 ns, two years; its
 /// free blocks, at most `count_max`, in the low 24; or 0, none. One
 /// word, so a thread never pairs one reading's time with another's count.
-var kept_reading: std.atomic.Value(u64) = .init(0);
+var kept_reading_var: std.atomic.Value(u64) = .init(0);
+const kept_reading = split.cell(&kept_reading_var, "alloc.kept_reading");
 const count_bits = 24;
 const count_max: u64 = (1 << count_bits) - 1;
 
 /// The monotonic clock in units of 2^16 ns, through the vDSO: tens of
 /// nanoseconds, where a reading costs microseconds. 0 if it fails.
 fn clockUnits() u64 {
-    if (comptime builtin.is_test) if (clock_for_test) |ns| return ns >> 16;
+    if (comptime builtin.is_test) if (clock_for_test.*) |ns| return ns >> 16;
     var ts: std.os.linux.timespec = undefined;
     if (std.os.linux.clock_gettime(.MONOTONIC, &ts) != 0) return 0;
     const ns = @as(u64, @intCast(ts.sec)) *% std.time.ns_per_s +% @as(u64, @intCast(ts.nsec));
@@ -635,8 +668,8 @@ noinline fn freeHugeNow() usize {
     @branchHint(.cold);
     if (builtin.os.tag != .linux) return 0;
     if (comptime builtin.is_test) {
-        buddyinfo_reads += 1;
-        if (buddyinfo_for_test) |text| return freeHugeBlocks(text);
+        buddyinfo_reads.* += 1;
+        if (buddyinfo_for_test.*) |text| return freeHugeBlocks(text);
     }
     const linux = std.os.linux;
     const rc = linux.openat(linux.AT.FDCWD, "/proc/buddyinfo", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
@@ -658,13 +691,16 @@ noinline fn freeHugeNow() usize {
 
 /// What a test reads in place of /proc/buddyinfo, the readings it has
 /// made, and the clock it sees, in nanoseconds.
-var buddyinfo_for_test: ?[]const u8 = null;
-var buddyinfo_reads: usize = 0;
-var clock_for_test: ?u64 = null;
+var buddyinfo_for_test_var: ?[]const u8 = null;
+const buddyinfo_for_test = split.cell(&buddyinfo_for_test_var, "alloc.buddyinfo_for_test");
+var buddyinfo_reads_var: usize = 0;
+const buddyinfo_reads = split.cell(&buddyinfo_reads_var, "alloc.buddyinfo_reads");
+var clock_for_test_var: ?u64 = null;
+const clock_for_test = split.cell(&clock_for_test_var, "alloc.clock_for_test");
 
 /// Read `text` in place of /proc/buddyinfo from now, with no reading kept.
 fn useBuddyinfoForTest(text: ?[]const u8) void {
-    buddyinfo_for_test = text;
+    buddyinfo_for_test.* = text;
     kept_reading.store(0, .monotonic);
 }
 
@@ -817,14 +853,17 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
 /// as the first segment is wanted, which the system backs only as pages
 /// are touched, so a heap's growth makes no system call.
 const region_size: usize = 64 << 30;
-var region_next: std.atomic.Value(usize) = .init(0);
-var region_end: usize = 0;
-var region_lock: std.atomic.Value(bool) = .init(false);
+var region_next_var: std.atomic.Value(usize) = .init(0);
+const region_next = split.cell(&region_next_var, "alloc.region_next");
+var region_end_var: usize = 0;
+const region_end = split.cell(&region_end_var, "alloc.region_end");
+var region_lock_var: std.atomic.Value(bool) = .init(false);
+const region_lock = split.cell(&region_lock_var, "alloc.region_lock");
 
 fn mapSegment() ?*Segment {
     if (region_next.load(.acquire) == 0) reserveRegion();
     var at = region_next.load(.monotonic);
-    while (at != 0 and at + segment_size <= region_end) {
+    while (at != 0 and at + segment_size <= region_end.*) {
         at = region_next.cmpxchgWeak(at, at + segment_size, .monotonic, .monotonic) orelse return @ptrFromInt(at);
     }
     return mapOwnSegment();
@@ -837,12 +876,12 @@ fn reserveRegion() void {
     if (region_next.load(.monotonic) != 0) return;
     const raw = std.posix.mmap(null, region_size + segment_size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
         // No room for it: each segment is mapped on its own.
-        region_end = 0;
+        region_end.* = 0;
         region_next.store(1, .release);
         return;
     };
     const start = std.mem.alignForward(usize, @intFromPtr(raw.ptr), segment_size);
-    region_end = start + region_size;
+    region_end.* = start + region_size;
     region_next.store(start, .release);
 }
 
@@ -886,22 +925,31 @@ const table_free_max = 128;
 
 const Range = struct { start: usize, len: usize };
 
-var tables_lock: std.atomic.Value(bool) = .init(false);
+var tables_lock_var: std.atomic.Value(bool) = .init(false);
+const tables_lock = split.cell(&tables_lock_var, "alloc.tables_lock");
 /// The regions, in the order they were mapped; the newest is handed out
 /// from `table_next` to `table_end`.
-var table_regions: [table_regions_max]Range = undefined;
-var table_region_count: usize = 0;
-var table_next: usize = 0;
-var table_end: usize = 0;
+var table_regions_var: [table_regions_max]Range = undefined;
+const table_regions = split.cell(&table_regions_var, "alloc.table_regions");
+var table_region_count_var: usize = 0;
+const table_region_count = split.cell(&table_region_count_var, "alloc.table_region_count");
+var table_next_var: usize = 0;
+const table_next = split.cell(&table_next_var, "alloc.table_next");
+var table_end_var: usize = 0;
+const table_end = split.cell(&table_end_var, "alloc.table_end");
 /// No region could be mapped (`ulimit -v`, strict overcommit): each
 /// Table is mapped on its own from then on.
-var tables_unmapped: bool = false;
+var tables_unmapped_var: bool = false;
+const tables_unmapped = split.cell(&tables_unmapped_var, "alloc.tables_unmapped");
 /// The ranges given back, by address, none touching another.
-var table_free: [table_free_max]Range = undefined;
-var table_free_count: usize = 0;
+var table_free_var: [table_free_max]Range = undefined;
+const table_free = split.cell(&table_free_var, "alloc.table_free");
+var table_free_count_var: usize = 0;
+const table_free_count = split.cell(&table_free_count_var, "alloc.table_free_count");
 /// Whether any range has asked for huge pages, so a range given back is
 /// advised for small pages again before the next Table takes it.
-var tables_asked_huge: std.atomic.Value(bool) = .init(false);
+var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
+const tables_asked_huge = split.cell(&tables_asked_huge_var, "alloc.tables_asked_huge");
 
 fn lockTables() void {
     while (tables_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
@@ -941,7 +989,7 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     const len = std.mem.alignForward(usize, bytes, huge_page);
     lockTables();
     var mine = false;
-    for (table_regions[0..table_region_count]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
+    for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
     unlockTables();
     if (!mine) return false;
     const range: [*]align(huge_page) u8 = @alignCast(p);
@@ -958,7 +1006,7 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
 /// Under `tables_lock`.
 fn takeTableRange(len: usize) ?usize {
     var best: ?usize = null;
-    for (table_free[0..table_free_count], 0..) |r, i| {
+    for (table_free[0..table_free_count.*], 0..) |r, i| {
         if (r.len >= len and (best == null or r.len < table_free[best.?].len)) best = i;
     }
     if (best) |i| {
@@ -967,14 +1015,14 @@ fn takeTableRange(len: usize) ?usize {
         r.start += len;
         r.len -= len;
         if (r.len == 0) {
-            std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
-            table_free_count -= 1;
+            std.mem.copyForwards(Range, table_free[i .. table_free_count.* - 1], table_free[i + 1 .. table_free_count.*]);
+            table_free_count.* -= 1;
         }
         return p;
     }
-    if (table_end - table_next < len and !newTableRegion()) return null;
-    const p = table_next;
-    table_next += len;
+    if (table_end.* - table_next.* < len and !newTableRegion()) return null;
+    const p = table_next.*;
+    table_next.* += len;
     return p;
 }
 
@@ -982,18 +1030,18 @@ fn takeTableRange(len: usize) ?usize {
 /// rest to the free ranges. Under `tables_lock`.
 fn newTableRegion() bool {
     @branchHint(.cold);
-    if (tables_unmapped or table_region_count == table_regions_max) return false;
+    if (tables_unmapped.* or table_region_count.* == table_regions_max) return false;
     const raw = std.posix.mmap(null, table_region_size + huge_page, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
-        tables_unmapped = true;
+        tables_unmapped.* = true;
         return false;
     };
     std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
     const start = std.mem.alignForward(usize, @intFromPtr(raw.ptr), huge_page);
-    if (table_end > table_next) giveTableRange(table_next, table_end - table_next);
-    table_regions[table_region_count] = .{ .start = start, .len = table_region_size };
-    table_region_count += 1;
-    table_next = start;
-    table_end = start + table_region_size;
+    if (table_end.* > table_next.*) giveTableRange(table_next.*, table_end.* - table_next.*);
+    table_regions[table_region_count.*] = .{ .start = start, .len = table_region_size };
+    table_region_count.* += 1;
+    table_next.* = start;
+    table_end.* = start + table_region_size;
     return true;
 }
 
@@ -1001,35 +1049,35 @@ fn newTableRegion() bool {
 /// end there, else among the free ranges, joined to those they touch.
 /// Under `tables_lock`.
 fn giveTableRange(p: usize, len: usize) void {
-    if (p + len == table_next) {
-        table_next = p;
+    if (p + len == table_next.*) {
+        table_next.* = p;
         // A free range that now ends at the rest joins it.
-        for (table_free[0..table_free_count], 0..) |r, i| if (r.start + r.len == p) {
-            table_next = r.start;
-            std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
-            table_free_count -= 1;
+        for (table_free[0..table_free_count.*], 0..) |r, i| if (r.start + r.len == p) {
+            table_next.* = r.start;
+            std.mem.copyForwards(Range, table_free[i .. table_free_count.* - 1], table_free[i + 1 .. table_free_count.*]);
+            table_free_count.* -= 1;
             break;
         };
         return;
     }
     // The first free range after `p`.
     var i: usize = 0;
-    while (i < table_free_count and table_free[i].start < p) i += 1;
+    while (i < table_free_count.* and table_free[i].start < p) i += 1;
     const joins_before = i > 0 and table_free[i - 1].start + table_free[i - 1].len == p;
-    const joins_after = i < table_free_count and p + len == table_free[i].start;
+    const joins_after = i < table_free_count.* and p + len == table_free[i].start;
     if (joins_before and joins_after) {
         table_free[i - 1].len += len + table_free[i].len;
-        std.mem.copyForwards(Range, table_free[i .. table_free_count - 1], table_free[i + 1 .. table_free_count]);
-        table_free_count -= 1;
+        std.mem.copyForwards(Range, table_free[i .. table_free_count.* - 1], table_free[i + 1 .. table_free_count.*]);
+        table_free_count.* -= 1;
     } else if (joins_before) {
         table_free[i - 1].len += len;
     } else if (joins_after) {
         table_free[i].start = p;
         table_free[i].len += len;
-    } else if (table_free_count < table_free_max) {
-        std.mem.copyBackwards(Range, table_free[i + 1 .. table_free_count + 1], table_free[i..table_free_count]);
+    } else if (table_free_count.* < table_free_max) {
+        std.mem.copyBackwards(Range, table_free[i + 1 .. table_free_count.* + 1], table_free[i..table_free_count.*]);
         table_free[i] = .{ .start = p, .len = len };
-        table_free_count += 1;
+        table_free_count.* += 1;
     }
 }
 
@@ -1047,9 +1095,12 @@ fn giveTableRange(p: usize, len: usize) void {
 /// globals, they shifted those, and a task's spawn ran about 60% slower
 /// on Apple cores (bench/tasks), as a line shared by cores that write it
 /// would make it.
-var total_live: std.atomic.Value(isize) align(128) = .init(0);
-var total_peak: std.atomic.Value(isize) align(128) = .init(0);
-var total_allocs: std.atomic.Value(u64) align(128) = .init(0);
+var total_live_var: std.atomic.Value(isize) align(128) = .init(0);
+const total_live = split.cell(&total_live_var, "alloc.total_live");
+var total_peak_var: std.atomic.Value(isize) align(128) = .init(0);
+const total_peak = split.cell(&total_peak_var, "alloc.total_peak");
+var total_allocs_var: std.atomic.Value(u64) align(128) = .init(0);
+const total_allocs = split.cell(&total_allocs_var, "alloc.total_allocs");
 const flush_bytes: isize = 64 << 10;
 const flush_allocs: u32 = 1024;
 
@@ -1071,32 +1122,39 @@ pub fn totals() Totals {
     };
 }
 
-threadlocal var my_heap: ?*Heap = null;
+threadlocal var my_heap_var: ?*Heap = null;
+inline fn my_heap() *?*Heap {
+    return split.local(&my_heap_var, "alloc.my_heap");
+}
 
 /// Whether each heap checks that the thread using it owns it: in safe
 /// builds.
 const check_owner = std.debug.runtime_safety;
 
 /// One byte per thread, whose address names the thread (`threadToken`).
-threadlocal var my_token: u8 = 0;
+threadlocal var my_token_var: u8 = 0;
+inline fn my_token() *u8 {
+    return split.local(&my_token_var, "alloc.my_token");
+}
 
 /// The running thread, as the address of its own `my_token`. A fiber
 /// may resume on another thread after any switch, and a compiler may
 /// reuse a thread-local's address within a function, so every read goes
 /// through a call that is never inlined, as `sched.me` does.
 noinline fn threadToken() usize {
-    return @intFromPtr(&my_token);
+    return @intFromPtr(my_token());
 }
 
 /// In a safe build, panic unless the running thread owns `h`: a heap
 /// has no lock, so only its own thread may take from it or give to it.
 inline fn mustOwn(h: *const Heap) void {
-    if (check_owner and h.owner != threadToken()) owner_lost();
+    if (check_owner and h.owner != threadToken()) owner_lost.*();
 }
 
 /// What `mustOwn` does with a heap another thread owns; a test sets it
 /// to count instead.
-pub var owner_lost: *const fn () void = ownerLost;
+var owner_lost_var: *const fn () void = ownerLost;
+pub const owner_lost = split.cell(&owner_lost_var, "alloc.owner_lost");
 
 fn ownerLost() void {
     @branchHint(.cold);
@@ -1118,8 +1176,10 @@ pub fn checkOwnForTest(h: *const Heap) void {
 pub const owner_lost_default: *const fn () void = ownerLost;
 
 /// Heaps given back by threads that ended, for the next to start.
-var spare_heaps: std.atomic.Value(?*Heap) = .init(null);
-var spare_lock: std.atomic.Value(bool) = .init(false);
+var spare_heaps_var: std.atomic.Value(?*Heap) = .init(null);
+const spare_heaps = split.cell(&spare_heaps_var, "alloc.spare_heaps");
+var spare_lock_var: std.atomic.Value(bool) = .init(false);
+const spare_lock = split.cell(&spare_lock_var, "alloc.spare_lock");
 
 /// The running thread's heap, made as it first allocates. Never
 /// inlined: a fiber may resume on another thread after any switch, and
@@ -1128,7 +1188,7 @@ var spare_lock: std.atomic.Value(bool) = .init(false);
 /// the thread it left (`sched.me`). The fast paths, `alloc` and `free`,
 /// read `my_heap` themselves for the same reason never inlined.
 noinline fn heap() ?*Heap {
-    if (my_heap) |h| return h;
+    if (my_heap().*) |h| return h;
     return newHeap();
 }
 
@@ -1142,14 +1202,14 @@ fn newHeap() ?*Heap {
     if (spare) |s| {
         s.next_free = null;
         if (check_owner) s.owner = threadToken();
-        my_heap = s;
+        my_heap().* = s;
         return s;
     }
     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
     h.* = .{};
     if (check_owner) h.owner = threadToken();
-    my_heap = h;
+    my_heap().* = h;
     return h;
 }
 
@@ -1157,9 +1217,9 @@ fn newHeap() ?*Heap {
 /// what it holds, and the blocks other threads free into it, are used
 /// again.
 pub noinline fn threadExit() void {
-    const h = my_heap orelse return;
+    const h = my_heap().* orelse return;
     if (counts) h.flush();
-    my_heap = null;
+    my_heap().* = null;
     while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
     h.next_free = spare_heaps.load(.monotonic);
     spare_heaps.store(h, .monotonic);
@@ -1197,7 +1257,7 @@ const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .r
 
 /// A block of `len` bytes aligned to `alignment`.
 noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
-    if (fastClass(len, alignment)) |c| if (my_heap) |h| if (h.free[c]) |b| {
+    if (fastClass(len, alignment)) |c| if (my_heap().*) |h| if (h.free[c]) |b| {
         if (builtin.is_test) mustOwn(h);
         h.free[c] = b.next;
         if (counts) h.count(@intCast(classSize(c)), 1);
@@ -1208,7 +1268,7 @@ noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: us
 
 /// Give back `memory`, a block `alloc` made with `alignment`.
 noinline fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
-    if (fastClass(memory.len, alignment)) |c| if (my_heap) |h| {
+    if (fastClass(memory.len, alignment)) |c| if (my_heap().*) |h| {
         const seg = segmentOf(memory.ptr);
         if (seg.heap == h) {
             if (builtin.is_test) mustOwn(h);
@@ -1751,42 +1811,42 @@ test "on Linux a burst of Tables reads /proc/buddyinfo once, and a reading older
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_idle);
     defer useBuddyinfoForTest(null);
-    clock_for_test = 1 << 40;
-    defer clock_for_test = null;
-    const before = buddyinfo_reads;
+    clock_for_test.* = 1 << 40;
+    defer clock_for_test.* = null;
+    const before = buddyinfo_reads.*;
     for (0..43) |_| try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
     // Memory fragments: the reading kept answers until its life is over.
-    buddyinfo_for_test = buddyinfo_partly;
-    clock_for_test.? += reading_life_ns - (1 << 17);
+    buddyinfo_for_test.* = buddyinfo_partly;
+    clock_for_test.*.? += reading_life_ns - (1 << 17);
     try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(before + 1, buddyinfo_reads);
-    clock_for_test.? += 1 << 17;
+    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+    clock_for_test.*.? += 1 << 17;
     try std.testing.expect(!hugeFree());
-    try std.testing.expectEqual(before + 2, buddyinfo_reads);
+    try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
 }
 
 test "on Linux a kept reading may tell a new segment no, but a yes is read again and takes the segment's blocks from the reading kept" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_low);
     defer useBuddyinfoForTest(null);
-    clock_for_test = 1 << 40;
-    defer clock_for_test = null;
-    const before = buddyinfo_reads;
+    clock_for_test.* = 1 << 40;
+    defer clock_for_test.* = null;
+    const before = buddyinfo_reads.*;
     // 17 free: a Table's reading is kept, then too few for 10 blocks and
     // 8 more answers with no new reading.
     try std.testing.expect(!hugeFree());
     try std.testing.expect(!hugeFreeFor(10));
-    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
     // Enough for 2 and 8 more: read again, and the 2 are taken from it.
     try std.testing.expect(hugeFreeFor(2));
-    try std.testing.expectEqual(before + 2, buddyinfo_reads);
+    try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
     try std.testing.expectEqual(@as(?usize, 15), keptReading());
     try std.testing.expect(hugeFreeFor(7));
     try std.testing.expectEqual(@as(?usize, 10), keptReading());
     // The reading kept now says 10: too few for 3 and 8 more.
     try std.testing.expect(!hugeFreeFor(3));
-    try std.testing.expectEqual(before + 3, buddyinfo_reads);
+    try std.testing.expectEqual(before + 3, buddyinfo_reads.*);
 }
 
 test "on Linux, with memory fragmented, no block, segment, or growth asks for huge pages" {
@@ -1818,24 +1878,24 @@ test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_fragmented);
     defer useBuddyinfoForTest(null);
-    clock_for_test = 1 << 40;
-    defer clock_for_test = null;
-    const reads = buddyinfo_reads;
-    const next = table_next;
+    clock_for_test.* = 1 << 40;
+    defer clock_for_test.* = null;
+    const reads = buddyinfo_reads.*;
+    const next = table_next.*;
     var got: [43][*]u8 = undefined;
     for (&got, 0..) |*g, i| {
         g.* = reserveTable((i + 1) * (3 << 20) + 4096).?;
         try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % huge_page);
     }
-    try std.testing.expectEqual(reads + 1, buddyinfo_reads);
-    try std.testing.expect(table_region_count >= 1);
+    try std.testing.expectEqual(reads + 1, buddyinfo_reads.*);
+    try std.testing.expect(table_region_count.* >= 1);
     // Given back in another order than taken, they join one another and
     // then the region's rest.
     for (got, 0..) |g, i| if (i % 2 == 1) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
-    try std.testing.expect(table_free_count > 0);
+    try std.testing.expect(table_free_count.* > 0);
     for (got, 0..) |g, i| if (i % 2 == 0) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
-    try std.testing.expectEqual(@as(usize, 0), table_free_count);
-    if (next != 0) try std.testing.expectEqual(next, table_next);
+    try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
+    if (next != 0) try std.testing.expectEqual(next, table_next.*);
 }
 
 test "on Linux a Table's range given back has its pages back with the system, and the next Table that takes it reads zeros" {
@@ -1855,7 +1915,7 @@ test "on Linux a Table's range given back has its pages back with the system, an
     for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
     try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
     try std.testing.expect(unreserveTable(b, 4 * mib));
-    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+    try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
     // A mapping of its own is not the Tables'.
     var own: [4096]u8 align(4096) = undefined;
     try std.testing.expect(!unreserveTable(&own, own.len));
@@ -1878,7 +1938,7 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
     try std.testing.expect(unreserveTable(u, 24 * mib));
     try std.testing.expect(unreserveTable(small, 2 * mib));
-    try std.testing.expectEqual(@as(usize, 0), table_free_count);
+    try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
 }
 
 /// The bytes of the `len` at `p` resident in memory (`mincore`).

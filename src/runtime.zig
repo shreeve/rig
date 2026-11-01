@@ -24,6 +24,60 @@ pub const Int = i64;
 
 // Tasks, their sets, and cancellation (`tasks.zig`).
 const tasks = @import("tasks.zig");
+// Split builds (`split.zig`): each variable of the runtime is a cell.
+pub const split = @import("split.zig");
+
+// Unit 0 of a split build defines every cell of this file, and of the
+// files beside it, which another unit may use though this one does not
+// (`split.cell`).
+comptime {
+    if (split.on and split.main) _ = .{
+        tasks,
+        sched,
+        net,
+        fast_alloc,
+        only_task,
+        output_lock,
+        alloc_lock,
+        trace_allocator,
+        sanitizer,
+        leak_checker,
+        HeapProfile.untyped,
+        HeapProfile.no_site,
+        heap_profiler,
+        profile_lock,
+        MapTracer.records_buffer,
+        MapTracer.types_buffer,
+        MapTracer.name_buffer,
+        map_tracer,
+        map_trace_lock,
+        Sanitizer.previous,
+        isolates_begun,
+        overflow_previous,
+        overflow_handling,
+        trap_previous,
+        started_ns,
+        process,
+        process_args,
+        broken_pipe_dies,
+        broken_pipe_ignored,
+        threaded,
+        main_control,
+        interrupted,
+        interrupt_pending,
+        wake_installed,
+        stdout_buffer,
+        stdout_writer,
+        stdout_is_tty,
+        panic_stage,
+        current_test,
+        test_false,
+        tests_passed,
+        tests_failed,
+        running_tests,
+    };
+}
+
 pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
@@ -87,7 +141,7 @@ pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f
     };
     try checkStop();
     const d = task().deadline orelse return @call(.auto, f, args);
-    if (sched.deterministic) return @call(.auto, f, args);
+    if (sched.deterministic.*) return @call(.auto, f, args);
     const alarm = Alarm.set(d);
     defer alarm.clear();
     return @call(.auto, f, args);
@@ -615,6 +669,7 @@ pub const httpServe = net.serve;
 
 test {
     _ = sched;
+    _ = split;
     _ = fast_alloc;
     _ = ordered_zig;
     _ = unordered_zig;
@@ -5615,21 +5670,27 @@ pub const TaskState = struct {
     runner: bool = false,
 };
 
-threadlocal var thread_task: TaskState = .{};
-var only_task: TaskState = .{};
+threadlocal var thread_task_var: TaskState = .{};
+inline fn thread_task() *TaskState {
+    return split.local(&thread_task_var, "runtime.thread_task");
+}
+var only_task_var: TaskState = .{};
+const only_task = split.cell(&only_task_var, "runtime.only_task");
 
 /// The running task's `TaskState`: on the scheduler, the running
 /// fiber's.
 pub inline fn task() *TaskState {
     if (scheduled) if (sched.current()) |f| return &f.state;
-    return if (concurrent) &thread_task else &only_task;
+    return if (concurrent) thread_task() else only_task;
 }
 
 /// Held while a `print`, `warn`, or the final flush writes output, so the
 /// lines of two tasks never interleave; and while the leak checker
 /// updates its table.
-var output_lock: std.Io.Mutex = .init;
-var alloc_lock: std.Io.Mutex = .init;
+var output_lock_var: std.Io.Mutex = .init;
+const output_lock = split.cell(&output_lock_var, "runtime.output_lock");
+var alloc_lock_var: std.Io.Mutex = .init;
+const alloc_lock = split.cell(&alloc_lock_var, "runtime.alloc_lock");
 
 fn lockOutput() void {
     if (concurrent) output_lock.lockUncancelable(io());
@@ -5639,9 +5700,12 @@ fn unlockOutput() void {
     if (concurrent) output_lock.unlock(io());
 }
 
-var trace_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
-var sanitizer: Sanitizer = .{};
-var leak_checker: LeakChecker = .{};
+var trace_allocator_var: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+const trace_allocator = split.cell(&trace_allocator_var, "runtime.trace_allocator");
+var sanitizer_var: Sanitizer = .{};
+const sanitizer = split.cell(&sanitizer_var, "runtime.sanitizer");
+var leak_checker_var: LeakChecker = .{};
+const leak_checker = split.cell(&leak_checker_var, "runtime.leak_checker");
 
 /// The allocator behind every runtime allocation: in a release build,
 /// Rig's own, a heap per thread with no lock (`alloc.zig`); in a debug
@@ -5771,14 +5835,22 @@ const HeapProfile = struct {
     peak: usize = 0,
     recorded: usize = 0,
 
-    var untyped: Owner = .{ .name = "untyped" };
+    var untyped_var: Owner = .{ .name = "untyped" };
+    const untyped = split.cell(&untyped_var, "runtime.profile_untyped");
     /// Every block's site when sites are not counted.
-    var no_site: Site = .{ .key = .{ .owner = &untyped, .frames = @splat(0) }, .len = 0 };
+    var no_site_var: Site = .{ .key = .{ .owner = &untyped_var, .frames = @splat(0) }, .len = 0 };
+    const no_site = split.cell(&no_site_var, "runtime.profile_no_site");
     /// The owner the next allocation on this thread is for.
-    threadlocal var next: ?*Owner = null;
+    threadlocal var next_var: ?*Owner = null;
+    inline fn next() *?*Owner {
+        return split.local(&next_var, "runtime.profile_next");
+    }
     /// The owner of every allocation on this thread that names none, while
     /// code that allocates through a Zig writer runs (`within`).
-    threadlocal var scope: ?*Owner = null;
+    threadlocal var scope_var: ?*Owner = null;
+    inline fn scope() *?*Owner {
+        return split.local(&scope_var, "runtime.profile_scope");
+    }
 
     const table_allocator = std.heap.smp_allocator;
 
@@ -5791,16 +5863,16 @@ const HeapProfile = struct {
 
     /// The next allocation is `T`'s.
     inline fn owner(comptime T: type) void {
-        next = of(T);
+        next().* = of(T);
     }
 
     /// Until `leave`, an allocation that names no owner is `T`'s.
     inline fn within(comptime T: type) void {
-        scope = of(T);
+        scope().* = of(T);
     }
 
     inline fn leave() void {
-        scope = null;
+        scope().* = null;
     }
 
     fn allocator(self: *HeapProfile) std.mem.Allocator {
@@ -5816,15 +5888,15 @@ const HeapProfile = struct {
     }
 
     fn taken() *Owner {
-        const o = next orelse scope orelse &untyped;
-        next = null;
+        const o = next().* orelse scope().* orelse untyped;
+        next().* = null;
         return o;
     }
 
     /// The site of an allocation made by the calls that led to it, after
     /// `first`, the call into the allocator.
     fn siteOf(self: *HeapProfile, o: *Owner, first: usize) *Site {
-        if (!heap_sites) return &no_site;
+        if (!heap_sites) return no_site;
         var buf: [depth]usize = @splat(0);
         const trace = std.debug.captureCurrentStackTrace(.{ .first_address = first }, &buf);
         var key: SiteKey = .{ .owner = o, .frames = @splat(0) };
@@ -5913,7 +5985,7 @@ const HeapProfile = struct {
 
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *HeapProfile = @ptrCast(@alignCast(ctx));
-        next = null;
+        next().* = null;
         lock();
         _ = self.drop(@intFromPtr(memory.ptr));
         unlock();
@@ -5988,8 +6060,10 @@ const HeapProfile = struct {
     }
 };
 
-var heap_profiler: HeapProfile = .{};
-var profile_lock: std.Io.Mutex = .init;
+var heap_profiler_var: HeapProfile = .{};
+const heap_profiler = split.cell(&heap_profiler_var, "runtime.heap_profiler");
+var profile_lock_var: std.Io.Mutex = .init;
+const profile_lock = split.cell(&profile_lock_var, "runtime.profile_lock");
 
 // The trace of the built-in Map and Set (`RIG_MAP_TRACE=1` at build
 // time, docs/internals/INTERNALS.md, "The Map trace"). The root module
@@ -6125,11 +6199,17 @@ const MapTracer = struct {
     last_thread: u32 = 0,
     failed: bool = false,
 
-    var records_buffer: [1 << 20]u8 = undefined;
-    var types_buffer: [1 << 16]u8 = undefined;
-    var name_buffer: [4096]u8 = undefined;
+    var records_buffer_var: [1 << 20]u8 = undefined;
+    const records_buffer = split.cell(&records_buffer_var, "runtime.trace_records_buffer");
+    var types_buffer_var: [1 << 16]u8 = undefined;
+    const types_buffer = split.cell(&types_buffer_var, "runtime.trace_types_buffer");
+    var name_buffer_var: [4096]u8 = undefined;
+    const name_buffer = split.cell(&name_buffer_var, "runtime.trace_name_buffer");
     /// This thread's number, from 1 in the order threads first record.
-    threadlocal var thread: u32 = 0;
+    threadlocal var thread_var: u32 = 0;
+    inline fn thread() *u32 {
+        return split.local(&thread_var, "runtime.trace_thread");
+    }
 
     fn lock(_: *MapTracer) void {
         if (concurrent) map_trace_lock.lockUncancelable(io());
@@ -6143,12 +6223,12 @@ const MapTracer = struct {
     /// program starts.
     fn open(self: *MapTracer, environ: std.process.Environ) void {
         const path = environ.getPosix("RIG_MAP_TRACE_FILE") orelse "rig-map-trace.bin";
-        const types_path = std.fmt.bufPrint(&name_buffer, "{s}.types", .{path}) catch return self.fail(path, error.NameTooLong);
+        const types_path = std.fmt.bufPrint(name_buffer, "{s}.types", .{path}) catch return self.fail(path, error.NameTooLong);
         const dir = std.Io.Dir.cwd();
         const records = dir.createFile(io(), path, .{}) catch |err| return self.fail(path, err);
         const types = dir.createFile(io(), types_path, .{}) catch |err| return self.fail(types_path, err);
-        self.records = records.writerStreaming(io(), &records_buffer);
-        self.types = types.writerStreaming(io(), &types_buffer);
+        self.records = records.writerStreaming(io(), records_buffer);
+        self.types = types.writerStreaming(io(), types_buffer);
     }
 
     fn fail(self: *MapTracer, path: []const u8, err: anyerror) void {
@@ -6185,11 +6265,11 @@ const MapTracer = struct {
 
     fn record(self: *MapTracer, op: MapOp, hit: bool, key: MapTraceKey, id: u32, value_bytes: usize, length: i64, extra: u64) void {
         const w = if (self.records) |*w| w else return;
-        if (thread == 0) {
+        if (thread().* == 0) {
             self.last_thread += 1;
-            thread = self.last_thread;
+            thread().* = self.last_thread;
         }
-        const t = thread - 1;
+        const t = thread().* - 1;
         var rec: [48]u8 = undefined;
         rec[0] = @as(u8, @intFromEnum(op)) | @as(u8, @truncate(t << 3));
         rec[1] = @as(u8, @intFromBool(hit)) | @as(u8, @truncate((t >> 5) << 1));
@@ -6247,8 +6327,10 @@ fn traceName(comptime T: type) []const u8 {
     return @typeName(T);
 }
 
-var map_tracer: MapTracer = .{};
-var map_trace_lock: std.Io.Mutex = .init;
+var map_tracer_var: MapTracer = .{};
+const map_tracer = split.cell(&map_tracer_var, "runtime.map_tracer");
+var map_trace_lock_var: std.Io.Mutex = .init;
+const map_trace_lock = split.cell(&map_trace_lock_var, "runtime.map_trace_lock");
 
 /// Tracks every live allocation by address. Its own table lives in
 /// `smp_allocator`, outside the count.
@@ -6562,7 +6644,8 @@ const Sanitizer = struct {
     // the program itself, ends the program by that signal instead
     // (`sentSignal`).
 
-    var previous: [2]std.posix.Sigaction = undefined;
+    var previous_var: [2]std.posix.Sigaction = undefined;
+    const previous = split.cell(&previous_var, "runtime.sanitizer_previous");
     const signals = [2]std.posix.SIG{ .SEGV, .BUS };
 
     /// Called by `start` in a program built with `RIG_SANITIZE=1`.
@@ -6572,12 +6655,12 @@ const Sanitizer = struct {
             .mask = std.posix.sigemptyset(),
             .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK,
         };
-        for (signals, &previous) |sig, *old| std.posix.sigaction(sig, &act, old);
+        for (signals, previous) |sig, *old| std.posix.sigaction(sig, &act, old);
     }
 
     fn onFault(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
         if (sentSignal(sig, info, ctx)) dieOf(sig);
-        for (signals, &previous) |s, *old| std.posix.sigaction(s, old, null);
+        for (signals, previous) |s, *old| std.posix.sigaction(s, old, null);
         const addr = faultAddress(info);
         if (!sanitizer.owns(addr)) return;
         flushQuietly();
@@ -6630,7 +6713,8 @@ pub fn memoryTotals() fast_alloc.Totals {
 }
 
 /// The isolates begun so far, for each one's id.
-var isolates_begun: std.atomic.Value(u32) = .init(0);
+var isolates_begun_var: std.atomic.Value(u32) = .init(0);
+const isolates_begun = split.cell(&isolates_begun_var, "runtime.isolates_begun");
 
 /// A `task.isolate` begins inside `outer`: its id, which the leak
 /// checker tags what is allocated under it with.
@@ -6702,7 +6786,7 @@ fn reportLeaks(before: Usage) bool {
 noinline fn leakReport(n: usize, bytes: usize) void {
     @branchHint(.cold);
     std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{ n, if (n == 1) "" else "s", bytes });
-    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig {s} ...`) to see where each was allocated\n", .{if (running_tests) "test" else "run"});
+    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig {s} ...`) to see where each was allocated\n", .{if (running_tests.*) "test" else "run"});
 }
 
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
@@ -6960,8 +7044,10 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
 // instruction, has no access to run again: it ends the program by that
 // signal (`sentSignal`).
 
-var overflow_previous: [2]std.posix.Sigaction = undefined;
-var overflow_handling: bool = false;
+var overflow_previous_var: [2]std.posix.Sigaction = undefined;
+const overflow_previous = split.cell(&overflow_previous_var, "runtime.overflow_previous");
+var overflow_handling_var: bool = false;
+const overflow_handling = split.cell(&overflow_handling_var, "runtime.overflow_handling");
 
 fn installOverflowHandler() void {
     const act: std.posix.Sigaction = .{
@@ -6969,22 +7055,22 @@ fn installOverflowHandler() void {
         .mask = std.posix.sigemptyset(),
         .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK | std.posix.SA.NODEFER,
     };
-    for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
+    for (Sanitizer.signals, overflow_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
 }
 
 fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
     if (sentSignal(sig, info, ctx)) dieOf(sig);
     // A fault inside the handler that prints the trace.
-    if (@atomicLoad(bool, &overflow_handling, .seq_cst)) std.process.abort();
+    if (@atomicLoad(bool, overflow_handling, .seq_cst)) std.process.abort();
     const addr = faultAddress(info);
     // The fault is the faulting thread's, which runs this handler, so the
     // guard to check is the task's it runs.
     const guard = task().stack_guard;
     if (addr < guard.lo or addr >= guard.hi) {
-        for (Sanitizer.signals, &overflow_previous) |s, *old| std.posix.sigaction(s, old, null);
+        for (Sanitizer.signals, overflow_previous) |s, *old| std.posix.sigaction(s, old, null);
         return;
     }
-    @atomicStore(bool, &overflow_handling, true, .seq_cst);
+    @atomicStore(bool, overflow_handling, true, .seq_cst);
     flushQuietly();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
@@ -6993,7 +7079,7 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
     // trace by a frame-pointer unwinder, which can fault again at the top
     // of the program's stack; and in `--release=fast` there is no handler.
     if (builtin.mode != .debug or !std.options.enable_segfault_handler) std.process.abort();
-    for (Sanitizer.signals, &overflow_previous) |s, *old| {
+    for (Sanitizer.signals, overflow_previous) |s, *old| {
         if (s != sig) continue;
         const prev = old.handler.sigaction;
         if (old.flags & std.posix.SA.SIGINFO != 0 and @intFromPtr(prev) > 1) prev.?(sig, info, ctx);
@@ -7009,7 +7095,8 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
 // has no handler; a real one puts Zig's handler back and returns, so the
 // instruction runs again and faults into it.
 
-var trap_previous: [2]std.posix.Sigaction = undefined;
+var trap_previous_var: [2]std.posix.Sigaction = undefined;
+const trap_previous = split.cell(&trap_previous_var, "runtime.trap_previous");
 const trap_signals = [2]std.posix.SIG{ .ILL, .FPE };
 
 /// Called by `start`.
@@ -7019,12 +7106,12 @@ fn installTrapHandler() void {
         .mask = std.posix.sigemptyset(),
         .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK,
     };
-    for (trap_signals, &trap_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
+    for (trap_signals, trap_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
 }
 
 fn onTrap(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
     if (sentSignal(sig, info, ctx)) dieOf(sig);
-    for (trap_signals, &trap_previous) |s, *old| std.posix.sigaction(s, old, null);
+    for (trap_signals, trap_previous) |s, *old| std.posix.sigaction(s, old, null);
 }
 
 /// Whether `start` installs `onTrap`: on the systems whose sent signals
@@ -7187,24 +7274,27 @@ fn writeProfile() void {
 }
 
 /// The monotonic clock's reading as `start` ran (`sinceStartNs`).
-var started_ns: i96 = 0;
+var started_ns_var: i96 = 0;
+const started_ns = split.cell(&started_ns_var, "runtime.started_ns");
 
 /// `time.since_start()`: nanoseconds on the monotonic clock since the
 /// program started.
 pub fn sinceStartNs() i64 {
     if (!reads_start) @compileError("time.since_start in a program whose root does not declare __rig_since_start");
-    return @intCast(sched.nowNs() - started_ns);
+    return @intCast(sched.nowNs() - started_ns.*);
 }
 
 /// What the process started with, which Zig hands only to `main`:
 /// the arguments and environment, for the standard library.
-pub var process: ?std.process.Init.Minimal = null;
-var process_args: []const []const u8 = &.{};
+var process_var: ?std.process.Init.Minimal = null;
+pub const process = split.cell(&process_var, "runtime.process");
+var process_args_var: []const []const u8 = &.{};
+const process_args = split.cell(&process_args_var, "runtime.process_args");
 
 /// Called first in the program's `main` and in `rig test`'s: store what the process started with. The arguments are
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
-    process = init;
+    process.* = init;
     // A write to a closed pipe (`prog | head`) or socket fails with
     // BrokenPipe, instead of killing the program by SIGPIPE: a socket's
     // write gets an error, and `stdoutFailed` ends the program as
@@ -7220,14 +7310,14 @@ pub fn start(init: std.process.Init.Minimal) void {
         };
         var old: std.posix.Sigaction = undefined;
         std.posix.sigaction(.PIPE, &act, &old);
-        broken_pipe_ignored = old.handler.handler == std.posix.SIG.IGN;
+        broken_pipe_ignored.* = old.handler.handler == std.posix.SIG.IGN;
     }
     if (traps_sent) installTrapHandler();
     if (cancels_on_interrupt) cancelOnInterrupt();
     // The backend that runs tasks, set up after that handler, which it
     // saves and puts back when `finish` joins it. Its own allocations are
     // outside the leak count.
-    if (makes_tasks) threaded = .init(std.heap.smp_allocator, .{ .argv0 = .init(init.args), .environ = init.environ });
+    if (makes_tasks) threaded.* = .init(std.heap.smp_allocator, .{ .argv0 = .init(init.args), .environ = init.environ });
     // `RIG_SEED=n`, as `rig test` sets it: run deterministically, with a
     // virtual clock and seed `n` (`sched.deterministic`).
     if (init.environ.getPosix("RIG_SEED")) |v| {
@@ -7239,7 +7329,7 @@ pub fn start(init: std.process.Init.Minimal) void {
     }
     // The clock's reading as the program starts, on the virtual clock in
     // a deterministic run (`time.since_start`).
-    if (reads_start) started_ns = sched.nowNs();
+    if (reads_start) started_ns.* = sched.nowNs();
     // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
     // panics on purpose: Linux passes its death to no crash handler
     // (apport). It still dies by its signal, its report on stderr
@@ -7268,7 +7358,7 @@ pub fn start(init: std.process.Init.Minimal) void {
     if (@TypeOf(init.args.vector) != []const [*:0]const u8) return;
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
-    process_args = list;
+    process_args.* = list;
 }
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
@@ -7278,7 +7368,8 @@ fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
 /// fails a write of `io.stdout()` with `FileError.broken_pipe`; true ends
 /// the program by SIGPIPE on either, as a C program dies
 /// (`dieOfBrokenPipe`).
-var broken_pipe_dies = std.atomic.Value(bool).init(false);
+var broken_pipe_dies_var = std.atomic.Value(bool).init(false);
+const broken_pipe_dies = split.cell(&broken_pipe_dies_var, "runtime.broken_pipe_dies");
 
 /// `os.on_broken_pipe(how)`: whether a closed stdout pipe kills the
 /// program by SIGPIPE.
@@ -7290,12 +7381,13 @@ pub fn setBrokenPipeDies(dies: bool) void {
 /// the shell that started it), as `start` found it before installing
 /// its own handler: `os.on_broken_pipe(.inherit)` then fails a write of
 /// `io.stdout()`, as `.exit` does, rather than dying as `.die` does.
-var broken_pipe_ignored = false;
+var broken_pipe_ignored_var = false;
+const broken_pipe_ignored = split.cell(&broken_pipe_ignored_var, "runtime.broken_pipe_ignored");
 
 /// `os.on_broken_pipe(.inherit)`'s question: whether the program started
 /// with SIGPIPE ignored.
 pub fn brokenPipeIgnored() bool {
-    return broken_pipe_ignored;
+    return broken_pipe_ignored.*;
 }
 
 /// No crash report for this process's death, on Linux: a core limit of
@@ -7308,14 +7400,14 @@ fn noCrashReport() void {
 
 /// Free what `start` gathered, at the end of the program or its tests.
 fn releaseProcess() void {
-    defaultAllocator().free(process_args);
-    process_args = &.{};
+    defaultAllocator().free(process_args.*);
+    process_args.* = &.{};
 }
 
 /// The program's arguments, its name first; they live as long as the
 /// process.
 pub fn processArgs() []const []const u8 {
-    return process_args;
+    return process_args.*;
 }
 
 /// The `std.Io` the runtime and the standard library's Zig files do
@@ -7328,7 +7420,8 @@ pub fn io() std.Io {
     return if (makes_tasks) threaded.io() else std.Io.Threaded.global_single_threaded.io();
 }
 
-var threaded: std.Io.Threaded = .init_single_threaded;
+var threaded_var: std.Io.Threaded = .init_single_threaded;
+const threaded = split.cell(&threaded_var, "runtime.threaded");
 
 /// End the process now with `status`, running nothing on the way out:
 /// `exit_group` on Linux, `_exit` where Zig links the C library (macOS).
@@ -7443,12 +7536,15 @@ const interrupt_signals = [_]std.posix.SIG{ .INT, .TERM };
 
 /// What an interrupt cancels: `main`'s, as a task's `Control` is its
 /// owner's.
-var main_control: Control = .{};
+var main_control_var: Control = .{};
+const main_control = split.cell(&main_control_var, "runtime.main_control");
 /// The signal that canceled `main`, 0 before one came.
-var interrupted: std.atomic.Value(u32) = .init(0);
+var interrupted_var: std.atomic.Value(u32) = .init(0);
+const interrupted = split.cell(&interrupted_var, "runtime.interrupted");
 /// Set by the handler, which may not wake a fiber itself, until a worker
 /// passes the cancel on to `main`'s wait (`sched.deliverInterrupt`).
-pub var interrupt_pending: std.atomic.Value(bool) = .init(false);
+var interrupt_pending_var: std.atomic.Value(bool) = .init(false);
+pub const interrupt_pending = split.cell(&interrupt_pending_var, "runtime.interrupt_pending");
 
 /// From `start`, on `main`'s stack: give `main` a cancel flag and install
 /// the handler. On the scheduler a worker ends `main`'s wait, so a system
@@ -7457,7 +7553,7 @@ pub var interrupt_pending: std.atomic.Value(bool) = .init(false);
 /// points see the cancel (`tasks.sleep`, `net.waitFor`).
 fn cancelOnInterrupt() void {
     if (std.posix.Sigaction == void) return;
-    task().control = &main_control;
+    task().control = main_control;
     if (scheduled) main_control.fiber = sched.current();
     const act: std.posix.Sigaction = .{
         .handler = .{ .handler = onInterrupt },
@@ -7511,7 +7607,8 @@ fn interruptedBy() ?std.posix.SIG {
 // which nothing else in the runtime uses.
 
 const wake_signal: std.posix.SIG = .ALRM;
-var wake_installed: std.atomic.Value(bool) = .init(false);
+var wake_installed_var: std.atomic.Value(bool) = .init(false);
+const wake_installed = split.cell(&wake_installed_var, "runtime.wake_installed");
 
 fn installWake() void {
     if (std.posix.Sigaction == void) return;
@@ -7601,23 +7698,26 @@ fn endBy(sig: std.posix.SIG) noreturn {
 // time (`flushBeforeWait`), and after every `print` when stdout is a
 // terminal.
 
-var stdout_buffer: [8192]u8 = undefined;
-var stdout_writer: ?std.Io.File.Writer = null;
-var stdout_is_tty = false;
+var stdout_buffer_var: [8192]u8 = undefined;
+const stdout_buffer = split.cell(&stdout_buffer_var, "runtime.stdout_buffer");
+var stdout_writer_var: ?std.Io.File.Writer = null;
+const stdout_writer = split.cell(&stdout_writer_var, "runtime.stdout_writer");
+var stdout_is_tty_var = false;
+const stdout_is_tty = split.cell(&stdout_is_tty_var, "runtime.stdout_is_tty");
 
 fn stdout() *std.Io.Writer {
-    if (stdout_writer == null) {
+    if (stdout_writer.* == null) {
         const file = std.Io.File.stdout();
-        stdout_is_tty = file.isTty(io()) catch false;
-        stdout_writer = file.writerStreaming(io(), &stdout_buffer);
+        stdout_is_tty.* = file.isTty(io()) catch false;
+        stdout_writer.* = file.writerStreaming(io(), stdout_buffer);
     }
-    return &stdout_writer.?.interface;
+    return &stdout_writer.*.?.interface;
 }
 
 /// Write out everything `print` has buffered. A write that fails ends
 /// the program (`stdoutFailed`).
 fn flush() void {
-    if (stdout_writer) |*w| w.interface.flush() catch stdoutFailed();
+    if (stdout_writer.*) |*w| w.interface.flush() catch stdoutFailed();
 }
 
 /// Write out what `print` has buffered before a thread blocks, waiting
@@ -7629,7 +7729,7 @@ fn flush() void {
 pub fn flushBeforeWait() void {
     if (concurrent and !output_lock.tryLock()) return;
     defer unlockOutput();
-    if (stdout_writer) |*w| if (w.interface.end != 0) w.interface.flush() catch {};
+    if (stdout_writer.*) |*w| if (w.interface.end != 0) w.interface.flush() catch {};
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -7637,7 +7737,7 @@ pub fn flushBeforeWait() void {
 /// `main`, a fault): a write that fails is dropped, so the report still
 /// comes.
 fn flushQuietly() void {
-    if (stdout_writer) |*w| w.interface.flush() catch {};
+    if (stdout_writer.*) |*w| w.interface.flush() catch {};
 }
 
 /// One `print`: its pieces in order, the spaces between its arguments and
@@ -7727,11 +7827,11 @@ fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
 /// check runs.
 noinline fn stdoutFailed() noreturn {
     @branchHint(.cold);
-    const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
+    const err = (if (stdout_writer.*) |w| w.err else null) orelse error.InputOutput;
     if (err == error.BrokenPipe) dieOfBrokenPipe();
     if (pgo) writeProfile();
     if (err == error.BrokenPipe) {
-        std.process.exit(if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) 1 else 0);
+        std.process.exit(if (panic_stage.load(.seq_cst) > 0 or running_tests.* or tests_failed.* > 0) 1 else 0);
     }
     var buf: [128]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
@@ -7750,7 +7850,7 @@ fn dieOfBrokenPipe() void {
     if (comptime std.posix.Sigaction == void or !@hasField(std.posix.SIG, "PIPE")) return;
     if (!broken_pipe_dies.load(.seq_cst)) return;
     if (pgo) writeProfile();
-    if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) std.process.exit(1);
+    if (panic_stage.load(.seq_cst) > 0 or running_tests.* or tests_failed.* > 0) std.process.exit(1);
     endBy(.PIPE);
 }
 
@@ -7778,9 +7878,9 @@ inline fn outText(comptime text: []const u8, comptime ends_line: bool) void {
 /// written by `outBytes`. Text that ends a line goes through `outLine`
 /// when stdout is a terminal.
 noinline fn outFixed(comptime n: usize, comptime ends_line: bool, text: *const [n]u8) void {
-    if (stdout_writer) |*sw| {
+    if (stdout_writer.*) |*sw| {
         const w = &sw.interface;
-        if (!(ends_line and stdout_is_tty) and n <= w.buffer.len - w.end) {
+        if (!(ends_line and stdout_is_tty.*) and n <= w.buffer.len - w.end) {
             w.buffer[w.end..][0..n].* = text.*;
             w.end += n;
             return;
@@ -7798,7 +7898,7 @@ noinline fn outBytes(bytes: []const u8) void {
 /// flushed when stdout is a terminal.
 noinline fn outLine(text: []const u8) void {
     outBytes(text);
-    if (stdout_is_tty) flush();
+    if (stdout_is_tty.*) flush();
 }
 
 /// A write of a `file.File` of a standard stream (std/file.zig): to
@@ -7832,7 +7932,7 @@ fn writeStdout(bytes: []const u8) std.posix.E {
     }
     @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
     w.end += bytes.len;
-    return if (stdout_is_tty) drainStdout(w) else .SUCCESS;
+    return if (stdout_is_tty.*) drainStdout(w) else .SUCCESS;
 }
 
 /// Write out what `print` has buffered, for `File.flush` of stdout: the
@@ -7841,7 +7941,7 @@ fn writeStdout(bytes: []const u8) std.posix.E {
 pub fn flushStandard() std.posix.E {
     lockOutput();
     defer unlockOutput();
-    const e = if (stdout_writer) |*sw| drainStdout(&sw.interface) else .SUCCESS;
+    const e = if (stdout_writer.*) |*sw| drainStdout(&sw.interface) else .SUCCESS;
     if (e == .PIPE) dieOfBrokenPipe();
     return e;
 }
@@ -7915,10 +8015,14 @@ pub const panic = std.debug.FullPanic(panicAfterFlush);
 
 /// How far into a panic the program is: 0 before one, 1 while it is
 /// reported, 2 once a panic came while reporting it.
-var panic_stage: std.atomic.Value(u8) = .init(0);
+var panic_stage_var: std.atomic.Value(u8) = .init(0);
+const panic_stage = split.cell(&panic_stage_var, "runtime.panic_stage");
 
 /// This thread is the one reporting a panic.
-threadlocal var panicking_here: bool = false;
+threadlocal var panicking_here_var: bool = false;
+inline fn panicking_here() *bool {
+    return split.local(&panicking_here_var, "runtime.panicking_here");
+}
 
 /// What every panic does before its report: name the test it ended, if
 /// one is running, with the count so far, and write out what `print`
@@ -7926,9 +8030,9 @@ threadlocal var panicking_here: bool = false;
 /// A panic in another task while one is reported waits for the program
 /// to end with the first report.
 fn beginPanic() void {
-    if (concurrent and !panicking_here) {
+    if (concurrent and !panicking_here().*) {
         if (panic_stage.cmpxchgStrong(0, 1, .seq_cst, .seq_cst) != null) awaitOtherPanic();
-        panicking_here = true;
+        panicking_here().* = true;
     } else {
         const stage = panic_stage.load(.seq_cst);
         if (stage > 0) {
@@ -7941,9 +8045,9 @@ fn beginPanic() void {
     // Output another task is writing now is left unwritten, rather than
     // wait on it from a panic.
     if (concurrent and !output_lock.tryLock()) return;
-    if (current_test) |t| {
+    if (current_test.*) |t| {
         stdout().print("FAIL  {f}: panicked\n", .{t}) catch {};
-        stdout().print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed + 1 }) catch {};
+        stdout().print("{d} passed, {d} failed\n", .{ tests_passed.*, tests_failed.* + 1 }) catch {};
         printSeed(stdout());
     }
     flushQuietly();
@@ -8109,15 +8213,17 @@ const TestName = struct {
     }
 };
 
-var current_test: ?TestName = null;
+var current_test_var: ?TestName = null;
+const current_test = split.cell(&current_test_var, "runtime.current_test");
 
 /// What the running test reports for the `false` that fails it.
-var test_false: ?[]const u8 = null;
+var test_false_var: ?[]const u8 = null;
+const test_false = split.cell(&test_false_var, "runtime.test_false");
 
 /// The running test gave `false`, from its last line or a `return`:
 /// it fails, reporting `report` (`t == "a" is false`).
 pub fn testFalse(report: []const u8) void {
-    test_false = report;
+    test_false.* = report;
 }
 
 /// Run every test, reporting each on stdout; exit 1 if any failed.
@@ -8136,37 +8242,40 @@ pub fn runTests(modules: []const TestModule) void {
 
 /// The tests `runTests` has passed and failed so far, which a panic
 /// reports.
-var tests_passed: usize = 0;
-var tests_failed: usize = 0;
+var tests_passed_var: usize = 0;
+const tests_passed = split.cell(&tests_passed_var, "runtime.tests_passed");
+var tests_failed_var: usize = 0;
+const tests_failed = split.cell(&tests_failed_var, "runtime.tests_failed");
 
 /// Whether `runTests` is between its first test and its summary: a closed
 /// stdout then ends the run before the verdict is known.
-var running_tests = false;
+var running_tests_var = false;
+const running_tests = split.cell(&running_tests_var, "runtime.running_tests");
 
 fn runTestsHere(modules: []const TestModule) void {
     const w = stdout();
-    running_tests = true;
+    running_tests.* = true;
     var leaked = false;
     for (modules) |m| for (m.tests) |t| {
         const name: TestName = .{ .module = m.module, .name = t.name };
-        current_test = name;
+        current_test.* = name;
         const before = usage();
-        test_false = null;
+        test_false.* = null;
         var slot: ErrData = undefined;
         const result = t.func(failSlot(&slot));
-        current_test = null;
+        current_test.* = null;
         flush();
         if (result) |_| {
-            if (test_false) |report| {
+            if (test_false.*) |report| {
                 w.print("FAIL  {f}: {s}\n", .{ name, report }) catch {};
-                tests_failed += 1;
+                tests_failed.* += 1;
             } else if (reportLeaks(before)) {
                 w.print("FAIL  {f}: memory leak\n", .{name}) catch {};
-                tests_failed += 1;
+                tests_failed.* += 1;
                 leaked = true;
             } else {
                 w.print("ok    {f}\n", .{name}) catch {};
-                tests_passed += 1;
+                tests_passed.* += 1;
             }
         } else |err| {
             // A failure is shown with its fields, which are then dropped.
@@ -8174,27 +8283,27 @@ fn runTestsHere(modules: []const TestModule) void {
             if (error_glue) |g| g.print(err, &slot, w) catch {} else w.writeAll(errorShown(err)) catch {};
             w.writeAll("\n") catch {};
             dropErrorData(err, &slot);
-            tests_failed += 1;
+            tests_failed.* += 1;
         }
         flush();
     };
-    running_tests = false;
-    w.print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed }) catch {};
-    if (tests_failed > 0) printSeed(w);
+    running_tests.* = false;
+    w.print("{d} passed, {d} failed\n", .{ tests_passed.*, tests_failed.* }) catch {};
+    if (tests_failed.* > 0) printSeed(w);
     flush();
     releaseProcess();
     // Built with `RIG_LEAK_TRACE`, what the leaking tests left is still
     // live, and each allocation is shown with its trace, as `finish`
     // shows a program's.
     if (leak_trace and leaked) _ = trace_allocator.deinit();
-    if (tests_failed > 0) std.process.exit(1);
+    if (tests_failed.* > 0) std.process.exit(1);
 }
 
 /// After failing tests, the seed of a deterministic run: with it, the
 /// tests run the same way again.
 fn printSeed(w: *std.Io.Writer) void {
-    if (!sched.deterministic) return;
-    w.print("seed {d}: `rig test --seed={d}` runs these tests the same way again\n", .{ sched.seed_value, sched.seed_value }) catch {};
+    if (!sched.deterministic.*) return;
+    w.print("seed {d}: `rig test --seed={d}` runs these tests the same way again\n", .{ sched.seed_value.*, sched.seed_value.* }) catch {};
 }
 
 /// `?String`: a string literal (`*const [N:0]u8`) or a `?String` slice. An

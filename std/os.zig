@@ -13,7 +13,7 @@ pub fn args() []const []const u8 {
 }
 
 pub fn env(name: []const u8) ?[]const u8 {
-    const init = rig.process orelse return null;
+    const init = rig.process.* orelse return null;
     return init.environ.getPosix(name);
 }
 

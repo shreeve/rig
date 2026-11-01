@@ -21,6 +21,38 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const rt = @import("runtime.zig");
+const split = rt.split;
+
+// Unit 0 of a split build defines every cell of this file
+// (`split.cell`).
+comptime {
+    if (split.on and split.main) _ = .{
+        workers,
+        workers_override,
+        global,
+        sleepers,
+        searching,
+        stopping,
+        waiting,
+        deterministic,
+        seed_value,
+        rng_state,
+        virtual_now,
+        ready,
+        timers,
+        watcher,
+        registered,
+        test_pause,
+        kicking,
+        retire_after,
+        pool,
+        home_lost,
+        all_workers,
+        started,
+        workers_asked,
+        graph,
+    };
+}
 
 /// A fiber: a task's own stack, and the stack pointer it left when it
 /// last switched away, below the registers it saved there.
@@ -137,25 +169,34 @@ const Worker = struct {
 };
 
 /// The workers, worker 0 first; set by `runMain`.
-var workers: []Worker = &.{};
-threadlocal var me_slot: ?*Worker = null;
+var workers_var: []Worker = &.{};
+const workers = split.cell(&workers_var, "sched.workers");
+threadlocal var me_slot_var: ?*Worker = null;
+inline fn me_slot() *?*Worker {
+    return split.local(&me_slot_var, "sched.me_slot");
+}
 
 /// This thread's worker. A fiber may resume on another thread after any
 /// switch, and a compiler may reuse a thread-local's address within a
 /// function, so every read goes through this call, which is never inlined.
 noinline fn me() ?*Worker {
-    return me_slot;
+    return me_slot().*;
 }
 
 /// Test only: how many workers `runMain` starts, in place of
 /// `RIG_WORKERS` or the core count.
-var workers_override: ?usize = null;
-var global: Global = .{};
-var sleepers: Sleepers = .{};
+var workers_override_var: ?usize = null;
+const workers_override = split.cell(&workers_override_var, "sched.workers_override");
+var global_var: Global = .{};
+const global = split.cell(&global_var, "sched.global");
+var sleepers_var: Sleepers = .{};
+const sleepers = split.cell(&sleepers_var, "sched.sleepers");
 /// Workers looking for work to steal: a worker that makes work wakes a
 /// sleeping one only when none is looking.
-var searching: std.atomic.Value(u32) = .init(0);
-var stopping: std.atomic.Value(bool) = .init(false);
+var searching_var: std.atomic.Value(u32) = .init(0);
+const searching = split.cell(&searching_var, "sched.searching");
+var stopping_var: std.atomic.Value(bool) = .init(false);
+const stopping = split.cell(&stopping_var, "sched.stopping");
 /// Set when work is made while every worker is busy, or a fiber that
 /// goes on running fills its worker's "run next" slot (`wake`); the first
 /// yield check to see it clears it and takes that work (`claimWaiting`),
@@ -164,7 +205,8 @@ var stopping: std.atomic.Value(bool) = .init(false);
 /// (`takeWaiting`). A recursive call only reads it (`rt.tickCall`), on a
 /// cache line of its own, so what the scheduler writes beside it never
 /// slows those reads.
-pub var waiting: Flag = .{};
+var waiting_var: Flag = .{};
+pub const waiting = split.cell(&waiting_var, "sched.waiting");
 
 const Flag = extern struct {
     value: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
@@ -202,7 +244,7 @@ pub fn current() ?*Fiber {
 /// searches also takes a fiber left in a busy worker's slot a while
 /// (`stealNext`). Outside the workers, `f` goes to the global queue.
 pub fn wake(f: *Fiber) void {
-    if (deterministic) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
+    if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     const here = me();
     if (f.home) |home| if (home != here) return wakeHome(f, home);
     const w = here orelse {
@@ -224,7 +266,7 @@ pub fn wake(f: *Fiber) void {
 
 /// Make `f` ready to run after the fibers already ready on this worker.
 fn wakeLast(f: *Fiber) void {
-    if (deterministic) return wake(f);
+    if (deterministic.*) return wake(f);
     if (f.home) |home| return wakeHome(f, home);
     if (me()) |w| w.ring.push(f) else global.push(f);
     notify();
@@ -243,7 +285,7 @@ fn wakeHome(f: *Fiber, home: *Worker) void {
 /// shares handles whose counts are not atomic with the task that made it,
 /// so both stay on one thread from then on.
 pub fn pinHere() ?*Worker {
-    if (deterministic) return null;
+    if (deterministic.*) return null;
     const w = me() orelse return null;
     w.current.?.home = w;
     return w;
@@ -266,7 +308,7 @@ pub noinline fn tick() void {
     const w = me() orelse return;
     // Deterministic: computing costs virtual time, and the seed decides
     // whether to yield to ready work.
-    if (deterministic) {
+    if (deterministic.*) {
         computed();
         if (ready.items.len > 0 and random(2) == 0) yield();
         return;
@@ -313,8 +355,8 @@ pub noinline fn tickCall() void {
 fn claimWaiting(w: *Worker) void {
     if (!takeWaiting(w)) return;
     if (hasOwnWork(w)) return yield();
-    if (workers.len < 2) return;
-    for (workers) |*v| {
+    if (workers.*.len < 2) return;
+    for (workers.*) |*v| {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
@@ -322,7 +364,7 @@ fn claimWaiting(w: *Worker) void {
             return yield();
         }
     }
-    for (workers) |*v| {
+    for (workers.*) |*v| {
         if (v == w) continue;
         if (takeNext(v)) |f| {
             w.ring.push(f);
@@ -409,7 +451,7 @@ pub fn commitWait(epoch: u32, deadline: ?i96) void {
 /// Once the fiber has switched away: set its timer, then mark it asleep,
 /// unless a waker has come first, when it goes on.
 fn fallAsleep(f: *Fiber, timed: ?*anyopaque) void {
-    if (timed != null) (if (deterministic) &timers else &me().?.timers).add(f);
+    if (timed != null) (if (deterministic.*) timers else &me().?.timers).add(f);
     const w = f.wait.word.load(.seq_cst);
     if (Wait.epochOf(w) == f.wait.epoch and w & Wait.states == Wait.about) {
         if (f.wait.word.cmpxchgStrong(w, (w & ~Wait.states) | Wait.asleep, .seq_cst, .seq_cst) == null) return;
@@ -452,7 +494,7 @@ pub fn interruptForCancel(f: *Fiber) void {
 
 /// The monotonic clock, in nanoseconds: what deadlines count on.
 pub fn nowNs() i96 {
-    if (deterministic) return virtual_now;
+    if (deterministic.*) return virtual_now.*;
     return std.Io.Timestamp.now(rt.io(), .awake).nanoseconds;
 }
 
@@ -469,33 +511,38 @@ pub fn nowNs() i96 {
 /// the same seed makes the same choices, and a sleep takes no time. Each
 /// yield check and `task.check()` moves the clock 1 µs (`computed`), so
 /// a computation that never waits reaches its deadline too.
-pub var deterministic = false;
+var deterministic_var = false;
+pub const deterministic = split.cell(&deterministic_var, "sched.deterministic");
 /// The seed it runs with.
-pub var seed_value: u64 = 0;
-var rng_state: u64 = 1;
+var seed_value_var: u64 = 0;
+pub const seed_value = split.cell(&seed_value_var, "sched.seed_value");
+var rng_state_var: u64 = 1;
+const rng_state = split.cell(&rng_state_var, "sched.rng_state");
 /// The virtual monotonic clock, in nanoseconds.
-var virtual_now: i96 = 0;
+var virtual_now_var: i96 = 0;
+const virtual_now = split.cell(&virtual_now_var, "sched.virtual_now");
 /// The fibers ready to run, in place of the workers' rings.
-var ready: std.ArrayList(*Fiber) = .empty;
+var ready_var: std.ArrayList(*Fiber) = .empty;
+const ready = split.cell(&ready_var, "sched.ready");
 
 /// Run deterministically with seed `s` (`deterministic`).
 pub fn seed(s: u64) void {
-    deterministic = true;
-    seed_value = s;
+    deterministic.* = true;
+    seed_value.* = s;
     // splitmix64 of the seed, so nearby seeds start far apart, and
     // never 0, which xorshift would keep.
     var z = s +% 0x9e3779b97f4a7c15;
     z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9;
     z = (z ^ (z >> 27)) *% 0x94d049bb133111eb;
-    rng_state = (z ^ (z >> 31)) | 1;
+    rng_state.* = (z ^ (z >> 31)) | 1;
 }
 
 /// A number below `n` from the seeded generator (xorshift64*).
 fn random(n: usize) usize {
-    rng_state ^= rng_state >> 12;
-    rng_state ^= rng_state << 25;
-    rng_state ^= rng_state >> 27;
-    return @intCast((rng_state *% 0x2545f4914f6cdd1d) % n);
+    rng_state.* ^= rng_state.* >> 12;
+    rng_state.* ^= rng_state.* << 25;
+    rng_state.* ^= rng_state.* >> 27;
+    return @intCast((rng_state.* *% 0x2545f4914f6cdd1d) % n);
 }
 
 /// What a yield check or `task.check()` costs on the virtual clock: so
@@ -504,13 +551,13 @@ const check_cost: i96 = 1_000;
 
 /// A yield check or `task.check()` ran: move the virtual clock on.
 pub fn computed() void {
-    virtual_now += check_cost;
+    virtual_now.* += check_cost;
 }
 
 /// Move the virtual clock forward to `t`, never back: a program that
 /// makes no tasks sleeps so (`rt.taskSleep`).
 pub fn advanceTo(t: i96) void {
-    if (t > virtual_now) virtual_now = t;
+    if (t > virtual_now.*) virtual_now.* = t;
 }
 
 /// No fiber is ready: move the virtual clock to the earliest timer and
@@ -526,7 +573,7 @@ pub fn advanceTo(t: i96) void {
 const deadlock_message = "every task is waiting on another, and none can run: a deadlock";
 
 fn advanceClock() void {
-    const p = &workers[0].poller;
+    const p = &workers.*[0].poller;
     if (p.count.load(.monotonic) != 0 and p.poll(0)) return;
     const due = timers.due.load(.acquire);
     if (due == no_due) {
@@ -574,7 +621,7 @@ const stuck_ns: i96 = 500 * std.time.ns_per_ms;
 /// `SIOCOUTQ`. A descriptor that is not a socket counts none.
 fn unsent() u64 {
     var total: u64 = 0;
-    var at = registered;
+    var at = registered.*;
     while (at) |r| : (at = r.next) {
         var n: c_int = 0;
         if (builtin.os.tag.isDarwin()) {
@@ -590,7 +637,7 @@ fn unsent() u64 {
 /// Wake each fiber whose deadline the virtual clock has reached: the
 /// clock also moves while fibers compute (`computed`).
 fn fireDue() void {
-    _ = timers.fire(virtual_now);
+    _ = timers.fire(virtual_now.*);
 }
 
 // -----------------------------------------------------------------------------
@@ -621,7 +668,7 @@ const Timers = struct {
         t.up(f.wait.heap_index);
         t.publish();
         // The earliest it holds: a worker asleep until later wakes for it.
-        if (f.wait.heap_index == 0 and !deterministic) kickForTimer(t.due.load(.monotonic));
+        if (f.wait.heap_index == 0 and !deterministic.*) kickForTimer(t.due.load(.monotonic));
     }
 
     fn cancel(t: *Timers, f: *Fiber) void {
@@ -712,7 +759,8 @@ const Timers = struct {
 const no_due = std.math.maxInt(i64);
 
 /// The timers of a deterministic run.
-var timers: Timers = .{};
+var timers_var: Timers = .{};
+const timers = split.cell(&timers_var, "sched.timers");
 
 /// A worker's `sleep_due` while it is not asleep.
 const awake = std.math.minInt(i64);
@@ -721,7 +769,7 @@ const awake = std.math.minInt(i64);
 /// about to sleep wakes up.
 fn earliestDue() i64 {
     var due: i64 = no_due;
-    for (workers) |*v| due = @min(due, v.timers.due.load(.seq_cst));
+    for (workers.*) |*v| due = @min(due, v.timers.due.load(.seq_cst));
     return due;
 }
 
@@ -734,7 +782,7 @@ fn earliestDue() i64 {
 /// this sees the sleeper.
 fn kickForTimer(due: i64) void {
     var late: ?*Worker = null;
-    for (workers) |*v| {
+    for (workers.*) |*v| {
         const until = v.sleep_due.load(.seq_cst);
         if (until == awake) continue;
         if (until <= due) return;
@@ -862,7 +910,7 @@ const Poller = struct {
         // on one thread, has no worker to leave it for, and waits a
         // moment in its poller after a look (`advanceClock`), which a
         // kick left there would end.
-        const look = timeout != null and timeout.? == 0 and !deterministic;
+        const look = timeout != null and timeout.? == 0 and !deterministic.*;
         if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
         var kicked = false;
         defer if (kicked) p.kick();
@@ -932,7 +980,8 @@ const Poller = struct {
 /// a millisecond, as one answering a socket does, finds the watch held
 /// and kicks no one as it wakes (`sleep`). Once every such worker has
 /// slept through a whole watch, the watcher lets it go.
-var watcher: std.atomic.Value(?*Worker) = .init(null);
+var watcher_var: std.atomic.Value(?*Worker) = .init(null);
+const watcher = split.cell(&watcher_var, "sched.watcher");
 
 /// How long at most the watching worker sleeps between looks.
 const watch_every: i96 = std.time.ns_per_ms;
@@ -940,7 +989,7 @@ const watch_every: i96 = std.time.ns_per_ms;
 /// Whether a worker other than `w`, awake, holds descriptors: what the
 /// watcher looks at every poller for.
 fn busyDescriptors(w: ?*Worker) bool {
-    for (workers) |*v| {
+    for (workers.*) |*v| {
         if (v == w) continue;
         if (v.poller.count.load(.monotonic) != 0 and v.idle.load(.seq_cst) == 0) return true;
     }
@@ -952,7 +1001,7 @@ fn busyDescriptors(w: ?*Worker) bool {
 /// woke since.
 fn watchWanted(w: *Worker) bool {
     if (busyDescriptors(w)) return true;
-    for (workers) |*v| {
+    for (workers.*) |*v| {
         if (v == w or v.poller.count.load(.monotonic) == 0) continue;
         if (v.slept.load(.monotonic) != v.watch_mark.load(.monotonic)) return true;
     }
@@ -968,11 +1017,11 @@ fn watchWanted(w: *Worker) bool {
 /// it looks for a watcher, all sequentially consistent, so either it sees
 /// no watcher and kicks a sleeper, or this sees it awake.
 fn sleepIn(w: *Worker, timeout: ?i96) void {
-    if (workers.len >= 2) {
+    if (workers.*.len >= 2) {
         const held = watcher.load(.monotonic) == w;
         if (held) watcher.store(null, .seq_cst);
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
-            for (workers) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
+            for (workers.*) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
             return serviceAll(w);
         }
@@ -1056,31 +1105,32 @@ pub const Registration = struct {
 /// Watch `fd`, which must not block, with the running worker's poller
 /// (worker 0's outside the workers); null when the kernel refuses it.
 pub fn register(fd: i32) ?*Registration {
-    if (!started) startWorkers();
-    const w = me() orelse &workers[0];
+    if (!started.*) startWorkers();
+    const w = me() orelse &workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
     if (!w.poller.add(fd, r)) {
         std.heap.smp_allocator.destroy(r);
         return null;
     }
-    if (deterministic) {
-        r.next = registered;
-        if (registered) |n| n.prev = r;
-        registered = r;
+    if (deterministic.*) {
+        r.next = registered.*;
+        if (registered.*) |n| n.prev = r;
+        registered.* = r;
     }
     return r;
 }
 
 /// Every registration, in a deterministic run, which runs on one thread.
-var registered: ?*Registration = null;
+var registered_var: ?*Registration = null;
+const registered = split.cell(&registered_var, "sched.registered");
 
 /// Stop watching the descriptor and free `r`, before the descriptor is
 /// closed. No fiber may be waiting on it.
 pub fn deregister(r: *Registration) void {
-    if (deterministic) {
-        if (r.prev) |p| p.next = r.next else if (registered == r) {
-            registered = r.next;
+    if (deterministic.*) {
+        if (r.prev) |p| p.next = r.next else if (registered.* == r) {
+            registered.* = r.next;
         }
         if (r.next) |n| n.prev = r.prev;
     }
@@ -1137,7 +1187,8 @@ pub const Pause = struct {
 };
 
 /// The pause the next `pausePoint` holds, set by a test.
-pub var test_pause: std.atomic.Value(?*Pause) = .init(null);
+var test_pause_var: std.atomic.Value(?*Pause) = .init(null);
+pub const test_pause = split.cell(&test_pause_var, "sched.test_pause");
 
 /// In a test that set `test_pause`, hold here until it lets go: between
 /// a waiting point's last look at its cancel flag and the wait it begins.
@@ -1159,7 +1210,7 @@ pub fn spendBudget() void {
     f.budget -%= 1;
     if (f.budget != 0) return;
     f.budget = budget_size;
-    if (!deterministic) if (me()) |w| if (hasOwnWork(w)) yield();
+    if (!deterministic.*) if (me()) |w| if (hasOwnWork(w)) yield();
 }
 
 /// Wake the fibers whose timers are due on worker `w`, and those its
@@ -1176,7 +1227,7 @@ fn service(w: *Worker) void {
 fn serviceAll(w: *Worker) void {
     deliverInterrupt();
     const now = nowNs();
-    for (workers) |*v| {
+    for (workers.*) |*v| {
         _ = v.timers.fire(now);
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
@@ -1203,11 +1254,12 @@ pub fn kickForInterrupt() void {
     _ = kicking.fetchAdd(1, .seq_cst);
     defer _ = kicking.fetchSub(1, .seq_cst);
     if (stopping.load(.seq_cst)) return;
-    for (workers) |*w| w.poller.kick();
+    for (workers.*) |*w| w.poller.kick();
 }
 
 /// How many interrupt handlers are kicking the pollers.
-var kicking: std.atomic.Value(u32) = .init(0);
+var kicking_var: std.atomic.Value(u32) = .init(0);
+const kicking = split.cell(&kicking_var, "sched.kicking");
 
 // -----------------------------------------------------------------------------
 // The blocking pool
@@ -1394,7 +1446,8 @@ const Pool = struct {
 };
 
 /// How long a pool thread waits for a call before it ends.
-var retire_after: i96 = 10 * std.time.ns_per_s;
+var retire_after_var: i96 = 10 * std.time.ns_per_s;
+const retire_after = split.cell(&retire_after_var, "sched.retire_after");
 
 /// The pool's bounds: `RIG_BLOCKING_THREADS` for both, if set; else
 /// `soft` one fewer than the performance cores (`performanceCores`),
@@ -1402,7 +1455,7 @@ var retire_after: i96 = 10 * std.time.ns_per_s;
 /// On a Mac of 4 performance cores, loco read 125,000 files 9% faster
 /// with 3 threads than with 4.
 fn poolBounds(p: *Pool) void {
-    if (rt.process) |proc| if (proc.environ.getPosix("RIG_BLOCKING_THREADS")) |v| {
+    if (rt.process.*) |proc| if (proc.environ.getPosix("RIG_BLOCKING_THREADS")) |v| {
         const n = std.fmt.parseInt(u32, v, 10) catch 0;
         if (n > 0) {
             p.soft = n;
@@ -1459,7 +1512,7 @@ fn monitor(p: *Pool) void {
         }
         // While a call waits, look again in `grow_after`; else sleep until
         // a call waits past `soft` (or `retire_after`, to look anyway).
-        const wait_for = if (backlog) Pool.grow_after else retire_after;
+        const wait_for = if (backlog) Pool.grow_after else retire_after.*;
         rt.io().futexWaitTimeout(u32, &p.monitor_word.raw, seen, .{ .duration = .{ .raw = .{ .nanoseconds = wait_for }, .clock = .awake } }) catch {};
     }
 }
@@ -1474,17 +1527,18 @@ const Call = struct {
     at: i96 = 0,
 };
 
-var pool: Pool = .{};
+var pool_var: Pool = .{};
+const pool = split.cell(&pool_var, "sched.pool");
 
 fn poolMain(p: *Pool) void {
     // The thread's heap goes to the next thread as it ends (`alloc.zig`).
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attach();
     defer alt.detach();
-    waker.thread = rt.threadId();
-    rt.task().control = &waker.control;
+    waker().thread = rt.threadId();
+    rt.task().control = &waker().control;
     p.lock.lock();
-    p.listWaker(&waker);
+    p.listWaker(waker());
     // Started for a call: it is busy, not among the threads waiting.
     var waited = false;
     while (true) {
@@ -1500,7 +1554,7 @@ fn poolMain(p: *Pool) void {
         }
         if (stopping.load(.acquire)) {
             p.threads -= 1;
-            p.unlistWaker(&waker);
+            p.unlistWaker(waker());
             p.lock.unlock();
             return;
         }
@@ -1510,15 +1564,15 @@ fn poolMain(p: *Pool) void {
         while (true) {
             const seen = p.word.load(.seq_cst);
             p.lock.unlock();
-            rt.io().futexWaitTimeout(u32, &p.word.raw, seen, .{ .duration = .{ .raw = .{ .nanoseconds = retire_after }, .clock = .awake } }) catch {};
+            rt.io().futexWaitTimeout(u32, &p.word.raw, seen, .{ .duration = .{ .raw = .{ .nanoseconds = retire_after.* }, .clock = .awake } }) catch {};
             p.lock.lock();
             if (p.head != null) break;
             // No call: end once idle long enough, or as `main` ends. With
             // none queued, none is reserved, so this thread is free.
-            if (stopping.load(.acquire) or nowReal() - since >= retire_after) {
+            if (stopping.load(.acquire) or nowReal() - since >= retire_after.*) {
                 p.idle -= 1;
                 p.threads -= 1;
-                p.unlistWaker(&waker);
+                p.unlistWaker(waker());
                 p.lock.unlock();
                 return;
             }
@@ -1538,7 +1592,7 @@ fn nowReal() i96 {
 /// that does), so the fiber waits until the call is done, and `args` are
 /// passed as they are: a call may read into a buffer its caller lends.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
-    if (deterministic or current() == null) return @call(.auto, f, args);
+    if (deterministic.* or current() == null) return @call(.auto, f, args);
     return switch (poolCall(f, args, false)) {
         .done => |r| r,
         .canceled, .timeout => unreachable,
@@ -1567,7 +1621,7 @@ pub fn PoolResult(comptime R: type) type {
 /// starts does not make it. Outside every fiber, and in a deterministic
 /// run, it runs here.
 pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
-    if (deterministic or current() == null) return .{ .done = @call(.auto, f, args) };
+    if (deterministic.* or current() == null) return .{ .done = @call(.auto, f, args) };
     return poolCall(f, args, true);
 }
 
@@ -1607,7 +1661,10 @@ pub const Waker = struct {
     next: ?*Waker = null,
 };
 
-threadlocal var waker: Waker = .{};
+threadlocal var waker_var: Waker = .{};
+inline fn waker() *Waker {
+    return split.local(&waker_var, "sched.waker");
+}
 
 fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
@@ -1637,13 +1694,13 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
 
         fn run(c: *Call) void {
             const self: *Self = @fieldParentPtr("call", c);
-            waker.control.canceled.store(false, .seq_cst);
+            waker().control.canceled.store(false, .seq_cst);
             if (stoppable) {
                 // The waker is published before the state is read, and a
                 // waiter that gives up reads it after it marks the state:
                 // so either it cancels and wakes this thread, or the call
                 // does not run.
-                self.waker.store(&waker, .seq_cst);
+                self.waker.store(waker(), .seq_cst);
                 if (self.state.load(.seq_cst) == abandoned) {
                     freeArgs(&self.args);
                     _ = pool.finishing.fetchAdd(1, .seq_cst);
@@ -1809,12 +1866,13 @@ fn stop(after: After) void {
 inline fn checkHome(f: *Fiber) void {
     if (!std.debug.runtime_safety) return;
     const home = f.home orelse return;
-    if (me() != home) home_lost(f);
+    if (me() != home) home_lost.*(f);
 }
 
 /// What `checkHome` does when a fiber resumes away from home; a test sets
 /// it to note so instead.
-var home_lost: *const fn (*Fiber) void = homeLost;
+var home_lost_var: *const fn (*Fiber) void = homeLost;
+const home_lost = split.cell(&home_lost_var, "sched.home_lost");
 
 fn homeLost(_: *Fiber) void {
     @branchHint(.cold);
@@ -1842,57 +1900,57 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
             const m: *@This() = @fieldParentPtr("fiber", f);
             m.ended.store(true, .seq_cst);
             stopping.store(true, .seq_cst);
-            for (workers) |*w| wakeWorker(w);
+            for (workers.*) |*w| wakeWorker(w);
         }
     };
     // Worker 0 runs `main` alone until its first task (`startWorkers`).
-    const cap = @max(max_workers, workers_override orelse 0);
-    all_workers = std.heap.smp_allocator.alloc(Worker, cap) catch rt.oom();
-    for (all_workers, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
-    workers = all_workers[0..1];
-    workers[0].poller.open();
-    started = false;
+    const cap = @max(max_workers, workers_override.* orelse 0);
+    all_workers.* = std.heap.smp_allocator.alloc(Worker, cap) catch rt.oom();
+    for (all_workers.*, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
+    workers.* = all_workers.*[0..1];
+    workers.*[0].poller.open();
+    started.* = false;
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
-    me_slot = &workers[0];
-    if (deterministic) wake(&m.fiber) else workers[0].ring.push(&m.fiber);
-    loop(&workers[0]);
+    me_slot().* = &workers.*[0];
+    if (deterministic.*) wake(&m.fiber) else workers.*[0].ring.push(&m.fiber);
+    loop(&workers.*[0]);
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
     printStats();
-    for (workers[1..]) |*w| w.thread.?.join();
+    for (workers.*[1..]) |*w| w.thread.?.join();
     timers.clear();
-    for (workers) |*w| {
+    for (workers.*) |*w| {
         freeStacks(w);
         freeBlocks(w);
         w.timers.clear();
         w.poller.close();
     }
-    std.heap.smp_allocator.free(all_workers);
-    workers = &.{};
-    all_workers = &.{};
-    me_slot = null;
+    std.heap.smp_allocator.free(all_workers.*);
+    workers.* = &.{};
+    all_workers.* = &.{};
+    me_slot().* = null;
     // Workers stopped asleep are still listed; the next run, in a test,
     // starts with none.
-    sleepers = .{};
-    workers_asked = null;
+    sleepers.* = .{};
+    workers_asked.* = null;
     searching.store(0, .seq_cst);
     waiting.store(0, .monotonic);
     watcher.store(null, .seq_cst);
     ready.clearAndFree(std.heap.smp_allocator);
-    registered = null;
+    registered.* = null;
 }
 
 /// With `RIG_SCHED_STATS=1` set, print what each worker did to stderr,
 /// as `main` ends: so a test can check where work ran without timing it.
 fn printStats() void {
-    const p = rt.process orelse return;
+    const p = rt.process.* orelse return;
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
     var buf: [256]u8 = undefined;
-    for (workers, 0..) |*w, i| {
+    for (workers.*, 0..) |*w, i| {
         const line = std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw }) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
@@ -1901,8 +1959,8 @@ fn printStats() void {
 /// Test only: run `run` as `main`, on a stack of its own, with `n`
 /// workers.
 pub fn runForTest(run: *const fn (*anyopaque) callconv(.c) void, n: usize) void {
-    workers_override = n;
-    defer workers_override = null;
+    workers_override.* = n;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, run, s.top(), .{});
@@ -1910,43 +1968,46 @@ pub fn runForTest(run: *const fn (*anyopaque) callconv(.c) void, n: usize) void 
 
 /// The most workers a program runs.
 const max_workers = 64;
-var all_workers: []Worker = &.{};
-var started = false;
+var all_workers_var: []Worker = &.{};
+const all_workers = split.cell(&all_workers_var, "sched.all_workers");
+var started_var = false;
+const started = split.cell(&started_var, "sched.started");
 
 /// Start the other workers, when `main` makes its first task: by then
 /// the runtime has the program's environment, for `RIG_WORKERS`, and a
 /// program that makes none starts none.
 fn startWorkers() void {
-    started = true;
-    const n = if (deterministic) 1 else @min(workerCount(), all_workers.len);
-    workers = all_workers[0..n];
-    for (workers[1..]) |*w| w.poller.open();
-    for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
+    started.* = true;
+    const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
+    workers.* = all_workers.*[0..n];
+    for (workers.*[1..]) |*w| w.poller.open();
+    for (workers.*[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
 }
 
 /// How many workers the program asked for (`task.workers`), in place of
 /// `RIG_WORKERS` or one per core.
-var workers_asked: ?usize = null;
+var workers_asked_var: ?usize = null;
+const workers_asked = split.cell(&workers_asked_var, "sched.workers_asked");
 
 /// `task.workers(n)`: run tasks on `n` workers, at most `max_workers`,
 /// once they start, as the program makes its first task; whether that is
 /// still to come. A deterministic run keeps to one thread.
 pub fn askWorkers(n: usize) bool {
-    if (started) return false;
-    workers_asked = @max(1, @min(n, max_workers));
+    if (started.*) return false;
+    workers_asked.* = @max(1, @min(n, max_workers));
     return true;
 }
 
 /// How many workers run tasks, starting them first if they have not.
 pub fn workersRunning() usize {
-    if (!started) startWorkers();
-    return workers.len;
+    if (!started.*) startWorkers();
+    return workers.*.len;
 }
 
 fn workerCount() usize {
-    if (workers_override) |n| return n;
-    if (workers_asked) |n| return n;
-    if (rt.process) |p| if (p.environ.getPosix("RIG_WORKERS")) |v| {
+    if (workers_override.*) |n| return n;
+    if (workers_asked.*) |n| return n;
+    if (rt.process.*) |p| if (p.environ.getPosix("RIG_WORKERS")) |v| {
         const n = std.fmt.parseInt(usize, v, 10) catch 0;
         if (n > 0) return n;
     };
@@ -1957,7 +2018,7 @@ fn workerMain(w: *Worker) void {
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attach();
     defer alt.detach();
-    me_slot = w;
+    me_slot().* = w;
     loop(w);
 }
 
@@ -1965,7 +2026,7 @@ fn workerMain(w: *Worker) void {
 /// is none, until `main` ends.
 fn loop(w: *Worker) void {
     while (!stopping.load(.acquire)) {
-        if (deterministic) {
+        if (deterministic.*) {
             const f = next(w) orelse {
                 advanceClock();
                 continue;
@@ -2028,7 +2089,7 @@ fn prepare(f: *Fiber) void {
 fn next(w: *Worker) ?*Fiber {
     // Deterministic: any ready fiber, as the seed picks, once the timers
     // the clock has reached have woken theirs.
-    if (deterministic) {
+    if (deterministic.*) {
         deliverInterrupt();
         fireDue();
         if (ready.items.len == 0) return null;
@@ -2062,19 +2123,19 @@ fn next(w: *Worker) ?*Fiber {
 /// most half the workers search at once; a worker that finds work, and
 /// was the last searching, wakes another to look for more.
 fn search(w: *Worker) ?*Fiber {
-    if (workers.len < 2) return null;
+    if (workers.*.len < 2) return null;
     // A worker woken to look for work is counted as searching already.
     if (!w.searching) {
-        if (2 * searching.load(.acquire) >= workers.len) return null;
+        if (2 * searching.load(.acquire) >= workers.*.len) return null;
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
     }
     w.rng ^= w.rng << 13;
     w.rng ^= w.rng >> 17;
     w.rng ^= w.rng << 5;
-    const start = w.rng % workers.len;
-    for (0..workers.len) |k| {
-        const v = &workers[(start + k) % workers.len];
+    const start = w.rng % workers.*.len;
+    for (0..workers.*.len) |k| {
+        const v = &workers.*[(start + k) % workers.*.len];
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
@@ -2084,8 +2145,8 @@ fn search(w: *Worker) ?*Fiber {
     if (global.pop()) |f| return f;
     // No ring had any: take a fiber another worker has kept in its "run
     // next" slot a while.
-    for (0..workers.len) |k| {
-        const v = &workers[(start + k) % workers.len];
+    for (0..workers.*.len) |k| {
+        const v = &workers.*[(start + k) % workers.*.len];
         if (v == w) continue;
         if (stealNext(v)) |f| {
             w.stole += 1;
@@ -2136,7 +2197,7 @@ fn unlessPinned(f: *Fiber) ?*Fiber {
 /// worker is looking or asleep, every one is busy, and their yield
 /// checks are told it waits (`waiting`).
 fn notifyNew() void {
-    if (deterministic) return;
+    if (deterministic.*) return;
     if (searching.load(.seq_cst) == 0 and sleepers.count.load(.seq_cst) == 0) {
         if (waiting.load(.monotonic) == 0) waiting.store(1, .monotonic);
         return;
@@ -2148,7 +2209,7 @@ fn notifyNew() void {
 /// counting it as searching from now, so the next work made does not
 /// wake another before this one has looked.
 fn notify() void {
-    if (deterministic) return;
+    if (deterministic.*) return;
     if (searching.load(.seq_cst) != 0) return;
     if (sleepers.count.load(.seq_cst) == 0) return;
     if (sleepers.pop()) |w| {
@@ -2232,7 +2293,7 @@ fn sleep(w: *Worker) void {
 fn takeWaiting(w: *Worker) bool {
     if (waiting.load(.monotonic) == 0) return false;
     if (waiting.swap(0, .seq_cst) == 0) return false;
-    for (workers) |*v| {
+    for (workers.*) |*v| {
         if (v != w and v.lifo.load(.seq_cst) != null) {
             waiting.store(1, .monotonic);
             break;
@@ -2247,7 +2308,7 @@ fn waitWoken(w: *Worker) void {
 
 fn hasWork() bool {
     if (global.count.load(.seq_cst) != 0) return true;
-    for (workers) |*v| if (!v.ring.isEmpty()) return true;
+    for (workers.*) |*v| if (!v.ring.isEmpty()) return true;
     return false;
 }
 
@@ -2513,7 +2574,8 @@ pub const Held = struct {
 };
 
 /// Held while a fiber walks the chain of waits.
-var graph: std.atomic.Value(bool) = .init(false);
+var graph_var: std.atomic.Value(bool) = .init(false);
+const graph = split.cell(&graph_var, "sched.graph");
 
 fn lockGraph() void {
     while (graph.cmpxchgWeak(false, true, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
@@ -2952,7 +3014,7 @@ pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: 
             std.heap.smp_allocator.destroy(full);
         }
     };
-    if (!started) startWorkers();
+    if (!started.*) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
     full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = Full.destroy } }, .extra = extra, .args = args };
     // An `Extra` that names its task's fiber is given it, for a cancel to
@@ -2983,7 +3045,7 @@ pub fn spawnDetached(comptime f: anytype, args: anytype) void {
             std.heap.smp_allocator.destroy(full);
         }
     };
-    if (!started) startWorkers();
+    if (!started.*) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
     full.* = .{ .fiber = .{ .run = Full.start, .done = Full.end }, .args = args };
     wake(&full.fiber);
@@ -3378,8 +3440,8 @@ test "fibers switch, yield to each other in turn, and finish" {
             note('e');
         }
     };
-    workers_override = 1;
-    defer workers_override = null;
+    workers_override.* = 1;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3443,8 +3505,8 @@ test "many workers run many fibers, each waited for, and their results add up" {
             }
         }
     };
-    workers_override = 4;
-    defer workers_override = null;
+    workers_override.* = 4;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3468,8 +3530,8 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
             }
         }
     };
-    workers_override = 4;
-    defer workers_override = null;
+    workers_override.* = 4;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3513,8 +3575,8 @@ test "local tasks and the fiber that made them stay on its worker, woken there b
             }
         }
     };
-    workers_override = 4;
-    defer workers_override = null;
+    workers_override.* = 4;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3563,8 +3625,8 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3623,8 +3685,8 @@ test "a cancel that lands after a wait on a descriptor last looked, but before i
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3683,8 +3745,8 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3735,8 +3797,8 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
             j.free();
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3779,8 +3841,8 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 1;
-    defer workers_override = null;
+    workers_override.* = 1;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3821,8 +3883,8 @@ test "a task made while its maker computes runs beside it, from the maker's next
             j.free();
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3875,8 +3937,8 @@ test "two tasks that answer each other over a socket stay on one worker" {
             }
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3934,9 +3996,9 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
         }
     };
     seed(1);
-    defer deterministic = false;
-    workers_override = 1;
-    defer workers_override = null;
+    defer deterministic.* = false;
+    workers_override.* = 1;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -3983,8 +4045,8 @@ test "a run-next fiber that wakes no worker is handed on at its maker's next rec
             j.free();
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4040,8 +4102,8 @@ test "a run-next fiber made as the other worker goes to sleep is handed on at it
             }
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4109,8 +4171,8 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
             y.free();
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4151,8 +4213,8 @@ test "an idle worker wakes for the descriptors of a busy one" {
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4196,8 +4258,8 @@ test "the blocking pool runs calls at once, counting a thread busy as it hands i
             together = pair();
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     pool.soft = 1;
     pool.max = 1;
     defer pool.soft = 0;
@@ -4232,8 +4294,8 @@ test "past its soft bound, the blocking pool grows once a queued call has waited
             together = nowNs() - start;
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     pool.soft = 1;
     pool.max = 2;
     defer pool.soft = 0;
@@ -4287,8 +4349,8 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             testNap(400 * std.time.ns_per_ms);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4312,10 +4374,10 @@ test "a pool thread idle long enough ends" {
             pool.lock.unlock();
         }
     };
-    retire_after = 50 * std.time.ns_per_ms;
-    defer retire_after = 10 * std.time.ns_per_s;
-    workers_override = 2;
-    defer workers_override = null;
+    retire_after.* = 50 * std.time.ns_per_ms;
+    defer retire_after.* = 10 * std.time.ns_per_s;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4337,14 +4399,14 @@ test "RIG_SCHED_STATS counts: what each worker ran, stole, and slept" {
                 _ = j.join();
                 j.free();
             }
-            for (workers) |*w| {
+            for (workers.*) |*w| {
                 ran += w.ran;
                 pinned += w.ran_pinned;
             }
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4375,10 +4437,10 @@ test "a pinned fiber that resumes away from its home is caught" {
             f.home = null;
         }
     };
-    home_lost = Run.note;
-    defer home_lost = homeLost;
-    workers_override = 2;
-    defer workers_override = null;
+    home_lost.* = Run.note;
+    defer home_lost.* = homeLost;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4450,9 +4512,9 @@ test "a deterministic run waits for bytes on their way on a socket, though every
         for (threads[0..n]) |t| t.join();
     }
     seed(1);
-    defer deterministic = false;
-    workers_override = 1;
-    defer workers_override = null;
+    defer deterministic.* = false;
+    workers_override.* = 1;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4490,8 +4552,8 @@ test "a blocking call fills a buffer its caller lends, and a stoppable one takes
             j.free();
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4563,10 +4625,10 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
         var hop_lost: u32 = 0;
     };
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    rt.fast_alloc.owner_lost = Run.noteLost;
-    defer rt.fast_alloc.owner_lost = rt.fast_alloc.owner_lost_default;
-    workers_override = 4;
-    defer workers_override = null;
+    rt.fast_alloc.owner_lost.* = Run.noteLost;
+    defer rt.fast_alloc.owner_lost.* = rt.fast_alloc.owner_lost_default;
+    workers_override.* = 4;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4617,8 +4679,8 @@ test "a wait to read sleeps after its own side of the socket shuts down writing"
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4642,8 +4704,8 @@ test "a wait to write on a full buffer sleeps after the other end shuts down wri
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -4672,8 +4734,8 @@ test "a wait to write on a full buffer ends when the other end closes, and the w
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override = 2;
-    defer workers_override = null;
+    workers_override.* = 2;
+    defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
