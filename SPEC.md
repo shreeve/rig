@@ -9289,7 +9289,9 @@ How the slots are held follows from `T`:
   `Bool`, slots, a plain enum's variant whose value is 0, and objects
   and arrays of these), the table **reserves** `n * $size(T)` bytes of
   address space, and the system gives each page as zeros when it is
-  first touched: a slot never written takes no memory. Up to 64 TiB.
+  first touched: a slot never written takes no memory. On Linux the
+  table reserves at its first write, so a table never written takes no
+  address space. Up to 64 TiB.
 - Otherwise (a float, which may be `-0.0`; an optional; a value that
   owns; any other default), every slot is **made** with the table, up to
   64 MiB, and dropping the table drops all `n` slots.
@@ -9298,8 +9300,8 @@ A table past its limit is rejected. On a target whose system gives no
 lazily zeroed pages (wasm32, Windows), a reserved table holds the slots
 it has been written up to and tests each slot against them, with the
 same meaning. A system that refuses the reservation (`ulimit -v`,
-strict overcommit) makes `Table()` panic; a table is never smaller than
-`n`.
+strict overcommit) makes `Table()` panic, or on Linux the table's first
+write; a table is never smaller than `n`.
 
 ```rig reject
 obj File

@@ -15,7 +15,21 @@
 //!   2 MiB blocks to spare (`reserve`). The system gives each page as
 //!   zeros when it is first touched, so a slot never written costs no
 //!   memory. It is never one of `alloc.zig`'s blocks, which are reused
-//!   unzeroed and faulted in ahead.
+//!   unzeroed and faulted in ahead. On Linux, and in leak-checked builds
+//!   (`lazy_reserve`), the table reserves its range at its first write,
+//!   not when it is made. Until then `slots` points into
+//!   `alloc.zig`'s zero range (`tableZeros`), a read-only mapping that
+//!   every unwritten table shares, so a read needs no test. `lim` is 0
+//!   until the table reserves and `n` after. `push` compares `len` with
+//!   it, as it would compare with `n`, and a write through `slot` tests
+//!   it; each reserves (`reserveNow`) when it is 0. A table never written
+//!   makes no system call and gives nothing back. One wider than a region
+//!   of Tables (256 GiB), or made when the system refuses the zero range,
+//!   reserves as it is made. The first write moves `slots`, as a List's growth moves
+//!   its items. The ownership checker lets no view of the table live
+//!   across a write, so safe code never sees the move. A raw pointer kept
+//!   from before the first write reads stale zeros, and a write through
+//!   it faults.
 //! - **Made.** Any other `T`: `n` slots on the heap, each `T()`, dropped
 //!   all `n` when the table is, since `t[s] = x` may write past `len`.
 //! - **Committed.** A reserved table on a target with no lazily zeroed
@@ -25,10 +39,12 @@
 //!   choice is made when the program is built, never as it runs.
 //!
 //! A reservation the system refuses (`ulimit -v`, strict overcommit)
-//! panics as the table is made; a table is never smaller than `n`. In a
-//! leak-checked build each mapping holds a one-byte token from the
-//! runtime's allocator, freed with it, so a table never dropped is
-//! reported as a leak.
+//! panics at the table's first write (or as it is made, when it
+//! reserves then); a table is never smaller than `n`. In a leak-checked
+//! build each mapping holds a one-byte token from the runtime's
+//! allocator, taken when the range is reserved and freed with it. So a
+//! table written and never dropped is reported as a leak. A table never
+//! written holds nothing, so it is never reported.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -150,12 +166,24 @@ fn unreserve(p: [*]align(page) u8, bytes: usize) void {
 /// `reserveTable`), with no system call for most.
 const leak_checked = builtin.optimize == .debug;
 
+/// Whether a reserved table reserves at its first write rather than as it
+/// is made (`tableZeros`): on Linux, and in every leak-checked build. A
+/// release build on macOS reserves as the table is made. macOS has no
+/// shared zero page, so each page of the zero range read commits a page
+/// of its own, and a table read before it is written holds its pages
+/// twice. On Trig, with every table written, that raised peak memory by
+/// up to 1%, for no gain
+/// (docs/history/records/2026-11/perf-stage/lazy-table.md).
+const lazy_reserve = builtin.os.tag == .linux or leak_checked;
+
 /// `Table(T, n)`: `n` slots of `T`.
 pub fn Table(comptime T: type, comptime n: u64) type {
     if (n == 0) @compileError("rig.Table: a table has at least one slot");
     const zeros = fillsWithZeros(T);
     const How = enum { reserved, made, committed };
     const how: How = if (!zeros) .made else if (lazy_pages) .reserved else .committed;
+    // A reserved table that reserves at its first write.
+    const lazy = how == .reserved and lazy_reserve;
     const bytes_wide: u128 = @as(u128, n) * @sizeOf(T);
     if (how != .committed and bytes_wide > std.math.maxInt(usize)) @compileError("rig.Table: the table does not fit the address space");
     // The bytes the slots take, rounded up to whole pages for a mapping.
@@ -170,6 +198,9 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         cap: if (how == .committed) usize else void = if (how == .committed) 0 else {},
         /// The leak checker's record of the mapping (`token`).
         token: if (how == .reserved and leak_checked) [*]u8 else void = undefined,
+        /// A reserved table's limit for `push`: 0 until its range is
+        /// reserved, at its first write, and `n` after.
+        lim: if (lazy) u64 else void = if (lazy) 0 else {},
 
         const Self = @This();
         pub const __rig_args = .{ T, n };
@@ -180,12 +211,12 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `Table()`: `n` slots, each `T()`. A table made once its value
         /// is wanted, at run time: never a constant.
         pub fn init() Self {
-            if (comptime @sizeOf(T) == 0) return .{ .slots = @ptrFromInt(@alignOf(T)) };
+            if (comptime @sizeOf(T) == 0) return .{ .slots = @ptrFromInt(@alignOf(T)), .lim = if (lazy) n else {} };
             switch (how) {
                 .reserved => {
-                    const p = reserve(bytes);
-                    var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
-                    if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
+                    if (comptime lazy) if (rt.fast_alloc.tableZeros(bytes)) |z| return .{ .slots = @ptrCast(@alignCast(z)) };
+                    var t: Self = .{ .slots = undefined };
+                    t.reserveNow();
                     return t;
                 },
                 .made => {
@@ -202,16 +233,39 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `n` are pushed. The slot is dropped first, as any store into a
         /// place drops what was there.
         pub fn push(self: *Self, value: T) Index {
-            if (self.len == n) fullPanic(n);
+            if (self.len == (if (comptime lazy) self.lim else n)) {
+                @branchHint(.cold);
+                if (comptime !lazy) fullPanic(n);
+                if (self.lim != 0) fullPanic(n);
+                self.reserveNow();
+            }
             // `len < n` here, as only `push` raises `len`, and `n - 1`
             // fits `Index`: the cast is exact.
             rt.invariant(self.len < n);
             const s: Index = @truncate(self.len);
-            const p = self.slot(s);
+            // A lazy table has its range here, since `len` is below `lim`,
+            // so the slot needs no second test.
+            const p = if (comptime lazy) &self.slots[offset(s)] else self.slot(s);
             if (comptime rt.needsDrop(T)) rt.dropElement(T, p);
             p.* = value;
             self.len += 1;
             return s;
+        }
+
+        /// A reserved table's range: at its first write, in place of the
+        /// zero range, with `lim` raised to `n`, or as it is made. The
+        /// call takes no `self`, so the code around it may keep `len` in a
+        /// register.
+        inline fn reserveNow(self: *Self) void {
+            if (comptime how != .reserved) unreachable;
+            self.slots = @ptrCast(@alignCast(reserveFirst()));
+            if (comptime lazy) self.lim = n;
+            if (comptime leak_checked) self.token = (rt.allocSlice(u8, 1)).ptr;
+        }
+
+        noinline fn reserveFirst() [*]align(page) u8 {
+            @branchHint(.cold);
+            return reserve(bytes);
         }
 
         /// A slot's offset: below `n` by its type, which a debug build
@@ -237,6 +291,10 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         pub inline fn slot(self: *Self, s: Index) *T {
             const i = offset(s);
             if (comptime how == .committed) if (i >= self.cap) self.grow(i);
+            if (comptime lazy) if (self.lim == 0) {
+                @branchHint(.cold);
+                self.reserveNow();
+            };
             return &self.slots[i];
         }
 
@@ -284,11 +342,13 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         }
 
         /// Drop every slot a made table holds, all `n`, last first; then
-        /// give back the slots' memory.
+        /// give back the slots' memory, of which a reserved table never
+        /// written has none.
         pub fn __rig_drop(self: *Self) void {
             if (comptime @sizeOf(T) == 0) return;
             switch (how) {
                 .reserved => {
+                    if (comptime lazy) if (self.lim == 0) return;
                     unreserve(@ptrCast(@alignCast(self.slots)), bytes);
                     if (comptime leak_checked) rt.freeSlice(u8, self.token[0..1]);
                 },

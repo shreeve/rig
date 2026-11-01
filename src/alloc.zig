@@ -874,7 +874,9 @@ fn mapOwnSegment() ?*Segment {
 /// a mapping, its advice, and its unmapping for each cost about 8
 /// microseconds of system calls. Only release builds take Tables from
 /// here: a debug build maps each on its own, so a Table used after it is
-/// dropped faults and the leak checker sees each.
+/// dropped faults and the leak checker sees each. A Table takes its range
+/// at its first write. Until then it points into the zero range
+/// (`tableZeros`), which makes no system call per Table.
 const table_region_size: usize = 256 << 30;
 /// The regions there may be, 8 TiB in all; a Table that finds none with
 /// room, or is larger than a region, is mapped on its own.
@@ -951,6 +953,53 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     giveTableRange(at, len);
     unlockTables();
     return true;
+}
+
+/// The zero range: a read-only mapping with no memory committed, which
+/// every reserved Table not yet written points into (`table.zig`). It is
+/// used on every target with lazily zeroed pages, and each slot of it
+/// reads as zero bytes. The first Table that asks maps it, as wide as the
+/// Table rounded up to a power of two and at least `table_zeros_min`.
+/// macOS charges for a mapping by its width, so the range is never wider
+/// than it needs to be. A wider Table maps a wider range, which then
+/// serves every later Table. The narrower one stays mapped for the Tables
+/// that point into it, so there are at most a dozen. No range is ever
+/// unmapped, and a write into one faults. Linux gives a read fault its
+/// one zero page. macOS gives each page read a page of its own, but every
+/// unwritten Table shares these addresses, so the pages read are held
+/// once, however many Tables read them.
+var table_zeros: std.atomic.Value(usize) = .init(0);
+/// The width of `table_zeros`; 0 before it is mapped.
+var table_zeros_len: std.atomic.Value(usize) = .init(0);
+/// The system refused a zero range (`ulimit -v`, strict overcommit).
+var table_zeros_refused: bool = false;
+const table_zeros_min: usize = 64 << 20;
+
+/// The zero range, for a Table of `bytes`. Null when the Table is wider
+/// than a region of Tables, or when the system refuses to map the range.
+/// The Table then reserves its own range as it is made.
+pub fn tableZeros(bytes: usize) ?[*]align(std.heap.page_size_min) u8 {
+    // The range is stored before its width, so a width read here covers
+    // the range read after it.
+    if (bytes <= table_zeros_len.load(.acquire)) return @ptrFromInt(table_zeros.load(.monotonic));
+    return mapTableZeros(bytes);
+}
+
+fn mapTableZeros(bytes: usize) ?[*]align(std.heap.page_size_min) u8 {
+    @branchHint(.cold);
+    if (bytes > table_region_size) return null;
+    lockTables();
+    defer unlockTables();
+    if (bytes <= table_zeros_len.load(.monotonic)) return @ptrFromInt(table_zeros.load(.monotonic));
+    if (table_zeros_refused) return null;
+    const len = @max(table_zeros_min, std.math.ceilPowerOfTwoAssert(usize, bytes));
+    const m = std.posix.mmap(null, len, .{ .READ = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
+        table_zeros_refused = true;
+        return null;
+    };
+    table_zeros.store(@intFromPtr(m.ptr), .monotonic);
+    table_zeros_len.store(len, .release);
+    return m.ptr;
 }
 
 /// `len` bytes of the Tables' address space: the smallest free range
@@ -1859,6 +1908,17 @@ test "on Linux a Table's range given back has its pages back with the system, an
     // A mapping of its own is not the Tables'.
     var own: [4096]u8 align(4096) = undefined;
     try std.testing.expect(!unreserveTable(&own, own.len));
+}
+
+test "the zero range is as wide as the widest Table that asked, reads zeros, and is no Table's wider than a region" {
+    const a = tableZeros(4096) orelse return error.SkipZigTest;
+    try std.testing.expectEqual(a, tableZeros(table_zeros_min).?);
+    try std.testing.expectEqual(@as(u8, 0), a[table_zeros_min - 1]);
+    const b = tableZeros(table_zeros_min + 1).?;
+    try std.testing.expect(table_zeros_len.load(.monotonic) >= 2 * table_zeros_min);
+    try std.testing.expectEqual(b, tableZeros(4096).?);
+    try std.testing.expectEqual(@as(u8, 0), b[2 * table_zeros_min - 1]);
+    try std.testing.expect(tableZeros(table_region_size + 1) == null);
 }
 
 test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {
