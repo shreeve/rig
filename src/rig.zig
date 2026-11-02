@@ -2365,6 +2365,18 @@ pub const Parser = struct {
         return .{ .base = BaseParser.init(alloc, source) };
     }
 
+    /// Start over on `source` as `init` would, keeping the memory of
+    /// earlier parses for the next (`BaseParser.reset`). Every tree and
+    /// everything the wrapper recorded about one is gone, so nothing from
+    /// an earlier parse may be held across it.
+    pub fn reset(self: *Parser, source: []const u8) void {
+        // What the wrapper holds lives in the base's arena, which the
+        // base's reset frees: its own fields only go back to their
+        // defaults.
+        self.base.reset(source);
+        self.* = .{ .base = self.base };
+    }
+
     /// A parser over a directory module's files joined, each but the
     /// last ending at the matching `ends` position (`Lexer.ends`).
     pub fn initFiles(alloc: std.mem.Allocator, source: []const u8, ends: []const u32) Parser {
@@ -5489,4 +5501,71 @@ test "parser: a definition writes its parameter list, even when empty" {
 test "a keyword after `$` names a builtin" {
     try expectCats("$type(x)", &.{ .dollar, .ident, .lparen, .ident, .rparen });
     try expectCats("$size($type(x))", &.{ .dollar, .ident, .lparen, .dollar, .ident, .lparen, .ident, .rparen, .rparen });
+}
+
+/// What one parse of `p` gave, as text: the tree with every node's id
+/// and span, or the diagnostics, and what the wrapper recorded beside it.
+fn parseOutcome(p: *Parser, out: *std.Io.Writer.Allocating) !void {
+    const w = &out.writer;
+    if (p.parseProgram()) |tree| {
+        try p.base.writeFacts(w, tree);
+        try tree.write(p.base.source, w);
+    } else |err| switch (err) {
+        error.ParseError => {
+            try w.print("{s}\n", .{p.diagnostic().message});
+            for (p.moreDiagnostics()) |d| try w.print("{s}\n", .{d.message});
+        },
+        else => |e| return e,
+    }
+    try w.print("\nsigils {d} suffixes {d} detached {d} padded {d} homes {d} depth {d}\n", .{
+        p.receiver_sigils.count(), p.paren_suffixes.count(), p.detached.items.len, p.padded, p.pad_homes.items.len, p.type_depth,
+    });
+}
+
+test "parser: a reset parser parses as a new one" {
+    const sources = [_][]const u8{
+        // Receiver sigils, a `?` in parentheses after a sigil, a method
+        // outside its type's body.
+        "obj Box\n  n: Int\n\nfun Nope.m() -> Int\n  1\n\nsub main()\n  !v.push(1)\n  x: *(Int?) = none\n",
+        "use std.text\n\nfun twice(n: Int) -> Int\n  n * 2\n\nsub main()\n  print(twice(21))\n",
+        // Rejected after it parses: the failure and the ones after it.
+        "sub main\n  pass\n\nfun answer -> Int\n  42\n",
+        "",
+    };
+    for (sources) |first| for (sources) |second| {
+        var fresh = Parser.init(testing.allocator, second);
+        defer fresh.deinit();
+        var want: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer want.deinit();
+        try parseOutcome(&fresh, &want);
+
+        var p = Parser.init(testing.allocator, first);
+        defer p.deinit();
+        var ignored: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer ignored.deinit();
+        try parseOutcome(&p, &ignored);
+        p.reset(second);
+        var got: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer got.deinit();
+        try parseOutcome(&p, &got);
+        testing.expectEqualStrings(want.written(), got.written()) catch |e| {
+            std.debug.print("after: {s}\n", .{first});
+            return e;
+        };
+    };
+}
+
+test "parser: a parser reset over many parses keeps no more memory" {
+    const source = "fun twice(n: Int) -> Int\n  n * 2\n\nsub main()\n  !v.push(twice(1))\n";
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    _ = try p.parseProgram();
+    p.reset(source);
+    _ = try p.parseProgram();
+    const held = p.base.arena.queryCapacity();
+    for (0..50) |_| {
+        p.reset(source);
+        _ = try p.parseProgram();
+    }
+    try testing.expect(p.base.arena.queryCapacity() <= held);
 }
