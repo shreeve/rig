@@ -315,12 +315,15 @@ pub const ModuleGraph = struct {
             }
         }
         var beside = false;
+        // One parser, reset for each file: a file's tree is read only in
+        // its own turn, and nothing taken from it outlives that turn.
+        var p = parser.Parser.init(self.allocator, "");
+        defer p.deinit();
         for (names.items) |name| {
             const own_file = std.mem.eql(u8, name, own);
             const source = self.read(try std.fs.path.join(a, &.{ dir, name })) catch
                 if (own_file) return file_root else continue;
-            var p = parser.Parser.init(self.allocator, source);
-            defer p.deinit();
+            p.reset(source);
             const tree = p.parseProgram() catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 else => if (own_file) return file_root else continue,
