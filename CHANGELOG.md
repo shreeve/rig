@@ -277,7 +277,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   of a 12-byte one 71 µs where it took 711 µs, of a 40-byte one 73 µs
   where it took 303 µs, and of one byte 30 µs where it took 50 µs (66%
   faster); no search of 8 bytes to 4 KiB is slower. `bench/text/guard.py`
-  holds each search's instructions to a baseline.
+  holds each search's instructions to a baseline, and AGENTS.md makes it
+  a gate for compiler, runtime, and std changes, as the json and hash
+  guards are.
 - **A match on an error value binds what it checked.** A read match's
   catch-all of an `error`, or of a set whose members carry fields, is a
   view of the error where it is, and a write match's a write view, so
