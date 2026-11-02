@@ -11,7 +11,7 @@ a Cell, every one of which must be rejected), plus the
 stores into a view parameter (`store.`, below), a call that keeps each
 kind of parameter by each store, with `keeps` and without (`keeps.`,
 below), a loan reaching a generic body's `T` result each way, its `from`
-naming that parameter or not (`gen.`, below), a value `replace`
+naming that parameter or not (`gen.`, below), a value `swap`
 takes out of each kind of place, then the place written, the value put
 back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
@@ -247,7 +247,7 @@ class Results:
         # The code that runs a program and judges it, the limits it runs
         # under, and every RIG_ setting (a runtime knob, such as
         # RIG_SANITIZE_BLOCKS, or one a program reads).
-        verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH)]
+        verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH, MALFORMED, KNOWN_MALFORMED)]
         settings = sorted("%s=%s" % kv for kv in os.environ.items() if kv[0].startswith("RIG_") and not RIG_LOCATIONS.match(kv[0]))
         self.fixed = fixed_inputs()
         self.base = sha256("rig results 2 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB, CAP_MODE,
@@ -298,6 +298,13 @@ BAD = re.compile(
 )
 POS = re.compile(r"\.rig:\d+:\d+")
 CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
+# A rejection no cell is written to test: the parser's, or a name the
+# program never binds. A cell rejected so is a program the generator got
+# wrong, which proves nothing about the rule it stands for.
+MALFORMED = re.compile(r"unexpected |use of unbound name ")
+# The cells a known compiler gap rejects so, each in docs/internals/backlog.md:
+# `return if c` with block branches, which SPEC ("Block expressions") allows.
+KNOWN_MALFORMED = re.compile(r"\.return\.if_as$|\.tail_(if|nested)_result_(plain|defer)\.call$")
 
 # -----------------------------------------------------------------------------
 # Types: the type's spelling, declarations it needs, how `mk(n)` makes a
@@ -448,10 +455,10 @@ CONTEXTS = {
     "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),
     # A closure whose result is inferred returns its value: the tail of
     # an expression body, and of a block body. (Its own `a`, `b`, `c`,
-    # `o` are parameters, in a function of their own.)
-    "closure_tail": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?| E\n  g(mk(1), mk(2), k, <p)\n",
+    # `o`, and `h` are parameters, in a function of their own.)
+    "closure_tail": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?, h: H| E\n  g(mk(1), mk(2), k, <p, H(f: mk(4)))\n",
                          inline="x = ctail(c, mk(3))\n  print(look(?x))"),
-    "closure_block": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?|\n    print(0)\n    E\n  g(mk(1), mk(2), k, <p)\n",
+    "closure_block": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?, h: H|\n    print(0)\n    E\n  g(mk(1), mk(2), k, <p, H(f: mk(4)))\n",
                           inline="x = ctail(c, mk(3))\n  print(look(?x))"),
     # `+e` reads `e`, and `_ = e` drops what it takes.
     "clone": dict(inline="x = +(E)\n  print(look(?x))"),
@@ -573,7 +580,7 @@ STORE_FORMS = {
     "read_back": ("h", ["a.r = S", "t = a.r"]),
     "defer": ("h", ["if a.r.len > 0", "  defer a.r = S", "  print(1)"]),
     "closure": ("h", ["g = |!a, ?b| a.r = S", "g()"]),
-    "replace": ("h", ["print(replace(!a.r, S))"]),
+    "replace": ("h", ["print(swap(!a.r, S))"]),
     "swap": ("h", ["q = H(r: S)", "swap(!a, !q)"]),
     "nested": ("o", ["a.h.r = S"]),
     "element": ("s", ["a[0].r = S"]),
@@ -639,7 +646,7 @@ def gen_program(fname, said, then):
 
 
 # -----------------------------------------------------------------------------
-# A value `replace` takes out of a place: `t = replace(!P, v)` is
+# A value `swap` takes out of a place: `t = swap(!P, v)` is
 # `t = <P; P = v` (docs/internals/INTERNALS.md), so `t` views what the place's value
 # viewed (`src`) and no part of the place. The place, of each kind, is
 # then written while `t` lives (accepted), `t` put back into it (accepted),
@@ -649,7 +656,7 @@ def gen_program(fname, said, then):
 # -----------------------------------------------------------------------------
 
 # How `main` makes the place `P` from `src`; `run` puts it in a function
-# given the holder as a write view; `take` replaces the `replace`, and
+# given the holder as a write view; `take` replaces the `swap`, and
 # `thens` a then's lines and output (None: not written).
 TAKEN_PLACES = {
     "local": dict(setup=["s = S(text: ?src, value: String())"], place="s"),
@@ -664,13 +671,13 @@ TAKEN_PLACES = {
     # Its result carries the closure's captures (Core sentence 7), so `h`
     # itself is not written or put back into while it lives.
     "closure": dict(setup=['h = H(s: S(text: ?src, value: String("v")))',
-                           'f = |!h| replace(!h.s, S(text: "", value: String("n")))'],
+                           'f = |!h| swap(!h.s, S(text: "", value: String("n")))'],
                     place="h.s", take=["t = f()"],
                     thens={"write": (["u = f()", "print(t.text, t.value, u.value)"], "abc v n\n"), "put_back": None}),
 }
 TAKEN_THENS = {
     "write": (['P.value = String("w")', "print(t.text, P.value)"], "abc w\n"),
-    "put_back": (["_ = replace(!P, <t)", "print(P.text)"], "abc\n"),
+    "put_back": (["_ = swap(!P, <t)", "print(P.text)"], "abc\n"),
     "drop": (["<src", "print(t.text)"], "(rejected)\n"),
 }
 
@@ -2065,7 +2072,7 @@ CELLMUT_TYPES = {
 # `Cell[List[Int]]`.
 CELLMUT_OPS = {
     "set": ("c", ["!C.set(C.get() + KARG)"]),
-    "replace": ("c", ["s += (!C).replace(KARG)"]),
+    "replace": ("c", ["s += (!C).swap(KARG)"]),
     "get": ("c", ["s += C.get()"]),
     "push": ("v", ["!V.push(KARG)"]),
     "pop": ("v", ["s += (!V).pop() ?? -1"]),
@@ -2554,7 +2561,7 @@ def taken_program(pname, then):
         return None
     out = ["obj S\n  text: ?String\n  value: String\n", "obj H\n  s: S\n", "obj G\n  h: H\n"]
     place = pl["place"]
-    take = pl.get("take", [f"t = replace(!{place}, S(text: \"\", value: String()))"])
+    take = pl.get("take", [f"t = swap(!{place}, S(text: \"\", value: String()))"])
     body = take + [l.replace("P", place) for l in lines]
     main = ['src = String("abc")'] + pl["setup"]
     if pl.get("run"):
@@ -4081,7 +4088,10 @@ def run_one(path, keep, started_dir, expect=None, release=False):
         if release is True:
             return "fail", "rejected, but must be accepted: " + first_error(out)
         if POS.search(out):
-            return "rejected", first_error(out)
+            why = first_error(out)
+            if MALFORMED.match(why) and not KNOWN_MALFORMED.search(os.path.basename(path)[:-4].replace("__", ".")):
+                return "fail", "rejected as a malformed program, not by a rule: " + why
+            return "rejected", why
         return "fail", "rejected without file:line:col: " + first_line(out)
     key = RESULTS and RESULTS.key(path, expect, release)
     if key and RESULTS.carried(key):
