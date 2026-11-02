@@ -14,17 +14,26 @@
 # (1-2 ms on a 25 ms project) that no other arm pays.
 #
 # Output: lines "PROJECT round=R v=ARM <perf fields> rss_kb= minflt= exit=
-# same= load=", as standing-5's time.sh, and "# PROJECT: ARM's output and
-# FIRST's are the same|DIFFER". Binaries should run from tmpfs (/tmp) so
-# their text pages count the same in peak RSS.
+# huge2m= gate= thp= same= load=", as standing-5's time.sh, and
+# "# PROJECT: ARM's output and FIRST's are the same|DIFFER". huge2m is
+# the free 2 MiB blocks just before the run, counted as Rig's runtime
+# counts them; gate is 1 when that is more than 64, when a reserved
+# Table asks for huge pages; thp is the system's huge pages faulted in
+# during the run (thp_fault_alloc), the run's own unless another
+# program faults some meanwhile. The gate alone moves ts-pattern's peak
+# RSS by about 10 MiB, so the runs are also written to $W/time/runs and
+# summarized, split by gate, at the end (time-ab-sum.py, beside this
+# script). Binaries should run from tmpfs (/tmp) so their text pages
+# count the same in peak RSS.
 set -u
+HERE=$(dirname "$(readlink -f "$0")")
 CONFIG=$(readlink -f "$1")
 N=${2:-20}
 PROJS=${3:-mitt neverthrow zod3 ts-pattern superstruct tiny-invariant}
 P=/zfs/trig-pup/full/trig/misc/projects
 WARM=""
 . "$CONFIG"
-O=$W/time; mkdir -p $O
+O=$W/time; mkdir -p $O; : > $O/runs
 EV=duration_time,user_time,system_time,cpu_core/cycles/u,cpu_core/cycles/k,cpu_core/instructions/u,page-faults
 # Whether another thread runs on the timing cores (0, 5-11) or their
 # siblings: one in state R in two samples in a row, 0.2 s apart, so a
@@ -65,10 +74,23 @@ run() { # run PROJ V -> fields
   proj=$1 arm=$2; shift 2
   [ "$1" = taskset ] && [ "$2" = -c ] || { echo "# $arm: command must start with taskset -c CORES" >&2; exit 2; }
   cores=$3; shift 3
+  h=$(huge2m); t0=$(thp)
   /usr/bin/time -f "%M %e %R" -o $O/time taskset -c $cores perf stat --no-scale -x, -e $EV -o $O/perf "$@" > $O/out.$proj.$arm 2>&1 || e=$?
+  t1=$(thp)
   f=$(awk -F, '/^[0-9]/ { k=$3; sub("cpu_core/", "", k); sub("/$", "", k); printf "%s=%s ", k, $1 }' $O/perf)
   set -- $(tail -n 1 $O/time)
-  echo "${f}rss_kb=$1 minflt=$3 exit=$e"
+  g=0; [ $h -gt 64 ] && g=1
+  echo "${f}rss_kb=$1 minflt=$3 exit=$e huge2m=$h gate=$g thp=$((t1 - t0))"
+}
+# The free 2 MiB blocks now, as src/alloc.zig's freeHugeBlocks counts
+# them: orders 9 and up, a block of order 9 + k as 2^k, the DMA zone
+# left out. A reserved Table asks for huge pages when this is more than
+# huge_spare, 64.
+huge2m() {
+  awk '$4 != "DMA" { for (i = 14; i <= NF; i++) n += $i * 2 ^ (i - 14) } END { print n + 0 }' /proc/buddyinfo
+}
+thp() {
+  awk '$1 == "thp_fault_alloc" { print $2 }' /proc/vmstat
 }
 warm() {
   [ -n "$WARM" ] || return 0
@@ -94,10 +116,11 @@ for proj in $PROJS; do
     for v in $(order $r); do
       line=$(run $proj $v)
       same=1; cmp -s $O/ref.$proj.$v $O/out.$proj.$v || same=0
-      echo "$proj round=$r v=$v $line same=$same load=$(cut -d' ' -f1 /proc/loadavg)"
+      echo "$proj round=$r v=$v $line same=$same load=$(cut -d' ' -f1 /proc/loadavg)" | tee -a $O/runs
     done
     r=$((r + 1))
   done
 done
 echo "# done $(date +%T)"
+python3 "$HERE/time-ab-sum.py" $O/runs | tee $W/summary
 date +%H:%M:%S > $W/done
