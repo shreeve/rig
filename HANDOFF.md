@@ -79,14 +79,30 @@ A new session, human or agent, takes these steps in order:
 ## In flight
 
 - **Small objects of integers are one word** (beat-tsrs item 19,
-  branch `word-objects`; the owner approved it, 2026-11-02): word-sized
-  objects (`sema.wordBits`) are lent to read by value, and are held as a
-  Zig `packed struct` unless a write lend takes a field's address
-  (`storage.decideWords`). The ceiling with 7 of Trig's types made it
-  1.0 to 3.2% faster with peak RSS level (records:
-  ~/Data/Code/Claude/rig/rig/four-checkers/packed-small-objects.md,
-  packed-plan.md). Cases in test/rig/word-objects.rig.test. Next: the
-  gates and a pup slot.
+  branch `word-objects`, draft #873; the owner approved it,
+  2026-11-02).
+  - **What it does:** word-sized objects (`sema.wordBits`) are lent to
+    read by value. They are held as a Zig `packed struct` unless a write
+    lend takes a field's address (`storage.decideWords`). A 64-bit word
+    keeps four-byte alignment in fields, optionals (`rig.WordOpt`), and
+    Map keys and values; `!T` of one is `*align(4) T`, and a generic one
+    `rig.WritePtr(T)`.
+  - **Gates done:** the full suite; Trig's and loco's light gates; `zig
+    build test` on pup in all three modes; the json and hash guards;
+    emit-diff. Trig's output is identical on 7 projects, and 61 Trig types
+    are word-held.
+  - **Speed:** pup timing of the build before the alignment fix was 1.2
+    to 3.2% faster on all six projects (A/A 0.9% or less).
+  - **Memory:** peak RSS on the Mac is now level or lower. It had been
+    0.4 MiB higher on ts-pattern, from `Map[U32, MappedSymbolLinks]`
+    entries growing from 12 to 16 bytes, found with `RIG_HEAP_PROFILE`.
+    Trig's release main calls `os.exit`, which skips the profile's report;
+    build a copy without it.
+  - **Next:** pup re-timing of 84cbcca (arms in pup `/tmp/wo`, config
+    `/tmp/wo/wo.conf`; Rig - Swiss runs it), then the owner's merge.
+  - **Records:** ~/Data/Code/Claude/rig/rig/four-checkers/
+    packed-small-objects.md and packed-plan.md, and item23/ab/ for the
+    Mac measurements.
 
 - **A statement's loans end at their last use** (queue row 33D, branch
   `last-use`): CORE §6's evaluation-order paragraph replaced (plain data
