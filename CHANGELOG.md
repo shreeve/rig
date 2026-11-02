@@ -259,6 +259,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`return if c` takes block branches.** An `if` right after `return`
+  or `break`, whose line ends with a deeper line below it, opens a
+  block and is the jump's value, as `return match` is and as SPEC
+  ("Block expressions") says; it was read as a guard, and the branch
+  below it was "unexpected indentation". With no deeper line below,
+  `return if c` is still a guard.
 - **A match on an error value binds what it checked.** A read match's
   catch-all of an `error`, or of a set whose members carry fields, is a
   view of the error where it is, and a write match's a write view, so

@@ -208,9 +208,7 @@ a payload enum, and in a few cells an object holding a Cell, which must
 be rejected), and holds each to one rule: `rig check` rejects it with a
 `file:line:col` diagnostic, or it runs clean under the sanitizer. A
 rejection by the parser, or for a name the program never binds, fails
-the cell: the generator wrote a program that tests nothing, unless a
-known compiler gap in docs/internals/backlog.md rejects it so
-(`KNOWN_MALFORMED`). A slice of the
+the cell: the generator wrote a program that tests nothing. A slice of the
 value, written with no lend, stands as an argument where a `[]T` or a
 `?String` goes, also while a later argument writes what it slices; and a
 slice of an array, a List, a String, or a `?String` held owned, through a

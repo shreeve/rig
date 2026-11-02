@@ -875,6 +875,8 @@ pub const Lexer = struct {
     /// The last token is the label of a jump (`break $outer`): what
     /// follows it starts the jump's value, and ends no operand.
     after_jump_label: bool = false,
+    /// The label after the jump is `break`'s, which takes a value.
+    after_break_label: bool = false,
     /// The category of the token before the last one.
     last2_cat: TokenCat = .eof,
     /// The last token is a symbol's `:`: the word after it is the
@@ -1067,6 +1069,7 @@ pub const Lexer = struct {
         self.label_name = self.label_sigil and tok.cat == .ident;
         self.label_sigil = tok.cat == .label and !isLabelJump(self.last_cat);
         self.after_jump_label = tok.cat == .ident and self.last_cat == .label and isLabelJump(self.last2_cat);
+        self.after_break_label = self.after_jump_label and self.last2_cat == .@"break";
         self.after_value = !self.label_name and !self.after_jump_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
         self.last2_cat = self.last_cat;
         self.last_cat = tok.cat;
@@ -1521,10 +1524,11 @@ pub const Lexer = struct {
         const kw = tok.cat;
         if (kw != .@"if") return self.memberName(tok) orelse if (kw == .@"catch") self.catchCat() else kw;
         switch (self.last_cat) {
-            .@"return", .@"break", .@"continue", .pass => return .post_if,
+            .@"return", .@"break" => return if (self.blockFollows()) .@"if" else .post_if,
+            .@"continue", .pass => return .post_if,
             else => {},
         }
-        if (self.after_jump_label) return .post_if;
+        if (self.after_jump_label) return if (self.after_break_label and self.blockFollows()) .@"if" else .post_if;
         if (!self.after_value) return .@"if";
         return if (self.elseFollows()) .ternary_if else .post_if;
     }
@@ -1817,6 +1821,46 @@ pub const Lexer = struct {
                 .@"else" => if (depth == 0) return true,
                 else => {},
             }
+        }
+    }
+
+    /// The line ends, and the next line with content is indented deeper
+    /// than its statement: an `if` here opens a block, so after `return`
+    /// or `break` it is the value (`return if c` with its branches
+    /// below), not a guard (`return if c`).
+    fn blockFollows(self: *const Lexer) bool {
+        var probe = self.base;
+        var depth: u32 = 0;
+        var end: u32 = 0;
+        while (true) {
+            const t = probe.next();
+            switch (t.cat) {
+                .eof => return false,
+                .newline => if (depth == 0 and (self.nesting == 0 or self.inIsland())) {
+                    end = t.pos;
+                    break;
+                },
+                .lparen, .lbracket => depth += 1,
+                .rparen, .rbracket => {
+                    if (depth == 0) return false;
+                    depth -= 1;
+                },
+                else => {},
+            }
+        }
+        const src = self.base.source;
+        var p: usize = std.mem.findScalarPos(u8, src, end, '\n') orelse return false;
+        while (true) {
+            p += 1;
+            const line = p;
+            while (p < src.len and (src[p] == ' ' or src[p] == '\t')) p += 1;
+            if (p >= src.len) return false;
+            switch (src[p]) {
+                '\n', '\r' => {},
+                '#' => while (p < src.len and src[p] != '\n') : (p += 1) {},
+                else => return p - line > self.column,
+            }
+            while (p < src.len and src[p] != '\n') p += 1;
         }
     }
 
@@ -5027,6 +5071,12 @@ test "if: block, guard, ternary" {
     try expectCats("if c", &.{ .@"if", .ident });
     try expectCats("return if c", &.{ .@"return", .post_if, .ident });
     try expectCats("return x if c", &.{ .@"return", .ident, .post_if, .ident });
+    try expectCats("return if c\n  a\nelse\n  b", &.{ .@"return", .@"if", .ident, .indent, .ident, .outdent, .@"else", .indent, .ident, .outdent, .eof });
+    try expectCats("return if c\n\n  # a\n  a", &.{ .@"return", .@"if", .ident, .indent, .ident, .outdent, .eof });
+    try expectCats("return if c\nb", &.{ .@"return", .post_if, .ident, .newline, .ident, .eof });
+    try expectCats("break if c\n  a", &.{ .@"break", .@"if", .ident, .indent, .ident, .outdent, .eof });
+    try expectCats("break $a if c\n  a", &.{ .@"break", .label, .ident, .@"if", .ident, .indent, .ident, .outdent, .eof });
+    try expectCats("continue if c\n  a", &.{ .@"continue", .post_if, .ident, .indent, .ident, .outdent, .eof });
     try expectCats("x = a if c else b", &.{ .ident, .assign, .ident, .ternary_if, .ident, .@"else", .ident });
     try expectCats("f(a if c else b)", &.{ .ident, .lparen, .ident, .ternary_if, .ident, .@"else", .ident, .rparen });
 }

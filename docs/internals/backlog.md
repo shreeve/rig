@@ -300,15 +300,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   whether a write view of an array lends its elements to read, as `?a`
   does, and otherwise name the form to write in the message (`?k` or
   `?k[..]`). Found with queue row 29 (2026-10-31).
-- **`return if c` with block branches does not parse.** SPEC ("Block
-  expressions") makes an `if` a value as "a `return` value", and `return
-  match` works, but `return if c` followed by an indented branch is
-  "unexpected indentation"; it may clash with the trailing `return x if
-  c`. Decide which SPEC means: parse it, or say that a returned `if` is
-  the inline ternary or a binding. The matrix's `*.return.if_as` and
-  `*.tail_{if,nested}_result_*.call` cells wait on it
-  (`KNOWN_MALFORMED` in test/matrix.py). Found with queue row 56
-  (2026-11-02).
 
 Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before

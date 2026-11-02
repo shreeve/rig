@@ -5678,7 +5678,9 @@ function's last expression, a binding's value, or a `return` value.
 Every branch must then produce a value of one type (a branch may also
 leave with `return`), so an `if` needs an `else` and a `match` must
 cover every value. The inline ternary `a if c else b` is the one-line
-form.
+form. Right after `return` or `break`, an `if` whose branches follow
+on deeper lines is the jump's value; with none below, `return if c`
+is a guard.
 
 ```rig
 fun classify(x: Int) -> ?String
