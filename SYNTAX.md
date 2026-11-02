@@ -1247,13 +1247,26 @@ sub main()
 -1
 ```
 
-`return if c` and `break if c` are guards when nothing deeper follows
-them. With deeper lines below, the `if` opens a block, as it does on any
-other line, and its value is the jump's value, as `return match` is:
+A guard takes no block: `return if c` is always a guard, and a deeper
+line after it is rejected. A function's value is its last expression, so
+an `if` there needs no `return`; inside a loop, put `return` in each
+branch.
+
+```rig reject
+fun sign(x: Int) -> ?String
+  return if x > 0
+    "positive"
+  else
+    "zero"
+```
+
+```error
+a guard `if` ends its statement and takes no block; put `return` in each branch, or leave it out where the `if` is the function's last expression
+```
 
 ```rig
 fun sign(x: Int) -> ?String
-  return if x > 0
+  if x > 0
     "positive"
   else if x < 0
     "negative"

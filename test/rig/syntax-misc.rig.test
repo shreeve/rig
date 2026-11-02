@@ -4318,71 +4318,52 @@ test "reserved words as member names", '''
   e = Ev.at(when: 5, async: false)
   print(e)
 
-test "return if block", '''
-  positive negative zero
-  clamped
-  5 2
-  30 -1 3
-  30 0
-  0 7 -2
-'''
-  # Right after `return` or `break`, an `if` with deeper lines below
-  # opens a block and is the jump's value; a branch may print first, or
-  # leave with `continue`. With nothing deeper below, `return if c` is a
-  # guard.
+test "if as a function's value", "positive negative zero"
+  # A function's value is its last expression, so an `if` there needs
+  # no `return`.
 
   fun sign(x: Int) -> ?String
-    return if x > 0
+    if x > 0
       "positive"
     else if x < 0
       "negative"
     else
       "zero"
 
-  fun clamp(x: Int, hi: Int) -> Int
-    return if x > hi
-      print("clamped")
-      hi
-    else
-      x
-
-  fun first_big(xs: []Int) -> Int
-    n = 0
-    for x in xs
-      return x if x > 10
-      return if x < 0
-
-        # a blank line and a comment before the branch
-        -1
-      else
-        n += x
-        continue
-    n
-
-  fun found(xs: []Int) -> Int
-    i = 0
-    r = while i < xs.len : i += 1
-      break if xs[i] > 2
-        xs[i] * 10
-      else
-        continue
-    else
-      0
-    r
-
-  fun guard(x: Int) -> Int
-    return 0 if x < 0
-    return if x > 5
-      x
-    else
-      -x
-
   sub main()
     print(sign(3), sign(-2), sign(0))
-    print(clamp(9, 5), clamp(2, 5))
-    print(first_big([1, 2, 30]), first_big([1, -2]), first_big([1, 2]))
-    print(found([1, 2, 3]), found([1]))
-    print(guard(-1), guard(7), guard(2))
+
+fail "return if with a block", "a guard `if` ends its statement and takes no block; put `return` in each branch, or leave it out where the `if` is the function's last expression"
+  # A guard ends its statement: `return if c` takes no branches below.
+
+  fun sign(x: Int) -> ?String
+    return if x > 0
+      "positive"
+    else
+      "zero"
+
+  sub main()
+    print(sign(3))
+
+fail "break if with a block", "a guard `if` ends its statement and takes no block; put `break` in each branch"
+  for x in [1, 2]
+    break if x > 1
+      print(x)
+
+fail "labelled break if with a block", "a guard `if` ends its statement and takes no block; put `break` in each branch"
+  $a: for x in [1, 2]
+    break $a if x > 1
+      print(x)
+
+fail "continue if with a block", "a guard `if` ends its statement and takes no block; write the `if` first, with the statement in its block"
+  for x in [1, 2]
+    continue if x > 1
+      print(x)
+
+fail "assignment guard with a block", "a guard `if` ends its statement and takes no block; write the `if` first, with the statement in its block"
+  x = 1
+  x = 3 if x > 0
+    print(x)
 
 test "return if guard", "-1"
   # `return if c` with nothing deeper below is a guard.
@@ -4394,6 +4375,18 @@ test "return if guard", "-1"
   sub main()
     f(1)
     f(-1)
+
+test "guard condition on a deeper line", "2"
+  # A deeper `.` line continues a guard's condition; it opens no block.
+
+  sub f(xs: []Int)
+    return if xs
+      .len < 2
+    print(xs.len)
+
+  sub main()
+    f([1])
+    f([1, 2])
 
 test "results as", '''
   key value

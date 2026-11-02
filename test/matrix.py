@@ -3300,7 +3300,10 @@ def program(tname, fname, cname):
         body.append("k = +a")
         form = "?k"
     if isinstance(form, list):
-        head = ctx["block"].replace("E", form[0])
+        # A guard takes no block: a returned `if` is the function's last
+        # expression, not `return`'s operand.
+        block = "E" if returns and form[0].startswith("if ") else ctx["block"]
+        head = block.replace("E", form[0])
         body.append(head)
         body += form[1:]
     else:
