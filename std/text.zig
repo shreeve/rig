@@ -42,14 +42,15 @@ pub fn count(s: []const u8, pat: []const u8) i64 {
 // A needle of one byte, the most common, is searched for in the first
 // 4 KiB of `h` by Zig's `std.mem.findScalar`, inline where `find` is
 // called, so a search for a constant byte that is near costs no call and
-// is what Zig makes of it; past 4 KiB, `byteRest` tests 64 bytes a step,
-// asking only whether any of them is the byte (`rig.maskAny`).
+// is what Zig makes of it; past 4 KiB, on aarch64, `byteRest` tests 64
+// bytes a step, asking only whether any of them is the byte
+// (`rig.maskAny`), and elsewhere `findScalar` goes on.
 //
 // A longer needle is searched out of line. A place a match may start at
 // is a candidate when two bytes of the needle match there, the bytes at
 // its indexes `a` and `b`: two compares of 16 bytes, read at `i + a` and
 // `i + b`, give the candidates among the places `i` to `i + 15`, and each
-// candidate is confirmed by comparing the whole needle. `near` tests the
+// candidate is confirmed by comparing the whole needle. `many` tests the
 // first 256 places 32 at a time; `far` tests the rest 64 at a time, out
 // of line, so a match near the start pays for none of its frame. Each
 // asks first whether any place of the step is a candidate, and ends by
@@ -78,20 +79,40 @@ inline fn lowest(i: usize, c: Lanes) usize {
 /// Inline where `find` and `count` call it.
 inline fn search(h: []const u8, n: []const u8) ?usize {
     if (n.len == 1) {
+        if (!steps_of_64) return std.mem.findScalar(u8, h, n[0]);
         const first = @min(h.len, near_bytes);
         if (std.mem.findScalar(u8, h[0..first], n[0])) |at| return at;
         if (first == h.len) return null;
-        return byteRest(h, n[0], first);
+        return found(byteRest(h, n[0], first));
     }
-    return searchMany(h, n);
+    return found(searchMany(h, n));
 }
+
+/// Whether a needle of one byte is searched 64 bytes a step past
+/// `near_bytes`: on aarch64, where it is faster than `std.mem.findScalar`;
+/// on x86-64 `findScalar` is as fast, and searches the whole text.
+const steps_of_64 = @import("builtin").cpu.arch == .aarch64;
 
 /// The bytes `std.mem.findScalar` searches for a needle of one byte
 /// before `byteRest` does.
 const near_bytes = 4096;
 
+/// What a search out of line returns for no match. Those functions
+/// return a plain index, in a register: an optional comes back through
+/// memory, written a field at a time and read whole, which on x86-64
+/// waits for the stores (a failed store forward) on every match.
+const missing = std.math.maxInt(usize);
+
+inline fn found(at: usize) ?usize {
+    return if (at == missing) null else at;
+}
+
+noinline fn byteRest(h: []const u8, b: u8, start: usize) usize {
+    return byteFrom(h, b, start) orelse missing;
+}
+
 /// The first `b` in `h` from `start`, at least 16 bytes before its end.
-noinline fn byteRest(h: []const u8, b: u8, start: usize) ?usize {
+inline fn byteFrom(h: []const u8, b: u8, start: usize) ?usize {
     const x: Block = @splat(b);
     var i = start;
     while (i + 64 <= h.len) : (i += 64) {
@@ -117,8 +138,12 @@ noinline fn byteRest(h: []const u8, b: u8, start: usize) ?usize {
     return lowest(i, c);
 }
 
+noinline fn searchMany(h: []const u8, n: []const u8) usize {
+    return many(h, n) orelse missing;
+}
+
 /// A needle of two bytes or more.
-noinline fn searchMany(h: []const u8, n: []const u8) ?usize {
+inline fn many(h: []const u8, n: []const u8) ?usize {
     if (n.len > h.len) return null;
     if (n.len == 0) return 0;
     if (h.len < 16) return short(h, n);
@@ -134,7 +159,7 @@ noinline fn searchMany(h: []const u8, n: []const u8) ?usize {
             if (confirm(h, n, i + 16, rig.maskTrueLanes(Lanes, c1))) |at| return at;
         }
     }
-    if (i + 32 <= places) return far(h, n, i);
+    if (i + 32 <= places) return found(far(h, n, i));
     if (i + 16 <= places) {
         if (confirm(h, n, i, rig.maskTrueLanes(Lanes, candidates(h, i, p)))) |at| return at;
         i += 16;
@@ -149,8 +174,12 @@ const near_places = 256;
 /// bytes worth its cost.
 const rare_from = 1 << 16;
 
+noinline fn far(h: []const u8, n: []const u8, start: usize) usize {
+    return farFrom(h, n, start) orelse missing;
+}
+
 /// The places from `start` on, 64 at a time.
-noinline fn far(h: []const u8, n: []const u8, start: usize) ?usize {
+inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
     const places = h.len - n.len + 1;
     const p = if (places - start >= rare_from) rarest(n) else pairAt(n, 0, n.len - 1);
     var i = start;

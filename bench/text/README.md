@@ -64,6 +64,27 @@ guard's `line` row runs the same 48.80 instructions per search on both;
 the early hits of one byte time faster here only because that code is
 now inlined into the timing loop, where searches overlap.
 
+x86-64 (pup, Core Ultra 9 185H, E-core 13, fastest of 5 runs in turns;
+its lib.dom.d.ts is 2,349,483 bytes), the same cases, nanoseconds:
+
+| text | needle | case | `std.mem.find` | this | change |
+|---|---:|---|---:|---:|---|
+| 2.3 MB | 1 B | miss | 56510.7 | 52112.0 | 8.4% faster |
+| 2.3 MB | 3 B | miss | 4726779.4 | 155513.9 | 2939.5% faster |
+| 2.3 MB | 12 B | miss | 846732.8 | 155429.3 | 444.8% faster |
+| 2.3 MB | 40 B | miss | 336961.6 | 152495.4 | 121.0% faster |
+| 2.3 MB | 12 B | late | 27971.1 | 5556.8 | 403.4% faster |
+| 16 B | 3 B | early | 6.3 | 4.5 | 41.1% faster |
+| 16 B | 12 B | early | 8.2 | 4.8 | 72.2% faster |
+| 8 B | 3 B | early | 5.0 | 3.4 | 46.2% faster |
+
+No case of the 72 is slower there either. On x86-64 a needle of one
+byte is `findScalar` over the whole text, which a step of 64 bytes did
+not beat, and the searches out of line return a plain index: an
+optional came back through memory, its fields written apart and read
+whole, which stalled every match on a failed store forward (a 3-byte
+needle in 16 bytes had been 54% slower).
+
 The search was first written in plain Zig 0.17 and timed against
 `std.mem.find` (ReleaseSafe, the same cases): a miss of 3, 12, and 40
 bytes over lib.dom.d.ts took 76 to 77 µs against 2.8 ms, 664 µs, and

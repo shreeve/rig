@@ -272,8 +272,8 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   two rarest over a text of 64 KiB or more, and confirming each
   candidate; Zig's `std.mem.find`, which it replaces, tested one place
   at a time. A needle of one byte keeps Zig's `findScalar` for a text's
-  first 4 KiB and steps 64 bytes past it. On the Mac, over lib.dom.d.ts
-  (2.4 MB), a miss of a 3-byte needle takes 72 µs where it took 2.98 ms,
+  first 4 KiB and, on aarch64, steps 64 bytes past it. On the Mac, over
+  lib.dom.d.ts (2.4 MB), a miss of a 3-byte needle takes 72 µs where it took 2.98 ms,
   of a 12-byte one 71 µs where it took 711 µs, of a 40-byte one 73 µs
   where it took 303 µs, and of one byte 30 µs where it took 50 µs (66%
   faster); no search of 8 bytes to 4 KiB is slower. `bench/text/guard.py`
