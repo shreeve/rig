@@ -38,6 +38,17 @@ Two waits in step 1 cost time for nothing. Both were fixed in the evening of 202
 - **The suite check** matched `tools/full-main` anywhere on a command line. So another session's loop that waited for the suite looked like the suite, and every round waited 60 s while no suite ran. The check now asks `fuser` whether any process holds full-main's lock file open (`/zfs/trig-pup/full/lock`). full-main takes that lock with `flock` on fd 9, and every job it starts inherits the descriptor. `fuser` only looks, so a cron run starting at that moment still gets its lock.
 - **The core check** waited 20 s whenever one sample of five saw a thread in state R on a timing core, however short its run. It now waits only when two samples in a row, 0.2 s apart, see one. A stopped process (state T, such as a build paused for a slot) never counted.
 
+## Huge pages in each run
+
+Whether a run's reserved Tables take huge pages depends on the memory free when it starts: a Table asks only when Linux has more than 64 free 2 MiB blocks (`huge_spare` in `src/alloc.zig`). On pup that count often sits near 64, so runs of one binary fall on both sides. The gate alone moves ts-pattern's peak RSS by about 10.7 MiB (4.7%), more than most memory changes measured against it.
+
+So each run line also gives:
+- `huge2m`: the free 2 MiB blocks just before the run, counted as the runtime counts them (orders 9 and up, a block of order 9 + k as 2^k, the DMA zone left out);
+- `gate`: 1 when that is more than 64;
+- `thp`: the huge pages faulted in during the run (`thp_fault_alloc` in /proc/vmstat), system-wide, so another program's faults meanwhile count too.
+
+The runs also go to `$W/time/runs`. At the end, [time-ab-sum.py](data/harness/time-ab-sum.py) prints the median wall time, user cycles, user instructions and peak RSS for each project, arm and gate, and writes them to `$W/summary`. A peak-RSS change is read within one gate, never across the two. The script also reads older logs, which lack the gate fields, under gate "?".
+
 ## The A/A test
 
 Standing-6's Trig (`s`) and two byte-identical copies (`c`, `d`), at one checker and at four, six projects, 20 rounds, from tmpfs. That's 720 runs, all with the same output ([aa-times.txt](data/harness/aa-times.txt), [aa-summary.md](data/harness/aa-summary.md)).
