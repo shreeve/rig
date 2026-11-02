@@ -33,6 +33,11 @@ The copy (`c`) against the original (`s`), wall median ([rotated-aa.md](data/har
 
 Each arm follows each other arm, and the warm-up, about equally often. It is installed on pup as `/zfs/trig-pup/trial/time-ab.sh`, beside `time-ab.example.conf`.
 
+Two waits in step 1 cost time for nothing. Both were fixed in the evening of 2026-11-01:
+
+- **The suite check** matched `tools/full-main` anywhere on a command line. So another session's loop that waited for the suite looked like the suite, and every round waited 60 s while no suite ran. The check now asks `fuser` whether any process holds full-main's lock file open (`/zfs/trig-pup/full/lock`). full-main takes that lock with `flock` on fd 9, and every job it starts inherits the descriptor. `fuser` only looks, so a cron run starting at that moment still gets its lock.
+- **The core check** waited 20 s whenever one sample of five saw a thread in state R on a timing core, however short its run. It now waits only when two samples in a row, 0.2 s apart, see one. A stopped process (state T, such as a build paused for a slot) never counted.
+
 ## The A/A test
 
 Standing-6's Trig (`s`) and two byte-identical copies (`c`, `d`), at one checker and at four, six projects, 20 rounds, from tmpfs. That's 720 runs, all with the same output ([aa-times.txt](data/harness/aa-times.txt), [aa-summary.md](data/harness/aa-summary.md)).

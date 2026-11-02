@@ -26,16 +26,30 @@ WARM=""
 . "$CONFIG"
 O=$W/time; mkdir -p $O
 EV=duration_time,user_time,system_time,cpu_core/cycles/u,cpu_core/cycles/k,cpu_core/instructions/u,page-faults
-# Whether another thread runs on the timing cores (0, 5-11) or their siblings.
+# Whether another thread runs on the timing cores (0, 5-11) or their
+# siblings: one in state R in two samples in a row, 0.2 s apart, so a
+# short command another session runs there does not cost a 20 s wait.
+running() {
+  ps -eLo psr=,stat=,comm= | awk '($1==0||$1==5||$1==6||$1==7||$1==8||$1==9||$1==10||$1==11) && $2 ~ /^R/ && $3 != "ps" && $3 != "awk" { f=1 } END { exit !f }'
+}
 busy() {
-  for _ in 1 2 3 4 5; do
-    ps -eLo psr=,stat=,comm= | awk '($1==0||$1==5||$1==6||$1==7||$1==8||$1==9||$1==10||$1==11) && $2 ~ /^R/ && $3 != "ps" && $3 != "awk" { f=1 } END { exit !f }' && return 0
+  last=1
+  for _ in 1 2 3 4 5 6; do
+    if running; then [ $last = 0 ] && return 0; last=0; else last=1; fi
     sleep 0.2
   done
   return 1
 }
+# Whether Trig's full suite runs: full-main holds its lock file open
+# (flock on fd 9, inherited by every job it starts). fuser only looks,
+# so a cron run starting now never finds the lock taken. A match on the
+# command line would also match another session's loop that waits for
+# the suite.
+suite() {
+  fuser /zfs/trig-pup/full/lock > /dev/null 2>&1
+}
 quiet() {
-  while pgrep -f "tools/full-main" > /dev/null; do echo "# $(date +%T) waiting: Trig's full suite"; sleep 60; done
+  while suite; do echo "# $(date +%T) waiting: Trig's full suite"; sleep 60; done
   while busy; do echo "# $(date +%T) waiting: a process runs on the timing cores"; sleep 20; done
 }
 # Run PROJ's arm V once, under perf stat, and print its fields. An arm's
