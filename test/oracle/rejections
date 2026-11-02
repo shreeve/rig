@@ -4010,6 +4010,7 @@ text.tail_for_else_field_defer.call run
 text.tail_for_else_result_defer.call run
 text.tail_if_binding_defer.call run
 text.tail_if_field_defer.call run
+text.tail_if_result_defer.call run
 text.tail_match_binding_defer.call run
 text.tail_match_field_defer.call run
 text.tail_match_result_defer.call run

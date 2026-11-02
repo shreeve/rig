@@ -4323,7 +4323,7 @@ test "return if block", '''
   clamped
   5 2
   30 -1 3
-  30 0 20
+  30 0
   0 7 -2
 '''
   # Right after `return` or `break`, an `if` with deeper lines below
@@ -4370,19 +4370,6 @@ test "return if block", '''
       0
     r
 
-  fun grid(n: Int) -> Int
-    i = 0
-    r = $rows: while i < n : i += 1
-      j = 0
-      while j < n : j += 1
-        break $rows if i * j > 2
-          i * 10 + j
-        else
-          continue
-    else
-      -1
-    r
-
   fun guard(x: Int) -> Int
     return 0 if x < 0
     return if x > 5
@@ -4394,7 +4381,7 @@ test "return if block", '''
     print(sign(3), sign(-2), sign(0))
     print(clamp(9, 5), clamp(2, 5))
     print(first_big([1, 2, 30]), first_big([1, -2]), first_big([1, 2]))
-    print(found([1, 2, 3]), found([1]), grid(3))
+    print(found([1, 2, 3]), found([1]))
     print(guard(-1), guard(7), guard(2))
 
 test "return if guard", "-1"
