@@ -1,0 +1,68 @@
+mitt trig1 same as tsc
+mitt trig4 same as tsc
+mitt aa1 same as tsc
+mitt aa4 same as tsc
+mitt nolib1 same as tsc
+mitt nolib4 same as tsc
+mitt tsrs1 same as tsc
+mitt tsrs4 same as tsc
+mitt tsrsg1 same as tsc
+mitt tsrsg4 same as tsc
+mitt tsc exit=2, 43 lines with the exit line
+neverthrow trig1 same as tsc
+neverthrow trig4 same as tsc
+neverthrow aa1 same as tsc
+neverthrow aa4 same as tsc
+neverthrow nolib1 same as tsc
+neverthrow nolib4 same as tsc
+neverthrow tsrs1 same as tsc
+neverthrow tsrs4 same as tsc
+neverthrow tsrsg1 same as tsc
+neverthrow tsrsg4 same as tsc
+neverthrow tsc exit=2, 11 lines with the exit line
+superstruct trig1 same as tsc
+superstruct trig4 same as tsc
+superstruct aa1 same as tsc
+superstruct aa4 same as tsc
+superstruct nolib1 same as tsc
+superstruct nolib4 same as tsc
+superstruct tsrs1 same as tsc
+superstruct tsrs4 same as tsc
+superstruct tsrsg1 same as tsc
+superstruct tsrsg4 same as tsc
+superstruct tsc exit=2, 18 lines with the exit line
+ts-pattern trig1 same as tsc
+ts-pattern trig4 same as tsc
+ts-pattern aa1 same as tsc
+ts-pattern aa4 same as tsc
+ts-pattern nolib1 same as tsc
+ts-pattern nolib4 same as tsc
+ts-pattern tsrs1 same as tsc
+ts-pattern tsrs4 same as tsc
+ts-pattern tsrsg1 same as tsc
+ts-pattern tsrsg4 same as tsc
+ts-pattern tsc exit=2, 1052 lines with the exit line
+zod3 trig1 same as tsc
+zod3 trig4 same as tsc
+zod3 aa1 same as tsc
+zod3 aa4 same as tsc
+zod3 nolib1 same as tsc
+zod3 nolib4 same as tsc
+zod3 tsrs1 same as tsc
+zod3 tsrs4 same as tsc
+zod3 tsrsg1 same as tsc
+zod3 tsrsg4 same as tsc
+zod3 tsc exit=2, 20 lines with the exit line
+tiny-invariant trig1 same as tsc
+tiny-invariant trig4 same as tsc
+tiny-invariant aa1 same as tsc
+tiny-invariant aa4 same as tsc
+tiny-invariant nolib1 same as tsc
+tiny-invariant nolib4 same as tsc
+tiny-invariant tsrs1 same as tsc
+tiny-invariant tsrs4 same as tsc
+tiny-invariant tsrsg1 same as tsc
+tiny-invariant tsrsg4 same as tsc
+tiny-invariant tsc exit=2, 29 lines with the exit line
+d0bd720c20e9900764811bb0f36e46d2d56916d3048e768053919d40db02a194  /tmp/s7/tsrs/tsrs
+Version 7.1.0-dev.20260930.4 (tsrs 0.18.0-ts7.1.0-dev.20260929, microsoft/TypeScript@b85298b6a81f)

@@ -1,0 +1,32 @@
+| project | arm | gate | runs | wall ms | cycles/u M | instr/u M | rss MiB | free 2M | thp |
+|---|---|---|---|---|---|---|---|---|---|
+| mitt | aa1 | shut | 60 | 17.47 | 53.46 | 151.14 | 32.39 | 25 | 3 |
+| mitt | aa4 | shut | 60 | 20.37 | 67.95 | 173.37 | 38.49 | 26 | 2 |
+| mitt | nolib1 | shut | 60 | 17.43 | 53.84 | 151.09 | 32.24 | 26 | 3 |
+| mitt | nolib4 | shut | 60 | 20.36 | 68.02 | 173.25 | 38.81 | 24 | 2 |
+| mitt | trig1 | shut | 60 | 17.37 | 53.59 | 151.14 | 32.39 | 25 | 3 |
+| mitt | trig4 | shut | 60 | 20.12 | 67.42 | 173.33 | 38.80 | 26 | 2 |
+| mitt | tsrs1 | shut | 60 | 14.68 | 46.32 | 122.53 | 20.16 | 25 | 2 |
+| mitt | tsrs4 | shut | 60 | 18.83 | 77.71 | 185.94 | 31.63 | 25 | 5 |
+| mitt | tsrsg1 | shut | 60 | 14.53 | 46.31 | 122.76 | 20.71 | 24 | 2 |
+| mitt | tsrsg4 | shut | 60 | 18.65 | 77.04 | 186.05 | 31.15 | 25 | 5 |
+| neverthrow | aa1 | shut | 60 | 19.58 | 63.74 | 163.63 | 32.86 | 26 | 3 |
+| neverthrow | aa4 | shut | 60 | 21.54 | 85.76 | 204.15 | 38.42 | 25 | 2 |
+| neverthrow | nolib1 | shut | 60 | 19.70 | 63.84 | 163.56 | 32.52 | 26 | 3 |
+| neverthrow | nolib4 | shut | 60 | 21.56 | 86.29 | 204.07 | 38.27 | 26 | 2 |
+| neverthrow | trig1 | shut | 60 | 19.69 | 63.68 | 163.63 | 32.86 | 26 | 3 |
+| neverthrow | trig4 | shut | 60 | 21.60 | 85.51 | 204.15 | 38.68 | 26 | 2 |
+| neverthrow | tsrs1 | shut | 60 | 15.81 | 52.60 | 127.49 | 20.52 | 25 | 2 |
+| neverthrow | tsrs4 | shut | 60 | 19.34 | 90.49 | 206.32 | 32.12 | 25 | 5 |
+| neverthrow | tsrsg1 | shut | 60 | 15.68 | 52.49 | 129.73 | 20.82 | 26 | 2 |
+| neverthrow | tsrsg4 | shut | 60 | 19.53 | 90.13 | 208.59 | 32.12 | 27 | 5 |
+| superstruct | aa1 | shut | 60 | 26.21 | 100.58 | 230.55 | 24.25 | 27 | 4 |
+| superstruct | aa4 | shut | 60 | 17.79 | 136.69 | 274.43 | 30.84 | 28 | 2 |
+| superstruct | nolib1 | shut | 60 | 25.56 | 98.40 | 225.36 | 24.03 | 27 | 4 |
+| superstruct | nolib4 | shut | 60 | 17.87 | 132.38 | 268.51 | 30.20 | 26 | 2 |
+| superstruct | trig1 | shut | 60 | 26.26 | 100.51 | 230.55 | 24.25 | 27 | 4 |
+| superstruct | trig4 | shut | 60 | 17.52 | 133.19 | 274.44 | 30.53 | 27 | 2 |
+| superstruct | tsrs1 | shut | 60 | 19.11 | 68.87 | 150.93 | 21.88 | 26 | 3 |
+| superstruct | tsrs4 | shut | 60 | 15.43 | 94.54 | 175.10 | 30.28 | 26 | 4 |
+| superstruct | tsrsg1 | shut | 60 | 19.01 | 68.51 | 154.00 | 22.14 | 27 | 3 |
+| superstruct | tsrsg4 | shut | 60 | 15.10 | 96.17 | 184.62 | 30.14 | 27 | 4 |
