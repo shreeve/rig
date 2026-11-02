@@ -1,0 +1,37 @@
+Subject: [PATCH] sched: a spawned task whose spawner goes on running wakes a
+ worker (experiment)
+
+---
+ src/sched.zig | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/src/sched.zig b/src/sched.zig
+index 51d993163..54ac83c16 100644
+--- a/src/sched.zig
++++ b/src/sched.zig
+@@ -3023,10 +3023,21 @@ pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args:
+     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
+     if (@hasDecl(Extra, "made")) full.extra.made();
+     if (local) full.job.header.fiber.home = pinHere();
+-    wake(&full.job.header.fiber);
++    wakeSpawned(&full.job.header.fiber);
+     return .{ .job = &full.job, .extra = &full.extra };
+ }
+ 
++/// EXPERIMENT (sched-wake): a spawned fiber whose spawner goes on
++/// running goes to the ring, and a worker asleep is woken for it, or the
++/// busy workers' yield checks are told it waits (`notifyNew`).
++fn wakeSpawned(f: *Fiber) void {
++    if (deterministic.* or f.home != null) return wake(f);
++    const w = me() orelse return wake(f);
++    if (w.current == null or w.servicing) return wake(f);
++    w.ring.push(f);
++    notifyNew();
++}
++
+ /// Start `f(args...)` as a fiber no one waits for: its record frees
+ /// itself once the fiber has ended (an actor's runner, `tasks.Actor`).
+ pub fn spawnDetached(comptime f: anytype, args: anytype) void {
+-- 
+2.55.0
+
