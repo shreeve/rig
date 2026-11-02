@@ -64,19 +64,20 @@ guard's `line` row runs the same 48.80 instructions per search on both;
 the early hits of one byte time faster here only because that code is
 now inlined into the timing loop, where searches overlap.
 
-x86-64 (pup, Core Ultra 9 185H, E-core 13, fastest of 5 runs in turns;
-its lib.dom.d.ts is 2,349,483 bytes), the same cases, nanoseconds:
+x86-64 (pup, Core Ultra 9 185H, P-core 6 with its sibling idle, fastest
+of 9 runs in turns; its lib.dom.d.ts is 2,349,483 bytes), the same
+cases, nanoseconds:
 
 | text | needle | case | `std.mem.find` | this | change |
 |---|---:|---|---:|---:|---|
-| 2.3 MB | 1 B | miss | 56510.7 | 52112.0 | 8.4% faster |
-| 2.3 MB | 3 B | miss | 4726779.4 | 155513.9 | 2939.5% faster |
-| 2.3 MB | 12 B | miss | 846732.8 | 155429.3 | 444.8% faster |
-| 2.3 MB | 40 B | miss | 336961.6 | 152495.4 | 121.0% faster |
-| 2.3 MB | 12 B | late | 27971.1 | 5556.8 | 403.4% faster |
-| 16 B | 3 B | early | 6.3 | 4.5 | 41.1% faster |
-| 16 B | 12 B | early | 8.2 | 4.8 | 72.2% faster |
-| 8 B | 3 B | early | 5.0 | 3.4 | 46.2% faster |
+| 2.3 MB | 1 B | miss | 39662.2 | 35534.8 | 11.6% faster |
+| 2.3 MB | 3 B | miss | 2774208.9 | 100950.0 | 2648.1% faster |
+| 2.3 MB | 12 B | miss | 731949.4 | 101518.5 | 621.0% faster |
+| 2.3 MB | 40 B | miss | 349438.9 | 101977.1 | 242.7% faster |
+| 2.3 MB | 12 B | late | 24131.0 | 3571.5 | 575.7% faster |
+| 16 B | 3 B | early | 4.2 | 2.3 | 84.2% faster |
+| 16 B | 12 B | early | 5.1 | 2.5 | 101.2% faster |
+| 8 B | 3 B | early | 2.9 | 1.8 | 63.1% faster |
 
 No case of the 72 is slower there either. On x86-64 a needle of one
 byte is `findScalar` over the whole text, which a step of 64 bytes did
