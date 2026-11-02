@@ -265,6 +265,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   ("Block expressions") says; it was read as a guard, and the branch
   below it was "unexpected indentation". With no deeper line below,
   `return if c` is still a guard.
+- **`text.find` searches 16 places at once.** std.text's `find`, and
+  `count`, `contains`, `cut`, `split`, and `lines` through it, test 16
+  places a match may start at with two compares of 16 bytes, at the
+  needle's first and last bytes near the start of a text and at its two
+  rarest bytes over a text of 64 KiB or more, and confirm each
+  candidate; Zig's `std.mem.find`, which it replaces, tested one place
+  at a time. On the Mac a miss of a 3 to 40-byte needle over
+  lib.dom.d.ts (2.4 MB) takes 76 to 77 µs, where it took 0.30 to 2.8 ms
+  (4 to 37 times as fast), a 1-byte miss 72% faster, and no search of
+  8 to 64 bytes is slower. `bench/text/guard.py` holds each search's
+  instructions to its baseline.
 - **A match on an error value binds what it checked.** A read match's
   catch-all of an `error`, or of a set whose members carry fields, is a
   view of the error where it is, and a write match's a write view, so

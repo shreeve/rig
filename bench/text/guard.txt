@@ -1,0 +1,10 @@
+# instructions retired per search, rig build --release; bench/text/guard.py --update writes it
+short 141.02
+line 107.59
+medium-miss 5675.69
+long-1-miss 508023.51
+long-3-miss 1393002.60
+long-12-miss 1737368.06
+long-40-miss 1393465.38
+long-hit 1394914.81
+count 2457134.84
