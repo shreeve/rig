@@ -695,18 +695,28 @@ pub const Emitter = struct {
     /// A module-level constant, `name = value`. A vector is a Zig `var`,
     /// never written: Zig knows no vector when it compiles
     /// (`writeVectorOpen`), and LLVM still folds the never-written value.
+    /// Its value is also the constant `__rig_init_<name>`, which a field's
+    /// default reads (`emitDefault`), since Zig must know a default when
+    /// it compiles.
     fn emitConst(self: *Emitter, node: Sexp) Error!void {
         const target = ir.Set.target(node);
         const ty = self.typeOf(target) orelse return self.unsupported(node, "an untyped constant");
         const vector = self.facts.types.get(ty) == .simd;
-        try self.w.print("pub {s} {f}: ", .{ if (vector) "var" else "const", ident(self.srcText(target)) });
+        const name = self.srcText(target);
+        if (vector) try self.w.print("pub const __rig_init_{s}: ", .{name}) else try self.w.print("pub const {f}: ", .{ident(name)});
         try self.emitTypeTy(ty);
         try self.w.writeAll(" = ");
-        const saved = self.keep_comptime;
-        defer self.keep_comptime = saved;
-        self.keep_comptime = true;
-        try self.emitBare(ir.Set.value(node));
+        {
+            const saved = self.keep_comptime;
+            defer self.keep_comptime = saved;
+            self.keep_comptime = true;
+            try self.emitBare(ir.Set.value(node));
+        }
         try self.w.writeAll(";\n");
+        if (!vector) return;
+        try self.w.print("pub var {f}: ", .{ident(name)});
+        try self.emitTypeTy(ty);
+        try self.w.print(" = __rig_init_{s};\n", .{name});
     }
 
     /// A `use` imports the module's emitted file under a name of the
@@ -1756,7 +1766,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(f.ty);
             if (f.default) |d| {
                 try self.w.writeAll(" = ");
-                try self.emitDefault(self.facts, d, f.ty);
+                try self.emitDefault(self.facts, d, f.ty, true);
             }
             try self.w.writeAll(",\n");
         }
@@ -4610,7 +4620,7 @@ pub const Emitter = struct {
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 if (err_value and info.mode != .consume) {
                     // The whole error, read where it is.
-                    if (named) prelude.aliases = try self.wholeAlias(pattern, place, body);
+                    if (named) prelude.aliases = try self.wholeBinding(pattern, place, info, body);
                 } else switch (info.mode) {
                     .read => if (named) try self.emitCapture(pattern),
                     .write => if (named) {
@@ -4963,6 +4973,27 @@ pub const Emitter = struct {
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
     }
 
+    /// The binding `g` of `g: E` (used in `used_in`) in an arm whose test
+    /// checked that the subject `subj` is an `E`: the error itself where
+    /// `E` carries fields, which every set's value is laid out as, and
+    /// otherwise the subject's code as an `E`.
+    fn setBinding(self: *Emitter, pattern: Sexp, info: MatchInfo, subj: []const u8, used_in: Sexp) Error![]const Alias {
+        const name = ir.SetPattern.name(pattern);
+        const set = self.typeOf(pattern) orelse return &.{};
+        const err_value = self.matchesErrorValue(info);
+        if (err_value and self.isErrorValueTy(self.peelViews(set))) return self.wholeAlias(name, subj, used_in);
+        var buf: Writer.Allocating = .init(self.arena.allocator());
+        {
+            const saved_w = self.w;
+            self.w = &buf.writer;
+            defer self.w = saved_w;
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(set);
+            try self.w.print(", @errorCast({s}{s}))", .{ subj, if (err_value) ".code" else "" });
+        }
+        return self.wholeAlias(name, buf.written(), used_in);
+    }
+
     /// The prelude of a `match <x` arm on payload variant `fields`, held
     /// in `payload`: bound fields become owned locals, and the rest is
     /// dropped at the end of the arm.
@@ -5114,21 +5145,9 @@ pub const Emitter = struct {
         // `g: E if ... =>`: `g` is the subject as an `E`, which the arm's
         // test checked before the guard.
         if (pattern.isKind(.set_pattern)) {
-            const name = ir.SetPattern.name(pattern);
-            const sym = self.facts.symbolOf(name) orelse return;
+            const sym = self.facts.symbolOf(ir.SetPattern.name(pattern)) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
-            if (self.matchesErrorValue(info)) return self.emitPrelude(.{ .aliases = try self.wholeAlias(name, subj, guard) });
-            const set = self.typeOf(pattern) orelse return;
-            var buf: Writer.Allocating = .init(self.arena.allocator());
-            {
-                const saved_w = self.w;
-                self.w = &buf.writer;
-                defer self.w = saved_w;
-                try self.w.writeAll("@as(");
-                try self.emitTypeTy(set);
-                try self.w.print(", @errorCast({s}))", .{subj});
-            }
-            return self.emitPrelude(.{ .aliases = try self.wholeAlias(name, buf.written(), guard) });
+            return self.emitPrelude(.{ .aliases = try self.setBinding(pattern, info, subj, guard) });
         }
         if (!pattern.isKind(.variant_pattern)) return;
         const vname = self.srcText(rig.variantPatternName(pattern));
@@ -5174,7 +5193,15 @@ pub const Emitter = struct {
                 const fields = self.variantPayload(if (info.error_set) self.typeOf(pattern) orelse info.ty.? else info.ty.?, vname) orelse &.{};
                 const payload = if (self.matchesErrorValue(info)) try self.fmt("{s}.*", .{try self.errorFieldsText(pattern, info, whole)}) else try self.fmt("{s}.{f}", .{ whole, ident(vname) });
                 prelude = try self.consumedPayload(self.facts.payloadBindings(pattern) orelse &.{}, fields, payload, body);
-            } else prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = whole }}, body);
+            } else if (pattern.isKind(.set_pattern) and self.matchesErrorValue(info) and self.isErrorValueTy(self.peelViews(self.typeOf(pattern) orelse info.ty.?))) {
+                // `g: E =>` of an error that carries fields: the arm owns
+                // the error itself as `g`.
+                prelude = try self.ownedParts(&.{ir.SetPattern.name(pattern)}, &.{.{ .expr = whole }}, body);
+            } else {
+                prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = whole }}, body);
+                // `g: E =>` of a set without fields: the code taken, as an `E`.
+                if (pattern.isKind(.set_pattern)) prelude.aliases = try self.setBinding(pattern, info, whole, body);
+            }
             prelude.head = head;
             return prelude;
         }
@@ -5184,18 +5211,7 @@ pub const Emitter = struct {
         }
         // `g: E =>`: `g` is the subject as an `E`, which the arm's test
         // checked it is.
-        if (pattern.isKind(.set_pattern)) {
-            if (self.matchesErrorValue(info)) return .{ .aliases = try self.wholeAlias(ir.SetPattern.name(pattern), subj, body) };
-            const set = self.typeOf(pattern) orelse return .{};
-            var buf: Writer.Allocating = .init(self.arena.allocator());
-            const saved_w = self.w;
-            self.w = &buf.writer;
-            defer self.w = saved_w;
-            try self.w.writeAll("@as(");
-            try self.emitTypeTy(set);
-            try self.w.print(", @errorCast({s}))", .{subj});
-            return .{ .aliases = try self.wholeAlias(ir.SetPattern.name(pattern), buf.written(), body) };
-        }
+        if (pattern.isKind(.set_pattern)) return .{ .aliases = try self.setBinding(pattern, info, subj, body) };
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(rig.variantPatternName(pattern));
         const captures = self.facts.payloadBindings(pattern) orelse return .{};
@@ -9344,7 +9360,7 @@ pub const Emitter = struct {
             written += 1;
             if (slots) |sl| switch (sl[i]) {
                 .arg => |ai| try self.emitArg(args[ai], params, i),
-                .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr, if (i < params.len) params[i] else facts.type_invalid),
+                .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr, if (i < params.len) params[i] else facts.type_invalid, false),
             } else try self.emitArg(args[i], params, i);
         }
         // The slot its `!` or `catch` lends a call that may fail with
@@ -9483,7 +9499,7 @@ pub const Emitter = struct {
     /// type) a constructor. A constant of another module than the one
     /// being emitted is reached through its file, which every module of
     /// the package can import.
-    fn emitDefault(self: *Emitter, decl: Facts, e: Sexp, target: TypeId) Error!void {
+    fn emitDefault(self: *Emitter, decl: Facts, e: Sexp, target: TypeId, field: bool) Error!void {
         // A default that becomes an optional where it goes (`liftOf`, in
         // its own module's types) is packed into each level of `target`
         // that goes through the helpers.
@@ -9495,9 +9511,24 @@ pub const Emitter = struct {
             var into = target;
             while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible.ok;
             const opened = try self.openPacks(into, levels);
-            try self.emitDefault(decl, e, target);
+            try self.emitDefault(decl, e, target, field);
             for (0..opened) |_| try self.w.writeAll(")");
             return;
+        };
+        // A vector constant is a Zig `var` (`emitConst`), which Zig cannot
+        // read when it compiles, so a field's default reads the value it
+        // was made from, `__rig_init_<name>`, here or in the module named.
+        if (field) if (decl.typeOf(e)) |t| if (decl.types.get(t) == .simd) {
+            if (e == .src) return self.w.print("__rig_init_{s}", .{rig.leafText(decl.source, e.src)});
+            if (e.isKind(.member) and ir.Member.object(e) == .src) {
+                const local = rig.leafText(decl.source, ir.Member.object(e).src);
+                const name = rig.leafText(decl.source, ir.Member.name(e).src);
+                for (0..decl.importCount()) |i| {
+                    const imp = decl.importAt(i);
+                    if (std.mem.eql(u8, imp.local_name, local)) return self.w.print("@import(\"{s}\").__rig_init_{s}", .{ imp.facts.zig_file, name });
+                }
+            }
+            return self.unsupported(e, "this vector default");
         };
         // A member of an error set: `.name` or `E.name`.
         // It is a `rig.ErrorValue` with no fields where one goes.

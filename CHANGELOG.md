@@ -259,6 +259,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A match on an error value binds what it checked.** A read match's
+  catch-all of an `error`, or of a set whose members carry fields, is a
+  view of the error where it is, and a write match's a write view, so
+  `match a` then `y` lent on as `?y`, `!y`, or `y` builds; it was bound
+  as a copy that the view it was used as did not fit, a Zig error. A
+  guard's `g: X` binding of such an error, `X` a set without fields, is
+  the error's code as an `X`, as the arm's is; it was the whole error.
+- **A field's default may be a vector constant.** `v: Quad = NONE`,
+  with `NONE = Quad.splat(0)`, builds: the default reads the value the
+  constant was made from, which Zig knows when it compiles, while the
+  program's other uses of `NONE` stay run-time values.
 - **A statement's loans end at their last use.** A loan a statement
   took lasted to the statement's end; it now ends at the last use of
   the value that carries it (CORE sentence 6), in the order CORE §6

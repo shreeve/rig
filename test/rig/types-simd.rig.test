@@ -1940,10 +1940,10 @@ test "bit methods read through a call's write view", '''
   !f.push(1.5)
   print(fs(!f, 0).to_bits(), fs(!f, 0).fraction(), fs(!f, 0).exponent())
 
-test "simd module constant as a field default", "[0, 0, 7, 0]", known: true
-  # A field whose default is a module constant holding a vector passes
-  # `rig check`, but the emitted default is a run-time value, which Zig
-  # rejects ("struct field default value must be comptime-known").
+test "simd module constant as a field default", "[0, 0, 7, 0]"
+  # A field's default may be a module constant that holds a vector: Zig
+  # must know a default when it compiles, so the default reads the value
+  # the constant was made from.
 
   type Quad = Simd[U8, 4]
 
@@ -1952,6 +1952,39 @@ test "simd module constant as a field default", "[0, 0, 7, 0]", known: true
   obj Box
     v: Quad = NONE
 
-  b = Box()
-  b.v = b.v.with(2, 7)
-  b.v
+  sub main()
+    b = Box()
+    b.v = b.v.with(2, 7)
+    print(b.v)
+
+test "simd module constant as an optional field's default and a parameter's", "[1, 1, 1, 1] [1, 1, 1, 1] [2, 2, 2, 2]"
+  type Quad = Simd[U8, 4]
+
+  ONES = Quad.splat(1)
+
+  obj Box
+    v: Quad? = ONES
+
+  fun twice(v: Quad = ONES) -> Quad
+    v + v
+
+  sub main()
+    b = Box()
+    print(b.v ?? Quad.splat(0), ONES, twice())
+
+bomb "simd module constant as a field default overflows when the program runs", "integer overflow", prints: "[200, 200, 200, 200]", release: true
+  # A default read from a vector constant is a run-time value where the
+  # program uses it: a lane that overflows panics, rather than stopping the
+  # build.
+
+  type Quad = Simd[U8, 4]
+
+  HIGH = Quad.splat(200)
+
+  obj Box
+    v: Quad = HIGH
+
+  sub main()
+    b = Box()
+    print(b.v)
+    print(b.v + b.v)
