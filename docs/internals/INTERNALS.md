@@ -2624,7 +2624,9 @@ runtime function with value arguments, or the existing `read` and
 
 Every vector comes from one of those constructions, a parameter, bytes
 read when the program runs, or a module constant, which is a Zig `var`
-that nothing writes (`Emitter.emitConst`): `checkModuleConst` takes a
+that nothing writes (`Emitter.emitConst`), read from a Zig constant of its
+value, `__rig_init_<name>`, which only a field's default reads, since Zig
+must know a default when it compiles: `checkModuleConst` takes a
 vector only as a constant's whole value, `Simd[T, n](a)` or `.splat(x)`
 of constants (`isVectorMade`), never inside an array or a branch, which
 Zig would know when it compiles. Each construction goes through `rig.rt`, so no vector

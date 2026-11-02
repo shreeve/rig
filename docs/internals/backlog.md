@@ -279,10 +279,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `Int`", while `f(4)` and `f(x + 1)` are lent as made values. Literal
   arithmetic checked against a view should be checked against the
   value it views. Found with the errors-only fixes (2026-10-29).
-- **The matrix cell `error.match_part.clone` is a Zig error.** `python3
-  test/matrix.py -k error.match_part.clone` fails on `main` with
-  "expected type '*const T', found 'T'" in the emitted Zig: accepted,
-  not lowered. Found with the errors-only fixes (2026-10-29).
 - **A `?^T` field can no longer be filled from a parameter.** A
   parameter `?^T` is rejected (SPEC "Box"), but a field or a result of
   type `?^T` stays, and a `?T` parameter is no `?^T`. Decide whether a

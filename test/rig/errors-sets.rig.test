@@ -789,3 +789,113 @@ fail "sets an optional's member with fields compared is unwrapped first", "an er
 
   p: L? = A.x(n: 3)
   print(p == .x(n: 3))
+
+test "sets a catch-all of `error` is a view of the error matched", "1 2 1"
+  # A read match's catch-all of an error value is a view of it where it
+  # is, lent on as a view; a write match's is a write view.
+
+  error X
+    one
+    two
+
+  fun mk(n: Int) -> error
+    X.one if n > 0 else X.two
+
+  fun look(x: ?error) -> Int
+    1
+
+  fun poke(x: !error) -> Int
+    2
+
+  obj H
+    f: error
+
+  a: error = mk(1)
+  r = 0
+  match a
+    y
+      r = look(?y)
+  w = 0
+  match !a
+    y
+      w = poke(!y)
+  h = 0
+  match H(f: +a).f
+    X.two
+      h = 5
+    y
+      h = look(y)
+  print(r, w, h)
+
+test "sets a guarded catch-all and set arm of `error` read the error matched", "1 1 0"
+  # A guard reads the arm's binding as the arm does: the catch-all a view
+  # of the error, `g: X` the error's code as an `X`, where `X` carries no
+  # fields.
+
+  error X
+    one
+    two
+
+  error F
+    bad(msg: String)
+
+  fun mk(n: Int) -> error
+    return F.bad(msg: String("m")) if n > 1
+    X.one if n > 0 else X.two
+
+  fun look(x: ?error) -> Int
+    1
+
+  a: error = mk(1)
+  r = 0
+  match a
+    y if look(?y) == 1
+      r = look(?y)
+    _
+      r = -1
+  g = 0
+  match a
+    k: X if look(?k) == 1
+      g = look(?k)
+    _
+      g = -1
+  f = 0
+  b: error = mk(2)
+  match b
+    k: X if look(?k) == 1
+      f = 1
+    _
+      f = 0
+  print(r, g, f)
+
+test "sets a guarded set arm of a match that takes an error binds it", '''
+  X.one
+  F.bad(msg: "m")
+  0
+'''
+  # Under `match <e`, a guarded `g: X` arm owns the error it takes: `g` is
+  # its code as an `X` where `X` carries no fields, else the error itself.
+
+  error X
+    one
+    two
+
+  error F
+    bad(msg: String)
+
+  fun mk(n: Int) -> error
+    return F.bad(msg: String("m")) if n > 1
+    X.one if n > 0 else X.two
+
+  fun look(x: ?error) -> Int
+    1
+
+  for n in [1, 2, 0]
+    a: error = mk(n)
+    match <a
+      k: X if look(?k) == 1 and n > 0
+        print(k)
+      g: F if n > 1
+        print(g)
+      _
+        print(0)
