@@ -222,6 +222,24 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
   `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
   a capture and a field lend, like `!c`, lend what the handle holds.
+- **A Map's value in its key's tail padding.** An ordered `Map`'s entry
+  is `{key, value}` in Zig's layout, so a value that would fit the
+  key's tail padding still pads the entry. Read from Trig's layouts it
+  saves about 0.3 MiB on ts-pattern alone, and 4 MiB (1.7% of peak RSS)
+  if Trig also narrows the instantiation owner to a U32. The entry must
+  lay out the key's fields and the value side by side and hand keys out
+  by value or field by field, since an assignment of a whole key may
+  copy its padding. It waits for a round on the entry's layout
+  ([records](../history/records/2026-10/perf-stage/tail-padding.md)).
+- **A small optional result through memory stalls x86-64.** std.text's
+  out-of-line search returned `?usize`; Zig wrote its two fields apart
+  and the caller read them whole, so every match on x86-64 stalled on a
+  failed store forward (a 3-byte needle in 16 bytes 54% slower than
+  `std.mem.find`), while aarch64 did not show it. Returning a plain
+  index with `maxInt` for none fixed it (#869). Rig's emitted `?T`
+  results of functions LLVM keeps out of line may meet the same stall:
+  count them in Trig's x86 profile (blocked loads by store forwarding)
+  before deciding anything.
 - **A large optional result of a direct call goes out by value.** An
   API object's table entry whose result is an optional wider than three
   words writes it through the caller's place (INTERNALS, "APIs and API

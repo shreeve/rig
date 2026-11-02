@@ -34,6 +34,12 @@ needle of 1, 3, 12, or 40 bytes cut from it at 1/16 of the way (early),
 at 15/16 (late), or that late needle with a middle byte made 0x01
 (miss), whose first and last bytes still meet candidates.
 
+On a shared timing machine (pup), build the two programs before the
+quiet window and time only within it: `bench-text` builds both with
+`rig build --release` first, and pinned to the one core being timed
+those builds take most of a 15-minute window. A change to std alone
+needs one rig for both, with `RIG_STD` set to each side's `std/`.
+
 ## Results
 
 Apple M5, arm64, lib.dom.d.ts (2,399,570 bytes), `rig build --release`,
