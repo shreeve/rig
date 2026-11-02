@@ -1,0 +1,367 @@
+# word-objects: objects of integers held as one word (`sema.wordBits`,
+# `storage.decideWords`).
+
+code "word two halves", "pub const P = packed struct(u64) {", "pub const __rig_word_sized = {};"
+  # An object of integers that fill 64 bits is one word, a Zig packed
+  # struct: it is made, copied, and compared as one.
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub main()
+    p = P(a: 1, b: 2)
+    print(p.a + p.b)
+
+code "word sizes", "pub const H = packed struct(u32) {", "pub const B = packed struct(u8) {", "pub const S = packed struct(u32) {"
+  # Any fields of integers and slots that fill 8, 16, 32, or 64 bits.
+  obj H
+    lo: U16 = 0
+    hi: U16 = 0
+
+  obj B
+    v: U8 = 0
+
+  obj S
+    s: Slot[256] = 0
+    t: Slot[256] = 0
+    n: U16 = 0
+
+  sub main()
+    h = H(lo: 1, hi: 2)
+    b = B(v: 3)
+    s = S(s: 4, t: 5, n: 6)
+    print(h.lo + h.hi, b.v, Int(s.s) + Int(s.t) + Int(s.n))
+
+code "word not a word", /pub const Odd = struct \{/, /pub const Flag = struct \{/, /pub const Wide = struct \{/, /^(?![\s\S]*Odd = struct \{\n    pub const __rig_word_sized)/
+  # Bits that fill no word, a Bool, or more than 64 bits keep an object
+  # a plain struct, with read views by address.
+  obj Odd
+    a: U32 = 0
+    b: U16 = 0
+
+  obj Flag
+    a: U32 = 0
+    on: Bool = false
+
+  obj Wide
+    a: Int = 0
+    b: U32 = 0
+
+  sub main()
+    print(Odd().a, Flag().on, Wide().b)
+
+code "word field of a record", "p: P align(4) =", "pub const Rec = struct {"
+  # A 64-bit word inside a plain object keeps the four-byte alignment its
+  # halves had, so the record keeps its size.
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  obj Rec
+    p: P = P()
+    k: U32 = 0
+
+  sub main()
+    r = Rec(p: P(a: 1, b: 2), k: 3)
+    print(Int(r.p.a) + Int(r.k))
+
+code "word field lent to write stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
+  # A write lend of a field takes its address, which a word's field does
+  # not have: the object stays a plain struct.
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub bump(x: !U32)
+    x += 1
+
+  sub main()
+    p = P()
+    bump(!p.a)
+    print(p.a)
+
+code "word read view copies", /fn sum\(__rig_in_self: P\)/
+  # A read view of a word-sized object copies it, as one of a number does.
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  fun P.sum(?@) -> Int
+    Int(@a) + Int(@b)
+
+  sub main()
+    p = P(a: 1, b: 2)
+    print(p.sum())
+
+test "word field lent to write", "1 0"
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub bump(x: !U32)
+    x += 1
+
+  sub main()
+    p = P()
+    bump(!p.a)
+    print(p.a, p.b)
+
+test "word field lent to write in another module", "2 1"
+  # The lend in one module keeps the type another declares plain.
+  use lib
+
+  sub bump(x: !U32)
+    x += 1
+
+  sub main()
+    p = lib.P(a: 1, b: 1)
+    bump(!p.a)
+    print(p.a, p.b)
+
+  file "lib.rig"
+    pub obj P
+      pub a: U32 = 0
+      pub b: U32 = 0
+
+test "word in a record lent to write", "5 7 9"
+  # A write lend of a 64-bit word held in a record takes an address at
+  # the record's alignment: the word stays a plain struct.
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  obj Rec
+    p: P = P()
+    k: U32 = 0
+
+  sub set(p: !P, a: U32)
+    p.a = a
+
+  sub main()
+    r = Rec(p: P(a: 1, b: 7), k: 9)
+    set(!r.p, 5)
+    print(r.p.a, r.p.b, r.k)
+
+test "word methods", "3 4 6 1"
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  fun P.sum(?@) -> Int
+    Int(@a) + Int(@b)
+
+  sub P.bump(!@)
+    @a += 1
+
+  obj Rec
+    p: P = P()
+    k: U32 = 0
+
+  sub main()
+    p = P(a: 1, b: 2)
+    r = Rec(p: P(a: 2, b: 2), k: 1)
+    a = p.sum()
+    b = r.p.sum()
+    !p.bump()
+    p.b += 2
+    print(a, b, p.sum(), r.k)
+
+test "word optional", '''
+  none
+  3 3
+'''
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub main()
+    x: P? = none
+    print(x)
+    x = P(a: 1, b: 2)
+    if x as p
+      print(Int(p.a) + Int(p.b), Int((x ?? P()).b) + 1)
+
+test "word keys", '''
+  2 5
+  2 5
+'''
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub main()
+    m = Map[P, Int]()
+    !m.put(P(a: 1, b: 2), 3)
+    !m.put(P(a: 3, b: 4), 7)
+    !m.put(P(a: 1, b: 2), 5)
+    print(m.len, m.get(P(a: 1, b: 2)) ?? 0)
+    h = HashMap[P, Int]()
+    !h.put(P(a: 1, b: 2), 3)
+    !h.put(P(a: 3, b: 4), 7)
+    !h.put(P(a: 1, b: 2), 5)
+    print(h.len, h.get(P(a: 1, b: 2)) ?? 0)
+
+test "word lists and tables", "4 6 9"
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub main()
+    xs = List[P]()
+    !xs.push(P(a: 1, b: 3))
+    !xs.push(P(a: 2, b: 4))
+    xs[1].a = 5
+    t = Table[P, 16]()
+    s = !t.push(P(a: 4, b: 5))
+    t[s].b = 9
+    print(Int(xs[0].a) + Int(xs[0].b), Int(xs[1].a) + 1, t[s].b)
+
+test "word print and equality", "P(a: 1, b: 2) true false"
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub main()
+    p = P(a: 1, b: 2)
+    q = P(a: 1, b: 2)
+    r = P(a: 2, b: 1)
+    print(p, p == q, p == r)
+
+bomb "word field overflow", "integer overflow"
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub main()
+    p = P(a: U32.max, b: 0)
+    p.a += 1
+    print(p.a)
+
+code "word inside a word", "pub const N = packed struct(u32) {", "pub const R = packed struct(u64) {", "n: N = N{"
+  # A word-sized object inside another is bits of it.
+  obj N
+    id: U32 = 0
+
+  obj R
+    file: U32 = 0
+    n: N = N()
+
+  fun R.is_none(?@) -> Bool
+    @file == 0
+
+  sub main()
+    r = R(file: 1, n: N(id: 7))
+    r.n.id += 1
+    print(r.is_none(), r.n.id, r)
+
+code "word inside a word lent to write", /pub const N = struct \{/, /pub const R = struct \{/
+  # A write lend of the inner word's field keeps it plain, and so the
+  # word around it.
+  obj N
+    id: U32 = 0
+
+  obj R
+    file: U32 = 0
+    n: N = N()
+
+  sub bump(x: !U32)
+    x += 1
+
+  sub main()
+    r = R(file: 1, n: N(id: 7))
+    bump(!r.n.id)
+    print(r.n.id)
+
+test "word inside a word", "false 8 R(file: 1, n: N(id: 8)) true"
+  obj N
+    id: U32 = 0
+
+  obj R
+    file: U32 = 0
+    n: N = N()
+
+  fun R.is_none(?@) -> Bool
+    @file == 0
+
+  sub main()
+    r = R(file: 1, n: N(id: 7))
+    r.n.id += 1
+    print(r.is_none(), r.n.id, r, r == R(file: 1, n: N(id: 8)))
+
+test "word optional in a record", '''
+  none
+  3 4 7
+'''
+  # An optional of a 64-bit word is twelve bytes, the word at four-byte
+  # alignment beside its flag (`rig.WordOpt`), as the plain object's was.
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  obj Rec
+    k: U32 = 0
+    p: P? = none
+
+  sub main()
+    xs = List[Rec]()
+    !xs.push(Rec(k: 1))
+    !xs.push(Rec(k: 7, p: P(a: 3, b: 4)))
+    print(xs[0].p)
+    if xs[1].p as p
+      print(p.a, p.b, xs[1].k)
+
+code "word optional written stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
+  # A write lend of the word inside an optional would point at it where
+  # it is held, at four-byte alignment: it stays a plain struct.
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub bump(p: !P)
+    p.a += 1
+
+  sub main()
+    x: P? = P(a: 1, b: 2)
+    if !x as p
+      bump(!p)
+    print(x)
+
+test "word optional written", "P(a: 2, b: 2)"
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub bump(p: !P)
+    p.a += 1
+
+  sub main()
+    x: P? = P(a: 1, b: 2)
+    if !x as p
+      bump(!p)
+    print(x ?? P())
+
+test "word map values written", '''
+  3 8
+  2 9
+'''
+  # A word in a Map is held at four-byte alignment beside a 4-byte key,
+  # and a write view of it points there (`rig.WritePtr`).
+  obj P
+    a: U32 = 0
+    b: U32 = 0
+
+  sub bump(p: !P)
+    p.a += 1
+
+  sub main()
+    m = Map[U32, P]()
+    !m.put(1, P(a: 2, b: 8))
+    if !m.edit(1) as p
+      bump(!p)
+    v = m.get(1) ?? P()
+    print(v.a, v.b)
+    h = HashMap[U32, P]()
+    !h.put(4, P(a: 1, b: 9))
+    bump(!h.ensure(4, P()))
+    w = h.get(4) ?? P()
+    print(w.a, w.b)

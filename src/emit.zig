@@ -361,6 +361,8 @@ const Nominal = struct {
     members: []const Sexp,
     /// The Zig name of each of its methods (`ident`).
     methods: []const []const u8,
+    /// It is held as one word, a `packed struct` (`storage.decideWords`).
+    word: bool = false,
 };
 
 pub const Emitter = struct {
@@ -894,9 +896,16 @@ pub const Emitter = struct {
     fn emitStruct(self: *Emitter, node: Sexp) Error!void {
         const name = self.srcText(ir.Struct.name(node));
         const members = ir.Struct.members(node);
-        try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
         const prev = try self.enterNominal(ir.Struct.name(node), false, members);
         defer self.nominal = prev;
+        // A word-held object is one word (`storage.decideWords`); a
+        // word-sized one says so, for the runtime's `ReadView`.
+        const sym = self.nominal.?.sym;
+        if (self.facts.wordHeldBitsOfSym(sym)) |bits| {
+            self.nominal.?.word = true;
+            try self.w.print("pub const {f} = packed struct(u{d}) {{\n", .{ ident(name), bits });
+        } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
+        if (self.facts.wordBitsOfSym(sym) != null) try self.w.writeAll("    pub const __rig_word_sized = {};\n");
         try self.emitFields(1);
         try self.emitRigName(1);
         try self.emitOwnApis(1);
@@ -1764,6 +1773,9 @@ pub const Emitter = struct {
             try self.writeIndent(depth);
             try self.w.print("{f}: ", .{ident(f.name)});
             try self.emitTypeTy(f.ty);
+            // A 64-bit word inside a plain object keeps the four-byte
+            // alignment its two halves had, so the object keeps its size.
+            if (!self.nominal.?.word and self.facts.wordAlignedField(f.ty)) try self.w.writeAll(" align(4)");
             if (f.default) |d| {
                 try self.w.writeAll(" = ");
                 try self.emitDefault(self.facts, d, f.ty, true);
@@ -5988,7 +6000,12 @@ pub const Emitter = struct {
                 const inner = try self.lendChain(node, .{ .text = name, .ptr = true }, types.get(from).optional, rows[i + 1 ..], types.get(view).optional, false);
                 if (self.routesPayload(types.get(from).optional)) {
                     const ptr = if (at.ptr) at.text else try self.fmt("&({s})", .{at.text});
-                    return self.fmt("(if (rig.somePtr({s})) |{s}| {s} else null)", .{ ptr, name, inner });
+                    const lent = try self.fmt("(if (rig.somePtr({s})) |{s}| {s} else null)", .{ ptr, name, inner });
+                    // A view that is the value it views (`sema.wordBits`)
+                    // has the value's optional, which goes through the
+                    // helpers too.
+                    if (types.get(view) == .optional and self.routesPayload(types.get(view).optional)) return self.fmt("rig.pack({s}, {s})", .{ try self.typeText(view), lent });
+                    return lent;
                 }
                 const value = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
                 return self.fmt("(if ({s}) |*{s}| {s} else null)", .{ value, name, inner });
@@ -7776,10 +7793,21 @@ pub const Emitter = struct {
         const held = self.typeOf(ir.@"??".left(e)) orelse return null;
         // A payload copied out of the view it is gives the value it views
         // (`rig.copiedOut`, a Zig `?T`).
-        if (self.facts.copiesPayload(e)) return if (self.facts.payloadViewed(held) == inner) result else null;
+        if (self.facts.copiesPayload(e)) return if (self.sameValue(self.facts.payloadViewed(held) orelse return null, inner)) result else null;
         return switch (self.facts.types.get(self.peelViews(held))) {
-            .optional => |payload| if (payload == inner) result else null,
+            .optional => |payload| if (self.sameValue(payload, inner)) result else null,
             else => null,
+        };
+    }
+
+    /// Whether a value of type `held` is a `ty` in the emitted program:
+    /// it is one, or it is a read view of a word-sized `ty`, which is a
+    /// copy of it (`sema.wordBits`).
+    fn sameValue(self: *Emitter, held: TypeId, ty: TypeId) bool {
+        if (held == ty) return true;
+        return switch (self.facts.types.get(held)) {
+            .read_view => |viewed| viewed == ty and self.facts.wordSized(ty),
+            else => false,
         };
     }
 
@@ -7797,7 +7825,7 @@ pub const Emitter = struct {
         // A payload copied out of the view it is gives the value it views.
         if (self.facts.copiesPayload(e)) return if (self.facts.payloadViewed(held) == inner) result else null;
         return switch (self.facts.types.get(held)) {
-            .fallible => |payload| if (payload.ok == inner) result else null,
+            .fallible => |payload| if (self.sameValue(payload.ok, inner)) result else null,
             else => null,
         };
     }
@@ -10638,7 +10666,16 @@ pub const Emitter = struct {
                     try self.w.writeAll("[]");
                     return self.emitTypeTy(elem);
                 }
-                try self.w.writeAll("*");
+                // A 64-bit word is held at four-byte alignment in records,
+                // optionals, and tables (`rig.wordAlign`), so a write view
+                // of one points at that alignment; one of a type parameter
+                // at its argument's (`rig.WritePtr`).
+                if (ctx.types.get(inner) == .type_var) {
+                    try self.w.writeAll("rig.WritePtr(");
+                    try self.emitTypeTy(inner);
+                    return self.w.writeAll(")");
+                }
+                try self.w.writeAll(if (self.facts.wordAlignedField(inner)) "*align(4) " else "*");
                 try self.emitTypeTy(inner);
             },
             .shared, .weak => |inner| {

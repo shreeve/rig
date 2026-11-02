@@ -4207,6 +4207,10 @@ pub const SemContext = struct {
     /// An object that names its none (`none id == 0`) -> its none
     /// (`TypeResolver.resolveNominal`).
     named_nones: FastMap(SymbolId, NamedNone) = .empty,
+    /// The word-sized objects declared here that emit holds as one word,
+    /// a Zig `packed struct`, decided for the whole program after every
+    /// module is checked (`storage.decideWords`).
+    word_held: FastMap(SymbolId, void) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: FastMap(ForeignRef, SymbolId) = .empty,
@@ -4456,6 +4460,7 @@ pub const SemContext = struct {
         self.part_drops.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
+        self.word_held.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
         self.generic_api_calls.deinit(self.allocator);
@@ -8719,6 +8724,9 @@ pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool 
         .type_var => true,
         .optional => |payload| optionalRouted(ctx, payload, strict),
         .weak => objectHeld(ctx, inner) == null,
+        // A read view of a word-sized object is the object (`wordBits`),
+        // so its optional is the object's.
+        .read_view => |viewed| wordBits(ctx, viewed) != null,
         .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id) objectHeld(ctx, inner) == null else isCompound(ctx, inner),
         else => isCompound(ctx, inner),
     };
@@ -10696,8 +10704,8 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 
 /// A type a read view copies: a number, `Bool`, `?String`, a slice, a
 /// read view, a function or callable view (a `rig.FnRef`), a vector, a
-/// plain enum, an error of a set without fields (a Zig error), or an
-/// optional of one of those. An error that is a `rig.ErrorValue`
+/// plain enum, a word-sized object (`wordBits`), an error of a set
+/// without fields (a Zig error), or an optional of one of those. An error that is a `rig.ErrorValue`
 /// (`isErrorValueForm`) is a struct, and lent by address. The runtime's
 /// `ReadView` holds a generic `?T` by the same rule, read off the Zig
 /// type each of these is.
@@ -10706,8 +10714,56 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
         .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .slice, .function, .callable, .simd, .slot, .read_view => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
-        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or (isErrorSet(ctx, ty) and !isErrorValueForm(ctx, ty)),
+        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or (isErrorSet(ctx, ty) and !isErrorValueForm(ctx, ty)) or wordBits(ctx, ty) != null,
         else => false,
+    };
+}
+
+/// The bits of `ty` when it is a word-sized object, else null: an
+/// object declared in Rig, not generic, whose fields are all integers
+/// (numbers and slots) or word-sized objects, which fill 8, 16, 32, or 64
+/// bits exactly, and
+/// which names no none, has no `drop`, gives none of `==`, order, hash,
+/// or print a meaning of its own, and names no API of a program's own.
+/// It is plain data no larger than a pointer, so a read view of it
+/// copies it, as one of a number does (`copiedByReadView`), and emit
+/// marks it (`__rig_word_sized`) so the runtime's `ReadView` agrees. Emit
+/// holds it as one word, a Zig `packed struct`, unless the program lends
+/// one of its fields by address (`storage.decideWords`).
+pub fn wordBits(ctx: *const SemContext, ty: TypeId) ?u8 {
+    const decl = switch (ctx.types.get(ty)) {
+        .nominal, .imported_nominal => nominalDecl(ctx, ty) orelse return null,
+        else => return null,
+    };
+    return wordBitsOfSym(decl.ctx, decl.sym);
+}
+
+/// `wordBits` of the type `sym_id` declares in `dctx`.
+pub fn wordBitsOfSym(dctx: *const SemContext, sym_id: SymbolId) ?u8 {
+    if (sym_id >= dctx.symbols.items.len) return null;
+    const sym = dctx.symbols.items[sym_id];
+    if (isProxy(sym) or sym.kind != .nominal_type or sym.decl_pos == builtin_decl_pos or sym.flags.error_set) return null;
+    if (declaredKind(dctx, sym_id) != .object) return null;
+    if (dctx.named_nones.contains(sym_id)) return null;
+    if (sym.user_apis.len != 0) return null;
+    inline for (.{ .Eq, .Ord, .Print, .Hash }) |api| if (ownApiMethod(sym, api) != null) return null;
+    var bits: u32 = 0;
+    var any = false;
+    for (sym.fields orelse return null) |f| {
+        if (f.is_drop_method) return null;
+        if (f.is_method or f.is_variant) continue;
+        bits += switch (dctx.types.get(f.ty)) {
+            .int => |i| if (i.width() <= 64) i.width() else return null,
+            .slot => |n| 8 * @as(u32, @intCast(slotBytes(slotCount(dctx, n) orelse return null))),
+            .nominal, .imported_nominal => wordBits(dctx, f.ty) orelse return null,
+            else => return null,
+        };
+        any = true;
+    }
+    if (!any) return null;
+    return switch (bits) {
+        8, 16, 32, 64 => @intCast(bits),
+        else => null,
     };
 }
 

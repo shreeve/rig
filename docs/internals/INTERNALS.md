@@ -1859,6 +1859,43 @@ typecheck records where it decides them (`recordTempDrop`,
 not storage: alive and `else` flags, a loop's index counter, a guarded
 match's arm number, labels, and renamed parameters.
 
+#### Word-held objects
+
+An object of integers (numbers and slots) that fill 8, 16, 32, or 64
+bits exactly, which names no none, has no `drop`, and gives `==`,
+order, hash, and print no meaning of its own, is **word-sized**
+(`sema.wordBits`). It is plain data no larger than a pointer, so a read
+view of it copies it, as one of a number does (`copiedByReadView`). Emit
+marks it `__rig_word_sized`, which the runtime's `ReadView` reads for a
+generic `?T`.
+
+Emit holds a word-sized object as one word, a Zig `packed struct(uN)`,
+unless some lend takes the address of one of its fields. A word has no
+field addresses; Zig gives a bit pointer instead. Lends in one module
+reach types another declares, so `storage.decideWords` decides it once
+for the whole program, after every module is checked and before
+inlining (`SemContext.word_held`, on the declaring module).
+
+It walks every `(write …)` lend's chain of member and index steps. It
+keeps a type plain when a step takes a field of it, or takes a 64-bit
+one held inside another object. Such a field is written `align(4)`, so
+the object keeps the size the word's two halves gave it, and the field's
+address is not at the word's own alignment. A read lend takes no
+address, since its view copies. `rig emit` shows `packed struct` where
+an object is word-held.
+
+A 64-bit word is held at four-byte alignment wherever a container
+holds one, so nothing that holds it grows past what its two halves took
+(`rig.wordAlign`): a field of a plain object (`align(4)`), a `Map`'s or
+`Set`'s key or value, and an optional with no niche, twelve bytes, not
+Zig's sixteen (`rig.WordOpt`). A write view of one is a pointer at that
+alignment, `*align(4) T`, and a generic one `rig.WritePtr(T)`, which is
+`*T` for every other type. `decideWords` still keeps a word plain where
+a write lend reaches it inside an object or an optional. The optional of
+a read view of a word-sized object is the object's own optional, routed
+through the helpers as it is (`sema.optionalRouted`), since the view is
+the object.
+
 The predicates that decide where emit makes storage are in
 `src/storage.zig`, and emit asks the same ones. How storage holds its
 value is decided apart from how emit writes it: an argument lent as the

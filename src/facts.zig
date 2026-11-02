@@ -1132,6 +1132,31 @@ pub const Facts = struct {
     pub fn namedNoneOfSym(f: Facts, sym: SymbolId) ?sema.NamedNone {
         return f.c().named_nones.get(sym);
     }
+    /// The bits of the object `sym` declares here when it is word-sized
+    /// (`sema.wordBits`): its read views copy it.
+    pub fn wordSized(f: Facts, ty: TypeId) bool {
+        return sema.wordBits(f.c(), ty) != null;
+    }
+    pub fn wordBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
+        return sema.wordBitsOfSym(f.c(), sym);
+    }
+    /// The bits of the object `sym` declares here when it is held as one
+    /// word, a Zig `packed struct` (`storage.decideWords`).
+    pub fn wordHeldBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
+        if (!f.c().word_held.contains(sym)) return null;
+        return sema.wordBitsOfSym(f.c(), sym);
+    }
+    /// Whether a field of type `ty` inside a plain object is held at
+    /// four-byte alignment (`align(4)`): a 64-bit word-held object, which
+    /// takes the place its two 32-bit fields would, so the object keeps
+    /// its size.
+    pub fn wordAlignedField(f: Facts, ty: TypeId) bool {
+        const d = sema.nominalDecl(f.c(), ty) orelse return false;
+        return switch (f.c().types.get(ty)) {
+            .nominal, .imported_nominal => d.ctx.word_held.contains(d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
+            else => false,
+        };
+    }
     /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, with
     /// every operation through the optional helpers
     /// (`sema.optionalRouted`); `strict` under `RIG_STRICT_OPTIONALS`.
