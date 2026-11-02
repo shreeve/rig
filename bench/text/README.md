@@ -36,4 +36,38 @@ at 15/16 (late), or that late needle with a middle byte made 0x01
 
 ## Results
 
-RESULTS
+Apple M5, arm64, lib.dom.d.ts (2,399,570 bytes), `rig build --release`,
+fastest of 9 runs in turns, std.text at main (Zig's `std.mem.find`)
+against this search; other builds held the load average between 6 and
+8, so the numbers are low and the ratios hold. Nanoseconds per search:
+
+| text | needle | case | `std.mem.find` | this | change |
+|---|---:|---|---:|---:|---|
+| 2.4 MB | 1 B | miss | 49,816 | 29,987 | 66.1% faster |
+| 2.4 MB | 3 B | miss | 2,979,208 | 72,134 | 4030% faster |
+| 2.4 MB | 12 B | miss | 710,615 | 71,200 | 898% faster |
+| 2.4 MB | 40 B | miss | 303,345 | 73,484 | 313% faster |
+| 2.4 MB | 12 B | late | 24,588 | 2,491 | 887% faster |
+| 4 KiB | 1 B | miss | 90.3 | 77.9 | 15.9% faster |
+| 4 KiB | 3 B | miss | 5,156.8 | 133.0 | 3777% faster |
+| 4 KiB | 12 B | miss | 1,400.0 | 134.0 | 945% faster |
+| 4 KiB | 40 B | miss | 600.5 | 123.7 | 385% faster |
+| 1 KiB | 12 B | early | 100.2 | 5.0 | 1914% faster |
+| 64 B | 3 B | miss | 77.9 | 4.4 | 1675% faster |
+| 32 B | 12 B | early | 5.2 | 3.1 | 67.9% faster |
+| 16 B | 3 B | early | 3.6 | 2.2 | 62.2% faster |
+| 8 B | 3 B | early | 2.2 | 1.7 | 34.6% faster |
+
+No case of the 72 is slower. A needle of one byte searches its first
+4 KiB by Zig's own `findScalar`, inline, as `std.mem.find` did, and the
+guard's `line` row runs the same 48.80 instructions per search on both;
+the early hits of one byte time faster here only because that code is
+now inlined into the timing loop, where searches overlap.
+
+The search was first written in plain Zig 0.17 and timed against
+`std.mem.find` (ReleaseSafe, the same cases): a miss of 3, 12, and 40
+bytes over lib.dom.d.ts took 76 to 77 µs against 2.8 ms, 664 µs, and
+297 µs, about 31 GB/s, and a miss of one byte 27 µs against 47 µs, 88
+GB/s; no case of 8 B to 64 B was slower once a match at place 0 was
+tested by itself and the search past the first places was moved out of
+line.

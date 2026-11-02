@@ -2375,7 +2375,7 @@ functions return.
 
 | Function | Result |
 |---|---|
-| `find(s: ?String, pat: ?String) -> Int?` | the index of the first occurrence of `pat` in `s`, or `none`; 0 for `""`; it tests 16 places at once, where two bytes of `pat` match, then compares the whole of `pat` at each |
+| `find(s: ?String, pat: ?String) -> Int?` | the index of the first occurrence of `pat` in `s`, or `none`; 0 for `""`; a `pat` of two bytes or more is found by testing 16 places at once for two of its bytes, then comparing the whole of `pat` at each place both match |
 | `find_last(s: ?String, pat: ?String) -> Int?` | the index of the last occurrence, or `none`; `s.len` for `""` |
 | `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
 | `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |

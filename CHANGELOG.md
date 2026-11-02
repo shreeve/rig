@@ -265,17 +265,19 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   ("Block expressions") says; it was read as a guard, and the branch
   below it was "unexpected indentation". With no deeper line below,
   `return if c` is still a guard.
-- **`text.find` searches 16 places at once.** std.text's `find`, and
-  `count`, `contains`, `cut`, `split`, and `lines` through it, test 16
-  places a match may start at with two compares of 16 bytes, at the
-  needle's first and last bytes near the start of a text and at its two
-  rarest bytes over a text of 64 KiB or more, and confirm each
+- **`text.find` tests 16 places at once.** std.text's `find`, and
+  `count`, `contains`, `cut`, `split`, and `lines` through it, find a
+  needle of two bytes or more by testing 16 places a match may start at
+  with two compares of 16 bytes, at its first and last bytes, or at its
+  two rarest over a text of 64 KiB or more, and confirming each
   candidate; Zig's `std.mem.find`, which it replaces, tested one place
-  at a time. On the Mac a miss of a 3 to 40-byte needle over
-  lib.dom.d.ts (2.4 MB) takes 76 to 77 µs, where it took 0.30 to 2.8 ms
-  (4 to 37 times as fast), a 1-byte miss 72% faster, and no search of
-  8 to 64 bytes is slower. `bench/text/guard.py` holds each search's
-  instructions to its baseline.
+  at a time. A needle of one byte keeps Zig's `findScalar` for a text's
+  first 4 KiB and steps 64 bytes past it. On the Mac, over lib.dom.d.ts
+  (2.4 MB), a miss of a 3-byte needle takes 72 µs where it took 2.98 ms,
+  of a 12-byte one 71 µs where it took 711 µs, of a 40-byte one 73 µs
+  where it took 303 µs, and of one byte 30 µs where it took 50 µs (66%
+  faster); no search of 8 bytes to 4 KiB is slower. `bench/text/guard.py`
+  holds each search's instructions to a baseline.
 - **A match on an error value binds what it checked.** A read match's
   catch-all of an `error`, or of a set whose members carry fields, is a
   view of the error where it is, and a write match's a write view, so
