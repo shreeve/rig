@@ -259,12 +259,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
-- **`return if c` takes block branches.** An `if` right after `return`
-  or `break`, whose line ends with a deeper line below it, opens a
-  block and is the jump's value, as `return match` is and as SPEC
-  ("Block expressions") says; it was read as a guard, and the branch
-  below it was "unexpected indentation". With no deeper line below,
-  `return if c` is still a guard.
+- **A guard takes no block.** `return if c`, `break if c`, and every
+  other postfix guard end their statement, and a deeper line after one
+  is rejected at the guard's `if`, with the fix: `return` in each
+  branch, or no `return` where the `if` is the function's last
+  expression. It was "unexpected indentation". A guard's condition
+  still continues on a deeper `.` line.
 - **`text.find` tests 16 places at once.** std.text's `find`, and
   `count`, `contains`, `cut`, `split`, and `lines` through it, find a
   needle of two bytes or more by testing 16 places a match may start at

@@ -5678,9 +5678,9 @@ function's last expression, a binding's value, or a `return` value.
 Every branch must then produce a value of one type (a branch may also
 leave with `return`), so an `if` needs an `else` and a `match` must
 cover every value. The inline ternary `a if c else b` is the one-line
-form. Right after `return` or `break`, an `if` whose branches follow
-on deeper lines is the jump's value; with none below, `return if c`
-is a guard.
+form. After `return` or `break`, an `if` is a guard, never a block:
+a returned `if` is the function's last expression, or the ternary.
+`return match` takes its arms below, since `match` has no guard form.
 
 ```rig
 fun classify(x: Int) -> ?String
@@ -5909,7 +5909,8 @@ its value ([§12](#12-optionals)), and bindings join with `and`
 A simple statement (a call, a binding or assignment, a drop, `return`,
 `break`, or `continue`) that ends with a guard, `if cond`, runs only
 when `cond` holds. The guard covers the whole statement, a `catch`
-handler included ([SYNTAX §10](SYNTAX.md#guards)).
+handler included, and ends it: a deeper line after a guard is rejected
+([SYNTAX §10](SYNTAX.md#guards)).
 
 ### while
 
