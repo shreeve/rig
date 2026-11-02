@@ -18,6 +18,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Topic | What it settled | Records |
 |---|---|---|
 | Function values and compile-time functions (#532) | a plain `fun` value crosses tasks; `fun cap[n: Int] -> Int`, called `cap[8]`, runs in the checker | [functions/](2026-10/functions/) |
+| `return if c` with a block (2026-11-02) | a guard `if` takes no block: #871 made `return if c` with deeper branches the jump's value, and #872 undid it on a panel's review, since the `return` is redundant in a function's tail and the next line decided what `return if x > 0` meant; a deeper line after any guard is rejected at its `if`, with the fix | [return-if/](2026-10/return-if/) |
 | Closure field-path captures (#539) | `\|?@template\|` captures one field | [functions/closure-path-captures.approved.md](2026-10/functions/closure-path-captures.approved.md) |
 | Lazy member tables | built in Trig, measured small (symbols are about a tenth of the heap), removed | [lazy-members/](2026-10/lazy-members/) |
 | Safety checks | every check removed is worth 11.2% on ts-pattern; index tests 8.0%; by site and family | [safety-checks/](2026-10/safety-checks/) |
