@@ -1,0 +1,6 @@
+rig e10087dd8 (the full suite's ReleaseSafe build; sources as main 5e2dd0d7a) trig 07e4447
+d22876844850dd43e0c58ae85b31c13af25dc8d79c32dcd19e1d9368d695fae3  rig
+25b1a5c4ce1bcf11149ac0c2d0be577f5e6177105f6b72a9b8860f71ae02ebd5  trig (Trig main PGO; aa is a copy)
+065748a90da1ffd6016b000bd03119b6ac2ddbf3aa07f8194e19cf827770d766  nolib (Trig main PGO without the three lib references)
+d0bd720c20e9900764811bb0f36e46d2d56916d3048e768053919d40db02a194  tsrs 0.18.0-ts7.1.0-dev.20260929 (npm @tsrs/linux-x64-gnu, tarball sha1 67d15cd06d005d8ffbe8a0a28796871a4aca6110)
+tsc at Trig's pin 655f0268afaa43cde07b65b39782688463a99517

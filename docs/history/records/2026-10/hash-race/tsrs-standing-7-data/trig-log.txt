@@ -1,0 +1,15 @@
+07e4447 Merge pull request #240 from shreeve/parse-tsrs3
+e5627bf Merge pull request #239 from shreeve/parallel-bind
+2579448 Merge pull request #238 from shreeve/exit-after-output
+e16d590 results: parse pass 3's A/B on pup
+5f04474 parser: identifiers scanned 16 bytes at a time, union constituents called directly
+da7254f compiler: bind each file in a task with more than one checker
+396a791 trig: end after the output in a release build
+fb60a18 Merge pull request #236 from shreeve/parse-tsrs2
+2c31d0b results: parse pass 2's A/B on pup
+fc0c775 parser: scan, rewind and comment closes shaped as tsrs's
+a1cd16c Merge pull request #237 from shreeve/typed-ids-note
+e7a63f8 research: the AST's node records on a Table per file, measured and stopped
+4bc7a9a Merge pull request #235 from shreeve/typed-ids
+332f6df results: the checker's hot id stores on Tables
+e824826 research: the checker's hot id stores on Tables, measured
