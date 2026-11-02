@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Times `text.find` built by two rigs: bench/text/time.rig, built with
+`--release` by BASE and by NEW, run in turns ROUNDS times on FILE, each
+case's fastest time kept.
+
+usage: bench/text/bench-text BASE_RIG NEW_RIG FILE [ROUNDS]
+
+FILE is a text of 8 KiB or more (lib.dom.d.ts from TypeScript's lib
+files, 2.4 MB, for the numbers in README.md). Run it through tools/low
+on a quiet machine.
+"""
+import os
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def build(rig, out, name):
+    exe = os.path.join(out, name)
+    env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, name + "-out"))
+    subprocess.run([rig, "build", "--release", "-o", exe, os.path.join(HERE, "time.rig")], check=True, env=env)
+    return exe
+
+
+def run(exe, path):
+    out = subprocess.run([exe, path], capture_output=True, text=True, check=True).stdout
+    times = {}
+    for line in out.splitlines():
+        size, k, kind, ns = line.split()
+        times[size, k, kind] = float(ns)
+    return times
+
+
+def main():
+    if len(sys.argv) < 4:
+        sys.exit(__doc__.strip())
+    base_rig, new_rig, path = sys.argv[1:4]
+    rounds = int(sys.argv[4]) if len(sys.argv) > 4 else 5
+    with tempfile.TemporaryDirectory() as out:
+        exes = [build(base_rig, out, "base"), build(new_rig, out, "new")]
+        best = [{}, {}]
+        for r in range(rounds):
+            for j in ((0, 1) if r % 2 == 0 else (1, 0)):
+                for key, ns in run(exes[j], path).items():
+                    best[j][key] = min(ns, best[j].get(key, ns))
+    size_of = os.path.getsize(path)
+    print("%-8s %3s %-6s %12s %12s  %s" % ("text", "pat", "case", "base ns", "new ns", "change"))
+    for key in best[0]:
+        size, k, kind = key
+        b, n = best[0][key], best[1][key]
+        word = "faster" if n <= b else "slower"
+        pct = (b / n - 1) * 100 if n <= b else (n / b - 1) * 100
+        label = "whole" if int(size) == size_of else size + " B"
+        print("%-8s %3s %-6s %12.1f %12.1f  %.1f%% %s" % (label, k, kind, b, n, pct, word))
+
+
+main()

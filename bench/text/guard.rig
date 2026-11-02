@@ -1,0 +1,114 @@
+# The rows bench/text/guard.py holds to a baseline. `guard ROW REPS`
+# builds its text once, then does ROW's searches REPS times and prints a
+# check, so two runs of one row differ only in the repeated loop. The
+# text is 1 MiB of declarations in the manner of lib.dom.d.ts, made from
+# a fixed list of words by a fixed sequence of random numbers, and holds
+# no `q`: each needle a row misses has a `q` among common letters, so its
+# first and last bytes still meet candidates.
+
+use std.hint
+use std.os
+use std.text
+
+SIZE = 1 << 20
+
+WORDS = ["interface ", "readonly ", "string", "number", "boolean", "void", "(", ")", ": ", ";\n",
+  "    ", "HTMLElement", "Event", "extends ", "addEventListener", "options", "type ", "<K>",
+  "this", "listener", " | ", "undefined", "[]", "name", "value", "declare ", "var ", "new ",
+  "prototype", "{\n", "}\n", "Element", "Node", "Document", "Window", "readonly length: number;\n"]
+
+obj Rand
+  x: Int
+
+  fun next(!@) -> Int
+    @x = @x *% 6364136223846793005 +% 1442695040888963407
+    (@x >> 33) & 0x7FFFFFFF
+
+# The text, its last bytes a line no other line repeats.
+called fun corpus() -> String
+  s = String()
+  !s.reserve(SIZE + 64)
+  rnd = Rand(x: 5)
+  while s.len < SIZE
+    for b in WORDS[(!rnd).next() % WORDS.len]
+      !s.push(b)
+  for b in "interface Last { end: never; }\n"
+    !s.push(b)
+  s
+
+# `find` of a 3-byte needle in windows of 32 bytes at scattered offsets:
+# the short searches of a tokenizer, some hits and some misses.
+called fun short(s: ?String, reps: Int) -> Int
+  sum = 0
+  for _ in 0..reps
+    for i in 0..1000
+      o = (i * 7919) % (s.len - 32)
+      sum += text.find(s[o..o + 32], "ing") ?? -1
+  sum
+
+# `find` of a newline from each line's start through 4 KiB: the walk of
+# `text.lines`.
+called fun line(s: ?String, reps: Int) -> Int
+  sum = 0
+  for _ in 0..reps
+    o = 0
+    for _ in 0..1000
+      o = 0 if o + 4096 > s.len else o
+      end = text.find(s[o..o + 4096], "\n") ?? 4096
+      sum += end
+      o += end + 1
+  sum
+
+# `find` of a 12-byte needle that is not there, in windows of 4 KiB.
+called fun medium(s: ?String, reps: Int) -> Int
+  sum = 0
+  for _ in 0..reps
+    for i in 0..100
+      o = (i * 7919) % (s.len - 4096)
+      sum += text.find(s[o..o + 4096], "HTMLElemqnt;") ?? -1
+  sum
+
+# One `find` over the whole text of a needle that is not there.
+called fun long(s: ?String, pat: ?String, reps: Int) -> Int
+  sum = 0
+  for _ in 0..reps
+    hint.keep(?s)  # so no search is moved out of the loop
+    sum += text.find(s, pat) ?? -1
+  sum
+
+# `count` of a word over the whole text.
+called fun counts(s: ?String, reps: Int) -> Int
+  sum = 0
+  for _ in 0..reps
+    hint.keep(?s)
+    sum += text.count(s, "string")
+  sum
+
+sub main()
+  args = os.args()
+  if args.len < 3
+    print("usage: guard ROW REPS")
+    return
+  reps = text.parse_int(args[2]) catch 1
+  row = args[1]
+  s = corpus()
+  if row == "short"
+    print(short(s, reps))
+  else if row == "line"
+    print(line(s, reps))
+  else if row == "medium-miss"
+    print(medium(s, reps))
+  else if row == "long-1-miss"
+    print(long(s, "q", reps))
+  else if row == "long-3-miss"
+    print(long(s, "eqe", reps))
+  else if row == "long-12-miss"
+    print(long(s, "HTMLElemqnt;", reps))
+  else if row == "long-40-miss"
+    print(long(s, "readonly length: numbqr;\n    interface ", reps))
+  else if row == "long-hit"
+    print(long(s, "{ end: never; }", reps))
+  else if row == "count"
+    print(counts(s, reps))
+  else
+    print("guard: no row", row)

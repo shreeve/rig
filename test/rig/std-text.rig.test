@@ -386,6 +386,128 @@ test "text edit distance", '''
       bad += 1 if full != text.edit_distance(b, a, !row) else 0
   print(bad, row.len > 0)
 
+test "text find every place", release: true, '''
+  0 none 0 1 none
+  13 13 none
+  0
+  0
+'''
+  # std.text's `find` and `count` against plain loops. A needle of 1 to
+  # 20 bytes is put at every place in texts of 0 to 100 bytes (and in
+  # none), after a near miss: its first and last bytes with others
+  # between, so the 16 places tested at once meet every alignment, the
+  # tail that tests the last 16 places again, and the texts shorter than
+  # 16 bytes. Random texts of two letters make many partial matches; a
+  # text of 70,000 bytes is long enough to be searched by the needle's
+  # rarest bytes. Each case that differs prints itself; the last lines
+  # count them.
+
+  obj Rand
+    x: Int
+
+    fun next(!@) -> Int
+      @x = @x *% 6364136223846793005 +% 1442695040888963407
+      (@x >> 33) & 0x7FFFFFFF
+
+  fun plain(s: ?String, pat: ?String) -> Int
+    return -1 if pat.len > s.len
+    for i in 0..s.len - pat.len + 1
+      return i if s[i..i + pat.len] == pat
+    -1
+
+  fun plain_count(s: ?String, pat: ?String) -> Int
+    n = 0
+    i = 0
+    while i + pat.len <= s.len
+      if s[i..i + pat.len] == pat
+        n += 1
+        i += pat.len
+      else
+        i += 1
+    n
+
+  fun differs(s: ?String, pat: ?String) -> Int
+    got = text.find(s, pat) ?? -1
+    want = plain(s, pat)
+    n = text.count(s, pat)
+    m = plain_count(s, pat)
+    return 0 if got == want and n == m
+    print("len", s.len, "pat", pat.len, "got", got, "want", want, "count", n, m)
+    1
+
+  fun needle(k: Int) -> String
+    pat = String()
+    for j in 0..k
+      !pat.push(U8(0x41 + j % 7))
+    pat
+
+  # The needle at `p` in a text of `n` bytes of `.`, after a near miss
+  # ending at `p - 1`.
+  fun planted(pat: ?String, n: Int, p: Int) -> String
+    s = String()
+    for j in 0..n
+      if p >= 0 and j >= p and j < p + pat.len
+        !s.push(pat[j - p])
+      else if p >= 0 and j < p and j >= p - pat.len
+        q = j - (p - pat.len)
+        !s.push(pat[q] if q == 0 or q == pat.len - 1 else 0x7A)
+      else
+        !s.push(0x2E)
+    s
+
+  fun sweep() -> Int
+    bad = 0
+    for k in [1, 2, 3, 4, 5, 8, 15, 16, 17, 20]
+      pat = needle(k)
+      for n in 0..101
+        for p in -1..n - k + 1
+          bad += differs(planted(?pat, n, p), ?pat)
+    bad
+
+  fun random(rnd: !Rand) -> Int
+    bad = 0
+    for _ in 0..3000
+      n = (!rnd).next() % 101
+      s = String()
+      for _ in 0..n
+        !s.push(U8(0x61 + (!rnd).next() % 2))
+      k = 1 + (!rnd).next() % 12
+      pat = String()
+      for _ in 0..k
+        !pat.push(U8(0x61 + (!rnd).next() % 2))
+      bad += differs(?s, ?pat)
+    bad
+
+  # A long text of common bytes with the needle's rare bytes scattered
+  # in it, and the needle at every place near its end; its `x` is the
+  # text's only one, a needle of one byte found past the first 4 KiB.
+  fun long_text() -> Int
+    bad = 0
+    pat = "e Qe; zxe"
+    for p in 69980..69992
+      s = String()
+      for j in 0..70000
+        if j >= p and j < p + pat.len
+          !s.push(pat[j - p])
+        else if j % 97 == 0
+          !s.push(0x51)
+        else if j % 89 == 0
+          !s.push(0x7A)
+        else
+          !s.push(0x65 if j % 3 == 0 else 0x20)
+      bad += differs(?s, pat)
+      bad += differs(?s, "Qe; z")
+      bad += differs(?s, "e Qe; zxe!")
+      bad += differs(?s, "x")
+      bad += differs(?s, "#")
+    bad
+
+  print(text.find("", ""), text.find("", "a"), text.find("abc", ""), text.count("abc", "abc"), text.find("abc", "abcd"))
+  print(text.find("0123456789abcdefg", "defg"), text.find("0123456789abcdefg", "d"), text.find("0123456789abcdefg", "defh"))
+  print(sweep())
+  rnd = Rand(x: 11)
+  print(random(!rnd) + long_text())
+
 test "text find any", release: true, '''
   4 7 9 -1
   -1 -1 -1

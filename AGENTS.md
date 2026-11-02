@@ -196,7 +196,9 @@ until its rule is built. docs/internals/tests.md has the rest.
    gain on Trig alone does not show that it did not. It shows the
    built-in tables' numbers the same way: `bench/hash/guard.py`, within
    2% of its `guard.txt` on every row for `Map` and `HashMap`, so a
-   speed won on the tables stays won. A change meant to move a row
+   speed won on the tables stays won, and std.text's search the same
+   way: `bench/text/guard.py`, within 2% of its `guard.txt` on every
+   row. A change meant to move a row
    commits the new baseline with `--update` and says why in its PR.
 7. **PR,** opened early as a draft whose body is a checklist of the
    steps, the gates among them; `gh pr ready` when done. Commit only
