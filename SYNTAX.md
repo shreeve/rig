@@ -1247,6 +1247,34 @@ sub main()
 -1
 ```
 
+`return if c` and `break if c` are guards when nothing deeper follows
+them. With deeper lines below, the `if` opens a block, as it does on any
+other line, and its value is the jump's value, as `return match` is:
+
+```rig
+fun sign(x: Int) -> ?String
+  return if x > 0
+    "positive"
+  else if x < 0
+    "negative"
+  else
+    "zero"
+
+sub show(x: Int)
+  return if x < 0
+  print(sign(x))
+
+sub main()
+  show(3)
+  show(-2)
+  show(0)
+```
+
+```output
+positive
+zero
+```
+
 ### while
 
 ```rig

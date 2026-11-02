@@ -247,7 +247,7 @@ class Results:
         # The code that runs a program and judges it, the limits it runs
         # under, and every RIG_ setting (a runtime knob, such as
         # RIG_SANITIZE_BLOCKS, or one a program reads).
-        verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH, MALFORMED, KNOWN_MALFORMED)]
+        verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH, MALFORMED)]
         settings = sorted("%s=%s" % kv for kv in os.environ.items() if kv[0].startswith("RIG_") and not RIG_LOCATIONS.match(kv[0]))
         self.fixed = fixed_inputs()
         self.base = sha256("rig results 2 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB, CAP_MODE,
@@ -302,9 +302,6 @@ CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
 # program never binds. A cell rejected so is a program the generator got
 # wrong, which proves nothing about the rule it stands for.
 MALFORMED = re.compile(r"unexpected |use of unbound name ")
-# The cells a known compiler gap rejects so, each in docs/internals/backlog.md:
-# `return if c` with block branches, which SPEC ("Block expressions") allows.
-KNOWN_MALFORMED = re.compile(r"\.return\.if_as$|\.tail_(if|nested)_result_(plain|defer)\.call$")
 
 # -----------------------------------------------------------------------------
 # Types: the type's spelling, declarations it needs, how `mk(n)` makes a
@@ -4089,7 +4086,7 @@ def run_one(path, keep, started_dir, expect=None, release=False):
             return "fail", "rejected, but must be accepted: " + first_error(out)
         if POS.search(out):
             why = first_error(out)
-            if MALFORMED.match(why) and not KNOWN_MALFORMED.search(os.path.basename(path)[:-4].replace("__", ".")):
+            if MALFORMED.match(why):
                 return "fail", "rejected as a malformed program, not by a rule: " + why
             return "rejected", why
         return "fail", "rejected without file:line:col: " + first_line(out)
