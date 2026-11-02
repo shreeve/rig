@@ -1,0 +1,123 @@
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 8b4364788..7f537f51f 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -72,6 +72,8 @@ comptime {
+         owner_lost,
+         spare_heaps,
+         spare_lock,
++        report_heaps,
++        report_heap_count,
+     };
+ }
+ 
+@@ -1208,6 +1210,7 @@ fn newHeap() ?*Heap {
+     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
+     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
+     h.* = .{};
++    registerHeap(h);
+     if (check_owner) h.owner = threadToken();
+     my_heap().* = h;
+     return h;
+@@ -2011,3 +2014,89 @@ test "every large size is its bucket's size" {
+         try std.testing.expect(k == 0 or largeBucket(size - 1) < k);
+     }
+ }
++
++// -----------------------------------------------------------------------------
++// Measurement only: what each heap holds at exit (RIG_HEAP_REPORT=1)
++// -----------------------------------------------------------------------------
++
++var report_heaps_var: [256]*Heap = undefined;
++const report_heaps = split.cell(&report_heaps_var, "alloc.report_heaps");
++var report_heap_count_var: std.atomic.Value(usize) = .init(0);
++const report_heap_count = split.cell(&report_heap_count_var, "alloc.report_heap_count");
++
++fn registerHeap(h: *Heap) void {
++    const i = report_heap_count.fetchAdd(1, .monotonic);
++    if (i < 256) report_heaps[i] = h;
++}
++
++/// The bytes of [start, start + len) that are resident (mincore).
++fn residentBytes(start: usize, len: usize) usize {
++    const ps = std.heap.pageSize();
++    var vec: [4096]u8 = undefined;
++    var at = start;
++    var res: usize = 0;
++    while (at < start + len) {
++        const n = @min((start + len - at) / ps, vec.len);
++        if (n == 0) break;
++        if (builtin.os.tag == .linux) {
++            if (std.os.linux.mincore(@ptrFromInt(at), n * ps, &vec) != 0) return 0;
++        } else if (std.c.mincore(@ptrFromInt(at), n * ps, &vec) != 0) return 0;
++        for (vec[0..n]) |v| {
++            if (v & 1 != 0) res += ps;
++        }
++        at += n * ps;
++    }
++    return res;
++}
++
++fn listBytes(first: ?*Block, size: usize) usize {
++    var n: usize = 0;
++    var b = first;
++    while (b) |x| : (b = x.next) n += size;
++    return n;
++}
++
++fn reportMib(n: usize) f64 {
++    return @as(f64, @floatFromInt(n)) / (1024.0 * 1024.0);
++}
++
++pub fn report() void {
++    if (builtin.os.tag != .linux and std.c.getenv("RIG_HEAP_REPORT") == null) return;
++    const count = @min(report_heap_count.load(.monotonic), 256);
++    const end = region_next.load(.monotonic);
++    const start = if (region_end.* != 0) region_end.* - region_size else 0;
++    std.debug.print("@@heap  segs  handed  resident  freelist  remote  carveleft  large-live  kept  kept-res  cold\n", .{});
++    var t: [10]usize = @splat(0);
++    for (report_heaps[0..count], 0..) |h, i| {
++        var segs: usize = 0;
++        var handed: usize = 0;
++        var res: usize = 0;
++        if (start != 0) {
++            var a = start;
++            while (a + segment_size <= end) : (a += segment_size) {
++                const seg: *Segment = @ptrFromInt(a);
++                if (seg.heap != h) continue;
++                segs += 1;
++                handed += seg.used * page_size;
++                res += residentBytes(a, segment_size);
++            }
++        }
++        var fl: usize = 0;
++        var rem: usize = 0;
++        var carve: usize = 0;
++        for (0..class_count) |c| {
++            fl += listBytes(h.free[c], classSize(c));
++            rem += listBytes(h.remote[c].load(.monotonic), classSize(c));
++            if (h.carve_end[c] > h.carve[c]) carve += h.carve_end[c] - h.carve[c];
++        }
++        var kept_res: usize = 0;
++        for (h.kept.large) |first| {
++            var f = first;
++            while (f) |x| : (f = x.next) kept_res += residentBytes(@intFromPtr(x), x.len);
++        }
++        const row = [_]usize{ segs, handed, res, fl, rem, carve, h.large_live, h.kept.bytes, kept_res, h.cold.bytes };
++        for (row, 0..) |v, k| t[k] += v;
++        std.debug.print("@@heap {d:>2} {d:>3} {d:>7.1} {d:>7.1} {d:>7.1} {d:>6.1} {d:>6.1} {d:>7.1} {d:>6.1} {d:>6.1} {d:>6.1}\n", .{ i, segs, reportMib(handed), reportMib(res), reportMib(fl), reportMib(rem), reportMib(carve), reportMib(h.large_live), reportMib(h.kept.bytes), reportMib(kept_res), reportMib(h.cold.bytes) });
++    }
++    std.debug.print("@@heap all {d:>3} {d:>7.1} {d:>7.1} {d:>7.1} {d:>6.1} {d:>6.1} {d:>7.1} {d:>6.1} {d:>6.1} {d:>6.1}\n", .{ t[0], reportMib(t[1]), reportMib(t[2]), reportMib(t[3]), reportMib(t[4]), reportMib(t[5]), reportMib(t[6]), reportMib(t[7]), reportMib(t[8]), reportMib(t[9]) });
++}
+diff --git i/src/runtime.zig w/src/runtime.zig
+index 1ca31aedb..bfeff463c 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -7441,6 +7441,7 @@ pub fn exitNow(code: Int) noreturn {
+     const status = exitStatus(code);
+     lockOutput();
+     flush();
++    fast_alloc.report();
+     endProcess(status);
+ }
+ 
