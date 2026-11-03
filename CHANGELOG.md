@@ -265,6 +265,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`terminal.Terminal.new` panics on a size that is not positive.**
+  A terminal of no columns looped forever at its first `feed`, and one
+  of no rows panicked deep in `print`; `new` panics at once, naming its
+  arguments.
 - **std's argument panics are Rig's `panic`.** std.text, std.bigint,
   std.math, and std.random raised the panics of a misused argument (an
   empty separator, a negative shift, an empty range) from Zig shims;

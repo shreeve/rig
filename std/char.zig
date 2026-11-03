@@ -120,7 +120,11 @@ fn widthOf(s: []const u8, i: usize, end: usize) i64 {
 /// The class of rune `r`, a code point; with `tailored`, Ghostty's.
 fn classOf(r: u21, tailored: bool) Class {
     const c = tables.of(r);
-    if (!tailored) return c;
+    return if (tailored) tailor(c, r) else c;
+}
+
+/// Class `c` of rune `r`, tailored as Ghostty's.
+fn tailor(c: Class, r: u21) Class {
     return switch (c) {
         .extend, .incb_extend => if (tables.isEmojiModifier(r)) .emoji_modifier else c,
         .pict => if (tables.isEmojiBase(r)) .emoji_base else c,
@@ -129,13 +133,17 @@ fn classOf(r: u21, tailored: bool) Class {
     };
 }
 
+/// `r` as a code point: U+FFFD when it is not a rune.
+fn runeOf(r: i64) u21 {
+    return if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
+}
+
 /// One step of a char break read a rune at a time (`text.CharBreak`):
 /// from `state`, the state after the runes so far (negative before the
 /// first), the state after rune `r`, with bit 7 set when a char starts at
 /// `r`. A value that is not a rune reads as U+FFFD.
 pub fn char_step(state: i64, r: i64, tailored: bool) i64 {
-    const cp: u21 = if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
-    const c = classOf(cp, tailored);
+    const c = classOf(runeOf(r), tailored);
     if (state < 0) return dfa.start[@intFromEnum(c)] | Dfa.split;
     return step(@truncate(@as(u64, @bitCast(state))), c);
 }
@@ -145,26 +153,19 @@ pub fn char_step(state: i64, r: i64, tailored: bool) i64 {
 /// in mode 2027, from one lookup of the width table, which holds the char
 /// class too.
 pub fn char_step_width(state: i64, r: i64) i64 {
-    const cp: u21 = if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
+    const cp = runeOf(r);
     const e = widths.entry(cp);
     const w: i64 = e & 3;
-    // The class in the width table's high bits, tailored as classOf does.
-    const plain: Class = @enumFromInt(@as(u4, @truncate(e >> 4)));
-    const c: Class = switch (plain) {
-        .extend, .incb_extend => if (tables.isEmojiModifier(cp)) .emoji_modifier else plain,
-        .pict => if (tables.isEmojiBase(cp)) .emoji_base else plain,
-        .control => .other,
-        else => plain,
-    };
+    // The class in the width table's high bits, tailored.
+    const c = tailor(@enumFromInt(@as(u4, @truncate(e >> 4))), cp);
     const next: i64 = if (state < 0) dfa.start[@intFromEnum(c)] | Dfa.split else step(@truncate(@as(u64, @bitCast(state))), c);
     return next | (w << 8);
 }
 
-/// The class of rune `r` as `char_step` with `tailored` reads it, by its
-/// number in `Class`.
-pub fn char_class(r: i64, tailored: bool) i64 {
-    const cp: u21 = if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
-    return @intFromEnum(classOf(cp, tailored));
+/// Whether rune `r` is of the tailored class `pict`: Extended_Pictographic,
+/// but no emoji modifier base.
+pub fn is_pict(r: i64) bool {
+    return classOf(runeOf(r), true) == .pict;
 }
 
 // ---- Runes -----------------------------------------------------------------
