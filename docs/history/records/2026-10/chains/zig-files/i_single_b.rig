@@ -1,0 +1,84 @@
+use std.time
+
+fun hand(xs: []Int) -> Int
+  best: Int? = none
+  bk = 0
+  for x in xs
+    if x % 3 != 0
+      k = (x * 7919) % 1000003
+      if best == none or k < bk
+        best = x
+        bk = k
+  best ?? -1
+
+fun single_a(xs: []Int) -> Int
+  r = while true
+    f1 = |x: Int| x % 3 != 0
+    k1 = |x: Int| (x * 7919) % 1000003
+    best: Int? = none
+    bk: Int? = none
+    for x in xs
+      if f1(x)
+        k = k1(x)
+        if best == none or k < bk ?? k
+          best = x
+          bk = k
+    break best
+  r ?? -1
+
+fun single_b(xs: []Int) -> Int
+  r = while true
+    f1 = |x: Int| x % 3 != 0
+    k1 = |x: Int| (x * 7919) % 1000003
+    best: Int? = none
+    bk: Int? = none
+    for x in xs
+      if f1(x)
+        k = k1(x)
+        if bk as b and not (k < b)
+          continue
+        best = x
+        bk = k
+    break best
+  r ?? -1
+
+fun peel(xs: []Int) -> Int
+  r: Int? = while true
+    f1 = |x: Int| x % 3 != 0
+    k1 = |x: Int| (x * 7919) % 1000003
+    i = 0
+    first: Int? = none
+    while i < xs.len
+      x = xs[i]
+      i += 1
+      if f1(x)
+        first = x
+        break
+    b0 = first ?? break none
+    new best = b0
+    new bk = k1(b0)
+    for x in xs[i..]
+      if f1(x)
+        k = k1(x)
+        if k < bk
+          best = x
+          bk = k
+    break best
+  r ?? -1
+
+sub main()
+  xs = List[Int]()
+  for i in 0..1000000
+    !xs.push((i * 31337) % 999983)
+  best = 0
+  check = 0
+  for round in 0..15
+    t = time.now()
+    acc = 0
+    for _ in 0..20
+      acc += single_b(xs)
+    dt = t.elapsed()
+    if round == 0 or dt < best
+      best = dt
+    check = acc
+  print("single_b", best / 1000, "us", check)

@@ -1,0 +1,55 @@
+obj Image
+  id: Int
+  name: String
+
+obj Rendered
+  image: Image
+
+enum State
+  loading
+  ready(rendered: Rendered?)
+
+obj Entry
+  state: State
+  touched: Int
+  bytes: Int
+
+obj Cache
+  entries: Map[String, Entry]
+  bytes: Int
+  retired: List[Image]
+  sub trim(!@)
+    while @entries.len > 2 or @bytes > 100
+      f1 = |e| e.value.state matches .ready(_)
+      k1 = |e| e.value.touched
+      h = ?@entries.items()
+      first = for e in !h
+        if f1(e)
+          break e
+      else
+        none
+      oldest = while true
+        b0 = first ?? break none
+        new best = b0
+        new bk = k1(b0)
+        for e in !h
+          if f1(e)
+            kk = k1(e)
+            if kk < bk
+              best = e
+              bk = kk
+        break best
+      o = oldest ?? break
+      key = +o.key
+      entry = !@entries.take(key) ?? break
+      @bytes -= entry.bytes
+      if <entry.state matches .ready(rendered?)
+        !@retired.push(<rendered.image)
+sub main()
+  c = Cache(entries: Map[String, Entry](), bytes: 0, retired: List[Image]())
+  names = ["a", "b", "c", "d", "e", "f"]
+  for n, i in names
+    !c.entries.put(String(n), Entry(state: State.ready(rendered: Rendered(image: Image(id: i, name: String(n)))), touched: 10 - i, bytes: 30))
+    c.bytes += 30
+  (!c).trim()
+  print(c.entries.len, c.bytes, c.retired.len)

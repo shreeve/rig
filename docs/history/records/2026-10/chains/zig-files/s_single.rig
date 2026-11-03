@@ -1,0 +1,55 @@
+use std.time
+
+fun hand(xs: []U64) -> U64
+  acc: U64 = 0
+  for x in xs
+    if x % 3 != 0
+      acc +%= x * x
+  acc
+
+fun single(xs: []U64) -> U64
+  r = while true
+    f1 = |x: U64| x % 3 != 0
+    m1 = |x: U64| x * x
+    acc: U64 = 0
+    for x in xs
+      if f1(x)
+        acc +%= m1(x)
+    break acc
+  r
+
+fun peel(xs: []U64) -> U64
+  r = while true
+    f1 = |x: U64| x % 3 != 0
+    m1 = |x: U64| x * x
+    i = 0
+    first: U64? = none
+    while i < xs.len
+      x = xs[i]
+      i += 1
+      if f1(x)
+        first = m1(x)
+        break
+    new acc = first ?? break 0
+    for x in xs[i..]
+      if f1(x)
+        acc +%= m1(x)
+    break acc
+  r
+
+sub main()
+  xs = List[U64]()
+  for i in 0..1000000
+    !xs.push(U64((i * 31337) % 999983))
+  best = 0
+  check: U64 = 0
+  for round in 0..15
+    t = time.now()
+    acc: U64 = 0
+    for _ in 0..20
+      acc +%= single(xs)
+    dt = t.elapsed()
+    if round == 0 or dt < best
+      best = dt
+    check = acc
+  print("single", best / 1000, "us", check)

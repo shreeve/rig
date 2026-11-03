@@ -1,0 +1,21 @@
+fun c(xs: []U64) -> List[U64]
+  r = for x in xs
+    if x > 100
+      new out = List([x])
+      break <out
+  else
+    List()
+  r
+
+fun f(xs: []U64) -> U64?
+  r = for x in xs
+    if x > 1
+      y: U64? = x
+      break y
+  else
+    none
+  r
+
+sub main()
+  xs = List[U64]([1, 2, 3])
+  print(c(xs), f(xs) ?? 0)
