@@ -12,7 +12,7 @@ and is not updated after the fact, and none is run as a doc test.
 - `revamp/`: the records of the revamp rounds before them (reports, designs, studies), as they were kept in `.git/revamp/`, and the consolidation that followed them ([consolidation.md](revamp/consolidation.md)).
 - `simd/`: how `Simd[T, n]` was designed and measured: the approved proposal ([simd-proposal.md](simd/simd-proposal.md)), its decisions and rounds ([simd.md](simd/simd.md)), what Zig 0.17's `@Vector` compiles to on each target ([simd-lowering.md](simd/simd-lowering.md)), the Apple silicon opcodes and the Rig operation that reaches each ([simd-opcodes.md](simd/simd-opcodes.md)), and the Zig probes behind them ([zig/](simd/zig/)).
 
-Bulk data (profiles, build trees, source snapshots, probe programs) is not kept here; each report summarizes what its data showed. Raw data a record cites but does not keep is on pup, in `/zfs/trig-pup/records-data/`.
+A record keeps its report and the small text data behind it: timings, counts, scripts, and probe programs. Binaries, build output, profiles, source snapshots, and any file over 1 MB are not kept here; each report summarizes what that data showed, and raw data a record cites but does not keep is on pup, in `/zfs/trig-pup/records-data/`.
 
 ## 2026-10: the rounds of 2026-10-21 and 22
 
