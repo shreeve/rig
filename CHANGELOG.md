@@ -2303,16 +2303,14 @@ first step is on `main` (SPEC §18):
   its tasks after a panic, sleep until woken rather than spin on a
   yield, so neither burns a core, and a deterministic run (`rig test`)
   reaches the timers that end them.
-- **`task.check()` yields only when work waits for its core**, as a
-  loop's yield check does: a lone task calling it a million times no
-  longer wakes a sleeping worker on each call (0.05 s to under 0.01 s
-  with ten workers). A yield wakes a sleeping worker only when other
-  work waits behind it, and closing a socket kicks the poller only when
-  a worker sleeps in it. In a deterministic run (`rig test --seeds`),
-  `task.check()` yields by the seed's coin, as a loop's check does, and
-  every yield check wakes the timers the virtual clock has reached, so
-  a seeded run's interleavings, and output that depends on them, may
-  differ from before.
+- **A yield wakes a sleeping worker only when other work waits behind
+  it**, so a lone task calling `task.check()` a million times no longer
+  wakes one on each call (0.05 s to 0.02 s with ten workers, and no
+  system time), and closing a socket kicks the poller only when a
+  worker sleeps in it. In a deterministic run (`rig test --seeds`),
+  every loop's yield check wakes the timers the virtual clock has
+  reached, so a seeded run's interleavings, and output that depends on
+  them, may differ from before.
 - **`http.serve` and a `Tasks[Void]` set find their ended tasks at once**,
   from the list those tasks join as they end, rather than looking at
   every task alive on each accept or `add`. Such a set allocates that

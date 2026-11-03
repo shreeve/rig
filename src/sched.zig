@@ -91,17 +91,8 @@ pub const Fiber = struct {
     home: ?*Worker = null,
 };
 
-/// Where a task that panicked under a boundary leaves its stack: `take`
-/// is given it as the task ends, `left` is told once the task has
-/// switched off it for good (`Header.end`), and the boundary gives it
-/// back (`giveStack`) once the tasks that may read its frames have ended
-/// (`tasks.Isolate`).
-pub const Keep = struct {
-    take: *const fn (*Keep, Stack) void,
-    left: *const fn (*Keep) void,
-};
-
-/// Give back a stack a `Keep` was given, to the running worker.
+/// Give back a stack a task that panicked left to its boundary
+/// (`abandon`, `tasks.Isolate`), to the running worker.
 pub fn giveStack(s: Stack) void {
     releaseStack(me().?, s);
 }
@@ -269,7 +260,7 @@ pub fn wake(f: *Fiber) void {
     const before = w.lifo.swap(f, .seq_cst);
     if (before) |b| {
         if (b.home != null) w.pinned.push(b) else {
-            w.ring.push(b);
+            _ = w.ring.push(b);
             return notifyNew();
         }
     }
@@ -279,14 +270,20 @@ pub fn wake(f: *Fiber) void {
     if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
 }
 
-/// Make `f` ready to run after the fibers already ready on this worker.
-/// A fiber yields only when other work waits (`tick`), which a sleeping
-/// worker may take meanwhile.
+/// Make `f` ready to run after the fibers already ready on this worker,
+/// waking a sleeping worker only when other work waits here, ahead of
+/// `f`, which one could take meanwhile: a fiber alone, as a lone task's
+/// `task.check()` yields, runs again next.
 fn wakeLast(f: *Fiber) void {
     if (deterministic.*) return wake(f);
     if (f.home) |home| return wakeHome(f, home);
-    if (me()) |w| w.ring.push(f) else global.push(f);
-    notify();
+    const w = me() orelse {
+        global.push(f);
+        return notify();
+    };
+    // Only these could another worker take: pinned fibers stay, and the
+    // global queue's push wakes one itself.
+    if (w.ring.push(f) or w.lifo.load(.monotonic) != null) notify();
 }
 
 /// Queue the pinned fiber `f` on its worker, and wake that worker if it
@@ -379,14 +376,14 @@ fn claimWaiting(w: *Worker) void {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
-            w.ring.push(f);
+            _ = w.ring.push(f);
             return yield();
         }
     }
     for (workers.*) |*v| {
         if (v == w) continue;
         if (takeNext(v)) |f| {
-            w.ring.push(f);
+            _ = w.ring.push(f);
             return yield();
         }
     }
@@ -2000,7 +1997,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot().* = &workers.*[0];
-    if (deterministic.*) wake(&m.fiber) else workers.*[0].ring.push(&m.fiber);
+    if (deterministic.*) wake(&m.fiber) else _ = workers.*[0].ring.push(&m.fiber);
     loop(&workers.*[0]);
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
@@ -2156,7 +2153,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 }
 
 /// The fiber `f` has switched away for good: its stack, unless a panic
-/// left it elsewhere (`Keep`), goes back to `w`.
+/// left it elsewhere (`abandon`), goes back to `w`.
 fn endStack(w: *Worker, f: *Fiber) void {
     const s = f.stack orelse return;
     f.stack = null;
@@ -2197,7 +2194,7 @@ fn next(w: *Worker) ?*Fiber {
         }
         // Run a fiber from the ring first, and leave this one to be
         // stolen meanwhile.
-        if (f.home != null) w.pinned.push(f) else w.ring.push(f);
+        if (f.home != null) w.pinned.push(f) else _ = w.ring.push(f);
     };
     w.lifo_streak = 0;
     // Pinned fibers and the ring take turns first, so neither keeps the
@@ -2433,16 +2430,16 @@ const Ring = struct {
         return r.head.load(.seq_cst) == r.tail.load(.seq_cst);
     }
 
-    /// Push `f`; when the ring is full, move half of it, and `f`, to the
-    /// global queue.
-    fn push(r: *Ring, f: *Fiber) void {
+    /// Push `f`, and give whether the ring held others; when it is full,
+    /// move half of it, and `f`, to the global queue.
+    fn push(r: *Ring, f: *Fiber) bool {
         while (true) {
             const t = r.tail.load(.monotonic);
             const h = r.head.load(.acquire);
             if (t -% h < size) {
                 r.slots[t % size].store(f, .monotonic);
                 r.tail.store(t +% 1, .seq_cst);
-                return;
+                return t != h;
             }
             // Full: claim the older half, then hand it over.
             const half = size / 2;
@@ -2456,7 +2453,7 @@ const Ring = struct {
                 batch = g;
             }
             global.pushList(batch.?, half + 1);
-            return;
+            return true;
         }
     }
 
@@ -2482,7 +2479,7 @@ const Ring = struct {
             const n = avail - avail / 2;
             for (0..n) |i| buf[i] = victim.slots[(h +% @as(u32, @intCast(i))) % size].load(.monotonic) orelse return null;
             if (victim.head.cmpxchgWeak(h, h +% n, .acq_rel, .monotonic) != null) continue;
-            for (buf[1..n]) |g| r.push(g);
+            for (buf[1..n]) |g| _ = r.push(g);
             return buf[0];
         }
     }
@@ -2945,17 +2942,14 @@ pub const Header = struct {
     waiter: std.atomic.Value(?*Fiber) = .init(null),
     waiter_epoch: std.atomic.Value(u32) = .init(0),
     destroy: *const fn (*Header) void,
-    /// Where the task, panicked, left its stack (`abandon`).
-    keep: ?*Keep = null,
 
     const running = 0;
     const waited = 1;
     const ending = 2;
     const ended = 3;
 
-    fn end(f: *Fiber) void {
+    pub fn end(f: *Fiber) void {
         const h: *Header = @fieldParentPtr("fiber", f);
-        if (h.keep) |k| k.left(k);
         if (h.status.swap(ending, .seq_cst) == waited) {
             _ = interrupt(h.waiter.load(.seq_cst).?, h.waiter_epoch.load(.seq_cst), false);
         }
@@ -3482,18 +3476,17 @@ pub fn abandonDetached() noreturn {
     finishFiber(current().?);
 }
 
-/// End the running fiber where it stands, its frames left as they are,
-/// and its stack to `keep`: a task that panicked (`tasks.panicked`). Its
-/// record is marked `panicked`, so whoever waits for it learns so.
-pub fn abandon(keep: *Keep) noreturn {
+/// End the running fiber where it stands, its frames left as they are:
+/// a task that panicked (`tasks.panicked`). Its record is marked
+/// `panicked`, so whoever waits for it learns so. Its stack, which the
+/// caller has taken (`f.stack` null), is not given back; `ended` runs in
+/// place of its end once it has switched off that stack for good, and
+/// calls `Header.end` itself. It ends so even when handed its worker.
+pub fn abandon(ended: *const fn (*Fiber) void) noreturn {
     const f = current().?;
-    keep.take(keep, f.stack.?);
-    f.stack = null;
-    // It ends the usual way, through `Header.end`, which tells `keep`,
-    // even when it was handed its worker.
+    f.done = ended;
     f.handoff = null;
     const h: *Header = @fieldParentPtr("fiber", f);
-    h.keep = keep;
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
 }
@@ -4524,7 +4517,7 @@ test "a pinned fiber that resumes away from its home is caught" {
         /// Queue the fiber on the ring of the worker it left, as no wake
         /// of a pinned fiber does: a bug, for the check to catch.
         fn misqueue(f: *Fiber, _: ?*anyopaque) void {
-            me().?.ring.push(f);
+            _ = me().?.ring.push(f);
         }
         fn first(_: *anyopaque) callconv(.c) void {
             const f = current().?;

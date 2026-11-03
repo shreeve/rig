@@ -1215,12 +1215,11 @@ pub const Isolate = struct {
     /// The fiber waiting for its last task to end (`stop`).
     stopper: rt.sched.Waiters = .{},
     /// Tasks under it that panicked and have yet to switch off their
-    /// stacks, and the stacks they left it (`keepStack`), which it gives
+    /// stacks, and the stacks they left it (`panicked`), which it gives
     /// back once every task under it has ended, since those tasks may
     /// read the frames on them (`isolateWith`).
     leaving: u32 = 0,
     kept: std.ArrayList(rt.sched.Stack) = .empty,
-    keep: rt.sched.Keep = .{ .take = keepStack, .left = leftStack },
 
     fn add(self: *Isolate, c: *Control) void {
         self.lock.lock();
@@ -1242,22 +1241,15 @@ pub const Isolate = struct {
         if (self.first == null and self.leaving == 0) _ = self.stopper.wakeAll();
     }
 
-    /// A task that panicked under it leaves it its stack `s`, which it
-    /// still runs on (`rt.sched.Keep`).
-    fn keepStack(k: *rt.sched.Keep, s: rt.sched.Stack) void {
-        const self: *Isolate = @alignCast(@fieldParentPtr("keep", k));
+    /// A task that panicked under it has switched off the stack it left
+    /// it for good (`rt.sched.abandon`): its usual end follows.
+    fn left(f: *rt.sched.Fiber) void {
+        const self = f.state.isolate.?;
         self.lock.lock();
-        defer self.lock.unlock();
-        self.kept.append(std.heap.smp_allocator, s) catch oom();
-    }
-
-    /// That task has switched off its stack for good.
-    fn leftStack(k: *rt.sched.Keep) void {
-        const self: *Isolate = @alignCast(@fieldParentPtr("keep", k));
-        self.lock.lock();
-        defer self.lock.unlock();
         self.leaving -= 1;
         if (self.first == null and self.leaving == 0) _ = self.stopper.wakeAll();
+        self.lock.unlock();
+        rt.sched.Header.end(f);
     }
 
     /// Cancel every task listed, and every one listed later; with
@@ -1386,12 +1378,15 @@ pub fn panicked(iso: *Isolate) noreturn {
     // This task's frames may be lent to tasks under the isolate: its
     // stack goes to the isolate, which gives it back once they have
     // ended, and is counted leaving before the task's end can wake it.
+    const f = rt.sched.current().?;
     iso.lock.lock();
     iso.leaving += 1;
+    iso.kept.append(std.heap.smp_allocator, f.stack.?) catch oom();
+    f.stack = null;
     iso.lock.unlock();
     iso.stop(false);
     if (task().own) |c| c.finish();
-    rt.sched.abandon(&iso.keep);
+    rt.sched.abandon(Isolate.left);
 }
 
 // -----------------------------------------------------------------------------
@@ -2575,13 +2570,14 @@ pub fn setWorkers(n: Int) bool {
 
 /// `task.check()`: a waiting point that waits for nothing. It fails
 /// when the running task is canceled or its deadline has passed, and
-/// otherwise is a yield check (`rt.sched.tick`): it lets other tasks
-/// run when work waits for its worker. In a program that makes no tasks,
-/// it only checks the deadline.
+/// otherwise lets other tasks run (`rt.sched.yield`); a task alone on
+/// its worker runs again at once, waking no other. In a program that
+/// makes none, it only checks the deadline.
 pub fn check() Stop!void {
+    if (rt.sched.deterministic.*) rt.sched.computed();
     if (canceledHere()) return canceled_error;
     if (pastDeadline()) return timeout_error;
-    if (rt.scheduled) rt.sched.tick() else if (rt.sched.deterministic.*) rt.sched.computed();
+    if (rt.scheduled) rt.sched.yield();
 }
 
 /// `time.sleep(ns)`: a waiting point that waits `ns` nanoseconds: the
