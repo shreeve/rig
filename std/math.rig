@@ -80,13 +80,13 @@ pub obj Decimal
 pub fun shortest(f: Float) -> Decimal?
   if f.to_bits() >> 52 & 0x7FF == 0x7FF
     return none
-  Decimal(neg: f.to_bits() >> 63 == 1, digits: shortest_digits(f), exp: shortest_exp(f))
+  d = shortest_bits(f)
+  Decimal(neg: f.to_bits() >> 63 == 1, digits: U64.wrap(d), exp: Int.wrap(U64.wrap(d >> 64)))
 
 extern zig "math.zig"
-  # The digits of `shortest` for a finite `f`.
-  fun shortest_digits(f: Float) -> U64
-  # The exponent of `shortest` for a finite `f`.
-  fun shortest_exp(f: Float) -> Int
+  # The digits of `shortest` for a finite `f` in the low 64 bits, and
+  # its exponent's in the high 64.
+  fun shortest_bits(f: Float) -> U128
 
   # The square root; NaN for a negative `x`.
   pub fun sqrt(x: Float) -> Float

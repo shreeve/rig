@@ -35,7 +35,7 @@ pub obj Random unique
     if lo >= hi
       panic(String("random: empty range ", lo, "..", hi))
     # The number of values, which fits a `U64` even for the widest range.
-    n = as_u64(hi -% lo)
+    n = U64.wrap(hi -% lo)
     # Rejecting the few smallest values leaves a whole number of runs
     # of `n`, so every result is equally likely.
     t = (0 -% n) % n
@@ -43,7 +43,7 @@ pub obj Random unique
     while x < t
       x = (!@).next()
     # `lo` plus less than `n` is below `hi`, so it fits an `Int`.
-    lo +% as_int(x % n)
+    lo +% Int.wrap(x % n)
 
   # A `Float` from 0 up to but not including 1.
   pub fun float(!@) -> Float
@@ -55,15 +55,6 @@ pub obj Random unique
     i = xs.len - 1
     while i > 0 : i -= 1
       !xs.swap(i, (!@).int(0, i + 1))
-
-# The same 64 bits as the other type.
-fun as_u64(n: Int) -> U64
-  raw
-    $bitCast(n)
-
-fun as_int(n: U64) -> Int
-  raw
-    $bitCast(n)
 
 extern zig "random.zig"
   # 64 bits from the operating system's entropy source.

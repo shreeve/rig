@@ -387,10 +387,7 @@ pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) ->
   n = utf8.rune_count(a)
   if max >= 0 and (n - m > max or m - n > max)
     return max + 1
-  while row.len > m + 1
-    _ = !row.pop()
-  while row.len < m + 1
-    !row.push(0)
+  !row.resize(m + 1, 0)
   for k in 0..m + 1
     row[k] = k
   i = 0
@@ -629,11 +626,8 @@ obj IdTable
   sub reset(!@, n: Int)
     !@tags.clear()
     !@at.clear()
-    !@tags.reserve(n)
-    !@at.reserve(n)
-    for _ in 0..n
-      !@tags.push(0)
-      !@at.push(0)
+    !@tags.resize(n, 0)
+    !@at.resize(n, 0)
 
 # The slots a table needs to hold `want` entries at most two fifths
 # full: a power of two, at least 16, and at least `now`.
