@@ -256,3 +256,120 @@ fail "isolate generic instance gives a task", "`go[Task[Int]]` cannot use `T = T
 
   print(go(3))
   print(go(work()&))
+
+test "isolate waits asleep for a task in a wait no cancel ends", seeds: 20, timeout: 10, "-9 1"
+  # A panic on the isolate's own fiber cancels its tasks and sleeps until
+  # they end; one waiting on an actor's method that started runs on to
+  # the method's end, which a deterministic run's clock reaches.
+  use std.task
+  use std.time
+
+  obj Slow
+    n: Int
+
+    fun nap(!@) -> Int!
+      time.sleep(50 * time.MS)!
+      @n
+
+    fun get(?@) -> Int
+      @n
+
+  fun ask(c: *Actor[Slow]) -> Int!
+    (!c).nap()!
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  c = *Actor(Slow(n: 1))
+  r = task.isolate(|+c|
+    a = ask(+c)&
+    time.sleep(5 * time.MS)!
+    x = pick([1, 2, 3], 9)
+    x + >a!
+  ) catch -9
+  print(r, c.get())
+
+test "isolate a panic whose value's print method warns", seeds: 20, timeout: 10, whole: true, "-9 done"
+  # A panic's report is rendered before any lock is taken, so a value's
+  # own `print` method may write to stderr in it.
+  use std.task
+
+  obj Loud: Print
+    text: String
+
+    sub print(?@, out: !Printer)
+      warn("print ran")
+      !out.text(?@text)
+
+  fun boom() -> Int
+    panic("bad", Loud(text: String("x")))
+
+  sub main()
+    print(task.isolate(|| boom()) catch -9, "done")
+
+test "isolate keeps a panicked task's stack while its tasks read it", seeds: 20, timeout: 20, '''
+  0 -9
+  1 -9
+  2 -9
+'''
+  # A task under an isolate that panics leaves its stack to the isolate,
+  # which gives it back only once the tasks it lent its frames to have
+  # ended: they read what they were lent, never a stack reused.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun sum(xs: ?[64]Int) -> Int
+    s = 0
+    for 0..2_000
+      for x in xs
+        s += x
+    s
+
+  fun inner() -> Int
+    d: [64]Int = [64 of 1]
+    t = sum(?d)&
+    x = pick([1, 2, 3], 9)
+    x + >t
+
+  fun outer() -> Int
+    t = inner()&
+    >t
+
+  for k in 0..3
+    print(k, task.isolate(|| outer()) catch -9)
+
+test "isolate a panic in a task waiting in task.all", seeds: 20, timeout: 20, '''
+  0 -9
+  1 -9
+  2 -9
+'''
+  # The tasks `task.all` waits on outlive a panic that ends its waiter;
+  # what they tell as they end is not in the waiter's frames.
+  use std.task
+  use std.time
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun spin(n: Int) -> Int!
+    s = 0
+    for i in 0..n * 3_000_000
+      s += i % 7
+    s
+
+  fun bad(n: Int) -> Int!
+    time.sleep(time.MS)!
+    pick([1, 2, 3], n)
+
+  fun inner() -> Int!
+    a, b, c = task.all(spin(1)&, bad(9)&, spin(2)&)!
+    a + b + c
+
+  fun outer() -> Int!
+    t = inner()&
+    >t!
+
+  for k in 0..3
+    print(k, task.isolate(|| outer()!) catch -9)

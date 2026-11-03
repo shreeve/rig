@@ -154,3 +154,49 @@ test "chan made in a variant payload", seeds: 20, "7"
       .null => print("null")
 
   run() catch print("failed")
+
+test "chan send on a closed channel panics, and the channel goes on", seeds: 20, timeout: 10, '''
+  -9
+  1
+  -1
+'''
+  # The send's panic leaves the channel as it was: an isolate stops it,
+  # and the values sent before still come out.
+  use std.task
+
+  fun bad(ch: *Chan[Int]) -> Int!
+    !ch.send(2)!
+    0
+
+  ch = *Chan[Int](4)
+  !ch.send(1)!
+  !ch.close()
+  print(task.isolate(|+ch| bad(+ch)!) catch -9)
+  print((!ch).recv()! ?? -1)
+  print((!ch).recv()! ?? -1)
+
+test "chan close with a sender waiting panics in the sender", seeds: 20, timeout: 10, '''
+  -9
+  1
+  -1
+'''
+  # A sender waiting on a full channel that closes panics in its own
+  # task, as a later send does; the closer goes on.
+  use std.task
+  use std.time
+
+  fun fill(ch: *Chan[Int]) -> Int!
+    !ch.send(2)!
+    0
+
+  ch = *Chan[Int](1)
+  !ch.send(1)!
+  r = task.isolate(|+ch|
+    t = fill(+ch)&
+    time.sleep(5 * time.MS)!
+    !ch.close()
+    >t!
+  ) catch -9
+  print(r)
+  print((!ch).recv()! ?? -1)
+  print((!ch).recv()! ?? -1)

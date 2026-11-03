@@ -1135,7 +1135,7 @@ pub inline fn viewOf(comptime T: type, p: anytype) ReadView(T) {
 }
 
 /// The self a witness's method `f` takes (docs/design/apis.md, Stage 3,
-/// "Lowering"), from `recv`, the address of the receiver or of a view of
+/// "Lowering"), from `recv`, the address of self or of a view of
 /// it: the pointer, or the value where `f` takes self by value, as Zig's
 /// method call would give it (`W.area(rig.selfArg(W.area, &x))`). A read
 /// view held as a copy (`ReadView`) is given as it is.
@@ -4480,7 +4480,7 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
     const R = @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
     const A = if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
     var acc: A = first;
-    // A receiver held apart is a pointer to its slice.
+    // A self held apart is a pointer to its slice.
     const P = @typeInfo(@TypeOf(items));
     const xs = if (P == .pointer and P.pointer.size == .one and @typeInfo(P.pointer.child) == .pointer) items.* else items;
     var own: ErrData = undefined;
@@ -5647,7 +5647,7 @@ const builtin = @import("builtin");
 const root = @import("root");
 const leak_checked = builtin.optimize == .debug;
 const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
-const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
+pub const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
 /// Built with `RIG_HEAP_PROFILE=1`, the root module declares
 /// `__rig_heap_profile`, and every allocation goes through `HeapProfile`,
 /// which reports at exit what owned the program's memory at its peak.
@@ -5686,6 +5686,10 @@ pub const TaskState = struct {
     print_depth: u32 = 0,
     stack_guard: StackGuard = .{},
     control: ?*Control = null,
+    /// The task's own `Control`, which an actor's method run inline does
+    /// not hide, as it hides `control`: what a panic finishes
+    /// (`tasks.panicked`).
+    own: ?*Control = null,
     deadline: ?i96 = null,
     /// The nearest `task.isolate` this task runs under: on its own
     /// fiber, or the one that started it (`tasks.Isolate`).
@@ -8247,28 +8251,6 @@ fn flushForPanic() void {
     if (concurrent) output_lock.unlock(io());
 }
 
-/// A panic that an isolate stops: its report, with the stack trace in a
-/// debug build, then the isolate (`tasks.panicked`).
-fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) noreturn {
-    @branchHint(.cold);
-    reportPanic(msg, first_trace_addr);
-    tasks.panicked(iso);
-}
-
-/// Write a panic that a boundary stops: its message, and in a debug
-/// build its trace, while the program goes on.
-fn reportPanic(msg: []const u8, first_trace_addr: usize) void {
-    flushForPanic();
-    {
-        var buf: [256]u8 = undefined;
-        const ls = std.debug.lockStderr(&buf);
-        defer std.debug.unlockStderr();
-        ls.file_writer.interface.print("panic: {s}\n", .{msg}) catch {};
-        ls.file_writer.interface.flush() catch {};
-    }
-    if (builtin.mode == .debug) std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr });
-}
-
 /// A task this one waited for, or dropped, panicked: the panic passes to
 /// this task's nearest isolate, or, with none, ends the program.
 pub fn passPanic() noreturn {
@@ -8280,13 +8262,7 @@ pub fn passPanic() noreturn {
 /// where it came from, when it ends the program.
 pub fn passPanicFrom(what: []const u8) noreturn {
     @branchHint(.cold);
-    if (!panicEnds()) {
-        if (tasks.actorsDie()) {
-            leaveFrames();
-            sched.abandonDetached();
-        }
-        if (panicBoundary()) |iso| tasks.panicked(iso);
-    }
+    if (!panicEnds()) stopPanic();
     panicAfterFlush(what, @returnAddress());
 }
 
@@ -8296,61 +8272,80 @@ fn panicEnds() bool {
     return !tasks.panicStops() and panicBoundary() == null;
 }
 
-fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    @branchHint(.cold);
-    // A panic that ends the program takes the report before its actors
-    // die: an actor's death answers the calls queued on it, and a caller
-    // that panics at that answer, on another worker, must not be the one
-    // reported.
-    if (panicEnds()) beginPanic();
-    // A panic in an actor's method, on its runner, stops there, once it
-    // is reported: the actor dies, and so does the call that waits on it.
+/// A panic, once reported, stops where it can: every actor the running
+/// fiber runs a method of dies (`tasks.actorsDie`), and the panic stops
+/// at the runner the fiber is, or else at its nearest isolate
+/// (`tasks.panicked`). With neither, this returns, and the program ends.
+fn stopPanic() void {
     if (tasks.actorsDie()) {
-        reportPanic(msg, first_trace_addr orelse @returnAddress());
         leaveFrames();
         sched.abandonDetached();
     }
-    if (panicBoundary()) |iso| isolatedPanic(iso, msg, first_trace_addr orelse @returnAddress());
-    {
-        var buf: [256]u8 = undefined;
-        const ls = std.debug.lockStderr(&buf);
-        defer std.debug.unlockStderr();
-        ls.file_writer.interface.print("panic: {s}\n", .{msg}) catch {};
-        ls.file_writer.interface.flush() catch {};
-    }
-    // The trace names emitted Zig lines. Only the unwinder that cannot
-    // fault walks it: the program runs on a stack the runtime maps
-    // (`onOwnStack`), which the other one faults on.
-    if (builtin.mode == .debug and panic_stage.load(.seq_cst) == 1) {
-        std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr orelse @returnAddress() });
-    }
-    std.process.abort();
+    if (panicBoundary()) |iso| tasks.panicked(iso);
+}
+
+fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
+    @branchHint(.cold);
+    panicWith(msg, writePanic, first_trace_addr orelse @returnAddress());
+}
+
+fn writeText(w: *std.Io.Writer, text: []const u8) std.Io.Writer.Error!void {
+    try w.writeAll(text);
+}
+
+fn writePanic(w: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
+    try w.print("panic: {s}\n", .{msg});
 }
 
 /// `panic(a, b)`: the report `file.rig:L:C: panic: ` and the line `print`
 /// would write (the emitter puts the location in the first piece), on
 /// stderr after everything `print` has buffered; then the end of the
 /// program by `abort` (status 134). No drop, `defer`, or leak check
-/// runs.
+/// runs. It is the same event as a runtime panic (`panicAfterFlush`).
 pub noinline fn fail(pieces: anytype) noreturn {
     @branchHint(.cold);
-    if (panicBoundary()) |iso| {
-        flushForPanic();
-        {
-            var buf: [1024]u8 = undefined;
-            const ls = std.debug.lockStderr(&buf);
-            defer std.debug.unlockStderr();
-            writeArgs(&ls.file_writer.interface, pieces) catch {};
-            ls.file_writer.interface.flush() catch {};
-        }
-        tasks.panicked(iso);
-    }
-    beginPanic();
+    panicWith(pieces, writeArgs, null);
+}
+
+/// Every panic: its report, `write(w, what)`, on stderr after what
+/// `print` has buffered, with the stack trace from `trace` in a debug
+/// build; then it stops at an actor's runner or an isolate
+/// (`stopPanic`), or ends the program by `abort` (status 134). The
+/// report is rendered first, with no lock held, since a value's own
+/// `print` method may run in it, as `warn` renders a line. A panic that
+/// ends the program takes the report before its actors die: an actor's
+/// death answers the calls queued on it, and a caller that panics at
+/// that answer, on another worker, must not be the one reported.
+fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
+    const ends = if (comptime printRunsCode(@TypeOf(what), print_code_depth)) rendered: {
+        var stack: [rendered_stack]u8 = undefined;
+        var report: Spill = .init(&stack);
+        defer report.deinit();
+        write(&report.writer, what) catch unreachable;
+        break :rendered reportPanic(report.writer.buffered(), writeText);
+    } else reportPanic(what, write);
+    // The trace names emitted Zig lines. Only the unwinder that cannot
+    // fault walks it: the program runs on a stack the runtime maps
+    // (`onOwnStack`), which the other one faults on.
+    if (trace) |t| if (builtin.mode == .debug and (!ends or panic_stage.load(.seq_cst) == 1)) {
+        std.debug.dumpCurrentStackTrace(.{ .first_address = t });
+    };
+    stopPanic();
+    std.process.abort();
+}
+
+/// A panic's report, `write(w, what)`, on stderr after what `print` has
+/// buffered, under the lock Zig's own reports take; whether the panic
+/// ends the program (`panicEnds`).
+fn reportPanic(what: anytype, comptime write: anytype) bool {
+    const ends = panicEnds();
+    if (ends) beginPanic() else flushForPanic();
     var buf: [1024]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
-    writeArgs(&ls.file_writer.interface, pieces) catch {};
+    defer std.debug.unlockStderr();
+    write(&ls.file_writer.interface, what) catch {};
     ls.file_writer.interface.flush() catch {};
-    std.process.abort();
+    return ends;
 }
 
 // Tests. `rig test` builds a driver whose `main` calls `runTests` with

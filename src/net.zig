@@ -149,11 +149,13 @@ const Limit = struct {
 };
 
 /// Wait for `fd` to be ready for `interest`: on its poller, or, outside
-/// the scheduler, in `poll`; no longer than `limit` allows.
-fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) rig.Stop!void {
+/// the scheduler, in `poll`; no longer than `limit` allows. A task whose
+/// descriptor the poller refused fails, rather than block its worker.
+fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) Error!void {
     const t = rig.task();
     const deadline = limit.deadline(t.deadline);
-    if (reg != 0 and rig.sched.current() != null) {
+    if (rig.sched.current() != null) {
+        if (reg == 0) return error.@"std.net.NetError.failed";
         return switch (rig.sched.waitReady(@ptrFromInt(@as(usize, @intCast(reg))), interest, deadline, true)) {
             .ready => {},
             .canceled => canceled,
@@ -176,7 +178,7 @@ fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) rig.Stop!void {
         switch (posix.errno(rc)) {
             .SUCCESS => return if (rc == 0) timeout else {},
             .INTR => try rig.checkStop(),
-            else => return,
+            else => return error.@"std.net.NetError.failed",
         }
     }
 }
@@ -856,44 +858,24 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
     var l = listener;
     defer rig.drop(&l);
     const F = @TypeOf(f);
-    const Server = struct {
-        conns: std.ArrayList(tasks.Task(void)) = .empty,
-
-        /// Free the tasks that have ended.
-        fn reap(s: *@This()) void {
-            var kept: usize = 0;
-            for (s.conns.items) |*t| {
-                if (t.control.done.load(.acquire)) {
-                    t.wait();
-                    continue;
-                }
-                s.conns.items[kept] = t.*;
-                kept += 1;
-            }
-            s.conns.items.len = kept;
-        }
-
-        /// Cancel the connections still open, and wait for them.
-        fn stop(s: *@This()) void {
-            for (s.conns.items) |t| t.control.cancel();
-            for (s.conns.items) |t| t.wait();
-            s.conns.deinit(std.heap.smp_allocator);
-        }
-    };
-    var server: Server = .{};
-    defer server.stop();
+    // The connections' tasks: the set drops each as it ends. At the end,
+    // those still open are canceled and waited for.
+    var conns: tasks.Tasks(void) = .{};
+    defer {
+        for (conns.items.items) |t| t.control.cancel();
+        conns.__rig_drop();
+    }
     const settings: Settings = .read();
     var pause: i64 = accept_pause_ns;
     while (true) {
         const c = try acceptOne(@intCast(@field(l, "fd")), @field(l, "reg")) orelse {
-            server.reap();
+            conns.dropEnded();
             try rig.taskSleep(pause);
             pause = @min(pause * 2, accept_pause_max_ns);
             continue;
         };
         pause = accept_pause_ns;
-        server.reap();
-        server.conns.append(std.heap.smp_allocator, tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), f, settings })) catch rig.oom();
+        conns.add(tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), f, settings }));
     }
 }
 

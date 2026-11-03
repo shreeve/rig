@@ -2298,6 +2298,48 @@ The model and its plan are
 [docs/history/records/2026-10/concurrency-panel/](docs/history/records/2026-10/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
+- **A panic stops where a runtime panic does.** `panic(...)` in an
+  actor's method ends the actor and stops at its runner, or at the
+  caller's isolate, as an index out of range does. A method run inline
+  on a task under an isolate ends that task, which its isolate then
+  stops. A call made with `&` gives its mailbox slot back when it is
+  answered, so a supervised actor whose methods panic keeps its slots.
+  A send on a closed channel, and a close with senders waiting, panic
+  in the sender's own task with the channel unlocked, so an isolate
+  that stops the panic leaves the channel working. A supervised actor
+  whose value panics as it is made again answers the call it took,
+  which panics in its caller rather than wait for ever.
+- **A task's frames outlive its panic while its tasks read them.** A
+  task under an isolate that panics leaves its stack to the isolate,
+  which gives it back only once every task under it has ended, so a
+  task it lent its frames to (`sum(?d)&`) never reads a stack another
+  task reuses. A build that sanitizes (`RIG_SANITIZE=1`) returns each
+  stack to the system as its task ends, so a late write into one
+  faults.
+- **Every wait sleeps.** Tasks that share a listener each wait for a
+  connection of their own: a second waiter no longer took the first's
+  place, which then missed its wakeup and spun at its deadline. A call
+  made with `&` waiting for a mailbox slot, and an isolate waiting for
+  its tasks after a panic, sleep until woken rather than spin on a
+  yield, so neither burns a core, and a deterministic run (`rig test`)
+  reaches the timers that end them.
+- **A yield wakes a sleeping worker only when other work waits behind
+  it**, so a lone task calling `task.check()` a million times no longer
+  wakes one on each call (0.05 s to 0.02 s with ten workers, and no
+  system time), and closing a socket kicks the poller only when a
+  worker sleeps in it. In a deterministic run (`rig test --seeds`),
+  every loop's yield check wakes the timers the virtual clock has
+  reached, so a seeded run's interleavings, and output that depends on
+  them, may differ from before.
+- **`http.serve` and a `Tasks[Void]` set find their ended tasks at once**,
+  from the list those tasks join as they end, rather than looking at
+  every task alive on each accept or `add`. Such a set allocates that
+  list's record at its first `add`.
+- **Smaller fixes:** `time.within` inside a deadline of `Int.max` no
+  longer overflows in a safe build; a socket the poller refused fails
+  its wait with `NetError.failed` rather than block its worker, as a
+  failed `poll` does; and a poller that cannot be made panics naming
+  the call and its error, not as out of memory.
 - **A `print` method no longer hangs a program with tasks.** `print`
   and `warn` held the output lock while a value's own `print` method
   ran, so a method that printed, warned, wrote `io.stdout()`, or called

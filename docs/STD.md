@@ -818,7 +818,9 @@ true false true
 
 Canceling a task ([SPEC §18](../SPEC.md#18-tasks)) asks it to stop. The
 request reaches it as `Stop.canceled` at its next fallible waiting
-point: `task.check()`, `time.sleep`, or a wait on a task that can fail.
+point: `task.check()`, `time.sleep`, a wait on a task or a set that can
+fail, a channel's send, receive, or select, a call of an actor's method
+that can fail, or a call of `std.net` or `std.file` that waits.
 It stays: every fallible waiting point the task reaches after it fails
 too, so a `catch` cannot swallow it and carry on. Everything else the
 task does finishes as it would. Past a deadline (`time.within`), the
@@ -827,7 +829,7 @@ same waiting points fail with `Stop.timeout`.
 | Member | Result |
 |---|---|
 | `error Stop` | `canceled`, the request to stop, `timeout`, and `panicked` |
-| `check()!Stop` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other threads a turn |
+| `check()!Stop` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other tasks a turn |
 | `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. It takes effect only before the program makes its first task, which starts the workers, and gives whether it did; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |

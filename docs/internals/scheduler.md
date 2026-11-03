@@ -92,9 +92,8 @@ a program that makes none starts no workers.
   (`rig.blockingStop`). A call's thread wakes its waiter before it marks
   the call done, and the waiter that finds it not yet done spins 64
   times, then yields its thread (`sched.poolCall`): on one core the wake
-  can preempt the call's thread, which a waiter that only spun held off
-  until the kernel took the core back, about 0.6 ms a call (2.4 ms a run
-  of Trig pinned to one core).
+  can preempt the call's thread, and a waiter that only spun would hold
+  it off until the kernel took the core back, about 0.6 ms a call.
 - **Where work ran.** With `RIG_SCHED_STATS=1` set, a program prints, as
   `main` ends, what each worker did, to stderr:
 
@@ -218,9 +217,16 @@ the fiber, looking once more, sees the flag and goes on. Every waiting
 point a cancel ends looks so after it begins its wait: a wait on a
 task's end, on a set, a select, an actor's answer, a sleep, a
 descriptor (`sched.waitReady`), and a handoff to the task waited on.
-A poller that wakes a fiber waiting on a descriptor holds that waiter
-until it is done (`Registration.Waiter`), so the fiber, which takes
-itself back only after, never goes on and ends under it.
+Where several fibers may wait for one thing (a descriptor, as tasks
+that share a listener each wait to accept; a free slot of an actor's
+mailbox; the last task of an isolate that a panic stops), each lists
+itself, under a lock that also guards what it waits for
+(`sched.Waiters`, `sched.sleepOn`). A waker makes the condition true,
+then takes fibers off the list under the lock and wakes them: a
+descriptor's edge wakes every fiber waiting on it, and each tries its
+call again, and a freed slot wakes one. A woken fiber takes the lock
+again before it goes on, so no waker touches its entry after it leaves,
+and no wait spins: each sleeps until it is woken.
 
 An interrupt is a cancel whose canceler is a signal handler, which may
 run between any two instructions of any thread and so may not wake a
@@ -342,9 +348,9 @@ while it computes (`sched.serviceBusy`): it wakes the fibers whose
 timers are due on its worker, and looks at its worker's poller at most
 every 250 µs, a system call. It reads the clock only when its worker
 holds a timer or a descriptor. A 10 ms sleep of a task whose worker
-spins in `main` takes 10 ms, with one worker or eight, where it waited
-for the whole spin; a round trip on a socket registered with that
-worker takes about 1 ms, where it took 1.5 s. A recursive call's check
+spins in `main` takes 10 ms, with one worker or eight, not the whole
+spin, and a round trip on a socket registered with that worker about
+1 ms. A recursive call's check
 reads only its flag, so a worker deep in recursion leaves its timers to
 the workers that sleep. A timer set earlier than any sleeping worker
 wakes kicks one (`sched.kickForTimer`): the timer's worker publishes the
@@ -394,7 +400,7 @@ deterministically (`sched.deterministic`, SPEC §3 "Tests"):
   hold it.
 - **Deadlock.** With no fiber ready and no timer set, every task waits
   on another, and the program panics. A wait for an actor's mailbox slot
-  blocks on the actor as a call does (`tasks.actorSpawn`), so the walk
+  blocks on the actor as a call does (`Actor.takeSlot`), so the walk
   finds a method waiting for a slot in its own actor's mailbox. A wait
   on channels alone that nothing can end is reported in deterministic
   runs only: elsewhere an interrupt may still end it.

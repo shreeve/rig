@@ -91,6 +91,12 @@ pub const Fiber = struct {
     home: ?*Worker = null,
 };
 
+/// Give back a stack a task that panicked left to its boundary
+/// (`abandon`, `tasks.Isolate`), to the running worker.
+pub fn giveStack(s: Stack) void {
+    releaseStack(me().?, s);
+}
+
 /// What a worker does with the fiber that just switched away, once it has:
 /// queue it again (`yield`), or record it as waiting (`park`).
 const After = struct {
@@ -254,7 +260,7 @@ pub fn wake(f: *Fiber) void {
     const before = w.lifo.swap(f, .seq_cst);
     if (before) |b| {
         if (b.home != null) w.pinned.push(b) else {
-            w.ring.push(b);
+            _ = w.ring.push(b);
             return notifyNew();
         }
     }
@@ -264,12 +270,20 @@ pub fn wake(f: *Fiber) void {
     if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
 }
 
-/// Make `f` ready to run after the fibers already ready on this worker.
+/// Make `f` ready to run after the fibers already ready on this worker,
+/// waking a sleeping worker only when other work waits here, ahead of
+/// `f`, which one could take meanwhile: a fiber alone, as a lone task's
+/// `task.check()` yields, runs again next.
 fn wakeLast(f: *Fiber) void {
     if (deterministic.*) return wake(f);
     if (f.home) |home| return wakeHome(f, home);
-    if (me()) |w| w.ring.push(f) else global.push(f);
-    notify();
+    const w = me() orelse {
+        global.push(f);
+        return notify();
+    };
+    // Only these could another worker take: pinned fibers stay, and the
+    // global queue's push wakes one itself.
+    if (w.ring.push(f) or w.lifo.load(.monotonic) != null) notify();
 }
 
 /// Queue the pinned fiber `f` on its worker, and wake that worker if it
@@ -306,10 +320,12 @@ fn requeue(f: *Fiber, _: ?*anyopaque) void {
 /// a sleeping or searching worker can take is left to it.
 pub noinline fn tick() void {
     const w = me() orelse return;
-    // Deterministic: computing costs virtual time, and the seed decides
-    // whether to yield to ready work.
+    // Deterministic: computing costs virtual time, which wakes the fibers
+    // whose timers it reaches, as a busy worker's check does, and the
+    // seed decides whether to yield to ready work.
     if (deterministic.*) {
         computed();
+        fireDue();
         if (ready.items.len > 0 and random(2) == 0) yield();
         return;
     }
@@ -360,14 +376,14 @@ fn claimWaiting(w: *Worker) void {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
-            w.ring.push(f);
+            _ = w.ring.push(f);
             return yield();
         }
     }
     for (workers.*) |*v| {
         if (v == w) continue;
         if (takeNext(v)) |f| {
-            w.ring.push(f);
+            _ = w.ring.push(f);
             return yield();
         }
     }
@@ -492,6 +508,71 @@ pub fn interruptForCancel(f: *Fiber) void {
     _ = interrupt(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true);
 }
 
+/// The fibers waiting for one condition that another fiber or thread
+/// makes true: a slot of an actor's mailbox coming free, the last task
+/// of an isolate ending, a descriptor becoming ready. A lock the caller
+/// keeps guards the list and the condition. A waiter looks at the
+/// condition and lists itself under it (`sleepOn`); a waker makes the
+/// condition true, then, under it, takes fibers off the list and wakes
+/// them (`wakeOne`, `wakeAll`). A woken fiber takes the lock before it
+/// goes on, so no waker touches its entry after, and its entry says
+/// whether a waker took it off or a timer or a cancel woke it.
+pub const Waiters = struct {
+    first: ?*Node = null,
+    last: ?*Node = null,
+
+    /// A waiting fiber's entry, in its own frame.
+    const Node = struct {
+        fiber: *Fiber,
+        epoch: u32,
+        prev: ?*Node = null,
+        next: ?*Node = null,
+        listed: bool = true,
+    };
+
+    fn remove(ws: *Waiters, n: *Node) void {
+        if (!n.listed) return;
+        n.listed = false;
+        if (n.prev) |p| p.next = n.next else ws.first = n.next;
+        if (n.next) |x| x.prev = n.prev else ws.last = n.prev;
+    }
+
+    /// Wake the fiber waiting longest, taking it off; whether there was
+    /// one whose wait this ended.
+    pub fn wakeOne(ws: *Waiters) bool {
+        while (ws.first) |n| {
+            ws.remove(n);
+            if (interrupt(n.fiber, n.epoch, false)) return true;
+        }
+        return false;
+    }
+
+    /// Wake every fiber listed; whether there was one.
+    pub fn wakeAll(ws: *Waiters) bool {
+        var any = false;
+        while (ws.wakeOne()) any = true;
+        return any;
+    }
+};
+
+/// Sleep on `ws` under `lock`, which the caller holds and holds again
+/// when this returns, until a waker takes the running fiber off the list,
+/// `deadline` passes, or, when `cancelable`, its task is canceled:
+/// whether a waker took it off.
+pub fn sleepOn(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
+    const f = current().?;
+    var n: Waiters.Node = .{ .fiber = f, .epoch = beginWait(cancelable), .prev = ws.last };
+    if (ws.last) |l| l.next = &n else ws.first = &n;
+    ws.last = &n;
+    lock.unlock();
+    // A cancel that came before the wait began found no wait to end.
+    const over = (cancelable and isCanceled(f)) or (if (deadline) |d| nowNs() >= d else false);
+    if (!over) commitWait(n.epoch, deadline);
+    lock.lock();
+    defer ws.remove(&n);
+    return !n.listed;
+}
+
 /// The monotonic clock, in nanoseconds: what deadlines count on.
 pub fn nowNs() i96 {
     if (deterministic.*) return virtual_now.*;
@@ -560,18 +641,18 @@ pub fn advanceTo(t: i96) void {
     if (t > virtual_now.*) virtual_now.* = t;
 }
 
-/// No fiber is ready: move the virtual clock to the earliest timer and
-/// wake each fiber whose deadline that reaches. With no timer either,
-/// every task waits on another, and none can ever run: a deadlock.
-/// A fiber waiting on a file descriptor wakes once it is ready, at
-/// whatever time: the poller is looked at first, without waiting, and
-/// waited on when nothing else can end a wait.
 /// What a deterministic run that can never go on panics with: every task
 /// waits, and nothing can wake one (`advanceClock`). A run that is not
 /// deterministic reports none, since an outside event (an interrupt,
 /// which cancels `main`) may still end a wait.
 const deadlock_message = "every task is waiting on another, and none can run: a deadlock";
 
+/// No fiber is ready: move the virtual clock to the earliest timer and
+/// wake each fiber whose deadline that reaches. With no timer either,
+/// every task waits on another, and none can ever run: a deadlock.
+/// A fiber waiting on a file descriptor wakes once it is ready, at
+/// whatever time: the poller is looked at first, without waiting, and
+/// waited on when nothing else can end a wait.
 fn advanceClock() void {
     const p = &workers.*[0].poller;
     if (p.count.load(.monotonic) != 0 and p.poll(0)) return;
@@ -823,18 +904,28 @@ const Poller = struct {
     fn open(p: *Poller) void {
         if (darwin) {
             p.fd = std.c.kqueue();
-            if (p.fd < 0) rt.oom();
+            if (p.fd < 0) failed("kqueue", p.fd);
             const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = 0 };
             var none: [1]std.c.Kevent = undefined;
             _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
         } else if (linux) {
             const linux_ = std.os.linux;
             p.fd = @intCast(@as(isize, @bitCast(linux_.epoll_create1(linux_.EPOLL.CLOEXEC))));
+            if (p.fd < 0) failed("epoll_create1", p.fd);
             p.kick_fd = @intCast(@as(isize, @bitCast(linux_.eventfd(0, linux_.EFD.NONBLOCK | linux_.EFD.CLOEXEC))));
-            if (p.fd < 0 or p.kick_fd < 0) rt.oom();
+            if (p.kick_fd < 0) failed("eventfd", p.kick_fd);
             var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ET, .data = .{ .ptr = 0 } };
             _ = linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, p.kick_fd, &ev);
         }
+    }
+
+    /// A worker's poller could not be made: a panic naming the call and
+    /// what the system said (`rc`, the call's result).
+    fn failed(comptime call: []const u8, rc: i32) noreturn {
+        @branchHint(.cold);
+        const e: std.posix.E = if (linux) @enumFromInt(-rc) else std.posix.errno(rc);
+        var buf: [96]u8 = undefined;
+        @panic(std.fmt.bufPrint(&buf, "the scheduler's {s} failed: {t}", .{ call, e }) catch call);
     }
 
     fn close(p: *Poller) void {
@@ -876,12 +967,15 @@ const Poller = struct {
     }
 
     /// Stop watching `fd`. Under the lock, so no event for it is being
-    /// handled; the worker sleeping in the poller is woken to let go.
+    /// handled; a worker holding it, asleep in the poller, is woken to
+    /// let go.
     fn remove(p: *Poller, fd: i32) void {
-        _ = p.removers.fetchAdd(1, .seq_cst);
-        p.kick();
-        p.lock.lock();
-        _ = p.removers.fetchSub(1, .seq_cst);
+        if (!p.lock.tryLock()) {
+            _ = p.removers.fetchAdd(1, .seq_cst);
+            p.kick();
+            p.lock.lock();
+            _ = p.removers.fetchSub(1, .seq_cst);
+        }
         defer p.lock.unlock();
         if (darwin) {
             const evs = [2]std.c.Kevent{
@@ -1023,7 +1117,7 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
             for (workers.*) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
-            return serviceAll(w);
+            return serviceAll();
         }
     }
     _ = w.poller.poll(timeout);
@@ -1042,14 +1136,22 @@ fn passWatch() void {
 
 /// A file descriptor a poller watches: what it has seen the descriptor
 /// become ready for since a wait last took it, and the fibers waiting to
-/// read and to write. Readiness is edge-triggered: a waiter that took it
-/// tries its read or write, and waits again only once that would block.
+/// read and to write, as many of each as wait, as tasks that share a
+/// listener each wait to accept. Readiness is edge-triggered: an edge
+/// wakes every fiber waiting on it, and each tries its read, write, or
+/// accept, and waits again only once that would block.
 pub const Registration = struct {
     fd: i32,
     poller: *Poller,
     ready_bits: std.atomic.Value(u32) = .init(0),
-    reader: Waiter = .{},
-    writer: Waiter = .{},
+    /// Guards `readers` and `writers`. `waiting` counts the fibers about
+    /// to list themselves or listed: a waiter counts itself, then looks
+    /// at `ready_bits`, and the poller sets them, then looks at the count,
+    /// so it takes the lock only when one may wait.
+    lock: SpinLock = .{},
+    waiting: std.atomic.Value(u32) = .init(0),
+    readers: Waiters = .{},
+    writers: Waiters = .{},
     /// Its neighbors in the list of every registration, kept in a
     /// deterministic run, which looks at what each still has to send
     /// before its clock jumps (`unsent`).
@@ -1066,38 +1168,15 @@ pub const Registration = struct {
     pub const readable: u32 = 1;
     pub const writable: u32 = 2;
 
-    /// The fiber waiting, and the epoch of its wait. A poller waking it
-    /// holds it (`waking` in place of the fiber) until it is done, and
-    /// the fiber takes itself back only once no poller holds it
-    /// (`leave`), so a fiber that goes on and ends is never touched
-    /// after.
-    const Waiter = struct {
-        fiber: std.atomic.Value(?*Fiber) = .init(null),
-        epoch: std.atomic.Value(u32) = .init(0),
-
-        const waking: *Fiber = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(Fiber)));
-
-        fn wakeIt(w: *Waiter) bool {
-            const f = w.fiber.load(.seq_cst) orelse return false;
-            if (f == waking) return false;
-            if (w.fiber.cmpxchgStrong(f, waking, .seq_cst, .seq_cst) != null) return false;
-            defer w.fiber.store(f, .seq_cst);
-            return interrupt(f, w.epoch.load(.seq_cst), false);
-        }
-
-        /// The fiber `f` is done waiting: take it back, once no poller
-        /// holds it.
-        fn leave(w: *Waiter, f: *Fiber) void {
-            while (w.fiber.cmpxchgWeak(f, null, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
-        }
-    };
-
     /// The poller saw `bits`: record them, then wake who waits on them.
     fn ready(r: *Registration, bits: u32) bool {
         _ = r.ready_bits.fetchOr(bits, .seq_cst);
+        if (r.waiting.load(.seq_cst) == 0) return false;
+        r.lock.lock();
+        defer r.lock.unlock();
         var any = false;
-        if (bits & readable != 0 and r.reader.wakeIt()) any = true;
-        if (bits & writable != 0 and r.writer.wakeIt()) any = true;
+        if (bits & readable != 0 and r.readers.wakeAll()) any = true;
+        if (bits & writable != 0 and r.writers.wakeAll()) any = true;
         return any;
     }
 };
@@ -1147,7 +1226,7 @@ pub const Readiness = enum { ready, canceled, timeout };
 /// once, which spends from the fiber's budget (`spendBudget`).
 pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bool) Readiness {
     const f = current().?;
-    const waiter = if (interest == Registration.readable) &r.reader else &r.writer;
+    const ws = if (interest == Registration.readable) &r.readers else &r.writers;
     while (true) {
         if (r.ready_bits.load(.seq_cst) & interest != 0) {
             _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
@@ -1157,15 +1236,18 @@ pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bo
         if (cancelable and isCanceled(f)) return .canceled;
         if (deadline) |d| if (nowNs() >= d) return .timeout;
         pausePoint();
-        const e = beginWait(cancelable);
-        waiter.epoch.store(e, .seq_cst);
-        waiter.fiber.store(f, .seq_cst);
-        // Readiness the poller saw before this waiter was there, and a
-        // cancel that came before the wait began, which found no wait to
-        // end: either one, and the fiber goes on.
-        const seen = r.ready_bits.load(.seq_cst) & interest != 0;
-        if (!seen and !(cancelable and isCanceled(f))) commitWait(e, deadline);
-        waiter.leave(f);
+        // Readiness the poller saw before this fiber was listed, under the
+        // lock, or an edge that woke it: it takes the readiness and tries
+        // its call again.
+        r.lock.lock();
+        _ = r.waiting.fetchAdd(1, .seq_cst);
+        const woken = r.ready_bits.load(.seq_cst) & interest != 0 or sleepOn(ws, &r.lock, deadline, cancelable);
+        _ = r.waiting.fetchSub(1, .seq_cst);
+        r.lock.unlock();
+        if (woken) {
+            _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
+            return .ready;
+        }
     }
 }
 
@@ -1222,16 +1304,16 @@ fn service(w: *Worker) void {
     if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
 }
 
-/// Before `w` sleeps: wake the fibers whose timers are due on any worker,
-/// and those the events of any poller no worker sleeps in make ready.
-fn serviceAll(w: *Worker) void {
+/// Before a worker sleeps: wake the fibers whose timers are due on any
+/// worker, and those the events of any poller no worker sleeps in make
+/// ready.
+fn serviceAll() void {
     deliverInterrupt();
     const now = nowNs();
     for (workers.*) |*v| {
         _ = v.timers.fire(now);
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
-    _ = w;
 }
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
@@ -1915,7 +1997,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot().* = &workers.*[0];
-    if (deterministic.*) wake(&m.fiber) else workers.*[0].ring.push(&m.fiber);
+    if (deterministic.*) wake(&m.fiber) else _ = workers.*[0].ring.push(&m.fiber);
     loop(&workers.*[0]);
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
@@ -2065,12 +2147,17 @@ fn runFiber(w: *Worker, f: *Fiber) void {
         w.after = null;
         a.run(gone, a.ctx);
     } else if (gone.finished) {
-        if (gone.stack) |s| {
-            gone.stack = null;
-            releaseStack(w, s);
-        }
+        endStack(w, gone);
         if (gone.done) |d| d(gone);
     }
+}
+
+/// The fiber `f` has switched away for good: its stack, unless a panic
+/// left it elsewhere (`abandon`), goes back to `w`.
+fn endStack(w: *Worker, f: *Fiber) void {
+    const s = f.stack orelse return;
+    f.stack = null;
+    releaseStack(w, s);
 }
 
 /// Give a fiber that has not run yet its stack, from this worker, which
@@ -2093,7 +2180,7 @@ fn next(w: *Worker) ?*Fiber {
         deliverInterrupt();
         fireDue();
         if (ready.items.len == 0) return null;
-        return ready.orderedRemove(random(ready.items.len));
+        return ready.swapRemove(random(ready.items.len));
     }
     w.tick +%= 1;
     if (w.tick % 61 == 0) {
@@ -2107,7 +2194,7 @@ fn next(w: *Worker) ?*Fiber {
         }
         // Run a fiber from the ring first, and leave this one to be
         // stolen meanwhile.
-        if (f.home != null) w.pinned.push(f) else w.ring.push(f);
+        if (f.home != null) w.pinned.push(f) else _ = w.ring.push(f);
     };
     w.lifo_streak = 0;
     // Pinned fibers and the ring take turns first, so neither keeps the
@@ -2265,7 +2352,7 @@ fn sleep(w: *Worker) void {
         }
     }
     while (w.woken.load(.seq_cst) == 0) {
-        serviceAll(w);
+        serviceAll();
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();
@@ -2343,16 +2430,16 @@ const Ring = struct {
         return r.head.load(.seq_cst) == r.tail.load(.seq_cst);
     }
 
-    /// Push `f`; when the ring is full, move half of it, and `f`, to the
-    /// global queue.
-    fn push(r: *Ring, f: *Fiber) void {
+    /// Push `f`, and give whether the ring held others; when it is full,
+    /// move half of it, and `f`, to the global queue.
+    fn push(r: *Ring, f: *Fiber) bool {
         while (true) {
             const t = r.tail.load(.monotonic);
             const h = r.head.load(.acquire);
             if (t -% h < size) {
                 r.slots[t % size].store(f, .monotonic);
                 r.tail.store(t +% 1, .seq_cst);
-                return;
+                return t != h;
             }
             // Full: claim the older half, then hand it over.
             const half = size / 2;
@@ -2366,7 +2453,7 @@ const Ring = struct {
                 batch = g;
             }
             global.pushList(batch.?, half + 1);
-            return;
+            return true;
         }
     }
 
@@ -2392,7 +2479,7 @@ const Ring = struct {
             const n = avail - avail / 2;
             for (0..n) |i| buf[i] = victim.slots[(h +% @as(u32, @intCast(i))) % size].load(.monotonic) orelse return null;
             if (victim.head.cmpxchgWeak(h, h +% n, .acq_rel, .monotonic) != null) continue;
-            for (buf[1..n]) |g| r.push(g);
+            for (buf[1..n]) |g| _ = r.push(g);
             return buf[0];
         }
     }
@@ -2861,7 +2948,7 @@ pub const Header = struct {
     const ending = 2;
     const ended = 3;
 
-    fn end(f: *Fiber) void {
+    pub fn end(f: *Fiber) void {
         const h: *Header = @fieldParentPtr("fiber", f);
         if (h.status.swap(ending, .seq_cst) == waited) {
             _ = interrupt(h.waiter.load(.seq_cst).?, h.waiter_epoch.load(.seq_cst), false);
@@ -2982,10 +3069,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     const now = me().?;
     if (now.returned) |done| {
         now.returned = null;
-        if (done.stack) |s| {
-            done.stack = null;
-            releaseStack(now, s);
-        }
+        endStack(now, done);
         h.status.store(Header.ended, .seq_cst);
     }
 }
@@ -3170,9 +3254,10 @@ fn takeStack() Stack {
 }
 
 /// Keep a stack a fiber has finished with, for the next on `w`, or
-/// return it to the system when `w` keeps enough.
+/// return it to the system when `w` keeps enough, or always in a build
+/// that sanitizes (`RIG_SANITIZE=1`), so a late write into it faults.
 fn releaseStack(w: *Worker, s: Stack) void {
-    if (w.free_count >= keep_free) return unmapStack(s);
+    if (rt.sanitize or w.free_count >= keep_free) return unmapStack(s);
     const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
     n.* = .{ .stack = s, .next = w.free };
     w.free = n;
@@ -3393,9 +3478,14 @@ pub fn abandonDetached() noreturn {
 
 /// End the running fiber where it stands, its frames left as they are:
 /// a task that panicked (`tasks.panicked`). Its record is marked
-/// `panicked`, so whoever waits for it learns so.
-pub fn abandon() noreturn {
+/// `panicked`, so whoever waits for it learns so. Its stack, which the
+/// caller has taken (`f.stack` null), is not given back; `ended` runs in
+/// place of its end once it has switched off that stack for good, and
+/// calls `Header.end` itself. It ends so even when handed its worker.
+pub fn abandon(ended: *const fn (*Fiber) void) noreturn {
     const f = current().?;
+    f.done = ended;
+    f.handoff = null;
     const h: *Header = @fieldParentPtr("fiber", f);
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
@@ -4427,7 +4517,7 @@ test "a pinned fiber that resumes away from its home is caught" {
         /// Queue the fiber on the ring of the worker it left, as no wake
         /// of a pinned fiber does: a bug, for the check to catch.
         fn misqueue(f: *Fiber, _: ?*anyopaque) void {
-            me().?.ring.push(f);
+            _ = me().?.ring.push(f);
         }
         fn first(_: *anyopaque) callconv(.c) void {
             const f = current().?;

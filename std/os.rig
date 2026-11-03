@@ -5,7 +5,7 @@
 use std.file
 
 # The working directory, as an absolute path, every symbolic link in it
-# resolved. Like std.file's calls, it runs on the blocking pool and is a
+# resolved. Like std.file's `realpath`, it runs in the task and is a
 # fallible waiting point; it fails with `file.FileError.not_found` when
 # the directory was removed, and with another `file.FileError` when it
 # cannot be read.
