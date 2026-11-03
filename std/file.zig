@@ -35,7 +35,7 @@ const not_found = error.@"std.file.FileError.not_found";
 /// which the pool copies, and plain values; a result that owns something
 /// (a String, a descriptor, `Fd`) is freed by its drop.
 fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
-    return try (try rig.blockingStop(f, args));
+    return try (try rig.blockingStop(f, args, null));
 }
 
 /// A descriptor a pool call opened, closed when dropped, as a call whose

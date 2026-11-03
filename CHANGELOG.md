@@ -2375,7 +2375,7 @@ first step is on `main` (SPEC §18):
   `write`, and `sync` move a duplicate of the file's descriptor, and a
   read the caller's String, into the pool's call by value, which gives
   them back with its answer; a call its task stopped waiting for drops
-  them as it ends, and one that never starts is dropped by the pool. The
+  them as it ends, and one that never started gives them back at once. The
   process-wide table of lent descriptors, and its lock, are gone, and
   without the scheduler a call takes the file's own descriptor, with no
   duplicate. `io.copy` lends each file once and moves one buffer through

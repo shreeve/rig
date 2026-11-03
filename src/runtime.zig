@@ -135,20 +135,21 @@ pub fn onPool() bool {
 /// pointer among them does not compile, since a canceled waiter goes on
 /// while the call may still use it. The call owns a `String` or a
 /// `net.Fd` passed to it, and writes into that, and returns it; one
-/// that never runs drops it. Without the scheduler it runs here, once
+/// that never runs gives it back into `back`, or drops it when `back`
+/// is null (`sched.giveBack`). Without the scheduler it runs here, once
 /// `checkStop` passes; an interrupt's cancel of `main` makes the system
 /// call it blocks in fail (EINTR), and so does an alarm at the task's
 /// deadline (`Alarm`), and the call's retry loop stops there
 /// (`checkStop`).
-pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
-    if (scheduled) return switch (sched.blockingStop(f, args)) {
+pub fn blockingStop(comptime f: anytype, args: anytype, back: ?*@TypeOf(args)) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (scheduled) return switch (sched.blockingStop(f, args, back)) {
         .done => |r| r,
         .canceled => error.@"std.task.Stop.canceled",
         .timeout => error.@"std.task.Stop.timeout",
     };
     checkStop() catch |err| {
         var left = args;
-        sched.dropOwned(&left);
+        sched.giveBack(&left, back);
         return err;
     };
     const d = task().deadline orelse return @call(.auto, f, args);

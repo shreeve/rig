@@ -37,8 +37,10 @@ a program that makes none starts no workers.
   array, or a union, does not compile (`sched.leavable`), since the
   waiter may leave while the call still uses it. What the call writes
   into, it owns: a `String` or a descriptor (`net.Fd`) passed by value
-  moves into the call, which gives it back with its answer, and one
-  that never starts is dropped by the pool. A `File`'s read, write, and
+  moves into the call, which gives it back with its answer; a waiter
+  that stops before any thread started the call takes it back at once
+  (`sched.giveBack`), so a descriptor among them closes then, not when
+  a pool thread is free. A `File`'s read, write, and
   sync work on a duplicate of its descriptor, so a task that stops
   waiting and closes its file leaves the call a descriptor of its own;
   a read moves the caller's String in and fills it, and `io.copy` lends

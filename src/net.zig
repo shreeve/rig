@@ -493,9 +493,9 @@ const Block = struct {
 
 /// `f(fd, buf, arg)` on the blocking pool as a fallible waiting point
 /// (`rig.blockingStop`): `fd` and `buf` move into the call and come back
-/// with its answer. A task that stops waiting leaves both to the call,
-/// which drops them as it ends, or, when it never starts, the pool does:
-/// `fd` and `buf` are left empty.
+/// with its answer, or, from a call that never starts, at once. A task
+/// that stops waiting for a call under way leaves both to it, which
+/// drops them as it ends: `fd` and `buf` are left empty.
 fn trip(comptime f: anytype, fd: *Fd, buf: *rig.String, arg: anytype) (rig.Stop || FileError)!void {
     const Call = struct {
         fn run(b: Block, a: @TypeOf(arg)) Block {
@@ -506,10 +506,15 @@ fn trip(comptime f: anytype, fd: *Fd, buf: *rig.String, arg: anytype) (rig.Stop 
             return out;
         }
     };
-    const b: Block = .{ .fd = fd.*, .buf = buf.* };
+    const args = .{ Block{ .fd = fd.*, .buf = buf.* }, arg };
     fd.* = .none;
     buf.* = .empty;
-    const got = try rig.blockingStop(Call.run, .{ b, arg });
+    var back: @TypeOf(args) = .{ Block{ .fd = .none }, arg };
+    const got = rig.blockingStop(Call.run, args, &back) catch |err| {
+        fd.* = back[0].fd;
+        buf.* = back[0].buf;
+        return err;
+    };
     fd.* = got.fd;
     buf.* = got.buf;
     if (got.failure) |e| return e;
@@ -520,14 +525,14 @@ fn trip(comptime f: anytype, fd: *Fd, buf: *rig.String, arg: anytype) (rig.Stop 
 /// many, 0 at the end of the file. The String grows first, here, when it
 /// has no room for `want` more; then it moves into the call, which fills
 /// it and gives it back, so the bytes are read where they stay and
-/// nothing is copied. A task canceled, or past its deadline, before the
-/// read leaves `into` as it was; one that stops waiting for the read
-/// leaves its buffer to it, so `into` is left empty. A String with no
+/// nothing is copied. A cancel or a deadline that ends the wait before
+/// the read starts leaves `into` as it was; one that ends it while the
+/// read is under way leaves the buffer to the read, so `into` is left
+/// empty. A String with no
 /// buffer before the read is cut to what came, so a small read keeps no
 /// room for `want`.
 pub fn fileReadInto(fd: i64, into: *rig.String, want: usize) (rig.Stop || FileError)!usize {
     if (want == 0) return 0;
-    try rig.checkStop();
     const bare = into.list.capacity == 0;
     _ = into.roomFor(want);
     const before = into.list.items.len;

@@ -1675,7 +1675,7 @@ fn nowReal() i96 {
 /// passed as they are: a call may read into a buffer its caller lends.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (!onPool()) return @call(.auto, f, args);
-    return switch (poolCall(f, args, false)) {
+    return switch (poolCall(f, args, false, null)) {
         .done => |r| r,
         .canceled, .timeout => unreachable,
     };
@@ -1701,13 +1701,15 @@ pub fn PoolResult(comptime R: type) type {
 /// free what it points to, or the call write through it, after the
 /// waiter left. What the call writes into it owns: a `rt.String` or an
 /// `rt.net.Fd` passed by value moves into the call, which drops it or
-/// returns it, and one that never starts drops it here (`dropOwned`).
+/// returns it. A call that never starts gives it back at once, into
+/// `back`, or drops it when `back` is null (`giveBack`): its waiter,
+/// stopped before it was queued or while it was, knows it never will.
 /// A task canceled, or past its deadline, before the call starts does
 /// not make it. Outside every fiber, and in a deterministic run, it
 /// runs here.
-pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
+pub fn blockingStop(comptime f: anytype, args: anytype, back: ?*@TypeOf(args)) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     if (!onPool()) return .{ .done = @call(.auto, f, args) };
-    return poolCall(f, args, true);
+    return poolCall(f, args, true, back);
 }
 
 /// Whether a call `blocking` or `blockingStop` makes here goes to the
@@ -1757,7 +1759,7 @@ inline fn waker() *Waker {
     return split.local(&waker_var, "sched.waker");
 }
 
-fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
+fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool, back: ?*@TypeOf(args)) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
     const Args = @TypeOf(args);
     const fiber = current().?;
@@ -1776,6 +1778,10 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
         /// before which the thread does not leave the call.
         waker: std.atomic.Value(?*Waker) = .init(null),
         left: std.atomic.Value(bool) = .init(false),
+        /// Whether the waiter that gave up took the arguments back, as
+        /// it does when no thread had started the call; published by
+        /// `left`.
+        taken: bool = false,
 
         const pending = 0;
         const finishing = 1;
@@ -1793,8 +1799,11 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
                 // does not run.
                 self.waker.store(waker(), .seq_cst);
                 if (self.state.load(.seq_cst) == abandoned) {
-                    freeArgs(&self.args);
-                    dropOwned(&self.args);
+                    self.waitLeft();
+                    if (!self.taken) {
+                        freeArgs(&self.args);
+                        dropOwned(&self.args);
+                    }
                     _ = pool.finishing.fetchAdd(1, .seq_cst);
                     self.free();
                     return;
@@ -1819,13 +1828,18 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
         /// this thread: until then the thread stays, so the signal finds
         /// it.
         fn free(self: *Self) void {
+            self.waitLeft();
+            std.heap.smp_allocator.destroy(self);
+            _ = pool.left_calls.fetchSub(1, .seq_cst);
+        }
+
+        /// Wait until the waiter that gave up is done with the call.
+        fn waitLeft(self: *Self) void {
             var spins: u32 = 0;
             while (!self.left.load(.acquire)) {
                 spins += 1;
                 if (spins < finishing_spins) std.atomic.spinLoopHint() else std.Thread.yield() catch {};
             }
-            std.heap.smp_allocator.destroy(self);
-            _ = pool.left_calls.fetchSub(1, .seq_cst);
         }
     };
     const c = std.heap.smp_allocator.create(C) catch rt.oom();
@@ -1833,7 +1847,7 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
     if (stoppable) ownArgs(&c.args);
     if (stoppable) if (stopReason(fiber)) |why| {
         freeArgs(&c.args);
-        dropOwned(&c.args);
+        giveBack(&c.args, back);
         std.heap.smp_allocator.destroy(c);
         return stopped(R, why);
     };
@@ -1860,10 +1874,19 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
                 // Cancel the call and wake the system call it may block
                 // in, so it stops (`rt.checkStop`); then the call is its
                 // thread's to free.
+                // No waker means no thread will start it: a thread
+                // publishes its waker before it looks at the state, which
+                // this one has marked. So the arguments come back now,
+                // and a descriptor among them closes at once, not when a
+                // thread is free.
                 _ = pool.left_calls.fetchAdd(1, .seq_cst);
                 if (c.waker.load(.seq_cst)) |w| {
                     w.control.canceled.store(true, .seq_cst);
                     rt.wakeThread(w.thread);
+                } else {
+                    freeArgs(&c.args);
+                    giveBack(&c.args, back);
+                    c.taken = true;
                 }
                 c.left.store(true, .release);
                 return stopped(R, why);
@@ -1922,10 +1945,19 @@ fn freeArgs(args: anytype) void {
     }
 }
 
-/// Drop what a call that never runs would have owned: every argument
-/// but a `[]const u8`, which `freeArgs` frees. An argument known as the
-/// program compiles is no one's, and needs nothing.
-pub fn dropOwned(args: anytype) void {
+/// Give what a call that never runs would have owned back into `back`,
+/// or drop it when `back` is null: every argument but a `[]const u8`,
+/// which `freeArgs` frees. An argument known as the program compiles is
+/// no one's, and needs nothing.
+pub fn giveBack(args: anytype, back: ?*@TypeOf(args.*)) void {
+    const to = back orelse return dropOwned(args);
+    const info = @typeInfo(@TypeOf(args.*)).@"struct";
+    inline for (info.field_names, info.field_types, info.field_attrs) |name, T, a| {
+        if (comptime !isBytes(T) and !a.@"comptime") @field(to.*, name) = @field(args.*, name);
+    }
+}
+
+fn dropOwned(args: anytype) void {
     const info = @typeInfo(@TypeOf(args.*)).@"struct";
     inline for (info.field_names, info.field_types, info.field_attrs) |name, T, a| {
         if (comptime !isBytes(T) and !a.@"comptime") rt.dropElement(T, &@field(args.*, name));
@@ -4446,7 +4478,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             const f = current().?;
             f.state.control = &ctl;
             ctl.fiber = f;
-            canceled = blockingStop(testSleepReal, .{300});
+            canceled = blockingStop(testSleepReal, .{300}, null);
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
@@ -4456,7 +4488,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             var path_buf = "a path".*;
             const start = nowNs();
             f.state.deadline = start + 20 * std.time.ns_per_ms;
-            timed = blockingStop(slowEcho, .{@as([]const u8, &path_buf)});
+            timed = blockingStop(slowEcho, .{@as([]const u8, &path_buf)}, null);
             took = nowNs() - start;
             f.state.deadline = null;
             @memset(&path_buf, 'z');
@@ -4466,7 +4498,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             ctl.cancel();
             _ = j.join();
             j.free();
-            done = blockingStop(testSleepReal, .{1});
+            done = blockingStop(testSleepReal, .{1}, null);
             testNap(400 * std.time.ns_per_ms);
         }
     };

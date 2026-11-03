@@ -568,10 +568,10 @@ more bytes, the read fills that room and allocates nothing, so one
 buffer, cleared with `!buf.clear()` and read into again, carries a whole
 file through: `!buf.reserve(n)` makes the room once. A buffer without
 room grows first, and a `String` with no buffer at all gets one cut to
-what came, so a small read keeps no room for `max`. A read in a task
-already canceled, or past its deadline, leaves `into` as it was; one
-whose wait a cancel or a deadline ends leaves `into` empty, its buffer
-kept by the read, which drops it as it ends.
+what came, so a small read keeps no room for `max`. A read that a cancel
+or a deadline ends before it starts leaves `into` as it was; one on the
+blocking pool that it ends while the read is under way leaves `into`
+empty, its buffer kept by the read, which drops it as it ends.
 
 ```rig
 use std.file
