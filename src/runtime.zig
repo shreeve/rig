@@ -4930,7 +4930,7 @@ const Shift = enum { left, left_checked, right };
 inline fn laneShift(comptime op: Shift, v: anytype, amount: anytype) @TypeOf(v) {
     const V = @TypeOf(v);
     const info = @typeInfo(V).vector;
-    if (comptime wasmSimd() and @sizeOf([info.len]info.child) < 16) {
+    if (comptime wasm_simd and @sizeOf([info.len]info.child) < 16) {
         const m = 16 / @sizeOf(info.child);
         const wide = @shuffle(info.child, v, @as(V, @splat(0)), padIndicesTo(m, info.len));
         return @shuffle(info.child, laneShiftWhole(op, wide, amount), undefined, iota(info.len, 0));
@@ -5000,7 +5000,7 @@ fn lagIndices(comptime n: usize, comptime k: usize) @Vector(n, i32) {
 /// the same lanes (`test "lookup: every form agrees"`).
 pub inline fn lookup(table: anytype, idx: anytype) @TypeOf(idx) {
     const n = @typeInfo(@TypeOf(idx)).vector.len;
-    if (@inComptime() or comptime !lookupInstructions()) return lookupLanes(table, idx);
+    if (@inComptime() or comptime !lookup_instructions) return lookupLanes(table, idx);
     if (comptime n >= 16) return lookupPieces(table, idx);
     const wide = @shuffle(u8, idx, @as(@Vector(16, u8), @splat(0xFF)), padIndices(n));
     return @shuffle(u8, lookupPieces(table, wide), undefined, iota(n, 0));
@@ -5050,7 +5050,7 @@ fn concatIndices(comptime h: usize) @Vector(2 * h, i32) {
 /// One 16-index piece of `lookup`.
 inline fn lookup16(comptime m: usize, ts: [m / 16]@Vector(16, u8), idx: @Vector(16, u8)) @Vector(16, u8) {
     const P = @Vector(16, u8);
-    if (comptime neonIntrinsics()) return switch (m) {
+    if (comptime neon_intrinsics) return switch (m) {
         16 => @"llvm.aarch64.neon.tbl1.v16i8"(ts[0], idx),
         32 => @"llvm.aarch64.neon.tbl2.v16i8"(ts[0], ts[1], idx),
         else => @"llvm.aarch64.neon.tbl4.v16i8"(ts[0], ts[1], ts[2], ts[3], idx),
@@ -5058,17 +5058,13 @@ inline fn lookup16(comptime m: usize, ts: [m / 16]@Vector(16, u8), idx: @Vector(
     var r: P = @splat(0);
     inline for (ts, 0..) |t, j| {
         const down = idx -% @as(P, @splat(16 * j));
-        r |= if (comptime wasmSimd()) @"llvm.wasm.swizzle"(t, down) else @"llvm.x86.ssse3.pshuf.b.128"(t, down +| @as(P, @splat(0x70)));
+        r |= if (comptime wasm_simd) @"llvm.wasm.swizzle"(t, down) else @"llvm.x86.ssse3.pshuf.b.128"(t, down +| @as(P, @splat(0x70)));
     }
     return r;
 }
 
 /// Whether the target has a table instruction `lookup` uses: NEON, x86's
 /// SSSE3, or WASM SIMD, each through LLVM.
-fn lookupInstructions() bool {
-    return lookup_instructions;
-}
-
 const lookup_instructions = builtin.zig_backend == .stage2_llvm and (neon_intrinsics or wasm_simd or
     (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3)));
 const avx2 = builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
@@ -5098,7 +5094,7 @@ fn padIndicesTo(comptime m: usize, comptime n: usize) @Vector(m, i32) {
     return a;
 }
 
-/// The table instructions, each named only where `lookupInstructions`
+/// The table instructions, each named only where `lookup_instructions`
 /// picks it.
 extern fn @"llvm.aarch64.neon.tbl1.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
 extern fn @"llvm.aarch64.neon.tbl2.v16i8"(@Vector(16, u8), @Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
@@ -5116,6 +5112,9 @@ extern fn @"llvm.wasm.swizzle"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8)
 /// 32-lane scan about 20 times slower than a 16-lane one. Bytes stay in
 /// vector registers everywhere, and a comparison gives them with no work.
 pub fn Mask(comptime n: comptime_int) type {
+    // A lane count is a power of two from 2 to 64 (`resolve.simdInstance`),
+    // which the helpers below rely on.
+    comptime std.debug.assert(n >= 2 and n <= 64 and std.math.isPowerOfTwo(n));
     return if (n > 16) WideMask(n) else @Vector(n, bool);
 }
 
@@ -5222,9 +5221,9 @@ pub inline fn maskSelect(m: anytype, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// gives the same bits (`test "maskBits: every form agrees"`).
 pub inline fn maskBits(m: anytype) u64 {
     const n = maskLen(@TypeOf(m));
-    if (comptime (n == 32 or n == 64) and neonIntrinsics()) return maskBitsNeon(n, maskBytes(m));
-    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m));
-    if (comptime n >= 8 and builtin.cpu.arch.isWasm() and !wasmSimd()) return maskBitsSwar(n, maskBytes(m));
+    if (comptime (n == 32 or n == 64) and neon_intrinsics) return maskBitsNeon(n, maskBytes(m));
+    if (comptime n > 16 and wasm_simd) return maskBitsPieces(n, maskBytes(m));
+    if (comptime n >= 8 and builtin.cpu.arch.isWasm() and !wasm_simd) return maskBitsSwar(n, maskBytes(m));
     if (comptime n > 16 and opaque_wide_bits) return maskBitsOpaque(n, maskBytes(m));
     // `@bitCast` of a mask gives wrong bits on aarch64 without NEON (Zig
     // 0.17); Rig builds no such target, so it takes this form too.
@@ -5247,7 +5246,7 @@ pub inline fn maskBitsNot(m: anytype) u64 {
 /// bitmask, whose lowest set bit is the lane.
 pub inline fn maskFirst(m: anytype) ?i64 {
     const n = maskLen(@TypeOf(m));
-    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+    if (comptime n >= 16 and neon_intrinsics) {
         const bytes = maskBytes(m);
         if (comptime n == 16) {
             const found = nibbleMask(bytes);
@@ -5281,8 +5280,8 @@ pub inline fn maskFirst(m: anytype) ?i64 {
 /// lanes (`test "maskTrueLanes: every form agrees"`).
 pub inline fn maskTrueLanes(comptime L: type, m: anytype) L {
     const n = maskLen(@TypeOf(m));
-    if (comptime n == 16 and neonIntrinsics()) return .{ .bits = laneNibbles(maskBytes(m)), .shift = 2 };
-    if (comptime n == 8 and neonIntrinsics()) return .{ .bits = laneBytes(maskBytes(m)), .shift = 3 };
+    if (comptime n == 16 and neon_intrinsics) return .{ .bits = laneNibbles(maskBytes(m)), .shift = 2 };
+    if (comptime n == 8 and neon_intrinsics) return .{ .bits = laneBytes(maskBytes(m)), .shift = 3 };
     return .{ .bits = maskBits(m), .shift = 0 };
 }
 
@@ -5305,8 +5304,8 @@ inline fn nibbleMask(bytes: @Vector(16, u8)) u64 {
     return @bitCast(narrow);
 }
 
-/// The OR (or AND) of the 16-byte pieces of `w`, a power of two bytes of 16
-/// or more, by halving shuffles: an
+/// The OR (or AND) of the 16-byte pieces of `w`, 16 bytes or more (a
+/// power of two, as every lane count is), by halving shuffles: an
 /// OR over the pieces as an array makes LLVM move them through general
 /// registers.
 inline fn foldBytes(comptime n: usize, w: @Vector(n, u8), comptime and_: bool) @Vector(16, u8) {
@@ -5333,12 +5332,11 @@ pub inline fn maskAny(m: anytype) bool {
     const n = maskLen(@TypeOf(m));
     // WASM SIMD reduces a mask of more than 16 lanes lane by lane; its
     // pieces OR into one, which `v128.any_true` tests.
-    if (comptime wasmSimd() and n > 16 and n & (n - 1) == 0) return @reduce(.Or, foldBytes(n, maskBytes(m), false) >= @as(@Vector(16, u8), @splat(0x80)));
-    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m)) != 0;
+    if (comptime wasm_simd and n > 16) return @reduce(.Or, foldBytes(n, maskBytes(m), false) >= @as(@Vector(16, u8), @splat(0x80)));
     // On NEON, the pieces OR into one, whose largest byte (`umaxv`) is
     // the answer; spelled as a reduction, LLVM turns it back into a
     // bitmask in a loop.
-    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+    if (comptime n >= 16 and neon_intrinsics) {
         return @"llvm.aarch64.neon.umaxv.i32.v16i8"(foldBytes(n, maskBytes(m), false)) != 0;
     }
     return @reduce(.Or, maskLanes(m));
@@ -5347,16 +5345,15 @@ pub inline fn maskAny(m: anytype) bool {
 /// `m.all()`: whether every lane of mask `m` is true.
 pub inline fn maskAll(m: anytype) bool {
     const n = maskLen(@TypeOf(m));
-    if (comptime wasmSimd() and n > 16 and n & (n - 1) == 0) return @reduce(.And, foldBytes(n, maskBytes(m), true) >= @as(@Vector(16, u8), @splat(0x80)));
-    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m)) == std.math.maxInt(@Int(.unsigned, n));
-    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+    if (comptime wasm_simd and n > 16) return @reduce(.And, foldBytes(n, maskBytes(m), true) >= @as(@Vector(16, u8), @splat(0x80)));
+    if (comptime n >= 16 and neon_intrinsics) {
         return @"llvm.aarch64.neon.uminv.i32.v16i8"(foldBytes(n, maskBytes(m), true)) != 0;
     }
     return @reduce(.And, maskLanes(m));
 }
 
 /// NEON's across-lanes maximum and minimum of 16 bytes; named only where
-/// `neonIntrinsics` holds.
+/// `neon_intrinsics` holds.
 extern fn @"llvm.aarch64.neon.umaxv.i32.v16i8"(@Vector(16, u8)) i32;
 extern fn @"llvm.aarch64.neon.uminv.i32.v16i8"(@Vector(16, u8)) i32;
 
@@ -5369,21 +5366,13 @@ inline fn maskBytes(m: anytype) @Vector(maskLen(@TypeOf(m)), u8) {
 
 /// Whether NEON's intrinsics may be named: an aarch64 target with NEON,
 /// built by LLVM (Zig's own backends do not know them, and an intrinsic
-/// for a feature the target lacks stops LLVM).
-fn neonIntrinsics() bool {
-    return neon_intrinsics;
-}
-
-/// Decided once: a feature test in an inline helper would count against
-/// the branch quota of every function that calls it.
+/// for a feature the target lacks stops LLVM). Decided once: a feature
+/// test in an inline helper would count against the branch quota of
+/// every function that calls it.
 const neon_intrinsics = builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm and
     std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
 
 /// Whether the target is WASM with its 128-bit SIMD.
-fn wasmSimd() bool {
-    return wasm_simd;
-}
-
 const wasm_simd = builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
 
 inline fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
@@ -5463,7 +5452,7 @@ fn weightsOf(comptime n: usize, comptime eight: [8]u8) [n]u8 {
 }
 
 /// NEON's pairwise add of two 16-byte vectors; named only where
-/// `neonIntrinsics` holds.
+/// `neon_intrinsics` holds.
 extern fn @"llvm.aarch64.neon.addp.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
 
 /// A mask of more than 16 lanes as 16-lane bitmasks, one `i8x16.bitmask`
@@ -8872,7 +8861,7 @@ test "maskBits: every form agrees" {
             if (n >= 8) try testing.expectEqual(want, maskBitsSwar(n, bytes));
             if (n >= 16) try testing.expectEqual(want, maskBitsPieces(n, bytes));
             if (n > 16) try testing.expectEqual(want, maskBitsOpaque(n, bytes));
-            if (comptime (n == 32 or n == 64) and neonIntrinsics()) try testing.expectEqual(want, maskBitsNeon(n, bytes));
+            if (comptime (n == 32 or n == 64) and neon_intrinsics) try testing.expectEqual(want, maskBitsNeon(n, bytes));
             // A vector of `bool` and the mask of its lanes alike.
             inline for (.{ m, w }) |x| {
                 try testing.expectEqual(want, maskBits(x));
@@ -9032,7 +9021,7 @@ test "mask helpers: a mask known at compile time" {
 }
 
 test "maskFirst: every lane, every run, every lane count" {
-    inline for (.{ 2, 4, 8, 16, 32, 48, 64 }) |n| {
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
         const M = Mask(n);
         try testing.expectEqual(@as(?i64, null), maskFirst(maskOf(M, @splat(false))));
         for (0..n) |i| {
@@ -9054,7 +9043,7 @@ test "maskFirst: every lane, every run, every lane count" {
 test "mask operators: every lane count, against the lanes one by one" {
     var prng = std.Random.DefaultPrng.init(0x3a5c);
     const r = prng.random();
-    inline for (.{ 2, 8, 16, 32, 48, 64 }) |n| {
+    inline for (.{ 2, 8, 16, 32, 64 }) |n| {
         const M = Mask(n);
         for (0..100) |_| {
             var a: [n]bool = undefined;
