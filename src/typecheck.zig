@@ -13043,9 +13043,6 @@ const Checker = struct {
         const name_node = ir.Member.name(callee);
         const method = self.text(name_node);
         const pos = srcPos(name_node, self.startOf(obj));
-        if (ct == null and (rig.isChainConsumer(method) or rig.isChainStage(method))) {
-            if (try self.chainCall(callee, method, args)) |ty| return ty;
-        }
 
         // `<Point.origin()`: a function called through its type or module
         // has no receiver for the sigil to apply to.
@@ -13088,6 +13085,10 @@ const Checker = struct {
         // `?@` one reads it where it stands; a `!@` one needs it
         // lent to write, `!mk().m()`, which keeps it in its statement's
         // slot.
+        // A chain, on a value: no module's or type's function.
+        if (ct == null and misreached == null and (rig.isChainConsumer(method) or rig.isChainStage(method))) {
+            if (try self.chainCall(callee, method, args)) |ty| return ty;
+        }
         const saved_receiver = self.receiver_obj;
         self.receiver_obj = obj;
         const obj_ty = try self.synthExpr(obj);
@@ -14369,6 +14370,8 @@ const Checker = struct {
     /// no stage, a List's own `sum` or `reduce` takes the call.
     fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize) Error!?struct { kind: rig.ChainSource, copies: bool = true } {
         if (root.isKind(.@"..")) return .{ .kind = .range };
+        // A module's or a type's function (`par.map`, `task.all`) is no chain.
+        if ((try self.moduleNamed(root)) != null or (try self.namedType(root)) != null) return null;
         const ty = try self.synthQuiet(root);
         if (self.isPoison(ty)) return null;
         const peeled = sema.unwrapViews(self.ctx, ty);
