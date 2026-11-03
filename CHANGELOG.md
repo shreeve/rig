@@ -265,6 +265,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`text.Interner`'s table is at most half full.** It was rebuilt only
+  past four fifths, where a miss probes about 13 slots; it now doubles
+  at half, so it is a quarter to half full (it was a fifth to four
+  fifths), and a lookup at 100,000 strings is about a third faster.
 - **std.terminal bounds what a program's output makes it hold.** A
   char keeps at most 64 runes after its first, as Ghostty does, and a
   terminal drops the styles no cell uses once they pass 4,096 and a
