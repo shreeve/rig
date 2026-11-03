@@ -12779,7 +12779,9 @@ reached it ([std.task](docs/STD.md#stdtask)). A task that cannot fail
 runs to its end, and `<t.cancel()` on one is rejected.
 
 The request reaches a task at its next fallible *waiting point*:
-`task.check()`, `time.sleep`, or a wait on a task that can fail. There
+`task.check()`, `time.sleep`, a wait on a task or a set that can fail,
+a channel's send, receive, or select, a call of an actor's method that
+can fail, or a call of `std.net` or `std.file` that waits. There
 it fails with `Stop.canceled`, and its `defer`s and drops run as for any
 failure. The request stays: every waiting point the task reaches after
 it fails too, so `time.sleep(d) catch print("woken")` does not let the

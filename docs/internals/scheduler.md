@@ -92,9 +92,8 @@ a program that makes none starts no workers.
   (`rig.blockingStop`). A call's thread wakes its waiter before it marks
   the call done, and the waiter that finds it not yet done spins 64
   times, then yields its thread (`sched.poolCall`): on one core the wake
-  can preempt the call's thread, which a waiter that only spun held off
-  until the kernel took the core back, about 0.6 ms a call (2.4 ms a run
-  of Trig pinned to one core).
+  can preempt the call's thread, and a waiter that only spun would hold
+  it off until the kernel took the core back, about 0.6 ms a call.
 - **Where work ran.** With `RIG_SCHED_STATS=1` set, a program prints, as
   `main` ends, what each worker did, to stderr:
 
@@ -349,9 +348,9 @@ while it computes (`sched.serviceBusy`): it wakes the fibers whose
 timers are due on its worker, and looks at its worker's poller at most
 every 250 µs, a system call. It reads the clock only when its worker
 holds a timer or a descriptor. A 10 ms sleep of a task whose worker
-spins in `main` takes 10 ms, with one worker or eight, where it waited
-for the whole spin; a round trip on a socket registered with that
-worker takes about 1 ms, where it took 1.5 s. A recursive call's check
+spins in `main` takes 10 ms, with one worker or eight, not the whole
+spin, and a round trip on a socket registered with that worker about
+1 ms. A recursive call's check
 reads only its flag, so a worker deep in recursion leaves its timers to
 the workers that sleep. A timer set earlier than any sleeping worker
 wakes kicks one (`sched.kickForTimer`): the timer's worker publishes the

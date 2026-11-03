@@ -71,7 +71,7 @@ aim to match it in the rest.
   data a task only reads. Any function runs as a task with `&`, and a
   function that waits on a socket is an ordinary function, called as
   any other.
-- **Tasks borrow in place.** `score(?d)&` reads `d` where it is, with
+- **Tasks read in place.** `score(?d)&` reads `d` where it is, with
   no copy and no counted handle, because Rig's ownership rules make the
   task end before `d` does ("Loans and structure"). Tokio cannot offer
   this: a future can be leaked, so its `spawn` takes only `'static`
@@ -275,9 +275,9 @@ loans goes. Five rules make that so:
    *shares*. None holds a value that may carry a loan, and `Task` always
    may. A leak in Rig needs a cycle through a shared home, so a value
    that carries a loan never leaks. Rig has no `forget`.
-4. **A panic unwinds frame by frame** (see "Failure"). Each frame
-   cancels and waits for the tasks it owns before it goes, as on any
-   other exit, so no task outlives a frame it borrows from.
+4. **A panic stops at a boundary** (see "Failure"), which cancels and
+   waits for every task started under it before the frames those tasks
+   may point into are left, so no task outlives a frame it reads from.
 5. **The program's end waits for its tasks.** `main` returns only after
    every task it still holds is canceled and waited for, before the leak
    check runs. An interrupt (SIGINT) or SIGTERM cancels a `main` that
@@ -331,11 +331,12 @@ calling an actor method that cannot fail, is not a point where
 cancellation is delivered. It passes the request on to what it waits
 for, and then completes.
 
-**Cleanup is shielded, within a grace period.** A `defer`, an
-`errdefer`, or a `drop` body runs with cancellation held off, so a
-canceled connection still writes its close frame and flushes. Shielding
-holds off the cancel, not deadlines: cleanup runs under a grace deadline
-that the runtime sets and a program may change.
+**Cleanup meets the cancel too.** A `defer`, an `errdefer`, or a `drop`
+body runs as on any failure, and every fallible waiting point it
+reaches fails, as every one after a cancel does (SPEC §18); its output
+and its drops finish as they would. Shielding cleanup from the cancel,
+within a grace deadline, so a canceled connection still writes its
+close frame, is planned (decision 6).
 
 **It follows ownership.** Canceling a task cancels the tasks it owns,
 through the same drops. There is no token to pass along. It passes
@@ -349,8 +350,8 @@ its outer loop, so inner loops still vectorize. Recursive functions
 check on entry. A check only yields: it never fails, because a failure
 in Rig is always written. A long computation that should stop when
 canceled writes `task.check()!` where stopping is safe. That one call
-both yields and delivers a cancel. In a debug build, a watchdog reports
-a canceled task still running after a while.
+both yields and delivers a cancel. A debug build's watchdog, reporting
+a canceled task still running after a while, is planned.
 
 ## What may cross cores
 
@@ -560,8 +561,8 @@ run. A cycle of waiting calls is a deadlock.
   close it at once, and panics naming it:
   `Bank.pay -> Ledger.post -> Bank.balance`. A call that waits into a
   cycle it is not on finds and names the same cycle. A deadlock is a bug, and
-  Rig's bugs panic, so actor calls stay infallible. The panic unwinds
-  to the nearest boundary, so it fails one request, not the server,
+  Rig's bugs panic, so actor calls stay infallible. The panic stops
+  at the nearest boundary, so it fails one request, not the server,
   once a panic in an actor's method fails its caller (Failure).
 - This is exact for waits on one thing: a task, an actor call, or a
   set's next result, which is stuck only when every task left in the
@@ -617,7 +618,7 @@ boundary. Three things are boundaries:
 
 Why this is sound without a runtime that knows the heap: loans point only
 from tasks into their owners, never the other way. So when a boundary's
-frames unwind, nothing that survives points into them, and anything
+frames are left, nothing that survives points into them, and anything
 outside the boundary that the dead code touched was only read.
 
 **Supervision** restarts what died. `*Actor.supervised(*|| Rooms(...))`
@@ -635,8 +636,8 @@ gives up past a limit of restarts in a window.
 system. An invariant that spans several values belongs in an actor,
 which a panic cannot leave half-changed.
 
-**A panic during unwinding**, in a `drop` body or a `defer`, ends the
-program, as in Rust.
+**A panic while a boundary stops its tasks**, in a task it waits for,
+ends the program.
 
 **Bad input needn't panic.** Every operation that panics on bad input
 (an index, an overflow, a division) has a form that returns an optional
@@ -738,7 +739,7 @@ These fit the existing λRig work in `formal/`, in this order:
 3. no orphans: live tasks form a tree rooted in live frames;
 4. deadlock detection is exact for waits on one thing;
 5. after a cancel, every fallible waiting point fails;
-6. unwinding to a boundary frees nothing a surviving task can reach, and
+6. stopping at a boundary frees nothing a surviving task can reach, and
    nothing outside the boundary that its code could change.
 
 What is proved, what is model-checked, and what is next, with the names
@@ -771,7 +772,9 @@ Each item gives the answer the model takes.
      carried by the operations that raise them, with no exempt `match`
      arms;
    - infallible waits pass it on;
-   - cleanup is shielded, within a grace deadline;
+   - cleanup is shielded, within a grace deadline *(planned: until
+     then every waiting point after a cancel fails, cleanup's too, as
+     SPEC §18 says)*;
    - compiler checks only yield, and `task.check()!` is the written stop.
 
    *Yes.*
@@ -802,7 +805,7 @@ Each item gives the answer the model takes.
     cycle, and a lint. *Yes.*
 12. **Failure:**
     - errors as values;
-    - a panic unwinds to the nearest boundary: `main`, `task.isolate`
+    - a panic stops at the nearest boundary: `main`, `task.isolate`
       (which `http.serve` uses for each request), or an actor;
     - a dead actor's waiting caller panics too;
     - supervisors restart actors and functions;

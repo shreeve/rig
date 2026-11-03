@@ -1,5 +1,5 @@
-//! `std.time`: the monotonic and wall clocks, and sleeping, through
-//! Zig's `std.Io`.
+//! `std.time`: the monotonic and wall clocks, read through Zig's
+//! `std.Io`, and sleeping and deadlines, which the runtime's tasks keep.
 
 const std = @import("std");
 const rig = @import("../runtime.zig");
