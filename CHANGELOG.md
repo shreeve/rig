@@ -265,6 +265,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The compiler says self, never receiver.** `rig check --facts`
+  names the self of a method call `self` (`self call 18:9-18:13 ...`
+  under `--facts=storage`, ` self` among a call's fills under
+  `--facts=sema`), and the compiler's sources, tests, and docs say
+  self, object, and lend where they said receiver, struct, and borrow.
+  The emitted Zig is unchanged.
 - **`terminal.Terminal.new` panics on a size that is not positive.**
   A terminal of no columns looped forever at its first `feed`, and one
   of no rows panicked deep in `print`; `new` panics at once, naming its
