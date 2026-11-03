@@ -1,0 +1,102 @@
+# The Computer Language Benchmarks Game: fannkuch-redux, pancake flips over every permutation
+# of 1 to n, counted in four ranges of permutations, a task for each.
+# Ports benchmarksgame/sources/fannkuchredux/fannkuchredux.rust-2 (TeXitoi).
+use std.os
+use std.math
+use std.slices
+use std.text
+
+# The permutations of `1..n + 1` in order, from any index: `get` jumps to one, and `next`
+# steps, counting as a factorial number in `cnt`.
+obj Perm
+  cnt: [16]Int = [16 of 0]
+  fact: [16]Int
+  n: Int
+  permcount: Int = 0
+  p: [16]Int = [16 of 0]
+
+  fun new(n: Int) -> Perm
+    fact = [16 of 1]
+    for i in 1..n + 1
+      fact[i] = fact[i - 1] * i
+    Perm(fact: fact, n: n)
+
+  fun get(!@, idx: Int) -> [16]Int
+    @permcount = idx
+    for place, i in !@p
+      place = i + 1
+    rest = idx
+    i = @n - 1
+    while i >= 1 : i -= 1
+      d = rest / @fact[i]
+      @cnt[i] = d
+      rest %= @fact[i]
+      pp = @p
+      for j in 0..i + 1
+        @p[j] = pp[j + d] if j + d <= i else pp[j + d - i - 1]
+    @p
+
+  fun count(?@) -> Int
+    @permcount
+
+  fun max(?@) -> Int
+    @fact[@n]
+
+  fun next(!@) -> [16]Int
+    for i in 1..16
+      rotate(!@p[..i + 1])
+      if @cnt[i] >= i
+        @cnt[i] = 0
+      else
+        @cnt[i] += 1
+        break
+    @permcount += 1
+    @p
+
+# Moves the first element of `x` to its end.
+sub rotate(x: ![]Int)
+  first = x[0]
+  for j in 0..x.len - 1
+    x[j] = x[j + 1]
+  x[x.len - 1] = first
+
+obj Tally
+  checksum: Int
+  max_flips: Int
+
+# The permutations from index `start` to `end`, each flipped until 1 comes first.
+fun work(perm: Perm, start: Int, end: Int) -> Tally
+  new perm = perm
+  checksum = 0
+  max_flips = 0
+  p = !perm.get(start)
+  while perm.count() < end
+    flips = 0
+    while p[0] != 1
+      slices.reverse(!p[..p[0]])
+      flips += 1
+    checksum += flips if perm.count() % 2 == 0 else -flips
+    max_flips = math.max(max_flips, flips)
+    p = !perm.next()
+  Tally(checksum: checksum, max_flips: max_flips)
+
+fun fannkuch(n: Int) -> Tally
+  perm = Perm.new(n)
+  k = perm.max() / 4
+  ranges = Tasks[Tally]()
+  for j in 0..4
+    !ranges.add(work(+perm, j * k, math.min(j * k + k, perm.max()))&)
+  tallies = >ranges
+  checksum = 0
+  max_flips = 0
+  for t in ?tallies
+    checksum += t.checksum
+    max_flips = math.max(max_flips, t.max_flips)
+  Tally(checksum: checksum, max_flips: max_flips)
+
+sub main()
+  args = os.args()
+  n = (text.parse_int(args[1]) catch 7) if args.len > 1 else 7
+  t = fannkuch(n)
+  print(t.checksum)
+  print(String("Pfannkuchen(", n, ") = ", t.max_flips))

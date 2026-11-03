@@ -1,0 +1,25 @@
+| operation | calls Trig / tsrs | Trig PGO cyc/call | Trig plain cyc/call | tsrs cyc/call | PGO vs tsrs | Trig PGO instr/call | tsrs instr/call | Trig PGO incl. cycles | tsrs incl. cycles |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| checker 0, all | - | - | - | - | -5% (incl.) | - | - | 1,555M | 1,633M |
+| relations | 316,005 / 316,983 | 2,775 | 2,413 | 2,812 | -1% | 5,943 | 5,417 | 877M | 891M |
+| relation cache | 281,978 / 284,087 | 182 | 213 | 150 | +22% | 129 | 120 | 51M | 43M |
+| instantiation | 2,604,114 / 2,599,706 | 447 | 448 | 419 | +7% | 904 | 842 | 1,164M | 1,090M |
+| object/conditional/reference instantiation | 591,126 / 591,064 | 1,880 | 1,846 | 1,775 | +6% | 3,890 | 3,547 | 1,111M | 1,049M |
+| mapper_map | 8,524,529 / 8,714,597 | 22 | 21 | - | n/a | - | - | 184M | 0M |
+| get_type_of_symbol | 593,814 / 591,696 | 1,026 | 725 | 8 | +12725% | 2,200 | 33 | 609M | 5M |
+| resolve_structured_type_members | 63,485 / 63,437 | 3,453 | 3,925 | 4,477 | -23% | 7,558 | 8,934 | 219M | 284M |
+| infer_types | 27,749 / 27,749 | 7,354 | 4,706 | 3,582 | +105% | 11,964 | 8,678 | 204M | 99M |
+| infer_from_types | 105,965 / 108,343 | 2,368 | 1,544 | 1,252 | +89% | 3,888 | 2,784 | 251M | 136M |
+| get_signatures_of_type | 226,804 / 226,596 | 193 | 179 | 258 | -25% | 321 | 419 | 44M | 58M |
+| resolved signatures | - | - | - | - | +92% (incl.) | - | - | 236M | 123M |
+| property lookup | - | - | - | - | +10% (incl.) | - | - | 128M | 117M |
+| union construction | 83,653 / 85,942 | 1,337 | 754 | 477 | +180% | 3,129 | 1,019 | 112M | 41M |
+| intersection construction | 110,281 / 112,268 | 493 | 463 | 253 | +95% | 571 | 888 | 54M | 28M |
+
+hash-table leaf samples (share of checker 0), by owning operation:
+  pgo cycles: 11.1% of 1029 samples; object/conditional/reference instantiation 3.8%, relation cache 2.0%, instantiation 1.4%, property lookup 1.1%, resolve_structured_type_members 0.8%, intersection construction 0.7%
+  pgo instr: 7.3% of 1273 samples; instantiation 1.6%, object/conditional/reference instantiation 1.5%, resolve_structured_type_members 1.3%, property lookup 1.3%, relation cache 0.8%, relations 0.4%
+  plain cycles: 6.8% of 1157 samples; object/conditional/reference instantiation 1.8%, instantiation 1.4%, relation cache 1.3%, property lookup 0.9%, resolve_structured_type_members 0.5%, relations 0.3%
+  plain instr: 4.7% of 1446 samples; instantiation 1.2%, relations 0.8%, object/conditional/reference instantiation 0.7%, property lookup 0.6%, resolve_structured_type_members 0.5%, relation cache 0.4%
+  tsrsf cycles: 12.1% of 1035 samples; object/conditional/reference instantiation 5.4%, instantiation 2.0%, relation cache 1.4%, resolve_structured_type_members 1.0%, relations 1.0%, none 0.6%
+  tsrsf instr: 9.8% of 1274 samples; object/conditional/reference instantiation 3.4%, instantiation 2.6%, resolve_structured_type_members 1.1%, relations 0.9%, property lookup 0.5%, relation cache 0.4%

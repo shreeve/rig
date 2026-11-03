@@ -8,7 +8,7 @@ what must std or the compiler change to reach it. Measuring and design only:
 no change to src/ or std/ here.
 
 Programs: `kn12.rig` and `rust-kn12.rs` from
-`~/Data/Code/Claude/rig/rig/rust-ports/reviews/bg2-speed-probes/`; the
+[small-table-data/](small-table-data/); the
 count is `(!counts).ensure(mix(code), 0) += 1`. Rust is built as
 `run.sh` builds `knucleotide-fast` (hashbrown 0.15.5, opt-level 3, lto,
 codegen-units 1, panic abort, target-cpu native); Rig with

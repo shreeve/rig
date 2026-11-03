@@ -1,0 +1,841 @@
+diff --git i/crates/tsrs_cli/src/main.rs w/crates/tsrs_cli/src/main.rs
+index 857dd347..f83d42ed 100644
+--- i/crates/tsrs_cli/src/main.rs
++++ w/crates/tsrs_cli/src/main.rs
+@@ -2,7 +2,9 @@
+ // blocks) keep the system allocator.
+ #[cfg(not(any(feature = "system-alloc", miri)))]
+ #[global_allocator]
+-static GLOBAL: mimalloc_safe::MiMalloc = mimalloc_safe::MiMalloc;
++static GLOBAL: heapcensus::Counting = heapcensus::Counting;
++
++mod heapcensus;
+ 
+ mod api;
+ mod lsp;
+@@ -79,6 +81,7 @@ fn main() {
+     #[cfg(all(target_os = "linux", not(any(feature = "system-alloc", miri))))]
+     tsrs_core::allocator::init_mimalloc();
+     let args: Vec<String> = std::env::args().skip(1).collect();
++    heapcensus::init();
+     #[cfg(not(feature = "system-alloc"))]
+     tsrs_core::memsplit::set_heap_hooks(mimalloc_heap_stats, mimalloc_collect);
+     // main.go:21: `--lsp` runs the language server (its threads have their own stacks); `--api` runs the
+diff --git i/crates/tsrs_core/src/arena.rs w/crates/tsrs_core/src/arena.rs
+index 111bacc8..2557856b 100644
+--- i/crates/tsrs_core/src/arena.rs
++++ w/crates/tsrs_core/src/arena.rs
+@@ -146,6 +146,49 @@ impl Arena {
+         self.region.is_some()
+     }
+ 
++    /// Census: the finger and chunk start before an allocation.
++    #[inline]
++    pub(crate) fn census_mark(&self) -> (*mut u8, *mut u8) {
++        (self.ptr.get(), self.start.get())
++    }
++
++    /// Census: bytes the allocation since `mark` took (alignment padding included), or `size` across a new chunk.
++    #[inline]
++    pub(crate) fn census_taken(&self, mark: (*mut u8, *mut u8), size: usize) -> usize {
++        if self.start.get() != mark.1 {
++            return size;
++        }
++        let (a, b) = (mark.0.addr(), self.ptr.get().addr());
++        if self.up { b - a } else { a - b }
++    }
++
++    /// Census: 0 thread arena, 1 registered region, 2 scratch region.
++    #[inline]
++    pub(crate) fn census_store(&self) -> u8 {
++        if self.region.is_none() {
++            0
++        } else if self.registered {
++            1
++        } else {
++            2
++        }
++    }
++
++    /// Census: blocks and bytes on this arena's free lists.
++    pub(crate) fn free_list_totals(&self) -> (usize, usize) {
++        let (mut n, mut b) = (0, 0);
++        for class in 1..CLASSES {
++            let mut p = self.free[class].get();
++            while !p.is_null() {
++                n += 1;
++                b += class * 8;
++                // SAFETY: free blocks hold the next pointer in their first word.
++                p = unsafe { *p.cast_const().cast::<*mut u8>() };
++            }
++        }
++        (n, b)
++    }
++
+     /// Records `len` values of type `T` at `ptr` (just allocated in this arena) for dropping when the region is freed.
+     /// Does nothing in a thread's own arena (values there are never dropped).
+     #[inline]
+@@ -302,7 +345,17 @@ impl Arena {
+             layout.size() >= std::mem::size_of::<T>()
+                 && layout.align() >= std::mem::align_of::<T>()
+         );
++        let mark = self.census_mark();
+         let p = self.alloc_layout(layout).cast::<T>();
++        if crate::census::enabled() {
++            crate::census::record::<T>(
++                false,
++                p.as_ptr().addr(),
++                layout.size(),
++                self.census_taken(mark, layout.size()),
++                self.census_store(),
++            );
++        }
+         // SAFETY: fresh, aligned, exclusively owned memory for one `T`.
+         unsafe {
+             p.as_ptr().write(value);
+@@ -313,7 +366,18 @@ impl Arena {
+     #[inline]
+     #[expect(clippy::mut_from_ref, reason = "a fresh block, as in alloc_with")]
+     pub(crate) fn alloc_slice_copy<T: Copy>(&self, src: &[T]) -> &mut [T] {
++        let mark = self.census_mark();
+         let p = self.alloc_layout(Layout::for_value(src)).cast::<T>();
++        if crate::census::enabled() {
++            let size = std::mem::size_of_val(src);
++            crate::census::record::<T>(
++                true,
++                p.as_ptr().addr(),
++                size,
++                self.census_taken(mark, size),
++                self.census_store(),
++            );
++        }
+         // SAFETY: fresh memory for `src.len()` items; `T: Copy`.
+         unsafe {
+             std::ptr::copy_nonoverlapping(src.as_ptr(), p.as_ptr(), src.len());
+@@ -325,7 +389,18 @@ impl Arena {
+     #[expect(clippy::mut_from_ref, reason = "a fresh block, as in alloc_with")]
+     pub(crate) fn alloc_vec<T>(&self, items: Vec<T>) -> &mut [T] {
+         let len = items.len();
++        let mark = self.census_mark();
+         let p = self.alloc_layout(Layout::array::<T>(len).expect("arena slice layout")).cast::<T>();
++        if crate::census::enabled() {
++            let size = len * std::mem::size_of::<T>();
++            crate::census::record::<T>(
++                true,
++                p.as_ptr().addr(),
++                size,
++                self.census_taken(mark, size),
++                self.census_store(),
++            );
++        }
+         let mut items = std::mem::ManuallyDrop::new(items);
+         // SAFETY: the items move into fresh memory; the vector's buffer is freed without dropping them.
+         unsafe {
+@@ -339,7 +414,25 @@ impl Arena {
+     #[inline]
+     #[expect(clippy::mut_from_ref, reason = "a fresh block, as in alloc_with")]
+     pub(crate) fn alloc_str(&self, s: &str) -> &mut str {
+-        let bytes = self.alloc_slice_copy(s.as_bytes());
++        let mark = self.census_mark();
++        let p = self.alloc_layout(Layout::for_value(s.as_bytes()));
++        if crate::census::enabled() {
++            crate::census::record_raw(
++                "str",
++                1,
++                1,
++                true,
++                p.as_ptr().addr(),
++                s.len(),
++                self.census_taken(mark, s.len()),
++                self.census_store(),
++            );
++        }
++        // SAFETY: fresh memory for `s.len()` bytes.
++        let bytes = unsafe {
++            std::ptr::copy_nonoverlapping(s.as_ptr(), p.as_ptr(), s.len());
++            std::slice::from_raw_parts_mut(p.as_ptr(), s.len())
++        };
+         // SAFETY: copied from a `str`.
+         unsafe { std::str::from_utf8_unchecked_mut(bytes) }
+     }
+@@ -725,6 +818,9 @@ pub(crate) unsafe fn free_block(
+     );
+     // Write access through the chunk's (exposed) provenance, not through the references the program held.
+     let p = std::ptr::with_exposed_provenance_mut::<u8>(addr);
++    if crate::census::enabled() {
++        crate::census::kill(addr, size, 1);
++    }
+     arena.bump_epoch();
+     if poison_mode() {
+         // SAFETY: the block is `size` dead bytes (this function's contract), written through the chunk's provenance.
+@@ -744,6 +840,9 @@ pub(crate) fn rewind(arena: &Arena, cp: Checkpoint) {
+     if len == 0 {
+         return;
+     }
++    if crate::census::enabled() {
++        crate::census::kill(now.addr(), len, 2);
++    }
+     // Values discarded by the rewind are not dropped (as in a thread arena); forget their drop entries.
+     arena.drops.borrow_mut().truncate(cp.drops);
+     if poison_mode() {
+@@ -1365,6 +1464,11 @@ impl Drop for RegionInner {
+         }
+         let arena = &*self.arena;
+         let chunks = arena.chunks();
++        if crate::census::enabled() {
++            for &(start, size) in &chunks {
++                crate::census::kill(start, size, 3);
++            }
++        }
+         if arena.registered || !self.owners.get_mut().unwrap().is_empty() {
+             let mut reg = REGISTRY.write().unwrap();
+             for &(start, _) in &chunks {
+diff --git i/crates/tsrs_core/src/lib.rs w/crates/tsrs_core/src/lib.rs
+index b6fe97be..8a531310 100644
+--- i/crates/tsrs_core/src/lib.rs
++++ w/crates/tsrs_core/src/lib.rs
+@@ -38,6 +38,7 @@ pub mod jsnum;
+ pub mod json;
+ pub mod lazymembers;
+ pub mod memsplit;
++pub mod census;
+ pub mod phases;
+ pub mod runslots;
+ pub mod semver;
+diff --git i/crates/tsrs_core/src/memsplit.rs w/crates/tsrs_core/src/memsplit.rs
+index 0768aaf1..865f247f 100644
+--- i/crates/tsrs_core/src/memsplit.rs
++++ w/crates/tsrs_core/src/memsplit.rs
+@@ -166,6 +166,9 @@ pub fn report(what: &str) {
+     if !enabled() {
+         return;
+     }
++    if what == "parse end" {
++        crate::census::mark_parse_end();
++    }
+     let mut out = format!("tsrs mem split: {what}\n");
+     let mut arenas = ArenaTotals::default();
+     for a in ARENAS.lock().unwrap().iter() {
+@@ -178,6 +181,15 @@ pub fn report(what: &str) {
+             r.retired_unused.iter().map(|&(s, l)| resident(s, l)).sum::<usize>();
+         arenas.huge_current += usize::from(r.current_huge);
+     }
++    if what == "check end" {
++        let mut fl = (0, 0);
++        for a in ARENAS.lock().unwrap().iter() {
++            let (n, b) = a.0.free_list_totals();
++            fl.0 += n;
++            fl.1 += b;
++        }
++        crate::census::dump_at_check_end(fl, arenas.used);
++    }
+     let _ = writeln!(
+         out,
+         "  thread arenas: {} arenas, {} MiB capacity, {} MiB used, unused resident {} MiB in current chunks + {} MiB in retired chunks, {} huge current chunks",
+diff --git i/crates/tsrs_core/src/ptr.rs w/crates/tsrs_core/src/ptr.rs
+index 9df64967..26e733de 100644
+--- i/crates/tsrs_core/src/ptr.rs
++++ w/crates/tsrs_core/src/ptr.rs
+@@ -212,6 +212,10 @@ impl<T> P<T> {
+         if class != 0 {
+             if let Some((block, a)) = with_arena(|a| a.pop_free(class).map(|b| (b, a))) {
+                 let p = block.cast::<T>();
++                if crate::census::enabled() {
++                    let size = p_layout::<T>().size();
++                    crate::census::record::<T>(false, p.as_ptr().addr(), size, size, a.census_store());
++                }
+                 // SAFETY: a dead block of exactly `p_layout::<T>().size()` bytes, 8-aligned (`free_class`).
+                 unsafe { p.as_ptr().write(value) };
+                 a.track_drop(p.as_ptr(), 1);
+@@ -897,7 +901,14 @@ impl PackedStr {
+     fn new_long(s: &str) -> PackedStr {
+         let len = u32::try_from(s.len()).expect("string longer than u32::MAX");
+         let layout = std::alloc::Layout::from_size_align(4 + s.len(), 4).unwrap();
+-        let p = with_arena(|a| a.alloc_layout(layout));
++        let p = with_arena(|a| {
++            let mark = a.census_mark();
++            let p = a.alloc_layout(layout);
++            if crate::census::enabled() {
++                crate::census::record_raw("PackedStr long text (u32 len + bytes)", 1, 4, true, p.as_ptr().addr(), layout.size(), a.census_taken(mark, layout.size()), a.census_store());
++            }
++            p
++        });
+         // SAFETY: `p` points to `4 + len` fresh bytes, 4-byte aligned.
+         unsafe {
+             p.cast::<u32>().as_ptr().write(len);
+@@ -1343,7 +1354,14 @@ pub fn alloc_vec_scratch<T>(items: Vec<T>) -> &'static [T] {
+ pub fn alloc_slice_aligned4(items: &[u8]) -> &'static [u8] {
+     let layout =
+         std::alloc::Layout::from_size_align(items.len().max(1), 4).expect("arena slice layout");
+-    let p = with_arena(|a| a.alloc_layout(layout));
++    let p = with_arena(|a| {
++        let mark = a.census_mark();
++        let p = a.alloc_layout(layout);
++        if crate::census::enabled() {
++            crate::census::record_raw("[u8] (alloc_slice_aligned4)", 1, 4, true, p.as_ptr().addr(), layout.size(), a.census_taken(mark, layout.size()), a.census_store());
++        }
++        p
++    });
+     // SAFETY: fresh memory for `items.len()` bytes.
+     unsafe {
+         std::ptr::copy_nonoverlapping(items.as_ptr(), p.as_ptr(), items.len());
+@@ -1373,8 +1391,12 @@ pub fn alloc_slice_recycled<T: Copy>(items: &[T]) -> &'static [T] {
+     }
+     let class = arena::free_class(std::mem::size_of_val(items), std::mem::align_of::<T>());
+     if class != 0 {
+-        if let Some(block) = with_arena(|a| a.pop_free(class)) {
++        if let Some((block, a)) = with_arena(|a| a.pop_free(class).map(|b| (b, a))) {
+             let p = block.cast::<T>();
++            if crate::census::enabled() {
++                let size = std::mem::size_of_val(items);
++                crate::census::record::<T>(true, p.as_ptr().addr(), size, size, a.census_store());
++            }
+             // SAFETY: a dead block of exactly `size_of_val(items)` bytes, 8-aligned; `T: Copy`.
+             let s: &'static [T] = unsafe {
+                 std::ptr::copy_nonoverlapping(items.as_ptr(), p.as_ptr(), items.len());
+@@ -1625,7 +1647,14 @@ impl fmt::Write for ArenaStringBuilder {
+ fn arena_string_capacity(capacity: usize) -> std::ptr::NonNull<u8> {
+     let layout =
+         std::alloc::Layout::from_size_align(capacity, 1).expect("arena string capacity overflow");
+-    with_arena(|a| a.alloc_layout(layout))
++    with_arena(|a| {
++        let mark = a.census_mark();
++        let p = a.alloc_layout(layout);
++        if crate::census::enabled() {
++            crate::census::record_raw("ArenaStringBuilder buffer (str)", 1, 1, true, p.as_ptr().addr(), layout.size(), a.census_taken(mark, layout.size()), a.census_store());
++        }
++        p
++    })
+ }
+ 
+ /// Copies a string into the arena.
+diff --git 1/crates/tsrs_core/src/census.rs 2/crates/tsrs_core/src/census.rs
+new file mode 100644
+index 00000000..43e636ae
+--- /dev/null
++++ 2/crates/tsrs_core/src/census.rs
+@@ -0,0 +1,275 @@
++//! Memory census (measurement copy only, not for landing): every arena allocation by Rust type.
++//!
++//! `TSRS_CENSUS=PATH`: each typed arena allocation (`Arena::alloc_with`, `alloc_slice_copy`, `alloc_vec`,
++//! `alloc_str`, the free-list paths `P::new_recycled` / `alloc_slice_recycled`, and the untyped
++//! `alloc_layout` callers in `ptr.rs`) appends (address, bytes, alignment padding, type, store, sequence).
++//! Every event that makes arena memory dead appends a kill range: a block pushed on a free list, a rewind, a
++//! freed region's chunks. At `check end` (memsplit's report) an allocation is live when no later kill covers
++//! its address; the table per type is written to PATH. Bookkeeping lives on the heap (suspended for the heap
++//! census through `HEAP_SUSPEND`).
++
++use std::collections::HashMap;
++use std::io::Write;
++use std::sync::Mutex;
++use std::sync::atomic::{AtomicU8, Ordering};
++
++static MODE: AtomicU8 = AtomicU8::new(0); // 0 unknown, 1 on, 2 off
++
++#[inline]
++pub fn enabled() -> bool {
++    match MODE.load(Ordering::Relaxed) {
++        1 => true,
++        2 => false,
++        _ => init_mode(),
++    }
++}
++
++#[cold]
++fn init_mode() -> bool {
++    let on = std::env::var_os("TSRS_CENSUS").is_some();
++    MODE.store(if on { 1 } else { 2 }, Ordering::Relaxed);
++    on
++}
++
++/// Store of an allocation: 0 thread arena, 1 registered region, 2 scratch (unregistered) region.
++pub const STORE_THREAD: u8 = 0;
++
++#[derive(Clone, Copy)]
++struct Rec {
++    addr: u64,
++    size: u32,
++    seq: u32,
++    ty: u16,
++    store: u8,
++    pad: u8,
++}
++
++struct TypeInfo {
++    name: &'static str,
++    size_of: usize,
++    align_of: usize,
++    slice: bool,
++}
++
++#[derive(Default)]
++struct State {
++    recs: Vec<Rec>,
++    /// (start, end, seq, kind): kind 1 free list, 2 rewind, 3 region freed.
++    kills: Vec<(usize, usize, u32, u8)>,
++    types: Vec<TypeInfo>,
++    by_ptr: HashMap<(usize, usize, bool), u16>,
++    seq: u32,
++    parse_end_seq: u32,
++    big: u64,
++}
++
++static STATE: Mutex<Option<State>> = Mutex::new(None);
++
++/// Set by the heap census around census bookkeeping (installed from the binary).
++pub static HEAP_SUSPEND: std::sync::OnceLock<fn(bool) -> bool> = std::sync::OnceLock::new();
++/// The heap census's dump, called at `check end` (installed from the binary).
++pub static HEAP_DUMP: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
++
++fn suspend(on: bool) -> bool {
++    HEAP_SUSPEND.get().map_or(false, |f| f(on))
++}
++
++pub fn record_raw(
++    name: &'static str,
++    size_of: usize,
++    align_of: usize,
++    slice: bool,
++    addr: usize,
++    bytes: usize,
++    taken: usize,
++    store: u8,
++) {
++    let prev = suspend(true);
++    {
++        let mut g = STATE.lock().unwrap();
++        let s = g.get_or_insert_with(State::default);
++        let key = (name.as_ptr() as usize, name.len(), slice);
++        let ty = match s.by_ptr.get(&key) {
++            Some(&t) => t,
++            None => {
++                let t = u16::try_from(s.types.len()).expect("census: too many types");
++                s.types.push(TypeInfo { name, size_of, align_of, slice });
++                s.by_ptr.insert(key, t);
++                t
++            }
++        };
++        s.seq += 1;
++        let size = u32::try_from(bytes).unwrap_or_else(|_| {
++            s.big += bytes as u64;
++            u32::MAX
++        });
++        let pad = taken.saturating_sub(bytes).min(255) as u8;
++        s.recs.push(Rec { addr: addr as u64, size, seq: s.seq, ty, store, pad });
++    }
++    suspend(prev);
++}
++
++#[inline]
++pub fn record<T>(slice: bool, addr: usize, bytes: usize, taken: usize, store: u8) {
++    record_raw(
++        std::any::type_name::<T>(),
++        std::mem::size_of::<T>(),
++        std::mem::align_of::<T>(),
++        slice,
++        addr,
++        bytes,
++        taken,
++        store,
++    );
++}
++
++pub fn kill(start: usize, len: usize, kind: u8) {
++    if len == 0 {
++        return;
++    }
++    let prev = suspend(true);
++    {
++        let mut g = STATE.lock().unwrap();
++        let s = g.get_or_insert_with(State::default);
++        s.seq += 1;
++        let seq = s.seq;
++        s.kills.push((start, start + len, seq, kind));
++    }
++    suspend(prev);
++}
++
++pub fn mark_parse_end() {
++    let mut g = STATE.lock().unwrap();
++    let s = g.get_or_insert_with(State::default);
++    s.parse_end_seq = s.seq;
++}
++
++#[derive(Default, Clone)]
++struct Agg {
++    alloc_n: u64,
++    alloc_b: u64,
++    live_n: u64,
++    live_b: u64,
++    live_taken: u64,
++    live_parse_b: u64,
++    live_region_b: u64,
++    dead_free_b: u64,
++    dead_rewind_b: u64,
++    dead_region_b: u64,
++}
++
++/// Writes the census (memsplit's `check end`). `free_lists` = (blocks, bytes) on the thread arenas' free lists.
++pub fn dump_at_check_end(free_lists: (usize, usize), arena_used: usize) {
++    if let Some(f) = HEAP_DUMP.get() {
++        f();
++    }
++    if !enabled() {
++        return;
++    }
++    let prev = suspend(true);
++    let path = std::env::var("TSRS_CENSUS").unwrap();
++    let mut g = STATE.lock().unwrap();
++    let Some(s) = g.as_mut() else {
++        return;
++    };
++    let parse_end = s.parse_end_seq;
++    let mut kills = std::mem::take(&mut s.kills);
++    kills.sort_unstable_by_key(|k| k.0);
++    s.recs.sort_unstable_by_key(|r| r.addr);
++    let mut aggs: Vec<Agg> = vec![Agg::default(); s.types.len()];
++    // Max-seq heap of the kill ranges that start at or before the address; expired ones are dropped lazily.
++    let mut heap: std::collections::BinaryHeap<(u32, usize, u8)> = std::collections::BinaryHeap::new();
++    let mut ki = 0;
++    for r in &s.recs {
++        let addr = r.addr as usize;
++        while ki < kills.len() && kills[ki].0 <= addr {
++            heap.push((kills[ki].2, kills[ki].1, kills[ki].3));
++            ki += 1;
++        }
++        while let Some(&(_, end, _)) = heap.peek() {
++            if end <= addr {
++                heap.pop();
++            } else {
++                break;
++            }
++        }
++        let a = &mut aggs[r.ty as usize];
++        let b = u64::from(r.size);
++        a.alloc_n += 1;
++        a.alloc_b += b;
++        match heap.peek() {
++            Some(&(seq, _, kind)) if seq > r.seq => match kind {
++                1 => a.dead_free_b += b,
++                2 => a.dead_rewind_b += b,
++                _ => a.dead_region_b += b,
++            },
++            _ => {
++                a.live_n += 1;
++                a.live_b += b;
++                a.live_taken += b + u64::from(r.pad);
++                if r.seq <= parse_end {
++                    a.live_parse_b += b;
++                }
++                if r.store != STORE_THREAD {
++                    a.live_region_b += b;
++                }
++            }
++        }
++    }
++    // Merge types whose names are equal (type_name may give one string per crate).
++    let mut merged: HashMap<(String, bool), (usize, usize, Agg)> = HashMap::new();
++    for (t, a) in s.types.iter().zip(&aggs) {
++        let e = merged.entry((t.name.to_string(), t.slice)).or_insert((t.size_of, t.align_of, Agg::default()));
++        let m = &mut e.2;
++        m.alloc_n += a.alloc_n;
++        m.alloc_b += a.alloc_b;
++        m.live_n += a.live_n;
++        m.live_b += a.live_b;
++        m.live_taken += a.live_taken;
++        m.live_parse_b += a.live_parse_b;
++        m.live_region_b += a.live_region_b;
++        m.dead_free_b += a.dead_free_b;
++        m.dead_rewind_b += a.dead_rewind_b;
++        m.dead_region_b += a.dead_region_b;
++    }
++    let mut rows: Vec<_> = merged.into_iter().collect();
++    rows.sort_by(|a, b| b.1.2.live_taken.cmp(&a.1.2.live_taken));
++    let mut out = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
++    let tot_live: u64 = rows.iter().map(|r| r.1.2.live_taken).sum();
++    let tot_live_thread: u64 = rows.iter().map(|r| r.1.2.live_taken - r.1.2.live_region_b).sum();
++    let _ = writeln!(
++        out,
++        "# records {} kills {} big {} | live taken {} (thread arenas approx {}) | memsplit arena used {} | free lists {} blocks {} bytes",
++        s.recs.len(),
++        kills.len(),
++        s.big,
++        tot_live,
++        tot_live_thread,
++        arena_used,
++        free_lists.0,
++        free_lists.1
++    );
++    let _ = writeln!(
++        out,
++        "type\tslice\tsize_of\talign_of\talloc_n\talloc_b\tlive_n\tlive_b\tlive_taken\tlive_parse_b\tlive_region_b\tdead_free_b\tdead_rewind_b\tdead_region_b"
++    );
++    for ((name, slice), (sz, al, a)) in rows {
++        let _ = writeln!(
++            out,
++            "{name}\t{}\t{sz}\t{al}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
++            u8::from(slice),
++            a.alloc_n,
++            a.alloc_b,
++            a.live_n,
++            a.live_b,
++            a.live_taken,
++            a.live_parse_b,
++            a.live_region_b,
++            a.dead_free_b,
++            a.dead_rewind_b,
++            a.dead_region_b
++        );
++    }
++    drop(out);
++    suspend(prev);
++}
+diff --git 1/crates/tsrs_cli/src/heapcensus.rs 2/crates/tsrs_cli/src/heapcensus.rs
+new file mode 100644
+index 00000000..1a342ef1
+--- /dev/null
++++ 2/crates/tsrs_cli/src/heapcensus.rs
+@@ -0,0 +1,243 @@
++//! Heap census (measurement copy only): a global allocator over mimalloc that, with `TSRS_HEAP_CENSUS=PATH`, keeps
++//! every live heap block with its size and its allocating stack (frame-pointer walk; build with
++//! `-C force-frame-pointers=yes`), and at `check end` writes live bytes per stack to PATH (resolved offline).
++
++use std::alloc::{GlobalAlloc, Layout};
++use std::cell::Cell;
++use std::collections::HashMap;
++use std::hash::{BuildHasherDefault, Hasher};
++use std::io::Write;
++use std::sync::Mutex;
++use std::sync::atomic::{AtomicBool, Ordering};
++
++const D: usize = 28;
++
++#[derive(Default)]
++pub struct H(u64);
++impl Hasher for H {
++    fn write(&mut self, b: &[u8]) {
++        for &x in b {
++            self.write_u64(u64::from(x));
++        }
++    }
++    fn write_u64(&mut self, i: u64) {
++        self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(0x517c_c1b7_2722_0a95);
++    }
++    fn write_usize(&mut self, i: usize) {
++        self.write_u64(i as u64);
++    }
++    fn finish(&self) -> u64 {
++        self.0
++    }
++}
++type B = BuildHasherDefault<H>;
++
++struct State {
++    live: HashMap<usize, (u32, u32), B>,
++    stacks: HashMap<[usize; D], u32, B>,
++    list: Vec<[usize; D]>,
++    allocs: u64,
++    alloc_bytes: u64,
++}
++
++static ON: AtomicBool = AtomicBool::new(false);
++static STATE: Mutex<Option<State>> = Mutex::new(None);
++
++thread_local! {
++    static GUARD: Cell<bool> = const { Cell::new(false) };
++    static STACK_HI: Cell<usize> = const { Cell::new(0) };
++}
++
++pub struct Counting;
++
++pub fn init() {
++    if std::env::var_os("TSRS_HEAP_CENSUS").is_none() {
++        return;
++    }
++    GUARD.with(|g| g.set(true));
++    *STATE.lock().unwrap() = Some(State {
++        live: HashMap::with_capacity_and_hasher(1 << 22, B::default()),
++        stacks: HashMap::with_capacity_and_hasher(1 << 18, B::default()),
++        list: Vec::with_capacity(1 << 18),
++        allocs: 0,
++        alloc_bytes: 0,
++    });
++    let _ = tsrs_core::census::HEAP_SUSPEND.set(suspend);
++    let _ = tsrs_core::census::HEAP_DUMP.set(dump);
++    GUARD.with(|g| g.set(false));
++    ON.store(true, Ordering::Release);
++}
++
++fn suspend(on: bool) -> bool {
++    GUARD.with(|g| g.replace(on))
++}
++
++fn stack_hi() -> usize {
++    let h = STACK_HI.with(Cell::get);
++    if h != 0 {
++        return h;
++    }
++    // SAFETY: pthread_getattr_np fills the attribute object for the calling thread; destroyed after use.
++    let hi = unsafe {
++        let mut attr: libc::pthread_attr_t = std::mem::zeroed();
++        if libc::pthread_getattr_np(libc::pthread_self(), &raw mut attr) != 0 {
++            return 0;
++        }
++        let mut addr: *mut libc::c_void = std::ptr::null_mut();
++        let mut size: libc::size_t = 0;
++        libc::pthread_attr_getstack(&raw const attr, &raw mut addr, &raw mut size);
++        libc::pthread_attr_destroy(&raw mut attr);
++        addr as usize + size
++    };
++    STACK_HI.with(|c| c.set(hi));
++    hi
++}
++
++#[inline(always)]
++fn capture(out: &mut [usize; D]) {
++    let mut fp: usize;
++    // SAFETY: reads the frame pointer register.
++    unsafe { std::arch::asm!("mov {}, rbp", out(reg) fp, options(nomem, nostack, preserves_flags)) };
++    let hi = stack_hi();
++    let lo = fp;
++    let mut n = 0;
++    while n < D {
++        if fp < lo || fp + 16 > hi || fp % 8 != 0 {
++            break;
++        }
++        // SAFETY: `fp` lies in this thread's stack, between the current frame and the top.
++        let (next, ret) = unsafe { (*(fp as *const usize), *((fp + 8) as *const usize)) };
++        if ret < 4096 {
++            break;
++        }
++        out[n] = ret;
++        n += 1;
++        if next <= fp {
++            break;
++        }
++        fp = next;
++    }
++}
++
++#[inline(never)]
++fn note_alloc(p: *mut u8, size: usize) {
++    if p.is_null() || GUARD.with(|g| g.replace(true)) {
++        return;
++    }
++    let mut st = [0usize; D];
++    capture(&mut st);
++    if let Some(s) = STATE.lock().unwrap().as_mut() {
++        let n = s.list.len() as u32;
++        let id = *s.stacks.entry(st).or_insert(n);
++        if id == n {
++            s.list.push(st);
++        }
++        s.live.insert(p as usize, (u32::try_from(size).unwrap_or(u32::MAX), id));
++        s.allocs += 1;
++        s.alloc_bytes += size as u64;
++    }
++    GUARD.with(|g| g.set(false));
++}
++
++#[inline(never)]
++fn note_free(p: *mut u8) {
++    if GUARD.with(|g| g.replace(true)) {
++        return;
++    }
++    if let Some(s) = STATE.lock().unwrap().as_mut() {
++        s.live.remove(&(p as usize));
++    }
++    GUARD.with(|g| g.set(false));
++}
++
++unsafe extern "C" {
++    fn mi_usable_size(p: *const std::ffi::c_void) -> usize;
++}
++
++// SAFETY: forwards to mimalloc; the census only observes.
++unsafe impl GlobalAlloc for Counting {
++    #[inline]
++    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
++        // SAFETY: forwarded.
++        let p = unsafe { mimalloc_safe::MiMalloc.alloc(l) };
++        if ON.load(Ordering::Relaxed) {
++            note_alloc(p, l.size());
++        }
++        p
++    }
++    #[inline]
++    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
++        // SAFETY: forwarded.
++        let p = unsafe { mimalloc_safe::MiMalloc.alloc_zeroed(l) };
++        if ON.load(Ordering::Relaxed) {
++            note_alloc(p, l.size());
++        }
++        p
++    }
++    #[inline]
++    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
++        if ON.load(Ordering::Relaxed) {
++            note_free(p);
++        }
++        // SAFETY: forwarded.
++        unsafe { mimalloc_safe::MiMalloc.dealloc(p, l) }
++    }
++    #[inline]
++    unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
++        if ON.load(Ordering::Relaxed) {
++            note_free(p);
++        }
++        // SAFETY: forwarded.
++        let q = unsafe { mimalloc_safe::MiMalloc.realloc(p, l, new) };
++        if ON.load(Ordering::Relaxed) {
++            note_alloc(q, new);
++        }
++        q
++    }
++}
++
++fn dump() {
++    if !ON.load(Ordering::Relaxed) {
++        return;
++    }
++    let prev = suspend(true);
++    let path = std::env::var("TSRS_HEAP_CENSUS").unwrap();
++    let g = STATE.lock().unwrap();
++    let s = g.as_ref().unwrap();
++    // Per stack: live blocks, requested bytes, usable bytes.
++    let mut per: Vec<(u64, u64, u64)> = vec![(0, 0, 0); s.list.len()];
++    for (&p, &(size, id)) in &s.live {
++        let e = &mut per[id as usize];
++        e.0 += 1;
++        e.1 += u64::from(size);
++        // SAFETY: a live mimalloc block.
++        e.2 += unsafe { mi_usable_size(p as *const std::ffi::c_void) } as u64;
++    }
++    let mut out = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
++    let (n, b, u) = per.iter().fold((0, 0, 0), |a, e| (a.0 + e.0, a.1 + e.1, a.2 + e.2));
++    let _ = writeln!(
++        out,
++        "# live blocks {n} requested {b} usable {u} | allocations {} bytes {} | stacks {}",
++        s.allocs,
++        s.alloc_bytes,
++        s.list.len()
++    );
++    if let Ok(maps) = std::fs::read_to_string("/proc/self/maps") {
++        for l in maps.lines().filter(|l| l.contains("tsrs") || l.contains(".so")) {
++            let _ = writeln!(out, "map {l}");
++        }
++    }
++    for (id, e) in per.iter().enumerate() {
++        if e.0 == 0 {
++            continue;
++        }
++        let _ = write!(out, "{}\t{}\t{}\t", e.0, e.1, e.2);
++        for &f in s.list[id].iter().take_while(|&&f| f != 0) {
++            let _ = write!(out, "{f:x} ");
++        }
++        let _ = writeln!(out);
++    }
++    drop(out);
++    drop(g);
++    suspend(prev);
++}

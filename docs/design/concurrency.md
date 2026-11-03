@@ -4,7 +4,7 @@ The record of why Rig's tasks, actors, and failure rules are what they
 are. The rules themselves are in [SPEC.md §18](../../SPEC.md#18-tasks),
 the engine is described in [docs/internals/scheduler.md](../internals/scheduler.md),
 the proofs in [formal/README.md](../../formal/README.md), and the review
-of the model as built in [concurrency-panel](concurrency-panel/README.md).
+of the model as built in [concurrency-panel](../history/records/2026-10/concurrency-panel/README.md).
 
 It draws on three expert reviews, which an adversarial review then
 attacked:
@@ -55,7 +55,7 @@ it is an ordinary call. Serial code is the default; concurrency is the
 marked case, `&`, exactly where it happens.
 
 A task can be stopped early only if its result can fail: cancellation
-arrives as `error.Canceled`, so a `Task[Int]` runs to its end and a
+arrives as `Stop.canceled`, so a `Task[Int]` runs to its end and a
 `Task[Int!]` can be canceled.
 
 ## Rig and Tokio
@@ -195,7 +195,7 @@ place a fallible type stands as a type argument.
 - `>t` waits for the task and takes its result. A fallible
   result is passed on with `>t!` or handled with `catch`.
 - `<t.cancel()` cancels a fallible task, waits for it, and gives what it
-  returned, usually `error.Canceled`.
+  returned, usually `Stop.canceled`.
 - `task.all(a, b, c)` waits for several tasks of different types at
   once. The first error cancels the others.
 - `time.within(d, |<t| >t!)` waits with a deadline: `within` calls its
@@ -283,7 +283,7 @@ loans goes. Five rules make that so:
    check runs. An interrupt (SIGINT) or SIGTERM cancels a `main` that
    can fail (SPEC §18, "An interrupt cancels `main`").
 
-FORMAL-RIG's principles change in three places:
+The principles of [formal-plan.md](formal-plan.md) change in three places:
 - principle 4, "safety never rests on a drop running", becomes "safety
   never rests on dropping a value that carries no loan";
 - principle 6 names tasks and actors as the concurrency, with channels
@@ -294,7 +294,7 @@ FORMAL-RIG's principles change in three places:
 ## Cancellation
 
 **A request, delivered as an error.** Canceling a task asks it to stop.
-The task sees the request as `error.Canceled` at its next *fallible*
+The task sees the request as `Stop.canceled` at its next *fallible*
 waiting point:
 - I/O;
 - a channel operation;
@@ -305,9 +305,10 @@ waiting point:
 
 Its `errdefer`s and `defer`s then run as for any failure.
 
-**Ordinary errors.** `Canceled` and `Timeout` are errors like any other,
-with no special rule:
-- `std` declares them once, `error Stop = canceled | timeout`;
+**Ordinary errors.** `Stop.canceled` and `Stop.timeout` are errors like
+any other, with no special rule:
+- `std/task.rig` declares them once, in `error Stop` (`canceled`,
+  `timeout`, and `panicked`, which `task.isolate` gives for a panic);
 - each waiting operation that can be canceled or timed out has them in
   its set, as a network set already has `.timeout`
   (`error Net = refused | reset | Stop`);
@@ -575,7 +576,7 @@ run. A cycle of waiting calls is a deadlock.
 
 **Errors stay values.** `Task[T!]` gives back exactly the call's error
 set, with no wrapping: no `AggregateException`, no `ExecutionException`.
-`Canceled` and `Timeout` are in that set when the call can meet them, as
+`Stop.canceled` and `Stop.timeout` are in that set when the call can meet them, as
 ordinary members (see "Cancellation").
 
 **A panic is a bug, and it ends the smallest part of the program that
@@ -659,7 +660,7 @@ restarted by a small parent) remains, as defence in depth.
 - `select` over channel operations, which commits exactly one arm
   atomically, CML-style, so a message is never taken by an arm that then
   loses (built: `task.select((!a).on_recv(|v| ...), (!b).on_send(<x, || ...))`);
-- `std.supervise` and `*Actor.supervised`.
+- `task.supervise` and `*Actor.supervised`.
 
 **Not planned:** a `Mutex`, which an idle actor already is, and a
 thread-safe counted handle. Each is added only if a program shows the
@@ -699,7 +700,7 @@ consistency. The edges that order it:
 - a message's send before the method it starts;
 - a method's return before its caller resumes;
 - taking an idle actor before its method runs inline;
-- a cancel request before the `Canceled` it causes.
+- a cancel request before the `Stop.canceled` it causes.
 
 **The target** is measured, not assumed, on Linux and macOS, against
 Tokio and Go (bench/tasks, bench/actors, bench/net, bench/http):
@@ -763,10 +764,10 @@ Each item gives the answer the model takes.
    task on the normal path, and a deadline over tasks that cannot fail.
    *Yes.*
 5. **Loans in tasks:** the five soundness rules, and the changes to
-   FORMAL-RIG principles 4 and 6. *Yes.*
+   principles 4 and 6 of [formal-plan.md](formal-plan.md). *Yes.*
 6. **Cancellation:**
    - sticky, and delivered only at fallible waits;
-   - `Canceled` and `Timeout` are ordinary errors in `std`'s `Stop` set,
+   - `Stop.canceled` and `Stop.timeout` are ordinary errors of `std`'s `Stop` set,
      carried by the operations that raise them, with no exempt `match`
      arms;
    - infallible waits pass it on;
@@ -774,9 +775,11 @@ Each item gives the answer the model takes.
    - compiler checks only yield, and `task.check()!` is the written stop.
 
    *Yes.*
-7. **Crossing:** the fact table. A library that calls a function from
-   many tasks at once has the requirement read from its body and checked
-   where it is called, with no mark on the function's type. *Yes.*
+7. **Crossing:** the fact table. The checker types `par.map`, `par.each`,
+   `par.workers`, and `http.serve` itself, reading what they need of the
+   closure passed and checking it where it is called, with no mark on
+   the function's type. A general rule that reads the requirement from
+   a library's body is not built. *Yes.*
 8. **Synchronized types:** a `Cell` of one word, `Chan`, and `Actor`
    live behind `*`, counted atomically, and change by a marked call
    through a handle you hold, as any `Cell` does. A read view only reads, so CORE needs no
@@ -811,15 +814,4 @@ Each item gives the answer the model takes.
     local when what it is passed stays on one thread. *Yes* (built).
 14. **The engine:** Rig's own scheduler, as described in
     [docs/internals/scheduler.md](../internals/scheduler.md). *Yes.*
-15. **Order of work**, each step its own pull request:
-    1. moving the runtime's global state into task context, then `&`,
-       `Task`, `Tasks`, the loan and cancellation rules, and
-       `task.all`, on `Threaded`;
-    2. the crossing facts, a `*Cell` of one word across tasks, and `par`;
-    3. actors, unwinding, `task.isolate`, and supervised actors;
-    4. the scheduler core, benchmarked with no I/O;
-    5. I/O, timers, `http.serve`, and the benchmarks against Tokio and
-       Go;
-    6. local tasks, `Chan`, `select`, and `supervise`.
 
-    *Yes.*

@@ -1,0 +1,124 @@
+tsrs mem split: parse end
+  thread arenas: 2 arenas, 16.0 MiB capacity, 7.6 MiB used, unused resident 1.4 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 16.0 MiB in chunks
+  heap (allocator walk): 85 pages, 4.9 MiB initialized blocks, 4.1 MiB live blocks, 5.0 MiB resident in the pages' areas
+  status: VmRSS 21.9 MiB, VmHWM 21.9 MiB, RssAnon 15.2 MiB, RssFile 6.8 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 9.0, 8.0
+    thread stacks: 3, 0.1, 0.0
+    heap and other anonymous: 23, 5.4, 0.0
+    file-backed: 25, 7.5, 0.0
+    total: 22.0 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+    stacks of 512 MiB: 1, 0.1 MiB resident
+  split MiB: arena used 7.6 + arena unused resident 1.4 + arena other (regions, untouched used) 0.0 | heap live 4.1 + heap retained 1.2 (in pages 0.8, outside pages 0.4) | stacks 0.1 | file 7.5 | = 22.0
+tsrs mem split: check end
+  thread arenas: 2 arenas, 192.0 MiB capacity, 128.0 MiB used, unused resident 1.0 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 192.0 MiB in chunks
+  heap (allocator walk): 523 pages, 62.5 MiB initialized blocks, 58.9 MiB live blocks, 59.7 MiB resident in the pages' areas
+  checker stacks (own mincore): 1 threads, 0.1 MiB resident
+  status: VmRSS 202.1 MiB, VmHWM 202.1 MiB, RssAnon 194.5 MiB, RssFile 7.7 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 129.0, 128.0
+    thread stacks: 3, 0.2, 0.0
+    heap and other anonymous: 23, 64.6, 0.0
+    file-backed: 25, 8.4, 0.0
+    total: 202.1 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+    stacks of 512 MiB: 1, 0.1 MiB resident
+  split MiB: arena used 128.0 + arena unused resident 1.0 + arena other (regions, untouched used) 0.0 | heap live 58.9 + heap retained 5.7 (in pages 0.8, outside pages 4.9) | stacks 0.2 | file 8.4 | = 202.1
+tsrs mem split: exit
+  thread arenas: 2 arenas, 192.0 MiB capacity, 128.0 MiB used, unused resident 1.0 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 192.0 MiB in chunks
+  heap (allocator walk): 522 pages, 62.4 MiB initialized blocks, 58.9 MiB live blocks, 59.6 MiB resident in the pages' areas
+  status: VmRSS 202.3 MiB, VmHWM 202.3 MiB, RssAnon 194.4 MiB, RssFile 7.9 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 129.0, 128.0
+    thread stacks: 2, 0.0, 0.0
+    heap and other anonymous: 21, 64.7, 0.0
+    file-backed: 25, 8.6, 0.0
+    total: 202.3 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+  split MiB: arena used 128.0 + arena unused resident 1.0 + arena other (regions, untouched used) 0.0 | heap live 58.9 + heap retained 5.8 (in pages 0.8, outside pages 5.0) | stacks 0.0 | file 8.6 | = 202.3
+tsrs mem split: parse end
+  thread arenas: 2 arenas, 16.0 MiB capacity, 7.6 MiB used, unused resident 1.4 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 16.0 MiB in chunks
+  heap (allocator walk): 85 pages, 4.9 MiB initialized blocks, 4.1 MiB live blocks, 5.0 MiB resident in the pages' areas
+  status: VmRSS 22.0 MiB, VmHWM 22.0 MiB, RssAnon 15.2 MiB, RssFile 6.8 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 9.0, 8.0
+    thread stacks: 3, 0.1, 0.0
+    heap and other anonymous: 23, 5.4, 0.0
+    file-backed: 25, 7.5, 0.0
+    total: 22.0 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+    stacks of 512 MiB: 1, 0.1 MiB resident
+  split MiB: arena used 7.6 + arena unused resident 1.4 + arena other (regions, untouched used) 0.0 | heap live 4.1 + heap retained 1.2 (in pages 0.8, outside pages 0.4) | stacks 0.1 | file 7.5 | = 22.0
+tsrs mem split: check end
+  thread arenas: 2 arenas, 192.0 MiB capacity, 128.0 MiB used, unused resident 1.0 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 192.0 MiB in chunks
+  heap (allocator walk): 523 pages, 62.5 MiB initialized blocks, 58.9 MiB live blocks, 59.7 MiB resident in the pages' areas
+  checker stacks (own mincore): 1 threads, 0.1 MiB resident
+  status: VmRSS 202.2 MiB, VmHWM 202.2 MiB, RssAnon 194.5 MiB, RssFile 7.7 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 129.0, 128.0
+    thread stacks: 3, 0.2, 0.0
+    heap and other anonymous: 23, 64.6, 0.0
+    file-backed: 25, 8.4, 0.0
+    total: 202.2 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+    stacks of 512 MiB: 1, 0.1 MiB resident
+  split MiB: arena used 128.0 + arena unused resident 1.0 + arena other (regions, untouched used) 0.0 | heap live 58.9 + heap retained 5.7 (in pages 0.8, outside pages 4.9) | stacks 0.2 | file 8.4 | = 202.2
+tsrs mem split: exit
+  thread arenas: 2 arenas, 192.0 MiB capacity, 128.0 MiB used, unused resident 1.0 MiB in current chunks + 0.0 MiB in retired chunks, 1 huge current chunks
+  reservation: 192.0 MiB in chunks
+  heap (allocator walk): 522 pages, 62.4 MiB initialized blocks, 58.9 MiB live blocks, 59.6 MiB resident in the pages' areas
+  status: VmRSS 202.3 MiB, VmHWM 202.3 MiB, RssAnon 194.4 MiB, RssFile 7.9 MiB, threads 3
+  smaps: bucket, mappings, Rss MiB, of which AnonHugePages MiB
+    arena reservation: 5, 129.0, 128.0
+    thread stacks: 2, 0.0, 0.0
+    heap and other anonymous: 21, 64.7, 0.0
+    file-backed: 25, 8.6, 0.0
+    total: 202.3 MiB
+    stacks of 0 MiB: 1, 0.0 MiB resident
+    stacks of 256 MiB: 1, 0.0 MiB resident
+  split MiB: arena used 128.0 + arena unused resident 1.0 + arena other (regions, untouched used) 0.0 | heap live 58.9 + heap retained 5.8 (in pages 0.8, outside pages 5.0) | stacks 0.0 | file 8.6 | = 202.3
+Files:              169
+Lines:            77607
+Identifiers:      78424
+Symbols:         933321
+Types:           506567
+Instantiations: 3638700
+Memory used:    207128K
+Memory allocs:        0
+Config time:     0.001s
+Parse time:      0.019s
+Bind time:       0.008s
+Check time:      1.223s
+Emit time:       0.000s
+Total time:      1.255s
+Config: include glob:                  0.000s
+Program: root file lookups:            0.000s
+Program:   loader rounds:                  14
+Program:   sequential load:            0.018s
+Program: file graph (parse + resolve): 0.019s
+Program: collect files:                0.000s
+Program: verify options:               0.000s
+Diagnostics: syntactic:                0.000s
+Diagnostics: program:                  0.000s
+Checkers: create:                      0.002s
+Checkers: assign files:                0.000s
+Diagnostics: global (first):           0.003s
+Checkers: leaf files:                  0.000s
+Diagnostics: global (after):           0.000s
+Emit:                                  0.000s
+Diagnostics: sort:                     0.000s
+Diagnostics: report:                   0.002s
+List files:                            0.000s
+Error summary:                         0.000s
+Statistics:                            0.001s

@@ -1,0 +1,12 @@
+# std.memwalk: measurement only (the mem-walk study; never merged). A
+# snapshot of the process's memory at a stage of its run: the heap's
+# live bytes, /proc/self/status, and, with MEMWALK_DIR set, the smaps,
+# each Table's resident bytes, and (heap-profile builds) each owner's.
+use std.os
+
+pub sub snap(label: ?String)
+  m = os.memory()
+  snap_at(label, m.live, m.peak)
+
+extern zig "memwalk.zig"
+  sub snap_at(label: ?String, live: Int, peak: Int)

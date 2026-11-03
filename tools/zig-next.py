@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check Rig against the next Zig, a pinned nightly, while Rig itself stays
-on Zig 0.17.0 (docs/internals/zig-0.17.md, "Checking the next Zig").
+on Zig 0.17.0 (docs/internals/INTERNALS.md, "Checking the next Zig").
 
     tools/zig-next.py [--bench] [--fetch-only]
 

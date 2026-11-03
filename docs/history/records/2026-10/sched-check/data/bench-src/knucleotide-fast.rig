@@ -1,0 +1,112 @@
+# The Computer Language Benchmarks Game: k-nucleotide, the third DNA sequence's runs of 1, 2,
+# 3, 4, 6, 12, and 18 bases counted: each base coded in two bits, each run a U64 key rolled
+# along the sequence, a task for each of the five longest lengths while main counts the two
+# shortest.
+# Ports benchmarksgame/sources/knucleotide/knucleotide.rust-3 (Tom Kaitchuck).
+use std.file
+use std.math
+use std.sort
+use std.text
+
+type Bytes = Simd[U8, 16]
+
+# A run's code and how many times it occurs.
+obj Freq
+  code: U64
+  count: U32
+
+# The two-bit code of a base, in either case: A 0, C 1, T 2, G 3.
+fun encode(b: U8) -> U64
+  U64((b & 0b110) >> 1)
+
+# A run's code as a map key: the code with its low half copied into the high half too, so
+# that the key's hash spreads. Rig's HashMap hashes an Int by one multiply, which carries no
+# bit downward, and the 4096 codes of k = 6, all in the low 12 bits, run 7x slower (notes.md).
+# The mix is its own inverse.
+fun mix(code: U64) -> U64
+  code ^ (code <<% 32)
+
+# The code of a whole run: its bases' two bits each, the last base lowest.
+fun code_of(run: ?String) -> U64
+  code: U64 = 0
+  for b in run
+    code = (code <<% 2) | encode(b)
+  code
+
+# The run of `k` bases a code stands for.
+fun decode(code: U64, k: Int) -> String
+  bases = "ACTG"
+  out = String()
+  for i in 0..k
+    !out.push(bases[Int((code >> U64(2 * (k - 1 - i))) & 3)])
+  out
+
+# The coded bases of the sequence after the line that starts `>THREE`, a byte each, coded
+# 16 at a time.
+fun read_input(input: ?String) -> String
+  seq = String()
+  start = text.find(input, ">THREE") ?? input.len
+  at = (text.find(input[start..], "\n") ?? input.len - start - 1) + start + 1
+  !seq.reserve(input.len - at)
+  while at < input.len
+    end = (text.find(input[at..], "\n") ?? input.len - at) + at
+    while at < end : at += 16
+      if at + 16 <= input.len
+        !seq.push((input.read[Bytes](at) & 0b110) >> 1, keep: math.min(16, end - at))
+      else
+        for b in input[at..end]
+          !seq.push(U8(encode(b)))
+    at = end + 1
+  seq
+
+# How many times each run of `k` bases occurs, keyed by its mixed code.
+fun frequencies(seq: ?String, k: Int) -> HashMap[U64, U32]
+  counts = HashMap[U64, U32]()
+  mask: U64 = (U64(1) <<% U64(2 * k)) - 1
+  code: U64 = 0
+  for b in seq[..k - 1]
+    code = (code <<% 2) | U64(b)
+  for b in seq[k - 1..]
+    code = ((code <<% 2) | U64(b)) & mask
+    (!counts).ensure(mix(code), 0) += 1
+  counts
+
+# `x` with `digits` decimals, rounded to the nearest; within an ulp of a half it may round
+# either way.
+fun fixed(x: Float, digits: Int) -> String
+  scale = math.pow(10, digits)
+  n = Int(math.floor(math.abs(x) * Float(scale) + 0.5))
+  frac = text.format_int(n % scale)
+  out = String("-" if x < 0.0 else "", n / scale, ".")
+  for 0..digits - frac.len
+    !out.add("0")
+  !out.add(frac)
+  out
+
+# Each run of `k` with its share of all runs, as a percentage figured in F32, most frequent
+# first.
+sub print_percents(counts: ?HashMap[U64, U32], k: Int)
+  freqs = List[Freq]()
+  total: U32 = 0
+  for e in ?counts.items()
+    !freqs.push(Freq(code: mix(e.key), count: e.value))
+    total += e.value
+  sort.sort_by(!freqs, |a, b| a.count > b.count or (a.count == b.count and a.code > b.code))
+  for f in freqs
+    print(decode(f.code, k), fixed(Float(F32(f.count) * 100.0 / F32(total)), 3))
+  print("")
+
+sub main()!
+  input = file.read("/dev/stdin")! ?? String()
+  seq = read_input(input)
+  <input
+  patterns = ["GGTATTTTAATTTATAGT", "GGTATTTTAATT", "GGTATT", "GGTA", "GGT"]
+  tasks = Tasks[HashMap[U64, U32]]()
+  for p in patterns
+    !tasks.add(frequencies(?seq, p.len)&)
+  print_percents(frequencies(?seq, 1), 1)
+  print_percents(frequencies(?seq, 2), 2)
+  counts = >tasks
+  i = patterns.len - 1
+  while i >= 0 : i -= 1
+    print(String(counts[i].get(mix(code_of(patterns[i]))) ?? 0, "\t", patterns[i]))

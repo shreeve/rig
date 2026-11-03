@@ -1,0 +1,83 @@
+## outputs
+mitt x1 color same
+mitt x1 aa same
+mitt x4 color same
+mitt x4 aa same
+neverthrow x1 color same
+neverthrow x1 aa same
+neverthrow x4 color same
+neverthrow x4 aa same
+superstruct x1 color same
+superstruct x1 aa same
+superstruct x4 color same
+superstruct x4 aa same
+tiny-invariant x1 color same
+tiny-invariant x1 aa same
+tiny-invariant x4 color same
+tiny-invariant x4 aa same
+ts-pattern x1 color same
+ts-pattern x1 aa same
+ts-pattern x4 color same
+ts-pattern x4 aa same
+zod3 x1 color same
+zod3 x1 aa same
+zod3 x4 color same
+zod3 x4 aa same
+## counters
+zod3 trig1 main cycles/u=790058688 cycles/k=124571342 instructions/u=1345530865 L.walk_completed=751472 L.walk_completed_4k=714249 L.walk_completed_2m_4m=14104 H.pgwalk_at_ret=23305179 H.dtlb_miss_at_ret=8162357 page-faults=7041  rss_kb=74356 thp=0 free2m=2
+zod3 trig1 color cycles/u=762859204 cycles/k=113915683 instructions/u=1345532463 L.walk_completed=135585 L.walk_completed_4k=92885 L.walk_completed_2m_4m=13080 H.pgwalk_at_ret=6517802 H.dtlb_miss_at_ret=7508287 page-faults=7042  rss_kb=74352 thp=0 free2m=2
+zod3 trig1 aa cycles/u=792397731 cycles/k=114491717 instructions/u=1345530802 L.walk_completed=746501 L.walk_completed_4k=701222 L.walk_completed_2m_4m=13637 H.pgwalk_at_ret=22201052 H.dtlb_miss_at_ret=8100140 page-faults=7041  rss_kb=74356 thp=0 free2m=2
+zod3 trig4 main cycles/u=1237528588 cycles/k=224672954 instructions/u=1862266096 L.walk_completed=1182208 L.walk_completed_4k=1088727 L.walk_completed_2m_4m=28349 H.pgwalk_at_ret=43397602 H.dtlb_miss_at_ret=12204870 page-faults=17180  rss_kb=108840 thp=0 free2m=2
+zod3 trig4 color cycles/u=1187855347 cycles/k=212013751 instructions/u=1862301753 L.walk_completed=248677 L.walk_completed_4k=161353 L.walk_completed_2m_4m=25843 H.pgwalk_at_ret=13075782 H.dtlb_miss_at_ret=10880633 page-faults=16882  rss_kb=109184 thp=0 free2m=2
+zod3 trig4 aa cycles/u=1194959945 cycles/k=205054868 instructions/u=1862831676 L.walk_completed=1204590 L.walk_completed_4k=1096977 L.walk_completed_2m_4m=25579 H.pgwalk_at_ret=43651131 H.dtlb_miss_at_ret=12161319 page-faults=16967  rss_kb=108484 thp=0 free2m=2
+zod3 trig1 main cycles/u=759892008 cycles/k=93589615 instructions/u=1345531127 L.walk_completed=771545 L.walk_completed_4k=727078 L.walk_completed_2m_4m=16868 H.pgwalk_at_ret=22895820 H.dtlb_miss_at_ret=8738455 page-faults=7041  rss_kb=74356 thp=0 free2m=2
+zod3 trig1 color cycles/u=744107487 cycles/k=88531530 instructions/u=1345532442 L.walk_completed=150306 L.walk_completed_4k=94834 L.walk_completed_2m_4m=16000 H.pgwalk_at_ret=6804918 H.dtlb_miss_at_ret=7575026 page-faults=7041  rss_kb=74352 thp=0 free2m=2
+zod3 trig1 aa cycles/u=746650513 cycles/k=84330304 instructions/u=1345531056 L.walk_completed=742561 L.walk_completed_4k=697731 L.walk_completed_2m_4m=15304 H.pgwalk_at_ret=22596750 H.dtlb_miss_at_ret=8077653 page-faults=7040  rss_kb=74356 thp=0 free2m=2
+zod3 trig4 main cycles/u=1164122080 cycles/k=169515178 instructions/u=1862402926 L.walk_completed=1179932 L.walk_completed_4k=1064799 L.walk_completed_2m_4m=26149 H.pgwalk_at_ret=42162706 H.dtlb_miss_at_ret=12147513 page-faults=17198  rss_kb=108308 thp=0 free2m=2
+zod3 trig4 color cycles/u=1105713791 cycles/k=165039094 instructions/u=1862665332 L.walk_completed=281307 L.walk_completed_4k=190760 L.walk_completed_2m_4m=24986 H.pgwalk_at_ret=14720891 H.dtlb_miss_at_ret=11014181 page-faults=17004  rss_kb=107072 thp=0 free2m=2
+zod3 trig4 aa cycles/u=1163752983 cycles/k=169594230 instructions/u=1862588979 L.walk_completed=1160780 L.walk_completed_4k=1069911 L.walk_completed_2m_4m=24785 H.pgwalk_at_ret=41897217 H.dtlb_miss_at_ret=11971998 page-faults=16781  rss_kb=108304 thp=0 free2m=2
+zod3 trig1 main cycles/u=752263330 cycles/k=90086257 instructions/u=1345530856 L.walk_completed=746155 L.walk_completed_4k=703884 L.walk_completed_2m_4m=14047 H.pgwalk_at_ret=22395956 H.dtlb_miss_at_ret=8269121 page-faults=7042  rss_kb=74356 thp=0 free2m=2
+zod3 trig1 color cycles/u=732413034 cycles/k=84840658 instructions/u=1345532450 L.walk_completed=136185 L.walk_completed_4k=95218 L.walk_completed_2m_4m=14523 H.pgwalk_at_ret=6552394 H.dtlb_miss_at_ret=7536217 page-faults=7043  rss_kb=74352 thp=0 free2m=2
+zod3 trig1 aa cycles/u=749643050 cycles/k=84895448 instructions/u=1345531056 L.walk_completed=746953 L.walk_completed_4k=700000 L.walk_completed_2m_4m=14445 H.pgwalk_at_ret=22062276 H.dtlb_miss_at_ret=8079659 page-faults=7041  rss_kb=74356 thp=0 free2m=2
+zod3 trig4 main cycles/u=1151369487 cycles/k=168588880 instructions/u=1862577855 L.walk_completed=1213679 L.walk_completed_4k=1115837 L.walk_completed_2m_4m=26997 H.pgwalk_at_ret=44443323 H.dtlb_miss_at_ret=12227207 page-faults=17198  rss_kb=109024 thp=0 free2m=2
+zod3 trig4 color cycles/u=1109883198 cycles/k=168157980 instructions/u=1862614431 L.walk_completed=280592 L.walk_completed_4k=166721 L.walk_completed_2m_4m=25063 H.pgwalk_at_ret=13583094 H.dtlb_miss_at_ret=11160593 page-faults=16856  rss_kb=109184 thp=0 free2m=2
+zod3 trig4 aa cycles/u=1153342691 cycles/k=165838912 instructions/u=1862293371 L.walk_completed=1161624 L.walk_completed_4k=1072709 L.walk_completed_2m_4m=25151 H.pgwalk_at_ret=42494876 H.dtlb_miss_at_ret=12003901 page-faults=16213  rss_kb=108676 thp=0 free2m=2
+ts-pattern trig1 main cycles/u=4403598948 cycles/k=341667861 instructions/u=7853648739 L.walk_completed=6612545 L.walk_completed_4k=6435682 L.walk_completed_2m_4m=64647 H.pgwalk_at_ret=196768212 H.dtlb_miss_at_ret=59481341 page-faults=34666  rss_kb=231220 thp=0 free2m=2
+ts-pattern trig1 color cycles/u=4199950642 cycles/k=331955517 instructions/u=7853649987 L.walk_completed=1285785 L.walk_completed_4k=1071846 L.walk_completed_2m_4m=74565 H.pgwalk_at_ret=58805934 H.dtlb_miss_at_ret=53358482 page-faults=34666  rss_kb=231216 thp=0 free2m=2
+ts-pattern trig1 aa cycles/u=4363394512 cycles/k=349107705 instructions/u=7853648645 L.walk_completed=6685673 L.walk_completed_4k=6486940 L.walk_completed_2m_4m=67601 H.pgwalk_at_ret=199367895 H.dtlb_miss_at_ret=59758611 page-faults=34666  rss_kb=231220 thp=0 free2m=2
+ts-pattern trig4 main cycles/u=5101926423 cycles/k=553121482 instructions/u=8284227995 L.walk_completed=6556399 L.walk_completed_4k=6298033 L.walk_completed_2m_4m=78028 H.pgwalk_at_ret=214748193 H.dtlb_miss_at_ret=61547057 page-faults=43143  rss_kb=261316 thp=0 free2m=2
+ts-pattern trig4 color cycles/u=4994866361 cycles/k=577217513 instructions/u=8284233933 L.walk_completed=924192 L.walk_completed_4k=672835 L.walk_completed_2m_4m=78135 H.pgwalk_at_ret=54385552 H.dtlb_miss_at_ret=53956987 page-faults=43182  rss_kb=262544 thp=0 free2m=2
+ts-pattern trig4 aa cycles/u=5116735441 cycles/k=572041711 instructions/u=8284416528 L.walk_completed=6532332 L.walk_completed_4k=6269623 L.walk_completed_2m_4m=84571 H.pgwalk_at_ret=221254896 H.dtlb_miss_at_ret=61860490 page-faults=43533  rss_kb=262180 thp=0 free2m=2
+ts-pattern trig1 main cycles/u=4368004181 cycles/k=425794938 instructions/u=7853648698 L.walk_completed=6677531 L.walk_completed_4k=6493884 L.walk_completed_2m_4m=79012 H.pgwalk_at_ret=199509458 H.dtlb_miss_at_ret=59728876 page-faults=34666  rss_kb=231220 thp=0 free2m=2
+ts-pattern trig1 color cycles/u=4241138456 cycles/k=424008350 instructions/u=7853649990 L.walk_completed=1306679 L.walk_completed_4k=1055579 L.walk_completed_2m_4m=73450 H.pgwalk_at_ret=57251685 H.dtlb_miss_at_ret=53597452 page-faults=34666  rss_kb=231216 thp=0 free2m=2
+ts-pattern trig1 aa cycles/u=4362166147 cycles/k=420129703 instructions/u=7853648615 L.walk_completed=6624658 L.walk_completed_4k=6433075 L.walk_completed_2m_4m=76091 H.pgwalk_at_ret=196039908 H.dtlb_miss_at_ret=59689264 page-faults=34665  rss_kb=231220 thp=0 free2m=2
+ts-pattern trig4 main cycles/u=5104853800 cycles/k=538412967 instructions/u=8284307688 L.walk_completed=6484795 L.walk_completed_4k=6171546 L.walk_completed_2m_4m=77746 H.pgwalk_at_ret=215996255 H.dtlb_miss_at_ret=62346320 page-faults=43234  rss_kb=260948 thp=0 free2m=2
+ts-pattern trig4 color cycles/u=4968429300 cycles/k=541579254 instructions/u=8284168427 L.walk_completed=965024 L.walk_completed_4k=697084 L.walk_completed_2m_4m=82677 H.pgwalk_at_ret=55823085 H.dtlb_miss_at_ret=54018324 page-faults=43725  rss_kb=262704 thp=0 free2m=2
+ts-pattern trig4 aa cycles/u=5110732792 cycles/k=565822157 instructions/u=8283832876 L.walk_completed=6410161 L.walk_completed_4k=6166684 L.walk_completed_2m_4m=79086 H.pgwalk_at_ret=212795135 H.dtlb_miss_at_ret=61689923 page-faults=43636  rss_kb=261652 thp=0 free2m=2
+ts-pattern trig1 main cycles/u=4362781636 cycles/k=439475352 instructions/u=7853648680 L.walk_completed=7023298 L.walk_completed_4k=6767573 L.walk_completed_2m_4m=77754 H.pgwalk_at_ret=204045557 H.dtlb_miss_at_ret=60185707 page-faults=34666  rss_kb=231220 thp=0 free2m=2
+ts-pattern trig1 color cycles/u=4239700643 cycles/k=425591838 instructions/u=7853649996 L.walk_completed=1264757 L.walk_completed_4k=1033157 L.walk_completed_2m_4m=93700 H.pgwalk_at_ret=57956222 H.dtlb_miss_at_ret=52390427 page-faults=34666  rss_kb=231216 thp=0 free2m=2
+ts-pattern trig1 aa cycles/u=4363814420 cycles/k=425739906 instructions/u=7853648625 L.walk_completed=6623755 L.walk_completed_4k=6439623 L.walk_completed_2m_4m=74834 H.pgwalk_at_ret=195132283 H.dtlb_miss_at_ret=59562245 page-faults=34664  rss_kb=231220 thp=0 free2m=2
+ts-pattern trig4 main cycles/u=5149223538 cycles/k=570977637 instructions/u=8283833591 L.walk_completed=6438561 L.walk_completed_4k=6199417 L.walk_completed_2m_4m=83836 H.pgwalk_at_ret=214584060 H.dtlb_miss_at_ret=61447168 page-faults=43960  rss_kb=261476 thp=0 free2m=2
+ts-pattern trig4 color cycles/u=5004278717 cycles/k=594437404 instructions/u=8284126266 L.walk_completed=1042986 L.walk_completed_4k=755048 L.walk_completed_2m_4m=87951 H.pgwalk_at_ret=59482343 H.dtlb_miss_at_ret=54751451 page-faults=43708  rss_kb=261488 thp=0 free2m=2
+ts-pattern trig4 aa cycles/u=5106939672 cycles/k=561051976 instructions/u=8283912912 L.walk_completed=6411544 L.walk_completed_4k=6177161 L.walk_completed_2m_4m=83260 H.pgwalk_at_ret=215324091 H.dtlb_miss_at_ret=61575390 page-faults=43643  rss_kb=262004 thp=0 free2m=2
+## page-0 share of STLB misses (one checker)
+# zod3 main
+samples 0, STLB-miss samples 0 (0.0%)
+class          page  loads %  STLB-miss % miss lat %
+samples 1317; on page 0 of a 2 MiB window: 73.6%
+busiest sets (page index mod 128): 0:73.7%, 1:3.4%, 2:2.6% (uniform 0.8%)
+# zod3 color
+samples 0, STLB-miss samples 0 (0.0%)
+class          page  loads %  STLB-miss % miss lat %
+samples 1168; on page 0 of a 2 MiB window: 17.8%
+busiest sets (page index mod 128): 0:18.7%, 2:2.0%, 4:1.8% (uniform 0.8%)
+# ts-pattern main
+samples 0, STLB-miss samples 0 (0.0%)
+class          page  loads %  STLB-miss % miss lat %
+samples 2546; on page 0 of a 2 MiB window: 80.1%
+busiest sets (page index mod 128): 0:80.2%, 1:6.0%, 2:1.5% (uniform 0.8%)
+# ts-pattern color
+samples 0, STLB-miss samples 0 (0.0%)
+class          page  loads %  STLB-miss % miss lat %
+samples 2374; on page 0 of a 2 MiB window: 40.6%
+busiest sets (page index mod 128): 0:41.2%, 29:1.5%, 80:1.1% (uniform 0.8%)

@@ -5,8 +5,9 @@ Rig program becomes a running binary, what each pass is responsible
 for, and the data each pass hands to the next. The language itself is
 specified in [SPEC.md](../../SPEC.md), the reasons behind it are in
 [DESIGN.md](../DESIGN.md), and the working rules are in
-[AGENTS.md](../../AGENTS.md). [zig-0.17.md](zig-0.17.md) is a reference
-for the Zig 0.17 APIs the compiler and runtime use.
+[AGENTS.md](../../AGENTS.md). [ZIG-0.17.md](../../ZIG-0.17.md) is a reference
+for Zig 0.17, and [Where Rig meets Zig 0.17](#where-rig-meets-zig-017)
+says which of its APIs the compiler and runtime use.
 
 Contents: [Pipeline](#pipeline), [Source map](#source-map), [Front end](#front-end)
 (the grammar, the lexer and parser wrapper, [node shapes](#node-shapes),
@@ -16,6 +17,8 @@ Contents: [Pipeline](#pipeline), [Source map](#source-map), [Front end](#front-e
 [vectors](#vectors)),
 [Ownership](#ownership), [Emit](#emit), [The runtime](#the-runtime)
 ([tasks](#tasks), [the program's stack](#the-programs-stack)),
+[How `matches` is built](#how-matches-is-built),
+[Where Rig meets Zig 0.17](#where-rig-meets-zig-017),
 [Tests](#tests), and [Nexus notes](#nexus-notes).
 
 ## Pipeline
@@ -40,7 +43,8 @@ units            src/units.zig     in a split build, which unit owns each functi
 symbols          src/symbols.zig   the program's symbols, numbered
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig,
-                                   with sched, tasks, alloc, net, and table
+                                   with sched, tasks, alloc, net, table,
+                                   ordered, unordered, and split
   ▼
 zig run / zig build-exe            debug (leak-checked), safe, or fast;
   or zig build-obj per unit, linked  a split build (Split builds)
@@ -234,6 +238,9 @@ failed; after a panic it is non-zero, with no count.
 | `src/table.zig` | `Table[T, n]` and `Slot[n]`: how a table holds its slots (reserved, made, or committed), written beside the runtime as `rig/table.zig` ([Tables](#tables)) |
 | `src/split.zig` | the runtime's side of a split build, written beside it as `rig/split.zig`: each module-level variable of the runtime a cell unit 0 defines, its thread-locals a block unit 0 defines, calls between units, and each unit's start ([Split builds](#split-builds)) |
 | `src/alloc.zig` | the allocator of release builds, a heap per thread, written beside the runtime as `rig/alloc.zig` (`defaultAllocator`, [The runtime](#the-runtime)) |
+| `src/fastmap.zig` | the compiler's hash maps keyed by integers, enums, pointers, and objects of them (`fastmap.Map`, `fastmap.DenseMap`), hashed by one 128-bit multiply, for the fact tables and memos |
+| `src/ordered.zig` | the table behind `Map` and `Set`: entries in the order their keys were first put, a grouped tag index, and no index up to 16 live entries; written beside the runtime as `rig/ordered.zig` ([The built-in Map and Set](#the-built-in-map-and-set)) |
+| `src/unordered.zig` | the table behind `HashMap` and `HashSet`: boost's flat open-addressing layout, slots in groups with a tag and an overflow byte each; written beside the runtime as `rig/unordered.zig` ([The built-in HashMap and HashSet](#the-built-in-hashmap-and-hashset)) |
 | `src/nametable.zig` | the table of names a plain enum's `E.from_text` reads, built by the compiler and emitted as constant data |
 | `src/timing.zig` | the pass times `rig check --time` reports |
 | `src/lib.zig` | the compiler as a library for `bin/rig-oracle`; `bin/rig` never imports it |
@@ -2916,7 +2923,7 @@ never rejected for it, and an instance meets exactly the check its
 known type would. `Requirement.no_task` does the same for
 `sema.holdsTask` where a value is hidden from the rules that wait for a
 task: erased to an API object, or given out of `task.isolate`
-(`Checker.requireNoTask`). Whether a type meets `Sends` or `Syncs` as a
+(`Checker.hidesNoTask`). Whether a type meets `Sends` or `Syncs` as a
 bound (`sema.lacks`) is the walk's answer too, `blockerOf`, an API
 object's included. An erasure in a generic body (`Checker.erasable`)
 records, for each type parameter the value holds that its bounds do
@@ -5305,7 +5312,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `warn`, `fail` | `warn(a, b)` and `panic(a, b)`: `flush`, then the pieces `print` takes written to stderr under `std.debug.lockStderr`; `warn` writes through a 4 KiB buffer, so a line up to that size is one write. `fail` reports the test it ended (`beginPanic`) and ends the program by `std.process.abort`, status 134, after the line |
 | `concurrent`, `TaskState`, `task` | in a program that makes tasks (its root module declares `__rig_tasks`) and in the runtime's unit tests, each task is a fiber on the scheduler (`sched.zig`, [docs/internals/scheduler.md](scheduler.md)), run by one of its worker threads, so `TaskState`, what the runtime keeps for one task (the depth and queue of nested `*T` releases, the nesting of `print`, the guard below the task's stack, the deadline of `time.within`), is the fiber's (`Fiber.state`), and output and the debug leak checker take a lock (`output_lock`, `alloc_lock`); any other program compiles as if there were one thread, at no cost |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
-| `onOwnStack`, `onTaskStack`, `switchStack` | run `main` and the tests on the program's stack, and a task on a stack of its own mapped for it, each over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
+| `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, mapped over its guard, with an overflow handler that names a fault in the guard a stack overflow; a task's stack is the scheduler's (`sched.takeStack`, [scheduler.md](scheduler.md)) ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + $size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `enumText`, `enumFromText`, `NameTable` | a plain enum's names: `e.text` is the variant's `@tagName`, less the `'` a renamed one carries (`rigName`); `E.from_text(word)` finds `word` in a `NameTable`, the enum's names in declaration order in an open-addressed table the compiler emits (`src/nametable.zig`): a power of two of at least 16 slots, at most four fifths full, a one-byte tag per slot from the word's Wyhash, and each slot's index into the names. `find` hashes once, probes, and compares bytes only where a tag agrees, and the index gives the variant (`std.enums.values`). `bench/names/` times it against comparing names one by one |
@@ -5798,6 +5805,168 @@ deterministic run), and its blocking pool starts a thread when a call
 finds none idle, up to 64; each worker's stack is the system's, and each
 task's is carved as above. A thread a program starts through `extern`
 code runs on that code's stack, unguarded by this.
+
+## How `matches` is built
+
+`x matches P` tests a pattern and is a `Bool`; the rules and the reasons
+are in [docs/design/matches.md](../design/matches.md) and SPEC §12. Each
+pass owns one part.
+
+- **Lexer.** `matches` is a word only right after a value
+  (`Lexer.isMatches`), so a program that names a local, a parameter, or
+  a function `matches` keeps it. The lexer also rejects `matches(` and a
+  list missing its parentheses (`misplacedMatches`).
+- **Parser.** `value matches mpat` sits where `as` does, below `not`
+  and above the comparisons (`rig.grammar`, `mpat`), so the grammar has
+  no conflict for it. The wrapper lowers each `matches` where it stands
+  (`Parser.lowerMatches`): in a condition, a pattern that binds is the
+  one-arm `match` `as_match`, as `as` with a pattern is; anywhere else,
+  `match x` with `P => true` and `_ => false`, the rest of an `and`
+  chain the value of `P`'s arm. The hidden `_`, `true`, and `false`
+  leaves stand inside the `matches` keyword, where no other leaf does.
+- **Alternatives that bind.** The resolver gives each alternative's leaf
+  of a name one symbol (`resolve.bindPattern`); the checker requires
+  the same names and the same field types. Emit writes an `inline`
+  prong, which Zig instantiates per variant, each binding read through a
+  switch on the prong's comptime tag; under `<s` each instance drops the
+  fields its variant leaves out (`altsProng`).
+- **`name?` and `none`.** The checker records each test
+  (`payloadTests`), binds `name` to the optional's value, and treats the
+  arm as guarded; the match then picks its arm first
+  (`emitGuardedMatch`), testing the field with `rig.somePtr`.
+- **Tests.** `test/rig/types-matches.rig.test`, the `matches` cases of
+  `types-match`, and the examples of docs/design/matches.md.
+
+## Where Rig meets Zig 0.17
+
+Rig is written in Zig 0.17 and compiles to Zig 0.17.
+[ZIG-0.17.md](../../ZIG-0.17.md) is the general reference for the
+release (the installed standard library is the authority where it is
+silent: `zig env` names `.std_dir`). This section is what is particular
+to Rig.
+
+### Where each part depends on Zig
+
+| Place | Zig it depends on |
+|---|---|
+| `src/main.zig` (the CLI) | `pub fn main(init: std.process.Init)`, the process arena, `init.environ_map`, `std.Io.Dir.cwd().readFileAlloc`, `createFileAtomic`, buffered `std.Io.File.stdout()` writers, `Allocator.print`, `std.process.spawn` to run `zig` (`-Odebug`, `-Osafe`, `-Ofast`, and a `--cache-dir` per package) |
+| `src/modules.zig` | `readFileAlloc`, `realPathFileAlloc`, `std.fs.path`, `Allocator.print` |
+| `src/rig.zig` | `std.StaticStringMap` keyword tables |
+| `src/sema.zig`, `resolve.zig`, `typecheck.zig`, `ownership.zig` | unmanaged `ArrayList` / `HashMap` with `.empty`, `ArenaAllocator`, `@backingInt` / `@fromBackingInt` |
+| `src/emit.zig` | `std.Io.Writer.Allocating`, `Allocator.print` |
+| `src/runtime.zig` | `std.heap.smp_allocator`, `std.heap.SafeAllocator`, a custom `std.mem.Allocator`, `std.Io.Threaded.global_single_threaded`, `std.process.Init.Minimal`, `std.debug.FullPanic`, `@typeInfo` reflection, `@Tuple`, `@Int` |
+| `std/*.zig` | `std.mem.find*`, `std.fmt.parseInt` / `parseFloat`, `std.Io.Timestamp.now`, `io.sleep`, `io.random`, `init.environ.getPosix` |
+| Emitted programs | `pub fn main(__rig_init: std.process.Init.Minimal) void` (`u8` for `fun main() -> Int`), `pub const panic = rig.panic;`, `anyerror!T`, `@divTrunc`, `@rem`, `@intCast`, `@floatFromInt`, `@trunc`, `@backingInt`, `@splat` |
+| `build.zig` | `b.createModule`, `b.addExecutable(.{ .root_module = ... })`, `b.addOptions`, `b.addUpdateSourceFiles`, `b.installArtifact`, `run.addPassthruArgs()`, `b.addSystemCommand`, `b.addTest`, `b.root`, `b.graph.io` |
+
+### How Rig uses the interface
+
+- **The CLI allocates from `init.arena` and never frees.** It is a
+  short-lived compiler, and the arena is much faster in a debug build
+  than `init.gpa`, a `SafeAllocator` that captures a stack trace for
+  every allocation and free. Allocating and freeing 200,000 small blocks
+  in a debug build on aarch64-macos takes about 6 seconds through a
+  `SafeAllocator` with its default options, about 60 ms with
+  `.stack_trace_frames = 0`, and under 10 ms through `smp_allocator` or
+  an arena. For the same reason the runtime's debug leak checker records
+  only address and size, keeps its table in `smp_allocator`, and sits on
+  a `SafeAllocator` only when `RIG_LEAK_TRACE=1` asks for stack traces.
+  The runtime's `LeakChecker` is a custom `std.mem.Allocator`.
+- **An emitted program has no `Io` from its entry point.** Its `main`
+  takes `std.process.Init.Minimal`, which carries only the arguments and
+  the environment, and hands it to `rig.start`, which keeps it in
+  `rig.process`: `init.args.vector` is the argument vector on POSIX
+  systems, and `init.environ.getPosix("NAME")` reads one variable
+  without allocating (`std/os.zig` uses it). The runtime's `rig.io()` is
+  `std.Io.Threaded.global_single_threaded.io()`, built from
+  `Threaded.init_single_threaded`, whose allocator is
+  `std.mem.Allocator.failing` and which supports no concurrency or
+  cancelation. Plain file reads and writes, `isTty`, clocks, sleeping,
+  entropy, and similar leaf calls work through it. Anything that
+  allocates through the `Io`, spawning a child process for one, fails
+  with `error.OutOfMemory`; code that spawns processes or runs tasks
+  takes a real `Io`. Rig's standard library uses the clocks (`std/time.zig`
+  reads `Io.Timestamp.now(io, .real)`), `sleep`, and `random`
+  (`std/random.zig`); it uses no `Io` locks or concurrency, which are
+  the scheduler's (`src/sched.zig`).
+- **Output.** The runtime keeps one process-wide stdout writer with an
+  8 KiB buffer, flushed when the program finishes, before a panic
+  message, and after every `print` when stdout is a terminal. The
+  compiler's diagnostics and usage errors use `std.debug.print`, which
+  writes to stderr at once and bypasses the program's `Io`.
+- **The emitter** writes each module through a `Writer.Allocating`;
+  `rig.String` appends through `Writer.Allocating.fromArrayList`.
+  `src/main.zig` writes every emitted file with `createFileAtomic`, so a
+  concurrent build never reads a half-written file.
+- **Panics.** Every emitted program declares `pub const panic =
+  rig.panic;`, which the runtime defines with `std.debug.FullPanic`; the
+  handler flushes the program's buffered output before the panic message.
+- **Reflection.** The runtime's drop glue, `print`, and shim checks
+  (`rig.expectShim`) read `@typeInfo`'s `field_names`, `field_types`, and
+  `field_attrs`. Every declaration the runtime's `@hasDecl` checks look
+  for (`__rig_drop`, `__rig_print`, `__rig_leak_trace`, ...) is `pub`,
+  because `@hasDecl` sees only `pub` declarations, even from the file
+  that declares the type.
+- **Emitted code** uses `anyerror!T` for every fallible function, with
+  `try` propagating. Zig's rules shape it: unused locals and parameters
+  are errors (`_ = x;`), a `var` never mutated is an error
+  (`_ = &x;`), a local may not shadow another, and a declaration nobody
+  references is never analyzed, so a test must call new code.
+  `rig.writeZigIdent` quotes a Rig name that is a Zig keyword or
+  primitive type (`@"var"`), and the emitter's own declarations start
+  with `__rig`.
+- **`build.zig`** installs `PREFIX/bin/rig` with `b.installArtifact` and
+  copies the same executable to `bin/rig` in the checkout with
+  `b.addUpdateSourceFiles`. The install prefix is not visible to
+  `build.zig`. The configuration is cached, so a file it inspects
+  (`findNexus` checks for a Nexus binary) is an input only when declared
+  with `b.dependOnFileMetadata` or `b.dependOnFileContents`.
+- **Unit tests.** `zig build test` runs the compiler's and the runtime's
+  unit tests; `test/rig.rip` runs it as the `unit` job. On an unchanged
+  tree it replays the cached result (`--summary all` shows `run test
+  cached`); `zig build test --cache-dir "$(mktemp -d)"` runs them again.
+- **`rig build`** runs `zig build-exe`, which compiles in full every
+  time, so it keeps the executable itself and copies it while nothing
+  the build reads has changed ([Pipeline](#pipeline)). On macOS such an
+  executable's debug information stays in the object files Zig leaves in
+  the cache's `tmp/`, which its stack traces read.
+
+### Known Zig 0.17 issues Rig works around
+
+**LLVM's loop vectorizer is off.** Zig 0.17.0 builds every program with
+`PipelineTuningOptions.LoopVectorization = false` (src/zig_llvm.cpp),
+because an LLVM bug ([llvm/llvm-project#186922](https://github.com/llvm/llvm-project/issues/186922))
+miscompiled the Zig compiler itself; upstream turned it back on with
+LLVM 23, for 0.18. So no loop of a Rig program, or of Zig, is vectorized
+by the optimizer, however plain: `for (dst, src) |*d, b| d.* = @as(u64, b)
+| bits;` stays one element at a time on aarch64 and x86, where Zig 0.17's
+own LLVM, given the same IR through `zig cc -O3`, vectorizes it sixteen
+lanes wide. Vectors written out (`@Vector`, Rig's `Simd[T, n]`) are
+unaffected. Rig writes its hot loops with `Simd`; where a loop needs an
+operation `Simd` lacks, a std shim writes it with `@Vector`, as
+std/terminal.zig's `widen` does (3x the plain loop). Each such shim is
+for this release only: on Zig 0.18, check that the plain loop vectorizes,
+and move it back into Rig.
+
+**Checking the next Zig.** Rig stays on Zig 0.17.0 until 0.18.0 is
+released; `tools/zig-next.py` shows ahead of time what 0.18 breaks. It
+takes a pinned nightly (its version and sha256s are at the top of the
+script), kept in `~/.cache/rig-zig-next` (`$RIG_ZIG_NEXT`) because
+ziglang.org keeps only recent nightlies, and in a copy of the commit
+checked out builds rig and runs the core suite with it, reporting the
+first build errors and the failed cases by test file; `--bench` also
+times bench/terminal built with each Zig, runs interleaved and counted in
+CPU cycles, and checks both end on the same screen. This checkout's bin/
+and caches stay 0.17's. To move the pin, take the newer nightly's version
+and sha256s from ziglang.org/download/index.json (`master`).
+
+**A NaN converted to an integer is not safety-checked.** In debug and
+safe builds, `@trunc`, `@floor`, `@ceil`, and `@round` with an integer
+result type panic on an out-of-range value ("integer part of floating
+point value out of bounds") but turn a NaN into an unspecified integer
+(0 on aarch64-macos) without a panic. The emitter wraps the operand of a
+float-to-integer conversion in `rig.notNan`, which panics with the same
+message (`src/runtime.zig`).
 
 ## Tests
 

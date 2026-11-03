@@ -33,10 +33,10 @@ never read as the library's.
 | [`std.bigint`](#stdbigint) | integers of any size: parsing, printing, arithmetic, shifts, powers, and the nearest Float |
 | [`std.os`](#stdos) | the program's arguments and environment, and ending it now |
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
-| [`std.io`](#stdio) | copying bytes between files and sockets: `copy` |
+| [`std.io`](#stdio) | the standard streams and copying bytes between files and sockets: `stdin`, `stdout`, `stderr`, `copy` |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
-| [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
+| [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each`, `workers` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing; IP addresses and ports as data |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture, system, and CPU features, and whether the build is a debug build |
@@ -863,6 +863,8 @@ Calling a function on each element of a List, an array, or a slice, on
 several tasks at once ([SPEC §18](../SPEC.md#each-element-on-several-tasks)).
 The tasks of `map` and `each` take chunks of the elements in turn. `f` is a closure written
 in the call, whose captures must sync, or a function's name.
+`workers` (below) is timed against hand-built forms in
+[bench/par](../bench/par/README.md).
 
 | Member | Result |
 |---|---|
@@ -1195,7 +1197,7 @@ accepts again, as Go's server does, so the connections it holds can
 close; the listener stays open. In a deterministic run (`RIG_SEED`,
 `rig test`) the timeouts count on its virtual clock, so a test of one
 takes no time. Arguments to `http.serve` that set
-these limits per server are planned; the environment sets them for the
+these limits per server are *(planned)* ([ROADMAP](ROADMAP.md)); the environment sets them for the
 whole process.
 
 ## std.target
@@ -2250,7 +2252,7 @@ Every text API is described in four words, each with one meaning: a
 a **unit**, one UTF-16 code unit; and a **char**, what a reader sees as
 one character. The units, the table of one char at 1, 2, 3, 8, and 18
 bytes, how a measure is spelled, and each unit's module are in
-[TEXT](TEXT.md#four-units-four-words).
+[TEXT](design/text.md#four-units-four-words).
 
 Counting chars, runes, and units scans the text, so each is a call
 that names its unit:
@@ -2691,7 +2693,7 @@ four bytes; a valid sequence has no overlong form, encodes no surrogate,
 and nothing past U+10FFFF. Every index and size is in bytes. A reader
 takes a `?String` and allocates nothing; `push_rune` appends to a
 `String`. Each function with a twin in Go's `unicode/utf8` reads every
-input, valid or not, as that twin does, so a Go port is a rename; [TEXT](TEXT.md) says
+input, valid or not, as that twin does, so a Go port is a rename; [TEXT](design/text.md) says
 how runes fit with bytes, units, and chars.
 
 | Name | Meaning | Go |
@@ -3077,7 +3079,7 @@ cursor 1 4
 A JSON parser (RFC 8259) in safe Rig, written for speed: it validates
 the whole document in one pass and builds a tape, a flat list with one
 entry for each value in document order. On Apple silicon it runs at 1.9 to 7.0 GB/s on the standard
-benchmark files ([docs/history/json-results.md](history/json-results.md)), 3 to 11 times Zig's `std.json`, with
+benchmark files ([docs/history/records/2026-10/json/json-results.md](history/records/2026-10/json/json-results.md)), 3 to 11 times Zig's `std.json`, with
 every bounds and overflow check kept in `--release`. Nothing is lazy:
 `parse` decodes every escape, checks all UTF-8, and converts every number
 before it returns.
@@ -3184,4 +3186,4 @@ eof at byte 5
 `bench/json/check/compare.py` checks it against Python's `json` module on 10,511
 inputs, sanitizer-clean (`bench/json/check/README.md`); the design and the
 measurements are in [docs/design/json.md](design/json.md) and
-[docs/history/json-results.md](history/json-results.md).
+[docs/history/records/2026-10/json/json-results.md](history/records/2026-10/json/json-results.md).

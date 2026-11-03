@@ -1,18 +1,16 @@
 # Hash map benchmark
 
-Times the built-in Map (`std/prelude.rig`) and std.hash's
-unordered Map (`std/hash.rig`) against the fastest hash tables in four
-languages:
+Times the built-in ordered `Map` and unordered `HashMap` (both in
+`std/prelude.rig`) against the fastest hash tables in four languages:
 
 | Variant | Table | Hash | Source |
 |---|---|---|---|
 | `zig-*` | Zig's `std.HashMap` (`AutoHashMapUnmanaged`, `StringHashMapUnmanaged`) | Zig's | `map.zig` on `table_std.zig` |
 | `zig-foa` | a port of boost's `unordered_flat_map` to Zig, the base of Rig's `HashMap` | Rig's Int hash, Wyhash for text | `map.zig` on `foa.zig` |
 | `zig-dense` | a port of ankerl's `unordered_dense` 5.3.3 to Zig, the base of Rig's ordered `Map` | Rig's Int hash, Wyhash for text | `map.zig` on `dense.zig` |
-| `zig-hash`, `zig-ordered` | the designs Rig's `HashMap` and ordered `Map` will take, grown from the ports | Rig's Int hash, Wyhash for text | `map.zig` on `hash.zig`, `ordered.zig` |
 | `zig-hash-checked`, `zig-ordered-checked` | the same with the bounds tests safe Rig keeps put back: what Rig must prove away | the same | `.checked = true` |
-| `zig-hash` | the design Rig's unordered `HashMap` will take, grown from `zig-foa` | its own: one multiply for an Int, folded multiplies for text up to 32 bytes (Wyhash above) | `map.zig` on `hash.zig` |
-| `zig-ordered` | the design Rig's ordered `Map` will take: dense entries in insertion order, an index of tags and 32-bit entry indexes | Rig's Int hash, Wyhash for text | `map.zig` on `ordered.zig` |
+| `zig-hash` | the design Rig's unordered `HashMap` is built on, grown from `zig-foa` | its own: one multiply for an Int, folded multiplies for text up to 32 bytes (Wyhash above) | `map.zig` on `hash.zig` |
+| `zig-ordered` | the design Rig's ordered `Map` is built on: dense entries in insertion order, an index of tags and 32-bit entry indexes | Rig's Int hash, Wyhash for text | `map.zig` on `ordered.zig` |
 | `rust` | Rust's `HashMap`, which is hashbrown | FxHasher, written out (no crate) | `map.rs` |
 | `hashbrown` | the hashbrown crate, SwissTable | foldhash, its default | `rust/` |
 | `indexmap` | the indexmap crate: entries in a dense `Vec` in insertion order, a hashbrown table of indices; a remove is `swap_remove` | foldhash | `rust/` |
@@ -43,11 +41,10 @@ unordered_dense, each at a release tag, into `bench/hash/upstream/`
 (which git ignores), and builds abseil into `upstream/libabsl.a`. The
 Rust crates are pinned in `rust/Cargo.lock`. `bench/hash/bench-hash
 --help` lists the variants and options; `--all` builds every fast
-variant. `hash-*` builds map.rig with each `type X = Map[...]` alias
-rewritten to `hash.Map[...]`, so the same program times std.hash; it
-needs a `bin/rig` whose std has std.hash, so it is not in `--all`. A
-build kept in `--out` is reused, so variants built by different `rig`s
-(`RIG=... --build-only --variants hash-fast`) can be timed together.
+variant. `rig-hash` builds map.rig with each `type X = Map[...]` alias
+rewritten to `HashMap[...]`, so the same program times the unordered
+built-in. A build kept in `--out` is reused, so variants built by different `rig`s
+(`RIG=... --build-only --variants rig-hash`) can be timed together.
 
 Every contestant times the rows in [WORKLOADS.md](WORKLOADS.md), which
 says exactly what each does; `rust/src/main.rs` is the reference, and the
@@ -100,7 +97,7 @@ clock around the loop, and gives back its time and checksum; the group
 around it builds the inputs and prints the lines. So what one row's loop
 keeps in registers depends on that loop alone, as a program's would,
 and not on the other rows of its group: with the rows of a group in one
-function, a change to a Map's size moved rows of the group by 5-40% on
+function, a change to a Map's size would move rows of the group by 5-40% on
 the Mac though their own loops had not changed.
 
 Every program hides from the optimizer what each round of a row reads,
@@ -136,8 +133,8 @@ row is the difference of two runs, one of 1 repetition and one sized
 so the two differ by about 1,000 million instructions, so building the
 keys and the Map counts nothing. Each run is the least of 5: the
 kernel's work for a run adds 1 to 2 million instructions however long
-it runs, which was 5% of a cheap row's difference at 11 repetitions,
-and is now 0.2% at most from one guard run to the next. Any row more
+it runs, which is 0.2% at most of a row's difference from one guard run
+to the next. Any row more
 than 2% over `guard.txt` fails, and `--update` writes a new baseline.
 Counts do not move with load, so it runs on a busy Mac in about 15
 seconds (`/usr/bin/time -l`, macOS only).

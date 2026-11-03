@@ -1,0 +1,9 @@
+sub main()
+  v = List[Int]()
+  for i in 0..10
+    !v.push(i * 3)
+  s = !v[..]
+  for i in 0..10
+    !s.swap(i, i)
+  !s.swap(0, 9)
+  print(s[0], s[9], s[5])

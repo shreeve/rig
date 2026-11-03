@@ -1,7 +1,8 @@
 //! std.terminal's Zig shim. A run of printable bytes becomes cells sixteen
 //! at a time, written with `@Vector`: Zig 0.17 turns LLVM's loop
-//! vectorizer off (docs/internals/zig-0.17.md §16), so the same loop in
-//! Rig, or in plain Zig, runs a cell at a time, a third as fast. On Zig
+//! vectorizer off (docs/internals/INTERNALS.md, "Known Zig 0.17 issues
+//! Rig works around"), so the same loop in Rig, or in plain Zig, runs a
+//! cell at a time, a third as fast. On Zig
 //! 0.18, whose LLVM vectorizes loops again, `widen` moves back into
 //! std/terminal.rig as a plain loop and this file goes (docs/ROADMAP.md).
 

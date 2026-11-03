@@ -13,7 +13,7 @@ if s matches .circle(r)
 else
   print("something else")
 
-live = entries.filter(|e| e.value.state matches (.ready, .start, .frozen))
+live = e.state matches (.ready, .start, .frozen)
 ```
 
 It reads as "if `s` matches a circle, call its radius `r`". It is a
@@ -21,11 +21,10 @@ It reads as "if `s` matches a circle, call its radius `r`". It is a
 `P => true` and `_ => false` anywhere else. It costs what that `match`
 costs.
 
-The owner chose the form on 2026-11-02, after three rounds of a panel
-of Rust, Ruby, and Swift programmers. It replaces `x as .variant`,
-which read as a cast and could not stand outside a condition: `as`
-keeps naming a value (`if o as v`, `if f() as a, b`), and `matches`
-tests a pattern.
+`as` names a value (`if o as v`, `if f() as a, b`), and `matches`
+tests a pattern. A test written with `as` would read as a cast and
+could not stand outside a condition; `matches` reads as what it is and
+can stand anywhere.
 
 ## Why
 
@@ -48,9 +47,9 @@ let live = entries.iter().filter(|e| matches!(e.state, Ready | Start));
 ```
 
 Rig writes both with one word, in the order a `match` reads, value
-first. Trig had about 270 chains of `x == .A or x == .B`, 42 to 51 of
-which call a function again for each test; `x matches (.A, .B)` reads
-the value once.
+first. A chain of `x == .A or x == .B` evaluates `x` again for each
+test, and calls a function again if `x` is a call; `x matches (.A, .B)`
+reads the value once.
 
 ## The form
 
@@ -209,8 +208,7 @@ sub main()
 
 ## Rules
 
-The panel's last round agreed on these edges, each rejected with the
-plain form in its message:
+These edges are each rejected with the plain form in the message:
 
 1. **Parentheses.** `x matches .a, .b` is rejected outside brackets
    with "put alternatives in parentheses: `matches (.a, .b)`"; inside a
@@ -333,32 +331,7 @@ sub main()
 
 ## How it is built
 
-- **Lexer**: `matches` is a word only right after a value (`Lexer.isMatches`),
-  so a program that names a local, a parameter, or a function `matches`
-  keeps it. The lexer also rejects `matches(` and a list missing its
-  parentheses (`misplacedMatches`).
-- **Parser**: `value matches mpat` sits where `as` does, below `not`
-  and above the comparisons (`rig.grammar`, `mpat`), so the grammar has
-  no new conflict. The wrapper lowers each `matches` where it stands
-  (`Parser.lowerMatches`): in a condition, a pattern that binds is the
-  one-arm `match` `as_match`, as `as` with a pattern was; anywhere else,
-  `match x` with `P => true` and `_ => false`, the rest of an `and`
-  chain the value of `P`'s arm. The hidden `_`, `true`, and `false`
-  leaves stand inside the `matches` keyword, where no other leaf does.
-- **Alternatives that bind**: the resolver gives each alternative's
-  leaf of a name one symbol (`resolve.bindPattern`); the checker
-  requires the same names and the same field types. Emit writes an
-  `inline` prong, which Zig instantiates per variant, each binding read
-  through a switch on the prong's comptime tag; under `<s` each
-  instance drops the fields its variant leaves out (`altsProng`).
-- **`name?` and `none`**: the checker records each test
-  (`payloadTests`), binds `name` to the optional's value, and treats the
-  arm as guarded; the match then picks its arm first
-  (`emitGuardedMatch`), testing the field with `rig.somePtr`.
-- **Tests**: `types-matches` and the `types-match` cases named
-  `matches`, and this page's examples.
-- **Migration**: `tools/migrate-matches.py` rewrites `x as .variant` as
-  `x matches .variant`, in `.rig` files and in Markdown's code.
+Each pass's part is in [INTERNALS](../internals/INTERNALS.md#how-matches-is-built).
 
 ## Later, not now
 

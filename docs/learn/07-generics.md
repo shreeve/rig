@@ -564,7 +564,7 @@ inside a generic body, text parameters, and objects are on the
   instances and inference, [Bounds](../../SPEC.md#bounds) every
   built-in API, and [Generic sets](../../SPEC.md#generic-sets) a set
   as a parameter.
-- [DESIGN, Per-instance checking](../DESIGN.md#per-instance-checking-instead-of-traits)
+- [DESIGN, Per-instance checking](../DESIGN.md#per-instance-checking-bounds-and-apis)
   gives the reasons for checking each instance.
 - [STD, reduce](../STD.md#reduce) and `std.sort` show the generic
   functions the standard library offers.

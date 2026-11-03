@@ -2,7 +2,7 @@
 
 Builds and times `std/json.rig` against Zig's `std.json` and the fastest
 JSON parsers in Zig and Rust. It is not part of the test suite or CI. The
-measurements it made are in [docs/history/json-results.md](../../docs/history/json-results.md).
+measurements it made are in [docs/history/records/2026-10/json/json-results.md](../../docs/history/records/2026-10/json/json-results.md).
 
 Every program reads one file, untimed, then parses it N times and prints
 `<ns> <check>`. MB/s is bytes times N over the time, with MB = 10^6.
@@ -64,7 +64,7 @@ commits a new baseline with `--update`.
 SIMD, `variants/simd32.py`) next to the competitors, on Linux or macOS;
 `timers/perf.py` counts cycles and instructions per byte with Linux
 `perf stat`, and `PIN=CPU` pins `timers/time.py` with `taskset`. Results:
-the "Linux x86 (pup)" section of docs/history/json-results.md.
+the "Linux x86 (pup)" section of docs/history/records/2026-10/json/json-results.md.
 
 ## Competitors
 
@@ -109,13 +109,13 @@ much as 16%, since it follows the core and the clock the program runs
 on, while instructions do not. One run's instruction count can still be
 off by several percent either way, so the tools take the median of 5.
 Instructions are not time, though: a change can retire fewer and run
-slower (docs/history/rig-notes.md, entry 25), so a change to a hot loop is judged
+slower (docs/history/records/2026-10/json/rig-notes.md, entry 25), so a change to a hot loop is judged
 by exclusive timing on both machines.
 
 ## Checks: `checks/`
 
 What std.json's safety checks cost after the compiler has removed the
-ones it proves. Both tools run on macOS; docs/history/json-results.md, "Checks and
+ones it proves. Both tools run on macOS; docs/history/records/2026-10/json/json-results.md, "Checks and
 IPC after proofs2", has what they found.
 
 ```sh

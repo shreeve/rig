@@ -1,0 +1,84 @@
+diff --git i/src/ast/names.rig w/src/ast/names.rig
+index e1336df..27374cc 100644
+--- i/src/ast/names.rig
++++ w/src/ast/names.rig
+@@ -30,6 +30,12 @@ pub ATOM_PROTOTYPE: Atom = 18
+ 
+ pub obj Names
+   syms: text.Interner = text.Interner()
++  # A bit for each atom, set as it is interned: in `reserved`, a name
++  # tsc's isReservedMemberName holds reserved (the prefix byte, then
++  # neither "@" nor "#"); in `private`, a private name (the prefix, then
++  # "#"). So the checker tests a member's name without reading its text.
++  reserved: List[U64] = List()
++  private: List[U64] = List()
+   # The last id given a class for its private names (Go's
+   # ast.GetSymbolId, a program-wide counter): one Names serves the whole
+   # program, so the ids are unique in it, and a file bound alone numbers
+@@ -61,7 +67,19 @@ pub obj Names
+ 
+   # The atom of `s`, made the first time `s` is seen; only then is `s` copied.
+   pub fun intern(!@, s: ?String) -> Atom
+-    (!@syms).intern(s)
++    n = @syms.len
++    a = (!@syms).intern(s)
++    if @syms.len != n
++      i = Int(a)
++      if i / 64 >= @reserved.len
++        !@reserved.push(0)
++        !@private.push(0)
++      if s.len >= 2 and s[0] == 0xFE
++        if s[1] == 0x23  # '#'
++          @private[i / 64] |= U64(1) << U64(i % 64)
++        else if s[1] != 0x40  # '@'
++          @reserved[i / 64] |= U64(1) << U64(i % 64)
++    a
+ 
+   # A new id for a class's private names.
+   pub fun next_class_id(!@) -> Int
+@@ -88,3 +106,13 @@ pub obj Names
+   # The atom of `s`, or `none` when `s` was never interned.
+   pub fun find(?@, s: ?String) -> Atom?
+     @syms.id(s)
++
++  # Whether `a` is a reserved member name (tsc's isReservedMemberName).
++  pub fun is_reserved(?@, a: Atom) -> Bool
++    i = Int(a)
++    i / 64 < @reserved.len and (@reserved[i / 64] >> U64(i % 64)) & 1 != 0
++
++  # Whether `a` is a private name: the name of a `#name` member.
++  pub fun is_private(?@, a: Atom) -> Bool
++    i = Int(a)
++    i / 64 < @private.len and (@private[i / 64] >> U64(i % 64)) & 1 != 0
+diff --git i/src/checker/members.rig w/src/checker/members.rig
+index 2ab657f..29e5104 100644
+--- i/src/checker/members.rig
++++ w/src/checker/members.rig
+@@ -1854,7 +1854,12 @@ pub fun Checker.add_inherited_members(!@, symbols_in: Tab, base_symbols: SymList
+   symbols
+ 
+ # Go: checker/utilities.go:72 isStaticPrivateIdentifierProperty
++# PORT: a private identifier's declaration names its symbol with a private
++# name (get_symbol_name_for_private_identifier), so a symbol whose name is
++# not one is answered from its name's bit, without the declaration.
+ pub fun Checker.is_static_private_identifier_property(?@, s: Sym) -> Bool
++  name = @symbol_name(s)
++  return false if name < @base_names and not @names.is_private(name)
+   declaration = @symbol_value_declaration(s)
+   return false if declaration.is_none()
+   tree = ?@program.files[Int(declaration.file) - 1].ast
+diff --git i/src/checker/utilities.rig w/src/checker/utilities.rig
+index d388b2b..80a4467 100644
+--- i/src/checker/utilities.rig
++++ w/src/checker/utilities.rig
+@@ -345,7 +345,10 @@ fun Checker.symbol_sort_key(?@, s: Sym) -> Int
+   Int(d.file) * 0x100000000 + @program.files[Int(d.file) - 1].ast.pos(d.node)
+ 
+ # Go: checker/utilities.go:1756 isReservedMemberName
++# PORT: a bound atom's answer is a bit the names keep (ast.Names.is_reserved);
++# only an atom the checker made reads its text.
+ pub fun Checker.is_reserved_member_name(?@, name: ast.Atom) -> Bool
++  return @names.is_reserved(name) if name < @base_names
+   s = @text(name)
+   s.len >= 2 and s[0] == 0xFE and s[1] != 64 and s[1] != 35  # '@', '#'
+ 

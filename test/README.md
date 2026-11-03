@@ -19,7 +19,7 @@ swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's
 swarm test/rig.rip cli.lsp         # one script of test/cli, by its name
 swarm test/rig.rip full            # by hand: every script with its sweeps whole
 swarm test/rig.rip proofs          # by hand: the proven checks' differential run
-test/matrix.py                     # by hand (nightly on pup): the whole matrix, built and run
+test/matrix.py                     # by hand: the whole matrix, built and run
 bench/json/check/compare.py        # by hand: std.json against Python's json
 ```
 
@@ -312,10 +312,9 @@ built, outside the build store, its output removed once it passes.
 matrix.py builds the programs that must run in packs, one `rig batch
 build` of up to 400 each, and runs each from its pack: a cold shard
 takes seconds, and a change that emits the same Zig adds about as
-much. Each night pup runs the
-whole matrix with the full key (tools/matrix-nightly, 00:30, E-cores),
-which catches what a change to the runtime or the driver alone broke;
-its result is in `/zfs/trig-pup/matrix/LATEST`.
+much. Before a release, matrix.py runs the whole matrix by hand with
+the full key, which catches what a change to the runtime or the driver
+alone broke.
 
 To see every rejection's reason quickly, run matrix.py with `--rig` set
 to a wrapper that runs only `rig check` and fails anything else, with

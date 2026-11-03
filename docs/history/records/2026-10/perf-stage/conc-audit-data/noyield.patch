@@ -1,0 +1,22 @@
+--- v/base/rig/runtime.zig	2026-11-01 01:14:15.079466837 -0700
++++ v/noyield/rig/runtime.zig	2026-11-01 01:14:15.164908061 -0700
+@@ -367,7 +367,8 @@
+ /// scheduler, the task yields if other work waits for its worker
+ /// (`sched.tick`), so a long loop never keeps that work waiting.
+ pub inline fn turn(n: *u32) void {
+-    if (!scheduled or @inComptime()) return;
++    // CEILING (no yields): checks nothing.
++    if (true) return;
+     n.* -%= 1;
+     if (n.* == 0) {
+         @branchHint(.unlikely);
+@@ -382,7 +383,8 @@
+ /// (`sched.waiting`), the first such call to see it yields to that work
+ /// (`sched.tickCall`). Otherwise it is one load of a flag.
+ pub inline fn tickCall() void {
+-    if (!scheduled or @inComptime()) return;
++    // CEILING (no yields): checks nothing.
++    if (true) return;
+     if (sched.waiting.load(.monotonic) != 0) {
+         @branchHint(.unlikely);
+         callKeeping(tickCallC);

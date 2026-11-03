@@ -1,0 +1,20 @@
+zod3: user Mcycles a run, Trig 927.8, tsrs 828.9 (gap 98.8, 10.7% of Trig)
+| family | Trig | tsrs | gap | gap, % of Trig |
+|---|---|---|---|---|
+| check: members/properties | 113.0 | 65.4 | +47.5 | +5.1% |
+| check: other | 256.8 | 219.0 | +37.9 | +4.1% |
+| check: relations | 87.9 | 60.1 | +27.7 | +3.0% |
+| check: instantiate/mappers | 104.9 | 82.2 | +22.7 | +2.5% |
+| check: checking/diagnostics | 47.2 | 28.3 | +18.9 | +2.0% |
+| check: types from nodes | 43.6 | 29.4 | +14.1 | +1.5% |
+| lex | 24.8 | 13.4 | +11.4 | +1.2% |
+| runtime/std (maps, hash, interner) | 58.7 | 49.2 | +9.5 | +1.0% |
+| parse | 27.1 | 21.4 | +5.7 | +0.6% |
+| program, paths, output | 19.9 | 15.6 | +4.3 | +0.5% |
+| check: unions/intersections | 28.4 | 24.2 | +4.2 | +0.5% |
+| check: flow/narrowing | 22.9 | 20.4 | +2.5 | +0.3% |
+| other | 1.3 | 1.5 | -0.2 | -0.0% |
+| bind | 25.4 | 26.6 | -1.2 | -0.1% |
+| check: inference | 11.5 | 17.1 | -5.6 | -0.6% |
+| alloc + memcpy | 23.1 | 51.7 | -28.6 | -3.1% |
+| ast (tree access, parents) | 31.3 | 103.3 | -72.0 | -7.8% |

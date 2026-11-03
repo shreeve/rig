@@ -1,0 +1,61 @@
+diff --git i/std/file.zig w/std/file.zig
+index cef4711e1..e7cb7b6fc 100644
+--- i/std/file.zig
++++ w/std/file.zig
+@@ -29,6 +29,12 @@ const not_found = error.@"std.file.FileError.not_found";
+ /// So `args` hold nothing the task may free meanwhile: paths and bytes,
+ /// which the pool copies, and plain values; a result that owns something
+ /// (a String, a descriptor, `Fd`) is freed by its drop.
++/// POLICY ARM: whether `path` names a regular file (links followed).
++fn isRegular(path: []const u8) bool {
++    const st = std.Io.Dir.cwd().statFile(rig.io(), path, .{}) catch return false;
++    return st.kind == .file;
++}
++
+ fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
+     return try (try rig.blockingStop(f, args));
+ }
+@@ -96,6 +102,7 @@ fn absent(err: anyerror) Error!void {
+ /// reports no size (a pipe, a device, a Linux `/proc` file) is read to
+ /// its end and the buffer trimmed.
+ pub fn read(path: []const u8) Error!?rig.String {
++    if (isRegular(path)) return readHere(path); // POLICY ARM: a regular file is read inline
+     return pool(?rig.String, readHere, .{path});
+ }
+ 
+@@ -195,7 +202,7 @@ fn mkdirHere(path: []const u8, parents: bool) FileError!void {
+ /// Whether anything is at `path`, links followed: a link that names
+ /// nothing is not. Any failure but "nothing there" is an error.
+ pub fn exists_at(path: []const u8) Error!bool {
+-    return pool(bool, existsHere, .{path});
++    return existsHere(path); // POLICY ARM: inline
+ }
+ 
+ fn existsHere(path: []const u8) Error!bool {
+@@ -275,7 +282,7 @@ fn rmdirAt(z: [*:0]const u8) Error!bool {
+ /// The absolute path `path` names, links resolved, or null when nothing
+ /// is there.
+ pub fn realpath(path: []const u8) Error!?rig.String {
+-    return pool(?rig.String, realpathHere, .{path});
++    return realpathHere(path); // POLICY ARM: inline
+ }
+ 
+ fn realpathHere(path: []const u8) Error!?rig.String {
+@@ -294,7 +301,7 @@ fn realpathHere(path: []const u8) Error!?rig.String {
+ /// `stat`'s answer onto `info` (std/file.rig), or false when nothing is
+ /// at `path`.
+ pub fn stat_into(path: []const u8, info: *rig.List(i64)) Error!bool {
+-    const got = (try pool(?[4]i64, statHere, .{path})) orelse return false;
++    const got = (try statHere(path)) orelse return false; // POLICY ARM: inline
+     for (got) |n| info.push(n);
+     return true;
+ }
+@@ -337,7 +344,7 @@ fn kindCode(kind: std.Io.File.Kind) i64 {
+ /// and each one's kind, plus 4 for a link, onto `codes`; false when
+ /// nothing is at `path`.
+ pub fn dir_entries(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(i64)) Error!bool {
+-    var got = (try pool(?Entries, entriesHere, .{path})) orelse return false;
++    var got = (try entriesHere(path)) orelse return false; // POLICY ARM: inline
+     std.mem.swap(rig.List(rig.String), names, &got.names);
+     std.mem.swap(rig.List(i64), codes, &got.codes);
+     rig.dropElement(Entries, &got);

@@ -216,7 +216,8 @@ returns no value that stays on one thread and no handle of a local
 task, since a local task's result need not cross and so neither does
 its handle. `confined` needs it: without it, a free task could share a
 value with a local task and return it, with that task's handle, to a
-task on another core (the panel's `d1_result_smuggle.rig`).
+task on another core (a probe of the concurrency panel, in
+[its adversarial report](../docs/history/records/2026-10/concurrency-panel/3-adversarial.md)).
 
 **`TasksSound.lean`** proves one invariant kept by every step: every
 task's chain of holders reaches `main` (so none loops), once `main` has
@@ -236,7 +237,8 @@ does not cross. Of every state reached:
 
 Two runs show the invariant is not vacuous: `localTask_reach` reaches a
 state with two holders of one value, and `handed2_reach` the shape of
-the panel's `ret.rig`: task 1 makes task 2 and ends while 2 runs,
+a probe of the concurrency panel
+([its formal report](../docs/history/records/2026-10/concurrency-panel/5-formal.md)): task 1 makes task 2 and ends while 2 runs,
 holding 2's handle in its result; `main` waits for 1 and takes 2, then
 hands 2 to a new task 3.
 
