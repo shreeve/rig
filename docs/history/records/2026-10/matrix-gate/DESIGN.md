@@ -64,3 +64,11 @@ to `/zfs/trig-pup/full/LATEST` with the rest.
 3. `known:` names the failure it waits for; audit today's `known: true` cases. Default: yes.
 4. Cap `.git/rig-build-store`, LRU trim, at 40 GB. Default: yes.
 5. Build it as one tests-and-tools row, queued with Swiss after row 53. Default: yes.
+
+## Outcome
+
+The owner approved the five defaults, and then, on 2026-11-02, ruled out every scheduled run: no
+crons and no nightlies, with full suites only before major and minor releases. Tier 2 was dropped
+before #878 merged. Tier 1 runs in `swarm test/rig.rip all`, and builds the changed programs in
+packs of up to 400 with `rig batch build`: a cold shard of 398 programs takes 13 s, against
+3 min 17 s built one at a time.
