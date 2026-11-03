@@ -436,7 +436,7 @@ forms to `value`, an expression without blocks or closures (conditions,
   `test`, `raw`, `extern`, `drop`, or an `obj` declaration), and its block
   is not a member list or the arms of a `match`. Under any other line a
   deeper `.variant` is the first line of the block that line opens, so
-  `match` arms parse as before. Blank and comment lines are skipped
+  `match` arms parse as written. Blank and comment lines are skipped
   before the rule is asked, so they do not end a chain; the joined line
   produces no `NEWLINE` and no `INDENT`;
 - classifies keywords, the characters read by position, `if`, and
@@ -2120,8 +2120,8 @@ such a statement, the proof pass makes a flag (`Pass.proposeFlag`): a
 few facts about bindings and lengths as the statement starts, which emit
 tests there, once, into a constant; the walk then holds them under the
 flag, beside the facts of every path. A test one proves is written so
-that it is omitted while the flag is true, and made where it is written,
-as before, while it is false:
+that it is omitted while the flag is true, and made where it is written
+while it is false:
 
 ```text
 const __rig_ok_7 = rig.okNonneg(d) and rig.okBelow(d, 5, self.words.len);
@@ -2514,7 +2514,7 @@ reads the decision from the entry (`Facts.resultOut`, by
 table and every call agree: the call's block holds the place, `var
 __rig_res_N = rig.outPlace(O)`, and gives `rig.packOut(O,
 s.vt.hit(s.ptr, args, &__rig_res_N), &__rig_res_N)`, an `O` like any
-call's, which every context uses as before; a task through an object
+call's, which every context uses; a task through an object
 does the same (`tasks.resultOut`). The place is left unfilled
 (`rig.uninit`), as is a `none`'s payload in `Niche.wrap`.
 
@@ -3070,7 +3070,7 @@ and creating a closure lets each value its write captures lead to hold
 the loans of all its captures, as a call's `!` arguments do with its
 arguments. This is sound because the only loans left to such a store
 are on values outside the closure that it captured, and the captured
-value's var now holds each of them for as long as it lives.
+value's var holds each of them for as long as it lives.
 A `?T` or `!T` parameter is live at every exit, since the caller uses the
 value it lent after the return, and every store into what a parameter
 reaches (an assignment through it, through a loop or `match !` binding
@@ -3731,7 +3731,7 @@ the result keeps stays lent, to read, while it is in use, so
 `print(first(!v).n, v.len)`, a `for` over such a call, and a `match`
 on one read `v` as the split forms do. What the call stores
 keeps its own loans where it stores them, and the write lend it stored
-lasts to the statement's end as before. Whether a call may store an
+lasts to the statement's end. Whether a call may store an
 argument is its origins' `stores`, from the signature: a generic
 callee's lent argument is stored only where its `keeps` names it, so
 `print(gfirst(!v).n, v.len)` is accepted for `gfirst[T](v: !List[T]) ->
@@ -3739,7 +3739,7 @@ callee's lent argument is stored only where its `keeps` names it, so
 write lend to the statement's end; a write view of `v` stored in
 `h` keeps `v` lent to write while `h` lives. A loan kept this way is
 marked `read_of_write`, so a conflict's note says the lend was a write. Every lend made in an argument still ends with its
-statement (the statement's temporaries are as before).
+statement.
 
 **The body check** (`checkOrigins`). At every return and tail value the
 recorder notes the parameters whose loans the value carries
@@ -3831,7 +3831,7 @@ because a value never views itself, nor what is moved into it. A place
 reached through a write view (`swap(!w, x)` with `w = !q.f`) gives
 the loans that view's var holds, its loan on `q` among them, as `<w.f`
 does; a place no var holds (`swap(!f().x, v)`) gives the loans of
-its view. The store is an assignment: `p`'s var now also views what `v`
+its view. The store is an assignment: `p`'s var also views what `v`
 viewed (`absorbThroughWrites`). `swap(!a, !b)` is
 `t = <a; a = <b; b = <t`, with each place lent to write for the call, and
 hands back nothing. Its two places are places like any other: two
@@ -4894,7 +4894,7 @@ symbols); a query that decides more than that is a recorded fact.
 
   | Where | Emitted |
   |---|---|
-  | a read of a number or `Bool` part (`table[0]`, `P(a: 1).a`) whose base and index it holds | `rig.rt(table[0])`; a read with a run-time index, as in a hot loop over a table, is emitted as before |
+  | a read of a number or `Bool` part (`table[0]`, `P(a: 1).a`) whose base and index it holds | `rig.rt(table[0])`; a read with a run-time index, as in a hot loop over a table, is emitted unchanged |
   | a binding of such an expression | a `var`, as for any value Zig could fold (`emitBind`) |
   | the subject of a `match` or `if ... as` | `rig.rt(@as(T, subject))` |
 
@@ -5388,7 +5388,7 @@ across modules, and only std.prelude's scope names them.
   deep clone where every parameter clones, and 56 bytes; a `Map` is
   64, a line. A table counts as running a drop body (`runsDropBody`), as a
   type with glue declared in another module does, so a view a Map
-  holds of a value dropped before it is rejected as before.
+  holds of a value dropped before it is rejected.
 - **Hash and `==`.** The table hashes with `rig.hash` and compares with
   `rig.eql` (an integer, `Bool`, or plain enum with Zig's `==`), what
   `.hash()` and `==` emit, so a key hashes and compares as a program's
@@ -6101,7 +6101,7 @@ views").
 
 Its rejections are a gate of their own. Every function it rejects is
 listed in `test/oracle/rejections`; a set fails on a rejection not
-listed and on a listed one it no longer rejects (`--rejects`, [tests.md](tests.md#the-reference-ownership-checker)),
+listed and on a listed one it stops rejecting (`--rejects`, [tests.md](tests.md#the-reference-ownership-checker)),
 so a change that weakens the reference checker fails the suite even
 where the compiler still rejects the program.
 

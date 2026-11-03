@@ -1462,7 +1462,7 @@ build: making an owned closure, calling it once, and dropping it takes
 and 4.3 ns for a box. So the second allocation and its indirection cost
 about 6 ns, and one allocation would make a closure about 45% faster to
 make and drop; a call is unchanged (a load from a table in cache, then
-the indirect call, where a closure now loads from the heap); a handle
+the indirect call, where a closure loads from the heap); a handle
 grows from 8 bytes to 16. Default: build it last, as its own phase,
 kept only if `bench/closures` (a closure made per element) clears the
 speed bar on both machines and Trig is not slower. Trig makes its 10

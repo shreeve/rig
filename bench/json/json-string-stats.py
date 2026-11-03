@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The length distribution of keys and string values in JSON files.
 
-usage: tools/json-string-stats.py [FILE ...]   (default: the benchmark corpus)
+usage: bench/json/json-string-stats.py [FILE ...]   (default: the benchmark corpus)
 
 Lengths are the raw bytes between the quotes, escapes as written, which
 is what a string scan reads. For each file and kind: the count, the

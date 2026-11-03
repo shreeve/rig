@@ -84,7 +84,7 @@ loads its 16 bytes one at a time on every target; two U64 reads fix that,
 but a 128-bit step is still two 64-bit steps on a 64-bit machine.
 Signed and unsigned words measured the same (within 1%): the kernel
 tests every byte's top bit, so a sign test saves nothing. Taking the first special byte's position
-from the mask (a count of trailing zeros, now `m.trailing_zeros() >> 3`)
+from the mask (a count of trailing zeros, `m.trailing_zeros() >> 3`)
 gained up to 14%. Spaces 8 at a time gained 25% on citm_catalog. Digits
 8 at a time first gained nothing, with a byte loop for a run's last 1
 to 7 digits; read as sonic-rs reads them, the last ones from the same

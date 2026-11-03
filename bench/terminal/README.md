@@ -1,6 +1,6 @@
 # Terminal benchmark
 
-Times `std/terminal` against Ghostty's terminal (libghostty-vt, at the
+Times `std.terminal` against Ghostty's terminal (libghostty-vt, at the
 commit `tools/terminal_ghostty.py` pins) and Dispatch's (Term, Paul
 Miller's Swift port of Ghostty at the same commit) on generated program
 output. It is not part of the test suite.
@@ -68,13 +68,12 @@ it: each benchmark run is a new terminal, so the history's 9.6 MB is new
 memory, touched for the first time. A terminal that lives on reuses its
 oldest rows, and a scroll moves row numbers, not cells. Its first row of
 history reserves room for the rest at once (up to 65,536 rows), so the
-cells grow without being copied; growing them a row at a time cost
+cells grow without being copied; growing them a row at a time costs
 `text` a third of its speed.
 
-Two costs shaped the cell writes. A scroll once cost most of its time
-filling the new row with an erased cell: Zig's `@memset` of a U64 that
+Two costs shape the cell writes. A scroll's cost is the fill of the new
+row with an erased cell: Zig's `@memset` of a U64 that
 is not 0 stores one cell at a time, so an empty cell with no background
 is 0, which is cleared at memset's speed, and a full-screen scroll moves
-one entry of the row map. And each SGR once looked its pen up in a list
-of styles that only grows, which made `rgb` (truecolor) crawl; styles
-past 32 are found by key.
+one entry of the row map. Styles past 32 are found by key, since an SGR that looked its pen up in
+a list of styles that only grows made `rgb` (truecolor) crawl.

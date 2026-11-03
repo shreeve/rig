@@ -283,7 +283,7 @@ diagnostic suggests a lend of a place as a path's base also has each
 hint checked (`test/hints.py`). A test file a tool writes names the tool
 on its first line (`written by tools/NAME.py`), and a core job,
 `generated.<file>`, runs the tool's `--check`, which fails when the file
-is not what the tool would write now.
+is not what the tool writes.
 
 The standard library's own test blocks run by `rig test std.NAME`,
 which loads the module from the library in use, so `RIG_STD=$PWD/std`
@@ -374,7 +374,7 @@ that may be a soundness hole, and it can never be allowlisted. It also
 fails when the oracle's own rejections change: every function the
 oracle rejects is listed in `test/oracle/rejections` (`program
 function`), and a set fails on one not listed (`UNLISTED`: add it) and
-on a listed one the oracle decides and no longer rejects (`LOST`: the
+on a listed one the oracle decides and stops rejecting (`LOST`: the
 reference checker was weakened, whatever the compiler decides). A doc
 example is listed by its doc and a hash of its text
 (`doc/SPEC/0f3c9a1b2d4e`), so an edit that only moves it keeps its
