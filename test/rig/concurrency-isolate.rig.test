@@ -288,3 +288,21 @@ test "isolate waits asleep for a task in a wait no cancel ends", seeds: 20, time
     x + >a!
   ) catch -9
   print(r, c.get())
+
+test "isolate a panic whose value's print method warns", seeds: 20, timeout: 10, whole: true, "-9 done"
+  # A panic's report is rendered before any lock is taken, so a value's
+  # own `print` method may write to stderr in it.
+  use std.task
+
+  obj Loud: Print
+    text: String
+
+    sub print(?@, out: !Printer)
+      warn("print ran")
+      !out.text(?@text)
+
+  fun boom() -> Int
+    panic("bad", Loud(text: String("x")))
+
+  sub main()
+    print(task.isolate(|| boom()) catch -9, "done")

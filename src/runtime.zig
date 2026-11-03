@@ -8302,21 +8302,20 @@ pub noinline fn fail(pieces: anytype) noreturn {
 /// Every panic: its report, `write(w, what)`, on stderr after what
 /// `print` has buffered, with the stack trace from `trace` in a debug
 /// build; then it stops at an actor's runner or an isolate
-/// (`stopPanic`), or ends the program by `abort` (status 134). A panic
-/// that ends the program takes the report before its actors die: an
-/// actor's death answers the calls queued on it, and a caller that
-/// panics at that answer, on another worker, must not be the one
-/// reported.
+/// (`stopPanic`), or ends the program by `abort` (status 134). The
+/// report is rendered first, with no lock held, since a value's own
+/// `print` method may run in it, as `warn` renders a line. A panic that
+/// ends the program takes the report before its actors die: an actor's
+/// death answers the calls queued on it, and a caller that panics at
+/// that answer, on another worker, must not be the one reported.
 fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
+    var stack: [rendered_stack]u8 = undefined;
+    var report: Spill = .init(&stack);
+    write(&report.writer, what) catch unreachable;
     const ends = panicEnds();
     if (ends) beginPanic() else flushForPanic();
-    {
-        var buf: [1024]u8 = undefined;
-        const ls = std.debug.lockStderr(&buf);
-        defer std.debug.unlockStderr();
-        write(&ls.file_writer.interface, what) catch {};
-        ls.file_writer.interface.flush() catch {};
-    }
+    writeStderr(report.writer.buffered());
+    report.deinit();
     // The trace names emitted Zig lines. Only the unwinder that cannot
     // fault walks it: the program runs on a stack the runtime maps
     // (`onOwnStack`), which the other one faults on.
