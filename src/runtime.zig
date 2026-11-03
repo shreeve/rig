@@ -1135,7 +1135,7 @@ pub inline fn viewOf(comptime T: type, p: anytype) ReadView(T) {
 }
 
 /// The self a witness's method `f` takes (docs/design/apis.md, Stage 3,
-/// "Lowering"), from `recv`, the address of the receiver or of a view of
+/// "Lowering"), from `recv`, the address of self or of a view of
 /// it: the pointer, or the value where `f` takes self by value, as Zig's
 /// method call would give it (`W.area(rig.selfArg(W.area, &x))`). A read
 /// view held as a copy (`ReadView`) is given as it is.
@@ -4480,7 +4480,7 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
     const R = @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
     const A = if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
     var acc: A = first;
-    // A receiver held apart is a pointer to its slice.
+    // A self held apart is a pointer to its slice.
     const P = @typeInfo(@TypeOf(items));
     const xs = if (P == .pointer and P.pointer.size == .one and @typeInfo(P.pointer.child) == .pointer) items.* else items;
     var own: ErrData = undefined;
