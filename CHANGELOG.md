@@ -2258,6 +2258,15 @@ The model and its plan are
 [docs/history/records/2026-10/concurrency-panel/](docs/history/records/2026-10/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
+- **A panic stops where a runtime panic does.** `panic(...)` in an
+  actor's method ends the actor and stops at its runner, or at the
+  caller's isolate, as an index out of range does. A method run inline
+  on a task under an isolate ends that task, which its isolate then
+  stops. A call made with `&` gives its mailbox slot back when it is
+  answered, so a supervised actor whose methods panic keeps its slots.
+  A send on a closed channel, and a close with senders waiting, panic
+  in the sender's own task with the channel unlocked, so an isolate
+  that stops the panic leaves the channel working.
 - **A regular file's read runs in its task.** `file.read` of a regular
   file, and `exists`, `stat`, `realpath`, and `read_dir`, run on the
   task's own worker, not the blocking pool, as Go's and tsrs's do; a

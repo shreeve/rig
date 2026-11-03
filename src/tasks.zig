@@ -1399,7 +1399,8 @@ pub fn Chan(comptime T: type) type {
             sel: *Sel,
             arm: u32,
             value: T = undefined,
-            /// A receiver that a close claimed, not a value.
+            /// Claimed by a close, not a value: a receiver gets none, and
+            /// a sender panics in its own task.
             closed: bool = false,
             next: ?*Node = null,
             prev: ?*Node = null,
@@ -1476,10 +1477,9 @@ pub fn Chan(comptime T: type) type {
             return false;
         }
 
-        /// Send `v` at once, under the lock: to a waiting receiver, or
-        /// into the buffer; false when it would wait.
+        /// Send `v` at once, under the lock, to an open channel: to a
+        /// waiting receiver, or into the buffer; false when it would wait.
         fn sendNow(self: *Self, v: T) bool {
-            if (self.closed) @panic("send on a closed channel");
             if (self.receivers.claim()) |n| {
                 n.value = v;
                 n.sel.wake();
@@ -1506,18 +1506,20 @@ pub fn Chan(comptime T: type) type {
             return arms[0].got;
         }
 
-        /// `!ch.close()`: no more sends; receivers waiting get none, and a
-        /// sender waiting panics.
+        /// `!ch.close()`: no more sends; receivers waiting get none, and
+        /// senders waiting wake to panic in their own tasks, as a later
+        /// send does (`SendArm.finish`).
         pub fn close(self: *Self) void {
             self.lock.lock();
             defer self.lock.unlock();
             if (self.closed) return;
             self.closed = true;
-            while (self.receivers.claim()) |n| {
-                n.closed = true;
-                n.sel.wake();
+            inline for (.{ &self.receivers, &self.senders }) |q| {
+                while (q.claim()) |n| {
+                    n.closed = true;
+                    n.sel.wake();
+                }
             }
-            if (self.senders.first != null) @panic("a channel was closed while a task waited to send on it");
         }
     };
 }
@@ -1582,6 +1584,8 @@ pub fn RecvArm(comptime T: type, comptime F: type) type {
 
         /// It lost: nothing of it to drop.
         fn lost(_: *@This()) void {}
+
+        fn finish(_: *@This()) void {}
     };
 }
 
@@ -1592,13 +1596,16 @@ pub fn SendArm(comptime T: type, comptime F: type) type {
         value: T,
         f: F,
         node: Chan(T).Node = undefined,
+        /// It found the channel closed, or a close claimed it.
+        closed: bool = false,
 
         fn key(a: *@This()) usize {
             return @intFromPtr(a.chan);
         }
 
         fn now(a: *@This()) bool {
-            return a.chan.sendNow(a.value);
+            a.closed = a.chan.closed;
+            return a.closed or a.chan.sendNow(a.value);
         }
 
         fn wait(a: *@This(), sel: *Sel, arm: u32) void {
@@ -1610,11 +1617,19 @@ pub fn SendArm(comptime T: type, comptime F: type) type {
             a.chan.senders.remove(&a.node);
         }
 
-        fn won(_: *@This()) void {}
+        fn won(a: *@This()) void {
+            a.closed = a.node.closed;
+        }
 
         /// It lost: the value it held is dropped.
         fn lost(a: *@This()) void {
             dropElement(T, &a.value);
+        }
+
+        /// It won, once every channel's lock is let go: a send on a
+        /// closed channel panics here, in the sender's own task.
+        fn finish(a: *@This()) void {
+            if (a.closed) @panic("send on a closed channel");
         }
     };
 }
@@ -1648,7 +1663,8 @@ fn ChanItem(comptime H: type) type {
 /// each waits on its channel, and the first to complete claims the
 /// select, which wakes and takes the others back. A fallible waiting
 /// point: a cancel or the deadline ends it, unless an arm won first.
-/// Every arm but the winner is `lost`.
+/// Every arm but the winner is `lost`, and the winner `finish`es outside
+/// the locks, so a panic there leaves no channel locked.
 fn selectArms(arms: anytype) anyerror!u32 {
     const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
     if (canceledHere()) return dropAll(arms, canceled_error);
@@ -1664,8 +1680,7 @@ fn selectArms(arms: anytype) anyerror!u32 {
         };
         if (done) {
             unlockAll(arms);
-            loseAllBut(arms, @intCast(at));
-            return @intCast(at);
+            return finishAll(arms, @intCast(at));
         }
     }
     const f = rt.sched.current() orelse {
@@ -1680,7 +1695,7 @@ fn selectArms(arms: anytype) anyerror!u32 {
     while (true) {
         if (sel.state.load(.seq_cst) != Sel.open) break;
         if (canceledHere() or pastDeadline()) {
-            if (sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .seq_cst, .seq_cst) == null) break;
+            _ = sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .seq_cst, .seq_cst);
             break;
         }
         rt.sched.commitWait(e, task().deadline);
@@ -1700,8 +1715,7 @@ fn selectArms(arms: anytype) anyerror!u32 {
     }
     const winner: u32 = state - 1;
     inline for (0..n) |k| if (k == winner) arms[k].won();
-    loseAllBut(arms, winner);
-    return winner;
+    return finishAll(arms, winner);
 }
 
 var select_turn_var: std.atomic.Value(u32) = .init(0);
@@ -1717,9 +1731,12 @@ fn dropAll(arms: anytype, err: anyerror) anyerror!u32 {
     return err;
 }
 
-fn loseAllBut(arms: anytype, winner: u32) void {
+/// Every arm but `winner` lost, and `winner` finishes: its index.
+fn finishAll(arms: anytype, winner: u32) u32 {
     const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
     inline for (0..n) |k| if (k != winner) arms[k].lost();
+    inline for (0..n) |k| if (k == winner) arms[k].finish();
+    return winner;
 }
 
 /// Lock each channel of `arms` once, in the order of their addresses, so
@@ -1923,10 +1940,7 @@ pub fn Actor(comptime T: type) type {
                 const more = self.first != null;
                 if (!more) self.state.store(0, .release);
                 self.lock.unlock();
-                if (running) |m| {
-                    m.outcome = Message.panicked;
-                    m.answer();
-                }
+                if (running) |m| self.answer(m, Message.panicked);
                 if (more) {
                     const box: *rt.Shared(Self) = @fieldParentPtr("value", self);
                     rt.sched.spawnDetached(runner, .{box.cloneStrong()});
@@ -1941,17 +1955,29 @@ pub fn Actor(comptime T: type) type {
             const running = self.running;
             self.running = null;
             self.lock.unlock();
-            if (running) |m| {
-                m.outcome = Message.panicked;
-                m.answer();
-            }
+            if (running) |m| self.answer(m, Message.panicked);
             while (queued) |m| {
                 queued = m.next;
                 m.started = true;
-                m.outcome = Message.died;
-                m.answer();
+                self.answer(m, Message.died);
             }
             rt.abandonValue(T, &self.value);
+        }
+
+        /// Answer `m` as `outcome`, which wakes its caller, and give back
+        /// the mailbox slot of a call made with `&`: where the actor is
+        /// done with it, on the runner or at its death, so a panic in its
+        /// caller's task leaves no slot taken.
+        fn answer(self: *Self, m: *Message, outcome: u8) void {
+            const slotted = m.slotted;
+            m.outcome = outcome;
+            m.answer();
+            if (slotted) self.freeSlot();
+        }
+
+        /// A call made with `&` is done with its slot of the mailbox.
+        fn freeSlot(self: *Self) void {
+            _ = self.pending.fetchSub(1, .seq_cst);
         }
 
         /// Whether a supervised actor may start again: one more restart
@@ -1987,10 +2013,17 @@ pub fn Actor(comptime T: type) type {
             return @alignCast(@fieldParentPtr("held_by", h.held_by));
         }
 
-        /// A panic on a fiber that runs a method inline: the actor dies,
-        /// and the panic goes on to the fiber's own boundary.
+        /// A panic on a fiber that runs a method inline: the task's own
+        /// cancel and deadline are back, as the call would have put them,
+        /// so the panic finds the task's `Control`; the actor dies, its
+        /// slot of the mailbox comes free, and the panic goes on to the
+        /// fiber's own boundary.
         fn dieInline(h: *rt.sched.Held) void {
-            heldBy(h).kill(h.doing);
+            const in: *Inline = @alignCast(@fieldParentPtr("held", h));
+            in.state.control, in.state.deadline = .{ in.control, in.deadline };
+            const self = heldBy(h);
+            self.kill(h.doing);
+            if (in.slotted) self.freeSlot();
         }
 
         /// A panic in the runner: the actor dies, the runner's handle
@@ -2032,27 +2065,45 @@ pub fn Actor(comptime T: type) type {
         /// that started runs to its end, and the caller waits for it.
         ///
         /// An idle actor's method runs inline, on the caller's stack, as
-        /// the actor (`runInline`), with no message and no switch; what
-        /// arrived meanwhile goes to a runner after it (`release`).
+        /// the actor, with no message and no switch: under no cancel or
+        /// deadline, as its runner runs one, so a canceled caller cannot
+        /// stop it partway. What arrived meanwhile goes to a runner after
+        /// it (`release`).
         pub fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype) Result(name) {
+            return callAs(box, name, args, false);
+        }
+
+        /// `call`, for a call made with `&` (`slotted`) that holds a slot
+        /// of the mailbox, which it gives back once it is answered, run
+        /// inline, withdrawn, or refused by a dead actor.
+        fn callAs(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, slotted: bool) Result(name) {
             const R = Result(name);
             const self = &box.value;
             const fallible = @typeInfo(R) == .error_union;
-            if (comptime fallible) {
-                if (canceledHere()) return canceled_error;
-                if (pastDeadline()) return timeout_error;
-            }
+            if (comptime fallible) if (canceledHere() or pastDeadline()) {
+                if (slotted) self.freeSlot();
+                return if (canceledHere()) canceled_error else timeout_error;
+            };
             const f = rt.sched.current();
             const t = if (f) |x| &x.state else task();
             if (f != null and self.claim(t)) {
-                var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = label(name), .die = dieInline, .next = f.?.held };
-                f.?.held = &held;
+                var in: Inline = .{
+                    .held = .{ .held_by = &self.held_by, .doing = label(name), .die = dieInline, .next = f.?.held },
+                    .state = t,
+                    .control = t.control,
+                    .deadline = t.deadline,
+                    .slotted = slotted,
+                };
+                f.?.held = &in.held;
+                t.control, t.deadline = .{ null, null };
                 defer {
-                    f.?.held = held.next;
+                    t.control, t.deadline = .{ in.control, in.deadline };
+                    f.?.held = in.held.next;
                     self.release(box);
+                    if (slotted) self.freeSlot();
                 }
-                if (self.stale) self.remake(&held);
-                return self.runInline(t, name, args);
+                if (self.stale) self.remake(&in.held);
+                return self.invoke(name, args);
             }
             const Call = struct {
                 msg: Message,
@@ -2065,8 +2116,11 @@ pub fn Actor(comptime T: type) type {
                     c.result = c.actor.invoke(name, c.args);
                 }
             };
-            var c: Call = .{ .msg = .{ .run = Call.run, .label = label(name) }, .actor = self, .args = args };
-            if (!self.send(box, &c.msg)) self.calledDead(name);
+            var c: Call = .{ .msg = .{ .run = Call.run, .label = label(name), .slotted = slotted }, .actor = self, .args = args };
+            if (!self.send(box, &c.msg)) {
+                if (slotted) self.freeSlot();
+                self.calledDead(name);
+            }
             const b: rt.sched.Blocked = .{ .call = .{ .label = label(name), .held_by = &self.held_by, .msg = &c.msg, .answered = Message.answered } };
             rt.sched.block(&b);
             const done = c.msg.waitAnswer(self, fallible);
@@ -2077,6 +2131,7 @@ pub fn Actor(comptime T: type) type {
                 else => {},
             }
             if (!done) {
+                if (slotted) self.freeSlot();
                 if (comptime fallible) return if (canceledHere()) canceled_error else timeout_error;
                 unreachable;
             }
@@ -2110,17 +2165,6 @@ pub fn Actor(comptime T: type) type {
             if (!roomInline(t)) return false;
             if (self.state.cmpxchgStrong(0, busy, .acquire, .monotonic) == null) return true;
             return claimSpinning(&self.state);
-        }
-
-        /// Run method `name` inline as the actor: under no cancel or
-        /// deadline, as its runner runs one, so a canceled caller cannot
-        /// stop it partway. A panic in it ends the actor and goes on to
-        /// the caller's own boundary (`dieInline`).
-        fn runInline(self: *Self, t: *rt.TaskState, comptime name: []const u8, args: anytype) Result(name) {
-            const control, const deadline = .{ t.control, t.deadline };
-            t.control, t.deadline = .{ null, null };
-            defer t.control, t.deadline = .{ control, deadline };
-            return self.invoke(name, args);
         }
 
         /// A call run inline is done: messages sent meanwhile go to a
@@ -2178,7 +2222,7 @@ pub fn Actor(comptime T: type) type {
                 self.running = m;
                 m.run(m);
                 self.running = null;
-                m.answer();
+                self.answer(m, Message.done);
             }
             box.dropStrong();
         }
@@ -2187,6 +2231,18 @@ pub fn Actor(comptime T: type) type {
 
 /// How many calls made with `&` an actor holds in flight at once.
 const default_mailbox = 64;
+
+/// A method run inline on a task's fiber (`Actor.callAs`): its hold on
+/// the actor, and what a panic in it puts back as the call would have
+/// (`Actor.dieInline`): the task's cancel and deadline, and the mailbox
+/// slot of a call made with `&`.
+const Inline = struct {
+    held: rt.sched.Held,
+    state: *rt.TaskState,
+    control: ?*Control,
+    deadline: ?i96,
+    slotted: bool,
+};
 
 /// What a deadlock calls an actor of `T`: its name in Rig, without the
 /// module or the type's arguments.
@@ -2271,6 +2327,9 @@ const Message = struct {
     label: *const rt.sched.Label,
     /// Taken by a runner, under the actor's lock: no longer withdrawn.
     started: bool = false,
+    /// A call made with `&`, whose slot of the mailbox its answer gives
+    /// back (`Actor.answer`).
+    slotted: bool = false,
     status: std.atomic.Value(u8) = .init(queued),
     /// How it was answered: `done`, or, when the actor died, `panicked`
     /// for the call it ran then and `died` for one queued (`Actor.kill`).
@@ -2403,21 +2462,15 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Tas
     if (blocked) rt.sched.unblock();
     const Run = struct {
         fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
-            defer {
-                _ = b.value.pending.fetchSub(1, .seq_cst);
-                b.dropStrong();
-            }
-            return @TypeOf(b.value).call(b, name, a);
+            defer b.dropStrong();
+            return A.callAs(b, name, a, true);
         }
 
         /// `run` of a method that may fail with fields: it is given the
         /// task's slot, last.
         fn runInto(b: @TypeOf(box), a: @TypeOf(args), slot: rt.ErrSlot) R {
-            defer {
-                _ = b.value.pending.fetchSub(1, .seq_cst);
-                b.dropStrong();
-            }
-            return @TypeOf(b.value).call(b, name, a ++ .{slot});
+            defer b.dropStrong();
+            return A.callAs(b, name, a ++ .{slot}, true);
         }
     };
     if (comptime takesSlot(@TypeOf(@field(@TypeOf(self.value), name)))) return Task(R).spawn(Run.runInto, .{ box.cloneStrong(), args });

@@ -712,3 +712,84 @@ test "actor supervised restarts after a String it grew", seeds: 20, '''
   !a.add(0)
   !a.add(1)
   print(a.size())
+
+bomb "actor dies from a panic call in a method run inline", seeds: 20, timeout: 10, "Box.add: the actor died from a panic in Box.add", prints: "-9"
+  # `panic(...)` ends an actor as a runtime panic does: the call run
+  # inline panics in its caller, and a later call learns the actor died.
+  use std.task
+
+  obj Box
+    hits: Int
+
+    fun add(!@, n: Int) -> Int
+      if n < 0
+        panic("bad")
+      @hits += n
+      @hits
+
+  c = *Actor(Box(hits: 0))
+  print(task.isolate(|+c| (!c).add(-1)) catch -9)
+  print((!c).add(1))
+
+test "actor panics in a call made with & from a task under an isolate", seeds: 20, timeout: 10, "-9"
+  # The task running the call inline panics: it ends, its isolate stops
+  # it, and the isolate's own wait passes the panic on.
+  use std.task
+
+  obj Box
+    hits: Int
+
+    fun add(!@, n: Int) -> Int
+      if n < 0
+        panic("bad")
+      @hits += n
+      @hits
+
+  fun bump(c: *Actor[Box], n: Int) -> Int
+    t = (!c).add(n)&
+    >t
+
+  c = *Actor(Box(hits: 0))
+  print(task.isolate(|+c| bump(+c, -1)) catch -9)
+
+test "actor supervised gives back the mailbox slot of a call that panicked", seeds: 20, timeout: 10, '''
+  -9 0
+  -9 0
+  -2
+'''
+  # A call made with `&` that panics on the actor's own task, by
+  # `panic(...)` or the runtime's, gives back its slot of the mailbox, so
+  # a supervised actor with one slot takes the next.
+  use std.task
+  use std.time
+
+  obj Box
+    hits: Int
+
+    fun add(!@, n: Int) -> Int
+      if n == -1
+        panic("bad")
+      xs = [1, 2]
+      @hits += xs[n + 5]
+      @hits += n
+      @hits
+
+    fun slow(!@) -> Int!
+      time.sleep(50 * time.MS)!
+      @hits
+
+  fun hold(c: *Actor[Box]) -> Int!
+    (!c).slow()!
+
+  fun bump(c: *Actor[Box], n: Int) -> Int
+    t = (!c).add(n)&
+    >t
+
+  c = *Actor.supervised(*|| Box(hits: 0), mailbox: 1)
+  for n in [-1, -9]
+    x = hold(+c)&
+    time.sleep(10 * time.MS)!
+    r = task.isolate(|+c, +n| bump(+c, n)) catch -9
+    print(r, >x!)
+  t = (!c).add(-4)&
+  print(>t)

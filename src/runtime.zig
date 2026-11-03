@@ -8136,28 +8136,6 @@ fn flushForPanic() void {
     if (concurrent) output_lock.unlock(io());
 }
 
-/// A panic that an isolate stops: its report, with the stack trace in a
-/// debug build, then the isolate (`tasks.panicked`).
-fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) noreturn {
-    @branchHint(.cold);
-    reportPanic(msg, first_trace_addr);
-    tasks.panicked(iso);
-}
-
-/// Write a panic that a boundary stops: its message, and in a debug
-/// build its trace, while the program goes on.
-fn reportPanic(msg: []const u8, first_trace_addr: usize) void {
-    flushForPanic();
-    {
-        var buf: [256]u8 = undefined;
-        const ls = std.debug.lockStderr(&buf);
-        defer std.debug.unlockStderr();
-        ls.file_writer.interface.print("panic: {s}\n", .{msg}) catch {};
-        ls.file_writer.interface.flush() catch {};
-    }
-    if (builtin.mode == .debug) std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr });
-}
-
 /// A task this one waited for, or dropped, panicked: the panic passes to
 /// this task's nearest isolate, or, with none, ends the program.
 pub fn passPanic() noreturn {
@@ -8169,13 +8147,7 @@ pub fn passPanic() noreturn {
 /// where it came from, when it ends the program.
 pub fn passPanicFrom(what: []const u8) noreturn {
     @branchHint(.cold);
-    if (!panicEnds()) {
-        if (tasks.actorsDie()) {
-            leaveFrames();
-            sched.abandonDetached();
-        }
-        if (panicBoundary()) |iso| tasks.panicked(iso);
-    }
+    if (!panicEnds()) stopPanic();
     panicAfterFlush(what, @returnAddress());
 }
 
@@ -8185,60 +8157,62 @@ fn panicEnds() bool {
     return !tasks.panicStops() and panicBoundary() == null;
 }
 
-fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    @branchHint(.cold);
-    // A panic that ends the program takes the report before its actors
-    // die: an actor's death answers the calls queued on it, and a caller
-    // that panics at that answer, on another worker, must not be the one
-    // reported.
-    if (panicEnds()) beginPanic();
-    // A panic in an actor's method, on its runner, stops there, once it
-    // is reported: the actor dies, and so does the call that waits on it.
+/// A panic, once reported, stops where it can: every actor the running
+/// fiber runs a method of dies (`tasks.actorsDie`), and the panic stops
+/// at the runner the fiber is, or else at its nearest isolate
+/// (`tasks.panicked`). With neither, this returns, and the program ends.
+fn stopPanic() void {
     if (tasks.actorsDie()) {
-        reportPanic(msg, first_trace_addr orelse @returnAddress());
         leaveFrames();
         sched.abandonDetached();
     }
-    if (panicBoundary()) |iso| isolatedPanic(iso, msg, first_trace_addr orelse @returnAddress());
-    {
-        var buf: [256]u8 = undefined;
-        const ls = std.debug.lockStderr(&buf);
-        defer std.debug.unlockStderr();
-        ls.file_writer.interface.print("panic: {s}\n", .{msg}) catch {};
-        ls.file_writer.interface.flush() catch {};
-    }
-    // The trace names emitted Zig lines. Only the unwinder that cannot
-    // fault walks it: the program runs on a stack the runtime maps
-    // (`onOwnStack`), which the other one faults on.
-    if (builtin.mode == .debug and panic_stage.load(.seq_cst) == 1) {
-        std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr orelse @returnAddress() });
-    }
-    std.process.abort();
+    if (panicBoundary()) |iso| tasks.panicked(iso);
+}
+
+fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
+    @branchHint(.cold);
+    panicWith(msg, writePanic, first_trace_addr orelse @returnAddress());
+}
+
+fn writePanic(w: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
+    try w.print("panic: {s}\n", .{msg});
 }
 
 /// `panic(a, b)`: the report `file.rig:L:C: panic: ` and the line `print`
 /// would write (the emitter puts the location in the first piece), on
 /// stderr after everything `print` has buffered; then the end of the
 /// program by `abort` (status 134). No drop, `defer`, or leak check
-/// runs.
+/// runs. It is the same event as a runtime panic (`panicAfterFlush`).
 pub noinline fn fail(pieces: anytype) noreturn {
     @branchHint(.cold);
-    if (panicBoundary()) |iso| {
-        flushForPanic();
-        {
-            var buf: [1024]u8 = undefined;
-            const ls = std.debug.lockStderr(&buf);
-            defer std.debug.unlockStderr();
-            writeArgs(&ls.file_writer.interface, pieces) catch {};
-            ls.file_writer.interface.flush() catch {};
-        }
-        tasks.panicked(iso);
+    panicWith(pieces, writeArgs, null);
+}
+
+/// Every panic: its report, `write(w, what)`, on stderr after what
+/// `print` has buffered, with the stack trace from `trace` in a debug
+/// build; then it stops at an actor's runner or an isolate
+/// (`stopPanic`), or ends the program by `abort` (status 134). A panic
+/// that ends the program takes the report before its actors die: an
+/// actor's death answers the calls queued on it, and a caller that
+/// panics at that answer, on another worker, must not be the one
+/// reported.
+fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
+    const ends = panicEnds();
+    if (ends) beginPanic() else flushForPanic();
+    {
+        var buf: [1024]u8 = undefined;
+        const ls = std.debug.lockStderr(&buf);
+        defer std.debug.unlockStderr();
+        write(&ls.file_writer.interface, what) catch {};
+        ls.file_writer.interface.flush() catch {};
     }
-    beginPanic();
-    var buf: [1024]u8 = undefined;
-    const ls = std.debug.lockStderr(&buf);
-    writeArgs(&ls.file_writer.interface, pieces) catch {};
-    ls.file_writer.interface.flush() catch {};
+    // The trace names emitted Zig lines. Only the unwinder that cannot
+    // fault walks it: the program runs on a stack the runtime maps
+    // (`onOwnStack`), which the other one faults on.
+    if (trace) |t| if (builtin.mode == .debug and (!ends or panic_stage.load(.seq_cst) == 1)) {
+        std.debug.dumpCurrentStackTrace(.{ .first_address = t });
+    };
+    stopPanic();
     std.process.abort();
 }
 
