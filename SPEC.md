@@ -3563,8 +3563,11 @@ values of a type that provides `Ord`. `Hasher` takes the parts a
 hash is made of, `!h.add(x)`, each a value that provides `Hash`, and
 mixes them. `Printer` writes a printed form: `!out.text(s)` writes text
 as it is, and `!out.value(x)` a value as `print` shows a part of
-another, text in quotes. A module that declares a type of its own named
-`Order`, `Printer`, or `Hasher` hides the built-in one.
+another, text in quotes. A `print` method runs once for each time its
+value is printed or formatted, and what it prints or warns itself comes
+before the line its value is part of, whole. A module that declares a
+type of its own named `Order`, `Printer`, or `Hasher` hides the built-in
+one.
 
 ```rig
 obj Name: Eq + Hash + Print

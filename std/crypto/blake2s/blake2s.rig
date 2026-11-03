@@ -4,7 +4,9 @@
 # Constant time: a block is compressed by adds, xors, and rotations of
 # 32-bit words, with message words picked by the round's fixed schedule;
 # no branch and no index depends on the key or the data, only on
-# lengths.
+# lengths. It runs without Arm's DIT, as the AEADs do (std/crypto/aead.rig
+# says why), so on Arm its constant time rests on today's cores, not on
+# the architecture.
 
 IV: [8]U32 = [0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19]
 

@@ -15,9 +15,9 @@ use std.unicode
 use std.utf8
 
 extern zig "char.zig"
-  # The class of rune `r` among std.text's chars (Class in
-  # std/char_tables.zig), with `tailored` as Ghostty's.
-  fun char_class(r: Int, tailored: Bool) -> Int
+  # Whether rune `r` is Extended_Pictographic, but no emoji modifier
+  # base, as Ghostty tailors std.text's chars.
+  fun is_pict(r: Int) -> Bool
   # One step of text.CharBreak: the state after rune `r` from `state`
   # (negative before any rune), bit 7 set when a char starts at `r`.
   fun char_step(state: Int, r: Int, tailored: Bool) -> Int
@@ -194,10 +194,6 @@ fun colon_end(seps: Int, i: Int, n: Int) -> Int
   k
 
 # ---- The screen ----------------------------------------------------------
-
-# The class `pict` of char_class: Extended_Pictographic, an emoji modifier
-# base aside when tailored.
-CLASS_PICT = 1
 
 # Bits of width_props: the rune takes no column of its own inside a char;
 # a variation selector may follow it to ask for text or emoji style.
@@ -434,6 +430,9 @@ pub obj Terminal
   # Modes: autowrap (DECAWM), origin (DECOM), insert (IRM), and new line
   # (LNM, a line feed also returns).
   autowrap: Bool
+  origin: Bool
+  insert: Bool
+  newline: Bool
   # The cursor prints protected cells (SPA, DECSCA), and the kind of
   # protection the screen had last, which ECH and ED and EL heed; the other
   # screen's.
@@ -443,12 +442,7 @@ pub obj Terminal
   # Mode 2027: runes join into chars as Ghostty clusters them, and a char
   # takes the width of its runes together.
   graphemes: Bool
-  origin: Bool
-  insert: Bool
-  newline: Bool
   cursor_visible: Bool
-  # What XTSAVE saved of the private modes, for XTRESTORE; their defaults
-  # until then.
   # Every mode Ghostty knows (MODE_VALUES), set or not, as SM, RM, DECSET,
   # and DECRST leave it, whether or not it does anything here yet; and what
   # XTSAVE saved of each, their defaults until then.
@@ -498,7 +492,10 @@ pub obj Terminal
 
   # An empty terminal of `cols` by `rows`, the cursor at the top left and a
   # tab stop every 8 columns, keeping up to `scrollback` rows of history.
+  # Panics unless `cols` and `rows` are positive.
   pub fun new(cols: Int, rows: Int, scrollback: Int = 10000) -> Terminal
+    if cols <= 0 or rows <= 0
+      panic("terminal.Terminal.new: the columns or rows are not positive")
     tabs = List[Bool].filled(cols, false)
     for x in 0..cols
       tabs[x] = x % 8 == 0
@@ -633,7 +630,7 @@ pub obj Terminal
     i -= 1 if @cells[i] & KIND == TAIL else 0
     first = rune(@cells[i])
     return if first == 0
-    return if (c == 0xFE0F or c == 0xFE0E) and char_class(first, true) != CLASS_PICT
+    return if (c == 0xFE0F or c == 0xFE0E) and not is_pict(first)
     (!@).append(i, c)
 
   # Mode 2027: whether `r` surely starts a char of its own, so `join` would

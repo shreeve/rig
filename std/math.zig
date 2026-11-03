@@ -46,28 +46,16 @@ pub fn powf(x: f64, y: f64) f64 {
     return std.math.pow(f64, x, y);
 }
 
-pub fn clamp_bounds() void {
-    @panic("math.clamp: the low bound is above the high bound");
-}
-
 /// The shortest decimal of a finite `x`, with trailing zeros moved into the
-/// exponent.
-fn decimalOf(x: f64) struct { digits: u64, exp: i64 } {
+/// exponent: its digits in the low 64 bits, and its exponent's in the high.
+pub fn shortest_bits(x: f64) u128 {
     const d = std.fmt.float.binaryToDecimal(u64, @as(u64, @bitCast(x)), 52, 11, false, &std.fmt.float.Backend64_TablesFull);
-    if (d.mantissa == 0) return .{ .digits = 0, .exp = 0 };
+    if (d.mantissa == 0) return 0;
     var m = d.mantissa;
     var e: i64 = d.exponent;
     while (m % 10 == 0) {
         m /= 10;
         e += 1;
     }
-    return .{ .digits = m, .exp = e };
-}
-
-pub fn shortest_digits(x: f64) u64 {
-    return decimalOf(x).digits;
-}
-
-pub fn shortest_exp(x: f64) i64 {
-    return decimalOf(x).exp;
+    return @as(u128, @as(u64, @bitCast(e))) << 64 | m;
 }

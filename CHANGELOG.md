@@ -265,6 +265,26 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`terminal.Terminal.new` panics on a size that is not positive.**
+  A terminal of no columns looped forever at its first `feed`, and one
+  of no rows panicked deep in `print`; `new` panics at once, naming its
+  arguments.
+- **std's argument panics are Rig's `panic`.** std.text, std.bigint,
+  std.math, and std.random raised the panics of a misused argument (an
+  empty separator, a negative shift, an empty range) from Zig shims;
+  each is a `panic` in the Rig function, with the same message and
+  the position of the std line that raises it, and std/bigint.zig is
+  gone.
+- **std.utf8 checks UTF-8 for std.json and std.utf16.** One block
+  check, `utf8.block_errors` (Keiser and Lemire's), serves `is_valid`,
+  `rune_count`, `utf16.unit_count`, which is `utf8.weighted_count[2]`,
+  and std.json's strings, which also read a sequence with
+  `utf8.rune_after` and write one with `utf8.push_rune`; std.json and
+  std.utf16 each held a copy. `is_valid` checks 64 bytes at a time
+  where it read a rune at a time: over 1 MiB of mixed ASCII, Latin, and
+  CJK text it takes 80 µs where it took 127 µs, and pure ASCII as fast
+  as before. std.json's guard: gsoc-2018 takes 4.5% fewer instructions
+  per byte, the other five files within 0.5%.
 - **Iterator chains.** `xs.filter(f).map(g).sum()`, on any `for` source
   (a List, array, slice, range, or iterator), is the loop it means,
   checked and emitted as that loop: stages `filter`, `map`, `take`,
@@ -2288,6 +2308,22 @@ first step is on `main` (SPEC §18):
   its wait with `NetError.failed` rather than block its worker, as a
   failed `poll` does; and a poller that cannot be made panics naming
   the call and its error, not as out of memory.
+- **A `print` method no longer hangs a program with tasks.** `print`
+  and `warn` held the output lock while a value's own `print` method
+  ran, so a method that printed, warned, wrote `io.stdout()`, or called
+  `os.exit` hung its task, and one that looped past a yield could hang
+  every task that printed (always under `rig test --seeds`). A line
+  whose value may run a `print` method is rendered first, with no lock
+  held, and copied out under it; what the method prints comes before
+  the line, whole, with or without tasks. `warn`, and an error's report
+  as it leaves `main`, are rendered the same way, so a `warn` of any
+  length is one write. `String(...)` writes each piece once, so a
+  `print` method of a value in text over 256 bytes runs once, not
+  twice.
+- **A shared Cell's `add` that overflows stores nothing.** In a program
+  that makes tasks, `!c.add(n)` and `!c.sub(n)` on a `*Cell[Int]`
+  stored the wrapped value before they panicked, so an isolate that
+  stopped the panic left it there; they panic first, as `+` does.
 - **A regular file's read runs in its task.** `file.read` of a regular
   file, and `exists`, `stat`, `realpath`, and `read_dir`, run on the
   task's own worker, not the blocking pool, as Go's and tsrs's do; a

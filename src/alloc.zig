@@ -613,14 +613,16 @@ fn hugeFreeFor(need: usize) bool {
 /// each in about one), short beside the seconds a Table is written over.
 const reading_life_ns: u64 = 4 * std.time.ns_per_ms;
 
-/// The reading kept: the monotonic clock in units of 2^16 ns (about 65
-/// microseconds) in the top 40 bits, which last 2^56 ns, two years; its
+/// The reading kept: the low 40 bits of the monotonic clock in units of
+/// 2^16 ns (about 65 microseconds) in the top 40 bits, which wrap every
+/// 2^56 ns, two years, so an age is taken in 40 bits (`time_mask`); its
 /// free blocks, at most `count_max`, in the low 24; or 0, none. One
 /// word, so a thread never pairs one reading's time with another's count.
 var kept_reading_var: std.atomic.Value(u64) = .init(0);
 const kept_reading = split.cell(&kept_reading_var, "alloc.kept_reading");
 const count_bits = 24;
 const count_max: u64 = (1 << count_bits) - 1;
+const time_mask: u64 = (1 << (64 - count_bits)) - 1;
 
 /// The monotonic clock in units of 2^16 ns, through the vDSO: tens of
 /// nanoseconds, where a reading costs microseconds. 0 if it fails.
@@ -638,7 +640,7 @@ fn keptReading() ?usize {
     const k = kept_reading.load(.monotonic);
     if (k == 0) return null;
     const now = clockUnits();
-    if (now == 0 or now -% (k >> count_bits) >= reading_life_ns >> 16) return null;
+    if (now == 0 or (now -% (k >> count_bits)) & time_mask >= reading_life_ns >> 16) return null;
     return @intCast(k & count_max);
 }
 
@@ -857,8 +859,23 @@ var region_next_var: std.atomic.Value(usize) = .init(0);
 const region_next = split.cell(&region_next_var, "alloc.region_next");
 var region_end_var: usize = 0;
 const region_end = split.cell(&region_end_var, "alloc.region_end");
-var region_lock_var: std.atomic.Value(bool) = .init(false);
+var region_lock_var: SpinLock = .{};
 const region_lock = split.cell(&region_lock_var, "alloc.region_lock");
+
+/// A lock that spins, for the few loads and stores, or the rare system
+/// call, it is held across: a region's or a Table's address space, and
+/// the spare heaps.
+const SpinLock = struct {
+    held: std.atomic.Value(bool) = .init(false),
+
+    fn lock(self: *SpinLock) void {
+        while (self.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    }
+
+    fn unlock(self: *SpinLock) void {
+        self.held.store(false, .release);
+    }
+};
 
 fn mapSegment() ?*Segment {
     if (region_next.load(.acquire) == 0) reserveRegion();
@@ -871,8 +888,8 @@ fn mapSegment() ?*Segment {
 
 fn reserveRegion() void {
     @branchHint(.cold);
-    while (region_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
-    defer region_lock.store(false, .release);
+    region_lock.lock();
+    defer region_lock.unlock();
     if (region_next.load(.monotonic) != 0) return;
     const raw = std.posix.mmap(null, region_size + segment_size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
         // No room for it: each segment is mapped on its own.
@@ -925,7 +942,7 @@ const table_free_max = 128;
 
 const Range = struct { start: usize, len: usize };
 
-var tables_lock_var: std.atomic.Value(bool) = .init(false);
+var tables_lock_var: SpinLock = .{};
 const tables_lock = split.cell(&tables_lock_var, "alloc.tables_lock");
 /// The regions, in the order they were mapped; the newest is handed out
 /// from `table_next` to `table_end`.
@@ -951,14 +968,6 @@ const table_free_count = split.cell(&table_free_count_var, "alloc.table_free_cou
 var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
 const tables_asked_huge = split.cell(&tables_asked_huge_var, "alloc.tables_asked_huge");
 
-fn lockTables() void {
-    while (tables_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
-}
-
-fn unlockTables() void {
-    tables_lock.store(false, .release);
-}
-
 /// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
 /// Table: zeros, none committed. Its first 2 MiB keep small pages, and
 /// the rest asks for huge pages while the system has free 2 MiB blocks
@@ -970,9 +979,9 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     const len = std.mem.alignForward(usize, bytes, huge_page);
     if (len > table_region_size) return null;
     const huge = len > huge_page and hugeFree();
-    lockTables();
+    tables_lock.lock();
     const p = takeTableRange(len);
-    unlockTables();
+    tables_lock.unlock();
     if (huge) if (p) |at| {
         tables_asked_huge.store(true, .monotonic);
         std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
@@ -987,17 +996,17 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     if (builtin.os.tag != .linux) return false;
     const at = @intFromPtr(p);
     const len = std.mem.alignForward(usize, bytes, huge_page);
-    lockTables();
+    tables_lock.lock();
     var mine = false;
     for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
-    unlockTables();
+    tables_lock.unlock();
     if (!mine) return false;
     const range: [*]align(huge_page) u8 = @alignCast(p);
     std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
     if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
-    lockTables();
+    tables_lock.lock();
     giveTableRange(at, len);
-    unlockTables();
+    tables_lock.unlock();
     return true;
 }
 
@@ -1178,7 +1187,7 @@ pub const owner_lost_default: *const fn () void = ownerLost;
 /// Heaps given back by threads that ended, for the next to start.
 var spare_heaps_var: std.atomic.Value(?*Heap) = .init(null);
 const spare_heaps = split.cell(&spare_heaps_var, "alloc.spare_heaps");
-var spare_lock_var: std.atomic.Value(bool) = .init(false);
+var spare_lock_var: SpinLock = .{};
 const spare_lock = split.cell(&spare_lock_var, "alloc.spare_lock");
 
 /// The running thread's heap, made as it first allocates. Never
@@ -1195,10 +1204,10 @@ noinline fn heap() ?*Heap {
 fn newHeap() ?*Heap {
     @branchHint(.cold);
     // A heap a thread that ended gave back, with what it holds.
-    while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    spare_lock.lock();
     const spare = spare_heaps.load(.monotonic);
     if (spare) |s| spare_heaps.store(s.next_free, .monotonic);
-    spare_lock.store(false, .release);
+    spare_lock.unlock();
     if (spare) |s| {
         s.next_free = null;
         if (check_owner) s.owner = threadToken();
@@ -1220,10 +1229,10 @@ pub noinline fn threadExit() void {
     const h = my_heap().* orelse return;
     if (counts) h.flush();
     my_heap().* = null;
-    while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    spare_lock.lock();
     h.next_free = spare_heaps.load(.monotonic);
     spare_heaps.store(h, .monotonic);
-    spare_lock.store(false, .release);
+    spare_lock.unlock();
 }
 
 // -----------------------------------------------------------------------------
@@ -1285,14 +1294,20 @@ noinline fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: u
 // `segmentOf` and `blockOf` read a small block `alloc` made, which `free`
 // and `freeSmall` are given: Zig's checks on their casts are kept in a
 // debug build and left out of an optimized one, where the allocator's own
-// layout proves them.
+// layout proves them. Both are spelled as the runtime's are.
 const proven_checks = builtin.mode == .debug;
+
+/// A fact the allocator relies on in place of a check, asserted in a
+/// debug build, as the runtime's `invariant` is.
+inline fn invariant(ok: bool) void {
+    if (builtin.mode == .debug) std.debug.assert(ok);
+}
 
 /// The segment that holds `p`, a small block: segments are aligned to
 /// `segment_size`, and a block is never in a segment's first page (its
 /// header's), so the address is the segment's and is not zero.
 inline fn segmentOf(p: [*]u8) *Segment {
-    if (builtin.mode == .debug) std.debug.assert(@intFromPtr(p) & (segment_size - 1) >= page_size);
+    invariant(@intFromPtr(p) & (segment_size - 1) >= page_size);
     // A block lies past its segment's header, so the segment is not null.
     @setRuntimeSafety(proven_checks);
     return @ptrFromInt(@intFromPtr(p) & ~(segment_size - 1));
@@ -1302,7 +1317,7 @@ inline fn segmentOf(p: [*]u8) *Segment {
 /// class's size, every one a multiple of 8, from a page, so aligned for
 /// a `Block`.
 inline fn blockOf(p: [*]u8) *Block {
-    if (builtin.mode == .debug) std.debug.assert(@intFromPtr(p) % @alignOf(Block) == 0);
+    invariant(@intFromPtr(p) % @alignOf(Block) == 0);
     // Every class's size is a multiple of 8 (`classSize`), as is a page.
     @setRuntimeSafety(proven_checks);
     return @ptrCast(@alignCast(p));
@@ -1809,21 +1824,24 @@ test "on Linux a new segment or large block asks for huge pages while free 2 MiB
 
 test "on Linux a burst of Tables reads /proc/buddyinfo once, and a reading older than a few milliseconds is read again" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    useBuddyinfoForTest(buddyinfo_idle);
     defer useBuddyinfoForTest(null);
-    clock_for_test.* = 1 << 40;
     defer clock_for_test.* = null;
-    const before = buddyinfo_reads.*;
-    for (0..43) |_| try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
-    // Memory fragments: the reading kept answers until its life is over.
-    buddyinfo_for_test.* = buddyinfo_partly;
-    clock_for_test.*.? += reading_life_ns - (1 << 17);
-    try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
-    clock_for_test.*.? += 1 << 17;
-    try std.testing.expect(!hugeFree());
-    try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
+    // The clock's time kept in a reading wraps past 2^56 ns of uptime.
+    for ([_]u64{ 1 << 40, (1 << 57) + (1 << 40) }) |start| {
+        useBuddyinfoForTest(buddyinfo_idle);
+        clock_for_test.* = start;
+        const before = buddyinfo_reads.*;
+        for (0..43) |_| try std.testing.expect(hugeFree());
+        try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+        // Memory fragments: the reading kept answers until its life is over.
+        buddyinfo_for_test.* = buddyinfo_partly;
+        clock_for_test.*.? += reading_life_ns - (1 << 17);
+        try std.testing.expect(hugeFree());
+        try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+        clock_for_test.*.? += 1 << 17;
+        try std.testing.expect(!hugeFree());
+        try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
+    }
 }
 
 test "on Linux a kept reading may tell a new segment no, but a yes is read again and takes the segment's blocks from the reading kept" {

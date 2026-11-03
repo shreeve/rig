@@ -803,7 +803,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         /// `get(?@, k: ?K) -> (?V)? from @`: the value of `k`, viewed
-        /// where the slot that holds it was found.        ///
+        /// where the slot that holds it was found.
+        ///
         /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
         /// only because `k` is hashed and compared, never returned or
         /// stored: returning anything reached through `k` would make that
@@ -814,7 +815,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, lent to
-        /// write.        ///
+        /// write.
+        ///
         /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
         /// only because `k` is hashed and compared, never returned or
         /// stored: returning anything reached through `k` would make that
