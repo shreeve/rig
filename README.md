@@ -73,8 +73,8 @@ What a library chooses stays a word: canceling a task is
 ## Status
 
 Rig is young, and its language still changes. The latest release is
-`v0.2.9`. The `main` branch renames `Box`, `Vec`, `Text`, and `struct`
-to `^T`, `List`, `String`, and `obj`;
+`v0.2.9`. `^T`, `List`, `String`, and `obj` are 0.3's spellings of `Box`, `Vec`,
+`Text`, and `struct`, which `v0.2.9` uses;
 [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) migrates 0.2 programs,
 `tools/migrate-0.3.py` first.
 

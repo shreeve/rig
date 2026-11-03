@@ -235,7 +235,7 @@ and consumers, and docs/learn gets an example.
 
 The owner approved each on 2026-10-27.
 
-1. **Fused chains, not adapter values.** Build chains as loops now; make
+1. **Fused chains, not adapter values.** Build chains as loops; make
    a chain a value only when a program needs one. *Approved.*
 2. **No `.iter()`.** Stages are methods on every `for` source.
    *Approved.*

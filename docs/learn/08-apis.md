@@ -84,7 +84,7 @@ names, and each call must pass a type that provides it. The bound
 names exactly what the body needs, so `total`'s reader learns the
 contract from its signature.
 
-The Python typo is now a compile error, at the type that broke the
+The Python typo is a compile error, at the type that broke the
 contract:
 
 ```rig reject
