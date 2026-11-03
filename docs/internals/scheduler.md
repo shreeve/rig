@@ -32,10 +32,21 @@ a program that makes none starts no workers.
   ends the wait, and the call runs on to its end on its thread, which
   drops its result, unless it waits in a system call that its waiter's
   wake ends ("Waiting", below); its arguments live in the call's own
-  state, a byte slice among them copied, so nothing it reads is freed under it; an
-  argument it could write through (`[]u8`, `*T`) does not compile, since
-  the waiter may leave while it still writes, so it reads into memory it
-  owns and returns it. `rig.blocking`'s waiter waits for the call, which
+  state, a byte slice among them copied, so nothing it reads is freed
+  under it. Any other pointer among them, at any depth of an object, an
+  array, or a union, does not compile (`sched.leavable`), since the
+  waiter may leave while the call still uses it. What the call writes
+  into, it owns: a `String` or a descriptor (`net.Fd`) passed by value
+  moves into the call, which gives it back with its answer; a waiter
+  that stops before any thread started the call takes it back at once
+  (`sched.giveBack`), so a descriptor among them closes then, not when
+  a pool thread is free. A `File`'s read, write, and
+  sync work on a duplicate of its descriptor, so a task that stops
+  waiting and closes its file leaves the call a descriptor of its own;
+  a read moves the caller's String in and fills it, and `io.copy` lends
+  each file once and moves one buffer through every block. A call that
+  runs on its task's thread (no scheduler, or a deterministic run) takes
+  the file's own descriptor. `rig.blocking`'s waiter waits for the call, which
   takes its arguments as they are, a buffer to read into among them. Sockets are registered
   with the workers' pollers and wait there (`net.zig`).
   Other system calls go through a `Threaded` instance of Zig's `std.Io`

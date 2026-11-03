@@ -569,9 +569,9 @@ buffer, cleared with `!buf.clear()` and read into again, carries a whole
 file through: `!buf.reserve(n)` makes the room once. A buffer without
 room grows first, and a `String` with no buffer at all gets one cut to
 what came, so a small read keeps no room for `max`. A read that a cancel
-or a deadline ends before it starts leaves `into` as it was; one that
-ends while the read is under way leaves `into` empty, its buffer kept by
-the read.
+or a deadline ends before it starts leaves `into` as it was; one on the
+blocking pool that it ends while the read is under way leaves `into`
+empty, its buffer kept by the read, which drops it as it ends.
 
 ```rig
 use std.file
@@ -682,7 +682,7 @@ takes either at each end.
 | `stdin() -> file.File` | standard input, descriptor 0, to read |
 | `stdout() -> file.File` | standard output, descriptor 1, to write through `print`'s buffer |
 | `stderr() -> file.File` | standard error, descriptor 2, to write after what `print` buffered |
-| `copy(!from, !to) -> Int!` | reads `from` to its end, writing all of it to `to`, 64 KiB at a time: how many bytes |
+| `copy(!from, !to) -> Int!` | reads `from` to its end, writing all of it to `to`, 64 KiB at a time through one buffer, with no allocation or copy for each block: how many bytes |
 
 **The standard streams are `File`s**, so a function that takes a
 `file.File` takes one, and `io.copy` copies to or from one: `cat` is

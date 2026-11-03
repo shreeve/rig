@@ -1674,8 +1674,8 @@ fn nowReal() i96 {
 /// that does), so the fiber waits until the call is done, and `args` are
 /// passed as they are: a call may read into a buffer its caller lends.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
-    if (deterministic.* or current() == null) return @call(.auto, f, args);
-    return switch (poolCall(f, args, false)) {
+    if (!onPool()) return @call(.auto, f, args);
+    return switch (poolCall(f, args, false, null)) {
         .done => |r| r,
         .canceled, .timeout => unreachable,
     };
@@ -1696,15 +1696,26 @@ pub fn PoolResult(comptime R: type) type {
 /// never starts. So the call must not point
 /// into the waiter's frame: `args` are copied into the call's own state,
 /// a `[]const u8` among them copied with what it points to, and freed
-/// once `f` returns; anything else they point to must outlive the call.
-/// A pointer the call could write through (`[]u8`, `*T`) is rejected as
-/// the program compiles: the call reads into memory it owns and returns
-/// it. A task canceled, or past its deadline, before the call
-/// starts does not make it. Outside every fiber, and in a deterministic
-/// run, it runs here.
-pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
-    if (deterministic.* or current() == null) return .{ .done = @call(.auto, f, args) };
-    return poolCall(f, args, true);
+/// once `f` returns. Any other pointer among them, at any depth, is
+/// rejected as the program compiles (`leavable`), since the waiter may
+/// free what it points to, or the call write through it, after the
+/// waiter left. What the call writes into it owns: a `rt.String` or an
+/// `rt.net.Fd` passed by value moves into the call, which drops it or
+/// returns it. A call that never starts gives it back at once, into
+/// `back`, or drops it when `back` is null (`giveBack`): its waiter,
+/// stopped before it was queued or while it was, knows it never will.
+/// A task canceled, or past its deadline, before the call starts does
+/// not make it. Outside every fiber, and in a deterministic run, it
+/// runs here.
+pub fn blockingStop(comptime f: anytype, args: anytype, back: ?*@TypeOf(args)) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
+    if (!onPool()) return .{ .done = @call(.auto, f, args) };
+    return poolCall(f, args, true, back);
+}
+
+/// Whether a call `blocking` or `blockingStop` makes here goes to the
+/// blocking pool, rather than running on this thread.
+pub fn onPool() bool {
+    return !deterministic.* and current() != null;
 }
 
 /// As the program ends, before its leak check (`rt.finish`): wait for
@@ -1748,7 +1759,7 @@ inline fn waker() *Waker {
     return split.local(&waker_var, "sched.waker");
 }
 
-fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
+fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool, back: ?*@TypeOf(args)) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
     const Args = @TypeOf(args);
     const fiber = current().?;
@@ -1767,6 +1778,10 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
         /// before which the thread does not leave the call.
         waker: std.atomic.Value(?*Waker) = .init(null),
         left: std.atomic.Value(bool) = .init(false),
+        /// Whether the waiter that gave up took the arguments back, as
+        /// it does when no thread had started the call; published by
+        /// `left`.
+        taken: bool = false,
 
         const pending = 0;
         const finishing = 1;
@@ -1784,7 +1799,11 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
                 // does not run.
                 self.waker.store(waker(), .seq_cst);
                 if (self.state.load(.seq_cst) == abandoned) {
-                    freeArgs(&self.args);
+                    self.waitLeft();
+                    if (!self.taken) {
+                        freeArgs(&self.args);
+                        dropOwned(&self.args);
+                    }
                     _ = pool.finishing.fetchAdd(1, .seq_cst);
                     self.free();
                     return;
@@ -1809,13 +1828,18 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
         /// this thread: until then the thread stays, so the signal finds
         /// it.
         fn free(self: *Self) void {
+            self.waitLeft();
+            std.heap.smp_allocator.destroy(self);
+            _ = pool.left_calls.fetchSub(1, .seq_cst);
+        }
+
+        /// Wait until the waiter that gave up is done with the call.
+        fn waitLeft(self: *Self) void {
             var spins: u32 = 0;
             while (!self.left.load(.acquire)) {
                 spins += 1;
                 if (spins < finishing_spins) std.atomic.spinLoopHint() else std.Thread.yield() catch {};
             }
-            std.heap.smp_allocator.destroy(self);
-            _ = pool.left_calls.fetchSub(1, .seq_cst);
         }
     };
     const c = std.heap.smp_allocator.create(C) catch rt.oom();
@@ -1823,6 +1847,7 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
     if (stoppable) ownArgs(&c.args);
     if (stoppable) if (stopReason(fiber)) |why| {
         freeArgs(&c.args);
+        giveBack(&c.args, back);
         std.heap.smp_allocator.destroy(c);
         return stopped(R, why);
     };
@@ -1849,10 +1874,19 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
                 // Cancel the call and wake the system call it may block
                 // in, so it stops (`rt.checkStop`); then the call is its
                 // thread's to free.
+                // No waker means no thread will start it: a thread
+                // publishes its waker before it looks at the state, which
+                // this one has marked. So the arguments come back now,
+                // and a descriptor among them closes at once, not when a
+                // thread is free.
                 _ = pool.left_calls.fetchAdd(1, .seq_cst);
                 if (c.waker.load(.seq_cst)) |w| {
                     w.control.canceled.store(true, .seq_cst);
                     rt.wakeThread(w.thread);
+                } else {
+                    freeArgs(&c.args);
+                    giveBack(&c.args, back);
+                    c.taken = true;
                 }
                 c.left.store(true, .release);
                 return stopped(R, why);
@@ -1886,13 +1920,14 @@ fn stopped(comptime R: type, why: PoolResultTag) PoolResult(R) {
 }
 
 /// Copy each `[]const u8` among `args` into memory of its own, for a call
-/// its waiter may leave (`blockingStop`); and reject a mutable pointer
-/// among them, which the call could write through after its waiter left.
+/// its waiter may leave (`blockingStop`); and reject, as the program
+/// compiles, an argument that is not `leavable`.
 fn ownArgs(args: anytype) void {
     const info = @typeInfo(@TypeOf(args.*)).@"struct";
-    inline for (info.field_names, info.field_types, 0..) |name, T, i| {
-        comptime if (writableArg(T)) @compileError(std.fmt.comptimePrint(
-            "rig.blockingStop: argument {d} ({s}) can be written through, and a canceled waiter goes on while the call may still write; read into memory the call owns and return it",
+    inline for (info.field_names, info.field_types, info.field_attrs, 0..) |name, T, a, i| {
+        if (a.@"comptime") continue;
+        comptime if (!isBytes(T) and !leavable(T)) @compileError(std.fmt.comptimePrint(
+            "rig.blockingStop: argument {d} ({s}) holds a pointer, and a canceled waiter goes on while the call may still use it; pass bytes as a []const u8, which is copied, and move what the call writes into in as an rt.String or rt.net.Fd it owns",
             .{ i, @typeName(T) },
         ));
         if (comptime isBytes(T)) {
@@ -1902,10 +1937,30 @@ fn ownArgs(args: anytype) void {
     }
 }
 
+/// Free the copies `ownArgs` made.
 fn freeArgs(args: anytype) void {
     const info = @typeInfo(@TypeOf(args.*)).@"struct";
-    inline for (info.field_names, info.field_types) |name, T| {
-        if (comptime isBytes(T)) std.heap.smp_allocator.free(@field(args.*, name));
+    inline for (info.field_names, info.field_types, info.field_attrs) |name, T, a| {
+        if (comptime isBytes(T) and !a.@"comptime") std.heap.smp_allocator.free(@field(args.*, name));
+    }
+}
+
+/// Give what a call that never runs would have owned back into `back`,
+/// or drop it when `back` is null: every argument but a `[]const u8`,
+/// which `freeArgs` frees. An argument known as the program compiles is
+/// no one's, and needs nothing.
+pub fn giveBack(args: anytype, back: ?*@TypeOf(args.*)) void {
+    const to = back orelse return dropOwned(args);
+    const info = @typeInfo(@TypeOf(args.*)).@"struct";
+    inline for (info.field_names, info.field_types, info.field_attrs) |name, T, a| {
+        if (comptime !isBytes(T) and !a.@"comptime") @field(to.*, name) = @field(args.*, name);
+    }
+}
+
+fn dropOwned(args: anytype) void {
+    const info = @typeInfo(@TypeOf(args.*)).@"struct";
+    inline for (info.field_names, info.field_types, info.field_attrs) |name, T, a| {
+        if (comptime !isBytes(T) and !a.@"comptime") rt.dropElement(T, &@field(args.*, name));
     }
 }
 
@@ -1913,13 +1968,21 @@ fn isBytes(comptime T: type) bool {
     return T == []const u8;
 }
 
-/// Whether `T` is, or holds as an optional, a pointer to memory that may
-/// be written.
-fn writableArg(comptime T: type) bool {
+/// Whether a value of `T` may stay with a call its waiter left: it holds
+/// no pointer, at any depth, but in what the call owns (`rt.String`,
+/// `rt.net.Fd`).
+fn leavable(comptime T: type) bool {
+    if (T == rt.String or T == rt.net.Fd) return true;
     return switch (@typeInfo(T)) {
-        .pointer => |p| !p.attrs.@"const",
-        .optional => |o| writableArg(o.child),
-        else => false,
+        .pointer => false,
+        .optional => |o| leavable(o.child),
+        .error_union => |e| leavable(e.payload),
+        .array => |a| leavable(a.child),
+        .vector => |v| leavable(v.child),
+        inline .@"struct", .@"union" => |u| for (u.field_types) |F| {
+            if (!leavable(F)) break false;
+        } else true,
+        else => true,
     };
 }
 
@@ -4437,7 +4500,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             const f = current().?;
             f.state.control = &ctl;
             ctl.fiber = f;
-            canceled = blockingStop(testSleepReal, .{300});
+            canceled = blockingStop(testSleepReal, .{300}, null);
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
@@ -4447,7 +4510,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             var path_buf = "a path".*;
             const start = nowNs();
             f.state.deadline = start + 20 * std.time.ns_per_ms;
-            timed = blockingStop(slowEcho, .{@as([]const u8, &path_buf)});
+            timed = blockingStop(slowEcho, .{@as([]const u8, &path_buf)}, null);
             took = nowNs() - start;
             f.state.deadline = null;
             @memset(&path_buf, 'z');
@@ -4457,7 +4520,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             ctl.cancel();
             _ = j.join();
             j.free();
-            done = blockingStop(testSleepReal, .{1});
+            done = blockingStop(testSleepReal, .{1}, null);
             testNap(400 * std.time.ns_per_ms);
         }
     };
@@ -4633,16 +4696,27 @@ test "a deterministic run waits for bytes on their way on a socket, though every
     try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
 }
 
-test "a blocking call fills a buffer its caller lends, and a stoppable one takes no pointer it could write through" {
+test "a blocking call fills a buffer its caller lends, and a stoppable one takes no pointer but bytes it copies" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     // blockingStop rejects, as it compiles, what the call could write
     // through after its waiter left, and copies what it only reads.
     comptime {
-        std.debug.assert(writableArg([]u8));
-        std.debug.assert(writableArg(*u64));
-        std.debug.assert(writableArg(?[]u8));
-        std.debug.assert(!writableArg([]const u8));
-        std.debug.assert(!writableArg(u64));
+        std.debug.assert(!leavable([]u8));
+        std.debug.assert(!leavable(*u64));
+        std.debug.assert(!leavable(?[]u8));
+        std.debug.assert(!leavable(*const u64));
+        std.debug.assert(!leavable([:0]const u8));
+        std.debug.assert(!leavable([]const []const u8));
+        std.debug.assert(!leavable(struct { s: []const u8 }));
+        std.debug.assert(!leavable(struct { p: ?*u8, n: u8 }));
+        std.debug.assert(!leavable([2]*u8));
+        std.debug.assert(!leavable(union(enum) { a: u8, b: []u8 }));
+        std.debug.assert(!leavable(std.ArrayList(u8)));
+        std.debug.assert(leavable(u64));
+        std.debug.assert(leavable(rt.String));
+        std.debug.assert(leavable(rt.net.Fd));
+        std.debug.assert(leavable(struct { fd: rt.net.Fd, buf: rt.String, n: ?u64 }));
+        std.debug.assert(leavable([4]i64));
         std.debug.assert(isBytes([]const u8) and !isBytes([]u8));
     }
     const Run = struct {
