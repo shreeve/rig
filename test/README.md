@@ -308,8 +308,11 @@ the reference checker over its programs (`oracle.matrix`).
 `swarm test/rig.rip all` also builds and runs them, in 40 shards
 (`matrix.run.N`), with `--own --delta`: the key leaves out the driver
 and the runtime's files, so only a program whose own Zig changed is
-built, outside the build store, its output removed once it passes. A
-change that emits the same Zig adds seconds. Each night pup runs the
+built, outside the build store, its output removed once it passes.
+matrix.py builds the programs that must run in packs, one `rig batch
+build` of up to 400 each, and runs each from its pack: a cold shard
+takes seconds, and a change that emits the same Zig adds about as
+much. Each night pup runs the
 whole matrix with the full key (tools/matrix-nightly, 00:30, E-cores),
 which catches what a change to the runtime or the driver alone broke;
 its result is in `/zfs/trig-pup/matrix/LATEST`.

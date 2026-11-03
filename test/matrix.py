@@ -86,9 +86,12 @@ counts its passes and stops past a cap, so a loop that never ends fails
 the cell.
 
 Nothing it writes is committed: programs go to a temporary directory,
-and each run's output is removed after it passes. Programs build in
-the build store (RIG_BUILD_STORE, test/README.md), so a program built
-before, by any worktree, is not built again.
+and each run's output is removed after it passes. Every program is
+checked first; those that must run are built in packs, one `rig batch
+build` of up to 400 programs for each build (debug, `--release`), and
+run from them (`rig batch run`); a program a pack leaves out builds
+alone. Packs build in the build store (RIG_BUILD_STORE, test/README.md),
+so a pack built before, by any worktree, is not built again.
 
 A program whose runs pass is recorded in the results cache
 (RIG_RESULTS_CACHE, test/README.md) under a key that hashes everything
@@ -3591,7 +3594,7 @@ def proof_dump_at(dump, at, kind):
     return [l for l in dump.splitlines() if l.startswith("%s %s " % (at, kind))]
 
 
-def run_proof(path, keep, started_dir, cell):
+def run_proof(path, keep, started_dir, cell, plan=None):
     """Classify one `proof.` cell: the checker accepts it, `--facts=proofs`
     lists exactly the tests the cell's table proves at its use, and it
     runs as it must in debug and with `--release`: clean, printing what it
@@ -3609,6 +3612,9 @@ def run_proof(path, keep, started_dir, cell):
     key = RESULTS and RESULTS.key(path, (expect, panic), True)
     if key and RESULTS.carried(key):
         return "ok", "carried over"
+    if plan is not None:
+        plan += [[], ["--release"]]
+        return "plan", ""
     unguarded = []
     for flags in ([], ["--release"]):
         why = run_proof_built(path, keep, started_dir, expect, panic, flags, unguarded)
@@ -3634,7 +3640,7 @@ def run_proof_built(path, keep, started_dir, expect, panic, flags, unguarded):
     if panic is not None:
         env["RIG_NO_CRASH_REPORT"] = "1"
     try:
-        r = run_capped([RIG, "run"] + flags + [path], env)
+        r = run_capped(run_command(path, flags), env)
     except subprocess.TimeoutExpired:
         return "timed out"
     except MemoryError as e:
@@ -3878,7 +3884,7 @@ def unit_cells(deep):
                             yield f"unit.{g}.{f}.{w}.{ws or '-'}.{u}.{us}", (f, w, ws, u, us, g)
 
 
-def run_unit(path, keep, started_dir, cell):
+def run_unit(path, keep, started_dir, cell, plan=None):
     """Classify one `unit.` cell: the checker rejects it with a diagnostic,
     or `--facts=proofs` lists exactly what the rule gives at its use, and
     it runs alike in debug and with `--release`, with nothing a sound
@@ -3898,13 +3904,16 @@ def run_unit(path, keep, started_dir, cell):
     key = RESULTS and RESULTS.key(path, ("unit", entry), True)
     if key and RESULTS.carried(key):
         return "ok", "carried over"
+    if plan is not None:
+        plan += [[], ["--release"]]
+        return "plan", ""
     runs, unguarded = [], []
     for flags in ([], ["--release"]):
         outdir = path[:-4] + (".release" if flags else "") + ".out"
         started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
         env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
         try:
-            r = run_capped([RIG, "run"] + flags + [path], env)
+            r = run_capped(run_command(path, flags), env)
         except subprocess.TimeoutExpired:
             return "fail", ("--release: " if flags else "") + "timed out"
         except MemoryError as e:
@@ -4085,12 +4094,55 @@ def run_capped_cpuq(cmd, env):
         return run_capped(cmd, env, cap=False)
     return subprocess.CompletedProcess(cmd, p.returncode, stdout, stderr)
 
-def run_one(path, keep, started_dir, expect=None, release=False):
+# The programs a run builds go in packs: one `rig batch build` of up to
+# PACK_SIZE programs for each build (debug, `--release`), since most of a
+# compile is std and the runtime, about 2 s against about 15 ms a program.
+# Each then runs from its pack (`rig batch run`). A program the batch
+# leaves out, or one in a pack Zig will not build, builds alone. PACKED
+# maps a program and its flags to its pack and its number there.
+PACK_SIZE = 400
+PACKED = {}
+
+
+def build_pack(pack, flags, paths):
+    """Build `paths` with `flags` into the pack `pack`, and record the
+    programs it holds. A pack Zig will not build is built again without
+    the programs its errors name (`pN/`, program N's own files), so only
+    those build alone."""
+    env = dict(os.environ, RIG_SANITIZE="1", RIG_BUILD_STORE=STORE)
+
+    def build(ps):
+        return subprocess.run([RIG, "batch", "build"] + flags + [pack] + ps, env=env, capture_output=True, text=True, timeout=1800, stdin=subprocess.DEVNULL)
+    try:
+        r = build(paths)
+        if r.returncode != 0:
+            named = {int(n) for n in re.findall(r"(?:^|[/\s])p(\d+)/[^\s:]*\.zig:\d+", r.stderr, re.M)}
+            if named and len(named) < len(paths):
+                r = build([p for n, p in enumerate(paths) if n not in named])
+    except subprocess.TimeoutExpired:
+        return
+    if r.returncode != 0:
+        return
+    with open(os.path.join(pack, "programs")) as f:
+        for line in f:
+            n, _, path = line.rstrip("\n").partition("\t")
+            PACKED[(os.path.realpath(path), tuple(flags))] = (pack, n)
+
+
+def run_command(path, flags):
+    """How a program built with `flags` runs: from its pack, or alone."""
+    packed = PACKED.get((os.path.realpath(path), tuple(flags)))
+    return [RIG, "batch", "run", packed[0], packed[1]] if packed else [RIG, "run"] + flags + [path]
+
+
+def run_one(path, keep, started_dir, expect=None, release=False, plan=None):
     """Classify one program: rejected, ok, or a failure with its reason.
     With `expect`, a program that runs must print exactly that; with
     `release`, also when built with `--release`, and it must be
     accepted; with `release == "also"`, a program that is accepted is
-    also built with `--release`, but it may be rejected."""
+    also built with `--release`, but it may be rejected. With `plan`, a
+    program that must run is not run: the builds it needs are added to
+    `plan`, and its verdict is "plan" (as for `run_proof` and `run_unit`)."""
     d = os.path.dirname(path)
     try:
         chk = subprocess.run([RIG, "check", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -4113,6 +4165,9 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     key = RESULTS and RESULTS.key(path, expect, release)
     if key and RESULTS.carried(key):
         return "ok", "carried over"
+    if plan is not None:
+        plan += [[], ["--release"]] if release else [[]]
+        return "plan", ""
     unguarded = []
     why = run_built(path, keep, started_dir, expect, [], unguarded)
     if why is None and release:
@@ -4136,7 +4191,7 @@ def run_built(path, keep, started_dir, expect, flags, unguarded):
     started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
     env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
     try:
-        r = run_capped([RIG, "run"] + flags + [path], env)
+        r = run_capped(run_command(path, flags), env)
     except subprocess.TimeoutExpired:
         return "timed out"
     except MemoryError as e:
@@ -4198,7 +4253,7 @@ def first_error(s):
 
 
 # Every function a program's verdict reads (Results hashes their code).
-VERDICT_CODE = (tree_rss, run_capped, run_capped_cpuq, find_cap, run_one, run_built, first_line, first_error, run_proof, run_proof_built, proof_dump_at, run_unit)
+VERDICT_CODE = (tree_rss, run_capped, run_capped_cpuq, find_cap, build_pack, run_command, run_one, run_built, first_line, first_error, run_proof, run_proof_built, proof_dump_at, run_unit)
 
 
 
@@ -4701,16 +4756,35 @@ def main():
             if b.returncode != 0:
                 sys.exit("zig build failed")
         RESULTS = Results(cache, args.delta, started_dir, args.own)
+    def judge(pool, todo, plans):
+        """Each program's verdict; with `plans`, a program that must run
+        adds the builds it needs to its plan and waits ("plan")."""
+        futs = {}
+        for i, p in todo:
+            plan = plans.setdefault(i, []) if plans is not None else None
+            futs[pool.submit(run_proof, p, bool(args.keep), started_dir, proofs[i], plan) if i in proofs else
+                 pool.submit(run_unit, p, bool(args.keep), started_dir, units[i], plan) if i in units else
+                 pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), "also" if i in also else i in release, plan)] = i
+        for fut in concurrent.futures.as_completed(futs):
+            results[futs[fut]] = fut.result()
+            if results[futs[fut]][0] != "plan":
+                progress.add(results[futs[fut]][0] == "fail")
+        progress.write(True)
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
-            futs = {(pool.submit(run_proof, p, bool(args.keep), started_dir, proofs[i]) if i in proofs else
-                     pool.submit(run_unit, p, bool(args.keep), started_dir, units[i]) if i in units else
-                     pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), "also" if i in also else i in release)): i for i, p in cells}
-            progress = Progress(len(futs))
-            for fut in concurrent.futures.as_completed(futs):
-                results[futs[fut]] = fut.result()
-                progress.add(results[futs[fut]][0] == "fail")
-            progress.write(True)
+            progress = Progress(len(cells))
+            # Check every program, then build those that must run in
+            # packs, a build at a time (each compile uses every core), and
+            # run them.
+            plans = {}
+            judge(pool, cells, plans)
+            waiting = [(i, p) for i, p in cells if results[i][0] == "plan"]
+            for flags in ([], ["--release"]):
+                paths = [p for i, p in waiting if flags in plans[i]]
+                for n in range(0, len(paths), PACK_SIZE):
+                    pack = os.path.join(work, "packs", "%s%d" % ("release" if flags else "debug", n // PACK_SIZE))
+                    build_pack(pack, flags, paths[n:n + PACK_SIZE])
+            judge(pool, waiting, None)
     finally:
         shutil.rmtree(started_dir, ignore_errors=True)
     counts = {}
