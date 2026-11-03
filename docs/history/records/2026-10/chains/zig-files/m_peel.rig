@@ -1,0 +1,37 @@
+use std.time
+
+fun single(xs: []Int) -> Int
+  best: Int? = none
+  for x in xs
+    if best as b and not (x < b)
+      continue
+    best = x
+  best ?? -1
+
+fun peel(xs: []Int) -> Int
+  r: Int? = while true
+    if xs.len == 0
+      break none
+    new best = xs[0]
+    for x in xs[1..]
+      if x < best
+        best = x
+    break best
+  r ?? -1
+
+sub main()
+  xs = List[Int]()
+  for i in 0..20000
+    !xs.push((i * 31337) % 999983 + 5)
+  best = 0
+  check = 0
+  for round in 0..15
+    t = time.now()
+    acc = 0
+    for _ in 0..1000
+      acc += peel(xs)
+    dt = t.elapsed()
+    if round == 0 or dt < best
+      best = dt
+    check = acc
+  print("peel", best / 1000, "us", check)

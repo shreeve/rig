@@ -1,0 +1,23 @@
+fun s(xs: []U64) -> U64
+  r = while true
+    if xs.len == 0
+      break 0
+    new acc = xs[0]
+    for x in xs[1..]
+      acc += x
+    break acc
+  r
+
+fun c(xs: []U64) -> List[U64]
+  r = while true
+    if xs.len == 0
+      break List()
+    new out = List([xs[0]])
+    for x in xs[1..]
+      !out.push(x)
+    break <out
+  r
+
+sub main()
+  xs = List[U64]([1, 2, 3])
+  print(s(xs), c(xs))

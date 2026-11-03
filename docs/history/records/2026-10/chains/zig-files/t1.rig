@@ -1,0 +1,16 @@
+fun pick(c: Bool, x: Int) -> Int?
+  r = if c
+    x
+  else
+    none
+  r
+
+sub main()
+  h = 0..4
+  for i in h
+    print(i)
+  xs = List([1, 2, 3])
+  v = ?xs
+  for x in v
+    print(x)
+  print(pick(true, 3) ?? 0)

@@ -1,0 +1,9 @@
+fun mk(xs: []U64) -> List[U64]
+  o: List[U64]? = none
+  l = <o ?? List()
+  for x in xs
+    !l.push(x)
+  l
+
+sub main()
+  print(mk(List[U64]([1, 2])))

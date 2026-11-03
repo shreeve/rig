@@ -1,0 +1,19 @@
+fun total(xs: []U64, n: U64) -> U64
+  f = |+n, x: U64| x * n
+  acc: U64 = 0
+  for x in xs
+    acc += f(x)
+  acc
+
+fun loopv(xs: []U64) -> U64?
+  r: U64? = for x in xs
+    if x > 2
+      break x
+  else
+    none
+  r
+
+sub main()
+  xs = List[U64]([1, 2, 3, 4])
+  print(total(xs, 3))
+  print(loopv(xs) ?? 0)

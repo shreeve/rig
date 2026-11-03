@@ -1,0 +1,143 @@
+use std.time
+
+enum State
+  loading
+  ready(n: Int)
+
+obj Entry
+  state: State
+  touched: Int
+  bytes: Int
+
+fun hand_min(m: ?Map[String, Entry]) -> Int
+  oldest: String? = none
+  touched = 0
+  for e in m.items()
+    if e.value.state matches .ready(_)
+      if oldest == none or e.value.touched < touched
+        oldest = +e.key
+        touched = e.value.touched
+  o = <oldest ?? return -1
+  o.len + touched
+
+fun hand_view(m: ?Map[String, Entry]) -> Int
+  best: Item[?String, ?Entry]? = none
+  touched = 0
+  for e in m.items()
+    if e.value.state matches .ready(_)
+      if best == none or e.value.touched < touched
+        best = e
+        touched = e.value.touched
+  o = best ?? return -1
+  o.key.len + touched
+
+fun chain_min(m: ?Map[String, Entry]) -> Int
+  oldest = while true
+    h = m.items()
+    f1 = |e: Item[?String, ?Entry]| e.value.state matches .ready(_)
+    k1 = |e: Item[?String, ?Entry]| e.value.touched
+    best: Item[?String, ?Entry]? = none
+    bk: Int? = none
+    for e in !h
+      if f1(e)
+        k = k1(e)
+        if bk as b and not (k < b)
+          continue
+        best = e
+        bk = k
+    break best
+  o = oldest ?? return -1
+  o.key.len + o.value.touched
+
+fun peel_min(m: ?Map[String, Entry]) -> Int
+  oldest = while true
+    h = m.items()
+    f1 = |e: Item[?String, ?Entry]| e.value.state matches .ready(_)
+    k1 = |e: Item[?String, ?Entry]| e.value.touched
+    first: Item[?String, ?Entry]? = for e in !h
+      if f1(e)
+        break e
+    else
+      none
+    b0 = first ?? break none
+    new best = b0
+    new bk = k1(b0)
+    for e in !h
+      if f1(e)
+        k = k1(e)
+        if k < bk
+          best = e
+          bk = k
+    r: Item[?String, ?Entry]? = best
+    break r
+  o = oldest ?? return -1
+  o.key.len + o.value.touched
+
+
+fun chain_sent(m: ?Map[String, Entry]) -> Int
+  oldest = while true
+    h = m.items()
+    f1 = |e: Item[?String, ?Entry]| e.value.state matches .ready(_)
+    k1 = |e: Item[?String, ?Entry]| e.value.touched
+    best: Item[?String, ?Entry]? = none
+    bk: Int = 0
+    for e in !h
+      if f1(e)
+        k = k1(e)
+        if best == none or k < bk
+          best = e
+          bk = k
+    break best
+  o = oldest ?? return -1
+  o.key.len + o.value.touched
+
+fun chain_keyopt2(m: ?Map[String, Entry]) -> Int
+  oldest = while true
+    h = m.items()
+    f1 = |e: Item[?String, ?Entry]| e.value.state matches .ready(_)
+    k1 = |e: Item[?String, ?Entry]| e.value.touched
+    best: Item[?String, ?Entry]? = none
+    bk: Int? = none
+    for e in !h
+      if f1(e)
+        k = k1(e)
+        if bk == none or k < bk ?? 0
+          best = e
+          bk = k
+    break best
+  o = oldest ?? return -1
+  o.key.len + o.value.touched
+
+fun loop_keyopt(m: ?Map[String, Entry]) -> Int
+  best: Item[?String, ?Entry]? = none
+  bk: Int? = none
+  for e in m.items()
+    if e.value.state matches .ready(_)
+      k = e.value.touched
+      if bk as b and not (k < b)
+        continue
+      best = e
+      bk = k
+  o = best ?? return -1
+  o.key.len + o.value.touched
+
+sub main()
+  m = Map[String, Entry]()
+  for i in 0..200000
+    s: State = if i % 7 == 0
+      .loading
+    else
+      .ready(n: i)
+    !m.put(String("key", i), Entry(state: s, touched: (i * 7919) % 1000003, bytes: 1))
+  best = 0
+  check = 0
+  for round in 0..15
+    t = time.now()
+    acc = 0
+    for _ in 0..20
+      acc += chain_min(?m)
+    dt = t.elapsed()
+    if round == 0 or dt < best
+      best = dt
+    check = acc
+  print("chain_min", best / 1000, "us", check)
