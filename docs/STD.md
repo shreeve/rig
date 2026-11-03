@@ -177,8 +177,8 @@ limbs and is never negative. A BigInt owns its limbs, so it moves
 BigInt is made by `parse` or `from_int`, or by an operation on others.
 
 Every operation that makes a BigInt allocates one List for its limbs,
-even when the result is zero, and `pow` one more List of the result's
-size while it works. `text` allocates the String it returns,
+sized before they are filled, but none for a result of zero, and `pow`
+one more List of the result's size while it works. `text` allocates the String it returns,
 and for a number of more than 8 limbs (about 154 digits) a copy of the
 limbs to divide and a List of the 19-digit groups. `compare`, `equals`,
 `sign`, `bit_len`, and `to_f64` only read, and allocate nothing.
@@ -1421,8 +1421,12 @@ key object (`ChaCha`, `XChaCha`, `x25519.Secret`, `blake2s.Hmac`) is
 made by `of(key)`, keeps its key private, prints as `ChaCha(…)` and the
 like, and has a `drop` body that wipes it, so it moves and is never
 copied; copies the arithmetic leaves in registers are not wiped. X25519 sets DIT around its arithmetic on an Arm core
-that has it, and restores it after; the AEADs and BLAKE2s do not need
-it.
+that has it, and restores it after. The AEADs and BLAKE2s do not set it:
+their adds, xors, shifts, and multiplies take the same time whatever
+their operands on the cores Rig has run on, but Arm promises that only
+while DIT is set, so on Arm their constant time rests on today's cores,
+not on the architecture. Setting DIT around a seal and an open of 64
+bytes made them 38% slower on an Apple M5.
 
 | Member of `crypto` | Result |
 |---|---|
@@ -1901,16 +1905,16 @@ sub main()
 `Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
 ```
 
-The entries are kept in one List, in the order their keys were first
-put in. When the keys and values are plain data, an entry is the key
-and the value and nothing else (16 bytes for a `Map[Int, Int]`), and a
-key is hashed again where the index is rebuilt; otherwise an entry
-also keeps its key's hash, so a String is hashed once, and is `none`
-once taken. Taking an entry drops its key at once, hands back its
-value, and marks the entry gone, so the rest keep their order; the gone
-entries are dropped from the List only when it is full and a quarter
-of it is gone, when the index grows, or when the last entry is taken,
-and a walk passes them by runs. Up to 16 entries a Map or Set has no
+The entries are kept in one block of memory, in the order their keys
+were first put in. An entry whose key is of 8 bytes or fewer, or is
+plain data of at most four words, is the key and the value and nothing
+else (16 bytes for a `Map[Int, Int]`), and its key is hashed again
+where the index is rebuilt; any other entry also keeps its key's hash,
+so a String is hashed once. Taking an entry drops its key at once,
+hands back its value, and marks the entry gone in a bit set, so the
+rest keep their order; the gone entries are dropped from the block
+only when it is full and a quarter of it is gone, when the index grows,
+or when the last entry is taken, and a walk passes them by runs. Up to 16 entries a Map or Set has no
 index: a tag byte for each entry, kept in the Map itself, finds a key by
 one 16-byte compare. Past that, an index of groups of 16 tag bytes (15
 tags and a byte of overflow marks) and beside them 16 32-bit entry
@@ -1918,8 +1922,9 @@ indexes a group finds it: a lookup compares its key's tag with a whole
 group at once and compares a key only where a tag matches, and a key
 that is not there is found missing from the tags alone, nearly always
 in one group. A Map or Set holds at most 4,294,967,295 entries. The seed
-of `.hash()` is fixed, so a program that lets others choose many keys
-that collide can be made slow.
+of `.hash()` is fixed, so a program that lets others choose its keys
+(from the network, or a JSON object's keys) can be made slow by keys
+that collide.
 
 ## HashMap and HashSet
 
@@ -2002,7 +2007,11 @@ bytes, and any other key as `.hash()` hashes it; a key over 8 bytes
 keeps its hash in its slot, so growth hashes no key again. The first
 `put` makes room for 21 entries (29 on x86-64), and the table doubles
 when it is four fifths full (seven eighths on x86-64). A HashMap or
-HashSet holds at most 4,294,967,295 entries.
+HashSet holds at most 4,294,967,295 entries. No hash has a seed that
+varies: an `Int` key's multiply is one an attacker can invert, and
+`.hash()`'s seed is fixed, as a Map's is, so a program that lets others
+choose its keys can be made slow by keys that share one group and one
+tag, where every lookup compares every key.
 
 ## Order, Hasher, and Printer
 
@@ -2378,7 +2387,9 @@ that it is. Every index is a byte index; a count names its unit; and
 whitespace and case are ASCII's. A function that returns a `?String`
 returns a part of the `?String` it was given, a view of the same bytes,
 so nothing here allocates but `format_int`, which returns a new String,
-and `edit_distance`, which grows the `row` it is given. A `?String` taken from a `String`
+`chunks`, which returns a new List, `edit_distance`, which grows the
+`row` it is given, and an `Interner`, which holds its strings' text and
+its table. A `?String` taken from a `String`
 ([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
 functions return.
 
@@ -2711,8 +2722,10 @@ how runes fit with bytes, units, and chars.
 | `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` | |
 | `size(r: Int) -> Int?` | the bytes, 1 to 4, that `r` takes in UTF-8, or `none` when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF | `RuneLen` |
 | `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
+| `weighted_count[four: Int](s: ?String) -> Int` | the runes of `s` as `rune_count` counts them, but each rune of four bytes counted as `four`, 1 to 4: `utf16.unit_count` is `weighted_count[2]` | |
 | `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
+| `block_errors(cur: Simd[U8, 16], prev: Simd[U8, 16]) -> Simd[U8, 16]` | nonzero in each lane where `cur`, after the 16 bytes `prev`, breaks UTF-8 (Keiser and Lemire's check, which `is_valid`, the counts, and std.json use); a sequence that runs past `cur` is flagged by the block after it | |
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 | `Decoder.new() -> Decoder` | a streaming decoder, fed a byte at a time, for text that arrives in pieces; an ill-formed sequence reads as one `REPLACEMENT` per maximal subpart, as Unicode recommends and terminals do (Ghostty's DFA), where `rune_after` reads one per bad byte, as Go does | |
@@ -2801,7 +2814,7 @@ valid as it is counted. The rest is read rune by rune: everything from
 the first block that is not valid, a sequence the last valid block cut
 short (from its first byte), and the 15 or fewer bytes after the last
 whole block. Either way each bad byte is one rune of one unit, as in
-Go.
+Go. `is_valid` checks blocks of 64 bytes the same way.
 
 ```rig
 use std.utf8
@@ -3094,7 +3107,7 @@ before it returns.
 | `(!doc).parse(src: ?String) -> Bool keeps src` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
 | `doc.error: Error`, `doc.error_pos: Int` | the first error, and the byte offset of the byte that cannot be read |
 | `(!doc).load(src: ?String)!JsonError keeps src` | `parse` as a failure: `load` fails with `JsonError.bad(kind: Error, at: Int)`, the error and its offset, where `parse` returns `false` |
-| `error_name(e: Error) -> Static` | the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
+| `error_name(e: Error) -> Static` | `e.text`, the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
 | `doc.size() -> Int` | the number of tape entries |
 | `doc.kind(i: Int) -> Kind` | the entry at `i`: `null`, `bool`, `int`, `float`, `string`, `array`, `array_end`, `object`, or `object_end` |
 | `doc.get_bool(i: Int) -> Bool`, `doc.get_int(i: Int) -> Int`, `doc.get_float(i: Int) -> Float` | the value of a `bool`, `int`, or `float` entry |

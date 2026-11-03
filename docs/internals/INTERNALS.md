@@ -5484,7 +5484,7 @@ unspecified (SPEC §10, STD).
   arm64 (`cmeq.8b`, a byte a lane), maximum load 0.8, at least 4 groups;
   15 and 16 on x86-64 (`pcmpeqb`, `pmovmskb`), 0.875, at least 2. A
   lookup peels its home group, prefetches the group's first slot line
-  inside the tag-match branch for slots of 32 bytes or fewer, reads the
+  inside the tag-match branch for slots of 40 bytes or fewer, reads the
   overflow byte only on the way to a miss, and walks on by quadratic
   probing. An insert is one pass. `ensure`'s pass peels the home group
   as a lookup does, so a key found there returns before the pass keeps

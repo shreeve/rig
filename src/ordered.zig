@@ -776,9 +776,6 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return f.j;
         }
 
-        /// The last entry written, `j`, cut off, with the gone entries
-        /// before it; out of line, as a take of the last entry is rare
-        /// beside the others.
         /// Entry `j`, whose lane is freed and whose key and value are
         /// handed on or dropped, leaves the live entries: marked gone; or
         /// cut off, with the gone entries before it, when it is the last
@@ -801,7 +798,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         // the built-in's members ////////////////////////////////////////////
         //
-        // Each is what resolve.registerBuiltins declares for
+        // Each is what resolve.registerTables declares for
         // `OrderedMap[K, V]` or `OrderedSet[K]`, lowered as emit lowers a
         // call: `?K` a `ReadView(K)`, `!V` a `*V`, `Int` an `i64`, `T?` an
         // `Opt(T)`, a closure view an `rt.FnRef`.
@@ -813,7 +810,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         /// `get(?@, k: ?K) -> (?V)? from @`: the value of `k`, viewed
-        /// where the lookup found its entry.        ///
+        /// where the lookup found its entry.
+        ///
         /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
         /// only because `k` is hashed and compared, never returned or
         /// stored: returning anything reached through `k` would make that
@@ -824,7 +822,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, lent to
-        /// write.        ///
+        /// write.
+        ///
         /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
         /// only because `k` is hashed and compared, never returned or
         /// stored: returning anything reached through `k` would make that
@@ -1055,18 +1054,14 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// The entries compacted and found again after `retain`: the
         /// index refilled under the same groups, or a small table's tags
-        /// made again.
+        /// moved down with their entries.
         fn reindex(self: *Self) void {
             if (self.live == 0) {
                 self.reset();
                 return;
             }
+            if (self.isSmall()) return self.compactSmall();
             self.moveLive(null);
-            if (self.isSmall()) {
-                @memset(&self.u.small, 0);
-                for (0..self.len) |j| self.u.small[j] = tagOf(hashOf(&self.entries[j]));
-                return;
-            }
             const t: [*]u8 = @ptrCast(self.u.ix.tags);
             @memset(t[0 .. 16 * self.groupCount()], 0);
             self.u.ix.max_load = maxLoad(self.groupCount());

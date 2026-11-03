@@ -3,12 +3,13 @@
 # here checks that it is. Every index is a byte index; a count names its
 # unit. Every function that returns a `?String` returns a view of the
 # `?String` it was given, so nothing here allocates but `format_int`,
-# which returns a new String, and `edit_distance`, which grows the `row`
-# it is given.
+# which returns a new String, `chunks`, which returns a new List,
+# `edit_distance`, which grows the `row` it is given, and an `Interner`,
+# which holds its strings' text and its table.
 #
 # A char is what a reader sees as one character: a Unicode extended
 # grapheme cluster (UAX #29), of one rune or several, by the tables of
-# Unicode 15.1. The char tools read bytes that are not UTF-8 as Go does,
+# Unicode 17.0.0 (`unicode.VERSION`). The char tools read bytes that are not UTF-8 as Go does,
 # each such byte one rune, U+FFFD, so every byte is in exactly one char,
 # and the chars of a `?String` tile it.
 
@@ -177,7 +178,7 @@ pub obj Split
 # when `sep` is empty.
 pub fun split(s: ?String, sep: ?String) -> Split
   if sep.len == 0
-    empty_separator()
+    panic("text.split: the separator is empty")
   Split(rest: s, sep: sep, done: false)
 
 # The lines of a `?String`, which `lines` gives, in order:
@@ -212,7 +213,7 @@ pub fun lines(s: ?String) -> Lines
 # runs. Panics unless `n` is positive.
 pub fun chunks(s: ?String, n: Int) -> List[?String] from s
   if n <= 0
-    bad_run_count()
+    panic("text.chunks: the count of runs is not positive")
   runs = List[?String]()
   rest = s
   size = s.len / n + 1
@@ -266,11 +267,15 @@ pub fun chars(s: ?String) -> Chars
 # The first `n` chars of `s`, or all of `s` if it has fewer. Panics when
 # `n` is negative.
 pub fun first_chars(s: ?String, n: Int) -> ?String
+  if n < 0
+    panic("text.first_chars: the count is negative")
   s[..first_chars_end(s, n)]
 
 # The last `n` chars of `s`, or all of `s` if it has fewer. Panics when
 # `n` is negative.
 pub fun last_chars(s: ?String, n: Int) -> ?String
+  if n < 0
+    panic("text.last_chars: the count is negative")
   s[last_chars_start(s, n)..]
 
 # Where chars start in text that comes a rune at a time, as a terminal
@@ -317,7 +322,7 @@ pub fun parse_bool(s: ?String) -> Bool!
 # Panics when `base` is not between 2 and 36.
 pub fun parse_int(s: ?String, base: Int = 10) -> Int!
   if base < 2 or base > 36
-    bad_base("text.parse_int")
+    panic("text.parse_int: the base is not between 2 and 36")
   parse_radix(s, base)!
 
 # `n` written in base `base`, 2 to 36 (10 by default): a `-` for a
@@ -326,7 +331,7 @@ pub fun parse_int(s: ?String, base: Int = 10) -> Int!
 # Panics when `base` is not between 2 and 36.
 pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
   if base < 2 or base > 36
-    bad_base("text.format_int")
+    panic("text.format_int: the base is not between 2 and 36")
   # The digits, written backward from the end: 64 hold Int.min in base 2.
   buf = [64 of U8(0)]
   i = buf.len
@@ -383,10 +388,7 @@ pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) ->
   n = utf8.rune_count(a)
   if max >= 0 and (n - m > max or m - n > max)
     return max + 1
-  while row.len > m + 1
-    _ = !row.pop()
-  while row.len < m + 1
-    !row.push(0)
+  !row.resize(m + 1, 0)
   for k in 0..m + 1
     row[k] = k
   i = 0
@@ -449,12 +451,6 @@ pub fun to_lower(b: U8) -> U8
   b + 32 if b >= 65 and b <= 90 else b
 
 extern zig "text.zig"
-  # Panics: `split`'s separator is empty.
-  sub empty_separator()
-
-  # Panics: `chunks` is asked for no runs.
-  sub bad_run_count()
-
   # The index of the first occurrence of `pat` in `s`, or `none`; 0 when
   # `pat` is "".
   pub fun find(s: ?String, pat: ?String) -> Int?
@@ -476,9 +472,6 @@ extern zig "text.zig"
   # `ParseError.overflow` when its magnitude is beyond `Float.max`.
   pub fun parse_float(s: ?String) -> Float!
 
-  # Panics: a base is not between 2 and 36.
-  sub bad_base(who: ?String)
-
   # The order of `a` and `b` by their bytes, as `<` orders them: -1
   # when `a` sorts first, 1 when `b` does, and 0 when they are equal.
   pub fun compare(a: ?String, b: ?String) -> Int
@@ -494,11 +487,8 @@ extern zig "char.zig"
   pub fun char_width(c: ?String) -> Int
   # The terminal columns `s` takes: `char_width` summed over its chars.
   pub fun width(s: ?String) -> Int
-  # The char boundary at or before byte `i`: `i` itself when a char
-  # starts there or `i` is `s.len`, else the start of the char `i` is
-  # inside. `s[..text.char_boundary(s, n)]` is the most of `s` that fits
-  # in `n` bytes without cutting a char. Panics unless `0 <= i <= s.len`.
-  pub fun char_boundary(s: ?String, i: Int) -> Int
+  # `char_boundary`, for `0 <= i <= s.len`.
+  fun boundary_at(s: ?String, i: Int) -> Int
   # The byte where the char that starts at byte `i` ends.
   fun char_end(s: ?String, i: Int) -> Int
   # One step of CharBreak: the state after rune `r` from `state`, bit 7
@@ -508,6 +498,15 @@ extern zig "char.zig"
   fun first_chars_end(s: ?String, n: Int) -> Int
   # The byte where the last `n` chars of `s` start.
   fun last_chars_start(s: ?String, n: Int) -> Int
+
+# The char boundary at or before byte `i`: `i` itself when a char starts
+# there or `i` is `s.len`, else the start of the char `i` is inside.
+# `s[..text.char_boundary(s, n)]` is the most of `s` that fits in `n`
+# bytes without cutting a char. Panics unless `0 <= i <= s.len`.
+pub fun char_boundary(s: ?String, i: Int) -> Int
+  if i < 0 or i > s.len
+    panic("text.char_boundary: the index is out of bounds")
+  boundary_at(s, i)
 
 # ---- Interning ---------------------------------------------------------
 
@@ -628,11 +627,8 @@ obj IdTable
   sub reset(!@, n: Int)
     !@tags.clear()
     !@at.clear()
-    !@tags.reserve(n)
-    !@at.reserve(n)
-    for _ in 0..n
-      !@tags.push(0)
-      !@at.push(0)
+    !@tags.resize(n, 0)
+    !@at.resize(n, 0)
 
 # The slots a table needs to hold `want` entries at most two fifths
 # full: a power of two, at least 16, and at least `now`.

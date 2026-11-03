@@ -100,7 +100,7 @@ pub obj BigInt
   # Allocates the result.
   pub fun shl(?@, n: Int) -> BigInt
     if n < 0
-      negative_shift("bigint.shl")
+      panic("bigint.shl: the shift is negative")
     x = ?@limbs[..]
     if x.len == 0
       return zero()
@@ -125,7 +125,7 @@ pub obj BigInt
   # Panics when `n` is negative. Allocates the result.
   pub fun shr(?@, n: Int) -> BigInt
     if n < 0
-      negative_shift("bigint.shr")
+      panic("bigint.shr: the shift is negative")
     x = ?@limbs[..]
     q = n / 64
     r = n % 64
@@ -161,7 +161,7 @@ pub obj BigInt
   # one more List of the result's size.
   pub fun pow(?@, e: Int) -> BigInt
     if e < 0
-      negative_power()
+      panic("bigint.pow: the power is negative")
     neg = @neg and e % 2 == 1
     x = ?@limbs[..]
     if e == 0
@@ -244,7 +244,7 @@ pub fun from_int(n: Int) -> BigInt
 # `base` is not 0 or 2 to 36. Allocates the limbs, once.
 pub fun parse(s: ?String, base: Int = 0) -> BigInt!
   if base != 0 and (base < 2 or base > 36)
-    bad_base()
+    panic("bigint.parse: the base is not 0 or between 2 and 36")
   i = 0
   neg = false
   if s.len > 0 and (s[0] == 45 or s[0] == 43)
@@ -518,11 +518,3 @@ sub push_group(out: !String, v: U64)
 
 # "00" to "99": the two digits of `r` at `2 * r`.
 PAIRS = "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"
-
-extern zig "bigint.zig"
-  # Panics: `parse`'s base is not 0 or 2 to 36.
-  sub bad_base()
-  # Panics: a shift is negative.
-  sub negative_shift(who: ?String)
-  # Panics: `pow`'s power is negative.
-  sub negative_power()

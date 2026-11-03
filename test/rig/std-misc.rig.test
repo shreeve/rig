@@ -3039,8 +3039,8 @@ test "utf8 counts", release: true, '''
   18100 0
   5 6 0 0
 '''
-  # std.utf8's `rune_count` and std.utf16's `unit_count` against a count
-  # rune by rune with `rune_after`, which reads every bad
+  # std.utf8's `rune_count` and `is_valid`, and std.utf16's `unit_count`,
+  # against a count rune by rune with `rune_after`, which reads every bad
   # byte as one rune of one unit, as Go does. Whole blocks of 64 and 16
   # bytes are counted by their bytes and checked valid as they are: each
   # piece, valid or not, is put at every byte from 0 to 150 of ASCII and
@@ -3067,11 +3067,20 @@ test "utf8 counts", release: true, '''
       i += d.size
     n
 
-  # Whether every count of `s` is the reference's.
+  # Whether `s` holds no bad byte, read rune by rune.
+  fun valid(s: ?String) -> Bool
+    i = 0
+    while i < s.len
+      d = utf8.rune_after(s, i)
+      return false if d.size == 1 and s[i] >= 0x80
+      i += d.size
+    true
+
+  # Whether every count of `s`, and its validity, are the reference's.
   fun agrees(s: ?String) -> Bool
     runes = reference(s, false)
     units = reference(s, true)
-    utf8.rune_count(s) == runes and utf16.unit_count(s) == units
+    utf8.rune_count(s) == runes and utf16.unit_count(s) == units and utf8.is_valid(s) == valid(s)
 
   sub main()
     checked = 0
@@ -3464,3 +3473,22 @@ bomb "utf8 rune size outside", "index out of bounds", prints: "0", release: true
   s = "ab"
   print(utf8.rune_size(s, s.len) ?? 0)
   print(utf8.rune_size(s, s.len + 1) ?? 0)
+
+bomb "terminal of no columns", "terminal.Terminal.new: the columns or rows are not positive", whole: true, timeout: 10
+  # A terminal has at least one column and one row; `new` panics on
+  # fewer, where a `feed` would loop forever or index outside its cells.
+  use std.terminal
+
+  sub main()
+    t = terminal.Terminal.new(0, 4)
+    !t.feed("a")
+    print(t.dump())
+
+bomb "terminal of no rows", "terminal.Terminal.new: the columns or rows are not positive", whole: true, timeout: 10
+  # As above, with no rows.
+  use std.terminal
+
+  sub main()
+    t = terminal.Terminal.new(4, 0)
+    !t.feed("a")
+    print(t.dump())
