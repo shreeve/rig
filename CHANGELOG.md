@@ -280,6 +280,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   holds each search's instructions to a baseline, and AGENTS.md makes it
   a gate for compiler, runtime, and std changes, as the json and hash
   guards are.
+- **Small objects of integers are one word.** An object whose fields
+  are integers, slots, or other such objects, filling 8, 16, 32, or 64
+  bits exactly, is word-sized. A read view of it copies it, as one of a
+  number does. Emit holds it as a Zig `packed struct`, which is made,
+  copied, and compared as one word: there are no two half-word stores
+  then read as one load, which the processor cannot forward. It stays a
+  plain struct where a write lend anywhere in the program takes one of
+  its fields' addresses (docs/internals/INTERNALS.md, "Word-held
+  objects"). Programs mean what they meant.
 - **A match on an error value binds what it checked.** A read match's
   catch-all of an `error`, or of a set whose members carry fields, is a
   view of the error where it is, and a write match's a write view, so

@@ -23,6 +23,7 @@ const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
+const storage = @import("storage.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");
 const frames = @import("frames.zig");
@@ -856,6 +857,20 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     // cycle of marked `inline` functions, which Zig cannot inline.
     if (!graph.hasErrors()) {
         const t1 = timing.start(times);
+        // Which word-sized objects are held as one word: the whole
+        // program's lends decide it, before emit reads it.
+        {
+            const n = graph.modules.items.len;
+            const ctxs = try allocator.alloc(*sema.SemContext, n);
+            defer allocator.free(ctxs);
+            const trees = try allocator.alloc(parser.Sexp, n);
+            defer allocator.free(trees);
+            for (graph.modules.items, ctxs, trees) |*m, *c, *t| {
+                c.* = m.sema;
+                t.* = m.ir;
+            }
+            try storage.decideWords(ctxs, trees);
+        }
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
         try graph.markTextTables();

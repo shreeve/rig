@@ -707,6 +707,8 @@ pub fn Opt(comptime T: type) type {
     // written anywhere else. A `String?`, `Bool?`, or enum's is Zig's.
     if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_name") or @hasDecl(T, "__rig_niche"))) {
         if (comptime nicheOf(T)) |n| return Niche(T, n);
+        // A 64-bit word keeps the four-byte alignment its halves had.
+        if (comptime @hasDecl(T, "__rig_word_sized") and @typeInfo(T).@"struct".layout == .@"packed" and @alignOf(T) > 4) return WordOpt(T);
     }
     // A box's (`^T?`) and a weak handle's (`~T?`) hold `none` as the
     // null address, a pointer's size, as a `*T?` does; every optional of
@@ -864,6 +866,53 @@ fn Strict(comptime T: type) type {
     };
 }
 
+/// The alignment a container holds a `T` at where it may hold it at four
+/// bytes: an object held as one 64-bit word (a packed struct of a
+/// word-sized object, `__rig_word_sized`) keeps the four-byte alignment of
+/// the two halves it holds; any other `T`, its own.
+pub fn wordAlign(comptime T: type) comptime_int {
+    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_word_sized") and @typeInfo(T).@"struct".layout == .@"packed" and @alignOf(T) > 4) return 4;
+    return @alignOf(T);
+}
+
+/// The Zig type of a write view `!T`: `*T`, but for an object held as one
+/// 64-bit word, a pointer at the four-byte alignment containers hold it
+/// at (`wordAlign`). Zig's pointer types differ by any alignment written,
+/// so it is written only where it differs.
+pub fn WritePtr(comptime T: type) type {
+    return if (wordAlign(T) == @alignOf(T)) *T else *align(4) T;
+}
+
+/// `T?` for an object held as one 64-bit word (`__rig_word_sized`, a packed
+/// struct) with no niche: the word at four-byte alignment beside a flag,
+/// twelve bytes, as the optional of the two 32-bit halves it holds would
+/// be. No write lend reaches the word inside one
+/// (`storage.decideWords`), so no pointer to it is taken at that
+/// alignment where a `*T` goes.
+fn WordOpt(comptime T: type) type {
+    return struct {
+        payload: T align(4),
+        has: bool,
+
+        pub const __rig_optional = T;
+        /// What `unwrapPtr` gives, by the pointer it is given.
+        pub const payload_ptr = *align(4) T;
+        pub const payload_const_ptr = *align(4) const T;
+
+        pub inline fn unwrap(o: @This()) ?T {
+            return if (o.has) o.payload else null;
+        }
+
+        pub inline fn unwrapPtr(p: anytype) ?(if (@typeInfo(@TypeOf(p)).pointer.attrs.@"const") payload_const_ptr else payload_ptr) {
+            return if (p.has) &p.payload else null;
+        }
+
+        pub inline fn wrap(x: ?T) @This() {
+            return if (x) |v| .{ .payload = v, .has = true } else .{ .payload = @bitCast(@as(@typeInfo(T).@"struct".backing_integer.?, 0)), .has = false };
+        }
+    };
+}
+
 /// Whether `O` is a Rig optional held as a struct (`Opt`).
 fn isOptStruct(comptime O: type) bool {
     return @typeInfo(O) == .@"struct" and @hasDecl(O, "__rig_optional");
@@ -896,6 +945,9 @@ pub inline fn somePtr(p: anytype) ?PayloadPtr(@TypeOf(p)) {
 
 fn PayloadPtr(comptime P: type) type {
     const info = @typeInfo(P).pointer;
+    // An optional held beside a flag points into its `payload` field, at
+    // that field's alignment (`WordOpt`).
+    if (comptime isOptStruct(info.child) and @hasDecl(info.child, "payload_ptr")) return if (info.attrs.@"const") info.child.payload_const_ptr else info.child.payload_ptr;
     return if (info.attrs.@"const") *const Payload(info.child) else *Payload(info.child);
 }
 
@@ -1078,7 +1130,7 @@ pub fn ReadView(comptime T: type) type {
 
 /// The read view a method's `?@` takes of the value `p` points to: the
 /// pointer, or a copy where a read view copies (`ReadView`).
-pub inline fn viewOf(comptime T: type, p: *const T) ReadView(T) {
+pub inline fn viewOf(comptime T: type, p: anytype) ReadView(T) {
     return if (comptime ReadView(T) == *const T) p else p.*;
 }
 
@@ -1545,8 +1597,10 @@ fn copiedByReadView(comptime T: type) bool {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
         // A read view of an API object is a view, as `sema.copiedByReadView`
-        // says: its two words are lent as they are.
-        .@"struct" => isWideMask(T) or isReadApiView(T),
+        // says: its two words are lent as they are. A word-sized object
+        // (`sema.wordBits`, which emit marks `__rig_word_sized`) is copied, as a
+        // number is.
+        .@"struct" => isWideMask(T) or isReadApiView(T) or @hasDecl(T, "__rig_word_sized"),
         else => false,
     };
 }
@@ -1738,8 +1792,12 @@ pub fn swapValue(place: anytype, value: @TypeOf(place.*)) @TypeOf(place.*) {
 }
 
 /// `swap(!a, !b)`.
-pub fn swapPlaces(a: anytype, b: @TypeOf(a)) void {
-    std.mem.swap(@TypeOf(a.*), a, b);
+pub fn swapPlaces(a: anytype, b: anytype) void {
+    // Either may point at a 64-bit word held at four-byte alignment
+    // (`WritePtr`), so the two pointer types may differ.
+    const t: @TypeOf(a.*) = a.*;
+    a.* = b.*;
+    b.* = t;
 }
 
 /// `<p.f` of an optional: the value, with `none` left in its place.

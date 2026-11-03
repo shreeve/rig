@@ -114,8 +114,8 @@ out=$(emit methods.rig)
 expect_has "$out" 'pub fn depth(' "recursion through the receiver"
 expect_has "$out" 'pub fn count(' "recursion through the type"
 expect_lacks "$out" 'inline fn hop(' "recursion through two types' methods"
-expect_has "$out" 'pub inline fn size(__rig_in_self: *const Ping)' "a method of a name another calls"
-expect_has "$out" 'pub inline fn size(__rig_in_self: *const Pong' "a method calling another type's method of its name"
+expect_has "$out" 'pub inline fn size(__rig_in_self: Ping)' "a method of a name another calls"
+expect_has "$out" 'pub inline fn size(__rig_in_self: Pong' "a method calling another type's method of its name"
 out=$(rig run methods.rig 2>&1) || fail "rig run methods.rig: $out"
 expect_eq "$out" "3 2 0 3" "methods.rig"
 

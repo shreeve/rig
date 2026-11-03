@@ -91,13 +91,43 @@ fn Ordered(comptime K: type, comptime V: type) type {
         const is_set = V == void;
 
         const E = if (stores_hash)
-            struct { key: K, value: V, hash: u64 }
+            struct { key: K align(key_align), value: V align(val_align), hash: u64 }
         else
-            struct { key: K, value: V };
+            struct { key: K align(key_align), value: V align(val_align) };
+        /// A key held as one 64-bit word (`rt.wordAlign`) keeps the
+        /// four-byte alignment of the halves it holds, so its entry beside
+        /// a 4-byte value stays 12 bytes. No pointer to it leaves the table.
+        const key_align = rt.wordAlign(K);
+        /// A value held as one 64-bit word, likewise; a `!V` of the
+        /// program is a pointer at this alignment (`rt.wordAlign`).
+        const val_align = rt.wordAlign(V);
+        const ValPtr = rt.WritePtr(V);
 
 
         /// A view of a key, as a lookup takes it (`?K`).
         const KeyView = rt.ReadView(K);
+
+        /// Drop a value where it is held, at `val_align`.
+        inline fn dropValue(held: *align(val_align) V) void {
+            if (comptime rt.needsDrop(V)) rt.dropElement(V, @alignCast(held));
+        }
+
+        /// A copy of a value where it is held, at `val_align`.
+        inline fn cloneVal(held: *align(val_align) const V) V {
+            if (comptime !rt.needsDrop(V)) return held.*;
+            return rt.cloneValue(@as(*const V, @alignCast(held)));
+        }
+
+        /// Drop a key where it is held, at `key_align`.
+        inline fn dropKey(held: *align(key_align) K) void {
+            if (comptime rt.needsDrop(K)) rt.dropElement(K, @alignCast(held));
+        }
+
+        /// A copy of a key where it is held, at `key_align`.
+        inline fn cloneKey(held: *align(key_align) const K) K {
+            if (comptime !rt.needsDrop(K)) return held.*;
+            return rt.cloneValue(@as(*const K, @alignCast(held)));
+        }
 
         /// An indexed table's index and gone bits; a small table's tags in
         /// their place, as no table holds both. A Map is then 64 bytes, a
@@ -202,7 +232,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return if (stores_hash) e.hash else rt.hash(e.key);
         }
 
-        inline fn eqlKey(stored: *const K, k: KeyView) bool {
+        inline fn eqlKey(stored: *align(key_align) const K, k: KeyView) bool {
             return switch (@typeInfo(K)) {
                 .int, .bool, .@"enum" => stored.* == k,
                 else => rt.eql(stored.*, k),
@@ -799,7 +829,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// only because `k` is hashed and compared, never returned or
         /// stored: returning anything reached through `k` would make that
         /// narrowing unsound.
-        pub inline fn edit(self: *Self, k: KeyView) ?*V {
+        pub inline fn edit(self: *Self, k: KeyView) ?ValPtr {
             const j = self.findHashed(k, hashKey(k)) orelse return null;
             return &self.entryOf(j, true).value;
         }
@@ -815,7 +845,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         /// `value_mut(!@, j: Int) -> !V`.
-        pub inline fn value_mut(self: *Self, j: i64) *V {
+        pub inline fn value_mut(self: *Self, j: i64) ValPtr {
             return &self.entryOf(@intCast(j), true).value;
         }
 
@@ -828,7 +858,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             if (self.findHashed(rt.lend(&kk), h)) |j| {
                 rt.dropElement(K, &kk);
                 const e = &self.entries[j];
-                rt.dropElement(V, &e.value);
+                dropValue(&e.value);
                 e.value = v;
                 return false;
             }
@@ -911,7 +941,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 self.dropEntry(j);
                 return rt.pack(R, out);
             }
-            rt.dropElement(K, &e.key);
+            dropKey(&e.key);
             const out = e.value;
             self.dropEntry(j);
             return rt.pack(R, out);
@@ -1009,8 +1039,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 else
                     f.call(.{ rt.lend(&e.key), &e.value });
                 if (keep) continue;
-                rt.dropElement(V, &e.value);
-                rt.dropElement(K, &e.key);
+                dropValue(&e.value);
+                dropKey(&e.key);
                 if (self.isSmall()) {
                     self.u.small[j] = 0;
                 } else self.markGone(j);
@@ -1088,8 +1118,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 j -= 1;
                 if (self.isGone(j)) continue;
                 const e = &self.entries[j];
-                rt.dropElement(V, &e.value);
-                rt.dropElement(K, &e.key);
+                dropValue(&e.value);
+                dropKey(&e.key);
             }
         }
 
@@ -1113,7 +1143,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 if (self.isGone(j)) continue;
                 const e = &self.entries[j];
                 const h = hashOf(e);
-                _ = out.insertHashed(rt.cloneValue(&e.key), rt.cloneValue(&e.value), h);
+                _ = out.insertHashed(cloneKey(&e.key), cloneVal(&e.value), h);
             }
             return out;
         }

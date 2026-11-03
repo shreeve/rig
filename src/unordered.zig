@@ -268,15 +268,45 @@ fn Unordered(comptime K: type, comptime V: type) type {
         const is_set = V == void;
         /// A view of a key, as a lookup takes it (`?K`).
         const KeyView = rt.ReadView(K);
+
+        /// Drop a value where it is held, at `val_align`.
+        inline fn dropValue(held: *align(val_align) V) void {
+            if (comptime rt.needsDrop(V)) rt.dropElement(V, @alignCast(held));
+        }
+
+        /// A copy of a value where it is held, at `val_align`.
+        inline fn cloneVal(held: *align(val_align) const V) V {
+            if (comptime !rt.needsDrop(V)) return held.*;
+            return rt.cloneValue(@as(*const V, @alignCast(held)));
+        }
+
+        /// Drop a key where it is held, at `key_align`.
+        inline fn dropKey(held: *align(key_align) K) void {
+            if (comptime rt.needsDrop(K)) rt.dropElement(K, @alignCast(held));
+        }
+
+        /// A copy of a key where it is held, at `key_align`.
+        inline fn cloneKey(held: *align(key_align) const K) K {
+            if (comptime !rt.needsDrop(K)) return held.*;
+            return rt.cloneValue(@as(*const K, @alignCast(held)));
+        }
         const int_key = @typeInfo(K) == .int and @bitSizeOf(K) <= 64;
         const text_key = K == rt.String or K == []const u8;
         /// A key over 8 bytes keeps its hash in its slot.
         const store_hash = @sizeOf(K) > 8;
 
         const Element = if (store_hash)
-            struct { key: K, value: V, hash: u64 }
+            struct { key: K align(key_align), value: V align(val_align), hash: u64 }
         else
-            struct { key: K, value: V };
+            struct { key: K align(key_align), value: V align(val_align) };
+        /// A key held as one 64-bit word (`rt.wordAlign`) keeps the
+        /// four-byte alignment of the halves it holds, so its entry beside
+        /// a 4-byte value stays 12 bytes. No pointer to it leaves the table.
+        const key_align = rt.wordAlign(K);
+        /// A value held as one 64-bit word, likewise; a `!V` of the
+        /// program is a pointer at this alignment (`rt.wordAlign`).
+        const val_align = rt.wordAlign(V);
+        const ValPtr = rt.WritePtr(V);
 
         /// No prefetch for slots over 40 bytes, a `String` key's with its
         /// value and hash; for smaller ones, the home group's first slot
@@ -789,7 +819,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// only because `k` is hashed and compared, never returned or
         /// stored: returning anything reached through `k` would make that
         /// narrowing unsound.
-        pub inline fn edit(self: *Self, k: KeyView) ?*V {
+        pub inline fn edit(self: *Self, k: KeyView) ?ValPtr {
             const f = self.locate(k, hashKey(k)) orelse return null;
             return &f.p.value;
         }
@@ -805,7 +835,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         /// `value_mut(!@, j: Int) -> !V`.
-        pub inline fn value_mut(self: *Self, j: i64) *V {
+        pub inline fn value_mut(self: *Self, j: i64) ValPtr {
             return &self.slotAt(@intCast(j), true).value;
         }
 
@@ -819,7 +849,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             const e = &self.elements.?[c.i];
             if (!c.new) {
                 rt.dropElement(K, &kk);
-                rt.dropElement(V, &e.value);
+                dropValue(&e.value);
                 e.value = v;
                 return false;
             }
@@ -862,7 +892,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// is new, its entry is made of `k` and `v` and the count of
         /// entries written to `len` (the HashMap's); otherwise both are
         /// dropped and `len` is left alone.
-        pub inline fn ensure(self: *Self, k: K, v: V, len: *i64) *V {
+        pub inline fn ensure(self: *Self, k: K, v: V, len: *i64) ValPtr {
             var kk = k;
             var vv = v;
             const h = hashKey(rt.lend(&kk));
@@ -910,7 +940,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             const e = f.p;
             self.recover(f.pg, f.lane);
             if (is_set) return rt.pack(R, e.key);
-            rt.dropElement(K, &e.key);
+            dropKey(&e.key);
             return rt.pack(R, e.value);
         }
 
@@ -972,8 +1002,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
                     else
                         f.call(.{ rt.lend(&e.key), &e.value });
                     if (keep) continue;
-                    rt.dropElement(V, &e.value);
-                    rt.dropElement(K, &e.key);
+                    dropValue(&e.value);
+                    dropKey(&e.key);
                     self.recover(pg, lane);
                 }
             }
@@ -1016,8 +1046,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 var m = matchFull(&self.groups[g]);
                 while (m != 0) : (m &= m - 1) {
                     const e = &es[g * NL + laneOf(m)];
-                    rt.dropElement(V, &e.value);
-                    rt.dropElement(K, &e.key);
+                    dropValue(&e.value);
+                    dropKey(&e.key);
                 }
             }
         }
@@ -1042,7 +1072,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 while (m != 0) : (m &= m - 1) {
                     const e = &es[g * NL + laneOf(m)];
                     const h = hashOf(e);
-                    a.elements[emplace(a, h)] = makeElement(rt.cloneValue(&e.key), rt.cloneValue(&e.value), h);
+                    a.elements[emplace(a, h)] = makeElement(cloneKey(&e.key), cloneVal(&e.value), h);
                 }
             }
             out.size = self.size;
