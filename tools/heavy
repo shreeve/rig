@@ -18,7 +18,7 @@ if [[ -n ${RIG_HEAVY_HELD:-} && ${RIG_HEAVY_HELD} == "$L"* ]]; then exec "$@"; f
 Q=$L.q
 mkdir -p "$Q"
 T="$Q/$(perl -MTime::HiRes=time -e 'printf "%d", time*1e9')-$$"
-: >"$T"
+: >"$T" || { echo "tools/heavy: cannot write a ticket in $Q; is the disk full?" >&2; exit 2; }
 trap 'rm -f "$T"' EXIT
 first() {
     local f p

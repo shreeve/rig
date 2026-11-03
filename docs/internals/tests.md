@@ -79,6 +79,12 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
     errors.
   - `code`: Zig the emitted root module contains, compared without
     regard to spacing.
+- **Some bytes are there on purpose:** `syntax-misc.rig.test` holds
+  lone carriage returns, for the lexer's rejection of them. Edit test
+  files with a tool that keeps every byte (Python: `newline=''`).
+- **A body is `main`'s statements,** so `X = v` in it binds a local of
+  `main`, not a module constant: a case that needs a module constant,
+  or a function beside `main`, is a whole program with `sub main()`.
 - **`'''` opens a result of many lines**, closed by `'''` alone at the
   left margin; its lines are written two spaces in.
 - **Options follow as `key: value`:** `release: true` (also built and run
@@ -296,7 +302,10 @@ Trig (`src/` with `tools/trig/main.rig`, copied from `$TRIG`, default
 `~/Data/Code/trig`, which it only reads). It prints `identical` and
 exits 0, or names each file that differs with its lines added and
 removed, a runtime file once for all the programs that carry it, and
-the directory holding both emits, and exits 1. A change whose emit is
+the directory holding both emits, and exits 1. A change whose emit
+differs only in form (names, order) can show it changes no machine code:
+compare the text sections of the two release builds (`otool -t` on
+macOS, `objdump -d` on Linux) before the speed guards. A change whose emit is
 identical cannot change how fast these programs run, so it skips its
 timing round.
 

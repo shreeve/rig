@@ -317,6 +317,10 @@ whole matrix with the full key (tools/matrix-nightly, 00:30, E-cores),
 which catches what a change to the runtime or the driver alone broke;
 its result is in `/zfs/trig-pup/matrix/LATEST`.
 
+To see every rejection's reason quickly, run matrix.py with `--rig` set
+to a wrapper that runs only `rig check` and fails anything else, with
+`-v`: all 16,239 programs in about 8 minutes, building nothing.
+
 The build store is kept small by tools/store-trim, which the runner and
 matrix.py run before they build: an entry unused for 5 days goes, and
 the least recently used while the store is over
