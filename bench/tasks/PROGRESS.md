@@ -129,3 +129,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-31 | #832: Tables take ranges of one address space (pup core 6) | rig-fast | 59 ns | 85 ns | 310.2 ms | 21 ns | 128.93 us | 4.5 KiB |
 | 2026-10-31 | main caa6f8560 before #832, alternated (Mac, load 12-16) | rig-fast | 75 ns | 46 ns | 86.0 ms | 5 ns | 75.52 us | 16.6 KiB |
 | 2026-10-31 | #832: Tables take ranges of one address space; its code is Linux-only (Mac, load 12-16) | rig-fast | 78 ns | 45 ns | 87.7 ms | 5 ns | 97.06 us | 16.6 KiB |
+| 2026-11-03 | main 7cdd87e0b before #904, alternated (pup core 6) | rig-fast | 78 ns | 86 ns | 593.5 ms | 34 ns | 176.41 us | 4.5 KiB |
+| 2026-11-03 | #904: panics leave no lock, slot, or stack behind; waits park (pup core 6) | rig-fast | 79 ns | 86 ns | 593.5 ms | 34 ns | 176.35 us | 4.5 KiB |

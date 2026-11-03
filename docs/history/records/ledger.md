@@ -163,6 +163,32 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## RESUME HERE (2026-11-03, evening): the runtime and std revamp, rounds 1 and 2
+
+**Landed on main, 2026-11-03.** The owner ran /codebase-revamp scoped to the runtime and std. He chose themed PRs that the lead merges on green gates, with std API changes allowed through migration. Overnight he gave full authority. Every code PR passed:
+- the core suite;
+- the json, hash, and text guards, rerun by the lead on each branch head;
+- loco's and Trig's light gates;
+- pup `zig build test` in debug, safe, and fast.
+
+The PRs:
+- #901: three audits, 72 findings, no memory-safety bug in safe code.
+- #902: no program code under the output lock (two hangs); `String(...)` runs a `print` method once; `List.clone` of plain data by memcpy (3x).
+- #903: one UTF-8 owner in std; std.json's outgrown workarounds and the panic-only Zig shims gone (std/bigint.zig deleted).
+- #905: std.terminal bounded (64 runes a char, as Ghostty; unused styles dropped); `text.Interner` at most half full; Map growth reaching 2^32-1; `find_last` vectorized. Trig level on pup (time-ab, A/A arm).
+- #906: "self" for "receiver" in the compiler; emit identical.
+- #907: docs and tools hygiene.
+- #904: panics leave no channel lock, mailbox slot, or Control behind; `panic()` kills actors like a runtime panic; waits park (`sched.Waiters`), not spin; several tasks wait on one socket. From its independent review: an isolate keeps a panicked task's stack until the tasks it started end (a safe-code use after free on main before), and `RIG_SANITIZE=1` unmaps released stacks. pup P-core 6 against main: spawn, chain, yield, actors, and net level.
+
+**Lessons.**
+- Rerun the guards on every branch head. Rendering every panic report into a 4 KiB Spill made Map text-hit 58% worse. An implementer's claim that main was over the guards was wrong.
+- A spawn gap invisible in Mac instructions was 8 instructions per task on x86, from inlined isolate and set bookkeeping.
+- `pkill -f PATTERN` inside `ssh pup '...'` kills its own command when PATTERN appears in it.
+
+**Before and after over every real .rig file in ~/Data/Code** (1,286 files, `rigs.txt` without worktree copies): identical accept and reject with the pre-revamp Rig. No migration is needed.
+
+**Next.** Round 3 (revamp-runtime/next-round.md): C8 file I/O, C14 one completion primitive, C10 accept's poller, C12, C16. The owner's twelve decisions are in revamp-runtime/owner-decisions.md.
+
 ## RESUME HERE (2026-11-03): patterns, then iterator chains
 
 **Landed on main (cfa9b786f), 2026-11-02 to 03.** Each passed Rig's full suite, `zig build test`, emit-diff (identical for programs not using the new forms), the std.json, hash, and text guards, and Trig's and loco's light gates.
