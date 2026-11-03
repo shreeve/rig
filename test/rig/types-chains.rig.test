@@ -169,8 +169,7 @@ test "trim: the oldest ready entry, by a chain", "2 60 4"
         oldest = ?@entries.items()
           .filter(|e| e.value.state matches .ready)
           .min_by(|e| e.value.touched) ?? break
-        key = +oldest.key
-        entry = !@entries.take(key) ?? break
+        entry = !@entries.take(+oldest.key) ?? break
         @bytes -= entry.bytes
         if <entry.state matches .ready(rendered?)
           !@retired.push(<rendered.image)

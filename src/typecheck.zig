@@ -11268,7 +11268,10 @@ const Checker = struct {
     /// makes a new owner is made only to be read and dropped, so the call
     /// lends the original, `?w`. The clone stays where the same call lends
     /// the original to write or moves it (`g(+p, !p)`): it keeps the views
-    /// apart. `recv` is a method's self parameter, null for a function.
+    /// apart. It stays too where it is made through a view and the call
+    /// writes or moves anything (`!m.take(+v.key)`, `v` a view of `m`):
+    /// the clone ends the view before the write starts (Core §6). `recv`
+    /// is a method's self parameter, null for a function.
     fn wastedClones(self: *Checker, args: []const Sexp, slots: []const ?sema.ArgSlot, f: FunctionType, recv: ?TypeId) Error!void {
         const call = self.current_call orelse return;
         // A task holds its arguments while it runs.
@@ -11284,13 +11287,15 @@ const Checker = struct {
             if (!self.clonesOwner(operand)) continue;
             const root = placeRoot(operand) orelse continue;
             if (self.writesRoot(call, args, i, recv, self.text(root))) continue;
+            if (self.throughView(root) and self.writesRoot(call, args, i, recv, null)) continue;
             try self.errAt(value, "lend `{s}` instead: a clone into a read view is only read, then dropped", .{try self.lentText(operand)});
         }
     }
 
     /// `(+w).total()`, a clone into a method's read self: the method is
     /// called on the original, `w.total()`, unless an argument lends it
-    /// to write or moves it.
+    /// to write or moves it, or, for a clone made through a view, lends
+    /// anything to write or moves it.
     fn wastedCloneSelf(self: *Checker, obj: Sexp, args: []const Sexp) Error!void {
         if (!obj.isKind(.clone)) return;
         const call = self.current_call orelse return;
@@ -11298,7 +11303,11 @@ const Checker = struct {
         const operand = ir.get(obj, .operand);
         if (!self.clonesOwner(operand)) return;
         const root = placeRoot(operand) orelse return;
-        for (args) |a| if (writesName(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, self.text(root))) return;
+        const through = self.throughView(root);
+        for (args) |a| {
+            const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (writesName(self, value, self.text(root)) or (through and writesName(self, value, null))) return;
+        }
         try self.errAt(obj, "call the method on `{s}` instead: a clone into a read self is only read, then dropped", .{self.sourceText(operand)});
     }
 
@@ -11320,11 +11329,18 @@ const Checker = struct {
         return self.ctx.arena.allocator().print("?{s}", .{shown});
     }
 
-    /// Whether call `call` lends the place rooted at `root` to write, or
-    /// moves it, other than in its argument `skip`: through another
-    /// argument, a closure that names it, or a self taken to write or
-    /// consumed.
-    fn writesRoot(self: *Checker, call: Sexp, args: []const Sexp, skip: usize, recv: ?TypeId, root: []const u8) bool {
+    /// Whether a clone rooted at the name `root` is made through a view:
+    /// one the name holds, which may view what the call writes.
+    fn throughView(self: *Checker, root: Sexp) bool {
+        const ty = self.ctx.typeOf(root) orelse return false;
+        return sema.mayHoldView(self.ctx, ty);
+    }
+
+    /// Whether call `call` lends the place rooted at `root` (any place,
+    /// when null) to write, or moves it, other than in its argument
+    /// `skip`: through another argument, a closure that names it, or a
+    /// self taken to write or consumed.
+    fn writesRoot(self: *Checker, call: Sexp, args: []const Sexp, skip: usize, recv: ?TypeId, root: ?[]const u8) bool {
         for (args, 0..) |a, j| {
             if (j == skip) continue;
             if (writesName(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, root)) return true;
@@ -11339,18 +11355,19 @@ const Checker = struct {
             else => true,
         };
         if (!takes) return writesName(self, obj, root);
+        const name = root orelse return true;
         const at = placeRoot(obj) orelse return writesName(self, obj, root);
-        return std.mem.eql(u8, self.text(at), root) or writesName(self, obj, root);
+        return std.mem.eql(u8, self.text(at), name) or writesName(self, obj, root);
     }
 
-    /// Whether `e` lends a place rooted at `root` to write, moves one, or
-    /// holds a closure that names it.
-    fn writesName(self: *Checker, e: Sexp, root: []const u8) bool {
+    /// Whether `e` lends a place rooted at `root` (any place, when null)
+    /// to write, moves one, or holds a closure that names it.
+    fn writesName(self: *Checker, e: Sexp, root: ?[]const u8) bool {
         if (e == .src) return false;
         const h = e.kind() orelse return false;
         switch (h) {
-            .write, .move => if (placeRoot(ir.get(e, .operand))) |at| if (std.mem.eql(u8, self.text(at), root)) return true,
-            .lambda => return namesLeaf(self, e, root),
+            .write, .move => if (placeRoot(ir.get(e, .operand))) |at| if (root == null or std.mem.eql(u8, self.text(at), root.?)) return true,
+            .lambda => return if (root) |name| namesLeaf(self, e, name) else false,
             else => {},
         }
         for (e.items()) |c| if (writesName(self, c, root)) return true;

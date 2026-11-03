@@ -95,10 +95,10 @@ A new session, human or agent, takes these steps in order:
   alternatives in parentheses that bind when they agree, `name?` and
   `none` in a payload, and `x as .p` rejected (`tools/migrate-matches.py`
   rewrites it). A chain is typed stage by stage before its rewrite, and
-  its errors name the stage (#887). In flight: `!@m.take(+best.key)`
-  with `best` viewing `m`, a write receiver lent after its arguments run
-  (#888). Waiting for a program that needs it: a chain's function that
-  can fail (`|x| f(x)!`).
+  its errors name the stage (#887). A clone ends a view before the call
+  writes what it viewed (#888, CORE §6): `!@m.take(+best.key)` where
+  `best` views `m`. Waiting for a program that needs it: a chain's
+  function that can fail (`|x| f(x)!`).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that
