@@ -1,11 +1,10 @@
 # Iterator chains: `map`, `filter`, and a consumer, as one loop
 
-*Approved (2026-10-27); not built.* Chains are built after the
-Swisstable Map and Set lands. This page says how Rig writes Rust's
-`nums.iter().map(|n| n * n).sum()`, gives the reasons and the
-measurements, and ends with the owner's decisions. Its `rig pending`
-examples show the decided rules; each turns into an ordinary example
-as it is built.
+*Built* (approved 2026-10-27; its lowering decided 2026-11-03, below).
+This page says how Rig writes Rust's `nums.iter().map(|n| n * n).sum()`,
+gives the reasons and the measurements, and ends with the owner's
+decisions. SPEC ("Chains") states the rules; this page's examples run
+in the test suite.
 
 ## Today
 
@@ -100,7 +99,7 @@ A chain starts at any `for` source: a List, an array, a slice, a
 `?String`, a range, or an iterator. Its stages are methods written
 directly on the source, with no `.iter()`, and it ends in a consumer.
 
-```rig pending
+```rig
 fun sum_of_squares(nums: []U64) -> U64
   nums.map(|n| n * n).sum()
 
@@ -117,7 +116,7 @@ in order, then the consumer. A stage that drops an item (`filter`) or
 stops the source (`take`, `find`, `any`) calls nothing after it, as
 Rust's lazy adapters do, so a closure's effects happen in that order.
 
-```rig pending
+```rig
 sub main()
   xs = List([3, 8, 1, 9, 4, 7])
   big = xs.filter(|x| x > 3).map(|x| x * 10).take(2).collect()
@@ -149,7 +148,7 @@ sub main()
 
 A stage after `enumerate` or `zip` takes a closure of two parameters:
 
-```rig pending
+```rig
 sub main()
   a = [1, 2, 3]
   b = [4, 5, 6]
@@ -188,7 +187,7 @@ loop's and a closure argument's. Nothing is new:
 A chain bound to a name, passed, or returned is rejected, with the
 three ways to end it:
 
-```rig pending
+```rig reject
 sub main()
   xs = List([1, 2, 3])
   evens = xs.filter(|x| x % 2 == 0)

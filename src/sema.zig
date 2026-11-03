@@ -4588,7 +4588,14 @@ pub const SemContext = struct {
         try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .end = pos, .message = msg, .module = m });
     }
 
-    fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+    fn report(self: *SemContext, severity: diag.Severity, span_at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        // A position past the source's end is a hidden leaf's, reported at
+        // its home (`rig.Parser.span`).
+        var at = span_at;
+        if (at.start >= self.source.len) if (self.parser) |p| {
+            const home = p.span(.{ .src = .{ .pos = at.start, .len = 1, .id = 0 } });
+            at = .{ .start = home.start, .end = @max(home.start, home.end) };
+        };
         const msg = try self.arena.allocator().print(fmt, args);
         if (severity == .@"error") {
             const gop = try self.reported.getOrPut(self.allocator, .{ .pos = at.start, .message = std.hash.Wyhash.hash(0, msg) });

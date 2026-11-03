@@ -1,0 +1,225 @@
+# types: iterator chains, `xs.filter(f).count()`, each rewritten into the
+# loop it means (docs/design/iterators.md).
+
+test "chains over a List", '''
+  4
+  280
+  true true false
+  8
+  2 2
+  68
+  [8, 9, 4, 7]
+'''
+  xs = List[Int]([3, 8, 1, 9, 4, 7])
+  print(xs.filter(|x| x > 3).count())
+  print(xs.map(|x| x * 10).filter(|x| x > 35).sum())
+  print(xs.any(|x| x == 9), xs.all(|x| x > 0), xs.all(|x| x > 3))
+  print(xs.find(|x| x > 5) ?? -1)
+  print(xs.filter(|x| x > 3).take(2).count(), xs.skip(4).count())
+  print(xs.reduce(100, |acc, x| acc - x))
+  print(xs.filter(|x| x > 3).collect())
+
+test "min and max keep the first and the last of equal items, as Rust's do", '''
+  1 9 -1
+  10 42
+  4 1
+'''
+  obj Countdown
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
+
+  xs = List[Int]([3, 8, 1, 9, 4, 9, 1])
+  print(xs.min() ?? -1, xs.max() ?? -1, xs.filter(|x| x > 100).min() ?? -1)
+  # By the last digit, 10 and 30 tie for the smallest, 12 and 42 for the
+  # largest.
+  ys = List[Int]([10, 31, 30, 12, 42])
+  print(ys.min_by(|y| y % 10) ?? -1, ys.max_by(|y| y % 10) ?? -1)
+  # 5, 4, 3, 2, 1, 0 by parity: the first even, the last odd.
+  print(Countdown(n: 6).min_by(|x| x % 2) ?? -1, Countdown(n: 6).max_by(|x| x % 2) ?? -1)
+
+test "min_by over owned elements keeps the first of equal keys", "bo"
+  obj P
+    name: String
+    age: Int
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 30))
+  !ps.push(P(name: String("bo"), age: 20))
+  !ps.push(P(name: String("cy"), age: 20))
+  y = ps.min_by(|p| p.age) ?? return
+  print(y.name)
+
+test "max_by over owned elements keeps the last of equal keys", "cy"
+  obj P
+    name: String
+    age: Int
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 10))
+  !ps.push(P(name: String("bo"), age: 20))
+  !ps.push(P(name: String("cy"), age: 20))
+  y = ps.max_by(|p| p.age) ?? return
+  print(y.name)
+
+test "chains over ranges", "18 5 [4, 9, 16, 25]"
+  print((1..10).filter(|i| i % 3 == 0).sum(), (0..=4).count(), (2..6).map(|i| i * i).collect())
+
+test "chains over iterators", '''
+  3
+  30 0
+  3 3 1
+  a
+  c
+  [9, 8, 7] 7
+'''
+  obj Countdown
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
+
+  print(Countdown(n: 5).filter(|x| x % 2 == 0).count())
+  c = Countdown(n: 6)
+  print((!c).map(|x| x * 2).sum(), c.n)
+  m = Map[String, Int]()
+  !m.put(String("a"), 3)
+  !m.put(String("b"), 1)
+  !m.put(String("c"), 2)
+  print(?m.keys().count(), ?m.values().max() ?? -1, ?m.values().min() ?? -1)
+  for k in ?m.keys().filter(|k| k != "b")
+    print(k)
+  # `take` stops before the item it does not need.
+  t = Countdown(n: 10)
+  print((!t).take(3).collect(), t.n)
+
+test "zip and enumerate pass two values", '''
+  32
+  [4, 8]
+  1 1
+  2 0
+  1
+'''
+  obj Countdown
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
+
+  a = [1, 2, 3]
+  b = List[Int]([4, 5, 6, 7])
+  print(a.zip(b).map(|x, y| x * y).sum())
+  print(b.enumerate().filter(|x, i| i % 2 == 0).map(|x, i| x + i).collect())
+  for x, y in a.zip(Countdown(n: 2))
+    print(x, y)
+  names = List[String]()
+  !names.push(String("ann"))
+  !names.push(String("bo"))
+  print(a.zip(names).filter(|x, n| n.len > 2).count())
+
+test "a chain inside a chain's function", "2"
+  xss = List[List[Int]]()
+  !xss.push(List[Int]([1, 5]))
+  !xss.push(List[Int]([2]))
+  !xss.push(List[Int]([7, 8]))
+  print(xss.filter(|xs| xs.any(|x| x > 4)).count())
+
+test "trim: the oldest ready entry, by a chain", "2 60 4"
+  obj Image
+    id: Int
+    name: String
+
+  obj Rendered
+    image: Image
+
+  enum State
+    loading
+    ready(rendered: Rendered?)
+
+  obj Entry
+    state: State
+    touched: Int
+    bytes: Int
+
+  obj Cache
+    entries: Map[String, Entry]
+    bytes: Int
+    retired: List[Image]
+
+    sub trim(!@)
+      while @entries.len > 2 or @bytes > 100
+        oldest = ?@entries.items()
+          .filter(|e| e.value.state matches .ready)
+          .min_by(|e| e.value.touched) ?? break
+        key = +oldest.key
+        entry = !@entries.take(key) ?? break
+        @bytes -= entry.bytes
+        if <entry.state matches .ready(rendered?)
+          !@retired.push(<rendered.image)
+
+  c = Cache(entries: Map[String, Entry](), bytes: 0, retired: List[Image]())
+  names = ["a", "b", "c", "d", "e", "f"]
+  for n, i in names
+    !c.entries.put(String(n), Entry(state: State.ready(rendered: Rendered(image: Image(id: i, name: String(n)))), touched: 10 - i, bytes: 30))
+    c.bytes += 30
+  (!c).trim()
+  print(c.entries.len, c.bytes, c.retired.len)
+
+code "a chain is the loop it means: one key call per item, no allocation", '''
+  if (@"chain next" < @"chain value") {
+'''
+  obj Entry
+    ready: Bool
+    touched: Int
+
+  fun oldest(m: ?Map[String, Entry]) -> Int
+    e = m.items().filter(|e| e.value.ready).min_by(|e| e.value.touched) ?? return -1
+    e.value.touched
+
+  print(oldest(?Map[String, Entry]()))
+
+fail "a chain is not a value", "2:9: a chain is not a value: end it with a consumer (`.count()`, `.collect()`), or make it a `for` loop's source"
+  xs = List[Int]([1, 2, 3])
+  evens = xs.filter(|x| x % 2 == 0)
+  print(evens)
+
+fail "a chain advances an iterator in a place only when lent to write", "a chain advances the iterator `c`: lend it to write, `(!c).map(...)`"
+  obj Countdown
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
+
+  c = Countdown(n: 3)
+  print(c.map(|x| x * 2).sum())
+
+fail "a stage takes what it names", "`take` in a chain takes a count"
+  xs = List[Int]([1, 2, 3])
+  print(xs.take().count())
+
+fail "a chain's function cannot fail", "a chain's function cannot fail: handle the failure inside it with `catch`, or write the loop"
+  error Bad
+    odd(n: Int)
+
+  fun half(n: Int) -> Int!Bad
+    return Bad.odd(n: n) if n % 2 == 1
+    n / 2
+
+  fun total(xs: ?List[Int]) -> Int!Bad
+    xs.map(|x| half(x)!).sum()!
+
+  sub main()
+    print(total(List[Int]([2, 4])) catch -1)
+
+fail "a chain takes one zip", "a chain takes one `zip`"
+  a = [1, 2]
+  print(a.zip(a).zip(a).count())

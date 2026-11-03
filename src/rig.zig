@@ -5048,17 +5048,10 @@ pub const Parser = struct {
             const id = slot.list.id;
             for (chains) |c| if (c.node == id) {
                 slot.* = try self.lowerIterChain(slot.*, c);
-                if (chain_debug) { // DBG
-                    var buf: std.Io.Writer.Allocating = .init(self.allocator());
-                    writeTree(slot.*, self.base.source, &buf.writer) catch {};
-                    std.debug.print("CHAIN {s}\n", .{buf.written()});
-                }
                 break;
             };
         }
     }
-
-    const chain_debug = false; // DBG
 
     const ChainStep = struct { name: []const u8, args: []const Sexp, at: u32 };
 
