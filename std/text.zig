@@ -16,7 +16,9 @@ pub fn find(s: []const u8, pat: []const u8) ?i64 {
 }
 
 pub fn find_last(s: []const u8, pat: []const u8) ?i64 {
-    return @intCast(std.mem.findLast(u8, s, pat) orelse return null);
+    if (pat.len == 0) return @intCast(s.len);
+    const at = if (pat.len == 1) searchLast(s, pat, true) else searchLast(s, pat, false);
+    return @intCast(found(at) orelse return null);
 }
 
 pub fn count(s: []const u8, pat: []const u8) i64 {
@@ -264,6 +266,69 @@ inline fn short(h: []const u8, n: []const u8) ?usize {
     c.bits >>= @intCast((16 - h.len) << c.shift);
     c.bits &= (@as(u64, 1) << @intCast((places - 8) << c.shift)) - 1;
     return confirm(h, n, 8, c);
+}
+
+// ---- Searching from the end ---------------------------------------------
+//
+// `searchLast(h, n)` is the last index of `n` in `h`, the search above
+// run backward: the places a match may start at are tested from the
+// last one, 64 at a step and then 16, a place a candidate where the
+// needle's first and last bytes match (where its one byte does), and a
+// block's candidates confirmed from the highest. Fewer than 16 places
+// left at the start are the first 16 places again, without those
+// tested. Fewer than 16 places in all are walked one at a time.
+
+noinline fn searchLast(h: []const u8, n: []const u8, comptime one: bool) usize {
+    if (n.len > h.len) return missing;
+    const places = h.len - n.len + 1;
+    if (places < 16) {
+        var i = places;
+        while (i > 0) {
+            i -= 1;
+            if (h[i] == n[0] and same(h[i..][0..n.len], n)) return i;
+        }
+        return missing;
+    }
+    const p = pairAt(n, 0, n.len - 1);
+    var i = places;
+    while (i >= 64) {
+        i -= 64;
+        const c0 = hits(h, i, p, one);
+        const c1 = hits(h, i + 16, p, one);
+        const c2 = hits(h, i + 32, p, one);
+        const c3 = hits(h, i + 48, p, one);
+        if (rig.maskAny((c0 | c1) | (c2 | c3))) {
+            inline for (.{ c3, c2, c1, c0 }, .{ 48, 32, 16, 0 }) |c, j| {
+                if (confirmLast(h, n, i + j, rig.maskTrueLanes(Lanes, c))) |at| return at;
+            }
+        }
+    }
+    while (i >= 16) {
+        i -= 16;
+        if (confirmLast(h, n, i, rig.maskTrueLanes(Lanes, hits(h, i, p, one)))) |at| return at;
+    }
+    if (i == 0) return missing;
+    var c = rig.maskTrueLanes(Lanes, hits(h, 0, p, one));
+    c.bits &= (@as(u64, 1) << @intCast(i << c.shift)) - 1;
+    return confirmLast(h, n, 0, c) orelse missing;
+}
+
+/// The places `i` to `i + 15` where the pair matches; for a needle of
+/// one byte, where it does.
+inline fn hits(h: []const u8, i: usize, p: Pair, comptime one: bool) @Vector(16, bool) {
+    return if (one) load(h, i) == p.x else candidates(h, i, p);
+}
+
+/// The last of the candidates `c`, places from `i`, where the whole
+/// needle matches.
+inline fn confirmLast(h: []const u8, n: []const u8, i: usize, c: Lanes) ?usize {
+    var bits = c.bits;
+    while (bits != 0) {
+        const lane = @as(usize, 63 - @clz(bits)) >> c.shift;
+        if (same(h[i + lane ..][0..n.len], n)) return i + lane;
+        bits &= (@as(u64, 1) << @intCast(lane << c.shift)) - 1;
+    }
+    return null;
 }
 
 /// Whether `a` and `b`, of one length, hold the same bytes: words of 8

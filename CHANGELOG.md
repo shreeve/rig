@@ -265,6 +265,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`text.find_last` searches 16 bytes at a time,** as `find` does. It
+  was Zig's `std.mem.findLast`, a byte at a time for needles of up to 4
+  bytes: a needle of 1 to 4 bytes at the start of a 64 KiB text is now
+  found 45 to 100 times faster, and a longer one 3 to 8 times.
 - **`text.Interner`'s table is at most half full.** It was rebuilt only
   past four fifths, where a miss probes about 13 slots; it now doubles
   at half, so it is a quarter to half full (it was a fifth to four
