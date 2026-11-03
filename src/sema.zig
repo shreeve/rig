@@ -1761,6 +1761,11 @@ test "suggest: a typo finds its name" {
 // Facts
 // =============================================================================
 
+/// What a variant pattern tests of a payload field beyond its variant
+/// (`SemContext.payloadTests`): nothing, that the optional holds a value
+/// (`r?`, which binds it), or that it holds none (`none`).
+pub const PayloadTest = enum(u8) { any, some, none };
+
 /// Identity of an IR list node: its node id.
 pub const NodeKey = parser.NodeId;
 
@@ -2007,6 +2012,7 @@ pub const Facts = struct {
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: FastMap(NodeKey, []const Sexp) = .empty,
+    payload_tests: FastMap(NodeKey, []const PayloadTest) = .empty,
     /// `break` and `continue` nodes -> where each goes (`JumpDest`),
     /// which the type checker resolves (`SemContext.jumpDestOf`).
     jump_dests: FastMap(NodeKey, JumpDest) = .empty,
@@ -3236,6 +3242,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         },
         // A field a pattern leaves out shows as `-`.
         []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
+        []const PayloadTest => for (v) |t| try w.print(" {s}", .{@tagName(t)}),
         []const SetMember => for (v) |m| try w.print(" {s}.{s}", .{ try formatTypeIn(ctx, a, m.set), m.name }),
         MemberCompares => {
             if (v.eq) try w.writeAll(" eq");
@@ -5692,6 +5699,39 @@ pub const SemContext = struct {
     /// a field a pattern that binds by name leaves out.
     pub fn recordPayloadBindings(self: *SemContext, pattern: Sexp, binds: []const Sexp) !void {
         try self.facts.payload_binds.put(self.allocator, recordKey(pattern), binds);
+    }
+
+    /// The payload bindings of an arm's pattern, in field order: a
+    /// variant's (`payloadBindings`), or for alternatives, those of the
+    /// first that binds a name: every alternative binds the same names,
+    /// each one symbol (`resolve.bindPattern`). Empty when none binds.
+    pub fn armPayloadBindings(self: *const SemContext, pattern: Sexp) []const Sexp {
+        if (pattern.isKind(.variant_pattern)) return self.payloadBindings(pattern) orelse &.{};
+        if (!pattern.isKind(.alt_pattern)) return &.{};
+        for (ir.AltPattern.alts(pattern)) |alt| {
+            if (!alt.isKind(.variant_pattern)) continue;
+            const binds = self.payloadBindings(alt) orelse continue;
+            for (binds) |b| if (b == .src and self.symbolOf(b) != null) return binds;
+        }
+        return &.{};
+    }
+
+    /// Whether alternatives `pattern` bind names (`armPayloadBindings`).
+    pub fn altsBind(self: *const SemContext, pattern: Sexp) bool {
+        return pattern.isKind(.alt_pattern) and self.armPayloadBindings(pattern).len > 0;
+    }
+
+    /// What a variant pattern tests of each payload field, in field
+    /// order, where it tests one: `r?` that the optional holds a value
+    /// (and binds it), `none` that it holds none.
+    pub fn recordPayloadTests(self: *SemContext, pattern: Sexp, tests: []const PayloadTest) !void {
+        try self.facts.payload_tests.put(self.allocator, recordKey(pattern), tests);
+    }
+
+    /// The test of each payload field of the variant `pattern`
+    /// (`recordPayloadTests`); null for a pattern that tests none.
+    pub fn payloadTests(self: *const SemContext, pattern: Sexp) ?[]const PayloadTest {
+        return self.facts.payload_tests.get(nodeKey(pattern) orelse return null);
     }
 
     /// The binding of each payload field of the variant `pattern` matches,
@@ -13747,7 +13787,10 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
 /// name of `(kwarg field name)`, a field bound by name. Which field each
 /// binds is `SemContext.payloadBindings`.
 pub fn bindingName(b: Sexp) Sexp {
-    return if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b;
+    const v = if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b;
+    if (v.isKind(.some_pattern)) return ir.SomePattern.name(v);
+    if (v.isKind(.none_pattern)) return .nil;
+    return v;
 }
 
 /// The member `name` of `object`, as Rig writes it: `object.name`, or
@@ -14864,7 +14907,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
-        .arm, .alt_pattern, .range_pattern, .variant_pattern, .set_pattern => .none,
+        .arm, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
         // `>t`, `f: once T`, `a..=b`, and `(e)`'s `paren`, which the Parser
         // wrapper rewrites or drops first.
         .wait, .once, .@"..=", .paren => .none,

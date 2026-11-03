@@ -172,7 +172,7 @@ pub fn bindsInCondition(cond: Sexp) bool {
 }
 
 /// A part of a condition that binds: `a as x`, `f() as a, b`, which
-/// binds a call's several results (`as_results`), or `s as .circle(r)`,
+/// binds a call's several results (`as_results`), or `s matches .circle(r)`,
 /// which binds a variant's fields (`as_match`).
 pub fn isAsPart(e: Sexp) bool {
     return e.isKind(.as) or e.isKind(.as_results) or e.isKind(.as_match);
@@ -300,7 +300,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
         // whose `paren` is dropped: each before any pass reads a statement.
@@ -412,7 +412,7 @@ fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
 }
 
 /// The guard parts of a condition (`eachGuardPart`), each `and` operand
-/// of a part that binds nothing its own unit. A part `s as .circle(r)`
+/// of a part that binds nothing its own unit. A part `s matches .circle(r)`
 /// is the selection of the `match` it is (`asMatchOf`).
 fn unitsOfCond(cond: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
     const Parts = struct {
@@ -863,6 +863,8 @@ pub const Lexer = struct {
 
     /// Category of the last token returned.
     last_cat: TokenCat = .eof,
+    /// Where the last token starts.
+    last_pos: u32 = 0,
     /// The last token ends an operand (`isValue`, or a `?` / `!` suffix
     /// after one), so a character after it continues the operand.
     after_value: bool = false,
@@ -1014,6 +1016,8 @@ pub const Lexer = struct {
         two_markers,
         repeated_marker,
         marker_before_pub,
+        matches_paren,
+        matches_list,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -1054,6 +1058,8 @@ pub const Lexer = struct {
                 .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun` or `pub called fun`",
                 .repeated_marker => "a function's marker is written once",
                 .two_markers => "a function takes one marker: `inline` (inline it at every call) or `called` (keep every call a call), which contradict each other",
+                .matches_paren => "write `matches (`: alternatives follow `matches` after a space",
+                .matches_list => "put alternatives in parentheses: `matches (.a, .b)`",
             };
         }
     };
@@ -1073,6 +1079,7 @@ pub const Lexer = struct {
         self.after_value = !self.label_name and !self.after_jump_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
         self.last2_cat = self.last_cat;
         self.last_cat = tok.cat;
+        self.last_pos = tok.pos;
         switch (tok.cat) {
             .newline, .indent, .outdent => {
                 self.line_opens = false;
@@ -1375,7 +1382,10 @@ pub const Lexer = struct {
         const after_value = self.after_value;
         var out = tok;
         out.cat = switch (tok.cat) {
-            .ident => if (self.misplacedMarker(tok)) |bad| return self.fail(bad.err, bad.pos) else self.classifyWord(tok),
+            .ident => if (self.misplacedMarker(tok)) |bad| return self.fail(bad.err, bad.pos) else if (self.isMatches(tok)) blk: {
+                if (self.misplacedMatches(tok)) |bad| return self.fail(bad.err, bad.pos);
+                break :blk .matches;
+            } else self.classifyWord(tok),
             // An API object's braces join lines as brackets do.
             .lparen, .lbracket, .lbrace => blk: {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
@@ -1590,6 +1600,46 @@ pub const Lexer = struct {
 
     fn isMarker(word: []const u8) bool {
         return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "called");
+    }
+
+    /// `matches` after a value tests it against a pattern (`x matches
+    /// .ready(r)`); anywhere else it is a name. After `from` and `keeps`,
+    /// which the parser reads as words, a name stands.
+    fn isMatches(self: *const Lexer, tok: Token) bool {
+        if (!self.after_value or !std.mem.eql(u8, self.base.text(tok), "matches")) return false;
+        if (self.last_cat != .ident) return true;
+        const src = self.base.source;
+        var end = self.last_pos;
+        while (end < src.len and (std.ascii.isAlphanumeric(src[end]) or src[end] == '_')) end += 1;
+        const last = src[self.last_pos..end];
+        for ([_][]const u8{ "from", "keeps", "static", "once", "unique" }) |w| if (std.mem.eql(u8, last, w)) return false;
+        return true;
+    }
+
+    /// Alternatives after `matches` are a list in parentheses after a
+    /// space: `matches(` is never a call, and a pattern followed by `,`
+    /// outside brackets, or by `, .name` inside them, is a list missing
+    /// its parentheses (`x matches .a, .b`).
+    fn misplacedMatches(self: *const Lexer, tok: Token) ?struct { err: LexError, pos: u32 } {
+        var probe = self.base;
+        var t = probe.next();
+        if (t.cat == .lparen) return if (t.pos == endOf(&self.base, tok)) .{ .err = .matches_paren, .pos = tok.pos } else null;
+        var depth: u32 = 0;
+        while (t.cat != .eof) : (t = probe.next()) switch (t.cat) {
+            .lparen => depth += 1,
+            .rparen => {
+                if (depth == 0) return null;
+                depth -= 1;
+            },
+            .comma => {
+                if (depth > 0) continue;
+                if (self.nesting == 0 or probe.next().cat == .dot) return .{ .err = .matches_list, .pos = t.pos };
+                return null;
+            },
+            .dot, .ident, .integer, .string_sq, .string_dq, .minus, .dotdot, .dotdot_eq, .question, .true, .false, .colon => {},
+            else => if (depth == 0) return null,
+        };
+        return null;
     }
 
     /// `of` after a value directly inside [ ] separates a fill literal's
@@ -2082,6 +2132,10 @@ const HiddenName = enum(u16) {
     /// which a module that names one uses
     /// (`Parser.builtinRefs`).
     builtin_module = 5,
+    /// The values of a `matches` that holds in a Bool position: the arms
+    /// of the `match` it is (`Parser.boolMatch`).
+    true_value = 6,
+    false_value = 7,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2091,9 +2145,75 @@ const HiddenName = enum(u16) {
             .u8 => "U8",
             .wait => "wait",
             .builtin_module => builtin_binding_name,
+            .true_value => "true",
+            .false_value => "false",
         };
     }
 };
+
+/// Whether a pattern tests an optional payload field, `r?` or `none`,
+/// in any alternative: its arm may not run for the values of its
+/// variant, as a guarded arm may not.
+pub fn patternTests(pattern: Sexp) bool {
+    if (pattern.isKind(.alt_pattern)) {
+        for (ir.AltPattern.alts(pattern)) |alt| if (patternTests(alt)) return true;
+        return false;
+    }
+    if (!pattern.isKind(.variant_pattern)) return false;
+    for (ir.VariantPattern.bindings(pattern)) |b| {
+        const v = if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b;
+        if (v.isKind(.some_pattern) or v.isKind(.none_pattern)) return true;
+    }
+    return false;
+}
+
+/// Whether a pattern after `matches` binds a name: a payload field it
+/// names (`.ready(r)`, `.ready(r?)`), in any alternative.
+pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
+    var count: CountBinds = .{};
+    eachPatternBinding(source, pattern, &count);
+    return count.n > 0;
+}
+
+const CountBinds = struct {
+    n: usize = 0,
+    fn bind(self: *CountBinds, _: Sexp) void {
+        self.n += 1;
+    }
+};
+
+/// Call `v.bind(leaf)` for each name leaf a pattern binds, `_` aside:
+/// its payload fields', in every alternative.
+pub fn eachPatternBinding(source: []const u8, pattern: Sexp, v: anytype) void {
+    if (pattern.isKind(.alt_pattern)) {
+        for (ir.AltPattern.alts(pattern)) |alt| eachPatternBinding(source, alt, v);
+        return;
+    }
+    if (!pattern.isKind(.variant_pattern)) return;
+    for (ir.VariantPattern.bindings(pattern)) |b| {
+        var leaf = if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b;
+        if (leaf.isKind(.some_pattern)) leaf = ir.SomePattern.name(leaf);
+        if (leaf != .src) continue;
+        if (std.mem.eql(u8, leafText(source, leaf.src), "_")) continue;
+        v.bind(leaf);
+    }
+}
+
+fn bindingLeaves(source: []const u8, pattern: Sexp, out: *std.ArrayList(Sexp), a: std.mem.Allocator) !void {
+    const Collect = struct {
+        out: *std.ArrayList(Sexp),
+        a: std.mem.Allocator,
+        failed: bool = false,
+        fn bind(self: *@This(), leaf: Sexp) void {
+            self.out.append(self.a, leaf) catch {
+                self.failed = true;
+            };
+        }
+    };
+    var c: Collect = .{ .out = out, .a = a };
+    eachPatternBinding(source, pattern, &c);
+    if (c.failed) return error.OutOfMemory;
+}
 
 /// Whether `node` is a wait, `>t`: the call the wrapper builds for it,
 /// whose method is the hidden `wait` (`Parser.waitCall`).
@@ -2699,10 +2819,10 @@ pub const Parser = struct {
             },
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
-            // After `s as .circle(r)`: no guard in the pattern, and one
-            // pattern (docs/design/as-patterns.md, rules 2 and 1).
-            .post_if => if (afterAsPattern(src, pos)) "a pattern after `as` takes no `if` guard: join the condition with `and`, `if s as .circle(r) and r > 10`" else "a postfix `if` guard must end a statement; write `a if c else b` for a value",
-            .comma => if (afterAsPattern(src, pos)) "after `as`, a pattern tests one variant; to test several, write a `match`" else self.format("unexpected `{s}`", .{src[pos..end]}),
+            // After `s matches .circle(r)`: no guard in the pattern, and
+            // alternatives in parentheses (docs/design/matches.md, "Rules").
+            .post_if => if (afterMatchesPattern(src, pos)) "a pattern after `matches` takes no `if` guard: join the condition with `and`, `if s matches .circle(r) and r > 10`" else "a postfix `if` guard must end a statement; write `a if c else b` for a value",
+            .comma => if (afterMatchesPattern(src, pos)) "put alternatives in parentheses: `matches (.a, .b)`" else self.format("unexpected `{s}`", .{src[pos..end]}),
             .ident => self.format("unexpected name `{s}`", .{src[pos..end]}),
             else => if (keyword(src[pos..end]) != null)
                 self.format("unexpected keyword `{s}`", .{src[pos..end]})
@@ -2960,8 +3080,8 @@ pub const Parser = struct {
     }
 
     /// Whether the source just before `pos`, on its line, is a pattern
-    /// after `as`: `as .name` or `as .name(...)`.
-    fn afterAsPattern(src: []const u8, pos: u32) bool {
+    /// after `matches`: `matches .name` or `matches .name(...)`.
+    fn afterMatchesPattern(src: []const u8, pos: u32) bool {
         var at: usize = pos;
         while (at > 0 and src[at - 1] == ' ') at -= 1;
         if (at > 0 and src[at - 1] == ')') {
@@ -2983,7 +3103,7 @@ pub const Parser = struct {
         while (at > 0 and isIdentCont(src[at - 1])) at -= 1;
         if (at == name_end or at == 0 or src[at - 1] != '.') return false;
         at -= 1;
-        return precededBy(src, @intCast(at), "as");
+        return precededBy(src, @intCast(at), "matches");
     }
 
     /// Compile-time parameters and arguments written where Rig does not
@@ -3269,6 +3389,7 @@ pub const Parser = struct {
         dropParens(sexp.kind(), walked);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
+        try self.lowerMatches(out.kind(), walked);
         switch (out.kind() orelse return out) {
             .module => {
                 stripParens(out);
@@ -3292,12 +3413,28 @@ pub const Parser = struct {
             },
             .block => for (walked[1..]) |*stmt| try self.dropStatement(stmt),
             .@"defer", .@"errdefer" => try self.dropStatement(&walked[ir.slot(.@"defer", .body)]),
-            .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
             .@"??" => return self.nearestFallback(try self.rightNested(out)),
             .destructure => try self.destructureTargets(walked),
             .as_results => try self.resultNames(walked),
-            .as_pattern => return self.asMatch(out),
+            .as_pattern => {
+                const src = self.base.source;
+                const value = self.span(ir.AsPattern.value(out));
+                const pattern = self.span(ir.AsPattern.pattern(out));
+                self.reject(out, self.format("write `{s} matches {s}`: `as` names a value, and `matches` tests a pattern", .{ src[value.start..value.end], src[pattern.start..pattern.end] }));
+                return out;
+            },
+            .matches => self.checkMatches(out),
+            .variant_pattern => try self.pbindNone(walked),
+            .arm => {
+                if (ir.Arm.pattern(out).isKind(.paren_alts)) {
+                    const alts = ir.rest(ir.Arm.pattern(out), .alts);
+                    const first = self.span(alts[0]);
+                    const last = self.span(alts[alts.len - 1]);
+                    self.reject(ir.Arm.pattern(out), self.format("write `{s} =>`: an arm lists its alternatives without parentheses", .{self.base.source[first.start..last.end]}));
+                }
+                try self.dropStatement(&walked[ir.slot(.arm, .body)]);
+            },
             .read, .write, .move => return self.receiverSigil(out),
             .wait => {
                 self.touchesOperand(out);
@@ -3729,21 +3866,184 @@ pub const Parser = struct {
         walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
     }
 
-    /// `s as .circle(r)`: the `match` it is, `(as_match (match s (arm
+    /// `s matches .circle(r)` in a condition: the `match` it is, `(as_match (match s (arm
     /// .circle(r) _ pass) (arm _ _ pass)))`. Its first arm goes on with
     /// the rest of the condition and the body; any other value takes the
-    /// second, which falls to the `else` (docs/design/as-patterns.md). Every pass
+    /// second, which falls to the `else` (docs/design/matches.md). Every pass
     /// reads its subject and its pattern as a `match`'s, and emit writes
     /// the `match`, which drops a value `<s` took when no arm keeps it.
     fn asMatch(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const at = self.span(node);
-        const pattern = ir.AsPattern.pattern(node);
+        const pattern = ir.get(node, .pattern);
         const pat_at = self.span(pattern);
         const pass = try self.base.newNode(.pass, &.{}, pat_at);
         const arm = try self.base.newNode(.arm, &.{ pattern, .nil, pass }, pat_at);
         const other = try self.base.newNode(.arm, &.{ hiddenLeaf(pat_at.start, .discard), .nil, try self.base.newNode(.pass, &.{}, pat_at) }, pat_at);
-        const match = try self.base.newNode(.match, &.{ ir.AsPattern.value(node), arm, other }, at);
+        const match = try self.base.newNode(.match, &.{ ir.get(node, .value), arm, other }, at);
         return self.base.newNode(.as_match, &.{match}, at);
+    }
+
+    /// Lowers each `matches` among the children `walked` of a node of
+    /// `kind` just walked: in the condition of an `if` or `while`, a
+    /// `matches` that binds is the one-arm `match` `as_match` is, whose
+    /// names the rest of the condition and the body see
+    /// (`lowerCondition`); anywhere else it is a `Bool`, and names it
+    /// binds flow right through `and` (`lowerValue`). An `and` or a
+    /// parenthesis leaves its `matches` to the node around it, which
+    /// knows where it stands.
+    fn lowerMatches(self: *Parser, kind: ?parser.Tag, walked: []Sexp) std.mem.Allocator.Error!void {
+        if (kind == .@"and" or kind == .paren) return;
+        for (walked, 0..) |*child, i| {
+            if (!pendingMatches(child.*)) continue;
+            const cond = (kind == .@"if" and i == ir.slot(.@"if", .cond)) or (kind == .@"while" and i == ir.slot(.@"while", .cond));
+            child.* = if (cond) try self.lowerCondition(child.*) else try self.lowerValue(child.*);
+        }
+    }
+
+    /// Whether `e` is a `matches` not yet lowered, or an `and` or a
+    /// parenthesis with one on its spine.
+    fn pendingMatches(e: Sexp) bool {
+        if (e.isKind(.matches)) return true;
+        if (e.isKind(.paren)) return pendingMatches(ir.Paren.value(e));
+        if (e.isKind(.@"and")) return pendingMatches(ir.get(e, .left)) or pendingMatches(ir.get(e, .right));
+        return false;
+    }
+
+    /// A condition's `matches`, each part its `and`s join: one that binds
+    /// is `as_match`, and one that does not, a `Bool`.
+    fn lowerCondition(self: *Parser, e: Sexp) std.mem.Allocator.Error!Sexp {
+        if (e.isKind(.@"and")) {
+            const items = @constCast(e.items());
+            items[ir.slot(.@"and", .left)] = try self.lowerCondition(items[ir.slot(.@"and", .left)]);
+            items[ir.slot(.@"and", .right)] = try self.lowerCondition(items[ir.slot(.@"and", .right)]);
+            return e;
+        }
+        if (e.isKind(.matches) and patternBinds(self.base.source, ir.get(e, .pattern))) return self.asMatch(e);
+        return self.lowerValue(e);
+    }
+
+    /// A `matches` where a `Bool` goes: `x matches P` is `match x` with
+    /// `P => true` and `_ => false`. A chain of `and` whose part binds
+    /// names is that match with the rest of the chain for `P`'s value,
+    /// so the names flow right: `x matches .ready(s) and s > 0`.
+    fn lowerValue(self: *Parser, e: Sexp) std.mem.Allocator.Error!Sexp {
+        if (e.isKind(.paren)) {
+            const items = @constCast(e.items());
+            items[ir.slot(.paren, .value)] = try self.lowerValue(items[ir.slot(.paren, .value)]);
+            return e;
+        }
+        if (!e.isKind(.@"and")) {
+            if (!e.isKind(.matches)) return e;
+            if (patternBinds(self.base.source, ir.get(e, .pattern))) self.unreadBinding(e);
+            return self.boolMatch(e, null);
+        }
+        var parts: std.ArrayList(Sexp) = .empty;
+        try self.andParts(e, &parts);
+        return self.lowerChain(parts.items);
+    }
+
+    /// The parts of the chain of `and` `e`, left to right.
+    fn andParts(self: *Parser, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+        if (e.isKind(.@"and")) {
+            try self.andParts(ir.get(e, .left), out);
+            try self.andParts(ir.get(e, .right), out);
+            return;
+        }
+        try out.append(self.allocator(), e);
+    }
+
+    fn lowerChain(self: *Parser, parts: []const Sexp) std.mem.Allocator.Error!Sexp {
+        var i: usize = 0;
+        var left: Sexp = .nil;
+        while (i < parts.len) : (i += 1) {
+            const p = parts[i];
+            const part = if (p.isKind(.matches) and patternBinds(self.base.source, ir.get(p, .pattern))) blk: {
+                if (i + 1 == parts.len) self.unreadBinding(p);
+                const rest = if (i + 1 == parts.len) null else try self.lowerChain(parts[i + 1 ..]);
+                i = parts.len;
+                break :blk try self.boolMatch(p, rest);
+            } else try self.lowerValue(p);
+            left = if (left == .nil) part else try self.base.newNode(.@"and", &.{ left, part }, .{ .start = self.span(left).start, .end = self.span(part).end });
+        }
+        return left;
+    }
+
+    /// `x matches P` as `match x` with `P => then` (`true` when null) and
+    /// `_ => false`; the hidden leaves stand inside the `matches` keyword,
+    /// where no other leaf does.
+    fn boolMatch(self: *Parser, node: Sexp, then: ?Sexp) std.mem.Allocator.Error!Sexp {
+        const at = self.span(node);
+        const kw = self.matchesKeyword(node);
+        const pattern = ir.get(node, .pattern);
+        const pat_at = self.span(pattern);
+        const yes = then orelse hiddenLeaf(kw + 1, .true_value);
+        const arm = try self.base.newNode(.arm, &.{ pattern, .nil, yes }, pat_at);
+        const other = try self.base.newNode(.arm, &.{ hiddenLeaf(kw, .discard), .nil, hiddenLeaf(kw + 2, .false_value) }, pat_at);
+        return self.base.newNode(.match, &.{ ir.get(node, .value), arm, other }, at);
+    }
+
+    /// Where the `matches` keyword of `node` starts: after its value.
+    fn matchesKeyword(self: *Parser, node: Sexp) u32 {
+        const src = self.base.source;
+        const from = self.span(ir.get(node, .value)).end;
+        return @intCast(std.mem.indexOfPos(u8, src, from, "matches") orelse from);
+    }
+
+    /// A `matches` whose names nothing can read: one in a `Bool` position
+    /// that no `and` follows. Its pattern, with `_` for each name, is the
+    /// test it means.
+    fn unreadBinding(self: *Parser, node: Sexp) void {
+        const src = self.base.source;
+        const pattern = ir.get(node, .pattern);
+        const at = self.span(pattern);
+        var out: std.ArrayList(u8) = .empty;
+        var first: []const u8 = "";
+        var pos = at.start;
+        var names: std.ArrayList(Sexp) = .empty;
+        bindingLeaves(src, pattern, &names, self.allocator()) catch return;
+        for (names.items) |n| {
+            const s = self.span(n);
+            if (first.len == 0) first = src[s.start..s.end];
+            out.appendSlice(self.allocator(), src[pos..s.start]) catch return;
+            out.append(self.allocator(), '_') catch return;
+            pos = s.end;
+        }
+        out.appendSlice(self.allocator(), src[pos..at.end]) catch return;
+        self.reject(node, self.format("`{s}` is bound but never read; write `{s}`", .{ first, out.items }));
+    }
+
+    /// The rules of a `matches` as written: a list holds two or more
+    /// alternatives, and no alternative matches every value.
+    fn checkMatches(self: *Parser, node: Sexp) void {
+        const src = self.base.source;
+        const pattern = ir.get(node, .pattern);
+        const value = self.span(ir.get(node, .value));
+        const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
+        if (pattern.isKind(.alt_pattern) and alts.len == 1) {
+            const one = self.span(alts[0]);
+            return self.reject(pattern, self.format("write `{s} matches {s}`: a list holds two or more alternatives", .{ src[value.start..value.end], src[one.start..one.end] }));
+        }
+        for (alts) |alt| if (alt == .src and isNameLeaf(src, alt)) {
+            const t = leafText(src, alt.src);
+            return self.reject(alt, self.format("`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value", .{t}));
+        };
+    }
+
+    fn isNameLeaf(src: []const u8, leaf: Sexp) bool {
+        const t = leafText(src, leaf.src);
+        if (t.len == 0 or !(std.ascii.isAlphabetic(t[0]) or t[0] == '_')) return false;
+        return !(std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false"));
+    }
+
+    /// `.ready(none)`: a payload position that holds `none` tests that the
+    /// optional field holds none, `(none_pattern none)`, and binds
+    /// nothing.
+    fn pbindNone(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
+        const src = self.base.source;
+        for (walked[ir.slot(.variant_pattern, .name) + 1 ..]) |*b| {
+            const slot: *Sexp = if (b.isKind(.kwarg)) &@constCast(b.items())[ir.slot(.kwarg, .value)] else b;
+            if (slot.* == .src and std.mem.eql(u8, leafText(src, slot.src), "none")) slot.* = try self.base.newNode(.none_pattern, &.{slot.*}, self.span(slot.*));
+        }
     }
 
     /// `if f() as a, b`: each name but `_` is a new binding of the result

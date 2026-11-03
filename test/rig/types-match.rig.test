@@ -599,7 +599,7 @@ fail "match constant pattern hidden by a local", "8:5: pattern binding `ESC` sha
       ESC => 1
       _ => 0
 
-test "match as a pattern", '''
+test "matches", '''
   12 0 0
   big circle
   tall rect
@@ -611,42 +611,42 @@ test "match as a pattern", '''
   5 0 0
   -1
 '''
-  # `s as .circle(r)` tests a variant and binds its fields: a `match`
-  # with one arm, whose other values fall to `else` (docs/design/as-patterns.md).
+  # `s matches .circle(r)` tests a variant and binds its fields: a `match`
+  # with one arm, whose other values fall to `else` (docs/design/matches.md).
   enum Shape
     circle(r: Int)
     rect(w: Int, h: Int)
     point
 
   fun area(s: Shape) -> Int
-    if s as .circle(r)
+    if s matches .circle(r)
       3 * r * r
     else
       0
 
   fun kind(s: Shape) -> ?String
-    if s as .circle(r) and r > 10
+    if s matches .circle(r) and r > 10
       return "big circle"
-    if s as .rect(h: tall) and tall > 3
+    if s matches .rect(h: tall) and tall > 3
       return "tall rect"
-    if s as .point
+    if s matches .point
       return "point"
     "other"
 
   fun describe(s: Shape) -> String
-    if s as .circle(_)
-      n = if s as .circle(r)
+    if s matches .circle(_)
+      n = if s matches .circle(r)
         r
       else
         0
       String("circle ", n)
-    else if s as .rect(w, h)
+    else if s matches .rect(w, h)
       String("rect ", w * h)
     else
       String("none")
 
   fun radius(m: Shape?) -> Int
-    if m as s and s as .circle(r)
+    if m as s and s matches .circle(r)
       r
     else
       0
@@ -666,14 +666,14 @@ test "match as a pattern", '''
     -1
   print(v)
 
-test "match as a pattern in a loop", '''
+test "matches in a loop", '''
   0
   10
   skip 20
   30
   done 4
 '''
-  # `while e as .v(x)` repeats while the variant matches; `continue` and
+  # `while e matches .v(x)` repeats while the variant matches; `continue` and
   # the step go on, and a value of another variant ends the loop.
   enum Token
     item(n: Int)
@@ -686,14 +686,14 @@ test "match as a pattern in a loop", '''
       .done
 
   i = 0
-  while next(i) as .item(x) : i += 1
+  while next(i) matches .item(x) : i += 1
     if x == 20
       print("skip", x)
       continue
     print(x)
   print("done", i)
 
-fail "match as a pattern rejected", "9:6: `as` with a pattern tests which variant an enum value is, and `n` is an `Int`", "11:12: no variant `two` on enum `Box`", "13:12: variant `one` has 2 payload fields, pattern destructures 1", "15:7: `as` binds only in the condition of an `if` or `while` block", "21:5: cannot assign to `r`: it is a copy of a field of `s`; to change the field in place, test it with `!s as .one(a: r)`", errors: 5
+fail "matches rejected", "9:6: `matches` with a variant pattern tests which variant an enum value is, and `n` is an `Int`", "11:17: no variant `two` on enum `Box`", "13:17: variant `one` has 2 payload fields, pattern destructures 1", "21:5: cannot assign to `r`: it is a copy of a field of `s`; to change the field in place, test it with `!s matches .one(a: r)`", errors: 4
   obj Res
     n: Int
 
@@ -702,58 +702,58 @@ fail "match as a pattern rejected", "9:6: `as` with a pattern tests which varian
     empty
 
   fun f(s: Box, n: Int) -> Int
-    if n as .one(a, b)
+    if n matches .one(a, b)
       return 1
-    if s as .two(x)
+    if s matches .two(x)
       return 2
-    if s as .one(x)
+    if s matches .one(x)
       return 3
-    v = s as .empty
+    print(s matches .empty)
     0
 
   sub g()
     s: Box = .one(a: Res(n: 1), b: 2)
-    if s as .one(a: r)
+    if s matches .one(a: r)
       r.n = 5
 
-fail "match as a pattern of one variant", "5:9: `.only` is the only variant of `Wrap`, so this test always holds; bind its fields with `match`", errors: 1
+fail "matches of one variant", "5:14: `.only` is the only variant of `Wrap`, so this test always holds; bind its fields with `match`", errors: 1
   enum Wrap
     only(n: Int)
 
   w: Wrap = .only(n: 1)
-  if w as .only(n)
+  if w matches .only(n)
     print(n)
 
-fail "match as a pattern on an optional", "6:6: `m` is a `Shape?`: take the value out first (`if m as s and s as .circle(r)`)", errors: 1
+fail "matches on an optional", "6:6: `m` is a `Shape?`: take the value out first (`if m as s and s matches .circle(r)`)", errors: 1
   enum Shape
     circle(r: Int)
     point
 
   fun radius(m: Shape?) -> Int
-    if m as .circle(r)
+    if m matches .circle(r)
       r
     else
       0
 
-fail "match as a pattern with alternatives", "after `as`, a pattern tests one variant; to test several, write a `match`"
+fail "matches with alternatives unparenthesized", "6:19: put alternatives in parentheses: `matches (.a, .b)`"
   enum S
     a(n: Int)
     b
 
   s: S = .b
-  if s as .a(n), .b
+  if s matches .a(n), .b
     print(1)
 
-fail "match as a pattern with a guard", "a pattern after `as` takes no `if` guard: join the condition with `and`, `if s as .circle(r) and r > 10`"
+fail "matches with a guard", "a pattern after `matches` takes no `if` guard: join the condition with `and`, `if s matches .circle(r) and r > 10`"
   enum S
     a(n: Int)
     b
 
   s: S = .b
-  if s as .a(n) if n > 0
+  if s matches .a(n) if n > 0
     print(1)
 
-fail "match as a pattern in a loop step", "the loop step cannot use `n`, a field the pattern binds, which lives only in the body; use it at the end of the body instead", errors: 1
+fail "matches in a loop step", "the loop step cannot use `n`, a field the pattern binds, which lives only in the body; use it at the end of the body instead", errors: 1
   enum S
     a(n: Int)
     b
@@ -762,7 +762,7 @@ fail "match as a pattern in a loop step", "the loop step cannot use `n`, a field
     .b
 
   i = 0
-  while f(i) as .a(n) : i += n
+  while f(i) matches .a(n) : i += n
     print(n)
 
 test "match on text routes by string", "1 2 0"

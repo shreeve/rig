@@ -289,7 +289,7 @@ test "`if e as` binds a member's fields", "as x"
 
   sub main()
     f() catch |e|
-      if e as .bad(m)
+      if e matches .bad(m)
         print("as", m)
       0
 

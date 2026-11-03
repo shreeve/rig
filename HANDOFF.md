@@ -82,6 +82,15 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Patterns and chains (2026-11-02).** The owner's design of a
+  pattern test, from a panel of Rust, Ruby, and Swift programmers
+  ([design/matches.md](docs/design/matches.md)): `x matches P`,
+  alternatives in parentheses that bind when they agree, `name?` and
+  `none` in a payload. Built on branch `matches`; it rejects `x as .p`
+  (loco has one site, `tools/migrate-matches.py` rewrites it). Next, as
+  its own change, the approved fused iterator chains
+  ([design/iterators.md](docs/design/iterators.md)) with `min_by(key)`
+  and `max_by(key)`.
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that

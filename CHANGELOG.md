@@ -234,6 +234,12 @@ Other:
     ?v[0]`, read freed memory. Read the view into a value first (`n =
     r.n`), or run the condition as a statement of its own. Trig needs
     no migration: it has no such form.
+58. A pattern is tested with `matches`, not `as`: `if s as .circle(r)`
+    is `if s matches .circle(r)`, and `x as .p` is rejected with "write
+    `x matches .p`". `tools/migrate-matches.py` rewrites each, in `.rig`
+    files and in Markdown's code. Trig has none; loco has one
+    (`rig/loc/scan.rig`). `matches` is a word only after a value, so a
+    local, parameter, or function named `matches` keeps its name.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -259,6 +265,24 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`x matches P` tests a pattern.** It is a `Bool` anywhere, and in
+  an `if` or `while` condition binds the pattern's names in the body;
+  anywhere else the names flow right through `and`
+  (`e.state matches .ready(s) and s > 0` in a closure). Alternatives go
+  in parentheses after a space, `x matches (.a, .b, .c)`. It is the
+  `match` it means, so it costs what that `match` costs. It replaces
+  `x as .p`, which read as a cast and stood only in a condition.
+- **Alternatives bind when they agree.** `.failed(c, _), .timed_out(c)
+  => report(c)`, and the same list after `matches`, binds `c` when every
+  alternative binds the same names with the same types; otherwise the
+  message names the name or type that differs. Emit writes an `inline`
+  prong, which Zig instantiates per variant.
+- **A payload's optional in a pattern.** `.ready(r?)` matches when the
+  optional field holds a value and binds it, `.ready(none)` when it
+  holds none, and `.ready(_?)` tests for a value. One `<` on the
+  subject sets how every binding is held: `if <e.state matches
+  .ready(img?)` owns `img`. The diagnostic for a field of a read
+  binding passed by value offers `<` on the subject before `+`.
 - **A guard takes no block.** `return if c`, `break if c`, and every
   other postfix guard end their statement, and a deeper line after one
   is rejected at the guard's `if`, with the fix: `return` in each

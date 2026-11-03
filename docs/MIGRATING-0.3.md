@@ -545,6 +545,15 @@ rejections as MANUAL lines:
 | `x.order(?y)` of floats | `x.total_order(?y)` |
 | `[T: Ord]` of a program's own at `Float` | a `T: Num` bound where the body uses only `<` and arithmetic |
 
+### A pattern is tested with `matches`
+
+`as` names a value, and `matches` tests a pattern (SPEC "Testing a
+pattern: `matches`"), so `if s as .circle(r)` is `if s matches
+.circle(r)`, and `x as .p` is rejected with that fix.
+`tools/migrate-matches.py PATH...` rewrites each `as` before a `.` and
+a name, in `.rig` and `.rig.test` files and in a Markdown file's code;
+`as` that names a value (`if o as x`, `use m as n`) stays.
+
 ### The rest
 
 | 0.2.9 accepted | 0.3.0 asks for |

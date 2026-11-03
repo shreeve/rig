@@ -6348,9 +6348,11 @@ it moves nothing, and lends to write neither the matched value nor a
 binding of the arm (as Rust's guards do not). A guarded arm covers none
 of its values: a later arm may repeat its pattern, and
 the match still needs arms for them. Alternatives
-are literals, ranges, or variants; since which one matched would decide
-what a name held, they bind none (`_` fills a payload field), and none
-may be a catch-all.
+are literals, ranges, or variants, listed without parentheses (`.a, .b
+=>`), and none may be a catch-all. They bind names only when every one
+binds the same names, each with one type (`.failed(c, _), .timed_out(c)
+=> report(c)`); otherwise `_` fills a payload field. Alternatives of an
+error bind none.
 
 ```rig
 enum Shape
@@ -6485,8 +6487,9 @@ sub main()
 `match` on text is not exhaustive without `_ =>`
 ```
 
-One arm that falls to `else` is written with `as`:
-`if s as .circle(r)` ([§12](#as-with-a-pattern)).
+One arm that falls to `else`, or a test that is a `Bool`, is written
+with `matches`: `if s matches .circle(r)`
+([§12](#testing-a-pattern-matches)).
 
 A module constant's name, `NAME` or `m.NAME`, is a pattern when its
 value is an integer, a `Bool`, or an enum value that Rig knows when it
@@ -10647,38 +10650,62 @@ a `Node` never holds `id` 0, which is what a `Node?` holds for `none`; write `no
 cannot assign to `m.id`: `id` names the none of `Node` (`none id == ...`), so only its constructor sets it; make a new `Node`
 ```
 
-### `as` with a pattern
+### Testing a pattern: `matches`
 
-After `as` comes either a name, which binds an optional's value (or
-several results), or a pattern starting with a dot, which tests which
-variant an enum value is and binds its fields: `if s as .circle(r)`.
-The pattern is a `match` arm's ([SYNTAX §12](SYNTAX.md#12-patterns)):
-`.point`, `.circle(r)`, `.circle(_)`, `.rect(w, h)`, `.rect(h: tall)`.
-The form is a `match` with that one arm, whose other values fall to
-`else`, and it is not exhaustive. Its subject takes a `match`'s sigils,
-with their meaning ([match](#match)): `s` reads the fields where they
-are, `!s` binds write views of them, and `<s` hands the test the whole
-value, matched or not; a value made here gives the bindings its fields.
-Under `<s`, the fields a pattern leaves out drop at the end of the
-block, and a value it does not match drops as the test fails, before
-`else` runs.
+`x matches P` is a `Bool`: whether `x` matches the pattern `P`, which is
+a `match` arm's ([SYNTAX §12](SYNTAX.md#12-patterns)): `.point`,
+`.circle(r)`, `.circle(_)`, `.rect(w, h)`, `.rect(h: tall)`, a literal,
+or a range. Several alternatives are a list in parentheses after a
+space, `x matches (.a, .b, .c)`, which may end with a comma and spread
+over lines. It is the `match` with `P => true` and `_ => false`, and
+costs what that `match` costs. Negation follows the comparison rule:
+`not x matches (.a, .b)` is `not (x matches (.a, .b))`, as `not s ==
+.ready` is `not (s == .ready)`.
 
-The form joins with `and` as a binding does ([Joined
-bindings](#joined-bindings)), each part seeing the bindings before it:
-`if s as .circle(r) and r > 10`, `if m as s and s as .circle(r)`.
-`while e as .item(x)` repeats while the value matches; its step cannot
-read the fields, which live only in the body.
+In the condition of an `if` or `while`, the names a pattern binds are
+bound in the body, and in the rest of the condition after an `and`:
+`if s matches .circle(r) and r > 10`. It is a `match` with that one
+arm, whose other values fall to `else`. Anywhere else, the names flow
+right through `and`, and only there: `x matches .ready(s) and s
+matches (.done, .cached)` is a `Bool` in a closure too. A name nothing
+reads is rejected, as anywhere: where it ends a `Bool`, the pattern
+with `_` for it is what is meant (`ok = s matches .rect(_, _)`).
+`while e matches .item(x)` repeats while the value matches; its step
+cannot read the fields, which live only in the body.
 
-- One pattern: a comma after it does not list alternatives (after
-  `as`, a comma means several results); several variants take a
-  `match`.
+The subject takes a `match`'s sigils, with their meaning
+([match](#match)), and one sigil sets how every binding is held: `s`
+reads the fields where they are (a copy of plain data, a view of
+anything else), `!s` binds write views of them, and `<s` hands the test
+the whole value, matched or not; a value made here gives the bindings
+its fields. A pattern never clones. Under `<s`, the fields a pattern
+leaves out drop at the end of the block, and a value it does not match
+drops as the test fails, before `else` runs.
+
+Alternatives bind names only when every one binds the same names, each
+with one type: `x matches (.failed(c), .timed_out(c))`. A `match` arm's
+alternatives follow the same rule ([match](#match)).
+
+- A list holds two or more alternatives: `x matches (.a)` is rejected
+  for `x matches .a`. A pattern followed by a comma, outside brackets or
+  before another `.name` inside them, is a list missing its parentheses,
+  and `matches(` is no call: write `matches (`.
+- No alternative matches everything: `_` or a bare name after
+  `matches` is rejected; to compare with a constant, use `==`.
 - No `if` guard in the pattern: the condition joins with `and`.
-- An enum with one variant always matches, and is rejected: bind its
-  fields with `match`.
-- An optional is rejected rather than failing to match on `none`: take
-  its value out first, `if m as s and s as .circle(r)`.
-- A bare name after `as` always binds, an optional's value; to compare
-  with a constant, use `==`.
+- `x matches .p` replaces `x as .p`, which is rejected: `as` names a
+  value (`if o as v`, `if f() as a, b`), and `matches` tests a pattern.
+- An enum with one variant always matches, and the test of a binding
+  pattern is rejected: bind its fields with `match`.
+- An optional subject is rejected rather than failing to match on
+  `none`: take its value out first, `if m as s and s matches
+  .circle(r)`, or test a payload's optional with `name?` (below).
+- `matches` is a word only after a value; anywhere else it is a name.
+
+A payload field that is optional takes `name?`, which matches when it
+holds a value and binds the value, or `none`, which matches when it
+holds none; `_?` tests that it holds one. An arm with such a test, like
+a guarded arm, covers none of its variant's values.
 
 ```rig
 enum Shape
@@ -10686,29 +10713,51 @@ enum Shape
   rect(w: Int, h: Int)
   point
 
+enum State
+  failed(code: Int, why: String)
+  timed_out(code: Int)
+  ready(note: String?)
+
 fun kind(s: Shape) -> ?String
-  if s as .circle(r) and r > 10
+  if s matches .circle(r) and r > 10
     return "big circle"
-  if s as .rect(h: tall) and tall > 3
+  if s matches .rect(h: tall) and tall > 3
     return "tall rect"
-  if s as .point
+  if s matches .point
     return "point"
   "other"
 
 fun radius(m: Shape?) -> Int
-  if m as s and s as .circle(r)
+  if m as s and s matches .circle(r)
     r
   else
     0
 
+fun code(s: ?State) -> Int
+  if s matches (.failed(c, _), .timed_out(c))
+    return c
+  0
+
 sub main()
   print(kind(.circle(r: 20)), kind(.rect(w: 1, h: 5)), kind(.point), kind(.circle(r: 1)))
   print(radius(.circle(r: 5)), radius(.point), radius(none))
+  shapes: List[Shape] = List()
+  !shapes.push(.point)
+  !shapes.push(.rect(w: 2, h: 2))
+  flat = 0
+  for s in ?shapes
+    flat += 1 if s matches (.point, .rect(_, _))
+  print(flat, code(.timed_out(code: 7)), code(.ready(note: none)))
+  s: State = .ready(note: String("hi"))
+  if <s matches .ready(note?)
+    print(<note)
 ```
 
 ```output
 big circle tall rect point other
 5 0 0
+2 7 0
+hi
 ```
 
 ### The fallback of `??`

@@ -2494,32 +2494,32 @@ test "match as a pattern owns and drops", '''
       .empty
 
   s = mk(1)
-  if <s as .one(a, _)
+  if <s matches .one(a, _)
     print("got", a.n)
   print("--")
   t: Box = .none_left(c: Res(n: 9))
-  if <t as .one(a, _)
+  if <t matches .one(a, _)
     print("no", a.n)
   else
     print("else runs")
   print("--")
-  if mk(5) as .one(x, y)
+  if mk(5) matches .one(x, y)
     print("temp", x.n, y.n)
   print("--")
   u = mk(7)
-  if u as .one(a, b) and a.n > 0
+  if u matches .one(a, b) and a.n > 0
     print("read", a.n, b.n)
-  if !u as .one(a: f)
+  if !u matches .one(a: f)
     f = Res(n: 70)
-  if u as .one(a: a)
+  if u matches .one(a: a)
     print("now", a.n)
-  v = if u as .one(a: a)
+  v = if u matches .one(a: a)
     a.n
   else
     -1
   print("value", v)
   i = 0
-  while step(i) as .one(p, q) : i += 1
+  while step(i) matches .one(p, q) : i += 1
     print("loop", p.n, q.n)
   print("end")
 
@@ -2532,15 +2532,15 @@ fail "match as a pattern moves and lends", "11:7: use of `s` after move", "18:9:
     empty
 
   s: Box = .one(a: Res(n: 1), b: 2)
-  if <s as .one(a: r)
+  if <s matches .one(a: r)
     print(r.n)
   print(s)
   t: Box = .one(a: Res(n: 1), b: 2)
-  if t as .one(a: r)
+  if t matches .one(a: r)
     t = .empty
     print(r.n)
   u: Box = .one(a: Res(n: 1), b: 2)
-  if !u as .one(a: w)
+  if !u matches .one(a: w)
     print(u)
     w.n = 2
 

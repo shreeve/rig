@@ -1327,7 +1327,7 @@ const Pass = struct {
 
     /// The selection unit of `match` `node`: its subject, then each arm's
     /// pattern and guard, from `sel`, the facts once the selection's kills
-    /// apply. A part `s as .circle(r)` is the selection of its `match`
+    /// apply. A part `s matches .circle(r)` is the selection of its `match`
     /// (`rig.asMatchOf`), from whose true edge the rest goes on.
     fn walkSelection(p: *Pass, node: Sexp, sel: *State) Error!void {
         applyKills(sel, &(try p.selectionKills(node)));

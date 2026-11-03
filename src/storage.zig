@@ -636,7 +636,7 @@ pub fn isCatchAll(ctx: *const SemContext, pattern: Sexp) bool {
 
 /// Whether some arm of `match` has a guard.
 pub fn matchGuarded(match: Sexp) bool {
-    for (ir.Match.arms(match)) |arm| if (ir.Arm.guard(arm) != .nil) return true;
+    for (ir.Match.arms(match)) |arm| if (ir.Arm.guard(arm) != .nil or rig.patternTests(ir.Arm.pattern(arm))) return true;
     return false;
 }
 
@@ -646,6 +646,13 @@ pub fn matchSelects(ctx: *const SemContext, match: Sexp) bool {
     if (matchGuarded(match)) return true;
     const ty = matchedType(ctx, match) orelse return false;
     return sema.isText(ctx, sema.unwrapViews(ctx, ty));
+}
+
+/// The patterns an arm's pattern is emitted as, a prong each:
+/// alternatives that bind names are a prong apiece (`emit.prongsOf`).
+pub fn prongsOf(ctx: *const SemContext, pattern: *const Sexp) []const Sexp {
+    if (ctx.altsBind(pattern.*)) return ir.AltPattern.alts(pattern.*);
+    return pattern[0..1];
 }
 
 /// Whether `match` reads its subject again after picking an arm: a
@@ -666,7 +673,7 @@ fn decideMatchRereads(ctx: *const SemContext, match: Sexp) bool {
     for (ir.Match.arms(match)) |arm| {
         const pattern = ir.Arm.pattern(arm);
         if (mode == .write and isCatchAll(ctx, pattern)) return true;
-        if (mode == .consume and pattern.isKind(.alt_pattern)) return true;
+        if (mode == .consume and pattern.isKind(.alt_pattern) and !ctx.altsBind(pattern)) return true;
     }
     return false;
 }
@@ -1823,7 +1830,7 @@ const Planner = struct {
 
     pub fn part(p: *Planner, cond: Sexp) !void {
         if (cond.isKind(.as)) return p.optional(cond);
-        // `s as .circle(r)`: the one-arm `match` it is.
+        // `s matches .circle(r)`: the one-arm `match` it is.
         if (cond.isKind(.as_match)) return p.match(rig.asMatchOf(cond));
         // `if f() as a, b`: the call's results, captured for the body,
         // each taken by its binding, the rest dropped there.
@@ -1915,11 +1922,11 @@ const Planner = struct {
             const pattern = ir.Arm.pattern(arm);
             if (pattern == .src) {
                 if (isCatchAll(ctx, pattern) and ctx.symbolOf(pattern) != null) _ = catchAllCaptured(ctx, pattern, m);
-            } else if (pattern.isKind(.variant_pattern)) {
-                for (ctx.payloadBindings(pattern) orelse continue) |b| if (b != .nil) {
+            } else for (prongsOf(ctx, &pattern)) |prong| if (prong.isKind(.variant_pattern)) {
+                for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
                     _ = bindsByAddress(ctx, b, m);
                 };
-            }
+            };
         }
         if (ctx.headerOf(m) == .held) try p.record(m, .held, .owned, .construct);
         var reread = false;
@@ -1949,23 +1956,31 @@ const Planner = struct {
                 if (mode == .consume) try p.record(arm, .whole, .owned, .arm);
                 continue;
             }
-            const variant = pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit) or (pattern.isKind(.member) and ctx.isErrorMember(pattern));
+            const prongs = prongsOf(ctx, &pattern);
             if (mode == .consume) {
-                if (!variant) {
-                    try p.record(arm, .whole, .owned, .arm);
-                } else if (variantPayload(ctx, armType(ctx, pattern, ty) orelse continue, srcText(ctx, if (pattern.isKind(.variant_pattern)) rig.variantPatternName(pattern) else ir.get(pattern, .name)))) |fields| {
-                    if (fields.len > 0) try p.record(arm, .payload, .owned, .arm);
+                // Alternatives that bind are a prong each, which owns its
+                // variant's payload (`prongsOf`).
+                var payload = false;
+                for (prongs) |prong| {
+                    const variant = prong.isKind(.variant_pattern) or prong.isKind(.enum_lit) or (prong.isKind(.member) and ctx.isErrorMember(prong));
+                    if (!variant) {
+                        try p.record(arm, .whole, .owned, .arm);
+                    } else if (variantPayload(ctx, armType(ctx, prong, ty) orelse continue, srcText(ctx, if (prong.isKind(.variant_pattern)) rig.variantPatternName(prong) else ir.get(prong, .name)))) |fields| {
+                        if (fields.len > 0) payload = true;
+                    }
                 }
+                if (payload) try p.record(arm, .payload, .owned, .arm);
                 continue;
             }
-            if (!pattern.isKind(.variant_pattern)) continue;
             var any = false;
             var by_addr = mode == .write;
-            for (ctx.payloadBindings(pattern) orelse continue) |b| {
-                if (!p.isUsed(b)) continue;
-                any = true;
-                if (bindsByAddress(ctx, b, m)) by_addr = true;
-            }
+            for (prongs) |prong| if (prong.isKind(.variant_pattern)) {
+                for (ctx.payloadBindings(prong) orelse continue) |b| {
+                    if (!p.isUsed(b)) continue;
+                    any = true;
+                    if (bindsByAddress(ctx, b, m)) by_addr = true;
+                }
+            };
             if (any) try p.record(arm, .payload, if (by_addr) .pointer else .copy, .arm);
         }
     }

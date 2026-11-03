@@ -2722,9 +2722,9 @@ fail "marker repeated", "3:8: a function's marker is written once", errors: 1
   sub main()
     print(f())
 
-fail "match alternative bindings", "10:11: an arm with alternatives cannot bind names", "12:6: `n` matches every value, so the other alternatives never matter"
-  # An arm with alternatives binds no names, and none of its alternatives
-  # may match everything.
+fail "match alternative bindings", "10:15: `r` is bound by `.circle(r)` but not by `.square(s)`: every alternative must bind the same names", "12:6: `n` matches every value, so the other alternatives never matter"
+  # An arm's alternatives bind the same names or none, and none of its
+  # alternatives may match everything.
 
   enum Shape
     circle(r: Int)
@@ -2732,7 +2732,7 @@ fail "match alternative bindings", "10:11: an arm with alternatives cannot bind 
 
   s = Shape.circle(r: 1)
   match s
-    .circle(r), .square(r) => print(r)
+    .circle(r), .square(s) => print(r)
   match 3
     1, n => print(n)
 

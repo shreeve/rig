@@ -170,7 +170,7 @@ support file.
 | unwrap or | `x.unwrap_or(0)` | `x orelse 0` | `x ?? 0` |
 | unwrap or leave | `let Some(v) = x else { return }` | `x orelse return` | `v = x ?? return` |
 | if let | `if let Some(v) = x` | `if (x) \|v\|` | `if x as v` |
-| if let, a variant | `if let Circle(r) = s` | `switch (s) { .circle => \|c\| .., else => {} }` | `if s as .circle(r)` |
+| if let, a variant | `if let Circle(r) = s` | `switch (s) { .circle => \|c\| .., else => {} }` | `if s matches .circle(r)` |
 | fallible | `Result<T, E>` | `E!T` | `T!E`, or `T!` for any error |
 | an error with data | `enum E { Bad { at: usize } }` | (an error holds no data) | `error E` / `  bad(at: Int)` |
 | match the error | `Err(E::Bad { at }) =>` | `error.Bad =>` | `catch \|e\|` / `.bad(at) =>` |

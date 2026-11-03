@@ -1449,8 +1449,10 @@ sub main()
 
 `match subject` takes an indented list of arms. An arm is
 `pattern => statement`, or a pattern followed by an indented block. A
-pattern may list alternatives (`0, 1 =>`) and end with a guard
-(`k if k < 0 =>`); [§12](#12-patterns) lists the patterns. The first
+pattern may list alternatives (`0, 1 =>`), which bind the same names or
+none (`.failed(c, _), .timed_out(c) =>`), and end with a guard
+(`k if k < 0 =>`); [§12](#12-patterns) lists the patterns. A test of
+one pattern is `x matches P`, a `Bool`. The first
 arm that matches runs, and there is no fallthrough.
 
 ```rig
@@ -1926,7 +1928,9 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `lo..=hi` | an integer from `lo` through `hi` |
 | `_` | everything else |
 | any other name | everything else, bound to the name |
-| `p, q` | any of the alternatives, which bind no names |
+| `p, q` | any of the alternatives, which bind the same names, each of one type, or none |
+| `.name(r?)` | a payload variant whose optional field holds a value, bound to `r` (`_?` binds none) |
+| `.name(none)` | a payload variant whose optional field holds none |
 | `p if cond` | what `p` matches, when the guard `cond` holds |
 
 A pattern is one of these, never a float or a byte string. A constant of
@@ -1935,9 +1939,12 @@ another kind, or whose value the target sets, is compared in a guard:
 order, all of them, or by name, any of them: `.rect(w, h)` or
 `.rect(h: tall)`, never `.rect(w, h: tall)`.
 
-The same patterns that start with a dot follow `as` in an `if` or
-`while` condition, one at a time and without a guard:
-`if s as .circle(r) and r > 10` ([SPEC §12](SPEC.md#as-with-a-pattern)).
+`x matches P` tests a value against one pattern, or against
+alternatives in parentheses after a space, `x matches (.a, .b)`, with
+no guard: a `Bool`, whose names are bound in an `if` or `while` body and
+after `and` (`if s matches .circle(r) and r > 10`, [SPEC
+§12](SPEC.md#testing-a-pattern-matches)). A match arm lists its
+alternatives without parentheses: `.a, .b =>`.
 
 ---
 
@@ -2026,8 +2033,9 @@ match     = "match" value INDENT arm* DEDENT
 arm       = pattern, ... ["if" value] ("=>" simple | block)
 pattern   = patom [(".." | "..=") patom]
 patom     = name | ["-"] integer | "true" | "false"
-          | "." name ["(" [(name | name ":" name), ...] ")"]
+          | "." name ["(" [(pbind | name ":" pbind), ...] ")"]
           | [name "."] name "." name | ":" name           # `:` touches the name
+pbind     = name | name "?"                             # `none` tests an optional field
 closure   = ["*"] bars (expr | block)
 bars      = "|" (name [":" type] | ("+" | "<" | "~" | "?" | "!") name), ... "|" | "||"
 
@@ -2037,7 +2045,8 @@ value     = logic "if" logic "else" value
 jump      = "return" [value] | "break" ["@" name] [value] | "continue" ["@" name]
 logic     = logic "or" conj | conj
 conj      = conj "and" neg | neg
-neg       = "not" neg | infix "as" name ("," name)* | infix
+neg       = "not" neg | infix "as" name ("," name)* | infix "matches" mpat | infix
+mpat      = pattern | "(" pattern "," pattern, ... ")"  # `matches` after a value
 infix     = unary (op unary)*                       # the table in section 6
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~" | "^") unary | postfix
 postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]" | "[" [expr] "..=" expr "]"

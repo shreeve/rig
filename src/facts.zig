@@ -652,6 +652,14 @@ pub const Facts = struct {
     pub fn payloadBindings(f: Facts, pattern: Sexp) ?[]const Sexp {
         return f.c().payloadBindings(pattern);
     }
+    /// `sema.SemContext.altsBind`.
+    pub fn altsBind(f: Facts, pattern: Sexp) bool {
+        return f.c().altsBind(pattern);
+    }
+    /// `sema.SemContext.payloadTests`.
+    pub fn payloadTests(f: Facts, pattern: Sexp) ?[]const sema.PayloadTest {
+        return f.c().payloadTests(pattern);
+    }
     pub fn copiesHeader(f: Facts, node: Sexp) bool {
         return f.c().copiesHeader(node);
     }

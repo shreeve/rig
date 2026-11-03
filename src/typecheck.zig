@@ -133,7 +133,7 @@ const CopySource = struct {
     place: Sexp,
     kind: enum { loop, as, match_copy, match_read },
     whole: bool = false,
-    /// For a binding of `s as .circle(r)`, its pattern, which the advice
+    /// For a binding of `s matches .circle(r)`, its pattern, which the advice
     /// to write through it names.
     pattern: Sexp = .nil,
 };
@@ -2436,7 +2436,7 @@ const Checker = struct {
                     switch (from.kind) {
                         .loop => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb.head, name, verb.tail, shown, name, shown }),
                         .as => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb.head, name, verb.tail, shown, shown, name }),
-                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`{s}: it is {s} of {s}`{s}`; to change {s} in place, {s}", .{ verb.head, name, verb.tail, if (from.kind == .match_copy and sema.moves(self.ctx, sym.ty) != .yes and self.ctx.types.get(sym.ty) != .read_view) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", if (from.pattern != .nil) try self.ctx.arena.allocator().print("test it with `!{s} as {s}`", .{ shown, try self.plainText(from.pattern) }) else try self.writeMatchAdvice(from.place) }),
+                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`{s}: it is {s} of {s}`{s}`; to change {s} in place, {s}", .{ verb.head, name, verb.tail, if (from.kind == .match_copy and sema.moves(self.ctx, sym.ty) != .yes and self.ctx.types.get(sym.ty) != .read_view) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", if (from.pattern != .nil) try self.ctx.arena.allocator().print("test it with `!{s} matches {s}`", .{ shown, try self.plainText(from.pattern) }) else try self.writeMatchAdvice(from.place) }),
                     }
                     return false;
                 }
@@ -2589,8 +2589,7 @@ const Checker = struct {
             // The fields a pattern binds live only in the body.
             if (p.isKind(.as_match)) {
                 const pattern = ir.Arm.pattern(rig.asMatchArm(p));
-                const binds = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else &.{};
-                for (binds) |n| {
+                for (self.ctx.armPayloadBindings(pattern)) |n| {
                     const b = self.ctx.symbolOf(n) orelse continue;
                     const use = sema.findUse(self.ctx, step, b) orelse continue;
                     try self.errAt(use, "the loop step cannot use `{s}`, a field the pattern binds, which lives only in the body; use it at the end of the body instead", .{self.ctx.symbols.items[b].name});
@@ -2859,13 +2858,13 @@ const Checker = struct {
         }
     }
 
-    /// `if s as .circle(r)` / `while e as .item(x)`: the one-arm `match`
+    /// `if s matches .circle(r)` / `while e matches .item(x)`: the one-arm `match`
     /// the part is (`rig.asMatchOf`). Its subject is checked as a
     /// `match`'s, with the same sigils and meaning, and its pattern
     /// against the subject's type, binding the fields in the arm's scope,
     /// which the condition's later parts and the body see; the caller
     /// restores the scope. It is a test, not exhaustive: other values fall
-    /// to the `else` (docs/design/as-patterns.md).
+    /// to the `else` (docs/design/matches.md).
     fn checkAsMatch(self: *Checker, part: Sexp) Error!void {
         const node = rig.asMatchOf(part);
         const arm = rig.asMatchArm(part);
@@ -2881,7 +2880,8 @@ const Checker = struct {
         _ = self.enter(arm);
         if (!self.isPoison(scrutinee) and try self.asPatternRejects(subject, pattern, scrutinee)) scrutinee = self.t().invalid_id;
         if (self.isPoison(scrutinee)) {
-            if (pattern.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pattern)) |b| self.poisonBinding(sema.bindingName(b));
+            const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
+            for (alts) |alt| if (alt.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(alt)) |b| self.poisonBinding(sema.bindingName(b));
             return;
         }
         const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and self.hands(ir.Read.operand(subject)).hasStorage())
@@ -2896,9 +2896,12 @@ const Checker = struct {
             self.matching = node;
             var cov: MatchCoverage = .{ .variant_total = try self.variantTotal(sema.unwrapViews(self.ctx, scrutinee)) };
             defer cov.deinit(self.ctx.allocator);
-            try self.checkPattern(pattern, scrutinee, &cov, mode);
+            const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
+            if (alts.len > 1) try self.checkAlternatives(alts);
+            for (alts) |alt| try self.checkPattern(alt, scrutinee, &cov, mode);
+            if (alts.len > 1) try self.checkAlternativeTypes(alts);
         }
-        const binds = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else &.{};
+        const binds = self.ctx.armPayloadBindings(pattern);
         for (binds) |b| if (self.ctx.symbolOf(b)) |sym| {
             if (viewed) |v| try self.copied_from.put(self.ctx.allocator, sym, v);
             if (mode == .consume) try self.owned_bindings.put(self.ctx.allocator, sym, {});
@@ -2922,12 +2925,12 @@ const Checker = struct {
             const inner = try self.tyName(self.ctx.types.get(reached).optional);
             const v: []const u8 = if (inner.len > 0 and std.ascii.isAlphabetic(inner[0])) &.{std.ascii.toLower(inner[0])} else "v";
             const pat = try self.plainText(pattern);
-            try self.errAt(subject, "`{s}` is a `{s}`: take the value out first (`if {s} as {s} and {s} as {s}`)", .{ shown, try self.tyName(reached), shown, v, v, pat });
+            try self.errAt(subject, "`{s}` is a `{s}`: take the value out first (`if {s} as {s} and {s} matches {s}`)", .{ shown, try self.tyName(reached), shown, v, v, pat });
             return true;
         }
         const count = sema.enumVariantCount(self.ctx, reached) orelse {
             const ty = try self.tyName(reached);
-            try self.errAt(subject, "`as` with a pattern tests which variant an enum value is, and `{s}` is {s} `{s}`", .{ shown, article(ty), ty });
+            try self.errAt(subject, "`matches` with a variant pattern tests which variant an enum value is, and `{s}` is {s} `{s}`", .{ shown, article(ty), ty });
             return true;
         };
         if (count == 1) {
@@ -3837,19 +3840,25 @@ const Checker = struct {
             }
             const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
             if (alts.len > 1) try self.checkAlternatives(alts);
+            if (alts.len > 1 and !self.isPoison(scrutinee)) {
+                const matched = sema.unwrapViews(self.ctx, scrutinee);
+                if (matched == self.t().any_error_id or sema.isErrorSet(self.ctx, matched) or sema.isErrorUnion(self.ctx, matched)) try self.plainAlternatives(alts);
+            }
             // A guarded arm may not run for the values its pattern
             // matches, so it covers none of them; later arms may repeat
             // its pattern.
             var guarded: MatchCoverage = .{ .before = &cov, .variant_total = cov.variant_total };
             defer guarded.deinit(self.ctx.allocator);
-            for (alts) |alt| try self.checkPattern(alt, scrutinee, if (guard != .nil) &guarded else &cov, mode);
-            if (guard != .nil) {
+            const partial = guard != .nil or rig.patternTests(pattern);
+            for (alts) |alt| try self.checkPattern(alt, scrutinee, if (partial) &guarded else &cov, mode);
+            if (alts.len > 1) try self.checkAlternativeTypes(alts);
+            if (partial) {
                 var it = guarded.variants.keyIterator();
                 while (it.next()) |k| try cov.guarded.put(self.ctx.allocator, k.*, {});
             }
             if (viewed) |v| {
-                if (pattern.isKind(.variant_pattern)) {
-                    for (self.ctx.payloadBindings(pattern) orelse &.{}) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
+                if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) {
+                    for (self.ctx.armPayloadBindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
                 } else if (storage.isCatchAll(self.ctx, pattern)) if (self.ctx.symbolOf(pattern)) |sym| {
                     var whole = v;
                     whole.whole = true;
@@ -3857,15 +3866,15 @@ const Checker = struct {
                 };
             }
             if (mode == .consume) {
-                const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else (&pattern)[0..1];
+                const binds: []const Sexp = if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) self.ctx.armPayloadBindings(pattern) else (&pattern)[0..1];
                 for (binds) |b| if (self.ctx.symbolOf(b)) |sym| try self.owned_bindings.put(self.ctx.allocator, sym, {});
             }
             // Every read match's binding, for the hint that names the
             // match that writes (`readMatchHint`).
             if (mode == .read and viewed == null) {
                 const shown_subject = if (subject.isKind(.read)) ir.Read.operand(subject) else subject;
-                if (pattern.isKind(.variant_pattern)) {
-                    for (self.ctx.payloadBindings(pattern) orelse &.{}) |b| if (self.ctx.symbolOf(b)) |sym| try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = shown_subject, .kind = .match_read });
+                if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) {
+                    for (self.ctx.armPayloadBindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = shown_subject, .kind = .match_read });
                 } else if (pattern == .src) if (self.ctx.symbolOf(pattern)) |sym| try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = shown_subject, .kind = .match_read, .whole = true });
             }
             if (guard != .nil) {
@@ -4224,28 +4233,86 @@ const Checker = struct {
     /// Whether `pattern` binds symbol `sym`.
     fn patternBinds(self: *Checker, pattern: Sexp, sym: SymbolId) bool {
         if (pattern == .src) return self.ctx.symbolOf(pattern) == sym;
-        if (!pattern.isKind(.variant_pattern)) return false;
-        for (self.ctx.payloadBindings(pattern) orelse &.{}) |b| if (b == .src and self.ctx.symbolOf(b) == sym) return true;
+        if (!pattern.isKind(.variant_pattern) and !pattern.isKind(.alt_pattern)) return false;
+        for (self.ctx.armPayloadBindings(pattern)) |b| if (b == .src and self.ctx.symbolOf(b) == sym) return true;
         return false;
     }
 
     /// `a, b => ...`: each alternative is a literal, range, or variant;
-    /// none binds a name or matches everything.
+    /// none matches everything, and they bind names only when every one
+    /// binds the same names (`checkAlternativeTypes` checks their types).
     fn checkAlternatives(self: *Checker, alts: []const Sexp) Error!void {
-        var named = false;
         for (alts) |alt| {
             if (storage.isCatchAll(self.ctx, alt)) {
                 try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
                 self.poisonBinding(alt);
-                continue;
             }
-            if (!alt.isKind(.variant_pattern)) continue;
-            for (ir.VariantPattern.bindings(alt)) |bound| {
-                const b = sema.bindingName(bound);
-                if (b == .src and std.mem.eql(u8, self.text(b), "_")) continue;
-                if (!named) try self.errAt(b, "an arm with alternatives cannot bind names: which alternative matched would decide what they hold; write `_`, or give each alternative an arm of its own", .{});
-                named = true;
-                self.poisonBinding(b);
+        }
+        // Each alternative's names, against the first's.
+        const first = alts[0];
+        for (alts[1..]) |alt| {
+            if (try self.nameMissing(first, alt)) |name| return self.rejectAltNames(alts, first, alt, name);
+            if (try self.nameMissing(alt, first)) |name| return self.rejectAltNames(alts, alt, first, name);
+        }
+    }
+
+    /// Alternatives of an error, or of anything but an enum, bind no
+    /// names: each error's fields are read through its own set.
+    fn plainAlternatives(self: *Checker, alts: []const Sexp) Error!void {
+        for (alts) |alt| for (altNames(alt)) |bound| {
+            const b = sema.bindingName(bound);
+            if (b != .src or std.mem.eql(u8, self.text(b), "_")) continue;
+            try self.errAt(b, "alternatives of an error bind no names: write `_`, or give each alternative an arm of its own", .{});
+            self.poisonBinding(b);
+            return;
+        };
+    }
+
+    /// A name alternative `has` binds that `lacks` does not.
+    fn nameMissing(self: *Checker, has: Sexp, lacks: Sexp) Error!?Sexp {
+        for (altNames(has)) |bound| {
+            const b = sema.bindingName(bound);
+            if (b != .src or std.mem.eql(u8, self.text(b), "_")) continue;
+            const name = self.text(b);
+            const found = for (altNames(lacks)) |o| {
+                const n = sema.bindingName(o);
+                if (n == .src and std.mem.eql(u8, self.text(n), name)) break true;
+            } else false;
+            if (!found) return b;
+        }
+        return null;
+    }
+
+    fn rejectAltNames(self: *Checker, alts: []const Sexp, has: Sexp, lacks: Sexp, name: Sexp) Error!void {
+        try self.errAt(lacks, "`{s}` is bound by `{s}` but not by `{s}`: every alternative must bind the same names", .{ self.text(name), try self.plainText(has), try self.plainText(lacks) });
+        for (alts) |alt| for (altNames(alt)) |b| self.poisonBinding(sema.bindingName(b));
+    }
+
+    /// The names a variant alternative binds, `_` aside, as written.
+    fn altNames(alt: Sexp) []const Sexp {
+        if (!alt.isKind(.variant_pattern)) return &.{};
+        return ir.VariantPattern.bindings(alt);
+    }
+
+    /// Alternatives that bind a name bind it with one type: the field
+    /// each binds is of the same type in every one.
+    fn checkAlternativeTypes(self: *Checker, alts: []const Sexp) Error!void {
+        const first = for (alts) |alt| {
+            if (alt.isKind(.variant_pattern) and self.ctx.payloadBindings(alt) != null) break alt;
+        } else return;
+        for (self.ctx.payloadBindings(first).?) |b| {
+            if (b != .src or std.mem.eql(u8, self.text(b), "_")) continue;
+            const ty = self.ctx.payloadFieldOf(b) orelse continue;
+            for (alts) |alt| {
+                if (alt.list.id == first.list.id or !alt.isKind(.variant_pattern)) continue;
+                for (self.ctx.payloadBindings(alt) orelse continue) |o| {
+                    if (o != .src or !std.mem.eql(u8, self.text(o), self.text(b))) continue;
+                    const other = self.ctx.payloadFieldOf(o) orelse continue;
+                    if (other == ty) continue;
+                    try self.errAt(o, "`{s}` is {s} `{s}` in `{s}` and {s} `{s}` in `{s}`: alternatives bind each name with one type", .{ self.text(b), article(try self.tyName(ty)), try self.tyName(ty), try self.plainText(first), article(try self.tyName(other)), try self.tyName(other), try self.plainText(alt) });
+                    self.poisonBinding(b);
+                    return;
+                }
             }
         }
     }
@@ -4546,29 +4613,68 @@ const Checker = struct {
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         }
-        const binds = (try self.fieldBindings(pattern, resolved.payload)) orelse {
+        const written = (try self.fieldBindings(pattern, resolved.payload)) orelse {
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         };
+        // `r?` binds an optional field's value and `none` tests it holds
+        // none: each is recorded as its test, and the binding as the
+        // name it binds, or `.nil`.
+        const binds = try self.payloadTestsOf(pattern, written, resolved.payload);
         try self.ctx.recordPayloadBindings(pattern, binds);
-        for (binds, resolved.payload) |b, f| {
+        const tests = self.ctx.payloadTests(pattern);
+        for (binds, resolved.payload, 0..) |b, f, i| {
             // A field the pattern leaves out is read as a `_` field is.
             if (b == .nil) {
                 // Read where the match reads in place when no instance
                 // copies it.
                 continue;
             }
+            // `r?` binds the value inside the optional field.
+            const field_ty = if (tests != null and tests.?[i] == .some and self.ctx.types.get(f.ty) == .optional) self.ctx.types.get(f.ty).optional else f.ty;
             // The binding's type follows its access (`bindMatchView`).
-            const view = !sema.isReadOrWriteView(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty);
-            const ty = try self.bindMatchView(b, mode, f.ty);
+            const view = !sema.isReadOrWriteView(self.ctx, field_ty) and self.ctx.types.get(field_ty) != .slice and !self.isPoison(field_ty);
+            const ty = try self.bindMatchView(b, mode, field_ty);
             try self.ctx.recordType(b, ty);
-            if (!self.isPoison(f.ty)) try self.ctx.recordPayloadField(b, f.ty);
+            if (!self.isPoison(field_ty)) try self.ctx.recordPayloadField(b, field_ty);
             if (self.ctx.symbolOf(b)) |sym| {
                 // A binding that is no plain data of a copy of the
                 // subject is usable in its arm only.
-                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, field_ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
+    }
+
+    /// The bindings `written` of variant pattern `pattern`, in the order
+    /// of `fields`, with each `r?` the name it binds and each `none`
+    /// `.nil`, recording what each tests (`sema.SemContext.payloadTests`).
+    /// A test of a field that is not optional is reported.
+    fn payloadTestsOf(self: *Checker, pattern: Sexp, written: []const Sexp, fields: []const Field) Error![]const Sexp {
+        var tested = false;
+        for (written) |b| {
+            if (b.isKind(.some_pattern) or b.isKind(.none_pattern)) tested = true;
+        }
+        if (!tested) return written;
+        const a = self.ctx.allocator;
+        const binds = try a.dupe(Sexp, written);
+        const tests = try a.alloc(sema.PayloadTest, written.len);
+        for (binds, tests, fields) |*b, *test_of, f| {
+            test_of.* = .any;
+            if (!b.isKind(.some_pattern) and !b.isKind(.none_pattern)) continue;
+            const some = b.isKind(.some_pattern);
+            const shown = try self.plainText(b.*);
+            const name = if (some) ir.SomePattern.name(b.*) else Sexp.nil;
+            if (!self.isPoison(f.ty) and self.ctx.types.get(f.ty) != .optional) {
+                try self.errAt(b.*, "`{s}` tests an optional field, and `{s}` is a `{s}`; bind it as `{s}`", .{ shown, f.name, try self.tyName(f.ty), if (some) self.text(name) else "_" });
+                if (some) self.poisonBinding(name);
+                b.* = if (some) name else .nil;
+                continue;
+            }
+            test_of.* = if (some) .some else .none;
+            b.* = name;
+        }
+        try self.ctx.recordPayloadTests(pattern, tests);
+        return binds;
     }
 
     /// How the match being checked reaches what its bindings bind
