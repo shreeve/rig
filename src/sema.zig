@@ -1659,17 +1659,6 @@ pub fn strongest(apis: Apis) Apis {
     return out;
 }
 
-/// `apis` as a bound is written: `Ord + Print`, in declared order.
-pub fn formatApis(a: std.mem.Allocator, apis: Apis) std.mem.Allocator.Error![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    var it = apis.iterator();
-    while (it.next()) |api| {
-        if (out.items.len > 0) try out.appendSlice(a, " + ");
-        try out.appendSlice(a, @tagName(api));
-    }
-    return out.items;
-}
-
 /// A symbol of another module: the module's id and the symbol's id there.
 pub const ForeignRef = struct { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
 
@@ -2457,9 +2446,6 @@ pub const Question = enum(u8) {
 /// next decision about that node (`Decided`: its index + 1, or 0).
 pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8, q: Question, next: u32 = 0 };
 
-/// The `Question`s decided so far. Held behind a pointer, so a pass that
-/// reads the context as constant still records the answer it is first to
-/// reach, as a memo would.
 /// Facts of a type that are asked often and cost a walk of what it holds,
 /// each worked out on its first ask (through a `*const SemContext`, as
 /// the decisions are) and kept, once declarations are resolved and the
@@ -2494,6 +2480,9 @@ pub const TypeMemo = struct {
     }
 };
 
+/// The `Question`s decided so far. Held behind a pointer, so a pass that
+/// reads the context as constant still records the answer it is first to
+/// reach, as a memo would.
 pub const Decided = struct {
     /// Every decision, in the order recorded; those about one node are
     /// chained through `Decision.next`.
@@ -4912,12 +4901,6 @@ pub const SemContext = struct {
     pub fn recordByteLiteral(self: *SemContext, pos: u32, bytes: []const u8, array: bool) !void {
         for (self.byte_literals.items) |l| if (l.pos == pos) return;
         try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
-    }
-
-    /// The type `$name` names at `node` where no value of it is made: an
-    /// API object's (`Checker.builtinTypeArg`).
-    pub fn recordNamedType(self: *SemContext, node: Sexp, ty: TypeId) !void {
-        try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
     }
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
@@ -8593,15 +8576,6 @@ pub const SetKey = struct {
 /// records it.
 pub const SetMember = struct { set: TypeId, name: []const u8 };
 
-/// The declared error set `ty` names, if it names one rather than a
-/// union.
-pub fn setKeyOf(ctx: *const SemContext, ty: TypeId) ?SetKey {
-    const d = nominalDecl(ctx, ty) orelse return null;
-    const sym = d.symbol();
-    if (!sym.flags.error_set or sym.error_parts != null) return null;
-    return .{ .ctx = d.ctx, .sym = d.sym };
-}
-
 /// A union of error sets (`error L = A | B`).
 pub fn isErrorUnion(ctx: *const SemContext, ty: TypeId) bool {
     const d = nominalDecl(ctx, ty) orelse return false;
@@ -8647,10 +8621,6 @@ const union_depth = 32;
 
 /// Whether `key`, a declared set, is one `outer` stands for: `outer`
 /// itself, or a set a part of the union `outer` joins.
-pub fn setIn(ctx: *const SemContext, key: SetKey, outer: TypeId) bool {
-    return setInAt(ctx, key, outer, 0);
-}
-
 fn setInAt(ctx: *const SemContext, key: SetKey, outer: TypeId, depth: u32) bool {
     if (depth > union_depth) return false;
     const d = nominalDecl(ctx, outer) orelse return false;
@@ -11509,12 +11479,6 @@ fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, local: bool
 /// views a String slot takes its `.bytes()`.
 pub fn viewsStringBytes(ctx: *const SemContext, slot: TypeId, view: TypeId) bool {
     return unwrapViews(ctx, slot) == ctx.types.string_id and view == ctx.types.string_view_id;
-}
-
-/// Whether a value of `ty` reaches a String (`Views.string`), which a
-/// `?String` may view.
-pub fn reachesString(ctx: *const SemContext, ty: TypeId) bool {
-    return ctx.holds(ty).views.text;
 }
 
 /// Whether `child` is a header of `parent`: an `if` or `while`
