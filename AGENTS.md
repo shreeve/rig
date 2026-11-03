@@ -184,7 +184,11 @@ until its rule is built. docs/internals/tests.md has the rest.
    `PUP_RIG=/zfs/trig-pup/rig-next/bin/rig tools/light` runs a debug
    trig on Trig's six cli projects four ways each (own config, Trig's,
    `--pretty`, `--checkers 4`), byte-identical to tsc, in about a
-   minute, and ends GREEN or RED. It also passes loco's light gate:
+   minute, and ends GREEN or RED. When other sessions may be building
+   on pup, build the Rig under test in a private folder of your own
+   there and point `PUP_RIG` at it, not at the shared
+   `/zfs/trig-pup/rig-next`, which two `tools/pup-rig` runs can race
+   over. It also passes loco's light gate:
    from a loc checkout (`~/Data/Code/loc`, pulled),
    `rig/tools/light RIG=/path/to/bin/rig` builds loco with that Rig,
    runs its tests, and compares its output with the Rust loc's on
