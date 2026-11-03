@@ -16,7 +16,7 @@ a program that makes none starts no workers.
   switch saves the registers a call keeps on the stack being left and
   restores those of the stack resumed (`sched.switchTo`, written for
   aarch64 and x86_64).
-- **The boundary.** `tasks.zig` calls the scheduler directly (`Handle`,
+- **The boundary.** `tasks.zig` calls the scheduler directly (`Task`,
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
@@ -32,10 +32,21 @@ a program that makes none starts no workers.
   ends the wait, and the call runs on to its end on its thread, which
   drops its result, unless it waits in a system call that its waiter's
   wake ends ("Waiting", below); its arguments live in the call's own
-  state, a byte slice among them copied, so nothing it reads is freed under it; an
-  argument it could write through (`[]u8`, `*T`) does not compile, since
-  the waiter may leave while it still writes, so it reads into memory it
-  owns and returns it. `rig.blocking`'s waiter waits for the call, which
+  state, a byte slice among them copied, so nothing it reads is freed
+  under it. Any other pointer among them, at any depth of an object, an
+  array, or a union, does not compile (`sched.leavable`), since the
+  waiter may leave while the call still uses it. What the call writes
+  into, it owns: a `String` or a descriptor (`net.Fd`) passed by value
+  moves into the call, which gives it back with its answer; a waiter
+  that stops before any thread started the call takes it back at once
+  (`sched.giveBack`), so a descriptor among them closes then, not when
+  a pool thread is free. A `File`'s read, write, and
+  sync work on a duplicate of its descriptor, so a task that stops
+  waiting and closes its file leaves the call a descriptor of its own;
+  a read moves the caller's String in and fills it, and `io.copy` lends
+  each file once and moves one buffer through every block. A call that
+  runs on its task's thread (no scheduler, or a deterministic run) takes
+  the file's own descriptor. `rig.blocking`'s waiter waits for the call, which
   takes its arguments as they are, a buffer to read into among them. A
   socket is registered with the poller of the worker that makes or
   accepts it, and waits there (`net.zig`): `http.serve`'s connections,
@@ -212,6 +223,17 @@ over hand, so no cancel reaches a task through a chain another may free.
 A cancel passes only down: a waiter takes none from the task it waits
 on, so canceling the tasks it owns (`par.map`'s helpers after a
 failure) leaves its own `Control` as it was.
+
+A task's end and an actor call's answer are one kind of thing: done
+once, with at most one fiber waiting (`sched.Done`, which `Header` and
+`tasks.Message` hold). The waiter records itself and its wait's number,
+then marks the record waited with a compare-and-swap; what finishes it
+marks it ending, wakes that waiter if one is marked, and only then
+marks it ended. The waiter goes on only once it reads ended, so it may
+free the record at once: no waker touches it after. A set of tasks and
+`task.all` wait on a count instead (`tasks.Wakeup`), which each of their
+tasks adds to as it ends, and a select on the claim of its first arm,
+which the claimer makes under its channel's lock.
 
 A cancel is a handshake of two steps on each side: the canceler sets the
 task's flag and then looks at its wait, and the waiting fiber begins its

@@ -10,18 +10,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const rig = @import("runtime.zig");
 const tasks = @import("tasks.zig");
-const split = rig.split;
 
-// Unit 0 of a split build defines every cell of this file
-// (`split.cell`).
-comptime {
-    if (split.on and split.main) _ = .{
-        lent.lock,
-        lent.fds,
-        lent.buffers,
-        lent.next,
-    };
-}
 const posix = std.posix;
 const sys = posix.system;
 const IpAddress = std.Io.net.IpAddress;
@@ -428,16 +417,32 @@ pub fn release(fd: i64, reg: i64, pair: i64) void {
 /// `io.copy(!from, !to)`: read `from` to its end, writing each block to
 /// `to`, and give how many bytes. Each is a `*` of a `net.Stream`, whose
 /// waits are its poller's, or of a `file.File`, whose calls run on the
-/// blocking pool (`std/file.zig`); the checker allows nothing else
-/// (`Checker.ioCopy`).
+/// blocking pool as `fileReadInto` and `fileWrite` run; the checker
+/// allows nothing else (`Checker.ioCopy`). One buffer carries every
+/// block, read where it is written from, and a file's descriptor is lent
+/// once for the whole copy: each block moves both into the pool's call
+/// and back.
 pub fn copy(from: anytype, to: anytype) anyerror!i64 {
-    const buf = rig.allocSlice(u8, copy_block);
-    defer rig.freeSlice(u8, buf);
+    var src = try copyEnd(from, false);
+    defer src.__rig_drop();
+    var dst = try copyEnd(to, true);
+    defer dst.__rig_drop();
+    var buf: rig.String = .empty;
+    defer rig.dropElement(rig.String, &buf);
     var total: i64 = 0;
     while (true) {
-        const n = try copyRead(from, buf);
+        buf.list.clearRetainingCapacity();
+        const room = buf.roomFor(copy_block);
+        if (comptime isStream(@TypeOf(from))) {
+            buf.list.items.len = try readSome(@intCast(from.fd), from.reg, room, .{});
+        } else try trip(readOnto, &src, &buf, @as(usize, copy_block));
+        const n = buf.list.items.len;
         if (n == 0) return total;
-        try copyWrite(to, buf[0..n]);
+        if (comptime isStream(@TypeOf(to))) {
+            try writeAll(@intCast(to.fd), to.reg, buf.list.items, .{});
+        } else if (to.fd == 1 or to.fd == 2) {
+            try standardWrite(to.fd, buf.list.items);
+        } else try trip(writeBuffer, &dst, &buf, {});
         total += @intCast(n);
     }
 }
@@ -445,92 +450,130 @@ pub fn copy(from: anytype, to: anytype) anyerror!i64 {
 /// The size of `copy`'s blocks: 64 KiB.
 const copy_block = 64 << 10;
 
-fn copyRead(from: anytype, dest: []u8) anyerror!usize {
-    if (@hasField(@TypeOf(from.*), "reg")) return readSome(@intCast(@field(from, "fd")), @field(from, "reg"), dest, .{});
-    var got = try fileRead(@field(from, "fd"), dest.len);
-    defer rig.dropElement(rig.String, &got);
-    @memcpy(dest[0..got.list.items.len], got.list.items);
-    return got.list.items.len;
+/// Whether `copy`'s end, a pointer of type `P`, is a `net.Stream`'s.
+fn isStream(comptime P: type) bool {
+    return @hasField(@typeInfo(P).pointer.child, "reg");
 }
 
-fn copyWrite(to: anytype, bytes: []const u8) anyerror!void {
-    if (@hasField(@TypeOf(to.*), "reg")) return writeAll(@intCast(@field(to, "fd")), @field(to, "reg"), bytes, .{});
-    return fileWrite(@field(to, "fd"), bytes);
+/// The descriptor `copy` reads or writes a `file.File` through (`lend`);
+/// none for a stream, or for stdout and stderr, written through
+/// `print`'s buffer.
+fn copyEnd(end: anytype, writes: bool) FileError!Fd {
+    if (comptime isStream(@TypeOf(end))) return .none;
+    if (writes and (end.fd == 1 or end.fd == 2)) return .none;
+    return lend(end.fd);
 }
 
 // -----------------------------------------------------------------------------
 // A file's reads and writes on the blocking pool
 // -----------------------------------------------------------------------------
 
-/// Read up to `want` bytes of the file `fd` (a `file.File`'s, for it and
-/// `io.copy`) on the blocking pool, as a fallible waiting point: a fresh
-/// String of what it read, empty at the end of the file. The call works
-/// on a duplicate of `fd` (`lend`), so a task that stops waiting and
-/// closes its file leaves the call a descriptor of its own.
-pub fn fileRead(fd: i64, want: usize) (rig.Stop || FileError)!rig.String {
-    const token = try lend(fd);
-    defer takeBack(token);
-    return try (try rig.blockingStop(readLent, .{ token, want }));
+/// A descriptor a call on the blocking pool owns, closed when dropped:
+/// one it opened, or a duplicate of a file's (`lend`). A call that runs
+/// here is given the file's own, which it does not own.
+pub const Fd = struct {
+    fd: i32,
+    owned: bool = true,
+
+    pub const none: Fd = .{ .fd = -1, .owned = false };
+
+    pub fn __rig_drop(self: *Fd) void {
+        if (self.owned) _ = sys.close(self.fd);
+    }
+};
+
+/// The descriptor of the file `fd` for a call: a duplicate, closed on
+/// exec, for one on the blocking pool, so a task that stops waiting and
+/// closes its file leaves the call a descriptor of its own, never a
+/// number the system may give out again; `fd` itself for one that runs
+/// here (`rig.onPool`).
+fn lend(fd: i64) FileError!Fd {
+    if (!rig.onPool()) return .{ .fd = @intCast(fd), .owned = false };
+    while (true) {
+        const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
+        switch (posix.errno(rc)) {
+            .SUCCESS => return .{ .fd = @intCast(rc) },
+            .INTR => {},
+            else => |e| return fileFailure(e),
+        }
+    }
 }
 
-/// Read up to `want` bytes of the file `fd` onto the end of `into`, into
-/// its own buffer, on the blocking pool as `fileRead` reads: how many,
-/// 0 at the end of the file. The String grows first, here, when it has
-/// no room for `want` more; then it moves into the call with the
-/// duplicate descriptor (`lendBuffer`), which the call fills and gives
-/// back, so the bytes are read where they stay and nothing is copied. A
-/// call that never runs, because a cancel or a deadline came first,
-/// leaves `into` as it was; one its task stopped waiting for keeps the
-/// buffer, so `into` is left empty. A String with no buffer before the
-/// read is cut to what came, so a small read keeps no room for `want`.
+/// What a file's call on the blocking pool takes and gives back: the
+/// descriptor it works on, the String it reads onto or writes from, and
+/// why it failed.
+const Block = struct {
+    fd: Fd,
+    buf: rig.String = .empty,
+    failure: ?(rig.Stop || FileError) = null,
+};
+
+/// `f(fd, buf, arg)` on the blocking pool as a fallible waiting point
+/// (`rig.blockingStop`): `fd` and `buf` move into the call and come back
+/// with its answer, or, from a call that never starts, at once. A task
+/// that stops waiting for a call under way leaves both to it, which
+/// drops them as it ends: `fd` and `buf` are left empty.
+fn trip(comptime f: anytype, fd: *Fd, buf: *rig.String, arg: anytype) (rig.Stop || FileError)!void {
+    const Call = struct {
+        fn run(b: Block, a: @TypeOf(arg)) Block {
+            var out = b;
+            f(out.fd.fd, &out.buf, a) catch |err| {
+                out.failure = err;
+            };
+            return out;
+        }
+    };
+    const args = .{ Block{ .fd = fd.*, .buf = buf.* }, arg };
+    fd.* = .none;
+    buf.* = .empty;
+    var back: @TypeOf(args) = .{ Block{ .fd = .none }, arg };
+    const got = rig.blockingStop(Call.run, args, &back) catch |err| {
+        fd.* = back[0].fd;
+        buf.* = back[0].buf;
+        return err;
+    };
+    fd.* = got.fd;
+    buf.* = got.buf;
+    if (got.failure) |e| return e;
+}
+
+/// Read up to `want` bytes of the file `fd` (a `file.File`'s) onto the
+/// end of `into`, into its own buffer, on the blocking pool (`trip`): how
+/// many, 0 at the end of the file. The String grows first, here, when it
+/// has no room for `want` more; then it moves into the call, which fills
+/// it and gives it back, so the bytes are read where they stay and
+/// nothing is copied. A cancel or a deadline that ends the wait before
+/// the read starts leaves `into` as it was; one that ends it while the
+/// read is under way leaves the buffer to the read, so `into` is left
+/// empty. A String with no
+/// buffer before the read is cut to what came, so a small read keeps no
+/// room for `want`.
 pub fn fileReadInto(fd: i64, into: *rig.String, want: usize) (rig.Stop || FileError)!usize {
     if (want == 0) return 0;
     const bare = into.list.capacity == 0;
     _ = into.roomFor(want);
-    const token = try lendBuffer(fd, into);
-    defer takeBackBuffer(token, into);
-    var got = try rig.blockingStop(readFilling, .{ token, want });
-    // `into` is empty: the call holds its buffer, and gives it back here.
-    std.mem.swap(rig.String, into, &got.buf);
-    if (got.failure) |e| return e;
+    const before = into.list.items.len;
+    var d = try lend(fd);
+    defer d.__rig_drop();
+    try trip(readOnto, &d, into, want);
     if (bare) into.fit();
-    return got.n;
+    return into.list.items.len - before;
 }
 
-/// What `readFilling` gives back: the buffer it was lent, with what it
-/// read on its end, and how many bytes; or the buffer as it was, and
-/// why the read failed.
-const Filled = struct {
-    buf: rig.String = .empty,
-    n: usize = 0,
-    failure: ?(rig.Stop || FileError) = null,
-};
-
-fn readFilling(token: u64, want: usize) Filled {
-    const got = claimBuffer(token) orelse return .{ .failure = error.@"std.file.FileError.failed" };
-    defer _ = sys.close(got.fd);
-    var out: Filled = .{ .buf = got.buf };
-    rig.checkStop() catch |err| {
-        out.failure = err;
-        return out;
-    };
-    const l = &out.buf.list;
+/// Read up to `want` bytes of `fd` onto the end of `buf`, into the room
+/// it has for them: once any come, or none at the end of the file.
+fn readOnto(fd: i32, buf: *rig.String, want: usize) (rig.Stop || FileError)!void {
+    try rig.checkStop();
+    const l = &buf.list;
     while (true) {
-        const rc = sys.read(got.fd, l.items.ptr + l.items.len, want);
+        const rc = sys.read(fd, l.items.ptr + l.items.len, want);
         switch (posix.errno(rc)) {
             .SUCCESS => {
-                out.n = @intCast(rc);
-                l.items.len += out.n;
-                return out;
+                l.items.len += @intCast(rc);
+                return;
             },
-            .INTR => rig.checkStop() catch |err| {
-                out.failure = err;
-                return out;
-            },
-            else => |e| {
-                out.failure = fileFailure(e);
-                return out;
-            },
+            .INTR => try rig.checkStop(),
+            else => |e| return fileFailure(e),
         }
     }
 }
@@ -552,12 +595,35 @@ pub fn fileFlush(fd: i64) FileError!void {
 }
 
 /// Write all of `bytes` to the file `fd` on the blocking pool, as
-/// `fileRead` reads.
+/// `fileReadInto` reads, which copies them (`rig.blockingStop`).
 pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
     if (fd == 1 or fd == 2) return standardWrite(fd, bytes);
-    const token = try lend(fd);
-    defer takeBack(token);
-    return try (try rig.blockingStop(writeLent, .{ token, bytes }));
+    var d = try lend(fd);
+    defer d.__rig_drop();
+    var none: rig.String = .empty;
+    return trip(writeBytes, &d, &none, bytes);
+}
+
+fn writeBytes(fd: i32, _: *rig.String, bytes: []const u8) (rig.Stop || FileError)!void {
+    return writeFile(fd, bytes);
+}
+
+/// `copy`'s write of its buffer.
+fn writeBuffer(fd: i32, buf: *rig.String, _: void) (rig.Stop || FileError)!void {
+    return writeFile(fd, buf.list.items);
+}
+
+fn writeFile(fd: i32, bytes: []const u8) (rig.Stop || FileError)!void {
+    try rig.checkStop();
+    var at: usize = 0;
+    while (at < bytes.len) {
+        const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
+        switch (posix.errno(rc)) {
+            .SUCCESS => at += @intCast(rc),
+            .INTR => try rig.checkStop(),
+            else => |e| return fileFailure(e),
+        }
+    }
 }
 
 /// What `fileSync` writes out: the file's bytes and what the file system
@@ -566,25 +632,25 @@ pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
 pub const Sync = enum(u2) { all, data, fs };
 
 /// Write out the file `fd` to its device and wait until the device has
-/// it, on the blocking pool as `fileRead` reads, on a duplicate of `fd`;
-/// for stdout, what `print` buffered is written out first. On macOS
-/// `all` and `data` are `F_FULLFSYNC`, which also asks the drive to
-/// empty its cache, falling back to `fsync` where a file system or a
-/// kind of file does not take it; `fs` is Linux's `syncfs`, and on
-/// other systems `sync`, which writes out every file system.
+/// it, on the blocking pool as `fileReadInto` reads; for stdout, what
+/// `print` buffered is written out first. On macOS `all` and `data` are
+/// `F_FULLFSYNC`, which also asks the drive to empty its cache, falling
+/// back to `fsync` where a file system or a kind of file does not take
+/// it; `fs` is Linux's `syncfs`, and on other systems `sync`, which
+/// writes out every file system.
 pub fn fileSync(fd: i64, how: Sync) (rig.Stop || FileError)!void {
     try fileFlush(fd);
-    const token = try lend(fd);
-    defer takeBack(token);
-    return try (try rig.blockingStop(syncLent, .{ token, how }));
+    var d = try lend(fd);
+    defer d.__rig_drop();
+    var none: rig.String = .empty;
+    return trip(syncFd, &d, &none, how);
 }
 
 /// Whether the system has `syncfs`, which writes out one file system.
 const has_syncfs = builtin.os.tag == .linux;
 
-fn syncLent(token: u64, how: Sync) (rig.Stop || FileError)!void {
-    const fd = claim(token) orelse return error.@"std.file.FileError.failed";
-    defer _ = sys.close(fd);
+fn syncFd(fd: i32, _: *rig.String, how: Sync) (rig.Stop || FileError)!void {
+    try rig.checkStop();
     if (how == .fs and !has_syncfs) return sys.sync();
     if (darwin) {
         while (true) switch (posix.errno(sys.fcntl(fd, posix.F.FULLFSYNC, @as(usize, 0)))) {
@@ -605,154 +671,6 @@ fn syncLent(token: u64, how: Sync) (rig.Stop || FileError)!void {
         };
         switch (posix.errno(rc)) {
             .SUCCESS => return,
-            .INTR => try rig.checkStop(),
-            else => |e| return fileFailure(e),
-        }
-    }
-}
-
-/// The descriptors lent to calls on the blocking pool, each a duplicate
-/// of a file's under a token. Whoever removes one owns it and closes it:
-/// the call, once it starts (`claim`), or else its caller, once the call
-/// has returned or the caller has stopped waiting (`takeBack`). So a
-/// call that never runs, because a cancel or a deadline came first, and
-/// one that starts after its caller stopped waiting, leave nothing open,
-/// and none uses a descriptor its task may have closed and the system
-/// given out again.
-const lent = struct {
-    var lock_var: rig.sched.SpinLock = .{};
-    const lock = split.cell(&lock_var, "net.lent_lock");
-    var fds_var: std.AutoHashMapUnmanaged(u64, i32) = .empty;
-    const fds = split.cell(&fds_var, "net.lent_fds");
-    /// The same for `fileReadInto`: each duplicate with the String it
-    /// reads into, which moves with it.
-    var buffers_var: std.AutoHashMapUnmanaged(u64, LentBuffer) = .empty;
-    const buffers = split.cell(&buffers_var, "net.lent_buffers");
-    var next_var: u64 = 1;
-    const next = split.cell(&next_var, "net.lent_next");
-};
-
-const LentBuffer = struct { fd: i32, buf: rig.String };
-
-/// A token for a duplicate of `fd` and the String `into`, which moves
-/// into `lent` and leaves `into` empty.
-fn lendBuffer(fd: i64, into: *rig.String) FileError!u64 {
-    const dup = try duplicate(fd);
-    lent.lock.lock();
-    defer lent.lock.unlock();
-    const token = lent.next.*;
-    lent.next.* += 1;
-    lent.buffers.put(std.heap.smp_allocator, token, .{ .fd = dup, .buf = into.* }) catch rig.oom();
-    into.* = .empty;
-    return token;
-}
-
-/// The descriptor and String lent under `token`, now the caller's, or
-/// null when they were taken back already.
-fn claimBuffer(token: u64) ?LentBuffer {
-    lent.lock.lock();
-    defer lent.lock.unlock();
-    const kv = lent.buffers.fetchRemove(token) orelse return null;
-    return kv.value;
-}
-
-/// Close the descriptor lent under `token` and give its String back to
-/// `into`, unless a call claimed them.
-fn takeBackBuffer(token: u64, into: *rig.String) void {
-    var got = claimBuffer(token) orelse return;
-    _ = sys.close(got.fd);
-    std.mem.swap(rig.String, into, &got.buf);
-    rig.dropElement(rig.String, &got.buf);
-}
-
-/// A token for a duplicate of `fd`, held in `lent`.
-fn lend(fd: i64) FileError!u64 {
-    const dup = try duplicate(fd);
-    lent.lock.lock();
-    defer lent.lock.unlock();
-    const token = lent.next.*;
-    lent.next.* += 1;
-    lent.fds.put(std.heap.smp_allocator, token, dup) catch rig.oom();
-    return token;
-}
-
-/// A duplicate of `fd`, closed on exec.
-fn duplicate(fd: i64) FileError!i32 {
-    while (true) {
-        const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
-        switch (posix.errno(rc)) {
-            .SUCCESS => return @intCast(rc),
-            .INTR => {},
-            else => |e| return fileFailure(e),
-        }
-    }
-}
-
-/// The descriptor lent under `token`, now the caller's to close, or null
-/// when it was taken back already.
-fn claim(token: u64) ?i32 {
-    lent.lock.lock();
-    defer lent.lock.unlock();
-    const kv = lent.fds.fetchRemove(token) orelse return null;
-    return kv.value;
-}
-
-/// Close the descriptor lent under `token`, unless a call claimed it.
-fn takeBack(token: u64) void {
-    if (claim(token)) |fd| _ = sys.close(fd);
-}
-
-fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
-    const fd = claim(token) orelse return error.@"std.file.FileError.failed";
-    defer _ = sys.close(fd);
-    try rig.checkStop();
-    // A read of up to `small_read` goes through the stack, so the String
-    // holds only what came, and nothing at the end of the file.
-    if (want <= small_read) {
-        var buf: [small_read]u8 = undefined;
-        while (true) {
-            const rc = sys.read(fd, &buf, want);
-            switch (posix.errno(rc)) {
-                .SUCCESS => return fresh(buf[0..@intCast(rc)]),
-                .INTR => try rig.checkStop(),
-                else => |e| return fileFailure(e),
-            }
-        }
-    }
-    var s: rig.String = .empty;
-    const room = s.roomFor(want);
-    while (true) {
-        const rc = sys.read(fd, room.ptr, want);
-        switch (posix.errno(rc)) {
-            .SUCCESS => {
-                s.list.items.len = @intCast(rc);
-                s.fit();
-                return s;
-            },
-            .INTR => rig.checkStop() catch |err| {
-                rig.dropElement(rig.String, &s);
-                return err;
-            },
-            else => |e| {
-                rig.dropElement(rig.String, &s);
-                return fileFailure(e);
-            },
-        }
-    }
-}
-
-/// The largest read `readLent` makes through the stack: 64 KiB.
-const small_read = 64 << 10;
-
-fn writeLent(token: u64, bytes: []const u8) (rig.Stop || FileError)!void {
-    const fd = claim(token) orelse return error.@"std.file.FileError.failed";
-    defer _ = sys.close(fd);
-    try rig.checkStop();
-    var at: usize = 0;
-    while (at < bytes.len) {
-        const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
-        switch (posix.errno(rc)) {
-            .SUCCESS => at += @intCast(rc),
             .INTR => try rig.checkStop(),
             else => |e| return fileFailure(e),
         }

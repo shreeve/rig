@@ -119,27 +119,39 @@ pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".
     return @call(.auto, f, args);
 }
 
+/// Whether a call `blocking` or `blockingStop` makes here goes to the
+/// blocking pool, rather than running on this thread.
+pub fn onPool() bool {
+    return scheduled and sched.onPool();
+}
+
 /// `f(args...)`, a call that may block its thread, as a fallible waiting
 /// point: on the scheduler's blocking pool, where a cancel of the task
 /// waiting, or its deadline, ends the wait with `Stop.canceled` or
 /// `Stop.timeout` while the call runs on to its end, or to the retry of
 /// the system call its waiter's wake ended, and its result is dropped
 /// (`sched.blockingStop`). `args` are copied into the call's own
-/// state, a `[]const u8` among them with what it points to; anything else
-/// they point to must outlive the call. An argument the call could write
-/// through (`[]u8`, `*T`) does not compile: a canceled waiter goes on
-/// while the call may still write, so the call reads into memory it owns
-/// and returns it. Without the scheduler it runs here, once `checkStop`
-/// passes; an interrupt's cancel of `main` makes the system call it
-/// blocks in fail (EINTR), and so does an alarm at the task's deadline
-/// (`Alarm`), and the call's retry loop stops there (`checkStop`).
-pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
-    if (scheduled) return switch (sched.blockingStop(f, args)) {
+/// state, a `[]const u8` among them with what it points to; any other
+/// pointer among them does not compile, since a canceled waiter goes on
+/// while the call may still use it. The call owns a `String` or a
+/// `net.Fd` passed to it, and writes into that, and returns it; one
+/// that never runs gives it back into `back`, or drops it when `back`
+/// is null (`sched.giveBack`). Without the scheduler it runs here, once
+/// `checkStop` passes; an interrupt's cancel of `main` makes the system
+/// call it blocks in fail (EINTR), and so does an alarm at the task's
+/// deadline (`Alarm`), and the call's retry loop stops there
+/// (`checkStop`).
+pub fn blockingStop(comptime f: anytype, args: anytype, back: ?*@TypeOf(args)) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (scheduled) return switch (sched.blockingStop(f, args, back)) {
         .done => |r| r,
         .canceled => error.@"std.task.Stop.canceled",
         .timeout => error.@"std.task.Stop.timeout",
     };
-    try checkStop();
+    checkStop() catch |err| {
+        var left = args;
+        sched.giveBack(&left, back);
+        return err;
+    };
     const d = task().deadline orelse return @call(.auto, f, args);
     if (sched.deterministic.*) return @call(.auto, f, args);
     const alarm = Alarm.set(d);

@@ -202,7 +202,7 @@ pub fn Task(comptime T: type) type {
             // and it passes the cancel on to the task it waits on, then
             // waits for that task's end.
             const job = t.job;
-            const mine: ?*const std.atomic.Value(bool) = if (task().control) |c| &c.canceled else null;
+            const mine = cancelFlag();
             const deadline = if (fallible) task().deadline else null;
             var timed_out = false;
             if (!job.waitEnd(mine, deadline)) {
@@ -2019,7 +2019,7 @@ pub fn Actor(comptime T: type) type {
         inline fn answer(self: *Self, m: *Message, comptime outcome: u8) void {
             const slotted = m.slotted;
             if (outcome != Message.done) m.outcome = outcome;
-            m.answer();
+            m.answer.finish();
             if (slotted) self.freeSlot();
         }
 
@@ -2393,80 +2393,42 @@ fn roomInline(t: *rt.TaskState) bool {
 const inline_reserve = rt.task_stack_size / 4;
 
 /// A call of an actor's method, in its caller's frame: the actor runs
-/// it (`run`) and answers, which wakes the caller. Its status goes from
-/// `queued` (or `waited`, once the caller sleeps on it) to `ending` and
-/// `ended`, as a task's `Header` does, so the caller returns, and its
-/// frame goes, only after the runner is done with it.
+/// it (`run`) and answers (`answer`), which wakes the caller, as a task's
+/// end wakes its waiter, so the caller returns, and its frame goes, only
+/// after the runner is done with it.
 const Message = struct {
     next: ?*Message = null,
     run: *const fn (*Message) void,
     /// The method called, as a deadlock names it.
     label: *const rt.sched.Label,
+    answer: rt.sched.Done = .{},
     /// Taken by a runner, under the actor's lock: no longer withdrawn.
     started: bool = false,
     /// A call made with `&`, whose slot of the mailbox its answer gives
     /// back (`Actor.answer`).
     slotted: bool = false,
-    status: std.atomic.Value(u8) = .init(queued),
     /// How it was answered: `done`, or, when the actor died, `panicked`
     /// for the call it ran then and `died` for one queued (`Actor.kill`).
     outcome: u8 = done,
-    waiter: std.atomic.Value(?*rt.sched.Fiber) = .init(null),
-    waiter_epoch: std.atomic.Value(u32) = .init(0),
 
     const done = 0;
     const panicked = 1;
     const died = 2;
 
-    const queued = 0;
-    const waited = 1;
-    const ending = 2;
-    const ended = 3;
-
-    fn answer(m: *Message) void {
-        if (m.status.swap(ending, .seq_cst) == waited) {
-            _ = rt.sched.interrupt(m.waiter.load(.seq_cst).?, m.waiter_epoch.load(.seq_cst), false);
-        }
-        m.status.store(ended, .seq_cst);
-    }
-
     /// Whether the message at `p` has been answered, for a deadlock's
     /// walk (`rt.sched.Blocked`).
     fn answered(p: *const anyopaque) bool {
         const m: *const Message = @ptrCast(@alignCast(p));
-        return m.status.load(.seq_cst) >= ending;
-    }
-
-    fn isEnded(m: *Message) bool {
-        while (true) {
-            const s = m.status.load(.seq_cst);
-            if (s == ended) return true;
-            if (s != ending) return false;
-            std.atomic.spinLoopHint();
-        }
+        return m.answer.over();
     }
 
     /// Wait for the answer; with `stoppable`, a cancel or the deadline
     /// withdraws a message that has not started, when this gives false.
     fn waitAnswer(m: *Message, owner: anytype, stoppable: bool) bool {
-        var stop = stoppable;
-        while (!m.isEnded()) {
-            if (stop and (canceledHere() or pastDeadline())) {
-                if (owner.withdraw(m)) return false;
-                // Started: it runs to its end, and the caller waits.
-                stop = false;
-                continue;
-            }
-            const e = rt.sched.beginWait(stop);
-            m.waiter.store(rt.sched.current().?, .seq_cst);
-            m.waiter_epoch.store(e, .seq_cst);
-            if (m.status.cmpxchgStrong(queued, waited, .seq_cst, .seq_cst)) |s| {
-                if (s != waited) continue;
-            }
-            if (stop and (canceledHere() or pastDeadline())) continue;
-            rt.sched.commitWait(e, if (stop) task().deadline else null);
-        }
-        return true;
+        const stopped = stoppable and !m.answer.wait(cancelFlag(), task().deadline);
+        // A message that started runs to its end, and the caller waits.
+        if (stopped and owner.withdraw(m)) return false;
+        return m.answer.wait(null, null);
     }
 };
 
@@ -2551,6 +2513,13 @@ const canceled_error = error.@"std.task.Stop.canceled";
 fn canceledHere() bool {
     const control = task().control orelse return false;
     return control.canceled.load(.seq_cst);
+}
+
+/// The flag a cancel of the running task sets, for a wait a cancel may
+/// end (`rt.sched.Done.wait`); none when nothing can cancel it.
+fn cancelFlag() ?*const std.atomic.Value(bool) {
+    const control = task().control orelse return null;
+    return &control.canceled;
 }
 
 /// Where a blocking system call that a signal interrupted (EINTR) asks
