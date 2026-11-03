@@ -2176,6 +2176,7 @@ const HiddenName = enum(u16) {
     push_name = 43,
     chain_index = 44,
     int_type = 45,
+    len_name = 46,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2225,6 +2226,7 @@ const HiddenName = enum(u16) {
             .push_name => "push",
             .chain_index => "chain index",
             .int_type => "Int",
+            .len_name => "len",
         };
     }
 };
@@ -2528,7 +2530,8 @@ pub const ChainSource = enum { iterator, elements, range };
 /// `copies`: an element of a List, array, or slice source is plain data,
 /// which a loop's item copies; else the loop lends it, and a consumer
 /// that keeps one keeps its index (`Parser.lowerPeel`).
-pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true };
+/// `zip` and `zip_copies` say the same of a `zip`'s second source.
+pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true, zip: ChainSource = .elements, zip_copies: bool = true };
 
 /// The stages a chain may take, in a call on a `for` source whose type
 /// declares no method of the name.
@@ -5044,7 +5047,7 @@ pub const Parser = struct {
             if (slot.* != .list) continue;
             const id = slot.list.id;
             for (chains) |c| if (c.node == id) {
-                slot.* = try self.lowerIterChain(slot.*, c.source, c.copies);
+                slot.* = try self.lowerIterChain(slot.*, c);
                 if (chain_debug) { // DBG
                     var buf: std.Io.Writer.Allocating = .init(self.allocator());
                     writeTree(slot.*, self.base.source, &buf.writer) catch {};
@@ -5072,8 +5075,14 @@ pub const Parser = struct {
         /// binding whose `(item_type ...)` it is; and of the item after
         /// the last stage.
         item_of: []HiddenName,
-        /// The second value each stage after `enumerate` or `zip` passes.
+        /// The second value each stage after `enumerate` or `zip` passes,
+        /// and the hidden binding whose `(item_type ...)` is its type,
+        /// bound before the loop.
         second_of: []?HiddenName,
+        second_ty: []?HiddenName,
+        /// What a `zip`'s second source is (`Chain.zip`).
+        zip: ChainSource = .elements,
+        zip_copies: bool = true,
         /// No stage or consumer reads the item (`count` after counts
         /// alone): the loop binds `_`.
         unread: bool = false,
@@ -5177,6 +5186,18 @@ pub const Parser = struct {
                 } else if (eq(st.name, "enumerate")) {
                     try body.append(a, try l.bind(limitName(n), .nil, try l.leaf(countName(n))));
                     try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
+                } else if (eq(st.name, "zip")) {
+                    // The second source's next item, or the end of both.
+                    if (l.zip == .iterator) {
+                        const next = try l.node(.member, &.{ try l.node(.write, &.{try l.leaf(stageName(n))}), try l.leaf(.next) });
+                        try body.append(a, try l.bind(limitName(n), .nil, try l.node(.@"??", &.{ try l.node(.call, &.{ .nil, next }), try l.brk(.nil) })));
+                    } else {
+                        const len = try l.node(.member, &.{ try l.leaf(stageName(n)), try l.leaf(.len_name) });
+                        try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), len }), &.{try l.brk(.nil)}));
+                        const e = try l.node(.index, &.{ try l.leaf(stageName(n)), try l.leaf(countName(n)) });
+                        try body.append(a, try l.bind(limitName(n), .nil, if (l.zip_copies) e else try l.node(.read, &.{e})));
+                        try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
+                    }
                 }
             }
         }
@@ -5252,7 +5273,8 @@ pub const Parser = struct {
     }
 
     /// One chain as its loop (`desugarChains`).
-    fn lowerIterChain(self: *Parser, node: Sexp, source: ChainSource, copies: bool) std.mem.Allocator.Error!Sexp {
+    fn lowerIterChain(self: *Parser, node: Sexp, c: Chain) std.mem.Allocator.Error!Sexp {
+        const source = c.source;
         const a = self.allocator();
         const is_for = node.isKind(.@"for");
         var cur = if (is_for) ir.For.source(node) else node;
@@ -5279,7 +5301,7 @@ pub const Parser = struct {
         }
         const root = cur;
         const extent = self.span(node);
-        const home = if (consumer) |c| c.at else if (steps.items.len > 0) steps.items[steps.items.len - 1].at else extent.start;
+        const home = if (consumer) |cs| cs.at else if (steps.items.len > 0) steps.items[steps.items.len - 1].at else extent.start;
         const n = steps.items.len;
         var l: ChainLowering = .{
             .p = self,
@@ -5290,7 +5312,10 @@ pub const Parser = struct {
             .funs = try a.alloc(?HiddenName, n + 1),
             .item_of = try a.alloc(HiddenName, n + 1),
             .second_of = try a.alloc(?HiddenName, n + 2),
-            .copies = copies,
+            .second_ty = try a.alloc(?HiddenName, n + 2),
+            .copies = c.copies,
+            .zip = c.zip,
+            .zip_copies = c.zip_copies,
         };
         var pre: std.ArrayList(Sexp) = .empty;
         // The source, held: a range by its bounds, a place lent to read
@@ -5313,11 +5338,13 @@ pub const Parser = struct {
         // Each stage's function, bound once, its parameters typed by the
         // items it takes; each count's limit, evaluated once.
         l.second_of[0] = null;
+        l.second_ty[0] = null;
         for (steps.items, 0..) |st, i| {
             const k = i + 1;
             l.funs[i] = null;
             l.item_of[k] = l.item_of[i];
             l.second_of[k] = l.second_of[i];
+            l.second_ty[k] = l.second_ty[i];
             if (eq(st.name, "map") or eq(st.name, "filter")) {
                 try pre.append(a, try l.bind(stageName(k), .nil, try self.typedFunction(&l, st.args[0], i)));
                 l.funs[i] = stageName(k);
@@ -5328,6 +5355,15 @@ pub const Parser = struct {
             } else if (eq(st.name, "enumerate")) {
                 try pre.append(a, try l.bind(countName(k), .nil, try l.leaf(.zero_value)));
                 l.second_of[k] = limitName(k);
+                l.second_ty[k] = countName(k);
+            } else if (eq(st.name, "zip")) {
+                // The second source, held as the first is.
+                const ys = st.args[0];
+                const made = ys.isKind(.call) or ys.isKind(.array) or ys.isKind(.write) or ys.isKind(.read) or ys.isKind(.move);
+                try pre.append(a, try l.bind(stageName(k), .nil, if (made) ys else try l.node(.read, &.{ys})));
+                if (c.zip == .elements) try pre.append(a, try l.bind(countName(k), .nil, try l.leaf(.zero_value)));
+                l.second_of[k] = limitName(k);
+                l.second_ty[k] = stageName(k);
             }
         }
         l.unread = !is_for and eq(consumer.?.name, "count") and for (steps.items) |st| {
@@ -5342,7 +5378,7 @@ pub const Parser = struct {
     /// untyped parameters gain `(item_type ...)`; any other function is
     /// called by a closure that is.
     fn typedFunction(self: *Parser, l: *const ChainLowering, f: Sexp, i: usize) std.mem.Allocator.Error!Sexp {
-        const tys = [2]?HiddenName{ l.item_of[i], l.second_of[i] };
+        const tys = [2]?HiddenName{ l.item_of[i], l.second_ty[i] };
         if (f.isKind(.lambda)) {
             const params = ir.get(f, .params);
             if (params != .list) return f;
@@ -5410,12 +5446,12 @@ pub const Parser = struct {
             try pre.append(a, try l.bind(.chain_value, .nil, c.args[0]));
             // The running value's type, then the item's.
             const saved = l.item_of[last];
-            const saved_second = l.second_of[last];
+            const saved_second = l.second_ty[last];
             l.item_of[last] = .chain_value;
-            l.second_of[last] = saved;
+            l.second_ty[last] = saved;
             const f = try self.typedFunction(l, c.args[1], last);
             l.item_of[last] = saved;
-            l.second_of[last] = saved_second;
+            l.second_ty[last] = saved_second;
             try pre.append(a, try l.bind(.chain_key, .nil, f));
         } else if (eq(c.name, "collect")) {
             const ty = try l.node(.generic_inst, &.{ try l.leaf(.list_type), try l.itemType(item_ty) });

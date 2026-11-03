@@ -14322,10 +14322,40 @@ const Checker = struct {
             try self.errAt(root, "a chain advances the iterator `{s}`: lend it to write, `(!{s}).{s}(...)`", .{ shown, shown, first });
             return self.t().invalid_id;
         }
+        // A `zip`'s second source: one a chain, walked as the first is.
+        var zip: rig.ChainSource = .elements;
+        var zip_copies = true;
+        var zips: usize = 0;
+        var at = call;
+        while (at.isKind(.call) and ir.Call.callee(at).isKind(.member)) : (at = ir.Member.object(ir.Call.callee(at))) {
+            const c = ir.Call.callee(at);
+            if (!std.mem.eql(u8, self.text(ir.Member.name(c)), "zip")) continue;
+            zips += 1;
+            if (zips > 1) {
+                try self.errAt(ir.Member.name(c), "a chain takes one `zip`", .{});
+                return self.t().invalid_id;
+            }
+            const ys = ir.Call.args(at)[0];
+            const second = (try self.chainSource(ys, "zip", 1)) orelse {
+                try self.errAt(ys, "`zip` walks a List, an array, a slice, or an iterator, and `{s}` is a `{s}`", .{ try self.plainText(ys), try self.tyName(try self.synthQuiet(ys)) });
+                return self.t().invalid_id;
+            };
+            if (second.kind == .range) {
+                try self.errAt(ys, "`zip` with a range: write its numbers with `enumerate`, or hold the range's bounds", .{});
+                return self.t().invalid_id;
+            }
+            if (second.kind == .iterator and !madeHere(ys) and !ys.isKind(.write)) {
+                const shown = try self.plainText(ys);
+                try self.errAt(ys, "`zip` advances the iterator `{s}`: lend it to write, `zip(!{s})`", .{ shown, shown });
+                return self.t().invalid_id;
+            }
+            zip = second.kind;
+            zip_copies = second.copies;
+        }
         const node = if (for_source) self.chain_for else call;
         const id = node.list.id;
         for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
-        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies });
+        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies, .zip = zip, .zip_copies = zip_copies });
         return self.t().unknown_id;
     }
 
@@ -14392,9 +14422,24 @@ const Checker = struct {
             try self.errAt(a, "`{s}` takes no keyword arguments", .{name});
             return false;
         };
-        if (args.len == want.n) return true;
-        try self.errAt(ir.Member.name(callee), "`{s}` in a chain takes {s}", .{ name, want.what });
-        return false;
+        if (args.len != want.n) {
+            try self.errAt(ir.Member.name(callee), "`{s}` in a chain takes {s}", .{ name, want.what });
+            return false;
+        }
+        for (args) |a| if (a.isKind(.lambda)) if (failsIn(ir.get(a, .body))) |at| {
+            try self.errAt(at, "a chain's function cannot fail: handle the failure inside it with `catch`, or write the loop", .{});
+            return false;
+        };
+        return true;
+    }
+
+    /// The first `e!` in a closure's body, outside closures inside it.
+    fn failsIn(e: Sexp) ?Sexp {
+        if (e != .list) return null;
+        if (e.isKind(.propagate)) return e;
+        if (e.isKind(.lambda)) return null;
+        for (e.items()) |c| if (failsIn(c)) |at| return at;
+        return null;
     }
 
     /// Whether closure literal `f` checks against function type `want`
