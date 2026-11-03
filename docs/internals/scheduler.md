@@ -47,8 +47,12 @@ a program that makes none starts no workers.
   each file once and moves one buffer through every block. A call that
   runs on its task's thread (no scheduler, or a deterministic run) takes
   the file's own descriptor. `rig.blocking`'s waiter waits for the call, which
-  takes its arguments as they are, a buffer to read into among them. Sockets are registered
-  with the workers' pollers and wait there (`net.zig`).
+  takes its arguments as they are, a buffer to read into among them. A
+  socket is registered with the poller of the worker that makes or
+  accepts it, and waits there (`net.zig`): `http.serve`'s connections,
+  like those of a server's own accept loop, share the acceptor's
+  poller, which it sleeps in while it waits to accept, so their events
+  wake it at once rather than wait for a busy worker's next look.
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
   full pipe holds its worker until it returns.
@@ -59,8 +63,9 @@ a program that makes none starts no workers.
   sleep wakes the fibers whose timers are due on any worker, polls the
   pollers no worker sleeps in, and sleeps until the earliest deadline any
   worker holds. A file descriptor registered with a poller
-  (`sched.Registration`) reports when it becomes ready to read or write,
-  edge-triggered, and a fiber waits for that (`sched.waitReady`). An end
+  (`sched.Registration`) counts each edge, ready to read or to write,
+  and a fiber that reads the count before its call (`sched.edges`) waits
+  for it to change (`sched.waitReady`). An end
   is readiness only for the waits it ends: the end of reading (the other
   end's half-close, EOF on kqueue's read filter or RDHUP) wakes the
   reader, the end of writing (this side's half-close, EOF on the write
@@ -246,7 +251,11 @@ itself, under a lock that also guards what it waits for
 (`sched.Waiters`, `sched.sleepOn`). A waker makes the condition true,
 then takes fibers off the list under the lock and wakes them: a
 descriptor's edge wakes every fiber waiting on it, and each tries its
-call again, and a freed slot wakes one. A woken fiber takes the lock
+call again, and a freed slot wakes one. A wait on a descriptor waits
+only while the count of edges it read before its call is unchanged, so
+an edge after that call reaches it even when another waiter, woken by
+the same edge, runs first and takes what came: no waiter consumes
+another's readiness. A woken fiber takes the lock
 again before it goes on, so no waker touches its entry after it leaves,
 and no wait spins: each sleeps until it is woken.
 

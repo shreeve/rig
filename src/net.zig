@@ -137,15 +137,25 @@ const Limit = struct {
     }
 };
 
-/// Wait for `fd` to be ready for `interest`: on its poller, or, outside
-/// the scheduler, in `poll`; no longer than `limit` allows. A task whose
-/// descriptor the poller refused fails, rather than block its worker.
-fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) Error!void {
+/// The edges the poller has seen `reg` become ready for `interest`
+/// (`sched.edges`), read before a call that may find it not ready, to
+/// pass to `waitFor`; 0 outside the scheduler.
+fn edges(reg: i64, interest: u32) u32 {
+    if (reg == 0) return 0;
+    return rig.sched.edges(@ptrFromInt(@as(usize, @intCast(reg))), interest);
+}
+
+/// Wait for `fd` to be ready for `interest`, after a call that would have
+/// blocked: on its poller, for an edge past `seen`, read before the call
+/// (`edges`), or, outside the scheduler, in `poll`; no longer than
+/// `limit` allows. A task whose descriptor the poller refused fails,
+/// rather than block its worker.
+fn waitFor(fd: i32, reg: i64, interest: u32, seen: u32, limit: Limit) Error!void {
     const t = rig.task();
     const deadline = limit.deadline(t.deadline);
     if (rig.sched.current() != null) {
         if (reg == 0) return error.@"std.net.NetError.failed";
-        return switch (rig.sched.waitReady(@ptrFromInt(@as(usize, @intCast(reg))), interest, deadline, true)) {
+        return switch (rig.sched.waitReady(@ptrFromInt(@as(usize, @intCast(reg))), interest, seen, deadline, true)) {
             .ready => {},
             .canceled => canceled,
             .timeout => timeout,
@@ -202,7 +212,10 @@ pub fn open_to(addr: []const u8) Error!i64 {
 
 pub fn finish_connect(fd: i64, reg: i64) Error!void {
     const s: i32 = @intCast(fd);
-    try waitFor(s, reg, rig.sched.Registration.writable, .{});
+    // The connect began before the socket was registered, so any edge the
+    // registration has seen may be the one it waits for: it waits past
+    // none.
+    try waitFor(s, reg, rig.sched.Registration.writable, 0, .{});
     var err: c_int = 0;
     var len: posix.socklen_t = @sizeOf(c_int);
     _ = sys.getsockopt(s, posix.SOL.SOCKET, posix.SO.ERROR, @ptrCast(&err), &len);
@@ -224,6 +237,7 @@ pub fn accept_on(fd: i64, reg: i64) Error!i64 {
 fn acceptOne(s: i32, reg: i64) Error!?i32 {
     try rig.checkStop();
     while (true) {
+        const seen = edges(reg, rig.sched.Registration.readable);
         const rc = if (darwin) sys.accept(s, null, null) else sys.accept4(s, null, null, posix.SOCK.NONBLOCK | posix.SOCK.CLOEXEC);
         switch (posix.errno(rc)) {
             .SUCCESS => {
@@ -232,7 +246,7 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
                 noDelay(c);
                 return c;
             },
-            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, seen, .{}),
             .CONNABORTED => {},
             .INTR => try rig.checkStop(),
             .MFILE, .NFILE, .NOBUFS, .NOMEM => return null,
@@ -275,6 +289,7 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
     while (true) {
         const b = rig.sched.takeBlock();
         const asked = @min(want, b.len);
+        const seen = edges(reg, rig.sched.Registration.readable);
         const rc = sys.read(s, b, asked);
         const e = posix.errno(rc);
         if (e == .SUCCESS) {
@@ -292,7 +307,7 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
         }
         rig.sched.giveBlock(b);
         switch (e) {
-            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, seen, .{}),
             .INTR => try rig.checkStop(),
             else => return failure(e),
         }
@@ -323,10 +338,11 @@ fn readMore(s: i32, into: *rig.String, more: usize) usize {
 fn readSome(s: i32, reg: i64, dest: []u8, limit: Limit) Error!usize {
     try rig.checkStop();
     while (true) {
+        const seen = edges(reg, rig.sched.Registration.readable);
         const rc = sys.read(s, dest.ptr, dest.len);
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
-            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, limit),
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, seen, limit),
             .INTR => try rig.checkStop(),
             else => |e| return failure(e),
         }
@@ -342,10 +358,11 @@ fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
     try rig.checkStop();
     var at: usize = 0;
     while (at < bytes.len) {
+        const seen = edges(reg, rig.sched.Registration.writable);
         const rc = sys.write(s, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
-            .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable, limit),
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable, seen, limit),
             .INTR => try rig.checkStop(),
             else => |e| return failure(e),
         }
@@ -766,7 +783,11 @@ const accept_pause_max_ns: i64 = std.time.ns_per_s;
 /// each a task of its own, and answer each request on them with what
 /// `f` gives for it, until the call is canceled or the listener fails.
 /// Out of descriptors, it pauses and accepts again, as Go's server
-/// does, so the connections it holds can close. Each request runs
+/// does, so the connections it holds can close. Each connection is
+/// registered as it is accepted, with this worker's poller, as a server's
+/// own accept loop registers what it accepts (`Listener.accept`): an
+/// acceptor waiting for connections sleeps in that poller, and wakes as
+/// soon as any of them has bytes to read. Each request runs
 /// isolated (`tasks.isolate`): a panic in `f` answers 500, and the
 /// server goes on. The connections' tasks end before it
 /// returns, and the listener closes then. `f` is a `rig.FnRef` taking a
@@ -793,18 +814,18 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
             continue;
         };
         pause = accept_pause_ns;
-        conns.add(tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), f, settings }));
+        conns.add(tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), watch(c), f, settings }));
     }
 }
 
 /// A connection's task: read its requests one after another, and answer
 /// each, until it closes, fails, waits too long (`Settings`), or the
 /// task is canceled.
-fn connection(comptime F: type) fn (i32, F, Settings) void {
+fn connection(comptime F: type) fn (i32, i64, F, Settings) void {
     return struct {
-        fn run(fd: i32, f: F, settings: Settings) void {
+        fn run(fd: i32, reg: i64, f: F, settings: Settings) void {
             var c: Conn = undefined;
-            c.init(fd, settings);
+            c.init(fd, reg, settings);
             defer c.close();
             var server = std.http.Server.init(&c.reader, &c.writer);
             // `init` takes the read buffer's size, which is held later.
@@ -926,10 +947,10 @@ const Conn = struct {
 
     const buf_size = rig.sched.block_size / 2;
 
-    fn init(c: *Conn, fd: i32, settings: Settings) void {
+    fn init(c: *Conn, fd: i32, reg: i64, settings: Settings) void {
         c.* = .{
             .fd = fd,
-            .reg = watch(fd),
+            .reg = reg,
             .settings = settings,
             .limit = settings.limit(false),
             .reader = .{ .vtable = &.{ .stream = stream }, .buffer = &.{}, .seek = 0, .end = 0 },
@@ -974,6 +995,7 @@ const Conn = struct {
         c.reader.end = 0;
         while (true) {
             rig.checkStop() catch return false;
+            const seen = edges(c.reg, rig.sched.Registration.readable);
             const rc = sys.read(c.fd, c.reader.buffer.ptr, c.reader.buffer.len);
             switch (posix.errno(rc)) {
                 .SUCCESS => {
@@ -983,7 +1005,7 @@ const Conn = struct {
                 },
                 .AGAIN => {
                     c.release();
-                    waitFor(c.fd, c.reg, rig.sched.Registration.readable, limit) catch return false;
+                    waitFor(c.fd, c.reg, rig.sched.Registration.readable, seen, limit) catch return false;
                     c.hold();
                 },
                 .INTR => {},

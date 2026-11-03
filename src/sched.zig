@@ -1134,19 +1134,23 @@ fn passWatch() void {
     if (next_up) |v| v.poller.kick();
 }
 
-/// A file descriptor a poller watches: what it has seen the descriptor
-/// become ready for since a wait last took it, and the fibers waiting to
+/// A file descriptor a poller watches: how many times the poller has
+/// seen it become ready each way (its edges), and the fibers waiting to
 /// read and to write, as many of each as wait, as tasks that share a
 /// listener each wait to accept. Readiness is edge-triggered: an edge
 /// wakes every fiber waiting on it, and each tries its read, write, or
-/// accept, and waits again only once that would block.
+/// accept, and waits again only once that would block. A caller reads
+/// the count before its call (`edges`) and waits only while it is
+/// unchanged (`waitReady`), so an edge after the call reaches every such
+/// caller, whichever of them runs first, and none takes it from another.
 pub const Registration = struct {
     fd: i32,
     poller: *Poller,
-    ready_bits: std.atomic.Value(u32) = .init(0),
+    /// The edges seen: to read in the low 32 bits, to write in the high.
+    seen: std.atomic.Value(u64) = .init(0),
     /// Guards `readers` and `writers`. `waiting` counts the fibers about
     /// to list themselves or listed: a waiter counts itself, then looks
-    /// at `ready_bits`, and the poller sets them, then looks at the count,
+    /// at `seen`, and the poller counts an edge, then looks at the count,
     /// so it takes the lock only when one may wait.
     lock: SpinLock = .{},
     waiting: std.atomic.Value(u32) = .init(0),
@@ -1168,9 +1172,15 @@ pub const Registration = struct {
     pub const readable: u32 = 1;
     pub const writable: u32 = 2;
 
-    /// The poller saw `bits`: record them, then wake who waits on them.
+    /// The edges seen for `interest`, from `seen`'s value `v`.
+    fn edgesOf(v: u64, interest: u32) u32 {
+        return @truncate(if (interest == readable) v else v >> 32);
+    }
+
+    /// The poller saw `bits`: count an edge each way, then wake who waits
+    /// on them.
     fn ready(r: *Registration, bits: u32) bool {
-        _ = r.ready_bits.fetchOr(bits, .seq_cst);
+        _ = r.seen.fetchAdd(@as(u64, bits & readable) | @as(u64, bits & writable) << 31, .seq_cst);
         if (r.waiting.load(.seq_cst) == 0) return false;
         r.lock.lock();
         defer r.lock.unlock();
@@ -1217,37 +1227,41 @@ pub fn deregister(r: *Registration) void {
     std.heap.smp_allocator.destroy(r);
 }
 
+/// The edges `r`'s poller has seen for `interest`: what a caller reads
+/// before a call that may find the descriptor not ready, to wait on
+/// (`waitReady`).
+pub fn edges(r: *Registration, interest: u32) u32 {
+    return Registration.edgesOf(r.seen.load(.acquire), interest);
+}
+
 /// How a wait on a descriptor ended (`waitReady`).
 pub const Readiness = enum { ready, canceled, timeout };
 
 /// Wait for `r` to be ready for `interest` (`Registration.readable` or
-/// `.writable`), or for its end, until `deadline`; a cancel ends the
-/// wait when `cancelable`. Readiness the poller saw before is taken at
-/// once, which spends from the fiber's budget (`spendBudget`).
-pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bool) Readiness {
+/// `.writable`), or for its end, until `deadline`: for an edge past
+/// `seen`, the count the caller read before the call that would have
+/// blocked (`edges`). A cancel ends the wait when `cancelable`. An edge
+/// that came since is taken at once, which spends from the fiber's budget
+/// (`spendBudget`).
+pub fn waitReady(r: *Registration, interest: u32, seen: u32, deadline: ?i96, cancelable: bool) Readiness {
     const f = current().?;
     const ws = if (interest == Registration.readable) &r.readers else &r.writers;
     while (true) {
-        if (r.ready_bits.load(.seq_cst) & interest != 0) {
-            _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
+        if (edges(r, interest) != seen) {
             spendBudget();
             return .ready;
         }
         if (cancelable and isCanceled(f)) return .canceled;
         if (deadline) |d| if (nowNs() >= d) return .timeout;
         pausePoint();
-        // Readiness the poller saw before this fiber was listed, under the
-        // lock, or an edge that woke it: it takes the readiness and tries
-        // its call again.
+        // An edge the poller saw before this fiber was listed, under the
+        // lock, or one that woke it: it tries its call again.
         r.lock.lock();
         _ = r.waiting.fetchAdd(1, .seq_cst);
-        const woken = r.ready_bits.load(.seq_cst) & interest != 0 or sleepOn(ws, &r.lock, deadline, cancelable);
+        const woken = Registration.edgesOf(r.seen.load(.seq_cst), interest) != seen or sleepOn(ws, &r.lock, deadline, cancelable);
         _ = r.waiting.fetchSub(1, .seq_cst);
         r.lock.unlock();
-        if (woken) {
-            _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
-            return .ready;
-        }
+        if (woken) return .ready;
     }
 }
 
@@ -3783,6 +3797,7 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
             const r = register(fds[0]).?;
             const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
             while (true) {
+                const seen = edges(r, Registration.readable);
                 var b: [1]u8 = undefined;
                 const n: isize = @bitCast(std.posix.system.read(fds[0], &b, 1));
                 if (n == 1) {
@@ -3790,11 +3805,11 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
                     break;
                 }
                 waited = true;
-                if (waitReady(r, Registration.readable, null, false) != .ready) return;
+                if (waitReady(r, Registration.readable, seen, null, false) != .ready) return;
             }
             _ = j.join();
             j.free();
-            timed_out = waitReady(r, Registration.readable, nowNs() + std.time.ns_per_ms, false) == .timeout;
+            timed_out = waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + std.time.ns_per_ms, false) == .timeout;
             deregister(r);
             _ = std.posix.system.close(fds[0]);
             _ = std.posix.system.close(fds[1]);
@@ -3840,7 +3855,7 @@ test "a cancel that lands after a wait on a descriptor last looked, but before i
             const f = current().?;
             f.state.control = &ctl;
             ctl.fiber = f;
-            return waitReady(r, Registration.readable, nowNs() + 2 * std.time.ns_per_s, true);
+            return waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + 2 * std.time.ns_per_s, true);
         }
 
         fn first(_: *anyopaque) callconv(.c) void {
@@ -3871,6 +3886,51 @@ test "a cancel that lands after a wait on a descriptor last looked, but before i
     try std.testing.expect(Run.took < std.time.ns_per_s);
 }
 
+test "an edge after a wait's call would block reaches it, though another waiter woken by the edge runs first" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .timeout;
+        var pause: Pause = .{};
+        const Unit = struct {};
+
+        /// Read the pipe, find it empty, and wait: held between its last
+        /// look and its wait (`pausePoint`) while a byte comes and the
+        /// other waiter is woken for it. No read follows that could make
+        /// the kernel report the byte again.
+        fn reader(_: *Unit, r: *Registration) Readiness {
+            const seen = edges(r, Registration.readable);
+            var b: [1]u8 = undefined;
+            std.debug.assert(@as(isize, @bitCast(std.posix.system.read(r.fd, &b, 1))) < 0);
+            return waitReady(r, Registration.readable, seen, nowNs() + 200 * std.time.ns_per_ms, false);
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            test_pause.store(&pause, .seq_cst);
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            while (!pause.reached.load(.seq_cst)) yield();
+            // This fiber waits too, and is woken by the byte, before the
+            // reader looks again, whose read came before it.
+            const seen = edges(r, Registration.readable);
+            _ = std.posix.system.write(fds[1], "x", 1);
+            _ = waitReady(r, Registration.readable, seen, null, false);
+            pause.go.store(true, .seq_cst);
+            got = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.ready, Run.got);
+}
+
 test "a cancel that lands as a waiter is about to hand its worker to a task still ends the wait" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
@@ -3887,7 +3947,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             const f = current().?;
             f.state.control = &inner;
             inner.fiber = f;
-            return waitReady(r, Registration.readable, nowNs() + 2 * std.time.ns_per_s, true);
+            return waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + 2 * std.time.ns_per_s, true);
         }
 
         /// The waiter: it makes the reader and waits for it at once, by
@@ -3994,7 +4054,7 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
             return 0;
         }
         fn reader(_: *Unit, r: *Registration) u8 {
-            if (waitReady(r, Registration.readable, null, false) == .ready) read.store(true, .seq_cst);
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) read.store(true, .seq_cst);
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
@@ -4081,10 +4141,11 @@ test "two tasks that answer each other over a socket stay on one worker" {
         }
         fn receive(r: *Registration, side: usize) void {
             while (true) {
+                const seen = edges(r, Registration.readable);
                 var b: [1]u8 = undefined;
                 const n: isize = @bitCast(std.posix.system.read(r.fd, &b, 1));
                 if (n == 1) break;
-                if (waitReady(r, Registration.readable, null, false) != .ready) return;
+                if (waitReady(r, Registration.readable, seen, null, false) != .ready) return;
             }
             if (me() != on[1 - side]) _ = crossed.fetchAdd(1, .monotonic);
         }
@@ -4161,7 +4222,7 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
                 const fds = testTcpPair();
                 const r = register(fds[0]).?;
                 const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
-                if (waitReady(r, Registration.readable, nowNs() + std.time.ns_per_ms, false) != .ready) timeouts += 1;
+                if (waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + std.time.ns_per_ms, false) != .ready) timeouts += 1;
                 _ = j.join();
                 j.free();
                 deregister(r);
@@ -4361,7 +4422,7 @@ test "an idle worker wakes for the descriptors of a busy one" {
         var in_time = false;
         const Unit = struct {};
         fn reader(_: *Unit, r: *Registration) u8 {
-            if (waitReady(r, Registration.readable, null, false) == .ready) read.store(true, .seq_cst);
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) read.store(true, .seq_cst);
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
@@ -4659,12 +4720,13 @@ test "a deterministic run waits for bytes on their way on a socket, though every
                 var got: usize = 0;
                 var buf: [64 * 1024]u8 = undefined;
                 while (got < 256 * 1024) {
+                    const seen = edges(r, Registration.readable);
                     const n: isize = @bitCast(std.posix.system.read(fds[0], &buf, buf.len));
                     if (n > 0) {
                         got += @intCast(n);
                         continue;
                     }
-                    if (waitReady(r, Registration.readable, nowNs() + std.time.ns_per_ms, false) != .ready) {
+                    if (waitReady(r, Registration.readable, seen, nowNs() + std.time.ns_per_ms, false) != .ready) {
                         timeouts += 1;
                         break;
                     }
@@ -4841,11 +4903,12 @@ fn testFill(fds: [2]i32, r: *Registration) void {
     @memset(&buf, 'x');
     var quiet: u32 = 0;
     while (quiet < 2) {
+        const seen = edges(r, Registration.writable);
         while (true) {
             const n: isize = @bitCast(posix.system.write(fds[1], &buf, buf.len));
             if (n <= 0) break;
         }
-        quiet = if (waitReady(r, Registration.writable, nowNs() + 20 * std.time.ns_per_ms, false) == .timeout) quiet + 1 else 0;
+        quiet = if (waitReady(r, Registration.writable, seen, nowNs() + 20 * std.time.ns_per_ms, false) == .timeout) quiet + 1 else 0;
     }
 }
 
@@ -4859,7 +4922,7 @@ test "a wait to read sleeps after its own side of the socket shuts down writing"
             // macOS reports the end of writing on the write filter, which
             // is no readiness to read.
             _ = std.posix.system.shutdown(fds[1], std.posix.SHUT.WR);
-            got = waitReady(r, Registration.readable, nowNs() + 50 * std.time.ns_per_ms, false);
+            got = waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + 50 * std.time.ns_per_ms, false);
             deregister(r);
             _ = std.posix.system.close(fds[0]);
             _ = std.posix.system.close(fds[1]);
@@ -4883,8 +4946,9 @@ test "a wait to write on a full buffer sleeps after the other end shuts down wri
             testFill(fds, r);
             // The other end's end of writing (EOF to read, RDHUP) makes no
             // room to write.
+            const seen = edges(r, Registration.writable);
             _ = std.posix.system.shutdown(fds[0], std.posix.SHUT.WR);
-            got = waitReady(r, Registration.writable, nowNs() + 50 * std.time.ns_per_ms, false);
+            got = waitReady(r, Registration.writable, seen, nowNs() + 50 * std.time.ns_per_ms, false);
             deregister(r);
             _ = std.posix.system.close(fds[0]);
             _ = std.posix.system.close(fds[1]);
@@ -4910,9 +4974,10 @@ test "a wait to write on a full buffer ends when the other end closes, and the w
             testFill(fds, r);
             // Closed with bytes unread, the other end resets the
             // connection.
+            const seen = edges(r, Registration.writable);
             _ = std.posix.system.close(fds[0]);
             const start = nowNs();
-            got = waitReady(r, Registration.writable, nowNs() + 2 * std.time.ns_per_s, false);
+            got = waitReady(r, Registration.writable, seen, nowNs() + 2 * std.time.ns_per_s, false);
             took = nowNs() - start;
             const n: isize = @bitCast(std.posix.system.write(fds[1], "x", 1));
             failed = n < 0;
