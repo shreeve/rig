@@ -71,7 +71,7 @@ aim to match it in the rest.
   data a task only reads. Any function runs as a task with `&`, and a
   function that waits on a socket is an ordinary function, called as
   any other.
-- **Tasks borrow in place.** `score(?d)&` reads `d` where it is, with
+- **Tasks view in place.** `score(?d)&` reads `d` where it is, with
   no copy and no counted handle, because Rig's ownership rules make the
   task end before `d` does ("Loans and structure"). Tokio cannot offer
   this: a future can be leaked, so its `spawn` takes only `'static`
@@ -277,7 +277,7 @@ loans goes. Five rules make that so:
    that carries a loan never leaks. Rig has no `forget`.
 4. **A panic unwinds frame by frame** (see "Failure"). Each frame
    cancels and waits for the tasks it owns before it goes, as on any
-   other exit, so no task outlives a frame it borrows from.
+   other exit, so no task outlives a frame it views.
 5. **The program's end waits for its tasks.** `main` returns only after
    every task it still holds is canceled and waited for, before the leak
    check runs. An interrupt (SIGINT) or SIGTERM cancels a `main` that

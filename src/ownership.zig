@@ -22,13 +22,13 @@
 //!   sentence 7): its result carries the loans of
 //!   its callee (what a callable holds) and of the arguments whose
 //!   parameters' types could hold what it views, and it may store, in
-//!   its write receiver and in what its `!x` arguments and other write
-//!   views lead to, the loans of the arguments (its receiver among
+//!   its write self and in what its `!x` arguments and other write
+//!   views lead to, the loans of the arguments (its self among
 //!   them) whose types could be held there (`sema.CallParams`). A body
 //!   is checked against its signature (`checkOrigins`). A loan that is
 //!   not stored anywhere is a temporary and ends with its statement.
 //! * Hidden storage emit makes is read from the storage facts
-//!   (`sema.Storage`): a receiver or copied argument a call holds while
+//!   (`sema.Storage`): a self or copied argument a call holds while
 //!   it runs is a hidden var the call is lent, which ends when the call
 //!   returns (`holdForCall`).
 //! * Cells, Signals and owned closures hold no views: every handle to
@@ -78,11 +78,11 @@
 //!   place; write views exclude every other use. A value never holds a
 //!   view of itself: a store of a loan on a part of a var into that var
 //!   is rejected. A method call views
-//!   its receiver for the whole call (`rc.show(<rc)` is rejected), and
+//!   its self for the whole call (`rc.show(<rc)` is rejected), and
 //!   an argument that reads a value sharing storage its place owns
 //!   holds that place read until the call ends (`print(v, grow(!v))`
 //!   is rejected). The indexes of a viewed place (a view, a slice,
-//!   a receiver) cannot lend to write or move its root, whose address is
+//!   a self) cannot lend to write or move its root, whose address is
 //!   found before they run (`!ps[0].a[grow(!ps)]` is rejected); an
 //!   assignment evaluates its value, then its target's indexes, then
 //!   stores, so there they may.
@@ -243,10 +243,10 @@ const Paths = struct {
 };
 
 /// What reads a value in place before the operands after it run: a call
-/// argument, a method's receiver, the value a call calls, the left
+/// argument, a method's self, the value a call calls, the left
 /// operand of a binary operator, or a value that is no place being
 /// indexed (see `holdRead`).
-const Reader = enum(u3) { none, argument, receiver, callee, operand, base };
+const Reader = enum(u3) { none, argument, self, callee, operand, base };
 
 const Loan = struct {
     root: VarId,
@@ -271,7 +271,7 @@ const Loan = struct {
     /// A write lend that a view which only reads it keeps as a read loan
     /// (`carryLoan`), for diagnostics.
     read_of_write: bool = false,
-    /// A write receiver's lend, a read loan until its call starts (Core
+    /// A write self's lend, a read loan until its call starts (Core
     /// §6), for diagnostics.
     reserved: bool = false,
     /// A loan on a binding that holds a write view, made by a lend
@@ -375,7 +375,7 @@ const Var = struct {
     /// is an owner's name (`arm_of`); empty when no take would compile.
     arm_take: []const u8 = "",
     /// A value a call holds in storage of its own, which lives only
-    /// while the call runs (`sema.Storage` of life `call`): the receiver
+    /// while the call runs (`sema.Storage` of life `call`): self
     /// or argument it is lent (`holdForCall`).
     call_held: bool = false,
     /// An owning temporary its statement holds (`holdTemp`): in use while
@@ -390,7 +390,7 @@ const Var = struct {
     shadows: ?VarId = null,
     via: Via = .owned,
     /// A run-time parameter of the function or closure being checked:
-    /// its index in the signature (a method's receiver is 0).
+    /// its index in the signature (a method's self is 0).
     param_index: ?u8 = null,
 };
 
@@ -637,7 +637,7 @@ const Tail = struct {
 const PlainRequirement = sema.PlainRequirement;
 
 /// A call of a method of a generic type (`Checker.method_calls`): where
-/// it is, the method it reaches, the receiver's type and the arguments
+/// it is, the method it reaches, self's type and the arguments
 /// it gives the type's parameters, and the method of a generic type the
 /// call is made in, if any.
 const MethodCall = struct {
@@ -700,7 +700,7 @@ pub const Checker = struct {
     /// path, not something stored.
     held_store: ?struct { callable: TypeId, pos: u32, own: []const Loan } = null,
     /// The calls of methods of generic types this module makes, whose
-    /// bodies' requirements are checked at the receiver's type
+    /// bodies' requirements are checked at self's type
     /// (`checkMethodCalls`).
     method_calls: std.ArrayList(MethodCall) = .empty,
     /// The current read match arm's hidden var (`Var.arm_of`), made when
@@ -977,7 +977,7 @@ pub const Checker = struct {
     /// view in an argument (a write view is never stored in a value),
     /// and a view only where the body stores no `T` where no loan is
     /// tracked. A method's instance checks its own parameters; its
-    /// type's are checked with the receiver's instance.
+    /// type's are checked with self's instance.
     fn checkInstantiations(self: *Checker) Error!void {
         const ctx = self.sema;
         for (ctx.fn_instances.items) |f| {
@@ -1170,7 +1170,7 @@ pub const Checker = struct {
     /// Each call of a method of a generic type (`method_calls`) meets what
     /// the method's body requires of a function value's type
     /// (`PlainRequirement.callable`, with `method`), at the arguments the
-    /// receiver's type gives: refused there, or, where those arguments
+    /// self's type gives: refused there, or, where those arguments
     /// are a generic body's own parameters, required of that body in
     /// turn. Repeated until no call adds a requirement, as one method
     /// calls another.
@@ -1333,7 +1333,7 @@ pub const Checker = struct {
         } else if (loan.held_read != .none) {
             const uses = switch (loan.held_read) {
                 .none, .argument => "the call uses it after its later arguments run",
-                .receiver => "the call uses it as `self` after its arguments run",
+                .self => "the call uses it as `self` after its arguments run",
                 .callee => "the call runs it after its arguments run",
                 .operand => "the operator uses it after its right operand runs",
                 .base => "it is indexed after its index runs",
@@ -1369,7 +1369,7 @@ pub const Checker = struct {
     const KeptLend = struct { callee: []const u8, param: []const u8, holder: []const u8 };
 
     /// Note the lends in `v`, which call `node` keeps through `param`, as
-    /// kept in what its write receiver or arguments lead to.
+    /// kept in what its write self or arguments lead to.
     fn noteKept(self: *Checker, callee: Sexp, v: Value, param: []const u8, write_recv: ?VarId, arg_values: []const Value) Error!void {
         var holder = write_recv;
         if (holder == null) find: for (arg_values) |av| {
@@ -1391,7 +1391,7 @@ pub const Checker = struct {
     fn heldReadClause(self: *Checker, reader: Reader, of: []const u8) Error![]const u8 {
         const who = switch (reader) {
             .none, .argument => "an earlier argument's",
-            .receiver => "`self`'s",
+            .self => "`self`'s",
             .callee => "the callee's",
             .operand => "the left operand's",
             .base => "the indexed value's",
@@ -1449,8 +1449,8 @@ pub const Checker = struct {
 
     /// The fix for a call that lends all of `recv` (place `path` of var
     /// `id`) to write while loan `l` is on a part of it: a method lends
-    /// all of its receiver (Core §5), so lend only the fields it writes.
-    fn noteWholeReceiver(self: *Checker, id: VarId, path: PathId, l: Loan, callee: Sexp, pos: u32) Error!void {
+    /// all of its self (Core §5), so lend only the fields it writes.
+    fn noteWholeSelf(self: *Checker, id: VarId, path: PathId, l: Loan, callee: Sexp, pos: u32) Error!void {
         if (self.paths.depth(l.path) <= self.paths.depth(path)) return;
         const recv = try self.pathText(id, path);
         const method = self.text(ir.Member.name(callee));
@@ -3363,7 +3363,7 @@ pub const Checker = struct {
     }
 
     /// The indices of place `e`, whose address is taken (a view, a
-    /// slice, a method's receiver): the place up to each index is found
+    /// slice, a method's self): the place up to each index is found
     /// before the index runs, so while the indices run, the place's path
     /// `path` of `root` is held read, and an index cannot lend to write or
     /// move it (`!ps[0].a[grow(!ps)]` would write into the buffer `grow`
@@ -3514,7 +3514,7 @@ pub const Checker = struct {
     /// The loans a call's result keeps of `v` (Core sentence 7), as
     /// `carry` keeps them. A result that holds no write view reads what
     /// it views, so every loan it keeps is a read loan, also one of an
-    /// argument or receiver lent to write: while the result lives, that
+    /// argument or self lent to write: while the result lives, that
     /// owner may be read but not written. What the call stores keeps its
     /// loans where it stores them (`absorbThroughWrites`).
     fn carryResult(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
@@ -3922,15 +3922,15 @@ pub const Checker = struct {
         return false;
     }
 
-    /// What a call's result carries of its receiver when its callee's
+    /// What a call's result carries of its self when its callee's
     /// `from` names paths of self (Core sentence 7, `sema.SelfPath`): the
     /// loans self holds, `held`, as the call runs, and for each path not
-    /// declared as a read view a loan on that path of the receiver's
-    /// place (`root`, `path`), never a loan on all of it. A receiver that
+    /// declared as a read view a loan on that path of self's
+    /// place (`root`, `path`), never a loan on all of it. A self that
     /// is no place keeps its whole lend, `lent`, for such a path. When
     /// self is itself a view, what it holds is what that view carries.
     fn selfPathsResult(self: *Checker, paths: []const sema.SelfPath, root: ?VarId, path: PathId, kind: LoanKind, pos: u32, held: Value, lent: Value) Error!Value {
-        // A receiver that is no place is a value the statement holds (a
+        // A self that is no place is a value the statement holds (a
         // temporary), whose loans are what it holds.
         var holds = held;
         if (root == null) {
@@ -5253,7 +5253,7 @@ pub const Checker = struct {
     }
 
     /// `stored` is stored through the write lend `lent`, whatever the
-    /// syntax that reaches it: a write receiver (`wrap(!h).keep(v)`,
+    /// syntax that reaches it: a write self (`wrap(!h).keep(v)`,
     /// `(!a if c else !b).keep(v)`), or an assignment's target that no
     /// var holds (`(!h).r = v`, `wrap(!h).r = v`). Whatever its write
     /// loans reach holds `stored`'s loans from here on. `via` names
@@ -5386,7 +5386,7 @@ pub const Checker = struct {
     }
 
     /// Hold `v`, the value of `node`, which the emitted call keeps in
-    /// storage of its own (`sema.Storage` of life `call`: a receiver, or
+    /// storage of its own (`sema.Storage` of life `call`: a self, or
     /// a copied argument), in a hidden var the call is lent (`kind`), so
     /// a view of it is a view of that storage.
     fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind) Error!Value {
@@ -5398,11 +5398,11 @@ pub const Checker = struct {
 
     /// The node a call holds in storage of its own that lives only while
     /// it runs, and that it lends (a copy, or a value the storage owns),
-    /// when the storage facts record one of `kind` for it: a receiver
+    /// when the storage facts record one of `kind` for it: a self
     /// without its lend sigils, an argument as written.
     fn heldForCall(self: *const Checker, e: Sexp, kind: sema.StorageKind) ?Sexp {
         const ctx = self.sema;
-        const node = if (kind == .receiver) storage.lentPlace(e) else e;
+        const node = if (kind == .self) storage.lentPlace(e) else e;
         const s = ctx.storageOf(node, kind) orelse return null;
         if (s.life != .call or s.by == .pointer) return null;
         // An owned argument is the callee's own value, not a lend of it.
@@ -5462,26 +5462,26 @@ pub const Checker = struct {
         if (self.isSwapBuiltin(callee) and args.len == 2) return self.walkSwapCall(args, sema.swapsTwoPlaces(self.sema, args[1], self.exprType(args[1])));
         // The value the call calls (a closure's captures, what a lent
         // callable lends), which its result always carries, and its
-        // receiver's value.
+        // self's value.
         var result: Value = .{};
         var recv_value: Value = .{};
-        // What the receiver holds, before the call lends it: what a
+        // What self holds, before the call lends it: what a
         // result through a path of self carries (`selfPathsResult`).
         var recv_held: Value = .{};
         // A function a field holds is called, which reaches nothing of
         // the value holding it.
         var field_call = false;
 
-        // Method call: the receiver is lent for the whole call. A
-        // write receiver is reserved (read) while the arguments are
+        // Method call: self is lent for the whole call. A
+        // write self is reserved (read) while the arguments are
         // evaluated and must be otherwise unlent when the call starts.
         var recv_root: ?VarId = null;
-        // The place of `recv_root` the receiver is (`resolvePlace`).
+        // The place of `recv_root` self is (`resolvePlace`).
         var recv_path: PathId = whole_path;
-        var recv_mode: sema.MethodReceiver = .read;
+        var recv_mode: sema.SelfMode = .read;
         var reservation: usize = 0;
         // What the call reads in place before its arguments run (the value
-        // it calls, or a receiver that is no place) is copied there, so it
+        // it calls, or a self that is no place) is copied there, so it
         // is held until the call runs (`holdRead`).
         const callee_found = self.errors_found;
         // An actor call's `!` marks the call, not a lend: the call reads
@@ -5500,19 +5500,19 @@ pub const Checker = struct {
                 explicit_write = obj.isKind(.write);
                 obj = ir.get(obj, .operand);
             }
-            recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
+            recv_mode = if (explicit_write) .write else self.selfMode(obj, callee);
             if (actor_call) recv_mode = .read;
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
                 const found = self.errors_found;
-                // The receiver is passed by address: its indices are held
+                // Self is passed by address: its indices are held
                 // as a viewed place's are.
                 const mark = self.temps.items.len;
                 try self.addTemp(.{ .root = p.root, .path = p.path, .kind = .read, .pos = self.startOf(obj), .place_hold = true });
                 const recv_val = try self.walk(obj);
                 if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
                 const id = p.root;
-                // A receiver already reported (used while a write loan is live)
+                // A self already reported (used while a write loan is live)
                 // is not reported again as a conflicting write view.
                 if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
@@ -5521,30 +5521,30 @@ pub const Checker = struct {
                     recv_root = id;
                     recv_path = p.path;
                     // A built-in's methods hand out values, never views
-                    // of the receiver.
+                    // of self.
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
                     recv_held = recv_val;
                     recv_value = if (actor_call or self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .path = p.path, .kind = kind, .pos = pos }));
                 }
             } else if (recv_mode == .value) {
-                // A consuming receiver is taken like an argument: a name
+                // A consuming self is taken like an argument: a name
                 // it yields through a branch is moved with `<`.
                 recv_value = try self.walkConsumed(ir.Member.object(callee), .argument);
             } else {
                 recv_value = try self.walk(ir.Member.object(callee));
                 recv_held = recv_value;
-                if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
+                if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .self);
                 // A built-in's methods hand out values, never views of
-                // the receiver.
+                // self.
                 if ((recv_mode == .read or recv_mode == .write) and !actor_call and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
-                    // A receiver the call holds in storage of its own is
+                    // A self the call holds in storage of its own is
                     // lent from there; any other is lent where its leaves
                     // are.
-                    recv_value = if (self.heldForCall(obj, .receiver)) |held|
+                    recv_value = if (self.heldForCall(obj, .self)) |held|
                         try self.holdForCall(held, recv_value, kind)
                     else
-                        try self.valueUnion(recv_value, try self.receiverLeaves(obj, kind));
+                        try self.valueUnion(recv_value, try self.selfLeaves(obj, kind));
                 }
             }
         } else if (callee == .src) {
@@ -5576,7 +5576,7 @@ pub const Checker = struct {
             if (recv_root) |id| if (recv_mode == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
                 const at = self.startOf(ir.Member.object(callee));
-                if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeReceiver(id, recv_path, l, callee, at);
+                if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeSelf(id, recv_path, l, callee, at);
                 try self.temps.insert(self.gpa, reservation, reserved);
             };
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
@@ -5589,7 +5589,7 @@ pub const Checker = struct {
             self.builtinName(self.exprType(ir.Member.object(callee)))
         else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
         const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "List")) into else null;
-        // A consuming receiver is passed like an argument.
+        // A consuming self is passed like an argument.
         const consumed_recv = if (recv_mode == .value and callee.isKind(.member)) recv_value else Value{};
         // Which arguments the call passes loans on from (Core sentence
         // 7): the callee's origins, by the parameter each argument fills.
@@ -5599,11 +5599,11 @@ pub const Checker = struct {
         // say of a type parameter (`walkItemInstances`).
         const carry_all = self.holdsItem(self.exprType(node));
         try self.noteItems(self.exprType(node));
-        // What the result carries of the receiver and arguments.
+        // What the result carries of self and arguments.
         var from_args: Value = .{};
-        if (params == null or carry_all or params.?.resultCarriesReceiver()) {
+        if (params == null or carry_all or params.?.resultCarriesSelf()) {
             // A `from` that names paths of self narrows what the result
-            // carries of the receiver (Core sentence 7).
+            // carries of self (Core sentence 7).
             const paths = if (params) |p| p.origins.self_paths else &.{};
             const recv_part = if (paths.len > 0 and callee.isKind(.member) and recv_mode != .value and !actor_call and !field_call)
                 try self.selfPathsResult(paths, recv_root, recv_path, if (recv_mode == .write) .write else .read, self.startOf(ir.Member.object(callee)), recv_held, recv_value)
@@ -5614,12 +5614,12 @@ pub const Checker = struct {
         }
         const arg_values = try self.arena().alloc(Value, args.len);
         // What the call may store, and what its result carries. A method
-        // may store a view of what its receiver holds, or is, in what it
+        // may store a view of what its self holds, or is, in what it
         // was lent to write (`h.r = ?@items[..]`).
-        var stored: Value = if (params == null or params.?.storesReceiver()) recv_value else .{};
+        var stored: Value = if (params == null or params.?.storesSelf()) recv_value else .{};
         // Whether it may store a value of a type parameter's type, which
         // carries no loan in a generic body (`noteGenericStore`).
-        var stores_generic = (params == null or params.?.storesReceiver()) and callee.isKind(.member) and self.holdsGeneric(self.pointee(self.exprType(unsigiled(ir.Member.object(callee)))));
+        var stores_generic = (params == null or params.?.storesSelf()) and callee.isKind(.member) and self.holdsGeneric(self.pointee(self.exprType(unsigiled(ir.Member.object(callee)))));
         var carried: Value = .{};
         // A closure literal passed to a call the type checker rejected
         // was reported there.
@@ -5637,7 +5637,7 @@ pub const Checker = struct {
             // from the copy.
             if (self.heldForCall(storage.argValue(a), .argument)) |held| v.* = try self.holdForCall(held, v.*, .read);
             // A value handed over that carries a write loan (a write view
-            // a method's result keeps of its receiver) keeps its root lent
+            // a method's result keeps of its self) keeps its root lent
             // to write until the call returns, as a write lend in the
             // argument does (Core sentence 5): a later argument may not
             // lend, read, or move it.
@@ -5679,22 +5679,22 @@ pub const Checker = struct {
         // What the call keeps by its callee's `keeps`, for a conflict's note.
         if (params) |p| if (p.origins.stores & p.origins.lent != 0) {
             const write_recv = if (recv_mode == .write) recv_root else null;
-            if (p.keepsLentReceiver()) try self.noteKept(callee, recv_value, "@", write_recv, arg_values);
+            if (p.keepsLentSelf()) try self.noteKept(callee, recv_value, "@", write_recv, arg_values);
             for (arg_values, 0..) |v, i| if (p.keepsLent(i)) try self.noteKept(callee, v, p.paramName(i) orelse "?", write_recv, arg_values);
         };
 
-        // A write receiver is lent when the call starts, before the
+        // A write self is lent when the call starts, before the
         // callee stores anything.
         if (recv_root) |id| if (recv_mode == .write) {
             // The reservation itself is no conflict.
             const reserved = self.temps.orderedRemove(reservation);
             const at = self.startOf(ir.Member.object(callee));
-            if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeReceiver(id, recv_path, l, callee, at);
+            if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeSelf(id, recv_path, l, callee, at);
             try self.temps.insert(self.gpa, reservation, reserved);
         };
 
         // The callee may store what its arguments view into anything it
-        // can mutate: the receiver, and whatever the write views passed
+        // can mutate: self, and whatever the write views passed
         // to it lead to (`!x`, a write view passed on or moved in, a
         // value holding one). A built-in element method (`!dst.fill(v)`,
         // `!dst.copy(src)`) stores elements, which hold a view only where
@@ -5703,15 +5703,15 @@ pub const Checker = struct {
         defer self.api_call = saved_api;
         self.api_call = if (self.sema.dispatchOf(node)) |d| d.viaApi() else false;
         if ((stored.loans.len > 0 or stores_generic) and !self.storesNothing(callee)) {
-            // A receiver lent to read is never written (Core sentence 9:
+            // A self lent to read is never written (Core sentence 9:
             // what changes through one is a Cell, which holds no loan). A
-            // receiver lent to write holds what the call stores, whatever
+            // self lent to write holds what the call stores, whatever
             // its form: what its write lend reaches, a place's var, or the
             // write loans its value carries (a write view a call returns,
-            // each branch of a branching receiver, a value the call holds).
+            // each branch of a branching self, a value the call holds).
             if (recv_mode == .write and callee.isKind(.member)) {
                 const obj = ir.Member.object(callee);
-                // What the receiver is, not the view lending it.
+                // What self is, not the view lending it.
                 if (self.mayHoldInInstance(self.pointee(self.exprType(obj)))) {
                     const pos = self.startOf(obj);
                     const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .path = recv_path, .kind = .write, .pos = pos }) } else recv_value;
@@ -5915,7 +5915,7 @@ pub const Checker = struct {
     }
 
     /// A value read in place, by value, before the operands after it run
-    /// (`reader`: a call argument, a method's receiver, the value a call
+    /// (`reader`: a call argument, a method's self, the value a call
     /// calls, a binary operator's left operand, an indexed value that is
     /// no place), when the value shares storage the place it reads owns
     /// (a List's buffer, a box, a shared handle, a struct holding one;
@@ -5958,15 +5958,15 @@ pub const Checker = struct {
         }
     }
 
-    /// What a method called on `obj`, a receiver that is no place, is
-    /// lent: the method runs on the receiver where it is, so a view it
-    /// returns may view whatever the receiver may be (Core sentence 7).
+    /// What a method called on `obj`, a self that is no place, is
+    /// lent: the method runs on self where it is, so a view it
+    /// returns may view whatever self may be (Core sentence 7).
     /// For each leaf of the value its fields and elements are read from
     /// (`sema.valueLeaves`: each branch of `a if c else b`, `o ?? d`,
     /// `e catch d`), a loan on the place a name holds, or on the
     /// statement's temporary a made value is, which ends with the
     /// statement (Core §3).
-    fn receiverLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
+    fn selfLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
         var base = obj;
         while (self.isPartOfNoPlace(base)) base = ir.get(base, .object);
         // A value its statement keeps in a slot (`dropsTemp`), a copy of a
@@ -5987,7 +5987,7 @@ pub const Checker = struct {
                 continue;
             }
             if (self.isPartOfNoPlace(leaf)) {
-                out = try self.valueUnion(out, try self.receiverLeaves(leaf, kind));
+                out = try self.valueUnion(out, try self.selfLeaves(leaf, kind));
                 continue;
             }
             // A name that is no var (a module's, a constant's) names no
@@ -6278,7 +6278,7 @@ pub const Checker = struct {
     ///
     /// A value never holds a view of itself (Core §5): a loan on a part
     /// of `id` stored into `id` is rejected, but for `lends`, the lends
-    /// the store goes through (a write receiver's own, a write argument's,
+    /// the store goes through (a write self's own, a write argument's,
     /// the write loans held on the way), which are the way in, not views
     /// stored.
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool, lends: []const Loan) Error!void {
@@ -6416,7 +6416,7 @@ pub const Checker = struct {
             return self.walkLambda(inner, true);
         }
         // `*w` upgrading a weak handle it reads reads it, as a `?@`
-        // method reads its receiver; one it takes is moved, as `*<x` moves
+        // method reads its self; one it takes is moved, as `*<x` moves
         // `x`. The new handle reaches what `w` reaches.
         const ctx = self.sema;
         if (ctx.upgradeOf(node)) |how| {
@@ -6848,7 +6848,7 @@ pub const Checker = struct {
     /// paths only (Core sentence 7): a view of another path of self, or
     /// of all of it, that the body returns, directly or through a value
     /// of a type parameter's type it returns (a call through a bound
-    /// views its receiver, `taintGeneric`), is reported.
+    /// views its self, `taintGeneric`), is reported.
     fn checkSelfPaths(self: *Checker, what: []const u8, name: Sexp) Error!void {
         if (self.func.self_var == null) return;
         const e = self.func.self_escape orelse
@@ -8159,7 +8159,7 @@ pub const Checker = struct {
     }
 
     /// A scalar (`sema.isScalar`: a number, `Bool`, `?String`, or a
-    /// vector), or an error. A method call takes any other receiver by
+    /// vector), or an error. A method call takes any other self by
     /// address, so a later argument must not change it before the call
     /// reads it.
     fn isScalar(self: *const Checker, ty: ?TypeId) bool {
@@ -8500,18 +8500,18 @@ pub const Checker = struct {
     }
 
     /// `p.f(...)` where `f` is a data field holding a plain function or
-    /// an owned closure (not a method): the call has no receiver
-    /// (`storage.hasReceiver`), and neither can keep a view of an
+    /// an owned closure (not a method): the call has no self
+    /// (`storage.hasSelf`), and neither can keep a view of an
     /// argument in `p`.
     fn callsFunctionField(self: *const Checker, call: Sexp, callee: Sexp) bool {
         const ctx = self.sema;
-        return !storage.isTypeCallee(ctx, ir.Member.object(callee)) and !storage.hasReceiver(ctx, call);
+        return !storage.isTypeCallee(ctx, ir.Member.object(callee)) and !storage.hasSelf(ctx, call);
     }
 
-    /// How a method call takes its receiver, from the signature ctx
+    /// How a method call takes its self, from the signature ctx
     /// resolved for the callee: `!@` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
-    fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {
+    fn selfMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.SelfMode {
         if (obj.isKind(.move)) return .value;
         if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;
         const f = self.typeData(self.exprType(callee) orelse return .read);
@@ -8528,7 +8528,7 @@ pub const Checker = struct {
         var out: std.ArrayList(u8) = .empty;
         try out.appendSlice(self.arena(), self.vars.items[root].name);
         try self.paths.appendText(self.arena(), &out, path);
-        // The receiver's member is `@name`, with no `.`.
+        // Self's member is `@name`, with no `.`.
         if (std.mem.eql(u8, self.vars.items[root].name, "@") and out.items.len > 2) _ = out.orderedRemove(1);
         return out.items;
     }
@@ -9021,7 +9021,7 @@ test "a returned view of a view parameter is fine" {
     );
 }
 
-test "a method receiver is lent for the whole call" {
+test "a method's self is lent for the whole call" {
     try expectErrorWithSema(unit_prelude ++
         \\sub main()
         \\  rc = make()

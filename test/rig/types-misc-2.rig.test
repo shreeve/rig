@@ -4,7 +4,7 @@ use std.math
 use std.os
 use std.text
 
-test "receiver sigil bool value", '''
+test "self sigil bool value", '''
   true
   false
   true false
@@ -50,8 +50,8 @@ test "receiver sigil bool value", '''
   !set.insert(6)
   print(set.items.len)
 
-fail "receiver sigil consumes", "12:5: `top` does not consume `self`; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume `self`; it writes it: `!s.pop()`, and its result needs no `<`"
-  # `<` before a method call moves the receiver into it, so the method
+fail "self sigil consumes", "12:5: `top` does not consume `self`; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume `self`; it writes it: `!s.pop()`, and its result needs no `<`"
+  # `<` before a method call moves self into it, so the method
   # must consume it (`<@`); a call's result moves without `<`.
 
   obj Stack
@@ -66,9 +66,9 @@ fail "receiver sigil consumes", "12:5: `top` does not consume `self`; remove the
   b = <s.pop()
   print(a ?? 0, b ?? 0)
 
-fail "receiver sigil field element", "17:5: `handlers` is a field holding functions, not a method that takes `self`; remove the `<`", "18:4: `checks` is a field holding functions, not a method that takes `self`; for negation use `not`", "20:5: `handlers` is a field holding functions", "21:5: this `P` is a temporary that owns a resource, and nothing would drop it"
+fail "self sigil field element", "17:5: `handlers` is a field holding functions, not a method that takes `self`; remove the `<`", "18:4: `checks` is a field holding functions, not a method that takes `self`; for negation use `not`", "20:5: `handlers` is a field holding functions", "21:5: this `P` is a temporary that owns a resource, and nothing would drop it"
   # `x.f[i](args)` calls an element of a field `f` holding functions:
-  # there is no receiver for `!` or `<` to apply to, and a temporary that
+  # there is no self for `!` or `<` to apply to, and a temporary that
   # owns a resource cannot be the object, as for `x.f(args)`.
 
   fun one() -> Int
@@ -90,8 +90,8 @@ fail "receiver sigil field element", "17:5: `handlers` is a field holding functi
   z = P(v: List(), handlers: [one], checks: [yes]).handlers[0]()
   print(x, y, z)
 
-fail "receiver sigil reads", "13:4: `is_empty` does not write `self`; for negation use `not`", "15:7: `is_empty` does not write `self`; for negation use `not`", "17:7: `peek` does not write `self`; remove the `!`"
-  # `!` before a method call lends to write the receiver, so a method that
+fail "self sigil reads", "13:4: `is_empty` does not write `self`; for negation use `not`", "15:7: `is_empty` does not write `self`; for negation use `not`", "17:7: `peek` does not write `self`; remove the `!`"
+  # `!` before a method call lends to write self, so a method that
   # only reads it is the habit of `!` as negation: use `not`, or drop the
   # `!` when the method returns no `Bool`.
 
@@ -109,7 +109,7 @@ fail "receiver sigil reads", "13:4: `is_empty` does not write `self`; for negati
     break
   print(!q.peek() ?? 0)
 
-test "receiver sigil value used", release: true, '''
+test "self sigil value used", release: true, '''
   if 3
   while 2
   while 1
@@ -184,7 +184,7 @@ test "receiver sigil value used", release: true, '''
   !v.push(4)
   print(drain(!v), c.n)
 
-test "receiver sigil value used short", '''
+test "self sigil value used short", '''
   2 [3] 4
   1 2 0 6 6 7
 '''
@@ -237,8 +237,8 @@ test "receiver sigil value used short", '''
   f = |!c| !c.next()
   print(x, n, m, y, z, f())
 
-fail "receiver sigil without receiver", "14:5: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`", "15:5: `origin` is called through its type or module and has no `self`; remove the `<`", "17:1: `get` only reads the Cell; remove the `!`", "19:7: `on` is a field holding a function, not a method that takes `self`; remove the `!`"
-  # `!` and `<` before a call apply to the method's receiver, so a call
+fail "self sigil without self", "14:5: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`", "15:5: `origin` is called through its type or module and has no `self`; remove the `<`", "17:1: `get` only reads the Cell; remove the `!`", "19:7: `on` is a field holding a function, not a method that takes `self`; remove the `!`"
+  # `!` and `<` before a call apply to the method's self, so a call
   # with none rejects them: an associated function called through its
   # type (where `!` reaches the type, not the value the call makes), a
   # Cell's List members, and a field holding a function.
@@ -650,9 +650,9 @@ fail "sequence get owning", "7:6: a write view is never stored inside a value, a
   xs = [!a, !b]
   print(xs.len)
 
-fail "sequence get receiver sigil", "6:7: `get` does not write `self`; remove the `!`", "7:7: `get` does not write `self`", "8:7: `get` does not consume `self`; remove the `<`"
-  # `get` on a String or an array only reads its receiver, so a `!` or a
-  # `<` before the receiver is rejected, as for a List.
+fail "sequence get self sigil", "6:7: `get` does not write `self`; remove the `!`", "7:7: `get` does not write `self`", "8:7: `get` does not consume `self`; remove the `<`"
+  # `get` on a String or an array only reads its self, so a `!` or a
+  # `<` before self is rejected, as for a List.
 
   s = "hello"
   a = [1, 2, 3]
@@ -1035,7 +1035,7 @@ test "showcase program", '''
   print(other.id)              # `other` owns the user now
 
 fail "signal stack field", "stack-local `Signal[T]` is not supported"
-  # A struct holds a Signal through a shared handle (`s: *Signal[Int]`).
+  # An object holds a Signal through a shared handle (`s: *Signal[Int]`).
 
   obj H
     s: Signal[Int]
@@ -1068,7 +1068,7 @@ test "single field positional", '''
   5 Node(key: 1, next: Node(key: 2, next: none)) 3 7 9 Meters(value: 3.5) Wrap(item: 4) Wrap(item: "hi") 6
 '''
   # A type with one field takes it by position, as a variant with one
-  # field does: `^x`, `*Cell(0)`, `*Signal(7)`, a one-field struct,
+  # field does: `^x`, `*Cell(0)`, `*Signal(7)`, a one-field object,
   # and a one-field generic type, whose argument is inferred from the
   # value. The named form stays legal.
 
@@ -1191,7 +1191,7 @@ test "static in holders", release: true, '''
   # A `Static` is text that lives for the whole program: a literal, or
   # text derived only from literals. It is plain data that carries no
   # loan, so it goes where no loan is tracked: in a `Cell`, a `Signal`, an
-  # owned closure, and in a struct field or a generic `T` stored there.
+  # owned closure, and in an object field or a generic `T` stored there.
 
   obj Tag
     name: Static
@@ -1552,7 +1552,7 @@ fail "string type by another name", "4:13: use of unbound type `Text`; owned tex
   print(size(?a))
 
 test "struct associated method", "hi"
-  # A `fun` declared in a struct body without `@` is called through the
+  # A `fun` declared in an object body without `@` is called through the
   # type name.
 
   obj User
@@ -1567,7 +1567,7 @@ test "struct constructor fields", '''
   Steve
   31
 '''
-  # A struct constructor with keyword fields; member access types each
+  # An object constructor with keyword fields; member access types each
   # field from the declaration.
 
   obj User
@@ -1744,9 +1744,9 @@ test "struct equality", '''
   true false true false
   true true
 '''
-  # `==` and `!=` compare structs field by field, payload enums by variant
+  # `==` and `!=` compare objects field by field, payload enums by variant
   # and then payload, and arrays and slices element by element. Floats
-  # compare as numbers do, so a NaN field makes two structs unequal.
+  # compare as numbers do, so a NaN field makes two objects unequal.
 
   obj Point
     x: Int
@@ -1836,7 +1836,7 @@ fail "struct positional fields", "12:5: a type with more than one field sets the
 
 fail "struct sigil member", "sigil-prefixed member (`?x` / `!x` / `<x`) is not allowed in a nominal body"
   # Sigil-prefixed names (`?x`) are sugar for `@` parameters only, not
-  # struct members.
+  # object members.
 
   obj S
     name: ?String
@@ -2091,7 +2091,7 @@ test "text build", '''
 '''
   # `String(...)` and `!t.add(...)` write each value as `print` writes it at
   # the top level, with no separators: Strings bare, numbers and floats as
-  # `print` shows them, and structs, enums, optionals, arrays, and Vecs
+  # `print` shows them, and objects, enums, optionals, arrays, and Vecs
   # with Strings quoted inside them.
 
   obj Point
@@ -2930,7 +2930,7 @@ test "value size limit", '''
   3 1572864
 '''
   # A value may take up to 8 MiB, and a function may keep up to 13 MiB of
-  # values on its stack: an array local, a struct, and a module constant
+  # values on its stack: an array local, an object, and a module constant
   # at the limit all run, and so does a function keeping 12 MiB.
 
   BIG = [1048576 of 7]
@@ -3213,7 +3213,7 @@ test "variant positional construction", '''
 
 fail "variant positional construction is rejected", "8:11: a variant with more than one field sets them by name: `.rect(w: ...)`", "9:13: a variant with more than one field sets them by name: `.rect(w: ...)`", "10:13: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`", "11:13: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`", "12:20: type mismatch: expected `Int`, got `Static`"
   # A variant with one field takes it by position or by name; a variant
-  # with more than one field sets them by name, like a struct's.
+  # with more than one field sets them by name, like an object's.
 
   enum Shape
     circle(radius: Int)
@@ -3618,7 +3618,7 @@ test "weak behind handle upgrade", '''
   print(*h.w == none, *ws[0] == none)
 
 fail "weak of non shared", "`~` weak reference requires a shared handle `*T`"
-  # `~x` needs a shared handle `*T`; a plain struct value has no weak form.
+  # `~x` needs a shared handle `*T`; a plain object value has no weak form.
 
   obj User
     name: ?String
@@ -3655,7 +3655,7 @@ fail "weak upgrade forms", "12:8: `*w?` is `*(w?)`, and `w` is a weak handle, no
   # propagates `none` out of the weak handle itself; the hint gives
   # `(*w)?`, which returns `none` once the value is gone. A branching
   # value that may be a name's handle is lent branch by branch, as a
-  # receiver is.
+  # self is.
 
   obj Node
     id: Int

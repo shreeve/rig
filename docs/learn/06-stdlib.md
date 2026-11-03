@@ -51,7 +51,7 @@ Orders from tally-data
 
 `os.args()` gives every argument, the program's own path first, so
 `args.len > 1` asks whether the caller passed one. The text is
-`Static`: it lives as long as the program and borrows from nothing, as a
+`Static`: it lives as long as the program and views nothing, as a
 literal does. That is why `args[1]` and `"tally-data"` can be the two
 arms of one `if`. `os.env(name)` gives a `Static?`, which is `none` when
 the variable is not set, and `??` supplies the default, as in [Errors

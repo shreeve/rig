@@ -307,7 +307,7 @@ fail "view field of call result", "19:1: cannot reassign `h` while it is lent", 
     print(y.n)
 
 test "view in local struct", "10"
-  # A struct may hold a view while the viewed value is alive, whether
+  # An object may hold a view while the viewed value is alive, whether
   # built locally or returned from a function taking the view.
 
   obj Wrap
@@ -553,8 +553,8 @@ fail "view stored by callee", "cannot drop `b` while it is lent"
   print(v.box.payload)
 
 fail "view stored in field", "cannot drop `b` while it is lent"
-  # A view stored in a struct field keeps its owner viewed while the
-  # struct is live.
+  # A view stored in an object field keeps its owner viewed while the
+  # object is live.
 
   obj Wrap
     payload: Int
@@ -594,7 +594,7 @@ fail "view stored through passed write view", "21:13: `x` does not live long eno
     print(v.r.v[0])
 
 fail "view stored through view param", "cannot store a view of `b` in `v.box`: `v` outlives it"
-  # A function cannot store a view of its own local into a struct the
+  # A function cannot store a view of its own local into an object the
   # caller owns: the local dies when the function returns.
 
   obj Wrap

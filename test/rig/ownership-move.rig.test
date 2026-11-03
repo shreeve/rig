@@ -342,7 +342,7 @@ fail "move field from view param", "14:8: cannot move out of `p.a`: `p` is a vie
   print("back")
 
 fail "move field from viewed self", "11:10: cannot move out of `@a`: `@` is a view; exchange it instead: `old = swap(!@a, v)`"
-  # A field cannot be moved out of a `?@` receiver: the caller still
+  # A field cannot be moved out of a `?@` self: the caller still
   # owns and drops it.
 
   obj Wrap
@@ -1073,7 +1073,7 @@ test "move write view of copy", '''
 '''
   # Moving a write view into a local moves the view, whatever it
   # points to: `w = <a` of an `a: !Int` binds a `!Int`, and writing `w`
-  # writes the caller's value, as it does for a struct.
+  # writes the caller's value, as it does for an object.
 
   obj C
     n: Int

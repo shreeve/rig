@@ -32,7 +32,7 @@ fail "method consume through view", "cannot consume through a view"
 fail "method consume without move", "method `consume` consumes `self`; write `<u.consume()`"
   # A method that consumes self (`<@`), called on a value that moves,
   # needs an explicit move at the call site: `<u.consume()`, not
-  # `u.consume()`. (A receiver whose value copies is taken as a copy, as
+  # `u.consume()`. (A self whose value copies is taken as a copy, as
   # an argument is.)
 
   obj User
@@ -83,7 +83,7 @@ test "method on enum", '''
   true
   false
 '''
-  # Enums get instance methods with the same receiver rules as structs.
+  # Enums get instance methods with the same self rules as objects.
 
   enum Color
     red
@@ -158,7 +158,7 @@ fail "method self typed", "7:9: self takes no type: write `?@`, `!@`, or `<@`"
     fun f(@: ?Self) -> Int
       1
 
-test "method receivers on two types", '''
+test "method selves on two types", '''
   Steve
   2
 '''
@@ -189,7 +189,7 @@ test "method receivers on two types", '''
 
 fail "method reference generic or mismatch", "16:10: method `Wrap.get` of a generic type must be called", "17:22: type mismatch: expected `fun(Int) -> Int`, got `fun(?P) -> Int`"
   # A method of a generic type cannot be named as a value, and a method
-  # value has the method's full signature, receiver first.
+  # value has the method's full signature, self first.
 
   obj Wrap[T]
     v: T
@@ -217,7 +217,7 @@ test "method reference value", '''
   7
 '''
   # `Type.method` is a function value whose first parameter is the
-  # receiver, however the method takes it.
+  # self, however the method takes it.
 
   obj B
     n: Int
@@ -357,7 +357,7 @@ test "method writes self", '''
   !u.modify("Bob")
 
 fail "method write without bang", "method `rename` needs `self` lent to write"
-  # A method that writes self (`!@`) needs its receiver lent to write
+  # A method that writes self (`!@`) needs its self lent to write
   # at the call: `!u.rename(...)`.
 
   obj User

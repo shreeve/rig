@@ -265,6 +265,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The compiler says self, never receiver.** `rig check --facts`
+  names the self of a method call `self` (`self call 18:9-18:13 ...`
+  under `--facts=storage`, ` self` among a call's fills under
+  `--facts=sema`), and the compiler's sources, tests, and docs say
+  self, object, and lend where they said receiver, struct, and borrow.
+  The emitted Zig is unchanged.
 - **`text.find_last` searches 16 bytes at a time,** as `find` does. It
   was Zig's `std.mem.findLast`, a byte at a time for needles of up to 4
   bytes: a needle of 1 to 4 bytes at the start of a 64 KiB text is now

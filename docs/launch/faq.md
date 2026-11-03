@@ -54,7 +54,7 @@ Rust rules out data races at compile time, as Rig does, but it does it
 with `async fn`, futures that must be pinned, `Send` and `'static`
 bounds on spawned work, and cancellation that happens by dropping a
 future at any `.await`. Rig has no second kind of function: any function
-may wait, and only a task started with `&` is waited for, with `>t`. A task may borrow its caller's data, since it cannot outlive
+may wait, and only a task started with `&` is waited for, with `>t`. A task may view its caller's data, since it cannot outlive
 its caller. Cancellation arrives only at waiting points, as an error,
 never in the middle of an expression, and it stays: every later waiting
 point fails too, so a `catch` cannot swallow it and carry on.
@@ -94,7 +94,7 @@ calls can wait for an answer.
 Trio showed that a task should never outlive the block that started it.
 Rig makes that the default for every task, with no nursery object: the
 scope that holds the task is the group, and the compiler knows what the
-task borrowed from it.
+task was lent from it.
 
 ## Are data races impossible?
 

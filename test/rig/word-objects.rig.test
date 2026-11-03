@@ -3,7 +3,7 @@
 
 code "word two halves", "pub const P = packed struct(u64) {", "pub const __rig_word_sized = {};"
   # An object of integers that fill 64 bits is one word, a Zig packed
-  # struct: it is made, copied, and compared as one.
+  # object: it is made, copied, and compared as one.
   obj P
     a: U32 = 0
     b: U32 = 0
@@ -34,7 +34,7 @@ code "word sizes", "pub const H = packed struct(u32) {", "pub const B = packed s
 
 code "word not a word", /pub const Odd = struct \{/, /pub const Flag = struct \{/, /pub const Wide = struct \{/, /^(?![\s\S]*Odd = struct \{\n    pub const __rig_word_sized)/
   # Bits that fill no word, a Bool, or more than 64 bits keep an object
-  # a plain struct, with read views by address.
+  # a plain object, with read views by address.
   obj Odd
     a: U32 = 0
     b: U16 = 0
@@ -67,7 +67,7 @@ code "word field of a record", "p: P align(4) =", "pub const Rec = struct {"
 
 code "word field lent to write stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
   # A write lend of a field takes its address, which a word's field does
-  # not have: the object stays a plain struct.
+  # not have: the object stays a plain object.
   obj P
     a: U32 = 0
     b: U32 = 0
@@ -125,7 +125,7 @@ test "word field lent to write in another module", "2 1"
 
 test "word in a record lent to write", "5 7 9"
   # A write lend of a 64-bit word held in a record takes an address at
-  # the record's alignment: the word stays a plain struct.
+  # the record's alignment: the word stays a plain object.
   obj P
     a: U32 = 0
     b: U32 = 0
@@ -312,7 +312,7 @@ test "word optional in a record", '''
 
 code "word optional written stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
   # A write lend of the word inside an optional would point at it where
-  # it is held, at four-byte alignment: it stays a plain struct.
+  # it is held, at four-byte alignment: it stays a plain object.
   obj P
     a: U32 = 0
     b: U32 = 0

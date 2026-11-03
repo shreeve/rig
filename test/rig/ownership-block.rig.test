@@ -172,7 +172,7 @@ fail "block tail defer reads", "7:15: use of `v` after move", errors: 1
   print(x.len)
 
 fail "block tail defer struct realloc", "12:8: use of `r` after move", errors: 1
-  # A struct holding a List, moved out at a branch's tail: the defer that
+  # An object holding a List, moved out at a branch's tail: the defer that
   # grows the List would write a value the result now owns.
   obj R
     v: List[Int]
@@ -207,7 +207,7 @@ fail "block tail defer while else", "11:8: use of `v` after move", errors: 1
   print(x.len, x[0])
 
 fail "block tail defer writes struct", "10:10: use of `r` after move", errors: 1
-  # A block-local struct at a branch's tail moves out before the branch's
+  # A block-local object at a branch's tail moves out before the branch's
   # defer writes it.
   obj R
     v: List[Int]

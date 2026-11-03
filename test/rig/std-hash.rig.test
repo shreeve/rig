@@ -252,7 +252,7 @@ test "hash compound keys", '''
 
 test "hash ensure chain", "[5, 6] 1"
   # The write view `ensure` returns takes a write call in the same
-  # statement, with no `!` before the receiver it already lends.
+  # statement, with no `!` before self it already lends.
 
 
   b = Map[Int, List[Int]].new()

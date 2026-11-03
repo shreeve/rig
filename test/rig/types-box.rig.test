@@ -10,7 +10,7 @@ test "box basic", '''
   drop 2
   drop 1
 '''
-  # ^T owns one T on the heap. Fields and methods of a boxed struct are
+  # ^T owns one T on the heap. Fields and methods of a boxed object are
   # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
   # `<b.unbox()` moves the value out and frees the box.
 
@@ -257,7 +257,7 @@ fail "box function", "5:11: `^` boxes a value; a function has no box", "7:14: `^
 test "box generic list", '''
   2 Node(value: "b", next: Node(value: "a", next: none))
 '''
-  # A generic struct holds itself through a box, and generic functions
+  # A generic object holds itself through a box, and generic functions
   # build and walk it.
 
   obj Node[T]
@@ -401,7 +401,7 @@ test "box members compose", '''
   3 true
 '''
   # A box lends the views of its value (Core §4), so member access reaches
-  # through it: a struct's fields and methods, a List's and a Text's, and
+  # through it: an object's fields and methods, a List's and a Text's, and
   # a Text through a shared handle.
 
   obj S

@@ -102,7 +102,7 @@ const Bound = union(enum) {
 
 const Below = struct { i: SymbolId, k: u64, b: Bound };
 
-/// `0 <= d.name <= hi`, of a struct binding `d`.
+/// `0 <= d.name <= hi`, of an object binding `d`.
 const Upto = struct { d: SymbolId, name: []const u8, hi: u64 };
 
 /// `n == s.len`.
@@ -563,7 +563,7 @@ const Pass = struct {
     }
 
     /// `d`, a binding an `upto` may be about: an own binding whose type is
-    /// a struct held by value (not a view of one), whose fields change
+    /// an object held by value (not a view of one), whose fields change
     /// only where a write of `d` says so.
     fn structLocal(p: *const Pass, e: Sexp) ?SymbolId {
         if (e != .src) return null;
@@ -1764,8 +1764,8 @@ fn resultBoundOf(ctx: *const SemContext, call: Sexp) ?sema.ResultBound {
     return f.ctx.result_bounds.get(f.pos);
 }
 
-/// Whether `call` constructs a value of the struct `ty`: `T(...)` or
-/// `m.T(...)` of a struct that is no generic instance.
+/// Whether `call` constructs a value of the object type `ty`: `T(...)` or
+/// `m.T(...)` of an object that is no generic instance.
 fn constructs(ctx: *const SemContext, call: Sexp, ty: sema.TypeId) bool {
     if (!call.isKind(.call) or ctx.typeOf(call) != ty) return false;
     const callee = ir.Call.callee(call);
@@ -1783,7 +1783,7 @@ fn constructs(ctx: *const SemContext, call: Sexp, ty: sema.TypeId) bool {
 /// values (docs/internals/INTERNALS.md, "Proven checks"). Each value a function can
 /// return (every `return`'s, and the body's tail unless it is a
 /// `return`) is, for an `Int` result, a literal or a call of a function
-/// that bounds its result, and for a struct result, a constructor that
+/// that bounds its result, and for an object result, a constructor that
 /// gives the field a literal, or a call of a function that bounds that
 /// field. Anything else bounds nothing, and so does a function on a cycle
 /// of calls, which reaches itself before its bound is known.
@@ -1939,7 +1939,7 @@ const Summaries = struct {
         return b.whole;
     }
 
-    /// The bound of field `name` of a struct value of type `ty`: a
+    /// The bound of field `name` of an object value of type `ty`: a
     /// constructor that gives it a literal, or a call of a function that
     /// bounds it.
     fn fieldOf(s: *Summaries, v: Sexp, ty: sema.TypeId, name: []const u8) Error!?u64 {
@@ -2825,8 +2825,8 @@ test "E2: a near miss bounds nothing" {
     // A size from a parameter, a negative one, a value `if`, one past
     // 2^62, one through a cycle of calls, a store into the field, a
     // reassignment from an unbounded call, a write view, a parameter
-    // struct, the bound on the left of `+`, a loop that writes the
-    // struct, and a `raw` block: only the loop's own `j += 1` is proven.
+    // object, the bound on the left of `+`, a loop that writes the
+    // object, and a `raw` block: only the loop's own `j += 1` is proven.
     try expectDump(
         \\obj D
         \\  rune: Int

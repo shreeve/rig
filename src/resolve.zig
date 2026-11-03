@@ -7,7 +7,7 @@
 //! walks enter scopes by node identity rather than by visiting order.
 //!
 //! `resolveDeclarations` then turns every declared type expression into
-//! a TypeId: function signatures, parameter types, struct fields, enum
+//! a TypeId: function signatures, parameter types, object fields, enum
 //! variants, methods, `drop` bodies, externs, and type aliases.
 //! `TypeResolver.resolveType` is also used by the expression checker for
 //! annotations inside bodies.
@@ -36,7 +36,7 @@ const TypeId = sema.TypeId;
 const Type = sema.Type;
 const Symbol = sema.Symbol;
 const Field = sema.Field;
-const MethodReceiver = sema.MethodReceiver;
+const SelfMode = sema.SelfMode;
 const NominalContext = sema.NominalContext;
 const Error = std.mem.Allocator.Error;
 
@@ -2199,8 +2199,8 @@ pub const TypeResolver = struct {
             if (try self.checkDuplicateMember(&names, mname, name.src.pos, owner)) continue;
             const fn_ty = try self.resolveFunction(m, sema.symbol_invalid);
             const params = ir.get(m, .params);
-            const receiver: MethodReceiver = if (params.items().len > 0 and self.isSelfParam(params.items()[0])) self.classifyReceiver(fn_ty) else .none;
-            if (receiver == .none) {
+            const self_mode: SelfMode = if (params.items().len > 0 and self.isSelfParam(params.items()[0])) self.classifySelf(fn_ty) else .none;
+            if (self_mode == .none) {
                 try self.ctx.err(name.src.pos, "`{s}.{s}` takes no self: an API's method takes self first, `fun {s}(?@)`", .{ owner, mname, mname });
                 continue;
             }
@@ -2209,7 +2209,7 @@ pub const TypeResolver = struct {
                 .ty = fn_ty,
                 .decl_pos = name.src.pos,
                 .is_method = true,
-                .receiver = receiver,
+                .self_mode = self_mode,
                 .param_names = try self.paramNames(params),
                 .param_defaults = try self.paramDefaults(params),
                 .is_default = of == .api and ir.get(m, .body) != .nil,
@@ -3743,8 +3743,8 @@ pub const TypeResolver = struct {
                 try self.ctx.err(sema.paramPos(p, mpos), "sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", .{});
             }
         }
-        const receiver: MethodReceiver = if (params.items().len > 0 and self.isSelfParam(params.items()[0]))
-            self.classifyReceiver(fn_ty)
+        const self_mode: SelfMode = if (params.items().len > 0 and self.isSelfParam(params.items()[0]))
+            self.classifySelf(fn_ty)
         else
             .none;
         try fields.append(self.ctx.allocator, .{
@@ -3756,7 +3756,7 @@ pub const TypeResolver = struct {
             .is_pub = is_pub,
             .outside = (node.isKind(.fun) or node.isKind(.sub)) and ir.get(node, .outside) != .nil,
             .inline_marked = marked,
-            .receiver = receiver,
+            .self_mode = self_mode,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),
         });
@@ -3764,7 +3764,7 @@ pub const TypeResolver = struct {
 
     /// How a method takes self, from the type `?@`, `!@`, or `<@`
     /// gave it (`resolveParamType`): `?Self`, `!Self`, or `Self`.
-    fn classifyReceiver(self: *TypeResolver, fn_ty_id: TypeId) MethodReceiver {
+    fn classifySelf(self: *TypeResolver, fn_ty_id: TypeId) SelfMode {
         const fn_ty = self.ctx.types.get(fn_ty_id);
         if (fn_ty != .function or fn_ty.function.params.len == 0) return .none;
         const first = fn_ty.function.params[0];
@@ -3827,7 +3827,7 @@ pub const TypeResolver = struct {
             .ty = fn_ty,
             .decl_pos = pos,
             .is_method = true,
-            .receiver = .write,
+            .self_mode = .write,
             .is_drop_method = true,
         });
     }
@@ -5310,13 +5310,13 @@ fn addGeneric(ctx: *SemContext, named_in: ?ScopeId, module_scope: ScopeId, name:
 /// A built-in method, with what it needs of its type's parameter `T`
 /// (`sema.Needs`), or null when it needs nothing: every method that
 /// copies a `T`, out of what it keeps or into elements it makes, says so.
-fn method(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: []const TypeId, returns: TypeId, needs: ?*const sema.Needs) Error!Field {
+fn method(ctx: *SemContext, name: []const u8, self_mode: SelfMode, params: []const TypeId, returns: TypeId, needs: ?*const sema.Needs) Error!Field {
     const ty = try ctx.intern(.{ .function = .{
         .params = try ctx.dupeIds(params),
         .returns = returns,
         .is_sub = returns == ctx.types.void_id,
     } });
-    return .{ .name = name, .ty = ty, .decl_pos = builtin_pos, .is_method = true, .receiver = receiver, .needs = needs };
+    return .{ .name = name, .ty = ty, .decl_pos = builtin_pos, .is_method = true, .self_mode = self_mode, .needs = needs };
 }
 
 /// The tables behind `Map` and `Set` (src/ordered.zig), `OrderedMap[K,
@@ -5422,8 +5422,8 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
 
 /// A member of a table, with the origins of its signature
 /// (`registerTables`).
-fn tableMethod(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: []const TypeId, returns: TypeId) Error!Field {
-    var f = try method(ctx, name, receiver, params, returns, null);
+fn tableMethod(ctx: *SemContext, name: []const u8, self_mode: SelfMode, params: []const TypeId, returns: TypeId) Error!Field {
+    var f = try method(ctx, name, self_mode, params, returns, null);
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     f.origins = try sema.signatureOrigins(ctx, scratch.allocator(), ctx.types.get(f.ty).function);

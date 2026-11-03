@@ -84,7 +84,7 @@ pub const StorageKind = sema.StorageKind;
 pub const StorageBy = sema.StorageBy;
 pub const Answer = sema.Answer;
 pub const Clone = sema.Clone;
-pub const MethodReceiver = sema.MethodReceiver;
+pub const SelfMode = sema.SelfMode;
 pub const Upgrade = sema.Upgrade;
 pub const Lift = sema.Lift;
 pub const TypedInt = sema.TypedInt;
@@ -94,7 +94,7 @@ pub const Instance = sema.Instance;
 pub const HandsKind = sema.Hands.Kind;
 pub const LeafStep = storage.LeafStep;
 pub const MatchMode = storage.MatchMode;
-pub const ReceiverHold = storage.ReceiverHold;
+pub const SelfHold = storage.SelfHold;
 pub const ArgumentHold = storage.ArgumentHold;
 pub const SetOrder = storage.SetOrder;
 pub const ResourceKind = sema.ResourceKind;
@@ -797,8 +797,8 @@ pub const Facts = struct {
     }
     /// The decisions about a call or an array literal the plan made
     /// (`storage`): whether it evaluates its arguments or elements first,
-    /// how it holds its receiver and each part, whether it consumes a
-    /// temporary receiver, and whether a part, an assigned value, or an
+    /// how it holds its self and each part, whether it consumes a
+    /// temporary self, and whether a part, an assigned value, or an
     /// index is pure.
     pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
         return storage.decided(f.c(), call, .hoists_args);
@@ -822,11 +822,11 @@ pub const Facts = struct {
     pub fn jumpDest(f: Facts, jump: Sexp) ?JumpDest {
         return f.c().jumpDestOf(jump);
     }
-    pub fn receiverHold(f: Facts, call: Sexp) ??ReceiverHold {
-        return storage.decided(f.c(), call, .receiver_hold);
+    pub fn selfHold(f: Facts, call: Sexp) ??SelfHold {
+        return storage.decided(f.c(), call, .self_hold);
     }
-    pub fn consumesReceiver(f: Facts, call: Sexp) ?bool {
-        return storage.decided(f.c(), call, .consumes_receiver);
+    pub fn consumesSelf(f: Facts, call: Sexp) ?bool {
+        return storage.decided(f.c(), call, .consumes_self);
     }
     pub fn argumentHold(f: Facts, v: Sexp) ?ArgumentHold {
         return storage.decided(f.c(), v, .argument_hold);
@@ -901,14 +901,14 @@ pub const Facts = struct {
     pub fn isTypeSym(f: Facts, id: SymbolId) bool {
         return storage.isTypeSym(f.c(), id);
     }
-    /// The receiver of `value.method(...)`, as the call's recorded
+    /// The self of `value.method(...)`, as the call's recorded
     /// parameters say.
-    pub fn receiverOf(f: Facts, call: Sexp) ?Sexp {
-        return storage.receiverOf(f.c(), call);
+    pub fn selfOf(f: Facts, call: Sexp) ?Sexp {
+        return storage.selfOf(f.c(), call);
     }
     /// Whether the method of `value.method(...)` takes `!@`.
-    pub fn receiverWrites(f: Facts, call: Sexp) bool {
-        return storage.receiverWrites(f.c(), call);
+    pub fn selfWrites(f: Facts, call: Sexp) bool {
+        return storage.selfWrites(f.c(), call);
     }
     /// The run-time parameters a call's arguments fill.
     pub fn argParams(f: Facts, call: Sexp) []const TypeId {
@@ -1024,11 +1024,11 @@ pub const Facts = struct {
     pub fn isBuiltinGeneric(f: Facts, sym: SymbolId) bool {
         return sema.isBuiltinGeneric(f.c(), sym);
     }
-    pub fn lookupDataFieldConst(f: Facts, receiver_ty: TypeId, name: []const u8) ?Field {
-        return sema.lookupDataFieldConst(f.c(), receiver_ty, name);
+    pub fn lookupDataFieldConst(f: Facts, self_ty: TypeId, name: []const u8) ?Field {
+        return sema.lookupDataFieldConst(f.c(), self_ty, name);
     }
-    pub fn methodReceiver(f: Facts, receiver_ty: TypeId, name: []const u8) ?MethodReceiver {
-        return sema.methodReceiver(f.c(), receiver_ty, name);
+    pub fn methodSelfMode(f: Facts, self_ty: TypeId, name: []const u8) ?SelfMode {
+        return sema.methodSelfMode(f.c(), self_ty, name);
     }
     /// The payload fields of variant `vname` of an enum type.
     pub fn variantPayload(f: Facts, enum_ty: TypeId, vname: []const u8) ?[]const Field {

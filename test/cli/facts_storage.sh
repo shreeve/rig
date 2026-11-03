@@ -31,7 +31,7 @@ EOF2
 
 "$RIG" check --facts=storage main.rig >facts.txt 2>err.txt || fail "rig check --facts=storage: $(cat err.txt)"
 out=$(cat facts.txt)
-expect_has "$out" 'receiver call 18:9-18:13 "mk()" owned call' "a call's receiver"
+expect_has "$out" 'self call 18:9-18:13 "mk()" owned call' "a call's self"
 expect_has "$out" 'argument propagate 18:19-18:27 "half(2)!" owned call' "a reordered method argument"
 expect_has "$out" 'range_start for 19:3-' "a range loop's counter"
 expect_has "$out" 'index propagate 22:5-22:13 "half(2)!" owned assignment' "an assignment's index"
@@ -39,7 +39,7 @@ expect_has "$out" 'argument propagate 23:17-23:25 "half(4)!" owned call' "a reor
 "$RIG" check --facts=storage main.rig >again.txt 2>/dev/null
 cmp -s facts.txt again.txt || fail "two dumps of one program differ"
 "$RIG" emit main.rig >main.zig 2>err.txt || fail "rig emit: $(cat err.txt)"
-expect_has "$(cat main.zig)" '__rig_recv_' "the receiver's storage"
+expect_has "$(cat main.zig)" '__rig_recv_' "self's storage"
 expect_has "$(cat main.zig)" '__rig_ix_' "the index's storage"
 rig run main.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
 expect_has "$(cat run.txt)" '4' "the program's output"

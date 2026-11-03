@@ -1080,8 +1080,8 @@ fail "review-assign-desugar-n10 name view move referent first arm", "cannot move
   run(0)
 
 fail "review-assign-desugar-n11 view value held into struct", "cannot lend `v` to write while a read loan is live"
-  # A value that is a view, made in __v and stored into a struct local:
-  # the struct's loan on `v` lasts, so a later grow must be rejected.
+  # A value that is a view, made in __v and stored into an object local:
+  # the object's loan on `v` lasts, so a later grow must be rejected.
   obj H
     r: ?Int
 
@@ -1527,7 +1527,7 @@ test "review-assign-desugar-n26 generic writeview repoint", '''
   print(xs[0], ys[0], xs.len)
 
 test "review-assign-desugar-n27 owning writeview repoint", "201 0 201"
-  # A write view of an owning struct, re-pointed in the value, which then
+  # A write view of an owning object, re-pointed in the value, which then
   # grows the old List: the old value at y[0] is dropped and replaced.
   obj S
     items: List[Int]

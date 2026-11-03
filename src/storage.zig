@@ -128,7 +128,7 @@ pub fn moduleMemberSym(ctx: *const SemContext, obj: Sexp) ?sema.Symbol {
     return foreign.symbols.items[fid];
 }
 
-/// A struct, enum, or generic type: calling it constructs a value.
+/// An object, enum, or generic type: calling it constructs a value.
 pub fn isTypeSym(ctx: *const SemContext, id: SymbolId) bool {
     return switch (ctx.symbols.items[id].kind) {
         .nominal_type, .generic_type => true,
@@ -206,43 +206,43 @@ fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
     }
 }
 
-/// The receiver of `value.method(...)`.
-pub fn receiverOf(ctx: *const SemContext, call: Sexp) ?Sexp {
-    if (!hasReceiver(ctx, call)) return null;
+/// The self of `value.method(...)`.
+pub fn selfOf(ctx: *const SemContext, call: Sexp) ?Sexp {
+    if (!hasSelf(ctx, call)) return null;
     return ir.Member.object(ctx.calleeOf(call));
 }
 
-/// Whether `call` passes a receiver, its callee's object, as its first
+/// Whether `call` passes a self, its callee's object, as its first
 /// parameter (`value.method(...)`), as its recorded parameters say
 /// (`SemContext.callParamsOf`): not `Type.f(...)`, `module.f(...)`, or a
 /// callable a field holds (`s.cb(...)`). A call checked against no
-/// signature has a receiver when its callee is a member of a value.
-pub fn hasReceiver(ctx: *const SemContext, call: Sexp) bool {
+/// signature has a self when its callee is a member of a value.
+pub fn hasSelf(ctx: *const SemContext, call: Sexp) bool {
     const callee = ctx.calleeOf(call);
     if (!callee.isKind(.member)) return false;
-    if (ctx.callParamsOf(call)) |filled| return filled.fills.len > 0 and filled.fills[0] == .receiver;
+    if (ctx.callParamsOf(call)) |filled| return filled.fills.len > 0 and filled.fills[0] == .self;
     return !isTypeCallee(ctx, ir.Member.object(callee));
 }
 
 /// Whether the method of `value.method(...)` takes `!@`.
-pub fn receiverWrites(ctx: *const SemContext, call: Sexp) bool {
-    if (!hasReceiver(ctx, call)) return false;
+pub fn selfWrites(ctx: *const SemContext, call: Sexp) bool {
+    if (!hasSelf(ctx, call)) return false;
     const f = fnType(ctx, typeOf(ctx, ctx.calleeOf(call))) orelse return false;
     return f.params.len > 0 and ctx.types.get(f.params[0]) == .write_view;
 }
 
-/// The receiver of `value.method(...)` when it is an owned temporary
+/// The self of `value.method(...)` when it is an owned temporary
 /// the method consumes (`mk().consume(...)`).
 pub fn consumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
-    return if (decide(ctx, call, .consumes_receiver)) receiverOf(ctx, call) else null;
+    return if (decide(ctx, call, .consumes_self)) selfOf(ctx, call) else null;
 }
 
-fn decideConsumesReceiver(ctx: *const SemContext, call: Sexp) bool {
+fn decideConsumesSelf(ctx: *const SemContext, call: Sexp) bool {
     return decideConsumedTemporary(ctx, call) != null;
 }
 
 fn decideConsumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
-    if (!hasReceiver(ctx, call)) return null;
+    if (!hasSelf(ctx, call)) return null;
     const callee = ctx.calleeOf(call);
     const obj = ir.Member.object(callee);
     if (hasStorage(ctx, obj) or obj.isKind(.move) or !ownsValue(ctx, obj)) return null;
@@ -286,8 +286,8 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
         }
     }
     const callee = ctx.calleeOf(call);
-    // Zig passes a temporary receiver to a `!@` method as a constant.
-    if (receiverOf(ctx, call)) |recv| if (!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) return true;
+    // Zig passes a temporary self to a `!@` method as a constant.
+    if (selfOf(ctx, call)) |recv| if (!hasStorage(ctx, recv) and recv.kind() != .move and selfWrites(ctx, call)) return true;
     const owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or consumedTemporary(ctx, call) != null;
     return leavesAfterOwned(ctx, owned, args);
 }
@@ -311,8 +311,8 @@ fn leavesAfterOwned(ctx: *const SemContext, owned_before: bool, parts: []const S
 }
 
 /// How a call whose arguments are evaluated first (`hoistsArgs`) holds
-/// its receiver while they run.
-pub const ReceiverHold = enum {
+/// its self while they run.
+pub const SelfHold = enum {
     /// An owned temporary the method consumes, handed over when the
     /// call runs (`consumedTemporary`).
     consumed,
@@ -327,9 +327,9 @@ pub const ReceiverHold = enum {
     /// A temporary: its value, which the call's block holds.
     value,
 
-    /// How the storage holds the receiver, given whether `recv` itself
+    /// How the storage holds self, given whether `recv` itself
     /// has storage (`hasStorage`): a part of a temporary is a copy.
-    pub fn by(hold: ReceiverHold, part: bool) StorageBy {
+    pub fn by(hold: SelfHold, part: bool) StorageBy {
         return switch (hold) {
             .consumed => .owned,
             .leaf, .slot, .place => .pointer,
@@ -338,17 +338,17 @@ pub const ReceiverHold = enum {
     }
 };
 
-/// How a call whose arguments are evaluated first holds its receiver,
+/// How a call whose arguments are evaluated first holds its self,
 /// or null when it is evaluated where the call is.
-pub fn receiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
-    return decide(ctx, call, .receiver_hold);
+pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
+    return decide(ctx, call, .self_hold);
 }
 
-fn decideReceiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
+fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
-    // Lend sigils on a receiver are implicit in Zig's method calls.
-    const recv = lentPlace(receiverOf(ctx, call) orelse return null);
-    const writes = receiverWrites(ctx, call);
+    // Lend sigils on a self are implicit in Zig's method calls.
+    const recv = lentPlace(selfOf(ctx, call) orelse return null);
+    const writes = selfWrites(ctx, call);
     const temporary = !hasStorage(ctx, recv) and !recv.isKind(.move);
     if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return null;
     if (reachesLeaf(ctx, recv)) return .leaf;
@@ -385,12 +385,12 @@ fn decideArgumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
 }
 
 /// The types of the run-time parameters a call's arguments fill, in
-/// slot order: every parameter but the one its receiver fills, as the
+/// slot order: every parameter but the one its self fills, as the
 /// call's recorded parameters say (`SemContext.callParamsOf`). A callable
-/// a field holds (`s.cb(...)`) has no receiver; `value.method(...)` does.
+/// a field holds (`s.cb(...)`) has no self; `value.method(...)` does.
 pub fn argParams(ctx: *const SemContext, call: Sexp) []const TypeId {
     const f = fnType(ctx, typeOf(ctx, ctx.calleeOf(call))) orelse return &.{};
-    return if (hasReceiver(ctx, call) and f.params.len > 0) f.params[1..] else f.params;
+    return if (hasSelf(ctx, call) and f.params.len > 0) f.params[1..] else f.params;
 }
 
 /// The type of the parameter argument `a` of `call` fills; null when
@@ -420,7 +420,7 @@ pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
 /// it takes is: it is read, not taken, and its type is read by
 /// address (`sema.readByAddress`), as the ownership checker reads
 /// each leaf in place (`holdBranchReads`). Zig would copy it into a
-/// temporary, and a `?@` method would view the copy; a struct, an
+/// temporary, and a `?@` method would view the copy; an object, an
 /// array, or a String is instead reached through the address of its
 /// leaf, which Zig follows for a field, an element, or a method.
 pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
@@ -1122,7 +1122,7 @@ fn dropsOld(ctx: *const SemContext, set: Sexp) bool {
 /// How the value of `e`, which emit holds in hidden storage or
 /// discards, is held and dropped when nothing takes it, decided once
 /// (`sema.resourceKind` of its type): the base a header holds, an
-/// assignment's new value, an argument or receiver a call holds, and the
+/// assignment's new value, an argument or self a call holds, and the
 /// value of `_ = e` or `<e`.
 pub fn dropKind(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
     return decide(ctx, e, .drop_kind);
@@ -1304,8 +1304,8 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_receiver, .pure_arg, .lane_checked, .fills_in_place => bool,
-        .receiver_hold => ?ReceiverHold,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_self, .pure_arg, .lane_checked, .fills_in_place => bool,
+        .self_hold => ?SelfHold,
         .argument_hold => ArgumentHold,
         .match_mode => MatchMode,
         .hands => sema.Hands.Kind,
@@ -1349,8 +1349,8 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .header_points => Node.of(decideHeaderPoints),
         .views_optional_value => Node.of(decideViewsOptionalValue),
         .hoists_args => Node.of(decideHoistsArgs),
-        .receiver_hold => Node.of(decideReceiverHold),
-        .consumes_receiver => Node.of(decideConsumesReceiver),
+        .self_hold => Node.of(decideSelfHold),
+        .consumes_self => Node.of(decideConsumesSelf),
         .argument_hold => Node.of(decideArgumentHold),
         .pure_arg => Node.of(decideIsPureArg),
         .lane_checked => Node.of(decideLaneChecked),
@@ -1672,7 +1672,7 @@ const Planner = struct {
         // How the storage drops the value it holds, for emit to read.
         switch (kind) {
             .held => _ = dropKind(p.ctx, p.ctx.heldBaseOf(node) orelse return),
-            .new_value, .argument, .receiver => _ = dropKind(p.ctx, node),
+            .new_value, .argument, .self => _ = dropKind(p.ctx, node),
             else => {},
         }
     }
@@ -1746,7 +1746,7 @@ const Planner = struct {
             .call => {
                 // How a call holds what it is passed, for emit to read.
                 _ = hoistsArgs(ctx, e);
-                _ = receiverHold(ctx, e);
+                _ = selfHold(ctx, e);
                 _ = consumedTemporary(ctx, e);
                 for (ir.Call.args(e)) |a| {
                     _ = isPureArg(ctx, argValue(a));
@@ -1997,9 +1997,9 @@ const Planner = struct {
         // A closure literal called where it is written is built first.
         if (callee.isKind(.lambda)) try p.record(callee, .invoked, .owned, .call);
         if (!hoists) return;
-        if (receiverHold(ctx, c)) |hold| {
-            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(receiverOf(ctx, c).?);
-            try p.record(recv, .receiver, hold.by(hasStorage(ctx, recv)), .call);
+        if (selfHold(ctx, c)) |hold| {
+            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(selfOf(ctx, c).?);
+            try p.record(recv, .self, hold.by(hasStorage(ctx, recv)), .call);
         }
         for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai));
     }

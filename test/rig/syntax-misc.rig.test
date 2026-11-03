@@ -558,7 +558,7 @@ test "drop decl body", '''
   0
   7
 '''
-  # A struct's `drop(!@)` body runs at scope exit and can read
+  # An object's `drop(!@)` body runs at scope exit and can read
   # `@`'s fields.
 
   obj File
@@ -1096,9 +1096,9 @@ test "for lent made iterator", '''
   0
 '''
   # The `?` before a `for` loop's source that is a method call reaches the
-  # call's receiver, as before any call (`?b.each()` is `(?b).each()`),
+  # call's self, as before any call (`?b.each()` is `(?b).each()`),
   # and the loop holds the iterator the call makes, which keeps `b` lent
-  # to read for the loop. A method that writes its receiver is called
+  # to read for the loop. A method that writes its self is called
   # with the `!` in parentheses, `(!b).drain()`, as any write call whose
   # value is used is.
 
@@ -1317,7 +1317,7 @@ fail "generic error set", "3:8: an error set takes no type parameters"
     bad
 
 fail "generic struct declared as type", "4:10: an object is declared with `obj`: `obj Wrap[T]`"
-  # A generic struct is declared with `obj`; `type` declares only an
+  # A generic object is declared with `obj`; `type` declares only an
   # alias.
 
   type Wrap[T]
@@ -4030,7 +4030,7 @@ fail "raw access sigil removed", "6:7: unexpected `%`; expected an expression"
   raw
     r = %x
 
-test "read receiver sigil", '''
+test "read self sigil", '''
   2
   13
   6
@@ -4040,7 +4040,7 @@ test "read receiver sigil", '''
   step 1
   step 1
 '''
-  # `?p.m()` spells out the read receiver a call takes anyway, on a place
+  # `?p.m()` spells out the read self a call takes anyway, on a place
   # and its fields and elements, and in a `while` step; `?(p.m())`
   # views the call's result.
 
@@ -4076,9 +4076,9 @@ test "read receiver sigil", '''
   while i < 2 : ?p.show("step")
     i += 1
 
-fail "read receiver sigil on writer", "21:1: `bump` writes `self`: write `!c.bump()`", "22:7: `done` consumes `self`: write `<c.done()`; to lend the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no `self`; to lend the call's result, write `?(Counter.make())`"
-  # `?p.m()` names a read receiver: a method that writes or consumes its
-  # receiver is called with `!` or `<`, and a call's result is lent
+fail "read self sigil on writer", "21:1: `bump` writes `self`: write `!c.bump()`", "22:7: `done` consumes `self`: write `<c.done()`; to lend the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no `self`; to lend the call's result, write `?(Counter.make())`"
+  # `?p.m()` names a read self: a method that writes or consumes its
+  # self is called with `!` or `<`, and a call's result is lent
   # with `?(p.m())`.
 
   obj Counter
@@ -4145,7 +4145,7 @@ test "self move sigil", '''
   s: Shape = .square
   print(<s.area())
 
-test "receiver sigils", '''
+test "self sigils", '''
   4 4
   2
   6
@@ -4159,7 +4159,7 @@ test "receiver sigils", '''
   2
   sent 3
 '''
-  # `!` or `<` before a place followed by a method call is the receiver's
+  # `!` or `<` before a place followed by a method call is self's
   # mode: `!v.push(x)` is `(!v).push(x)`, `<c.close()` is `(<c).close()`.
   # Postfixes after the call apply to its result.
 
@@ -4688,7 +4688,7 @@ test "sigils before calls", '''
   pair
   1 4
 '''
-  # Only `?`, `!`, and `<` reach a method's receiver. The other prefix
+  # Only `?`, `!`, and `<` reach a method's self. The other prefix
   # sigils, and `?` / `!` / `<` before a place with no method call after
   # it, apply to the whole expression; `?(p.m())` views a call's result.
 
@@ -4839,7 +4839,7 @@ fail "string touching name", "3:6: unexpected `\"hi\"`"
   print"hi"
 
 fail "struct declared as type", "4:3: an object is declared with `obj`: `obj Foo`"
-  # A struct is declared with `obj`; `type` declares only an alias.
+  # An object is declared with `obj`; `type` declares only an alias.
 
   type Foo
     bar: Int
@@ -5140,13 +5140,13 @@ fail "unexpected end of block", "unexpected end of block"
   match x
 
 fail "unique after header", "3:19: unexpected name `extra`; expected an indented block"
-  # `unique` ends a struct header: nothing follows it on the line.
+  # `unique` ends an object header: nothing follows it on the line.
 
   obj Random unique extra
     seed: Int
 
 fail "unique enum", "4:11: unexpected name `unique`; expected an indented block, `:` or `[`"
-  # Only a struct is declared `unique`; an enum is unique when a payload
+  # Only an object is declared `unique`; an enum is unique when a payload
   # holds a unique value.
 
   enum Coin unique
@@ -5154,8 +5154,8 @@ fail "unique enum", "4:11: unexpected name `unique`; expected an indented block,
     tails
 
 test "unique is a name", "3 6 true true true 3 8"
-  # `unique` is a keyword only after a struct header's name or type
-  # parameters, where it declares the struct unique (`obj Random unique`).
+  # `unique` is a keyword only after an object header's name or type
+  # parameters, where it declares the object unique (`obj Random unique`).
   # Everywhere else it is an ordinary name.
 
   obj Seed unique

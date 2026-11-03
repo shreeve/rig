@@ -12,7 +12,7 @@
 //!   4. contents     `sema.zig`       what each declared type's values hold
 //!                                    (drop glue, a Cell, plain data), and
 //!                                    types that contain themselves
-//!   5. validation   `sema.zig`,      every struct and enum fits
+//!   5. validation   `sema.zig`,      every object and enum fits
 //!                   `resolve.zig`    `max_value_bytes`; the declaration
 //!                                    checks that need 4
 //!   6. expressions  `typecheck.zig`  bodies are type-checked; every
@@ -31,7 +31,7 @@
 //! other queries on `SemContext`); `docs/internals/INTERNALS.md` (The facts table)
 //! says what each answers. A call's callee gets a type too:
 //! a function name its signature, and a method callee `(member obj m)`
-//! the resolved method signature with the receiver's generic arguments
+//! the resolved method signature with self's generic arguments
 //! applied. The name leaf of every `fun` / `sub` declaration, method or
 //! not, carries its function type. Binding facts live on the Symbol
 //! (`SymbolFlags`, `kind`, and for a capture the `origin` binding it
@@ -419,7 +419,7 @@ pub const Type = union(enum) {
     /// `callable`, called through a `rig.FnRef`. (A `?T` whose `T` is a
     /// function type is a read view of a function value.)
     callable: TypeId,
-    /// A struct, enum, error set, or opaque declared in this module.
+    /// An object, enum, error set, or opaque declared in this module.
     nominal: SymbolId,
     /// A nominal declared in another module. Identity is the origin
     /// module plus the symbol there, never the shape.
@@ -590,7 +590,7 @@ pub const Holding = enum { box, counted, frozen };
 pub const TableEntry = struct {
     name: []const u8,
     slot: u32,
-    self_mode: MethodReceiver,
+    self_mode: SelfMode,
     fn_ty: TypeId,
     /// The method's result is an optional wider than `out_result_bytes`
     /// (`resultOut`): the entry writes the value through the caller's
@@ -742,7 +742,7 @@ fn methodLeftOut(home: *const SemContext, f: Field, self_sym: SymbolId) ?LeftOut
         if (p != symbol_invalid and home.symbols.items[p].flags.set_param) return .{ .set_param = home.symbols.items[p].name };
     }
     if (fn_ty.ct_params.len > 0) return .ct_params;
-    const params = if (f.receiver == .none) fn_ty.params else fn_ty.params[@min(1, fn_ty.params.len)..];
+    const params = if (f.self_mode == .none) fn_ty.params else fn_ty.params[@min(1, fn_ty.params.len)..];
     for (params) |p| if (namesTypeVar(home, p, self_sym, 0)) return .self_type;
     if (namesTypeVar(home, fn_ty.returns, self_sym, 0)) return .self_type;
     return null;
@@ -1021,7 +1021,7 @@ pub const SymbolKind = enum {
     /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
     /// in the function's scope.
     generic_param,
-    /// struct / enum / error set / opaque.
+    /// object / enum / error set / opaque.
     nominal_type,
     /// A module imported with `use`.
     module,
@@ -1104,8 +1104,8 @@ pub const SymbolFlags = packed struct(u64) {
     spare: u31 = 0,
 };
 
-/// How a method takes its receiver, from the declared first parameter.
-pub const MethodReceiver = enum { none, read, write, value };
+/// How a method takes its self, from the declared first parameter.
+pub const SelfMode = enum { none, read, write, value };
 
 /// What a built-in method needs of its type's parameter `T`, declared in
 /// its entry of `resolve.registerBuiltins` and checked at every call,
@@ -1143,10 +1143,10 @@ pub const Field = struct {
     payload: ?[]const Field = null,
     /// A method; `ty` is its function type.
     is_method: bool = false,
-    receiver: MethodReceiver = .none,
+    self_mode: SelfMode = .none,
     /// An enum / error-set variant (not a data field).
     is_variant: bool = false,
-    /// The struct's user `drop(!@)` body. Not callable.
+    /// The object's user `drop(!@)` body. Not callable.
     is_drop_method: bool = false,
     /// A data field's default value (`name: T = literal`).
     default: ?Sexp = null,
@@ -1200,10 +1200,10 @@ pub const OwnerBound = struct {
 
 /// The witnesses a call passes a method under bounds (`OwnerBound`), one
 /// per API of a program's own in the order written, after self, which is
-/// the call's first argument when `receiver_arg` (`Wrap.show(w)`).
+/// the call's first argument when `self_arg` (`Wrap.show(w)`).
 pub const OwnerWitnesses = struct {
     witnesses: []const Witness,
-    receiver_arg: bool = false,
+    self_arg: bool = false,
 };
 
 pub const Symbol = struct {
@@ -1562,9 +1562,9 @@ pub const WitnessMember = struct {
 
 /// How a call reaches the method it calls (docs/design/apis.md, Stage 3,
 /// "Lowering"), recorded once per method call (`SemContext.dispatchOf`):
-/// `direct`, the method the receiver's type declares, which Zig finds on
+/// `direct`, the method self's type declares, which Zig finds on
 /// the value, a call on a `T` with no bound included, which each instance
-/// resolves; `static`, through the witness by which the receiver's type
+/// resolves; `static`, through the witness by which self's type
 /// provides the API that declares the method.
 pub const Dispatch = union(enum) {
     direct,
@@ -1600,9 +1600,9 @@ pub const Dispatch = union(enum) {
         table: ApiRef,
         slot: u32,
         /// How the method takes self.
-        self_mode: MethodReceiver = .read,
+        self_mode: SelfMode = .read,
         /// The object is the call's first argument (`Shape.area(s)`).
-        receiver_arg: bool = false,
+        self_arg: bool = false,
     };
 
     pub const Static = struct {
@@ -1610,11 +1610,11 @@ pub const Dispatch = union(enum) {
         /// The API that declares the method, and its name.
         api: ApiRef,
         method: []const u8,
-        /// The receiver is the call's first argument (`Shape.area(c)`),
+        /// Self is the call's first argument (`Shape.area(c)`),
         /// not the object of `c.area()`.
-        receiver_arg: bool = false,
+        self_arg: bool = false,
         /// How the method takes self.
-        self_mode: MethodReceiver = .read,
+        self_mode: SelfMode = .read,
     };
 };
 
@@ -1872,7 +1872,7 @@ pub const Facts = struct {
     temp_arrays: FastMap(NodeKey, void) = .empty,
     /// Owning temporaries only read where they stand (a `print`
     /// argument, a view lent to a call, an `==` operand, a `?@`
-    /// receiver): each is dropped at the end of its statement, or of
+    /// self): each is dropped at the end of its statement, or of
     /// its header.
     temp_drops: FastMap(NodeKey, void) = .empty,
     /// Temporaries lent to write (`!mk()`, `!(a if c else b).f`), or the
@@ -2148,13 +2148,13 @@ pub const FlagTest = union(enum) {
 
 /// What a function bounds of its result on every path that returns
 /// (docs/internals/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
-/// itself, an `Int`, or of named `Int` fields of the struct it returns.
+/// itself, an `Int`, or of named `Int` fields of the object it returns.
 /// Written only by `src/proofs.zig`, for a module the ownership checker
 /// accepted, and read by the proof pass of each module that calls it.
 pub const ResultBound = struct {
     /// The bound of an `Int` result.
     whole: ?u64 = null,
-    /// The bounds of the fields of a struct result.
+    /// The bounds of the fields of an object result.
     fields: []const FieldBound = &.{},
 
     /// The bound of field `name`, or null.
@@ -2164,7 +2164,7 @@ pub const ResultBound = struct {
     }
 };
 
-/// `0 <= field <= hi` of a struct a function returns.
+/// `0 <= field <= hi` of an object a function returns.
 pub const FieldBound = struct { name: []const u8, hi: u64 };
 
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
@@ -2278,8 +2278,8 @@ pub const StorageKind = enum {
     /// An argument of a call whose arguments are evaluated first
     /// (`__rig_arg`).
     argument,
-    /// The receiver of such a call (`__rig_recv`).
-    receiver,
+    /// The self of such a call (`__rig_recv`).
+    self,
     /// The environment of a closure literal lent to a call (`__rig_env`).
     environment,
     /// A closure literal called where it is written (`__rig_fn`).
@@ -2419,12 +2419,12 @@ pub const Question = enum(u8) {
     /// Of a call or an array literal: whether its arguments or elements
     /// are evaluated first, into storage (`storage.hoistsArgs`).
     hoists_args,
-    /// Of a call: how it holds its receiver while its arguments run, if it
-    /// does (`storage.receiverHold`).
-    receiver_hold,
-    /// Of a call: whether its receiver is a temporary the method consumes
+    /// Of a call: how it holds its self while its arguments run, if it
+    /// does (`storage.selfHold`).
+    self_hold,
+    /// Of a call: whether its self is a temporary the method consumes
     /// (`storage.consumedTemporary`).
-    consumes_receiver,
+    consumes_self,
     /// Of a call argument or an array element: how a call or an array
     /// literal that evaluates its parts first holds it
     /// (`storage.argumentHold`).
@@ -2564,10 +2564,10 @@ pub const StorageKey = struct { node: u64, kind: StorageKind };
 /// What a context does with a value (Core §3).
 pub const Use = enum {
     /// Reads it where it is: a `print` argument, an `==` operand, `+e`,
-    /// a `?@` receiver, a field or element read.
+    /// a `?@` self, a field or element read.
     read,
     /// Takes it: a binding, an argument, a stored field or element,
-    /// `return`, a `break` value, a consuming receiver, a header that
+    /// `return`, a `break` value, a consuming self, a header that
     /// binds it.
     take,
     /// Lends it: `?e`, `!e`.
@@ -2599,7 +2599,7 @@ pub const Use = enum {
 /// `v.lag[k](prev)`.
 pub const ElemCall = struct {
     op: ElemOp,
-    /// The receiver's element type.
+    /// Self's element type.
     elem: TypeId,
     /// `read` / `write`: the integer or float type of the value.
     num: TypeId = type_invalid,
@@ -2683,7 +2683,7 @@ pub const ElemOp = enum {
     }
 
     /// Whether the method is a vector's (`simdCall`, `simdTypeCall`):
-    /// it reads its receiver and arguments, and makes a new value.
+    /// it reads its self and arguments, and makes a new value.
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag => true,
@@ -2748,10 +2748,10 @@ pub const CtCall = struct { result: ?u32 };
 /// bracket list.
 pub const GenericCall = struct {
     type_args: []const TypeId,
-    /// The call passes a method's receiver as its first argument
-    /// (`Point.scale[2](p)`); Zig takes the receiver first, then the
+    /// The call passes a method's self as its first argument
+    /// (`Point.scale[2](p)`); Zig takes self first, then the
     /// compile-time arguments.
-    receiver_arg: bool = false,
+    self_arg: bool = false,
     /// Bit `i`: type argument `i` binds a set parameter
     /// (`SymbolFlags.set_param`), which Zig takes as the set's error set.
     sets: u64 = 0,
@@ -2772,7 +2772,7 @@ pub const GenericCall = struct {
 
 /// A generic function at particular type arguments: `params[i]` is
 /// `args[i]`. A method's instance starts with its type's parameters,
-/// bound to the receiver's type arguments; its own are the last `own`.
+/// bound to self's type arguments; its own are the last `own`.
 pub const FnInstance = struct {
     /// The function, for messages.
     name: []const u8,
@@ -2832,7 +2832,7 @@ pub const DefaultValue = struct {
 };
 
 /// A set of a function's run-time parameters: bit `i` stands for
-/// parameter `i`, a method's receiver being parameter 0. A parameter
+/// parameter `i`, a method's self being parameter 0. A parameter
 /// past the last bit is in every set.
 pub const ParamMask = u64;
 
@@ -2903,12 +2903,12 @@ pub const DeclaredOrigins = struct { names: Sexp, params: Sexp, returns: Sexp };
 /// parameters.
 pub const DeclaredKeeps = struct { names: Sexp, params: Sexp };
 
-/// What fills a run-time parameter of a call: the receiver of a method
+/// What fills a run-time parameter of a call: the self of a method
 /// called on a value, the argument at an index of the call's argument
 /// list (a `(kwarg ...)` stands for its value), or the parameter's
 /// default value.
 pub const ParamFill = union(enum) {
-    receiver,
+    self,
     arg: u32,
     default,
 };
@@ -2918,7 +2918,7 @@ pub const ParamFill = union(enum) {
 pub const CallParams = struct {
     fills: []const ParamFill,
     origins: Origins,
-    /// The names of the parameters the arguments may fill, the receiver
+    /// The names of the parameters the arguments may fill, self
     /// left out, when known: what a diagnostic says a call keeps.
     names: ?[]const []const u8 = null,
 
@@ -2928,14 +2928,14 @@ pub const CallParams = struct {
         return self.filled(.{ .arg = @intCast(arg) }, self.origins.result);
     }
 
-    /// Whether the call's result carries the loans of its receiver.
-    pub fn resultCarriesReceiver(self: CallParams) bool {
-        return self.filled(.receiver, self.origins.result);
+    /// Whether the call's result carries the loans of its self.
+    pub fn resultCarriesSelf(self: CallParams) bool {
+        return self.filled(.self, self.origins.result);
     }
 
-    /// Whether the call may store the loans of its receiver.
-    pub fn storesReceiver(self: CallParams) bool {
-        return self.filled(.receiver, self.origins.stores);
+    /// Whether the call may store the loans of its self.
+    pub fn storesSelf(self: CallParams) bool {
+        return self.filled(.self, self.origins.stores);
     }
 
     /// Whether the call may store the loans of the argument at index
@@ -2956,10 +2956,10 @@ pub const CallParams = struct {
         return self.filled(.{ .arg = @intCast(arg) }, self.origins.once);
     }
 
-    /// Whether the call keeps its receiver, which its callee's `keeps`
+    /// Whether the call keeps its self, which its callee's `keeps`
     /// names (`keeps @`).
-    pub fn keepsLentReceiver(self: CallParams) bool {
-        return self.filled(.receiver, self.origins.stores & self.origins.lent);
+    pub fn keepsLentSelf(self: CallParams) bool {
+        return self.filled(.self, self.origins.stores & self.origins.lent);
     }
 
     /// The name of the parameter the argument at index `arg` fills, when
@@ -2968,7 +2968,7 @@ pub const CallParams = struct {
         const names = self.names orelse return null;
         var skip: usize = 0;
         for (self.fills, 0..) |f, i| {
-            if (f == .receiver) {
+            if (f == .self) {
                 skip += 1;
                 continue;
             }
@@ -2981,7 +2981,7 @@ pub const CallParams = struct {
     fn filled(self: CallParams, what: ParamFill, mask: ParamMask) bool {
         for (self.fills, 0..) |f, i| {
             const same = switch (what) {
-                .receiver => f == .receiver,
+                .self => f == .self,
                 .arg => |a| f == .arg and f.arg == a,
                 .default => false,
             };
@@ -3209,7 +3209,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         } else try w.writeAll(" in a compile-time body"),
         GenericCall => {
             for (v.type_args) |ty| try w.print(" {s}", .{if (ty == type_invalid) "_" else try formatTypeIn(ctx, a, ty)});
-            if (v.receiver_arg) try w.writeAll(" receiver");
+            if (v.self_arg) try w.writeAll(" self");
             if (v.sets != 0) try w.print(" sets={b}", .{v.sets});
             if (v.fails_by_set) try w.writeAll(" fails_by_set");
             for (v.witnesses) |aw| {
@@ -3234,7 +3234,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             if (v.holding != .box) try w.print(" {s}", .{@tagName(v.holding)});
         },
         OwnerWitnesses => {
-            if (v.receiver_arg) try w.writeAll(" receiver_arg");
+            if (v.self_arg) try w.writeAll(" self_arg");
             for (v.witnesses) |ow| {
                 try w.writeAll(" witness ");
                 try writeWitness(ctx, a, w, ow);
@@ -3254,7 +3254,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         },
         CallParams => {
             for (v.fills) |f| switch (f) {
-                .receiver => try w.writeAll(" receiver"),
+                .self => try w.writeAll(" self"),
                 .arg => |i| try w.print(" arg{d}", .{i}),
                 .default => try w.writeAll(" default"),
             };
@@ -3459,7 +3459,7 @@ pub const GenericMethodCall = struct {
     method: []const u8,
     /// How the call takes self: `x.m()` reads, `!x.m()` writes, and
     /// `<x.m()` consumes.
-    self_mode: MethodReceiver,
+    self_mode: SelfMode,
     /// The arguments' types in the body, in order.
     args: []const TypeId,
     result: Result,
@@ -3884,7 +3884,7 @@ pub const PlainRequirement = struct {
     in_result: bool = false,
     /// The method of a generic type whose body makes the requirement, by
     /// its declaration's position (a call's `CallTarget`): checked at
-    /// each call of the method, where the receiver's type gives the
+    /// each call of the method, where self's type gives the
     /// arguments, not at each instance of the type.
     method: ?u32 = null,
     /// The module whose source `pos` is in; 0 for this one.
@@ -7059,7 +7059,7 @@ pub const TypeInfo = packed struct(u30) {
     cell: bool = false,
     /// Is or holds inline a type declared `unique` (see `isUnique`).
     unique: bool = false,
-    /// Holds no resource, marked view, or generic parameter. A struct with a
+    /// Holds no resource, marked view, or generic parameter. An object with a
     /// user `drop` can be plain and still have glue (see `holdsNoLoanButText`).
     plain: bool = false,
     /// Holds a view, or a write view (see `Views`).
@@ -7461,7 +7461,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     return info;
 }
 
-/// A struct or enum may not hold itself by value, directly or through
+/// An object or enum may not hold itself by value, directly or through
 /// the types it holds by value: it would have no finite size. One search
 /// of the by-value graph over the declared types finds every cycle.
 fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
@@ -8049,7 +8049,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
     return bytes;
 }
 
-/// The bytes a struct's fields take at least, or an enum's tag and
+/// The bytes an object's fields take at least, or an enum's tag and
 /// largest payload.
 fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
     if (ctx.symbols.items[sym].contents.cyclic) return null;
@@ -8131,7 +8131,7 @@ pub fn reportOversized(ctx: *SemContext, pos: u32, ty: TypeId, bytes: u128) std.
     try ctx.err(pos, "`{s}` takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `List`", .{ try formatType(ctx, ty), bytes, max_value_bytes });
 }
 
-/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// Whether `ty` (an object, an enum, or a generic type's instance under
 /// `subst`) is too large by itself: it takes more than `max_value_bytes`,
 /// and no type it holds directly does, which is reported on its own.
 /// Its size, when it is.
@@ -8145,7 +8145,7 @@ pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: Typ
     return bytes;
 }
 
-/// Every declared struct and enum must fit `max_value_bytes` and nest
+/// Every declared object and enum must fit `max_value_bytes` and nest
 /// at most `max_value_depth` deep; a generic one is checked at each
 /// instance. Each is sized after the types it holds (`order`, from
 /// `computeContents`), so sizing one does not nest through the chain of
@@ -8206,7 +8206,7 @@ pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
     return ctx.value_depths.get(ty).?;
 }
 
-/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// Whether `ty` (an object, an enum, or a generic type's instance under
 /// `subst`) nests too deep by itself: more than `max_value_depth` levels
 /// (`valueDepth`), when no type it holds does, which is reported on its
 /// own. Its depth, when it is.
@@ -8863,9 +8863,9 @@ pub const NotEquatable = struct {
         no_eq,
         /// A view held in a field or payload: the value is a view.
         view,
-        /// A struct that declares `drop`.
+        /// An object that declares `drop`.
         drop,
-        /// A struct declared `unique`.
+        /// An object declared `unique`.
         unique,
         /// A `Simd[T, n]`, whose `==` compares lane by lane.
         lanes,
@@ -8881,7 +8881,7 @@ pub const NotEquatable = struct {
 
 /// Why `==` does not compare values of `ty`, or null when it does:
 /// numbers, Bool, `?String`, error values, plain enums, and, when all they
-/// hold is equatable, optionals, arrays, slices, structs without `drop`,
+/// hold is equatable, optionals, arrays, slices, objects without `drop`,
 /// and payload enums. Handles, functions, `Void`, List, Cell, Signal, and
 /// views held in a field are not equatable. Each generic parameter
 /// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
@@ -9656,7 +9656,7 @@ pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// whose `next` has another shape (why), or an iterator of `item`. The one
 /// classifier of iterators (docs/internals/INTERNALS.md, "Loops over an
 /// iterator"): the loop, the `Iter` bound (`lacks`), and `I.Item`
-/// (`assocType`) read it. A positive list: a struct or enum a program or
+/// (`assocType`) read it. A positive list: an object or enum a program or
 /// std declares (not a `List`, an array, a slice, a `?String`, a range,
 /// or a `Table`, which keep their own meaning) that declares `next(!@) ->
 /// T?`, or a type parameter bounded by `Iter`.
@@ -9674,7 +9674,7 @@ pub fn iterItem(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!IterShape 
         else => return .not_iterator,
     }
     const next = (try methodOfType(ctx, peeled, "next")) orelse return .not_iterator;
-    if (next.field.receiver != .write) return .{ .malformed = switch (next.field.receiver) {
+    if (next.field.self_mode != .write) return .{ .malformed = switch (next.field.self_mode) {
         .read => "takes `?@`",
         .value => "takes `<@`",
         else => "takes no self",
@@ -10196,7 +10196,7 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
 
 /// The types a compared value holds, walked depth first with an explicit
 /// stack, so a long chain of types does not nest the walk. Each is in
-/// `ctx`'s store: the field types of another module's struct are
+/// `ctx`'s store: the field types of another module's object are
 /// imported there, and a generic instance's have its type arguments
 /// applied.
 const EquatableWalk = struct {
@@ -10521,7 +10521,7 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     }
 }
 
-/// The struct or enum a `^T` (or a view or handle of one) holds,
+/// The object or enum a `^T` (or a view or handle of one) holds,
 /// through any number of boxes, whose fields and methods are reached
 /// through them; null for anything else.
 pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
@@ -10924,9 +10924,9 @@ pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
 
 /// Where a value of some type stands, as `misplaced` sees it.
 pub const Home = enum {
-    /// A struct field, or an enum variant's payload field.
+    /// An object field, or an enum variant's payload field.
     field,
-    /// A parameter, a receiver, or a function's result.
+    /// A parameter, a self, or a function's result.
     signature,
     /// A local, or what a header or a pattern binds.
     binding,
@@ -12645,7 +12645,7 @@ pub fn resourceKind(ctx: *const SemContext, ty: TypeId) ?ResourceKind {
 /// no owner involved. It does not move (`moves`: it owns nothing and is
 /// not unique) and holds no write view (`!T`), of which there is only
 /// one. So numbers, `Bool`, `?String`, function values, plain enums,
-/// structs, enums, arrays, and optionals of values that copy, and read
+/// objects, enums, arrays, and optionals of values that copy, and read
 /// views, copy (Core §1: the plain kind and read views). `depends` when
 /// each instance decides. Every place that duplicates a value asks this
 /// fact: a bare use, a copy out of a view (`copiedOut`), `fill`, `copy`,
@@ -12761,7 +12761,7 @@ const ClonePath = struct { at: CloneSeen, up: ?*const ClonePath };
 
 /// Whether `+x` can make a new owner of a `ty` part by part (Core
 /// sentence 2): a String, a List, a box, an optional, an array, or a
-/// struct or enum, of this module or another, of parts that clone; a
+/// object or enum, of this module or another, of parts that clone; a
 /// handle, counted again; plain data and read views, copied. A type with
 /// a `drop` body has no clone, and neither has a unique type, a Cell, a
 /// Signal, a write view, or a type parameter. `seen` holds the declared
@@ -13329,18 +13329,18 @@ pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.
 
 pub const ResolvedField = struct {
     field: Field,
-    /// The field's type with the receiver's generic arguments applied.
+    /// The field's type with self's generic arguments applied.
     ty: TypeId,
     nominal_sym: SymbolId,
 };
 
 pub const ResolvedMethod = struct {
     field: Field,
-    receiver: MethodReceiver,
-    /// The method's signature with the receiver's generic arguments applied.
+    self_mode: SelfMode,
+    /// The method's signature with self's generic arguments applied.
     fn_ty: FunctionType,
     nominal_sym: SymbolId,
-    /// The receiver's generic arguments: those of the type that declares
+    /// Self's generic arguments: those of the type that declares
     /// the method, reached through any views, handles, and boxes.
     subst: TypeSubst,
 };
@@ -13375,42 +13375,42 @@ fn membersOf(ctx: *const SemContext, peeled: TypeId) ?Members {
     }
 }
 
-/// A data field of the receiver's nominal (auto-deref through views
+/// A data field of self's nominal (auto-deref through views
 /// and `*T`).
-pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
-    const m = membersOf(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+pub fn lookupDataField(ctx: *SemContext, self_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
+    const m = membersOf(ctx, unwrapAccess(ctx, self_ty)) orelse return null;
     // A box's `value` names its constructor argument, not a field.
     if (m.sym == ctx.box_sym_id) return null;
     const f = m.fields[(try findMember(ctx, m.fields, name, .data)) orelse return null];
     return .{ .field = f, .ty = try substituteType(ctx, f.ty, m.subst), .nominal_sym = m.sym };
 }
 
-/// Whether member access on `receiver_ty` reaches a data field `name`
+/// Whether member access on `self_ty` reaches a data field `name`
 /// (without substituting its type).
-pub fn lookupDataFieldConst(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?Field {
-    const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+pub fn lookupDataFieldConst(ctx: *const SemContext, self_ty: TypeId, name: []const u8) ?Field {
+    const decl = nominalDecl(ctx, unwrapAccess(ctx, self_ty)) orelse return null;
     if (decl.sym == decl.ctx.box_sym_id) return null;
     const fields = decl.symbol().fields orelse return null;
     return fields[memberIn(decl.ctx, fields, name, .data) orelse return null];
 }
 
-/// A callable method of the receiver's nominal (auto-deref through
+/// A callable method of self's nominal (auto-deref through
 /// views and `*T`, then through each box: a box's own `unbox` comes
 /// before its value's methods). The user `drop` body is not callable.
-pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
-    var t = unwrapReadAccess(ctx, receiver_ty);
+pub fn lookupMethod(ctx: *SemContext, self_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
+    var t = unwrapReadAccess(ctx, self_ty);
     while (true) {
         if (try methodIn(ctx, t, name)) |found| return found;
         t = unwrapReadAccess(ctx, boxedType(ctx, t) orelse return null);
     }
 }
 
-/// How the method `name` that member access on `receiver_ty` reaches
-/// takes its receiver; null when it names no method.
-pub fn methodReceiver(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?MethodReceiver {
-    const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+/// How the method `name` that member access on `self_ty` reaches
+/// takes its self; null when it names no method.
+pub fn methodSelfMode(ctx: *const SemContext, self_ty: TypeId, name: []const u8) ?SelfMode {
+    const decl = nominalDecl(ctx, unwrapAccess(ctx, self_ty)) orelse return null;
     const fields = decl.symbol().fields orelse return null;
-    return fields[memberIn(decl.ctx, fields, name, .method) orelse return null].receiver;
+    return fields[memberIn(decl.ctx, fields, name, .method) orelse return null].self_mode;
 }
 
 fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
@@ -13422,7 +13422,7 @@ fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocato
         const sub_id = try substituteType(ctx, f.ty, m.subst);
         const sub = ctx.types.get(sub_id);
         if (sub != .function) continue;
-        return .{ .field = f, .receiver = f.receiver, .fn_ty = sub.function, .nominal_sym = m.sym, .subst = m.subst };
+        return .{ .field = f, .self_mode = f.self_mode, .fn_ty = sub.function, .nominal_sym = m.sym, .subst = m.subst };
     }
     return null;
 }
@@ -13517,10 +13517,10 @@ pub fn variantIn(ctx: *const SemContext, fields: []const Field, name: []const u8
     return memberIn(ctx, fields, name, .variant);
 }
 
-/// An enum variant of the receiver's nominal, local or imported.
-pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
-    const decl = nominalDecl(ctx, receiver_ty) orelse return null;
-    const subst = if (membersOf(ctx, unwrapViews(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
+/// An enum variant of self's nominal, local or imported.
+pub fn lookupVariant(ctx: *SemContext, self_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
+    const decl = nominalDecl(ctx, self_ty) orelse return null;
+    const subst = if (membersOf(ctx, unwrapViews(ctx, self_ty))) |m| m.subst else TypeSubst.empty;
     const fields = decl.symbol().fields orelse return null;
     if (try findMember(ctx, fields, name, .variant)) |i| {
         const f = fields[i];
@@ -13538,10 +13538,10 @@ pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) st
     return null;
 }
 
-/// Whether member access on `receiver_ty` reaches a method `name` of its
+/// Whether member access on `self_ty` reaches a method `name` of its
 /// type, local or imported.
-pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
-    return methodReceiver(ctx, receiver_ty, name) != null;
+pub fn hasMethodNamed(ctx: *const SemContext, self_ty: TypeId, name: []const u8) bool {
+    return methodSelfMode(ctx, self_ty, name) != null;
 }
 
 /// Number of variants of an enum type, or null if not an enum.
@@ -14778,7 +14778,7 @@ fn madeViews(ctx: *const SemContext, e: Sexp, at: ?*?Sexp) LoanRoots {
             const params = ctx.callParamsOf(e) orelse return madeAt(e, at);
             var out: LoanRoots = .{};
             const callee = ir.Call.callee(e);
-            if (callee.isKind(.member) and params.resultCarriesReceiver()) out = out.join(inputViews(ctx, ir.Member.object(callee), at));
+            if (callee.isKind(.member) and params.resultCarriesSelf()) out = out.join(inputViews(ctx, ir.Member.object(callee), at));
             for (ir.Call.args(e), 0..) |arg, i| {
                 if (!params.resultCarries(i)) continue;
                 out = out.join(inputViews(ctx, if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg, at));
@@ -16465,7 +16465,7 @@ test "facts: a checked call records what fills each parameter" {
     try std.testing.expect(r.ctx.callParamsOf(ir.Set.value(main_body[0])) == null);
     const method = r.ctx.callParamsOf(ir.Call.args(main_body[1])[0]).?;
     try std.testing.expectEqual(@as(usize, 3), method.fills.len);
-    try std.testing.expect(method.fills[0] == .receiver);
+    try std.testing.expect(method.fills[0] == .self);
     try std.testing.expectEqual(@as(u32, 1), method.fills[1].arg);
     try std.testing.expectEqual(@as(u32, 0), method.fills[2].arg);
     const plain = r.ctx.callParamsOf(ir.Call.args(main_body[2])[0]).?;
@@ -16553,7 +16553,7 @@ test "declarations: wrapper, sized, and alias types" {
     try std.testing.expectEqual(r.ctx.types.float_id, ret.optional);
 }
 
-test "declarations: struct fields, methods, and enum variants" {
+test "declarations: object fields, methods, and enum variants" {
     var r = try factsRun(
         \\obj User
         \\  name: ?String
@@ -16576,7 +16576,7 @@ test "declarations: struct fields, methods, and enum variants" {
     try std.testing.expectEqualStrings("age", user[1].name);
     try std.testing.expectEqual(r.ctx.types.int_id, user[1].ty);
     try std.testing.expect(user[2].is_method);
-    try std.testing.expectEqual(MethodReceiver.read, user[2].receiver);
+    try std.testing.expectEqual(SelfMode.read, user[2].self_mode);
     const shape = r.ctx.symbols.items[r.ctx.lookup(1, "Shape").?].fields.?;
     try std.testing.expect(shape[0].is_variant);
     try std.testing.expectEqualStrings("radius", shape[0].payload.?[0].name);

@@ -60,7 +60,7 @@ test "task methods", seeds: 20, '''
   3
   n is 3
 '''
-  # A method runs as a task with its receiver lent as the method takes
+  # A method runs as a task with its self lent as the method takes
   # it: `(!c).bump(2)&` to write, `?c.get()&` to read, `(<c).into()&`
   # moved in.
   obj Counter
@@ -558,7 +558,7 @@ fail "task copy", "`t` owns a `Task[Int]`, which can't be copied by `=`", errors
   u = t
   print(>u)
 
-test "task write receiver", 3
+test "task write self", 3
   # A task's value is always used, and a write call that is no `Bool`
   # is written short, `!c.bump(2)&`, as anywhere else.
   obj Counter
