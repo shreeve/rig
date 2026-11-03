@@ -89,9 +89,7 @@ A new session, human or agent, takes these steps in order:
   `none` in a payload, landed (#883). The fused iterator chains
   ([design/iterators.md](docs/design/iterators.md)) with `min_by(key)`
   and `max_by(key)` are built on branch `chains`. Open: a chain's
-  function that can fail (`|x| f(x)!`); errors inside a chain named in
-  its own terms (a type error there can name a hidden binding, `chain
-  value`); and `!@m.take(+best.key)` with `best` viewing `m`, which needs
+  function that can fail (`|x| f(x)!`); and `!@m.take(+best.key)` with `best` viewing `m`, which needs
   a write receiver's lend to start after its arguments run (ownership,
   the oracle, and CORE).
 - **The `for` header (t05)**, approved and not started: a use in a
