@@ -5957,6 +5957,18 @@ fail "mask size", "6:9: `[140000]Simd[Bool, 64]` takes 8960000 bytes; a value ta
 
   print(two(1), narrow(1))
 
+fail "read view size", "5:5: `[20000]?Simd[Int, 64]` takes 10240000 bytes; a value takes at most 8388608 (8 MiB)", "7:5: `[600000]?I128` takes 9600000 bytes", "9:4: `[1000000](?Int)?` takes 9000000 bytes"
+  # A read view of a number or a vector holds a copy of it, so it takes
+  # the value's bytes, and its optional a flag more, where a view lent by
+  # address is a pointer.
+  v = Simd[I64, 64].splat(7)
+  a = [20000 of ?v]
+  w: I128 = 3
+  b = [600000 of ?w]
+  n = 4
+  c: [1000000](?Int)? = [1000000 of ?n]
+  print(a[0][3], b[0], c[0])
+
 fail "missing view sigil", "16:9: type mismatch: expected `?S`, got `S`; lend it to read: `?s`", "17:6: type mismatch: expected `!Int`, got `Int`; lend it to write: `!x`"
   # A value where a view of it is expected, and the lend is written (a
   # binding keeps it; a write lend is always written): the message names

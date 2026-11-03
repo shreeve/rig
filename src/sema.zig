@@ -7945,8 +7945,9 @@ fn sizeHeld(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!void {
 }
 
 /// The types `minBytesOf` sizes `ty` from: an optional's, array's, or
-/// vector's element, a Signal's value, and the fields and payloads of a
-/// declared type or a generic instance, in it.
+/// vector's element, the value a read view copies, a Signal's value, and
+/// the fields and payloads of a declared type or a generic instance, in
+/// it.
 fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const TypeId {
     var out: std.ArrayList(TypeId) = .empty;
     const fieldsOf = struct {
@@ -7964,6 +7965,7 @@ fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Alloca
         .optional => |inner| try out.append(a, inner),
         .array => |arr| try out.append(a, arr.elem),
         .simd => |v| try out.append(a, v.elem),
+        .read_view => |inner| if (lendByValue(ctx, inner)) try out.append(a, inner),
         .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
         .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) {
             // A List, a table, and a box are sized without what they hold.
@@ -8044,6 +8046,8 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             for (parts) |part| total +|= (try minBytesOf(ctx, part, false)) orelse break :blk null;
             break :blk total;
         },
+        // A read view lent by copy is the value; any other an address.
+        .read_view => |inner| if (lendByValue(ctx, inner)) try minBytesOf(ctx, inner, false) else 8,
         else => 8,
     };
     try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
@@ -8073,10 +8077,12 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
 }
 
 /// Whether a value of `ty` is or starts with an address, which is never
-/// 0: an optional of it is null there.
+/// 0: an optional of it is null there. A read view lent by copy is the
+/// value it copies.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .read_view, .write_view, .string_view, .static, .slice => true,
+        .shared, .weak, .write_view, .string_view, .static, .slice => true,
+        .read_view => |inner| !lendByValue(ctx, inner) or isAddress(ctx, inner),
         else => false,
     };
 }

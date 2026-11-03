@@ -2255,7 +2255,8 @@ signature holds. A value takes at most `sema.max_value_bytes`
 (8 MiB), from `sema.minBytes`, which counts what a value holds inline:
 a `Cell[T]` is its `T`, a `Signal[T]` its value twice (the current and
 a pending one) and its subscriber list, a `List` its buffer's slice and
-length, and a `^T` its pointer. An array type is checked where it is
+length, a `^T` its pointer, and a read view the value it copies when it
+is lent by copy (`lendByValue`: `?I128` is 16 bytes), else a pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
 from an argument, at that argument (`checkArraysIn`); a synthesis whose
 diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the

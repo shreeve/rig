@@ -251,6 +251,11 @@ Other:
     List[Expr?])` in `enum Expr`, is rejected with the fix to write, as
     an object's is; Zig failed on it with a dependency loop. Hold an
     optional box (`^Expr?`) or an optional view (`(?Expr)?`).
+61. A read view that holds a copy of its value counts at its value's
+    size against the 8 MiB limit on a value and the 13 MiB limit on a
+    frame: `[20000 of ?v]` with `v: Simd[I64, 64]` takes 10240000 bytes,
+    as `[20000 of v]` does, and is rejected; it was counted as pointers,
+    and a larger one overflowed the stack. Keep such data in a `List`.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

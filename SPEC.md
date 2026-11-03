@@ -609,7 +609,8 @@ A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
 array, an object or an enum, and each instance of a generic type or
 function, for the arrays it makes and, for a type, for itself. A
 `Cell` or `Signal` holds its value inline, so it counts at the size of
-what it holds. A type nests at most 1000 levels by value, an object, an
+what it holds, and a read view that holds a copy of its value (of a
+number, a vector, or a slice) counts at the size of that value. A type nests at most 1000 levels by value, an object, an
 enum, an optional, an array, or a vector holding another each a level,
 and each instance of a generic type too; a part held in a box or a
 `List` is on the heap and adds none. The values a function keeps on its stack take at most 13 MiB together:
