@@ -124,7 +124,7 @@ swarm test/rig.rip                 # the core: every test file but the probes, d
 swarm test/rig.rip std-text        # one file: test/rig/std-text.rig.test
 swarm test/rig.rip doc-SPEC        # one doc's examples (doc: every doc's)
 swarm test/rig.rip cli.lsp         # one script of test/cli
-swarm test/rig.rip all             # core, test/cli, and the probes: the full suite
+swarm test/rig.rip all             # core, test/cli, and the probes: the full suite, before a release
 swarm test/rig.rip proofs          # by hand, after a change to src/proofs.zig
 swarm test/rig.rip all -q          # -q, after the script, whenever the run is backgrounded or piped
 ```
@@ -175,7 +175,9 @@ until its rule is built. docs/internals/tests.md has the rest.
    is now true. Building a planned rule turns its `rig pending` example
    into an ordinary one and its *(planned)* into *(built)*. CHANGELOG gets
    the change, and HANDOFF the status.
-6. **The gates.** Rig's full suite, `swarm test/rig.rip all`, green.
+6. **The gates.** Rig's core suite, `swarm test/rig.rip`, green; the
+   full suite (`all`) runs before each major or minor Rig release
+   (optional for a patch), not per change.
    A change to the compiler, the runtime, or std also passes Trig's
    light gate before it merges: from a Trig checkout, `tools/pup-rig
    COMMIT` builds the Rig under test on pup, then
@@ -218,11 +220,15 @@ until its rule is built. docs/internals/tests.md has the rest.
   changed; history belongs in git.
 - **Trig tests Rig in two tiers.** The light gate (`tools/light`, step
   6) runs before each compiler, runtime, or std PR merges. Trig's full
-  suites run on pup against Trig's main and Rig's main: by cron every
-  four hours, and on demand with `ssh pup
-  /zfs/trig-pup/full/trig/tools/full-main` (`fresh` to run every job).
-  `/zfs/trig-pup/full/LATEST` on pup holds the last result, and
-  `history` beside it every run's.
+  suite runs on pup before each major or minor Trig release (optional
+  for a patch), never on a schedule:
+  `ssh pup /zfs/trig-pup/full/trig/tools/full-main` (`fresh` to run
+  every job). `/zfs/trig-pup/full/LATEST` on pup holds the last result,
+  and `history` beside it every run's.
+- **Checks stay short.** A project's quick checks run in under a
+  minute, and its long checks in under ten; a check that takes longer
+  is a defect to fix (shard it, or rerun only what changed), never a
+  block of machine time to reserve.
 - **A speed feature pays for its lines.** It lands when its gain,
   measured on a real program (Trig) on runs it was not trained on, is
   worth the code every later change carries. A small gain woven
@@ -279,7 +285,7 @@ Machine-specific practice (the owner's machines):
   of Rig with no `.git` of its own, these tools stop unless `GIT_DIR`
   (or, for the suite, `RIG_BUILD_STORE`) is set, never using a
   repository that encloses the copy. While iterating, run single
-  areas; the full suite runs once, before landing.
+  areas; the core suite runs once, before landing.
 - Before builds, tests, or benchmarks on the Mac, check
   `~/Data/Code/mumps-compare/.mac-quiet`; hold off while it exists.
 - **pup** (`ssh pup`) is a 22-core x86-64 Linux machine. A change to the
