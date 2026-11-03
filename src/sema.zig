@@ -14263,13 +14263,14 @@ fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId,
 }
 
 /// The element type of the `[]T` a value of type `ty` lends (`lendsAs`):
-/// an array's or a List's, reached through views, boxes, and handles;
-/// null for any other type. Generic inference matches a `[]T` with it.
+/// an array's or a List's, reached through views, boxes, and handles (a
+/// `*Frozen[T]`'s through the `T` it froze); null for any other type.
+/// Generic inference matches a `[]T` with it.
 pub fn lentElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     var t = unwrapViews(ctx, ty);
     while (true) switch (ctx.types.get(t)) {
         .array => |a| return a.elem,
-        .shared => |inner| t = inner,
+        .shared => |inner| t = frozenValue(ctx, inner) orelse inner,
         else => {
             if (listElem(ctx, t)) |elem| return elem;
             t = boxedType(ctx, t) orelse return null;

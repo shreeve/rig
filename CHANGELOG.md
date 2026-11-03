@@ -281,6 +281,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A `*Frozen[List[T]]` lends its `[]T` to a generic parameter,** as
+  it does to a concrete one: `first(f)` with `first[T](xs: []T)` infers
+  `T` from the List the handle froze.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under
