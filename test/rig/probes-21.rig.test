@@ -447,7 +447,7 @@ fail "review-copies-p08-copy-read-views-mutate", "cannot reassign `n` while it i
   print(dst[0])
 
 fail "review-copies-p09-owned-closure-returns-string-struct-of-capture", "cannot return a view of `t`, which this function was not lent"
-  # An owned closure returns a plain struct whose String views its own
+  # An owned closure returns a plain object whose String views its own
   # captured Text; the closure is then dropped.
   obj P
     s: ?String
@@ -624,7 +624,7 @@ fail "review-copies-p23-string-holder-copy-out-text-dropped", "cannot drop `t` w
   print(c.s)
 
 fail "review-copies-p25-write-view-struct-literal-field", "cannot lend `w` to write while a write loan is live"
-  # A bare write view of a plain struct read as a field value: Core
+  # A bare write view of a plain object read as a field value: Core
   # sentence 1 says it reads the value it sees.
   obj P
     x: Int
@@ -743,7 +743,7 @@ fail "review-copies-p36-owned-closure-string-result", "cannot drop `t` while it 
   print(p)
 
 fail "review-copies-p37-owned-closure-struct-param-stored", "cannot store a view of `p` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
-  # An owned closure stores a String-holding struct param into a captured
+  # An owned closure stores a String-holding object param into a captured
   # Cell it shares; the Text dies before the Cell is read.
   obj P
     s: ?String
@@ -835,7 +835,7 @@ fail "review-copies-p44-n-of-text-view-drop", "cannot return a view of `t`, whic
   print(mk()[0])
 
 fail "review-copies-p45-boundary-pols", "cannot assign to `a.x` while `a` is lent"
-  # The kept boundary: how a read view of a plain struct reads in each
+  # The kept boundary: how a read view of a plain object reads in each
   # form, beside a write view of one and a read view of an Int.
   obj P
     x: Int
@@ -894,7 +894,7 @@ test "review-copies-p46-generic-copies-instances", '''
   7 [5, 5, 5]
 '''
   # Generic bodies that copy a T (Requirement.copies), instantiated with
-  # plain structs, arrays, optionals, and String holders.
+  # plain objects, arrays, optionals, and String holders.
   obj P
     s: ?String
     n: Int
@@ -1043,7 +1043,7 @@ fail "review-copies-p50b-defer-reads-struct-slice-after-push", "cannot lend `v` 
   print(v.len)
 
 test "review-copies-p50c-while-step-copy-out", "465"
-  # The step reads, through a copy out of a view, a struct whose slice
+  # The step reads, through a copy out of a view, an object whose slice
   # views a List the body grows.
   #
   # oracle: main accept

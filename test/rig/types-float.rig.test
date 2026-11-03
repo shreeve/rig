@@ -26,7 +26,7 @@ test "float min max", '''
 
 test "float min max f32", "1.5 2.5 1.5"
   # An `F32`'s methods take and give `F32`s; a literal argument takes
-  # the receiver's type.
+  # self's type.
 
   x: F32 = 1.5
   y: F32 = 2.5

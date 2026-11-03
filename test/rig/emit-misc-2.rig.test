@@ -496,8 +496,8 @@ test "print reads shared cell after later args", "Cell(value: [42, 0, 1, 2, 3, 4
   print(h, grow(+h))
 
 test "print reads struct cell after later args", "S(c: Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])) 5"
-  # `print` reads a struct holding a Cell when it is called, after a later
-  # argument has grown the Cell's List through another handle of the struct.
+  # `print` reads an object holding a Cell when it is called, after a later
+  # argument has grown the Cell's List through another handle of the object.
   obj S
     c: Cell[List[Int]]
 
@@ -517,7 +517,7 @@ test "print reads unique cell after later args", '''
   1 Cell(value: 7) 2
   Cell(value: 7)
 '''
-  # A shared Cell of plain data, alone or in a struct, is read by `print`
+  # A shared Cell of plain data, alone or in an object, is read by `print`
   # where it is, when the call runs, as it reads a Cell of a List
   # (print_reads_cell_after_later_set.rig): a later argument that changes
   # the Cell through another handle shows in what is printed.
@@ -1636,7 +1636,7 @@ test "while step nested jumps", '''
   leaves()
 
 test "write self in place", "2"
-  # A `!@` method mutates the receiver in place.
+  # A `!@` method mutates self in place.
 
   obj Bag
     items: List[Int]

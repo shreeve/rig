@@ -1153,9 +1153,9 @@ test "r3-or-arm-unsound", '''
   print(o.peek(?d))
 
 fail "r3-or-branch-part-receiver-unsound", "cannot reassign `wa` while it is lent"
-  # A view of a part (a field, an element) of a branching receiver keeps a
+  # A view of a part (a field, an element) of a branching self keeps a
   # loan on every name a leaf names: writing to one while the view lives
-  # is rejected (C4), as it is for a view of the whole receiver. A leaf
+  # is rejected (C4), as it is for a view of the whole self. A leaf
   # that makes a value is read where it is too, a temporary of the
   # statement: a view of it held past the statement is rejected (C5),
   # whichever branch made it.
@@ -1256,7 +1256,7 @@ test "r3-or-branch-part-receiver", '''
   a text long enough to live on the heap:3 81
 '''
   # A method whose result may keep a view of a part (a field, an element)
-  # of a branching receiver lends each leaf where it is: the view keeps a
+  # of a branching self lends each leaf where it is: the view keeps a
   # loan on every name a leaf names, not on a temporary, so it may be held
   # past its statement and used while those names live unchanged. A leaf
   # that makes a value is a temporary of the statement, which a view of it
@@ -1629,7 +1629,7 @@ test "r3-or-clone-sound", '''
   [1]
   [1, 2]
 '''
-  # `+x` of a List, a box, or a struct of owners is a new owner, part by
+  # `+x` of a List, a box, or an object of owners is a new owner, part by
   # part (Core s2): it carries the loans of the views its value holds, and
   # none on `x`.
 

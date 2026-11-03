@@ -340,7 +340,7 @@ seed 2: `rig test --seed=2` runs these tests the same way again
 ```
 
 `RIG_SEED=2 rig test order.rig` gives the same report. A `print` in
-`announce`, or a look at the log, sees the same run each time. The failure is no longer luck. The failing order was possible
+`announce`, or a look at the log, sees the same run each time. The failure is not luck. The failing order was possible
 all along, and the seed found it. The fix is to stop asking for an order
 the program never promised:
 
@@ -461,7 +461,7 @@ last, or in a file of their own.
 
 The chapters of this series are tests too. Every ```` ```rig ```` block in
 the Markdown files of the repository is a case that the suite runs, so a
-doc cannot say something the compiler no longer does. The words on the
+doc cannot say what the compiler does not do. The words on the
 fence set the contract:
 
 | Block | The suite checks that |

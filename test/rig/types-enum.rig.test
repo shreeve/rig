@@ -403,7 +403,7 @@ test "enum payload bare variant value", '''
   .d
 '''
   # A bare variant of an enum with payloads, named through its enum, is a
-  # value of the enum: a method receiver, an argument, or printed.
+  # value of the enum: a method self, an argument, or printed.
 
   enum Sh
     c(r: Int)

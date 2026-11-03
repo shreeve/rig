@@ -1514,7 +1514,7 @@ test "review-cell-temp-x02 oracle opt view coalesce text", '''
 
 test "review-cell-temp-x04 oracle coalesce plain", "5"
   # Minimal: a view of a temporary through `??` with another lent temporary,
-  # read within the statement. No Cell, no receiver.
+  # read within the statement. No Cell, no self.
   #
   # oracle: opt accept
   # oracle: mkt accept

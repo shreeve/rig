@@ -90,7 +90,7 @@ test "field drop body struct", '''
   a.ts
   close a.ts 1
 '''
-  # A struct with a `drop` body is lent field by field like any other; its
+  # An object with a `drop` body is lent field by field like any other; its
   # drop runs once, at the end of its scope, after every loan is done.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_drop_body_struct.rig).
@@ -886,7 +886,7 @@ test "field take while other lent", '''
     print(s.pos, r)
   print(p.saved == none)
 
-fail "field through whole receiver method", "18:1: cannot lend `p` to write while a read loan on `p.name` is live", errors: 1
+fail "field through whole self method", "18:1: cannot lend `p` to write while a read loan on `p.name` is live", errors: 1
   # `!p.bump()` lends all of `p` to write: the signature says so, and the
   # caller may not look into the body (Core sentence 7). `bump` could
   # clear `p.name`, so `r` must not live across the call.
@@ -978,7 +978,7 @@ fail "field view escapes by method result", "18:1: cannot assign to `p.n` while 
   # A `!@` method's view result carries a loan on all of `@`;
   # without a path in the signature the caller cannot know which field the
   # result views, so writing any field while it lives is rejected.
-  # Rule: a method's result carries its receiver (proposal-field-loans §7,
+  # Rule: a method's result carries its self (proposal-field-loans §7,
   # row "`r = (?p).first()`, then `p.n = 2`").
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/reject/field_view_escapes_by_method_result.rig).

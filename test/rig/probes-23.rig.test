@@ -3624,7 +3624,7 @@ test "review-needs50-generic-view", '''
   .Str(s: "id")
 '''
   # A variant literal lent where a generic `?T` goes once `T` is known:
-  # from an earlier argument, from a generic object's receiver, and from
+  # from an earlier argument, from a generic object's self, and from
   # the view the call's result is lent to. Runs sanitizer-clean.
   enum Q
     Num(n: Int)

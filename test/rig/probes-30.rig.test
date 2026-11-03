@@ -670,7 +670,7 @@ test "review-step10-a27b v014 form", '''
     .b => print("b")
 
 test "review-step10-a28 leaf made branch", "5"
-  # leaf: a branching receiver `(mkq(5) if c else b)` with a made leaf and
+  # leaf: a branching self `(mkq(5) if c else b)` with a made leaf and
   # a place leaf, read where its leaves are (`reachesLeaf`). Is the made
   # leaf in a slot, or `&mkq(5)`, the address of a Zig rvalue? A hoisted
   # call (keyword arguments out of order) holds it in `__rig_recv_N`.
@@ -1314,7 +1314,7 @@ test "review-step10-r2-h05 lent handle", "a long text that lives on the heap"
   print(pick(n: g(1), q: *mkq(5)).t)
 
 test "review-step10-r2-h06 lent struct", "a long text that lives on the heap"
-  # H1: a made struct lent as `?Q`, as an argument of a hoisted call (keyword
+  # H1: a made object lent as `?Q`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int

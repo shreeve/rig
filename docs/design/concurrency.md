@@ -71,7 +71,7 @@ aim to match it in the rest.
   data a task only reads. Any function runs as a task with `&`, and a
   function that waits on a socket is an ordinary function, called as
   any other.
-- **Tasks read in place.** `score(?d)&` reads `d` where it is, with
+- **Tasks view in place.** `score(?d)&` reads `d` where it is, with
   no copy and no counted handle, because Rig's ownership rules make the
   task end before `d` does ("Loans and structure"). Tokio cannot offer
   this: a future can be leaked, so its `spawn` takes only `'static`
@@ -278,7 +278,7 @@ loans goes. Five rules make that so:
 4. **A panic stops at a boundary** (see "Failure"), which cancels and
    waits for every task started under it before it gives back the
    stacks those tasks may point into: its own, and that of each task
-   under it that panicked. So no task outlives a frame it reads from. A
+   under it that panicked. So no task outlives a frame it views. A
    panic in an actor's method on the actor's own task does not yet wait
    for the tasks the method started *(planned)*.
 5. **The program's end waits for its tasks.** `main` returns only after

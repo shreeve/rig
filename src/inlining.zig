@@ -31,7 +31,7 @@
 //!
 //! What a call reaches is the one fact typecheck records where it
 //! resolves the call (`SemContext.callTargetOf`): a function by its
-//! symbol, a method by its receiver's type. A call no check resolved
+//! symbol, a method by its self's type. A call no check resolved
 //! reaches, by its name, every function of that name (`Group`), so the
 //! analysis only ever finds more cycles than there are, never fewer. A
 //! call of a marked `inline` function is always resolved: none is read
@@ -471,7 +471,7 @@ const Pass = struct {
         const c = self.ctx(module);
         const name = textOf(c, ir.Member.name(e));
         const g = self.by_name.get(name) orelse return;
-        // A data field of the receiver's type is not a method.
+        // A data field of self's type is not a method.
         if (c.typeOf(ir.Member.object(e))) |t| if (sema.nominalDecl(c, t)) |nom| {
             if (nom.ctx.symbols.items[nom.sym].fields) |fields| {
                 if (sema.memberIn(nom.ctx, fields, name, .data) != null or sema.memberIn(nom.ctx, fields, name, .variant) != null) return;

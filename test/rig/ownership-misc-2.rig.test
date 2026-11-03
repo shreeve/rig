@@ -702,12 +702,12 @@ fail "temporary part view kept", "34:17: a view of the temporary `mk()` outlives
   r10 = ?mk().inner
   print(s1, s2, s3, r4, r5, r6, s7, s8, s9, r10)
 
-test "temporary receiver read", '''
+test "temporary self read", '''
   1 5
   drop 5
   end
 '''
-  # A `?@` receiver only reads: a value made there, a handle made
+  # A `?@` self only reads: a value made there, a handle made
   # included, is a temporary its statement drops.
 
   obj B
@@ -945,7 +945,7 @@ test "text view loans", '''
   yy
 '''
   # A String viewing a Text carries the Text's loan wherever it goes: into
-  # a binding, a struct, a List[String], a call's result, and a closure.
+  # a binding, an object, a List[String], a call's result, and a closure.
   # Each holds the Text viewed until its last use; then the Text can be
   # changed, moved, or dropped again. Strings from literals hold no loan.
 
@@ -983,7 +983,7 @@ test "text view loans", '''
   print(free)
 
 fail "text view outlives scope", "does not live long enough"
-  # A struct holding a String that views a Text, or a List of such
+  # An object holding a String that views a Text, or a List of such
   # Strings, cannot outlive the Text.
 
   obj Name
@@ -1017,7 +1017,7 @@ fail "text view returned", "6:4: cannot return a view of `t`, which this functio
   print(local_view(), param_view(String("x")), lent(String("y")))
 
 fail "text view through write view", "7:6: a write view is never stored inside a value, and `!String` cannot stand here", "10:6: a write view is never stored inside a value, and `!String` cannot stand here", errors: 2
-  # Neither a struct nor an iterator holds `!String`: a write view is never
+  # Neither an object nor an iterator holds `!String`: a write view is never
   # stored inside a value, so no String reached through one can view the
   # Text while the holder writes it. Each field is rejected where it is
   # declared.
@@ -1030,8 +1030,8 @@ fail "text view through write view", "7:6: a write view is never stored inside a
 
   print(1)
 
-fail "unbox receiver ternary", "11:6: `a` owns a `^N`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone", "11:18: `b` owns a `^N`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone", errors: 2
-  # `unbox` consumes its receiver: each name a branching receiver yields is
+fail "unbox self ternary", "11:6: `a` owns a `^N`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone", "11:18: `b` owns a `^N`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone", errors: 2
+  # `unbox` consumes its self: each name a branching self yields is
   # moved with `<`.
   obj N
     v: List[Int]
@@ -2603,7 +2603,7 @@ test "while true break move", '''
       break
   print("end")
 
-fail "whole receiver method field arg", "28:6: cannot lend `@` to write while a read loan on `@scanner.value` is live", "lend the fields it writes", errors: 1
+fail "whole self method field arg", "28:6: cannot lend `@` to write while a read loan on `@scanner.value` is live", "lend the fields it writes", errors: 1
   # A `!@` method lends all of `@`, so it cannot be called while a
   # field of `@` is lent: the caller does not look into the body (Core
   # sentence 7). The idiom is a function of the fields it writes, which

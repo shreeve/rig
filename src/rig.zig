@@ -833,7 +833,7 @@ pub const Lexer = struct {
     /// continue (it has a block `if`, `while`, or `for`). An `else` after
     /// any other block (a match arm) is a new line.
     takes_else: [max_indent_depth + 1]bool = @splat(false),
-    /// Per depth: the block is the member list of a struct, enum, or
+    /// Per depth: the block is the member list of an object, enum, or
     /// error set, where a keyword may name a field or method.
     in_members: [max_indent_depth + 1]bool = @splat(false),
     /// Per depth: the block is the arm list of a `match`, where each line
@@ -995,7 +995,7 @@ pub const Lexer = struct {
         increment,
         decrement,
         slash_comment,
-        receiver_dot,
+        self_dot,
         dollar_detached,
         dollar_stray,
         label_keyword,
@@ -1046,7 +1046,7 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .receiver_dot => "a member of self is written `@name`, the name touching the `@`",
+                .self_dot => "a member of self is written `@name`, the name touching the `@`",
                 .dollar_detached => "`$` touches the name after it: a builtin call is written `$size(T)`, a label `$outer:` (`break $outer`)",
                 .dollar_stray => "`$name` is a builtin call, `$size(T)`, with the name touching its `(`, or a label: `$outer:` where a statement starts, and `break $outer` or `continue $outer`",
                 .label_keyword => "a keyword is not a label name",
@@ -1397,7 +1397,7 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .at => if (self.receiverMember(tok)) |err| return self.fail(err, tok.pos) else .ident,
+            .at => if (self.selfMember(tok)) |err| return self.fail(err, tok.pos) else .ident,
             .dollar => switch (self.classifyDollar(tok)) {
                 .cat => |cat| cat,
                 .err => |err| return self.fail(err, tok.pos),
@@ -1730,11 +1730,11 @@ pub const Lexer = struct {
     /// `@` touching a name is followed by a `.` before it, which the
     /// next call returns (`member_dot`). Self's member is never written
     /// `@.name`.
-    fn receiverMember(self: *Lexer, at: Token) ?LexError {
+    fn selfMember(self: *Lexer, at: Token) ?LexError {
         var probe = self.base;
         const after = probe.next();
         if (after.pos != endOf(&self.base, at)) return null;
-        if (after.cat == .dot) return .receiver_dot;
+        if (after.cat == .dot) return .self_dot;
         if (isWord(after.cat)) self.member_dot = after.pos;
         return null;
     }
@@ -2523,7 +2523,7 @@ pub const IterSource = enum {
     /// binding it holds for the whole loop.
     moved,
     /// A value a method call makes, with the loop's `?` on the call's
-    /// receiver by the receiver-sigil rule (`for x in ?b.each()` is
+    /// self by self-sigil rule (`for x in ?b.each()` is
     /// `for x in (?b).each()`), held in a hidden binding as `made` is:
     /// the loop's `lent` tag (`Parser.lentSource`).
     lent,
@@ -2582,9 +2582,9 @@ pub const Parser = struct {
     /// its closure, so a diagnostic about it points into the closure.
     pad_homes: std.ArrayList(u32) = .empty,
     /// The node ids of the `(read place)`, `(write place)`, and
-    /// `(move place)` receivers written in front of the call
+    /// `(move place)` selves written in front of the call
     /// (`!v.push(x)`), not in parentheses.
-    receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    self_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -3230,7 +3230,7 @@ pub const Parser = struct {
     /// Compile-time parameters and arguments written where Rig does not
     /// take them: in parentheses (`obj Wrap(T)`, `List(Int)` in a type,
     /// `pre n: Int`), on a type alias, or as a type an expression cannot
-    /// spell (`List[[]Int]()`). Also a struct declared with `type`.
+    /// spell (`List[[]Int]()`). Also an object declared with `type`.
     fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
         const src = self.base.source;
         const before = std.mem.trimEnd(u8, src[0..tok.pos], if (tok.cat == .indent) " \r\n" else " ");
@@ -3478,18 +3478,18 @@ pub const Parser = struct {
     //     it at the level of `catch`, after the chain before it):
     //       (?? (?? a b) (return v))  →  (?? a (?? b (return v)))
     //   * `?`, `!`, or `<` before a place followed by a method call is the
-    //     receiver's mode:
+    //     self's mode:
     //       (write (call (member (member x v) push) 1))  →  (call (member (write (member x v)) push) 1)
     //
     // Every rewritten node keeps its node id, and so its span; the new
-    // `captures` node and receiver sigil get their own (`newNode`).
+    // `captures` node and self sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) return sexp;
         var items = sexp.items();
         // A `for` source sigil is the loop's mode, taken before the
-        // receiver rewrite can see it.
+        // self rewrite can see it.
         var loop_sigil: Sexp = .nil;
         if (sexp.kind() == .@"for") {
             const copy = try self.allocator().dupe(Sexp, items);
@@ -3509,7 +3509,7 @@ pub const Parser = struct {
         if (in_type) self.type_depth -= 1;
         dropParens(sexp.kind(), walked);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
-        if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
+        if (loop_sigil != .nil) try self.loopSelf(out, loop_sigil);
         try self.lowerMatches(out.kind(), walked);
         switch (out.kind() orelse return out) {
             .module => {
@@ -3556,7 +3556,7 @@ pub const Parser = struct {
                 }
                 try self.dropStatement(&walked[ir.slot(.arm, .body)]);
             },
-            .read, .write, .move => return self.receiverSigil(out),
+            .read, .write, .move => return self.selfSigil(out),
             .wait => {
                 self.touchesOperand(out);
                 return self.waitCall(out);
@@ -4326,7 +4326,7 @@ pub const Parser = struct {
                 try read_only.append(self.allocator(), memberName(field));
                 inner = field;
             }
-            // A bare name is a variant; in a struct, the checker rejects
+            // A bare name is a variant; in an object, the checker rejects
             // it, and any other member that is not a field or method.
             switch (inner.kind() orelse .variant) {
                 .@":", .default, .fun, .sub => {},
@@ -4583,9 +4583,9 @@ pub const Parser = struct {
     /// Mark the `for` loop `loop` whose source was written after `sigil`,
     /// a `?`, `lent`, when the self-sigil rule puts that sigil on the self
     /// of the source's first method call (`lentSource`).
-    fn loopReceiver(self: *Parser, loop: Sexp, sigil: Sexp) std.mem.Allocator.Error!void {
+    fn loopSelf(self: *Parser, loop: Sexp, sigil: Sexp) std.mem.Allocator.Error!void {
         const lent = try self.base.newNode(sigil.kind().?, &.{ir.For.source(loop)}, self.span(sigil));
-        const moved = try self.receiverSigil(lent);
+        const moved = try self.selfSigil(lent);
         if (moved.list.id == lent.list.id) return;
         @constCast(loop.items())[ir.slot(.@"for", .lent)] = .{ .tag = .lent };
     }
@@ -4598,17 +4598,17 @@ pub const Parser = struct {
         const source = ir.For.source(loop);
         const at = self.span(source);
         const lent = try self.base.newNode(.read, &.{source}, .{ .start = at.start -| 1, .end = at.end });
-        return self.receiverSigil(lent);
+        return self.selfSigil(lent);
     }
 
     /// `>t`: the call `<t.wait()` makes, `(call _ (member (move t) wait))`,
     /// with a hidden `wait` (`isWaitCall`). Every node spans the `>t`, so
-    /// a message quotes it as written, and the move is a receiver sigil,
+    /// a message quotes it as written, and the move is a self sigil,
     /// as the one `<t.wait()` writes is.
     fn waitCall(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const at = self.span(node);
         const moved = try self.base.newNode(.move, &.{ir.get(node, .operand)}, at);
-        try self.receiver_sigils.put(self.allocator(), moved.list.id, {});
+        try self.self_sigils.put(self.allocator(), moved.list.id, {});
         const member = try self.base.newNode(.member, &.{ moved, hiddenLeaf(at.start, .wait) }, at);
         return self.base.newNode(.call, &.{ .nil, member }, at);
     }
@@ -4649,10 +4649,10 @@ pub const Parser = struct {
         };
     }
 
-    /// Whether `node` is a receiver sigil the wrapper moved onto the
-    /// receiver: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
-    pub fn isReceiverSigil(self: *const Parser, node: Sexp) bool {
-        return node == .list and self.receiver_sigils.contains(node.list.id);
+    /// Whether `node` is a self sigil the wrapper moved onto the
+    /// self: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
+    pub fn isSelfSigil(self: *const Parser, node: Sexp) bool {
+        return node == .list and self.self_sigils.contains(node.list.id);
     }
 
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
@@ -4660,7 +4660,7 @@ pub const Parser = struct {
     /// and every postfix after it apply to the lent or moved place:
     ///   (write (propagate_none (call (member v pop))))
     ///   → (propagate_none (call (member (write v) pop)))
-    /// The sigil reaches the receiver of the chain's first method call.
+    /// The sigil reaches the self of the chain's first method call.
     /// A `!` reaches one that is a value no name holds too: one a call
     /// that is no method call makes (`!mk().bump()` is
     /// `(!mk()).bump()`), a literal, or a parenthesized expression
@@ -4671,7 +4671,7 @@ pub const Parser = struct {
     /// chain whose head is called (`<f(x).g()`), and one whose spine is
     /// parenthesized (`!(v.pop())`): the chain stops at a `paren`, which
     /// links of a chain keep until this rule has read them (`parenSlot`).
-    fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+    fn selfSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const tag: parser.Tag = node.kind().?;
         // `!` lends any value to write, so its chain may start from a
         // value no name holds: a call that is no method call
@@ -4714,7 +4714,7 @@ pub const Parser = struct {
         if (top == 0) return node;
         const place = spine[top];
         var out = try self.base.newNode(tag, &.{place}, .{ .start = self.span(node).start, .end = self.span(place).end });
-        try self.receiver_sigils.put(self.allocator(), out.list.id, {});
+        try self.self_sigils.put(self.allocator(), out.list.id, {});
         var i = top;
         while (i > 0) {
             i -= 1;
@@ -5740,7 +5740,7 @@ pub const Parser = struct {
         const at = self.span(source);
         const key = self.span(loop).start;
         var hold: ?Sexp = null;
-        var receiver = source;
+        var iter = source;
         if (l.source != .place) {
             const value = switch (l.source) {
                 .moved => try self.base.newNode(.move, &.{source}, at),
@@ -5752,9 +5752,9 @@ pub const Parser = struct {
             // what it holds stays in force through every iteration
             // (`ownership.Checker.liveFrom`).
             hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key - 1, .iterator), .nil, value }, at);
-            receiver = hiddenLeaf(key + 2, .iterator);
+            iter = hiddenLeaf(key + 2, .iterator);
         }
-        const lend = try self.base.newNode(.write, &.{receiver}, at);
+        const lend = try self.base.newNode(.write, &.{iter}, at);
         const member = try self.base.newNode(.member, &.{ lend, hiddenLeaf(key, .next) }, at);
         const call = try self.base.newNode(.call, &.{ .nil, member }, at);
         const bound = try self.base.newNode(.as, &.{ call, binding }, .{ .start = self.span(binding).start, .end = at.end });
@@ -5900,7 +5900,7 @@ fn firstDecl(p: *Parser) !Sexp {
     return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
 }
 
-/// Whether `source` declares a unique struct first.
+/// Whether `source` declares a unique object first.
 fn structUnique(source: []const u8) !bool {
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();
@@ -6385,7 +6385,7 @@ test "parser: for-source sigil moves into the mode slot" {
     try testing.expectEqualStrings("xs", ir.For.source(loop).getText(p.base.source));
 }
 
-test "parser: a receiver sigil moves onto the place before the method" {
+test "parser: a self sigil moves onto the place before the method" {
     const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n?f(x).g()\n!(+s).g()\n!a.b(x)(y).g()\n";
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();
@@ -6393,32 +6393,32 @@ test "parser: a receiver sigil moves onto the place before the method" {
     const stmts = ir.Module.decls(tree);
     // (call (member (write (index (member x v) 0)) push) 1)
     const recv = ir.Member.object(ir.Call.callee(stmts[0]));
-    try testing.expect(recv.isKind(.write) and p.isReceiverSigil(recv));
+    try testing.expect(recv.isKind(.write) and p.isSelfSigil(recv));
     const s = p.span(recv);
     try testing.expectEqualStrings("!x.v[0]", source[s.start..s.end]);
     try testing.expect(ir.Write.operand(recv).isKind(.index));
-    // Parentheses keep their meaning, and are not a receiver sigil.
+    // Parentheses keep their meaning, and are not a self sigil.
     const long = ir.Member.object(ir.Call.callee(stmts[1]));
-    try testing.expect(long.isKind(.write) and !p.isReceiverSigil(long));
+    try testing.expect(long.isKind(.write) and !p.isSelfSigil(long));
     try testing.expect(stmts[2].isKind(.write));
-    // `!` lends any value to write: a called head is the receiver.
+    // `!` lends any value to write: a called head is self.
     const made = ir.Member.object(ir.Call.callee(stmts[3]));
-    try testing.expect(made.isKind(.write) and p.isReceiverSigil(made));
+    try testing.expect(made.isKind(.write) and p.isSelfSigil(made));
     try testing.expect(ir.Write.operand(made).isKind(.call));
-    // `?` reaches the receiver too, and lends a parenthesized call.
+    // `?` reaches self too, and lends a parenthesized call.
     const read = ir.Member.object(ir.Call.callee(stmts[4]));
-    try testing.expect(read.isKind(.read) and p.isReceiverSigil(read));
+    try testing.expect(read.isKind(.read) and p.isSelfSigil(read));
     try testing.expect(stmts[5].isKind(.read));
     // A `?` before a called head lends the result.
     try testing.expect(stmts[6].isKind(.read));
-    // A parenthesized receiver is lent to write by `!`.
+    // A parenthesized self is lent to write by `!`.
     const paren = ir.Member.object(ir.Call.callee(stmts[7]));
-    try testing.expect(paren.isKind(.write) and p.isReceiverSigil(paren));
+    try testing.expect(paren.isKind(.write) and p.isSelfSigil(paren));
     try testing.expect(ir.Write.operand(paren).isKind(.clone));
-    // A call of a call's value: the first method call's receiver, `a`.
+    // A call of a call's value: the first method call's self, `a`.
     var head = stmts[8];
     while (!head.isKind(.write)) head = if (head.isKind(.call)) ir.Call.callee(head) else ir.get(head, .object);
-    try testing.expect(p.isReceiverSigil(head) and ir.Write.operand(head) == .src);
+    try testing.expect(p.isSelfSigil(head) and ir.Write.operand(head) == .src);
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {
@@ -6595,13 +6595,13 @@ fn parseOutcome(p: *Parser, out: *std.Io.Writer.Allocating) !void {
         else => |e| return e,
     }
     try w.print("\nsigils {d} suffixes {d} detached {d} padded {d} homes {d} depth {d}\n", .{
-        p.receiver_sigils.count(), p.paren_suffixes.count(), p.detached.items.len, p.padded, p.pad_homes.items.len, p.type_depth,
+        p.self_sigils.count(), p.paren_suffixes.count(), p.detached.items.len, p.padded, p.pad_homes.items.len, p.type_depth,
     });
 }
 
 test "parser: a reset parser parses as a new one" {
     const sources = [_][]const u8{
-        // Receiver sigils, a `?` in parentheses after a sigil, a method
+        // Self sigils, a `?` in parentheses after a sigil, a method
         // outside its type's body.
         "obj Box\n  n: Int\n\nfun Nope.m() -> Int\n  1\n\nsub main()\n  !v.push(1)\n  x: *(Int?) = none\n",
         "use std.text\n\nfun twice(n: Int) -> Int\n  n * 2\n\nsub main()\n  print(twice(21))\n",

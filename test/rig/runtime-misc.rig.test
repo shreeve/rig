@@ -202,7 +202,7 @@ test "closure capture move", "42"
   print(owned())
 
 test "closure capture plain values", "4 10 5"
-  # `|+x|` copies any plain value into a closure: a struct of numbers, an
+  # `|+x|` copies any plain value into a closure: an object of numbers, an
   # enum, an array. Later changes to the original are not seen.
 
   obj Wrap
@@ -1137,7 +1137,7 @@ test "owned closure uses", '''
   hi ada
   hi ada
 '''
-  # Owned closures are ordinary shared handles: held in a struct field and
+  # Owned closures are ordinary shared handles: held in an object field and
   # called through it, stored in a List and called for their values, held
   # in an optional, and given several parameters of different types.
 
@@ -1295,7 +1295,7 @@ test "print floats payloads and bytes", '''
   N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: ...))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 '''
   # A whole Float prints with its decimal point; a variant whose one
-  # payload is a struct shows the struct's name; a viewed byte array
+  # payload is an object shows the object's name; a viewed byte array
   # prints as numbers; and a structure that reaches itself stops at `...`.
 
   obj P
@@ -1376,7 +1376,7 @@ test "print handles", '''
 '''
   # `print` shows a weak handle as `~(alive)` while its value lives and
   # `~(gone)` after, an owned closure as `<closure>`, and a function value
-  # held in a struct or array as `<fun>`. A shared handle prints the value
+  # held in an object or array as `<fun>`. A shared handle prints the value
   # it holds.
 
   obj B
@@ -1717,7 +1717,7 @@ test "print values", '''
   true 2.5 -3
 '''
   # `print` writes Rig values readably: text as is (quoted inside other
-  # values), `none` for an absent optional, structs as `Name(field: value)`,
+  # values), `none` for an absent optional, objects as `Name(field: value)`,
   # enums as `.variant`, and Vecs and arrays as `[a, b]`.
 
   obj User
@@ -1906,7 +1906,7 @@ test "shared auto deref", '''
   42
   42
 '''
-  # Field reads and read-receiver method calls auto-deref through a shared
+  # Field reads and read-self method calls auto-deref through a shared
   # `*User` handle.
 
   obj User
@@ -2437,7 +2437,7 @@ test "struct drop glue shared field", '''
   built
   9
 '''
-  # A struct with a shared-handle field and no user `drop` still gets
+  # An object with a shared-handle field and no user `drop` still gets
   # compiler-generated drop glue: dropping `r` drops the Noisy it holds.
 
   obj Noisy
@@ -2498,7 +2498,7 @@ test "weak owned closure", '''
   gone
 '''
   # A weak handle to an owned closure (`~fun(...)`, `~sub()`) works as a
-  # capture, an annotated local, a struct field, a parameter, and a List
+  # capture, an annotated local, an object field, a parameter, and a List
   # element; it upgrades while the closure is alive.
 
   obj H

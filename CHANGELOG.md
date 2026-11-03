@@ -265,6 +265,26 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The compiler says self, never receiver.** `rig check --facts`
+  names the self of a method call `self` (`self call 18:9-18:13 ...`
+  under `--facts=storage`, ` self` among a call's fills under
+  `--facts=sema`), and the compiler's sources, tests, and docs say
+  self, object, and lend where they said receiver, struct, and borrow.
+  The emitted Zig is unchanged.
+- **`text.find_last` searches 16 bytes at a time,** as `find` does. It
+  was Zig's `std.mem.findLast`, a byte at a time for needles of up to 4
+  bytes: a needle of 1 to 4 bytes at the start of a 64 KiB text is now
+  found 45 to 100 times faster, and a longer one 3 to 8 times.
+- **`text.Interner`'s table is at most half full.** It was rebuilt only
+  past four fifths, where a miss probes about 13 slots; it now doubles
+  at half, so it is a quarter to half full (it was a fifth to four
+  fifths), and a lookup at 100,000 strings is about a third faster.
+- **std.terminal bounds what a program's output makes it hold.** A
+  char keeps at most 64 runes after its first, as Ghostty does, and a
+  terminal drops the styles no cell uses once they pass 4,096 and a
+  quarter of its cells. Two million truecolor SGRs and as many combining
+  marks grew an 80x24 terminal without history to 164 MB; it stays under
+  5 MB.
 - **`terminal.Terminal.new` panics on a size that is not positive.**
   A terminal of no columns looped forever at its first `feed`, and one
   of no rows panicked deep in `print`; `new` panics at once, naming its

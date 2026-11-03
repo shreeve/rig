@@ -312,7 +312,7 @@ The panel split on these. The default comes first in each.
 1. **Unsafe code:** Zig in trusted packages, and no raw pointers in Rig.
 2. **Module mutable state:** left out; pass a context, as GPUI passes
    `cx`. The alternative is a plain module `var` that is never lent.
-3. **Allocators as owners:** left out for now; arenas with IDs. Revisit
+3. **Allocators as owners:** out of scope; arenas with IDs. Revisit
    when a GPUI port measures the need.
 4. **Iterator adaptors that may only be parameters, locals or results:**
    left out; write the loop, or use `yields`.

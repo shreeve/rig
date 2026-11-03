@@ -85,8 +85,8 @@ fail "alias field call arg", "15:5: `eat` takes ownership of a `*Wrap`, and `o.i
   eat(o.inner)
 
 fail "alias generic with resource arg", "12:5: `h` owns a `Holder[*Wrap]`, which can't be copied by `=`: write `<h` to move it, `+h` to clone it, or `?h` to view it"
-  # A generic struct instantiated with a resource (`Holder[*Wrap]`) owns it;
-  # copying the struct would drop the handle twice.
+  # A generic object instantiated with a resource (`Holder[*Wrap]`) owns it;
+  # copying the object would drop the handle twice.
 
   obj Holder[T]
     value: T
@@ -198,10 +198,10 @@ test "argument read then written", '''
   hi 0 0
 '''
   # A call's arguments run left to right. An argument that reads plain
-  # data (a number, a String, a Copy struct) holds a finished value, so a
+  # data (a number, a String, a Copy object) holds a finished value, so a
   # later argument may write the place it came from, and the call sees
   # the value as it was read. A write that finishes before the read, a
-  # read receiver whose call ends before the write, and a write receiver
+  # read self whose call ends before the write, and a write self
   # whose argument reads it are fine too.
 
   obj P
@@ -261,10 +261,10 @@ test "argument read then written", '''
 fail "argument read then written is rejected", "50:16: cannot lend `v` to write while an earlier argument's read of it is in use", "51:15: cannot move `v` while an earlier argument's read of it is in use", "54:16: cannot lend `w` to write while an earlier argument's read of it is in use", "56:16: cannot lend `s.a` to write while an earlier argument's read of `s` is in use", "57:18: cannot lend `s.a` to write while an earlier argument's read of it is in use", "59:18: cannot lend `rc` to write while an earlier argument's read of it is in use", "61:17: cannot lend `b` to write while an earlier argument's read of it is in use", "63:11: cannot lend `x` to write while an earlier argument's read of it is in use", "65:20: cannot lend `z` to write while a read loan is live", "66:26: cannot lend `z` to write while a read loan is live", "67:27: cannot lend `z` to write while a read loan is live", "69:21: cannot lend `s.a` to write while a read loan on `s` is live", "71:17: cannot lend `o` to write while an earlier argument's read of it is in use", errors: 13
   # A call evaluates its arguments left to right and uses them all when
   # it runs. An argument that reads a value owning storage (a List, a Box,
-  # a shared handle, or a struct holding one) shares that storage with
+  # a shared handle, or an object holding one) shares that storage with
   # the place it reads, so a later argument cannot lend to write or move
   # that place: the call would see a stale or freed value. A view, a
-  # slice, or a read receiver in an earlier argument holds it the same
+  # slice, or a read self in an earlier argument holds it the same
   # way.
 
   obj Node
@@ -381,10 +381,10 @@ test "argument write view value read", '''
   7 1
   8
 '''
-  # A write view a method's result keeps of its receiver holds the
-  # receiver lent to write only while a call holds the view: read where it
+  # A write view a method's result keeps of its self holds the
+  # self lent to write only while a call holds the view: read where it
   # stands, its value is copied out first, and a later argument may read
-  # the receiver (test/reject/ownership/argument_write_loan_held.rig).
+  # self (test/reject/ownership/argument_write_loan_held.rig).
 
   obj Item
     n: Int
@@ -2257,13 +2257,13 @@ fail "branch read cell changed later", "21:7: `a.s if k else b.s` would copy a `
   print(a.s if k else b.s, grow(!a.s))
   print(String(b.s if k else a.s, grow(!a.s)))
 
-fail "branch receiver change lands in copy", "25:8: method `inc` writes `self`, and `a if c else b` may be `a`, a value a name holds, which the call would write as a copy", "26:8: method `inc2` writes `self`, and `a if c else b` may be `a`", errors: 2
+fail "branch self change lands in copy", "25:8: method `inc` writes `self`, and `a if c else b` may be `a`, a value a name holds, which the call would write as a copy", "26:8: method `inc2` writes `self`, and `a if c else b` may be `a`", errors: 2
   # A `!@` method called on a value that branches and may be a value a
   # name holds would change a copy of that value: each branch is lent
-  # instead (`(!a if c else !b).inc()`). A method that changes its receiver
+  # instead (`(!a if c else !b).inc()`). A method that changes its self
   # through a Cell, called on a branching value or a part of one, changes
   # the leaf where it is
-  # (`test/behavior/ownership/branch_receiver_change_through_leaves.rig`).
+  # (`test/behavior/ownership/branch_self_change_through_leaves.rig`).
 
   obj P
     n: Int
@@ -2286,7 +2286,7 @@ fail "branch receiver change lands in copy", "25:8: method `inc` writes `self`, 
   print((a if c else b).inc2(k: g(1), j: g(2)))
   print(a.n, b.n)
 
-test "branch receiver change through leaves", release: true, '''
+test "branch self change through leaves", release: true, '''
   2
   4
   2
@@ -2300,7 +2300,7 @@ test "branch receiver change through leaves", release: true, '''
   4 2 13 5 3 a text long enough to live on the heap
   6
 '''
-  # A `!@` method that changes its receiver through a Cell, called on a
+  # A `!@` method that changes its self through a Cell, called on a
   # branch of shared handles, or on a field or element of one, reaches the
   # leaf the branch takes where it is, through `??` and `catch` too and when
   # the call's arguments are evaluated first: the change lands in that
@@ -2367,14 +2367,14 @@ test "branch receiver change through leaves", release: true, '''
   if o as x
     print(x.q.c.get())
 
-test "branch receiver change through lends", '''
+test "branch self change through lends", '''
   2
   4
   4 10
   2 3
   2 3
 '''
-  # A method that changes its receiver, through a Cell or a `!@`, called
+  # A method that changes its self, through a Cell or a `!@`, called
   # on what each branch lends, changes the value the branch takes, also when
   # its arguments are evaluated first.
 
@@ -2686,7 +2686,7 @@ fail "break value branch leaves", "20:9: `a` owns a `String`, which can't be cop
     break fail(c) catch b
   print(x, y, z, w)
 
-test "builtin result does not view receiver", '''
+test "builtin result does not view self", '''
   1
   two
   three
@@ -2707,7 +2707,7 @@ test "builtin result does not view receiver", '''
   h()
 
 fail "call argument writes place", "24:25: cannot lend `v` to write while a write loan is live", "25:15: cannot lend `v` to write while a read loan is live", "26:19: cannot lend `v` to write while a read loan is live", "27:20: cannot lend `v` to write while a read loan is live", "29:25: cannot lend `b` to write while a write loan on `b.xs` is live", errors: 5
-  # A call whose place argument (a write view, or a receiver) is taken
+  # A call whose place argument (a write view, or a self) is taken
   # before its later arguments run: a later argument cannot lend to write
   # the place's root, as Rust's two-phase views also forbid.
 
@@ -2738,13 +2738,13 @@ fail "call argument writes place", "24:25: cannot lend `v` to write while a writ
   xs = swap(!b.xs, renew(!b))
   print(old, v, xs)
 
-test "call held receiver values", '''
+test "call held self values", '''
   11
   42
   5
   6
 '''
-  # A temporary receiver, or a Cell-holding part of a temporary handle,
+  # A temporary self, or a Cell-holding part of a temporary handle,
   # that a call holds while it runs: what the method returns that views
   # nothing of it, and a view of it the statement discards, are fine.
 
@@ -2806,7 +2806,7 @@ test "call write lend ends at return", '''
   # when the result is bound first. Each form is checked whole and split.
   # oracle: same_statement accept
   # oracle: split accept
-  # oracle: receivers accept
+  # oracle: selves accept
   # oracle: for_source accept
   # oracle: match_subject accept
   # oracle: if_as accept
@@ -3637,8 +3637,8 @@ test "conditional move no later use", '''
   go(true)
   go(false)
 
-fail "consume receiver catch", "19:24: `d` owns a `Bag`, which can't be copied into an argument: write `<d` to move it or `+d` to pass a clone", errors: 1
-  # A consuming method's receiver is taken like an argument: a name a
+fail "consume self catch", "19:24: `d` owns a `Bag`, which can't be copied into an argument: write `<d` to move it or `+d` to pass a clone", errors: 1
+  # A consuming method's self is taken like an argument: a name a
   # `catch` yields is moved with `<`.
   error E
     bad
@@ -3659,14 +3659,14 @@ fail "consume receiver catch", "19:24: `d` owns a `Bag`, which can't be copied i
   print((mk(false) catch d).total())
   print(d.items[0])
 
-test "consume receiver copies", '''
+test "consume self copies", '''
   2 3 4 2
   2 3 4
   2 2 2
   4
 '''
-  # A method that consumes its receiver (`<@`) takes a copy of a
-  # receiver whose value copies, as an argument does: `s.p.into()` and
+  # A method that consumes its self (`<@`) takes a copy of a
+  # self whose value copies, as an argument does: `s.p.into()` and
   # `v[0].into()` copy the part and leave it as it was, and `p.into()`
   # copies a local. `<p.into()` still moves the local, which ends it, and
   # `(+s.p).into()` copies too. A view of a value that copies is copied
@@ -3697,14 +3697,14 @@ test "consume receiver copies", '''
   print(through_read(?s.p), through_write(!s.p), s.p.x)
   print(<p.into())
 
-test "consume receiver moved branches", '''
+test "consume self moved branches", '''
   1
   2
   1
   2
 '''
-  # A consuming receiver that branches takes each name with `<`; a read
-  # receiver reads a name's value in place and drops a made one.
+  # A consuming self that branches takes each name with `<`; a read
+  # self reads a name's value in place and drops a made one.
   obj Bag
     items: List[Int]
 
@@ -3732,9 +3732,9 @@ test "consume receiver moved branches", '''
     print((d if e else mk()).size())
   print(d.items[1])
 
-fail "consume receiver nullish", "11:8: `o` owns a `Bag?`, which can't be copied into an argument: write `<o` to move it or `+o` to pass a clone", "11:13: `b` owns a `Bag`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone", errors: 2
-  # A consuming method's receiver is taken like an argument: each name a
-  # `??` receiver may be is moved with `<` (`(<o ?? <b)`).
+fail "consume self nullish", "11:8: `o` owns a `Bag?`, which can't be copied into an argument: write `<o` to move it or `+o` to pass a clone", "11:13: `b` owns a `Bag`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone", errors: 2
+  # A consuming method's self is taken like an argument: each name a
+  # `??` self may be is moved with `<` (`(<o ?? <b)`).
   obj Bag
     items: List[Int]
 
@@ -3746,8 +3746,8 @@ fail "consume receiver nullish", "11:8: `o` owns a `Bag?`, which can't be copied
   print((o ?? b).total())
   print(b.items.len)
 
-fail "consume receiver optional field", "13:8: `h.o` owns a `Bag?`, which can't be copied into an argument: write `<h.o` to take it out (leaving `none`) or `+h.o` to pass a clone", errors: 1
-  # `h.o?` as a consuming receiver would copy the value out of the field
+fail "consume self optional field", "13:8: `h.o` owns a `Bag?`, which can't be copied into an argument: write `<h.o` to take it out (leaving `none`) or `+h.o` to pass a clone", errors: 1
+  # `h.o?` as a consuming self would copy the value out of the field
   # without moving it.
   obj Bag
     items: List[Int]
@@ -3769,9 +3769,9 @@ fail "consume receiver optional field", "13:8: `h.o` owns a `Bag?`, which can't 
   if ?h.o as x
     print(x.items[0])
 
-fail "consume receiver ternary", "13:8: `a` owns a `Bag`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone", "13:20: `b` owns a `Bag`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone", errors: 2
-  # A consuming method's receiver is taken like an argument: each name a
-  # branching receiver yields is moved with `<` (`(<a if c else <b)`).
+fail "consume self ternary", "13:8: `a` owns a `Bag`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone", "13:20: `b` owns a `Bag`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone", errors: 2
+  # A consuming method's self is taken like an argument: each name a
+  # branching self yields is moved with `<` (`(<a if c else <b)`).
   obj Bag
     items: List[Int]
 
@@ -4047,7 +4047,7 @@ test "copies out of view", '''
   8
 '''
   # A view of a value that copies is copied out where the value is
-  # expected (Core §4): a plain struct, an array, or an optional, as a
+  # expected (Core §4): a plain object, an array, or an optional, as a
   # number is, through a read or a write view, as an argument, a result,
   # a typed binding, an optional, or a branch. The copy carries no loan,
   # so the owner may change while the copy lives. A copy of a value that
@@ -4114,7 +4114,7 @@ test "copies out of view", '''
 
 fail "copies view loans", "22:3: cannot reassign `n` while it is lent", "30:3: cannot reassign `m` while it is lent", "39:3: cannot reassign `m` while it is lent", "46:3: cannot reassign `n` while it is lent", "53:3: cannot reassign `n` while it is lent", "61:3: cannot reassign `n` while it is lent", "67:10: an owned closure cannot capture `s`, which holds a view of `n`", errors: 7
   # Every copy of a read view carries its loan (Core §5, sentence 6): an
-  # array `[n of ?x]` or `fill`ed with views, a copy of a struct holding
+  # array `[n of ?x]` or `fill`ed with views, a copy of an object holding
   # a view, and a `|+x|` capture of one keep the viewed value lent while
   # they are used. An owned closure carries no loan (Core sentence 9).
   # oracle: fill_loan reject C4
@@ -4191,7 +4191,7 @@ test "copies write view reads", '''
 '''
   # A bare name only reads (Core sentence 1): a write view of a value that
   # copies, whether a local or a parameter holds it, reads the value it
-  # sees where a value is taken, a plain struct as a number does. Changing
+  # sees where a value is taken, a plain object as a number does. Changing
   # the copy changes nothing else; assigning one write view from another
   # writes the value through.
 
@@ -4222,8 +4222,8 @@ test "copies write view reads", '''
   print(pick(!a, !q, false).x)
 
 fail "copy field view keeps loan", "5:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
-  # A struct cannot hold `!Int`: a write view is never stored inside a
-  # value, so no struct carries a write loan past the call that lends it.
+  # An object cannot hold `!Int`: a write view is never stored inside a
+  # value, so no object carries a write loan past the call that lends it.
 
   obj H
     w: !Int
@@ -4398,8 +4398,8 @@ test "discard take plain optional", release: true, '''
 '''
   # A discarded take of an optional field or element, a statement `<e` or
   # `_ = <e`, leaves `none` whatever the optional holds: plain data, a
-  # plain struct, or a view, through the owner, a write view, a `!@`
-  # receiver, or a `defer`, as a take whose value is bound does.
+  # plain object, or a view, through the owner, a write view, a `!@`
+  # self, or a `defer`, as a take whose value is bound does.
 
   obj P
     x: Int
@@ -4517,7 +4517,7 @@ fail "equal optional operand read then written", "11:19: cannot lend `a` to writ
   print(a == grow2(!a))
 
 fail "equal struct operand read then written", "13:19: cannot lend `q` to write while the left operand's read of it is in use", errors: 1
-  # A struct holding a Text compares field by field after the right
+  # An object holding a Text compares field by field after the right
   # operand runs: the right operand cannot lend the left one to write.
 
   obj Q
@@ -4942,7 +4942,7 @@ fail "handle lend p03 readview handle set", "6:4: cannot lend to write through a
   print(c.get())
 
 fail "handle lend p09 holder field via readview", "9:4: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", errors: 1
-  # A read view of a struct that holds a handle changes nothing the handle reaches.
+  # A read view of an object that holds a handle changes nothing the handle reaches.
   # (A handle is lent as itself, `!*T`, only where it may be written; the
   # review probe of that name.)
 
@@ -5149,7 +5149,7 @@ test "hoisted implicit lends", '''
   # A value made where a view argument goes is lent as a statement
   # temporary, also when the call's arguments are evaluated first into
   # names (keyword arguments out of order, a later `!` or `?`, a method's
-  # receiver): it is kept once, and dropped once at the statement's end,
+  # self): it is kept once, and dropped once at the statement's end,
   # as `?mk(1)` is (the explicit forms are the controls).
 
   obj Bag
@@ -5219,7 +5219,7 @@ test "hoisted implicit lends", '''
 fail "holder view locks owner", "14:1: cannot lend `a` to write while a read loan is live", "18:6: cannot move `c` while a read loan is live", "22:1: cannot lend `e` to write while a read loan is live", "27:2: cannot drop `f` while it is lent", errors: 4
   # A value that holds a read view keeps the viewed owner lent while the
   # value is used: a box, a generic function's result, an optional, and a
-  # generic struct, each of a List. The owner can be neither written nor
+  # generic object, each of a List. The owner can be neither written nor
   # moved nor dropped until the last use of the holder.
 
   obj Hold[T]
@@ -5403,7 +5403,7 @@ fail "ifas write view header temp", "6:6: a write view is never stored inside a 
 
 fail "ignored write lend", "42:3: `!x` here is read, not held: an `Int` goes here. Write `x` to copy the value; to keep a write view of `x`, the type here must be `!Int`", "52:18: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(v: n)` to store a copy", "53:15: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(n)` to store a copy", "54:23: `!n` here is read, not held: `Opt[Int].some` stores an `Int`. Write `Opt[Int].some(v: n)` to store a copy", "55:25: `!n` here is read, not held: `.some` stores an `Int`. Write `.some(v: n)` to store a copy", "56:18: `!p` here is read, not held: `Opt.some` stores a `Q`. Write `Opt.some(v: p)` to store a copy", "57:11: `!n` here is read, not held: `H` stores an `Int`. Write `H(r: n)` to store a copy", "58:16: `!n` here is read, not held: `H[Int]` stores an `Int`. Write `H[Int](r: n)` to store a copy", "59:11: `!n` here is read, not held: `P` stores an `Int`. Write `P(x: n)` to store a copy", "60:11: `!n` here is read, not held: `G` stores an `Int`. Write `G(r: n)` to store a copy", "61:10: `!n` here is read, not held: `get` takes an `Int`. Write `get(n)` to pass a copy; to lend `n` to write, the parameter must be a `!T`", "62:11: `!n` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to lend `n` to write, the parameter must be a `!T`", "62:15: `!m` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`", "63:8: `!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`", "64:8: `!!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`", "65:8: `<!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`", "66:15: `!n` here is read, not held: `math.max` takes an `Int`. Write `math.max(n, 3)` to pass a copy; to lend `n` to write, the parameter must be a `!T`", "67:9: `!m` here is read, not held: `set` takes an `Int`. Write `!s4.set(m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`", "69:9: `!m` here is read, not held: `push` takes an `Int`. Write `!v.push(m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`", "70:7: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "71:15: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "72:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "73:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "73:24: `!m` here is read, not held: an `Int` goes here. Write `m` to copy the value; to keep a write view of `m`, the type here must be `!Int`", "74:16: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "76:8: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "78:11: `!mk().x` here is read, not held: an `Int` goes here. Write `mk().x` to copy the value", "80:9: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", errors: 28
   # A write lend `!x` where a plain value goes would be read, its `!`
-  # ignored: a generic's inferred `T` (a scalar's or a struct's), a
+  # ignored: a generic's inferred `T` (a scalar's or an object's), a
   # constructor's or variant's field, a declared parameter, a method's
   # parameter, an array element, a typed binding, a result, and each arm or
   # `break` of a value that branches. The diagnostic offers a copy, with
@@ -5580,7 +5580,7 @@ fail "ignored write lend read", "13:8: `!p` here is read, not held: only its `In
 fail "ignored write lend read view", "30:10: `!n` here is read, not held: `rd` only reads `n`; write `rd(?n)`", "31:11: `!n` here is read, not held: a `?Int` only reads `n`; write `?n`", "32:16: `!n` here is read, not held: `G[?Int]` only reads `n`; write `G[?Int](r: ?n)`", "33:13: `!arr[0..2]` here is read, not held: `total` only reads `arr[0..2]`; write `total(?arr[0..2])`", "33:32: `!arr` here is read, not held: `total` only reads `arr`; write `total(?arr)`", "34:11: `!t` here is read, not held: `len` only reads `t`; write `len(?t)`", "35:8: `!p` here is read, not held: `get` only reads `p`; write `p.get()`", errors: 7
   # A written `!x` where only a read view goes lends nothing to write:
   # a `?T` parameter, field, or binding, a `[]T` or a String parameter,
-  # and a `?@` receiver. It is rejected with `?x`, which lends to
+  # and a `?@` self. It is rejected with `?x`, which lends to
   # read. A held write view (`w`) passes there as it is.
 
   obj P
@@ -5753,7 +5753,7 @@ fail "index base read then written", "21:32: cannot lend `a` to write while the 
   print((a if c else b).v[growp(!a)])
 
 fail "index of lent place", "27:21: cannot lend `ps` to write in an index of a place it is lending", "28:21: cannot lend `ps` to write in an index of a place it is lending", "29:26: cannot lend `ps` to write in an index of a place it is lending", "30:16: cannot lend `ps` to write in an index of a place it is lending", "31:16: cannot lend `ps` to write in an index of a place it is lending", "32:20: cannot move `ps` in an index of a place it is lending", errors: 6
-  # A view, a slice, or a method's receiver takes the address of its
+  # A view, a slice, or a method's self takes the address of its
   # place, found up to each index before the index runs: an index cannot
   # lend the place's root to write, or move it, which could grow or free the
   # memory the place is in. (An assignment's target is found after its
@@ -6168,8 +6168,8 @@ test "kept lend written push", "1 abc"
   !names.push(?t)
   print(names.len, names[0])
 
-fail "kept receiver view leaves tail", "35:3: cannot return a view of `mk(42)`, which this function was not lent", "38:10: cannot return a view of `mk(1)`, which this function was not lent", "49:5: a view of the temporary `mkh(42)` outlives its statement", "53:3: a view of the temporary `mkh(43)` outlives its statement", "57:9: a view of the temporary `mkh(44)` outlives its statement", errors: 5
-  # A view of a temporary receiver, or of a Cell-holding part of one, of a
+fail "kept self view leaves tail", "35:3: cannot return a view of `mk(42)`, which this function was not lent", "38:10: cannot return a view of `mk(1)`, which this function was not lent", "49:5: a view of the temporary `mkh(42)` outlives its statement", "53:3: a view of the temporary `mkh(43)` outlives its statement", "57:9: a view of the temporary `mkh(44)` outlives its statement", errors: 5
+  # A view of a temporary self, or of a Cell-holding part of one, of a
   # call whose arguments may run first lives only until the statement that
   # keeps the temporary ends, wherever the call's value is used, not only
   # where a statement binds it: the tail of a function, a `return`, a
@@ -6230,12 +6230,12 @@ fail "kept receiver view leaves tail", "35:3: cannot return a view of `mk(42)`, 
     ?d.q
   print(r.n, s.n, t.n)
 
-fail "kept receiver view outlives statement", "38:5: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "41:7: a view of the temporary `mkh()` outlives its statement", errors: 2
-  # A temporary receiver of a method that may keep a view of it, or a
+fail "kept self view outlives statement", "38:5: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "41:7: a view of the temporary `mkh()` outlives its statement", errors: 2
+  # A temporary self of a method that may keep a view of it, or a
   # Cell-holding part of one, is kept in its statement's slot, also when
   # the call's arguments run first: a view of it that the method returns,
   # or stores in what it was lent to write, may be used within the
-  # statement (`test/behavior/ownership/cell_part_receiver_view_in_statement.rig`),
+  # statement (`test/behavior/ownership/cell_part_self_view_in_statement.rig`),
   # and nowhere after.
 
   obj S
@@ -6331,7 +6331,7 @@ fail "lend branch of places", "31:9: cannot lend `a if c else b`: it may be `a`,
   # One with a leaf a place holds would lend a copy of that leaf's value,
   # a write view included (Core §3: a lend of a branching value that may
   # be a name's is planned). Each branch is lent instead, in a statement,
-  # an argument, a method's receiver, and every header.
+  # an argument, a method's self, and every header.
 
   obj Res
     n: Int
@@ -6711,7 +6711,7 @@ fail "lend path base function field", "32:8: `(!t).f`: write a lend on the whole
   # A field holding a function, called, is a path like any field: a lend
   # of a place as its base is rejected, through a lend, a moved lend, a
   # shared handle, an element, and an owned closure's field, wherever the
-  # call's value goes. A method's receiver is not a path.
+  # call's value goes. A method's self is not a path.
 
   fun double(n: Int) -> Int
     n * 2
@@ -6979,7 +6979,7 @@ test "lend path plain forms", release: true, '''
   # path (`if !o[0] as w`, `!qs[1].bump()`, `match !p.e`), for an array, a
   # List, a field holding an array, a nested path, and a `!` parameter.
   # Three forms keep their parentheses, being no lend of a place as a
-  # path's base: a lend as a method's receiver (`(!s).insert(k)`,
+  # path's base: a lend as a method's self (`(!s).insert(k)`,
   # `(!w).put[2](3)`, `(!t.pickw()).b += 1`), a value that branches,
   # whose lends pick the place written (`(!a if c else !b)[0] = 5`), and a
   # lend of a slice, which makes the view indexed (`(?t[..])[0]`). Each
@@ -7742,12 +7742,12 @@ test "loop view call arg", '''
   for c in ?shapes
     round(c)
 
-test "method plain receiver keeps no loan", '''
+test "method plain self keeps no loan", '''
   [2, 1, 3]
   [1, 2, 3] 2
 '''
   # A method taking `!@` may store what its arguments view in its
-  # receiver only when the receiver's type can hold a view: a receiver
+  # self only when self's type can hold a view: a self
   # of plain data keeps none, so the argument's view ends with the call.
 
   obj Counter
@@ -7768,10 +7768,10 @@ test "method plain receiver keeps no loan", '''
   !c.bump_each(!a)
   print(a, c.n)
 
-fail "method receiver keeps loan", "cannot lend `a` to write while a read loan is live", errors: 1
-  # A `!@` receiver whose type holds a view may keep what the
+fail "method self keeps loan", "cannot lend `a` to write while a read loan is live", errors: 1
+  # A `!@` self whose type holds a view may keep what the
   # method's arguments view, so the view lives as long as it does,
-  # even when the receiver is written through a write view.
+  # even when self is written through a write view.
 
   obj View
     xs: []Int
@@ -8815,7 +8815,7 @@ fail "propagate none owning binding ownership", "8:7: `m` is a `*Wrap?` handle, 
 
   print(f(none))
 
-fail "range field call whole receiver", "20:7: cannot lend `@` to write while a read loan on `@ast.kinds` is live", "lend the fields it writes", errors: 1
+fail "range field call whole self", "20:7: cannot lend `@` to write while a read loan on `@ast.kinds` is live", "lend the fields it writes", errors: 1
   # A `!@` method lends all of `@`, so it cannot be called while a
   # `for` walks a field of `@`: the caller does not look into the body
   # (Core sentence 7). The idiom is a function of the fields it writes.
@@ -9074,7 +9074,7 @@ test "read view of owner is not dropped", '''
   drop tracked 7
 '''
   # A read view of a value that owns resources is held by pointer, so a
-  # struct, box, or closure holding the view never drops what it views.
+  # object, box, or closure holding the view never drops what it views.
   # (Owned closures cannot capture views; stack closures can.)
 
   obj Wrap
@@ -9828,7 +9828,7 @@ fail "return shared field", "`o.inner` is a `*Wrap` handle, which can't be copie
   print(1)
 
 fail "return struct with local view", "cannot return a view of `user`, which this function was not lent"
-  # A view of a local stored in a returned struct escapes the function.
+  # A view of a local stored in a returned object escapes the function.
 
   obj User
     age: Int
@@ -10047,7 +10047,7 @@ fail "shared view pushed into vec", "cannot drop `a` while it is lent"
     print(v.b.payload)
 
 fail "shared write method", "cannot call method `set_age`, which writes `self`, through a shared handle"
-  # A write-receiver method cannot be called through a shared handle.
+  # A `!@` method cannot be called through a shared handle.
 
   obj User
     age: Int
@@ -10152,8 +10152,8 @@ fail "static slice view loan", "11:1: cannot lend `l` to write while a read loan
 
 fail "static slice view origins", "16:1: cannot lend `a` to write while a read loan is live", "22:1: cannot lend `b` to write while a read loan is live", "30:1: cannot lend `c` to write while a read loan is live", "37:1: cannot lend `e` to write while a read loan is live"
   # A `[]?String` of a `Static` List keeps the List's loan through a
-  # function's result, a struct's field, a call that stores it, and a
-  # List of such structs, as a `[]Static` does.
+  # function's result, an object's field, a call that stores it, and a
+  # List of such objects, as a `[]Static` does.
   obj H
     v: []?String
 
@@ -10190,12 +10190,12 @@ fail "static slice view origins", "16:1: cannot lend `a` to write while a read l
   !e.push("y")
   print(hold[0].v[0])
 
-test "store into unnamed receiver", '''
+test "store into unnamed self", '''
   ["one", "two"] ["two"] [] two one
 '''
   # A store reached through a write loan that no named place gives (a
-  # write view a call returns, a branching receiver) holds the viewed value, as a name would
-  # (`test/reject/ownership/store_into_unnamed_receiver.rig`): values that
+  # write view a call returns, a branching self) holds the viewed value, as a name would
+  # (`test/reject/ownership/store_into_unnamed_self.rig`): values that
   # outlive the holder may be stored there.
 
   obj H
@@ -10229,10 +10229,10 @@ test "store into unnamed receiver", '''
   wv(!v)[0].r = ?t
   print(h.rs, a.rs, b.rs, b.r, v[0].r)
 
-fail "store into unnamed receiver is rejected", "48:19: `s` does not live long enough", "56:28: `s` does not live long enough", "62:23: `s` does not live long enough", "68:25: `s` does not live long enough", "74:18: `s` does not live long enough", "81:19: `s` does not live long enough", errors: 6
+fail "store into unnamed self is rejected", "48:19: `s` does not live long enough", "56:28: `s` does not live long enough", "62:23: `s` does not live long enough", "68:25: `s` does not live long enough", "74:18: `s` does not live long enough", "81:19: `s` does not live long enough", errors: 6
   # A store reached through a write loan lands in what that loan reaches,
-  # whatever the syntax: a write method's receiver that is no named place
-  # (a write view a call returns, a branching receiver, one whose
+  # whatever the syntax: a write method's self that is no named place
+  # (a write view a call returns, a branching self, one whose
   # arguments run first, a field of a returned view), and an assignment's
   # target that starts from a value no var holds (a write view a call
   # returns, `wrap(!h).r`, an element of one). Each view
@@ -10495,7 +10495,7 @@ test "string copies free", '''
   x ["x", "y"]
   a a
 '''
-  # A String copied out of a view, a struct, or a List views what the
+  # A String copied out of a view, an object, or a List views what the
   # String views, not the place it was read from: the place is free again,
   # and a String a function copies out of its parameter can be returned.
   # A value views a Text only where it can reach one.
@@ -10647,7 +10647,7 @@ test "string view iterators", '''
   three
   15 15 one
 '''
-  # A String-holding struct is a view of what its Strings view. An
+  # A String-holding object is a view of what its Strings view. An
   # iterator's `next(!@)` copies a String out of `@` and returns
   # it: the result views what the iterator views, not the iterator, so
   # two parts can be held at once. Literals stay free: `@rest = ""`.
@@ -10708,7 +10708,7 @@ test "string view iterators", '''
   print(t.len, s.len, s[..3])
 
 fail "string view results", "32:1: cannot lend `t` to write while a read loan is live", "34:1: cannot lend `t` to write while a read loan is live", "36:1: cannot lend `t` to write while a read loan is live", "40:1: cannot lend `t` to write while a read loan is live", errors: 4
-  # A function returning a String, a `(?String)?`, or a struct holding
+  # A function returning a String, a `(?String)?`, or an object holding
   # Strings may return a view of a String it was passed: its result keeps
   # viewed every Text its arguments view, and so does an iterator built
   # from one, and each part it gives.

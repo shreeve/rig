@@ -363,7 +363,7 @@ Numbers and text are ordered already. An object or an enum is ordered
 only when its header names `Ord`: `obj Version: Ord` orders by its
 fields in the order they are declared, so `1.10` is above `1.9`.
 `enum Size: Ord` orders by its variants. A `Point` that does not name
-`Ord` is now rejected by the bound, with the fix:
+`Ord` is rejected by the bound, with the fix:
 
 ```rig reject
 obj Point

@@ -1,4 +1,4 @@
-"""Time bench-json builds and external parsers the way tools/bench-json does:
+"""Time bench-json builds and external parsers the way bench/json/bench-json does:
 calibrate each to ~MS ms, interleave REPS runs across all variants, keep the fastest."""
 import os, re, subprocess, sys
 S = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

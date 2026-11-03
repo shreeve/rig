@@ -113,7 +113,7 @@ fail "origin from body exceeds", "5:3: `tail` returns a view of `b`, but its sig
 fail "origin from body forms", "17:5: `get` returns a view of `other`, but its signature says it views only `@`", "20:3: `arm` returns a view of `b`", "29:3: `loop` returns a view of `b`", "33:12: `unwrap` returns a view of `b`", "38:3: `field` returns a view of `b`", "41:3: `payload` returns a view of `b`", errors: 6
   # More forms a body returns a view through, each checked against its
   # `from` clause: a match arm, a loop's `break` value, `if … as`, a field
-  # of a local struct, a payload of a parameter, and a method's argument.
+  # of a local object, a payload of a parameter, and a method's argument.
 
   obj Pair
     x: ?List[Int]
@@ -289,14 +289,14 @@ fail "origin keyword argument mapping", "10:1: cannot lend `x` to write while a 
   !x.push(1)
   print(r.len)
 
-test "origin read receiver keeps nothing", '''
+test "origin read self keeps nothing", '''
   x a
   1
   x cd
   2
   x
 '''
-  # A method that reads its receiver keeps none of its arguments' views
+  # A method that reads its self keeps none of its arguments' views
   # in it (Core sentence 4: nothing changes through a read view), so a key
   # that dies each iteration is fine.
 
@@ -314,9 +314,9 @@ test "origin read receiver keeps nothing", '''
     print(k)
   print(b.label)
 
-fail "origin receiver stored in argument", "18:2: cannot drop `s` while it is lent"
-  # A method may store a view of what its receiver holds in what it was
-  # lent to write: the receiver stays lent while that view lives.
+fail "origin self stored in argument", "18:2: cannot drop `s` while it is lent"
+  # A method may store a view of what its self holds in what it was
+  # lent to write: self stays lent while that view lives.
 
   obj Holder
     r: []Int
@@ -335,10 +335,10 @@ fail "origin receiver stored in argument", "18:2: cannot drop `s` while it is le
   <s
   print(h.r[0])
 
-test "origin receiver stores into argument", "[1, 2, 3] 2"
+test "origin self stores into argument", "[1, 2, 3] 2"
   # A method may store a view of what it is handed in an argument it was
-  # lent to write; its receiver is lent to write only for the call, so
-  # the argument keeps what it stored, and the receiver is free after.
+  # lent to write; its self is lent to write only for the call, so
+  # the argument keeps what it stored, and self is free after.
 
   obj View
     xs: []Int
@@ -833,7 +833,7 @@ fail "origin self path body call", "`word` returns a view of `@name`, but its si
   print(1)
 
 fail "origin self path body bound", "`next` returns a view of `@b`, but its signature says it views only `@a`"
-  # A call through a bound views its receiver: `(!@b).next()` views `@b`.
+  # A call through a bound views its self: `(!@b).next()` views `@b`.
 
   obj Two[I: Iter]
     a: I
@@ -939,7 +939,7 @@ code "origin self path names no function", "pub inline fn set("
   print(x.n)
 
 fail "origin self path task", "cannot drop `it` while it is lent", "cannot assign to `s.at` while `s` is lent", errors: 2
-  # A task is its call, still running: it keeps all of its receiver
+  # A task is its call, still running: it keeps all of its self
   # lent until it is waited for, whatever paths of self `from` names.
 
   obj Walk

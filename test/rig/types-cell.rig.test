@@ -228,9 +228,9 @@ fail "cell made outside shared", "12:5: `Cell(0)` makes a `Cell[Int]`, which hol
   b = ^Cell(3)
   print(c.get(), b)
 
-fail "cell moved receiver", "7:6: method `push` needs `self` lent to write, not moved", "9:10: method `pop` needs `self` lent to write, not moved", "11:6: method `clear` needs `self` lent to write, not moved", "13:6: method `set` needs `self` lent to write, not moved", "15:10: method `swap` needs `self` lent to write, not moved", errors: 5
+fail "cell moved self", "7:6: method `push` needs `self` lent to write, not moved", "9:10: method `pop` needs `self` lent to write, not moved", "11:6: method `clear` needs `self` lent to write, not moved", "13:6: method `set` needs `self` lent to write, not moved", "15:10: method `swap` needs `self` lent to write, not moved", errors: 5
   # A Cell's `set`, `replace`, and its List's `push`, `pop`, and `clear`
-  # take their receiver lent to write, as any `!@` method does, so a
+  # take their self lent to write, as any `!@` method does, so a
   # `*Cell` handle moved there with `<` is rejected: `<` would end the
   # binding for a call that only lends it.
 
@@ -272,7 +272,7 @@ test "cell signal plain data", '''
   moved to 5 6
   true
 '''
-  # `Cell[T]`, `Signal[T]`, and `List[T]` hold plain data: a struct, an
+  # `Cell[T]`, `Signal[T]`, and `List[T]` hold plain data: an object, an
   # enum, an optional, or an array that owns nothing; `get` returns a
   # copy.
 

@@ -5051,7 +5051,7 @@ test "audit-fuzz-pf1-accepted-d20598854b", "3 3.5 3.5"
   print(half(7), f, max(half(7), 2.5))
 
 fail "audit-fuzz-pf1-accepted-ef0d28d8d2", "cannot move out of `pair.name`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
-  # Only `?`, `!`, and `<` reach a method's receiver. The other prefix
+  # Only `?`, `!`, and `<` reach a method's self. The other prefix
   # sigils, and `?` / `!` / `<` before a place with no method call after
 
   # it, apply to the whole expression; `?(p.m())` views a call's result.
@@ -5120,7 +5120,7 @@ test "audit-fuzz-pf2-accepted-0bb6dd2b9b", '''
   long form
   4
 '''
-  # A call that lends its receiver to write whose value is a `Bool` takes the short form
+  # A call that lends its self to write whose value is a `Bool` takes the short form
   # `!s.add(x)` wherever its `!` cannot read as negation: a binding, an
   # argument, a return value, a body's value.
 
@@ -5174,7 +5174,7 @@ test "audit-fuzz-pf2-accepted-142f3b6e69", '''
   2
 '''
   # Assigning a field through `!@` drops the old value and keeps the new
-  # one in the caller's struct.
+  # one in the caller's object.
 
   obj Noisy
     id: Int
@@ -5970,7 +5970,7 @@ test "audit-fuzz-pf2-accepted-4af8d2d2c7", '''
   drop 2
   drop 1
 '''
-  # ^T owns one T on the heap. Fields and methods of a boxed struct are
+  # ^T owns one T on the heap. Fields and methods of a boxed object are
   # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
   # `<b.unbox()` moves the value out and frees the box.
 

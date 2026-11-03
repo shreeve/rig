@@ -175,7 +175,7 @@ test "assign target root after value", '''
 '''
   # An assignment evaluates its value first, then its target from the
   # value its path starts from outward: a call there, a method's
-  # receiver, a propagation, or a branch runs after the value, and before
+  # self, a propagation, or a branch runs after the value, and before
   # the target's indexes. Each value below reads what its target's call
   # then changes, so it must see it unchanged.
 
@@ -461,7 +461,7 @@ bomb "assign value first pop", "index out of bounds", prints: "[2]"
   print(v)
 
 test "auto deref generic field", "8"
-  # A method call through a generic struct's shared-handle field
+  # A method call through a generic object's shared-handle field
   # (`h.value.get()`) auto-dereferences the handle.
 
   obj Holder[T]
@@ -502,7 +502,7 @@ test "auto deref struct field", '''
   4
   8
 '''
-  # Field reads and method calls through a struct's shared-handle field
+  # Field reads and method calls through an object's shared-handle field
   # (`p.a.n`, `p.a.twice()`) auto-dereference the handle.
 
   obj Wrap
@@ -519,7 +519,7 @@ test "auto deref struct field", '''
   print(p.a.n)
   print(p.a.twice())
 
-test "branch receiver copy not dropped", '''
+test "branch self copy not dropped", '''
   221
   243
   265 387
@@ -530,7 +530,7 @@ test "branch receiver copy not dropped", '''
   1001
   aa bbb ww v
 '''
-  # A receiver that branches, evaluated before arguments that run first
+  # A self that branches, evaluated before arguments that run first
   # (keyword arguments given in another order), is a copy of the leaf it
   # takes, a name's value or a temporary its statement keeps: the call's
   # block reads the copy and never drops it, so the owner drops the value
@@ -590,7 +590,7 @@ test "branch receiver copy not dropped", '''
   print(clobber(1000))
   print(a.t, b.t, w.s.t, v.s.t)
 
-test "branch receiver views leaf", '''
+test "branch self views leaf", '''
   1001
   aa [5, 6, 7, 8]
   t1 2001
@@ -611,7 +611,7 @@ test "branch receiver views leaf", '''
   # takes, where it is: a view it returns views that leaf, not a copy, and
   # stays good after other calls reuse the stack. So does a field, an
   # element, or a method reached through such a value, for `a if c else
-  # b`, `o ?? a`, `e catch a`, and `o?`, and for a receiver evaluated
+  # b`, `o ?? a`, `e catch a`, and `o?`, and for a self evaluated
   # before keyword arguments.
 
   obj S
@@ -725,8 +725,8 @@ test "capture move struct drop glue", '''
   end
   7
 '''
-  # A closure that move-captures a struct with drop glue owns it: the
-  # struct is dropped when the closure leaves scope, not at the move.
+  # A closure that move-captures an object with drop glue owns it: the
+  # object is dropped when the closure leaves scope, not at the move.
 
   obj Noisy
     id: Int
@@ -912,7 +912,7 @@ test "cell holder generic handle id", release: true, '''
 
 test "cell holder generic handle stored view", "11", release: true
   # A generic type instanced at a shared handle to a type that holds a
-  # Cell, viewed through a generic struct's stored `?T`: it holds no Cell
+  # Cell, viewed through a generic object's stored `?T`: it holds no Cell
   # inline, so its views are `*const` in generic and concrete code alike,
   # and the Cell it reaches is read through them, in debug and in an
   # optimized build.
@@ -1246,7 +1246,7 @@ test "cell view param", release: true, '''
   drop 5
 '''
   # A Cell changed through a `?Cell[T]` parameter, a `?T` parameter of a
-  # struct, a `?@` chain, and a part of a temporary, in loops.
+  # object, a `?@` chain, and a part of a temporary, in loops.
 
   fun build(n: Int) -> List[Int]
     v: List[Int] = List()
@@ -1896,8 +1896,8 @@ test "field assign shared drops old", '''
   assigned
   2
 '''
-  # Assigning a shared handle into a struct field drops the old handle at
-  # the assignment; the struct drops the new one when it goes.
+  # Assigning a shared handle into an object field drops the old handle at
+  # the assignment; the object drops the new one when it goes.
 
   obj Noisy
     id: Int
@@ -1941,7 +1941,7 @@ test "field assign through write self", '''
   2
 '''
   # Assigning a field through `!@` drops the old value and keeps the new
-  # one in the caller's struct.
+  # one in the caller's object.
 
   obj Noisy
     id: Int
@@ -2216,7 +2216,7 @@ test "handle reached through pointer", '''
   1 1
   4
 '''
-  # A handle reached through a pointer, a held receiver's address or the
+  # A handle reached through a pointer, a held self's address or the
   # leaf a branch of lends takes, is dereferenced before its value is
   # reached: a field, and a method whose arguments run first.
 
@@ -2296,7 +2296,7 @@ test "hoisted argument needs type", '''
   print(run(true) catch 0)
   print(run(false) catch 9)
 
-test "hoisted call receiver first", '''
+test "hoisted call self first", '''
   121
   recv
   b
@@ -2316,7 +2316,7 @@ test "hoisted call receiver first", '''
   a
   411
 '''
-  # A method call runs its receiver before its arguments, as written, also
+  # A method call runs its self before its arguments, as written, also
   # when keyword arguments are evaluated into temporaries first.
 
   obj K
@@ -2359,7 +2359,7 @@ test "hoisted field callable args", '''
   5
   5
 '''
-  # A callable held in a field, `s.cb(...)`, has no receiver: a call of it
+  # A callable held in a field, `s.cb(...)`, has no self: a call of it
   # whose arguments are evaluated first fills its parameters from its first
   # argument, so an owned argument is held as the value it is and dropped
   # when a later argument fails, and a write view its first parameter
@@ -2408,7 +2408,7 @@ test "hoisted field callable args", '''
   print(s.wr(!q, g(4)))
   print(q.n)
 
-test "hoisted receiver index first", '''
+test "hoisted self index first", '''
   27
   105 6 1
   112 6 1
@@ -2883,7 +2883,7 @@ test "inline unreached literal", release: true, '''
   print(next(1))
   print("ok")
 
-test "kept temporary receiver in place", '''
+test "kept temporary self in place", '''
   a
   b
   221

@@ -471,6 +471,8 @@ CASES = [
     ("grapheme", "mode 2027: a prepend joins a bidi mark", 10, 2, "\x1b[?2027h\u0600\u200ex".encode()),
     ("grapheme", "mode 2027 joins after a zero-width space attached before it", 10, 2, "\u00ab\u200b\x1b[?2027h\u200dx".encode()),
     ("grapheme", "DECRQM reports mode 2027", 10, 2, b"\x1b[?2027h\x1b[?2027$p\x1b[?2027l\x1b[?2027$p"),
+    ("grapheme", "a char keeps 64 runes after its first", 10, 2, ("e" + "\u0301" * 70 + "x").encode()),
+    ("grapheme", "mode 2027: a char keeps 64 runes after its first", 10, 2, ("\x1b[?2027he" + "\u0301" * 70 + "\ufe0fx").encode()),
 ]
 
 

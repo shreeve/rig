@@ -295,8 +295,8 @@ release notes.
   byte-for-byte in Nexus's `grammars/rig`, so a change to them needs a Nexus
   re-sync.
 - **Builtins:** a builtin call is `$name(...)`. Rig's raw builtins track
-  Zig's names exactly (`$fromBackingInt`, `$trunc`). The old names are
-  rejected with a hint.
+  Zig's names exactly (`$fromBackingInt`, `$trunc`). A raw builtin's old
+  spelling is rejected with a hint.
 - **Speed work:** a speed feature lands when its gain on a real program,
   measured on runs it was not trained on, pays for its lines
   (AGENTS.md, "Working rules").

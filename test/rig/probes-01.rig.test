@@ -2109,7 +2109,7 @@ fail "R15-p-a7", "cannot assign to `a[0]` while `a` is lent"
   print(a)
 
 test "R15-p-a8", "[5, 2] [9, 4]"
-  # different fields of one struct: conservative?
+  # different fields of one object: conservative?
   obj P
     x: [2]Int
     y: [2]Int

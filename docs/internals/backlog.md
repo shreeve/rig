@@ -177,8 +177,8 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.
 - `Map.ensure`, `Map.put_new`, and `Set.add` taking a `?K` and cloning
-  the key only when it is stored (owner approved), now that `+k` of a
-  `?K: Clone` clones in a generic body; today they take an owned `K`.
+  the key only when it is stored (owner approved), since `+k` of a
+  `?K: Clone` clones in a generic body; the three take an owned `K` today.
 - A clone in a generic body of a value that holds a type parameter
   behind a List or a box (`+xs` of a `?List[T]`, `+b` of a `^T`) is
   still "a type parameter has no deep clone in a generic body": its
@@ -278,7 +278,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `Int`", while `f(4)` and `f(x + 1)` are lent as made values. Literal
   arithmetic checked against a view should be checked against the
   value it views. Found with the errors-only fixes (2026-10-29).
-- **A `?^T` field can no longer be filled from a parameter.** A
+- **A `?^T` field cannot be filled from a parameter.** A
   parameter `?^T` is rejected (SPEC "Box"), but a field or a result of
   type `?^T` stays, and a `?T` parameter is no `?^T`. Decide whether a
   read view of a box is rejected wherever it is written, or a `?T`

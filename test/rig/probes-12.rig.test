@@ -1096,7 +1096,7 @@ fail "r3-or-power-parser scratch", "cannot lend `p` to write while a read loan i
   print(a.kind, b.kind)
 
 fail "r3-or-power-table get free", "cannot lend `q` to write while a read loan is live"
-  # Same as table_get, as a free function: isolates the read-receiver bug.
+  # Same as table_get, as a free function: isolates the read-self bug.
   obj Env
     keys: []?String
     vals: []?String

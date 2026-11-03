@@ -233,7 +233,7 @@ code "apis object the slot after the arguments", "s.vt.size(s.ptr, 2, __out)"
 
   print(1)
 
-code "apis object a receiver evaluated once", "const __rig_obj_"
+code "apis object a self evaluated once", "const __rig_obj_"
   api Shape
     fun area(?@) -> Float
 

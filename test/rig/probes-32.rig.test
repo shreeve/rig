@@ -3,7 +3,7 @@
 use std.sort
 
 fail "review-step45-f01 struct array copy", "`s` owns an `S`, which can't be copied by `=`: write `<s` to move it, `+s` to clone it, or `?s` to view it"
-  # a struct holding an array of Text is owning: bare copy must be rejected
+  # an object holding an array of Text is owning: bare copy must be rejected
   obj S
     arr: [2]String
 
@@ -340,7 +340,7 @@ test "review-step45-i08 clone weak", '''
   print("end")
 
 test "review-step45-i09 clone generic struct", "x x! y"
-  # +p of a generic struct instance Pair[Text]
+  # +p of a generic object instance Pair[Text]
   obj Pair[T]
     a: T
     b: T
@@ -624,7 +624,7 @@ fail "review-step45-l05 copy view elem out", "cannot drop `t` while it is lent"
   print(s)
 
 fail "review-step45-l06 vec views struct moved", "cannot drop `t` while it is lent"
-  # struct holding a List of views moved into a List of structs, then source dropped
+  # object holding a List of views moved into a List of objects, then source dropped
   obj Bag
     items: List[?String]
 
@@ -664,7 +664,7 @@ test "review-step45-m01 elem receivers", '''
   12 x+
   a+bb
 '''
-  # elements as receivers, operands and args
+  # elements as selves, operands and args
   obj Rec
     name: String
     n: Int
@@ -1174,7 +1174,7 @@ test "review-step45-r15d match write local header temp", "322"
     .b(n) => print(n)
 
 test "review-step45-r17 match write arr elem header temp", "[.a(n: 50)]"
-  # base-comparable: guarded write match on a struct field reached through an index with a temp
+  # base-comparable: guarded write match on an object field reached through an index with a temp
   enum E
     a(n: Int)
     b(n: Int)

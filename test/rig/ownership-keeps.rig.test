@@ -45,7 +45,7 @@ fail "keeps argument through result unwritten", "18:15: `name(t)` keeps `t` lent
 
 fail "keeps argument unwritten", "18:10: keeps `t` lent in what `watch` stores; write `!b.watch(?t)`", "21:1: keeps `a` lent in what `register` stores; write `?a.register(!out)`", errors: 2
   # A place lent to a parameter the callee keeps is lent with `?` written
-  # (Core sentence 4), a receiver too.
+  # (Core sentence 4), a self too.
 
   obj Binder
     src: ?String
@@ -72,7 +72,7 @@ fail "keeps body store forms", "18:11: `by_closure` stores a view of `s` in `@`"
   # it, whatever the form: through a closure, a local write view, a local
   # moved in, a box, `defer`, a call through a function value, an
   # optional's payload, a loop, what another lent parameter leads to, and
-  # the receiver into a write argument.
+  # self into a write argument.
 
   obj In
     src: ?String
@@ -353,7 +353,7 @@ fail "keeps generic field text is rejected", "14:2: cannot drop `n` while it is 
   print(b.last)
 
 fail "keeps generic param stored", "9:5: say so: `keeps x`"
-  # Why: a generic `?T` parameter stored in the receiver is a stored view
+  # Why: a generic `?T` parameter stored in self is a stored view
   # like any other; the body is checked once with `T` opaque.
   # Rule: the body check applies to generic lent parameters.
 
@@ -523,7 +523,7 @@ fail "keeps names by value param", "9:32: `keeps s`: `s` is taken by value, so t
   # Why: `keeps` names a lent parameter; a by-value parameter is the
   # callee's already, so naming it says nothing.
   # Rule: `keeps` names only lent parameters, and only when a write
-  # parameter or receiver could hold them (proposal-call-stores §6).
+  # parameter or self could hold them (proposal-call-stores §6).
 
   obj Binder
     names: List[String]
@@ -562,7 +562,7 @@ test "keeps note reads only", "1"
   print(p.errors)
 
 fail "keeps own field kept", "14:2: cannot let this call store a view of `p.name` in `p`: a value never holds a view of itself"
-  # Why: a method that keeps its argument, given a view of the receiver's
+  # Why: a method that keeps its argument, given a view of self's
   # own field, would make `@` hold a view of itself.
   # Rule: a value never holds a view of itself; with B, a kept argument's
   # loans go into the holder (here `@`).
@@ -578,7 +578,7 @@ fail "keeps own field kept", "14:2: cannot let this call store a view of `p.name
   (!p).watch(?p.name)
   print(p.alias)
 
-test "keeps receiver holds map", "1"
+test "keeps self holds map", "1"
   # Rule: a call keeps only what its signature shows (Core sentence 7):
   # `sum` names nothing in `keeps`, so the lend of `xs` ends when the call
   # returns, though `@` holds a view field and a Map.
@@ -607,12 +607,12 @@ test "keeps receiver holds map", "1"
   c = Checker(program: ?p, total: 0, m: Map[U32, U32]())
   print((!c).run())
 
-test "keeps receiver into write argument", '''
+test "keeps self into write argument", '''
   2 1 2
   3
 '''
-  # `keeps @` names a `?@` receiver: the method stores a view of it
-  # in a write argument, so the receiver is lent with `?` written and stays
+  # `keeps @` names a `?@` self: the method stores a view of it
+  # in a write argument, so self is lent with `?` written and stays
   # lent while that argument is used.
 
   obj Node
@@ -814,7 +814,7 @@ test "keeps view field store", '''
 
 test "keeps with from", "returned kept"
   # `from` and `keeps` together: the result views only `t`, and the call
-  # keeps `s` in the receiver. `u` is neither, so its lend ends with the
+  # keeps `s` in self. `u` is neither, so its lend ends with the
   # call.
 
   obj Binder
@@ -834,9 +834,9 @@ test "keeps with from", "returned kept"
   print(r, b.src)
 
 fail "keeps without write param", "5:35: `keeps s`: `size` takes nothing to write that could hold it"
-  # Why: with no write receiver or write parameter there is nowhere to keep
+  # Why: with no write self or write parameter there is nowhere to keep
   # a view.
-  # Rule: `keeps` needs a write parameter or receiver (proposal-call-stores §6).
+  # Rule: `keeps` needs a write parameter or self (proposal-call-stores §6).
 
   fun size(s: ?String) -> Int keeps s
     s.len

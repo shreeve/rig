@@ -2,7 +2,7 @@
 
 
 fail "alias constructor", "9:5: `S` is a type alias for `?String`, which has no constructor", "10:5: `O` is a type alias for `Int?`, which has no constructor", "11:5: `N` is a type, not a value"
-  # A call through an alias constructs the struct it names or converts to
+  # A call through an alias constructs the object it names or converts to
   # the number type it names; an alias of any other type has no
   # constructor, and an alias is not a value.
 
@@ -112,8 +112,8 @@ test "alias limit default", "255 0 255"
   print(f(), p.lo, p.hi)
 
 test "alias struct constructor", "3 4 0"
-  # An alias of a struct is the struct: it constructs values and reaches
-  # the struct's associated functions.
+  # An alias of an object is the object: it constructs values and reaches
+  # the object's associated functions.
 
   obj Point
     x: Int
@@ -1265,7 +1265,7 @@ test "clone owners", '''
   [1]
   3 3
 '''
-  # `+x` of a List, a box, an array, or a struct or enum of owners makes a
+  # `+x` of a List, a box, an array, or an object or enum of owners makes a
   # new owner part by part (Core sentence 2); each changes on its own.
 
   obj H
@@ -1368,8 +1368,8 @@ fail "clone rules", "18:6: `+x` cannot clone a `File`: a value with a `drop` bod
   e = +d
 
 test "clone struct of handles", "5"
-  # `+x` of a struct clones each part: a handle inside is counted again,
-  # so both structs share the one Cell.
+  # `+x` of an object clones each part: a handle inside is counted again,
+  # so both objects share the one Cell.
 
   obj Holder
     inner: *Cell[Int]
@@ -2016,8 +2016,8 @@ test "constant run time arithmetic", '''
   i = 1
   print(s[i], "xyz"[2])
 
-fail "consume receiver part", "19:7: method `into` takes its self with `<@`, and `<` cannot move `k.d` out of the value that holds it; exchange it out first: `swap(!k.d, v).into(...)`", "19:19: method `into` takes its self with `<@`, and `<` cannot move `ds[0]` out of the value that holds it; exchange it out first: `swap(!ds[0], v).into(...)`", "19:33: method `into` consumes `self`, and `mk().d` is a part of a temporary its statement drops; bind the value to a name first", errors: 3
-  # A method that consumes its receiver cannot take a field or element
+fail "consume self part", "19:7: method `into` takes its self with `<@`, and `<` cannot move `k.d` out of the value that holds it; exchange it out first: `swap(!k.d, v).into(...)`", "19:19: method `into` takes its self with `<@`, and `<` cannot move `ds[0]` out of the value that holds it; exchange it out first: `swap(!ds[0], v).into(...)`", "19:33: method `into` consumes `self`, and `mk().d` is a part of a temporary its statement drops; bind the value to a name first", errors: 3
+  # A method that consumes its self cannot take a field or element
   # that moves: the owner keeps it, and `<` cannot move it out, nor out of
   # a temporary. (One that copies is taken as a copy.)
 
@@ -2041,7 +2041,7 @@ test "consuming method on temporary", '''
   drop 4
   8
 '''
-  # A method that consumes its receiver (`<@`) may take a
+  # A method that consumes its self (`<@`) may take a
   # temporary: the method owns it and drops it.
 
   obj B
@@ -2112,7 +2112,7 @@ test "containers hold owners", '''
 
 test "contents declared later", "1 2"
   # What a type holds does not depend on the order of declarations: a
-  # shared Cell of an owning struct, a List of plain data, and an owned
+  # shared Cell of an owning object, a List of plain data, and an owned
   # closure over a plain enum, each spelled before the type it names is
   # declared.
 
@@ -2430,7 +2430,7 @@ fail "drop body assigns self", "cannot reassign `@` inside its own drop body"
   b = B(n: 1)
 
 fail "drop decl duplicate", "duplicate `drop` declaration on this object"
-  # A struct may declare at most one `drop`.
+  # An object may declare at most one `drop`.
 
   obj File
     fd: Int
@@ -2451,7 +2451,7 @@ fail "drop decl extra param", "`drop` takes exactly one parameter, self: `drop(!
       print(@fd + extra)
 
 fail "drop decl on enum", "`drop` bodies are only for non-generic objects, not enums"
-  # A `drop` body is only for a struct, not an enum.
+  # A `drop` body is only for an object, not an enum.
 
   enum Color
     red
@@ -2462,7 +2462,7 @@ fail "drop decl on enum", "`drop` bodies are only for non-generic objects, not e
       print(1)
 
 fail "drop decl on generic", "`drop` bodies are only for non-generic objects, not generic objects"
-  # A `drop` body is only for a non-generic struct.
+  # A `drop` body is only for a non-generic object.
 
   obj Wrap[T]
     value: T
@@ -2489,7 +2489,7 @@ fail "duplicate parameter", "duplicate parameter `a`"
   print(f(1, 2))
 
 fail "duplicate struct member", "duplicate member `x` in `P`"
-  # A struct cannot declare the same member twice.
+  # An object cannot declare the same member twice.
 
   obj P
     x: Int
@@ -2522,7 +2522,7 @@ fail "elem method as value", "5:7: `read` is a method of `[2]U8`, only called: `
   print(f, g)
 
 fail "elem method on temporary", "7:1: `fill` writes the elements; lend `self` with `!`: `!mk().fill(0)`", errors: 1
-  # `fill` writes the elements of its receiver in place, so the receiver
+  # `fill` writes the elements of its self in place, so self
   # is lent to write, which `!` marks, a temporary's too: `!mk().fill(0)`.
 
   fun mk() -> [3]Int
@@ -2695,7 +2695,7 @@ test "equality claims", '''
   print(same(!c, ?a), same(!c, ?b), differ(!c, b))
 
 fail "equality drop struct", "12:7: `!=` is not defined for `File`: `File` declares `drop`"
-  # A struct with a `drop` body owns a resource and has no `==`, even when
+  # An object with a `drop` body owns a resource and has no `==`, even when
   # its fields compare.
 
   obj File
@@ -2709,7 +2709,7 @@ fail "equality drop struct", "12:7: `!=` is not defined for `File`: `File` decla
   print(a != b)
 
 fail "equality function field", "12:7: `==` is not defined for `Op`: field `run` is a function value", "14:7: `==` is not defined for `fun(Int) -> Int`: `fun(Int) -> Int` is a function value"
-  # A struct holding a function value has no `==`, nor does a function.
+  # An object holding a function value has no `==`, nor does a function.
 
   obj Op
     name: ?String
@@ -2725,7 +2725,7 @@ fail "equality function field", "12:7: `==` is not defined for `Op`: field `run`
   print(f == inc)
 
 fail "equality handle field", "13:7: `==` is not defined for `Link`: field `to` is a handle `*Node`"
-  # A struct holding a handle has no `==`: it could compare the handles or
+  # An object holding a handle has no `==`: it could compare the handles or
   # the values behind them. The diagnostic names the field.
 
   obj Node
@@ -2741,7 +2741,7 @@ fail "equality handle field", "13:7: `==` is not defined for `Link`: field `to` 
 
 fail "equality nested offender", "26:7: `==` is not defined for `Outer`: field `inner.items` is a `List[Int]`, which has no `==`", "29:7: `==` is not defined for `Rack`: field `slots.full.held` is a `Res`: `Res` declares `drop`"
   # The diagnostic names the field path to what has no `==`, through
-  # nested structs, arrays, optionals, and enum payloads; a List has none.
+  # nested objects, arrays, optionals, and enum payloads; a List has none.
 
   obj Res
     n: Int
@@ -2790,7 +2790,7 @@ fail "equality no eq kinds", "11:7: `==` is not defined for `~N`: `~N` is a hand
   print(f == f)
 
 fail "equality view struct", "10:7: `==` is not defined for `Window`: field `items` holds a `?T`, `!T`, or slice"
-  # A view, a struct holding a view, has no `==`.
+  # A view, an object holding a view, has no `==`.
 
   obj Window
     items: []Int
@@ -3613,7 +3613,7 @@ test "field default values", '''
   print(b.v, b.n)
 
 fail "field on int", "type `Int` has no field `size`"
-  # Only structs have fields.
+  # Only objects have fields.
 
   x = 3
   print(x.size)
@@ -4093,9 +4093,9 @@ fail "frame reach defer", "8:5: `many` makes or copies", errors: 1
 
   print(many(1))
 
-fail "frame reach receiver", "12:5: `calls` makes or copies", errors: 1
-  # A method that takes its receiver by value copies it at each call, so
-  # each call counts the receiver in the frame's reach: here 25 copies of
+fail "frame reach self", "12:5: `calls` makes or copies", errors: 1
+  # A method that takes its self by value copies it at each call, so
+  # each call counts self in the frame's reach: here 25 copies of
   # an object holding a 6.4 MB array.
 
   obj Q
@@ -5037,7 +5037,7 @@ test "int bit counts uses", release: true, '''
   false 1
 '''
   # The bit counts in use: the first marked byte of a SWAR word, population counts of
-  # masks, literal and parenthesised receivers, and results that are plain `Int`s.
+  # masks, literal and parenthesised selves, and results that are plain `Int`s.
 
   fun first_marked(m: U64) -> Int
     m.trailing_zeros() / 8
@@ -5248,7 +5248,7 @@ test "is empty", '''
   not empty
 '''
   # `x.is_empty()` is `x.len == 0` on everything with a built-in `len`:
-  # it reads its receiver, and a type's own `is_empty` method wins.
+  # it reads its self, and a type's own `is_empty` method wins.
 
   obj Bag
     n: Int
@@ -5307,7 +5307,7 @@ fail "is empty no len", "4:9: type `Int` has no method `is_empty`", errors: 1
   print(n.is_empty())
 
 fail "is empty not write", "4:7: `is_empty` does not write `self`; for negation use `not`", errors: 1
-  # `is_empty` only reads, so no `!` before its receiver.
+  # `is_empty` only reads, so no `!` before its self.
 
   v: List[Int] = List()
   print(!v.is_empty())
@@ -5449,7 +5449,7 @@ fail "lasting lend stored is rejected", "19:15: `head(v)` keeps `v` lent in what
 
 fail "lasting lend written", "26:8: `head(b.items[..])` keeps `b.items[..]` lent in the value it returns; write `head(?b.items[..])`", "35:10: `head(v)` keeps `v` lent while `r` lives; write `head(?v)`", "36:6: `b.all()` keeps `b` lent while `xs` lives; write `?b.all()`", "37:23: `head(v)` keeps `v` lent while `h` lives; write `head(?v)`", "38:15: `head(v)` keeps `v` lent while `h.seen` lives; write `head(?v)`", "44:20: `head(v)` keeps `v` lent while `nested` lives; write `head(?v)`", errors: 6
   # A lend kept in a binding is written (Core sentence 4). A call whose
-  # result keeps an argument or its receiver lent, and whose result is
+  # result keeps an argument or its self lent, and whose result is
   # stored in a binding, a field, or a return, writes that lend: the loan
   # outlives the statement. A result used within its statement lends
   # implicitly, and so does a result that keeps nothing.
@@ -5862,7 +5862,7 @@ test "marker generic instances", "1 true"
   print(run(1), run(true))
 
 fail "marker inline method recursive", "7:14: `Node.deeper` is `inline` and calls itself", errors: 1
-  # A method marked `inline` that calls itself through its receiver is a
+  # A method marked `inline` that calls itself through its self is a
   # cycle as a function's call of itself is.
 
   obj Node
@@ -6718,7 +6718,7 @@ test "owned closure plain data", '''
   5
 '''
   # An owned closure takes and returns plain data as a function does: a
-  # plain struct, an array, or an optional of one, as it does a number.
+  # plain object, an array, or an optional of one, as it does a number.
 
   obj P
     x: Int
@@ -7264,7 +7264,7 @@ fail "read only field without pub", "5:3: `?` before a field means other modules
 
   print(Tally(count: 1).count)
 
-fail "read receiver where result view expected", "15:13: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to lend the call's result", "17:13: write `?(h.shifted(1))` to lend the call's result"
+fail "read self where result view expected", "15:13: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to lend the call's result", "17:13: write `?(h.shifted(1))` to lend the call's result"
   # `?p.m()` reads `p` for the call; where a view of the call's result
   # is kept (a binding), the hint puts the view around the call. (As an
   # argument, the result is lent as a temporary of the statement.)
@@ -7311,7 +7311,7 @@ test "rebind view local", '''
 
 fail "self move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body", "11:17: self, `@`, must be the first parameter of a method", "11:17: sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", "14:9: `drop` takes self lent to write: `drop(!@)`", "17:8: sigil-prefixed parameter is only allowed for self, `@`", "20:8: `<@` is only allowed in a method body"
   # `<@` is only a method's first parameter, and only `@` takes it; a
-  # drop body views its receiver, so it cannot take `<@`.
+  # drop body views its self, so it cannot take `<@`.
 
   obj Conn
     name: ?String
@@ -7334,7 +7334,7 @@ fail "self move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` 
 
   print(f(1), g(2))
 
-fail "receiver sigil bool result", "16:6: write `(!s).checked(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "21:4: write `(!set).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "23:7: write `(!set).insert(2)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "25:17: write `(!set).insert(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "26:14: write `(!set).insert(4)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "27:5: write `(!set).insert(5)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "28:9: write `(!set).insert(6)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "29:10: write `(!set).insert(7)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "32:4: write `(!set).insert(8)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "34:14: write `(!set).insert(9)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "35:10: write `(!set).insert(10)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "36:15: write `(!set).insert(11)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "37:10: write `(!set).insert(12)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`"
+fail "self sigil bool result", "16:6: write `(!s).checked(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "21:4: write `(!set).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "23:7: write `(!set).insert(2)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "25:17: write `(!set).insert(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "26:14: write `(!set).insert(4)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "27:5: write `(!set).insert(5)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "28:9: write `(!set).insert(6)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "29:10: write `(!set).insert(7)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "32:4: write `(!set).insert(8)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "34:14: write `(!set).insert(9)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "35:10: write `(!set).insert(10)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "36:15: write `(!set).insert(11)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "37:10: write `(!set).insert(12)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`"
   # A write call whose `Bool` value is used puts its lend in parentheses,
   # `(!s).m(...)`, so a leading `!` never reads as negation: a `Bool` in a
   # condition, an operand of `and`, `or`, or `not`, a `Bool!` under `!`.
@@ -7374,7 +7374,7 @@ fail "receiver sigil bool result", "16:6: write `(!s).checked(3)`: a write call 
   g = 1 if !set.insert(12) == true else 2
   print(e, f, g)
 
-fail "receiver sigil bool used", "14:5: write `(!@).insert(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "17:10: write `(!s).insert(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "20:3: write `(!s).insert(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "23:11: write `(!s).checked(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "27:9: write `(!set).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "28:7: write `(!set).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "29:7: write `(!set).insert(2)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "32:25: write `(!set).insert(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "33:6: write `(!set).checked(4)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", errors: 9
+fail "self sigil bool used", "14:5: write `(!@).insert(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "17:10: write `(!s).insert(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "20:3: write `(!s).insert(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "23:11: write `(!s).checked(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "27:9: write `(!set).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "28:7: write `(!set).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "29:7: write `(!set).insert(2)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "32:25: write `(!set).insert(3)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "33:6: write `(!set).checked(4)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", errors: 9
   # A write call whose `Bool` value is used is written `(!s).m(...)`
   # wherever the value goes, not only where its `!` could read as
   # negation: here a `Bool` in a binding, an argument, a `return`, a body's

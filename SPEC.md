@@ -5620,7 +5620,7 @@ positive numbers, `inf`, `NaN`. `Float.nan()` is a positive NaN; one an
 operation makes, `0.0 / 0.0`, may carry either sign, as the target
 gives it. Floats that may hold a NaN sort by it, with the NaNs last:
 `sort.sort_by(!xs, |a, b| a.total_order(?b) == .less)`. All four take
-and give the receiver's float type, `Float` or `F32`. A type that holds
+and give self's float type, `Float` or `F32`. A type that holds
 a float orders by its own `order`, written with `total_order`
 ([Own meanings](#own-meanings)).
 
@@ -6292,7 +6292,7 @@ holds for the whole chain; a function that can fail is rejected for
 now. `take` stops before the item it does not need, so a chain on an
 iterator pulls no item past it. An iterator in a place advances, so a
 chain lends it to write, `(!it).map(f).sum()`; a call whose result
-views its receiver is lent to read, `?m.keys().count()`. A chain is
+views its self is lent to read, `?m.keys().count()`. A chain is
 checked stage by stage before it becomes its loop, so an error names
 the stage and the items it meets: `` `sum` adds numbers, and these items
 are `String`s ``, `` `filter`'s function gives a `Bool` ``; `collect` of
@@ -8393,7 +8393,7 @@ sub main()
 > **Core §5:** A field is a place of its own.
 
 A place is named by a **path**: a name and the fields after it. The
-path goes on through a struct's fields, through what a write view the
+path goes on through an object's fields, through what a write view the
 name holds sees (`@a` in a `!@` method, `p.a` of `p: !P`), and
 through a box (`b.a` of `b: ^T`, which has one owner). It stops at an
 element (`p.items[i]` is a place of `p.items`: an index is a value the
