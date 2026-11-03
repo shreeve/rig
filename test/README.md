@@ -12,7 +12,7 @@ scripts of `test/cli/` as `cli`; and the probes of past reviews,
 swarm test/rig.rip                 # the core
 swarm test/rig.rip cli             # the scripts of test/cli
 swarm test/rig.rip probes          # the probes of past reviews
-swarm test/rig.rip all             # all three
+swarm test/rig.rip all             # all three: the full suite, before a release
 swarm test/rig.rip std-text        # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's)
 swarm test/rig.rip cli.lsp         # one script of test/cli, by its name
@@ -21,6 +21,10 @@ swarm test/rig.rip proofs          # by hand: the proven checks' differential ru
 test/matrix.py                     # by hand: the form x context x type matrix
 bench/json/check/compare.py        # by hand: std.json against Python's json
 ```
+
+The core gates each change. `all` is the full suite, run before each
+major or minor Rig release, and optionally before a patch; nothing runs
+it on a schedule.
 
 A case that fails lands in `.swarm/died`, with its reason in
 `.swarm/errors.log`; the run lists each failure at its end and exits 1.

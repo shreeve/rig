@@ -19,10 +19,11 @@ A new session, human or agent, takes these steps in order:
    [ledger](docs/history/records/ledger.md). [docs/CORE.md](docs/CORE.md)
    is the ownership model every rule derives from; read it before any
    change to the checker or the language.
-2. **Notes outside the repo.** The owner's Rig sessions keep theirs in
-   `~/Data/Code/Claude/rig/`. Its `CLAUDE.md` gives their order, and
-   `rig/og-handoff.md` there lists what is open at the moment, with its
-   paths on pup. The owner's standing preferences are in
+2. **Notes outside the repo.** Read
+   `~/Data/Code/Claude/rig/rig/fresh-start-brief.md` first: the
+   one-page brief for a fresh session, with where Trig stands against
+   tsrs, the leads in order, the paths on pup, and what was measured
+   and is not to be redone. The owner's standing preferences are in
    `~/.claude/projects/-Users-shreeve-Data-Code-rig/memory/MEMORY.md`.
 3. **See what is open:** `gh pr list` (drafts are being measured or
    wait on the owner), "In flight" below, and `git log --oneline -20
@@ -61,562 +62,97 @@ A new session, human or agent, takes these steps in order:
   unsigned one miscompiles in release builds (LLVM `trunc nsw`); Rig's
   emitted Zig and runtime cast through the unsigned type of the source's
   width instead, until Zig fixes it.
-- **Health:** the bar for landing is a green full run on `main`: the
-  full suite (`swarm test/rig.rip all`, with the doc examples, their
-  pending examples the planned Core rules), `test/matrix.py`, the unit
-  tests, and the oracle floors in `test/oracle/coverage`. A change to
-  the compiler, the runtime, or std also passes Trig's light gate
-  (`tools/light`, AGENTS.md step 6) before it merges: a debug trig on
-  Trig's six cli projects, four ways each, byte-identical to tsc, in
-  about a minute; and loco's (`rig/tools/light` in a loc checkout):
-  loco built with that Rig, its output identical to the Rust loc's.
-  Trig's full suites run on both mains on pup every four
-  hours or on demand (`tools/full-main`); the last result is in
-  `/zfs/trig-pup/full/LATEST`. One case is marked `known: true`: a
-  module constant holding a vector passes as a field default and then
-  fails in Zig (`test/rig/types-simd.rig.test`).
+- **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
+  the test files, the doc examples, their pending examples the planned
+  Core rules, the examples, the unit tests, and the oracle floors in
+  `test/oracle/coverage`). A change to the compiler, the runtime, or std
+  also passes Trig's light gate (`tools/light`, AGENTS.md step 6) before
+  it merges: a debug trig on Trig's six cli projects, four ways each,
+  byte-identical to tsc, in about a minute; and loco's (`rig/tools/light`
+  in a loc checkout): loco built with that Rig, its output identical to
+  the Rust loc's. The full suite (`swarm test/rig.rip all`, the core
+  with test/cli and the probes), `test/matrix.py`, and Trig's full suite
+  (`tools/full-main` on pup; the last result is in
+  `/zfs/trig-pup/full/LATEST`) run before each major or minor release,
+  optionally before a patch. Nothing runs on a schedule: there are no
+  crons and no nightlies. A quick check takes under a minute a repo and
+  a long one under ten; one that takes longer is a defect to fix. No
+  case is marked `known: true`.
 
 ## In flight
 
-- **Small objects of integers are one word** (beat-tsrs item 19,
-  branch `word-objects`, draft #873; the owner approved it,
-  2026-11-02).
-  - **What it does:** word-sized objects (`sema.wordBits`) are lent to
-    read by value. They are held as a Zig `packed struct` unless a write
-    lend takes a field's address (`storage.decideWords`). A 64-bit word
-    keeps four-byte alignment in fields, optionals (`rig.WordOpt`), and
-    Map keys and values; `!T` of one is `*align(4) T`, and a generic one
-    `rig.WritePtr(T)`.
-  - **Gates done:** the full suite; Trig's and loco's light gates; `zig
-    build test` on pup in all three modes; the json and hash guards;
-    emit-diff. Trig's output is identical on 7 projects, and 61 Trig types
-    are word-held.
-  - **Speed:** pup timing of the build before the alignment fix was 1.2
-    to 3.2% faster on all six projects (A/A 0.9% or less).
-  - **Memory:** peak RSS on the Mac is now level or lower. It had been
-    0.4 MiB higher on ts-pattern, from `Map[U32, MappedSymbolLinks]`
-    entries growing from 12 to 16 bytes, found with `RIG_HEAP_PROFILE`.
-    Trig's release main calls `os.exit`, which skips the profile's report;
-    build a copy without it.
-  - **Next:** pup re-timing of 84cbcca (arms in pup `/tmp/wo`, config
-    `/tmp/wo/wo.conf`; Rig - Swiss runs it), then the owner's merge.
-  - **Records:** ~/Data/Code/Claude/rig/rig/four-checkers/
-    packed-small-objects.md and packed-plan.md, and item23/ab/ for the
-    Mac measurements.
-
-- **A statement's loans end at their last use** (queue row 33D, branch
-  `last-use`): CORE §6's evaluation-order paragraph replaced (plain data
-  read as a value is copied where it stands; what an earlier argument
-  or operand hands over stays lent until its call returns or its
-  operator yields), and the checker ends a loan at the last use of the
-  value carrying it, within its statement too. It only accepts more
-  programs (19 matrix lines and 4 programs leave
-  `test/oracle/differences`); emit is identical. Next: the oracle
-  taught CORE §6, a tests-only row, and the `for` header (t05) as a
-  row of its own. In its gates.
-
-- **A regular file's read runs in its task** (queue row 52, branch
-  `pool-inline-read`; the owner approved it, look-first, 2026-11-01):
-  std.file reads a regular file, and looks at a path (`exists`, `stat`,
-  `realpath`, `read_dir`), in the calling task; FIFOs, devices, opens
-  of a `File`, and every write stay on the blocking pool. Trig 1.0 to
-  3.9% faster at one checker, 4.9 to 6.4% at four; loco 10.8 to 28.5%
-  (design note ~/Data/Code/Claude/rig/rig/pool-inline/DESIGN.md). A
-  read looks at the path before it opens anything, so no FIFO is
-  opened in a task. #856, its gates green; the runtime benches' code
-  is unchanged.
-- **Split builds** (queue row 23c, branch `split-units`): a large
-  program's debug build compiles as units on every core when Zig uses
-  LLVM (the Mac), `--units=N` otherwise; Trig's debug build on the Mac
-  takes 30 s of Zig against 291 s, its output on the six cli projects
-  the same. The runtime's state is one per process through cells
-  (`src/split.zig`), a one-unit build compiling as before. The
-  measurement is docs/history/records/2026-10/build-split/debug.md.
-  In its gates.
-- **`rig check` faster and smaller** (queue row 33A, branch
-  `check-speed`, #834): sema's tables hashed by one multiply, view reach
-  once per pair of types, decisions and types by node id, and the
-  compiler on `smp_allocator`; Trig's check 2.0 times as fast, peak
-  memory 2.15 to 0.65 GB, emit identical. The arena hid a wrong free in
-  `sema.plainLeaves`, fixed in the PR. The record is
-  docs/history/records/2026-10/check-speed/.
-- **Tables' address space** (beat-tsrs item 15, queue row 34, #832):
-  release builds on Linux hand reserved Tables ranges of 256 GiB
-  regions, with no system call per Table while the huge-page gate is
-  shut, and a reading of `/proc/buddyinfo` answers for 4 ms. Trig at
-  four checkers: 1.8 to 3.7% fewer instructions, 1.6 to 4.5% less time
-  stacked with Trig's checker-tasks (docs/history/records/2026-10/
-  perf-stage/table-arena.md). In review.
-- **`target.debug`** (the owner chose the name): std.target says whether the build is
-  a debug build, which checks for leaks, so Trig can end with `os.exit`
-  after its output in a release build alone (about 4-5% on the small
-  projects; its A/B with an A/A arm is next). In review.
-- **`target.has(.avx2)`** (queue row 32; the owner approved the
-  names): std.target tests the CPU's features, as the built-in enum
-  `Feature` of Zig's x86-64 and arm64 feature names, beside
-  `target.os` (#813, landed). A call on a variant is a constant the
-  target sets, lowered to the runtime's `rig.hasFeature`, which Zig
-  folds. std.crypto and std.json can use it after it lands. In review
-  as one PR.
-- **`none` of a large optional is one store** (queue row 30, branch
-  `opt-flag`, the owner's ask): `rig.pack` writes a `?T` over 16 bytes
-  by its flag alone, and a payload enum's optional is routed through
-  the helpers; sanstun's empty `poll_event` 1.9 ns to 0.26; Trig level. On
-  main (#818).
-- **A pool call's waiter yields while the call finishes** (impact item
-  1's Rig-side lead, branch `pool-yield`): pinned to one core, the
-  waiter spun about 2.4 ms a Trig run (item 1's profile,
-  ~/Data/Code/Claude/rig/rig/item1/FINDINGS.md). Gates and the Trig A/B
-  running.
-- **`File.sync`, `sync_data`, `sync_fs`, `os.sync()`, `File.is_terminal`,
-  and `file.open(p, wait: false)`** (queue row 25c; the owner approved
-  the names): the descriptor calls the coreutils port's `sync`, `dd`,
-  `shred`, `tty`, `ls`, and `tail --pid` need, with `File.fd` still
-  private; macOS syncs by `F_FULLFSYNC`. In review as one PR.
-- **`file.unlink` and `file.rmdir`** (queue row 25b; the owner approved
-  the names): std.file removes one kind at a path, each by one system
-  call, so the coreutils port's `rm`, `rmdir`, and `unlink` drop their
-  `stat` first and its race; `remove` stays either. In review as one PR.
-- **Two more accepted programs that Zig rejected** (queue row 29): a
-  `?[N]T` view passed bare where a `[]T` goes is lent from the address
-  it holds, and a short form a `??` or `catch` fallback gives through a
-  branch or a bound handler is recorded and written with its type. In
-  review as one PR.
-- **Server memory with no row slower** (queue row 21, branch
-  `mem-both`): a heap that does not fault in ahead keeps 1 MiB of freed
-  large blocks resident and the rest by address, their pages given back
-  (`keep_resident`), #815. kv with 64 KiB values peaks at 34% less
-  memory for 1.1-1.5% fewer requests a second by the median, a trade the
-  owner accepted ("Merge it"); xmalloc-test at 71% less, level; Trig's
-  heaps take main's path. The record is
-  docs/history/records/2026-10/mem-both/. The per-page remote-list walk
-  (arm c, 16 MB more off xmalloc-test) waits in the backlog as its own row.
-- **A lent String or List held in registers** (queue row 28, branch
-  `store-forward`): the storage fact `held_header` and its emit; fixes
-  #780's Mac stall on a lent String (basenc 218 to 81 ms). Its gates are
-  running; the record is docs/history/records/2026-10/store-forward/.
-- **Small std additions for the sanstun port** (owner, approved with
-  the port's panel): `std.hint.keep[T](x: ?T)`, Rust's `black_box`, as
-  an empty `asm volatile` with a memory clobber, which needed a
-  Zig-backed function to take a bare type parameter; `net.Ip` and
-  `net.Addr`, addresses as plain data that parse, print, hash, and
-  give an `/n` prefix; `time.Instant` `: Ord` with `add` and
-  `Instant.at`. In review as one draft PR; the names are the owner's
-  to confirm.
-- **std.io's standard streams** (#798, the coreutils port's first std
-  addition; owner approved `io.stdin()`, `io.stdout()`, `io.stderr()`):
-  the three streams as `file.File`s, stdout through `print`'s buffer;
-  `File.read` into the caller's buffer, with no allocation when it has
-  room; `FileError` with a member per errno and `file.reason(e)`, the
-  system's words, the names the owner's. On main.
-- **A short-form member is its set's error value** (queue row 24): the
-  checker records the set a `.name` or `.name(fields)` names, where its
-  set, `error`, a union, or an optional of one goes, and emit writes
-  the error value from it; `.bad(at: 3)` for an `Oops` was accepted and
-  then rejected by Zig. In review as one PR.
-- **`os.on_broken_pipe(.die)`** (owner, 2026-10-30: exit 0 stays the
-  default): a program can choose to die by SIGPIPE when its stdout's
-  reader closes, as the coreutils port's `yes`, `seq`, `cat`, `tee`,
-  `sort` and `env` need; sockets and stderr are unchanged. On main.
-  `os.on_broken_pipe(.inherit)` (queue row 25f; owner, 2026-10-31:
-  "Confirmed") is `.die`, or `.exit` when the program started with
-  SIGPIPE ignored, which `start` reads from the disposition its own
-  handler replaces, so the port's `seq` can report a write error under
-  `trap '' PIPE` as uutils' does. In review as one PR.
-- **A SIGSEGV or SIGBUS that was sent ends the program** (queue row
-  25e): the stack guard's and the sanitizer's fault handlers ask
-  `sentSignal` first, `si_code` on Linux and the thread's exception
-  state on arm64 macOS, and a sent signal ends the program by its
-  default action (139, 138 or 135) instead of being lost. On main. A
-  sent SIGILL or SIGFPE (owner: "SIGILL and SIGFPE as #808") ends the
-  program by it too (132, 136): `onTrap` runs in front of Zig's handler
-  of a fault in debug and `--release` builds, which reported it as a
-  fault and aborted. In review with row 25f.
-- **Blocking calls stop with their task** (queue row 25g, found in
-  #831): every EINTR retry of a blocking system call asks
-  `rt.checkStop`; with no tasks a deadline sets an alarm (SIGALRM) that
-  wakes the call, and on the blocking pool a waiter that leaves cancels
-  its call and wakes the thread, so a FIFO's open ends on SIGTERM and at
-  a `time.within` deadline, and an abandoned pipe read no longer leaks
-  its buffer. Built on row 25f; a draft PR.
-- **`std.crypto`** (#800, owner 2026-10-30, for the sanstun port):
-  ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and
-  HMAC-BLAKE2s in Rig, with a Zig shim for DIT, wipes, and a value
-  barrier. Its review's findings are fixed and its
-  gates are green; it waits to merge.
-- **`rig test std.NAME`** (owner, 2026-10-31): `rig test` takes a
-  standard library module's name and runs its own test blocks, so
-  std's private code is tested in place; first for #814's two MACs. A
-  draft PR, waiting on the light gates.
-- **ChaCha20-Poly1305's x86-64 loop on 64-bit limbs** (queue row 16c,
-  on #817): past 192 bytes x86-64 MACs a block at a time, arm64 keeps
-  the four-block step, from one loop generic over the MAC; both are
-  tested on every machine by `rig test std.crypto`. A draft PR,
-  waiting on x86 timing on pup and the light gates.
-- **A range's counter has its bounds' type** (queue row 13): a bare
-  or `_` range loop over `U64` bounds emitted an `i64` counter that Zig
-  rejected; the counter now reads the range's recorded type. In review
-  as one PR.
-- **`net.Stream.split()` and `batch`** (owner, 2026-10-30): a stream
-  splits into a `Reader` and a `Writer` two tasks own, the writer's
-  close a half-close; `batch(on)` lets the system hold small writes.
-  The poller's ends now wake only the waits they end. In review as one
-  PR, for the mini-redis port.
-- **A server's memory, PR A** (#779, the runtime part of the memory
-  panel's fixes, owner 2026-10-30): a net read without room holds no
-  buffer while it waits, each thread's signal stack is an untouched
-  mapping, a blocked task touches one stack page, and fresh stacks hold
-  none. Merged. PR B is split (owner, 2026-10-30: nothing slower
-  lands): B2, reads that grow a String unfilled, in review alone; B1
-  and B3 (#785, a draft: another heap's remote list before carving a
-  page, a program-wide bound on large blocks) wait for a heap to reuse
-  other heaps' kept large blocks, so 64 KiB values on 22 workers are no
-  slower.
-- **A large optional result through the caller's place** (ray-speed
-  review, decision 1, owner 2026-10-29): an API object's table entry
-  whose result is an optional wider than three words writes it through
-  the caller's place and returns a flag; a `none`'s payload is not
-  filled in a safe build. In review as one PR (#781); the direct-call
-  case is in the backlog.
-- **Push loops keep `len` in registers** (finding 1 of the Rust ports'
-  second speed review, owner 2026-10-29): a String's and a List's
-  appends grow by value through one `growBy` each, so no append passes
-  the owner's address to a call. In review as one PR (#780).
-- **A shared value made in a variant's call** (B4 of the Rust ports,
-  2026-10-29): `Frame.bulk(data: *Frozen(...))`, a `*Chan[T](n)`, or
-  an `*Actor(x)` there is the payload's value, and `*Actor(x)` takes
-  its type from `x` where an `*Actor[T]` is expected. In review as one
-  PR.
-- **The inlining PR** (owner, 2026-10-29, approving the Rust ports'
-  speed reviews): each compile-time instance is its own function to the
-  yield checks, so `at[true]` calling `at[false]` no longer checks; a
-  generic function is inlined by the size rule; `slices.reverse` swaps
-  the first half with the last, its mirror index proven. In review as
-  one PR of three commits. Specializing `fun` parameters (gap 1) waits
-  on a design note.
-- **A lent self's element is reached in place** (R2 of the Rust ports,
-  2026-10-29): `?xs[i].m()` gives `m` a view of the element, never of a
-  copy, so a `from @` result no longer views a temporary. In review as
-  one PR. R1, a result that views a `for` element, is in the backlog.
-- **The paren rule** (owner, 2026-10-29, the design note's rule): a
-  write call whose value is used is written short, `x = !v.pop()`; only
-  one whose method declares a `Bool` result keeps `(!s).add(k)` where
-  its value is used. It only accepts programs rejected before, so Trig
-  needs no migration; `tools/drop-write-parens.py` drops the
-  parentheses no longer needed. In review as one PR.
-- **The cost around each list node** (too-many-lists' speed review,
-  `~/Data/Code/Claude/rig/rig/rust-ports/reviews/tml-speed.md`): `^T?`
-  and `~T?` are a pointer's size, a store into a field taken with
-  `<p.f` drops nothing (`old_nones`), the drop queue is drained only
-  when it holds something, and a `*T`'s drop is inline until the last.
-  In review as one PR, measured commit by commit.
-- **Four bugs the Rust ports found** (port-bugs, one PR, a commit
-  each): a generic object holds an optional view of itself, and a field
-  naming its own object's optional (`List[Node?]`, `?Node?`) is
-  rejected; a read view of a handle changes no Cell; a taken binding
-  that owns a resource is lent to write, a handle's too; an optional
-  view compares as the optional of what it views. Trig and std use none
-  of the rejected forms. In review.
-- **The keep-or-cut panel's fixes** (owner, 2026-10-28, approving its
-  defaults; records in `~/Data/Code/Claude/rig/rig/feature-cut/`):
-  cut nothing, and freeze `*{A}`, `~{A}`, `once ?fun`, and user
-  `api`/`add`. A type that contains itself is told to box the field
-  (`next: ^Node?`), and `for x in ?h` walks a List or array a shared
-  handle holds, in one PR. A loop over a box (`for x in ?b` of a
-  `^List[T]`) is still rejected, a sibling SPEC's box table implies.
-  Next: drop `*Frozen`'s weak count; measure what the weak count costs
-  every `*T` on Trig, by share first.
-- **The Rust-style review's errors-only fixes** (owner, 2026-10-27,
-  its default): a method with the very signature a built-in API fixes
-  on a type whose header does not name the API, a parameter `?^T`, and
-  a clone into a read view are rejected, each with its fix; a literal
-  is self of a call through an API (`Twice.twice(4)`); `async` and
-  `await` name `&` and `>t`. Trig, std, the examples, and the benches
-  use none of the rejected forms. In review as one PR.
-- **A float provides no `Ord`** (owner, 2026-10-27, the Rust-style
-  recommendations' default): a NaN is neither below nor above a
-  number, so `T: Ord` takes no float, and floats compare by their own
-  `min`, `max`, `clamp`, and `total_order` (SPEC "Floats in order").
-  Two PRs: the methods and `Num`'s comparisons first, which reject
-  nothing; then the fix, once Trig has run `tools/migrate-float-min.py`
-  on its six `math.min` sites of floats. The name `total_order` is the
-  owner's call against `total_cmp`, Rust's.
-- **A generic body's own values hold no untracked view** (SPEC
-  "Generic bodies", approved 2026-10-27): an instance whose type
-  argument can hold the view a body could put in a `T` it holds is
-  refused at the call or type that makes it, `update`, `retain`, and
-  `ensure_with` of a Map or HashMap at a value type that can hold a
-  view among them; `ensure_with` keeps nothing of `make`, and `!?T` is
-  rejected as `!?String` is. The oracle refuses the three Map calls
-  alike and abstains at a program's own generics, as at any instance
-  at a view. Deferred by the owner: accepting a closure that stores
-  nothing (docs/internals/backlog.md); records in
-  `~/Data/Code/Claude/rig/rig/generic-rule/`.
-- **The consolidation round** ran on 2026-10-23
-  ([PLAN.md](docs/history/records/2026-10/consolidation/PLAN.md)); what
-  it landed, measured, and left is in
-  [round-report.md](docs/history/records/2026-10/consolidation/round-report.md).
-  Emit decides nothing itself (`Pending` is gone), and no case is
-  `known: true`. Open: the owner's decisions it lists, and the oracle's
-  model of the hidden `E?`.
-- **Partial moves** (CORE §5, "A field of an owned object moves like a
-  name", approved 2026-10-24): built in two PRs, the oracle first
-  (#668), then the compiler; records in
-  [partial-moves/](docs/history/records/2026-10/partial-moves/). Trig
-  can drop about 82 of its 111 `swap(!x.f, empty)` sites and 3
-  optional fields kept only to be taken (its NEEDS 26). λRig has no
-  fields, a gap formal/README.md records. An optional field of a
-  parameter, capture, or `=!` local moves too (decision 14, for
-  Loco's `<o.by_file` and `<c.entries`); an assignable local's is taken.
-- **`par.workers(!states, ?items, |s, x| ...)`** (decision 8c, approved
-  2026-10-25) is on `main` (#684): a task for each state, pulling items
-  in the caller's order, results in item order. It matches Trig's
-  hand-built channel loop for work-stealing checkers (Trig #207) in
-  [bench/par](bench/par/README.md); Trig may swap its loop for it.
-- **`$plain(T)` narrowing** (SPEC "Generic bodies", approved 2026-10-26)
-  is on `main` (#701): inside `if $plain(K)` a generic body may copy a
-  `K`. Sema decides plain once per instance and emit passes it as a
-  compile-time Bool; the oracle knows the rule.
-- **The hash race:** `bench/hash` races both Rig maps against abseil,
-  boost, ankerl, hashbrown, indexmap, Rust std, Zig and Go on every row
-  of `bench/hash/WORKLOADS.md`, all built for the CPU they run on. The
-  goal is first place, with two families: the ordered `Map`/`Set` and
-  an unordered `HashMap`/`HashSet` (working names). The owner's plan:
-  win in Zig first, then make Rig emit that Zig. Faithful Zig ports of
-  boost and ankerl (`zig-foa`, `zig-dense`) lead on the Mac and trail
-  on x86; `zig-hash` and `zig-ordered` are being grown from them. The
-  panel's twelve decisions are approved
-  ([hash-race/](docs/history/records/2026-10/hash-race/)). #685's
-  SwissTable `std.hash` is archived as `archive/std-hash`. Of the
-  allocator's two gaps the race found, large blocks reused by fit are
-  #725; huge pages from 2 MiB (decision 11) raised Trig's peak memory
-  and were left out, and huge pages from 16 MiB, which the owner
-  approved, are #726, measured again on Trig's memory
-  ([alloc-large/](docs/history/records/2026-10/alloc-large/),
-  [alloc-thp16/](docs/history/records/2026-10/alloc-thp16/)).
-  The first compiler piece the race needs, `for k in m.lanes()` (the
-  panel's work order, step 4, approved 2026-10-27), walks a mask's true
-  lanes in each target's form, the nibble mask on ARM and `pmovmskb` on
-  x86, at four or five instructions a lane (`test/cli/mask_lanes.sh`).
-  Its lane-range fact for the proof pass (`0 <= k < n`, so `[n]T`
-  indexed by `k` needs no test) waits for the masked-index proof in
-  `src/proofs.zig`. The next, `xs.prefetch(i)` (step 3), is one
-  prefetch instruction with no range test, since a prefetch of any
-  address does nothing a program can see, so it needs no proof
-  (bench/prefetch).
-  The built-in `Map` and `Set` are rewritten on `zig-ordered`'s design
-  in safe Rig (std/prelude.rig; INTERNALS, "The built-in Map and Set"):
-  Trig 4-6% fewer cycles and lower peak memory on pup; the rows that
-  trail main, in-cache hits, the latency chains, 4M inserts, and text
-  removes, are in
-  [map-rewrite-rig.md](docs/history/records/2026-10/hash-race/map-rewrite-rig.md).
-  The owner then made their table a compiler built-in (2026-10-27):
-  `Map` and `Set` stay declared in the prelude over `OrderedMap[K, V]`
-  and `OrderedSet[K]`, the prototype ported into src/ordered.zig
-  (INTERNALS, "The built-in Map and Set"); Trig 2.9-3.6% fewer cycles
-  than #735 on pup
-  ([map-builtin.md](docs/history/records/2026-10/hash-race/map-builtin.md)).
-  `HashMap` and `HashSet` (names confirmed by the owner) are built the
-  same way over `UnorderedMap[K, V]` and `UnorderedSet[K]`, `zig-hash`
-  ported into src/unordered.zig (INTERNALS, "The built-in HashMap and
-  HashSet"): Map's members but `at`, order unspecified; 60 of
-  bench/hash's 104 rows on the Mac and 77 on pup within 5% of zig-hash
-  or faster
-  ([hashmap-builtin.md](docs/history/records/2026-10/hash-race/hashmap-builtin.md)).
-  Open: the iterator names (`HashItems` and the rest) are the owner's to
-  confirm; text-key rows trail zig-hash 1.2-2.6 times, as the Map's
-  trail zig-ordered (a String key's slot is 40 bytes, with no
-  prefetch).
-- **Masked indexes** (`src/proofs.zig`): `s[e & m]` with `m = s.len -% 1`
-  under a guard `s.len > 0` makes no bounds test, ready for the Map
-  rewrite. The built-in Map, Set, and Interner keep their two guarded
-  passes: probing `(home +% d) & mask` made Trig run 1.15% fewer
-  instructions and most bench/hash rows faster, but `lat16 chain` 20-50%
-  slower (PR #729 has the numbers). The lane fact for `for k in
-  m.lanes()` indexing a `[n]T` is not built: an array index has no
-  proven form in emit yet.
-- **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
-  without a test, measured in a stand-in build, made ts-pattern about 3%
-  faster.
-- **A view lent through a write-view binding** (CORE sentence 7, §7
-  Defer) is built: `if !@slots[j] as s` / `return !s.value` `from @`,
-  and the same through a local, a `for` element, a call's result, and a
-  `match !` payload
-  ([records](docs/history/records/2026-10/wview-return/)). What it
-  unlocks is not built yet: Map's and Set's `find` handing back the
-  entry (`(!Entry[K, V])? from @`), with `edit` and `ensure` on top,
-  which removes the index re-tests behind the 1.3-1.9% ceiling on
-  ts-pattern; it changes std's Map, so it is timed on Trig on its own.
-
-Errors with data, from the approved spec
-(docs/history/records/revamp/r3/errors-panel/), is on `main`:
-
-- declared error sets (R2, #542), with clones across modules and Map's
-  `+` (#548);
-- the runtime's error-data plumbing (R3a, #550);
-- CORE's paragraph "A failure moves its error", revised by a panel of
-  four (docs/history/records/2026-10/errors-core/);
-- fields on members wherever a failure goes (R3, #555): calls, function
-  values, closures, tasks, actors, `par`, `isolate`, `main`, and tests;
-- one representation for `error` (Option U, #566);
-- std.json's `JsonError` (R4, #565), by `load` beside a `Bool` `parse`
-  kept for speed;
-- generic sets (R2.5, #569), `fun total[E](f: ?fun() -> Int!E) -> Int!E`
-  (docs/history/records/2026-10/errors-r25/).
-
-Two pieces remain: the oracle's model of the hidden `E?`, and std's I/O
-sets (R3-3), which wait for the owner's names.
+- **The matrix gate** (rig#878, branch `matrix-gate`, a draft, parked):
+  every suite run builds the matrix programs whose own Zig changed, in
+  packs of up to 400 with `rig batch build`; one shard takes 13 s
+  against 3 min 17 s built one by one. `known:` names the failure it
+  expects. Its nightly tier is dropped, by the rule that nothing runs
+  on a schedule. The steps left are in
+  `~/Data/Code/Claude/rig/rig/lang-analysis-handoff.md`.
+- **Trig's caches by tighter keys:** trig#241 keys the relation and
+  cached-type caches more tightly, ready; trig#242, the union cache, is
+  a draft under the speed bar.
+- **The oracle's model of the hidden `E?`** (errors track 2's R3-3) is
+  the one piece of errors with data left
+  ([round-report.md](docs/history/records/2026-10/consolidation/round-report.md)).
+- **The hash race** (`bench/hash`; its panel's decisions in
+  [hash-race/](docs/history/records/2026-10/hash-race/)): `Map` and
+  `Set` are compiler built-ins over `zig-ordered`'s table, and `HashMap`
+  and `HashSet` over `zig-hash`'s (INTERNALS, "The built-in Map and
+  Set"). Open: the owner confirms the iterator names (`HashItems` and
+  the rest); text-key rows trail zig-hash 1.2-2.6 times (a String key's
+  slot is 40 bytes, with no prefetch); the lane fact that would let `for
+  k in m.lanes()` index a `[n]T` with no test waits for an array index's
+  proven form in emit; and std's Map using a write view returned `from
+  @` (`find` handing back the entry, with `edit` and `ensure` on top), a
+  1.3-1.9% ceiling on ts-pattern, timed on Trig on its own.
 
 ## Next, in order
 
-In the owner's order:
+The owner's priority is Trig's speed against tsrs; memory counts where
+it buys speed. Trig checks with several checkers in tasks, and its
+output equals tsc's at each count. Standing-7
+([tsrs-standing-7.md](docs/history/records/2026-10/hash-race/tsrs-standing-7.md),
+PGO Trig) measured it against tsrs as shipped: ts-pattern 16.7% slower
+at one checker and 44.5% at four, zod3 39.3% and 62.9%, with 38-54%
+more peak memory. Trig does the same work as tsrs in its Go mode,
+object for object; shipped tsrs's lazy members save it 42.7 MiB on
+ts-pattern (480k symbols against 934k) and 7.5 MiB on zod3, and are its
+main lead, 12.7-21.5% faster than its own Go mode at four threads.
+Standing-7 predates rig#873 (small objects of integers held as one
+word: every Trig project 0.9-3.6% faster on pup, peak memory level) and
+trig#243 to #246, so a standing-8 comes first. The leads, in order:
 
-1. **APIs Stage 3,** by the build plan's six phases
-   ([docs/history/records/2026-10/apis-stage3/build-plan.md](docs/history/records/2026-10/apis-stage3/build-plan.md)).
-   Phase 1, declarations and conformance, is built: `api`, headers and
-   `add` checked but not lowered, coherence, and bounds by a program's
-   own APIs at each instance
-   ([phase1-notes.md](docs/history/records/2026-10/apis-stage3/phase1-notes.md)).
-   Phase 2, calls through a bound and their witnesses, is built:
-   defaults, additions, `Shape.area(c)`, error sets and the
-   API's clauses through a bound
-   ([phase2-notes.md](docs/history/records/2026-10/apis-stage3/phase2-notes.md)).
-   Phase 3, method-level bounds and additions to types with value
-   parameters (`Slot[n]`, `Table[T, n]`), is built
-   ([phase3-notes.md](docs/history/records/2026-10/apis-stage3/phase3-notes.md)).
-   Phase 4, associated types and `Iter` with std.iter, is built
-   ([phase4-notes.md](docs/history/records/2026-10/apis-stage3/phase4-notes.md),
-   [review-p34.md](docs/history/records/2026-10/apis-stage3/review-p34.md)).
-   An item views its iterator only at an instance whose items may view
-   memory the iterator owns, so a body that holds no item past the next
-   `next` (`iter.count`) takes every iterator, and one that holds an
-   item is rejected only at such an instance (consolidation round 2,
-   row 29); items of a `next` that names only fields declared as read
-   views (`from @map`), as Map's and Set's iterators do, view no
-   iterator: a method's view names the path of self it views, Core
-   sentence 7
-   ([records](docs/history/records/2026-10/from-field/approved.md)).
-   Phase 5, the Lean lemma, is
-   built (formal/LambdaRig/Calls.lean; formal/README.md, "Calls through
-   an API"). Phase 6, implied bounds and the rule that public generics
-   state their bounds, is built
-   ([phase6-notes.md](docs/history/records/2026-10/apis-stage3/phase6-notes.md)):
-   it rejects programs a release accepted, so Trig takes its migration
-   (`tools/state-bounds.py`; the diff is
-   [trig-migration.diff](docs/history/records/2026-10/apis-stage3/trig-migration.diff))
-   when it lands. Stage 3 is then complete.
-2. **APIs Stage 4, API objects** (`?{Shape}`, `!{Shape}`, `^{Shape}`),
-   in progress, in phases with an adversarial review each, landed after
-   the suite and Trig's light gate
-   ([build-plan.md](docs/history/records/2026-10/apis-stage4/build-plan.md);
-   its 21 defaults approved,
-   [open-questions.md](docs/history/records/2026-10/apis-stage4/open-questions.md)).
-   Phase 0, the Core, is done: CORE §1 and §4 state the rules, from a
-   panel of four the owner approved
-   ([core-panel/](docs/history/records/2026-10/apis-stage4/core-panel/approved.md)).
-   Phases 1 to 3, the types, views and calls, and boxes, are built;
-   phase 4, the Lean lemma, and phase 5, associated types in braces,
-   remain.
-   **Stage 5, shared and crossing objects** (`*{Shape}`, `~{Shape}`,
-   `^{Job + Sends}`), is in progress, in phases the same way
-   ([build-plan.md](docs/history/records/2026-10/apis-stage5/build-plan.md);
-   its defaults approved with the panel's changes,
-   [open-questions.md](docs/history/records/2026-10/apis-stage5/open-questions.md)).
-   Phase 0, the Core, is done: CORE §1 and §4 state the rules, from a
-   panel the owner approved
-   ([core-panel/](docs/history/records/2026-10/apis-stage5/core-panel/approved.md)).
-   Phase 1, crossing bounds in the braces (`^{Job + Sends}`,
-   `?{Shape + Syncs}`), is built, in review
-   ([phase1-notes.md](docs/history/records/2026-10/apis-stage5/phase1-notes.md));
-   phase 2, `*{Shape}`, `~{Shape}`, and `*{Shape + Syncs}`, is built
-   on it, in review
-   ([phase2-notes.md](docs/history/records/2026-10/apis-stage5/phase2-notes.md)).
-   Phase 3, the Lean obligation, and phase 4, owned closures as objects
-   (a performance PR, kept only if faster), remain.
-3. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
-   src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
-   (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
-   text, completion words). Analysis needs an entry to the checker that
-   takes source in memory. Nexus's template already has the fixes from
-   Rig's dry run.
+1. **tsrs's lazy members, ported faithfully.** Trig's own ceiling saved
+   only about 6 MiB, so it missed what tsrs does; measure tsrs's
+   switches one by one first.
+2. **`get_property_of_type_ex`'s extra calls,** 1.8-2.25 times tsrs's,
+   counted by call site.
+3. **Flow and name resolution:** their counts match tsrs's, and their
+   gap is cost per call (zod3).
+4. **The head:** parse and bind cost per node, and file calls off the
+   blocking pool.
+5. **Trig's full suite in under ten minutes:** split release builds
+   (rig#854's units: 3.1 minutes against 28.6 on pup), one shared build,
+   and smaller shards. Its two release compiles take 31 and 18 minutes,
+   and its 300-test chunks about 15 minutes each.
 
-Beside these, Rig supports Trig's speed: the owner's aim is to match
-or beat tsrs. Trig checks with several checkers in tasks, and its
-output equals tsc's at each count. Built with `--pgo`, Trig took 893 ms
-on ts-pattern at one checker against tsrs's 665 (1.34x, 2026-10-26),
-with 1.20x its instructions and 1.48x its peak memory; #705, #706,
-#710, and #711 landed after that measurement, about 4% fewer
-instructions by their separate measurements. Trig's own program logic
-is at parity with tsrs's; the rest of the gap is in Rig's patterns. What landed for it on
-2026-10-24 to 26: PGO, cheaper yield checks, release builds without
-frame pointers, prefaulting large heaps, `Table` reads without a test,
-one compare for an index against a fixed bound, a yield check that
-keeps registers, the Map's probe inlined, and an object of integers
-hashed one multiply a pair of words. What is left, by share of
-ts-pattern's 8,527M instructions: List operations and their checks
-(10%), Map/Set (9%), spills around calls (4%), yield checks (3%), and
-`hashMix` (2%); each is measured for its share before work starts
-([records](docs/history/records/2026-10/perf-stage/)). Trig's needs
-from Rig, in the owner's order:
+What was measured and is not to be redone (table coloring, prefault,
+sparse links tables, the relation cache's key and path, Map calls out
+of line, store-forward stalls, loop bounds checks, re-checked optionals
+and tags, parse-time atoms, broad-corpus PGO, and more) is in the
+brief's "Don't redo" (`~/Data/Code/Claude/rig/rig/fresh-start-brief.md`).
 
-1. **Single-thread speed of the checker and of Map/Set,** which carries
-   into every checker. With every safety check removed, ts-pattern runs
-   11.2% faster (index tests 8.0%, conversions 2.9%, Zig's bounds 1.7%,
-   overflow 1.2%; docs/history/records/2026-10/safety-checks/measurement.md). By
-   share of that cost: the stores (`Table`/`Slot`), Trig's symbol and id
-   accessors, the std Map/Set probes, and Trig's AST records. Map and
-   Set code is 18.8% of ts-pattern's samples, beyond its checks. The
-   wide-key Maps' lookups already run as the hand-written Zig table's
-   do; their cost is the index's misses, a third of Trig's L2 load
-   misses and half its STLB misses
-   ([map-wide-keys.md](docs/history/records/2026-10/hash-race/map-wide-keys.md)):
-   huge pages for a large index are the lever left, and the wide-key
-   insert row is 34% behind zig-ordered's.
-2. **Doing less.** Trig allocates about 6.4x what tsrs does. Its memory
-   is live data, not List slack (exact presizing saved 4% on Linux): the
-   stores' contents, Map entries, and about 200,000 small `u32` lists.
-   The heap profile (`RIG_HEAP_PROFILE=sites`) names their owners.
-3. **Build speed.** `rig build` reuses no cached work (ROADMAP, "Cached
-   `rig build`"), and a Trig release build takes about 9 minutes and
-   about 9 GB on pup.
-4. **The ownership checker's Map limits** are lifted: partial moves
-   are built, and a write view bound by `if !@slots[j] as s` is
-   returned `from @` (In flight). What waits is std's Map using them:
-   `find` handing back the entry, a 1.3-1.9% ceiling on ts-pattern
-   (docs/history/records/2026-10/safety-checks/len-and-map-notes.md).
-5. **Startup** (Trig's NEEDS 62): std.file calls go through the
-   blocking pool, a futex round trip each; an empty Trig run makes 52
-   futex calls against tsrs's 5. While only one task can run, a
-   blocking call could run on the caller's stack.
-
-Measured and set aside: lazy member tables (symbols are about a tenth
-of Trig's heap), prefault for every heap with tasks (no gain, 8-15%
-more memory), sharing global types across checkers (a low ceiling, and
-tsc's ids per checker could not be matched), and a parallel parse and
-bind (about 1.5% of ts-pattern).
+Beside these, `rig lsp` moves onto Nexus's generated server (`nexus
+--editor --lang src/rig.zig rig.grammar DIR`): Rig fills in the
+generated `hooks.zig` (tokens, Rig-worded syntax errors, analysis of
+the editor's unsaved text, completion words), and analysis needs an
+entry to the checker that takes source in memory.
 
 APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
-built in stages. Stage 1, method calls on a type parameter, and Stage 2,
-built-in bounds (`[T: Ord]`, `obj Version: Ord`, a type's own `eq`,
-`hash_into`, `order`, and `print`), are on `main`, and Stage 3's phases 1
-to 4 with them. Stage 4, API objects, is built in phases (phase 0, its Core text, done), each landed
-after the suite and Trig's light gate: phase 1, the types and their
-rules, is built
-([phase1-notes.md](docs/history/records/2026-10/apis-stage4/phase1-notes.md)),
-and phase 2, views of objects and calls through their tables
-([phase2-notes.md](docs/history/records/2026-10/apis-stage4/phase2-notes.md)),
-and phase 3, boxes of objects, `^{Shape}`
-([phase3-notes.md](docs/history/records/2026-10/apis-stage4/phase3-notes.md)),
-each in review in turn; objects of an API with an associated type
-(phase 5) wait for a program that needs them. Stage 5, shared and
-crossing objects, is in progress (phase 0, its Core text, done; phase 1,
-crossing bounds, built and reviewed,
-[review-p1.md](docs/history/records/2026-10/apis-stage5/review-p1.md),
-awaiting its gates; phase 2, shared and weak objects, built and in
-review); a
-design question is answered from the
-record, and what it does not settle goes to the owner as a decision with
-a default.
+built in all five stages. What remains, objects of an API with an
+associated type (Stage 4, phase 5), the Lean model's crossing
+obligation (Stage 5, phase 3), and owned closures as objects (Stage 5,
+phase 4), is in [docs/ROADMAP.md](docs/ROADMAP.md), "APIs, the rest".
 
 `Map`, `Set`, `Hasher`, `Order`, `Printer`, and `Symbol` are built in;
 the run-time string interner is `text.Interner` in `std.text`. Trig
@@ -664,7 +200,7 @@ is written last; how a journey is written, and its outline, are in
 journeys found in the compiler and its docs is at the end of
 [docs/internals/backlog.md](docs/internals/backlog.md).
 
-Toward `v0.3.0` are a full run and the tag. Its migration guide is
+Toward `v0.3.0` are Rig's and Trig's full suites and the tag. Its migration guide is
 [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), and CHANGELOG's
 "Upgrading from v0.2.9" lists the 43 forms 0.2.9 accepted that 0.3.0
 rejects, which the tag's release notes take over. The scripts:
