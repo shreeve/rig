@@ -392,12 +392,12 @@ test "text find every place", release: true, '''
   0
   0
 '''
-  # std.text's `find` and `count` against plain loops. A needle of 1 to
-  # 20 bytes is put at every place in texts of 0 to 100 bytes (and in
-  # none), after a near miss: its first and last bytes with others
-  # between, so the 16 places tested at once meet every alignment, the
-  # tail that tests the last 16 places again, and the texts shorter than
-  # 16 bytes. Random texts of two letters make many partial matches; a
+  # std.text's `find`, `find_last`, and `count` against plain loops. A
+  # needle of 1 to 20 bytes is put at every place in texts of 0 to 100
+  # bytes (and in none), after a near miss: its first and last bytes
+  # with others between, so the 16 places tested at once meet every
+  # alignment, the tail (or head) that tests 16 places again, and the
+  # texts shorter than 16 bytes. Random texts of two letters make many partial matches; a
   # text of 70,000 bytes is long enough to be searched by the needle's
   # rarest bytes. Each case that differs prints itself; the last lines
   # count them.
@@ -415,6 +415,14 @@ test "text find every place", release: true, '''
       return i if s[i..i + pat.len] == pat
     -1
 
+  fun plain_last(s: ?String, pat: ?String) -> Int
+    return -1 if pat.len > s.len
+    i = s.len - pat.len
+    while i >= 0
+      return i if s[i..i + pat.len] == pat
+      i -= 1
+    -1
+
   fun plain_count(s: ?String, pat: ?String) -> Int
     n = 0
     i = 0
@@ -429,10 +437,12 @@ test "text find every place", release: true, '''
   fun differs(s: ?String, pat: ?String) -> Int
     got = text.find(s, pat) ?? -1
     want = plain(s, pat)
+    last = text.find_last(s, pat) ?? -1
+    want_last = plain_last(s, pat)
     n = text.count(s, pat)
     m = plain_count(s, pat)
-    return 0 if got == want and n == m
-    print("len", s.len, "pat", pat.len, "got", got, "want", want, "count", n, m)
+    return 0 if got == want and last == want_last and n == m
+    print("len", s.len, "pat", pat.len, "got", got, "want", want, "last", last, want_last, "count", n, m)
     1
 
   fun needle(k: Int) -> String

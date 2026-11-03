@@ -3028,7 +3028,8 @@ gives it: a wide one takes a cell and a spacer after it, wraps whole
 when a write or an edit cuts it. A cell holds a whole char: a rune of
 width 0 joins the char before it, as Ghostty adds it (a variation
 selector only after an emoji), and the char's runes move, scroll, and
-erase with its cell. In mode 2027 runes join as Ghostty clusters them (a
+erase with its cell. A char keeps at most 64 runes after its first, as
+Ghostty does, and drops the rest. In mode 2027 runes join as Ghostty clusters them (a
 tailored `text.CharBreak`): an emoji ZWJ sequence, a flag, or a Hangul
 syllable is one char, and a char's width is its runes' together, so
 VS16 or a spacing mark makes it wide and VS15 narrow; a wide char at the
@@ -3043,6 +3044,14 @@ is dropped for each new one. The alternate screen keeps none. ED 3
 (`CSI 3 J`) erases the history; ED 22 (`CSI 22 J`) scrolls the screen,
 down to its last row that is not empty, into it; RIS erases it. A
 scroll costs the same with history as without: rows are not copied.
+
+A program's output is untrusted input, and what it makes a terminal
+hold is bounded by the terminal's size, not by how much was fed. Besides
+the cells, the history, and a char's runes, a terminal keeps the styles
+its cells use: once the styles it holds pass 4,096 and a quarter of its
+cells (history included), it drops those no cell uses, so output that
+sets a new color for every rune keeps no more than that, or twice the
+styles in use.
 
 | Member | Result |
 |---|---|
