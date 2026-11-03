@@ -299,3 +299,54 @@ fail "a chain's function takes what its stage passes", "2:14: `map` passes its f
 fail "a chain's function after zip takes two values at most", "`filter` passes its function each item and the item `zip` pairs with it; this one takes 3 parameters"
   a = [1, 2]
   print(a.zip(a).filter(|x, y, z| x > y).count())
+
+test "a chain after zip or enumerate counts, and a second value no one reads is not bound", '''
+  3 4 2 2
+  1
+  2
+  3
+'''
+  obj Countdown
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
+
+  a = [1, 2, 3]
+  b = List[Int]([10, 20, 30, 40])
+  print(a.zip(b).count(), b.enumerate().count(), a.zip(Countdown(n: 2)).count(), a.zip(b).take(2).count())
+  for x in a.zip(b)
+    print(x)
+
+test "min and max stop at take and zip, and start the rest after the first item", '''
+  3 8 6 16 -1
+  10 90 5 1
+  0 9
+'''
+  a = [1, 2, 3]
+  b = List[Int]([10, 20, 30, 40])
+  xs = List[Int]([5, 3, 8, 1])
+  # `take` and `zip` end the walk inside the loop that finds the first item.
+  print(xs.take(2).min() ?? 0, xs.take(3).max() ?? 0, xs.map(|x| x * 2).take(2).min() ?? 0, xs.map(|x| x * 2).skip(1).max() ?? 0, xs.filter(|x| x > 100).take(1).min() ?? -1)
+  print(a.zip(b).map(|x, y| x * y).min() ?? 0, a.zip(b).map(|x, y| x * y).max() ?? 0, xs.zip(a).map(|x, y| x - y).max() ?? 0, xs.zip(a).map(|x, y| x - y).min() ?? 0)
+  # `min_by` and `max_by`, as `min` and `max`, take each item alone.
+  print(b.enumerate().map(|x, i| x * i).max_by(|v| 0 - v) ?? 0, a.zip(b).map(|x, y| y - x).min_by(|v| v % 7) ?? 0)
+
+fail "sum after zip takes one value per item", "3:16: `sum` takes one value per item, and after `zip` each item is two: map them to one first, `.map(|x, y| ...).sum()`"
+  a = [1, 2, 3]
+  b = [10, 20, 30]
+  print(a.zip(b).sum())
+
+fail "max after enumerate takes one value per item", "2:22: `max` takes one value per item, and after `enumerate` each item is two: map them to one first, `.map(|x, i| ...).max()`"
+  b = List[Int]([10, 20, 30])
+  print((b.enumerate().max() ?? 0))
+
+fail "min_by after enumerate takes one value per item", "`min_by` takes one value per item, and after `enumerate` each item is two: map them to one first, `.map(|x, i| ...).min_by(...)`"
+  b = List[Int]([10, 20, 30])
+  print(b.enumerate().min_by(|x, i| i) ?? 0)
+
+fail "collect after zip takes one value per item", "`collect` takes one value per item, and after `zip` each item is two: map them to one first, `.map(|x, y| ...).collect()`"
+  a = [1, 2]
+  print(a.zip(a).collect())

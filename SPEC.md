@@ -6281,7 +6281,9 @@ directly. A type's own method of the same name is called instead.
 Each item is what the source's `for` gives: a copy of plain data, else a
 view, which keeps the source lent while a result that is one lives. A
 stage after `enumerate` or `zip` passes its function two values, of
-which it may take the first alone. Each
+which it may take the first alone; `sum`, `min`, `max`, `min_by`,
+`max_by`, and `collect` take one value per item, so a `map` makes one
+of each pair first, and `min_by`'s key takes that value alone. Each
 function a chain takes is bound once, before the loop, so a capture
 holds for the whole chain; a function that can fail is rejected for
 now. `take` stops before the item it does not need, so a chain on an

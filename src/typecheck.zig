@@ -14484,6 +14484,8 @@ const Checker = struct {
         // The second value `enumerate` or `zip` passes with each item.
         var second: ?TypeId = null;
         var pairs: enum { none, index, zip } = .none;
+        // Whether a `map` made one value of each pair since it began.
+        var mapped = false;
         for (calls.items) |c| {
             const callee = ir.Call.callee(c);
             const name_node = ir.Member.name(callee);
@@ -14494,10 +14496,21 @@ const Checker = struct {
                 .index => "each item and its index",
                 .zip => "each item and the item `zip` pairs with it",
             };
-            const known = item != null and (pairs == .none or second != null);
-            const params: []const TypeId = if (!known) &.{} else if (pairs == .none) try a.dupe(TypeId, &.{item.?}) else try a.dupe(TypeId, &.{ item.?, second.? });
-            const takes_fn = std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "filter") or std.mem.eql(u8, name, "any") or std.mem.eql(u8, name, "all") or std.mem.eql(u8, name, "find") or std.mem.eql(u8, name, "min_by") or std.mem.eql(u8, name, "max_by");
-            if (takes_fn and !try self.chainArity(args[0], name, what, if (pairs == .none) 1 else 2)) return false;
+            // `min_by` and `max_by`, as `min` and `max`, take each item
+            // alone.
+            const by = std.mem.eql(u8, name, "min_by") or std.mem.eql(u8, name, "max_by");
+            const passes_pair = pairs != .none and !by;
+            const known = item != null and (!passes_pair or second != null);
+            const params: []const TypeId = if (!known) &.{} else if (!passes_pair) try a.dupe(TypeId, &.{item.?}) else try a.dupe(TypeId, &.{ item.?, second.? });
+            // A consumer of the items alone takes one value per item.
+            const one_value = by or std.mem.eql(u8, name, "sum") or std.mem.eql(u8, name, "min") or std.mem.eql(u8, name, "max") or std.mem.eql(u8, name, "collect");
+            if (one_value and pairs != .none and !mapped) {
+                const stage, const params_shown = if (pairs == .index) .{ "enumerate", "x, i" } else .{ "zip", "x, y" };
+                try self.errAt(name_node, "`{s}` takes one value per item, and after `{s}` each item is two: map them to one first, `.map(|{s}| ...).{s}({s})`", .{ name, stage, params_shown, name, if (by) "..." else "" });
+                return false;
+            }
+            const takes_fn = by or std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "filter") or std.mem.eql(u8, name, "any") or std.mem.eql(u8, name, "all") or std.mem.eql(u8, name, "find");
+            if (takes_fn and !try self.chainArity(args[0], name, if (passes_pair) what else "each item", if (passes_pair) 2 else 1)) return false;
             if (std.mem.eql(u8, name, "reduce") and !try self.chainArity(args[1], name, "the running value and each item", 2)) return false;
             const result: ?TypeId = if (takes_fn and known) try self.chainFnResult(args[0], params) else null;
             if (std.mem.eql(u8, name, "map")) {
@@ -14506,6 +14519,7 @@ const Checker = struct {
                     return false;
                 };
                 item = result;
+                mapped = true;
             } else if (std.mem.eql(u8, name, "filter") or std.mem.eql(u8, name, "any") or std.mem.eql(u8, name, "all") or std.mem.eql(u8, name, "find")) {
                 if (result) |r| if (sema.unwrapViews(self.ctx, r) != self.t().bool_id) {
                     try self.errAt(args[0], "`{s}`'s function gives a `Bool`; this one gives `{s}`", .{ name, try self.tyName(r) });
@@ -14519,9 +14533,11 @@ const Checker = struct {
                 }
             } else if (std.mem.eql(u8, name, "enumerate")) {
                 pairs = .index;
+                mapped = false;
                 second = self.t().int_id;
             } else if (std.mem.eql(u8, name, "zip")) {
                 pairs = .zip;
+                mapped = false;
                 second = try self.chainSourceItem(args[0], zip);
             } else if (std.mem.eql(u8, name, "sum")) {
                 if (item) |it| if (!sema.isNumeric(self.ctx, readValue(self.ctx, it))) {
