@@ -2177,6 +2177,8 @@ const HiddenName = enum(u16) {
     chain_index = 44,
     int_type = 45,
     len_name = 46,
+    range_from = 47,
+    range_to = 48,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2227,6 +2229,8 @@ const HiddenName = enum(u16) {
             .chain_index => "chain index",
             .int_type => "Int",
             .len_name => "len",
+            .range_from => "chain from",
+            .range_to => "chain to",
         };
     }
 };
@@ -5170,9 +5174,9 @@ pub const Parser = struct {
                 } else if (eq(st.name, "map")) {
                     try body.append(a, try l.bind(.chain_item, .nil, try l.call(l.funs[i].?, try l.passed(i))));
                 } else if (eq(st.name, "take")) {
-                    // An iterator stops before its next item instead
-                    // (`loopHead`).
-                    if (l.source != .iterator) try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{try l.brk(.nil)}));
+                    // An iterator or a range stops before its next item
+                    // instead (`headWith`).
+                    if (l.source == .elements) try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{try l.brk(.nil)}));
                     try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
                 } else if (eq(st.name, "skip")) {
                     try body.append(a, try l.when(try l.node(.@"<", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{ try l.addTo(countName(n), try l.leaf(.one_value)), try l.skip() }));
@@ -5201,7 +5205,9 @@ pub const Parser = struct {
         /// otherwise.
         /// A loop's head, made before its body so that the names it binds
         /// stand before their uses.
-        const Head = struct { item: Sexp, index: Sexp = .nil, src: Sexp, cond: Sexp };
+        /// `pre`: what a range's loop does first with each step: bind the
+        /// item, and advance the cursor (`range_from`).
+        const Head = struct { item: Sexp, index: Sexp = .nil, src: Sexp, cond: Sexp, pre: [2]Sexp = .{ .nil, .nil } };
 
         fn head(l: *const ChainLowering) std.mem.Allocator.Error!Head {
             return l.headWith(false, !l.unread);
@@ -5216,8 +5222,17 @@ pub const Parser = struct {
         /// A loop's head that also binds each element's index (an element
         /// source alone).
         fn headWith(l: *const ChainLowering, indexed: bool, reads: bool) std.mem.Allocator.Error!Head {
+            if (l.source == .range) {
+                // A range is walked by a cursor every loop of the chain
+                // continues, as an iterator is, so the second loop of a
+                // `min` takes up where the first stopped.
+                const more = try l.node(if (l.inclusive) .@"<=" else .@"<", &.{ try l.leaf(.range_from), try l.leaf(.range_to) });
+                const cond = try l.withRooms(more);
+                const item: Sexp = if (reads) try l.bind(.chain_item, .nil, try l.leaf(.range_from)) else .nil;
+                return .{ .item = .nil, .src = .nil, .cond = cond, .pre = .{ item, try l.addTo(.range_from, try l.leaf(.one_value)) } };
+            }
             if (l.source != .iterator) {
-                const src = if (l.source == .range) try l.node(.@"..", &.{ try l.leaf(.chain_first), try l.leaf(.chain_next), if (l.inclusive) Sexp{ .tag = .inclusive } else .nil }) else try l.leaf(.chain_source);
+                const src = try l.leaf(.chain_source);
                 const item = try l.leaf(if (reads) .chain_item else .discard);
                 return .{ .item = item, .index = if (indexed) try l.leaf(.chain_index) else .nil, .src = src, .cond = .nil };
             }
@@ -5233,9 +5248,24 @@ pub const Parser = struct {
             return .{ .item = .nil, .src = .nil, .cond = cond };
         }
 
+        /// `cond` after each `take`'s test, so no loop takes a step it
+        /// does not need.
+        fn withRooms(l: *const ChainLowering, cond: Sexp) std.mem.Allocator.Error!Sexp {
+            var out = cond;
+            var i = l.steps.len;
+            while (i > 0) : (i -= 1) if (eq(l.steps[i - 1].name, "take")) {
+                out = try l.node(.@"and", &.{ try l.node(.@"<", &.{ try l.leaf(countName(i)), try l.leaf(limitName(i)) }), out });
+            };
+            return out;
+        }
+
         fn loop(l: *const ChainLowering, h: Head, body: Sexp, otherwise: Sexp) std.mem.Allocator.Error!Sexp {
-            if (l.source != .iterator) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, h.index, h.src, body, otherwise, .nil });
-            return l.node(.@"while", &.{ h.cond, .nil, body, otherwise });
+            if (l.source == .elements) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, h.index, h.src, body, otherwise, .nil });
+            if (h.pre[1] == .nil) return l.node(.@"while", &.{ h.cond, .nil, body, otherwise });
+            var stmts: std.ArrayList(Sexp) = .empty;
+            for (h.pre) |s| if (s != .nil) try stmts.append(l.p.allocator(), s);
+            try stmts.appendSlice(l.p.allocator(), ir.rest(body, .stmts));
+            return l.node(.@"while", &.{ h.cond, .nil, try l.block(stmts.items), otherwise });
         }
     };
 
@@ -5316,9 +5346,9 @@ pub const Parser = struct {
         switch (source) {
             .range => {
                 l.inclusive = isInclusive(root);
-                try pre.append(a, try l.bind(.chain_first, .nil, ir.get(root, .left)));
-                try pre.append(a, try l.bind(.chain_next, .nil, ir.get(root, .right)));
-                l.item_of[0] = .chain_first;
+                try pre.append(a, try l.bind(.range_from, .nil, ir.get(root, .left)));
+                try pre.append(a, try l.bind(.range_to, .nil, ir.get(root, .right)));
+                l.item_of[0] = .range_from;
             },
             else => {
                 // A sigil the program wrote stands; a place is lent to read.

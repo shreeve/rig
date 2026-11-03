@@ -68,6 +68,19 @@ test "max_by over owned elements keeps the last of equal keys", "cy"
 test "chains over ranges", "18 5 [4, 9, 16, 25]"
   print((1..10).filter(|i| i % 3 == 0).sum(), (0..=4).count(), (2..6).map(|i| i * i).collect())
 
+test "a range's min and max continue it, as an iterator's do", '''
+  1 4 4 -1
+  [3, 4] 5 4 17
+  8 14
+  3 3 8
+'''
+  # The second loop of a `min` takes up where the first stopped, and
+  # `take` stops before the step it does not need.
+  print((1..5).min() ?? -1, (1..5).max() ?? -1, (1..5).min_by(|x| 10 - x) ?? -1, (5..1).min() ?? -1)
+  print((1..10).filter(|x| x > 2).take(2).collect(), (0..=4).count(), (0..=4).max() ?? -1, (1..10).skip(7).sum())
+  print((1..10).filter(|x| x % 2 == 0).max_by(|x| x % 3) ?? -1, (1..10).map(|x| x * x).take(3).sum())
+  print((1..10).take(3).max() ?? -1, (1..10).skip(2).min() ?? -1, (5..10).filter(|i| i > 6).take(2).max() ?? -1)
+
 test "chains over iterators", '''
   3
   30 0
