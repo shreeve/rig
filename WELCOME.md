@@ -35,11 +35,19 @@ leaks; a program marked as rejected fails with the errors shown.
 **Sigils are the language's mechanics; words are its libraries.** How
 data is bound, taken, lent, held, failed, and run at the same time is
 written where it happens, as a one-character **sigil**, and a sigil
-means the same thing wherever it appears. The six families (binding,
-taking and copying, lending, holding, failure and absence, concurrency)
-are tabled in the [README](README.md#the-central-idea), on one page in
-[QUICK](docs/QUICK.md), and taught in
-[the sigils journey](docs/learn/01-sigils.md).
+means the same thing wherever it appears:
+
+| Mechanic | Sigils |
+|---|---|
+| Binding | `x = e` binds, `x =! e` binds for good |
+| Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
+| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
+| Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
+| Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
+| Concurrency | `f(x)&` sends work off, `>t` takes its result back |
+
+[QUICK](docs/QUICK.md) fits them on a page, and
+[the sigils journey](docs/learn/01-sigils.md) teaches them one at a time.
 
 What a library chooses is a word: canceling a task, `<t.cancel()`, or
 waiting for the first of several, `<ts.wait_first()`.
