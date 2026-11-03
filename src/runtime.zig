@@ -1255,15 +1255,7 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
         }
 
         pub fn __rig_drop(self: *Self) void {
-            const t = task();
-            if (t.drop_depth >= max_drop_depth) {
-                t.drop_queue.append(std.heap.smp_allocator, .{ .box = self.ptr, .release = self.vt.__rig_drop }) catch oom();
-                return;
-            }
-            t.drop_depth += 1;
-            self.vt.__rig_drop(self.ptr);
-            t.drop_depth -= 1;
-            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+            releaseNested(self.ptr, self.vt.__rig_drop);
         }
     };
 }
@@ -1884,7 +1876,7 @@ pub fn eql(a: anytype, b: anytype) bool {
     if (comptime A == @TypeOf(null) or B == @TypeOf(null)) return nullish(a) and nullish(b);
     // A frozen value's handles compare what they reach (Rig gives no
     // other handle `==`).
-    if (comptime isCountedPointer(A) and isCountedPointer(B)) return eql(a.value, b.value);
+    if (comptime isShared(A) and isShared(B)) return eql(a.value, b.value);
     // A view held as a pointer compares as the value it reaches.
     if (comptime isValuePointer(A)) return eql(a.*, b);
     if (comptime isValuePointer(B)) return eql(a, b.*);
@@ -1915,14 +1907,6 @@ pub fn eql(a: anytype, b: anytype) bool {
 fn isValuePointer(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .one and !isString(T) and !isStringView(T) and @typeInfo(p.child) != .@"fn",
-        else => false,
-    };
-}
-
-/// A handle `*T` to a counted allocation (`Counted`).
-fn isCountedPointer(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
-        .pointer => |p| p.size == .one and @typeInfo(p.child) == .@"struct" and @hasDecl(p.child, "__rig_shared"),
         else => false,
     };
 }
@@ -2015,7 +1999,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
         },
         .pointer => |p| {
             if (comptime isStringView(T)) return std.mem.eql(u8, a, b);
-            if (comptime isCountedPointer(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
+            if (comptime isShared(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
             if (comptime isScalar(p.child)) return std.mem.eql(p.child, a, b);
             if (a.len != b.len) return false;
@@ -2064,7 +2048,7 @@ pub fn hashAs(comptime T: type, x: T) u64 {
         .pointer => |p| {
             if (comptime isStringView(T)) return hashBytes(x);
             // A frozen value's handle hashes what it reaches.
-            if (comptime isCountedPointer(T)) return hashAs(@FieldType(p.child, "value"), x.value);
+            if (comptime isShared(T)) return hashAs(@FieldType(p.child, "value"), x.value);
             if (p.size == .one) return hashAs(p.child, x.*);
             if (p.size != .slice) @compileError("rig.hash: no `.hash()` of " ++ @typeName(T));
             var h: u64 = hashInt(x.len);
@@ -2255,7 +2239,7 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     // a view held as a pointer orders as the value it reaches.
     if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
     // A frozen value's handles order by what they reach, as they compare.
-    if (comptime isCountedPointer(A) and isCountedPointer(B)) return compare(a.value, op, b.value);
+    if (comptime isShared(A) and isShared(B)) return compare(a.value, op, b.value);
     if (comptime isValuePointer(A)) return compare(a.*, op, b);
     if (comptime isValuePointer(B)) return compare(a, op, b.*);
     const T = @TypeOf(a, b);
@@ -2281,7 +2265,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
     };
     if (comptime isStringView(T)) return std.mem.order(u8, a, b);
     if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
-    if (comptime isCountedPointer(T)) return order(a.value, b.value);
+    if (comptime isShared(T)) return order(a.value, b.value);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return if (some(b) == null) .eq else .lt;
         const y = some(b) orelse return .gt;
@@ -2435,15 +2419,7 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
         /// The last strong handle's release (`dropStrong`).
         noinline fn dropLast(self: *Self) void {
             if (comptime !needsDrop(T)) return self.releaseValue();
-            const t = task();
-            if (t.drop_depth >= max_drop_depth) {
-                t.drop_queue.append(std.heap.smp_allocator, .{ .box = self, .release = releaseErased }) catch oom();
-                return;
-            }
-            t.drop_depth += 1;
-            self.releaseValue();
-            t.drop_depth -= 1;
-            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+            releaseNested(self, releaseErased);
         }
 
         /// Drop the value, then give up the strong side's weak count; a
@@ -2488,6 +2464,22 @@ fn isWord(comptime T: type) bool {
 const max_drop_depth = 256;
 const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
 
+/// `release(box)`, a box's release, nested in the running task's
+/// releases: queued past `max_drop_depth`, and the queue drained once
+/// the outermost release returns. A release known at compile time is a
+/// direct call; an API object's, from its table, is not.
+inline fn releaseNested(box: *anyopaque, release: *const fn (*anyopaque) void) void {
+    const t = task();
+    if (t.drop_depth >= max_drop_depth) {
+        t.drop_queue.append(defaultAllocator(), .{ .box = box, .release = release }) catch oom();
+        return;
+    }
+    t.drop_depth += 1;
+    release(box);
+    t.drop_depth -= 1;
+    if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+}
+
 fn drainDropQueue() void {
     const t = task();
     t.drop_depth += 1;
@@ -2502,7 +2494,7 @@ fn drainDropQueue() void {
         pending.release(pending.box);
     }
     t.drop_depth -= 1;
-    t.drop_queue.clearAndFree(std.heap.smp_allocator);
+    t.drop_queue.clearAndFree(defaultAllocator());
 }
 
 /// `~T`: a non-owning handle to a `Shared(T)`.
@@ -2717,24 +2709,13 @@ pub fn Box(comptime T: type) type {
 
         pub fn __rig_drop(self: *Self) void {
             if (comptime !needsDrop(T)) return destroy(self.value);
-            const t = task();
-            if (t.drop_depth >= max_drop_depth) {
-                t.drop_queue.append(std.heap.smp_allocator, .{ .box = @ptrCast(self.value), .release = releaseErased }) catch oom();
-                return;
-            }
-            t.drop_depth += 1;
-            release(self.value);
-            t.drop_depth -= 1;
-            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+            releaseNested(self.value, releaseErased);
         }
 
-        fn release(p: *T) void {
+        fn releaseErased(box: *anyopaque) void {
+            const p: *T = @ptrCast(@alignCast(box));
             dropElement(T, p);
             destroy(p);
-        }
-
-        fn releaseErased(p: *anyopaque) void {
-            release(@ptrCast(@alignCast(p)));
         }
     };
 }
@@ -6165,7 +6146,7 @@ pub const MapTraceKey = struct {
             .optional => |o| if (x) |v| self.bytesOf(o.child, v),
             .pointer => |p| {
                 if (comptime isStringView(T)) return self.add(x);
-                if (comptime isCountedPointer(T)) return self.bytesOf(@FieldType(p.child, "value"), x.value);
+                if (comptime isShared(T)) return self.bytesOf(@FieldType(p.child, "value"), x.value);
                 if (p.size == .one) return self.bytesOf(p.child, x.*);
                 if (p.size == .slice) for (x) |e| self.bytesOf(p.child, e);
             },
