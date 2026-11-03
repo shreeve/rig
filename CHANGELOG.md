@@ -2286,7 +2286,16 @@ first step is on `main` (SPEC §18):
   answered, so a supervised actor whose methods panic keeps its slots.
   A send on a closed channel, and a close with senders waiting, panic
   in the sender's own task with the channel unlocked, so an isolate
-  that stops the panic leaves the channel working.
+  that stops the panic leaves the channel working. A supervised actor
+  whose value panics as it is made again answers the call it took,
+  which panics in its caller rather than wait for ever.
+- **A task's frames outlive its panic while its tasks read them.** A
+  task under an isolate that panics leaves its stack to the isolate,
+  which gives it back only once every task under it has ended, so a
+  task it lent its frames to (`sum(?d)&`) never reads a stack another
+  task reuses. A build that sanitizes (`RIG_SANITIZE=1`) returns each
+  stack to the system as its task ends, so a late write into one
+  faults.
 - **Every wait sleeps.** Tasks that share a listener each wait for a
   connection of their own: a second waiter no longer took the first's
   place, which then missed its wakeup and spun at its deadline. A call
@@ -2299,10 +2308,15 @@ first step is on `main` (SPEC §18):
   longer wakes a sleeping worker on each call (0.05 s to under 0.01 s
   with ten workers). A yield wakes a sleeping worker only when other
   work waits behind it, and closing a socket kicks the poller only when
-  a worker sleeps in it.
+  a worker sleeps in it. In a deterministic run (`rig test --seeds`),
+  `task.check()` yields by the seed's coin, as a loop's check does, and
+  every yield check wakes the timers the virtual clock has reached, so
+  a seeded run's interleavings, and output that depends on them, may
+  differ from before.
 - **`http.serve` and a `Tasks[Void]` set find their ended tasks at once**,
   from the list those tasks join as they end, rather than looking at
-  every task alive on each accept or `add`.
+  every task alive on each accept or `add`. Such a set allocates that
+  list's record at its first `add`.
 - **Smaller fixes:** `time.within` inside a deadline of `Int.max` no
   longer overflows in a safe build; a socket the poller refused fails
   its wait with `NetError.failed` rather than block its worker, as a

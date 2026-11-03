@@ -276,8 +276,11 @@ loans goes. Five rules make that so:
    may. A leak in Rig needs a cycle through a shared home, so a value
    that carries a loan never leaks. Rig has no `forget`.
 4. **A panic stops at a boundary** (see "Failure"), which cancels and
-   waits for every task started under it before the frames those tasks
-   may point into are left, so no task outlives a frame it reads from.
+   waits for every task started under it before it gives back the
+   stacks those tasks may point into: its own, and that of each task
+   under it that panicked. So no task outlives a frame it reads from. A
+   panic in an actor's method on the actor's own task does not yet wait
+   for the tasks the method started *(planned)*.
 5. **The program's end waits for its tasks.** `main` returns only after
    every task it still holds is canceled and waited for, before the leak
    check runs. An interrupt (SIGINT) or SIGTERM cancels a `main` that
@@ -636,8 +639,9 @@ gives up past a limit of restarts in a window.
 system. An invariant that spans several values belongs in an actor,
 which a panic cannot leave half-changed.
 
-**A panic while a boundary stops its tasks**, in a task it waits for,
-ends the program.
+**A panic while a boundary stops its tasks**, in one of those tasks, is
+reported, and that task ends where it stands, as any under the boundary
+does.
 
 **Bad input needn't panic.** Every operation that panics on bad input
 (an index, an overflow, a division) has a form that returns an optional

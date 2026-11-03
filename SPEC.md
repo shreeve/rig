@@ -13330,7 +13330,8 @@ view. `Chan[T](n)` stands only as the operand of `*`.
 - `(!ch).recv()!` waits for a value and gives it as `T?`; once the
   channel is closed and empty it gives `none`.
 - `!ch.close()` ends sending: tasks waiting to receive get `none`, the values
-  sent before still come out, and a later send panics.
+  sent before still come out, and a later send panics, as does a send
+  waiting for room, in its own task.
 
 Sending and receiving change the channel, so each is marked with `!`
 through a handle the task holds, and each is a fallible waiting point,
