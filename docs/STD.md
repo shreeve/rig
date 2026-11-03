@@ -1632,7 +1632,10 @@ and its `Item` is `T`). Each takes the iterator lent to write and
 advances it to its end. `count` holds no item past the next `next`, so
 it takes any iterator, one whose items view memory it owns too
 ([SPEC, APIs](../SPEC.md#apis)); `sum` takes items that are numbers,
-which view nothing.
+which view nothing. A chain does the same and more on any `for` source,
+as the loop it means, with no import: `(!it).count()`,
+`xs.filter(f).sum()`, `?m.items().min_by(key)` ([SPEC,
+Chains](../SPEC.md#chains)).
 
 | Function | Result |
 |---|---|

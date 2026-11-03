@@ -262,3 +262,13 @@ The owner approved each on 2026-10-27.
    a program writes one, with the `from @field` review's tests.*
 7. **When.** After the Swisstable Map and Set lands, as the next
    language feature (one at a time). *Approved.*
+8. **How a chain is lowered** (2026-11-03, after a panel of Zig, Rust,
+   and Swift programmers). The rewrite holds the source and binds each
+   stage's function once, before the loop, and types what it binds with
+   a type only it writes, `(item_type h)`: what the hidden binding `h`
+   gives each step, resolved where the next check reaches it. `min`,
+   `max`, `min_by`, and `max_by` take the first item the stages pass
+   and then the rest against it (a "first item yet?" test in one loop
+   measured 1.8 to 3.5 times slower); a List's element is kept by its
+   index. Ties follow Rust: `min` keeps the first of equal items, `max`
+   the last. *Approved.*

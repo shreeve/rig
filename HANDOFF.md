@@ -86,11 +86,14 @@ A new session, human or agent, takes these steps in order:
   pattern test, from a panel of Rust, Ruby, and Swift programmers
   ([design/matches.md](docs/design/matches.md)): `x matches P`,
   alternatives in parentheses that bind when they agree, `name?` and
-  `none` in a payload. Built on branch `matches`; it rejects `x as .p`
-  (loco has one site, `tools/migrate-matches.py` rewrites it). Next, as
-  its own change, the approved fused iterator chains
+  `none` in a payload, landed (#883). The fused iterator chains
   ([design/iterators.md](docs/design/iterators.md)) with `min_by(key)`
-  and `max_by(key)`.
+  and `max_by(key)` are built on branch `chains`. Open: a chain's
+  function that can fail (`|x| f(x)!`); errors inside a chain named in
+  its own terms (a type error there can name a hidden binding, `chain
+  value`); and `!@m.take(+best.key)` with `best` viewing `m`, which needs
+  a write receiver's lend to start after its arguments run (ownership,
+  the oracle, and CORE).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that

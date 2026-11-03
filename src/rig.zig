@@ -5405,8 +5405,12 @@ pub const Parser = struct {
         try l.stages(&body);
         const last = l.steps.len;
         const made = last > 0 and eq(l.steps[last - 1].name, "map");
+        // A List's element the loop lends is lent on, `?item`; a value a
+        // `map` made moves; anything else is the item.
         const item = try l.leaf(.chain_item);
-        try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.@"var"(node), .nil, if (made) try l.node(.move, &.{item}) else item }));
+        const lends = l.source == .elements and !l.copies and !made;
+        const value = if (made) try l.node(.move, &.{item}) else if (lends) try l.node(.read, &.{item}) else item;
+        try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.@"var"(node), .nil, value }));
         if (ir.For.index(node) != .nil) if (l.second_of[last]) |s| try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.index(node), .nil, try l.leaf(s) }));
         for (ir.rest(ir.For.body(node), .stmts)) |s| try body.append(a, s);
         try pre.append(a, try l.loop(h, try l.block(body.items), ir.For.@"else"(node)));
