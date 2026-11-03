@@ -2174,6 +2174,8 @@ const HiddenName = enum(u16) {
     none_value = 41,
     list_type = 42,
     push_name = 43,
+    chain_index = 44,
+    int_type = 45,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2221,6 +2223,8 @@ const HiddenName = enum(u16) {
             .none_value => "none",
             .list_type => "List",
             .push_name => "push",
+            .chain_index => "chain index",
+            .int_type => "Int",
         };
     }
 };
@@ -2521,7 +2525,10 @@ pub const ChainSource = enum { iterator, elements, range };
 
 /// A chain typecheck found (`Parser.desugarChains`): the call of its
 /// consumer, or the `for` whose source it is, and what it walks.
-pub const Chain = struct { node: parser.NodeId, source: ChainSource };
+/// `copies`: an element of a List, array, or slice source is plain data,
+/// which a loop's item copies; else the loop lends it, and a consumer
+/// that keeps one keeps its index (`Parser.lowerPeel`).
+pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true };
 
 /// The stages a chain may take, in a call on a `for` source whose type
 /// declares no method of the name.
@@ -5037,11 +5044,18 @@ pub const Parser = struct {
             if (slot.* != .list) continue;
             const id = slot.list.id;
             for (chains) |c| if (c.node == id) {
-                slot.* = try self.lowerIterChain(slot.*, c.source);
+                slot.* = try self.lowerIterChain(slot.*, c.source, c.copies);
+                if (chain_debug) { // DBG
+                    var buf: std.Io.Writer.Allocating = .init(self.allocator());
+                    writeTree(slot.*, self.base.source, &buf.writer) catch {};
+                    std.debug.print("CHAIN {s}\n", .{buf.written()});
+                }
                 break;
             };
         }
     }
+
+    const chain_debug = false; // DBG
 
     const ChainStep = struct { name: []const u8, args: []const Sexp, at: u32 };
 
@@ -5063,6 +5077,10 @@ pub const Parser = struct {
         /// No stage or consumer reads the item (`count` after counts
         /// alone): the loop binds `_`.
         unread: bool = false,
+        /// An element source's elements are plain data (`Chain.copies`).
+        copies: bool = true,
+        /// A range source includes its end (`a..=b`).
+        inclusive: bool = false,
 
         fn leaf(l: *const ChainLowering, name: HiddenName) std.mem.Allocator.Error!Sexp {
             return l.p.synthLeaf(l.home, name);
@@ -5095,6 +5113,26 @@ pub const Parser = struct {
             items[1] = try l.leaf(f);
             for (with, 0..) |a, i| items[2 + i] = try l.leaf(a);
             return l.node(.call, items[0 .. 2 + with.len]);
+        }
+
+        /// The element at index binding `at` of the held source: a copy
+        /// of plain data, a read view of anything else.
+        fn elem(l: *const ChainLowering, at: HiddenName) std.mem.Allocator.Error!Sexp {
+            const e = try l.node(.index, &.{ try l.leaf(.chain_source), try l.leaf(at) });
+            return if (l.copies) e else l.node(.read, &.{e});
+        }
+
+        fn callOn(l: *const ChainLowering, f: HiddenName, arg: Sexp) std.mem.Allocator.Error!Sexp {
+            return l.node(.call, &.{ .nil, try l.leaf(f), arg });
+        }
+
+        /// Whether a consumer that keeps an item keeps its index instead:
+        /// an element source no `map` changed, whose loop item is a view
+        /// the loop lends (or a copy, read again at the end).
+        fn keepsIndex(l: *const ChainLowering) bool {
+            if (l.source != .elements) return false;
+            for (l.steps) |st| if (eq(st.name, "map")) return false;
+            return true;
         }
 
         fn block(l: *const ChainLowering, stmts: []const Sexp) std.mem.Allocator.Error!Sexp {
@@ -5149,12 +5187,25 @@ pub const Parser = struct {
         /// otherwise.
         /// A loop's head, made before its body so that the names it binds
         /// stand before their uses.
-        const Head = struct { item: Sexp, src: Sexp, cond: Sexp };
+        const Head = struct { item: Sexp, index: Sexp = .nil, src: Sexp, cond: Sexp };
 
         fn head(l: *const ChainLowering) std.mem.Allocator.Error!Head {
+            return l.headWith(false, !l.unread);
+        }
+
+        /// Whether a stage reads the item (a `filter` or `map`).
+        fn stagesRead(l: *const ChainLowering) bool {
+            for (l.steps) |st| if (eq(st.name, "map") or eq(st.name, "filter")) return true;
+            return false;
+        }
+
+        /// A loop's head that also binds each element's index (an element
+        /// source alone).
+        fn headWith(l: *const ChainLowering, indexed: bool, reads: bool) std.mem.Allocator.Error!Head {
             if (l.source != .iterator) {
-                const src = if (l.source == .range) try l.node(.@"..", &.{ try l.leaf(.chain_first), try l.leaf(.chain_next), .nil }) else try l.leaf(.chain_source);
-                return .{ .item = try l.leaf(if (l.unread) .discard else .chain_item), .src = src, .cond = .nil };
+                const src = if (l.source == .range) try l.node(.@"..", &.{ try l.leaf(.chain_first), try l.leaf(.chain_next), if (l.inclusive) Sexp{ .tag = .inclusive } else .nil }) else try l.leaf(.chain_source);
+                const item = try l.leaf(if (reads) .chain_item else .discard);
+                return .{ .item = item, .index = if (indexed) try l.leaf(.chain_index) else .nil, .src = src, .cond = .nil };
             }
             var rooms: std.ArrayList(Sexp) = .empty;
             for (l.steps, 0..) |st, i| if (eq(st.name, "take")) {
@@ -5162,14 +5213,14 @@ pub const Parser = struct {
             };
             const lend = try l.node(.write, &.{try l.leaf(.chain_source)});
             const next = try l.node(.member, &.{ lend, try l.leaf(.next) });
-            var cond = try l.node(.as, &.{ try l.node(.call, &.{ .nil, next }), try l.leaf(if (l.unread) .discard else .chain_item) });
+            var cond = try l.node(.as, &.{ try l.node(.call, &.{ .nil, next }), try l.leaf(if (reads) .chain_item else .discard) });
             var i = rooms.items.len;
             while (i > 0) : (i -= 1) cond = try l.node(.@"and", &.{ rooms.items[i - 1], cond });
             return .{ .item = .nil, .src = .nil, .cond = cond };
         }
 
         fn loop(l: *const ChainLowering, h: Head, body: Sexp, otherwise: Sexp) std.mem.Allocator.Error!Sexp {
-            if (l.source != .iterator) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, .nil, h.src, body, otherwise, .nil });
+            if (l.source != .iterator) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, h.index, h.src, body, otherwise, .nil });
             return l.node(.@"while", &.{ h.cond, .nil, body, otherwise });
         }
     };
@@ -5201,7 +5252,7 @@ pub const Parser = struct {
     }
 
     /// One chain as its loop (`desugarChains`).
-    fn lowerIterChain(self: *Parser, node: Sexp, source: ChainSource) std.mem.Allocator.Error!Sexp {
+    fn lowerIterChain(self: *Parser, node: Sexp, source: ChainSource, copies: bool) std.mem.Allocator.Error!Sexp {
         const a = self.allocator();
         const is_for = node.isKind(.@"for");
         var cur = if (is_for) ir.For.source(node) else node;
@@ -5218,6 +5269,14 @@ pub const Parser = struct {
             cur = ir.Member.object(callee);
         }
         std.mem.reverse(ChainStep, steps.items);
+        // `for x in ?m.keys().filter(f)`: the loop's mode holds the `?`,
+        // which reaches the self of the source's call, as it does for a
+        // loop over the call itself.
+        if (is_for and ir.For.mode(node).tag == .read and cur.isKind(.call) and ir.Call.callee(cur).isKind(.member)) {
+            const callee = ir.Call.callee(cur);
+            const obj = ir.Member.object(callee);
+            if (!obj.isKind(.read)) @constCast(callee.items())[ir.slot(.member, .object)] = try self.base.newNode(.read, &.{obj}, self.span(obj));
+        }
         const root = cur;
         const extent = self.span(node);
         const home = if (consumer) |c| c.at else if (steps.items.len > 0) steps.items[steps.items.len - 1].at else extent.start;
@@ -5231,18 +5290,21 @@ pub const Parser = struct {
             .funs = try a.alloc(?HiddenName, n + 1),
             .item_of = try a.alloc(HiddenName, n + 1),
             .second_of = try a.alloc(?HiddenName, n + 2),
+            .copies = copies,
         };
         var pre: std.ArrayList(Sexp) = .empty;
         // The source, held: a range by its bounds, a place lent to read
         // (an iterator to write), a value made here owned.
         switch (source) {
             .range => {
+                l.inclusive = isInclusive(root);
                 try pre.append(a, try l.bind(.chain_first, .nil, ir.get(root, .left)));
                 try pre.append(a, try l.bind(.chain_next, .nil, ir.get(root, .right)));
                 l.item_of[0] = .chain_first;
             },
             else => {
-                const made = root.isKind(.call) or root.isKind(.array) or root.isKind(.paren);
+                // A sigil the program wrote stands; a place is lent to read.
+                const made = root.isKind(.call) or root.isKind(.array) or root.isKind(.paren) or root.isKind(.write) or root.isKind(.read) or root.isKind(.move);
                 const held = if (made) root else try l.node(if (source == .iterator) .write else .read, &.{root});
                 try pre.append(a, try l.bind(.chain_source, .nil, held));
                 l.item_of[0] = .chain_source;
@@ -5339,6 +5401,8 @@ pub const Parser = struct {
         } else if (eq(c.name, "any") or eq(c.name, "all")) {
             try pre.append(a, try l.bind(.chain_key, .nil, try self.typedFunction(l, c.args[0], last)));
             try pre.append(a, try l.bind(.chain_value, .nil, try l.leaf(if (eq(c.name, "any")) .false_value else .true_value)));
+        } else if (eq(c.name, "find") and l.keepsIndex()) {
+            return self.lowerFindIndex(l, c, pre);
         } else if (eq(c.name, "find")) {
             try pre.append(a, try l.bind(.chain_key, .nil, try self.typedFunction(l, c.args[0], last)));
             try pre.append(a, try l.bind(.chain_value, try l.node(.optional, &.{try l.itemType(item_ty)}), try l.leaf(.none_value)));
@@ -5384,6 +5448,69 @@ pub const Parser = struct {
         return self.onceValue(l, pre.items);
     }
 
+    /// `find` over an element source: the index of the first item `f`
+    /// passes, then the element there.
+    fn lowerFindIndex(self: *Parser, l: *ChainLowering, c: ChainStep, pre: *std.ArrayList(Sexp)) std.mem.Allocator.Error!Sexp {
+        const a = self.allocator();
+        const last = l.steps.len;
+        try pre.append(a, try l.bind(.chain_key, .nil, try self.typedFunction(l, c.args[0], last)));
+        const int_opt = try l.node(.optional, &.{try l.leaf(.int_type)});
+        const h = try l.headWith(true, true);
+        var body: std.ArrayList(Sexp) = .empty;
+        try l.stages(&body);
+        try body.append(a, try l.when(try l.call(.chain_key, try l.passed(last)), &.{try l.brk(try l.leaf(.chain_index))}));
+        try pre.append(a, try l.bind(.chain_first, int_opt, try l.loop(h, try l.block(body.items), try l.block(&.{try l.leaf(.none_value)}))));
+        return self.indexResult(l, pre);
+    }
+
+    /// The end of a consumer that kept an index in `chain first`: none,
+    /// or the element there.
+    fn indexResult(self: *Parser, l: *ChainLowering, pre: *std.ArrayList(Sexp)) std.mem.Allocator.Error!Sexp {
+        const a = self.allocator();
+        try pre.append(a, try l.bind(.chain_best, .nil, try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
+        const opt_ty = try l.node(.optional, &.{try l.itemType(.chain_source)});
+        try pre.append(a, try l.bind(.chain_next, opt_ty, try l.elem(.chain_best)));
+        try pre.append(a, try l.brk(try l.leaf(.chain_next)));
+        return self.onceValue(l, pre.items);
+    }
+
+    /// `min`, `max`, `min_by`, `max_by` over an element source: the index
+    /// of the first item the stages pass, then of the best of the rest,
+    /// whose element the result is. Each item before the first is passed
+    /// over in the second loop before any stage runs.
+    fn lowerPeelIndex(self: *Parser, l: *ChainLowering, c: ChainStep, pre: *std.ArrayList(Sexp)) std.mem.Allocator.Error!Sexp {
+        const a = self.allocator();
+        const last = l.steps.len;
+        const by = eq(c.name, "min_by") or eq(c.name, "max_by");
+        const is_min = eq(c.name, "min") or eq(c.name, "min_by");
+        if (by) try pre.append(a, try l.bind(.chain_key, .nil, try self.typedFunction(l, c.args[0], last)));
+        const int_opt = try l.node(.optional, &.{try l.leaf(.int_type)});
+        const fh = try l.headWith(true, l.stagesRead());
+        var fb: std.ArrayList(Sexp) = .empty;
+        try l.stages(&fb);
+        try fb.append(a, try l.brk(try l.leaf(.chain_index)));
+        try pre.append(a, try l.bind(.chain_first, int_opt, try l.loop(fh, try l.block(fb.items), try l.block(&.{try l.leaf(.none_value)}))));
+        try pre.append(a, try l.bind(.chain_best, .nil, try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
+        if (by) try pre.append(a, try l.bind(.chain_value, .nil, try l.callOn(.chain_key, try l.elem(.chain_best))));
+        const rh = try l.headWith(true, true);
+        var rb: std.ArrayList(Sexp) = .empty;
+        try rb.append(a, try l.when(try l.node(.@"<=", &.{ try l.leaf(.chain_index), try l.leaf(.chain_best) }), &.{try l.skip()}));
+        try l.stages(&rb);
+        const better: parser.Tag = if (is_min) .@"<" else .@">=";
+        if (by) {
+            try rb.append(a, try l.bind(.chain_next, .nil, try l.call(.chain_key, &.{.chain_item})));
+            try rb.append(a, try l.when(try l.node(better, &.{ try l.leaf(.chain_next), try l.leaf(.chain_value) }), &.{
+                try l.assign(.chain_best, try l.leaf(.chain_index)),
+                try l.assign(.chain_value, try l.leaf(.chain_next)),
+            }));
+        } else {
+            try rb.append(a, try l.when(try l.node(better, &.{ try l.leaf(.chain_item), try l.elem(.chain_best) }), &.{try l.assign(.chain_best, try l.leaf(.chain_index))}));
+        }
+        try pre.append(a, try l.loop(rh, try l.block(rb.items), .nil));
+        try pre.append(a, try l.assign(.chain_first, try l.leaf(.chain_best)));
+        return self.indexResult(l, pre);
+    }
+
     /// `while true` around `stmts`, which end in its `break`: a value.
     fn onceValue(self: *Parser, l: *const ChainLowering, stmts: []const Sexp) std.mem.Allocator.Error!Sexp {
         _ = self;
@@ -5394,6 +5521,7 @@ pub const Parser = struct {
     /// then the rest of the source against it. `min` keeps the first of
     /// equal items, `max` the last, as Rust's do.
     fn lowerPeel(self: *Parser, l: *ChainLowering, c: ChainStep, pre: *std.ArrayList(Sexp)) std.mem.Allocator.Error!Sexp {
+        if (l.keepsIndex()) return self.lowerPeelIndex(l, c, pre);
         const a = self.allocator();
         const last = l.steps.len;
         const item_ty = l.item_of[last];
@@ -5407,7 +5535,9 @@ pub const Parser = struct {
         try l.stages(&fb);
         try fb.append(a, try l.brk(try l.leaf(.chain_item)));
         try pre.append(a, try l.bind(.chain_first, opt_ty, try l.loop(fh, try l.block(fb.items), try l.block(&.{try l.leaf(.none_value)}))));
-        try pre.append(a, try l.bind(.chain_best, .nil, try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
+        // Typed, so a view stays a view rather than reading out the
+        // number it views (SPEC "The fallback of `??`").
+        try pre.append(a, try l.bind(.chain_best, try l.itemType(item_ty), try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
         if (by) try pre.append(a, try l.bind(.chain_value, .nil, try l.call(.chain_key, &.{.chain_best})));
         // The rest.
         const rh = try l.head();

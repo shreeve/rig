@@ -14300,11 +14300,14 @@ const Checker = struct {
         const call = self.current_call orelse return null;
         var root = ir.Member.object(callee);
         var stages: usize = 0;
+        var first = method;
         while (root.isKind(.call) and ir.Call.callee(root).isKind(.member) and rig.isChainStage(self.text(ir.Member.name(ir.Call.callee(root))))) {
             stages += 1;
+            first = self.text(ir.Member.name(ir.Call.callee(root)));
             root = ir.Member.object(ir.Call.callee(root));
         }
-        const kind = (try self.chainSource(root, method, stages)) orelse return null;
+        const found = (try self.chainSource(root, method, stages)) orelse return null;
+        const kind = found.kind;
         const consumer = rig.isChainConsumer(method);
         const for_source = self.chain_for != .nil and sameNode(call, ir.For.source(self.chain_for));
         if (!consumer and !for_source) {
@@ -14312,35 +14315,48 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (!try self.chainShape(callee, method, args)) return self.t().invalid_id;
+        // An iterator in a place advances: the chain lends it to write,
+        // and says so, as a `for` over it does.
+        if (kind == .iterator and !for_source and !madeHere(root) and !root.isKind(.write)) {
+            const shown = try self.plainText(root);
+            try self.errAt(root, "a chain advances the iterator `{s}`: lend it to write, `(!{s}).{s}(...)`", .{ shown, shown, first });
+            return self.t().invalid_id;
+        }
         const node = if (for_source) self.chain_for else call;
         const id = node.list.id;
         for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
-        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind });
+        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies });
         return self.t().unknown_id;
+    }
+
+    /// A value made where it stands: a call, or a literal.
+    fn madeHere(e: Sexp) bool {
+        return e.isKind(.call) or e.isKind(.array) or e.isKind(.read);
     }
 
     /// What a chain whose stages end at `root` walks, or null when `root`
     /// is no `for` source, or its type declares `method` itself, or, with
     /// no stage, a List's own `sum` or `reduce` takes the call.
-    fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize) Error!?rig.ChainSource {
-        if (root.isKind(.@"..")) return .range;
+    fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize) Error!?struct { kind: rig.ChainSource, copies: bool = true } {
+        if (root.isKind(.@"..")) return .{ .kind = .range };
         const ty = try self.synthQuiet(root);
         if (self.isPoison(ty)) return null;
         const peeled = sema.unwrapViews(self.ctx, ty);
-        const elements = switch (self.ctx.types.get(peeled)) {
-            .slice, .array => true,
-            else => sema.listElem(self.ctx, peeled) != null,
+        const elem: ?TypeId = switch (self.ctx.types.get(peeled)) {
+            .slice => |sl| sl.elem,
+            .array => |arr| arr.elem,
+            else => sema.listElem(self.ctx, peeled),
         };
-        if (elements) {
+        if (elem) |e| {
             if (stages == 0 and (std.mem.eql(u8, method, "sum") or std.mem.eql(u8, method, "reduce"))) return null;
-            return .elements;
+            return .{ .kind = .elements, .copies = sema.copies(self.ctx, e) == .yes };
         }
         switch (try sema.iterItem(self.ctx, peeled)) {
             .item => {},
             else => return null,
         }
         if ((try sema.methodOfType(self.ctx, peeled, method)) != null) return null;
-        return .iterator;
+        return .{ .kind = .iterator };
     }
 
     /// Each stage and the consumer of a chain take the arguments they
