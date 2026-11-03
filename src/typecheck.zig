@@ -14333,6 +14333,12 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (!try self.chainShape(callee, method, args)) return self.t().invalid_id;
+        // Each stage binds hidden names of its own (`Parser.stageName`).
+        const count = if (consumer) stages else stages + 1;
+        if (count > rig.max_chain_stages) {
+            try self.errAt(call, "this chain has {d} stages, and a chain has at most {d}: end it with `.collect()` part way and chain on the List that gives, or write the loop", .{ count, rig.max_chain_stages });
+            return self.t().invalid_id;
+        }
         // An iterator in a place advances: the chain lends it to write,
         // and says so, as a `for` over it does.
         if (kind == .iterator and !for_source and !madeHere(root) and !root.isKind(.write)) {

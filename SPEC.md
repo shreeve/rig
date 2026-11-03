@@ -6299,9 +6299,9 @@ are `String`s ``, `` `filter`'s function gives a `Bool` ``; `collect` of
 views is rejected with the fix, `.map(|x| +x).collect()`.
 
 A chain is not a value: bound, passed, or returned without a consumer,
-it is rejected with the ways to end it. `for x in xs.filter(f)` is a
-loop whose body runs for each item the stages pass; its `break` and
-`continue` are its own.
+it is rejected with the ways to end it. A chain has at most 64
+stages. `for x in xs.filter(f)` is a loop whose body runs for each
+item the stages pass; its `break` and `continue` are its own.
 
 ```rig
 obj P

@@ -2145,46 +2145,26 @@ const HiddenName = enum(u16) {
     chain_key = 12,
     chain_first = 13,
     chain_next = 14,
-    stage_1 = 15,
-    count_1 = 16,
-    limit_1 = 17,
-    stage_2 = 18,
-    count_2 = 19,
-    limit_2 = 20,
-    stage_3 = 21,
-    count_3 = 22,
-    limit_3 = 23,
-    stage_4 = 24,
-    count_4 = 25,
-    limit_4 = 26,
-    stage_5 = 27,
-    count_5 = 28,
-    limit_5 = 29,
-    stage_6 = 30,
-    count_6 = 31,
-    limit_6 = 32,
-    stage_7 = 33,
-    count_7 = 34,
-    limit_7 = 35,
-    stage_8 = 36,
-    count_8 = 37,
-    limit_8 = 38,
-    zero_value = 39,
-    one_value = 40,
-    none_value = 41,
-    list_type = 42,
-    push_name = 43,
-    chain_index = 44,
-    int_type = 45,
-    len_name = 46,
-    range_from = 47,
-    range_to = 48,
+    zero_value = 15,
+    one_value = 16,
+    none_value = 17,
+    list_type = 18,
+    push_name = 19,
+    chain_index = 20,
+    int_type = 21,
+    len_name = 22,
+    range_from = 23,
+    range_to = 24,
     /// The index of the first item a `min` over a List's made values
     /// took, so the loop over the rest starts after it.
-    chain_at = 49,
+    chain_at = 25,
     /// An inclusive range's cursor has taken its end, which may be its
     /// type's largest value, past which it cannot step.
-    chain_done = 50,
+    chain_done = 26,
+    /// The hidden bindings of a chain's stages, three a stage
+    /// (`Parser.stageName`), `max_chain_stages` of them: the names past
+    /// the last one above.
+    _,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2203,30 +2183,6 @@ const HiddenName = enum(u16) {
             .chain_key => "chain key",
             .chain_first => "chain first",
             .chain_next => "chain next",
-            .stage_1 => "chain stage 1",
-            .count_1 => "chain count 1",
-            .limit_1 => "chain limit 1",
-            .stage_2 => "chain stage 2",
-            .count_2 => "chain count 2",
-            .limit_2 => "chain limit 2",
-            .stage_3 => "chain stage 3",
-            .count_3 => "chain count 3",
-            .limit_3 => "chain limit 3",
-            .stage_4 => "chain stage 4",
-            .count_4 => "chain count 4",
-            .limit_4 => "chain limit 4",
-            .stage_5 => "chain stage 5",
-            .count_5 => "chain count 5",
-            .limit_5 => "chain limit 5",
-            .stage_6 => "chain stage 6",
-            .count_6 => "chain count 6",
-            .limit_6 => "chain limit 6",
-            .stage_7 => "chain stage 7",
-            .count_7 => "chain count 7",
-            .limit_7 => "chain limit 7",
-            .stage_8 => "chain stage 8",
-            .count_8 => "chain count 8",
-            .limit_8 => "chain limit 8",
             .zero_value => "0",
             .one_value => "1",
             .none_value => "none",
@@ -2239,9 +2195,31 @@ const HiddenName = enum(u16) {
             .range_to => "chain to",
             .chain_at => "chain at",
             .chain_done => "chain done",
+            _ => stage_texts[@intFromEnum(self) - first_stage],
         };
     }
+
+    /// The first stage's names follow the last named one.
+    const first_stage = @intFromEnum(HiddenName.chain_done) + 1;
+
+    /// `chain stage n`, `chain count n`, and `chain limit n` of each stage.
+    const stage_texts = blk: {
+        @setEvalBranchQuota(100_000);
+        var texts: [3 * max_chain_stages][]const u8 = undefined;
+        for (0..max_chain_stages) |i| for ([_][]const u8{ "stage", "count", "limit" }, 0..) |w, j| {
+            texts[3 * i + j] = std.fmt.comptimePrint("chain {s} {d}", .{ w, i + 1 });
+        };
+        break :blk texts;
+    };
+
+    comptime {
+        std.debug.assert(first_stage + stage_texts.len <= 0x100);
+    }
 };
+
+/// The stages a chain may have: each binds three hidden names, and
+/// hidden names have 256 ids in all (`hidden_id_base`).
+pub const max_chain_stages = 64;
 
 /// Whether a pattern tests an optional payload field, `r?` or `none`,
 /// in any alternative: its arm may not run for the values of its
@@ -5093,9 +5071,8 @@ pub const Parser = struct {
         /// What a `zip`'s second source is (`Chain.zip`).
         zip: ChainSource = .elements,
         zip_copies: bool = true,
-        /// No stage or consumer reads the item (`count` after counts
-        /// alone): the loop binds `_`.
-        unread: bool = false,
+        /// The consumer is `count`, which reads no item.
+        counts: bool = false,
         /// An element source's elements are plain data (`Chain.copies`).
         copies: bool = true,
         /// A range source includes its end (`a..=b`).
@@ -5193,7 +5170,8 @@ pub const Parser = struct {
                 if (eq(st.name, "filter")) {
                     try body.append(a, try l.when(try l.node(.not, &.{try l.call(l.funs[i].?, try l.passed(i))}), &.{try l.skip()}));
                 } else if (eq(st.name, "map")) {
-                    try body.append(a, try l.bind(.chain_item, .nil, try l.call(l.funs[i].?, try l.passed(i))));
+                    const value = try l.call(l.funs[i].?, try l.passed(i));
+                    try body.append(a, if (l.readFrom(n)) try l.bind(.chain_item, .nil, value) else try l.assign(.discard, value));
                 } else if (eq(st.name, "take")) {
                     // An iterator or a range stops before its next item
                     // instead (`headWith`).
@@ -5238,7 +5216,15 @@ pub const Parser = struct {
         const Head = struct { item: Sexp, index: Sexp = .nil, src: Sexp, cond: Sexp, pre: [2]Sexp = .{ .nil, .nil } };
 
         fn head(l: *const ChainLowering) std.mem.Allocator.Error!Head {
-            return l.headWith(false, !l.unread);
+            return l.headWith(false, l.readFrom(0));
+        }
+
+        /// Whether a stage from `i` on, or the consumer, reads the item:
+        /// one no one reads is not bound (`_`).
+        fn readFrom(l: *const ChainLowering, i: usize) bool {
+            if (!l.counts) return true;
+            for (l.steps[i..]) |st| if (eq(st.name, "map") or eq(st.name, "filter")) return true;
+            return false;
         }
 
         /// Whether a stage reads the item (a `filter` or `map`).
@@ -5312,15 +5298,16 @@ pub const Parser = struct {
     }
 
     fn countName(n: usize) HiddenName {
-        return @enumFromInt(@intFromEnum(HiddenName.stage_1) + (n - 1) * 3 + 1);
+        return @enumFromInt(@intFromEnum(stageName(n)) + 1);
     }
 
     fn limitName(n: usize) HiddenName {
-        return @enumFromInt(@intFromEnum(HiddenName.stage_1) + (n - 1) * 3 + 2);
+        return @enumFromInt(@intFromEnum(stageName(n)) + 2);
     }
 
+    /// The hidden names of stage `n`, from 1 (`HiddenName.stage_texts`).
     fn stageName(n: usize) HiddenName {
-        return @enumFromInt(@intFromEnum(HiddenName.stage_1) + (n - 1) * 3);
+        return @enumFromInt(HiddenName.first_stage + (n - 1) * 3);
     }
 
     /// A leaf of hidden name `name` at a position past the source's end,
@@ -5352,6 +5339,8 @@ pub const Parser = struct {
             cur = ir.Member.object(callee);
         }
         std.mem.reverse(ChainStep, steps.items);
+        // Typecheck rejects a longer chain (`max_chain_stages`).
+        std.debug.assert(steps.items.len <= max_chain_stages);
         // `for x in ?m.keys().filter(f)`: the loop's mode holds the `?`,
         // which reaches the self of the source's call, as it does for a
         // loop over the call itself.
@@ -5449,9 +5438,7 @@ pub const Parser = struct {
                 l.second_ty[k] = stageName(k);
             }
         }
-        l.unread = !is_for and eq(consumer.?.name, "count") and for (steps.items) |st| {
-            if (eq(st.name, "map") or eq(st.name, "filter")) break false;
-        } else true;
+        l.counts = !is_for and eq(consumer.?.name, "count");
         if (is_for) return self.lowerForChain(&l, node, &pre);
         return self.lowerConsumer(&l, consumer.?, &pre);
     }
@@ -5667,7 +5654,7 @@ pub const Parser = struct {
         const indexed = l.source == .elements;
         if (indexed) try pre.append(a, try l.bind(.chain_at, .nil, try l.leaf(.zero_value)));
         const opt_ty = try l.node(.optional, &.{try l.itemType(item_ty)});
-        const fh = try l.headWith(indexed, !l.unread);
+        const fh = try l.headWith(indexed, l.readFrom(0));
         var fb: std.ArrayList(Sexp) = .empty;
         try l.stages(&fb, true);
         if (indexed) try fb.append(a, try l.assign(.chain_at, try l.leaf(.chain_index)));
@@ -5678,7 +5665,7 @@ pub const Parser = struct {
         try pre.append(a, try l.bind(.chain_best, try l.itemType(item_ty), try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
         if (by) try pre.append(a, try l.bind(.chain_value, .nil, try l.call(.chain_key, &.{.chain_best})));
         // The rest.
-        const rh = try l.headWith(indexed, !l.unread);
+        const rh = try l.headWith(indexed, l.readFrom(0));
         var rb: std.ArrayList(Sexp) = .empty;
         if (indexed) try rb.append(a, try l.when(try l.node(.@"<=", &.{ try l.leaf(.chain_index), try l.leaf(.chain_at) }), &.{try l.skip()}));
         try l.stages(&rb, false);

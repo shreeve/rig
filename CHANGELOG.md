@@ -269,6 +269,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A chain takes up to 64 stages.** One of 9 to 12 stages was
+  rejected with a message about a hidden name (closure `0`, or `none`),
+  and one of 13 or more stopped the compiler; each stage up to 64 works,
+  and a longer chain is rejected with the limit. A `map` before
+  `count`, whose items `count` does not read, is accepted: it was
+  rejected as an unread hidden binding.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under
