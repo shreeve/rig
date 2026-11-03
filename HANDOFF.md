@@ -94,10 +94,10 @@ A new session, human or agent, takes these steps in order:
   `x matches P` ([design/matches.md](docs/design/matches.md), #883):
   alternatives in parentheses that bind when they agree, `name?` and
   `none` in a payload, and `x as .p` rejected (`tools/migrate-matches.py`
-  rewrites it). In flight: errors inside a chain in the chain's own
-  terms (#887), and `!@m.take(+best.key)` with `best` viewing `m`, a
-  write receiver lent after its arguments run (#888). Waiting for a
-  program that needs it: a chain's function that can fail
+  rewrites it). A clone ends a view before the call writes what it
+  viewed (#888, CORE §6): `!m.take(+best.key)` where `best` views `m`.
+  In flight: errors inside a chain in the chain's own terms (#887).
+  Waiting for a program that needs it: a chain's function that can fail
   (`|x| f(x)!`).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the

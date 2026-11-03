@@ -294,6 +294,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   subject sets how every binding is held: `if <e.state matches
   .ready(img?)` owns `img`. The diagnostic for a field of a read
   binding passed by value offers `<` on the subject before `+`.
+- **A clone ends a view before the call writes.** A clone that holds
+  no view is made where it stands and keeps nothing lent there (CORE
+  §6), so `!m.take(+e.key)` works where `e` views `m`, as in a cache's
+  `trim`; `!m.take(e.key)` is still rejected. A clone made through a
+  view, passed to a call that writes or moves anything, is no longer
+  reported as a wasted clone.
 - **A guard takes no block.** `return if c`, `break if c`, and every
   other postfix guard end their statement, and a deeper line after one
   is rejected at the guard's `if`, with the fix: `return` in each

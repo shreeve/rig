@@ -1903,6 +1903,40 @@ sub main()
 2 [9, 2, 3]
 ```
 
+A clone that holds no view (`+e.key`, a String) is made where it
+stands, as a copied field is, and keeps nothing lent there. So
+`!m.take(+e.key)` works where `e` views `m`: the view's last use is
+behind the write lend. Passing the view itself, `!m.take(e.key)`, keeps
+it lent while the call writes `m`, and is rejected. *(built)*
+
+```rig
+sub main()
+  m: Map[String, Int] = Map()
+  !m.put(String("a"), 1)
+  it = ?m.items()
+  e = (!it).next() ?? return
+  n = !m.take(+e.key) ?? 0
+  print(n, m.len)
+```
+
+```output
+1 0
+```
+
+```rig reject
+sub main()
+  m: Map[String, Int] = Map()
+  !m.put(String("a"), 1)
+  it = ?m.items()
+  e = (!it).next() ?? return
+  n = !m.take(e.key) ?? 0
+  print(n, m.len)
+```
+
+```error
+cannot lend `m` to write while a read loan is live
+```
+
 **Bindings.** A local binding may be reassigned. Parameters and fixed
 bindings (`x =! e`) may not. *(built)*
 
