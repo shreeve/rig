@@ -3,8 +3,8 @@
 //!
 //! Ownership conventions shared with the emitter:
 //!
-//! - `*T` is `*Shared(T)`: single-threaded reference counting with weak
-//!   handles (`Weak(T)`). `cloneStrong` / `dropStrong` /
+//! - `*T` is `*Shared(T)`: reference counting, atomic when `T` is
+//!   synchronized, with weak handles (`Weak(T)`). `cloneStrong` / `dropStrong` /
 //!   `weakRef` / `cloneWeak` / `dropWeak` / `upgrade` are the only
 //!   refcount operations; the emitter spells every one explicitly.
 //! - `*Frozen[T]` is `*Frozen(T)`: a strong count, always atomic, and the
@@ -407,7 +407,7 @@ pub const TestErrorGlue = struct {
 
     pub fn eql(code: anyerror, a: *const ErrData, b: *const ErrData) bool {
         _ = code;
-        return std.mem.eql(u8, &@as(*const ErrData, @ptrCast(@alignCast(a))).bytes, &@as(*const ErrData, @ptrCast(@alignCast(b))).bytes);
+        return std.mem.eql(u8, &a.bytes, &b.bytes);
     }
 };
 pub const Control = tasks.Control;
@@ -647,6 +647,7 @@ const x86_vectors: struct { save: []const u8, restore: []const u8 } = blk: {
 pub const sched = @import("sched.zig");
 // Sockets and the HTTP server (`net.zig`).
 pub const net = @import("net.zig");
+pub const httpServe = net.serve;
 
 // Tables (`table.zig`): `Table[T, n]` and `Slot[n]`.
 const table_zig = @import("table.zig");
@@ -665,7 +666,6 @@ pub const OrderedSet = ordered_zig.OrderedSet;
 const unordered_zig = @import("unordered.zig");
 pub const UnorderedMap = unordered_zig.UnorderedMap;
 pub const UnorderedSet = unordered_zig.UnorderedSet;
-pub const httpServe = net.serve;
 
 test {
     _ = sched;
@@ -1963,8 +1963,8 @@ pub fn textIs(x: anytype, lit: []const u8) bool {
 /// every level below it, which grows as the square of the chain (a
 /// release build of 400 levels took minutes); out of line past that
 /// depth, each body holds a bounded number of levels. Any shallower
-/// object is reached inline, as before, so a hot `==` or hash of one is
-/// unchanged.
+/// object is reached inline, so a hot `==` or hash of one makes no
+/// call.
 fn outOfLine(comptime F: type) bool {
     return nestingDepth(F) > out_of_line_depth;
 }
@@ -10041,7 +10041,7 @@ test "index bounds and division" {
 }
 
 test "a failure leaving main is shown through the glue, and its fields dropped" {
-    // Compiled here, as R3's emit will call them.
+    // Compiled here, as emit calls them.
     _ = &reportFailure;
     _ = &failMainReported;
     TestErrorGlue.drops.store(0, .seq_cst);

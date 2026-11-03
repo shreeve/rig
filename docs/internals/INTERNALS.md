@@ -5317,7 +5317,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + $size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `enumText`, `enumFromText`, `NameTable` | a plain enum's names: `e.text` is the variant's `@tagName`, less the `'` a renamed one carries (`rigName`); `E.from_text(word)` finds `word` in a `NameTable`, the enum's names in declaration order in an open-addressed table the compiler emits (`src/nametable.zig`): a power of two of at least 16 slots, at most four fifths full, a one-byte tag per slot from the word's Wyhash, and each slot's index into the names. `find` hashes once, probes, and compares bytes only where a tag agrees, and the index gives the variant (`std.enums.values`). `bench/names/` times it against comparing names one by one |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
-| `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
+| `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven`, `swapProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `atIf`, `elemPtrIf`, `addIf`, `okNonneg`, `okBelow`, and a List's `atProven`, `slotProven`, `constSlotProven`, `atIf`, `slotIf`, `constSlotIf` | the same for a List, and with a flag ([Flags](#flags)): `okNonneg` and `okBelow` are a flag's tests, and an `If` operation omits the tests its `q` names too while the flag it is given is true, and otherwise makes them where it is, as the plain operation does |
 | `lenOf`, `heldLen`, `len`, `max_len` | a length as an `Int`, at most `max_len`, `2^62 - 1`, so `i + c` is known to fit where `i` is below a length. `lenOf(x)` is every `x.len` of a List, slice, or array emit writes. A List's and a slice's length is at most `max_len` by construction, and `heldLen` converts it with no test (a debug build asserts it): a buffer of elements of a byte or more lies in memory, which no target has `2^62` bytes of, and `allocSlice` and `reallocSlice` refuse a longer one all the same; a List of zero-bit elements, which takes no memory, panics where it would grow past `max_len` (`ListOf.grow`, "length out of range"). `String.length` is `heldLen` too. `len` tests the margin and panics above it, for an array, whose length is a constant that folds, and a slice of zero-bit elements, which nothing in memory bounds |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
@@ -5522,8 +5522,8 @@ table counts the times it builds its index anew (`traceRebuilds`),
 and a traced method whose call moved the count records a `grow` with
 the index's lanes before its own record. A build without the
 flag never reaches that file, and the runtime's trace code is behind
-the declaration, so its Zig and its machine code are those of a build
-before the trace existed.
+the declaration, so its Zig and its machine code hold nothing of the
+trace.
 
 The traced operations: `has`, `get`, and `edit` are lookups; `put`,
 `replace`, `put_new`, the three `ensure`s, and a Set's `add` are puts;
@@ -5701,8 +5701,8 @@ too. The real frame is at most
 `sema.reach_factor` (4) times the reach in every form
 `test/cli/frame_reach.sh` measures, but a form Zig copies that reach does
 not model could exceed it, as a payload part a `match <e` arm dropped by
-value at each exit did (the case `rev230-discard-exits` of test/rig/probes-16.rig.test;
-`rig.discardAt` now passes it by address). Destination-passing, which is not built, would make the bound hold by construction.
+value at each exit did (the case `rev230-discard-exits` of test/rig/probes-16.rig.test,
+which `rig.discardAt` keeps in bounds by taking the part by address). Destination-passing, which is not built, would make the bound hold by construction.
 
 Where Zig writes code or slots more than once, and how reach covers
 each:
