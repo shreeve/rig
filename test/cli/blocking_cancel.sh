@@ -1,6 +1,7 @@
 # A blocking call ends when its task stops, with or without tasks: a
 # FIFO's open waiting for a writer, a read of a pipe with nothing in
-# it, a write to a full one, an accept no client answers. SIGTERM cancels `main` there, its
+# it (by a File and by io.copy), a write to a full one (whole, and by a
+# File), an accept no client answers. SIGTERM cancels `main` there, its
 # defers run, and the program ends by the signal (143); a deadline
 # (`time.within`) ends the call with `task.Stop.timeout`. A program that
 # makes no task runs the call on its own thread, where the signal and an
@@ -146,6 +147,53 @@ sub main()!
   >t!
 EOF2
 
+cat >copies_within.rig <<'EOF2'
+use std.file
+use std.io
+use std.time
+
+fun copied() -> Int!
+  if file.open("fifo")! as f
+    out = file.create("out/copied")!
+    return io.copy(!f, !out)!
+  return -1
+
+sub work()!
+  n = time.within(100 * time.MS, || copied()!) catch |e|
+    print("stopped:", e)
+    -2
+  print("copied:", n)
+
+sub main()!
+  t = work()&
+  >t!
+EOF2
+
+cat >task_file_writes_within.rig <<'EOF2'
+use std.file
+use std.time
+
+fun big() -> String
+  s = String()
+  for _ in 0..100000
+    !s.add("0123456789")
+  <s
+
+sub put(data: ?String)!
+  f = file.create("fifo")!
+  (!f).write(data)!
+
+sub work()!
+  data = big()
+  time.within(100 * time.MS, |?data| put(data)!) catch |e|
+    print("stopped:", e)
+  print("wrote")
+
+sub main()!
+  t = work()&
+  >t!
+EOF2
+
 cat >accepts_within.rig <<'EOF2'
 use std.net
 use std.time
@@ -162,7 +210,7 @@ sub main()!
   print("accepted:", ok)
 EOF2
 
-progs="opens task_opens opens_within task_opens_within reads_within task_reads_within writes_within task_writes_within accepts_within"
+progs="opens task_opens opens_within task_opens_within reads_within task_reads_within copies_within writes_within task_writes_within task_file_writes_within accepts_within"
 for p in $progs; do
   rig build -o $p $p.rig >/dev/null 2>&1 || fail "build $p.rig: $(rig build -o $p $p.rig 2>&1 | head -5)"
 done
@@ -219,6 +267,10 @@ expect_eq "$out" $'stopped: Stop.timeout\nread: -2' "the read fails with the dea
 out=$("$TIMEOUT_CMD" -s KILL 10 ./task_reads_within 2>&1); expect_rc $? 0 "a deadline ends a pipe's read in a task: $out"
 expect_eq "$out" $'stopped: Stop.timeout\nread: -2' "the task's read fails with the deadline's error"
 
+mkdir -p out
+out=$("$TIMEOUT_CMD" -s KILL 10 ./copies_within 2>&1); expect_rc $? 0 "a deadline ends io.copy from a pipe in a task: $out"
+expect_eq "$out" $'stopped: Stop.timeout\ncopied: -2' "the task's copy fails with the deadline's error"
+
 # A megabyte written to it, more than the pipe holds: the write waits
 # for a reader to take some.
 out=$("$TIMEOUT_CMD" -s KILL 10 ./writes_within 2>&1); expect_rc $? 0 "a deadline ends a full pipe's write with no task: $out"
@@ -226,6 +278,9 @@ expect_eq "$out" $'stopped: Stop.timeout\nwrote' "the write fails with the deadl
 
 out=$("$TIMEOUT_CMD" -s KILL 10 ./task_writes_within 2>&1); expect_rc $? 0 "a deadline ends a full pipe's write in a task: $out"
 expect_eq "$out" $'stopped: Stop.timeout\nwrote' "the task's write fails with the deadline's error"
+
+out=$("$TIMEOUT_CMD" -s KILL 10 ./task_file_writes_within 2>&1); expect_rc $? 0 "a deadline ends a File's write to a full pipe in a task: $out"
+expect_eq "$out" $'stopped: Stop.timeout\nwrote' "the task's File write fails with the deadline's error"
 exec 3>&-
 
 out=$("$TIMEOUT_CMD" -s KILL 10 ./accepts_within 2>&1); expect_rc $? 0 "a deadline ends an accept with no task: $out"

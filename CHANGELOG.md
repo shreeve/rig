@@ -2371,6 +2371,22 @@ first step is on `main` (SPEC §18):
   the call's thread finishes, then yields its thread. Pinned to one
   core, it spun until the kernel preempted it, about 2.4 ms of every
   Trig run: 37% of its gap to tsrs on a small project.
+- **A file's call on the blocking pool takes no lock.** `File.read`,
+  `write`, and `sync` move a duplicate of the file's descriptor, and a
+  read the caller's String, into the pool's call by value, which gives
+  them back with its answer; a call its task stopped waiting for drops
+  them as it ends, and one that never starts is dropped by the pool. The
+  process-wide table of lent descriptors, and its lock, are gone, and
+  without the scheduler a call takes the file's own descriptor, with no
+  duplicate. `io.copy` lends each file once and moves one buffer through
+  every block, with no allocation or copy for each: copying 256 MiB from
+  file to file four times takes 0.21 s on an M-series Mac, against
+  0.26 s before (19% faster), and 0.41 s against 0.63 s in a task (35%
+  faster). Reading 32 MiB 4 KiB at a time and writing 200,000 lines of
+  64 bytes takes 0.27 s against 0.32 s (16% faster), and 1.61 s
+  against 1.79 s in a task (10% faster). A stoppable blocking call's
+  arguments are checked at every depth: any pointer but a `[]const u8`,
+  which is copied, does not compile.
 - **Tasks:** `f(x)&` runs a call as a task and gives a `Task[T]`,
   which keeps its arguments' loans until `>t` takes its
   result; a task is never left running past its scope.

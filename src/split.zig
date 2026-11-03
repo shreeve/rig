@@ -310,7 +310,7 @@ test "a slot for each thread-local, each named once" {
 }
 
 test "unit 0 refers to every cell" {
-    const files = [_][]const u8{ @embedFile("runtime.zig"), @embedFile("alloc.zig"), @embedFile("sched.zig"), @embedFile("tasks.zig"), @embedFile("net.zig") };
+    const files = [_][]const u8{ @embedFile("runtime.zig"), @embedFile("alloc.zig"), @embedFile("sched.zig"), @embedFile("tasks.zig") };
     for (files) |text| {
         const from = std.mem.indexOf(u8, text, "if (split.on and split.main) _ = .{") orelse return error.NoCellList;
         const end = std.mem.indexOfPos(u8, text, from, "};").?;
@@ -320,7 +320,7 @@ test "unit 0 refers to every cell" {
             const at = std.mem.indexOf(u8, line, " = split.cell(") orelse continue;
             const decl = std.mem.trimStart(u8, line[0..at], " ");
             const name = decl[std.mem.lastIndexOfScalar(u8, decl, ' ').? + 1 ..];
-            // A nested cell is listed by its container: `lent.next`.
+            // A nested cell is listed by its container: `HeapProfile.untyped`.
             var a: [64]u8 = undefined;
             var b: [64]u8 = undefined;
             const plain = try std.fmt.bufPrint(&a, " {s},", .{name});
