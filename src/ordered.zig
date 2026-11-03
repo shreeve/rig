@@ -316,11 +316,13 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// An indexed table's next room: twice its room, but from 32 to
         /// 48 and from 48 to 64, so a table of 33 to 48 entries holds 48
         /// rather than 64 (Trig's symbol tables of 41) and every larger
-        /// room is a power of two again.
+        /// room is a power of two again, up to 2^31; then `max_entries`,
+        /// and past it one more, which `resizeEntries` refuses.
         fn nextRoom(cap: usize) usize {
             if (cap >= 32 and cap < 48) return 48;
             if (cap == 48) return 64;
-            return 2 * cap;
+            if (cap == max_entries) return cap + 1;
+            return @min(2 * cap, max_entries);
         }
 
         noinline fn tooMany() noreturn {
@@ -1255,6 +1257,13 @@ test "ordered: puts, takes, and walks keep first-put order" {
         j = m.live_from(j);
     }
     try testing.expectEqual(@as(i64, 998), last);
+}
+
+test "ordered: growth reaches the most entries a table holds" {
+    const T = OrderedMap(i64, i64);
+    try testing.expectEqual(@as(usize, 1 << 31), T.nextRoom(1 << 30));
+    try testing.expectEqual(max_entries, T.nextRoom(1 << 31));
+    try testing.expect(T.nextRoom(max_entries) > max_entries);
 }
 
 test "ordered: the table is 56 bytes, as sema.minBytesOf says" {
