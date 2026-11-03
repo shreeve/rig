@@ -4,7 +4,7 @@
 //! each element on several tasks (`par.map`, `par.each`), the boundary a
 //! panic stops at (`task.isolate`), and actors (`*Actor(x)`). The runtime (`runtime.zig`) imports this file and
 //! gives emitted code its names (`rig.Task`, `rig.Tasks`,
-//! `rig.waitTasks`); `bin/rig` writes it beside the runtime as
+//! `rig.waitTasksInto`); `bin/rig` writes it beside the runtime as
 //! `rig/tasks.zig`.
 
 const std = @import("std");
@@ -176,19 +176,10 @@ pub fn Task(comptime T: type) type {
         /// next waiting point. Waiting on a task that can fail is also
         /// stopped by the waiter's deadline (`time.within`): the task is
         /// canceled and waited for, and the wait fails with
-        /// `task.Stop.timeout`.
-        pub fn wait(self: Self) T {
-            return self.waitWith(rt.no_slot);
-        }
-
-        /// `>t` where the waiter catches the task's failure, or passes it
-        /// on, with its fields: they move from the task's record into
-        /// the waiter's slot `out`.
-        pub fn waitInto(self: Self, out: rt.ErrSlot) T {
-            return self.waitWith(out);
-        }
-
-        fn waitWith(self: Self, out: anytype) T {
+        /// `task.Stop.timeout`. A failure's fields move from the task's
+        /// record into the waiter's slot `out`, which its `!` or `catch`
+        /// lends, or are dropped where it lends none (`rt.no_slot`).
+        pub fn waitInto(self: Self, out: anytype) T {
             var t = self;
             defer t.job.free();
             if (canceledHere()) {
@@ -229,18 +220,9 @@ pub fn Task(comptime T: type) type {
         /// `<t.cancel()`: cancel the task, wait for it, and take what it
         /// gave: `task.Stop.canceled` when the cancel reached it, or its
         /// result when it ended first. Only a task that can fail is
-        /// canceled; the checker rejects any other.
-        pub fn cancel(self: Self) T {
-            return self.cancelWith(rt.no_slot);
-        }
-
-        /// `<t.cancel()` where the caller takes the failure's fields
-        /// into its slot `out`.
-        pub fn cancelInto(self: Self, out: rt.ErrSlot) T {
-            return self.cancelWith(out);
-        }
-
-        fn cancelWith(self: Self, out: anytype) T {
+        /// canceled; the checker rejects any other. A failure's fields
+        /// go into the caller's slot `out`, as `waitInto`'s do.
+        pub fn cancelInto(self: Self, out: anytype) T {
             var t = self;
             defer t.job.free();
             return keepResult(T, t.stop(), &t.control.err, out);
@@ -493,18 +475,9 @@ fn WaitErr(comptime Rs: []const type) type {
 /// types, and give each one's value. When some can fail, waiting is a
 /// waiting point, and the first task to fail, in the order they end,
 /// cancels the others: the call waits for them, drops what they gave,
-/// and fails with its error.
-pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
-    return waitTasksWith(tasks, rt.no_slot);
-}
-
-/// `task.all(...)` where the waiter takes the failure's fields into its
-/// slot `out`.
-pub fn waitTasksInto(tasks: anytype, out: rt.ErrSlot) TaskValues(@TypeOf(tasks)) {
-    return waitTasksWith(tasks, out);
-}
-
-fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
+/// and fails with its error, whose fields go into the waiter's slot
+/// `out`, as `Task.waitInto`'s do.
+pub fn waitTasksInto(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
     const Tup = @TypeOf(tasks);
     const n = @typeInfo(Tup).@"struct".field_types.len;
     const Out = TaskValues(Tup);
@@ -512,7 +485,7 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
     const Values = if (fallible) @typeInfo(Out).error_union.payload else Out;
     var values: Values = undefined;
     if (comptime !fallible) {
-        inline for (0..n) |i| values[i] = tasks[i].wait();
+        inline for (0..n) |i| values[i] = tasks[i].waitInto(rt.no_slot);
         return values;
     }
     var ts = tasks;
@@ -732,28 +705,19 @@ pub fn Tasks(comptime T: type) type {
         };
 
         /// `>ts`: every result, in the order added; nothing for tasks that
-        /// give none.
-        pub fn wait_all(self: Self) All {
-            return self.waitAllWith(rt.no_slot);
-        }
-
-        /// `>ts` where the waiter takes the failure's fields into its slot
-        /// `out`.
-        pub fn wait_allInto(self: Self, out: rt.ErrSlot) All {
-            return self.waitAllWith(out);
-        }
-
-        fn waitAllWith(self: Self, out: anytype) All {
+        /// give none. A failure's fields go into the waiter's slot `out`,
+        /// as `Task.waitInto`'s do.
+        pub fn wait_allInto(self: Self, out: anytype) All {
             var s = self;
             defer s.free();
             const n = s.items.items.len;
             if (comptime !fallible) {
                 if (comptime Value == void) {
-                    for (s.items.items) |t| t.wait();
+                    for (s.items.items) |t| t.waitInto(rt.no_slot);
                     return;
                 }
                 var values = List(Value).initCapacity(@intCast(n));
-                for (s.items.items) |t| values.push(t.wait());
+                for (s.items.items) |t| values.push(t.waitInto(rt.no_slot));
                 return values;
             }
             const results = defaultAllocator().alloc(Value, n) catch oom();
@@ -803,18 +767,10 @@ pub fn Tasks(comptime T: type) type {
             return values;
         }
 
-        /// `<ts.wait_first()`: the first result to succeed.
-        pub fn wait_first(self: Self) T {
-            return self.waitFirstWith(rt.no_slot);
-        }
-
-        /// `<ts.wait_first()` where the waiter takes the last failure's
-        /// fields into its slot `out`.
-        pub fn wait_firstInto(self: Self, out: rt.ErrSlot) T {
-            return self.waitFirstWith(out);
-        }
-
-        fn waitFirstWith(self: Self, out: anytype) T {
+        /// `<ts.wait_first()`: the first result to succeed. The last
+        /// failure's fields go into the waiter's slot `out`, as
+        /// `Task.waitInto`'s do.
+        pub fn wait_firstInto(self: Self, out: anytype) T {
             if (comptime !fallible) @compileError("rig: wait_first is only for a set that can fail");
             var s = self;
             defer s.free();
@@ -1000,7 +956,7 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
     for (helpers) |*t| t.* = Task(void).spawn(Worker.run, .{ &state, ctx });
     Worker.run(&state, ctx);
     if (fallible and state.failed.load(.acquire)) for (helpers) |t| t.control.cancel();
-    for (helpers) |t| t.wait();
+    for (helpers) |t| t.waitInto(rt.no_slot);
     if (comptime fallible) if (state.failed.load(.acquire)) {
         if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, &state.failure_data) else rt.dropErrorData(state.failure, &state.failure_data);
         return state.failure;
@@ -1018,12 +974,8 @@ fn callChunk(comptime body: anytype, ctx: anytype, lo: usize, hi: usize, slot: r
 /// the slice `xs`, in its order, each call on one of up to `limit` tasks
 /// (`parRun`). Each task writes the values of its chunks in place. When
 /// a call fails, the values made are dropped: those that need it are
-/// marked as they are made.
-pub fn parMap(xs: anytype, f: anytype, limit: Int) MapOut(@TypeOf(f)) {
-    return parMapInto(xs, f, limit, rt.no_slot);
-}
-
-/// `parMap` where a failure's fields go into the caller's slot `out`.
+/// marked as they are made. A failure's fields go into the caller's slot
+/// `out_slot`, or are dropped where it has none (`rt.no_slot`).
 pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const R = ReturnOf(F);
@@ -1067,12 +1019,8 @@ pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut
 }
 
 /// `par.each(!xs, f, limit: n)`: `f(!x)` for each element `x` of the
-/// slice `xs`, each call on one of up to `limit` tasks (`parRun`).
-pub fn parEach(xs: anytype, f: anytype, limit: Int) EachOut(@TypeOf(f)) {
-    return parEachInto(xs, f, limit, rt.no_slot);
-}
-
-/// `parEach` where a failure's fields go into the caller's slot `out`.
+/// slice `xs`, each call on one of up to `limit` tasks (`parRun`). A
+/// failure's fields go into the caller's slot `out`, as `parMapInto`'s do.
 pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const fallible = @typeInfo(ReturnOf(F)) == .error_union;
@@ -1109,12 +1057,8 @@ fn WorkersOut(comptime F: type) type {
 /// items, whichever task made it; nothing when `f` gives nothing. The
 /// first call to fail stops the tasks taking more and cancels them,
 /// and once all have ended, the call fails with its error, the values
-/// made dropped.
-pub fn parWorkers(states: anytype, items: anytype, f: anytype) WorkersOut(@TypeOf(f)) {
-    return parWorkersInto(states, items, f, rt.no_slot);
-}
-
-/// `parWorkers` where a failure's fields go into the caller's slot `out`.
+/// made dropped; its fields go into the caller's slot `out_slot`, as
+/// `parMapInto`'s do.
 pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: anytype) WorkersOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const R = ReturnOf(F);
@@ -1179,7 +1123,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
         for (helpers, states[1..]) |*t, *s| t.* = Task(void).spawn(Ctx.run, .{ &ctx, s });
         Ctx.run(&ctx, &states[0]);
         if (fallible and ctx.failed.load(.acquire)) for (helpers) |t| t.control.cancel();
-        for (helpers) |t| t.wait();
+        for (helpers) |t| t.waitInto(rt.no_slot);
     }
     if (comptime fallible) if (ctx.failed.load(.acquire)) {
         if (comptime @TypeOf(out_slot) == rt.ErrSlot) rt.putFields(out_slot, &ctx.failure_data) else rt.dropErrorData(ctx.failure, &ctx.failure_data);
@@ -1273,13 +1217,9 @@ pub const Isolate = struct {
 
 /// `task.isolate(f)`: run `f` (a `rig.FnRef` that takes nothing) apart,
 /// and give what it gives; or, when a panic in it or in a task under it
-/// reached this boundary, fail with `task.Stop.panicked` (`Isolate`).
-pub fn isolate(f: anytype) IsolateOut(@TypeOf(f)) {
-    return isolateInto(f, rt.no_slot);
-}
-
-/// `isolate` where a failure's fields go into the caller's slot `out`,
-/// or are dropped where it has none.
+/// reached this boundary, fail with `task.Stop.panicked` (`Isolate`). A
+/// failure's fields go into the caller's slot `out`, or are dropped
+/// where it has none (`rt.no_slot`).
 pub fn isolateInto(f: anytype, out: anytype) IsolateOut(@TypeOf(f)) {
     var own: rt.ErrData = undefined;
     const slot: rt.ErrSlot = if (comptime @TypeOf(out) == rt.ErrSlot) out else rt.failSlot(&own);
@@ -1320,13 +1260,9 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
 /// it again when it fails or panics, at most `n` times within `ns`
 /// nanoseconds (always when `n` is negative; within any time when `ns` is
 /// 0); past that, fail as its last run failed. A cancel or a deadline is
-/// no failure to start again from: it fails at once.
-pub fn supervise(f: anytype, restarts: Int, per: Int) IsolateOut(@TypeOf(f)) {
-    return superviseInto(f, restarts, per, rt.no_slot);
-}
-
-/// `supervise` where the last run's failure's fields go into the caller's
-/// slot `out`; a run started again drops its fields first.
+/// no failure to start again from: it fails at once. The last run's
+/// failure's fields go into the caller's slot `out`, as `isolateInto`'s
+/// do; a run started again drops its fields first.
 pub fn superviseInto(f: anytype, restarts: Int, per: Int, out: anytype) IsolateOut(@TypeOf(f)) {
     var count: Int = 0;
     var window: i96 = 0;
@@ -1843,15 +1779,12 @@ fn unlockAt(arms: anytype, key: usize) void {
 /// completes, commit that one alone, and give what its function gives:
 /// for `on_recv`, called with the value received, or none once the
 /// channel is closed and empty; for `on_send`, called once the value is
-/// sent. The values of the sending arms that lose are dropped.
-pub fn select(arms_in: anytype) SelectOut(@TypeOf(arms_in)) {
-    var data: rt.ErrData = undefined;
-    return selectInto(arms_in, rt.failSlot(&data));
-}
-
-/// `select`, giving a failure's fields to the slot `slot` its `!` or
-/// `catch` lends, as a fallible arm's function takes one.
-pub fn selectInto(arms_in: anytype, slot: rt.ErrSlot) SelectOut(@TypeOf(arms_in)) {
+/// sent. The values of the sending arms that lose are dropped. A
+/// fallible arm's function takes the slot `out` its `!` or `catch` lends,
+/// or one of the call's own where it lends none (`rt.no_slot`).
+pub fn selectInto(arms_in: anytype, out: anytype) SelectOut(@TypeOf(arms_in)) {
+    var own: rt.ErrData = undefined;
+    const slot: rt.ErrSlot = if (comptime @TypeOf(out) == rt.ErrSlot) out else rt.failSlot(&own);
     var arms = arms_in;
     const n = @typeInfo(@TypeOf(arms)).@"struct".field_types.len;
     const winner = try selectArms(&arms);
@@ -2625,11 +2558,11 @@ test "a task given what crosses cores runs anywhere, and a local task and its ma
             const t = Task(u64).spawn(one, .{});
             free_pinned = t.job.header.fiber.home != null;
             maker_pinned_before = rt.sched.current().?.home != null;
-            _ = t.wait();
+            _ = t.waitInto(rt.no_slot);
             const u = Task(u64).spawnLocal(one, .{});
             local_pinned = u.job.header.fiber.home != null;
             maker_pinned_after = rt.sched.current().?.home != null;
-            _ = u.wait();
+            _ = u.waitInto(rt.no_slot);
         }
     };
     rt.sched.runForTest(Run.first, 2);
@@ -2660,10 +2593,10 @@ test "a task's failure data moves to the waiter's slot, and is dropped wherever 
             if (a.waitInto(rt.failSlot(&slot))) |_| {} else |_| kept = slot.bytes[0];
             drops_after_into = G.drops.load(.seq_cst);
             const b = Task(anyerror!i64).spawn(fails, .{});
-            _ = b.wait() catch {};
+            _ = b.waitInto(rt.no_slot) catch {};
             drops_after_wait = G.drops.load(.seq_cst);
             const c = Task(anyerror!i64).spawn(fails, .{});
-            _ = c.cancel() catch {};
+            _ = c.cancelInto(rt.no_slot) catch {};
             drops_after_cancel = G.drops.load(.seq_cst);
             var d = Task(anyerror!i64).spawn(fails, .{});
             d.__rig_drop();

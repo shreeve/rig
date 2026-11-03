@@ -568,14 +568,10 @@ pub fn read_from(fd: i64, into: *rig.String, max: i64) Error!i64 {
 
 /// `File.write`: on the blocking pool, or for a standard stream through
 /// `print`'s buffer (`rig.net.fileWrite`).
-pub fn write_to(fd: i64, bytes: []const u8) Error!void {
-    return rig.net.fileWrite(fd, bytes);
-}
+pub const write_to = rig.net.fileWrite;
 
 /// `File.flush`: what `print` buffered, written out, for stdout.
-pub fn flush_fd(fd: i64) Error!void {
-    return rig.net.fileFlush(fd);
-}
+pub const flush_fd = rig.net.fileFlush;
 
 /// `File.sync`, `sync_data`, and `sync_fs` (`how` 0, 1, 2): the file
 /// written out to its device, on the blocking pool (`rig.net.fileSync`).

@@ -8,9 +8,7 @@
 const std = @import("std");
 const rig = @import("../runtime.zig");
 
-pub fn args() []const []const u8 {
-    return rig.processArgs();
-}
+pub const args = rig.processArgs;
 
 pub fn env(name: []const u8) ?[]const u8 {
     const init = rig.process.* orelse return null;
@@ -33,13 +31,9 @@ pub fn exit(code: i64) void {
     rig.exitNow(code);
 }
 
-pub fn set_broken_pipe_dies(dies: bool) void {
-    rig.setBrokenPipeDies(dies);
-}
+pub const set_broken_pipe_dies = rig.setBrokenPipeDies;
 
-pub fn broken_pipe_ignored() bool {
-    return rig.brokenPipeIgnored();
-}
+pub const broken_pipe_ignored = rig.brokenPipeIgnored;
 
 pub fn sync() void {
     rig.blocking(syncAll, .{});

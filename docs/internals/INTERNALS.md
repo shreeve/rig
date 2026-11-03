@@ -5031,7 +5031,9 @@ symbols); a query that decides more than that is a recorded fact.
   the Zig type spelled from the declaration's sema signature, as
   `emitFun` spells a Rig function's, so a Zig function whose type
   differs fails the package's build with a message naming the
-  declaration. The suite calls every declaration of the standard
+  declaration. A shim function that would only call the runtime's is
+  an alias of it, `pub const listen_on = net.listen_on;` in
+  std/net.zig, checked as one written out is. The suite calls every declaration of the standard
   library, so no such mismatch reaches a program. A constant is
   Zig's, coerced to its Rig type, `pub const arch: rig.Arch =
   __rig_shim_1.arch;`, so a choice on it is one Zig makes when it
@@ -5135,10 +5137,11 @@ program-wide mode.
 - **Leaving.** A failing `main` runs inside `__rig_fail_main`, which
   holds the slot, shows a failure with its fields after the body's drops
   and defers, then runs `rig.finish`; `rig.runTests` gives each test a
-  slot. A runtime wait has an `Into` variant taking the waiter's slot
-  (`waitInto`, `wait_allInto`, `waitTasksInto`, `parMapInto`,
-  `isolateInto`, `superviseInto`, `reduceInto`), and a spawned call that
-  takes a slot is given its task's (`takesSlot`).
+  slot. A runtime wait takes the waiter's slot, or `rig.no_slot` where
+  none is lent (`waitInto`, `wait_allInto`, `waitTasksInto`,
+  `parMapInto`, `selectInto`, `isolateInto`, `superviseInto`,
+  `reduceInto`), and a spawned call that takes a slot is given its
+  task's (`takesSlot`).
 - **Batches.** A batch has one root, so `rig batch build` leaves out a
   program with glue, to be built alone.
 
