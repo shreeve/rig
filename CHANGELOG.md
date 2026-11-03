@@ -265,6 +265,16 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **std.utf8 checks UTF-8 for std.json and std.utf16.** One block
+  check, `utf8.block_errors` (Keiser and Lemire's), serves `is_valid`,
+  `rune_count`, `utf16.unit_count`, which is `utf8.weighted_count[2]`,
+  and std.json's strings, which also read a sequence with
+  `utf8.rune_after` and write one with `utf8.push_rune`; std.json and
+  std.utf16 each held a copy. `is_valid` checks 64 bytes at a time
+  where it read a rune at a time: over 1 MiB of mixed ASCII, Latin, and
+  CJK text it takes 80 µs where it took 127 µs, and pure ASCII as fast
+  as before. std.json's guard: gsoc-2018 takes 4.5% fewer instructions
+  per byte, the other five files within 0.5%.
 - **Iterator chains.** `xs.filter(f).map(g).sum()`, on any `for` source
   (a List, array, slice, range, or iterator), is the loop it means,
   checked and emitted as that loop: stages `filter`, `map`, `take`,

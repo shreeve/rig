@@ -2711,8 +2711,10 @@ how runes fit with bytes, units, and chars.
 | `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` | |
 | `size(r: Int) -> Int?` | the bytes, 1 to 4, that `r` takes in UTF-8, or `none` when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF | `RuneLen` |
 | `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
+| `weighted_count[four: Int](s: ?String) -> Int` | the runes of `s` as `rune_count` counts them, but each rune of four bytes counted as `four`, 1 to 4: `utf16.unit_count` is `weighted_count[2]` | |
 | `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
+| `block_errors(cur: Simd[U8, 16], prev: Simd[U8, 16]) -> Simd[U8, 16]` | nonzero in each lane where `cur`, after the 16 bytes `prev`, breaks UTF-8 (Keiser and Lemire's check, which `is_valid`, the counts, and std.json use); a sequence that runs past `cur` is flagged by the block after it | |
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 | `Decoder.new() -> Decoder` | a streaming decoder, fed a byte at a time, for text that arrives in pieces; an ill-formed sequence reads as one `REPLACEMENT` per maximal subpart, as Unicode recommends and terminals do (Ghostty's DFA), where `rune_after` reads one per bad byte, as Go does | |
@@ -2801,7 +2803,7 @@ valid as it is counted. The rest is read rune by rune: everything from
 the first block that is not valid, a sequence the last valid block cut
 short (from its first byte), and the 15 or fewer bytes after the last
 whole block. Either way each bad byte is one rune of one unit, as in
-Go.
+Go. `is_valid` checks blocks of 64 bytes the same way.
 
 ```rig
 use std.utf8

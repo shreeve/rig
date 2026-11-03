@@ -41,6 +41,7 @@
 
 use std.target
 use std.text
+use std.utf8
 
 # ---- Bytes ------------------------------------------------------------
 # NEEDS (character literals): byte values are named here.
@@ -398,10 +399,10 @@ pub obj Doc
         # The stop is ASCII, so a sequence it cuts short is an error; the
         # lanes after it only ever add errors, which the check below then
         # finds are not.
-        errors |= utf8_errors(cur, prev)
+        errors |= utf8.block_errors(cur, prev)
         return i + k if (errors == 0).all()
         break
-      errors |= utf8_errors(cur, prev)
+      errors |= utf8.block_errors(cur, prev)
       prev = cur
     start = at
     if i > at and (errors == 0).all()
@@ -415,7 +416,7 @@ pub obj Doc
     i = start
     while true
       while i < n and src[i] >= 0x80
-        j = utf8_end3(src, i)
+        j = utf8_end(src, i)
         return (!@).fail(.utf8, i) if j < 0
         i = j
       i = skip_plain_ascii(src, i)
@@ -504,7 +505,7 @@ pub obj Doc
       return (!@).fail(.surrogate, at) if low < 0xDC00 or low > 0xDFFF
       c = 0x10000 + ((c - 0xD800) << 10) + (low - 0xDC00)
       i += 6
-    push_utf8(!@text, c)
+    utf8.push_rune(!@text, c)
     i
 
   # The value of the four hex digits at `at`, or -1 after recording the
@@ -797,114 +798,23 @@ fun special64(w: U64) -> U64
 fun first_marked64(m: U64) -> Int
   m.trailing_zeros() >> 3
 
-# The index just past the UTF-8 sequence that starts at `at`, or -1
-# when the bytes there are not one: RFC 3629 allows no overlong form,
-# no surrogate, and nothing past U+10FFFF.
-fun utf8_end(s: ?String, at: Int) -> Int
-  width = 0
-  lo: U8 = 0x80
-  hi: U8 = 0xBF
-  match s[at]
-    0xC2..0xE0 => width = 2
-    0xE0
-      width = 3
-      lo = 0xA0
-    0xE1..0xED, 0xEE..0xF0 => width = 3
-    0xED
-      width = 3
-      hi = 0x9F
-    0xF0
-      width = 4
-      lo = 0x90
-    0xF1..0xF4 => width = 4
-    0xF4
-      width = 4
-      hi = 0x8F
-    _ => return -1
-  return -1 if at + width > s.len
-  second = s[at + 1]
-  return -1 if second < lo or second > hi
-  for k in 2..width
-    return -1 if s[at + k] & 0xC0 != 0x80
-  at + width
-
 type Block = Simd[U8, 16]
 
-# Keiser-Lemire ("Validating UTF-8 in less than one instruction per
-# byte", 2021), as simdjson's lookup4: each byte with the one before it
-# is looked up by three nibbles, and a bit of the three tables' AND marks
-# an error the pair shows (a lead with no continuation, a continuation
-# with no lead, an overlong form, a surrogate, a value past U+10FFFF),
-# but TWO_CONTS, two continuations in a row, which `utf8_errors` decides.
-TOO_SHORT: U8 = 0x01
-TOO_LONG: U8 = 0x02
-OVERLONG_3: U8 = 0x04
-TOO_LARGE: U8 = 0x08
-SURROGATE: U8 = 0x10
-OVERLONG_2: U8 = 0x20
-TOO_LARGE_1000: U8 = 0x40
-OVERLONG_4: U8 = 0x40
-TWO_CONTS: U8 = 0x80
-
-CARRY = TOO_SHORT | TOO_LONG | TWO_CONTS
-
-BYTE_1_HIGH = Block([TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG,
-  TWO_CONTS, TWO_CONTS, TWO_CONTS, TWO_CONTS, TOO_SHORT | OVERLONG_2, TOO_SHORT,
-  TOO_SHORT | OVERLONG_3 | SURROGATE, TOO_SHORT | TOO_LARGE | TOO_LARGE_1000 | OVERLONG_4])
-
-BYTE_1_LOW = Block([CARRY | OVERLONG_3 | OVERLONG_2 | OVERLONG_4, CARRY | OVERLONG_2, CARRY, CARRY,
-  CARRY | TOO_LARGE, CARRY | TOO_LARGE | TOO_LARGE_1000, CARRY | TOO_LARGE | TOO_LARGE_1000,
-  CARRY | TOO_LARGE | TOO_LARGE_1000, CARRY | TOO_LARGE | TOO_LARGE_1000,
-  CARRY | TOO_LARGE | TOO_LARGE_1000, CARRY | TOO_LARGE | TOO_LARGE_1000,
-  CARRY | TOO_LARGE | TOO_LARGE_1000, CARRY | TOO_LARGE | TOO_LARGE_1000,
-  CARRY | TOO_LARGE | TOO_LARGE_1000 | SURROGATE, CARRY | TOO_LARGE | TOO_LARGE_1000,
-  CARRY | TOO_LARGE | TOO_LARGE_1000])
-
-BYTE_2_HIGH = Block([TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT,
-  TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE_1000 | OVERLONG_4,
-  TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE,
-  TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE | TOO_LARGE,
-  TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE | TOO_LARGE,
-  TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT])
-
-# Nonzero lanes where `cur`, given the 16 bytes before it, breaks UTF-8:
-# a lane can flag a byte up to three before it, and a lead in the last
-# lanes, cut short, is flagged only by the next block. A 3- or 4-byte
-# lead needs continuations 2 and 3 bytes on, which the saturating
-# subtracts find (only 111xxxxx less 0x60 and 1111xxxx less 0x70 keep
-# their top bit), and the pair lookups flag a continuation after a
-# continuation as TWO_CONTS: the XOR leaves an error where the two
-# disagree.
-fun utf8_errors(cur: Block, prev: Block) -> Block
-  b1 = cur.lag[1](prev)
-  pair = BYTE_1_HIGH.lookup(b1 >> 4) & BYTE_1_LOW.lookup(b1 & 0x0F) & BYTE_2_HIGH.lookup(cur >> 4)
-  must23 = ((cur.lag[2](prev) -| 0x60) | (cur.lag[3](prev) -| 0x70)) & 0x80
-  must23 ^ pair
-
-# `utf8_end`, with one U32 read for the commonest sequence in CJK text:
-# three bytes, 1110xxxx 10xxxxxx 10xxxxxx. A first byte of E0 or ED
-# narrows the second byte's range, so those go to `utf8_end`, with
-# every other sequence.
-fun utf8_end3(s: ?String, at: Int) -> Int
+# The index just past the UTF-8 sequence that starts at `at`, a byte of
+# 0x80 or more, or -1 when the bytes there are not one (RFC 3629, as
+# std.utf8 reads it). The commonest sequence in CJK text, three bytes,
+# 1110xxxx 10xxxxxx 10xxxxxx, takes one U32 read; a first byte of E0 or
+# ED narrows the second byte's range, so those go to `utf8.rune_after`,
+# with every other sequence.
+fun utf8_end(s: ?String, at: Int) -> Int
   if at + 4 <= s.len
     w = s.read[U32, .little](at)
     lead = w & 0xFF
     if w & 0xC0C0F0 == 0x8080E0 and lead != 0xE0 and lead != 0xED
       return at + 3
-  utf8_end(s, at)
-
-# Appends the UTF-8 bytes of the code point `c` in one write, or two
-# for three bytes, each a big-endian number whose top byte comes first.
-sub push_utf8(out: !String, c: Int)
-  if c < 0x80
-    !out.push(U8(c))
-  else if c < 0x800
-    !out.push[U16, .big](U16(0xC080 | (c >> 6) << 8 | c & 0x3F))
-  else if c < 0x10000
-    !out.push[U16, .big](U16(0xE080 | (c >> 12) << 8 | (c >> 6) & 0x3F))
-    !out.push(U8(0x80 | c & 0x3F))
-  else
-    !out.push[U32, .big](U32(0xF0808080 | (c >> 18) << 24 | ((c >> 12) & 0x3F) << 16 | ((c >> 6) & 0x3F) << 8 | c & 0x3F))
+  n = utf8.rune_after(s, at).size
+  return -1 if n == 1
+  at + n
 
 # Appends two code points of three UTF-8 bytes each (0x800 to 0xFFFF,
 # no surrogate) in two writes, of four bytes and then two.

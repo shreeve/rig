@@ -153,14 +153,20 @@ pub fun rune_size(s: ?String, i: Int) -> Int?
   n
 
 # How many runes `s` holds, each bad byte counted as one, as `runes`
-# reads them. Go's `RuneCountInString`. Valid UTF-8 holds one rune per
-# byte that is not a continuation byte (10xxxxxx), so whole blocks of 64
-# and then 16 bytes are counted that way, each checked valid as it is
-# counted (`errors`). The rest is read rune by rune: everything from the
+# reads them. Go's `RuneCountInString`.
+pub fun rune_count(s: ?String) -> Int
+  weighted_count[1](s)
+
+# How many runes `s` holds, as `rune_count` counts them, but each rune of
+# four bytes counted as `four`, 1 to 4: std.utf16's `unit_count` is
+# `weighted_count[2]`. Valid UTF-8 holds one rune per byte that is not a
+# continuation byte (10xxxxxx), so whole blocks of 64 and then 16 bytes
+# are counted that way, each checked valid as it is counted
+# (`block_errors`). The rest is read rune by rune: everything from the
 # first block that is not valid, a sequence the last valid block cut
 # short (from its first byte), and the 15 or fewer bytes after the last
-# whole block. std.utf16's `unit_count` counts units the same way.
-pub fun rune_count(s: ?String) -> Int
+# whole block.
+pub fun weighted_count[four: Int](s: ?String) -> Int
   n = 0
   i = 0
   prev = Block.splat(0)
@@ -175,15 +181,16 @@ pub fun rune_count(s: ?String) -> Int
     c = s.read[Block](i + 32)
     d = s.read[Block](i + 48)
     if ((a | b | c | d) < 0x80).all()
-      break if high and ((prev -| ENDS) != 0).any()
+      break if high and cut(prev)
       high = false
       n += 64
     else
-      break if ((errors(a, prev) | errors(b, a) | errors(c, b) | errors(d, c)) != 0).any()
-      ones += starts(a) + starts(b) + starts(c) + starts(d)
+      break if ((block_errors(a, prev) | block_errors(b, a) | block_errors(c, b) | block_errors(d, c)) != 0).any()
+      ones += weights[four](a) + weights[four](b) + weights[four](c) + weights[four](d)
       held += 1
-      # Each lane gains at most 4 for 64 bytes: empty them before 255.
-      if held == 63
+      # Each lane gains at most `4 * four` for 64 bytes: empty them
+      # before 255.
+      if held == 63 / four
         n += lanes_sum(ones)
         ones = Block.splat(0)
         held = 0
@@ -191,51 +198,90 @@ pub fun rune_count(s: ?String) -> Int
     prev = d
   # Fewer than 64 bytes are left, or the 64 from `i` hold a fault: 16 at
   # a time, at most 3 blocks before the end or the fault, so no lane of
-  # `ones` passes 62 * 4 + 3.
+  # `ones` passes 255.
   while i + 16 <= s.len : i += 16
     a = s.read[Block](i)
     if (a < 0x80).all()
-      break if high and ((prev -| ENDS) != 0).any()
+      break if high and cut(prev)
       high = false
       n += 16
     else
-      break if (errors(a, prev) != 0).any()
-      ones += starts(a)
+      break if (block_errors(a, prev) != 0).any()
+      ones += weights[four](a)
       high = true
     prev = a
   n += lanes_sum(ones)
   # Every byte before `i` is valid UTF-8, but for a sequence that the
   # bytes from `i` were to finish: read again from its first byte,
   # which was counted.
-  j = i
-  while j > 0 and j > i - 3 and s[j - 1] & 0xC0 == 0x80
-    j -= 1
-  if j > 0 and s[j - 1] >= 0xC0
-    i = j - 1
-    n -= 1
+  j = cut_start(s, i)
+  if j < i
+    n -= four if s[j] >= 0xF0 else 1
+    i = j
   while i < s.len
     if s[i] < 0x80
       k = ascii_end(s, i)
       n += k - i
       i = k
     else
-      i += rune_after(s, i).size
-      n += 1
+      k = rune_after(s, i).size
+      i += k
+      n += four if k == 4 else 1
   n
+
+# Whether `s` is well-formed UTF-8: every byte is part of a valid
+# sequence. Go's `ValidString`. Blocks of 64 bytes are checked at once
+# (`block_errors`), a run of ASCII is skipped as `ascii_end` finds its
+# end, and the rest is read a rune at a time, from the first byte of a
+# sequence the last block cut short.
+pub fun is_valid(s: ?String) -> Bool
+  i = 0
+  prev = Block.splat(0)
+  while i + 64 <= s.len
+    if (s.read[Simd[U8, 64]](i) < 0x80).all()
+      # A run of ASCII: past its end, the bytes before `i` are ASCII,
+      # which `block_errors` reads as it reads zeros.
+      return false if cut(prev)
+      prev = Block.splat(0)
+      i = ascii_end(s, i + 64)
+      continue
+    a = s.read[Block](i)
+    b = s.read[Block](i + 16)
+    c = s.read[Block](i + 32)
+    d = s.read[Block](i + 48)
+    return false if ((block_errors(a, prev) | block_errors(b, a) | block_errors(c, b) | block_errors(d, c)) != 0).any()
+    prev = d
+    i += 64
+  i = cut_start(s, i)
+  while i < s.len
+    if s[i] < 0x80
+      i = ascii_end(s, i)
+    else
+      n = rune_after(s, i).size
+      return false if n == 1
+      i += n
+  true
 
 type Block = Simd[U8, 16]
 
-# The lanes of `cur` that break UTF-8, given the block before it: nonzero
-# where one does. Keiser and Lemire's check: each byte and the one before
-# it pick three sets of the faults they could make together, by the high
-# and low nibbles of the first and the high nibble of the second, and
-# what is left in all three is a fault. A byte 2 or 3 after a first byte
-# of 3 or 4 must be a continuation byte, the one fault a pair cannot see.
-fun errors(cur: Block, prev: Block) -> Block
+# The lanes of `cur` that break UTF-8, given the 16 bytes before it:
+# nonzero where one does, so a lane can flag a byte up to three before
+# it, and a first byte in the last lanes whose sequence the block cuts
+# short is flagged only by the next block. Keiser and Lemire's check
+# ("Validating UTF-8 in less than one instruction per byte", 2021), as
+# simdjson's lookup4: each byte and the one before it pick three sets of
+# the faults they could make together, by the high and low nibbles of
+# the first and the high nibble of the second, and what is left in all
+# three is a fault. A byte 2 or 3 after a first byte of 3 or 4 must be a
+# continuation byte, the one fault a pair cannot see: the saturating
+# subtracts find those first bytes (only 111xxxxx less 0x60 and 1111xxxx
+# less 0x70 keep their top bit), and the XOR leaves a fault where they
+# and TWO_CONTINUATIONS disagree.
+pub fun block_errors(cur: Simd[U8, 16], prev: Simd[U8, 16]) -> Simd[U8, 16]
   p1 = cur.lag[1](prev)
   pair = BY_FIRST_HIGH.lookup(p1 >> 4) & BY_FIRST_LOW.lookup(p1 & 0x0F) & BY_SECOND_HIGH.lookup(cur >> 4)
-  must = ((cur.lag[2](prev) -| (0xE0 - 0x80)) | (cur.lag[3](prev) -| (0xF0 - 0x80))) >= 0x80
-  must.select(Block.splat(TWO_CONTINUATIONS), Block.splat(0)) ^ pair
+  must = ((cur.lag[2](prev) -| (0xE0 - 0x80)) | (cur.lag[3](prev) -| (0xF0 - 0x80))) & TWO_CONTINUATIONS
+  must ^ pair
 
 # The faults of a pair of bytes, each a bit: a first byte, or ASCII,
 # then not a continuation byte (TOO_SHORT); ASCII then a continuation
@@ -267,12 +313,29 @@ BY_SECOND_HIGH = Block([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0xE6, 0x
 
 # Above these, a byte in the last three lanes is a first byte whose
 # sequence runs past the block: 0xF0 and up in lane 13, 0xE0 in 14, 0xC0
-# in 15.
+# in 15 (`cut`).
 ENDS = Block([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0xDF, 0xBF])
 
-# 1 in each lane that starts a rune: not a continuation byte.
-fun starts(v: Block) -> Block
-  ((v < 0x80) | (v >= 0xC0)).select(Block.splat(1), Block.splat(0))
+# Whether block `v` ends in a first byte whose sequence runs past it.
+fun cut(v: Block) -> Bool
+  ((v -| ENDS) != 0).any()
+
+# Where to read again from at `i`, when every byte before `i` is valid
+# UTF-8 but for a sequence the bytes from `i` were to finish: the first
+# byte of that sequence, else `i`.
+fun cut_start(s: ?String, i: Int) -> Int
+  j = i
+  while j > 0 and j > i - 3 and s[j - 1] & 0xC0 == 0x80
+    j -= 1
+  return j - 1 if j > 0 and s[j - 1] >= 0xC0
+  i
+
+# 1 in each lane that starts a rune, not a continuation byte, and `four`
+# in a lane that starts a rune of four bytes.
+fun weights[four: Int](v: Block) -> Block
+  w = ((v < 0x80) | (v >= 0xC0)).select(Block.splat(1), Block.splat(0))
+  return w if four == 1
+  w + (v >= 0xF0).select(Block.splat(U8(four - 1)), Block.splat(0))
 
 # The sum of the lanes of `v`.
 fun lanes_sum(v: Block) -> Int
@@ -280,19 +343,6 @@ fun lanes_sum(v: Block) -> Int
   for x in v.array()
     n += Int(x)
   n
-
-# Whether `s` is well-formed UTF-8: every byte is part of a valid
-# sequence. Go's `ValidString`.
-pub fun is_valid(s: ?String) -> Bool
-  i = 0
-  while i < s.len
-    if s[i] < 0x80
-      i = ascii_end(s, i)
-    else
-      n = rune_after(s, i).size
-      return false if n == 1
-      i += n
-  true
 
 # Whether every byte of `s` is below `RUNE_SELF`, so each byte is a
 # whole rune.
