@@ -3222,11 +3222,15 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         pub const __rig_list = {};
 
-        /// `+v`: a new List holding a clone of each element (`cloneValue`).
+        /// `+v`: a new List holding a clone of each element (`cloneValue`),
+        /// in one allocation of exactly their count: plain data copied by
+        /// one `@memcpy`, anything else cloned into each slot.
         pub fn clone(self: *const Self) Self {
-            var out: Self = .empty;
-            out.reserveTotal(self.len);
-            for (self.items()) |*e| out.push(cloneValue(e));
+            const src = self.items();
+            if (comptime !needsDrop(T)) return fromSlice(src);
+            var out = initCapacity(@intCast(src.len));
+            for (src, out.mem()[0..src.len]) |*e, *d| d.* = cloneValue(e);
+            out.len = src.len;
             return out;
         }
 
