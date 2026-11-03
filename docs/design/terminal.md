@@ -64,10 +64,26 @@ reference; this is the shape of it.
   erasing clears only the cells written.
 - **Chars of several runes** keep their first rune in the cell and the
   rest in `extras`, keyed by the cell's index, with EXTRA set on the cell
-  and ROW_MORE on its row.
+  and ROW_MORE on its row. A char keeps at most `MAX_EXTRAS` (64) runes
+  after its first and drops the rest, Ghostty's `grapheme_max_len`
+  (page.zig at the pin), so a stream of combining marks cannot grow one
+  cell without bound.
 - **Styles are interned** in `styles`. The first 32 are found by
   scanning, the rest through `style_ids`, keyed by `style_key`. A cell
-  holds an index, never a style.
+  holds an index, never a style. Ghostty counts each style's uses per
+  page and frees one no cell uses; std.terminal instead drops unused
+  styles in bulk, keeping the writes of a cell free of counting. When an
+  SGR finds `styles` at `style_room` entries, `restyle` marks the styles
+  the cells of both screens use (history and spare rows included),
+  renumbers them in order, and rewrites every cell's mark; the room is
+  then twice the styles left, at least `STYLE_ROOM` (4,096). While the
+  styles number fewer than a quarter of the cells, only the room grows,
+  so output that keeps its styles in the history (the `rgb` corpus)
+  never pays for a rebuild. Output that sets a new style for each rune
+  thus holds at most the largest of 4,096 styles, a quarter of the
+  cells, and twice the styles in use. `style_room` is a U32, the size of
+  a cell's index: an Int there moved the hot fields and cost `sgr` and
+  `tui` 4% in rig-safe.
 - **The alternate screen** swaps in through the `other_*` fields (cells,
   map, flags, ends, extras, saved cursor, kitty flags, protection mode).
   It is made blank the first time it is used.

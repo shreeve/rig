@@ -265,6 +265,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **std.terminal bounds what a program's output makes it hold.** A
+  char keeps at most 64 runes after its first, as Ghostty does, and a
+  terminal drops the styles no cell uses once they pass 4,096 and a
+  quarter of its cells. Two million truecolor SGRs and as many combining
+  marks grew an 80x24 terminal without history to 164 MB; it stays under
+  5 MB.
 - **`terminal.Terminal.new` panics on a size that is not positive.**
   A terminal of no columns looped forever at its first `feed`, and one
   of no rows panicked deep in `print`; `new` panics at once, naming its
