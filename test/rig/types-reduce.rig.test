@@ -91,7 +91,7 @@ test "reduce in a generic body", "13.0 3.0"
 
   print(total([Square(side: 2.0), Square(side: 3.0)]), total([Circle(r: 1.0)]))
 
-code "reduce calls the runtime's inline loop", "rig.reduce(xs, @as(f64, 0.0), __rig_arg_1_1)"
+code "reduce calls the runtime's inline loop", "rig.reduceInto(xs, @as(f64, 0.0), __rig_arg_1_1, rig.no_slot)"
   fun total(xs: []Float) -> Float
     xs.reduce(0.0, |sum, x| sum + x)
 

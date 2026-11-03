@@ -898,7 +898,7 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
             return t.f.call(.{t.req});
         }
     };
-    var resp: Resp = tasks.isolate(Thunk{ .f = f, .req = &req }) catch {
+    var resp: Resp = tasks.isolateInto(Thunk{ .f = f, .req = &req }, rig.no_slot) catch {
         request.respond("internal server error\n", .{ .status = .internal_server_error, .keep_alive = head.keep_alive }) catch return .close;
         return if (head.keep_alive) .next else .close;
     };

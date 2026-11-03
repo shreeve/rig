@@ -9283,15 +9283,11 @@ pub const Emitter = struct {
         };
         // `task.all(a, b, ...)`: the tasks, waited for together.
         if (self.facts.isTaskJoin(sexp)) {
-            const out = self.takeFailSlot(sexp);
-            try self.w.writeAll(if (out != null) "rig.waitTasksInto(.{ " else "rig.waitTasks(.{ ");
+            const out = self.slotOf(sexp);
+            try self.w.writeAll("rig.waitTasksInto(.{ ");
             try self.emitArgs(sexp);
-            if (out) |o| return self.w.print(" }}, {s})", .{o});
-            return self.w.writeAll(" })");
+            return self.w.print(" }}, {s})", .{out});
         }
-        // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
-        // by the runtime, with no limit but the workers' count when none
-        // is given; `par.workers(!states, ?items, f)`, one task a state.
         // `c.m(args)` through an actor's handle: a message the runtime
         // sends, which waits for the answer.
         if (self.facts.isActorCall(sexp)) {
@@ -9305,16 +9301,14 @@ pub const Emitter = struct {
         // `task.select(arm, ...)`: each arm a channel operation and the
         // function the runtime calls when it is the one that commits.
         if (self.facts.isSelect(sexp)) {
-            // The runtime calls the arm's function with the slot a `!` or
-            // `catch` lends (`selectInto`).
-            const out = self.takeFailSlot(sexp);
-            try self.w.writeAll(if (out != null) "rig.selectInto(.{ " else "rig.select(.{ ");
+            // The runtime calls the arm's function with the slot.
+            const out = self.slotOf(sexp);
+            try self.w.writeAll("rig.selectInto(.{ ");
             for (args, 0..) |arm, i| {
                 if (i > 0) try self.w.writeAll(", ");
                 try self.emitExpr(arm);
             }
-            if (out) |o| return self.w.print(" }}, {s})", .{o});
-            return self.w.writeAll(" })");
+            return self.w.print(" }}, {s})", .{out});
         }
         // An arm of `task.select`: the channel, the value an arm sends,
         // and the function the runtime calls.
@@ -9334,18 +9328,16 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         }
-        // `io.copy(!from, !to)`: the runtime's, for files and sockets.
-        // `xs.reduce(start, f)`: `rig.reduce(elems, start, f)`.
+        // `xs.reduce(start, f)`: `rig.reduceInto(elems, start, f, slot)`.
         if (self.facts.isReduceCall(sexp)) {
-            // A failure's fields go to the slot its `!` or `catch` lends.
-            const out = self.takeFailSlot(sexp);
-            try self.w.writeAll(if (out != null) "rig.reduceInto(" else "rig.reduce(");
+            const out = self.slotOf(sexp);
+            try self.w.writeAll("rig.reduceInto(");
             try self.emitElems(ir.Member.object(callee));
             try self.w.writeAll(", ");
             try self.emitArgs(sexp);
-            if (out) |o| try self.w.print(", {s}", .{o});
-            return self.w.writeAll(")");
+            return self.w.print(", {s})", .{out});
         }
+        // `io.copy(!from, !to)`: the runtime's, for files and sockets.
         if (self.facts.isIoCopy(sexp)) {
             // The runtime's own call, which takes no slot.
             _ = self.takeFailSlot(sexp);
@@ -9356,8 +9348,8 @@ pub const Emitter = struct {
         // `task.supervise(f, restarts: n, per: ns)`: isolated again and
         // again by the runtime, with each option or its default.
         if (self.facts.isSuperviseCall(sexp)) {
-            const out = self.takeFailSlot(sexp);
-            try self.w.writeAll(if (out != null) "rig.superviseInto(" else "rig.supervise(");
+            const out = self.slotOf(sexp);
+            try self.w.writeAll("rig.superviseInto(");
             try self.emitExpr(args[0]);
             for ([_][]const u8{ "restarts", "per" }, [_][]const u8{ "-1", "0" }) |name, default| {
                 try self.w.writeAll(", ");
@@ -9366,50 +9358,49 @@ pub const Emitter = struct {
                 } else null;
                 if (given) |v| try self.emitExpr(v) else try self.w.writeAll(default);
             }
-            if (out) |o| try self.w.print(", {s}", .{o});
-            return self.w.writeAll(")");
+            return self.w.print(", {s})", .{out});
         }
         // `task.isolate(f)`: run apart by the runtime.
         if (self.facts.isIsolateCall(sexp)) {
-            const out = self.takeFailSlot(sexp);
-            try self.w.writeAll(if (out != null) "rig.isolateInto(" else "rig.isolate(");
+            const out = self.slotOf(sexp);
+            try self.w.writeAll("rig.isolateInto(");
             try self.emitArgs(sexp);
-            if (out) |o| try self.w.print(", {s}", .{o});
-            return self.w.writeAll(")");
+            return self.w.print(", {s})", .{out});
         }
+        // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
+        // by the runtime, with no limit but the workers' count when none
+        // is given; `par.workers(!states, ?items, f)`, one task a state.
         if (self.facts.parCallOf(sexp)) |kind| {
-            const out = self.takeFailSlot(sexp);
+            const out = self.slotOf(sexp);
             try self.w.writeAll(switch (kind) {
-                .map => "rig.parMap",
-                .each => "rig.parEach",
-                .workers => "rig.parWorkers",
+                .map => "rig.parMapInto(",
+                .each => "rig.parEachInto(",
+                .workers => "rig.parWorkersInto(",
             });
-            try self.w.writeAll(if (out != null) "Into(" else "(");
             try self.emitArgs(sexp);
             if (kind != .workers and args.len == 2) try self.w.writeAll(", 0");
-            if (out) |o| try self.w.print(", {s}", .{o});
-            return self.w.writeAll(")");
+            return self.w.print(", {s})", .{out});
         }
         // A set's waits, `>ts` and `<ts.wait_first()`, with no deadline
         // of their own: a deadline is the task's (`time.within`).
-        // A wait whose failure may carry fields gives them to the slot
-        // its `!` or `catch` lends (`waitInto`, `wait_allInto`, ...).
+        // Each wait, a task's or a set's, takes the slot (`waitInto`,
+        // `wait_allInto`, ...).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
-            const out = self.takeFailSlot(sexp);
             if (rig.isWaitMember(callee)) {
+                const out = self.slotOf(sexp);
                 try self.emitMemberNamed(callee, "wait_all");
-                return self.writeSlotCall(out);
+                return self.w.print("Into({s})", .{out});
             }
-            const m = self.srcText(ir.Member.name(callee));
-            if (std.mem.eql(u8, m, "wait_first")) {
+            if (std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "wait_first")) {
+                const out = self.slotOf(sexp);
                 try self.emitExpr(callee);
-                return self.writeSlotCall(out);
+                return self.w.print("Into({s})", .{out});
             }
-            if (out) |o| self.fail_slot = .{ .call = sexp, .expr = o };
         };
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.task_sym_id)) if (self.takeFailSlot(sexp)) |o| {
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.task_sym_id)) {
+            const out = self.slotOf(sexp);
             try self.emitExpr(callee);
-            return self.writeSlotCall(o);
+            return self.w.print("Into({s})", .{out});
         };
         try self.checkCallTarget(sexp);
         // `get` on an array, a slice, or a `?String`.
@@ -9710,11 +9701,10 @@ pub const Emitter = struct {
         return s.expr;
     }
 
-    /// The arguments of a runtime wait that may be given a slot: `()`, or
-    /// `Into(slot)`.
-    fn writeSlotCall(self: *Emitter, out: ?[]const u8) Error!void {
-        if (out) |o| return self.w.print("Into({s})", .{o});
-        return self.w.writeAll("()");
+    /// The slot a runtime task call is given for a failure's fields: the
+    /// one a `!` or `catch` lends `call`, or `rig.no_slot`.
+    fn slotOf(self: *Emitter, call: Sexp) []const u8 {
+        return self.takeFailSlot(call) orelse "rig.no_slot";
     }
 
     /// The slot a `catch` lends its call `value` when the call may fail

@@ -80,32 +80,25 @@ comptime {
 
 pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
-pub const waitTasks = tasks.waitTasks;
 pub const waitTasksInto = tasks.waitTasksInto;
 pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
-pub const parMap = tasks.parMap;
 pub const parMapInto = tasks.parMapInto;
 pub const Actor = tasks.Actor;
 pub const actor = tasks.actor;
-pub const supervise = tasks.supervise;
 pub const superviseInto = tasks.superviseInto;
 pub const chan = tasks.chan;
 pub const Chan = tasks.Chan;
-pub const select = tasks.select;
 pub const selectInto = tasks.selectInto;
 pub const recvArm = tasks.recvArm;
 pub const sendArm = tasks.sendArm;
 pub const actorSupervised = tasks.actorSupervised;
 pub const actorCall = tasks.actorCall;
 pub const actorSpawn = tasks.actorSpawn;
-pub const isolate = tasks.isolate;
 pub const isolateInto = tasks.isolateInto;
 pub const monotonicNs = tasks.monotonicNs;
-pub const parEach = tasks.parEach;
 pub const parEachInto = tasks.parEachInto;
-pub const parWorkers = tasks.parWorkers;
 pub const parWorkersInto = tasks.parWorkersInto;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
@@ -4480,13 +4473,9 @@ pub inline fn prefetch(items: anytype, i: anytype) void {
 /// `xs.reduce(start, f)`: the running value, `first`, passed with
 /// each element in order, lent, to `f`, which gives the next; the last.
 /// A fallible `f` makes it fallible, failing with `f`'s first failure.
-/// Inline, so a closure written at the call is called directly.
-pub inline fn reduce(items: anytype, first: anytype, f: anytype) @typeInfo(@TypeOf(@TypeOf(f).call)).@"fn".return_type.? {
-    return reduceInto(items, first, f, no_slot);
-}
-
-/// `reduce` where `f`'s failure's fields go into the caller's slot `out`,
-/// or are dropped where it has none.
+/// Its fields go into the caller's slot `out`, or are dropped where it
+/// has none (`no_slot`). Inline, so a closure written at the call is
+/// called directly.
 pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytype) @typeInfo(@TypeOf(@TypeOf(f).call)).@"fn".return_type.? {
     const F = @TypeOf(f);
     const R = @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;

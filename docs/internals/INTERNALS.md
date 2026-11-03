@@ -5137,10 +5137,11 @@ program-wide mode.
 - **Leaving.** A failing `main` runs inside `__rig_fail_main`, which
   holds the slot, shows a failure with its fields after the body's drops
   and defers, then runs `rig.finish`; `rig.runTests` gives each test a
-  slot. A runtime wait has an `Into` variant taking the waiter's slot
-  (`waitInto`, `wait_allInto`, `waitTasksInto`, `parMapInto`,
-  `isolateInto`, `superviseInto`, `reduceInto`), and a spawned call that
-  takes a slot is given its task's (`takesSlot`).
+  slot. A runtime wait takes the waiter's slot, or `rig.no_slot` where
+  none is lent (`waitInto`, `wait_allInto`, `waitTasksInto`,
+  `parMapInto`, `selectInto`, `isolateInto`, `superviseInto`,
+  `reduceInto`), and a spawned call that takes a slot is given its
+  task's (`takesSlot`).
 - **Batches.** A batch has one root, so `rig batch build` leaves out a
   program with glue, to be built alone.
 
