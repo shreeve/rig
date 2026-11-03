@@ -190,7 +190,7 @@ const Checker = struct {
     write_tasks: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The task a wait, `>t`, or a `<t.cancel()` being checked takes.
     task_wait: Sexp = .nil,
-    /// The value of the struct or enum field, or the field default, being
+    /// The value of the object or enum field, or the field default, being
     /// checked: a value holding a Cell may be made there (`cellMadeAway`).
     cell_home: Sexp = .nil,
     /// The object of the member, method call, or lend being checked: a
@@ -6944,7 +6944,7 @@ const Checker = struct {
         };
     }
 
-    /// `T.name` of a type `T` (a number type, a struct, enum, or error
+    /// `T.name` of a type `T` (a number type, an object, enum, or error
     /// set, an alias, here or in another module): a constant the type
     /// holds, a variant, an error value, a limit, or a function.
     fn namesTypeConstant(self: *Checker, e: Sexp) Error!bool {
@@ -8147,7 +8147,7 @@ const Checker = struct {
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
     }
 
-    /// The struct or enum an alias names, `ty` being the aliased type in
+    /// The object or enum an alias names, `ty` being the aliased type in
     /// this module's terms: the alias constructs its values and reaches
     /// its members as the type itself does. Null for an alias of any
     /// other type.
@@ -9583,7 +9583,7 @@ const Checker = struct {
     }
 
     /// A call through an alias of type `ty` (in this module's terms),
-    /// named `name`: it constructs the struct the alias names, or
+    /// named `name`: it constructs the object the alias names, or
     /// converts to the number type it names.
     fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
         if (self.isPoison(ty)) return self.skipCall(args);
@@ -11863,7 +11863,7 @@ const Checker = struct {
                     .params => |p| if (self.trailingParam(args, p.params, p.names)) |i| p.params[i] else null,
                 };
             } else {
-                // A struct's or variant's one field may be given
+                // An object's or variant's one field may be given
                 // positionally; more fields are set by name.
                 defer positional += 1;
                 pattern = switch (from) {
@@ -12754,7 +12754,7 @@ const Checker = struct {
         };
     }
 
-    /// Construct a struct (`User(name: ...)`). Field types go through
+    /// Construct an object (`User(name: ...)`). Field types go through
     /// `subst` (generic constructors) or are imported from `foreign`.
     fn construct(self: *Checker, sym_id: SymbolId, args: []const Sexp, pos: u32, subst: TypeSubst, foreign: ?ForeignFields) Error!TypeId {
         const sym = if (foreign) |fo| fo.ctx.symbols.items[sym_id] else self.ctx.symbols.items[sym_id];

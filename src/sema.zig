@@ -12,7 +12,7 @@
 //!   4. contents     `sema.zig`       what each declared type's values hold
 //!                                    (drop glue, a Cell, plain data), and
 //!                                    types that contain themselves
-//!   5. validation   `sema.zig`,      every struct and enum fits
+//!   5. validation   `sema.zig`,      every object and enum fits
 //!                   `resolve.zig`    `max_value_bytes`; the declaration
 //!                                    checks that need 4
 //!   6. expressions  `typecheck.zig`  bodies are type-checked; every
@@ -419,7 +419,7 @@ pub const Type = union(enum) {
     /// `callable`, called through a `rig.FnRef`. (A `?T` whose `T` is a
     /// function type is a read view of a function value.)
     callable: TypeId,
-    /// A struct, enum, error set, or opaque declared in this module.
+    /// An object, enum, error set, or opaque declared in this module.
     nominal: SymbolId,
     /// A nominal declared in another module. Identity is the origin
     /// module plus the symbol there, never the shape.
@@ -1021,7 +1021,7 @@ pub const SymbolKind = enum {
     /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
     /// in the function's scope.
     generic_param,
-    /// struct / enum / error set / opaque.
+    /// object / enum / error set / opaque.
     nominal_type,
     /// A module imported with `use`.
     module,
@@ -1146,7 +1146,7 @@ pub const Field = struct {
     receiver: MethodReceiver = .none,
     /// An enum / error-set variant (not a data field).
     is_variant: bool = false,
-    /// The struct's user `drop(!@)` body. Not callable.
+    /// The object's user `drop(!@)` body. Not callable.
     is_drop_method: bool = false,
     /// A data field's default value (`name: T = literal`).
     default: ?Sexp = null,
@@ -2148,13 +2148,13 @@ pub const FlagTest = union(enum) {
 
 /// What a function bounds of its result on every path that returns
 /// (docs/internals/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
-/// itself, an `Int`, or of named `Int` fields of the struct it returns.
+/// itself, an `Int`, or of named `Int` fields of the object it returns.
 /// Written only by `src/proofs.zig`, for a module the ownership checker
 /// accepted, and read by the proof pass of each module that calls it.
 pub const ResultBound = struct {
     /// The bound of an `Int` result.
     whole: ?u64 = null,
-    /// The bounds of the fields of a struct result.
+    /// The bounds of the fields of an object result.
     fields: []const FieldBound = &.{},
 
     /// The bound of field `name`, or null.
@@ -2164,7 +2164,7 @@ pub const ResultBound = struct {
     }
 };
 
-/// `0 <= field <= hi` of a struct a function returns.
+/// `0 <= field <= hi` of an object a function returns.
 pub const FieldBound = struct { name: []const u8, hi: u64 };
 
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
@@ -7059,7 +7059,7 @@ pub const TypeInfo = packed struct(u30) {
     cell: bool = false,
     /// Is or holds inline a type declared `unique` (see `isUnique`).
     unique: bool = false,
-    /// Holds no resource, marked view, or generic parameter. A struct with a
+    /// Holds no resource, marked view, or generic parameter. An object with a
     /// user `drop` can be plain and still have glue (see `holdsNoLoanButText`).
     plain: bool = false,
     /// Holds a view, or a write view (see `Views`).
@@ -7461,7 +7461,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     return info;
 }
 
-/// A struct or enum may not hold itself by value, directly or through
+/// An object or enum may not hold itself by value, directly or through
 /// the types it holds by value: it would have no finite size. One search
 /// of the by-value graph over the declared types finds every cycle.
 fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
@@ -8049,7 +8049,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
     return bytes;
 }
 
-/// The bytes a struct's fields take at least, or an enum's tag and
+/// The bytes an object's fields take at least, or an enum's tag and
 /// largest payload.
 fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
     if (ctx.symbols.items[sym].contents.cyclic) return null;
@@ -8131,7 +8131,7 @@ pub fn reportOversized(ctx: *SemContext, pos: u32, ty: TypeId, bytes: u128) std.
     try ctx.err(pos, "`{s}` takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `List`", .{ try formatType(ctx, ty), bytes, max_value_bytes });
 }
 
-/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// Whether `ty` (an object, an enum, or a generic type's instance under
 /// `subst`) is too large by itself: it takes more than `max_value_bytes`,
 /// and no type it holds directly does, which is reported on its own.
 /// Its size, when it is.
@@ -8145,7 +8145,7 @@ pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: Typ
     return bytes;
 }
 
-/// Every declared struct and enum must fit `max_value_bytes` and nest
+/// Every declared object and enum must fit `max_value_bytes` and nest
 /// at most `max_value_depth` deep; a generic one is checked at each
 /// instance. Each is sized after the types it holds (`order`, from
 /// `computeContents`), so sizing one does not nest through the chain of
@@ -8206,7 +8206,7 @@ pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
     return ctx.value_depths.get(ty).?;
 }
 
-/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// Whether `ty` (an object, an enum, or a generic type's instance under
 /// `subst`) nests too deep by itself: more than `max_value_depth` levels
 /// (`valueDepth`), when no type it holds does, which is reported on its
 /// own. Its depth, when it is.
@@ -8863,9 +8863,9 @@ pub const NotEquatable = struct {
         no_eq,
         /// A view held in a field or payload: the value is a view.
         view,
-        /// A struct that declares `drop`.
+        /// An object that declares `drop`.
         drop,
-        /// A struct declared `unique`.
+        /// An object declared `unique`.
         unique,
         /// A `Simd[T, n]`, whose `==` compares lane by lane.
         lanes,
@@ -8881,7 +8881,7 @@ pub const NotEquatable = struct {
 
 /// Why `==` does not compare values of `ty`, or null when it does:
 /// numbers, Bool, `?String`, error values, plain enums, and, when all they
-/// hold is equatable, optionals, arrays, slices, structs without `drop`,
+/// hold is equatable, optionals, arrays, slices, objects without `drop`,
 /// and payload enums. Handles, functions, `Void`, List, Cell, Signal, and
 /// views held in a field are not equatable. Each generic parameter
 /// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
@@ -9656,7 +9656,7 @@ pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// whose `next` has another shape (why), or an iterator of `item`. The one
 /// classifier of iterators (docs/internals/INTERNALS.md, "Loops over an
 /// iterator"): the loop, the `Iter` bound (`lacks`), and `I.Item`
-/// (`assocType`) read it. A positive list: a struct or enum a program or
+/// (`assocType`) read it. A positive list: an object or enum a program or
 /// std declares (not a `List`, an array, a slice, a `?String`, a range,
 /// or a `Table`, which keep their own meaning) that declares `next(!@) ->
 /// T?`, or a type parameter bounded by `Iter`.
@@ -10196,7 +10196,7 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
 
 /// The types a compared value holds, walked depth first with an explicit
 /// stack, so a long chain of types does not nest the walk. Each is in
-/// `ctx`'s store: the field types of another module's struct are
+/// `ctx`'s store: the field types of another module's object are
 /// imported there, and a generic instance's have its type arguments
 /// applied.
 const EquatableWalk = struct {
@@ -10521,7 +10521,7 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     }
 }
 
-/// The struct or enum a `^T` (or a view or handle of one) holds,
+/// The object or enum a `^T` (or a view or handle of one) holds,
 /// through any number of boxes, whose fields and methods are reached
 /// through them; null for anything else.
 pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
@@ -10924,7 +10924,7 @@ pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
 
 /// Where a value of some type stands, as `misplaced` sees it.
 pub const Home = enum {
-    /// A struct field, or an enum variant's payload field.
+    /// An object field, or an enum variant's payload field.
     field,
     /// A parameter, a receiver, or a function's result.
     signature,
@@ -12645,7 +12645,7 @@ pub fn resourceKind(ctx: *const SemContext, ty: TypeId) ?ResourceKind {
 /// no owner involved. It does not move (`moves`: it owns nothing and is
 /// not unique) and holds no write view (`!T`), of which there is only
 /// one. So numbers, `Bool`, `?String`, function values, plain enums,
-/// structs, enums, arrays, and optionals of values that copy, and read
+/// objects, enums, arrays, and optionals of values that copy, and read
 /// views, copy (Core §1: the plain kind and read views). `depends` when
 /// each instance decides. Every place that duplicates a value asks this
 /// fact: a bare use, a copy out of a view (`copiedOut`), `fill`, `copy`,
@@ -12761,7 +12761,7 @@ const ClonePath = struct { at: CloneSeen, up: ?*const ClonePath };
 
 /// Whether `+x` can make a new owner of a `ty` part by part (Core
 /// sentence 2): a String, a List, a box, an optional, an array, or a
-/// struct or enum, of this module or another, of parts that clone; a
+/// object or enum, of this module or another, of parts that clone; a
 /// handle, counted again; plain data and read views, copied. A type with
 /// a `drop` body has no clone, and neither has a unique type, a Cell, a
 /// Signal, a write view, or a type parameter. `seen` holds the declared
@@ -16553,7 +16553,7 @@ test "declarations: wrapper, sized, and alias types" {
     try std.testing.expectEqual(r.ctx.types.float_id, ret.optional);
 }
 
-test "declarations: struct fields, methods, and enum variants" {
+test "declarations: object fields, methods, and enum variants" {
     var r = try factsRun(
         \\obj User
         \\  name: ?String

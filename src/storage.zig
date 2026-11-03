@@ -128,7 +128,7 @@ pub fn moduleMemberSym(ctx: *const SemContext, obj: Sexp) ?sema.Symbol {
     return foreign.symbols.items[fid];
 }
 
-/// A struct, enum, or generic type: calling it constructs a value.
+/// An object, enum, or generic type: calling it constructs a value.
 pub fn isTypeSym(ctx: *const SemContext, id: SymbolId) bool {
     return switch (ctx.symbols.items[id].kind) {
         .nominal_type, .generic_type => true,
@@ -420,7 +420,7 @@ pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
 /// it takes is: it is read, not taken, and its type is read by
 /// address (`sema.readByAddress`), as the ownership checker reads
 /// each leaf in place (`holdBranchReads`). Zig would copy it into a
-/// temporary, and a `?@` method would view the copy; a struct, an
+/// temporary, and a `?@` method would view the copy; an object, an
 /// array, or a String is instead reached through the address of its
 /// leaf, which Zig follows for a field, an element, or a method.
 pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {

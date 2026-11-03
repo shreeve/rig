@@ -833,7 +833,7 @@ pub const Lexer = struct {
     /// continue (it has a block `if`, `while`, or `for`). An `else` after
     /// any other block (a match arm) is a new line.
     takes_else: [max_indent_depth + 1]bool = @splat(false),
-    /// Per depth: the block is the member list of a struct, enum, or
+    /// Per depth: the block is the member list of an object, enum, or
     /// error set, where a keyword may name a field or method.
     in_members: [max_indent_depth + 1]bool = @splat(false),
     /// Per depth: the block is the arm list of a `match`, where each line
@@ -3230,7 +3230,7 @@ pub const Parser = struct {
     /// Compile-time parameters and arguments written where Rig does not
     /// take them: in parentheses (`obj Wrap(T)`, `List(Int)` in a type,
     /// `pre n: Int`), on a type alias, or as a type an expression cannot
-    /// spell (`List[[]Int]()`). Also a struct declared with `type`.
+    /// spell (`List[[]Int]()`). Also an object declared with `type`.
     fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
         const src = self.base.source;
         const before = std.mem.trimEnd(u8, src[0..tok.pos], if (tok.cat == .indent) " \r\n" else " ");
@@ -4326,7 +4326,7 @@ pub const Parser = struct {
                 try read_only.append(self.allocator(), memberName(field));
                 inner = field;
             }
-            // A bare name is a variant; in a struct, the checker rejects
+            // A bare name is a variant; in an object, the checker rejects
             // it, and any other member that is not a field or method.
             switch (inner.kind() orelse .variant) {
                 .@":", .default, .fun, .sub => {},
@@ -5900,7 +5900,7 @@ fn firstDecl(p: *Parser) !Sexp {
     return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
 }
 
-/// Whether `source` declares a unique struct first.
+/// Whether `source` declares a unique object first.
 fn structUnique(source: []const u8) !bool {
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();

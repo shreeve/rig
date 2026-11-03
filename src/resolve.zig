@@ -7,7 +7,7 @@
 //! walks enter scopes by node identity rather than by visiting order.
 //!
 //! `resolveDeclarations` then turns every declared type expression into
-//! a TypeId: function signatures, parameter types, struct fields, enum
+//! a TypeId: function signatures, parameter types, object fields, enum
 //! variants, methods, `drop` bodies, externs, and type aliases.
 //! `TypeResolver.resolveType` is also used by the expression checker for
 //! annotations inside bodies.

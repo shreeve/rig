@@ -9178,7 +9178,7 @@ pub const Emitter = struct {
         if (self.isSwapCall(sexp)) return self.emitSwapCall(args);
         if (callee == .src and self.facts.symbolOf(callee) == null and facts.syntax.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
-        // names, or a value of the struct it names.
+        // names, or a value of the object it names.
         if (self.isAliasCallee(callee)) {
             const t = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped call through an alias");
             if (self.facts.isNumeric(t)) return self.emitConversion(sexp);
@@ -9918,7 +9918,7 @@ pub const Emitter = struct {
         return self.facts.moduleMemberSym(obj);
     }
 
-    /// A struct, enum, or generic type: calling it constructs a value.
+    /// An object, enum, or generic type: calling it constructs a value.
     /// A callee naming a type alias, this module's or an imported one.
     fn isAliasCallee(self: *Emitter, callee: Sexp) bool {
         if (callee.isKind(.member)) return if (self.moduleMemberSym(callee)) |m| m.kind == .type_alias else false;
@@ -10194,7 +10194,7 @@ pub const Emitter = struct {
         try self.emitFieldInit(ir.Call.args(call), self.facts.symbols.items[sym_id].fields orelse &.{});
     }
 
-    /// The members of the struct or enum type `ty` is declared as.
+    /// The members of the object or enum type `ty` is declared as.
     fn declFields(self: *Emitter, ty: TypeId) []const facts.Field {
         const decl = self.facts.nominalDecl(ty) orelse return &.{};
         return decl.symbol().fields orelse &.{};
@@ -11275,7 +11275,7 @@ pub const Emitter = struct {
     }
 
     /// Whether `a == b` compares with `rig.eql` rather than Zig's `==`:
-    /// an operand is not a scalar (a `?String`, a struct, a payload enum, an
+    /// an operand is not a scalar (a `?String`, an object, a payload enum, an
     /// array or slice, an optional of one, an optional error, or a type
     /// parameter's value). `none` compares with any optional by `==`.
     fn comparesStructurally(self: *Emitter, operands: [2]Sexp) bool {
