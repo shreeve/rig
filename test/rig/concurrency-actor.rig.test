@@ -793,3 +793,24 @@ test "actor supervised gives back the mailbox slot of a call that panicked", see
     print(r, >x!)
   t = (!c).add(-4)&
   print(>t)
+
+test "actor & calls wait for a mailbox slot asleep", seeds: 20, timeout: 10, "4"
+  # A call made with `&` that finds every slot taken sleeps until one is
+  # given back, so a deterministic run's clock reaches the timers that
+  # end the calls holding them.
+  use std.time
+
+  obj Slow
+    hits: Int
+
+    fun add(!@, n: Int) -> Int!
+      time.sleep(10 * time.MS)!
+      @hits += n
+      @hits
+
+  c = *Actor(Slow(hits: 0), mailbox: 1)
+  ts = Tasks[Int!]()
+  for 0..4
+    !ts.add((!c).add(1)&)
+  xs = >ts!
+  print(xs.len)

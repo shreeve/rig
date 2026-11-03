@@ -492,6 +492,71 @@ pub fn interruptForCancel(f: *Fiber) void {
     _ = interrupt(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true);
 }
 
+/// The fibers waiting for one condition that another fiber or thread
+/// makes true: a slot of an actor's mailbox coming free, the last task
+/// of an isolate ending, a descriptor becoming ready. A lock the caller
+/// keeps guards the list and the condition. A waiter looks at the
+/// condition and lists itself under it (`sleepOn`); a waker makes the
+/// condition true, then, under it, takes fibers off the list and wakes
+/// them (`wakeOne`, `wakeAll`). A woken fiber takes the lock before it
+/// goes on, so no waker touches its entry after, and its entry says
+/// whether a waker took it off or a timer or a cancel woke it.
+pub const Waiters = struct {
+    first: ?*Node = null,
+    last: ?*Node = null,
+
+    /// A waiting fiber's entry, in its own frame.
+    const Node = struct {
+        fiber: *Fiber,
+        epoch: u32,
+        prev: ?*Node = null,
+        next: ?*Node = null,
+        listed: bool = true,
+    };
+
+    fn remove(ws: *Waiters, n: *Node) void {
+        if (!n.listed) return;
+        n.listed = false;
+        if (n.prev) |p| p.next = n.next else ws.first = n.next;
+        if (n.next) |x| x.prev = n.prev else ws.last = n.prev;
+    }
+
+    /// Wake the fiber waiting longest, taking it off; whether there was
+    /// one whose wait this ended.
+    pub fn wakeOne(ws: *Waiters) bool {
+        while (ws.first) |n| {
+            ws.remove(n);
+            if (interrupt(n.fiber, n.epoch, false)) return true;
+        }
+        return false;
+    }
+
+    /// Wake every fiber listed; whether there was one.
+    pub fn wakeAll(ws: *Waiters) bool {
+        var any = false;
+        while (ws.wakeOne()) any = true;
+        return any;
+    }
+};
+
+/// Sleep on `ws` under `lock`, which the caller holds and holds again
+/// when this returns, until a waker takes the running fiber off the list,
+/// `deadline` passes, or, when `cancelable`, its task is canceled:
+/// whether a waker took it off.
+pub fn sleepOn(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
+    const f = current().?;
+    var n: Waiters.Node = .{ .fiber = f, .epoch = beginWait(cancelable), .prev = ws.last };
+    if (ws.last) |l| l.next = &n else ws.first = &n;
+    ws.last = &n;
+    lock.unlock();
+    // A cancel that came before the wait began found no wait to end.
+    const over = (cancelable and isCanceled(f)) or (if (deadline) |d| nowNs() >= d else false);
+    if (!over) commitWait(n.epoch, deadline);
+    lock.lock();
+    defer ws.remove(&n);
+    return !n.listed;
+}
+
 /// The monotonic clock, in nanoseconds: what deadlines count on.
 pub fn nowNs() i96 {
     if (deterministic.*) return virtual_now.*;
@@ -1042,14 +1107,18 @@ fn passWatch() void {
 
 /// A file descriptor a poller watches: what it has seen the descriptor
 /// become ready for since a wait last took it, and the fibers waiting to
-/// read and to write. Readiness is edge-triggered: a waiter that took it
-/// tries its read or write, and waits again only once that would block.
+/// read and to write, as many of each as wait, as tasks that share a
+/// listener each wait to accept. Readiness is edge-triggered: an edge
+/// wakes every fiber waiting on it, and each tries its read, write, or
+/// accept, and waits again only once that would block.
 pub const Registration = struct {
     fd: i32,
     poller: *Poller,
     ready_bits: std.atomic.Value(u32) = .init(0),
-    reader: Waiter = .{},
-    writer: Waiter = .{},
+    /// Guards `readers` and `writers`.
+    lock: SpinLock = .{},
+    readers: Waiters = .{},
+    writers: Waiters = .{},
     /// Its neighbors in the list of every registration, kept in a
     /// deterministic run, which looks at what each still has to send
     /// before its clock jumps (`unsent`).
@@ -1066,38 +1135,14 @@ pub const Registration = struct {
     pub const readable: u32 = 1;
     pub const writable: u32 = 2;
 
-    /// The fiber waiting, and the epoch of its wait. A poller waking it
-    /// holds it (`waking` in place of the fiber) until it is done, and
-    /// the fiber takes itself back only once no poller holds it
-    /// (`leave`), so a fiber that goes on and ends is never touched
-    /// after.
-    const Waiter = struct {
-        fiber: std.atomic.Value(?*Fiber) = .init(null),
-        epoch: std.atomic.Value(u32) = .init(0),
-
-        const waking: *Fiber = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(Fiber)));
-
-        fn wakeIt(w: *Waiter) bool {
-            const f = w.fiber.load(.seq_cst) orelse return false;
-            if (f == waking) return false;
-            if (w.fiber.cmpxchgStrong(f, waking, .seq_cst, .seq_cst) != null) return false;
-            defer w.fiber.store(f, .seq_cst);
-            return interrupt(f, w.epoch.load(.seq_cst), false);
-        }
-
-        /// The fiber `f` is done waiting: take it back, once no poller
-        /// holds it.
-        fn leave(w: *Waiter, f: *Fiber) void {
-            while (w.fiber.cmpxchgWeak(f, null, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
-        }
-    };
-
     /// The poller saw `bits`: record them, then wake who waits on them.
     fn ready(r: *Registration, bits: u32) bool {
         _ = r.ready_bits.fetchOr(bits, .seq_cst);
+        r.lock.lock();
+        defer r.lock.unlock();
         var any = false;
-        if (bits & readable != 0 and r.reader.wakeIt()) any = true;
-        if (bits & writable != 0 and r.writer.wakeIt()) any = true;
+        if (bits & readable != 0 and r.readers.wakeAll()) any = true;
+        if (bits & writable != 0 and r.writers.wakeAll()) any = true;
         return any;
     }
 };
@@ -1147,7 +1192,7 @@ pub const Readiness = enum { ready, canceled, timeout };
 /// once, which spends from the fiber's budget (`spendBudget`).
 pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bool) Readiness {
     const f = current().?;
-    const waiter = if (interest == Registration.readable) &r.reader else &r.writer;
+    const ws = if (interest == Registration.readable) &r.readers else &r.writers;
     while (true) {
         if (r.ready_bits.load(.seq_cst) & interest != 0) {
             _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
@@ -1157,15 +1202,16 @@ pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bo
         if (cancelable and isCanceled(f)) return .canceled;
         if (deadline) |d| if (nowNs() >= d) return .timeout;
         pausePoint();
-        const e = beginWait(cancelable);
-        waiter.epoch.store(e, .seq_cst);
-        waiter.fiber.store(f, .seq_cst);
-        // Readiness the poller saw before this waiter was there, and a
-        // cancel that came before the wait began, which found no wait to
-        // end: either one, and the fiber goes on.
-        const seen = r.ready_bits.load(.seq_cst) & interest != 0;
-        if (!seen and !(cancelable and isCanceled(f))) commitWait(e, deadline);
-        waiter.leave(f);
+        // Readiness the poller saw before this fiber was listed, under the
+        // lock, or an edge that woke it: it takes the readiness and tries
+        // its call again.
+        r.lock.lock();
+        const woken = r.ready_bits.load(.seq_cst) & interest != 0 or sleepOn(ws, &r.lock, deadline, cancelable);
+        r.lock.unlock();
+        if (woken) {
+            _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
+            return .ready;
+        }
     }
 }
 

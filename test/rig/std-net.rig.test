@@ -312,6 +312,30 @@ test "net split without tasks", "pong"
   <w
   print(got)
 
+test "net tasks share a listener", seeds: 20, timeout: 10, "8"
+  # Tasks that share a listener each wait for a connection of their own,
+  # and each connection wakes one.
+  use std.time
+
+  fun take(l: ?net.Listener) -> Int!
+    c = l.accept()!
+    _ = <c
+    1
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  ts = Tasks[Int!]()
+  for 0..8
+    !ts.add(take(?l)&)
+  time.sleep(20 * time.MS)!
+  cs = List[net.Stream]()
+  for 0..8
+    !cs.push(net.connect(String("127.0.0.1:", port))!)
+  n = 0
+  for x in time.within(5 * time.SECOND, |<ts| >ts!)!
+    n += x
+  print(n)
+
 test "net batch", seeds: 20, "abcd"
   # A stream or a writer may let the system hold small writes and send
   # them together, and send each at once again.

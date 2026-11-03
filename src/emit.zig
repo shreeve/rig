@@ -11809,8 +11809,6 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "tasks.zig", .call = "c.result = c.actor.invoke(name, c.args)", .why = method },
         .{ .file = "tasks.zig", .call = "return self.invoke(name, args)", .why = method },
         .{ .file = "tasks.zig", .call = "return @TypeOf(box.value).call(box, name, args)", .why = method },
-        .{ .file = "tasks.zig", .call = "return @TypeOf(b.value).call(b, name, a)", .why = "an actor's method by name, run as a task where it takes no slot (`takesSlot`)" },
-        .{ .file = "tasks.zig", .call = "return @TypeOf(b.value).call(b, name, a ++ .{slot})", .why = "an actor's method by name, run as a task and given the task's slot" },
         .{ .file = "net.zig", .call = "return t.f.call(.{t.req})", .why = "`http.serve`'s handler is a `?fun(?Request) -> Response`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`Map.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`Set.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },

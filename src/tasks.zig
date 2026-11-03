@@ -1206,10 +1206,15 @@ pub const Isolate = struct {
     id: u32,
     lock: rt.sched.SpinLock = .{},
     first: ?*Control = null,
+    /// Set once a panic stops it: a task listed after is canceled at once.
+    stopping: bool = false,
+    /// The fiber waiting for its last task to end (`stop`).
+    stopper: rt.sched.Waiters = .{},
 
     fn add(self: *Isolate, c: *Control) void {
         self.lock.lock();
         defer self.lock.unlock();
+        if (self.stopping) c.cancel();
         c.iso_prev = null;
         c.iso_next = self.first;
         if (self.first) |n| n.iso_prev = c;
@@ -1223,19 +1228,18 @@ pub const Isolate = struct {
         if (c.iso_next) |n| n.iso_prev = c.iso_prev;
         c.iso_prev = null;
         c.iso_next = null;
+        if (self.first == null) _ = self.stopper.wakeAll();
     }
 
-    /// Cancel every task listed; with `wait`, until none is.
+    /// Cancel every task listed, and every one listed later; with
+    /// `wait`, sleep until none is.
     fn stop(self: *Isolate, wait: bool) void {
-        while (true) {
-            self.lock.lock();
-            var c = self.first;
-            while (c) |x| : (c = x.iso_next) x.cancel();
-            const left = self.first != null;
-            self.lock.unlock();
-            if (!left or !wait) return;
-            rt.sched.yield();
-        }
+        self.lock.lock();
+        defer self.lock.unlock();
+        self.stopping = true;
+        var c = self.first;
+        while (c) |x| : (c = x.iso_next) x.cancel();
+        while (wait and self.first != null) _ = rt.sched.sleepOn(&self.stopper, &self.lock, null, false);
     }
 };
 
@@ -1853,9 +1857,12 @@ pub fn Actor(comptime T: type) type {
         /// empty, so claiming the actor, and giving it back when no
         /// message came meanwhile, are one atomic step each.
         state: std.atomic.Value(u8) = .init(0),
-        /// Calls made with `&` in flight, against `capacity`.
+        /// Calls made with `&` in flight, against `capacity`, and the
+        /// calls waiting for a slot (`takeSlot`), under `lock`.
         pending: std.atomic.Value(u32) = .init(0),
         capacity: u32 = default_mailbox,
+        slot_waiting: std.atomic.Value(u32) = .init(0),
+        slot_waiters: rt.sched.Waiters = .{},
         /// The method running in the actor while the fiber running it
         /// blocks, for a deadlock's walk (`rt.sched.Held`).
         held_by: std.atomic.Value(?*rt.sched.Held) = .init(null),
@@ -1975,9 +1982,45 @@ pub fn Actor(comptime T: type) type {
             if (slotted) self.freeSlot();
         }
 
-        /// A call made with `&` is done with its slot of the mailbox.
+        /// A call made with `&` is done with its slot of the mailbox,
+        /// which wakes a call waiting for one (`takeSlot`).
         fn freeSlot(self: *Self) void {
             _ = self.pending.fetchSub(1, .seq_cst);
+            if (self.slot_waiting.load(.seq_cst) == 0) return;
+            self.lock.lock();
+            defer self.lock.unlock();
+            _ = self.slot_waiters.wakeOne();
+        }
+
+        /// Take a slot of the mailbox for a call made with `&`, sleeping
+        /// until one is free. The fiber blocks on the actor meanwhile, as
+        /// a call to it does: a slot frees only once the actor answers a
+        /// call made with `&`, so a wait the actor's own method makes, or
+        /// one through calls that come back to the waiter, is a deadlock
+        /// (`rt.sched.block`). A waiter counts itself in `slot_waiting`
+        /// before it looks at `pending` again, and `freeSlot` lowers
+        /// `pending` before it looks at the count, so one of the two sees
+        /// the other.
+        fn takeSlot(self: *Self) void {
+            const wait: rt.sched.Blocked = .{ .call = .{ .label = &slot_label, .held_by = &self.held_by, .msg = self, .answered = slotFree } };
+            var blocked = false;
+            defer if (blocked) rt.sched.unblock();
+            while (true) {
+                const n = self.pending.load(.seq_cst);
+                if (n < self.capacity) {
+                    if (self.pending.cmpxchgWeak(n, n + 1, .seq_cst, .seq_cst) == null) return;
+                    continue;
+                }
+                if (!blocked) {
+                    blocked = true;
+                    rt.sched.block(&wait);
+                }
+                self.lock.lock();
+                _ = self.slot_waiting.fetchAdd(1, .seq_cst);
+                if (self.pending.load(.seq_cst) >= self.capacity) _ = rt.sched.sleepOn(&self.slot_waiters, &self.lock, null, false);
+                _ = self.slot_waiting.fetchSub(1, .seq_cst);
+                self.lock.unlock();
+            }
         }
 
         /// Whether a supervised actor may start again: one more restart
@@ -2440,26 +2483,8 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Tas
     const R = ActorResult(@TypeOf(handle), name);
     const box = boxOf(handle);
     const self = &box.value;
-    // Waiting for a slot, the fiber blocks on the actor, as a call to it
-    // does: a slot frees only once the actor answers a call made with
-    // `&`, so a wait the actor's own method makes, or one through calls
-    // that come back to the waiter, is a deadlock (`rt.sched.block`).
     const A = @TypeOf(self.*);
-    const slot_wait: rt.sched.Blocked = .{ .call = .{ .label = &A.slot_label, .held_by = &self.held_by, .msg = self, .answered = A.slotFree } };
-    var blocked = false;
-    while (true) {
-        const n = self.pending.load(.seq_cst);
-        if (n < self.capacity) {
-            if (self.pending.cmpxchgWeak(n, n + 1, .seq_cst, .seq_cst) == null) break;
-            continue;
-        }
-        if (!blocked) {
-            blocked = true;
-            rt.sched.block(&slot_wait);
-        }
-        rt.sched.yield();
-    }
-    if (blocked) rt.sched.unblock();
+    self.takeSlot();
     const Run = struct {
         fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
             defer b.dropStrong();

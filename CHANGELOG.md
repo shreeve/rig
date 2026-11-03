@@ -2267,6 +2267,13 @@ first step is on `main` (SPEC §18):
   A send on a closed channel, and a close with senders waiting, panic
   in the sender's own task with the channel unlocked, so an isolate
   that stops the panic leaves the channel working.
+- **Every wait sleeps.** Tasks that share a listener each wait for a
+  connection of their own: a second waiter no longer took the first's
+  place, which then missed its wakeup and spun at its deadline. A call
+  made with `&` waiting for a mailbox slot, and an isolate waiting for
+  its tasks after a panic, sleep until woken rather than spin on a
+  yield, so neither burns a core, and a deterministic run (`rig test`)
+  reaches the timers that end them.
 - **A regular file's read runs in its task.** `file.read` of a regular
   file, and `exists`, `stat`, `realpath`, and `read_dir`, run on the
   task's own worker, not the blocking pool, as Go's and tsrs's do; a

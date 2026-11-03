@@ -256,3 +256,35 @@ fail "isolate generic instance gives a task", "`go[Task[Int]]` cannot use `T = T
 
   print(go(3))
   print(go(work()&))
+
+test "isolate waits asleep for a task in a wait no cancel ends", seeds: 20, timeout: 10, "-9 1"
+  # A panic on the isolate's own fiber cancels its tasks and sleeps until
+  # they end; one waiting on an actor's method that started runs on to
+  # the method's end, which a deterministic run's clock reaches.
+  use std.task
+  use std.time
+
+  obj Slow
+    n: Int
+
+    fun nap(!@) -> Int!
+      time.sleep(50 * time.MS)!
+      @n
+
+    fun get(?@) -> Int
+      @n
+
+  fun ask(c: *Actor[Slow]) -> Int!
+    (!c).nap()!
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  c = *Actor(Slow(n: 1))
+  r = task.isolate(|+c|
+    a = ask(+c)&
+    time.sleep(5 * time.MS)!
+    x = pick([1, 2, 3], 9)
+    x + >a!
+  ) catch -9
+  print(r, c.get())
