@@ -289,7 +289,7 @@ Padding is the whole fix, and ordering plays no part.
 
 ## Files
 
-The sources and raw runs are not kept here (records keep no bulk data). They are in the owner's session folder, `~/Data/Code/Claude/rig/rig/atomics-bench/`:
+The sources and raw runs are not kept here (records keep no bulk data). They are kept on pup, in `/zfs/trig-pup/records-data/atomics-bench/`:
 
 - `zig/bench.zig`: every Zig ceiling; `bench MODE VARIANT THREADS`.
 - `rust/src/main.rs`, `rust/Cargo.toml`: the Rust versions, with the same command line.

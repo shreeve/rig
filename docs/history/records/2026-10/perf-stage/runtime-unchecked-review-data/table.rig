@@ -1,0 +1,7 @@
+sub main()
+  t: Table[String, 256] = Table()
+  last = 0
+  for i in 0..256
+    s = (!t).push(String("x", i))
+    last = Int(s)
+  print(last, t[(!t).push(String("past full"))])

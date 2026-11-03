@@ -1,0 +1,17 @@
+fun make(n: Int) -> List[String]
+  out = List[String]()
+  for i in 0..n
+    !out.push(String("s", i, "-", i * 7))
+  out
+
+sub main()
+  total = 0
+  for _ in 0..50
+    ts = List[Task[List[String]]]()
+    for k in 0..8
+      !ts.push(make(200 + k)&)
+    while (!ts).pop() as t
+      xs = >t
+      for s in <xs
+        total += s.len
+  print(total)

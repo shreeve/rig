@@ -1,0 +1,22 @@
+sub main()
+  v = List[Int]()
+  for i in 0..1000
+    !v.push(i)
+  total = 0
+  while (!v).pop() as x
+    total += x
+  print(total)
+  w = List[String]()
+  for i in 0..300
+    !w.push(String("item ", i))
+  n = 0
+  for s in <w
+    n += s.len
+  print(n)
+  a = [5, 6, 7, 8]
+  s = ?a[..]
+  print(s[3])
+  t = String("abc")
+  !t.add("defghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")
+  u = +t
+  print(u.len)

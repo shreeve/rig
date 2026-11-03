@@ -1,0 +1,3 @@
+892b9162a8dcb8706186fbdbc9a01aeb3fbc4cab47eb71a20e7a0d47b4c34309  bin/base
+ee372bd0a931967f900eec5eaf64836382c77e3406c6410559dbf22e73203c2e  bin/noyield
+rig 928b44bf2 trig 806e0a1; pgo /zfs/worktrees/rig/standing-6/trig/bin e65925ff31ff785e (Merges, same commits)

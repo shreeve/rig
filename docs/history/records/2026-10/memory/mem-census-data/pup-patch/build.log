@@ -1,0 +1,100 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling stable_deref_trait v1.2.1
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling syn v3.0.6
+   Compiling libc v0.2.191
+   Compiling memchr v2.8.3
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling synstructure v0.14.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerofrom v0.1.8
+   Compiling displaydoc v0.2.7
+   Compiling yoke v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling zerovec v0.11.8
+   Compiling potential_utf v0.1.6
+   Compiling zerotrie v0.2.5
+   Compiling utf8_iter v1.0.4
+   Compiling dragonbox_ecma v0.1.12
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling num-integer v0.1.46
+   Compiling smallvec v1.16.3
+   Compiling hashbrown v0.17.1
+   Compiling tsrs_core v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_core)
+   Compiling equivalent v1.0.2
+   Compiling rustc-hash v2.1.3
+   Compiling icu_normalizer v2.3.0
+   Compiling indexmap v2.14.2
+   Compiling num-bigint v0.5.1
+   Compiling unicode-id-start v1.1.2
+   Compiling simdutf8 v0.1.5
+   Compiling bitflags v2.13.2
+   Compiling tsrs_diagnostics v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_diagnostics)
+   Compiling crossbeam-utils v0.8.23
+   Compiling crossbeam-epoch v0.9.21
+   Compiling tsrs_spanmap v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_spanmap)
+   Compiling tsrs_ast v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_ast)
+   Compiling crossbeam-deque v0.8.8
+   Compiling rayon-core v1.13.0
+   Compiling rustix v1.1.5
+   Compiling tsrs_scanner v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_scanner)
+   Compiling linux-raw-sys v0.12.1
+   Compiling either v1.18.0
+   Compiling rayon v1.12.0
+   Compiling tsrs_vfs v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_vfs)
+   Compiling tsrs_parser v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_parser)
+   Compiling tsrs_module v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_module)
+   Compiling aho-corasick v1.1.5
+   Compiling xxhash-rust v0.8.19
+   Compiling regex-syntax v0.8.11
+   Compiling tsrs_tsoptions v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_tsoptions)
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling tsrs_sourcemap v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_sourcemap)
+   Compiling tsrs_printer v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_printer)
+   Compiling tsrs_modulespecifiers v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_modulespecifiers)
+   Compiling tsrs_binder v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_binder)
+   Compiling tsrs_astnav v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_astnav)
+   Compiling tsrs_pseudochecker v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_pseudochecker)
+   Compiling tsrs_checker v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_checker)
+   Compiling tsrs_ipc v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_ipc)
+   Compiling tsrs_contentmapper v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_contentmapper)
+   Compiling serde_core v1.0.229
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling cc v1.5.1
+   Compiling zmij v1.0.23
+   Compiling cmake v0.1.58
+   Compiling tsrs_lsproto v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_lsproto)
+   Compiling tsrs_transformers v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_transformers)
+   Compiling tsrs_declarations v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_declarations)
+   Compiling tsrs_compiler v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_compiler)
+   Compiling tsrs_projectutil v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_projectutil)
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling tsrs_ls v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_ls)
+   Compiling libmimalloc-sys2 v0.1.63
+   Compiling serde_derive v1.0.229
+   Compiling itoa v1.0.18
+   Compiling tsrs_project v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_project)
+   Compiling tsrs_fswatch v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_fswatch)
+   Compiling base64 v0.23.1
+   Compiling tsrs_execute v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_execute)
+   Compiling tsrs_api_transport v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_api_transport)
+   Compiling tsrs_incremental v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_incremental)
+   Compiling tsrs_api_codec v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_api_codec)
+   Compiling tsrs_api v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_api)
+   Compiling mimalloc-safe v0.1.67
+   Compiling tsrs_lsp v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_lsp)
+   Compiling tsrs_cli v0.18.0 (/zfs/trig-pup/mem-census/src/crates/tsrs_cli)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 2m 41s
+exit 0

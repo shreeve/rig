@@ -1,0 +1,29 @@
+diff --git c/src/runtime.zig w/src/runtime.zig
+index 971f748e5..7c4d21941 100644
+--- c/src/runtime.zig
++++ w/src/runtime.zig
+@@ -4287,13 +4287,13 @@ inline fn negLanes(comptime checked: bool, a: anytype) @TypeOf(a) {
+ 
+ /// `s[lo..hi]` of a string, slice, or array pointer: the elements from
+ /// `lo` up to `hi` (`null`: the end); panics unless `0 <= lo <= hi <= len`.
+-pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
++pub inline fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
+     const b = bounds(items.len, lo, hi);
+     return items[b[0]..b[1]];
+ }
+ 
+ /// `!xs[lo..hi]`: `slice`, writable.
+-pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeOf(items)) {
++pub inline fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeOf(items)) {
+     const b = bounds(items.len, lo, hi);
+     return items[b[0]..b[1]];
+ }
+@@ -5435,7 +5435,7 @@ fn zigEndian(comptime e: Endian) std.lang.Endian {
+     };
+ }
+ 
+-fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
++inline fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
+     const l = std.math.cast(usize, lo) orelse slicePanic();
+     const h = if (@TypeOf(hi) == @TypeOf(null)) count else std.math.cast(usize, hi) orelse slicePanic();
+     if (l > h or h > count) slicePanic();

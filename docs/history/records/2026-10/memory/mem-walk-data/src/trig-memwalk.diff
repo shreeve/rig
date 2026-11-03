@@ -1,0 +1,110 @@
+diff --git i/src/checks/checks.rig w/src/checks/checks.rig
+index 0941d2b..88c2e38 100644
+--- i/src/checks/checks.rig
++++ w/src/checks/checks.rig
+@@ -6,4 +6,4 @@
+ # the ones for benchmarks and releases, which tools/trig/pgo and
+ # tools/trig/bolt make with their own copy of this file, where CHECK_IDS
+ # is false.
+-pub CHECK_IDS = true
++pub CHECK_IDS = false
+diff --git i/src/compiler/program.rig w/src/compiler/program.rig
+index 3a88695..01a03d4 100644
+--- i/src/compiler/program.rig
++++ w/src/compiler/program.rig
+@@ -19,6 +19,7 @@ use std.text as stdtext
+ use symlinks
+ use tspath
+ use vfs
++use std.memwalk
+ 
+ # Go: compiler/program.go Program
+ pub obj Program
+@@ -1221,6 +1222,7 @@ pub fun new_program(config: tsoptions.ParsedCommandLine, host: Host, names: !ast
+   cache.keep = true
+   base_directory = tspath.RootedDirectoryPath(+config.get_base_directory().value)
+   processed = process_all_program_files(!h, ?config.compiler_options, ?config.file_names, ?base_directory, !cache)
++  memwalk.snap("load")
+   files: List[ast.File] = List()
+   bindings: List[ast.Binding] = List()
+   bind_ns = 0
+@@ -1246,6 +1248,7 @@ pub fun new_program(config: tsoptions.ParsedCommandLine, host: Host, names: !ast
+       bind_ns += h.clock() - bind_start
+       !bindings.push(swap(!file.binding, none) ?? ast.Binding.new(0))
+       !files.push(<file)
++  memwalk.snap("bind")
+   case_sensitivity = h.fs.get_case_sensitivity()
+   options = config.compiler_options.clone()
+   Program(files: <files, bindings: <bindings, options: <options, resolutions: <processed, case_sensitivity: case_sensitivity, fs: swap(!h.fs, vfs.FS.new(case_sensitivity)), base_directory: <base_directory, config: <config, now: h.now, bind_ns: bind_ns)
+diff --git i/src/declarations/emitter.rig w/src/declarations/emitter.rig
+index 9ea19f5..2dc9fe6 100644
+--- i/src/declarations/emitter.rig
++++ w/src/declarations/emitter.rig
+@@ -21,6 +21,7 @@ use transformers
+ use sourcemap
+ use stringutil
+ use tspath
++use std.memwalk
+ 
+ # One `.d.ts` the emit wrote.
+ pub obj DeclarationFile
+@@ -572,6 +573,7 @@ pub fun get_diagnostics_of_any_program(pool: !CheckerPool, config_index: Int, sk
+         # Go: execute/tsc/emit.go:97, the semantic diagnostics timed as Check time
+         check_start = program.clock()
+         checked_by_file = (!pool).check_groups()
++        memwalk.snap("check")
+         for f in 0..program.files.len
+           # Go: compiler/program.go:1514 getSemanticDiagnosticsWithChecker
+           if not program.skip_type_checking(f, false)
+diff --git i/src/execute/emit.rig w/src/execute/emit.rig
+index 66f978f..01f4c17 100644
+--- i/src/execute/emit.rig
++++ w/src/execute/emit.rig
+@@ -11,6 +11,7 @@ use diagnosticwriter
+ use std.sort
+ use tspath
+ use vfs
++use std.memwalk
+ 
+ # Go: execute/tsc/emit.go:31 EmitInput
+ # PORT: Go's Sys, ProgramLike, Program and Config are the arguments of
+@@ -123,6 +124,7 @@ obj Checked
+ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index: Int, sys: !System, input: ?EmitInput) -> Checked
+   result = Checked()
+   pool = declarations.new_checker_pool(program, names)
++  memwalk.snap("checkers")
+   pool.dynamic = sys.dynamic_checkers
+   check_and_emit_on(!pool, !result, config_index)
+   for c in ?pool.checkers
+@@ -137,6 +139,7 @@ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index:
+       done = CompileAndEmitResult(emit_skipped: result.emit_skipped, counts: result.counts)
+       done.diagnostics = report_diagnostics(!sys, ?program.files, program, swap(!result.diagnostics, List()), config_index, ?result.emitted_files, input)
+       report_statistics_and_status(!sys, program, !done)
++      memwalk.snap("exit")
+       result.finished = true
+       result.status = done.status
+       f(!sys, done.status)
+diff --git i/src/execute/tsc.rig w/src/execute/tsc.rig
+index d3ff3e9..3a0155e 100644
+--- i/src/execute/tsc.rig
++++ w/src/execute/tsc.rig
+@@ -9,6 +9,7 @@ use stringutil
+ use tsoptions
+ use tspath
+ use vfs
++use std.memwalk
+ 
+ # One argument of a diagnostic.
+ fun one(s: ?String) -> List[String]
+@@ -104,9 +105,11 @@ fun tsc_compilation(sys: !System, t: ?tsoptions.Tables, parsed: tsoptions.Parsed
+   !wrapped.set(String("compilerOptions"), tsoptions.CompilerOptionsValue.Table(m: swap(!command_line.raw, collections.OrderedMap())))
+   command_line_raw = tsoptions.CompilerOptionsValue.Table(m: <wrapped)
+   path = sys.fs.get_case_sensitivity().path_key(config_file_name.as_path())
++  memwalk.snap("start")
+   config_start = sys.clock()
+   config_parse_result, errors = tsoptions.get_parsed_command_line_of_config_file_path(t, ?config_file_name, ?path, ?command_line.compiler_options, ?command_line_raw, ?sys.fs)
+   sys.times.config = sys.clock() - config_start
++  memwalk.snap("config")
+   if errors.len != 0
+     # these are unrecoverable errors--exit to report them as diagnostics
+     for e in ?errors

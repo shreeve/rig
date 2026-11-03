@@ -1,0 +1,67 @@
+# revcomp plain, cut as the fast port is: blocks of lines over par.map, each base by a
+# 256-entry table, one byte at a time.
+use std.file
+use std.math
+use std.par
+use std.text
+
+LINE = 60
+BLOCK_LINES = 16384
+
+fun complements[n: Int] -> [n]U8
+  bases: [16]U8 = "ACGTUMRWSYKVHDBN"
+  pairs: [16]U8 = "TGCAAKYWSRMBDHVN"
+  t = [n of U8(0)]
+  for i in 0..n
+    t[i] = U8(i)
+  for i in 0..16
+    t[Int(bases[i])] = pairs[i]
+    t[Int(bases[i]) + 32] = pairs[i]
+  t
+
+COMPLEMENT = complements[256]
+
+obj Block
+  head: Int
+  body: Int
+  bases: Int
+  first: Int
+  last: Int
+
+# Output lines `first` up to `last`: line j holds bases hi - 1 down to lo, each base found
+# by its index, skipping one newline every 60.
+fun block(input: ?String, b: ?Block) -> String
+  out = String()
+  !out.reserve((b.last - b.first) * (LINE + 1) + b.body - b.head)
+  !out.add(input[b.head..b.body]) if b.first == 0
+  for j in b.first..b.last
+    hi = b.bases - LINE * j
+    lo = math.max(hi - LINE, 0)
+    k = hi - 1
+    while k >= lo : k -= 1
+      !out.push(COMPLEMENT[input[b.body + k + k / LINE]])
+    !out.push("\n")
+  out
+
+fun blocks(input: ?String) -> List[Block]
+  out = List[Block]()
+  head = 0
+  while head < input.len
+    body = (text.find(input[head..], "\n") ?? input.len - head - 1) + head + 1
+    end = (text.find(input[body..], ">") ?? input.len - body) + body
+    lines = (end - body) / (LINE + 1)
+    rest = (end - body) % (LINE + 1)
+    bases = LINE * lines + (rest - 1 if rest > 0 else 0)
+    count = (bases + LINE - 1) / LINE
+    first = 0
+    while first == 0 or first < count : first += BLOCK_LINES
+      !out.push(Block(head: head, body: body, bases: bases, first: first, last: math.min(first + BLOCK_LINES, count)))
+    head = end
+  out
+
+sub main()!
+  input = file.read("/dev/stdin")! ?? String()
+  parts = par.map(?blocks(input), |?input, b| block(input, b))
+  stdout = file.create("/dev/stdout")!
+  for part in parts
+    (!stdout).write(part)!

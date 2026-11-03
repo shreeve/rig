@@ -1,0 +1,69 @@
+B1 raw data (2026-10-24/25). pup, core 9 (P-core; not a timing core), ts-pattern, check mode,
+one checker: trig -p tsconfig.trig.json --noEmit --singleThreaded; tsrs with RAYON_NUM_THREADS=1
+--singleThreaded --checkerAssignment go --noLazyMembers. Counts from perf stat (u), 3 runs each,
+spread under 0.01%. Cycles were not taken on an isolated core: indicative only.
+
+Binaries
+  base    /zfs/trig-pup/runs/bench-fair/.zig-cache/trig-tests/packs/trig-release/bin (the t.data binary)
+  variants: its emitted package (out/), hand-edited, cross-built on the Mac with
+            zig 0.17.0 build-exe -Osafe -target x86_64-linux -mcpu=meteorlake; copies in
+            pup:/zfs/trig-cache/b1/*-mac. The unedited package built this way ("basemac")
+            gives 12.7505G, the same as base: the cross build is like for like.
+
+Totals
+  trig base   12.7505G instructions  172.62M calls (73.9/call)
+  tsrs         8.1281G instructions  123.70M calls (65.7/call)
+
+Variants (instructions; every variant's output hash 8b030d63 = base's)
+  base                                                12.7505G
+  noalias on all 1,897 `fn f(self: *Checker` in checker.zig   12.7500G  -0.004%  (23,328 symbols changed size)
+  turn() a no-op (loop hook)                          12.0897G  -5.18%   cycles 5.25G vs 5.47G
+  tickCall() a no-op (call hook)                      12.0927G  -5.16%   calls -5.1M
+  both hooks no-ops                                   11.4319G  -10.34%  cycles ~5.27G (-4%, indicative)
+  both hooks off + noalias                            11.4258G  -10.39%
+  guard heads (4 functions, below)                    12.2898G  -3.61%   calls 160.22M (-7.2%)
+  -fomit-frame-pointer                                12.3763G  -2.93%
+  heads + hooks off + no frame pointer                10.6637G  -16.37%  calls 154.62M (-10.4%);
+                                                      cycles 5.35G vs base 5.86G back to back (-9%, indicative)
+
+Guard-head edit (heads.py): each function renamed `noinline fn NAME__slow`, and an
+`inline fn NAME` added that returns early on the cached case and else calls the slow body:
+  could_contain_type_variables_worker  flags & STRUCTURED_OR_INSTANTIABLE == 0 -> false;
+                                       object_flags & COMPUTED != 0 -> cached bit
+  could_contain_type_variables         made `inline`, calling the head (no tickCall of its own)
+  get_reduced_type                     flags & (UNION|INTERSECTION) == 0 -> t
+  resolve_structured_type_members      object_flags & MEMBERS_RESOLVED != 0 -> t
+  symbol_is_value_ex                   flags & VALUE -> true; no ALIAS -> false
+
+Per call (precise samples cpu_core/instructions/upp, period 50021; calls from LBR call stacks,
+cpu_core/br_inst_retired.near_call/u -j call, scaled to the perf stat total)
+  function                              trig ins  calls   /call | tsrs ins  calls   /call
+  mapper_map | TypeMapper::map           857M   11.68M    73   |  668M   12.14M    55
+  instantiate_type_with_alias (+worker)  871M    4.48M   194   |  962M    3.25M   296 (_worker, gOTI inlined)
+  get_object_type_instantiation          442M    0.81M   546   |  inlined
+  could_contain_type_variables_worker    259M    7.49M    35   |  inlined at the call (cached flags)
+  compare_symbols                        367M    3.97M    92   |  sort_symbols 113M total (keys once)
+  is_declaration_contained_by            256M    1.15M   223   |  pointer walk, checker_11.rs:1220
+  recursive_type_related_to              125M    0.49M   255   |   64M    0.52M   124
+  is_related_to_ex                        89M    0.86M   104   |   90M    0.87M   104
+  rig.alloc.heap (noinline)               64M    9.72M     7   |  -
+
+Cheap guard functions still out of line (ins/call, calls): get_apparent_type 60/3.52M,
+Checker.text 23/3.33M, is_generic_mapped_type 27/2.34M, get_actual_type_variable 36/2.03M,
+get_generic_object_flags 49/1.54M, get_recursion_identity_target 40/1.40M,
+get_recursion_identity_from_target 47/1.25M, is_type_reference_with_generic_arguments 43/1.13M,
+has_matching_recursion_identity 38/1.06M, instantiate_type_alias 20/1.01M, compare_type_lists 40/0.89M.
+
+mapper_map by cause (share of its instructions; source line of each sampled instruction):
+  push/pop/ret + frame setup 24% (tsrs 18%), index tests 8%, slot casts (slotOf ... orelse 0) 5.5%,
+  scheduler hooks 5%, stack spills 6% (tsrs 0.5%).
+find_active_mapper loop (inlined into instantiate_type_with_alias): 13 instructions a turn
+  (turn counter 2, index test 2, list pointer reload 1, an extra induction 1) vs tsrs 7
+  (find_last_index over a slice). About 15% of instantiate_type_with_alias.
+
+Frame pointers: 4,222 of the base binary's 4,228 functions set up %rbp (tsrs: 629 of its,
+mostly library code). Zig's ReleaseSafe keeps them.
+
+noalias check (na.zig, LLVM IR): with `noalias` LLVM hoists s.len out of a loop holding a
+conditional call, but still reloads s.ptr each turn: Zig gives *T no `dereferenceable`, so a
+load after a call that may not return can't be hoisted.

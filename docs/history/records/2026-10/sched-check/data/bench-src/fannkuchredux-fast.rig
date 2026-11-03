@@ -1,0 +1,95 @@
+# The Computer Language Benchmarks Game: fannkuch-redux, pancake flips over every permutation
+# of 1 to n. A permutation is one 16-byte vector, and a flip or a rotation is one table
+# lookup. The n(n - 1) blocks that fix the last two counters run on as many tasks at once
+# as there are cores.
+# Ports benchmarksgame/sources/fannkuchredux/fannkuchredux.rust-6 (Henry Jayakusuma).
+use std.os
+use std.math
+use std.par
+use std.text
+
+type Perm = Simd[U8, 16]
+
+IDENTITY = Perm([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+
+# Masks for `lookup`, as arrays: a module constant holds a vector, not an array of them.
+# `p.lookup(Perm(REVERSE[k]))` reverses the first `k + 1` lanes of `p`.
+fun reverse_masks[n: Int] -> [n][n]U8
+  masks = [n of [n of U8(0)]]
+  for k in 0..n
+    for i in 0..n
+      masks[k][i] = U8(k - i if i <= k else i)
+  masks
+
+# `p.lookup(Perm(ROTATE[k]))` rotates the first `k + 1` lanes of `p` left by one.
+fun rotate_masks[n: Int] -> [n][n]U8
+  masks = [n of [n of U8(0)]]
+  for k in 0..n
+    for i in 0..n
+      masks[k][i] = U8(i + 1 if i < k else 0 if i == k else i)
+  masks
+
+REVERSE = reverse_masks[16]
+ROTATE = rotate_masks[16]
+
+obj Tally
+  checksum: Int
+  max_flips: Int
+
+# Steps `perm` to the next permutation, counting in `count` as a factorial number.
+fun advance(perm: Perm, count: ![16]U8) -> Perm
+  p = perm
+  for layer in 1..16
+    p = p.lookup(Perm(ROTATE[layer]))
+    count[layer] += 1
+    break if Int(count[layer]) <= layer
+    count[layer] = 0
+  p
+
+# The block of permutations that start with `first` rotations of all `n` and `second` of
+# the first `n - 1`: every permutation until the counter of `n - 1` moves on.
+fun block(n: Int, first: Int, second: Int) -> Tally
+  count = [16 of U8(0)]
+  count[n - 1] = U8(first)
+  count[n - 2] = U8(second)
+  perm = IDENTITY
+  for 0..first
+    perm = perm.lookup(Perm(ROTATE[n - 1]))
+  for 0..second
+    perm = perm.lookup(Perm(ROTATE[n - 2]))
+  checksum = 0
+  max_flips = 0
+  while Int(count[n - 2]) == second
+    p = perm
+    flips = 0
+    head = p[0]
+    if head > 0
+      while head > 0
+        next = p[Int(head)]
+        p = p.lookup(Perm(REVERSE[Int(head)]))
+        head = next
+        flips += 1
+      checksum += flips if count[1] == 0 else -flips
+      max_flips = math.max(max_flips, flips)
+    perm = advance(perm, !count)
+  Tally(checksum: checksum, max_flips: max_flips)
+
+fun combine(all: Tally, t: ?Tally) -> Tally
+  Tally(checksum: all.checksum + t.checksum, max_flips: math.max(all.max_flips, t.max_flips))
+
+fun fannkuchredux(n: Int) -> Tally
+  panic("n must be at most 16") if n > 16
+  return Tally(checksum: 0, max_flips: 0) if n < 2
+  return Tally(checksum: -1, max_flips: 1) if n == 2
+  blocks = List[Int]()
+  for b in 0..n * (n - 1)
+    !blocks.push(b)
+  tallies = par.map(?blocks, |+n, b| block(n, b / (n - 1), b % (n - 1)))
+  tallies.reduce(Tally(checksum: 0, max_flips: 0), combine)
+
+sub main()
+  args = os.args()
+  n = (text.parse_int(args[1]) catch 7) if args.len > 1 else 7
+  t = fannkuchredux(n)
+  print(t.checksum)
+  print(String("Pfannkuchen(", n, ") = ", t.max_flips))

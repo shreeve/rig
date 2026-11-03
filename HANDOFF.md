@@ -19,18 +19,23 @@ A new session, human or agent, takes these steps in order:
    [ledger](docs/history/records/ledger.md). [docs/CORE.md](docs/CORE.md)
    is the ownership model every rule derives from; read it before any
    change to the checker or the language.
-2. **Notes outside the repo.** Read
-   `~/Data/Code/Claude/rig/rig/fresh-start-brief.md` first: the
-   one-page brief for a fresh session, with where Trig stands against
-   tsrs, the leads in order, the paths on pup, and what was measured
-   and is not to be redone. The owner's standing preferences are in
+2. **The speed brief.** Read
+   [docs/internals/trig-speed.md](docs/internals/trig-speed.md): the
+   goal and bar against tsrs, what is already known, the paths on pup,
+   and what was measured and is not to be redone. The owner's standing
+   preferences are in
    `~/.claude/projects/-Users-shreeve-Data-Code-rig/memory/MEMORY.md`.
+   The work queue (`queue.md`, kept by Rig - Swiss) and the beat-tsrs
+   list (`beat-tsrs-list.md`) are session notes outside the repository,
+   in `~/Data/Code/Claude/rig/rig/`.
 3. **See what is open:** `gh pr list` (drafts are being measured or
    wait on the owner), "In flight" below, and `git log --oneline -20
    origin/main` for what landed last.
 4. **Work** in a worktree (`wt new NAME`, AGENTS.md "How a change is
-   made"), never in the main checkout. Each compiler, emit, runtime, or
-   std change passes the gates of AGENTS.md step 6, std.json's guard
+   made"), never in the main checkout. Run `tools/basecheck BASE`
+   before starting, before each gate run, and before asking to merge:
+   it lists main's commits since BASE that touch the branch's files.
+   Each compiler, emit, runtime, or std change passes the gates of AGENTS.md step 6, std.json's guard
    among them, and a speed change meets Trig's bar (AGENTS.md, "A speed
    feature pays for its lines").
 5. **Ask the owner** what the record does not settle: a short message,
@@ -149,7 +154,8 @@ What was measured and is not to be redone (table coloring, prefault,
 sparse links tables, the relation cache's key and path, Map calls out
 of line, store-forward stalls, loop bounds checks, re-checked optionals
 and tags, parse-time atoms, broad-corpus PGO, and more) is in the
-brief's "Don't redo" (`~/Data/Code/Claude/rig/rig/fresh-start-brief.md`).
+brief's "Do not redo"
+([docs/internals/trig-speed.md](docs/internals/trig-speed.md)).
 
 Beside these, `rig lsp` moves onto Nexus's generated server (`nexus
 --editor --lang src/rig.zig rig.grammar DIR`): Rig fills in the

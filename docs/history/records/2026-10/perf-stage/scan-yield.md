@@ -305,6 +305,4 @@ Kept in `scan-yield-data/`:
 - `ecount.sh`, `summ-pup.py`, `pup-e3.md`, `pup-p3.md`: the pup harness,
   its summarizer, and the E-core and P-core summaries.
 
-The emitted packages, the binaries and the raw runs are in the owner's
-session folder: `~/Data/Code/Claude/rig/rig/scan-yield-study/` on the
-Mac and `/zfs/worktrees/rig/scan-yield-study/` on pup.
+The emitted packages, the binaries and the raw runs are not kept.

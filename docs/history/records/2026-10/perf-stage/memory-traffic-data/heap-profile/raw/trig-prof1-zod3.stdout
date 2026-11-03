@@ -1,0 +1,19 @@
+src/__tests__/language-server.source.ts(3,25): error TS2304: Cannot find name '__filename'.
+src/__tests__/standard-schema.test.ts(3,39): error TS2307: Cannot find module '@standard-schema/spec' or its corresponding type declarations.
+src/__tests__/standard-schema.test.ts(19,35): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.
+src/__tests__/standard-schema.test.ts(21,36): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.
+src/__tests__/string.test.ts(3,24): error TS2591: Cannot find name 'node:buffer'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/benchmarks/datetime.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/discriminatedUnion.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/index.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/index.ts(12,14): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/benchmarks/index.ts(56,1): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/benchmarks/index.ts(58,3): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/benchmarks/ipv4.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/ipv4.ts(58,5): error TS2591: Cannot find name 'require'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/benchmarks/ipv4.ts(58,22): error TS2591: Cannot find name 'module'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/benchmarks/object.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/primitives.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/realworld.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/string.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.
+src/benchmarks/union.ts(1,23): error TS2307: Cannot find module 'benchmark' or its corresponding type declarations.

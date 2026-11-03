@@ -1,0 +1,34 @@
+obj Image
+  id: Int
+  name: String
+
+obj Rendered
+  image: Image
+
+enum State
+  loading
+  ready(rendered: Rendered?)
+
+obj Entry
+  state: State
+  touched: Int
+  bytes: Int
+
+obj Cache
+  entries: Map[String, Entry]
+  retired: List[Image]
+
+  sub evict(!@, key: ?String)
+    entry = !@entries.take(key) ?? return
+    if <entry.state as .ready(r) and <r as rendered
+      !@retired.push(<rendered.image)
+
+sub main()
+  c = Cache(entries: Map[String, Entry](), retired: List[Image]())
+  !c.entries.put(String("a"), Entry(state: State.ready(rendered: Rendered(image: Image(id: 1, name: String("img")))), touched: 1, bytes: 1))
+  !c.entries.put(String("b"), Entry(state: State.ready(rendered: none), touched: 1, bytes: 1))
+  !c.entries.put(String("c"), Entry(state: .loading, touched: 1, bytes: 1))
+  (!c).evict("a")
+  (!c).evict("b")
+  (!c).evict("c")
+  print(c.entries.len, c.retired.len, c.retired[0].id, c.retired[0].name)

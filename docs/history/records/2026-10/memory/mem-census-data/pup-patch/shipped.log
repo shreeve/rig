@@ -1,0 +1,6 @@
+empty shipped: plain run match tsc (status 0 vs 0); census run stdout+status match tsc
+empty go: plain run match tsc (status 0 vs 0); census run stdout+status match tsc
+zod3 shipped: plain run match tsc (status 2 vs 2); census run stdout+status match tsc
+zod3 go: plain run match tsc (status 2 vs 2); census run stdout+status match tsc
+ts-pattern shipped: plain run match tsc (status 2 vs 2); census run stdout+status match tsc
+ts-pattern go: plain run match tsc (status 2 vs 2); census run stdout+status match tsc

@@ -1,0 +1,27 @@
+lex and parse    146.522 ms
+resolve         1242.429 ms
+typecheck        667.371 ms
+storage         1023.503 ms
+ownership        254.239 ms
+proofs            57.901 ms
+inlining          41.435 ms
+other             60.780 ms
+total           3494.180 ms
+        3.52 real         3.35 user         0.12 sys
+          2144583680  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              130666  page reclaims
+                 407  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 262  voluntary context switches
+                 354  involuntary context switches
+         62134276804  instructions retired
+         14854350739  cycles elapsed
+          2138785904  peak memory footprint
