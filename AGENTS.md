@@ -76,7 +76,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
-| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); and `store-trim`, which keeps the build store under 40 GB |
+| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`, `drop-write-parens.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, the generators and their `--check`s (`gen-unicode.py`, `verify-unicode.py`, `x25519-table.zig`), the oracles the tests run (`terminal_ghostty.*`, `text_go.py`, `text_int_go.go`, `utf8_zig.zig`, `markers.py`, `map-trace.py`, `inline_budget.py`, `inline_grid.py`, `to-rig-test.py`, `zig-next.py`), `fetch-json-data.sh`, `basecheck` (HANDOFF's base check), `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); and `store-trim`, which keeps the build store under 40 GB |
 | `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (where Rig meets Zig is INTERNALS, "Where Rig meets Zig 0.17") |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
@@ -177,7 +177,7 @@ until its rule is built. docs/internals/tests.md has the rest.
 4. **Implement** in the pass that owns the decision (the map), recording
    facts once rather than re-deriving them downstream.
 5. **Docs in the same change.** SPEC, CORE, STD, and the others say what
-   is now true. Building a planned rule turns its `rig pending` example
+   is true. Building a planned rule turns its `rig pending` example
    into an ordinary one and its *(planned)* into *(built)*. CHANGELOG gets
    the change, and HANDOFF the status.
 6. **The gates.** Rig's core suite, `swarm test/rig.rip`, green; the
