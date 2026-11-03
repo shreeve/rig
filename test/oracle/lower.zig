@@ -36,7 +36,7 @@ const Step = core.Step;
 /// a leaf of a token over 65534 bytes (`rig.leafEnd`).
 pub fn leafText(s: Sexp, source: []const u8) []const u8 {
     return switch (s) {
-        .src => |x| lib.diag.textBetween(source, x.pos, rig.leafEnd(source, x)),
+        .src => |x| rig.leafText(source, x),
         else => s.getText(source),
     };
 }

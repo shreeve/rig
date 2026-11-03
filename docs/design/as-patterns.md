@@ -90,17 +90,17 @@ enum Shape
   point
 
 fun area(s: Shape) -> Int
-  if s as .circle(r)
+  if s matches .circle(r)
     3 * r * r
   else
     0
 
 fun kind(s: Shape) -> ?String
-  if s as .circle(r) and r > 10
+  if s matches .circle(r) and r > 10
     return "big circle"
-  if s as .rect(h: tall) and tall > 3
+  if s matches .rect(h: tall) and tall > 3
     return "tall rect"
-  if s as .point
+  if s matches .point
     return "point"
   "other"
 
@@ -121,10 +121,10 @@ meaning, so what a pattern binds is as plain as it is in `if m as x`:
 
 | Rig | The bindings | Rust |
 |---|---|---|
-| `if s as .circle(r)` | read the fields where they are | `if let Circle(r) = &s` |
-| `if !s as .rect(label: l)` | write views: `l = …` changes the field in place | `if let Rect { label: l, .. } = &mut s` |
-| `if <s as .rect(label: l)` | own the fields; the rest is dropped at the end of the block | `if let Rect { label: l, .. } = s` |
-| `if make() as .circle(r)` | own the fields of the temporary | `if let Circle(r) = make()` |
+| `if s matches .circle(r)` | read the fields where they are | `if let Circle(r) = &s` |
+| `if !s matches .rect(label: l)` | write views: `l = …` changes the field in place | `if let Rect { label: l, .. } = &mut s` |
+| `if <s matches .rect(label: l)` | own the fields; the rest is dropped at the end of the block | `if let Rect { label: l, .. } = s` |
+| `if make() matches .circle(r)` | own the fields of the temporary | `if let Circle(r) = make()` |
 
 `<s` hands the whole value to the test, matched or not, as `match <s`
 does: when it matches, the fields the pattern leaves out are dropped at
@@ -139,11 +139,11 @@ enum Shape
 
 sub main()
   s: Shape = .rect(w: 3, h: 4, label: String("box"))
-  if s as .rect(w, h, _)
+  if s matches .rect(w, h, _)
     print(w * h)
-  if !s as .rect(label: l)
+  if !s matches .rect(label: l)
     l = String("wide")
-  if <s as .rect(label: l)
+  if <s matches .rect(label: l)
     print(l)
 ```
 
@@ -171,14 +171,14 @@ fun next(i: Int) -> Token
     .done
 
 fun radius(m: Shape?) -> Int
-  if m as s and s as .circle(r)
+  if m as s and s matches .circle(r)
     r
   else
     0
 
 sub main()
   i = 0
-  while next(i) as .item(x)
+  while next(i) matches .item(x)
     print(x)
     i += 1
   print(radius(.circle(r: 5)), radius(.point), radius(none))
@@ -210,13 +210,13 @@ sub main()
    its block. `.v(_)` and a variant with no fields test without binding.
 6. **No implicit unwrapping.** On a `Shape?`, `as .circle(r)` is
    rejected rather than letting `none` silently fail to match: take the
-   value out first (`if m as s and s as .circle(r)`), so every step is
+   value out first (`if m as s and s matches .circle(r)`), so every step is
    written. Matching through the optional may come later, as a
    deliberate convenience.
 7. **A bare name binds.** After `as`, a name always binds, as it does
    today: `if code as ESC` binds a name `ESC`, which may not hide the
    constant. To compare with a constant, use `==`
-   (`if t as .key(c) and c == ESC`); inside a pattern, a field is bound
+   (`if t matches .key(c) and c == ESC`); inside a pattern, a field is bound
    as a `match` arm binds it.
 8. **The loop step.** A `while` step runs after each pass of the body,
    and cannot read the fields the pattern binds, which live only in the
@@ -232,7 +232,7 @@ enum S
 
 sub main()
   s: S = .b
-  if s as .a(n), .b
+  if s matches .a(n), .b
     print(1)
 ```
 
@@ -247,12 +247,12 @@ enum S
 
 sub main()
   s: S = .b
-  if s as .a(n) if n > 0
+  if s matches .a(n) if n > 0
     print(1)
 ```
 
 ```error
-a pattern after `as` takes no `if` guard: join the condition with `and`, `if s as .circle(r) and r > 10`
+a pattern after `as` takes no `if` guard: join the condition with `and`, `if s matches .circle(r) and r > 10`
 ```
 
 A constant is compared with `==`, after the field is bound:
@@ -265,7 +265,7 @@ enum Key
 ESC = 27
 
 fun escapes(k: Key) -> Bool
-  if k as .key(c) and c == ESC
+  if k matches .key(c) and c == ESC
     true
   else
     false
@@ -284,7 +284,7 @@ enum Wrap
 
 sub main()
   w: Wrap = .only(n: 1)
-  if w as .only(n)
+  if w matches .only(n)
     print(n)
 ```
 
@@ -298,7 +298,7 @@ enum Shape
   point
 
 fun radius(m: Shape?) -> Int
-  if m as .circle(r)
+  if m matches .circle(r)
     r
   else
     0
@@ -308,17 +308,17 @@ sub main()
 ```
 
 ```error
-`m` is a `Shape?`: take the value out first (`if m as s and s as .circle(r)`)
+`m` is a `Shape?`: take the value out first (`if m as s and s matches .circle(r)`)
 ```
 
 ## Against Rust
 
 | | Rust | Rig |
 |---|---|---|
-| a variant | `if let Shape::Circle(r) = s` | `if s as .circle(r)` |
+| a variant | `if let Shape::Circle(r) = s` | `if s matches .circle(r)` |
 | an optional | `if let Some(v) = bar()` | `if bar() as v` |
-| a guard | `if let Circle(r) = s && r > 10` (let chains, Rust 1.88) | `if s as .circle(r) and r > 10` |
-| a loop | `while let Item(x) = next(i)` | `while next(i) as .item(x)` |
+| a guard | `if let Circle(r) = s && r > 10` (let chains, Rust 1.88) | `if s matches .circle(r) and r > 10` |
+| a loop | `while let Item(x) = next(i)` | `while next(i) matches .item(x)` |
 | ownership | inferred from the subject's type and binding modes | written on the subject: `s`, `!s`, `<s` |
 | order | pattern, then value | value, then pattern, as in `match` |
 
@@ -354,10 +354,10 @@ the value is an optional, several results, or a variant.
 
 ## Later, not now
 
-- Matching through an optional (`if m as .circle(r)` on a `Shape?`),
+- Matching through an optional (`if m matches .circle(r)` on a `Shape?`),
   once rule 6 has shown whether the explicit form reads well in real
   code.
 - `as` with a pattern as a `Bool` outside a condition (Rust's
-  `matches!`): `if s as .point` covers the test today.
+  `matches!`): `if s matches .point` covers the test today.
 - A form that binds into the rest of the function and leaves early when
   the pattern fails (Rust's `let … else`).

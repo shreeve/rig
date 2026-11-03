@@ -6486,7 +6486,7 @@ sub main()
 ```
 
 One arm that falls to `else` is written with `as`:
-`if s as .circle(r)` ([§12](#as-with-a-pattern)).
+`if s matches .circle(r)` ([§12](#as-with-a-pattern)).
 
 A module constant's name, `NAME` or `m.NAME`, is a pattern when its
 value is an integer, a `Bool`, or an enum value that Rig knows when it
@@ -10651,7 +10651,7 @@ cannot assign to `m.id`: `id` names the none of `Node` (`none id == ...`), so on
 
 After `as` comes either a name, which binds an optional's value (or
 several results), or a pattern starting with a dot, which tests which
-variant an enum value is and binds its fields: `if s as .circle(r)`.
+variant an enum value is and binds its fields: `if s matches .circle(r)`.
 The pattern is a `match` arm's ([SYNTAX §12](SYNTAX.md#12-patterns)):
 `.point`, `.circle(r)`, `.circle(_)`, `.rect(w, h)`, `.rect(h: tall)`.
 The form is a `match` with that one arm, whose other values fall to
@@ -10665,8 +10665,8 @@ block, and a value it does not match drops as the test fails, before
 
 The form joins with `and` as a binding does ([Joined
 bindings](#joined-bindings)), each part seeing the bindings before it:
-`if s as .circle(r) and r > 10`, `if m as s and s as .circle(r)`.
-`while e as .item(x)` repeats while the value matches; its step cannot
+`if s matches .circle(r) and r > 10`, `if m as s and s matches .circle(r)`.
+`while e matches .item(x)` repeats while the value matches; its step cannot
 read the fields, which live only in the body.
 
 - One pattern: a comma after it does not list alternatives (after
@@ -10676,7 +10676,7 @@ read the fields, which live only in the body.
 - An enum with one variant always matches, and is rejected: bind its
   fields with `match`.
 - An optional is rejected rather than failing to match on `none`: take
-  its value out first, `if m as s and s as .circle(r)`.
+  its value out first, `if m as s and s matches .circle(r)`.
 - A bare name after `as` always binds, an optional's value; to compare
   with a constant, use `==`.
 
@@ -10687,16 +10687,16 @@ enum Shape
   point
 
 fun kind(s: Shape) -> ?String
-  if s as .circle(r) and r > 10
+  if s matches .circle(r) and r > 10
     return "big circle"
-  if s as .rect(h: tall) and tall > 3
+  if s matches .rect(h: tall) and tall > 3
     return "tall rect"
-  if s as .point
+  if s matches .point
     return "point"
   "other"
 
 fun radius(m: Shape?) -> Int
-  if m as s and s as .circle(r)
+  if m as s and s matches .circle(r)
     r
   else
     0

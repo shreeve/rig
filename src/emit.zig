@@ -4544,7 +4544,7 @@ pub const Emitter = struct {
             if (held) held_mark = try self.emitHeld(sexp);
             try self.evalSubject(&info);
             if (guarded) {
-                try self.emitGuardedMatch(sexp, value_pos, info, block);
+                try self.emitGuardedMatch(sexp, value_pos, info, block, hook);
                 try self.w.writeAll("\n");
                 return self.closeBrace();
             }
@@ -4677,6 +4677,8 @@ pub const Emitter = struct {
                 }
                 prelude.aliases = try self.wholeAlias(name, buf.written(), ir.Arm.body(arm));
                 if (prelude.aliases.len > 0) try self.w.print("|{s}| ", .{cap});
+            } else if (self.facts.altsBind(pattern)) {
+                prelude = try self.altsProng(arm, info);
             } else {
                 try self.writePatternHead(pattern, info);
                 try self.w.writeAll(" => ");
@@ -5009,10 +5011,110 @@ pub const Emitter = struct {
     /// The prelude of a `match <x` arm on payload variant `fields`, held
     /// in `payload`: bound fields become owned locals, and the rest is
     /// dropped at the end of the arm.
+    /// The prong of an arm of alternatives that bind names
+    /// (`Facts.altsBind`): an `inline` prong, which Zig writes once per
+    /// variant, capturing the payload and the tag. Each binding reads its
+    /// variant's field by the tag, known in each instance; under `match
+    /// <x` each instance owns its payload, and drops the fields its
+    /// variant does not bind.
+    fn altsProng(self: *Emitter, arm: Sexp, info: MatchInfo) Error!Prelude {
+        const pattern = ir.Arm.pattern(arm);
+        const alts = ir.AltPattern.alts(pattern);
+        const a = self.arena.allocator();
+        try self.w.writeAll("inline ");
+        try self.writePatternHead(pattern, info);
+        try self.w.writeAll(" => ");
+        // The alternative whose leaves name the symbols, and each
+        // alternative's variant.
+        const first = blk: for (alts) |alt| {
+            if (!alt.isKind(.variant_pattern)) continue;
+            for (self.facts.payloadBindings(alt) orelse continue) |b| if (b == .src and self.facts.symbolOf(b) != null) break :blk alt;
+        } else return self.unsupported(pattern, "alternatives that bind no name");
+        const first_name = self.srcText(rig.variantPatternName(first));
+        const first_binds = self.facts.payloadBindings(first).?;
+        const first_fields = self.variantPayload(info.ty.?, first_name) orelse return self.unsupported(first, "this payload pattern");
+        const variants = try a.alloc([]const u8, alts.len);
+        for (alts, variants) |alt, *v| v.* = self.srcText(if (alt.isKind(.variant_pattern)) rig.variantPatternName(alt) else ir.get(alt, .name));
+        const tag = try self.fmt("__rig_tag_{d}", .{self.nextId()});
+        if (info.mode == .consume) {
+            const payload = try self.hiddenStorage(arm, .payload, .owned, .fresh);
+            try self.w.print("|{s}, {s}| ", .{ payload, tag });
+            var prelude = try self.consumedPayload(first_binds, first_fields, payload, .nil);
+            const owned = try a.dupe(OwnedBinding, prelude.owned);
+            for (owned) |*o| o.expr = try self.altSwitch(tag, alts, variants, o.local.sym, payload, info);
+            prelude.owned = owned;
+            // The parts each variant leaves unbound.
+            var drops: std.ArrayList(AltDrop) = .empty;
+            for (alts, variants) |alt, v| {
+                const fields = self.variantPayload(info.ty.?, v) orelse continue;
+                const binds: []const Sexp = if (alt.isKind(.variant_pattern)) self.facts.payloadBindings(alt) orelse &.{} else &.{};
+                for (fields, 0..) |f, i| {
+                    const b: Sexp = if (i < binds.len) binds[i] else .nil;
+                    const kept = b == .src and !std.mem.eql(u8, self.srcText(b), "_") and self.usedPayloadLocal(b, .nil) != null;
+                    if (!kept) try drops.append(a, .{ .tag = tag, .variant = v, .expr = try self.fmt("{s}.{f}", .{ payload, ident(f.name) }) });
+                }
+            }
+            prelude.drops = &.{};
+            prelude.alt_drops = drops.items;
+            return prelude;
+        }
+        const aliases = try a.dupe(Alias, try self.payloadAliases(first_binds, info, first_name, .{ .arm = arm }, .nil));
+        if (aliases.len == 0) return .{};
+        // The aliases are the used bindings, in field order.
+        var j: usize = 0;
+        for (first_binds) |b| {
+            const local = self.usedPayloadLocal(b, .nil) orelse continue;
+            const fields = try a.alloc([]const u8, alts.len);
+            for (alts, variants, fields) |alt, v, *f| f.* = self.altField(alt, v, local.sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
+            aliases[j].alts = .{ .tag = tag, .variants = variants, .fields = fields };
+            j += 1;
+        }
+        const by_ptr = info.mode == .write or for (aliases) |al| {
+            if (al.addr) break true;
+        } else false;
+        try self.w.print("|{s}{s}, {s}| ", .{ if (by_ptr) "*" else "", aliases[0].payload, tag });
+        return .{ .aliases = aliases };
+    }
+
+    /// Whether payload binding `b` of field `f` binds the value inside the
+    /// optional field, `r?` (`Facts.payloadTests`): the type it binds is
+    /// the optional's.
+    fn unwrapsField(self: *Emitter, b: Sexp, f: facts.Field) bool {
+        const bound = self.facts.payloadFieldOf(b) orelse return false;
+        return switch (self.facts.types.get(f.ty)) {
+            .optional => |inner| bound == inner and bound != f.ty,
+            else => false,
+        };
+    }
+
+    /// The field of variant `variant` that alternative `alt` binds to
+    /// symbol `sym`.
+    fn altField(self: *Emitter, alt: Sexp, variant: []const u8, sym: SymbolId, info: MatchInfo) ?[]const u8 {
+        if (!alt.isKind(.variant_pattern)) return null;
+        const fields = self.variantPayload(info.ty.?, variant) orelse return null;
+        for (self.facts.payloadBindings(alt) orelse return null, 0..) |b, i| {
+            if (b == .src and self.facts.symbolOf(b) == sym and i < fields.len) return fields[i].name;
+        }
+        return null;
+    }
+
+    /// `switch (tag) { .a => payload.f, ... }`: the field each variant of
+    /// alternatives binds to `sym`, by the `inline` prong's tag.
+    fn altSwitch(self: *Emitter, tag: []const u8, alts: []const Sexp, variants: []const []const u8, sym: SymbolId, payload: []const u8, info: MatchInfo) Error![]const u8 {
+        var buf: Writer.Allocating = .init(self.arena.allocator());
+        try buf.writer.print("switch ({s}) {{ ", .{tag});
+        for (alts, variants) |alt, v| {
+            const f = self.altField(alt, v, sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
+            try buf.writer.print(".{f} => {s}.{f}, ", .{ ident(v), payload, ident(f) });
+        }
+        try buf.writer.writeAll("else => unreachable }");
+        return buf.written();
+    }
+
     fn consumedPayload(self: *Emitter, captures: []const Sexp, fields: []const facts.Field, payload: []const u8, used_in: Sexp) Error!Prelude {
         if (captures.len == 0) return self.ownedParts(&.{.nil}, &.{.{ .expr = payload }}, used_in);
         const parts = try self.arena.allocator().alloc(OwnedPart, fields.len);
-        for (fields, parts) |f, *part| part.* = .{ .expr = try self.fmt("{s}.{f}", .{ payload, ident(f.name) }) };
+        for (fields, parts, captures) |f, *part, c| part.* = .{ .expr = if (self.unwrapsField(c, f)) try self.fmt("rig.some({s}.{f}).?", .{ payload, ident(f.name) }) else try self.fmt("{s}.{f}", .{ payload, ident(f.name) }) };
         return self.ownedParts(captures, parts, used_in);
     }
 
@@ -5024,7 +5126,7 @@ pub const Emitter = struct {
     ///       switch (arm) { 0 => { const r = s.a.r; body }, ..., else => unreachable } }
     /// The subject is read in place, or from a copy when it is not a
     /// place (sema rejects a temporary that owns a resource).
-    fn emitGuardedMatch(self: *Emitter, sexp: Sexp, value_pos: bool, info: MatchInfo, block: []const u8) Error!void {
+    fn emitGuardedMatch(self: *Emitter, sexp: Sexp, value_pos: bool, info: MatchInfo, block: []const u8, hook: anytype) Error!void {
         const id = self.nextId();
         const arms = ir.Match.arms(sexp);
         const subj = info.reread;
@@ -5076,9 +5178,14 @@ pub const Emitter = struct {
             try self.w.print("{d} => ", .{i});
             try self.pushScope();
             defer self.popScope() catch {};
-            const prelude = try self.armBindings(arm, info, subj);
-            const paused = try self.pauseUnit(sexp);
-            if (value_pos) try self.emitValueBlock(ir.Arm.body(arm), prelude, self.typeOf(sexp)) else try self.emitBodyWith(ir.Arm.body(arm), prelude);
+            // A hook's arm goes on past its body (`ChainArms`): every
+            // binding is bound.
+            const prelude = try self.armBindings(arm, info, subj, if (@TypeOf(hook) != @TypeOf(null)) .nil else ir.Arm.body(arm));
+            // A hook's arms end the selection themselves (`ChainArms`).
+            const paused = if (@TypeOf(hook) != @TypeOf(null)) false else try self.pauseUnit(sexp);
+            if (@TypeOf(hook) != @TypeOf(null)) {
+                try hook.arm(self, i, prelude);
+            } else if (value_pos) try self.emitValueBlock(ir.Arm.body(arm), prelude, self.typeOf(sexp)) else try self.emitBodyWith(ir.Arm.body(arm), prelude);
             try self.resumeUnit(sexp, paused);
             try self.w.writeAll(",\n");
         }
@@ -5141,8 +5248,17 @@ pub const Emitter = struct {
             try self.emitExpr(pattern);
             return self.w.writeAll(")");
         }
+        const tests = if (pattern.isKind(.variant_pattern)) self.facts.payloadTests(pattern) else null;
+        if (tests != null) try self.w.writeAll("(");
         try self.w.print("{s} == ", .{subj});
         try self.writePatternHead(pattern, info);
+        // `.ready(r?)` and `.ready(none)` test the optional field too.
+        if (tests) |ts| {
+            const vname = self.srcText(rig.variantPatternName(pattern));
+            const fields = self.variantPayload(info.ty.?, vname) orelse return self.unsupported(pattern, "this payload pattern");
+            for (ts, fields) |t, f| if (t != .any) try self.w.print(" and rig.somePtr(&{s}.{f}.{f}) {s} null", .{ subj, ident(vname), ident(f.name), if (t == .some) "!=" else "==" });
+            try self.w.writeAll(")");
+        }
     }
 
     /// Before a guard: the bindings of `pattern` that `guard` names, read
@@ -5176,15 +5292,16 @@ pub const Emitter = struct {
             const addr = try self.need(self.facts.bindsByAddress(b), b);
             const bytes = self.bindsStringBytes(b, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}{s};", .{ stored.zig_name, if (addr and !bytes) "&" else "", payload, ident(f.name), if (bytes) ".bytes()" else "" });
+            if (self.unwrapsField(b, f)) {
+                try self.line("const {s} = rig.{s}({s}{s}.{f}).?{s};", .{ stored.zig_name, if (addr and !bytes) "somePtr" else "some", if (addr and !bytes) "&" else "", payload, ident(f.name), if (bytes) ".bytes()" else "" });
+            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ stored.zig_name, if (addr and !bytes) "&" else "", payload, ident(f.name), if (bytes) ".bytes()" else "" });
         }
     }
 
     /// The prelude that binds the names of `pattern` that `body` uses,
     /// for the arm picked by a guarded match, from `subj`.
-    fn armBindings(self: *Emitter, arm: Sexp, info: MatchInfo, subj: []const u8) Error!Prelude {
+    fn armBindings(self: *Emitter, arm: Sexp, info: MatchInfo, subj: []const u8, body: Sexp) Error!Prelude {
         const pattern = ir.Arm.pattern(arm);
-        const body = ir.Arm.body(arm);
         if (info.mode == .consume) {
             // The arm takes the value: `x` is consumed now.
             const whole = try self.hiddenStorage(arm, .whole, .owned, .fresh);
@@ -5240,7 +5357,15 @@ pub const Emitter = struct {
     /// value of a `match !x`); `addr` takes the field's address, for a
     /// `match !x` binding that writes it.
     /// `addr`: the binding points at the field.
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, bytes: bool = false };
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, bytes: bool = false, alts: ?AltFields = null, unwrap: bool = false };
+
+    /// The field a binding of alternatives reads in each variant, by the
+    /// tag an `inline` prong captures as `tag` (`altsProng`).
+    const AltFields = struct { tag: []const u8, variants: []const []const u8, fields: []const []const u8 };
+
+    /// A part a `match <x` arm of alternatives drops, of variant `variant`
+    /// only: the prong's tag `tag` says which it took.
+    const AltDrop = struct { tag: []const u8, variant: []const u8, expr: []const u8 };
 
     /// Whether payload binding `b`, of type `bound`, is the bytes of the
     /// String field it binds (`Facts.viewsStringBytes`).
@@ -5287,6 +5412,7 @@ pub const Emitter = struct {
         /// parts it drops at its end.
         owned: []const OwnedBinding = &.{},
         drops: []const []const u8 = &.{},
+        alt_drops: []const AltDrop = &.{},
         optional: ?OptionalBinding = null,
         lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
@@ -5296,7 +5422,7 @@ pub const Emitter = struct {
         results: ?struct { cond: Sexp, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.head.len == 0 and p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null and p.results == null;
+            return p.head.len == 0 and p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.alt_drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null and p.results == null;
         }
     };
 
@@ -5364,7 +5490,7 @@ pub const Emitter = struct {
             const bytes = self.bindsStringBytes(c, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .bytes = bytes });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .bytes = bytes, .unwrap = self.unwrapsField(c, f) });
         }
         return out.items;
     }
@@ -5381,13 +5507,25 @@ pub const Emitter = struct {
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
         if (prelude.head.len > 0) try self.line("{s}", .{prelude.head});
         for (prelude.aliases) |a| {
-            if (a.field.len == 0) {
+            if (a.alts) |alts| {
+                // Each instance of the `inline` prong reads its own
+                // variant's field: Zig analyzes only the tag's prong.
+                try self.writeIndent(self.indent);
+                try self.w.print("const {s} = switch ({s}) {{ ", .{ a.zig_name, alts.tag });
+                for (alts.variants, alts.fields) |v, f| try self.w.print(".{f} => {s}{s}.{f}{s}, ", .{ ident(v), if (a.addr and !a.bytes) "&" else "", a.payload, ident(f), if (a.bytes) ".bytes()" else "" });
+                try self.w.writeAll("else => unreachable };\n");
+            } else if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
+            } else if (a.unwrap) {
+                // `r?`: the value inside the optional field, which the
+                // arm's test found there.
+                try self.line("const {s} = rig.{s}({s}{s}.{f}).?{s};", .{ a.zig_name, if (a.addr and !a.bytes) "somePtr" else "some", if (a.addr and !a.bytes) "&" else "", a.payload, ident(a.field), if (a.bytes) ".bytes()" else "" });
             } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr and !a.bytes) "&" else "", a.payload, ident(a.field), if (a.bytes) ".bytes()" else "" });
         }
         // Zig writes a deferred call again at each exit: the part goes by
         // address, never by value (`rig.discardAt`).
         for (prelude.drops) |d| try self.line("defer rig.discardAt(&{s});", .{d});
+        for (prelude.alt_drops) |d| try self.line("defer if ({s} == .{f}) rig.discardAt(&{s});", .{ d.tag, ident(d.variant), d.expr });
         for (prelude.owned) |o| {
             const is_var = self.ownedIsVar(o.local);
             try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", o.local.zig_name, o.expr });

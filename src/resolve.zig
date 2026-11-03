@@ -1131,10 +1131,7 @@ const SymbolResolver = struct {
             try self.walk(ir.Match.subject(rig.asMatchOf(p)));
             const arm = rig.asMatchArm(p);
             _ = try self.enter(arm, .block);
-            const pattern = ir.Arm.pattern(arm);
-            if (pattern.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pattern)) |b| {
-                _ = try self.bindFresh(sema.bindingName(b), "pattern binding");
-            };
+            try self.bindPattern(ir.Arm.pattern(arm));
             return;
         }
         if (!p.isKind(.as)) return self.walk(p);
@@ -1172,26 +1169,11 @@ const SymbolResolver = struct {
         return true;
     }
 
-    fn walkArm(self: *SymbolResolver, node: Sexp) Error!void {
-        const prev = try self.enter(node, .block);
-        defer self.scope = prev;
-        const pattern = ir.Arm.pattern(node);
-        // Alternatives bind no names (the checker rejects them); a name
-        // is still bound once, for its uses.
-        if (pattern.isKind(.alt_pattern)) {
-            var seen: std.StringHashMapUnmanaged(void) = .empty;
-            defer seen.deinit(self.ctx.allocator);
-            for (ir.AltPattern.alts(pattern)) |alt| {
-                if (try self.constPattern(alt)) continue;
-                const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (patternBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
-                for (binds) |bound| {
-                    const b = sema.bindingName(bound);
-                    const name = identAt(self.ctx.source, b) orelse continue;
-                    if ((try seen.getOrPut(self.ctx.allocator, name)).found_existing) continue;
-                    _ = try self.bindFresh(b, "pattern binding");
-                }
-            }
-        }
+    /// Bind the names `pattern` binds in the current scope. Alternatives
+    /// that bind a name bind one symbol, each alternative's leaf naming
+    /// it, since the checker requires every alternative to bind the same
+    /// names with the same types.
+    fn bindPattern(self: *SymbolResolver, pattern: Sexp) Error!void {
         switch (pattern) {
             .src => if (patternBinds(self.ctx.source, pattern) and !try self.constPattern(pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
@@ -1200,9 +1182,34 @@ const SymbolResolver = struct {
                 for (ir.VariantPattern.bindings(pattern)) |b| _ = try self.bindFresh(sema.bindingName(b), "pattern binding");
             } else if (pattern.isKind(.set_pattern)) {
                 _ = try self.bindFresh(ir.SetPattern.name(pattern), "pattern binding");
+            } else if (pattern.isKind(.alt_pattern)) {
+                var seen: std.StringHashMapUnmanaged(?SymbolId) = .empty;
+                defer seen.deinit(self.ctx.allocator);
+                for (ir.AltPattern.alts(pattern)) |alt| {
+                    if (try self.constPattern(alt)) continue;
+                    const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (patternBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
+                    for (binds) |bound| {
+                        const b = sema.bindingName(bound);
+                        const name = identAt(self.ctx.source, b) orelse continue;
+                        if (std.mem.eql(u8, name, "_")) continue;
+                        const got = try seen.getOrPut(self.ctx.allocator, name);
+                        if (got.found_existing) {
+                            if (got.value_ptr.*) |id| try self.ctx.recordName(b, id);
+                            continue;
+                        }
+                        got.value_ptr.* = try self.bindFresh(b, "pattern binding");
+                    }
+                }
             },
             else => {},
         }
+    }
+
+    fn walkArm(self: *SymbolResolver, node: Sexp) Error!void {
+        const prev = try self.enter(node, .block);
+        defer self.scope = prev;
+        const pattern = ir.Arm.pattern(node);
+        try self.bindPattern(pattern);
         // A guard sees the pattern's bindings.
         try self.walk(ir.Arm.guard(node));
         try self.walk(ir.Arm.body(node));

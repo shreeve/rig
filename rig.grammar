@@ -212,6 +212,7 @@ tokens
     step_colon      # :   the first `:` of a `while` header: its step
     symbol_colon    # :   where an operand starts, touching a name: a symbol, `:width`
     as_comma        # ,   between the names `as` binds: `if f() as a, b`
+    matches         # matches  after a value: a pattern test, `x matches .ready(r)`
     label           # $   before a name no `(` touches: a label, `$outer:`, `break $outer`
     label_colon     # :   touching a label's name where it is declared: `$outer:`
 
@@ -441,16 +442,20 @@ tokens
     if                          cond then else?
     as                          value name:leaf
     as_results                  value names:group  # `if f() as a, b`
-    as_pattern                  value pattern      # `if s as .circle(r)`, as parsed
+    as_pattern                  value pattern      # `s as .circle(r)`, as parsed: rejected for `matches`
+    matches                     value pattern      # `s matches .circle(r)`, as parsed (`Parser.lowerMatches`)
     as_match                    @wrapper           # the one-arm `match` it is (`Parser.asMatch`)
     while                       cond step? body:block else:block?
     for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block? lent:tag(lent)?   # `for x in ?b.each()`: the `?` reaches `b`, the self of the source's first method call
     match                       subject ...arms:arm
     arm                         pattern guard? body
     alt_pattern                 ...alts
+    paren_alts                  ...alts            # `(.a, .b) =>`, as parsed: rejected
     range_pattern               lo hi inclusive:tag(inclusive)?
     set_pattern                 name:leaf set
     variant_pattern             name ...bindings   # `.name(...)`, or `E.name(...)`: a member
+    some_pattern                name:leaf          # `.ready(r?)`: the optional field's value, bound as `r`
+    none_pattern                marker:leaf @wrapper  # `.ready(none)`: the optional field holds none (`Parser.pbindNone`)
     enum_lit                    name:leaf
     symbol                      name:leaf
     return                      value?
@@ -518,7 +523,7 @@ tokens
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
     OF: "`of`", OBJ: "`obj`", API: "`api`", ADD: "`add`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`", ONCE: "`once`"
-    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", TASK_AMP: "`&`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL: "`$`", LABEL_COLON: "`:`"
+    MATCHES: "`matches`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", TASK_AMP: "`&`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL: "`$`", LABEL_COLON: "`:`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`", CATCH_JUMP: "`catch`", CATCH_BLOCK: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -1092,6 +1097,7 @@ neg      = NOT operand:neg                          → (not)
          | value:cmp AS name:name                   → (as)
          | value:cmp AS names:anames                → (as_results)
          | value:cmp AS pattern:aspat               → (as_pattern)
+         | value:cmp MATCHES pattern:mpat           → (matches)
          | cmp
 
 # Comparisons, which do not chain, over the fallbacks.
@@ -1118,6 +1124,19 @@ fall     = left:fall "??" right:@infix              → (??)
 aspat    = "." name:name                            → (enum_lit)
          | "." name:name "(" ")"                    → (variant_pattern)
          | "." name:name "(" bindings:pbinds ![","] ")" → (variant_pattern)
+
+# The pattern after `matches`: one pattern, or alternatives in
+# parentheses, `x matches (.a, .b)`, which may end with a comma. A list
+# of one parses only to be rejected (`Parser.checkMatches`).
+mpat     = rpattern
+         | "(" alts:mone ")"                        → (alt_pattern)
+         | "(" alts:mpalts ")"                      → (alt_pattern)
+         | "(" alts:mpalts "," ")"                  → (alt_pattern)
+
+mone     = rpattern                                 → (1)
+
+mpalts   = rpattern "," rpattern                    → (1 3)
+         | mpalts "," rpattern                      → (...1 3)
 
 # The names `as` binds from a call that gives several results; the
 # rewriter marks a `,` after `as name` outside brackets as AS_COMMA.
@@ -1177,6 +1196,7 @@ arm      = pattern:pats "=>" body:simple            → (arm)
 
 pats     = pattern
          | alts:palts                               → (alt_pattern)
+         | "(" alts:mpalts ")"                      → (paren_alts)   # rejected: `.a, .b =>`
 
 # Written out rather than `L(pattern)`, which conflicts with a trailing
 # comma.
@@ -1186,10 +1206,12 @@ palts    = pattern "," pattern                      → (1 3)
 # A string matches text with the same bytes, and against a `U8` is that
 # byte, which may bound a range. `lo..hi` excludes its end, `lo..=hi`
 # includes it.
-pattern  = patatom
+pattern  = rpattern
+         | name:name ":" set:tname                  → (set_pattern)   # `g: E =>`: an error of set `E`, as `g`
+
+rpattern = patatom
          | lo:patatom ".." hi:patatom               → (range_pattern)
          | lo:patatom "..=" hi:patatom              → (range_pattern inclusive:inclusive)
-         | name:name ":" set:tname                  → (set_pattern)   # `g: E =>`: an error of set `E`, as `g`
 
 # A member of an error set is named with its set, `E.name`, or through
 # its module, `m.E.name`. The module's set is its own rule rather than
@@ -1221,8 +1243,13 @@ pqual    = object:name "." name:name                → (member)
 pbinds   = pbind                                    → (1)
          | pbinds "," pbind                         → (...1 3)
 
-pbind    = name
-         | name:KWARG_NAME ":" value:name           → (kwarg)
+# `r?` binds the value of an optional field, and matches only when it
+# holds one; `none` matches only when it holds none (`Parser.pbindNone`).
+pbind    = pnest
+         | name:KWARG_NAME ":" value:pnest          → (kwarg)
+
+pnest    = name
+         | name:name "?"                            → (some_pattern)
 
 # --- Closures -----------------------------------------------------------------
 #
