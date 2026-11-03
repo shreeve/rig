@@ -5031,7 +5031,9 @@ symbols); a query that decides more than that is a recorded fact.
   the Zig type spelled from the declaration's sema signature, as
   `emitFun` spells a Rig function's, so a Zig function whose type
   differs fails the package's build with a message naming the
-  declaration. The suite calls every declaration of the standard
+  declaration. A shim function that would only call the runtime's is
+  an alias of it, `pub const listen_on = net.listen_on;` in
+  std/net.zig, checked as one written out is. The suite calls every declaration of the standard
   library, so no such mismatch reaches a program. A constant is
   Zig's, coerced to its Rig type, `pub const arch: rig.Arch =
   __rig_shim_1.arch;`, so a choice on it is one Zig makes when it
