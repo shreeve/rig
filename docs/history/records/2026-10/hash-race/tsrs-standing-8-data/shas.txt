@@ -1,0 +1,6 @@
+rig 1a980833b (Rig main with #873; ReleaseSafe, built for this run in /zfs/worktrees/rig/standing-8/rig) trig a4827df
+fd5962136b55ad3d16b5dd3f299bdaf2c13a419db0304e763eac6b45b5f9d950  rig
+2576e1a835f68e7ae15205b054f2aa3379b20b3f335657eb2d65a1fadb22bd05  trig (Trig main PGO, CHECK_IDS false; aa is a copy)
+b08935e527f210fadc30f70ef76e1a7d31bad518803521b9e37ff2e33eb586ef  ids (Trig main PGO, CHECK_IDS true)
+d0bd720c20e9900764811bb0f36e46d2d56916d3048e768053919d40db02a194  tsrs 0.18.0-ts7.1.0-dev.20260929 (npm @tsrs/linux-x64-gnu, as standing-5 to 7)
+tsc at Trig's pin 655f0268afaa43cde07b65b39782688463a99517

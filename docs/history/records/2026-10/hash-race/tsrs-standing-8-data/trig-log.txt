@@ -1,0 +1,15 @@
+a4827df Merge pull request #248 from shreeve/pup-rig-per-commit
+13a1627 tools: pup-rig builds each commit in its own folder
+3e47cfa Merge pull request #241 from shreeve/cache-memory
+4507ee1 checker: the relation and cached type caches by tighter keys
+1256d95 Merge pull request #247 from shreeve/docs-no-cron
+ee48fd2 docs: the full suite runs before releases, never on a schedule
+6906c7e Merge pull request #246 from shreeve/apparent-fast
+ac7a632 results: calls against tsrs, and apparent types returned at once
+5a64b4e checker: an apparent type with nothing to do returned at once
+16b97ae Merge pull request #244 from shreeve/lexer-pass4
+491e1bc lexer: a token's scan slices nothing, keywords compare as two words
+fbc0f8e Merge pull request #245 from shreeve/walk-ahead
+1b875b6 Merge pull request #243 from shreeve/file-text-move
+0e75876 results: the walk-ahead A/B on pup
+eab1fbc compiler: the walk reads a lib still parsed ahead from its text
