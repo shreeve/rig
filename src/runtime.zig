@@ -7494,7 +7494,6 @@ pub fn finish() void {
     if (scheduled) sched.settleLeftCalls();
     if (pgo) writeProfile();
     if (map_trace) map_tracer.close();
-    if (makes_tasks) threaded.deinit();
     releaseProcess();
     lockOutput();
     flush();
@@ -7504,6 +7503,9 @@ pub fn finish() void {
         const n = leak_checker.left_count;
         std.debug.print("note: rig: {d} allocation{s} ({d} bytes) left by a panic that `task.isolate` or an actor stopped\n", .{ n, if (n == 1) "" else "s", leak_checker.left_bytes });
     }
+    // Last, as the flush above writes and locks through it; the leak
+    // report goes through Zig's own stderr.
+    if (makes_tasks) threaded.deinit();
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
     std.process.exit(1);
