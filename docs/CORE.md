@@ -283,8 +283,9 @@ sub main()
 **2. `<x` moves, `+x` makes a new owner.** A statement `<x` moves `x`
 nowhere, so it drops now. `+x` is a copy, a count bump, or a deep
 copy, as the type says; a `unique` type or one with a `drop` body
-has none; `+s` of a `?String` is a new `String`. *(built;*
-a deep copy of a type holding a `Signal` is *planned*.*)*
+has none; `+s` of a `?String` is a new `String`. A `Signal` lives
+behind a `*Signal` handle, so a copy of a type holding one counts the
+handle. *(built)*
 
 ```rig
 obj File

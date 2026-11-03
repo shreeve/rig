@@ -122,7 +122,7 @@ with the holding written as a sigil. A generic body with no
 bound may do with `T` whatever each instance supports, calling its
 methods included (`x.area()`), and each instance a program makes is
 checked, with an error at the call and a note at the body line
-([more](docs/DESIGN.md#per-instance-checking-instead-of-traits)). The
+([more](docs/DESIGN.md#per-instance-checking-bounds-and-apis)). The
 design, which keeps method dispatch and ownership visible, is
 [design/apis.md](docs/design/apis.md).
 

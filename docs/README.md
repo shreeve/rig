@@ -17,14 +17,17 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | How is memory freed with no collector? | [learn/02-ownership.md](learn/02-ownership.md), then [CORE.md](CORE.md) |
 | How do errors and optionals work? | [learn/03-errors.md](learn/03-errors.md), then [SPEC §12 and §13](../SPEC.md#12-optionals) |
 | How do I run things concurrently? | [learn/04-concurrency.md](learn/04-concurrency.md), then [SPEC §18](../SPEC.md#18-tasks) |
-| How do I handle text? | [learn/05-text.md](learn/05-text.md), then [TEXT.md](TEXT.md) and the text modules of [STD.md](STD.md) |
+| How do I handle text? | [learn/05-text.md](learn/05-text.md), then [design/text.md](design/text.md) and the text modules of [STD.md](STD.md) |
 | What is in the standard library? | [learn/06-stdlib.md](learn/06-stdlib.md) for a tour, [STD.md](STD.md) for each module |
 | How do I write a form? | [SYNTAX.md](../SYNTAX.md) |
 | What exactly does a form mean? | [SPEC.md](../SPEC.md) |
 | Why was it designed this way? | [FAQ.md](../FAQ.md), then [DESIGN.md](DESIGN.md) and [design/](design/) |
+| How do `matches`, `x matches P`, and pattern alternatives work? | [design/matches.md](design/matches.md), then [SPEC](../SPEC.md) |
+| How will `xs.map(f).filter(g).sum()` chains work? | [design/iterators.md](design/iterators.md) |
 | Does Rig have traits or interfaces? | [design/apis.md](design/apis.md): APIs, `api Shape`, and API objects, `?{Shape}`, built in five stages |
 | How fast is it, and how was that measured? | [launch/benchmarks.md](launch/benchmarks.md), and each benchmark's README under [bench/](../bench/) |
 | What changed since the last release? | [CHANGELOG.md](../CHANGELOG.md) |
+| How do I move code from 0.2 to 0.3? | [MIGRATING-0.3.md](MIGRATING-0.3.md) |
 | What is planned? | [ROADMAP.md](ROADMAP.md), and the engineering detail in [internals/backlog.md](internals/backlog.md) |
 | What does Rig guarantee, and how is it checked? | [learn/10-safety.md](learn/10-safety.md), then [formal/README.md](../formal/README.md) |
 | What does a program become, and what does it cost? | [learn/11-performance.md](learn/11-performance.md), then [DESIGN's cost model](DESIGN.md#cost-model) |
@@ -34,7 +37,7 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | How do types share a contract, and one list hold many kinds? | [learn/08-apis.md](learn/08-apis.md), then [SPEC, APIs](../SPEC.md#apis) and [API objects](../SPEC.md#api-objects) |
 | How do I test Rig code? | [learn/09-tests.md](learn/09-tests.md), then [SPEC, Tests](../SPEC.md#tests) |
 | How does Rig's own test suite work? | [test/README.md](../test/README.md) and [internals/tests.md](internals/tests.md) |
-| What was tried before? | [history/](history/) |
+| What was tried before, and what was measured? | [history/records/INDEX.md](history/records/INDEX.md) |
 
 ## Reading orders
 
@@ -44,7 +47,8 @@ your language, then the journeys in order: [sigils](learn/01-sigils.md),
 [ownership](learn/02-ownership.md), [errors](learn/03-errors.md),
 [concurrency](learn/04-concurrency.md), [text](learn/05-text.md),
 [the standard library](learn/06-stdlib.md), [generics](learn/07-generics.md),
-[APIs](learn/08-apis.md), [tests](learn/09-tests.md). Then the
+[APIs](learn/08-apis.md), [tests](learn/09-tests.md),
+[safety](learn/10-safety.md), [performance](learn/11-performance.md). Then the
 [examples](../examples/README.md), and the [FAQ](../FAQ.md) when a
 "why" comes up.
 
@@ -56,7 +60,7 @@ your language, then the journeys in order: [sigils](learn/01-sigils.md),
 [AGENTS](../AGENTS.md), [HANDOFF](../HANDOFF.md), [CORE](CORE.md),
 [SPEC](../SPEC.md), [internals/INTERNALS](internals/INTERNALS.md),
 [test/README](../test/README.md) and [internals/tests](internals/tests.md),
-[internals/zig-0.17](internals/zig-0.17.md),
+[ZIG-0.17](../ZIG-0.17.md),
 [formal/README](../formal/README.md), the record behind a feature in
 [design/](design/), and the [ROADMAP](ROADMAP.md).
 
@@ -65,7 +69,7 @@ your language, then the journeys in order: [sigils](learn/01-sigils.md),
 | Folder | Holds |
 |---|---|
 | [learn/](learn/README.md) | the journeys: one chapter for each of Rig's big ideas |
-| [design/](design/) | the records of decisions that hold today: concurrency and its panel, APIs and their panels, `as` patterns, the formal plan, the mantras, JSON, SIMD, the terminal |
-| [internals/](internals/) | for contributors: the compiler, Zig 0.17, the scheduler, SIMD lowering, the tests, the weak spots, and the backlog |
+| [design/](design/) | the records of decisions that hold today: concurrency, APIs, `matches`, iterator chains, the formal plan, the mantras, JSON, text, the terminal |
+| [internals/](internals/) | for contributors: the compiler and where it meets Zig, the scheduler, the tests, the weak spots, and the backlog |
 | [launch/](launch/) | the launch post on concurrency, its FAQ, its benchmarks, and one server in three languages |
-| [history/](history/) | superseded and dated documents, each opening with what replaced it |
+| [history/records/](history/records/INDEX.md) | dated designs, reviews, and measurements, indexed by question |

@@ -1,6 +1,6 @@
 # Apple silicon opcodes for SIMD and SWAR work
 
-> **History.** This is a dated study of Apple silicon opcodes. The design is [docs/design/simd.md](../design/simd.md). It is kept as written.
+> **History.** This is a dated study of Apple silicon opcodes. The decisions are in [simd.md](simd.md). It is kept as written.
 
 The AArch64 (Apple silicon) instructions that matter for parsing,
 scanning, number conversion and hashing, and how Rig reaches each one.
@@ -29,7 +29,7 @@ Status: **used** (Rig emits it today, or on the `simd` branch),
 | `rev` | Reverses the bytes of a register | `x.swap_bytes()`, and `.big` reads and pushes | `bswap`, `movbe` | shifts and masks | used |
 | `ldp` (q registers) | Loads 32 bytes as a pair of vector registers | wide `read[U128]` and vector reads (Rig #115) | `movdqu`, `vmovdqu` | `v128.load` twice | used |
 | `tbl` (1, 2, or 4 table registers) | Looks up each lane's byte in a 16-, 32-, or 64-byte table, an out-of-range index giving 0 | `t.lookup(idx)`: byte classification, UTF-8 validation, hex | `pshufb` on the index plus 0x70, saturated (`paddusb`), so bit 7 is set exactly from 16 on; one per 16-byte table piece, ORed; `vpshufb` with the table in both halves on AVX2 | `i8x16.swizzle`, one per table piece, ORed | used |
-| `ext` | Joins two vectors, shifted: each lane gets the lane `k` before it | `cur.lag[k](prev)`: vector UTF-8 validation | `palignr`; `vperm2i128` + `vpalignr` for 32 bytes on AVX2 | `i8x16.shuffle` | used |
+| `ext` | Joins two vectors, shifted: each lane gets the lane `k` before it | `cur.lag[k](../../prev)`: vector UTF-8 validation | `palignr`; `vperm2i128` + `vpalignr` for 32 bytes on AVX2 | `i8x16.shuffle` | used |
 | `uqsub`, `uqadd` (`sqsub`, `sqadd` signed) | Saturating subtract and add | `-\|` and `+\|`, scalar or lane-wise: UTF-8 range checks | `psubusb`, `paddusb` | `i8x16.sub_sat_u`, `i8x16.add_sat_u` | used |
 | `ushr`, `shl` (immediate) | Shifts every lane by one amount | `v >> 4`, `v <<% 4`; `v << 4` adds one compare (`cmhi` + `umaxv`) that panics if a lane loses bits | `psrlw` + `pand` (no byte shift) | `i8x16.shr_u`, `i8x16.shl` | used |
 
@@ -65,11 +65,11 @@ interning hashes every identifier.
 1. The `shrn` nibble-mask lowering, through a mask's first-true-lane
    method (`m.first()`).
 2. Done in SIMD round 2: `tbl` (`t.lookup(idx)`), `ext`
-   (`cur.lag[k](prev)`), the saturating `+|` and `-|`, and lane shifts.
+   (`cur.lag[k](../../prev)`), the saturating `+|` and `-|`, and lane shifts.
 3. Later, for hash maps: a hashing primitive that lowers to `crc32` or
    AES rounds where the target has them, and to a portable hash where it
    does not.
 
 Each stays a portable Rig operation, with a scalar fallback on targets
 that lack the instruction. The measurements behind these choices are in
-[design/simd.md](../design/simd.md) and [simd-lowering.md](../internals/simd-lowering.md).
+[design/simd.md](simd.md) and [simd-lowering.md](simd-lowering.md).

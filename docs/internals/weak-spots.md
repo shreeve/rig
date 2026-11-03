@@ -4,7 +4,7 @@ Where the compiler's soundness work is not finished: areas reviewers keep
 finding problems in, items held for a prerequisite, and questions for the
 design owner. Change these areas carefully, and run the suite after. The
 restructuring that removed most earlier bugs is in
-[the consolidation](../history/consolidation.md). The ownership rules are
+[the consolidation](../history/records/revamp/consolidation.md). The ownership rules are
 in [CORE](../CORE.md), and [HANDOFF](../../HANDOFF.md) says where the work
 stands.
 
@@ -71,19 +71,6 @@ and run the suite after.
   order (`storage.SetOrder`).
 - **`defer`/`errdefer` at exits,** owners behind `Cell`, `^T`, and
   `*T`, and generic instances.
-- **Statement-long loans the Core does not need** (compiler-stricter,
-  listed in `test/oracle/differences`): a call's result's read loans,
-  and a write lend the call stores or whose result is a write view, last
-  until the statement ends, not until their last use in it. So
-  `match find(!v)` cannot write `v` in an arm after the payload's last
-  use, `print(firstw(!v).n, v.len)` is rejected, and so is reading `v`
-  after `keep(!v, !h, ?x)` in its statement though `h` is used no more.
-  The Core allows all three, and the oracle accepts them. A later round
-  ends these loans at their last use within the statement. Likewise a
-  generic callee's argument write lend lasts to the statement's end,
-  since its origins come from its signature, where a `T` could hold
-  anything (`print(gfirst(!v).n, v.len)` is rejected); per-instance
-  origins are a later refinement.
 - **Review findings not fixed:**
   - Over-rejections of the reviews (the cases
     `review-b4b-2-p22`, `p24`, `p25`, and `p43` of
@@ -101,8 +88,8 @@ and run the suite after.
     expected, every value that copies is copied out (`sema.copies`).
   - The oracle accepts two shapes the Core rejects (the compiler
     rejects both): a `?@` result reaching an owned field beside a
-    held view (`x77`), and re-pointing a write view a closure has lent
-    (`x68`). Add them as `# oracle:` tests when the oracle learns them.
+    held view, and re-pointing a write view a closure has lent. Add
+    them as `# oracle:` tests when the oracle learns them.
   - `bin/rig-oracle` in a worktree goes stale; `test/rig.rip` rebuilds it,
     so rebuild before using it by hand.
 

@@ -1,6 +1,6 @@
 # The opcode study: which instructions std.json's speed needs
 
-> **History.** This is a dated study made while tuning std.json. The design is [docs/design/json.md](../design/json.md). It is kept as written.
+> **History.** This is a dated study made while tuning std.json. The design is [docs/design/json.md](../../../../design/json.md). It is kept as written.
 
 This study asks which instructions and lowerings would make `std/json.rig`
 faster on Apple silicon and on x86, ranked by measured time. Each one has
@@ -473,7 +473,7 @@ instruction choice belongs to the compiler. Gains are geomeans over the
 six files, then the best file, from the tables above.
 
 1. **Wide vector reads as one load: a runtime lowering.**
-   - **Operation:** `bytes.read[Simd[T, n]](at)`, unchanged.
+   - **Operation:** `bytes.read[Simd[T, n]](../../../at)`, unchanged.
    - **Lowering:** for n >= 16, load through an `align(1)` vector pointer
      instead of copying `[n]u8` and bit-casting.
    - **Fallback:** the same Zig on every target, already one load on

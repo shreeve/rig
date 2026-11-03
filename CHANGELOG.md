@@ -2218,7 +2218,7 @@ scan (SWAR, then `Simd[U8, 16]`). `bench/json/check/compare.py`
 checks it against Python's `json` module on 10,511 inputs;
 `tools/fetch-json-data.sh` fetches the third-party files those read. `bench/json/` times it
 against Zig's `std.json`, serde_json, simd-json, sonic-rs and
-zimdjson (docs/history/json-results.md). Its API is not settled
+zimdjson (docs/history/records/2026-10/json/json-results.md). Its API is not settled
 (docs/design/json.md, "Open items").
 
 std.json: an escaped string checks its length once, so safe builds keep
@@ -2230,7 +2230,7 @@ safe) slower than before, which is layout and is noted, not fixed.
 
 The model and its plan are
 [docs/design/concurrency.md](docs/design/concurrency.md), with its reviews in
-[docs/design/concurrency-panel/](docs/design/concurrency-panel/README.md). The plan's
+[docs/history/records/2026-10/concurrency-panel/](docs/history/records/2026-10/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
 - **A regular file's read runs in its task.** `file.read` of a regular

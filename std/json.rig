@@ -735,7 +735,8 @@ fun eight_digits(d: U64) -> U64
 # before it goes on 16 bytes at a time with SIMD: most keys end within
 # them, and most string bytes are in values beyond them. On x86_64 a
 # vector compare's mask reaches a general register cheaply, so the scan
-# starts with SIMD there (6% faster by geomean; docs/history/json-results.md).
+# starts with SIMD there (6% faster by geomean;
+# docs/history/records/2026-10/json/json-results.md).
 TIER = 0 if target.arch == .x86_64 else 16
 
 ONES64: U64 = 0x0101010101010101

@@ -59,7 +59,7 @@ It is safe Rig, with no `raw`: every read is bounds-checked in
 - non-ASCII text checked a run at a time, not one character per scan.
 
 It runs at 1.9-7.0 GB/s on the six standard files, 3.1-11x Zig's
-std.json building the same tape ([docs/history/json-results.md](../history/json-results.md), "std.json on Rig main").
+std.json building the same tape ([docs/history/records/2026-10/json/json-results.md](../history/records/2026-10/json/json-results.md), "std.json on Rig main").
 
 ## SWAR as a first-class option
 
@@ -78,7 +78,7 @@ in twitter, gsoc-2018 and github_events are in strings over 32 bytes),
 and simdjson's stage 1 on big files, which classifies 64 bytes per
 step.
 
-**Measured** ([docs/history/json-results.md](../history/json-results.md)): the U64 string scan is up to 2x the
+**Measured** ([docs/history/records/2026-10/json/json-results.md](../history/records/2026-10/json/json-results.md)): the U64 string scan is up to 2x the
 byte-at-a-time one (gsoc-2018). U128 is slower today, since `read[U128]`
 loads its 16 bytes one at a time on every target; two U64 reads fix that,
 but a 128-bit step is still two 64-bit steps on a 64-bit machine.
@@ -88,7 +88,7 @@ from the mask (a count of trailing zeros, now `m.trailing_zeros() >> 3`)
 gained up to 14%. Spaces 8 at a time gained 25% on citm_catalog. Digits
 8 at a time first gained nothing, with a byte loop for a run's last 1
 to 7 digits; read as sonic-rs reads them, the last ones from the same
-word, they gain about 10% on canada ([docs/history/json-results.md](../history/json-results.md), "Parser changes").
+word, they gain about 10% on canada ([docs/history/records/2026-10/json/json-results.md](../history/records/2026-10/json/json-results.md), "Parser changes").
 
 ## Tiered string scanning
 
@@ -113,7 +113,7 @@ end of the input, or when a block shows an error, it checks a sequence
 at a time from the text's first non-ASCII byte, which gives the
 error's offset. Keys rarely reach the second tier; most value bytes do.
 
-Measured ([docs/history/json-results.md](../history/json-results.md)): the second tier gains 12% on gsoc-2018, whose
+Measured ([docs/history/records/2026-10/json/json-results.md](../history/records/2026-10/json/json-results.md)): the second tier gains 12% on gsoc-2018, whose
 strings are long, and costs 3-4% on twitter and twitterescaped, whose
 values are short. Switching after 8 bytes is no better, and a 32-lane
 second tier loses 7-9% on twitter.
@@ -151,7 +151,7 @@ a DOM, not for this reused tape.
 
 What the parser would still gain from Rig, each a general, safe
 capability that needs no `raw` and no unchecked indexing. Gains are
-measured where a number is given ([docs/history/json-results.md](../history/json-results.md)) and estimated from the
+measured where a number is given ([docs/history/records/2026-10/json/json-results.md](../history/records/2026-10/json/json-results.md)) and estimated from the
 references' published designs where marked. In order of expected gain:
 
 1. **SIMD beyond the string scan** (est. up to 2x overall). Rig has
@@ -159,7 +159,7 @@ references' published designs where marked. In order of expected gain:
    and the string scan uses it. Still to try with it: sonic-rs's
    64-byte whitespace bitmap, and simdjson's structural index, which
    also needs a carry-less multiply for the prefix XOR of the quote
-   mask. The byte lookup it needs (`t.lookup(v)`) now checks UTF-8.
+   mask. The byte lookup it needs (`t.lookup(v)`) checks UTF-8.
 2. **Block iteration with one check per block** (measured 1-11%). A safe
    `for block in bytes.blocks(16)` that hands out fixed-size views with
    one bounds check per block and a remainder for the tail. Removing
@@ -168,26 +168,26 @@ references' published designs where marked. In order of expected gain:
    `rig-nocheck`).
 3. **Checks the compiler proves away** (mostly done). Indexes and reads
    bounded by a loop's condition, `+` under such a bound, and the string
-   scan's 16-byte reads are proven, with no check (#138, #149). The
+   scan's 16-byte reads are proven, with no check. The
    checks left cost 4-9% of instructions together and no net time on the
    Mac: removing them made canada 6% faster and four files 3-9% slower
-   ([docs/history/json-results.md](../history/json-results.md), "Checks and IPC after proofs2"). Still checked: `m <<
+   ([docs/history/records/2026-10/json/json-results.md](../history/records/2026-10/json/json-results.md), "Checks and IPC after proofs2"). Still checked: `m <<
    m.leading_zeros()`, a read after an early-return guard, and `i >= 0`
-   for a position a call returned (docs/history/rig-notes.md, entries 10 and
+   for a position a call returned (docs/history/records/2026-10/json/rig-notes.md, entries 10 and
    20).
 4. **Cheap block appends to a List.** The text between escapes is
    copied 16 bytes at a time as it is scanned, with `String`'s
-   `!t.push(v, keep: k)` (#150). Tape entries are pushed one at a time,
+   `!t.push(v, keep: k)`. Tape entries are pushed one at a time,
    and `document` keeps the tape's length and capacity in memory, so
    each push reloads them; a `List` write window (reserve n, write
-   through a cursor) would keep them in registers (docs/history/rig-notes.md,
+   through a cursor) would keep them in registers (docs/history/records/2026-10/json/rig-notes.md,
    entry 8).
 5. **Embedding a file** (build). `$embed("file.json")` as a `Static`.
-   A string literal may be of any length (#168), so the benchmark and
+   A string literal may be of any length, so the benchmark and
    the tests write each input as one literal, but a program is at most
    16 MiB of source, so the tests spread their inputs over several
    programs.
-6. **Multiple results** (clarity). A function may now give several
+6. **Multiple results** (clarity). A function may give several
    results (SPEC, "Several results"), but the parser predates it:
    `take_digits` hands back the digits' value through an out-parameter,
    which stays in a register only when the call is inlined. The byte
@@ -197,13 +197,15 @@ references' published designs where marked. In order of expected gain:
 7. **An enum variant's name as text** (clarity). `e.text` gives it
    (SPEC, "Enums"), but `error_name` still spells out each `Error`
    variant's name in a `match`.
-8. **Character literals** (clarity). `'"'`, `'\\'`, `'{'` as `U8` values:
-   the parser names 19 byte constants and writes `match` arms as hex
-   literals with no name.
-9. **Errors that carry data** (API). A parse error is a kind and a byte
-   offset, and Rig's errors carry no data, so `parse` returns a `Bool`
-   and the `Doc` holds `error` and `error_pos`. The API changes to
-   fallible `!` functions when errors can carry them.
+8. **Character literals** (clarity). The language has them (SPEC,
+   "Byte literals"): `'"'`, `'\\'`, `'{'` are `U8` values. The parser
+   still names 19 byte constants and writes `match` arms as hex
+   literals with no name; std.json has yet to adopt them.
+9. **Errors that carry data** (API). Errors with fields are built (SPEC
+   §15), but a parse error here is still a kind and a byte offset: `parse`
+   returns a `Bool` and the `Doc` holds `error` and `error_pos`. std.json
+   has yet to adopt them, which changes the API to fallible `!`
+   functions.
 
 The final API is the design owner's decision, and is not settled:
 `parse` and the readers as fallible `!` functions, errors that carry
@@ -212,9 +214,3 @@ internal steps return on an error. A `T?` costs nothing here: with
 `utf8_end` and `utf8_end3` returning `Int?` in place of `-1`, and no
 other change, instructions per byte stayed within 1% on all six corpus
 files. Until then `std.json` is experimental.
-
-Done, and no longer open: a Float from its bits (`Float.from_bits`); the
-bit methods (`leading_zeros`, `trailing_zeros`, `count_ones`) and
-`x.not()`; `<<%`; wide reads as one load (`read[U128, .little]`);
-inlined `List.push` and `String.push`, `reserve`, `push[T, e]`, and the
-trimmed append paths; and inlining of small functions.

@@ -638,8 +638,8 @@ sub main()
   `std.json`, and `std.net`, using the text words from this chapter.
 - [Errors and optionals](03-errors.md) covers `Int?` and `Int!`, which
   `text.find` and `text.parse_int` return.
-- [TEXT.md](../TEXT.md) is the design: the names, the Go equivalents of
-  each `std.utf8` function, and how other languages compare.
+- [design/text.md](../design/text.md) is the design: the names, why
+  text is built this way, and how other languages compare.
 - [STD.md](../STD.md#stdtext) lists every `std.text` function, and
   [SPEC.md](../../SPEC.md#strings) states what the language does with
   strings.

@@ -1,11 +1,11 @@
 # APIs: the design
 
 This is the record of how Rig gains APIs, bounds, and API objects,
-in five stages. The owner approved it as the direction. Each stage is
-built when a program needs it, and each section says whether its stage
-is built. Two panels of three experts wrote the reports behind it, kept
-as written in [traits-panel/](traits-panel/README.md), and a third
-panel chose the words, in [naming-panel/](naming-panel/README.md); where
+in five stages. Each stage is built when a program needs it, and each
+section says whether its stage is built. Two panels of three experts
+wrote the reports behind it, kept as written in
+[traits-panel/](../history/records/2026-10/traits-panel/README.md), and a third
+panel chose the words, in [naming-panel/](../history/records/2026-10/naming-panel/README.md); where
 a report and this page differ, this page holds.
 
 ## Why, and why in stages
@@ -13,13 +13,13 @@ a report and this page differ, this page holds.
 **Generics** let one piece of code work for many types: `List[T]`,
 `Map[K, V]`, `Task[T]`, `fun max[T](a: T, b: T)`. Rig has them and uses
 them everywhere. **APIs and bounds** say what those types must be
-able to do. Rig has none: a generic body is checked against every
+able to do. Without them, a generic body is checked against every
 instance the program makes, with the error at the call and a note at
 the body line ([SPEC, Generic bodies](../../SPEC.md#generic-bodies)).
 That is the model of C++ templates and of Zig's `comptime`, and it
 carries Rig a long way.
 
-Three things it cannot do alone:
+Three things that model cannot do alone:
 
 1. Say in a signature what a `T` must do. A body applies the built-in
    operations to a `T` (arithmetic, ordering, `==`, `.hash()`,
@@ -34,8 +34,7 @@ Closures, enums with payloads, and objects of `*fun` fields cover much
 of this today: `sort_by(?xs, |a, b| ...)` orders by anything, an enum
 holds a closed set of kinds, and an object of owned closures is a
 hand-written table of methods. So the design is built in stages, the
-smallest first, and each later stage waits for a program that needs
-it.
+smallest first, each when a program needed it.
 
 | Stage | What it adds | New syntax | Status |
 |---|---|---|---|
@@ -952,21 +951,18 @@ sub main()
 *Built:* the braces in a type, the rules on what they name, a bare
 `{Shape}` rejected as unsized (written or inferred), the bounds an
 object meets, and which methods a call through one reaches, with why
-for those it does not
-([phase1-notes.md](../history/records/2026-10/apis-stage4/phase1-notes.md));
+for those it does not;
 the views, `?{Shape}` and `!{Shape}`: the erasure, lent by the lend
 table's last row and recorded once; calls through a table, typed and
 checked by the API's declaration and clauses; the copy of a plain read
-view, local to its block; and the oracle's second opinion on each
-([phase2-notes.md](../history/records/2026-10/apis-stage4/phase2-notes.md));
+view, local to its block; and the oracle's second opinion on each;
 the boxes, `^{Shape}`: a `^T` moved in keeping its allocation, its drop
 through the table and the drop queue, `<@` methods that end the box,
 `Clone` and `Print` entries, loans to the drop, `Owned`'s no-loan
 homes, and no default value
-(SPEC, "API objects";
-[phase3-notes.md](../history/records/2026-10/apis-stage4/phase3-notes.md)).
+(SPEC, "API objects").
 An object of an API with an associated type, `^{Source[Item: Int]}`,
-waits for a program that needs it (phase 5).
+waits for a program that needs it.
 
 An **API object** is a value of some type that provides an API, the
 type chosen when the program runs. It is written as the API in braces,
@@ -1230,29 +1226,17 @@ cannot assign through `w`, a `!{Shape}`: the value it views may be of another ty
 
 ## Stage 5: shared objects, and crossing tasks *(built, but owned closures as objects)*
 
-*Phases 1 and 2 are built:* crossing bounds in the braces and the API,
+*Built:* crossing bounds in the braces and the API,
 checked where the type is erased, each form crossing by its row, and no
-owned closure holding a task
-([phase1-notes.md](../history/records/2026-10/apis-stage5/phase1-notes.md));
+owned closure holding a task;
 `*{Shape}`, `~{Shape}`, and `*{Shape + Syncs}`, counted through the
-table
-([phase2-notes.md](../history/records/2026-10/apis-stage5/phase2-notes.md)).
-Owned closures as objects of one method (phase 4, a performance
-change) and the Lean obligation (phase 3) are not built yet.
+table. Owned closures as objects of one method (a performance change)
+and the Lean obligation are not built.
 
-*Designed and approved (2026-10-23).* The owner: "Approve
-the Stage 5 CORE text as written in core-stage5/6-final.md and #615's
-design defaults (with the reviewer's three fixes). Build Stage 5 in
-phases with adversarial reviews; land each after the suite and light
-gate." Its ownership rules are CORE §4's paragraph "A shared API object
-counts a value of hidden type", *(built)*, revised by a Core panel
-([core-panel/](../history/records/2026-10/apis-stage5/core-panel/))
-from the draft in
-[core-draft.md](../history/records/2026-10/apis-stage5/core-draft.md);
-the phases are in
-[build-plan.md](../history/records/2026-10/apis-stage5/build-plan.md),
-and what this section decides by default is in
-[open-questions.md](../history/records/2026-10/apis-stage5/open-questions.md).
+Its ownership rules are CORE §4's paragraph "A shared API object
+counts a value of hidden type" *(built)*. What this section decides by
+default, and the build plan, are in
+[records](../history/records/2026-10/apis-stage5/open-questions.md).
 It builds on Stage 4's tables, erasure, and boxes.
 
 Stage 5 adds the last two holding forms of an API object, `*{Shape}`
@@ -1360,7 +1344,7 @@ takes only a frozen value, and the error names the API.
 through a `?{Shape}` does: the same entry. `+s` and a drop are an
 indirect call to an entry, a few cycles more than the inline count of a
 `*T`, and atomic only in a `*{Shape + Syncs}`.
-Phase 2 measures both against a `*T` (`bench/apis`).
+`bench/apis` measures both against a `*T`.
 
 ### `~{Shape}`, a weak one
 
@@ -1443,11 +1427,10 @@ are unchanged; objects meet them by the table above:
 **An object without the bound goes to no task, a local one included**
 (open question 13). The hidden value may hold an owned closure, which
 SPEC keeps from every task, a local one too, because its type does not
-show its captures; an object hides more. Stage 4's phase 3 lets an
+show its captures; an object hides more. Stage 4 lets an
 object go to a local task, so a `^{Shape}` hiding an owned closure
-reaches two local tasks at once. Approved: closed with this rule, at
-any depth of what the task is given, which narrows Stage 4's approved
-open question 14. Its cost is recorded as a limit: a GUI's render task,
+reaches two local tasks at once. The rule holds at
+any depth of what the task is given. Its cost is recorded as a limit: a GUI's render task,
 `render(?root)&` over a `*{Widget}` tree, is rejected, though a
 `*Widget` tree, or a frozen `*{Widget + Syncs}` tree, works.
 
@@ -1455,10 +1438,10 @@ open question 14. Its cost is recorded as a limit: a GUI's render task,
 A task is bound to the scope that waits for it, and an erased drop
 would hide that wait: `task.isolate(|| mk())` gives a `^{Shape}`
 hiding a task started inside it, which isolate rejects for any value
-whose type shows one. Approved: rejected at the erasure, naming the
+whose type shows one. Rejected at the erasure, naming the
 field. **No owned closure holds a task either:** `*|<t| 7` in an object
 left `task.isolate` (probed), since `holdsTask` read no captures; a
-closure's captures are now walked, and a type parameter by its
+closure's captures are walked, and a type parameter by its
 instance (`Requirement.no_task`).
 
 ### Owned closures as one-method objects
@@ -1473,13 +1456,13 @@ whose static table holds the call, the drop, and the counts. The
 language does not change: `*fun` keeps its type, its rules, and its
 crossing (never), and `~fun` is its weak handle.
 
-The cost, measured on the Mac with Stage 4 phase 3's compiler, release
+The cost, measured on the Mac, release
 build: making an owned closure, calling it once, and dropping it takes
 11.1 ns, against 4.6 ns for a `*` object of one field (one allocation)
 and 4.3 ns for a box. So the second allocation and its indirection cost
 about 6 ns, and one allocation would make a closure about 45% faster to
 make and drop; a call is unchanged (a load from a table in cache, then
-the indirect call, where today the load is from the heap); a handle
+the indirect call, where a closure now loads from the heap); a handle
 grows from 8 bytes to 16. Default: build it last, as its own phase,
 kept only if `bench/closures` (a closure made per element) clears the
 speed bar on both machines and Trig is not slower. Trig makes its 10
@@ -1492,8 +1475,8 @@ As in Stage 4. A `*{A}`'s method entries are those views and boxes
 call, so a fallible method's entry takes the slot, `!` passes the API's
 set on, `catch |e|` gives `e` the API's set, and a method with a set
 parameter of its own is called through a bound. An API with `type Item`
-forms `*{Source[Item: Int]}` with the type named, built with Stage 4's
-phase 5, and is rejected with that spelling until then; a crossing
+forms `*{Source[Item: Int]}` with the type named, not yet
+built, and rejected with that spelling; a crossing
 bound follows it, `^{Source[Item: Int] + Sends}`.
 
 ### Rules that keep it sound
@@ -1589,4 +1572,4 @@ a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomi
 - **Requiring bounds on every generic**: 300 to 500 of the suite's
   generics would change, for no reader a private generic has. Only
   `pub` generics must state their bounds.
-- **API objects now**: enums and closures cover today's programs.
+- **API objects from the start**: enums and closures cover today's programs.
