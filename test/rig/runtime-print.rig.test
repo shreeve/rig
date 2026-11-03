@@ -1,0 +1,92 @@
+# runtime: a value's own `print` method runs once, with no output lock
+# held, before any byte of the line that shows it is written.
+
+test "print method that warns runs once in a long String", 282, stderr: "print ran", whole: true
+  obj Loud: Print
+    text: String
+
+    sub print(?@, out: !Printer)
+      warn("print ran")
+      !out.text(?@text)
+
+  sub main()
+    a = Loud(text: String("x"))
+    s = String(a, " ", "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789")
+    print(s.len)
+
+test "print method that prints shows its line first", whole: true, '''
+  inner
+  outer x end
+'''
+  obj Loud: Print
+    text: String
+
+    sub print(?@, out: !Printer)
+      print("inner")
+      !out.text(?@text)
+
+  sub main()
+    a = Loud(text: String("x"))
+    print("outer", a, "end")
+
+test "print method that warns in a program with tasks", "x 16", stderr: "print ran", seeds: 20, timeout: 30, whole: true
+  obj Loud: Print
+    text: String
+
+    sub print(?@, out: !Printer)
+      warn("print ran")
+      !out.text(?@text)
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  sub main()
+    t = sq(4)&
+    a = Loud(text: String("x"))
+    print(a, >t)
+
+test "print method that prints in a program with tasks", seeds: 20, timeout: 30, whole: true, '''
+  inner
+  outer x 16
+'''
+  obj Loud: Print
+    text: String
+
+    sub print(?@, out: !Printer)
+      print("inner")
+      !out.text(?@text)
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  sub main()
+    t = sq(4)&
+    a = Loud(text: String("x"))
+    print("outer", a, >t)
+
+test "print method with a long loop in three tasks", seeds: 20, timeout: 30, whole: true, '''
+  aaa
+  aaa
+  aaa
+  9000
+'''
+  # The loop yields (`tick_turns`) while the line is written.
+  obj Long: Print
+    n: Int
+
+    sub print(?@, out: !Printer)
+      i = 0
+      while i < @n
+        if i % 1000 == 0
+          !out.text("a")
+        i += 1
+
+  fun show(n: Int) -> Int
+    print(Long(n: n))
+    n
+
+  sub main()
+    t = show(3000)&
+    u = show(3000)&
+    v = show(3000)&
+    print(>t + >u + >v)

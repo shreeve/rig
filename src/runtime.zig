@@ -3,8 +3,8 @@
 //!
 //! Ownership conventions shared with the emitter:
 //!
-//! - `*T` is `*Shared(T)`: single-threaded reference counting with weak
-//!   handles (`Weak(T)`). `cloneStrong` / `dropStrong` /
+//! - `*T` is `*Shared(T)`: reference counting, atomic when `T` is
+//!   synchronized, with weak handles (`Weak(T)`). `cloneStrong` / `dropStrong` /
 //!   `weakRef` / `cloneWeak` / `dropWeak` / `upgrade` are the only
 //!   refcount operations; the emitter spells every one explicitly.
 //! - `*Frozen[T]` is `*Frozen(T)`: a strong count, always atomic, and the
@@ -407,7 +407,7 @@ pub const TestErrorGlue = struct {
 
     pub fn eql(code: anyerror, a: *const ErrData, b: *const ErrData) bool {
         _ = code;
-        return std.mem.eql(u8, &@as(*const ErrData, @ptrCast(@alignCast(a))).bytes, &@as(*const ErrData, @ptrCast(@alignCast(b))).bytes);
+        return std.mem.eql(u8, &a.bytes, &b.bytes);
     }
 };
 pub const Control = tasks.Control;
@@ -647,6 +647,7 @@ const x86_vectors: struct { save: []const u8, restore: []const u8 } = blk: {
 pub const sched = @import("sched.zig");
 // Sockets and the HTTP server (`net.zig`).
 pub const net = @import("net.zig");
+pub const httpServe = net.serve;
 
 // Tables (`table.zig`): `Table[T, n]` and `Slot[n]`.
 const table_zig = @import("table.zig");
@@ -665,7 +666,6 @@ pub const OrderedSet = ordered_zig.OrderedSet;
 const unordered_zig = @import("unordered.zig");
 pub const UnorderedMap = unordered_zig.UnorderedMap;
 pub const UnorderedSet = unordered_zig.UnorderedSet;
-pub const httpServe = net.serve;
 
 test {
     _ = sched;
@@ -1255,15 +1255,7 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
         }
 
         pub fn __rig_drop(self: *Self) void {
-            const t = task();
-            if (t.drop_depth >= max_drop_depth) {
-                t.drop_queue.append(std.heap.smp_allocator, .{ .box = self.ptr, .release = self.vt.__rig_drop }) catch oom();
-                return;
-            }
-            t.drop_depth += 1;
-            self.vt.__rig_drop(self.ptr);
-            t.drop_depth -= 1;
-            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+            releaseNested(self.ptr, self.vt.__rig_drop);
         }
     };
 }
@@ -1884,7 +1876,7 @@ pub fn eql(a: anytype, b: anytype) bool {
     if (comptime A == @TypeOf(null) or B == @TypeOf(null)) return nullish(a) and nullish(b);
     // A frozen value's handles compare what they reach (Rig gives no
     // other handle `==`).
-    if (comptime isCountedPointer(A) and isCountedPointer(B)) return eql(a.value, b.value);
+    if (comptime isShared(A) and isShared(B)) return eql(a.value, b.value);
     // A view held as a pointer compares as the value it reaches.
     if (comptime isValuePointer(A)) return eql(a.*, b);
     if (comptime isValuePointer(B)) return eql(a, b.*);
@@ -1915,14 +1907,6 @@ pub fn eql(a: anytype, b: anytype) bool {
 fn isValuePointer(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .one and !isString(T) and !isStringView(T) and @typeInfo(p.child) != .@"fn",
-        else => false,
-    };
-}
-
-/// A handle `*T` to a counted allocation (`Counted`).
-fn isCountedPointer(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
-        .pointer => |p| p.size == .one and @typeInfo(p.child) == .@"struct" and @hasDecl(p.child, "__rig_shared"),
         else => false,
     };
 }
@@ -1979,8 +1963,8 @@ pub fn textIs(x: anytype, lit: []const u8) bool {
 /// every level below it, which grows as the square of the chain (a
 /// release build of 400 levels took minutes); out of line past that
 /// depth, each body holds a bounded number of levels. Any shallower
-/// object is reached inline, as before, so a hot `==` or hash of one is
-/// unchanged.
+/// object is reached inline, so a hot `==` or hash of one makes no
+/// call.
 fn outOfLine(comptime F: type) bool {
     return nestingDepth(F) > out_of_line_depth;
 }
@@ -2015,7 +1999,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
         },
         .pointer => |p| {
             if (comptime isStringView(T)) return std.mem.eql(u8, a, b);
-            if (comptime isCountedPointer(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
+            if (comptime isShared(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
             if (comptime isScalar(p.child)) return std.mem.eql(p.child, a, b);
             if (a.len != b.len) return false;
@@ -2064,7 +2048,7 @@ pub fn hashAs(comptime T: type, x: T) u64 {
         .pointer => |p| {
             if (comptime isStringView(T)) return hashBytes(x);
             // A frozen value's handle hashes what it reaches.
-            if (comptime isCountedPointer(T)) return hashAs(@FieldType(p.child, "value"), x.value);
+            if (comptime isShared(T)) return hashAs(@FieldType(p.child, "value"), x.value);
             if (p.size == .one) return hashAs(p.child, x.*);
             if (p.size != .slice) @compileError("rig.hash: no `.hash()` of " ++ @typeName(T));
             var h: u64 = hashInt(x.len);
@@ -2255,7 +2239,7 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     // a view held as a pointer orders as the value it reaches.
     if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
     // A frozen value's handles order by what they reach, as they compare.
-    if (comptime isCountedPointer(A) and isCountedPointer(B)) return compare(a.value, op, b.value);
+    if (comptime isShared(A) and isShared(B)) return compare(a.value, op, b.value);
     if (comptime isValuePointer(A)) return compare(a.*, op, b);
     if (comptime isValuePointer(B)) return compare(a, op, b.*);
     const T = @TypeOf(a, b);
@@ -2281,7 +2265,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
     };
     if (comptime isStringView(T)) return std.mem.order(u8, a, b);
     if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
-    if (comptime isCountedPointer(T)) return order(a.value, b.value);
+    if (comptime isShared(T)) return order(a.value, b.value);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return if (some(b) == null) .eq else .lt;
         const y = some(b) orelse return .gt;
@@ -2435,15 +2419,7 @@ fn Counted(comptime T: type, comptime is_frozen: bool) type {
         /// The last strong handle's release (`dropStrong`).
         noinline fn dropLast(self: *Self) void {
             if (comptime !needsDrop(T)) return self.releaseValue();
-            const t = task();
-            if (t.drop_depth >= max_drop_depth) {
-                t.drop_queue.append(std.heap.smp_allocator, .{ .box = self, .release = releaseErased }) catch oom();
-                return;
-            }
-            t.drop_depth += 1;
-            self.releaseValue();
-            t.drop_depth -= 1;
-            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+            releaseNested(self, releaseErased);
         }
 
         /// Drop the value, then give up the strong side's weak count; a
@@ -2488,6 +2464,22 @@ fn isWord(comptime T: type) bool {
 const max_drop_depth = 256;
 const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
 
+/// `release(box)`, a box's release, nested in the running task's
+/// releases: queued past `max_drop_depth`, and the queue drained once
+/// the outermost release returns. A release known at compile time is a
+/// direct call; an API object's, from its table, is not.
+inline fn releaseNested(box: *anyopaque, release: *const fn (*anyopaque) void) void {
+    const t = task();
+    if (t.drop_depth >= max_drop_depth) {
+        t.drop_queue.append(defaultAllocator(), .{ .box = box, .release = release }) catch oom();
+        return;
+    }
+    t.drop_depth += 1;
+    release(box);
+    t.drop_depth -= 1;
+    if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+}
+
 fn drainDropQueue() void {
     const t = task();
     t.drop_depth += 1;
@@ -2502,7 +2494,7 @@ fn drainDropQueue() void {
         pending.release(pending.box);
     }
     t.drop_depth -= 1;
-    t.drop_queue.clearAndFree(std.heap.smp_allocator);
+    t.drop_queue.clearAndFree(defaultAllocator());
 }
 
 /// `~T`: a non-owning handle to a `Shared(T)`.
@@ -2717,24 +2709,13 @@ pub fn Box(comptime T: type) type {
 
         pub fn __rig_drop(self: *Self) void {
             if (comptime !needsDrop(T)) return destroy(self.value);
-            const t = task();
-            if (t.drop_depth >= max_drop_depth) {
-                t.drop_queue.append(std.heap.smp_allocator, .{ .box = @ptrCast(self.value), .release = releaseErased }) catch oom();
-                return;
-            }
-            t.drop_depth += 1;
-            release(self.value);
-            t.drop_depth -= 1;
-            if (t.drop_depth == 0 and t.drop_queue.items.len != 0) drainDropQueue();
+            releaseNested(self.value, releaseErased);
         }
 
-        fn release(p: *T) void {
+        fn releaseErased(box: *anyopaque) void {
+            const p: *T = @ptrCast(@alignCast(box));
             dropElement(T, p);
             destroy(p);
-        }
-
-        fn releaseErased(p: *anyopaque) void {
-            release(@ptrCast(@alignCast(p)));
         }
     };
 }
@@ -2813,18 +2794,36 @@ pub fn Cell(comptime T: type) type {
             return true;
         }
 
-        /// Add `n` and give the new value; a `Cell(i64)`'s only.
+        /// Add `n` and give the new value; a `Cell(i64)`'s only. One
+        /// that overflows panics before it stores, as `+` does.
         pub fn add(self: *Self, n: T) T {
-            if (atomic) return @atomicRmw(T, &self.value, .Add, n, .seq_cst) + n;
+            if (atomic) return self.step(.Add, n);
             self.value += n;
             return self.value;
         }
 
         /// Subtract `n` and give the new value; a `Cell(i64)`'s only.
         pub fn sub(self: *Self, n: T) T {
-            if (atomic) return @atomicRmw(T, &self.value, .Sub, n, .seq_cst) - n;
+            if (atomic) return self.step(.Sub, n);
             self.value -= n;
             return self.value;
+        }
+
+        /// `add` or `sub` at once: where safety checks run, a loop of
+        /// compare-and-swaps that computes each new value, panicking on
+        /// overflow, before it stores; otherwise one atomic add.
+        fn step(self: *Self, comptime op: std.builtin.AtomicRmwOp, n: T) T {
+            const apply = struct {
+                inline fn f(a: T, b: T) T {
+                    return if (op == .Add) a + b else a - b;
+                }
+            }.f;
+            if (!std.debug.runtime_safety) return apply(@atomicRmw(T, &self.value, op, n, .seq_cst), n);
+            var old = @atomicLoad(T, &self.value, .monotonic);
+            while (true) {
+                const new = apply(old, n);
+                old = @cmpxchgWeak(T, &self.value, old, new, .seq_cst, .monotonic) orelse return new;
+            }
         }
 
         pub fn __rig_drop(self: *Self) void {
@@ -3204,11 +3203,15 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         pub const __rig_list = {};
 
-        /// `+v`: a new List holding a clone of each element (`cloneValue`).
+        /// `+v`: a new List holding a clone of each element (`cloneValue`),
+        /// in one allocation of exactly their count: plain data copied by
+        /// one `@memcpy`, anything else cloned into each slot.
         pub fn clone(self: *const Self) Self {
-            var out: Self = .empty;
-            out.reserveTotal(self.len);
-            for (self.items()) |*e| out.push(cloneValue(e));
+            const src = self.items();
+            if (comptime !needsDrop(T)) return fromSlice(src);
+            var out = initCapacity(@intCast(src.len));
+            for (src, out.mem()[0..src.len]) |*e, *d| d.* = cloneValue(e);
+            out.len = src.len;
             return out;
         }
 
@@ -3519,11 +3522,12 @@ pub const String = struct {
     /// The value a table's slot starts as (`table.defaultOf`).
     pub const __rig_default: String = .{};
 
-    /// `String(a, b, ...)`. Text of up to `of_stack` bytes is written on
-    /// the stack and allocated once at its length, one block the size of
-    /// its bytes; longer text grows as `add` grows it.
+    /// `String(a, b, ...)`: each piece written once (`Spill`), on the
+    /// stack while the text fits `of_stack` bytes, then allocated once at
+    /// its length, one block the size of its bytes; longer text moves
+    /// into a heap block that grows as `add` grows one.
     /// The call is out of line, one function for each tuple of pieces, so
-    /// its buffer and both ways of building stay out of the caller's frame.
+    /// its buffer stays out of the caller's frame.
     pub inline fn of(pieces: anytype) String {
         return ofPieces(pieces);
     }
@@ -3531,35 +3535,10 @@ pub const String = struct {
     const of_stack = 256;
 
     noinline fn ofPieces(pieces: anytype) String {
-        var t: String = .empty;
-        if (ofShort(&t, pieces)) return t;
-        t.add(pieces);
-        return t;
-    }
-
-    /// `of`'s text in `t` when it fits `of_stack` bytes; false, with `t`
-    /// left empty, when not.
-    inline fn ofShort(t: *String, pieces: anytype) bool {
-        var buf: [of_stack]u8 = undefined;
-        var w: std.Io.Writer = .fixed(&buf);
-        inline for (comptime piecesOf(@TypeOf(pieces))) |p| switch (p) {
-            .text => |x| w.writeAll(x) catch return false,
-            .value => |f| writePiece(&w, pieces[f]) catch return false,
-        };
-        if (w.end == 0) return true;
-        const block = allocSlice(u8, w.end);
-        copyFresh(block, buf[0..w.end]);
-        t.list.items = block;
-        t.list.capacity = block.len;
-        return true;
-    }
-
-    /// A value as `addValue` writes it, to `w`.
-    inline fn writePiece(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
-        const P = @TypeOf(value);
-        if (comptime isStringView(P)) return w.writeAll(value);
-        if (comptime P == String or isStringPlace(P)) return w.writeAll(value.list.items);
-        return writeValue(w, value, true);
+        var stack: [of_stack]u8 = undefined;
+        var out: Spill = .init(&stack);
+        writeArgs(&out.writer, pieces) catch unreachable;
+        return out.string();
     }
 
     /// `!t.add(a, b, ...)`: the pieces as `print` takes them (`piecesOf`),
@@ -4229,7 +4208,8 @@ pub fn proofPanic() noreturn {
 /// test `p` does not prove fails. A proven test is made only as an
 /// assertion (`verify_proofs`).
 inline fn provenOffset(i: Int, count: usize, width: usize, comptime p: Proven) ?usize {
-    @setRuntimeSafety(false);
+    // The compiler's proof, asserted under `verify_proofs`.
+    @setRuntimeSafety(proven_checks);
     if (i < 0) {
         if (p == .upper) return null;
         if (verify_proofs) proofPanic();
@@ -4303,7 +4283,8 @@ pub inline fn addIf(a: Int, b: Int, ok: bool) Int {
 /// assume does not wrap.
 pub inline fn addProven(a: Int, b: Int) Int {
     if (verify_proofs) _ = std.math.add(Int, a, b) catch proofPanic();
-    @setRuntimeSafety(false);
+    // The compiler's proof, asserted under `verify_proofs`.
+    @setRuntimeSafety(proven_checks);
     return a + b;
 }
 
@@ -4951,7 +4932,7 @@ const Shift = enum { left, left_checked, right };
 inline fn laneShift(comptime op: Shift, v: anytype, amount: anytype) @TypeOf(v) {
     const V = @TypeOf(v);
     const info = @typeInfo(V).vector;
-    if (comptime wasmSimd() and @sizeOf([info.len]info.child) < 16) {
+    if (comptime wasm_simd and @sizeOf([info.len]info.child) < 16) {
         const m = 16 / @sizeOf(info.child);
         const wide = @shuffle(info.child, v, @as(V, @splat(0)), padIndicesTo(m, info.len));
         return @shuffle(info.child, laneShiftWhole(op, wide, amount), undefined, iota(info.len, 0));
@@ -5021,7 +5002,7 @@ fn lagIndices(comptime n: usize, comptime k: usize) @Vector(n, i32) {
 /// the same lanes (`test "lookup: every form agrees"`).
 pub inline fn lookup(table: anytype, idx: anytype) @TypeOf(idx) {
     const n = @typeInfo(@TypeOf(idx)).vector.len;
-    if (@inComptime() or comptime !lookupInstructions()) return lookupLanes(table, idx);
+    if (@inComptime() or comptime !lookup_instructions) return lookupLanes(table, idx);
     if (comptime n >= 16) return lookupPieces(table, idx);
     const wide = @shuffle(u8, idx, @as(@Vector(16, u8), @splat(0xFF)), padIndices(n));
     return @shuffle(u8, lookupPieces(table, wide), undefined, iota(n, 0));
@@ -5071,7 +5052,7 @@ fn concatIndices(comptime h: usize) @Vector(2 * h, i32) {
 /// One 16-index piece of `lookup`.
 inline fn lookup16(comptime m: usize, ts: [m / 16]@Vector(16, u8), idx: @Vector(16, u8)) @Vector(16, u8) {
     const P = @Vector(16, u8);
-    if (comptime neonIntrinsics()) return switch (m) {
+    if (comptime neon_intrinsics) return switch (m) {
         16 => @"llvm.aarch64.neon.tbl1.v16i8"(ts[0], idx),
         32 => @"llvm.aarch64.neon.tbl2.v16i8"(ts[0], ts[1], idx),
         else => @"llvm.aarch64.neon.tbl4.v16i8"(ts[0], ts[1], ts[2], ts[3], idx),
@@ -5079,17 +5060,13 @@ inline fn lookup16(comptime m: usize, ts: [m / 16]@Vector(16, u8), idx: @Vector(
     var r: P = @splat(0);
     inline for (ts, 0..) |t, j| {
         const down = idx -% @as(P, @splat(16 * j));
-        r |= if (comptime wasmSimd()) @"llvm.wasm.swizzle"(t, down) else @"llvm.x86.ssse3.pshuf.b.128"(t, down +| @as(P, @splat(0x70)));
+        r |= if (comptime wasm_simd) @"llvm.wasm.swizzle"(t, down) else @"llvm.x86.ssse3.pshuf.b.128"(t, down +| @as(P, @splat(0x70)));
     }
     return r;
 }
 
 /// Whether the target has a table instruction `lookup` uses: NEON, x86's
 /// SSSE3, or WASM SIMD, each through LLVM.
-fn lookupInstructions() bool {
-    return lookup_instructions;
-}
-
 const lookup_instructions = builtin.zig_backend == .stage2_llvm and (neon_intrinsics or wasm_simd or
     (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3)));
 const avx2 = builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
@@ -5119,7 +5096,7 @@ fn padIndicesTo(comptime m: usize, comptime n: usize) @Vector(m, i32) {
     return a;
 }
 
-/// The table instructions, each named only where `lookupInstructions`
+/// The table instructions, each named only where `lookup_instructions`
 /// picks it.
 extern fn @"llvm.aarch64.neon.tbl1.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
 extern fn @"llvm.aarch64.neon.tbl2.v16i8"(@Vector(16, u8), @Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
@@ -5137,6 +5114,9 @@ extern fn @"llvm.wasm.swizzle"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8)
 /// 32-lane scan about 20 times slower than a 16-lane one. Bytes stay in
 /// vector registers everywhere, and a comparison gives them with no work.
 pub fn Mask(comptime n: comptime_int) type {
+    // A lane count is a power of two from 2 to 64 (`resolve.simdInstance`),
+    // which the helpers below rely on.
+    comptime std.debug.assert(n >= 2 and n <= 64 and std.math.isPowerOfTwo(n));
     return if (n > 16) WideMask(n) else @Vector(n, bool);
 }
 
@@ -5243,9 +5223,9 @@ pub inline fn maskSelect(m: anytype, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// gives the same bits (`test "maskBits: every form agrees"`).
 pub inline fn maskBits(m: anytype) u64 {
     const n = maskLen(@TypeOf(m));
-    if (comptime (n == 32 or n == 64) and neonIntrinsics()) return maskBitsNeon(n, maskBytes(m));
-    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m));
-    if (comptime n >= 8 and builtin.cpu.arch.isWasm() and !wasmSimd()) return maskBitsSwar(n, maskBytes(m));
+    if (comptime (n == 32 or n == 64) and neon_intrinsics) return maskBitsNeon(n, maskBytes(m));
+    if (comptime n > 16 and wasm_simd) return maskBitsPieces(n, maskBytes(m));
+    if (comptime n >= 8 and builtin.cpu.arch.isWasm() and !wasm_simd) return maskBitsSwar(n, maskBytes(m));
     if (comptime n > 16 and opaque_wide_bits) return maskBitsOpaque(n, maskBytes(m));
     // `@bitCast` of a mask gives wrong bits on aarch64 without NEON (Zig
     // 0.17); Rig builds no such target, so it takes this form too.
@@ -5268,7 +5248,7 @@ pub inline fn maskBitsNot(m: anytype) u64 {
 /// bitmask, whose lowest set bit is the lane.
 pub inline fn maskFirst(m: anytype) ?i64 {
     const n = maskLen(@TypeOf(m));
-    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+    if (comptime n >= 16 and neon_intrinsics) {
         const bytes = maskBytes(m);
         if (comptime n == 16) {
             const found = nibbleMask(bytes);
@@ -5302,8 +5282,8 @@ pub inline fn maskFirst(m: anytype) ?i64 {
 /// lanes (`test "maskTrueLanes: every form agrees"`).
 pub inline fn maskTrueLanes(comptime L: type, m: anytype) L {
     const n = maskLen(@TypeOf(m));
-    if (comptime n == 16 and neonIntrinsics()) return .{ .bits = laneNibbles(maskBytes(m)), .shift = 2 };
-    if (comptime n == 8 and neonIntrinsics()) return .{ .bits = laneBytes(maskBytes(m)), .shift = 3 };
+    if (comptime n == 16 and neon_intrinsics) return .{ .bits = laneNibbles(maskBytes(m)), .shift = 2 };
+    if (comptime n == 8 and neon_intrinsics) return .{ .bits = laneBytes(maskBytes(m)), .shift = 3 };
     return .{ .bits = maskBits(m), .shift = 0 };
 }
 
@@ -5326,8 +5306,8 @@ inline fn nibbleMask(bytes: @Vector(16, u8)) u64 {
     return @bitCast(narrow);
 }
 
-/// The OR (or AND) of the 16-byte pieces of `w`, a power of two bytes of 16
-/// or more, by halving shuffles: an
+/// The OR (or AND) of the 16-byte pieces of `w`, 16 bytes or more (a
+/// power of two, as every lane count is), by halving shuffles: an
 /// OR over the pieces as an array makes LLVM move them through general
 /// registers.
 inline fn foldBytes(comptime n: usize, w: @Vector(n, u8), comptime and_: bool) @Vector(16, u8) {
@@ -5354,12 +5334,11 @@ pub inline fn maskAny(m: anytype) bool {
     const n = maskLen(@TypeOf(m));
     // WASM SIMD reduces a mask of more than 16 lanes lane by lane; its
     // pieces OR into one, which `v128.any_true` tests.
-    if (comptime wasmSimd() and n > 16 and n & (n - 1) == 0) return @reduce(.Or, foldBytes(n, maskBytes(m), false) >= @as(@Vector(16, u8), @splat(0x80)));
-    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m)) != 0;
+    if (comptime wasm_simd and n > 16) return @reduce(.Or, foldBytes(n, maskBytes(m), false) >= @as(@Vector(16, u8), @splat(0x80)));
     // On NEON, the pieces OR into one, whose largest byte (`umaxv`) is
     // the answer; spelled as a reduction, LLVM turns it back into a
     // bitmask in a loop.
-    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+    if (comptime n >= 16 and neon_intrinsics) {
         return @"llvm.aarch64.neon.umaxv.i32.v16i8"(foldBytes(n, maskBytes(m), false)) != 0;
     }
     return @reduce(.Or, maskLanes(m));
@@ -5368,16 +5347,15 @@ pub inline fn maskAny(m: anytype) bool {
 /// `m.all()`: whether every lane of mask `m` is true.
 pub inline fn maskAll(m: anytype) bool {
     const n = maskLen(@TypeOf(m));
-    if (comptime wasmSimd() and n > 16 and n & (n - 1) == 0) return @reduce(.And, foldBytes(n, maskBytes(m), true) >= @as(@Vector(16, u8), @splat(0x80)));
-    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m)) == std.math.maxInt(@Int(.unsigned, n));
-    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+    if (comptime wasm_simd and n > 16) return @reduce(.And, foldBytes(n, maskBytes(m), true) >= @as(@Vector(16, u8), @splat(0x80)));
+    if (comptime n >= 16 and neon_intrinsics) {
         return @"llvm.aarch64.neon.uminv.i32.v16i8"(foldBytes(n, maskBytes(m), true)) != 0;
     }
     return @reduce(.And, maskLanes(m));
 }
 
 /// NEON's across-lanes maximum and minimum of 16 bytes; named only where
-/// `neonIntrinsics` holds.
+/// `neon_intrinsics` holds.
 extern fn @"llvm.aarch64.neon.umaxv.i32.v16i8"(@Vector(16, u8)) i32;
 extern fn @"llvm.aarch64.neon.uminv.i32.v16i8"(@Vector(16, u8)) i32;
 
@@ -5390,21 +5368,13 @@ inline fn maskBytes(m: anytype) @Vector(maskLen(@TypeOf(m)), u8) {
 
 /// Whether NEON's intrinsics may be named: an aarch64 target with NEON,
 /// built by LLVM (Zig's own backends do not know them, and an intrinsic
-/// for a feature the target lacks stops LLVM).
-fn neonIntrinsics() bool {
-    return neon_intrinsics;
-}
-
-/// Decided once: a feature test in an inline helper would count against
-/// the branch quota of every function that calls it.
+/// for a feature the target lacks stops LLVM). Decided once: a feature
+/// test in an inline helper would count against the branch quota of
+/// every function that calls it.
 const neon_intrinsics = builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm and
     std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
 
 /// Whether the target is WASM with its 128-bit SIMD.
-fn wasmSimd() bool {
-    return wasm_simd;
-}
-
 const wasm_simd = builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
 
 inline fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
@@ -5484,7 +5454,7 @@ fn weightsOf(comptime n: usize, comptime eight: [8]u8) [n]u8 {
 }
 
 /// NEON's pairwise add of two 16-byte vectors; named only where
-/// `neonIntrinsics` holds.
+/// `neon_intrinsics` holds.
 extern fn @"llvm.aarch64.neon.addp.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
 
 /// A mask of more than 16 lanes as 16-lane bitmasks, one `i8x16.bitmask`
@@ -6167,7 +6137,7 @@ pub const MapTraceKey = struct {
             .optional => |o| if (x) |v| self.bytesOf(o.child, v),
             .pointer => |p| {
                 if (comptime isStringView(T)) return self.add(x);
-                if (comptime isCountedPointer(T)) return self.bytesOf(@FieldType(p.child, "value"), x.value);
+                if (comptime isShared(T)) return self.bytesOf(@FieldType(p.child, "value"), x.value);
                 if (p.size == .one) return self.bytesOf(p.child, x.*);
                 if (p.size == .slice) for (x) |e| self.bytesOf(p.child, e);
             },
@@ -6723,7 +6693,13 @@ const Sanitizer = struct {
         if (!sanitizer.owns(addr)) return;
         flushQuietly();
         var buf: [256]u8 = undefined;
-        const msg = if (sanitizer.blockBefore(addr)) |b|
+        // The live blocks are named only while no other thread changes
+        // them: the handler cannot wait for the lock.
+        const locked = !concurrent or alloc_lock.tryLock();
+        defer if (concurrent and locked) alloc_lock.unlock(io());
+        const msg = if (!locked)
+            std.mem.print(&buf, "error: rig: use of freed memory, or access past the end of a block, at address 0x{x}\n", .{addr})
+        else if (sanitizer.blockBefore(addr)) |b|
             std.mem.print(&buf, "error: rig: access past the end of a {d}-byte block at 0x{x} (address 0x{x})\n", .{ b.len, b.start, addr })
         else
             std.mem.print(&buf, "error: rig: use of freed memory at address 0x{x}\n", .{addr});
@@ -7518,7 +7494,6 @@ pub fn finish() void {
     if (scheduled) sched.settleLeftCalls();
     if (pgo) writeProfile();
     if (map_trace) map_tracer.close();
-    if (makes_tasks) threaded.deinit();
     releaseProcess();
     lockOutput();
     flush();
@@ -7528,6 +7503,9 @@ pub fn finish() void {
         const n = leak_checker.left_count;
         std.debug.print("note: rig: {d} allocation{s} ({d} bytes) left by a panic that `task.isolate` or an actor stopped\n", .{ n, if (n == 1) "" else "s", leak_checker.left_bytes });
     }
+    // Last, as the flush above writes and locks through it; the leak
+    // report goes through Zig's own stderr.
+    if (makes_tasks) threaded.deinit();
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
     std.process.exit(1);
@@ -7554,13 +7532,16 @@ pub fn failMain(err: anyerror) noreturn {
 pub fn reportFailure(err: anyerror, data: *ErrData) void {
     defer dropErrorData(err, data);
     if (err == error.@"std.task.Stop.canceled") if (interruptedBy() != null) return;
+    // The glue prints the fields, which may run the program's own code,
+    // so the report is rendered before the output lock is taken.
+    var stack: [256]u8 = undefined;
+    var report: Spill = .init(&stack);
+    defer report.deinit();
+    showFailure(err, data, &report.writer);
     lockOutput();
     defer unlockOutput();
     flushQuietly();
-    var buf: [256]u8 = undefined;
-    const ls = std.debug.lockStderr(&buf);
-    defer std.debug.unlockStderr();
-    showFailure(err, data, &ls.file_writer.interface);
+    writeStderr(report.writer.buffered());
 }
 
 /// `error: ` and failure `err` with its fields in `data`, as the
@@ -7805,14 +7786,76 @@ fn flushQuietly() void {
 /// straight line: each run of text (`piecesOf`) copied into the buffer
 /// at once, each value written by its writer (`outValue`).
 pub inline fn print(pieces: anytype) void {
-    lockOutput();
-    defer unlockOutput();
     const plan = comptime piecesOf(@TypeOf(pieces));
     comptime std.debug.assert(plan.len > 0 and plan[plan.len - 1] == .text);
+    if (comptime piecesRunCode(@TypeOf(pieces))) return printRendered(pieces);
+    lockOutput();
+    defer unlockOutput();
     inline for (plan, 0..) |p, i| switch (p) {
         .text => |t| outText(t, i == plan.len - 1),
         .value => |f| outValue(pieces[f]),
     };
+}
+
+/// A `print` with a value whose printing may run the program's own code
+/// (`printRunsCode`): its line rendered first, with no lock held, so
+/// that what that code prints comes before it, whole, and no task holds
+/// the output lock while the code runs or yields; then copied out under
+/// the lock.
+noinline fn printRendered(pieces: anytype) void {
+    var stack: [rendered_stack]u8 = undefined;
+    var line: Spill = .init(&stack);
+    defer line.deinit();
+    writeArgs(&line.writer, pieces) catch unreachable;
+    lockOutput();
+    defer unlockOutput();
+    outLine(line.writer.buffered());
+}
+
+/// The bytes a rendered `print` or `warn` line takes on the stack before
+/// it spills into a heap block.
+const rendered_stack = 4096;
+
+/// Whether one of the values of a `print` with pieces `P` may run the
+/// program's own code as it is printed.
+fn piecesRunCode(comptime P: type) bool {
+    const s = @typeInfo(P).@"struct";
+    for (s.field_types, s.field_attrs) |T, a| {
+        if (!a.@"comptime" and printRunsCode(T, print_code_depth)) return true;
+    }
+    return false;
+}
+
+/// How many levels of types `printRunsCode` looks through.
+const print_code_depth = 12;
+
+/// Whether printing a `T` may run the program's own code: a `print`
+/// method of the value or of anything it holds (`__rig_own_print`), or
+/// one only run time knows of, behind an API object, a function or an
+/// erased pointer it holds, or an error's fields. Past `depth` levels of
+/// types it may. A `T` that holds itself is looked at once per level,
+/// so the walk ends.
+fn printRunsCode(comptime T: type, comptime depth: u8) bool {
+    if (depth == 0) return true;
+    return switch (@typeInfo(T)) {
+        .@"struct" => |s| ownsApi(T, "__rig_own_print") or @hasDecl(T, "__rig_api_object") or
+            (T == ErrorValue and error_glue != null) or typesRunCode(s.field_types, depth - 1),
+        .@"union" => |u| ownsApi(T, "__rig_own_print") or typesRunCode(u.field_types, depth - 1),
+        .@"enum" => ownsApi(T, "__rig_own_print"),
+        .pointer => |p| switch (@typeInfo(p.child)) {
+            .@"opaque", .@"fn" => true,
+            else => printRunsCode(p.child, depth - 1),
+        },
+        .optional => |o| printRunsCode(o.child, depth),
+        .array => |a| printRunsCode(a.child, depth),
+        .@"opaque" => true,
+        else => false,
+    };
+}
+
+fn typesRunCode(comptime types: []const type, comptime depth: u8) bool {
+    for (types) |F| if (printRunsCode(F, depth)) return true;
+    return false;
 }
 
 /// What one piece of `print`, `String(...)`, or `add` writes: text known
@@ -8038,20 +8081,28 @@ noinline fn outValueOf(value: anytype) void {
     writeValue(stdout(), value, true) catch stdoutFailed();
 }
 
-/// `warn(a, b)`: the line `print` would write, written to stderr after
-/// everything `print` has buffered, in one write when it is at most
-/// 4 KiB. A write to stderr that fails is dropped, and the program goes
-/// on: there is nowhere left to report it.
+/// `warn(a, b)`: the line `print` would write, rendered first with no
+/// lock held, as `printRendered` renders one, then written to stderr in
+/// one write after everything `print` has buffered. A write to stderr
+/// that fails is dropped, and the program goes on: there is nowhere left
+/// to report it.
 pub noinline fn warn(pieces: anytype) void {
+    var stack: [rendered_stack]u8 = undefined;
+    var line: Spill = .init(&stack);
+    defer line.deinit();
+    writeArgs(&line.writer, pieces) catch unreachable;
     lockOutput();
     defer unlockOutput();
     flush();
-    var buf: [4096]u8 = undefined;
-    const ls = std.debug.lockStderr(&buf);
+    writeStderr(line.writer.buffered());
+}
+
+/// `bytes` written to stderr in one write, under the lock Zig's own
+/// reports to stderr take.
+fn writeStderr(bytes: []const u8) void {
+    _ = std.debug.lockStderr(&.{});
     defer std.debug.unlockStderr();
-    const w = &ls.file_writer.interface;
-    writeArgs(w, pieces) catch return;
-    w.flush() catch {};
+    _ = writeAllTo(2, bytes);
 }
 
 /// The pieces of a `print`, written to `w`: what `warn` and `panic`
@@ -8063,6 +8114,66 @@ fn writeArgs(w: *std.Io.Writer, pieces: anytype) std.Io.Writer.Error!void {
         .value => |f| try writeValue(w, pieces[f], true),
     };
 }
+
+/// A writer whose bytes go into a buffer on the stack until it is full,
+/// then into `heap`, a String's block that grows as `add` grows one:
+/// what a rendered `print` or `warn` line, an error's report, and
+/// `String(...)` write their pieces into, each piece once. Its writes
+/// fail only as allocation does, by panicking.
+const Spill = struct {
+    writer: std.Io.Writer,
+    heap: String = .empty,
+
+    fn init(stack: []u8) Spill {
+        return .{ .writer = .{ .buffer = stack, .vtable = &.{
+            .drain = drain,
+            .flush = std.Io.Writer.noopFlush,
+            .rebase = rebase,
+        } } };
+    }
+
+    fn deinit(self: *Spill) void {
+        self.heap.__rig_drop();
+    }
+
+    fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        room(@fieldParentPtr("writer", w), std.Io.Writer.countSplat(data, splat));
+        return w.writeSplat(data, splat);
+    }
+
+    fn rebase(w: *std.Io.Writer, _: usize, capacity: usize) std.Io.Writer.Error!void {
+        room(@fieldParentPtr("writer", w), capacity);
+    }
+
+    /// Room for `n` more bytes in the writer's buffer: the bytes on the
+    /// stack moved into a new heap block, or the block grown.
+    fn room(self: *Spill, n: usize) void {
+        const w = &self.writer;
+        const l = &self.heap.list;
+        const first = l.capacity == 0;
+        l.items.len = if (first) 0 else w.end;
+        String.growList(l, if (first) w.end +| n else n);
+        if (first) String.copyFresh(l.items.ptr[0..w.end], w.buffer[0..w.end]);
+        w.buffer = l.allocatedSlice();
+    }
+
+    /// The bytes written, as a String the caller owns in place of the
+    /// Spill: the heap block, or, when they stayed on the stack, one
+    /// block of their length.
+    fn string(self: *Spill) String {
+        const w = &self.writer;
+        if (self.heap.list.capacity != 0) {
+            self.heap.list.items.len = w.end;
+            return self.heap;
+        }
+        if (w.end == 0) return .empty;
+        var t: String = .empty;
+        t.list.items = allocSlice(u8, w.end);
+        t.list.capacity = w.end;
+        String.copyFresh(t.list.items, w.buffered());
+        return t;
+    }
+};
 
 /// The root panic handler of every emitted program, for the runtime's
 /// own panics (an index out of range, an overflow): `panic: msg` on
@@ -8758,7 +8869,7 @@ test "maskBits: every form agrees" {
             if (n >= 8) try testing.expectEqual(want, maskBitsSwar(n, bytes));
             if (n >= 16) try testing.expectEqual(want, maskBitsPieces(n, bytes));
             if (n > 16) try testing.expectEqual(want, maskBitsOpaque(n, bytes));
-            if (comptime (n == 32 or n == 64) and neonIntrinsics()) try testing.expectEqual(want, maskBitsNeon(n, bytes));
+            if (comptime (n == 32 or n == 64) and neon_intrinsics) try testing.expectEqual(want, maskBitsNeon(n, bytes));
             // A vector of `bool` and the mask of its lanes alike.
             inline for (.{ m, w }) |x| {
                 try testing.expectEqual(want, maskBits(x));
@@ -8918,7 +9029,7 @@ test "mask helpers: a mask known at compile time" {
 }
 
 test "maskFirst: every lane, every run, every lane count" {
-    inline for (.{ 2, 4, 8, 16, 32, 48, 64 }) |n| {
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
         const M = Mask(n);
         try testing.expectEqual(@as(?i64, null), maskFirst(maskOf(M, @splat(false))));
         for (0..n) |i| {
@@ -8940,7 +9051,7 @@ test "maskFirst: every lane, every run, every lane count" {
 test "mask operators: every lane count, against the lanes one by one" {
     var prng = std.Random.DefaultPrng.init(0x3a5c);
     const r = prng.random();
-    inline for (.{ 2, 8, 16, 32, 48, 64 }) |n| {
+    inline for (.{ 2, 8, 16, 32, 64 }) |n| {
         const M = Mask(n);
         for (0..100) |_| {
             var a: [n]bool = undefined;
@@ -9930,7 +10041,7 @@ test "index bounds and division" {
 }
 
 test "a failure leaving main is shown through the glue, and its fields dropped" {
-    // Compiled here, as R3's emit will call them.
+    // Compiled here, as emit calls them.
     _ = &reportFailure;
     _ = &failMainReported;
     TestErrorGlue.drops.store(0, .seq_cst);
