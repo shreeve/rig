@@ -1125,7 +1125,7 @@ const SymbolResolver = struct {
             }
             return;
         }
-        // `s as .circle(r)`: the fields its one arm's pattern binds, in
+        // `s matches .circle(r)`: the fields its one arm's pattern binds, in
         // the arm's scope, visible to the parts after it and to the body.
         if (p.isKind(.as_match)) {
             try self.walk(ir.Match.subject(rig.asMatchOf(p)));

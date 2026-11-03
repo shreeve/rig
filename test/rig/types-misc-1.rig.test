@@ -6871,7 +6871,7 @@ test "payload by name", release: true, '''
     .bare => pass
   print(w)
 
-fail "payload by name is rejected", "12:4: `.rect` binds its fields both in order and by name; a pattern binds a variant's fields either in order, all of them, or by name, any of them", "15:4: `.rect` binds its fields both in order and by name", "18:9: no field `width` on variant `rect`", "21:15: field `w` is bound twice", "24:4: variant `point` has no payload to destructure", "27:12: an arm with alternatives cannot bind names", errors: 6
+fail "payload by name is rejected", "12:4: `.rect` binds its fields both in order and by name; a pattern binds a variant's fields either in order, all of them, or by name, any of them", "15:4: `.rect` binds its fields both in order and by name", "18:9: no field `width` on variant `rect`", "21:15: field `w` is bound twice", "24:4: variant `point` has no payload to destructure", errors: 5
   # A pattern binds a variant's fields either in order, all of them, or by
   # name, any of them; it doesn't mix the two. Each name is a field of the
   # variant, bound once.

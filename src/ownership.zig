@@ -322,6 +322,10 @@ const Via = enum { owned, viewed, shared };
 const Var = struct {
     name: []const u8,
     decl: u32,
+    /// For a binding of a match that reads a place, the place as
+    /// written: taking it with `<` would give the binding its field to
+    /// move (`reportAlias`).
+    read_subject: []const u8 = "",
     ty: ?TypeId = null,
     kind: VarKind = .local,
     ref: Ref = .none,
@@ -4731,6 +4735,12 @@ pub const Checker = struct {
         // A name moves; a part moves out only from an optional, which
         // `<` leaves `none`, unless nothing can assign its binding
         // (`sema.moveSource`).
+        // A part of what a match binds by reading a place moves once the
+        // match takes the place: `<` there comes first.
+        const subject: []const u8 = if (part) |p| if (self.resolvePlace(p)) |at| self.vars.items[at.root].read_subject else "" else "";
+        if (!is_name and subject.len > 0 and sema.cloneable(ctx, t) != .bump) {
+            try fixes.append(a, try a.print("`<{s}` where it is matched, so its fields are owned, then `<{s}` to move this one", .{ subject, what }));
+        }
         if (is_name) {
             try fixes.append(a, try a.print("`<{s}` to move it", .{what}));
         } else if (self.typeData(t) == .optional and if (part) |p| sema.moveSource(ctx, p) == .part else false) {
@@ -7110,6 +7120,9 @@ pub const Checker = struct {
         /// The subject as written, when no var holds the value it reads
         /// (`Var.matched`); empty when the match takes it.
         shown: []const u8 = "",
+        /// The place a match that reads it names, as written: `<` on it
+        /// would give the bindings their fields (`Var.read_subject`).
+        read_place: []const u8 = "",
     };
 
     /// Whether `match` takes its subject, and its bindings own what they
@@ -7165,6 +7178,7 @@ pub const Checker = struct {
                 info.via = .shared;
             };
             if (!p.whole) info.path = try self.placeText(node);
+            if (!self.takesSubject(match) and !scrut.isKind(.write)) info.read_place = self.spanText(node);
         } else if (!self.takesSubject(match) and self.readsInPlace(scrut)) {
             // A value no var holds, which the match reads where it is:
             // its bindings view it, as they view a place.
@@ -7266,7 +7280,7 @@ pub const Checker = struct {
         return value;
     }
 
-    /// `s as .circle(r)`, a part of a condition: the one-arm `match` it is
+    /// `s matches .circle(r)`, a part of a condition: the one-arm `match` it is
     /// (`rig.asMatchOf`), its subject reached as `walkMatch` reaches a
     /// match's and its pattern bound as an arm's, in a new scope over
     /// `body`, which the caller pops. The values the pattern does not
@@ -7305,6 +7319,7 @@ pub const Checker = struct {
                 info.via = .shared;
             };
             if (!p.whole) info.path = try self.placeText(node);
+            if (!self.takesSubject(match) and !scrut.isKind(.write)) info.read_place = self.spanText(node);
         } else if (!self.takesSubject(match) and self.readsInPlace(scrut)) {
             info.via = .viewed;
             if (self.exprType(node)) |t| if (self.typeData(t) == .shared) {
@@ -7386,7 +7401,7 @@ pub const Checker = struct {
         // The bytes of a String field are a view of it, as any read view of
         // a field is, though a `?String` copies.
         const text_view = if (self.sema.payloadFieldOf(node)) |field| sema.viewsStringBytes(self.sema, field, ty orelse sema.type_invalid) else false;
-        var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = if (text_view) .read else self.refOfType(ty) };
+        var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = if (text_view) .read else self.refOfType(ty), .read_subject = info.read_place };
         var loans: []const Loan = &.{};
         // A payload that copies (`sema.copies`) is copied out of the
         // matched value, which stays whole. A view the match makes of a

@@ -1830,7 +1830,7 @@ const Planner = struct {
 
     pub fn part(p: *Planner, cond: Sexp) !void {
         if (cond.isKind(.as)) return p.optional(cond);
-        // `s as .circle(r)`: the one-arm `match` it is.
+        // `s matches .circle(r)`: the one-arm `match` it is.
         if (cond.isKind(.as_match)) return p.match(rig.asMatchOf(cond));
         // `if f() as a, b`: the call's results, captured for the body,
         // each taken by its binding, the rest dropped there.

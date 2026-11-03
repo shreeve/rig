@@ -86,6 +86,13 @@ compared in one step, with no declaration, whose text is `s.text`.
 `.width` is an enum's variant, from a list the enum declares. A `match`
 on a symbol ends with `_ =>`.
 
+**Testing a pattern.** `s matches .ready(r)` is a `Bool`, and binds `r`
+in an `if` or `while` body and after `and`; alternatives go in
+parentheses, `s matches (.a, .b)`, and bind names only when each binds
+the same ones. In a payload, `r?` binds an optional field's value and
+`none` matches its absence. One `<` on the subject moves what it binds:
+`if <e.state matches .ready(img?)`.
+
 **Self.** A method declares how it takes self, `@`, and its call says
 the same: `?@` reads (`a.balance()`), `!@` changes
 (`!a.pay(30)`), and `<@` consumes (`<a.close()`).

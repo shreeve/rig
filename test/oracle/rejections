@@ -1911,7 +1911,9 @@ target.name_compound.ternary.grow main
 target.name_compound.ternary.move main
 target.name_compound.ternary.read main
 test/reject/concurrency/task_copy.rig main
+test/reject/concurrency/wait_twice.rig main
 test/reject/concurrency/within_a_closure_called_more_than_once.rig main
+test/reject/concurrency/within_moves_a_capture_once.rig main
 test/reject/errors/a_caught_error_used_after_it_moved.rig main
 test/reject/errors/a_field_moved_before_an_`errdefer`_reads_it.rig f
 test/reject/errors/a_narrowed_error_under_`match_e`_is_a_view_of_the_caught_one.rig moved
@@ -3539,6 +3541,7 @@ test/reject/ownership/origin_self_path_handle.rig main
 test/reject/ownership/origin_self_path_held_views.rig main
 test/reject/ownership/origin_self_path_kept_map.rig main
 test/reject/ownership/origin_self_path_loans_stay.rig main
+test/reject/ownership/origin_self_path_task.rig main
 test/reject/ownership/origin_self_path_temporary_owner.rig main
 test/reject/ownership/origin_self_path_whole_self.rig main
 test/reject/ownership/origin_stores_before_result.rig main
@@ -4529,6 +4532,7 @@ clos.view.wholder.plain.use main
 clos.view.wholder.view.conflict main
 clos.view.wholder.view.use main
 dloop.list.defer main
+dloop.place.defer main
 dloop.slice.defer main
 dloop.while_as.defer main
 dloop.while_cond.defer main

@@ -1,0 +1,358 @@
+# types: `x matches P`, a pattern test, and the patterns it brought:
+# alternatives that bind, and `name?` / `none` in a payload.
+
+test "matches is a Bool anywhere", "false true true true false true"
+  enum St
+    failed(code: Int)
+    timed_out(after: Int)
+    ok
+
+  s: St = .failed(code: 4)
+  b = s matches .ok
+  some = [s matches .failed(_), s matches (.failed(_), .ok)]
+  print(b, some[0], some[1], not s matches .ok, not (s matches (.failed(_), .ok)), 3 matches (1, 3, 5))
+
+test "matches binds in a condition", '''
+  big 4
+  done
+'''
+  enum St
+    failed(code: Int)
+    ok
+
+  s: St = .failed(code: 4)
+  if s matches .failed(c) and c > 3
+    print("big", c)
+  while s matches .failed(_)
+    s = .ok
+  print("done")
+
+test "matches names flow through and", "true false 2"
+  enum St
+    failed(code: Int)
+    ok
+
+  s: St = .failed(code: 4)
+  t: St = .ok
+  ok = s matches .failed(c) and c > 3
+  no = t matches .failed(c) and c > 3
+  big = |x: ?St| x matches .failed(c) and c matches (4, 5)
+  n = 0
+  for x in [?s, ?t, ?s]
+    if big(x)
+      n += 1
+  print(ok, no, n)
+
+test "matches is a contextual word", "3 1"
+  # `matches` is a name everywhere but after a value.
+  matches = 3
+  fun count(matches: Int) -> Int
+    matches - 2
+  print(matches, count(matches))
+
+test "matches lists alternatives in parentheses", "true true false"
+  enum K
+    a
+    b
+    c
+    d
+
+  k: K = .b
+  # A trailing comma, and newlines inside the parentheses, are allowed.
+  print(k matches (.a, .b,), k matches (.a,
+    .b), k matches (.c, .d))
+
+test "alternatives that bind the same names", '''
+  7 3 0
+  code 7
+  took 9
+  true
+'''
+  enum St
+    failed(code: Int, why: String)
+    timed_out(code: Int)
+    ok
+
+  fun report(s: ?St) -> Int
+    match s
+      .failed(c, _), .timed_out(c) => c
+      _ => 0
+
+  s: St = .timed_out(code: 7)
+  print(report(s), report(.failed(code: 3, why: String("x"))), report(.ok))
+  if s matches (.failed(c, _), .timed_out(c))
+    print("code", c)
+  t: St = .failed(code: 9, why: String("boom"))
+  # `<` takes the value: each variant's other fields are dropped.
+  if <t matches (.failed(c, _), .timed_out(c))
+    print("took", c)
+  print(s matches (.failed(c, _), .timed_out(c)) and c > 5)
+
+test "alternatives that bind, with guards", '''
+  7 30 0
+  own 4
+'''
+  enum St
+    failed(code: Int, why: String)
+    timed_out(code: Int)
+    ok
+
+  fun report(s: ?St) -> Int
+    match s
+      .failed(c, _), .timed_out(c) if c > 5 => c
+      .failed(code: c), .timed_out(code: c) if c > 2 => c * 10
+      _ => 0
+
+  print(report(.timed_out(code: 7)), report(.timed_out(code: 3)), report(.ok))
+  t: St = .failed(code: 4, why: String("w"))
+  match <t
+    .ok => pass
+    .failed(c, _), .timed_out(c) if c > 1 => print("own", c)
+    _ => pass
+
+test "alternatives that bind a view", "pic pic"
+  obj Img
+    name: String
+
+  enum Shot
+    full(img: Img, n: Int)
+    thumb(img: Img)
+    none_yet
+
+  a: Shot = .full(img: Img(name: String("pic")), n: 1)
+  b: Shot = .thumb(img: Img(name: String("pic")))
+  out = List[String]()
+  for s in [?a, ?b]
+    if s matches (.full(i, _), .thumb(i))
+      !out.push(+i.name)
+  print(out[0], out[1])
+
+test "a payload's optional: name? and none", '''
+  ready pic
+  empty
+  loading
+  true false true
+  none
+  1
+'''
+  obj Rendered
+    image: String
+
+  enum State
+    loading
+    ready(rendered: Rendered?)
+
+  a: State = .ready(rendered: Rendered(image: String("pic")))
+  b: State = .ready(rendered: none)
+  c: State = .loading
+  for s in [?a, ?b, ?c]
+    if s matches .ready(r?)
+      print("ready", r.image)
+    else if s matches .ready(none)
+      print("empty")
+    else
+      print("loading")
+  print(a matches .ready(_?), b matches .ready(_?), b matches .ready(none))
+  match b
+    .ready(r?) => print(r.image)
+    .ready(none) => print("none")
+    _ => print("other")
+  retired = List[String]()
+  # One `<` on the subject: the binding owns what it binds.
+  if <a matches .ready(rendered?)
+    !retired.push(<rendered.image)
+  print(retired.len)
+
+test "a payload's optional by name", "5 -1 -1"
+  enum Job
+    done(code: Int?, tries: Int)
+    queued
+
+  fun show(j: ?Job) -> Int
+    if j matches .done(code: c?)
+      return c
+    -1
+
+  print(show(.done(code: 5, tries: 1)), show(.done(code: none, tries: 2)), show(.queued))
+
+code "alternatives that bind are one inline prong", '''
+  inline .failed, .timed_out => |__rig_payload_2, __rig_tag_1|
+'''
+  enum St
+    failed(code: Int, why: String)
+    timed_out(code: Int)
+    ok
+
+  fun report(s: ?St) -> Int
+    match s
+      .failed(c, _), .timed_out(c) => c
+      _ => 0
+
+  print(report(.ok))
+
+fail "matches replaces as with a pattern", "9:4: write `s matches .ok`: `as` names a value, and `matches` tests a pattern"
+  enum St
+    failed(code: Int)
+    ok
+
+  sub f(s: ?St)
+    print(s)
+
+  s: St = .ok
+  if s as .ok
+    print(1)
+
+fail "matches takes alternatives in parentheses", "6:16: put alternatives in parentheses: `matches (.a, .b)`"
+  enum St
+    a
+    b
+
+  s: St = .a
+  if s matches .a, .b
+    print(1)
+
+fail "matches in a call takes alternatives in parentheses", "6:19: put alternatives in parentheses: `matches (.a, .b)`"
+  enum St
+    a
+    b
+
+  s: St = .a
+  print(s matches .a, .b)
+
+fail "matches( is no call", "6:9: write `matches (`: alternatives follow `matches` after a space"
+  enum St
+    a
+    b
+
+  s: St = .a
+  print(s matches(.a, .b))
+
+fail "a list of one alternative", "6:17: write `s matches .a`: a list holds two or more alternatives"
+  enum St
+    a
+    b
+
+  s: St = .a
+  print(s matches (.a))
+
+fail "matches with a catch-all", "6:17: `_` matches every value, so `matches` would always hold"
+  enum St
+    a
+    b
+
+  s: St = .a
+  print(s matches _)
+
+fail "matches with a name in a list", "6:22: `x` matches every value, so `matches` would always hold"
+  enum St
+    a
+    b
+
+  s: St = .a
+  print(s matches (.a, x))
+
+fail "an arm's alternatives in parentheses", "7:3: write `.a, .b =>`: an arm lists its alternatives without parentheses"
+  enum St
+    a
+    b
+
+  s: St = .a
+  match s
+    (.a, .b) => print(1)
+
+fail "a name a Bool cannot read", "6:6: `c` is bound but never read; write `.a(_)`"
+  enum St
+    a(code: Int)
+    b
+
+  s: St = .b
+  ok = s matches .a(c)
+  print(ok)
+
+fail "alternatives that bind different names", "6:22: `c` is bound by `.a(c)` but not by `.b(d)`: every alternative must bind the same names"
+  enum St
+    a(code: Int)
+    b(code: Int)
+
+  s: St = .b(code: 1)
+  if s matches (.a(c), .b(d))
+    print(c, d)
+
+fail "alternatives that bind a name with two types", "6:25: `c` is an `Int` in `.a(c)` and a `String` in `.b(c)`: alternatives bind each name with one type"
+  enum St
+    a(code: Int)
+    b(code: String)
+
+  s: St = .b(code: String("x"))
+  if s matches (.a(c), .b(c))
+    print(c)
+
+fail "an optional test of a field that is not optional", "6:17: `c?` tests an optional field, and `code` is a `Int`; bind it as `c`"
+  enum St
+    a(code: Int)
+    b
+
+  s: St = .b
+  if s matches .a(c?)
+    print(c)
+
+fail "alternatives of an error bind no names", "alternatives of an error bind no names"
+  error Bad
+    gone(code: Int)
+    lost(code: Int)
+
+  fun f(n: Int) -> Int!Bad
+    return Bad.gone(code: n) if n > 0
+    n
+
+  sub main()
+    r = f(1) catch |e|
+      match e
+        Bad.gone(c), Bad.lost(c) => c
+    print(r)
+
+test "the owner's examples: alternatives that bind, and a test in a closure", '''
+  code 4
+  code 9
+  2
+'''
+  enum State
+    failed(code: Int)
+    timed_out(code: Int)
+    ready
+    start
+    frozen
+    loading
+
+  sub report(c: Int)
+    print("code", c)
+
+  obj Entry
+    state: State
+
+  xs: [3]State = [.failed(code: 4), .timed_out(code: 9), .ready]
+  for x in xs
+    if x matches (.failed(c), .timed_out(c))
+      report(c)
+  entries = List[Entry]()
+  !entries.push(Entry(state: .ready))
+  !entries.push(Entry(state: .loading))
+  !entries.push(Entry(state: .frozen))
+  live = |e: ?Entry| e.state matches (.ready, .start, .frozen)
+  n = 0
+  for e in ?entries
+    n += 1 if live(e)
+  print(n)
+
+fail "the owner's example: an alternative that does not bind the name", "`c` is bound by `.failed(c)` but not by `.timed_out`: every alternative must bind the same names"
+  enum State
+    failed(code: Int)
+    timed_out
+    ready
+
+  sub report(c: Int)
+    print("code", c)
+
+  x: State = .ready
+  if x matches (.failed(c), .timed_out)
+    report(c)

@@ -172,7 +172,7 @@ pub fn bindsInCondition(cond: Sexp) bool {
 }
 
 /// A part of a condition that binds: `a as x`, `f() as a, b`, which
-/// binds a call's several results (`as_results`), or `s as .circle(r)`,
+/// binds a call's several results (`as_results`), or `s matches .circle(r)`,
 /// which binds a variant's fields (`as_match`).
 pub fn isAsPart(e: Sexp) bool {
     return e.isKind(.as) or e.isKind(.as_results) or e.isKind(.as_match);
@@ -412,7 +412,7 @@ fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
 }
 
 /// The guard parts of a condition (`eachGuardPart`), each `and` operand
-/// of a part that binds nothing its own unit. A part `s as .circle(r)`
+/// of a part that binds nothing its own unit. A part `s matches .circle(r)`
 /// is the selection of the `match` it is (`asMatchOf`).
 fn unitsOfCond(cond: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
     const Parts = struct {
@@ -2819,10 +2819,10 @@ pub const Parser = struct {
             },
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
-            // After `s as .circle(r)`: no guard in the pattern, and one
-            // pattern (docs/design/as-patterns.md, rules 2 and 1).
-            .post_if => if (afterAsPattern(src, pos)) "a pattern after `matches` takes no `if` guard: join the condition with `and`, `if s matches .circle(r) and r > 10`" else "a postfix `if` guard must end a statement; write `a if c else b` for a value",
-            .comma => if (afterAsPattern(src, pos)) "put alternatives in parentheses: `matches (.a, .b)`" else self.format("unexpected `{s}`", .{src[pos..end]}),
+            // After `s matches .circle(r)`: no guard in the pattern, and
+            // alternatives in parentheses (docs/design/matches.md, "Rules").
+            .post_if => if (afterMatchesPattern(src, pos)) "a pattern after `matches` takes no `if` guard: join the condition with `and`, `if s matches .circle(r) and r > 10`" else "a postfix `if` guard must end a statement; write `a if c else b` for a value",
+            .comma => if (afterMatchesPattern(src, pos)) "put alternatives in parentheses: `matches (.a, .b)`" else self.format("unexpected `{s}`", .{src[pos..end]}),
             .ident => self.format("unexpected name `{s}`", .{src[pos..end]}),
             else => if (keyword(src[pos..end]) != null)
                 self.format("unexpected keyword `{s}`", .{src[pos..end]})
@@ -3080,8 +3080,8 @@ pub const Parser = struct {
     }
 
     /// Whether the source just before `pos`, on its line, is a pattern
-    /// after `as`: `as .name` or `as .name(...)`.
-    fn afterAsPattern(src: []const u8, pos: u32) bool {
+    /// after `matches`: `matches .name` or `matches .name(...)`.
+    fn afterMatchesPattern(src: []const u8, pos: u32) bool {
         var at: usize = pos;
         while (at > 0 and src[at - 1] == ' ') at -= 1;
         if (at > 0 and src[at - 1] == ')') {
@@ -3866,10 +3866,10 @@ pub const Parser = struct {
         walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
     }
 
-    /// `s as .circle(r)`: the `match` it is, `(as_match (match s (arm
+    /// `s matches .circle(r)` in a condition: the `match` it is, `(as_match (match s (arm
     /// .circle(r) _ pass) (arm _ _ pass)))`. Its first arm goes on with
     /// the rest of the condition and the body; any other value takes the
-    /// second, which falls to the `else` (docs/design/as-patterns.md). Every pass
+    /// second, which falls to the `else` (docs/design/matches.md). Every pass
     /// reads its subject and its pattern as a `match`'s, and emit writes
     /// the `match`, which drops a value `<s` took when no arm keeps it.
     fn asMatch(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {

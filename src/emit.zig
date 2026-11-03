@@ -3816,7 +3816,7 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether a condition has a part `s as .circle(r)` (`as_match`),
+    /// Whether a condition has a part `s matches .circle(r)` (`as_match`),
     /// which `emitChain` writes.
     fn hasAsMatch(self: *Emitter, cond: Sexp) Error!bool {
         if (!rig.bindsInCondition(cond)) return false;
@@ -3826,7 +3826,7 @@ pub const Emitter = struct {
 
     /// The parts of a condition from `parts[i]` on, each around the rest,
     /// and `end` inside the last: a Bool part is an `if`, an `as` part an
-    /// `if` that binds (`emitCond`), and `s as .circle(r)` the `match` it
+    /// `if` that binds (`emitCond`), and `s matches .circle(r)` the `match` it
     /// is (`rig.asMatchOf`), whose first arm goes on and whose other arm
     /// (`_`, dropping what `<s` took) does not. A part that fails runs
     /// `miss`, when given (`break` in a loop), and otherwise falls
@@ -3858,7 +3858,7 @@ pub const Emitter = struct {
         try self.w.writeAll("\n");
     }
 
-    /// The arms of the `match` a part `s as .circle(r)` is, in a chain
+    /// The arms of the `match` a part `s matches .circle(r)` is, in a chain
     /// (`emitChain`): the first goes on with the parts after it, the other
     /// runs the chain's `miss`, or falls through.
     fn ChainArms(comptime End: type) type {
@@ -3880,7 +3880,7 @@ pub const Emitter = struct {
         };
     }
 
-    /// Statement `if` whose condition has a part `s as .circle(r)`: the
+    /// Statement `if` whose condition has a part `s matches .circle(r)`: the
     /// parts nested (`emitChain`), sharing one `else`, which a flag
     /// cleared on the way into the body selects, as `emitIfJoined` does.
     fn emitIfChain(self: *Emitter, sexp: Sexp) Error!void {
@@ -4149,7 +4149,7 @@ pub const Emitter = struct {
         // `while true` has no condition to fail.
         const always = cond == .src and std.mem.eql(u8, self.srcText(cond), "true");
         const parts: []const Sexp = if (always) &.{} else try self.conditionParts(cond);
-        // A part `s as .circle(r)` nests the rest in its `match`, and a
+        // A part `s matches .circle(r)` nests the rest in its `match`, and a
         // value it does not match leaves the loop (`emitChain`).
         if (!always and try self.hasAsMatch(cond)) {
             const End = struct {
@@ -5111,6 +5111,84 @@ pub const Emitter = struct {
         return buf.written();
     }
 
+    /// The first alternative of `pattern` that binds a name, whose leaves
+    /// name the symbols every alternative binds.
+    fn firstBinding(self: *Emitter, pattern: Sexp) ?Sexp {
+        for (ir.AltPattern.alts(pattern)) |alt| {
+            if (!alt.isKind(.variant_pattern)) continue;
+            for (self.facts.payloadBindings(alt) orelse continue) |b| if (b == .src and self.facts.symbolOf(b) != null) return alt;
+        }
+        return null;
+    }
+
+    /// Each alternative's variant name.
+    fn altVariants(self: *Emitter, pattern: Sexp) Error![]const []const u8 {
+        const alts = ir.AltPattern.alts(pattern);
+        const variants = try self.arena.allocator().alloc([]const u8, alts.len);
+        for (alts, variants) |alt, *v| v.* = self.srcText(if (alt.isKind(.variant_pattern)) rig.variantPatternName(alt) else ir.get(alt, .name));
+        return variants;
+    }
+
+    /// The bindings of alternatives `pattern` that `used_in` uses, on a
+    /// match that picked the arm first (`emitGuardedMatch`): each reads
+    /// its field through the variant `subj` holds.
+    fn selectedAlts(self: *Emitter, pattern: Sexp, info: MatchInfo, subj: []const u8, used_in: Sexp) Error![]const Alias {
+        const a = self.arena.allocator();
+        const alts = ir.AltPattern.alts(pattern);
+        const first = self.firstBinding(pattern) orelse return &.{};
+        const variants = try self.altVariants(pattern);
+        const name = self.srcText(rig.variantPatternName(first));
+        const binds = self.facts.payloadBindings(first).?;
+        const aliases = try a.dupe(Alias, try self.payloadAliases(binds, info, name, .{ .expr = subj }, used_in));
+        var j: usize = 0;
+        for (binds) |b| {
+            const local = self.usedPayloadLocal(b, used_in) orelse continue;
+            const fields = try a.alloc([]const u8, alts.len);
+            for (alts, variants, fields) |alt, v, *f| f.* = self.altField(alt, v, local.sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
+            aliases[j].alts = .{ .tag = subj, .variants = variants, .fields = fields, .per_variant = true };
+            j += 1;
+        }
+        return aliases;
+    }
+
+    /// The bindings of alternatives `pattern` a `match <x` arm owns, from
+    /// `whole`, the value the arm took; each variant drops the fields it
+    /// does not bind.
+    fn selectedOwnedAlts(self: *Emitter, pattern: Sexp, info: MatchInfo, whole: []const u8, used_in: Sexp) Error!Prelude {
+        const a = self.arena.allocator();
+        const alts = ir.AltPattern.alts(pattern);
+        const variants = try self.altVariants(pattern);
+        const first = self.firstBinding(pattern) orelse return self.unsupported(pattern, "alternatives that bind no name");
+        const first_name = self.srcText(rig.variantPatternName(first));
+        const first_fields = self.variantPayload(info.ty.?, first_name) orelse return self.unsupported(first, "this payload pattern");
+        var prelude = try self.consumedPayload(self.facts.payloadBindings(first).?, first_fields, try self.fmt("{s}.{f}", .{ whole, ident(first_name) }), used_in);
+        const owned = try a.dupe(OwnedBinding, prelude.owned);
+        for (owned) |*o| {
+            var buf: Writer.Allocating = .init(a);
+            try buf.writer.print("switch ({s}) {{ ", .{whole});
+            for (alts, variants) |alt, v| {
+                const f = self.altField(alt, v, o.local.sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
+                try buf.writer.print(".{f} => {s}.{f}.{f}, ", .{ ident(v), whole, ident(v), ident(f) });
+            }
+            try buf.writer.writeAll("else => unreachable }");
+            o.expr = buf.written();
+        }
+        prelude.owned = owned;
+        var drops: std.ArrayList(AltDrop) = .empty;
+        for (alts, variants) |alt, v| {
+            const fields = self.variantPayload(info.ty.?, v) orelse continue;
+            const binds: []const Sexp = if (alt.isKind(.variant_pattern)) self.facts.payloadBindings(alt) orelse &.{} else &.{};
+            for (fields, 0..) |f, i| {
+                const b: Sexp = if (i < binds.len) binds[i] else .nil;
+                const kept = b == .src and !std.mem.eql(u8, self.srcText(b), "_") and self.usedPayloadLocal(b, used_in) != null;
+                if (!kept) try drops.append(a, .{ .tag = whole, .variant = v, .expr = try self.fmt("{s}.{f}.{f}", .{ whole, ident(v), ident(f.name) }) });
+            }
+        }
+        prelude.drops = &.{};
+        prelude.alt_drops = drops.items;
+        return prelude;
+    }
+
     fn consumedPayload(self: *Emitter, captures: []const Sexp, fields: []const facts.Field, payload: []const u8, used_in: Sexp) Error!Prelude {
         if (captures.len == 0) return self.ownedParts(&.{.nil}, &.{.{ .expr = payload }}, used_in);
         const parts = try self.arena.allocator().alloc(OwnedPart, fields.len);
@@ -5168,7 +5246,9 @@ pub const Emitter = struct {
         self.indent -= 1;
         try self.line("}};", .{});
 
-        // Run it.
+        // Run it. What `match <x` takes is written once, in the
+        // selection's unit, which a hook's first arm ends (`ChainArms`).
+        const taken: []const u8 = if (info.mode == .consume) try self.takenText(info) else "";
         try self.writeIndent(self.indent);
         if (value_pos) try self.w.print("break :{s} ", .{block});
         try self.w.print("switch ({s}) ", .{arm_var});
@@ -5180,7 +5260,7 @@ pub const Emitter = struct {
             defer self.popScope() catch {};
             // A hook's arm goes on past its body (`ChainArms`): every
             // binding is bound.
-            const prelude = try self.armBindings(arm, info, subj, if (@TypeOf(hook) != @TypeOf(null)) .nil else ir.Arm.body(arm));
+            const prelude = try self.armBindings(arm, info, subj, taken, if (@TypeOf(hook) != @TypeOf(null)) .nil else ir.Arm.body(arm));
             // A hook's arms end the selection themselves (`ChainArms`).
             const paused = if (@TypeOf(hook) != @TypeOf(null)) false else try self.pauseUnit(sexp);
             if (@TypeOf(hook) != @TypeOf(null)) {
@@ -5194,6 +5274,18 @@ pub const Emitter = struct {
         try self.line("else => unreachable,", .{});
         try self.closeBrace();
         if (value_pos) try self.w.writeAll(";");
+    }
+
+    /// The value a `match <x` arm takes, as written: the subject, or its
+    /// copy when it is a temporary.
+    fn takenText(self: *Emitter, info: MatchInfo) Error![]const u8 {
+        if (info.temp) return info.reread;
+        var buf: Writer.Allocating = .init(self.arena.allocator());
+        const saved_w = self.w;
+        self.w = &buf.writer;
+        defer self.w = saved_w;
+        try self.emitBare(info.subject);
+        return buf.written();
     }
 
     /// Whether a match on `info` is on an error that may carry fields,
@@ -5277,6 +5369,7 @@ pub const Emitter = struct {
             if (!self.usesSymbol(guard, sym)) return;
             return self.emitPrelude(.{ .aliases = try self.setBinding(pattern, info, subj, guard) });
         }
+        if (self.facts.altsBind(pattern)) return self.emitPrelude(.{ .aliases = try self.selectedAlts(pattern, info, subj, guard) });
         if (!pattern.isKind(.variant_pattern)) return;
         const vname = self.srcText(rig.variantPatternName(pattern));
         const err_value = self.matchesErrorValue(info);
@@ -5300,23 +5393,20 @@ pub const Emitter = struct {
 
     /// The prelude that binds the names of `pattern` that `body` uses,
     /// for the arm picked by a guarded match, from `subj`.
-    fn armBindings(self: *Emitter, arm: Sexp, info: MatchInfo, subj: []const u8, body: Sexp) Error!Prelude {
+    /// `taken`: under `match <x`, the value each arm takes, as written
+    /// (`takenText`).
+    fn armBindings(self: *Emitter, arm: Sexp, info: MatchInfo, subj: []const u8, taken: []const u8, body: Sexp) Error!Prelude {
         const pattern = ir.Arm.pattern(arm);
         if (info.mode == .consume) {
             // The arm takes the value: `x` is consumed now.
             const whole = try self.hiddenStorage(arm, .whole, .owned, .fresh);
-            var buf: Writer.Allocating = .init(self.arena.allocator());
-            if (info.temp) try buf.writer.writeAll(info.reread) else {
-                const saved_w = self.w;
-                self.w = &buf.writer;
-                defer self.w = saved_w;
-                try self.emitBare(info.subject);
-            }
-            const head = try self.fmt("const {s} = {s};", .{ whole, buf.written() });
+            const head = try self.fmt("const {s} = {s};", .{ whole, taken });
             var prelude: Prelude = undefined;
             if (self.isCatchAll(pattern)) {
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, body);
+            } else if (self.facts.altsBind(pattern)) {
+                prelude = try self.selectedOwnedAlts(pattern, info, whole, body);
             } else if (pattern.isKind(.variant_pattern)) {
                 const vname = self.srcText(rig.variantPatternName(pattern));
                 const fields = self.variantPayload(if (info.error_set) self.typeOf(pattern) orelse info.ty.? else info.ty.?, vname) orelse &.{};
@@ -5341,6 +5431,7 @@ pub const Emitter = struct {
         // `g: E =>`: `g` is the subject as an `E`, which the arm's test
         // checked it is.
         if (pattern.isKind(.set_pattern)) return .{ .aliases = try self.setBinding(pattern, info, subj, body) };
+        if (self.facts.altsBind(pattern)) return .{ .aliases = try self.selectedAlts(pattern, info, subj, body) };
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(rig.variantPatternName(pattern));
         const captures = self.facts.payloadBindings(pattern) orelse return .{};
@@ -5361,7 +5452,10 @@ pub const Emitter = struct {
 
     /// The field a binding of alternatives reads in each variant, by the
     /// tag an `inline` prong captures as `tag` (`altsProng`).
-    const AltFields = struct { tag: []const u8, variants: []const []const u8, fields: []const []const u8 };
+    /// `per_variant`: the payload is the subject itself, read through
+    /// each variant (`{payload}.{variant}.{field}`), on a match that picks
+    /// its arm first (`selectedAlts`).
+    const AltFields = struct { tag: []const u8, variants: []const []const u8, fields: []const []const u8, per_variant: bool = false };
 
     /// A part a `match <x` arm of alternatives drops, of variant `variant`
     /// only: the prong's tag `tag` says which it took.
@@ -5512,7 +5606,11 @@ pub const Emitter = struct {
                 // variant's field: Zig analyzes only the tag's prong.
                 try self.writeIndent(self.indent);
                 try self.w.print("const {s} = switch ({s}) {{ ", .{ a.zig_name, alts.tag });
-                for (alts.variants, alts.fields) |v, f| try self.w.print(".{f} => {s}{s}.{f}{s}, ", .{ ident(v), if (a.addr and !a.bytes) "&" else "", a.payload, ident(f), if (a.bytes) ".bytes()" else "" });
+                for (alts.variants, alts.fields) |v, f| {
+                    try self.w.print(".{f} => {s}{s}.", .{ ident(v), if (a.addr and !a.bytes) "&" else "", a.payload });
+                    if (alts.per_variant) try self.w.print("{f}.", .{ident(v)});
+                    try self.w.print("{f}{s}, ", .{ ident(f), if (a.bytes) ".bytes()" else "" });
+                }
                 try self.w.writeAll("else => unreachable };\n");
             } else if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });

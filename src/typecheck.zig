@@ -133,7 +133,7 @@ const CopySource = struct {
     place: Sexp,
     kind: enum { loop, as, match_copy, match_read },
     whole: bool = false,
-    /// For a binding of `s as .circle(r)`, its pattern, which the advice
+    /// For a binding of `s matches .circle(r)`, its pattern, which the advice
     /// to write through it names.
     pattern: Sexp = .nil,
 };
@@ -2858,13 +2858,13 @@ const Checker = struct {
         }
     }
 
-    /// `if s as .circle(r)` / `while e as .item(x)`: the one-arm `match`
+    /// `if s matches .circle(r)` / `while e matches .item(x)`: the one-arm `match`
     /// the part is (`rig.asMatchOf`). Its subject is checked as a
     /// `match`'s, with the same sigils and meaning, and its pattern
     /// against the subject's type, binding the fields in the arm's scope,
     /// which the condition's later parts and the body see; the caller
     /// restores the scope. It is a test, not exhaustive: other values fall
-    /// to the `else` (docs/design/as-patterns.md).
+    /// to the `else` (docs/design/matches.md).
     fn checkAsMatch(self: *Checker, part: Sexp) Error!void {
         const node = rig.asMatchOf(part);
         const arm = rig.asMatchArm(part);
@@ -3840,6 +3840,10 @@ const Checker = struct {
             }
             const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
             if (alts.len > 1) try self.checkAlternatives(alts);
+            if (alts.len > 1 and !self.isPoison(scrutinee)) {
+                const matched = sema.unwrapViews(self.ctx, scrutinee);
+                if (matched == self.t().any_error_id or sema.isErrorSet(self.ctx, matched) or sema.isErrorUnion(self.ctx, matched)) try self.plainAlternatives(alts);
+            }
             // A guarded arm may not run for the values its pattern
             // matches, so it covers none of them; later arms may repeat
             // its pattern.
@@ -4252,6 +4256,18 @@ const Checker = struct {
         }
     }
 
+    /// Alternatives of an error, or of anything but an enum, bind no
+    /// names: each error's fields are read through its own set.
+    fn plainAlternatives(self: *Checker, alts: []const Sexp) Error!void {
+        for (alts) |alt| for (altNames(alt)) |bound| {
+            const b = sema.bindingName(bound);
+            if (b != .src or std.mem.eql(u8, self.text(b), "_")) continue;
+            try self.errAt(b, "alternatives of an error bind no names: write `_`, or give each alternative an arm of its own", .{});
+            self.poisonBinding(b);
+            return;
+        };
+    }
+
     /// A name alternative `has` binds that `lacks` does not.
     fn nameMissing(self: *Checker, has: Sexp, lacks: Sexp) Error!?Sexp {
         for (altNames(has)) |bound| {
@@ -4268,7 +4284,7 @@ const Checker = struct {
     }
 
     fn rejectAltNames(self: *Checker, alts: []const Sexp, has: Sexp, lacks: Sexp, name: Sexp) Error!void {
-        try self.errAt(name, "`{s}` binds `{s}` and `{s}` does not: alternatives bind the same names, each of one type, or none; write `_`, or give each alternative an arm of its own", .{ try self.plainText(has), self.text(name), try self.plainText(lacks) });
+        try self.errAt(lacks, "`{s}` is bound by `{s}` but not by `{s}`: every alternative must bind the same names", .{ self.text(name), try self.plainText(has), try self.plainText(lacks) });
         for (alts) |alt| for (altNames(alt)) |b| self.poisonBinding(sema.bindingName(b));
     }
 
