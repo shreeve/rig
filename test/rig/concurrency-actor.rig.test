@@ -814,3 +814,23 @@ test "actor & calls wait for a mailbox slot asleep", seeds: 20, timeout: 10, "4"
     !ts.add((!c).add(1)&)
   xs = >ts!
   print(xs.len)
+
+fail "actor mailbox given twice", "parameter `mailbox` of `Actor` is given twice", errors: 1
+  obj Counter
+    hits: Int
+
+    fun get(?@) -> Int
+      @hits
+
+  c = *Actor(Counter(hits: 0), mailbox: 4, mailbox: 8)
+  print(c.get())
+
+fail "actor supervised option given twice", "parameter `restarts` of `Actor.supervised` is given twice", errors: 1
+  obj Box
+    hits: Int
+
+    fun get(?@) -> Int
+      @hits
+
+  c = *Actor.supervised(*|| Box(hits: 0), restarts: 2, restarts: 3)
+  print(c.get())

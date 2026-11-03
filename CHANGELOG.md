@@ -265,6 +265,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A keyword argument given twice is the call's one error.**
+  `*Actor(x, mailbox: 4, mailbox: 8)` crashed the compiler, and
+  `task.supervise(f, restarts: 2, restarts: 3)`,
+  `*Actor.supervised(..., restarts: 2, restarts: 3)`, and `f(1, a: 2)`
+  also reported a parameter missing.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under

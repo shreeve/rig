@@ -128,3 +128,12 @@ test "supervise a remake that panics answers the call it took", seeds: 20, timeo
     print(>b)
     print(>c)
     print(>a > 0)
+
+fail "supervise option given twice", "7:48: parameter `restarts` of `task.supervise` is given twice", errors: 1
+  use std.task
+
+  sub work()
+    print(1)
+
+  sub main()
+    task.supervise(work, restarts: 2, per: 1000, restarts: 3) catch |e| print(e)

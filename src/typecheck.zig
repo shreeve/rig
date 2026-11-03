@@ -11153,6 +11153,19 @@ const Checker = struct {
             try self.synthArgs(args);
             return;
         }
+        // A name given twice is the call's fault, reported alone: counted,
+        // its arguments would be too many, or one parameter left unfilled.
+        var repeated = false;
+        for (keyword, 0..) |kw, k| {
+            const kname = self.text(ir.Kwarg.name(kw));
+            for (keyword[0..k]) |prev| {
+                if (!std.mem.eql(u8, self.text(ir.Kwarg.name(prev)), kname)) continue;
+                try self.errAt(ir.Kwarg.name(kw), "parameter `{s}` of `{s}` is given twice", .{ kname, callee });
+                repeated = true;
+                break;
+            }
+        }
+        if (repeated) return self.synthArgs(args);
         var required: usize = 0;
         for (0..f.params.len) |i| {
             if (info.default(i) == null) required += 1;
@@ -11194,11 +11207,13 @@ const Checker = struct {
             if (slots[idx] != null) {
                 try self.errAt(kname_node, "parameter `{s}` of `{s}` is given twice", .{ kname, callee });
                 _ = try self.synthExpr(ir.Kwarg.value(kw));
+                repeated = true;
                 continue;
             }
             slots[idx] = .{ .arg = @intCast(ai) };
             try self.checkArg(ir.Kwarg.value(kw), f, idx, lends);
         }
+        if (repeated) return;
         if (self.ctx.diagnostics.items.len == mark) try self.wastedClones(args, slots, f, recv_param);
         var complete = true;
         for (slots, 0..) |*slot, i| {
@@ -13861,6 +13876,28 @@ const Checker = struct {
         };
     }
 
+    /// The parameters of a hand-typed call that takes a value and then
+    /// integer options by name (`*Actor(x, mailbox: n)`): `first`, named
+    /// `name`, then an `Int` for each option named, once, in the order
+    /// written; `checkArgs` reports a name given twice.
+    fn optionParams(self: *Checker, args: []const Sexp, first: TypeId, name: []const u8) Error!struct { []const TypeId, []const []const u8 } {
+        const a = self.ctx.arena.allocator();
+        var params: std.ArrayList(TypeId) = .empty;
+        var names: std.ArrayList([]const u8) = .empty;
+        try params.append(a, first);
+        try names.append(a, name);
+        for (args[1..]) |arg| {
+            const n = self.text(ir.Kwarg.name(arg));
+            for (names.items) |had| {
+                if (std.mem.eql(u8, had, n)) break;
+            } else {
+                try params.append(a, self.t().int_id);
+                try names.append(a, n);
+            }
+        }
+        return .{ params.items, names.items };
+    }
+
     /// `*Actor(x)` and `*Actor(x, mailbox: n)`: an actor of `x`, which
     /// it takes, behind its first handle. Its value goes to a task of its
     /// own: an object or enum whose fields move and hold no loan.
@@ -13896,10 +13933,10 @@ const Checker = struct {
         try self.requireTask(ty, .moves, self.startOf(value), "is given to an actor's task", false);
         if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, value, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
         const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
-        const params: []const TypeId = &.{ ty, self.t().int_id };
-        const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = actor, .is_sub = false };
+        const params, const names = try self.optionParams(args, ty, "value");
+        const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
         try self.noteCallee(call);
-        try self.checkArgs(args, call, .{ .names = &.{ "value", "mailbox" } }, "Actor", self.startOf(callee), .{ .declared = call.params });
+        try self.checkArgs(args, call, .{ .names = names }, "Actor", self.startOf(callee), .{ .declared = call.params });
         if (self.current_call) |c| try self.ctx.recordActorMake(c);
         self.ctx.makes_tasks = true;
         self.ctx.makes_actors = true;
@@ -13989,17 +14026,8 @@ const Checker = struct {
             return self.badCall(args, name_node, "the tasks that run the actor call the function that makes its value, and `{s}` {s}", .{ self.text(name_node), try self.blockerReason(blocker, false, if (blocker == cty) "is" else null) });
         }
         const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
-        // The function, then each option given, in the order written.
-        const a = self.ctx.arena.allocator();
-        const params = try a.alloc(TypeId, args.len);
-        const names = try a.alloc([]const u8, args.len);
-        params[0] = f_ty;
-        names[0] = "make";
-        for (args[1..], params[1..], names[1..]) |arg, *p, *n| {
-            p.* = self.t().int_id;
-            n.* = self.text(ir.Kwarg.name(arg));
-        }
-        const call: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = actor, .is_sub = false };
+        const params, const names = try self.optionParams(args, f_ty, "make");
+        const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
         try self.noteCallee(call);
         try self.checkArgs(args, call, .{ .names = names }, "Actor.supervised", self.startOf(callee), .{ .declared = call.params });
         try self.ctx.recordActorSupervised(node);
@@ -15153,17 +15181,8 @@ const Checker = struct {
         }
         if (!try self.hidesNoTask(f, value, .isolated, shown)) return try self.skipCall(args);
         const result = try self.ctx.intern(.{ .fallible = .{ .ok = value, .set = try self.waitSet(if (fails) &.{self.ctx.types.get(returns).fallible.set} else &.{}) } });
-        // The function, then each option given, in the order written.
-        const a = self.ctx.arena.allocator();
-        const params = try a.alloc(TypeId, args.len);
-        const names = try a.alloc([]const u8, args.len);
-        params[0] = try sema.callableOfFn(self.ctx, fn_ty);
-        names[0] = "f";
-        for (args[1..], params[1..], names[1..]) |arg, *p, *n| {
-            p.* = self.t().int_id;
-            n.* = self.text(ir.Kwarg.name(arg));
-        }
-        const call: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = value == self.t().void_id };
+        const params, const names = try self.optionParams(args, try sema.callableOfFn(self.ctx, fn_ty), "f");
+        const call: FunctionType = .{ .params = params, .returns = result, .is_sub = value == self.t().void_id };
         try self.noteCallee(call);
         try self.checkArgs(args, call, .{ .names = names }, shown, pos, .{ .declared = call.params });
         if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
