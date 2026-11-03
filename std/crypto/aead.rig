@@ -15,7 +15,11 @@
 # keystream, the message, or the tag. Branches test lengths only, and
 # the tag is compared by or-ing the xors of its halves. Every operation
 # on secret words is an add, xor, shift, or multiply, which take the
-# same time whatever their operands on the cores Rig targets.
+# same time whatever their operands on the cores Rig has run on; but Arm
+# promises that only while DIT is set, and these functions do not set
+# it, as x25519 does: on an Apple M5, setting it around a seal and an
+# open of 64 bytes made them 38% slower. On Arm, then, their constant
+# time rests on today's cores, not on the architecture.
 #
 # Each function that touches the message takes `ip`: true when it works
 # in place on `dst` (and `src` is empty), false when it reads `src` and

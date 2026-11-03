@@ -1421,8 +1421,12 @@ key object (`ChaCha`, `XChaCha`, `x25519.Secret`, `blake2s.Hmac`) is
 made by `of(key)`, keeps its key private, prints as `ChaCha(…)` and the
 like, and has a `drop` body that wipes it, so it moves and is never
 copied; copies the arithmetic leaves in registers are not wiped. X25519 sets DIT around its arithmetic on an Arm core
-that has it, and restores it after; the AEADs and BLAKE2s do not need
-it.
+that has it, and restores it after. The AEADs and BLAKE2s do not set it:
+their adds, xors, shifts, and multiplies take the same time whatever
+their operands on the cores Rig has run on, but Arm promises that only
+while DIT is set, so on Arm their constant time rests on today's cores,
+not on the architecture. Setting DIT around a seal and an open of 64
+bytes made them 38% slower on an Apple M5.
 
 | Member of `crypto` | Result |
 |---|---|
