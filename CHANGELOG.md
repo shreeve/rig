@@ -281,6 +281,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A type that prints itself prints whatever it holds,** a `[]U8`
+  included, since its `print` method chooses what to write, and a weak
+  handle prints whether its value lives whatever it reaches, a `~T` of
+  an object holding a `^{Shape}` with no `Print` included.
 - **A `*Frozen[List[T]]` lends its `[]T` to a generic parameter,** as
   it does to a concrete one: `first(f)` with `first[T](xs: []T)` infers
   `T` from the List the handle froze.

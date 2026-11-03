@@ -9047,54 +9047,13 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
     }
 }
 
-/// An API object `ty` holds, through wrappers, type arguments, fields,
-/// and payloads (the walk `holdsByteSlice` makes), whose braces and API
-/// name no `Print`: `List[^{Shape}]`, and an `obj` with a `?{Shape}`
-/// field, print only as their objects do (`objectMeets`). The object's
-/// type, or `ty` when the object is another module's field's; null when
-/// each prints.
+/// An API object `ty` holds where `print` writes it (`unprintedIn`),
+/// whose braces and API name no `Print`: `List[^{Shape}]`, and an `obj`
+/// with a `?{Shape}` field, print only as their objects do
+/// (`objectMeets`). The object's type, or `ty` when the object is
+/// another module's field's; null when each prints.
 pub fn objectUnprinted(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
-    const a = ctx.allocator;
-    var todo: std.ArrayList(ByteSliceItem) = .empty;
-    defer todo.deinit(a);
-    var seen: FastMap(ByteSliceVisit, void) = .empty;
-    defer seen.deinit(a);
-    try todo.append(a, .{ .ctx = ctx, .ty = ty });
-    while (todo.pop()) |item| {
-        const c = item.ctx;
-        const found = if (objectHeld(c, item.ty)) |h| !objectMeets(c, h.object, h.form, .Print) else apiObject(c, item.ty) != null;
-        if (found) return if (c == ctx) item.ty else ty;
-        if (objectHeld(c, item.ty) != null) continue;
-        switch (c.types.get(item.ty)) {
-            .optional, .read_view, .write_view, .shared, .weak => |inner| {
-                try todo.append(a, .{ .ctx = c, .ty = inner });
-                continue;
-            },
-            .fallible => |f| {
-                try todo.append(a, .{ .ctx = c, .ty = f.ok });
-                continue;
-            },
-            .array => |arr| {
-                try todo.append(a, .{ .ctx = c, .ty = arr.elem });
-                continue;
-            },
-            .slice => |sl| {
-                try todo.append(a, .{ .ctx = c, .ty = sl.elem });
-                continue;
-            },
-            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
-            .nominal, .imported_nominal => {},
-            else => continue,
-        }
-        const decl = nominalDecl(c, item.ty) orelse continue;
-        if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
-        // A type that prints itself prints no field it does not choose to.
-        if (ownApiMethod(decl.ctx.symbols.items[decl.sym], .Print) != null) continue;
-        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
-            for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
-        }
-    }
-    return null;
+    return unprintedIn(ctx, ty, ctx.allocator, .object, null);
 }
 
 /// The first API object a value of `ty` may hold, through its fields,
@@ -12500,60 +12459,67 @@ pub fn dropRunsBody(ctx: *const SemContext, ty: TypeId) Answer {
     return if (info.holds_type_var or info.poison) .depends else .no;
 }
 
-/// Whether `print` can write a value of `ty`: unless it holds a `[]U8`,
-/// directly or through a wrapper, field, payload, or type argument
-/// (`holdsByteSlice`). A type parameter answers for each instance
-/// (`Requirement.printable`, on the parameters `printedTypeVars`
-/// finds). Worked out once declarations are resolved (`TypeMemo`).
+/// Whether `print` can write a value of `ty`: unless it writes a `[]U8`
+/// of it (`unprintedIn`). A type parameter answers for each instance
+/// (`Requirement.printable`, on the parameters `printedTypeVars` finds).
+/// Worked out once declarations are resolved (`TypeMemo`).
 pub fn printable(ctx: *const SemContext, ty: TypeId) !bool {
-    if (!ctx.contents_ready) return !try holdsByteSlice(ctx, ty, ctx.allocator, null);
+    if (!ctx.contents_ready) return try unprintedIn(ctx, ty, ctx.allocator, .bytes, null) == null;
     if (ctx.type_memo.printable.get(ty)) |b| return b;
-    const b = !try holdsByteSlice(ctx, ty, ctx.allocator, null);
+    const b = try unprintedIn(ctx, ty, ctx.allocator, .bytes, null) == null;
     try ctx.type_memo.printable.put(ctx.allocator, ty, b);
     return b;
 }
 
 /// The type parameters `print` writes of a value of `ty`, where
-/// `holdsByteSlice` looks: held, viewed, in an element or a type
-/// argument (`[]T`, `List[T]`, `*T`), added to `out`. Each instance's
-/// type for one must print (`Requirement.printable`).
+/// `unprintedIn` looks: held, viewed, in an element or a type argument
+/// (`[]T`, `List[T]`, `*T`), added to `out`. Each instance's type for
+/// one must print (`Requirement.printable`).
 pub fn printedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) !void {
     if (!ctx.typeInfo(ty).has_type_var) return;
-    _ = try holdsByteSlice(ctx, ty, a, .{ .out = out, .a = a });
+    _ = try unprintedIn(ctx, ty, a, .bytes, .{ .out = out, .a = a });
 }
 
-const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
 /// `top`: the type is written where the walk began, not in a declared
 /// type's fields, whose parameters are the declaration's own.
-const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId, top: bool = false };
-/// Where `holdsByteSlice` collects the type parameters it reaches.
+const PrintItem = struct { ctx: *const SemContext, ty: TypeId, top: bool = false };
+/// Where `unprintedIn` collects the type parameters it reaches.
 const PrintedVars = struct { out: *std.ArrayList(SymbolId), a: std.mem.Allocator };
 
-/// Whether a value of `ty` holds a `[]U8`, directly or through a
-/// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
-/// are both Zig `[]const u8`, so `print` cannot tell them apart. The
-/// walk keeps a stack of its own, so a long chain of types, each
-/// holding the next, does not nest it; each declaration is walked once.
-/// With `vars`, it also collects the type parameters it reaches
-/// (`printedTypeVars`).
-fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, vars: ?PrintedVars) !bool {
-    var todo: std.ArrayList(ByteSliceItem) = .empty;
+/// What `print` cannot write of a value of `ty`, as `find` says: a
+/// `[]U8` (`.bytes`), which is a Zig `[]const u8` as a `?String` is, so
+/// `print` cannot tell them apart, or an API object that cannot print
+/// (`.object`, `objectUnprinted`). It looks where `print` writes: through
+/// optionals, views, `*` handles, a failure's value, elements, type
+/// arguments, and the fields and payloads of a declared type, but not
+/// into a weak handle, which prints only whether its value lives, or the
+/// fields of a type that prints itself (`Print`). The walk keeps a stack
+/// of its own, so a long chain of types, each holding the next, does not
+/// nest it; each declaration is walked once. With `vars`, it also
+/// collects the type parameters it reaches (`printedTypeVars`).
+fn unprintedIn(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, find: enum { bytes, object }, vars: ?PrintedVars) !?TypeId {
+    var todo: std.ArrayList(PrintItem) = .empty;
     defer todo.deinit(a);
-    var seen: FastMap(ByteSliceVisit, void) = .empty;
+    var seen: FastMap(SymbolKey, void) = .empty;
     defer seen.deinit(a);
     try todo.append(a, .{ .ctx = ctx, .ty = ty, .top = true });
     while (todo.pop()) |item| {
         const c = item.ctx;
+        if (c.types.get(item.ty) == .weak) continue;
+        if (find == .object) {
+            const held = objectHeld(c, item.ty);
+            const found = if (held) |h| !objectMeets(c, h.object, h.form, .Print) else apiObject(c, item.ty) != null;
+            if (found) return if (c == ctx) item.ty else ty;
+            if (held != null) continue;
+        }
         switch (c.types.get(item.ty)) {
             .type_var => |param| {
                 if (item.top) if (vars) |v| if (std.mem.findScalar(SymbolId, v.out.items, param) == null) try v.out.append(v.a, param);
                 continue;
             },
             .slice => |sl| {
-                switch (c.types.get(sl.elem)) {
-                    .int => |i| if (i.bits == 8 and !i.signed) return true,
-                    else => try todo.append(a, .{ .ctx = c, .ty = sl.elem, .top = item.top }),
-                }
+                if (find == .bytes and c.types.get(sl.elem) == .int and c.types.get(sl.elem).int.bits == 8 and !c.types.get(sl.elem).int.signed) return item.ty;
+                try todo.append(a, .{ .ctx = c, .ty = sl.elem, .top = item.top });
                 continue;
             },
             .optional, .read_view, .write_view, .shared => |inner| {
@@ -12574,11 +12540,13 @@ fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, vars
         }
         const decl = nominalDecl(c, item.ty) orelse continue;
         if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+        // A type that prints itself prints no field it does not choose to.
+        if (ownApiMethod(decl.ctx.symbols.items[decl.sym], .Print) != null) continue;
         for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
             for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
         }
     }
-    return false;
+    return null;
 }
 
 /// `runsDropBody` of `ty`, worked out once declarations are resolved

@@ -6969,6 +6969,34 @@ fail "print byte slice", "11:7: cannot print a `[]U8`: it would print as text, l
   print(x)
   print(a, a[0])
 
+test "print through its own print and a weak handle", "B ~(alive) ~(alive)"
+  # A type that prints itself writes only what its method chooses, so
+  # the `[]U8` it holds is not printed; a weak handle prints only whether
+  # its value lives, so what it reaches need not print.
+  api Shape
+    fun area(?@) -> Int
+
+  obj Sq: Shape
+    s: Int
+
+    fun area(?@) -> Int
+      @s * @s
+
+  obj B: Print
+    b: []U8
+
+    sub print(?@, out: !Printer)
+      !out.text("B")
+
+  obj Holder
+    sh: ^{Shape}
+
+  arr: [2]U8 = [1, 2]
+  x = B(b: ?arr[..])
+  h = *Holder(sh: ^Sq(s: 2))
+  s: *{Shape} = *Sq(s: 3)
+  print(x, ~h, ~s)
+
 fail "print byte slice generic", "9:1: `show[[]U8]` cannot use `T = []U8`: the generic body prints a value that holds a `T`, and a `[]U8` would print as text, like a `?String`", "10:6: cannot warn a `[]U8`: it would warn as text, like a `?String`; warn the bytes one by one", "11:14: cannot print a `[]U8`: it would print as text, like a `?String`; print the bytes one by one", errors: 3
   # Printability is a fact of each type, checked for each instance of a
   # generic body: a `T` that is `[]U8` would print as text. `warn` and

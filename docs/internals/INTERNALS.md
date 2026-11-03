@@ -2959,8 +2959,13 @@ give to a body that prints it must state `Print`
 asks of what a body does. What a callee's parameter needs, the
 caller's parameters in its argument need, found by the walk that
 decides the need: `sema.taskParams` for a task, and for printing
-`sema.printedTypeVars`, the walk of `holdsByteSlice` that also finds
-the parameters a printed value holds (`Requirement.printable`). A
+`sema.printedTypeVars`, the walk of `unprintedIn` that also finds
+the parameters a printed value holds (`Requirement.printable`).
+`unprintedIn` is the one walk of what `print` writes of a value: it
+finds a `[]U8` (`sema.printable`) and an API object that cannot print
+(`sema.objectUnprinted`), and enters neither a weak handle, which
+prints whether its value lives, nor the fields of a type that prints
+itself. A
 generic type's printing, checked at its every instance, passes to the
 parameters of each instance a body names (`generic_uses`, with
 `generic_uses_at` for the note).
