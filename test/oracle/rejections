@@ -5026,3 +5026,5 @@ test/reject/ownership/generic_value_through_an_owned_closure.rig main
 test/reject/ownership/generic_value_of_an_API_object.rig main
 test/reject/ownership/generic_value_of_an_enum_payload.rig main
 test/reject/ownership/generic_value_of_optionals_of_a_view.rig main
+doc/CORE/de4c477c6213 main
+test/reject/ownership/a_view_handed_to_a_call_that_writes_what_it_views.rig main
