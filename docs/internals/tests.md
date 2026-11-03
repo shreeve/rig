@@ -79,6 +79,12 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
     errors.
   - `code`: Zig the emitted root module contains, compared without
     regard to spacing.
+- **Some bytes are there on purpose:** `syntax-misc.rig.test` holds
+  lone carriage returns, for the lexer's rejection of them. Edit test
+  files with a tool that keeps every byte (Python: `newline=''`).
+- **A body is `main`'s statements,** so `X = v` in it binds a local of
+  `main`, not a module constant: a case that needs a module constant,
+  or a function beside `main`, is a whole program with `sub main()`.
 - **`'''` opens a result of many lines**, closed by `'''` alone at the
   left margin; its lines are written two spaces in.
 - **Options follow as `key: value`:** `release: true` (also built and run
@@ -90,9 +96,10 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
 K, `RIG_SEED`, and gives the same result each time), `whole: true` (the
   body is a whole program, used as written), `file: "NAME.rig"` (the
   name of the case's program file, by default its name, `split_on_a_space.rig`;
-  what a program prints about its own place names it), `known: true` (a
+  what a program prints about its own place names it), `known: "TEXT"` (a
   known bug: the case is written as Rig should behave, passes while it
-  fails, and fails the day it passes, to have the mark taken off).
+  fails with TEXT in its failure, and fails the day it passes, to have
+  the mark taken off, or fails some other way).
 
 Every case that runs is held to the sanitizer: a leak or a use of freed
 memory fails it, and so does a panic in a `test`. A `fail` the compiler
@@ -295,7 +302,10 @@ Trig (`src/` with `tools/trig/main.rig`, copied from `$TRIG`, default
 `~/Data/Code/trig`, which it only reads). It prints `identical` and
 exits 0, or names each file that differs with its lines added and
 removed, a runtime file once for all the programs that carry it, and
-the directory holding both emits, and exits 1. A change whose emit is
+the directory holding both emits, and exits 1. A change whose emit
+differs only in form (names, order) can show it changes no machine code:
+compare the text sections of the two release builds (`otool -t` on
+macOS, `objdump -d` on Linux) before the speed guards. A change whose emit is
 identical cannot change how fast these programs run, so it skips its
 timing round.
 

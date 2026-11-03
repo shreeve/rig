@@ -71,7 +71,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
-| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs") |
+| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); `store-trim`, which keeps the build store under 40 GB; and `matrix-nightly`, pup's nightly run of the whole matrix |
 | `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (Rig's own Zig notes are docs/internals/zig-0.17.md) |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
@@ -124,7 +124,7 @@ swarm test/rig.rip                 # the core: every test file but the probes, d
 swarm test/rig.rip std-text        # one file: test/rig/std-text.rig.test
 swarm test/rig.rip doc-SPEC        # one doc's examples (doc: every doc's)
 swarm test/rig.rip cli.lsp         # one script of test/cli
-swarm test/rig.rip all             # core, test/cli, and the probes: the full suite, before a release
+swarm test/rig.rip all             # core, test/cli, the probes, and the matrix: the full suite, before a release
 swarm test/rig.rip proofs          # by hand, after a change to src/proofs.zig
 swarm test/rig.rip all -q          # -q, after the script, whenever the run is backgrounded or piped
 ```
@@ -146,8 +146,8 @@ left margin, then an indented body run as `main`'s statements:
 A body that prints nothing has its last line printed; `'''` opens a
 result of several lines. Options follow as `key: value`: `seeds: 20`,
 `release: true` (also Zig's safe mode), `whole: true`, `exit: N`,
-`errors: N`, `timeout: S`, and `known: true` (a known bug: passes while
-it fails, fails the day it works). Each case runs as its own process.
+`errors: N`, `timeout: S`, and `known: "TEXT"` (a known bug: passes
+while it fails with TEXT, fails the day it works or fails otherwise). Each case runs as its own process.
 
 **A doc example** is every ```` ```rig ```` block in a Markdown file at
 the root or in `docs/`, `docs/learn/`, `docs/launch/`, `docs/design/`, `docs/internals/`, `examples/`, or
@@ -166,7 +166,7 @@ until its rule is built. docs/internals/tests.md has the rest.
    ownership rule, or a new std module outside the ROADMAP, goes to
    the owner before code.
 3. **A failing case first.** A bug fix starts with a case that fails;
-   mark it `known: true` only if it will not be fixed in the same change.
+   mark it `known: "TEXT"` only if it will not be fixed in the same change.
    Fix the class, not the instance: check its siblings and add the case
    that would catch the next one.
 4. **Implement** in the pass that owns the decision (the map), recording

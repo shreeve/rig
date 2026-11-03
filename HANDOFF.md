@@ -71,26 +71,26 @@ A new session, human or agent, takes these steps in order:
   byte-identical to tsc, in about a minute; and loco's (`rig/tools/light`
   in a loc checkout): loco built with that Rig, its output identical to
   the Rust loc's. The full suite (`swarm test/rig.rip all`, the core
-  with test/cli and the probes), `test/matrix.py`, and Trig's full suite
+  with test/cli, the probes, and the matrix's programs whose own Zig
+  changed, built in packs), and Trig's full suite
   (`tools/full-main` on pup; the last result is in
   `/zfs/trig-pup/full/LATEST`) run before each major or minor release,
   optionally before a patch. Nothing runs on a schedule: there are no
   crons and no nightlies. A quick check takes under a minute a repo and
   a long one under ten; one that takes longer is a defect to fix. No
-  case is marked `known: true`.
+  case is marked `known:`; a `known:` names the failure it waits for.
 
 ## In flight
 
-- **The matrix gate** (rig#878, branch `matrix-gate`, a draft, parked):
-  every suite run builds the matrix programs whose own Zig changed, in
-  packs of up to 400 with `rig batch build`; one shard takes 13 s
-  against 3 min 17 s built one by one. `known:` names the failure it
-  expects. Its nightly tier is dropped, by the rule that nothing runs
-  on a schedule. The steps left are in
-  `~/Data/Code/Claude/rig/rig/lang-analysis-handoff.md`.
-- **Trig's caches by tighter keys:** trig#241 keys the relation and
-  cached-type caches more tightly, ready; trig#242, the union cache, is
-  a draft under the speed bar.
+- **The `for` header (t05)**, approved and not started: a use in a
+  `for` header belongs to the loop's entry, not its body, where the
+  header copies its source out, so `for x in a.arr` with a body that
+  writes what `a` viewed is accepted (`review-header-paths-1-t05`, a
+  `prod-strict` line of `test/oracle/differences`). The row's goal,
+  rule, cases, and gates are in
+  [records/2026-10/core-33d/next-handoff.md](docs/history/records/2026-10/core-33d/next-handoff.md)
+  (row 2). It follows 33D (#859: a statement's loans end at their last
+  use, CORE §6 rewritten) and the oracle taught CORE §6 (#861).
 - **The oracle's model of the hidden `E?`** (errors track 2's R3-3) is
   the one piece of errors with data left
   ([round-report.md](docs/history/records/2026-10/consolidation/round-report.md)).

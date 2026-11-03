@@ -272,7 +272,7 @@ It adds:
   accepted program must run sanitizer-clean. Three to five weeks.
 - **A crater of its own.** Trig, `std.json`, and every example are built
   and run on every release candidate.
-- **An `unsound` label.** A soundness bug gets a `known: true` case
+- **An `unsound` label.** A soundness bug gets a `known: "TEXT"` case
   within a day, a named class, and its siblings checked. No release
   ships with one open.
 - **A stability promise.** A soundness fix may break programs, as

@@ -42,8 +42,21 @@ find "$store" -path '*/o/*' -name __rig_main -type f | while IFS= read -r b; do 
 out=$(RIG_BUILD_STORE=$store "$RIG" run ok.rig 2>/dev/null); expect_eq "$out" "ran" "an entry whose binary is gone"
 
 # A program a signal kills after it started, with nothing on stderr, fails
-# in the matrix.
-printf '#!/bin/sh\nif [ "$1" = run ]; then "%s" "$@"; kill -KILL $$; fi\nexec "%s" "$@"\n' "$ZIG_REAL" "$ZIG_REAL" >killzig
+# in the matrix: run alone (`zig run`), or from its pack (the executable
+# `zig build-exe` writes, here wrapped to kill itself once it has run).
+cat >killzig <<EOF
+#!/bin/sh
+if [ "\$1" = run ]; then "$ZIG_REAL" "\$@"; kill -KILL \$\$; fi
+if [ "\$1" = build-exe ]; then
+  "$ZIG_REAL" "\$@" || exit
+  for a in "\$@"; do case "\$a" in -femit-bin=*) bin=\${a#-femit-bin=};; esac; done
+  mv "\$bin" "\$bin.real"
+  printf '#!/bin/sh\\n"%s.real" "\$@"\\nkill -KILL \$\$\\n' "\$bin" >"\$bin"
+  chmod +x "\$bin"
+  exit 0
+fi
+exec "$ZIG_REAL" "\$@"
+EOF
 chmod +x killzig
 o=$(ZIG=$PWD/killzig RIG_BUILD_STORE= python3 "$ROOT/test/matrix.py" -k int.print.place 2>&1); expect_rc $? 1 "a matrix program killed by a signal"
 expect_has "$o" "killed by signal 9" "a matrix program killed by a signal"

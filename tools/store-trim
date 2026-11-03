@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""tools/store-trim STORE: keep the build store STORE (RIG_BUILD_STORE,
+test/README.md) small. The suite runner (test/rig.rip) and test/matrix.py
+run it before they build in the store.
+
+An entry is a directory named by a hash, whose `used` each `rig run`,
+`build`, `test`, and `batch build` touches. An entry no build has used for
+5 days goes. Then, while the store holds more than RIG_BUILD_STORE_MAX_GB
+gigabytes (default 40; 0 for no limit), the least recently used entries
+go, oldest first, but never one used in the last hour, which a build may
+still be using. Each goes in one rename out of the store, under an
+exclusive lock on its `.lock` that no build holds, so no build sees half
+an entry; then it is deleted. A stamp, `.trimmed`, records the last trim,
+so the store is read at most once an hour. One line says what went.
+"""
+
+import fcntl
+import os
+import re
+import shutil
+import sys
+import time
+
+KEEP_DAYS = 5
+BUSY_SECONDS = 3600
+DEFAULT_GB = 40
+ENTRY = re.compile(r"[0-9a-f]{32}([0-9a-f]{32})?$")
+
+
+def cap_bytes():
+    text = os.environ.get("RIG_BUILD_STORE_MAX_GB", "")
+    try:
+        gb = float(text) if text else DEFAULT_GB
+    except ValueError:
+        gb = DEFAULT_GB
+    return int(max(gb, 0) * 1024 ** 3)
+
+
+def size_of(path):
+    total = 0
+    for dirpath, dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(dirpath, name)).st_blocks * 512
+            except OSError:
+                pass
+    return total
+
+
+def remove(store, name):
+    """Rename the entry out of the store under its lock, then delete it;
+    False when a build holds it or it is gone."""
+    entry = os.path.join(store, name)
+    try:
+        lock = open(os.path.join(entry, ".lock"), "a")
+    except OSError:
+        return False
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.close()
+        return False
+    gone = os.path.join(store, ".gone-%s-%d" % (name, os.getpid()))
+    try:
+        os.rename(entry, gone)
+    except OSError:
+        lock.close()
+        return False
+    lock.close()
+    shutil.rmtree(gone, ignore_errors=True)
+    return True
+
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
+    store = sys.argv[1]
+    if not os.path.isdir(store):
+        return
+    stamp = os.path.join(store, ".trimmed")
+    now = time.time()
+    try:
+        if now - os.stat(stamp).st_mtime < 3600:
+            return
+    except OSError:
+        pass
+    open(stamp, "w").close()
+    # What an interrupted trim left.
+    for name in os.listdir(store):
+        if name.startswith(".gone-"):
+            shutil.rmtree(os.path.join(store, name), ignore_errors=True)
+    entries = []
+    for name in os.listdir(store):
+        if not ENTRY.match(name):
+            continue
+        try:
+            used = os.stat(os.path.join(store, name, "used")).st_mtime
+        except OSError:
+            used = os.stat(os.path.join(store, name)).st_mtime
+        entries.append((used, name))
+    entries.sort()
+    aged = [e for e in entries if now - e[0] > KEEP_DAYS * 86400]
+    gone_aged = sum(remove(store, name) for _, name in aged)
+    if gone_aged:
+        print("store-trim: removed %d entr%s unused for %d days from %s" % (gone_aged, "y" if gone_aged == 1 else "ies", KEEP_DAYS, store))
+    cap = cap_bytes()
+    if cap == 0:
+        return
+    live = [(used, name, size_of(os.path.join(store, name))) for used, name in entries if (used, name) not in aged]
+    total = sum(e[2] for e in live)
+    capped = 0
+    for used, name, size in live:
+        if total <= cap:
+            break
+        if now - used < BUSY_SECONDS:
+            continue
+        if remove(store, name):
+            capped += 1
+            total -= size
+    if capped:
+        print("store-trim: removed %d least recently used entr%s to keep %s under %g GB (RIG_BUILD_STORE_MAX_GB)" % (capped, "y" if capped == 1 else "ies", store, cap / 1024 ** 3))
+
+
+if __name__ == "__main__":
+    main()
