@@ -48,8 +48,9 @@ a program that makes none starts no workers.
   sleep wakes the fibers whose timers are due on any worker, polls the
   pollers no worker sleeps in, and sleeps until the earliest deadline any
   worker holds. A file descriptor registered with a poller
-  (`sched.Registration`) reports when it becomes ready to read or write,
-  edge-triggered, and a fiber waits for that (`sched.waitReady`). An end
+  (`sched.Registration`) counts each edge, ready to read or to write,
+  and a fiber that reads the count before its call (`sched.edges`) waits
+  for it to change (`sched.waitReady`). An end
   is readiness only for the waits it ends: the end of reading (the other
   end's half-close, EOF on kqueue's read filter or RDHUP) wakes the
   reader, the end of writing (this side's half-close, EOF on the write
@@ -224,7 +225,11 @@ itself, under a lock that also guards what it waits for
 (`sched.Waiters`, `sched.sleepOn`). A waker makes the condition true,
 then takes fibers off the list under the lock and wakes them: a
 descriptor's edge wakes every fiber waiting on it, and each tries its
-call again, and a freed slot wakes one. A woken fiber takes the lock
+call again, and a freed slot wakes one. A wait on a descriptor waits
+only while the count of edges it read before its call is unchanged, so
+an edge after that call reaches it even when another waiter, woken by
+the same edge, runs first and takes what came: no waiter consumes
+another's readiness. A woken fiber takes the lock
 again before it goes on, so no waker touches its entry after it leaves,
 and no wait spins: each sleeps until it is woken.
 

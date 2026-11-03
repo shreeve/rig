@@ -2323,6 +2323,10 @@ first step is on `main` (SPEC §18):
   its tasks after a panic, sleep until woken rather than spin on a
   yield, so neither burns a core, and a deterministic run (`rig test`)
   reaches the timers that end them.
+- **Tasks waiting on one socket each see every edge that comes after
+  their own call**, even when another task, woken by the same edge, runs
+  first and takes what came: an acceptor no longer sleeps with a
+  connection queued.
 - **A yield wakes a sleeping worker only when other work waits behind
   it**, so a lone task calling `task.check()` a million times no longer
   wakes one on each call (0.05 s to 0.02 s with ten workers, and no
