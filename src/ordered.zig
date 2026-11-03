@@ -1055,18 +1055,14 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// The entries compacted and found again after `retain`: the
         /// index refilled under the same groups, or a small table's tags
-        /// made again.
+        /// moved down with their entries.
         fn reindex(self: *Self) void {
             if (self.live == 0) {
                 self.reset();
                 return;
             }
+            if (self.isSmall()) return self.compactSmall();
             self.moveLive(null);
-            if (self.isSmall()) {
-                @memset(&self.u.small, 0);
-                for (0..self.len) |j| self.u.small[j] = tagOf(hashOf(&self.entries[j]));
-                return;
-            }
             const t: [*]u8 = @ptrCast(self.u.ix.tags);
             @memset(t[0 .. 16 * self.groupCount()], 0);
             self.u.ix.max_load = maxLoad(self.groupCount());
