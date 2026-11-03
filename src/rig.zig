@@ -2179,6 +2179,9 @@ const HiddenName = enum(u16) {
     len_name = 46,
     range_from = 47,
     range_to = 48,
+    /// The index of the first item a `min` over a List's made values
+    /// took, so the loop over the rest starts after it.
+    chain_at = 49,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2231,6 +2234,7 @@ const HiddenName = enum(u16) {
             .len_name => "len",
             .range_from => "chain from",
             .range_to => "chain to",
+            .chain_at => "chain at",
         };
     }
 };
@@ -5077,6 +5081,11 @@ pub const Parser = struct {
         /// bound before the loop.
         second_of: []?HiddenName,
         second_ty: []?HiddenName,
+        /// Per stage number: whether the second value an `enumerate` or
+        /// `zip` there passes is read, by a later stage's or the
+        /// consumer's function or a `for`'s index. One no one reads is
+        /// not bound.
+        pair_read: []bool,
         /// What a `zip`'s second source is (`Chain.zip`).
         zip: ChainSource = .elements,
         zip_copies: bool = true,
@@ -5153,6 +5162,13 @@ pub const Parser = struct {
             return l.node(.@"break", &.{ value, .nil });
         }
 
+        /// How a stage ends the chain's walk: `break`, or `break none`
+        /// from a loop that is a value (the first item of a `min`, the
+        /// index of a `find`).
+        fn stop(l: *const ChainLowering, valued: bool) std.mem.Allocator.Error!Sexp {
+            return l.brk(if (valued) try l.leaf(.none_value) else .nil);
+        }
+
         fn skip(l: *const ChainLowering) std.mem.Allocator.Error!Sexp {
             return l.node(.@"continue", &.{.nil});
         }
@@ -5164,8 +5180,9 @@ pub const Parser = struct {
 
         /// The statements each stage runs on an item, in order, into
         /// `body`: a filter skips it, a map binds the item again, a count
-        /// stops or skips. Written once per loop of the chain.
-        fn stages(l: *const ChainLowering, body: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+        /// stops or skips. Written once per loop of the chain; `valued`
+        /// when the loop is a value (`stop`).
+        fn stages(l: *const ChainLowering, body: *std.ArrayList(Sexp), valued: bool) std.mem.Allocator.Error!void {
             const a = l.p.allocator();
             for (l.steps, 0..) |st, i| {
                 const n = i + 1;
@@ -5176,23 +5193,30 @@ pub const Parser = struct {
                 } else if (eq(st.name, "take")) {
                     // An iterator or a range stops before its next item
                     // instead (`headWith`).
-                    if (l.source == .elements) try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{try l.brk(.nil)}));
+                    if (l.source == .elements) try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{try l.stop(valued)}));
                     try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
                 } else if (eq(st.name, "skip")) {
                     try body.append(a, try l.when(try l.node(.@"<", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{ try l.addTo(countName(n), try l.leaf(.one_value)), try l.skip() }));
                 } else if (eq(st.name, "enumerate")) {
-                    try body.append(a, try l.bind(limitName(n), .nil, try l.leaf(countName(n))));
-                    try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
+                    // An index no one reads is not counted.
+                    if (l.pair_read[n]) {
+                        try body.append(a, try l.bind(limitName(n), .nil, try l.leaf(countName(n))));
+                        try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
+                    }
                 } else if (eq(st.name, "zip")) {
-                    // The second source's next item, or the end of both.
+                    // The second source's next item, or the end of both;
+                    // the item is bound only when it is read.
                     if (l.zip == .iterator) {
                         const next = try l.node(.member, &.{ try l.node(.write, &.{try l.leaf(stageName(n))}), try l.leaf(.next) });
-                        try body.append(a, try l.bind(limitName(n), .nil, try l.node(.@"??", &.{ try l.node(.call, &.{ .nil, next }), try l.brk(.nil) })));
+                        const value = try l.node(.@"??", &.{ try l.node(.call, &.{ .nil, next }), try l.stop(valued) });
+                        try body.append(a, if (l.pair_read[n]) try l.bind(limitName(n), .nil, value) else try l.assign(.discard, value));
                     } else {
                         const len = try l.node(.member, &.{ try l.leaf(stageName(n)), try l.leaf(.len_name) });
-                        try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), len }), &.{try l.brk(.nil)}));
-                        const e = try l.node(.index, &.{ try l.leaf(stageName(n)), try l.leaf(countName(n)) });
-                        try body.append(a, try l.bind(limitName(n), .nil, if (l.zip_copies) e else try l.node(.read, &.{e})));
+                        try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), len }), &.{try l.stop(valued)}));
+                        if (l.pair_read[n]) {
+                            const e = try l.node(.index, &.{ try l.leaf(stageName(n)), try l.leaf(countName(n)) });
+                            try body.append(a, try l.bind(limitName(n), .nil, if (l.zip_copies) e else try l.node(.read, &.{e})));
+                        }
                         try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
                     }
                 }
@@ -5336,10 +5360,31 @@ pub const Parser = struct {
             .item_of = try a.alloc(HiddenName, n + 1),
             .second_of = try a.alloc(?HiddenName, n + 2),
             .second_ty = try a.alloc(?HiddenName, n + 2),
+            .pair_read = try a.alloc(bool, n + 1),
             .copies = c.copies,
             .zip = c.zip,
             .zip_copies = c.zip_copies,
         };
+        // Which second values are read: by a later `map` or `filter`
+        // before another pair, or by the consumer's function or the
+        // `for`'s index.
+        @memset(l.pair_read, false);
+        var live: ?usize = null;
+        for (steps.items, 0..) |st, i| {
+            if (eq(st.name, "enumerate") or eq(st.name, "zip")) {
+                live = i + 1;
+            } else if (eq(st.name, "map") or eq(st.name, "filter")) {
+                if (live) |k| l.pair_read[k] = true;
+            }
+        }
+        if (live) |k| {
+            if (is_for) {
+                if (ir.For.index(node) != .nil) l.pair_read[k] = true;
+            } else {
+                const cn = consumer.?.name;
+                if (eq(cn, "any") or eq(cn, "all") or eq(cn, "find")) l.pair_read[k] = true;
+            }
+        }
         var pre: std.ArrayList(Sexp) = .empty;
         // The source, held: a range by its bounds, a place lent to read
         // (an iterator to write), a value made here owned.
@@ -5376,7 +5421,7 @@ pub const Parser = struct {
                 try pre.append(a, try l.bind(countName(k), .nil, try l.leaf(.zero_value)));
                 try pre.append(a, try l.bind(limitName(k), .nil, st.args[0]));
             } else if (eq(st.name, "enumerate")) {
-                try pre.append(a, try l.bind(countName(k), .nil, try l.leaf(.zero_value)));
+                if (l.pair_read[k]) try pre.append(a, try l.bind(countName(k), .nil, try l.leaf(.zero_value)));
                 l.second_of[k] = limitName(k);
                 l.second_ty[k] = countName(k);
             } else if (eq(st.name, "zip")) {
@@ -5426,13 +5471,23 @@ pub const Parser = struct {
         return l.node(.lambda, &.{ .nil, params, body });
     }
 
+    /// The key function of a `min_by` or `max_by`, which takes each item
+    /// alone, as `min` compares it, though a pair passes the stages.
+    fn keyFunction(self: *Parser, l: *ChainLowering, f: Sexp) std.mem.Allocator.Error!Sexp {
+        const last = l.steps.len;
+        const saved = l.second_ty[last];
+        defer l.second_ty[last] = saved;
+        l.second_ty[last] = null;
+        return self.typedFunction(l, f, last);
+    }
+
     /// `for x in chain`: a block of the holds and the loop, whose body
     /// runs the stages and then binds the loop's names to the item.
     fn lowerForChain(self: *Parser, l: *const ChainLowering, node: Sexp, pre: *std.ArrayList(Sexp)) std.mem.Allocator.Error!Sexp {
         const a = self.allocator();
         const h = try l.head();
         var body: std.ArrayList(Sexp) = .empty;
-        try l.stages(&body);
+        try l.stages(&body, false);
         const last = l.steps.len;
         const made = last > 0 and eq(l.steps[last - 1].name, "map");
         // A List's element the loop lends is lent on, `?item`; a value a
@@ -5487,7 +5542,7 @@ pub const Parser = struct {
         // The loop.
         const h = try l.head();
         var body: std.ArrayList(Sexp) = .empty;
-        try l.stages(&body);
+        try l.stages(&body, false);
         if (eq(c.name, "count")) {
             try body.append(a, try l.addTo(.chain_value, try l.leaf(.one_value)));
         } else if (eq(c.name, "sum")) {
@@ -5520,7 +5575,7 @@ pub const Parser = struct {
         const int_opt = try l.node(.optional, &.{try l.leaf(.int_type)});
         const h = try l.headWith(true, true);
         var body: std.ArrayList(Sexp) = .empty;
-        try l.stages(&body);
+        try l.stages(&body, true);
         try body.append(a, try l.when(try l.call(.chain_key, try l.passed(last)), &.{try l.brk(try l.leaf(.chain_index))}));
         try pre.append(a, try l.bind(.chain_first, int_opt, try l.loop(h, try l.block(body.items), try l.block(&.{try l.leaf(.none_value)}))));
         return self.indexResult(l, pre);
@@ -5543,14 +5598,13 @@ pub const Parser = struct {
     /// over in the second loop before any stage runs.
     fn lowerPeelIndex(self: *Parser, l: *ChainLowering, c: ChainStep, pre: *std.ArrayList(Sexp)) std.mem.Allocator.Error!Sexp {
         const a = self.allocator();
-        const last = l.steps.len;
         const by = eq(c.name, "min_by") or eq(c.name, "max_by");
         const is_min = eq(c.name, "min") or eq(c.name, "min_by");
-        if (by) try pre.append(a, try l.bind(.chain_key, .nil, try self.typedFunction(l, c.args[0], last)));
+        if (by) try pre.append(a, try l.bind(.chain_key, .nil, try self.keyFunction(l, c.args[0])));
         const int_opt = try l.node(.optional, &.{try l.leaf(.int_type)});
         const fh = try l.headWith(true, l.stagesRead());
         var fb: std.ArrayList(Sexp) = .empty;
-        try l.stages(&fb);
+        try l.stages(&fb, true);
         try fb.append(a, try l.brk(try l.leaf(.chain_index)));
         try pre.append(a, try l.bind(.chain_first, int_opt, try l.loop(fh, try l.block(fb.items), try l.block(&.{try l.leaf(.none_value)}))));
         try pre.append(a, try l.bind(.chain_best, .nil, try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
@@ -5558,7 +5612,7 @@ pub const Parser = struct {
         const rh = try l.headWith(true, true);
         var rb: std.ArrayList(Sexp) = .empty;
         try rb.append(a, try l.when(try l.node(.@"<=", &.{ try l.leaf(.chain_index), try l.leaf(.chain_best) }), &.{try l.skip()}));
-        try l.stages(&rb);
+        try l.stages(&rb, false);
         const better: parser.Tag = if (is_min) .@"<" else .@">=";
         if (by) {
             try rb.append(a, try l.bind(.chain_next, .nil, try l.call(.chain_key, &.{.chain_item})));
@@ -5590,12 +5644,18 @@ pub const Parser = struct {
         const item_ty = l.item_of[last];
         const by = eq(c.name, "min_by") or eq(c.name, "max_by");
         const is_min = eq(c.name, "min") or eq(c.name, "min_by");
-        if (by) try pre.append(a, try l.bind(.chain_key, .nil, try self.typedFunction(l, c.args[0], last)));
-        // The first item, or none.
+        if (by) try pre.append(a, try l.bind(.chain_key, .nil, try self.keyFunction(l, c.args[0])));
+        // The first item, or none. A List's loop starts again from its
+        // first element, so the loop over the rest passes over each
+        // element up to the first item's, `chain at`, before any stage
+        // runs (an iterator or a range continues where it stopped).
+        const indexed = l.source == .elements;
+        if (indexed) try pre.append(a, try l.bind(.chain_at, .nil, try l.leaf(.zero_value)));
         const opt_ty = try l.node(.optional, &.{try l.itemType(item_ty)});
-        const fh = try l.head();
+        const fh = try l.headWith(indexed, !l.unread);
         var fb: std.ArrayList(Sexp) = .empty;
-        try l.stages(&fb);
+        try l.stages(&fb, true);
+        if (indexed) try fb.append(a, try l.assign(.chain_at, try l.leaf(.chain_index)));
         try fb.append(a, try l.brk(try l.leaf(.chain_item)));
         try pre.append(a, try l.bind(.chain_first, opt_ty, try l.loop(fh, try l.block(fb.items), try l.block(&.{try l.leaf(.none_value)}))));
         // Typed, so a view stays a view rather than reading out the
@@ -5603,9 +5663,10 @@ pub const Parser = struct {
         try pre.append(a, try l.bind(.chain_best, try l.itemType(item_ty), try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
         if (by) try pre.append(a, try l.bind(.chain_value, .nil, try l.call(.chain_key, &.{.chain_best})));
         // The rest.
-        const rh = try l.head();
+        const rh = try l.headWith(indexed, !l.unread);
         var rb: std.ArrayList(Sexp) = .empty;
-        try l.stages(&rb);
+        if (indexed) try rb.append(a, try l.when(try l.node(.@"<=", &.{ try l.leaf(.chain_index), try l.leaf(.chain_at) }), &.{try l.skip()}));
+        try l.stages(&rb, false);
         const better: parser.Tag = if (is_min) .@"<" else .@">=";
         if (by) {
             try rb.append(a, try l.bind(.chain_next, .nil, try l.call(.chain_key, &.{.chain_item})));

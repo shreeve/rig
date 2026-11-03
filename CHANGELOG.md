@@ -279,7 +279,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   checked stage by stage before it is rewritten, and its errors speak
   its terms: `` `sum` adds numbers, and these items are `String`s ``,
   `` `min_by`'s key is compared with `<`; `P` has no order ``, and a
-  `collect` of views gives the fix, `.map(|x| +x).collect()`.
+  `collect` of views gives the fix, `.map(|x| +x).collect()`. After
+  `zip` or `enumerate`, `count()` counts the pairs, and `sum`, `min`,
+  `max`, `min_by`, `max_by`, and `collect` ask for a `map` to one value
+  first; `take` or `zip` before a `min` or `max` stops it, and a `min`
+  over a List's made values continues after its first item.
 - **`x matches P` tests a pattern.** It is a `Bool` anywhere, and in
   an `if` or `while` condition binds the pattern's names in the body;
   anywhere else the names flow right through `and`
