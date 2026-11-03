@@ -9439,7 +9439,8 @@ deep recursion. The sigil binds tighter than a suffix: `^Node?` is an
 optional box, and a box of an optional is `^(Node?)`.
 
 An object's optional, `Node?`, is laid out from the object's own
-layout (it holds `none` in bytes no `Node` holds), so a field that
+layout (it holds `none` in bytes no `Node` holds), as is an enum's
+with a payload, so a field that
 `Node`'s layout needs may not name `Node?` anywhere in its type: not
 in `^(Node?)`, `List[Node?]`, `*(Node?)`, a view `?Node?`, or a
 generic instance whose fields name it. The field holds an optional

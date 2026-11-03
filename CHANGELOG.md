@@ -247,6 +247,10 @@ Other:
     through a view (`a: G`, `b: ?G`), whose view was not looked into.
     Each is rejected where the value goes to the task, as the same type
     written without generics is.
+60. A payload enum naming its own optional in its layout, `call(args:
+    List[Expr?])` in `enum Expr`, is rejected with the fix to write, as
+    an object's is; Zig failed on it with a dependency loop. Hold an
+    optional box (`^Expr?`) or an optional view (`(?Expr)?`).
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

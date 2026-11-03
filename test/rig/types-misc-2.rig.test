@@ -1723,6 +1723,27 @@ fail "object names its own optional in a field", "`Link?` in `prev` is laid out 
 
   print(1)
 
+fail "enum names its own optional in a payload", "`Expr?` in `args` is laid out from `Expr`'s layout, which needs `args` first; hold an optional view (`(?Expr)?`) or a box (`^Expr?`) instead", "`Leaf?` in `up` is laid out from `Leaf`'s layout"
+  # An enum with a payload lays out its optional as an object does, from
+  # its own layout.
+
+  enum Expr
+    num(n: Int)
+    call(args: List[Expr?])
+
+  enum Leaf
+    one(n: Int)
+    two(up: *(Leaf?))
+
+  e = Expr.num(n: 1)
+  l = Leaf.one(n: 2)
+  match e
+    .num(n) => print(n)
+    .call(args) => print(args.len)
+  match l
+    .one(n) => print(n)
+    .two(_) => print(0)
+
 fail "struct duplicate kwarg", "duplicate field `name` in constructor of `User`"
   # A constructor may not name the same field twice.
 

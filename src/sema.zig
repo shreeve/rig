@@ -7491,9 +7491,9 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
     }
 }
 
-/// An object's optional, `X?`, is laid out from `X`'s own layout (its
-/// niche, runtime `Opt`), which Zig works out from the type of every
-/// field `X` holds by value. So no field of `X`, or of a type `X` holds
+/// An object's or a payload enum's optional, `X?`, is laid out from
+/// `X`'s own layout (its niche, runtime `Opt`), which Zig works out from
+/// the type of every field `X` holds by value. So no field of `X`, or of a type `X` holds
 /// by value, may name `X?` anywhere in its type, not even behind a view,
 /// a handle, a box, or a List (`prev: ?X?`, `kids: List[X?]`): its type
 /// would be needed to lay itself out. The field holds a box's optional
@@ -7518,15 +7518,16 @@ fn checkOptionalLoops(ctx: *SemContext) std.mem.Allocator.Error!void {
     }
 }
 
-/// The object `X` of the first `X?` named anywhere in `ty` (through
-/// views, handles, type arguments, and the fields of a generic instance
-/// declared here) whose layout needs `holder`'s: `X` is `holder`, or
-/// holds it by value (`byValueTargets`).
+/// The object or payload enum `X` of the first `X?` named anywhere in
+/// `ty` (through views, handles, type arguments, and the fields of a
+/// generic instance declared here) whose layout needs `holder`'s: `X` is
+/// `holder`, or holds it by value (`byValueTargets`). Its optional is
+/// emit's `rig.Opt` (`optionalRouted`), laid out from `X`'s own.
 fn optionalOfHolder(ctx: *SemContext, ty: TypeId, holder: SymbolId, seen: *std.ArrayList(SymbolId), walked: *std.ArrayList(TypeId)) std.mem.Allocator.Error!?TypeId {
     const t = ctx.types.get(ty);
     switch (t) {
         .optional => |inner| if (declaredSym(ctx, inner)) |x| {
-            if (isObject(ctx, inner) and try holdsByValue(ctx, x, holder, seen)) return inner;
+            if (isCompound(ctx, inner) and try holdsByValue(ctx, x, holder, seen)) return inner;
         },
         // `W[Node]` names `Node?` where `W[T]`'s fields name `T?`.
         .parameterized_nominal => |pn| {
