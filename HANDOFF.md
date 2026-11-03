@@ -154,6 +154,24 @@ standing-9, measures from there. The leads, in order:
    and smaller shards. Its two release compiles take 31 and 18 minutes,
    and its 300-test chunks about 15 minutes each.
 
+Waiting on the owner's go, each in a fresh session:
+
+- **Maps second to none.** A new race standing on both machines
+  against every competitor in `bench/hash`, then the gaps by size, text
+  keys first (they trail zig-hash 1.2-2.6 times). No Map row may get
+  slower.
+- **The std pass:** each module of std against the best implementation
+  in any language (yyjson for std.json, Ghostty for std.terminal), with
+  the gap, then the gaps one at a time, each behind a speed guard.
+- **A worker cap by default:** the test runner uses about 60% of the
+  cores when not under `tools/heavy`, and cross-builds go through
+  `tools/heavy`, so several sessions never overload the Mac.
+- **The oracle's value loops:** `test/oracle/lower.zig` decides no
+  function whose `while` yields a value, the shape a chain's rewrite
+  makes. Measure its share, then lower that loop; its floors rise.
+- **Trig's HANDOFF** lists what landed only to #223; it is brought up
+  to date in Trig.
+
 What was measured and is not to be redone (table coloring, prefault,
 sparse links tables, the relation cache's key and path, Map calls out
 of line, store-forward stalls, loop bounds checks, re-checked optionals

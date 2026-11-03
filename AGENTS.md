@@ -301,6 +301,21 @@ Machine-specific practice (the owner's machines):
   `bench/tasks`, `bench/actors`, `bench/net`, and `bench/http`, whose
   PROGRESS.md files get a row for the Mac and for pup. Time arm64 on the
   Mac and x86 on pup, never on burst, a shared VM.
+- **Sharing pup:** start a timing run or a gate only when `ssh pup cpuq
+  status` shows no holder, never by an estimated end time. One timing
+  job runs at a time, on P-cores (6, or 0, 6, 8, 10), in a slot opened by
+  `/tmp/open-slot.sh NN MINUTES` (it drops caches and compacts memory so
+  huge pages are available, then pauses new builds until its deadline);
+  everything else runs on E-cores 12-19. `/tmp` is a 16 GB tmpfs shared
+  with other projects' gates: binaries and outputs go on `/zfs`.
+  `tools/pup-rig COMMIT` builds the Rig under test in its own folder.
+- **The Mac:** suites run as `tools/heavy swarm test/rig.rip -w 6`, so
+  the load stays near the core count when several sessions work.
+- **burst** is billed by the minute: use it in short bursts, and shut it
+  down (`sudo -n shutdown -h now`) when nothing runs on it.
+- **One session per worktree and branch.** A session never rebases,
+  pushes to, or merges another live session's branch; it asks that
+  session, or waits.
 
 ## Pitfalls
 
