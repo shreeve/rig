@@ -126,3 +126,34 @@ Deferred:
 - Round 3's brief is next-round.md; the owner's decisions are
   owner-decisions.md; the hygiene audit is audit-hygiene.md (applied in
   #907); the #904 review is review-904.md.
+
+### Round 3 landed (2026-11-03 night)
+
+Each PR passed: the core suite (7,032 jobs, 0 died); the json, hash, and
+text guards, rerun by the lead on the head; loco's and Trig's light gates;
+pup `zig build test` in debug, safe, and fast; and pup timing on P-core 6,
+alternated against main.
+- #909 (C8, C12): file I/O moves an owned descriptor and String into the
+  pool call; `lent`, its SpinLock and map are gone; io.copy moves one
+  buffer through every block. Independent review: memory-safe; two fixes
+  made before merge (an abandoned queued call gives its arguments back
+  at once, which had deadlocked 70 pipe readers; a read that never ran
+  keeps its buffer). pup medians: io.copy 414 to 375 ms, in a task 994 to
+  454 ms, small reads and writes 364 to 323 ms, in a task 812 to 800 ms.
+- #910 (C14 in part): sched.Done is a task's end and an actor's answer.
+  Measured and not taken: Sel on Done (3.7% more instructions on a channel
+  ping-pong), R6 (level over 20 rounds). pup level.
+- #911 (R5, C10): R5 reproduced by a unit test (5 of 5 on main) and fixed
+  by counting edges each way. The audit's lazy registration (C10) measured
+  slower on the Mac (173,120 to 164,708 req/s); the other direction landed:
+  http.serve registers at accept (162,992 to 171,562 req/s). pup within
+  the 2% bar (pingpong 4.84 vs 4.81 us, echo 4.67 vs 4.61).
+- #912 (C16, C15): 25 std shims are aliases; emit calls each wait's slot
+  form, and 12 wrappers and 5 helpers are gone; source 275 lines out, 115
+  in. pup level (1 ns steps).
+- A peer session (cpuq) asked for a cpuq tasks mode in test/run; Rig has
+  no test/run (f1fff39e8) or cpuq spec (9651516a2), so no change; told it
+  that bringing cpuq back reverses the owner's plain-git decision.
+- Left, recorded: an actor runner that panics does not wait for the tasks
+  its method started (concurrency.md, planned); S22 and S23 need checker
+  support for the built-in tables; the twelve owner decisions.

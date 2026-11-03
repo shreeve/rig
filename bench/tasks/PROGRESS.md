@@ -131,3 +131,6 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-31 | #832: Tables take ranges of one address space; its code is Linux-only (Mac, load 12-16) | rig-fast | 78 ns | 45 ns | 87.7 ms | 5 ns | 97.06 us | 16.6 KiB |
 | 2026-11-03 | main 7cdd87e0b before #904, alternated (pup core 6) | rig-fast | 78 ns | 86 ns | 593.5 ms | 34 ns | 176.41 us | 4.5 KiB |
 | 2026-11-03 | #904: panics leave no lock, slot, or stack behind; waits park (pup core 6) | rig-fast | 79 ns | 86 ns | 593.5 ms | 34 ns | 176.35 us | 4.5 KiB |
+| 2026-11-03 | #910: a task's end and an actor's answer are one completion (pup core 6, against main d63367d42: 78/86/34 ns) | rig-fast | 79 ns | 86 ns | 593.7 ms | 34 ns | 176.50 us | 4.5 KiB |
+| 2026-11-03 | #911: a wait on a socket waits for an edge after its own call (pup core 6, against main d63367d42) | rig-fast | 79 ns | 85 ns | - | 34 ns | - | - |
+| 2026-11-03 | #912: emit calls each wait's slot-taking form (pup core 6, against main 2189f6bd9: 78/85/35 ns) | rig-fast | 79 ns | 86 ns | 593.7 ms | 34 ns | - | - |

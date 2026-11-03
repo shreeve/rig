@@ -187,7 +187,14 @@ The PRs:
 
 **Before and after over every real .rig file in ~/Data/Code** (1,286 files, `rigs.txt` without worktree copies): identical accept and reject with the pre-revamp Rig. No migration is needed.
 
-**Next.** Round 3 (revamp-runtime/next-round.md): C8 file I/O, C14 one completion primitive, C10 accept's poller, C12, C16. The owner's twelve decisions are in revamp-runtime/owner-decisions.md.
+**Round 3 (same night), #909-#912:**
+- file I/O without `lent` (io.copy in a task 2.2 times faster on pup), after a review found a pipe deadlock;
+- `sched.Done`;
+- a socket edge that reaches every waiter (R5, reproduced by a unit test);
+- http.serve registering at accept, the audit's opposite, which measured faster;
+- std shims as aliases.
+
+**Next.** The owner's twelve decisions (revamp-runtime/owner-decisions.md), and an actor runner's panic waiting for its method's tasks (planned).
 
 ## RESUME HERE (2026-11-03): patterns, then iterator chains
 
