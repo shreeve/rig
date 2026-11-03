@@ -59,6 +59,23 @@ A new session, human or agent, takes these steps in order:
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests: plain git, with no CI,
   gates, or required checks.
+- **Patterns and chains (built):** a pattern is tested with `x matches P`
+  ([design/matches.md](docs/design/matches.md), #883): alternatives in
+  parentheses that bind when they agree, `name?` and `none` in a
+  payload, and `x as .p` rejected (`tools/migrate-matches.py` rewrites
+  it). Fused iterator chains ([design/iterators.md](docs/design/iterators.md),
+  #885) run as the loop they mean, with `min_by(key)` and `max_by(key)`
+  (ties as Rust's: `min` keeps the first, `max` the last); a chain is
+  typed stage by stage and its errors name the stage (#887); a range
+  is walked by a cursor both loops continue, its inclusive end without
+  overflow (#892, #895); `zip` and `enumerate` end in `count` or a `for`,
+  and in `sum`, `min`, or `max` only after a `map` (#893). A clone ends a
+  view before the call writes what it viewed (#888, CORE §6):
+  `!@m.take(+best.key)` where `best` views `m`. On pup a `trim` written
+  as a chain runs 10-13% faster than its hand loop. Deferred by the
+  owner: a chain's function that can fail and `catch` on a chain, `T`
+  meeting `none` as `T?` in loop and `if` values, and range values
+  ([records/2026-10/chains/](docs/history/records/2026-10/chains/)).
 - **Toolchain:** Zig 0.17.0, pinned in `mise.toml`. Nexus 2.0.0
   generates the parser at every build, from the sibling checkout's
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
@@ -88,17 +105,6 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Iterator chains.** The approved fused iterator chains
-  ([design/iterators.md](docs/design/iterators.md)), with `min_by(key)`
-  and `max_by(key)`, are built (#885). They follow the pattern test,
-  `x matches P` ([design/matches.md](docs/design/matches.md), #883):
-  alternatives in parentheses that bind when they agree, `name?` and
-  `none` in a payload, and `x as .p` rejected (`tools/migrate-matches.py`
-  rewrites it). A chain is typed stage by stage before its rewrite, and
-  its errors name the stage (#887). A clone ends a view before the call
-  writes what it viewed (#888, CORE §6): `!@m.take(+best.key)` where
-  `best` views `m`. Waiting for a program that needs it: a chain's
-  function that can fail (`|x| f(x)!`).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that
@@ -134,8 +140,8 @@ against tsrs as shipped: ts-pattern 10.6% slower at one checker and
 32.8% at four, zod3 31.8% and 42.9%, with 34-51% more peak memory on
 the large projects. Since then Trig has tsrs's lazy member tables
 (trig#249: ts-pattern 1.3% faster at one checker, zod3 2.8% and 5.1%
-at four, about 10% less peak memory on both), so the next standing
-measures from there. The leads, in order:
+at four, about 10% less peak memory on both), so the next standing,
+standing-9, measures from there. The leads, in order:
 
 1. **`get_property_of_type_ex`'s extra calls,** 1.8-2.25 times tsrs's,
    counted by call site.
