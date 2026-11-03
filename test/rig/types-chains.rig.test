@@ -361,3 +361,12 @@ fail "min_by after enumerate takes one value per item", "`min_by` takes one valu
 fail "collect after zip takes one value per item", "`collect` takes one value per item, and after `zip` each item is two: map them to one first, `.map(|x, y| ...).collect()`"
   a = [1, 2]
   print(a.zip(a).collect())
+
+test "an inclusive range up to its type's largest value stops at its end", '''
+  2 6 255 5
+  254
+  255
+'''
+  print((9223372036854775806..=9223372036854775807).count(), (U8(250)..=U8(255)).count(), (U8(250)..=U8(255)).max() ?? U8(0), (1..=5).max() ?? 0)
+  for i in (U8(253)..=U8(255)).filter(|x| x > U8(253))
+    print(i)

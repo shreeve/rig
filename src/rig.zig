@@ -2182,6 +2182,9 @@ const HiddenName = enum(u16) {
     /// The index of the first item a `min` over a List's made values
     /// took, so the loop over the rest starts after it.
     chain_at = 49,
+    /// An inclusive range's cursor has taken its end, which may be its
+    /// type's largest value, past which it cannot step.
+    chain_done = 50,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2235,6 +2238,7 @@ const HiddenName = enum(u16) {
             .range_from => "chain from",
             .range_to => "chain to",
             .chain_at => "chain at",
+            .chain_done => "chain done",
         };
     }
 };
@@ -5250,7 +5254,17 @@ pub const Parser = struct {
                 // A range is walked by a cursor every loop of the chain
                 // continues, as an iterator is, so the second loop of a
                 // `min` takes up where the first stopped.
-                const more = try l.node(if (l.inclusive) .@"<=" else .@"<", &.{ try l.leaf(.range_from), try l.leaf(.range_to) });
+                // An inclusive range stops at its end rather than step
+                // past it, which overflows at its type's largest value.
+                if (l.inclusive) {
+                    const open = try l.node(.not, &.{try l.leaf(.chain_done)});
+                    const cond = try l.withRooms(try l.node(.@"and", &.{ open, try l.node(.@"<=", &.{ try l.leaf(.range_from), try l.leaf(.range_to) }) }));
+                    const item: Sexp = if (reads) try l.bind(.chain_item, .nil, try l.leaf(.range_from)) else .nil;
+                    const at_end = try l.node(.@"==", &.{ try l.leaf(.range_from), try l.leaf(.range_to) });
+                    const step = try l.node(.@"if", &.{ at_end, try l.block(&.{try l.assign(.chain_done, try l.leaf(.true_value))}), try l.block(&.{try l.addTo(.range_from, try l.leaf(.one_value))}) });
+                    return .{ .item = .nil, .src = .nil, .cond = cond, .pre = .{ item, step } };
+                }
+                const more = try l.node(.@"<", &.{ try l.leaf(.range_from), try l.leaf(.range_to) });
                 const cond = try l.withRooms(more);
                 const item: Sexp = if (reads) try l.bind(.chain_item, .nil, try l.leaf(.range_from)) else .nil;
                 return .{ .item = .nil, .src = .nil, .cond = cond, .pre = .{ item, try l.addTo(.range_from, try l.leaf(.one_value)) } };
@@ -5393,6 +5407,7 @@ pub const Parser = struct {
                 l.inclusive = isInclusive(root);
                 try pre.append(a, try l.bind(.range_from, .nil, ir.get(root, .left)));
                 try pre.append(a, try l.bind(.range_to, .nil, ir.get(root, .right)));
+                if (l.inclusive) try pre.append(a, try l.bind(.chain_done, .nil, try l.leaf(.false_value)));
                 l.item_of[0] = .range_from;
             },
             else => {
