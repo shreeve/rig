@@ -38,15 +38,9 @@ fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
     return try (try rig.blockingStop(f, args));
 }
 
-/// A descriptor a pool call opened or was given, closed when dropped, as
-/// a call whose task stopped waiting drops its result.
-const Fd = struct {
-    fd: i32,
-
-    pub fn __rig_drop(self: *Fd) void {
-        _ = sys.close(self.fd);
-    }
-};
+/// A descriptor a pool call opened, closed when dropped, as a call whose
+/// task stopped waiting drops its result.
+const Fd = rig.net.Fd;
 
 /// The FileError for a failure of Zig's, or the FileError itself. Zig
 /// names each errno it expects; one it does not is `Unexpected`.

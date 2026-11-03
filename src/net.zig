@@ -594,6 +594,20 @@ fn syncLent(token: u64, how: Sync) (rig.Stop || FileError)!void {
     }
 }
 
+/// A descriptor a call on the blocking pool owns, closed when dropped:
+/// one it opened, or a duplicate of a file's (`lend`). A call that runs
+/// here is given the file's own, which it does not own.
+pub const Fd = struct {
+    fd: i32,
+    owned: bool = true,
+
+    pub const none: Fd = .{ .fd = -1, .owned = false };
+
+    pub fn __rig_drop(self: *Fd) void {
+        if (self.owned) _ = sys.close(self.fd);
+    }
+};
+
 /// The descriptors lent to calls on the blocking pool, each a duplicate
 /// of a file's under a token. Whoever removes one owns it and closes it:
 /// the call, once it starts (`claim`), or else its caller, once the call
