@@ -1,0 +1,4 @@
+uprobe:/zfs/worktrees/heap-prof/trig-release:"rig.alloc.alloc" /pid == cpid/ { @n = count(); @bytes = sum(arg1); @size = hist(arg1); }
+uprobe:/zfs/worktrees/heap-prof/trig-release:"rig.alloc.remap" /pid == cpid/ { @remap_n = count(); @remap_grow = sum(arg4 > arg2 ? arg4 - arg2 : 0); }
+uprobe:/zfs/worktrees/heap-prof/trig-release:"rig.alloc.resize" /pid == cpid/ { @resize_n = count(); @resize_grow = sum(arg4 > arg2 ? arg4 - arg2 : 0); }
+uprobe:/zfs/worktrees/heap-prof/trig-release:"rig.alloc.free" /pid == cpid/ { @free_n = count(); @free_bytes = sum(arg2); }

@@ -1,0 +1,20 @@
+ts-pattern: samples Trig 7479, tsrs 6911; Mcycles a run Trig 4948, tsrs 4540
+| family | Trig source-self | tsrs source-self | Trig nearest-named | tsrs nearest-named | nearest gap, % of Trig |
+|---|---:|---:|---:|---:|---:|
+| check: relations | 218 | 221 | 772 | 584 | +3.8% |
+| check: members/properties | 206 | 146 | 875 | 736 | +2.8% |
+| check: types from nodes | 103 | 81 | 376 | 305 | +1.4% |
+| check: instantiate/mappers | 463 | 267 | 1756 | 1714 | +0.9% |
+| check: inference | 62 | 80 | 273 | 245 | +0.6% |
+| runtime/std (maps, hash, interner) | 2289 | 1768 | 57 | 31 | +0.5% |
+| bind | 15 | 15 | 15 | 7 | +0.2% |
+| check: other | 1026 | 772 | 17 | 11 | +0.1% |
+| other | 39 | 0 | 3 | 0 | +0.1% |
+| lex | 17 | 17 | 17 | 14 | +0.0% |
+| parse | 12 | 11 | 12 | 11 | +0.0% |
+| alloc + memcpy | 168 | 187 | 8 | 8 | +0.0% |
+| check: unions/intersections | 105 | 110 | 368 | 376 | -0.2% |
+| ast (tree access, parents) | 122 | 455 | 13 | 26 | -0.3% |
+| program, paths, output | 7 | 334 | 0 | 16 | -0.3% |
+| check: checking/diagnostics | 49 | 18 | 247 | 274 | -0.5% |
+| check: flow/narrowing | 46 | 58 | 140 | 181 | -0.8% |

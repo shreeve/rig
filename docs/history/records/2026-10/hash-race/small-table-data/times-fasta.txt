@@ -1,0 +1,6 @@
+uptime: 18:59  up 2 days, 19:32, 2 users, load averages: 13.27 9.99 8.28
+rust-plain                   min   2378.8 ms  med   2459.0 ms  cpu    2.35 s  rss    240 MB
+rust-plain-cu1               min   2283.5 ms  med   2325.5 ms  cpu    2.25 s  rss    240 MB
+rig-plain                    min   2214.3 ms  med   2266.2 ms  cpu    2.18 s  rss    314 MB
+rust-fast                    min   1018.3 ms  med   1246.8 ms  cpu    2.54 s  rss      5 MB
+rig-fast                     min    823.4 ms  med    894.9 ms  cpu    2.24 s  rss     87 MB

@@ -1,0 +1,21 @@
+test functions: 5707
+| exact stdout | 2133 | 37% |
+| partial stdout (contains/matches) | 468 | 8% |
+| empty stdout | 618 | 11% |
+| exact stderr | 736 | 13% |
+| partial stderr | 965 | 17% |
+| empty stderr | 1649 | 29% |
+| exit code (exact) | 1110 | 19% |
+| asserts success or failure | 4665 | 82% |
+| --help / --version text | 90 | 2% |
+| fixture files (tests/fixtures) | 982 | 17% |
+| writes/reads files in a temp dir | 1984 | 35% |
+| stdin piped | 1054 | 18% |
+| LC_ALL / LANG set | 227 | 4% |
+| TZ set | 112 | 2% |
+| needs root (sudo) | 56 | 1% |
+| terminal / pty | 58 | 1% |
+| signals / timing / child process | 164 | 3% |
+| compares with GNU (expected_result) | 114 | 2% |
+| cfg Linux/Android/SELinux only | 423 | 7% |
+| #[ignore] in source | 76 | 1% |

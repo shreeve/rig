@@ -409,20 +409,21 @@ as `archive/loop-tick`.
 
 ## Files
 
-Kept here: the summaries in `data/` (each `*-summary.md` and `*.md` is
-fastest and median from its raw runs), `builds.txt`, `latency.txt`, and
-`fannkuch-flip-loop.txt`. Records keep no bulk data, so the rest is in
-the owner's session folder, `~/Data/Code/Claude/rig/rig/sched-check-study/`:
+In [data/](data/): the summaries (each `*-summary.md` and `*.md` is
+fastest and median from its raw runs), `builds.txt`, `latency.txt`,
+`fannkuch-flip-loop.txt`, and:
 
 - `study.patch`: the prototype (`RIG_STUDY` in runtime.zig, emit.zig,
   main.zig), against main 3e569f3f5.
 - `build-trigs.sh`, `build-benches.sh`, `time-trig.py`, `time-bench.py`
   (interleaved, fastest of N, `LOAD_MAX` gating), `summarize.py` and
   `benchsum.py`.
-- `bins/`: every compiler and Trig build timed.
-- `data/*.raw` and the build logs. The runs named `flagstuck`, and the
+- the raw runs (`*.raw`) and the build logs. The runs named `flagstuck`, and the
   flag rows of `trig-single*`, `trig-default*` and `trig-prelim`, come
   from a first flag build that never cleared the flag; they are kept,
   not used.
 - `micro/hoist.zig` and `hoist.s`: the clobber experiment.
-- `bench/src/`: the benchmark sources and `latency.rig`.
+- `bench-src/`: the benchmark sources and `latency.rig`.
+
+Every compiler, Trig and benchmark build timed (`bins/` and `bench/`)
+is on pup in `/zfs/trig-pup/records-data/sched-check-study/`.

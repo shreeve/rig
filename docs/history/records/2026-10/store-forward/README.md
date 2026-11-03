@@ -307,8 +307,8 @@ emitted Zig).
 ## 6. Left
 
 - Trig's speed on pup with the branch, through Rig - Helper's pup slot.
-  The three Trig ceiling arms of section 3 (`trig-kit.tgz`, in
-  `~/Data/Code/Claude/rig/rig/store-forward/` with the basenc kit and
+  The three Trig ceiling arms of section 3 (`trig-kit.tgz`, on pup in
+  `/zfs/trig-pup/records-data/store-forward/` with the basenc kit and
   the disassemblies) are deferred: row 26 builds its own x86 arms of
   rtval and keyk.
 - A self field held around a loop, in a `!@` method (section 4), is a

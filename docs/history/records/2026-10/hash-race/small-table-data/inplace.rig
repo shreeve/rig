@@ -1,0 +1,34 @@
+# The in-place kernel a String write would allow, on a List[U8]: 16 bytes from each end,
+# reversed and complemented, written back crosswise.
+use std.time
+
+type Bytes = Simd[U8, 16]
+
+fun complements[n: Int] -> [n]U8
+  bases: [16]U8 = "ACGTUMRWSYKVHDBN"
+  pairs: [16]U8 = "TGCAAKYWSRMBDHVN"
+  t = [n of U8(0)]
+  for i in 0..16
+    t[Int(bases[i] & 0x1F)] = pairs[i]
+  t
+
+COMPLEMENT = Simd[U8, 32](complements[32])
+REVERSED = Bytes([15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
+
+fun rc(v: Bytes) -> Bytes
+  COMPLEMENT.lookup(v.lookup(REVERSED) & 0x1F)
+
+sub main()
+  n = 243 * 1024 * 1024
+  v: List[U8] = List.filled(n, U8(65))
+  start = time.now()
+  i = 0
+  j = n - 16
+  while i + 16 <= j
+    a = v.read[Bytes](i)
+    b = v.read[Bytes](j)
+    !v.write[Bytes](i, rc(b))
+    !v.write[Bytes](j, rc(a))
+    i += 16
+    j -= 16
+  warn("in place", start.elapsed() / 1000, "us", v[0], v[n - 1])

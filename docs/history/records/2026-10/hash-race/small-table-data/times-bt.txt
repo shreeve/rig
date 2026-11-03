@@ -1,0 +1,7 @@
+uptime: 18:55  up 2 days, 19:29, 2 users, load averages: 6.71 7.38 7.17
+rust-plain-arena             min    461.5 ms  med    492.4 ms  cpu    3.06 s  rss    203 MB
+rust-plain-arena-mi          min    409.5 ms  med    420.4 ms  cpu    2.78 s  rss    261 MB
+rig-plain                    min   1213.9 ms  med   1370.1 ms  cpu    7.09 s  rss    346 MB
+rust-fast                    min    278.5 ms  med    311.1 ms  cpu    2.05 s  rss    390 MB
+rust-fast-mi                 min    229.8 ms  med    248.7 ms  cpu    1.81 s  rss    528 MB
+rig-fast                     min    233.6 ms  med    250.2 ms  cpu    1.78 s  rss    342 MB

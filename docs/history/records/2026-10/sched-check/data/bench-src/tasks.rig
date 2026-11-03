@@ -1,0 +1,138 @@
+# Rig's tasks timed five ways (bench/tasks/README.md): starting and
+# waiting for many tiny tasks in waves (spawn), one at a time (chain),
+# CPU work split across tasks (fanout), tasks that only yield (yield),
+# and a chain while CPU-bound tasks keep every core busy (hog). Run as
+# `tasks many`, it holds many sleeping tasks at once (many), and as
+# `tasks idle`, none, sleeping as long: the driver reads the memory each
+# takes. Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
+# the checks must agree with tokio.rs's and main.go's.
+
+use std.os
+use std.task
+use std.time
+
+WAVES = 100
+SIZE = 1000
+CHAIN = 10000
+FAN_TASKS = 10
+FAN_WORK = 20000000
+YIELD_TASKS = 100
+YIELDS = 10000
+HOG_TASKS = 32
+HOG_WORK = 20000000
+HOG_CHAIN = 50
+HOG_SLICE = 1000000
+MANY = 10000
+MANY_NAP_MS = 200
+
+fun leaf(i: Int) -> Int
+  i
+
+fun spin(n: Int) -> Int
+  total = 0
+  for i in 0..n
+    total = (total + i * 7) % 1000003
+  total
+
+fun yielder(n: Int) -> Int!
+  for 0..n
+    task.check()!
+  n
+
+called sub spawn()
+  t = time.now()
+  sum = 0
+  for 0..WAVES
+    ts = Tasks[Int]()
+    for i in 0..SIZE
+      !ts.add(leaf(i)&)
+    xs = >ts
+    for x in xs
+      sum += x
+  print("spawn", t.elapsed(), sum)
+
+called sub chain()
+  t = time.now()
+  sum = 0
+  for i in 0..CHAIN
+    u = leaf(i)&
+    sum += >u
+  print("chain", t.elapsed(), sum)
+
+called sub fanout()
+  t = time.now()
+  ts = Tasks[Int]()
+  for i in 0..FAN_TASKS
+    !ts.add(spin(FAN_WORK + i)&)
+  xs = >ts
+  sum = 0
+  for x in xs
+    sum += x
+  print("fanout", t.elapsed(), sum)
+
+called sub yields()
+  t = time.now()
+  ts = Tasks[Int!]()
+  for 0..YIELD_TASKS
+    !ts.add(yielder(YIELDS)&)
+  xs = >ts catch List[Int]()
+  sum = 0
+  for x in xs
+    sum += x
+  print("yield", t.elapsed(), sum)
+
+called sub hog()
+  hogs = Tasks[Int]()
+  for i in 0..HOG_TASKS
+    !hogs.add(spin(HOG_WORK + i)&)
+  slices = Tasks[Int]()
+  t = time.now()
+  sum = 0
+  for i in 0..HOG_CHAIN
+    !slices.add(spin(HOG_SLICE + i)&)
+    a = leaf(i)&
+    b = leaf(i)&
+    sum += >a
+    sum += >b
+  ns = t.elapsed()
+  xs = >hogs
+  for x in xs
+    sum += x
+  ys = >slices
+  for y in ys
+    sum += y
+  print("hog", ns, sum)
+
+fun nap() -> Int!
+  time.sleep(MANY_NAP_MS * time.MS)!
+  1
+
+called sub many()
+  t = time.now()
+  ts = Tasks[Int!]()
+  for 0..MANY
+    !ts.add(nap()&)
+  xs = >ts catch List[Int]()
+  sum = 0
+  for x in xs
+    sum += x
+  print("many", t.elapsed(), sum)
+
+called sub idle()
+  t = time.now()
+  n = nap() catch 0
+  print("idle", t.elapsed(), n)
+
+sub main()
+  args = os.args()
+  if args.len > 1
+    if args[1] == "many"
+      many()
+    else
+      idle()
+    return
+  spawn()
+  chain()
+  fanout()
+  yields()
+  hog()

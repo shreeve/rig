@@ -1,0 +1,14 @@
+diff --git i/src/binder/binder.rig w/src/binder/binder.rig
+index 157efca..09be63e 100644
+--- i/src/binder/binder.rig
++++ w/src/binder/binder.rig
+@@ -1910,6 +1910,9 @@ fun Binder.push_children(!@, node: Node) -> Int
+ # kind's `LAYOUT` letter by letter; tsrs generates a visitor per kind.
+ sub Binder.bind_each_child(!@, node: Node)
+   kind = @kind(node)
++  # BOUND (measurement only): a declaration file's interfaces, classes and type literals bind nothing inside.
++  if @file.is_declaration_file and (kind == .InterfaceDeclaration or kind == .ClassDeclaration or kind == .TypeLiteral)
++    return
+   if ast.has_hand_written_visitor(kind)
+     !@bind_hand_written_children(node)
+     return

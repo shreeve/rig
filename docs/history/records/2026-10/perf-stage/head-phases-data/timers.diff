@@ -1,0 +1,128 @@
+diff --git i/src/compiler/program.rig w/src/compiler/program.rig
+index 28485fa..ed87627 100644
+--- i/src/compiler/program.rig
++++ w/src/compiler/program.rig
+@@ -1155,7 +1155,10 @@ pub fun new_program(config: tsoptions.ParsedCommandLine, host: Host, names: !ast
+   cache = ParseCache.new()
+   cache.keep = true
+   base_directory = tspath.RootedDirectoryPath(+config.get_base_directory().value)
++  ph_t = h.clock()
+   processed = process_all_program_files(!h, ?config.compiler_options, ?config.file_names, ?base_directory, !cache)
++  warn("PHASE load ", h.clock() - ph_t)
++  ph_t = h.clock()
+   files: List[ast.File] = List()
+   bindings: List[ast.Binding] = List()
+   bind_ns = 0
+@@ -1166,6 +1169,8 @@ pub fun new_program(config: tsoptions.ParsedCommandLine, host: Host, names: !ast
+     bind_ns += h.clock() - bind_start
+     !bindings.push(swap(!file.binding, none) ?? ast.Binding.new(0))
+     !files.push(<file)
++  warn("PHASE bind ", bind_ns)
++  warn("PHASE files_loop ", h.clock() - ph_t)
+   case_sensitivity = h.fs.get_case_sensitivity()
+   options = config.compiler_options.clone()
+   Program(files: <files, bindings: <bindings, options: <options, resolutions: <processed, case_sensitivity: case_sensitivity, fs: swap(!h.fs, vfs.FS.new(case_sensitivity)), base_directory: <base_directory, config: <config, now: h.now, bind_ns: bind_ns)
+diff --git i/src/declarations/emitter.rig w/src/declarations/emitter.rig
+index a7686d6..1651a62 100644
+--- i/src/declarations/emitter.rig
++++ w/src/declarations/emitter.rig
+@@ -550,6 +550,7 @@ pub fun get_diagnostics_of_any_program(pool: !CheckerPool, config_index: Int, sk
+   program = pool.program
+   all_diagnostics = program.get_config_file_parsing_diagnostics(config_index)
+   config_file_parsing_diagnostics_length = all_diagnostics.len
++  ph_t = program.clock()
+ 
+   for f in 0..program.files.len
+     syntactic = program.get_syntactic_diagnostics(f)
+@@ -559,12 +560,17 @@ pub fun get_diagnostics_of_any_program(pool: !CheckerPool, config_index: Int, sk
+   # If we didn't have any syntactic errors, then also try getting the program (options),
+   # global and semantic errors.
+   if all_diagnostics.len == config_file_parsing_diagnostics_length
++    warn("PHASE syntactic ", program.clock() - ph_t)
++    ph_t = program.clock()
+     program_diagnostics, include_by_file = program.get_program_diagnostics(config_index)
++    warn("PHASE program_diags ", program.clock() - ph_t)
+     for d in program_diagnostics
+       !all_diagnostics.push(d.cloned())
+ 
+     if program.options.list_files_only.is_false_or_unknown()
++      ph_t = program.clock()
+       global = (!pool).get_global_diagnostics()
++      warn("PHASE global_first ", program.clock() - ph_t)
+       for d in global
+         !all_diagnostics.push(d.cloned())
+ 
+@@ -572,6 +578,7 @@ pub fun get_diagnostics_of_any_program(pool: !CheckerPool, config_index: Int, sk
+         # Go: execute/tsc/emit.go:97, the semantic diagnostics timed as Check time
+         check_start = program.clock()
+         checked_by_file = (!pool).check_groups()
++        warn("PHASE check_groups ", program.clock() - check_start)
+         for f in 0..program.files.len
+           # Go: compiler/program.go:1514 getSemanticDiagnosticsWithChecker
+           if not program.skip_type_checking(f, false)
+@@ -583,9 +590,12 @@ pub fun get_diagnostics_of_any_program(pool: !CheckerPool, config_index: Int, sk
+           for d in include
+             !all_diagnostics.push(d.cloned())
+         pool.check_ns = program.clock() - check_start
++        warn("PHASE check_total ", pool.check_ns)
++        ph_t = program.clock()
+         # Incremental programs cache checking globals with file diagnostics;
+         # a late sweep would also collect incidental signature-generation globals.
+         global_after = (!pool).get_global_diagnostics()
++        warn("PHASE global_after ", program.clock() - ph_t)
+         for d in global_after
+           !all_diagnostics.push(d.cloned())
+ 
+diff --git i/src/execute/emit.rig w/src/execute/emit.rig
+index 66f978f..0b94114 100644
+--- i/src/execute/emit.rig
++++ w/src/execute/emit.rig
+@@ -122,7 +122,9 @@ obj Checked
+ # alive: the process can end with no drops, as tsc's does.
+ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index: Int, sys: !System, input: ?EmitInput) -> Checked
+   result = Checked()
++  ph_t = program.clock()
+   pool = declarations.new_checker_pool(program, names)
++  warn("PHASE checkers ", program.clock() - ph_t)
+   pool.dynamic = sys.dynamic_checkers
+   check_and_emit_on(!pool, !result, config_index)
+   for c in ?pool.checkers
+@@ -135,8 +137,11 @@ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index:
+       sys.times.check = result.check_ns
+       sys.times.emit = result.emit_ns
+       done = CompileAndEmitResult(emit_skipped: result.emit_skipped, counts: result.counts)
++      ph_t = program.clock()
+       done.diagnostics = report_diagnostics(!sys, ?program.files, program, swap(!result.diagnostics, List()), config_index, ?result.emitted_files, input)
++      warn("PHASE report ", program.clock() - ph_t)
+       report_statistics_and_status(!sys, program, !done)
++      warn("PHASE total ", sys.times.total)
+       result.finished = true
+       result.status = done.status
+       f(!sys, done.status)
+diff --git i/src/execute/tsc.rig w/src/execute/tsc.rig
+index d3ff3e9..e53b44a 100644
+--- i/src/execute/tsc.rig
++++ w/src/execute/tsc.rig
+@@ -105,8 +105,10 @@ fun tsc_compilation(sys: !System, t: ?tsoptions.Tables, parsed: tsoptions.Parsed
+   command_line_raw = tsoptions.CompilerOptionsValue.Table(m: <wrapped)
+   path = sys.fs.get_case_sensitivity().path_key(config_file_name.as_path())
+   config_start = sys.clock()
++  warn("PHASE startup ", config_start - sys.start)
+   config_parse_result, errors = tsoptions.get_parsed_command_line_of_config_file_path(t, ?config_file_name, ?path, ?command_line.compiler_options, ?command_line_raw, ?sys.fs)
+   sys.times.config = sys.clock() - config_start
++  warn("PHASE config ", sys.times.config)
+   if errors.len != 0
+     # these are unrecoverable errors--exit to report them as diagnostics
+     for e in ?errors
+@@ -162,8 +164,11 @@ fun perform_compilation(sys: !System, config: tsoptions.ParsedCommandLine, repor
+   host.now = sys.now
+   names = ast.Names.new()
+   # Go: execute/tsc.go:381, the program made, timed as Parse time
++  ph_t = sys.clock()
++  warn("PHASE to_program ", ph_t - sys.start)
+   parse_start = sys.clock()
+   program = compiler.new_program(<config, <host, !names)
++  warn("PHASE new_program ", sys.clock() - parse_start)
+   sys.times.bind = program.bind_ns
+   sys.times.parse = sys.clock() - parse_start - program.bind_ns
+   if program.resolutions as r

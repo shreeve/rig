@@ -1,0 +1,25 @@
+diff --git i/crates/tsrs_compiler/src/program.rs w/crates/tsrs_compiler/src/program.rs
+index 6a72b248..3ec5739c 100644
+--- i/crates/tsrs_compiler/src/program.rs
++++ w/crates/tsrs_compiler/src/program.rs
+@@ -1152,6 +1152,10 @@ impl Program {
+     pub fn bind_source_files(&self) {
+         let unbound: Vec<P<SourceFile>> =
+             self.files.iter().copied().filter(|f| !f.is_bound()).collect();
++        let memwalk_n = unbound.len();
++        if memwalk_n != 0 {
++            tsrs_core::memsplit::report("load end");
++        }
+         if self.single_threaded() {
+             // Go's single-threaded work group runs queued functions last-queued first, so files bind in reverse
+             // program order. The order is observable: the binder assigns symbol ids (private names).
+@@ -1159,6 +1163,9 @@ impl Program {
+         } else {
+             worker_pool().install(|| unbound.into_par_iter().for_each(crate::fileregions::bind));
+         }
++        if memwalk_n != 0 {
++            tsrs_core::memsplit::report("bind end");
++        }
+     }
+ 
+     // program.go:598

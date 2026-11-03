@@ -1,0 +1,160 @@
+diff --git i/src/emit.zig w/src/emit.zig
+index 5b35c794c..2d6ace2a0 100644
+--- i/src/emit.zig
++++ w/src/emit.zig
+@@ -46,6 +46,9 @@ const ir = parser.ir;
+ pub const runtime_filename = "rig/runtime.zig";
+ pub const runtime_module = "rig";
+ pub const runtime_source = @embedFile("runtime.zig");
++/// Study (sched-check-study) switches, set from RIG_STUDY.
++pub var study_entry_all = false;
++pub var study_callfree = false;
+ /// The runtime's tasks (`src/tasks.zig`), written beside it.
+ pub const tasks_filename = "rig/tasks.zig";
+ pub const tasks_source = @embedFile("tasks.zig");
+@@ -1815,7 +1818,7 @@ pub const Emitter = struct {
+         const tparams = facts.syntax.tparamsOf(node);
+         const inlined = self.facts.isInlined(name_node);
+         const marker = self.facts.markerOf(node);
+-        const entry_check = self.yield_checks and self.facts.hasEntryCheck(name_node);
++        const entry_check = self.yield_checks and (self.facts.hasEntryCheck(name_node) or (study_entry_all and !inlined and !is_main));
+         // A function that always panics is cold, as a `rarely` one is,
+         // so a call of it is laid out off the path that does not.
+         const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
+@@ -3928,7 +3931,9 @@ pub const Emitter = struct {
+         // still reaches a yield check.
+         const outer_turns = self.fun.turns;
+         defer self.fun.turns = outer_turns;
+-        if (self.yield_checks) {
++        if (self.yield_checks and study_callfree and self.loopHasCall(loop)) {
++            self.fun.turns = null;
++        } else if (self.yield_checks) {
+             if (self.fun.loops == 0 or outer_turns == null) {
+                 try self.openLoopBlock(&lp);
+                 lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
+@@ -3962,6 +3967,14 @@ pub const Emitter = struct {
+         }
+     }
+ 
++    /// Study (sched-check-study): whether `node` holds a call of a Rig
++    /// function that is not inlined.
++    fn loopHasCall(self: *Emitter, node: Sexp) bool {
++        if (node.isKind(.call) and self.facts.callsRigFunction(node) and !self.facts.callsInlined(node)) return true;
++        for (node.items()) |c| if (self.loopHasCall(c)) return true;
++        return false;
++    }
++
+     /// Open the block around loop `lp`, if it is not open yet.
+     fn openLoopBlock(self: *Emitter, lp: *Loop) Error!void {
+         if (lp.outer != null) return;
+diff --git i/src/main.zig w/src/main.zig
+index fc9e34052..be7b07ff9 100644
+--- i/src/main.zig
++++ w/src/main.zig
+@@ -1717,6 +1717,26 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
+         try files.append(allocator, .{ .path = emit.unordered_filename, .contents = emit.unordered_source });
+     }
+ 
++    // Study (sched-check-study): RIG_STUDY=turn=N,ticknomem,entry,callfree
++    if (env.get("RIG_STUDY")) |study| {
++        var rt: []const u8 = emit.runtime_source;
++        var it = std.mem.splitScalar(u8, study, ',');
++        while (it.next()) |word| {
++            if (std.mem.startsWith(u8, word, "turn=")) {
++                const line = try std.fmt.allocPrint(allocator, "pub const study_turn: u32 = {s};", .{word[5..]});
++                rt = try std.mem.replaceOwned(u8, allocator, rt, "pub const study_turn: u32 = 0;", line);
++            } else if (eql(word, "ticknomem")) {
++                rt = try std.mem.replaceOwned(u8, allocator, rt, "pub const study_ticknomem: bool = false;", "pub const study_ticknomem: bool = true;");
++            } else if (eql(word, "entry")) {
++                emit.study_entry_all = true;
++            } else if (eql(word, "callfree")) {
++                emit.study_callfree = true;
++            } else usageError("RIG_STUDY: unknown word", .{});
++        }
++        for (files.items) |*f| if (eql(f.path, emit.runtime_filename)) {
++            f.contents = rt;
++        };
++    }
+     var root_source: []const u8 = "";
+     var links_libc = false;
+     var uses_symbols = false;
+diff --git i/src/runtime.zig w/src/runtime.zig
+index b0f35d77e..6d9a2339a 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -358,13 +358,31 @@ pub const tick_turns: u32 = 1024;
+ /// Zig `while`'s continue expression): every `tick_turns` turns, on the
+ /// scheduler, the task yields if other work waits for its worker
+ /// (`sched.tick`), so a long loop never keeps that work waiting.
++/// Study variant (sched-check-study); the compiler rewrites this line.
++pub const study_turn: u32 = 0;
++pub const study_ticknomem: bool = false;
++
+ pub inline fn turn(n: *u32) void {
+     if (!scheduled or @inComptime()) return;
+-    n.* -%= 1;
+-    if (n.* == 0) {
+-        @branchHint(.unlikely);
+-        n.* = tick_turns;
+-        callKeeping(tickC);
++    switch (study_turn) {
++        // 1: no loop check at all (the ceiling)
++        1 => {},
++        // 3: a load of the flag per turn; 4: the same, its call clobbering no memory
++        3, 4 => {
++            if (sched.waiting.load(.monotonic) != 0) {
++                @branchHint(.unlikely);
++                if (study_turn == 4) callKeepingNoMem(tickCallC) else callKeeping(tickCallC);
++            }
++        },
++        // 0: the count (main); 2: the count, its call clobbering no memory
++        else => {
++            n.* -%= 1;
++            if (n.* == 0) {
++                @branchHint(.unlikely);
++                n.* = tick_turns;
++                if (study_turn == 2) callKeepingNoMem(tickC) else callKeeping(tickC);
++            }
++        },
+     }
+ }
+ 
+@@ -377,7 +395,7 @@ pub inline fn tickCall() void {
+     if (!scheduled or @inComptime()) return;
+     if (sched.waiting.load(.monotonic) != 0) {
+         @branchHint(.unlikely);
+-        callKeeping(tickCallC);
++        if (study_ticknomem) callKeepingNoMem(tickCallC) else callKeeping(tickCallC);
+     }
+ }
+ 
+@@ -435,6 +453,29 @@ inline fn callKeeping(comptime f: fn () callconv(.c) void) void {
+     }
+ }
+ 
++inline fn callKeepingNoMem(comptime f: fn () callconv(.c) void) void {
++    if (comptime !keeps_registers) return f();
++    switch (builtin.cpu.arch) {
++        .x86_64 => asm volatile (
++            \\ leaq -128(%%rsp), %%rsp
++            \\ callq %[call:P]
++            \\ leaq 128(%%rsp), %%rsp
++            :
++            : [call] "X" (&Keeping(f).call),
++            : .{ .rflags = true, .memory = false }),
++        .aarch64 => asm volatile (
++            \\ sub sp, sp, #144
++            \\ str x30, [sp]
++            \\ bl %[call]
++            \\ ldr x30, [sp]
++            \\ add sp, sp, #144
++            :
++            : [call] "X" (&Keeping(f).call),
++            : .{ .nzcv = true, .memory = false }),
++        else => comptime unreachable,
++    }
++}
++
+ /// `f` behind a function that saves every register the C calling
+ /// convention lets `f` change, aligns the stack, calls `f`, and restores
+ /// them (`callKeeping`): on x86_64 the integer registers a call may

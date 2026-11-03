@@ -124,7 +124,7 @@ ROADMAP with its reason, or answered by the owner.
 
 ## Track 3: the oracle
 
-In this order (~/Data/Code/Claude/rig/rig/oracle-abstain.md):
+In this order ([oracle-abstain.md](oracle-abstain.md)):
 
 1. **Classify Trig's 6 disagreements** (compiler accepts, oracle
    rejects): `core.or_else` and `core.coalesce` (C2), `CopyOnWriteMap.get`

@@ -1,0 +1,26 @@
+#!/bin/sh
+# tools/basecheck BASE [FILE...]: run from a Rig worktree before starting
+# work, before each gate run, and before asking to merge. BASE is the main
+# commit the work was written against (its row's base in the work queue).
+# With no FILE, the files the branch changes against BASE are used. Prints
+# main's commits since BASE that touch those files and exits 1 when there
+# are any: read them, rebase, rerun the affected tests, and give the
+# queue's keeper the new base. Exits 0 when main has not touched them.
+set -eu
+[ $# -ge 1 ] || { echo "usage: tools/basecheck BASE [FILE...]" >&2; exit 2; }
+base=$1; shift
+git fetch -q origin main
+if [ $# -eq 0 ]; then
+  set -- $( (git diff --name-only "$base"...HEAD; git status --short | awk '{print $2}') | sort -u)
+fi
+[ $# -eq 0 ] && { echo "basecheck: no files to check"; exit 0; }
+head=$(git rev-parse --short origin/main)
+hits=$(git log --oneline "$base"..origin/main -- "$@")
+if [ -z "$hits" ]; then
+  echo "basecheck: main $head has not touched these files since $base"
+  exit 0
+fi
+echo "basecheck: main $head changed these files since $base:"
+echo "$hits"
+git diff --stat "$base" origin/main -- "$@"
+exit 1

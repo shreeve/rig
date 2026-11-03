@@ -1,0 +1,60 @@
+diff --git i/src/parser/parser.rig w/src/parser/parser.rig
+index d1ab93c..fb9a3b7 100644
+--- i/src/parser/parser.rig
++++ w/src/parser/parser.rig
+@@ -697,7 +697,9 @@ pub obj Parser
+ 
+   # Go: parser/parser.go:612 parseListIndex
+   # PORT: the list's elements are pushed on `node_scratch`, past `base`,
+-  # which it returns; the caller takes them and drops them.
++  # which it returns; the caller takes them and drops them. A context
++  # whose lists always take one element function calls it directly, by a
++  # `match` on `kind`; the others call `parse_element` (NEEDS 67).
+   fun parse_list_index(!@, kind: ParsingContext, parse_element: ?fun(!Parser, Int) -> Node) -> Int
+     save_parsing_contexts = @parsing_contexts
+     @parsing_contexts |= pc_bit(kind)
+@@ -706,7 +708,14 @@ pub obj Parser
+     while not (!@).is_list_terminator(kind)
+       if (!@).is_list_element(kind, false)
+         index = @node_scratch.len - base
+-        elt = parse_element(!@, index)
++        elt = match kind
++          .SourceElements => (!@).parse_toplevel_statement(index)
++          .BlockStatements, .SwitchClauseStatements => (!@).parse_statement()
++          .SwitchClauses => (!@).parse_case_or_default_clause()
++          .ClassMembers => (!@).parse_class_element()
++          .TypeMembers => (!@).parse_type_member()
++          .JsxAttributes => (!@).parse_jsx_attribute()
++          _ => parse_element(!@, index)
+         if @reparse_list.len != 0
+           reparsed = swap(!@reparse_list, List())
+           for e in ?reparsed
+@@ -734,6 +743,8 @@ pub obj Parser
+ 
+   # Go: parser/parser.go:651 parseDelimitedList
+   # Return a non-nil (but possibly empty) slice if parsing was successful, or nil if parseElement returned nil
++  # PORT: a context whose lists always take one element function calls
++  # it directly, by a `match` on `kind`, as `parse_list_index` does.
+   fun parse_delimited_list_opt(!@, kind: ParsingContext, parse_element: ?fun(!Parser) -> Node?) -> NodeList?
+     pos = @node_pos()
+     save_parsing_contexts = @parsing_contexts
+@@ -742,7 +753,18 @@ pub obj Parser
+     while true
+       if (!@).is_list_element(kind, false)
+         start_pos = @node_pos()
+-        element = parse_element(!@)
++        element: Node? = match kind
++          .ArrayBindingElements => (!@).parse_array_binding_element()
++          .ObjectBindingElements => (!@).parse_object_binding_element()
++          .EnumMembers => (!@).parse_enum_member()
++          .TypeArguments => (!@).parse_type()
++          .ImportAttributes => (!@).parse_import_attribute()
++          .TypeParameters => (!@).parse_type_parameter()
++          .TupleElementTypes => (!@).parse_tuple_element_name_or_tuple_element_type()
++          .ArgumentExpressions => (!@).parse_argument_expression()
++          .ArrayLiteralMembers => (!@).parse_argument_or_array_literal_element()
++          .ObjectLiteralMembers => (!@).parse_object_literal_element()
++          _ => parse_element(!@)
+         if element as e
+           !@node_scratch.push(e)
+         else
