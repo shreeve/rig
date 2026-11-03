@@ -11185,7 +11185,7 @@ pub fn crossingBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allo
 /// blocker.
 fn blockerOf(ctx: *const SemContext, ty: TypeId, how: Crossing) ?Blocker {
     var walk: Walk = .{};
-    defer walk.seen.deinit(ctx.allocator);
+    defer walk.deinit(ctx.allocator);
     if (blockerIn(ctx, ty, how, false, &walk)) |b| return b;
     if (boundBlocker(ctx, ty, how)) |t| return .{ .ctx = ctx, .ty = t };
     return null;
@@ -11222,7 +11222,7 @@ pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocat
 /// type parameter's bounds).
 pub fn taskBlocker(ctx: *SemContext, ty: TypeId, reach: TaskReach) std.mem.Allocator.Error!?TypeId {
     var walk: Walk = .{};
-    defer walk.seen.deinit(ctx.allocator);
+    defer walk.deinit(ctx.allocator);
     const b = blockerIn(ctx, ty, reach.how, reach.local, &walk) orelse return null;
     return try localized(ctx, b);
 }
@@ -11243,19 +11243,30 @@ pub const TaskParam = struct { param: SymbolId, reach: TaskReach };
 pub fn taskParams(ctx: *const SemContext, ty: TypeId, reach: TaskReach, out: *std.ArrayList(TaskParam)) std.mem.Allocator.Error!void {
     if (!ctx.typeInfo(ty).has_type_var) return;
     var walk: Walk = .{ .reached = out };
-    defer walk.seen.deinit(ctx.allocator);
+    defer walk.deinit(ctx.allocator);
     _ = blockerIn(ctx, ty, reach.how, reach.local, &walk);
     if (walk.failed) return error.OutOfMemory;
 }
 
 const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
-/// A walk of `blockerIn`: the declared types it has looked into, and,
-/// when collected, the type parameters it reaches (`taskParams`).
+/// A declared type `blockerIn` looks into, and how its value goes.
+const WalkKey = struct { ctx: *const SemContext, sym: SymbolId, how: Crossing };
+
+/// A walk of `blockerIn`: the declared types it has looked into, each
+/// with the type parameters its fields hold and how they go (null while
+/// its fields are walked), and, when collected, the type parameters it
+/// reaches (`taskParams`).
 const Walk = struct {
-    seen: FastMap(SymbolKey, void) = .empty,
+    seen: FastMap(WalkKey, ?[]const TaskParam) = .empty,
     reached: ?*std.ArrayList(TaskParam) = null,
     failed: bool = false,
+
+    fn deinit(walk: *Walk, a: std.mem.Allocator) void {
+        var it = walk.seen.valueIterator();
+        while (it.next()) |held| if (held.*) |h| a.free(h);
+        walk.seen.deinit(a);
+    }
 };
 
 /// Whether a `*` or `~` handle's `inner` is an owned closure, `*fun` or
@@ -11288,11 +11299,13 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
         // the wrappers' above: a read view reaches it to share, a write
         // view and a box as they go.
         .api_object => |o| if (objectBounds(ctx, o).contains(crossingBound(how))) null else here,
-        // A type parameter goes as each instance's type does
-        // (`taskParams`).
+        // A type parameter goes as each instance's argument does: the
+        // instance's (`instanceBlock`), or a declaration's (`taskParams`).
         .type_var => |param| blk: {
             const out = walk.reached orelse break :blk null;
-            out.append(ctx.allocator, .{ .param = param, .reach = .{ .how = how, .local = local } }) catch {
+            const got: TaskParam = .{ .param = param, .reach = .{ .how = how, .local = local } };
+            for (out.items) |r| if (std.meta.eql(r, got)) break :blk null;
+            out.append(ctx.allocator, got) catch {
                 walk.failed = true;
             };
             break :blk null;
@@ -11310,9 +11323,9 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
             if (local and (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id)) break :blk null;
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) break :blk here;
             if (pn.sym == ctx.task_sym_id and how == .shares) break :blk here;
+            if (pn.sym != ctx.task_sym_id and !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.simd_sym_id) break :blk instanceBlock(ctx, ty, pn, how, local, walk);
             for (pn.args) |a| if (blockerIn(ctx, a, how, local, walk)) |b| break :blk b;
-            if (pn.sym == ctx.task_sym_id or isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
-            break :blk fieldsBlock(ctx, pn.sym, how, local, walk);
+            break :blk null;
         },
         .nominal => |sym| fieldsBlock(ctx, sym, how, local, walk),
         .imported_nominal => blk: {
@@ -11331,7 +11344,11 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
 /// (`frozenIn`); nothing of a Cell's or an actor's.
 fn atomicReach(ctx: *const SemContext, inner: TypeId, walk: *Walk) ?Blocker {
     if (chanValue(ctx, inner)) |t| return blockerIn(ctx, t, .moves, false, walk);
-    if (frozenValue(ctx, inner)) |t| return frozenIn(ctx, t, &walk.seen);
+    if (frozenValue(ctx, inner)) |t| {
+        var seen: FastMap(SymbolKey, void) = .empty;
+        defer seen.deinit(ctx.allocator);
+        return frozenIn(ctx, t, &seen);
+    }
     return null;
 }
 
@@ -11469,20 +11486,54 @@ fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *FastMap(SymbolKe
     return false;
 }
 
+/// What in an instance `ty` of a generic type keeps it from meeting
+/// `how`: what its fields hold of their own, then each argument as the
+/// fields hold its parameter (`r: ?T` reads a `T` from every task that
+/// reads the value).
+fn instanceBlock(ctx: *const SemContext, ty: TypeId, pn: ParamNominal, how: Crossing, local: bool, walk: *Walk) ?Blocker {
+    const decl = declaredAt(ctx, pn.sym) orelse return .{ .ctx = ctx, .ty = ty };
+    if (fieldsBlock(decl.ctx, decl.sym, how, local, walk)) |found| {
+        var b = found;
+        if (b.module == null and decl.ctx != ctx) b.module = ctx.symbols.items[pn.sym].from.module_id;
+        return b;
+    }
+    const params = decl.ctx.symbols.items[decl.sym].type_params orelse &.{};
+    const held = walk.seen.get(.{ .ctx = decl.ctx, .sym = decl.sym, .how = how }).? orelse {
+        // An instance in its own fields: with its own parameters it holds
+        // what the fields being walked find; with others, each argument
+        // goes as it may anywhere in them.
+        for (pn.args, 0..) |a, i| {
+            if (i < params.len and decl.ctx == ctx and std.meta.eql(ctx.types.get(a), Type{ .type_var = params[i] })) continue;
+            for ([_]Crossing{ .moves, .shares }) |h| if (blockerIn(ctx, a, h, local, walk)) |b| return b;
+        }
+        return null;
+    };
+    for (held) |r| {
+        const i = std.mem.findScalar(SymbolId, params, r.param) orelse continue;
+        if (i < pn.args.len) if (blockerIn(ctx, pn.args[i], r.reach.how, local, walk)) |b| return b;
+    }
+    return null;
+}
+
 /// What in the fields and payloads of a declared type keeps it from
 /// meeting `how` (`blockerIn`); a type already being looked into adds
-/// nothing. A generic parameter in a field stands for an argument, which
-/// its instance checks.
+/// nothing. A generic parameter in a field stands for an argument: the
+/// parameters the fields hold, and how, are kept with the type for its
+/// instances (`instanceBlock`).
 fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, local: bool, walk: *Walk) ?Blocker {
-    const got = walk.seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
+    const key: WalkKey = .{ .ctx = ctx, .sym = sym, .how = how };
+    const got = walk.seen.getOrPut(ctx.allocator, key) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
     if (got.found_existing) return null;
-    // A field's parameters are the declaration's own, not the walk's.
+    got.value_ptr.* = null;
+    var held: std.ArrayList(TaskParam) = .empty;
+    defer held.deinit(ctx.allocator);
     const reached = walk.reached;
-    walk.reached = null;
+    walk.reached = &held;
     defer walk.reached = reached;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
         for (dataFields(f)) |d| if (blockerIn(ctx, d.ty, how, local, walk)) |b| return b;
     }
+    walk.seen.getPtr(key).?.* = held.toOwnedSlice(ctx.allocator) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
     return null;
 }
 

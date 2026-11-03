@@ -240,6 +240,13 @@ Other:
     files and in Markdown's code. Trig has none; loco has one
     (`rig/loc/scan.rig`). `matches` is a word only after a value, so a
     local, parameter, or function named `matches` keeps its name.
+59. *Unsound:* a generic type's fields go to a task as they hold each
+    argument: a `W[Task[Int]]` whose field is `r: ?T` holds a
+    `?Task[Int]`, which no task but its holder may read, and was given
+    to a task on another core. So was an object held both by value and
+    through a view (`a: G`, `b: ?G`), whose view was not looked into.
+    Each is rejected where the value goes to the task, as the same type
+    written without generics is.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

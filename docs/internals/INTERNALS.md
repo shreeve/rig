@@ -2886,6 +2886,14 @@ the latter with the innermost type that stops it, through one walk,
   hidden value (`Checker.erasable`), and a view's braces name only the
   bound its form uses (`sema.formBraces`, applied as the view's type is
   interned), so `?b` of a `^{A + Sends}` is a `?{A}`;
+- a generic type's fields are walked once for each way it goes, with
+  its parameters open (`fieldsBlock`), which keeps the parameters they
+  hold and how each goes: `r: ?T` reads its `T` from the task the value
+  goes to. An instance walks each argument as its parameter goes
+  (`instanceBlock`), so a `W[Task[Int]]` holding `r: ?T` crosses only
+  where a `?Task[Int]` would. Each declared type is walked once for
+  each way, so one held by value and through a view is looked into for
+  both;
 - a type parameter with no bound is decided in each instance, and one
   with bounds as they say (`Sends`, `Syncs`, `boundBlocker`).
 

@@ -1236,6 +1236,87 @@ fail "task generic instance in a field", "`spawn[Holder]` cannot use `T = Holder
 
   print(spawn(Holder(f: *|| 4)))
 
+fail "task generic field views its argument", "`<w` is given to a task: `W[Task[Int]]` holds `Task[Int]`", errors: 1
+  # A field `r: ?T` reads its argument from the task the value goes to:
+  # the instance's `Task[Int]` is read there, which only its holder may.
+  obj W[T]
+    r: ?T
+
+  fun work() -> Int
+    5
+
+  fun peek(w: W[Task[Int]]) -> Int
+    1
+
+  t = work()&
+  w = W[Task[Int]](r: ?t)
+  u = peek(<w)&
+  print(>u, >t)
+
+fail "task generic field views a parameter", "`go[Task[Int]]` cannot use `T = Task[Int]`: a value that holds a `T` is given to a task in the generic body, and `Task[Int]` is a task", errors: 1
+  obj W[T]
+    r: ?T
+
+  fun work() -> Int
+    5
+
+  fun peek[T](w: W[T]) -> Int
+    1
+
+  fun go[T](w: W[T]) -> Int
+    u = peek(<w)&
+    >u
+
+  t = work()&
+  print(go(W[Task[Int]](r: ?t)), >t)
+
+fail "task object held and viewed", "`<h` is given to a task: `H` holds `Task[Int]`", errors: 1
+  # One type held by value and through a view is looked into for each.
+  obj G
+    t: Task[Int]
+
+  obj H
+    a: G
+    b: ?G
+
+  fun work() -> Int
+    5
+
+  fun peek(h: H) -> Int
+    1
+
+  t = work()&
+  g = G(t: work()&)
+  h = H(a: G(t: <t), b: ?g)
+  u = peek(<h)&
+  print(>u)
+
+test "task generic fields that cross", seeds: 20, "5 5"
+  # A field views its argument, which syncs; a recursive generic type
+  # holds its task by value, and moves with it.
+  obj W[T]
+    r: ?T
+
+  obj Node[T]
+    v: T
+    kids: List[Node[T]]
+
+  fun work() -> Int
+    5
+
+  fun peek(w: W[Int]) -> Int
+    w.r + 1
+
+  fun wait(n: Node[Task[Int]]) -> Int
+    t = <n.v
+    >t
+
+  x = 4
+  u = peek(W[Int](r: ?x))&
+  n = Node[Task[Int]](v: work()&, kids: List())
+  k = wait(<n)&
+  print(>u, >k)
+
 test "task generic instances that go to tasks", seeds: 20, "1 1 1 1 1"
   # An instance whose `T` holds nothing that goes to no task gives it to
   # tasks, local ones included, a function value among them.
