@@ -264,12 +264,19 @@ pub fn wake(f: *Fiber) void {
     if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
 }
 
-/// Make `f` ready to run after the fibers already ready on this worker.
+/// Make `f` ready to run after the fibers already ready on this worker,
+/// waking a sleeping worker only when other work waits here, ahead of
+/// `f`, which one could take meanwhile: a fiber alone runs again next.
 fn wakeLast(f: *Fiber) void {
     if (deterministic.*) return wake(f);
     if (f.home) |home| return wakeHome(f, home);
-    if (me()) |w| w.ring.push(f) else global.push(f);
-    notify();
+    const w = me() orelse {
+        global.push(f);
+        return notify();
+    };
+    const others = hasOwnWork(w);
+    w.ring.push(f);
+    if (others) notify();
 }
 
 /// Queue the pinned fiber `f` on its worker, and wake that worker if it
@@ -306,10 +313,12 @@ fn requeue(f: *Fiber, _: ?*anyopaque) void {
 /// a sleeping or searching worker can take is left to it.
 pub noinline fn tick() void {
     const w = me() orelse return;
-    // Deterministic: computing costs virtual time, and the seed decides
-    // whether to yield to ready work.
+    // Deterministic: computing costs virtual time, which wakes the fibers
+    // whose timers it reaches, as a busy worker's check does, and the
+    // seed decides whether to yield to ready work.
     if (deterministic.*) {
         computed();
+        fireDue();
         if (ready.items.len > 0 and random(2) == 0) yield();
         return;
     }
@@ -625,18 +634,18 @@ pub fn advanceTo(t: i96) void {
     if (t > virtual_now.*) virtual_now.* = t;
 }
 
-/// No fiber is ready: move the virtual clock to the earliest timer and
-/// wake each fiber whose deadline that reaches. With no timer either,
-/// every task waits on another, and none can ever run: a deadlock.
-/// A fiber waiting on a file descriptor wakes once it is ready, at
-/// whatever time: the poller is looked at first, without waiting, and
-/// waited on when nothing else can end a wait.
 /// What a deterministic run that can never go on panics with: every task
 /// waits, and nothing can wake one (`advanceClock`). A run that is not
 /// deterministic reports none, since an outside event (an interrupt,
 /// which cancels `main`) may still end a wait.
 const deadlock_message = "every task is waiting on another, and none can run: a deadlock";
 
+/// No fiber is ready: move the virtual clock to the earliest timer and
+/// wake each fiber whose deadline that reaches. With no timer either,
+/// every task waits on another, and none can ever run: a deadlock.
+/// A fiber waiting on a file descriptor wakes once it is ready, at
+/// whatever time: the poller is looked at first, without waiting, and
+/// waited on when nothing else can end a wait.
 fn advanceClock() void {
     const p = &workers.*[0].poller;
     if (p.count.load(.monotonic) != 0 and p.poll(0)) return;
@@ -888,18 +897,28 @@ const Poller = struct {
     fn open(p: *Poller) void {
         if (darwin) {
             p.fd = std.c.kqueue();
-            if (p.fd < 0) rt.oom();
+            if (p.fd < 0) failed("kqueue", p.fd);
             const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = 0 };
             var none: [1]std.c.Kevent = undefined;
             _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
         } else if (linux) {
             const linux_ = std.os.linux;
             p.fd = @intCast(@as(isize, @bitCast(linux_.epoll_create1(linux_.EPOLL.CLOEXEC))));
+            if (p.fd < 0) failed("epoll_create1", p.fd);
             p.kick_fd = @intCast(@as(isize, @bitCast(linux_.eventfd(0, linux_.EFD.NONBLOCK | linux_.EFD.CLOEXEC))));
-            if (p.fd < 0 or p.kick_fd < 0) rt.oom();
+            if (p.kick_fd < 0) failed("eventfd", p.kick_fd);
             var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ET, .data = .{ .ptr = 0 } };
             _ = linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, p.kick_fd, &ev);
         }
+    }
+
+    /// A worker's poller could not be made: a panic naming the call and
+    /// what the system said (`rc`, the call's result).
+    fn failed(comptime call: []const u8, rc: i32) noreturn {
+        @branchHint(.cold);
+        const e: std.posix.E = if (linux) @enumFromInt(-rc) else std.posix.errno(rc);
+        var buf: [96]u8 = undefined;
+        @panic(std.fmt.bufPrint(&buf, "the scheduler's {s} failed: {t}", .{ call, e }) catch call);
     }
 
     fn close(p: *Poller) void {
@@ -941,12 +960,15 @@ const Poller = struct {
     }
 
     /// Stop watching `fd`. Under the lock, so no event for it is being
-    /// handled; the worker sleeping in the poller is woken to let go.
+    /// handled; a worker holding it, asleep in the poller, is woken to
+    /// let go.
     fn remove(p: *Poller, fd: i32) void {
-        _ = p.removers.fetchAdd(1, .seq_cst);
-        p.kick();
-        p.lock.lock();
-        _ = p.removers.fetchSub(1, .seq_cst);
+        if (!p.lock.tryLock()) {
+            _ = p.removers.fetchAdd(1, .seq_cst);
+            p.kick();
+            p.lock.lock();
+            _ = p.removers.fetchSub(1, .seq_cst);
+        }
         defer p.lock.unlock();
         if (darwin) {
             const evs = [2]std.c.Kevent{
@@ -1088,7 +1110,7 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
             for (workers.*) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
-            return serviceAll(w);
+            return serviceAll();
         }
     }
     _ = w.poller.poll(timeout);
@@ -1268,16 +1290,16 @@ fn service(w: *Worker) void {
     if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
 }
 
-/// Before `w` sleeps: wake the fibers whose timers are due on any worker,
-/// and those the events of any poller no worker sleeps in make ready.
-fn serviceAll(w: *Worker) void {
+/// Before a worker sleeps: wake the fibers whose timers are due on any
+/// worker, and those the events of any poller no worker sleeps in make
+/// ready.
+fn serviceAll() void {
     deliverInterrupt();
     const now = nowNs();
     for (workers.*) |*v| {
         _ = v.timers.fire(now);
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
-    _ = w;
 }
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
@@ -2139,7 +2161,7 @@ fn next(w: *Worker) ?*Fiber {
         deliverInterrupt();
         fireDue();
         if (ready.items.len == 0) return null;
-        return ready.orderedRemove(random(ready.items.len));
+        return ready.swapRemove(random(ready.items.len));
     }
     w.tick +%= 1;
     if (w.tick % 61 == 0) {
@@ -2311,7 +2333,7 @@ fn sleep(w: *Worker) void {
         }
     }
     while (w.woken.load(.seq_cst) == 0) {
-        serviceAll(w);
+        serviceAll();
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();

@@ -2274,6 +2274,20 @@ first step is on `main` (SPEC §18):
   its tasks after a panic, sleep until woken rather than spin on a
   yield, so neither burns a core, and a deterministic run (`rig test`)
   reaches the timers that end them.
+- **`task.check()` yields only when work waits for its core**, as a
+  loop's yield check does: a lone task calling it a million times no
+  longer wakes a sleeping worker on each call (0.05 s to under 0.01 s
+  with ten workers). A yield wakes a sleeping worker only when other
+  work waits behind it, and closing a socket kicks the poller only when
+  a worker sleeps in it.
+- **`http.serve` and a `Tasks[Void]` set find their ended tasks at once**,
+  from the list those tasks join as they end, rather than looking at
+  every task alive on each accept or `add`.
+- **Smaller fixes:** `time.within` inside a deadline of `Int.max` no
+  longer overflows in a safe build; a socket the poller refused fails
+  its wait with `NetError.failed` rather than block its worker, as a
+  failed `poll` does; and a poller that cannot be made panics naming
+  the call and its error, not as out of memory.
 - **A regular file's read runs in its task.** `file.read` of a regular
   file, and `exists`, `stat`, `realpath`, and `read_dir`, run on the
   task's own worker, not the blocking pool, as Go's and tsrs's do; a

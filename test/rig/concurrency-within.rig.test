@@ -183,3 +183,10 @@ fail "within a closure called more than once", "cannot move captured `r`: the cl
 
   r = Res(id: 1)
   print(apply(|<r| keep(<r)))
+
+test "within inside the longest deadline", seeds: 20, timeout: 10, "5"
+  # A deadline past the largest `Int` is no deadline: one inside it
+  # holds, and the outer one is back after.
+  use std.time
+
+  print(time.within(Int.max, || time.within(time.SECOND, || 5)!) catch -1)

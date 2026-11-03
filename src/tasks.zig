@@ -44,7 +44,8 @@ const task = rt.task;
 /// `task.Stop.canceled`.
 pub fn Task(comptime T: type) type {
     return struct {
-        handle: Handle(T),
+        /// Its fiber's record, which keeps its result once it ends.
+        job: *rt.sched.Job(T),
         control: *Control,
 
         const Self = @This();
@@ -89,32 +90,32 @@ pub fn Task(comptime T: type) type {
             // records it before it can run (`Control.made`).
             const state = task();
             const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate }, local);
-            return .{ .handle = .{ .job = made.job }, .control = made.extra };
+            return .{ .job = made.job, .control = made.extra };
         }
 
-        /// `recv.name(args...)&`: start a method's call as a task. `recv`
-        /// is the receiver's address, or the address of a view of it. A
-        /// method that takes its receiver by value is given it here,
-        /// before the task starts.
-        pub fn spawnMethod(recv: anytype, comptime name: []const u8, args: anytype) Self {
-            return startMethod(false, recv, name, args);
+        /// `x.name(args...)&`: start a method's call as a task. `x` is
+        /// the address of the method's self, or of a view of it. A method
+        /// that takes its self by value is given it here, before the task
+        /// starts.
+        pub fn spawnMethod(x: anytype, comptime name: []const u8, args: anytype) Self {
+            return startMethod(false, x, name, args);
         }
 
-        /// `recv.name(args...)&` for a local task (`spawnLocal`).
-        pub fn spawnMethodLocal(recv: anytype, comptime name: []const u8, args: anytype) Self {
-            return startMethod(true, recv, name, args);
+        /// `x.name(args...)&` for a local task (`spawnLocal`).
+        pub fn spawnMethodLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
+            return startMethod(true, x, name, args);
         }
 
         /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
-        /// Stage 3): `recv` is the receiver's address, or the address of a
-        /// view of it, as for `spawnMethod`.
-        pub fn spawnWitness(comptime f: anytype, recv: anytype, args: anytype) Self {
-            return start(false, f, .{rt.selfArg(f, recv)} ++ args);
+        /// Stage 3): `x` is the address of its self, or of a view of it,
+        /// as for `spawnMethod`.
+        pub fn spawnWitness(comptime f: anytype, x: anytype, args: anytype) Self {
+            return start(false, f, .{rt.selfArg(f, x)} ++ args);
         }
 
         /// `spawnWitness` for a local task (`spawnLocal`).
-        pub fn spawnWitnessLocal(comptime f: anytype, recv: anytype, args: anytype) Self {
-            return start(true, f, .{rt.selfArg(f, recv)} ++ args);
+        pub fn spawnWitnessLocal(comptime f: anytype, x: anytype, args: anytype) Self {
+            return start(true, f, .{rt.selfArg(f, x)} ++ args);
         }
 
         /// `s.area()&` through an API object (docs/design/apis.md, Stage
@@ -154,13 +155,13 @@ pub fn Task(comptime T: type) type {
             return start(local, Call.run, .{ obj, args });
         }
 
-        fn startMethod(comptime local: bool, recv: anytype, comptime name: []const u8, args: anytype) Self {
-            const P = @TypeOf(recv);
+        fn startMethod(comptime local: bool, x: anytype, comptime name: []const u8, args: anytype) Self {
+            const P = @TypeOf(x);
             const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
-            const ptr: Ptr = if (Ptr == P) recv else recv.*;
+            const ptr: Ptr = if (Ptr == P) x else x.*;
             const method = @field(@typeInfo(Ptr).pointer.child, name);
-            const Receiver = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
-            if (@typeInfo(Receiver) == .pointer) return start(local, method, .{ptr} ++ args);
+            const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
+            if (@typeInfo(SelfParam) == .pointer) return start(local, method, .{ptr} ++ args);
             return start(local, method, .{ptr.*} ++ args);
         }
 
@@ -188,7 +189,7 @@ pub fn Task(comptime T: type) type {
 
         fn waitWith(self: Self, out: anytype) T {
             var t = self;
-            defer t.release();
+            defer t.job.free();
             if (canceledHere()) {
                 var result = t.stop();
                 if (comptime !fallible) return result;
@@ -199,7 +200,7 @@ pub fn Task(comptime T: type) type {
             // A cancel that comes to the waiter during the wait wakes it,
             // and it passes the cancel on to the task it waits on, then
             // waits for that task's end.
-            const job = t.handle.job;
+            const job = t.job;
             const mine: ?*const std.atomic.Value(bool) = if (task().control) |c| &c.canceled else null;
             const deadline = if (fallible) task().deadline else null;
             var timed_out = false;
@@ -240,7 +241,7 @@ pub fn Task(comptime T: type) type {
 
         fn cancelWith(self: Self, out: anytype) T {
             var t = self;
-            defer t.release();
+            defer t.job.free();
             return keepResult(T, t.stop(), &t.control.err, out);
         }
 
@@ -251,20 +252,17 @@ pub fn Task(comptime T: type) type {
         /// A task that cannot fail is waited for, unless the task that
         /// drops it is canceled, which passes the cancel on.
         pub fn __rig_drop(self: *Self) void {
-            defer self.release();
-            var result = if (fallible or canceledHere()) self.stop() else self.handle.result();
+            defer self.job.free();
+            var result = if (fallible or canceledHere()) self.stop() else self.job.join();
             dropResult(T, &result, &self.control.err);
         }
 
         /// Record the cancel, which ends a wait the task is in that a
-        /// cancel may end, and wait for the task.
+        /// cancel may end, and wait for the task, which sees the cancel
+        /// at its next waiting point, or in the wait it is in.
         fn stop(self: *Self) T {
             self.control.cancel();
-            return self.handle.stopped();
-        }
-
-        fn release(self: *Self) void {
-            self.handle.free();
+            return self.job.join();
         }
     };
 }
@@ -321,32 +319,6 @@ fn keepFailure(comptime T: type, result: *const T, data: *rt.ErrData, out: anyty
     }
 }
 
-/// How a task is held: its fiber's record, which keeps its result once
-/// it ends. `result` waits for the task and gives what it gave, again on
-/// a later call; `stopped` does so once a cancel is recorded.
-fn Handle(comptime T: type) type {
-    return struct {
-        job: *rt.sched.Job(T),
-
-        fn result(h: *@This()) T {
-            return h.job.join();
-        }
-
-        /// A fiber sees the cancel at its next waiting point, or in the
-        /// wait it is in (`Control.cancel`).
-        fn stopped(h: *@This()) T {
-            return h.job.join();
-        }
-
-        /// The task has ended and its result is kept for a later wait.
-        fn keep(_: *@This(), _: T) void {}
-
-        fn free(h: *@This()) void {
-            h.job.free();
-        }
-    };
-}
-
 /// What a task and its owner share: whether the task is canceled, and
 /// whether it has ended. A cancel is recorded only by what cancels the
 /// task (`cancel`): its owner, an isolate stopping, or an interrupt. A
@@ -370,6 +342,10 @@ pub const Control = struct {
     /// Its neighbors in that isolate's list.
     iso_prev: ?*Control = null,
     iso_next: ?*Control = null,
+    /// Its place in the set that holds it, and the task that ended
+    /// before it on its `Wakeup`'s list of those ended (`Tasks.dropEnded`).
+    index: usize = 0,
+    next_ended: ?*Control = null,
 
     /// The task is made and not yet running: it runs under the isolate
     /// of the task starting it, which lists it now, so a panic there
@@ -388,24 +364,33 @@ pub const Control = struct {
         if (self.fiber) |f| rt.sched.interruptForCancel(f);
     }
 
-    /// The task has ended: record it, then wake what waits on it. A
-    /// waiter that registers after the task ends finds `done` set
+    /// The task has ended: record it, then tell what waits on it, once.
+    /// A `Wakeup` that comes to watch it after finds it ended
     /// (`Wakeup.watch`), so no end goes unseen.
     fn finish(self: *Control) void {
         if (self.isolate) |iso| iso.remove(self);
         self.done.store(true, .seq_cst);
-        if (self.wakeup.load(.seq_cst)) |w| w.tick();
+        const w = self.wakeup.swap(Wakeup.ended, .seq_cst) orelse return;
+        // The last touch of `self`: its owner may free it once it is listed.
+        w.list(self);
+        w.tick();
     }
 };
 
 /// What a set of tasks, or `task.all`, waits on: a count each of its
-/// tasks adds to as it ends, which a waiter sleeps on until it changes.
+/// tasks adds to as it ends, which a waiter sleeps on until it changes,
+/// and the list of those that ended, newest first, which a set of tasks
+/// that give nothing takes to drop them (`Tasks.dropEnded`).
 const Wakeup = struct {
     ticks: std.atomic.Value(u32) = .init(0),
+    ended_list: std.atomic.Value(?*Control) = .init(null),
     /// The fiber waiting on the count and the epoch of its wait
     /// (`rt.sched.Wait`).
     waiter: std.atomic.Value(?*anyopaque) = .init(null),
     waiter_epoch: std.atomic.Value(u32) = .init(0),
+
+    /// What a task's `Control.wakeup` holds once it has ended.
+    const ended: *Wakeup = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(Wakeup)));
 
     fn create() *Wakeup {
         const w = std.heap.smp_allocator.create(Wakeup) catch oom();
@@ -417,8 +402,19 @@ const Wakeup = struct {
         std.heap.smp_allocator.destroy(self);
     }
 
-    fn watch(self: *Wakeup, control: *Control) void {
-        control.wakeup.store(self, .seq_cst);
+    /// Watch the task of `control`: false when it has ended already, and
+    /// will tell no `Wakeup`.
+    fn watch(self: *Wakeup, control: *Control) bool {
+        return control.wakeup.cmpxchgStrong(null, self, .seq_cst, .seq_cst) == null;
+    }
+
+    /// List the task of `control` among those ended.
+    fn list(self: *Wakeup, control: *Control) void {
+        var head = self.ended_list.load(.monotonic);
+        while (true) {
+            control.next_ended = head;
+            head = self.ended_list.cmpxchgWeak(head, control, .release, .monotonic) orelse return;
+        }
     }
 
     fn tick(self: *Wakeup) void {
@@ -507,9 +503,10 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
         return values;
     }
     var ts = tasks;
-    const w = Wakeup.create();
-    defer w.destroy();
-    inline for (0..n) |i| w.watch(ts[i].control);
+    // Every task is taken or waited for before this returns, so the
+    // count may live on the stack.
+    var w: Wakeup = .{};
+    inline for (0..n) |i| _ = w.watch(ts[i].control);
     var taken: [n]bool = @splat(false);
     var got: [n]bool = @splat(false);
     var left: usize = n;
@@ -520,7 +517,7 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
 
         fn member(ctx: *const anyopaque, i: usize) ?*rt.sched.Header {
             const u: *const @This() = @ptrCast(@alignCast(ctx));
-            inline for (0..n) |k| if (k == i) return if (u.taken[k]) null else &u.ts[k].handle.job.header;
+            inline for (0..n) |k| if (k == i) return if (u.taken[k]) null else &u.ts[k].job.header;
             unreachable;
         }
     };
@@ -532,11 +529,11 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
             if (failure == null and !taken[i] and ts[i].control.done.load(.seq_cst)) {
                 taken[i] = true;
                 left -= 1;
-                const result = ts[i].handle.result();
+                const result = ts[i].job.join();
                 // The first failure's fields move out of its record before
                 // the record is freed.
                 keepFailure(@TypeOf(result), &result, &ts[i].control.err, out);
-                ts[i].release();
+                ts[i].job.free();
                 const R = @TypeOf(result);
                 if (@typeInfo(R) == .error_union) {
                     if (result) |v| {
@@ -561,9 +558,9 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
     const err = failure orelse return values;
     inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
     inline for (0..n) |i| if (!taken[i]) {
-        var result = ts[i].handle.stopped();
+        var result = ts[i].job.join();
         dropResult(@TypeOf(result), &result, &ts[i].control.err);
-        ts[i].release();
+        ts[i].job.free();
     };
     inline for (0..n) |i| if (got[i]) dropElement(@TypeOf(values[i]), &values[i]);
     // Every failure is a task's, or the wait's own `task.Stop`.
@@ -601,12 +598,12 @@ const never: Int = std.math.maxInt(Int);
 
 /// `time.within(ns, f)` begins: the running task's deadline becomes
 /// `ns` nanoseconds from now, unless the one it has is earlier. Gives
-/// the one it had, for `restoreDeadline`.
+/// the one it had, for `restoreDeadline`: one past `never` is none.
 pub fn enterDeadline(ns: Int) Int {
     const t = task();
     const outer = t.deadline;
     t.deadline = earlier(outer, nowNs() + ns);
-    return if (outer) |d| @intCast(d) else never;
+    return if (outer) |d| @intCast(@min(d, never)) else never;
 }
 
 /// `time.within(ns, f)` ends: the running task's deadline is again the
@@ -642,6 +639,8 @@ const timeout_error = error.@"std.task.Stop.timeout";
 pub fn Tasks(comptime T: type) type {
     return struct {
         items: std.ArrayList(Task(T)) = .empty,
+        /// Made at the first `add` that needs it, apart from the set,
+        /// which moves while its tasks point at it.
         wakeup: ?*Wakeup = null,
         /// How many tasks the set holds: `ts.len`.
         len: Int = 0,
@@ -662,42 +661,42 @@ pub fn Tasks(comptime T: type) type {
         /// `!ts.add(t)`: take the task into the set.
         pub fn add(self: *Self, t: Task(T)) void {
             if (Value == void) self.dropEnded();
-            // Only a set that can fail waits for whichever task ends
-            // first; one that cannot waits for each in turn, so its tasks
-            // need not tell a shared count as they end.
-            if (fallible) {
-                const w = self.wakeup orelse blk: {
-                    const w = Wakeup.create();
-                    self.wakeup = w;
-                    break :blk w;
-                };
-                w.watch(t.control);
-            }
+            t.control.index = self.items.items.len;
             self.items.append(defaultAllocator(), t) catch oom();
             self.len = @intCast(self.items.items.len);
+            // A set that can fail waits for whichever task ends first, and
+            // one of tasks that give nothing drops those that end; one that
+            // does neither waits for each in turn, so its tasks need not
+            // tell the set as they end. A task that ended before it was
+            // watched is listed here.
+            if (!fallible and Value != void) return;
+            const w = self.wakeup orelse blk: {
+                self.wakeup = Wakeup.create();
+                break :blk self.wakeup.?;
+            };
+            if (!w.watch(t.control)) w.list(t.control);
         }
 
-        /// Drop each task that has ended well, keeping one that failed
-        /// for a wait to report.
-        fn dropEnded(self: *Self) void {
-            var kept: usize = 0;
-            for (self.items.items) |*t| {
-                if (t.control.done.load(.seq_cst)) {
-                    var result = t.handle.result();
-                    const ok = if (fallible) !std.meta.isError(result) else true;
-                    if (ok) {
-                        dropElement(T, &result);
-                        t.release();
-                        continue;
-                    }
-                    // Its result is kept: its handle is spent, so the task
-                    // is kept as one already waited for.
-                    t.handle.keep(result);
-                }
-                self.items.items[kept] = t.*;
-                kept += 1;
+        /// Drop each task that has ended well since the last look, keeping
+        /// one that failed for a wait to report: the tasks its `Wakeup`
+        /// lists, each found at its place in the set at once, so a server
+        /// that adds a task for each request pays nothing for those it
+        /// holds. Each waits for its task's fiber to leave for good.
+        pub fn dropEnded(self: *Self) void {
+            const w = self.wakeup orelse return;
+            var at = w.ended_list.swap(null, .acquire);
+            while (at) |c| {
+                at = c.next_ended;
+                const i = c.index;
+                const t = self.items.items[i];
+                var result = t.job.join();
+                if (fallible and std.meta.isError(result)) continue;
+                dropElement(T, &result);
+                t.job.free();
+                _ = self.items.swapRemove(i);
+                if (i < self.items.items.len) self.items.items[i].control.index = i;
             }
-            self.items.items.len = kept;
+            self.len = @intCast(self.items.items.len);
         }
 
         /// The tasks a wait on the set has not taken, for a deadlock's
@@ -708,7 +707,7 @@ pub fn Tasks(comptime T: type) type {
 
             fn member(ctx: *const anyopaque, i: usize) ?*rt.sched.Header {
                 const u: *const Untaken = @ptrCast(@alignCast(ctx));
-                return if (u.taken[i]) null else &u.items[i].handle.job.header;
+                return if (u.taken[i]) null else &u.items[i].job.header;
             }
 
             fn blocked(u: *const Untaken) rt.sched.Blocked {
@@ -758,11 +757,11 @@ pub fn Tasks(comptime T: type) type {
                     if (taken[i] or !t.control.done.load(.seq_cst)) continue;
                     taken[i] = true;
                     left -= 1;
-                    const result = t.handle.result();
+                    const result = t.job.join();
                     // Its failure's fields are taken from its record
                     // before the record is freed.
                     keepFailure(T, &result, &t.control.err, out);
-                    t.release();
+                    t.job.free();
                     if (result) |v| {
                         results[i] = v;
                         got[i] = true;
@@ -821,13 +820,13 @@ pub fn Tasks(comptime T: type) type {
                     if (taken[i] or !t.control.done.load(.seq_cst)) continue;
                     taken[i] = true;
                     left -= 1;
-                    const result = t.handle.result();
+                    const result = t.job.join();
                     if (result) |_| {} else |err| {
                         if (last) |l| rt.dropErrorData(l, &last_data);
                         last = err;
                         last_data = t.control.err;
                     }
-                    t.release();
+                    t.job.free();
                     if (result) |v| {
                         if (last) |l| rt.dropErrorData(l, &last_data);
                         s.stopUntaken(taken);
@@ -861,9 +860,9 @@ pub fn Tasks(comptime T: type) type {
             }
             for (self.items.items, taken) |*t, k| {
                 if (k) continue;
-                var result = t.handle.stopped();
+                var result = t.job.join();
                 dropResult(T, &result, &t.control.err);
-                t.release();
+                t.job.free();
             }
         }
 
@@ -889,9 +888,9 @@ pub fn Tasks(comptime T: type) type {
                 for (self.items.items) |t| t.control.cancel();
             }
             for (self.items.items) |*t| {
-                var result = if (fallible or canceledHere()) t.handle.stopped() else t.handle.result();
+                var result = if (fallible or canceledHere()) t.job.join() else t.job.join();
                 dropResult(T, &result, &t.control.err);
-                t.release();
+                t.job.free();
             }
         }
     };
@@ -944,14 +943,9 @@ const ParState = struct {
 /// early takes more, and a chunk holds at least one element. With one
 /// task, or one chunk, the calling task runs them all. The first chunk
 /// to fail stops the tasks taking more and cancels them, and once all
-/// have ended, the run fails with its error.
-fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype) if (fallible) anyerror!void else void {
-    return parRunInto(fallible, n, limit, ctx, body, rt.no_slot);
-}
-
-/// `parRun` where the run's failure's fields go into the caller's slot
-/// `out`, or are dropped where it has none.
-fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype, out: anytype) if (fallible) anyerror!void else void {
+/// have ended, the run fails with its error, whose fields go into the
+/// caller's slot `out`, or are dropped where it has none.
+fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype, out: anytype) if (fallible) anyerror!void else void {
     if (n == 0) return;
     const workers: usize = if (rt.scheduled) rt.sched.workersRunning() else 1;
     // Deterministic, on one thread, the elements are still split among
@@ -1045,13 +1039,13 @@ pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut
     }
     defer if (comptime marked) defaultAllocator().free(ctx.made);
     if (comptime fallible) {
-        parRunInto(true, xs.len, limit, &ctx, Ctx.chunk, out_slot) catch |err| {
+        parRun(true, xs.len, limit, &ctx, Ctx.chunk, out_slot) catch |err| {
             if (comptime marked) for (ctx.out, ctx.made) |*v, m| if (m) dropElement(V, v);
             rt.drop(&out);
             // Every failure is `f`'s, or a wait's `task.Stop` in it.
             return @errorCast(err);
         };
-    } else parRunInto(false, xs.len, limit, &ctx, Ctx.chunk, out_slot);
+    } else parRun(false, xs.len, limit, &ctx, Ctx.chunk, out_slot);
     out.len = xs.len;
     return out;
 }
@@ -1077,9 +1071,9 @@ pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@T
         }
     };
     const ctx: Ctx = .{ .xs = xs, .f = f };
-    if (comptime !fallible) return parRunInto(false, xs.len, limit, &ctx, Ctx.chunk, out);
+    if (comptime !fallible) return parRun(false, xs.len, limit, &ctx, Ctx.chunk, out);
     // Every failure is `f`'s, or a wait's `task.Stop` in it.
-    return parRunInto(true, xs.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
+    return parRun(true, xs.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
 }
 
 /// What `par.workers` gives for `f`: a List of each call's value, or
@@ -2096,9 +2090,9 @@ pub fn Actor(comptime T: type) type {
         /// address, or on a copy for a method that takes the value.
         fn invoke(self: *Self, comptime name: []const u8, args: anytype) Result(name) {
             const method = @field(T, name);
-            const Recv = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
-            const recv = if (@typeInfo(Recv) == .pointer) &self.value else self.value;
-            return @call(.auto, method, .{recv} ++ args);
+            const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
+            const at = if (@typeInfo(SelfParam) == .pointer) &self.value else self.value;
+            return @call(.auto, method, .{at} ++ args);
         }
 
         /// Call method `name` through handle `box` and wait for its
@@ -2542,13 +2536,13 @@ pub fn setWorkers(n: Int) bool {
 
 /// `task.check()`: a waiting point that waits for nothing. It fails
 /// when the running task is canceled or its deadline has passed, and
-/// otherwise lets other tasks run; in a program that makes none, it
-/// only checks the deadline.
+/// otherwise is a yield check (`rt.sched.tick`): it lets other tasks
+/// run when work waits for its worker. In a program that makes no tasks,
+/// it only checks the deadline.
 pub fn check() Stop!void {
-    if (rt.sched.deterministic.*) rt.sched.computed();
     if (canceledHere()) return canceled_error;
     if (pastDeadline()) return timeout_error;
-    if (rt.scheduled) rt.sched.yield();
+    if (rt.scheduled) rt.sched.tick() else if (rt.sched.deterministic.*) rt.sched.computed();
 }
 
 /// `time.sleep(ns)`: a waiting point that waits `ns` nanoseconds: the
@@ -2619,11 +2613,11 @@ test "a task given what crosses cores runs anywhere, and a local task and its ma
         }
         fn first(_: *anyopaque) callconv(.c) void {
             const t = Task(u64).spawn(one, .{});
-            free_pinned = t.handle.job.header.fiber.home != null;
+            free_pinned = t.job.header.fiber.home != null;
             maker_pinned_before = rt.sched.current().?.home != null;
             _ = t.wait();
             const u = Task(u64).spawnLocal(one, .{});
-            local_pinned = u.handle.job.header.fiber.home != null;
+            local_pinned = u.job.header.fiber.home != null;
             maker_pinned_after = rt.sched.current().?.home != null;
             _ = u.wait();
         }
@@ -2737,7 +2731,7 @@ test "a par run keeps its first chunk's failure data and drops every later one's
             G.drops.store(0, .seq_cst);
             const ctx: Ctx = .{};
             var slot: rt.ErrData = undefined;
-            parRunInto(true, 64, 4, &ctx, chunk, rt.failSlot(&slot)) catch {
+            parRun(true, 64, 4, &ctx, chunk, rt.failSlot(&slot)) catch {
                 failed = true;
                 kept = slot.bytes[0];
             };
