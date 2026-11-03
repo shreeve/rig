@@ -613,14 +613,16 @@ fn hugeFreeFor(need: usize) bool {
 /// each in about one), short beside the seconds a Table is written over.
 const reading_life_ns: u64 = 4 * std.time.ns_per_ms;
 
-/// The reading kept: the monotonic clock in units of 2^16 ns (about 65
-/// microseconds) in the top 40 bits, which last 2^56 ns, two years; its
+/// The reading kept: the low 40 bits of the monotonic clock in units of
+/// 2^16 ns (about 65 microseconds) in the top 40 bits, which wrap every
+/// 2^56 ns, two years, so an age is taken in 40 bits (`time_mask`); its
 /// free blocks, at most `count_max`, in the low 24; or 0, none. One
 /// word, so a thread never pairs one reading's time with another's count.
 var kept_reading_var: std.atomic.Value(u64) = .init(0);
 const kept_reading = split.cell(&kept_reading_var, "alloc.kept_reading");
 const count_bits = 24;
 const count_max: u64 = (1 << count_bits) - 1;
+const time_mask: u64 = (1 << (64 - count_bits)) - 1;
 
 /// The monotonic clock in units of 2^16 ns, through the vDSO: tens of
 /// nanoseconds, where a reading costs microseconds. 0 if it fails.
@@ -638,7 +640,7 @@ fn keptReading() ?usize {
     const k = kept_reading.load(.monotonic);
     if (k == 0) return null;
     const now = clockUnits();
-    if (now == 0 or now -% (k >> count_bits) >= reading_life_ns >> 16) return null;
+    if (now == 0 or (now -% (k >> count_bits)) & time_mask >= reading_life_ns >> 16) return null;
     return @intCast(k & count_max);
 }
 
@@ -1809,21 +1811,24 @@ test "on Linux a new segment or large block asks for huge pages while free 2 MiB
 
 test "on Linux a burst of Tables reads /proc/buddyinfo once, and a reading older than a few milliseconds is read again" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    useBuddyinfoForTest(buddyinfo_idle);
     defer useBuddyinfoForTest(null);
-    clock_for_test.* = 1 << 40;
     defer clock_for_test.* = null;
-    const before = buddyinfo_reads.*;
-    for (0..43) |_| try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
-    // Memory fragments: the reading kept answers until its life is over.
-    buddyinfo_for_test.* = buddyinfo_partly;
-    clock_for_test.*.? += reading_life_ns - (1 << 17);
-    try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
-    clock_for_test.*.? += 1 << 17;
-    try std.testing.expect(!hugeFree());
-    try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
+    // The clock's time kept in a reading wraps past 2^56 ns of uptime.
+    for ([_]u64{ 1 << 40, (1 << 57) + (1 << 40) }) |start| {
+        useBuddyinfoForTest(buddyinfo_idle);
+        clock_for_test.* = start;
+        const before = buddyinfo_reads.*;
+        for (0..43) |_| try std.testing.expect(hugeFree());
+        try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+        // Memory fragments: the reading kept answers until its life is over.
+        buddyinfo_for_test.* = buddyinfo_partly;
+        clock_for_test.*.? += reading_life_ns - (1 << 17);
+        try std.testing.expect(hugeFree());
+        try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+        clock_for_test.*.? += 1 << 17;
+        try std.testing.expect(!hugeFree());
+        try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
+    }
 }
 
 test "on Linux a kept reading may tell a new segment no, but a yes is read again and takes the segment's blocks from the reading kept" {
