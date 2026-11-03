@@ -324,7 +324,16 @@ test "min and max stop at take and zip, and start the rest after the first item"
   3 8 6 16 -1
   10 90 5 1
   0 9
+  2 -1
 '''
+  obj Countdown
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
+
   a = [1, 2, 3]
   b = List[Int]([10, 20, 30, 40])
   xs = List[Int]([5, 3, 8, 1])
@@ -333,6 +342,8 @@ test "min and max stop at take and zip, and start the rest after the first item"
   print(a.zip(b).map(|x, y| x * y).min() ?? 0, a.zip(b).map(|x, y| x * y).max() ?? 0, xs.zip(a).map(|x, y| x - y).max() ?? 0, xs.zip(a).map(|x, y| x - y).min() ?? 0)
   # `min_by` and `max_by`, as `min` and `max`, take each item alone.
   print(b.enumerate().map(|x, i| x * i).max_by(|v| 0 - v) ?? 0, a.zip(b).map(|x, y| y - x).min_by(|v| v % 7) ?? 0)
+  # An iterator `zip` that ends before the first item gives none.
+  print(a.zip(Countdown(n: 2)).map(|x, y| x + y).min() ?? 0, a.zip(Countdown(n: 0)).map(|x, y| x + y).max() ?? -1)
 
 fail "sum after zip takes one value per item", "3:16: `sum` takes one value per item, and after `zip` each item is two: map them to one first, `.map(|x, y| ...).sum()`"
   a = [1, 2, 3]
@@ -350,3 +361,21 @@ fail "min_by after enumerate takes one value per item", "`min_by` takes one valu
 fail "collect after zip takes one value per item", "`collect` takes one value per item, and after `zip` each item is two: map them to one first, `.map(|x, y| ...).collect()`"
   a = [1, 2]
   print(a.zip(a).collect())
+
+test "an inclusive range up to its type's largest value stops at its end", '''
+  2 6 255 5
+  254
+  255
+'''
+  print((9223372036854775806..=9223372036854775807).count(), (U8(250)..=U8(255)).count(), (U8(250)..=U8(255)).max() ?? U8(0), (1..=5).max() ?? 0)
+  for i in (U8(253)..=U8(255)).filter(|x| x > U8(253))
+    print(i)
+
+test "an inclusive range at each integer type's largest and smallest values", '''
+  2 2 2 2
+  2 2 2 2
+  2 -127 -9223372036854775808 2
+'''
+  print((U8(254)..=U8(255)).count(), (U16(65534)..=U16(65535)).count(), (U32(4294967294)..=U32(4294967295)).count(), (U64(18446744073709551614)..=U64(18446744073709551615)).count())
+  print((I8(126)..=I8(127)).count(), (I16(32766)..=I16(32767)).count(), (I32(2147483646)..=I32(2147483647)).count(), (I64(9223372036854775806)..=I64(9223372036854775807)).count())
+  print((U8(0)..=U8(1)).count(), (I8(-128)..=I8(-127)).max() ?? I8(0), (I64(-9223372036854775808)..=I64(-9223372036854775807)).min() ?? I64(0), (-9223372036854775808..=-9223372036854775807).count())
