@@ -3,12 +3,13 @@
 # here checks that it is. Every index is a byte index; a count names its
 # unit. Every function that returns a `?String` returns a view of the
 # `?String` it was given, so nothing here allocates but `format_int`,
-# which returns a new String, and `edit_distance`, which grows the `row`
-# it is given.
+# which returns a new String, `chunks`, which returns a new List,
+# `edit_distance`, which grows the `row` it is given, and an `Interner`,
+# which holds its strings' text and its table.
 #
 # A char is what a reader sees as one character: a Unicode extended
 # grapheme cluster (UAX #29), of one rune or several, by the tables of
-# Unicode 15.1. The char tools read bytes that are not UTF-8 as Go does,
+# Unicode 17.0.0 (`unicode.VERSION`). The char tools read bytes that are not UTF-8 as Go does,
 # each such byte one rune, U+FFFD, so every byte is in exactly one char,
 # and the chars of a `?String` tile it.
 

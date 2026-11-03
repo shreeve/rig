@@ -177,8 +177,8 @@ limbs and is never negative. A BigInt owns its limbs, so it moves
 BigInt is made by `parse` or `from_int`, or by an operation on others.
 
 Every operation that makes a BigInt allocates one List for its limbs,
-even when the result is zero, and `pow` one more List of the result's
-size while it works. `text` allocates the String it returns,
+sized before they are filled, but none for a result of zero, and `pow`
+one more List of the result's size while it works. `text` allocates the String it returns,
 and for a number of more than 8 limbs (about 154 digits) a copy of the
 limbs to divide and a List of the 19-digit groups. `compare`, `equals`,
 `sign`, `bit_len`, and `to_f64` only read, and allocate nothing.
@@ -1905,16 +1905,16 @@ sub main()
 `Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
 ```
 
-The entries are kept in one List, in the order their keys were first
-put in. When the keys and values are plain data, an entry is the key
-and the value and nothing else (16 bytes for a `Map[Int, Int]`), and a
-key is hashed again where the index is rebuilt; otherwise an entry
-also keeps its key's hash, so a String is hashed once, and is `none`
-once taken. Taking an entry drops its key at once, hands back its
-value, and marks the entry gone, so the rest keep their order; the gone
-entries are dropped from the List only when it is full and a quarter
-of it is gone, when the index grows, or when the last entry is taken,
-and a walk passes them by runs. Up to 16 entries a Map or Set has no
+The entries are kept in one block of memory, in the order their keys
+were first put in. An entry whose key is of 8 bytes or fewer, or is
+plain data of at most four words, is the key and the value and nothing
+else (16 bytes for a `Map[Int, Int]`), and its key is hashed again
+where the index is rebuilt; any other entry also keeps its key's hash,
+so a String is hashed once. Taking an entry drops its key at once,
+hands back its value, and marks the entry gone in a bit set, so the
+rest keep their order; the gone entries are dropped from the block
+only when it is full and a quarter of it is gone, when the index grows,
+or when the last entry is taken, and a walk passes them by runs. Up to 16 entries a Map or Set has no
 index: a tag byte for each entry, kept in the Map itself, finds a key by
 one 16-byte compare. Past that, an index of groups of 16 tag bytes (15
 tags and a byte of overflow marks) and beside them 16 32-bit entry
@@ -1922,8 +1922,9 @@ indexes a group finds it: a lookup compares its key's tag with a whole
 group at once and compares a key only where a tag matches, and a key
 that is not there is found missing from the tags alone, nearly always
 in one group. A Map or Set holds at most 4,294,967,295 entries. The seed
-of `.hash()` is fixed, so a program that lets others choose many keys
-that collide can be made slow.
+of `.hash()` is fixed, so a program that lets others choose its keys
+(from the network, or a JSON object's keys) can be made slow by keys
+that collide.
 
 ## HashMap and HashSet
 
@@ -2006,7 +2007,11 @@ bytes, and any other key as `.hash()` hashes it; a key over 8 bytes
 keeps its hash in its slot, so growth hashes no key again. The first
 `put` makes room for 21 entries (29 on x86-64), and the table doubles
 when it is four fifths full (seven eighths on x86-64). A HashMap or
-HashSet holds at most 4,294,967,295 entries.
+HashSet holds at most 4,294,967,295 entries. No hash has a seed that
+varies: an `Int` key's multiply is one an attacker can invert, and
+`.hash()`'s seed is fixed, as a Map's is, so a program that lets others
+choose its keys can be made slow by keys that share one group and one
+tag, where every lookup compares every key.
 
 ## Order, Hasher, and Printer
 
@@ -2382,7 +2387,9 @@ that it is. Every index is a byte index; a count names its unit; and
 whitespace and case are ASCII's. A function that returns a `?String`
 returns a part of the `?String` it was given, a view of the same bytes,
 so nothing here allocates but `format_int`, which returns a new String,
-and `edit_distance`, which grows the `row` it is given. A `?String` taken from a `String`
+`chunks`, which returns a new List, `edit_distance`, which grows the
+`row` it is given, and an `Interner`, which holds its strings' text and
+its table. A `?String` taken from a `String`
 ([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
 functions return.
 
