@@ -2270,6 +2270,10 @@ first step is on `main` (SPEC §18):
   length is one write. `String(...)` writes each piece once, so a
   `print` method of a value in text over 256 bytes runs once, not
   twice.
+- **A shared Cell's `add` that overflows stores nothing.** In a program
+  that makes tasks, `!c.add(n)` and `!c.sub(n)` on a `*Cell[Int]`
+  stored the wrapped value before they panicked, so an isolate that
+  stopped the panic left it there; they panic first, as `+` does.
 - **A regular file's read runs in its task.** `file.read` of a regular
   file, and `exists`, `stat`, `realpath`, and `read_dir`, run on the
   task's own worker, not the blocking pool, as Go's and tsrs's do; a

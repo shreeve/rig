@@ -2813,18 +2813,36 @@ pub fn Cell(comptime T: type) type {
             return true;
         }
 
-        /// Add `n` and give the new value; a `Cell(i64)`'s only.
+        /// Add `n` and give the new value; a `Cell(i64)`'s only. One
+        /// that overflows panics before it stores, as `+` does.
         pub fn add(self: *Self, n: T) T {
-            if (atomic) return @atomicRmw(T, &self.value, .Add, n, .seq_cst) + n;
+            if (atomic) return self.step(.Add, n);
             self.value += n;
             return self.value;
         }
 
         /// Subtract `n` and give the new value; a `Cell(i64)`'s only.
         pub fn sub(self: *Self, n: T) T {
-            if (atomic) return @atomicRmw(T, &self.value, .Sub, n, .seq_cst) - n;
+            if (atomic) return self.step(.Sub, n);
             self.value -= n;
             return self.value;
+        }
+
+        /// `add` or `sub` at once: where safety checks run, a loop of
+        /// compare-and-swaps that computes each new value, panicking on
+        /// overflow, before it stores; otherwise one atomic add.
+        fn step(self: *Self, comptime op: std.builtin.AtomicRmwOp, n: T) T {
+            const apply = struct {
+                inline fn f(a: T, b: T) T {
+                    return if (op == .Add) a + b else a - b;
+                }
+            }.f;
+            if (!std.debug.runtime_safety) return apply(@atomicRmw(T, &self.value, op, n, .seq_cst), n);
+            var old = @atomicLoad(T, &self.value, .monotonic);
+            while (true) {
+                const new = apply(old, n);
+                old = @cmpxchgWeak(T, &self.value, old, new, .seq_cst, .monotonic) orelse return new;
+            }
         }
 
         pub fn __rig_drop(self: *Self) void {
