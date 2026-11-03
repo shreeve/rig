@@ -6280,13 +6280,18 @@ directly. A type's own method of the same name is called instead.
 
 Each item is what the source's `for` gives: a copy of plain data, else a
 view, which keeps the source lent while a result that is one lives. A
-stage after `enumerate` or `zip` takes a function of two values. Each
+stage after `enumerate` or `zip` passes its function two values, of
+which it may take the first alone. Each
 function a chain takes is bound once, before the loop, so a capture
 holds for the whole chain; a function that can fail is rejected for
 now. `take` stops before the item it does not need, so a chain on an
 iterator pulls no item past it. An iterator in a place advances, so a
 chain lends it to write, `(!it).map(f).sum()`; a call whose result
-views its receiver is lent to read, `?m.keys().count()`.
+views its receiver is lent to read, `?m.keys().count()`. A chain is
+checked stage by stage before it becomes its loop, so an error names
+the stage and the items it meets: `` `sum` adds numbers, and these items
+are `String`s ``, `` `filter`'s function gives a `Bool` ``; `collect` of
+views is rejected with the fix, `.map(|x| +x).collect()`.
 
 A chain is not a value: bound, passed, or returned without a consumer,
 it is rejected with the ways to end it. `for x in xs.filter(f)` is a

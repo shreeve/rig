@@ -275,7 +275,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   entries, `?m.items().filter(f).min_by(k)` ran 6-8% faster than the
   hand loop it replaces (it copies the key once, at the end); a
   filter-map-sum over 20 million `U64`s ran as fast as its loop. A
-  chain's function that can fail is rejected for now.
+  chain's function that can fail is rejected for now. A chain is
+  checked stage by stage before it is rewritten, and its errors speak
+  its terms: `` `sum` adds numbers, and these items are `String`s ``,
+  `` `min_by`'s key is compared with `<`; `P` has no order ``, and a
+  `collect` of views gives the fix, `.map(|x| +x).collect()`.
 - **`x matches P` tests a pattern.** It is a `Bool` anywhere, and in
   an `if` or `while` condition binds the pattern's names in the body;
   anywhere else the names flow right through `and`

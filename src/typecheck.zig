@@ -14370,6 +14370,7 @@ const Checker = struct {
             zip = second.kind;
             zip_copies = second.copies;
         }
+        if (!try self.chainTypes(call, root, kind, zip)) return self.t().invalid_id;
         const node = if (for_source) self.chain_for else call;
         const id = node.list.id;
         for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
@@ -14460,6 +14461,188 @@ const Checker = struct {
         if (e.isKind(.lambda)) return null;
         for (e.items()) |c| if (failsIn(c)) |at| return at;
         return null;
+    }
+
+    /// A chain's items, typed stage by stage from its source as its
+    /// rewrite types them (`TypeResolver.chainItemType`), each stage and
+    /// the consumer checked against what reaches it and reported in the
+    /// chain's terms, so no error names the loop it becomes. False when
+    /// one is reported. An item whose type is not known (a function whose
+    /// own errors its loop reports) is checked no further.
+    fn chainTypes(self: *Checker, call: Sexp, root: Sexp, kind: rig.ChainSource, zip: rig.ChainSource) Error!bool {
+        const a = self.ctx.arena.allocator();
+        var calls: std.ArrayList(Sexp) = .empty;
+        var at = call;
+        while (true) {
+            try calls.append(a, at);
+            const obj = ir.Member.object(ir.Call.callee(at));
+            if (!(obj.isKind(.call) and ir.Call.callee(obj).isKind(.member) and rig.isChainStage(self.text(ir.Member.name(ir.Call.callee(obj)))))) break;
+            at = obj;
+        }
+        std.mem.reverse(Sexp, calls.items);
+        var item = try self.chainSourceItem(root, kind);
+        // The second value `enumerate` or `zip` passes with each item.
+        var second: ?TypeId = null;
+        var pairs: enum { none, index, zip } = .none;
+        for (calls.items) |c| {
+            const callee = ir.Call.callee(c);
+            const name_node = ir.Member.name(callee);
+            const name = self.text(name_node);
+            const args = ir.Call.args(c);
+            const what: []const u8 = switch (pairs) {
+                .none => "each item",
+                .index => "each item and its index",
+                .zip => "each item and the item `zip` pairs with it",
+            };
+            const known = item != null and (pairs == .none or second != null);
+            const params: []const TypeId = if (!known) &.{} else if (pairs == .none) try a.dupe(TypeId, &.{item.?}) else try a.dupe(TypeId, &.{ item.?, second.? });
+            const takes_fn = std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "filter") or std.mem.eql(u8, name, "any") or std.mem.eql(u8, name, "all") or std.mem.eql(u8, name, "find") or std.mem.eql(u8, name, "min_by") or std.mem.eql(u8, name, "max_by");
+            if (takes_fn and !try self.chainArity(args[0], name, what, if (pairs == .none) 1 else 2)) return false;
+            if (std.mem.eql(u8, name, "reduce") and !try self.chainArity(args[1], name, "the running value and each item", 2)) return false;
+            const result: ?TypeId = if (takes_fn and known) try self.chainFnResult(args[0], params) else null;
+            if (std.mem.eql(u8, name, "map")) {
+                if (result) |r| if (r == self.t().void_id) {
+                    try self.errAt(args[0], "`map`'s function gives each item's new value; this one gives nothing", .{});
+                    return false;
+                };
+                item = result;
+            } else if (std.mem.eql(u8, name, "filter") or std.mem.eql(u8, name, "any") or std.mem.eql(u8, name, "all") or std.mem.eql(u8, name, "find")) {
+                if (result) |r| if (sema.unwrapViews(self.ctx, r) != self.t().bool_id) {
+                    try self.errAt(args[0], "`{s}`'s function gives a `Bool`; this one gives `{s}`", .{ name, try self.tyName(r) });
+                    return false;
+                };
+            } else if (std.mem.eql(u8, name, "take") or std.mem.eql(u8, name, "skip")) {
+                const n = try self.synthQuiet(args[0]);
+                if (!self.isPoison(n) and !sema.isInteger(self.ctx, readValue(self.ctx, n))) {
+                    try self.errAt(args[0], "`{s}` takes a count, an `Int`; `{s}` is a `{s}`", .{ name, try self.plainText(args[0]), try self.tyName(n) });
+                    return false;
+                }
+            } else if (std.mem.eql(u8, name, "enumerate")) {
+                pairs = .index;
+                second = self.t().int_id;
+            } else if (std.mem.eql(u8, name, "zip")) {
+                pairs = .zip;
+                second = try self.chainSourceItem(args[0], zip);
+            } else if (std.mem.eql(u8, name, "sum")) {
+                if (item) |it| if (!sema.isNumeric(self.ctx, readValue(self.ctx, it))) {
+                    try self.errAt(name_node, "`sum` adds numbers, and these items are `{s}`s", .{try self.tyName(sema.unwrapViews(self.ctx, it))});
+                    return false;
+                };
+            } else if (std.mem.eql(u8, name, "min") or std.mem.eql(u8, name, "max")) {
+                if (item) |it| if (try self.noOrder(it)) |lack| {
+                    const shown = sema.unwrapViews(self.ctx, it);
+                    try self.errAt(name_node, "`{s}` compares items with `<`; `{s}` has no order{s}", .{ name, try self.tyName(shown), try sema.lackDetail(self.ctx, a, shown, .Ord, lack) });
+                    return false;
+                };
+            } else if (std.mem.eql(u8, name, "min_by") or std.mem.eql(u8, name, "max_by")) {
+                if (result) |r| if (try self.noOrder(r)) |lack| {
+                    const shown = sema.unwrapViews(self.ctx, r);
+                    try self.errAt(args[0], "`{s}`'s key is compared with `<`; `{s}` has no order{s}", .{ name, try self.tyName(shown), try sema.lackDetail(self.ctx, a, shown, .Ord, lack) });
+                    return false;
+                };
+            } else if (std.mem.eql(u8, name, "collect")) {
+                // A List the chain gives owns its items: a view would
+                // outlive what it views.
+                if (item) |it| switch (self.ctx.types.get(it)) {
+                    .read_view, .write_view => {
+                        try self.errAt(name_node, "`collect` keeps each item; these items are views of `{s}`: `.map(|x| +x).collect()` clones each", .{try self.plainText(root)});
+                        return false;
+                    },
+                    else => {},
+                };
+            }
+        }
+        return true;
+    }
+
+    /// What a chain's source `src`, of kind `kind`, gives each step, as
+    /// `TypeResolver.chainItemType` gives it: an element read as a `for`
+    /// reads it, an iterator's `next` item, a range's integer. Null when
+    /// not known.
+    fn chainSourceItem(self: *Checker, src: Sexp, kind: rig.ChainSource) Error!?TypeId {
+        if (kind == .range) {
+            // The rewrite holds the bounds; the item takes the first's type.
+            const ty = readValue(self.ctx, try self.synthQuiet(ir.get(src, .left)));
+            if (self.isPoison(ty)) return null;
+            return if (ty == self.t().int_literal_id) self.t().int_id else ty;
+        }
+        const ty = try self.synthQuiet(src);
+        if (self.isPoison(ty)) return null;
+        const peeled = sema.unwrapViews(self.ctx, ty);
+        if (kind == .iterator) return switch (try sema.iterItem(self.ctx, peeled)) {
+            .item => |item| item,
+            else => null,
+        };
+        const elem = switch (self.ctx.types.get(peeled)) {
+            .slice => |sl| sl.elem,
+            .array => |arr| arr.elem,
+            else => sema.listElem(self.ctx, peeled) orelse return null,
+        };
+        if (sema.copies(self.ctx, elem) == .yes) return elem;
+        return try self.ctx.intern(.{ .read_view = elem });
+    }
+
+    /// Whether a chain's function `f` takes no more than the `n` values
+    /// its stage `name` passes it, `what`: reported when it takes more. A
+    /// closure may take fewer.
+    fn chainArity(self: *Checker, f: Sexp, name: []const u8, what: []const u8, n: usize) Error!bool {
+        if (!f.isKind(.lambda)) return true;
+        const takes = ir.Lambda.params(f).items().len;
+        if (takes <= n) return true;
+        try self.errAt(f, "`{s}` passes its function {s}; this one takes {d} parameters", .{ name, what, takes });
+        return false;
+    }
+
+    /// What a chain's function `f` gives, passed `params`: a closure
+    /// written there, checked quietly; a function's or a closure value's
+    /// result. Null when not known: a closure's own errors are reported
+    /// where its loop is checked.
+    fn chainFnResult(self: *Checker, f: Sexp, params: []const TypeId) Error!?TypeId {
+        var ty: TypeId = undefined;
+        if (f.isKind(.lambda)) {
+            const mark = self.ctx.diagnostics.items.len;
+            self.ctx.quiet += 1;
+            self.tentative += 1;
+            defer {
+                self.ctx.quiet -= 1;
+                self.tentative -= 1;
+                self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+            }
+            const fn_ty = try self.checkLambdaGiven(f, null, params, false);
+            if (self.ctx.diagnostics.items.len != mark or self.isPoison(fn_ty) or self.ctx.types.get(fn_ty) != .function) return null;
+            ty = self.ctx.types.get(fn_ty).function.returns;
+        } else {
+            const fty = try self.synthQuiet(f);
+            if (self.isPoison(fty)) return null;
+            const peeled = sema.unwrapViews(self.ctx, fty);
+            if (self.ctx.types.get(peeled) == .function) {
+                ty = self.ctx.types.get(peeled).function.returns;
+            } else if (sema.callableFnTy(self.ctx, fty)) |c| {
+                ty = self.ctx.types.get(c).function.returns;
+            } else if (sema.ownedClosureFn(self.ctx, fty)) |o| {
+                ty = o.returns;
+            } else return null;
+        }
+        switch (self.ctx.types.get(ty)) {
+            .fallible => |fl| ty = fl.ok,
+            else => {},
+        }
+        if (self.isPoison(ty)) return null;
+        if (ty == self.t().int_literal_id) return self.t().int_id;
+        if (ty == self.t().float_literal_id) return self.t().float_id;
+        return ty;
+    }
+
+    /// What `ty`, compared with `<`, lacks to be ordered (`orderedBeside`'s
+    /// rule), or null when it is.
+    fn noOrder(self: *Checker, ty: TypeId) Error!?sema.Lack {
+        const r = sema.unwrapViews(self.ctx, ty);
+        if (sema.isNumeric(self.ctx, r) or self.isBytes(r) or sema.containsTypeVar(self.ctx, r) or sema.isOrderedEnum(self.ctx, r)) return null;
+        switch (self.ctx.types.get(r)) {
+            .string_view, .static => return null,
+            else => {},
+        }
+        return try sema.lacks(self.ctx, r, .Ord);
     }
 
     /// Whether closure literal `f` checks against function type `want`
