@@ -76,6 +76,7 @@ pub fn Task(comptime T: type) type {
                 fn run(control: *Control, deadline: ?i96, a: Args) T {
                     const state = task();
                     state.control = control;
+                    state.own = control;
                     state.deadline = deadline;
                     state.isolate = control.isolate;
                     defer control.finish();
@@ -333,19 +334,21 @@ pub const Control = struct {
     err: rt.ErrData = undefined,
     canceled: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
+    /// Listed among the ended tasks of its `Wakeup`, by its end or by the
+    /// watch that came after it (`Wakeup.watch`): whichever sets it.
+    listed: std.atomic.Value(bool) = .init(false),
     wakeup: std.atomic.Value(?*Wakeup) = .init(null),
     /// The task's fiber, whose wait a cancel ends
     /// (`rt.sched.interruptForCancel`).
     fiber: ?*rt.sched.Fiber = null,
     /// The isolate the task runs under, which lists it until it ends.
     isolate: ?*Isolate = null,
-    /// Its neighbors in that isolate's list.
+    /// Its neighbors in that isolate's list; once it has left it, `next`
+    /// is the task that ended before it on its `Wakeup`'s list.
     iso_prev: ?*Control = null,
-    iso_next: ?*Control = null,
-    /// Its place in the set that holds it, and the task that ended
-    /// before it on its `Wakeup`'s list of those ended (`Tasks.dropEnded`).
-    index: usize = 0,
-    next_ended: ?*Control = null,
+    next: ?*Control = null,
+    /// Its place in the set that holds it (`Tasks.dropEnded`).
+    index: u32 = 0,
 
     /// The task is made and not yet running: it runs under the isolate
     /// of the task starting it, which lists it now, so a panic there
@@ -364,15 +367,17 @@ pub const Control = struct {
         if (self.fiber) |f| rt.sched.interruptForCancel(f);
     }
 
-    /// The task has ended: record it, then tell what waits on it, once.
-    /// A `Wakeup` that comes to watch it after finds it ended
-    /// (`Wakeup.watch`), so no end goes unseen.
+    /// The task has ended: record it, then tell what waits on it. A
+    /// `Wakeup` that comes to watch it after finds it ended
+    /// (`Wakeup.watch`), so no end goes unseen; one task with neither
+    /// pays a store and a load.
     fn finish(self: *Control) void {
         if (self.isolate) |iso| iso.remove(self);
         self.done.store(true, .seq_cst);
-        const w = self.wakeup.swap(Wakeup.ended, .seq_cst) orelse return;
-        // The last touch of `self`: its owner may free it once it is listed.
-        w.list(self);
+        const w = self.wakeup.load(.seq_cst) orelse return;
+        // The last touch of `self`: its owner may free it once it is
+        // listed, by this or by the watch.
+        if (w.collect and !self.listed.swap(true, .acq_rel)) w.list(self);
         w.tick();
     }
 };
@@ -383,14 +388,14 @@ pub const Control = struct {
 /// that give nothing takes to drop them (`Tasks.dropEnded`).
 const Wakeup = struct {
     ticks: std.atomic.Value(u32) = .init(0),
+    /// Whether its tasks are listed as they end: for a set of tasks that
+    /// give nothing, which drops them (`Tasks.dropEnded`).
+    collect: bool = false,
     ended_list: std.atomic.Value(?*Control) = .init(null),
     /// The fiber waiting on the count and the epoch of its wait
     /// (`rt.sched.Wait`).
     waiter: std.atomic.Value(?*anyopaque) = .init(null),
     waiter_epoch: std.atomic.Value(u32) = .init(0),
-
-    /// What a task's `Control.wakeup` holds once it has ended.
-    const ended: *Wakeup = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(Wakeup)));
 
     fn create() *Wakeup {
         const w = std.heap.smp_allocator.create(Wakeup) catch oom();
@@ -402,17 +407,19 @@ const Wakeup = struct {
         std.heap.smp_allocator.destroy(self);
     }
 
-    /// Watch the task of `control`: false when it has ended already, and
-    /// will tell no `Wakeup`.
-    fn watch(self: *Wakeup, control: *Control) bool {
-        return control.wakeup.cmpxchgStrong(null, self, .seq_cst, .seq_cst) == null;
+    /// Watch the task of `control`. Its end stores `done`, then loads
+    /// `wakeup`, and this stores `wakeup`, then loads `done`, so at least
+    /// one sees the other; when both do, `listed` lists it once.
+    fn watch(self: *Wakeup, control: *Control) void {
+        control.wakeup.store(self, .seq_cst);
+        if (self.collect and control.done.load(.seq_cst) and !control.listed.swap(true, .acq_rel)) self.list(control);
     }
 
     /// List the task of `control` among those ended.
     fn list(self: *Wakeup, control: *Control) void {
         var head = self.ended_list.load(.monotonic);
         while (true) {
-            control.next_ended = head;
+            control.next = head;
             head = self.ended_list.cmpxchgWeak(head, control, .release, .monotonic) orelse return;
         }
     }
@@ -507,7 +514,7 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
     // frame while the others may still tell the count, and leaks it.
     const w = Wakeup.create();
     defer w.destroy();
-    inline for (0..n) |i| _ = w.watch(ts[i].control);
+    inline for (0..n) |i| w.watch(ts[i].control);
     var taken: [n]bool = @splat(false);
     var got: [n]bool = @splat(false);
     var left: usize = n;
@@ -661,21 +668,23 @@ pub fn Tasks(comptime T: type) type {
 
         /// `!ts.add(t)`: take the task into the set.
         pub fn add(self: *Self, t: Task(T)) void {
-            if (Value == void) self.dropEnded();
-            t.control.index = self.items.items.len;
+            if (Value == void) {
+                self.dropEnded();
+                t.control.index = @intCast(self.items.items.len);
+            }
             self.items.append(defaultAllocator(), t) catch oom();
             self.len = @intCast(self.items.items.len);
             // A set that can fail waits for whichever task ends first, and
             // one of tasks that give nothing drops those that end; one that
             // does neither waits for each in turn, so its tasks need not
-            // tell the set as they end. A task that ended before it was
-            // watched is listed here.
+            // tell the set as they end.
             if (!fallible and Value != void) return;
             const w = self.wakeup orelse blk: {
                 self.wakeup = Wakeup.create();
+                self.wakeup.?.collect = Value == void;
                 break :blk self.wakeup.?;
             };
-            if (!w.watch(t.control)) w.list(t.control);
+            w.watch(t.control);
         }
 
         /// Drop each task that has ended well since the last look, keeping
@@ -687,7 +696,7 @@ pub fn Tasks(comptime T: type) type {
             const w = self.wakeup orelse return;
             var at = w.ended_list.swap(null, .acquire);
             while (at) |c| {
-                at = c.next_ended;
+                at = c.next;
                 const i = c.index;
                 const t = self.items.items[i];
                 var result = t.job.join();
@@ -1211,13 +1220,14 @@ pub const Isolate = struct {
     /// read the frames on them (`isolateWith`).
     leaving: u32 = 0,
     kept: std.ArrayList(rt.sched.Stack) = .empty,
+    keep: rt.sched.Keep = .{ .take = keepStack, .left = leftStack },
 
     fn add(self: *Isolate, c: *Control) void {
         self.lock.lock();
         defer self.lock.unlock();
         if (self.stopping) c.cancel();
         c.iso_prev = null;
-        c.iso_next = self.first;
+        c.next = self.first;
         if (self.first) |n| n.iso_prev = c;
         self.first = c;
     }
@@ -1225,20 +1235,27 @@ pub const Isolate = struct {
     fn remove(self: *Isolate, c: *Control) void {
         self.lock.lock();
         defer self.lock.unlock();
-        if (c.iso_prev) |p| p.iso_next = c.iso_next else self.first = c.iso_next;
-        if (c.iso_next) |n| n.iso_prev = c.iso_prev;
+        if (c.iso_prev) |p| p.next = c.next else self.first = c.next;
+        if (c.next) |n| n.iso_prev = c.iso_prev;
         c.iso_prev = null;
-        c.iso_next = null;
+        c.next = null;
         if (self.first == null and self.leaving == 0) _ = self.stopper.wakeAll();
     }
 
-    /// A task that panicked under it has switched off its stack `s`
-    /// for good (`rt.sched.Keep`).
-    fn keepStack(ctx: *anyopaque, s: rt.sched.Stack) void {
-        const self: *Isolate = @ptrCast(@alignCast(ctx));
+    /// A task that panicked under it leaves it its stack `s`, which it
+    /// still runs on (`rt.sched.Keep`).
+    fn keepStack(k: *rt.sched.Keep, s: rt.sched.Stack) void {
+        const self: *Isolate = @alignCast(@fieldParentPtr("keep", k));
         self.lock.lock();
         defer self.lock.unlock();
         self.kept.append(std.heap.smp_allocator, s) catch oom();
+    }
+
+    /// That task has switched off its stack for good.
+    fn leftStack(k: *rt.sched.Keep) void {
+        const self: *Isolate = @alignCast(@fieldParentPtr("keep", k));
+        self.lock.lock();
+        defer self.lock.unlock();
         self.leaving -= 1;
         if (self.first == null and self.leaving == 0) _ = self.stopper.wakeAll();
     }
@@ -1251,7 +1268,7 @@ pub const Isolate = struct {
         defer self.lock.unlock();
         self.stopping = true;
         var c = self.first;
-        while (c) |x| : (c = x.iso_next) x.cancel();
+        while (c) |x| : (c = x.next) x.cancel();
         while (wait and (self.first != null or self.leaving != 0)) _ = rt.sched.sleepOn(&self.stopper, &self.lock, null, false);
     }
 };
@@ -1373,8 +1390,8 @@ pub fn panicked(iso: *Isolate) noreturn {
     iso.leaving += 1;
     iso.lock.unlock();
     iso.stop(false);
-    if (task().control) |c| c.finish();
-    rt.sched.abandon(.{ .ctx = iso, .take = Isolate.keepStack });
+    if (task().own) |c| c.finish();
+    rt.sched.abandon(&iso.keep);
 }
 
 // -----------------------------------------------------------------------------
@@ -1879,12 +1896,9 @@ pub fn Actor(comptime T: type) type {
         /// empty, so claiming the actor, and giving it back when no
         /// message came meanwhile, are one atomic step each.
         state: std.atomic.Value(u8) = .init(0),
-        /// Calls made with `&` in flight, against `capacity`, and the
-        /// calls waiting for a slot (`takeSlot`), under `lock`.
+        /// Calls made with `&` in flight, against `capacity`.
         pending: std.atomic.Value(u32) = .init(0),
         capacity: u32 = default_mailbox,
-        slot_waiting: std.atomic.Value(u32) = .init(0),
-        slot_waiters: rt.sched.Waiters = .{},
         /// The method running in the actor while the fiber running it
         /// blocks, for a deadlock's walk (`rt.sched.Held`).
         held_by: std.atomic.Value(?*rt.sched.Held) = .init(null),
@@ -1907,6 +1921,10 @@ pub fn Actor(comptime T: type) type {
         /// the next method runs (`remake`), and whether it is making it.
         stale: bool = false,
         remaking: bool = false,
+        /// The calls made with `&` waiting for a slot (`takeSlot`), under
+        /// `lock`, and how many are about to wait or wait.
+        slot_waiting: std.atomic.Value(u32) = .init(0),
+        slot_waiters: rt.sched.Waiters = .{},
 
         const Self = @This();
 
@@ -1997,9 +2015,9 @@ pub fn Actor(comptime T: type) type {
         /// the mailbox slot of a call made with `&`: where the actor is
         /// done with it, on the runner or at its death, so a panic in its
         /// caller's task leaves no slot taken.
-        fn answer(self: *Self, m: *Message, outcome: u8) void {
+        inline fn answer(self: *Self, m: *Message, comptime outcome: u8) void {
             const slotted = m.slotted;
-            m.outcome = outcome;
+            if (outcome != Message.done) m.outcome = outcome;
             m.answer();
             if (slotted) self.freeSlot();
         }
@@ -2078,17 +2096,18 @@ pub fn Actor(comptime T: type) type {
             return @alignCast(@fieldParentPtr("held_by", h.held_by));
         }
 
-        /// A panic on a fiber that runs a method inline: the task's own
-        /// cancel and deadline are back, as the call would have put them,
-        /// so the panic finds the task's `Control`; the actor dies, its
-        /// slot of the mailbox comes free, and the panic goes on to the
-        /// fiber's own boundary.
-        fn dieInline(h: *rt.sched.Held) void {
-            const in: *Inline = @alignCast(@fieldParentPtr("held", h));
-            in.state.control, in.state.deadline = .{ in.control, in.deadline };
-            const self = heldBy(h);
-            self.kill(h.doing);
-            if (in.slotted) self.freeSlot();
+        /// A panic on a fiber that runs a method inline: the actor dies,
+        /// its slot of the mailbox comes free, and the panic goes on to
+        /// the fiber's own boundary, which finds the task's own `Control`
+        /// (`TaskState.own`).
+        fn dieInline(comptime slotted: bool) fn (*rt.sched.Held) void {
+            return struct {
+                fn die(h: *rt.sched.Held) void {
+                    const self = heldBy(h);
+                    self.kill(h.doing);
+                    if (slotted) self.freeSlot();
+                }
+            }.die;
         }
 
         /// A panic in the runner: the actor dies, the runner's handle
@@ -2134,14 +2153,14 @@ pub fn Actor(comptime T: type) type {
         /// deadline, as its runner runs one, so a canceled caller cannot
         /// stop it partway. What arrived meanwhile goes to a runner after
         /// it (`release`).
-        pub fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype) Result(name) {
+        pub inline fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype) Result(name) {
             return callAs(box, name, args, false);
         }
 
         /// `call`, for a call made with `&` (`slotted`) that holds a slot
         /// of the mailbox, which it gives back once it is answered, run
         /// inline, withdrawn, or refused by a dead actor.
-        fn callAs(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, slotted: bool) Result(name) {
+        fn callAs(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, comptime slotted: bool) Result(name) {
             const R = Result(name);
             const self = &box.value;
             const fallible = @typeInfo(R) == .error_union;
@@ -2152,23 +2171,15 @@ pub fn Actor(comptime T: type) type {
             const f = rt.sched.current();
             const t = if (f) |x| &x.state else task();
             if (f != null and self.claim(t)) {
-                var in: Inline = .{
-                    .held = .{ .held_by = &self.held_by, .doing = label(name), .die = dieInline, .next = f.?.held },
-                    .state = t,
-                    .control = t.control,
-                    .deadline = t.deadline,
-                    .slotted = slotted,
-                };
-                f.?.held = &in.held;
-                t.control, t.deadline = .{ null, null };
+                var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = label(name), .die = dieInline(slotted), .next = f.?.held };
+                f.?.held = &held;
                 defer {
-                    t.control, t.deadline = .{ in.control, in.deadline };
-                    f.?.held = in.held.next;
+                    f.?.held = held.next;
                     self.release(box);
                     if (slotted) self.freeSlot();
                 }
-                if (self.stale) self.remake(&in.held);
-                return self.invoke(name, args);
+                if (self.stale) self.remake(&held);
+                return self.runInline(t, name, args);
             }
             const Call = struct {
                 msg: Message,
@@ -2239,6 +2250,16 @@ pub fn Actor(comptime T: type) type {
             rt.sched.spawnDetached(runner, .{box.cloneStrong()});
         }
 
+        /// Run method `name` inline as the actor: under no cancel or
+        /// deadline, as its runner runs one, so a canceled caller cannot
+        /// stop it partway.
+        fn runInline(self: *Self, t: *rt.TaskState, comptime name: []const u8, args: anytype) Result(name) {
+            const control, const deadline = .{ t.control, t.deadline };
+            t.control, t.deadline = .{ null, null };
+            defer t.control, t.deadline = .{ control, deadline };
+            return self.invoke(name, args);
+        }
+
         /// Take `m` out of the mailbox, unless it has started.
         fn withdraw(self: *Self, m: *Message) bool {
             self.lock.lock();
@@ -2298,18 +2319,6 @@ pub fn Actor(comptime T: type) type {
 
 /// How many calls made with `&` an actor holds in flight at once.
 const default_mailbox = 64;
-
-/// A method run inline on a task's fiber (`Actor.callAs`): its hold on
-/// the actor, and what a panic in it puts back as the call would have
-/// (`Actor.dieInline`): the task's cancel and deadline, and the mailbox
-/// slot of a call made with `&`.
-const Inline = struct {
-    held: rt.sched.Held,
-    state: *rt.TaskState,
-    control: ?*Control,
-    deadline: ?i96,
-    slotted: bool,
-};
 
 /// What a deadlock calls an actor of `T`: its name in Rig, without the
 /// module or the type's arguments.

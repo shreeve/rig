@@ -84,9 +84,6 @@ pub const Fiber = struct {
     /// (`spendBudget`), so a socket that is always ready cannot keep it
     /// on its worker.
     budget: u8 = budget_size,
-    /// Where its stack goes once it has left it for good, in place of
-    /// back to its worker: set when it panicked under a boundary.
-    keep: ?Keep = null,
     /// The worker it runs on and no other, once pinned (`pinHere`): a
     /// local task, and the task that made one. It waits in that worker's
     /// `pinned` queue, never in a ring or the global queue, so no other
@@ -94,13 +91,14 @@ pub const Fiber = struct {
     home: ?*Worker = null,
 };
 
-/// Where a fiber that panicked under a boundary leaves its stack: `take`
-/// is given it once the fiber has switched off it for good, and the
-/// boundary gives it back (`giveStack`) once the tasks that may read its
-/// frames have ended (`tasks.Isolate`).
+/// Where a task that panicked under a boundary leaves its stack: `take`
+/// is given it as the task ends, `left` is told once the task has
+/// switched off it for good (`Header.end`), and the boundary gives it
+/// back (`giveStack`) once the tasks that may read its frames have ended
+/// (`tasks.Isolate`).
 pub const Keep = struct {
-    ctx: *anyopaque,
-    take: *const fn (*anyopaque, Stack) void,
+    take: *const fn (*Keep, Stack) void,
+    left: *const fn (*Keep) void,
 };
 
 /// Give back a stack a `Keep` was given, to the running worker.
@@ -281,19 +279,14 @@ pub fn wake(f: *Fiber) void {
     if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
 }
 
-/// Make `f` ready to run after the fibers already ready on this worker,
-/// waking a sleeping worker only when other work waits here, ahead of
-/// `f`, which one could take meanwhile: a fiber alone runs again next.
+/// Make `f` ready to run after the fibers already ready on this worker.
+/// A fiber yields only when other work waits (`tick`), which a sleeping
+/// worker may take meanwhile.
 fn wakeLast(f: *Fiber) void {
     if (deterministic.*) return wake(f);
     if (f.home) |home| return wakeHome(f, home);
-    const w = me() orelse {
-        global.push(f);
-        return notify();
-    };
-    const others = hasOwnWork(w);
-    w.ring.push(f);
-    if (others) notify();
+    if (me()) |w| w.ring.push(f) else global.push(f);
+    notify();
 }
 
 /// Queue the pinned fiber `f` on its worker, and wake that worker if it
@@ -1154,8 +1147,12 @@ pub const Registration = struct {
     fd: i32,
     poller: *Poller,
     ready_bits: std.atomic.Value(u32) = .init(0),
-    /// Guards `readers` and `writers`.
+    /// Guards `readers` and `writers`. `waiting` counts the fibers about
+    /// to list themselves or listed: a waiter counts itself, then looks
+    /// at `ready_bits`, and the poller sets them, then looks at the count,
+    /// so it takes the lock only when one may wait.
     lock: SpinLock = .{},
+    waiting: std.atomic.Value(u32) = .init(0),
     readers: Waiters = .{},
     writers: Waiters = .{},
     /// Its neighbors in the list of every registration, kept in a
@@ -1177,6 +1174,7 @@ pub const Registration = struct {
     /// The poller saw `bits`: record them, then wake who waits on them.
     fn ready(r: *Registration, bits: u32) bool {
         _ = r.ready_bits.fetchOr(bits, .seq_cst);
+        if (r.waiting.load(.seq_cst) == 0) return false;
         r.lock.lock();
         defer r.lock.unlock();
         var any = false;
@@ -1245,7 +1243,9 @@ pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bo
         // lock, or an edge that woke it: it takes the readiness and tries
         // its call again.
         r.lock.lock();
+        _ = r.waiting.fetchAdd(1, .seq_cst);
         const woken = r.ready_bits.load(.seq_cst) & interest != 0 or sleepOn(ws, &r.lock, deadline, cancelable);
+        _ = r.waiting.fetchSub(1, .seq_cst);
         r.lock.unlock();
         if (woken) {
             _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
@@ -2155,12 +2155,12 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     }
 }
 
-/// The fiber `f` has switched away for good: its stack goes back to `w`,
-/// or to where a panic left it (`Keep`).
+/// The fiber `f` has switched away for good: its stack, unless a panic
+/// left it elsewhere (`Keep`), goes back to `w`.
 fn endStack(w: *Worker, f: *Fiber) void {
     const s = f.stack orelse return;
     f.stack = null;
-    if (f.keep) |k| k.take(k.ctx, s) else releaseStack(w, s);
+    releaseStack(w, s);
 }
 
 /// Give a fiber that has not run yet its stack, from this worker, which
@@ -2945,6 +2945,8 @@ pub const Header = struct {
     waiter: std.atomic.Value(?*Fiber) = .init(null),
     waiter_epoch: std.atomic.Value(u32) = .init(0),
     destroy: *const fn (*Header) void,
+    /// Where the task, panicked, left its stack (`abandon`).
+    keep: ?*Keep = null,
 
     const running = 0;
     const waited = 1;
@@ -2953,6 +2955,7 @@ pub const Header = struct {
 
     fn end(f: *Fiber) void {
         const h: *Header = @fieldParentPtr("fiber", f);
+        if (h.keep) |k| k.left(k);
         if (h.status.swap(ending, .seq_cst) == waited) {
             _ = interrupt(h.waiter.load(.seq_cst).?, h.waiter_epoch.load(.seq_cst), false);
         }
@@ -3482,10 +3485,15 @@ pub fn abandonDetached() noreturn {
 /// End the running fiber where it stands, its frames left as they are,
 /// and its stack to `keep`: a task that panicked (`tasks.panicked`). Its
 /// record is marked `panicked`, so whoever waits for it learns so.
-pub fn abandon(keep: Keep) noreturn {
+pub fn abandon(keep: *Keep) noreturn {
     const f = current().?;
-    f.keep = keep;
+    keep.take(keep, f.stack.?);
+    f.stack = null;
+    // It ends the usual way, through `Header.end`, which tells `keep`,
+    // even when it was handed its worker.
+    f.handoff = null;
     const h: *Header = @fieldParentPtr("fiber", f);
+    h.keep = keep;
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
 }

@@ -5686,6 +5686,10 @@ pub const TaskState = struct {
     print_depth: u32 = 0,
     stack_guard: StackGuard = .{},
     control: ?*Control = null,
+    /// The task's own `Control`, which an actor's method run inline does
+    /// not hide, as it hides `control`: what a panic finishes
+    /// (`tasks.panicked`).
+    own: ?*Control = null,
     deadline: ?i96 = null,
     /// The nearest `task.isolate` this task runs under: on its own
     /// fiber, or the one that started it (`tasks.Isolate`).
