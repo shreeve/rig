@@ -2323,6 +2323,11 @@ first step is on `main` (SPEC §18):
   its tasks after a panic, sleep until woken rather than spin on a
   yield, so neither burns a core, and a deterministic run (`rig test`)
   reaches the timers that end them.
+- **`http.serve` registers each connection as it accepts it**, with
+  the acceptor's poller, as a server's own accept loop does, rather
+  than in the connection's task: on the Mac, under bench/http's load of
+  64 connections, 2.6% more requests a second and a 99th percentile
+  latency 8% lower (543 µs, from 591).
 - **Tasks waiting on one socket each see every edge that comes after
   their own call**, even when another task, woken by the same edge, runs
   first and takes what came: an acceptor no longer sleeps with a

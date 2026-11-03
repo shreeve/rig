@@ -36,8 +36,12 @@ a program that makes none starts no workers.
   argument it could write through (`[]u8`, `*T`) does not compile, since
   the waiter may leave while it still writes, so it reads into memory it
   owns and returns it. `rig.blocking`'s waiter waits for the call, which
-  takes its arguments as they are, a buffer to read into among them. Sockets are registered
-  with the workers' pollers and wait there (`net.zig`).
+  takes its arguments as they are, a buffer to read into among them. A
+  socket is registered with the poller of the worker that makes or
+  accepts it, and waits there (`net.zig`): `http.serve`'s connections,
+  like those of a server's own accept loop, share the acceptor's
+  poller, which it sleeps in while it waits to accept, so their events
+  wake it at once rather than wait for a busy worker's next look.
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
   full pipe holds its worker until it returns.

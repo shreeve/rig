@@ -865,7 +865,11 @@ const accept_pause_max_ns: i64 = std.time.ns_per_s;
 /// each a task of its own, and answer each request on them with what
 /// `f` gives for it, until the call is canceled or the listener fails.
 /// Out of descriptors, it pauses and accepts again, as Go's server
-/// does, so the connections it holds can close. Each request runs
+/// does, so the connections it holds can close. Each connection is
+/// registered as it is accepted, with this worker's poller, as a server's
+/// own accept loop registers what it accepts (`Listener.accept`): an
+/// acceptor waiting for connections sleeps in that poller, and wakes as
+/// soon as any of them has bytes to read. Each request runs
 /// isolated (`tasks.isolate`): a panic in `f` answers 500, and the
 /// server goes on. The connections' tasks end before it
 /// returns, and the listener closes then. `f` is a `rig.FnRef` taking a
@@ -892,18 +896,18 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
             continue;
         };
         pause = accept_pause_ns;
-        conns.add(tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), f, settings }));
+        conns.add(tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), watch(c), f, settings }));
     }
 }
 
 /// A connection's task: read its requests one after another, and answer
 /// each, until it closes, fails, waits too long (`Settings`), or the
 /// task is canceled.
-fn connection(comptime F: type) fn (i32, F, Settings) void {
+fn connection(comptime F: type) fn (i32, i64, F, Settings) void {
     return struct {
-        fn run(fd: i32, f: F, settings: Settings) void {
+        fn run(fd: i32, reg: i64, f: F, settings: Settings) void {
             var c: Conn = undefined;
-            c.init(fd, settings);
+            c.init(fd, reg, settings);
             defer c.close();
             var server = std.http.Server.init(&c.reader, &c.writer);
             // `init` takes the read buffer's size, which is held later.
@@ -1025,10 +1029,10 @@ const Conn = struct {
 
     const buf_size = rig.sched.block_size / 2;
 
-    fn init(c: *Conn, fd: i32, settings: Settings) void {
+    fn init(c: *Conn, fd: i32, reg: i64, settings: Settings) void {
         c.* = .{
             .fd = fd,
-            .reg = watch(fd),
+            .reg = reg,
             .settings = settings,
             .limit = settings.limit(false),
             .reader = .{ .vtable = &.{ .stream = stream }, .buffer = &.{}, .seek = 0, .end = 0 },
