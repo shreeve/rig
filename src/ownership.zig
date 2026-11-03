@@ -4448,13 +4448,19 @@ pub const Checker = struct {
         return true;
     }
 
-    /// `+x` / `~x`.
+    /// `+x` / `~x`. A clone that holds no view is made where it stands
+    /// and keeps nothing lent there (Core §6): what its operand read
+    /// through is released, so `!m.take(+v.key)` ends `v`'s view of `m`
+    /// before the call lends `m` to write.
     fn walkCloneWeak(self: *Checker, e: Sexp) Error!Value {
         const inner = ir.get(e, .operand);
+        const temps_start = self.temps.items.len;
         const v = try self.walk(inner);
         const p = self.resolvePlace(inner);
         const id: ?VarId = if (p != null and p.?.whole) p.?.root else null;
-        return self.newHandle(self.startOf(inner), try self.placeText(inner), self.exprType(e), id, v, e.isKind(.weak));
+        const out = try self.newHandle(self.startOf(inner), try self.placeText(inner), self.exprType(e), id, v, e.isKind(.weak));
+        if (!self.mayCarryLoan(self.exprType(e))) self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        return out;
     }
 
     /// The value of type `ty` that a clone or weak handle (`+x`, `~x`,

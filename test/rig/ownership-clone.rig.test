@@ -229,6 +229,68 @@ test "a clone into a read view kept apart", '''
   print(b.v.len, w.len)
   print(w)
 
+test "a clone ends a view before the call writes what it views", "2 60"
+  # `oldest` views `@entries`; `+o.key` is made where it stands, so the
+  # view's last use is behind the write lend of `take` (Core §6).
+  obj Entry
+    ready: Bool
+    touched: Int
+    bytes: Int
+
+  obj Cache
+    entries: Map[String, Entry]
+    bytes: Int
+
+    sub trim(!@)
+      while @entries.len > 2 or @bytes > 100
+        oldest: Item[?String, ?Entry]? = none
+        touched = 0
+        for e in ?@entries.items()
+          if e.value.ready and (oldest == none or e.value.touched < touched)
+            oldest = e
+            touched = e.value.touched
+        o = oldest ?? break
+        entry = !@entries.take(+o.key) ?? break
+        @bytes -= entry.bytes
+
+  c = Cache(entries: Map[String, Entry](), bytes: 0)
+  for n, i in ["a", "b", "c", "d", "e", "f"]
+    !c.entries.put(String(n), Entry(ready: i != 1, touched: 10 - i, bytes: 30))
+    c.bytes += 30
+  (!c).trim()
+  print(c.entries.len, c.bytes)
+
+fail "a view handed to a call that writes what it views", "7:5: cannot lend `m` to write while a read loan is live", "13:6: cannot lend `m2` to write while a read loan is live", errors: 2
+  # The view itself is lent while `take` writes `m`; and a clone ends
+  # the view only where the view is not used after it.
+  m: Map[String, Int] = Map()
+  !m.put(String("a"), 1)
+  it = ?m.items()
+  e = (!it).next() ?? return
+  n = !m.take(e.key) ?? 0
+  print(n)
+  m2: Map[String, Int] = Map()
+  !m2.put(String("a"), 1)
+  it2 = ?m2.items()
+  e2 = (!it2).next() ?? return
+  n2 = !m2.take(+e2.key) ?? 0
+  print(n2, e2.key)
+
+test "a clone into a read self ends a view before an argument writes", "2"
+  # `+e.value` is made before `!m` is lent, so it is no wasted clone.
+  obj Name
+    s: String
+
+    fun copy_into(?@, m: !Map[String, Name]) -> Int
+      !m.put(String("b"), Name(s: +@s))
+      m.len
+
+  m: Map[String, Name] = Map()
+  !m.put(String("a"), Name(s: String("x")))
+  it = ?m.items()
+  e = (!it).next() ?? return
+  print((+e.value).copy_into(!m))
+
 fail "a generic of itself over a value with no clone has no clone", "has no clone"
   obj Res
     id: Int
