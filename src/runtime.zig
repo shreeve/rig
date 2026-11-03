@@ -6693,7 +6693,13 @@ const Sanitizer = struct {
         if (!sanitizer.owns(addr)) return;
         flushQuietly();
         var buf: [256]u8 = undefined;
-        const msg = if (sanitizer.blockBefore(addr)) |b|
+        // The live blocks are named only while no other thread changes
+        // them: the handler cannot wait for the lock.
+        const locked = !concurrent or alloc_lock.tryLock();
+        defer if (concurrent and locked) alloc_lock.unlock(io());
+        const msg = if (!locked)
+            std.mem.print(&buf, "error: rig: use of freed memory, or access past the end of a block, at address 0x{x}\n", .{addr})
+        else if (sanitizer.blockBefore(addr)) |b|
             std.mem.print(&buf, "error: rig: access past the end of a {d}-byte block at 0x{x} (address 0x{x})\n", .{ b.len, b.start, addr })
         else
             std.mem.print(&buf, "error: rig: use of freed memory at address 0x{x}\n", .{addr});
