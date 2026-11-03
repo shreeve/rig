@@ -859,8 +859,23 @@ var region_next_var: std.atomic.Value(usize) = .init(0);
 const region_next = split.cell(&region_next_var, "alloc.region_next");
 var region_end_var: usize = 0;
 const region_end = split.cell(&region_end_var, "alloc.region_end");
-var region_lock_var: std.atomic.Value(bool) = .init(false);
+var region_lock_var: SpinLock = .{};
 const region_lock = split.cell(&region_lock_var, "alloc.region_lock");
+
+/// A lock that spins, for the few loads and stores, or the rare system
+/// call, it is held across: a region's or a Table's address space, and
+/// the spare heaps.
+const SpinLock = struct {
+    held: std.atomic.Value(bool) = .init(false),
+
+    fn lock(self: *SpinLock) void {
+        while (self.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    }
+
+    fn unlock(self: *SpinLock) void {
+        self.held.store(false, .release);
+    }
+};
 
 fn mapSegment() ?*Segment {
     if (region_next.load(.acquire) == 0) reserveRegion();
@@ -873,8 +888,8 @@ fn mapSegment() ?*Segment {
 
 fn reserveRegion() void {
     @branchHint(.cold);
-    while (region_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
-    defer region_lock.store(false, .release);
+    region_lock.lock();
+    defer region_lock.unlock();
     if (region_next.load(.monotonic) != 0) return;
     const raw = std.posix.mmap(null, region_size + segment_size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
         // No room for it: each segment is mapped on its own.
@@ -927,7 +942,7 @@ const table_free_max = 128;
 
 const Range = struct { start: usize, len: usize };
 
-var tables_lock_var: std.atomic.Value(bool) = .init(false);
+var tables_lock_var: SpinLock = .{};
 const tables_lock = split.cell(&tables_lock_var, "alloc.tables_lock");
 /// The regions, in the order they were mapped; the newest is handed out
 /// from `table_next` to `table_end`.
@@ -953,14 +968,6 @@ const table_free_count = split.cell(&table_free_count_var, "alloc.table_free_cou
 var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
 const tables_asked_huge = split.cell(&tables_asked_huge_var, "alloc.tables_asked_huge");
 
-fn lockTables() void {
-    while (tables_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
-}
-
-fn unlockTables() void {
-    tables_lock.store(false, .release);
-}
-
 /// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
 /// Table: zeros, none committed. Its first 2 MiB keep small pages, and
 /// the rest asks for huge pages while the system has free 2 MiB blocks
@@ -972,9 +979,9 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     const len = std.mem.alignForward(usize, bytes, huge_page);
     if (len > table_region_size) return null;
     const huge = len > huge_page and hugeFree();
-    lockTables();
+    tables_lock.lock();
     const p = takeTableRange(len);
-    unlockTables();
+    tables_lock.unlock();
     if (huge) if (p) |at| {
         tables_asked_huge.store(true, .monotonic);
         std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
@@ -989,17 +996,17 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     if (builtin.os.tag != .linux) return false;
     const at = @intFromPtr(p);
     const len = std.mem.alignForward(usize, bytes, huge_page);
-    lockTables();
+    tables_lock.lock();
     var mine = false;
     for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
-    unlockTables();
+    tables_lock.unlock();
     if (!mine) return false;
     const range: [*]align(huge_page) u8 = @alignCast(p);
     std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
     if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
-    lockTables();
+    tables_lock.lock();
     giveTableRange(at, len);
-    unlockTables();
+    tables_lock.unlock();
     return true;
 }
 
@@ -1180,7 +1187,7 @@ pub const owner_lost_default: *const fn () void = ownerLost;
 /// Heaps given back by threads that ended, for the next to start.
 var spare_heaps_var: std.atomic.Value(?*Heap) = .init(null);
 const spare_heaps = split.cell(&spare_heaps_var, "alloc.spare_heaps");
-var spare_lock_var: std.atomic.Value(bool) = .init(false);
+var spare_lock_var: SpinLock = .{};
 const spare_lock = split.cell(&spare_lock_var, "alloc.spare_lock");
 
 /// The running thread's heap, made as it first allocates. Never
@@ -1197,10 +1204,10 @@ noinline fn heap() ?*Heap {
 fn newHeap() ?*Heap {
     @branchHint(.cold);
     // A heap a thread that ended gave back, with what it holds.
-    while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    spare_lock.lock();
     const spare = spare_heaps.load(.monotonic);
     if (spare) |s| spare_heaps.store(s.next_free, .monotonic);
-    spare_lock.store(false, .release);
+    spare_lock.unlock();
     if (spare) |s| {
         s.next_free = null;
         if (check_owner) s.owner = threadToken();
@@ -1222,10 +1229,10 @@ pub noinline fn threadExit() void {
     const h = my_heap().* orelse return;
     if (counts) h.flush();
     my_heap().* = null;
-    while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    spare_lock.lock();
     h.next_free = spare_heaps.load(.monotonic);
     spare_heaps.store(h, .monotonic);
-    spare_lock.store(false, .release);
+    spare_lock.unlock();
 }
 
 // -----------------------------------------------------------------------------
