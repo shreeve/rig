@@ -1749,7 +1749,7 @@ test "keywords as members", '''
   39
 '''
   # Every keyword but `if` names a member where it cannot be mistaken for
-  # the keyword (SYNTAX.md, "Keywords"): a field, a method, and a
+  # the keyword (docs/SYNTAX.md, "Keywords"): a field, a method, and a
   # payload field, read after `.` and before `:` inside parentheses.
   # `if` names none (test/torture/03_keyword_as_field.rig).
 

@@ -86,7 +86,7 @@ Which document answers which question:
 |---|---|
 | Where does Rig stand, what is in flight, what comes next? | HANDOFF.md |
 | What does a form mean? | SPEC.md (§1 Programs to §19 Reserved forms) |
-| How is a form written? | SYNTAX.md |
+| How is a form written? | docs/SYNTAX.md |
 | What are the ownership rules, built and planned? | docs/CORE.md |
 | How does the compiler work? | docs/internals/INTERNALS.md |
 | What does the standard library offer? | docs/STD.md |

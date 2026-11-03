@@ -1,8 +1,8 @@
 # FAQ
 
 Short, honest answers, including to the skeptical questions. The
-reasoning behind each is in [docs/DESIGN.md](docs/DESIGN.md); if you
-are coming from another language, start with [WELCOME.md](WELCOME.md).
+reasoning behind each is in [DESIGN.md](DESIGN.md); if you
+are coming from another language, start with [the welcome page](learn/00-welcome.md).
 
 ## Is everything reference-counted?
 
@@ -12,7 +12,7 @@ plain values (an object holding a `List` owns it), and views (`?T`,
 Counting happens only behind a shared handle `*T`, where every new
 count is written (`*x`, `+x`) and a count ends where its handle's scope
 does, or at a statement `<x`; a heap value with one owner is a `^T`,
-which counts nothing ([cost model](docs/DESIGN.md#cost-model)).
+which counts nothing ([cost model](DESIGN.md#cost-model)).
 
 ## Is Rig safe like Rust?
 
@@ -28,37 +28,33 @@ allocator, and Rig is not ready for production code.
 
 Sigils are cryptic when they are arbitrary. Rig spends them only on
 effects a reader should notice where they happen, each has one meaning,
-and most lines have none ([why](docs/DESIGN.md#sigils-rather-than-keywords),
-[the algebra](docs/DESIGN.md#the-sigil-algebra)).
+and most lines have none ([why](DESIGN.md#sigils-rather-than-keywords),
+[the algebra](DESIGN.md#the-sigil-algebra)).
 
 ## Why is `!` not logical negation?
 
 Because prefix `!` lends to write (`!v.push(x)` marks that `push`
 writes `v`), and a sigil has one meaning; negation is the word `not`.
-Where the C, Rust, or Zig habit would change a program's meaning, it is
-a compile error instead: `if !done`, `!q.is_empty()`, and a `!` call
-returning a `Bool` that starts a condition or is an operand of `and`,
-`or`, or `not` without parentheses
-([method calls](SPEC.md#objects), [operators](SPEC.md#operators)).
-For the same reason, a comparison under `not` takes parentheses:
-`not (a > b)`, never `not a > b`.
+Where the C, Rust, or Zig habit would change a program's meaning, such
+as `if !done`, it is a compile error that names `not`
+([why](DESIGN.md#and-or-not), [operators](../SPEC.md#operators)).
 
 ## Why indentation?
 
 It is the lightest syntax for nested blocks
-([why](docs/DESIGN.md#indentation)). If significant whitespace is a
+([why](DESIGN.md#indentation)). If significant whitespace is a
 deal-breaker, Rig is not your language.
 
 ## Why compile to Zig instead of LLVM?
 
 Zig already provides an optimizer, cross-compilation, linking, and a C
-ABI, and its semantics fit Rig's ([why](docs/DESIGN.md#zig-as-the-target)).
+ABI, and its semantics fit Rig's ([why](DESIGN.md#zig-as-the-target)).
 A custom backend is not a goal.
 
 ## Why no garbage collector?
 
 A collector would hide when memory is released, the effect systems
-programmers most need to see ([why](docs/DESIGN.md#no-garbage-collector)).
+programmers most need to see ([why](DESIGN.md#no-garbage-collector)).
 
 ## Why don't cycles get collected?
 
@@ -92,67 +88,61 @@ A weak handle does not keep its value alive, so upgrading it may find
 the value gone. `*w` makes a new count, as `*` always does, and gives a
 `*T?`: a new handle while the value lives, `none` after. So it never
 fails at run time: `if *w as h`
-([totality](docs/DESIGN.md#the-operations)).
+([totality](DESIGN.md#the-operations)).
 
 ## Why no `var` or `let`?
 
 `x = e` binds or assigns, as in Python and Ruby, and `x =! e` binds
 for good; write `new x = e` to shadow on purpose
-([why](docs/DESIGN.md#bindings)).
+([why](DESIGN.md#bindings)).
 
 ## Why isn't reactivity built into the language?
 
 It doesn't need to be: shared and weak handles, `Cell`, owned closures,
 `List`, and drop are what reactive libraries are made of, and a reactive
 source with derived values is a page of Rig
-([examples/memo_canary.rig](examples/memo_canary.rig)). `Signal` is the
+([examples/memo_canary.rig](../examples/memo_canary.rig)). `Signal` is the
 one small reactive type in the runtime
-([more](docs/DESIGN.md#substrate-not-a-reactive-framework)).
+([more](DESIGN.md#substrate-not-a-reactive-framework)).
 
 ## Does Rig have traits or interfaces?
 
-Yes, and it calls them APIs, `api Shape`: the methods a type provides, not
-their implementation. A header names the APIs a type provides, `obj
-Square: Shape`, and `add Int: Shape` gives one to a type declared
-elsewhere. A bound names an API, the program's own or a built-in one,
-`fun max[T: Ord](a: T, b: T)`, and each call through it is direct. An
-API object, `?{Shape}`, `^{Shape}`, or `*{Shape}`, holds a value of any
-type that provides it and calls through a table, as Rust's `dyn` does,
-with the holding written as a sigil. A generic body with no
-bound may do with `T` whatever each instance supports, calling its
-methods included (`x.area()`), and each instance a program makes is
-checked, with an error at the call and a note at the body line
-([more](docs/DESIGN.md#per-instance-checking-bounds-and-apis)). The
-design, which keeps method dispatch and ownership visible, is
-[design/apis.md](docs/design/apis.md).
+Yes, and it calls them APIs, `api Shape`: the methods a type provides.
+`obj Square: Shape` names one on a type's header, `add Int: Shape`
+gives one to a type declared elsewhere, a bound `[T: Shape]` makes each
+call through it direct, and an API object, `?{Shape}` or `^{Shape}`,
+calls through a table, as Rust's `dyn` does. A generic body with no
+bound is checked at each instance a program makes
+([why](DESIGN.md#per-instance-checking-bounds-and-apis),
+[design/apis.md](design/apis.md)).
 
 ## Why square brackets for generics?
 
 After a name, square brackets give compile-time arguments and
 parentheses give run-time ones, so `Wrap[Int](v: 3)` names a type and
 then builds a value. That is Zig's `comptime`, in the brackets Go uses
-for its generics ([why](docs/DESIGN.md#brackets-for-compile-time)).
+for its generics ([why](DESIGN.md#brackets-for-compile-time)).
 
 ## How do I run work at the same time?
 
 Start a call as a task with `f(x)&` and take its result with `>t`; a
 task cannot outlive its scope, and a compiler check rejects data races.
 The answers to the questions about Go, Rust's async, and the rest are in
-[launch/faq](docs/launch/faq.md), and
-[the concurrency journey](docs/learn/04-concurrency.md) teaches it.
+[launch/faq](launch/faq.md), and
+[the concurrency journey](learn/04-concurrency.md) teaches it.
 
 ## Can I call C?
 
 Yes: declare the function with `extern fun`, call it inside a `raw`
 block, and wrap that in a safe Rig function so callers need no `raw`.
 Only integers, floats, and `Bool` cross the boundary today
-([SPEC §15](SPEC.md#15-raw-code-and-ffi)).
+([SPEC §15](../SPEC.md#15-raw-code-and-ffi)).
 
 ## Why Nexus instead of another parser generator?
 
 Each grammar rule declares the IR node it produces, so the grammar is
 the single source of truth for syntax and IR
-([why](docs/DESIGN.md#nexus-and-an-s-expression-ir)).
+([why](DESIGN.md#nexus-and-an-s-expression-ir)).
 
 ## Why another systems language?
 

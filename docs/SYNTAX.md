@@ -4,9 +4,9 @@ This document shows how every form of Rig is written: the layout of a
 source file, names and literals, operators, types, declarations,
 statements, expressions, and patterns, each with a short example. It
 answers "how do I write this?". What a form means, and what the
-compiler accepts, is in the [language reference](SPEC.md); a guided
+compiler accepts, is in the [language reference](../SPEC.md); a guided
 start from Rust, Zig, C, Python, or another language is
-[WELCOME.md](WELCOME.md).
+[the welcome page](learn/00-welcome.md).
 
 Every `rig` example here is compiled and run by the test suite. A
 program followed by an `output` block prints exactly that, with no
@@ -219,7 +219,7 @@ guard or a ternary (`x if c else y`).
 **Module paths** name a module by its path from the program's root
 directory, a name for each directory: `use geo` is `geo.rig` or the
 directory `geo/`, and `use checker.binder` the directory
-`checker/binder/` ([SPEC §14](SPEC.md#14-modules)). Each name is
+`checker/binder/` ([SPEC §14](../SPEC.md#14-modules)). Each name is
 spelled as on disk.
 Everywhere else a keyword names nothing: not a local, a parameter, a
 top-level declaration, or an enum variant.
@@ -284,7 +284,7 @@ declaration (after any `pub`), right before its `fun` or `sub`
 line, so a local, a parameter, a field, or a method may be named any of
 them. `none`
 is a reserved name, the absent optional, which no binding, variant, or
-error may take ([SPEC](SPEC.md#enums)). The words
+error may take ([SPEC](../SPEC.md#enums)). The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
@@ -299,7 +299,7 @@ The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 |---|---|---|
 | integer | `42`, `1_000_000`, `0xff`, `0b1010`, `0o17` | `_` separates digits; radix prefixes are lowercase; no leading zero and no type suffix |
 | float | `3.14`, `.5`, `1e10`, `2.5e-3`, `1.5E+2` | a `.` or an exponent; the digits before `.` may be left out |
-| string | `"tab\t, newline\n"`, `'it''s raw'` | double quotes take Zig's escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'`; where a `U8` is expected, a string of one byte is that byte (`'A'` is 65, `"\n"` is 10), and where a `[N]U8` is, its bytes ([SPEC](SPEC.md#byte-literals)) |
+| string | `"tab\t, newline\n"`, `'it''s raw'` | double quotes take Zig's escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'`; where a `U8` is expected, a string of one byte is that byte (`'A'` is 65, `"\n"` is 10), and where a `[N]U8` is, its bytes ([SPEC](../SPEC.md#byte-literals)) |
 | bool | `true`, `false` | |
 | absent optional | `none` | |
 | array | `[1, 2, 3]`, `[]` | |
@@ -310,7 +310,7 @@ The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 A string holds no control character: a tab or newline in it is written
 `\t` or `\n`. There is no string interpolation; `print` takes several
 values. A literal's type comes from its context
-([SPEC §2](SPEC.md#primitive-types)).
+([SPEC §2](../SPEC.md#primitive-types)).
 
 ```rig
 sub main()
@@ -328,7 +328,7 @@ tab	here it's raw: \n quote: 'x'
 ### Symbols
 
 A symbol is `:` touching a name, where an operand starts: `:width`
-([SPEC, Symbols](SPEC.md#symbols)). The name is an identifier, a
+([SPEC, Symbols](../SPEC.md#symbols)). The name is an identifier, a
 keyword included (`:if`, `:type`), then any run of `-` or `.`, each
 followed by a letter, digit, or `_`: `:content-type`, `:utf-8`, and
 `:a.b` are each one symbol. It stops at `..`, a space, or a `-` or `.`
@@ -389,7 +389,7 @@ spacing that would read as the other form is rejected.
 | `a < b`, `a<b` | comparison |
 | `x = <y`, `f(<y)` | a move |
 | `a > b`, `a>b` | comparison |
-| `x = >t`, `f(>t)` | a wait for the task `t` ([SPEC §18](SPEC.md#18-tasks)) |
+| `x = >t`, `f(>t)` | a wait for the task `t` ([SPEC §18](../SPEC.md#18-tasks)) |
 | `a - 1`, `a-1` | subtraction |
 | `f(-x)`, `-x` | negation |
 | `f(x)`, `f (x)`, `a[i]`, `a.b` | a call, an index or compile-time arguments ([§11](#compile-time-arguments)), member access |
@@ -401,7 +401,7 @@ spacing that would read as the other form is rejected.
 
 A prefix sigil says how a value is held, and a suffix `?` or `!` is
 control flow: Rig has no `!` for "not" (that is `not`), so `!v.pop()`
-lends `v` to write ([WELCOME](WELCOME.md#the-central-idea)).
+lends `v` to write ([the welcome page](learn/00-welcome.md#the-central-idea)).
 
 So a sigil touches what it marks, and spacing shows how a line reads:
 
@@ -414,7 +414,7 @@ So a sigil touches what it marks, and spacing shows how a line reads:
 - A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
 - A postfix `&` touches the `)` of a call, with nothing touching it on
   the right: `f(x)&` makes the call a task
-  ([SPEC §18](SPEC.md#18-tasks)). With an operand touching it, `f()&b`,
+  ([SPEC §18](../SPEC.md#18-tasks)). With an operand touching it, `f()&b`,
   it is bitwise and.
 - A call's parenthesis and an index's bracket touch what they follow:
   `f(x)`, `xs[0]`, never `f (x)` or `xs [0]`.
@@ -485,7 +485,7 @@ or `[index]` steps) that a method call follows applies to the place,
 the value the method is called on, its self. Postfixes after the call
 apply to its result. In a chain, it reaches the self of the first method call
 (`!a.b().c(x)` is `(!a).b().c(x)`). `!` lends any value to write
-([CORE](docs/CORE.md) sentence 4), so it also reaches a self no
+([CORE](CORE.md) sentence 4), so it also reaches a self no
 name holds, and the fields and elements after it: the value a call
 that is no method call makes (`!mk().pop()`), a literal
 (`![a, b][0].bump()`), or a parenthesized expression (`!(+s).bump()`).
@@ -526,7 +526,7 @@ required for a write call whose `Bool` value is used, `if
 reads as negation. The method's declared result decides: a call
 returning a `T` is short even where `T` is a `Bool`. Every other write
 call is short wherever its value goes, `x = !v.pop()`, `while
-!it.next() as x`, `t = !@new_node(k)` ([SPEC §3](SPEC.md#objects) has
+!it.next() as x`, `t = !@new_node(k)` ([SPEC §3](../SPEC.md#objects) has
 the checks). Two places keep the long form whatever the call gives: a
 `for` source, where a leading `!` is the loop's mode (`for x in
 (!it).items()`), and an assignment's target, `(!a).at_mut(i).n = 1`.
@@ -585,7 +585,7 @@ From lowest to highest precedence:
 
 `not` binds looser than a comparison, so a comparison under it is
 written in parentheses, `not (a == b)`, never `not a == b`, which
-could read as `(not a) == b` ([SPEC §5](SPEC.md#operators)). `not a
+could read as `(not a) == b` ([SPEC §5](../SPEC.md#operators)). `not a
 and b` is `(not a) and b`. `as` binds tighter than `and`, in a condition that
 binds ([§10](#conditions-that-bind)). There is no `&&`, `||`, `**`,
 `++`, or `--`, and prefix `!` lends to write, never "not". The bitwise
@@ -593,38 +593,38 @@ complement of an integer is the method `x.not()`, and the counts of its bits
 are the methods `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()`;
 `x.swap_bytes()` reverses its bytes. What each
 operator does, and which types it takes, is in
-[SPEC §5](SPEC.md#operators).
+[SPEC §5](../SPEC.md#operators).
 
 ## 7. Types
 
 | Form | Written | Meaning |
 |---|---|---|
 | a named type | `Int`, `Point`, `geo.Point` | a built-in, local, or imported type |
-| a generic instance | `List[Int]`, `Pair[Int, ?String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
+| a generic instance | `List[Int]`, `Pair[Int, ?String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](../SPEC.md#generic-types) |
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
-| read view | `?T` | [SPEC §7](SPEC.md#lending) |
-| write view | `!T` | a parameter's, self's, a result's, or a binding's type ([SPEC §2](SPEC.md#composite-and-handle-types)) |
-| box | `^T` | [SPEC §10](SPEC.md#boxes-t) |
-| shared handle | `*T` | [SPEC §9](SPEC.md#9-shared-and-weak-handles) |
+| read view | `?T` | [SPEC §7](../SPEC.md#lending) |
+| write view | `!T` | a parameter's, self's, a result's, or a binding's type ([SPEC §2](../SPEC.md#composite-and-handle-types)) |
+| box | `^T` | [SPEC §10](../SPEC.md#boxes-t) |
+| shared handle | `*T` | [SPEC §9](../SPEC.md#9-shared-and-weak-handles) |
 | weak handle | `~T` | |
 | array | `[4]Int`, `[LIMIT * 2]U8`, `[n]T` | a length known at compile time |
 | slice | `[]T` | a read-only view |
 | writable slice | `![]T` | a write view: where `!T` stands |
-| function | `fun(Int, Int) -> Int`, `sub(?String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
+| function | `fun(Int, Int) -> Int`, `sub(?String)`, `sub(Int)!` | [SPEC §11](../SPEC.md#function-types) |
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
 | callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
-| API object | `?{Shape}`, `!{Shape}`, `^{Shape + Owned + Print}`, `*{Shape}`, `~{Shape}`, `*{Shape + Syncs}` | a value of some type that provides `Shape`, behind a view, a box, a counted handle, or a weak one ([SPEC](SPEC.md#api-objects)) |
-| vector | `Simd[U8, 16]`, `Simd[Bool, 64]`, `Simd[F32, n]` | lanes operated on together ([SPEC §2](SPEC.md#vectors)) |
-| table, slot | `Table[Type, 1024]`, `Slot[1024]` | `n` slots from the start, and a number below `n` that names one ([SPEC §10](SPEC.md#table)) |
+| API object | `?{Shape}`, `!{Shape}`, `^{Shape + Owned + Print}`, `*{Shape}`, `~{Shape}`, `*{Shape + Syncs}` | a value of some type that provides `Shape`, behind a view, a box, a counted handle, or a weak one ([SPEC](../SPEC.md#api-objects)) |
+| vector | `Simd[U8, 16]`, `Simd[Bool, 64]`, `Simd[F32, n]` | lanes operated on together ([SPEC §2](../SPEC.md#vectors)) |
+| table, slot | `Table[Type, 1024]`, `Slot[1024]` | `n` slots from the start, and a number below `n` that names one ([SPEC §10](../SPEC.md#table)) |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
-`F32`, `Bool`, `?String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
+`F32`, `Bool`, `?String`, `Static`, and `Void`; [SPEC §2](../SPEC.md#2-types) lists
 what each holds. `error` holds an error of any set
-([SPEC §13](SPEC.md#any-error)). `String`, owned text, is a built-in type
-([SPEC §10](SPEC.md#string)).
+([SPEC §13](../SPEC.md#any-error)). `String`, owned text, is a built-in type
+([SPEC §10](../SPEC.md#string)).
 
 **How the sigils combine.** The holding sigils `^`, `*` and `~` bind to
 the type after them, tighter than the suffixes: `^Node?` is an optional
@@ -688,7 +688,7 @@ describe does: `fun area(w: Int, h: Int) -> Int` has the type
 
 A declaration lives at module level; there are no nested functions or
 types. `pub` before a declaration exports it to importing modules
-([SPEC §14](SPEC.md#14-modules)). By convention, which the test suite
+([SPEC §14](../SPEC.md#14-modules)). By convention, which the test suite
 checks of Rig's own code, one blank line separates top-level
 declarations, though one-line ones (`use`, constants, `extern`,
 `type`) may stand together.
@@ -722,34 +722,34 @@ sign -1
 - A parameter is `name: Type`, and may have a default:
   `by: Int = 10`. A parameter the body ignores may be named `_`. A
   closure the body calls at most once is written `f: once ?fun() -> T`
-  ([SPEC](SPEC.md#closures-called-once)).
+  ([SPEC](../SPEC.md#closures-called-once)).
 - A function always writes its parameter list, even when empty, as
   its calls (`f()`) and its type (`sub()`) do: `sub main()`,
   `fun answer() -> Int`. A module-level `fun` with compile-time
   parameters and no parameter list is a compile-time function, which
   runs when Rig checks the program: `fun cap[n: Int] -> Int`, called
-  `cap[8]` ([SPEC](SPEC.md#compile-time-functions)).
+  `cap[8]` ([SPEC](../SPEC.md#compile-time-functions)).
 - The body's last expression is its value; `return e` leaves early.
 - Several results are a list of types in parentheses, `-> (Int, Int)`,
   given by `return a, b` and bound by name, `q, r = divmod(17, 5)`
-  ([SPEC §3](SPEC.md#several-results)). The list may fail or be absent
+  ([SPEC §3](../SPEC.md#several-results)). The list may fail or be absent
   as a whole: `-> (A, B)!`, `-> (A, B)?`.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
   @`, a path of self, `-> ?String from @text`, or `-> ?String from
   static` for only what lives for the whole program ([CORE sentence
-  7](docs/CORE.md#2-the-core-in-ten-sentences)).
+  7](CORE.md#2-the-core-in-ten-sentences)).
 - A function that keeps a lent parameter names it last on its header:
   `sub watch(!@, s: ?String) keeps s`, `fun bind(!@, s: ?String)
   -> ?String from s keeps s`, `sub save(p: !Page, s: ?String)!
-  keeps s` ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
+  keeps s` ([CORE sentence 7](CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
 - A marker before `fun` or `sub` says how calls compile, and changes no
   meaning: `inline fun number(s: ?String, i: Int) -> Num` inlines the
   function at every call, and `called fun document[dense: Bool](...)`
-  keeps every call a call ([SPEC §3](SPEC.md#function-markers)). A
+  keeps every call a call ([SPEC §3](../SPEC.md#function-markers)). A
   function takes one marker, and a method takes one as any function
   does (`inline fun Point.norm(?@) -> Int`).
 - `rarely`, alone as the first line of a function's body, a branch of
@@ -758,7 +758,7 @@ sign -1
   not: a function so marked is cold and stays out of line (`fun
   utf8_text(s: ?String, i: Int) -> Int` with `rarely` as its body's
   first line), and any other block so marked is unlikely and stays
-  near ([SPEC](SPEC.md#rarely)).
+  near ([SPEC](../SPEC.md#rarely)).
 
 A definition without its parameter list is rejected, with the header
 to write:
@@ -778,9 +778,9 @@ An `obj` lists its fields, then its methods and at most one `drop`
 body. A field is `name: Type`, with an optional default value
 (`y: Int = 0`). Its header may name, after a colon, the built-in APIs
 it gives a meaning of its own, `obj Version: Ord`, `enum Suit: Ord`,
-`obj Name: Eq + Hash` ([SPEC, Bounds](SPEC.md#bounds)), and the APIs of
+`obj Name: Eq + Hash` ([SPEC, Bounds](../SPEC.md#bounds)), and the APIs of
 the program's own it provides, `obj Square: Shape + Print` ([SPEC,
-APIs](SPEC.md#apis)).
+APIs](../SPEC.md#apis)).
 
 ```rig
 obj Point
@@ -836,7 +836,7 @@ like a method that takes self as `!@`, with no name: `drop(!@)`. `pub` before a
 field or method exports it: `pub x: Int`, `pub fun sum(?@) -> Int`.
 `pub ?x: Int` (or `pub ?x: Int = 0`) exports a field to read only: the
 read sigil before the name says other modules get a read view, and
-only the declaring module writes it ([SPEC §14](SPEC.md#14-modules)).
+only the declaring module writes it ([SPEC §14](../SPEC.md#14-modules)).
 It is not an optional type, which is written after the type:
 `pub x: Int?`.
 
@@ -847,9 +847,9 @@ Self`. After a name, `[]` is compile time: a generic type's method
 repeats the type's parameters as its declaration names them, then
 gives its own, `fun Wrap[T].map[U](?@, f: fun(T) -> U) -> Wrap[U]`;
 a bound there is the method's, `fun Wrap[T: Print].show(?@)`
-([SPEC, APIs](SPEC.md#apis)).
+([SPEC, APIs](../SPEC.md#apis)).
 It is the same member written in the body ([SPEC
-§3](SPEC.md#methods-outside-the-body)); a `drop` body stays in the
+§3](../SPEC.md#methods-outside-the-body)); a `drop` body stays in the
 body.
 
 ```rig
@@ -875,7 +875,7 @@ sub main()
 
 `unique` after the name (or the type parameters) declares a unique
 object, whose values move instead of copying
-([SPEC](SPEC.md#kinds-of-value)):
+([SPEC](../SPEC.md#kinds-of-value)):
 
 ```rig
 obj Ticket unique
@@ -980,7 +980,7 @@ required and with one when it is a default; `api Name: A + B` builds on
 other APIs. `add Type: Name` gives an API to a type its header cannot
 name, with the methods in its body, and `add Wrap[T: Bound]: Name` to a
 generic type under a bound; a value parameter is named as a type
-parameter is, `add Slot[n]: Name` ([SPEC, APIs](SPEC.md#apis)). `type
+parameter is, `add Slot[n]: Name` ([SPEC, APIs](../SPEC.md#apis)). `type
 Item` in an API declares an associated type, which a bounded body reads
 `S.Item` and bounds as an entry of its own: `[S: Source, S.Item: Ord]`.
 
@@ -1024,7 +1024,7 @@ In a bracket list after a declared
 name, a bare name is a type parameter, `Name: Ord` or `Name: Hash +
 Print` one with bounds, and `name: Type` a compile-time value. A type
 parameter starts with a capital letter and a value with a lowercase
-one ([SPEC, Bounds](SPEC.md#bounds)). There is no `<T>` and no
+one ([SPEC, Bounds](../SPEC.md#bounds)). There is no `<T>` and no
 `comptime` keyword.
 
 | | Declared | Used |
@@ -1042,12 +1042,12 @@ one ([SPEC, Bounds](SPEC.md#bounds)). There is no `<T>` and no
 A method's own parameters sit beside its type's: inside `Wrap[T]`,
 `fun map[U]` has both `T` and `U`. A call gives every compile-time
 argument in brackets, or none and lets them be inferred
-([SPEC §3](SPEC.md#generic-functions)). A function with no run-time
+([SPEC §3](../SPEC.md#generic-functions)). A function with no run-time
 parameters writes `()` after its brackets, in its declaration as in a
 call: `sub show[n: Int]()` is called `show[3]()`. A `fun` without them
 is a compile-time function: no parentheses, nothing when the program
 runs. `fun cap[n: Int] -> Int` is called `cap[3]`, and its value is a
-constant ([SPEC](SPEC.md#compile-time-functions)).
+constant ([SPEC](../SPEC.md#compile-time-functions)).
 
 ```rig
 obj Wrap[T]
@@ -1082,7 +1082,7 @@ big 7 2.0
 
 A binding at module level is a constant: `LIMIT = 10`,
 `names = ["low", "high"]`, `pub unit: U8 = 10`. It is written with `=`,
-never `=!` ([SPEC §3](SPEC.md#constants)), and may name any constant
+never `=!` ([SPEC §3](../SPEC.md#constants)), and may name any constant
 of its module, before or after it.
 
 ### Tests
@@ -1092,24 +1092,24 @@ of its module, before or after it.
 It takes one argument, its name. It fails when its last line, or a
 `return`, gives a `Bool` that is `false`; when a `!` passes an error out
 of it; or when it panics. Otherwise it passes
-([SPEC §3](SPEC.md#tests)).
+([SPEC §3](../SPEC.md#tests)).
 
 ### Imports and extern
 
 `use name` imports the module `name.rig` or the directory `name/`,
 whose `pub` declarations are then named `name.decl` and `name.Type`
-([SPEC §14](SPEC.md#14-modules)). A dotted path names a directory and
+([SPEC §14](../SPEC.md#14-modules)). A dotted path names a directory and
 binds its last name: `use checker.binder` imports `checker/binder/` as
 `binder`. `use std.name` imports a module of the standard library
-([STD.md](docs/STD.md)), named `name` here, and `as` names a module
+([STD.md](STD.md)), named `name` here, and `as` names a module
 otherwise: `use geo as g`, `use std.os as o`. A `use` applies to the
 file it is in, so each file of a directory module uses the modules it
 names. `extern fun name(params) -> R`,
 `extern sub name(params)`, and `extern name: T` declare C functions and
-data ([SPEC §15](SPEC.md#15-raw-code-and-ffi)). In the standard library,
+data ([SPEC §15](../SPEC.md#15-raw-code-and-ffi)). In the standard library,
 `extern zig "file.zig"` holds an indented list of `fun` and `sub`
 declarations without bodies, and constants `name: T`, which that Zig
-file implements ([SPEC §15](SPEC.md#zig-backed-declarations)).
+file implements ([SPEC §15](../SPEC.md#zig-backed-declarations)).
 
 ## 9. Bindings and assignment
 
@@ -1147,7 +1147,7 @@ now a string 10
 ```
 
 A local may not reuse a visible name without `new`, and every local
-must be read; [SPEC §4](SPEC.md#4-bindings-and-assignment) has the
+must be read; [SPEC §4](../SPEC.md#4-bindings-and-assignment) has the
 rules.
 
 ## 10. Statements and control flow
@@ -1166,10 +1166,10 @@ A statement is one of:
   `break $label e`, `continue`, `continue $label`;
 - `panic(a, b, ...)`, which ends the program; it may also stand as a
   branch's value: in a ternary, a `match` arm, after `??`, or as a
-  `catch` handler ([SPEC §17](SPEC.md#panic));
+  `catch` handler ([SPEC §17](../SPEC.md#panic));
 - `defer` or `errdefer` with a statement or block (a one-line
   statement may not declare a name);
-- a `raw` block ([SPEC §15](SPEC.md#15-raw-code-and-ffi));
+- a `raw` block ([SPEC §15](../SPEC.md#15-raw-code-and-ffi));
 - a labeled loop, `match`, or `raw` block, `$name: stmt`, or a label
   alone on a line over the block it names, `$name:`.
 
@@ -1363,7 +1363,7 @@ sub main()
 | `for x in <v` | each element of a List, owned; `v` is consumed |
 | `for x in !it`, `for x in mk()` | each value an iterator gives, advancing `it` where it stands, or a value made here |
 
-A source made there (`for x in mk()`) is taken; [SPEC §6](SPEC.md#for)
+A source made there (`for x in mk()`) is taken; [SPEC §6](../SPEC.md#for)
 has the rules. An `else` block runs when the loop ends without `break`.
 
 ### Labels, break, and continue
@@ -1507,7 +1507,7 @@ stop
 
 The subject takes a sigil the way a `for` source does: `match e` and
 `match ?e` read the payloads, `match !e` binds write views of them,
-and `match <e` consumes `e` ([SPEC §6](SPEC.md#match)).
+and `match <e` consumes `e` ([SPEC §6](../SPEC.md#match)).
 
 ### defer and errdefer
 
@@ -1533,7 +1533,7 @@ cleanup 1
 
 An `if` or `while` condition binds the value inside an optional with
 `as`, and joins bindings and `Bool` conditions with `and`
-([SPEC §12](SPEC.md#12-optionals)):
+([SPEC §12](../SPEC.md#12-optionals)):
 
 | Form | Binds |
 |---|---|
@@ -1614,7 +1614,7 @@ with a self sigil when it writes or consumes self
 
 A call with `&` touching its `)` runs as a task, concurrently with what
 follows, and gives a `Task[T]` at once: `t = sq(4)&`, then
-`>t` for the result ([SPEC §18](SPEC.md#18-tasks)).
+`>t` for the result ([SPEC §18](../SPEC.md#18-tasks)).
 
 ### Function values
 
@@ -1677,13 +1677,13 @@ as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
 | `?t` where a `?String` is expected | `?t[..]` of a String |
 | `xs.len`, `s.len`, `v.len` | a length, a field |
-| `e.text`, `Color.from_text(word)` | a plain enum value's name, a `Static`; the variant of that name, or `none` ([SPEC](SPEC.md#enums)) |
+| `e.text`, `Color.from_text(word)` | a plain enum value's name, a `Static`; the variant of that name, or `none` ([SPEC](../SPEC.md#enums)) |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 
 A lend of a place is never the base of a path: `(!p).x`, `(?xs)[0]`,
 and `(<(!p)).x` are rejected, and written `p.x` where the path is read
 or assigned, and `!p.x` or `?xs[0]` where it is lent
-([SPEC](SPEC.md#lending)). A
+([SPEC](../SPEC.md#lending)). A
 method's self, `(!s).insert(k)`, a value that branches,
 `(!a if c else !b).x`, and a lend of a slice, `(?t[..])[0]`, are not
 this rule's.
@@ -1699,7 +1699,7 @@ denotes decides, whether it is named directly, through a module
 (`lib.scaled[3]`), through a type (`Scale.unit[6]()`), or as a method
 (`s.times[5]()`), including a built-in method: `bytes.read[U32, .little](at)`
 names the type it reads, and a vector's `cur.lag[1](prev)` how many
-lanes back it reaches ([SPEC](SPEC.md#vectors)). A bracket list of two
+lanes back it reaches ([SPEC](../SPEC.md#vectors)). A bracket list of two
 or more is never an index, and empty brackets are rejected.
 
 A type argument in an expression is written as a type that is also an
@@ -1824,7 +1824,7 @@ is `*(w?)`, so a gone value is propagated with `(*w)?`. Between two values `^` i
 and a prefix `^` touches its operand. `<x` alone on a line drops `x`
 now; where a value is expected, it moves it there. A sigil may reach
 into a place: `+p.a` clones the handle in a field, `<p.f` takes an optional
-field, and `?xs[0]` lends an element. [SPEC §7](SPEC.md#7-ownership)
+field, and `?xs[0]` lends an element. [SPEC §7](../SPEC.md#7-ownership)
 says what each does.
 
 ### Closures
@@ -1886,7 +1886,7 @@ hello
 ```
 
 A parameter's type, and the result's, may come from context;
-[SPEC §11](SPEC.md#11-closures) has the rules.
+[SPEC §11](../SPEC.md#11-closures) has the rules.
 
 ### Optionals and errors
 
@@ -1943,14 +1943,14 @@ order, all of them, or by name, any of them: `.rect(w, h)` or
 alternatives in parentheses after a space, `x matches (.a, .b)`, with
 no guard: a `Bool`, whose names are bound in an `if` or `while` body and
 after `and` (`if s matches .circle(r) and r > 10`, [SPEC
-§12](SPEC.md#testing-a-pattern-matches)). A match arm lists its
+§12](../SPEC.md#testing-a-pattern-matches)). A match arm lists its
 alternatives without parentheses: `.a, .b =>`.
 
 ---
 
 ## Appendix: grammar summary
 
-A condensed view of [rig.grammar](rig.grammar), the grammar the parser
+A condensed view of [rig.grammar](../rig.grammar), the grammar the parser
 is generated from. `[x]` is optional, `x*` repeats, `x, ...` is a
 comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block

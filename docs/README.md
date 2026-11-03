@@ -2,26 +2,26 @@
 
 Each question has one home, and every other page links to it. The
 journeys of [learn/](learn/README.md) teach each big idea once;
-[WELCOME](../WELCOME.md) translates from the language you know;
-[QUICK](QUICK.md) is the card to recall from; [FAQ](../FAQ.md) and
-[DESIGN](DESIGN.md) say why; [SYNTAX](../SYNTAX.md), [SPEC](../SPEC.md),
-[CORE](CORE.md), and [STD](STD.md) specify.
+[the welcome page](learn/00-welcome.md) translates from the language
+you know; [QUICK](QUICK.md) is the card to recall from; [FAQ](FAQ.md)
+and [DESIGN](DESIGN.md) say why; [SYNTAX](SYNTAX.md),
+[SPEC](../SPEC.md), [CORE](CORE.md), and [STD](STD.md) specify.
 
 ## Which document answers which question
 
 | Question | Document |
 |---|---|
 | What is Rig, and how do I install it? | [README.md](../README.md) |
-| I know Rust, Zig, Go, or Python: what is different? | [WELCOME.md](../WELCOME.md), then [BEYOND-RUST.md](BEYOND-RUST.md) for Rust |
+| I know Rust, Zig, Go, or Python: what is different? | [learn/00-welcome.md](learn/00-welcome.md), then [BEYOND-RUST.md](BEYOND-RUST.md) for Rust |
 | What does each sigil mean? | [learn/01-sigils.md](learn/01-sigils.md) to learn, [QUICK.md](QUICK.md) to recall |
 | How is memory freed with no collector? | [learn/02-ownership.md](learn/02-ownership.md), then [CORE.md](CORE.md) |
 | How do errors and optionals work? | [learn/03-errors.md](learn/03-errors.md), then [SPEC §12 and §13](../SPEC.md#12-optionals) |
 | How do I run things concurrently? | [learn/04-concurrency.md](learn/04-concurrency.md), then [SPEC §18](../SPEC.md#18-tasks) |
 | How do I handle text? | [learn/05-text.md](learn/05-text.md), then [design/text.md](design/text.md) and the text modules of [STD.md](STD.md) |
 | What is in the standard library? | [learn/06-stdlib.md](learn/06-stdlib.md) for a tour, [STD.md](STD.md) for each module |
-| How do I write a form? | [SYNTAX.md](../SYNTAX.md) |
+| How do I write a form? | [SYNTAX.md](SYNTAX.md) |
 | What exactly does a form mean? | [SPEC.md](../SPEC.md) |
-| Why was it designed this way? | [FAQ.md](../FAQ.md), then [DESIGN.md](DESIGN.md) and [design/](design/) |
+| Why was it designed this way? | [FAQ.md](FAQ.md), then [DESIGN.md](DESIGN.md) and [design/](design/) |
 | How do `matches`, `x matches P`, and pattern alternatives work? | [design/matches.md](design/matches.md), then [SPEC](../SPEC.md) |
 | How will `xs.map(f).filter(g).sum()` chains work? | [design/iterators.md](design/iterators.md) |
 | Does Rig have traits or interfaces? | [design/apis.md](design/apis.md): APIs, `api Shape`, and API objects, `?{Shape}`, built in five stages |
@@ -42,18 +42,18 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 ## Reading orders
 
 **A newcomer**, deciding whether to care and then writing a first
-program: [README](../README.md), then [WELCOME](../WELCOME.md) for
-your language, then the journeys in order: [sigils](learn/01-sigils.md),
+program: [README](../README.md), then [the welcome page](learn/00-welcome.md)
+for your language, then the journeys in order: [sigils](learn/01-sigils.md),
 [ownership](learn/02-ownership.md), [errors](learn/03-errors.md),
 [concurrency](learn/04-concurrency.md), [text](learn/05-text.md),
 [the standard library](learn/06-stdlib.md), [generics](learn/07-generics.md),
 [APIs](learn/08-apis.md), [tests](learn/09-tests.md),
 [safety](learn/10-safety.md), [performance](learn/11-performance.md). Then the
-[examples](../examples/README.md), and the [FAQ](../FAQ.md) when a
+[examples](../examples/README.md), and the [FAQ](FAQ.md) when a
 "why" comes up.
 
 **A user**, writing Rig: [QUICK](QUICK.md) beside the editor,
-[SYNTAX](../SYNTAX.md) and [STD](STD.md) while writing, and
+[SYNTAX](SYNTAX.md) and [STD](STD.md) while writing, and
 [SPEC](../SPEC.md) for an exact rule.
 
 **A contributor**, changing the compiler or library:

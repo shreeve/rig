@@ -9,11 +9,11 @@ the program, then writes [Zig](https://ziglang.org), and Zig optimizes,
 generates code, and links.
 
 This guide is for programmers arriving from another language. It shows
-Rig's central idea, translates the forms you already know, and lists
-the habits that will trip you up, with what the compiler says when they
-do. The [journeys](docs/learn/README.md) teach the language from the
-first line. [SYNTAX.md](SYNTAX.md) shows how every form is written, and
-[SPEC.md](SPEC.md) says what each one means.
+Rig's central idea, tours the language, translates the forms you
+already know, and lists the habits that will trip you up, with what the
+compiler says when they do. The [journeys](README.md) teach the
+language from the first line. [SYNTAX.md](../SYNTAX.md) shows how every
+form is written, and [SPEC.md](../../SPEC.md) says what each one means.
 
 Every `rig` example here is compiled and run by the test suite. A
 program followed by an `output` block prints exactly that, with no
@@ -24,9 +24,11 @@ leaks; a program marked as rejected fails with the errors shown.
 - [The central idea](#the-central-idea)
 - [A first program](#a-first-program)
 - [Running a program](#running-a-program)
+- [A tour](#a-tour)
 - [From Rust and Zig](#from-rust-and-zig)
 - [From C, Python, Ruby, JavaScript, and Go](#from-c-python-ruby-javascript-and-go)
 - [Habits that trip people up](#habits-that-trip-people-up)
+- [What the compiler guarantees](#what-the-compiler-guarantees)
 - [What Rig does not have](#what-rig-does-not-have)
 - [Where to go next](#where-to-go-next)
 
@@ -46,8 +48,8 @@ means the same thing wherever it appears:
 | Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |
 
-[QUICK](docs/QUICK.md) fits them on a page, and
-[the sigils journey](docs/learn/01-sigils.md) teaches them one at a time.
+[QUICK](../QUICK.md) fits them on a page, and
+[the sigils journey](01-sigils.md) teaches them one at a time.
 
 What a library chooses is a word: canceling a task, `<t.cancel()`, or
 waiting for the first of several, `<ts.wait_first()`.
@@ -78,7 +80,7 @@ Four points are the ones that surprise readers from other languages:
   suffix `?` or `!` is control flow (`e?` passes `none` up, `e!` passes
   a failure up). Types follow suit: `T?` is an optional and `T!` a `T`
   that may fail. The by-position table of `?` and `!` is in
-  [the sigils journey](docs/learn/01-sigils.md#-and--one-idea-each).
+  [the sigils journey](01-sigils.md#-and--one-idea-each).
 - **`!` is never "not".** Logical negation is `not`, so `!v.pop()` lends
   `v` to write and never negates (`if !done` is an error that says to
   use `not`; see [below](#habits-that-trip-people-up)). A move to
@@ -87,7 +89,7 @@ Four points are the ones that surprise readers from other languages:
 - **You lend a view; the compiler remembers the loan.** The owner
   lends with `?` or `!`, what the callee gets is a view, and what stays
   behind is a loan. Rust calls all three a "borrow"; Rig gives each its
-  own word, named from the owner's side ([CORE](docs/CORE.md)).
+  own word, named from the owner's side ([CORE](../CORE.md)).
 
 A reader sees every move, clone, write, and failure path on the line
 where it happens; reading is unmarked, and, as in Rust, a value is
@@ -124,19 +126,382 @@ sub main()
 returns nothing. The last expression of a `fun` is its value. `1..7`
 counts from 1 up to, not including, 7. `print` takes any number of
 values and separates them with spaces. Objects, moves, optionals,
-errors, and closures are taught in [docs/learn/](docs/learn/README.md).
+errors, and closures are taught in [docs/learn/](README.md).
 
 ## Running a program
 
 ```bash
-bin/rig run hello.rig        # check, build, and run (Debug, leak-checked)
-bin/rig run hello.rig -- a b # the same, passing the program `a` and `b`
-bin/rig build -o hello hello.rig
-bin/rig test hello.rig       # run the file's own `test` blocks
-bin/rig emit hello.rig       # print the Zig it generates
+bin/rig run hello.rig                  # check, build, and run (debug, leak-checked)
+bin/rig run hello.rig -- a b           # the same, passing the program `a` and `b`
+bin/rig run --release hello.rig        # the same, optimized (safe)
+bin/rig build -o hello hello.rig       # a native executable
+bin/rig build --release=fast hello.rig # fast: no overflow checks
+bin/rig build --release --pgo -o app app.rig -- ./train.sh   # optimized by a profile (Linux)
+bin/rig test hello.rig                 # run the file's own `test` blocks
+bin/rig test --seeds=20 hello.rig      # the same, under 20 schedules
+bin/rig check hello.rig                # check only
+bin/rig emit hello.rig                 # print the Zig it generates
+bin/rig clean                          # remove the cache of built programs
+bin/rig lsp                            # the language server (editors/README.md)
 ```
 
-The [README](README.md#install) says how to build `bin/rig`.
+The [README](../../README.md#install) says how to build `bin/rig`.
+
+A debug build reports any allocation still live when `main` returns,
+and exits 1; set `RIG_LEAK_TRACE=1` when building to see where each
+was allocated. `rig run`, `build`, and `test` keep built programs in a
+cache under `~/.cache/rig`, which they trim themselves. `rig --help`
+lists every command, option, and environment variable, the cache's
+included.
+
+`--pgo` builds the program with LLVM's counters, runs the workload
+after `--` (a command that runs the built `app`), and builds it again
+by the profile it gathered; `--bolt` lays a build out by one instead.
+On Trig, PGO is 10% faster on projects it was not trained on, and
+`rig --help` has both flags' requirements.
+
+## A tour
+
+The rest of the language, briefly, before the translations. The
+journeys teach each part at length.
+
+### Ownership without a garbage collector
+
+Rig's ownership model is Rust's with two differences: every transfer
+is written, and there is no lifetime syntax, since the checker follows
+where each view came from. The whole model fits on one page,
+[CORE](../CORE.md).
+
+```rig
+obj File
+  name: ?String
+  lines: Int
+
+  sub write(!@, n: Int)
+    @lines += n
+
+  drop(!@)
+    print("closing", @name, "after", @lines, "lines")
+
+fun size(f: ?File) -> Int
+  f.lines
+
+sub archive(f: File)
+  print("archiving", f.name)
+
+sub main()
+  log = File(name: "log.txt", lines: 0)
+  !log.write(3)
+  print(size(?log))
+  archive(<log)
+  cfg = *File(name: "cfg.toml", lines: 2)
+  cfg2 = +cfg
+  <cfg
+  print("still open:", cfg2.name)
+```
+
+```output
+3
+archiving log.txt
+closing log.txt after 3 lines
+still open: cfg.toml
+closing cfg.toml after 2 lines
+```
+
+- **Lending.** `!log.write(3)` lends `log` to write, and `size(?log)`
+  lends it to read. The sigil at the call shows what the call may do to
+  your value. Views are checked, never counted, so they cost nothing at
+  run time. A value has many readers or one writer at a time, never
+  both.
+- **Moving.** `<log` moves the file into `archive`, which owns it and
+  closes it on return; a later use of `log` is a compile error.
+- **Sharing.** `*File(...)` puts a file behind a counted handle, `+cfg`
+  makes a second owner, and `<cfg` alone on its line drops the first
+  one now. The file closes when `cfg2`, its last owner, goes out of
+  scope.
+
+An object is a value: it lives where it is declared, and `^` puts it on
+the heap or `*` shares it only when a sigil says so. There are no
+finalizers. A cycle of strong handles leaks, and a debug build reports
+the leak; a weak handle, `~x`, breaks the cycle.
+
+### Errors and optionals
+
+A `T?` may be `none` and a `T!` may fail. Every call to either says
+what happens: `e?` and `e!` pass the absence or failure up, `??` and
+`catch` handle it.
+
+```rig
+error Stack
+  empty
+
+fun peek(v: ?List[Int]) -> Int?
+  return none if v.len == 0
+  v[v.len - 1]
+
+fun pop(v: !List[Int]) -> Int!
+  return Stack.empty if v.len == 0
+  (!v).pop() ?? 0
+
+fun next(v: ?List[Int]) -> Int?
+  peek(?v)? + 1
+
+fun drain(v: !List[Int]) -> Int!
+  pop(!v)! + pop(!v)!
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  print(next(?v))
+  print(drain(!v) catch -1)
+  print(next(?v), drain(!v) catch -1)
+```
+
+```output
+3
+3
+none -1
+```
+
+`peek` lends `v` to read and gives an `Int?`; `next` passes its `none`
+up with `?`. `pop` lends `v` to write and gives an `Int!`; `drain`
+passes a failure up with `!`, which `catch` turns into `-1`. There are
+no exceptions and no hidden control flow.
+
+A function may name the set it fails with, `-> T!E`, and a member may
+carry fields, as an enum's variant does:
+
+```rig
+error Parse
+  empty
+  bad(at: Int)
+
+fun digit(s: ?String) -> Int!Parse
+  return Parse.empty if s.len == 0
+  return Parse.bad(at: 0) if s[0] < '0' or s[0] > '9'
+  Int(s[0] - '0')
+
+sub main()
+  for s in ["7", "", "x"]
+    n = digit(s) catch |e|
+      print(e)
+      match e
+        .empty => -1
+        .bad(at) => -10 - at
+    print(n)
+```
+
+```output
+7
+Parse.empty
+-1
+Parse.bad(at: 0)
+-10
+```
+
+`catch |e|` gives `e` the callee's set, so the `match` names every
+member and needs no `_`. A failure moves its error up through `!` to
+the `catch` that owns it, and a task, `par`, or an actor hands the
+fields to whoever waits. `T!` alone may fail with any error,
+`error L = A | B` joins sets, and a function may take its set as a
+parameter, `fun total[E](f: ?fun() -> Int!E) -> Int!E`, to fail with
+whatever its callback fails with.
+
+An optional costs nothing where its value has room for `none`: a view
+or handle uses address 0, an object holding a String, List, box, `Bool`,
+or enum uses a value of that field no real one holds, and an object
+that is an id names its own, `none id == 0`, so a `Node?` is a
+`Node` or id 0. Any other `T?` is a `T` beside a flag.
+
+### Concurrency
+
+Concurrency is the last row of the sigil table, built on the same rules
+as the rest. [SPEC §18](../../SPEC.md#18-tasks) has every rule,
+[the concurrency journey](04-concurrency.md) teaches it, and
+[the launch post](../launch/post.md) tells the story.
+
+A task keeps the loans of its arguments until `>t` takes its result,
+and it never outlives the scope that owns it: dropping a task that was
+not waited for cancels it, if it can fail, and waits for it. There are
+no detached tasks and no `'static` bounds. A task's failure arrives
+through `>t`, as any failure does: `>t!` passes it on, and `catch`
+handles it. For a task that can fail, a cancel (`<t.cancel()`) or a
+deadline (`time.within(ns, f)`) arrives as an error at its next waiting
+point, with no token to pass down. Ctrl-C cancels a `main` that can
+fail in the same way: its `defer`s and drops run, the tasks it owns
+are canceled, and the program ends with status 130.
+
+The compiler knows, for every type, whether a value may be sent to another
+core or be read from two at once, and decides where each task may run.
+A task handed a `*T` handle, whose count is not atomic, runs on the
+thread of the task that makes it, so a GUI program's shared state can
+use `&` too. A function value, `fun(Int) -> Int`, is a named
+function's address and holds nothing, so it goes to a task on any core.
+A value that never changes again, `*Frozen(x)`, sits behind a handle
+counted atomically, and any number of tasks read it with no copy.
+Generic code states the same facts as bounds, `[T: Sends]` to go to
+another task and `[T: Syncs]` to be read by several at once, and an API
+object (below) names them in its braces, `^{Job + Sends}`.
+`Tasks[T]` holds a set of tasks, `*Chan[T](n)` is a
+bounded channel, `task.select` commits exactly one of its arms, and
+`par.map` and `par.each` spread a loop over the cores.
+
+State that many tasks change lives in an actor, `*Actor(x)`, which
+runs its methods one at a time, each to its end. A call that finds the
+actor idle takes it in one atomic step and runs the method on the
+caller's own stack, so an uncontended actor costs about what a lock
+does. Rig has no `Mutex` type. A one-word `*Cell`, such as a counter,
+becomes atomic instructions.
+
+**A deadlock is reported, not suffered.** An actor runs one method at a
+time, so a call that comes back to it can never be answered:
+
+```rig
+obj Ledger
+  n: Int
+
+  sub post(!@, bank: *Actor[Bank])
+    @n += bank.balance()
+
+obj Bank
+  cash: Int
+
+  fun balance(?@) -> Int
+    @cash
+
+  sub pay(!@, me: *Actor[Bank], ledger: *Actor[Ledger])
+    !ledger.post(+me)
+
+sub main()
+  bank = *Actor(Bank(cash: 100))
+  ledger = *Actor(Ledger(n: 0))
+  !bank.pay(+bank, +ledger)
+```
+
+Every wait records what it waits on, and the wait that closes a cycle
+panics with the calls, so the program does not hang:
+
+```text
+panic: deadlock: these calls wait on each other, and none can go on: Bank.pay -> Ledger.post -> Bank.balance
+```
+
+**A panic stops at a boundary.** `task.isolate(f)` runs `f`, and a panic
+in it, or in any task it started, fails the call with
+`task.Stop.panicked` while the program goes on. A panic in an actor's
+method ends that actor; `*Actor.supervised(make)` starts a fresh value
+instead.
+
+**A small server.** `std.http` serves HTTP/1.1. Each connection is a
+task, and each request runs isolated:
+
+```rig
+use std.http
+use std.net
+
+fun pick(xs: ?List[Int], i: Int) -> Int
+  xs[i]
+
+sub main()!
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:8080")!
+  http.serve(<l, |+hits, req|
+    match req.path
+      "/hit" => http.text(String("hits ", (!hits).add(1)))
+      "/boom" => http.text(String(pick(List([1, 2, 3]), 7)))
+      _ => http.not_found()
+  )!
+```
+
+The compiler checks that what the closure captures is safe to share
+across connections. `/boom` indexes past the end of a list, so it
+panics, the request answers 500, and the server goes on. The same
+server in Go and in Rust with Tokio and hyper, with what each needs, is
+in [launch/examples/](../launch/examples/README.md).
+
+**Tests that fail the same way twice.** `rig test` runs concurrent code
+on one thread, with a virtual clock and a seed that picks which task
+runs next. Sleeps take no time, the same seed gives the same
+interleaving, `--seeds=20` runs the tests under twenty schedules, and a
+failing run prints the seed that replays it
+([the testing journey](09-tests.md)).
+
+### APIs and the rest
+
+An **API** is a named set of methods a type provides: `api Shape`
+declares them, `obj Square: Shape` says that `Square` provides it, and
+`add Int: Shape` gives one to a type declared elsewhere. A bound,
+`[T: Shape]`, checks a generic body against the API, and each call
+through it is direct, at no cost. Braces hide the type: an **API
+object**, `?{Shape}`, `!{Shape}`, `^{Shape}`, `*{Shape}`, or
+`~{Shape}`, holds a value of any type that provides `Shape`, viewed,
+boxed, or counted as the sigil says, and calls its methods through a
+table. It carries every loan the value had.
+
+```rig
+api Shape
+  fun area(?@) -> Float
+
+  fun describe(?@) -> String
+    String("area ", @area())
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+obj Circle: Shape
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+fun largest[T: Shape](xs: ?List[T]) -> Float
+  best = 0.0
+  for x in xs
+    best = x.area() if x.area() > best else best
+  best
+
+sub main()
+  squares = List([Square(side: 1.0), Square(side: 3.0)])
+  print(largest(squares))
+  shapes: List[^{Shape}] = List()
+  !shapes.push(^Square(side: 2.0))
+  !shapes.push(^Circle(r: 1.0))
+  for s in shapes
+    print(s.describe())
+```
+
+```output
+9.0
+area 4.0
+area 3.0
+```
+
+`describe` is a default, which each type may override. A generic body
+with no bound is checked at each instance a program makes, against
+what it does with `T`, the methods it calls on one included:
+`fun max[T](a: T, b: T) -> T`. The built-in APIs (`Eq`, `Hash`, `Ord`,
+`Copy`, `Print`, `Sends`, `Syncs`, and more) bound it too, `fun
+max[T: Ord](a: T, b: T) -> T`, and a type names those it gives a meaning
+of its own, `obj Version: Ord`
+([design/apis.md](../design/apis.md)). A method's view result
+may name the field it views, `fun digits(!@) -> ?String from @text`, so
+the caller may use self's other fields while the view lives. After a
+name, `[]` is compile time and `()` is run time, so a function with
+only brackets runs in the checker: `fun cap[n: Int] -> Int` makes
+`cap[8]` a constant, in an expression, a module constant, or a type
+(`[cap[4]]U8`), and a failure in it is a Rig error at the call.
+A closure's capture list says how it holds each outer value,
+`|+total, ~clicks| ...`, or one field of it, `|?@template, k| ...`.
+A `Table[T, n]` holds `n` slots, and a `Slot[n]` from it indexes any
+table of that `n` with no bounds test. Rig also has enums with payloads
+and exhaustive `match`, modules of one file or a directory, SIMD
+vectors (`Simd[U8, 16]`), C functions through `extern` and `raw`,
+`test` blocks, and a language server, `rig lsp`
+([editors/](../../editors/README.md)). The
+[standard library](../STD.md) is imported with `use std.NAME`.
 
 ## From Rust and Zig
 
@@ -201,7 +566,7 @@ may not reuse the name of another local, a parameter, or a module-level
 declaration, a closure parameter may not reuse a local's name, and a
 generic parameter may not reuse a module-level name. Zig has the same
 rule; where Rust writes `let x = x + 1`, Rig shadows on purpose with
-`new x = x + 1` ([SPEC §4](SPEC.md#4-bindings-and-assignment)).
+`new x = x + 1` ([SPEC §4](../../SPEC.md#4-bindings-and-assignment)).
 
 ```rig reject
 T = 3
@@ -253,11 +618,11 @@ Python's type hints (`list[int]`) write them the same way.
 
 A generic body is checked once. A type parameter with bounds,
 `[T: Ord]`, is checked against them, and each instance must provide
-them ([SPEC, Bounds](SPEC.md#bounds)). One with no bound is checked at
+them ([SPEC, Bounds](../../SPEC.md#bounds)). One with no bound is checked at
 each instance a program makes against what the body does with `T`, the
 methods it calls on one included, like a Zig `comptime T: type`
 function but with the error at the call
-([SPEC §3](SPEC.md#generic-bodies)).
+([SPEC §3](../../SPEC.md#generic-bodies)).
 
 An `api` is close to a Rust trait: required methods have no body,
 defaults have one, and a type names the APIs it provides on its
@@ -320,7 +685,7 @@ sub main()
 `api Job: Sends` makes every `Job` object one that may go to another
 task, and the compiler checks it where each value's type is hidden. A
 `?{Shape}` keeps every loan its value had, as any view does, so no
-lifetime is written ([CORE §4](docs/CORE.md)).
+lifetime is written ([CORE §4](../CORE.md)).
 
 ### What a program becomes
 
@@ -361,7 +726,7 @@ whether it checks for leaks. The main correspondences:
 | `sub main()` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name`, with the error's fields, and exits 1 (130 when Ctrl-C cancels a `main` that can fail); in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
-program; [INTERNALS](docs/internals/INTERNALS.md) describes it.
+program; [INTERNALS](../internals/INTERNALS.md) describes it.
 
 ## From C, Python, Ruby, JavaScript, and Go
 
@@ -382,7 +747,7 @@ program; [INTERNALS](docs/internals/INTERNALS.md) describes it.
 | class | `struct` + functions | `class` | `class` / `struct` + methods | `obj` with methods |
 | `this` / `@` | a pointer argument | `@` (implicit in Ruby) | `this` / a method's own parameter | `@`, always written |
 | switch | `switch` | `match` / `case` | `switch` | `match` |
-| a name as a value | an `enum` | a string / `:width` | a string constant | `:width`, a `Symbol` ([SPEC](SPEC.md#symbols)); `f(width: 3)` names an argument |
+| a name as a value | an `enum` | a string / `:width` | a string constant | `:width`, a `Symbol` ([SPEC](../../SPEC.md#symbols)); `f(width: 3)` names an argument |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
 | several results | out-parameters | `return q, r`, a tuple | an array / `return q, r` | `-> (Int, Int)`, `return q, r`, `q, r = f()` |
@@ -610,7 +975,7 @@ sub main()
 method `bump` needs `self` lent to write
 ```
 
-[Writing is marked](docs/learn/01-sigils.md#writing-is-marked) teaches the rule.
+[Writing is marked](01-sigils.md#writing-is-marked) teaches the rule.
 
 **Moves without `<`.** A bare name moves an owning value only where its
 scope ends with the move (`return x`, `break x` of a name the loop
@@ -636,7 +1001,7 @@ sub main()
 `eat` takes ownership of a `Res`, and `r` can't be copied: write `<r` to move it; if `eat` only reads it, make its parameter a `?Res`
 ```
 
-[Giving a value away](docs/learn/01-sigils.md#giving-a-value-away) and the [ownership journey](docs/learn/02-ownership.md) teach the rule.
+[Giving a value away](01-sigils.md#giving-a-value-away) and the [ownership journey](02-ownership.md) teach the rule.
 
 **Rust's `?` on a failure.** `?` propagates `none`; a failure propagates
 with `!`:
@@ -657,10 +1022,10 @@ fun twice(s: ?String) -> Int!
 there is nothing for `+` to write into. Rig's `?String` is Go's or
 Odin's `string`; Rust's `String` is Rig's `String`. A literal is a
 `Static`: a `?String` known to view only text that lives for the whole
-program, so it can also be kept in a `Cell` ([SPEC](SPEC.md#static)).
+program, so it can also be kept in a `Cell` ([SPEC](../../SPEC.md#static)).
 Text is built in a
 `String`, which owns its bytes: `String(a, b)` writes each value as
-`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#string)):
+`print` would, and `!t.add(...)` appends more ([SPEC §10](../../SPEC.md#string)):
 
 ```rig reject
 sub main()
@@ -750,35 +1115,63 @@ names its fields, `P(x: 1)`, not `.{ .x = 1 }`; `switch`'s `else =>` is
 (besides the runtime's list of the program's arguments), and the
 compiler frees them.
 
+## What the compiler guarantees
+
+These promises are about the compiler. A program that breaks one is a
+compiler bug, not a user error.
+
+| Promise | What it means |
+|---|---|
+| Accept means correct | If `rig check` accepts a program, the emitted Zig compiles, runs, and does what the source says. What the compiler cannot lower correctly, it rejects with a Rig diagnostic. |
+| Safe code cannot corrupt memory | Use after move, double free, use after free, dangling views, and leaks cannot happen outside a `raw` block. The test suite runs every program under a sanitizer that crashes at any use of freed memory. |
+| Effects stay visible | No feature hides a move, clone, allocation, failure, or mutation. |
+| Tasks share safely | A task takes only what may be sent to its core or be read from two at once; no two tasks hold a write view of one value. |
+| Tasks end in scope | No task outlives the scope that owns it, or the loans it keeps. |
+
+At run time, integer overflow, out-of-bounds indexing, and a numeric
+conversion that does not fit panic in debug and `--release` builds.
+`--release=fast` drops the overflow and conversion checks, which makes
+an overflow undefined behavior, and keeps the bounds checks. Running
+out of stack stops with `error: rig: stack overflow` in every mode.
+Debug builds check for leaks on exit.
+
+Some of this is machine-checked. Proofs in Lean
+([formal/](../../formal/README.md)) show, for a small core of the
+language, that a program the ownership checker accepts runs without a
+memory fault; and, for models of the runtime, that a wait is ended by
+at most one waker and that no task outlives its owner. They cover
+models, not the compiler itself. [The safety journey](10-safety.md)
+says how each promise is kept.
+
 ## What Rig does not have
 
 You will reach for these and not find them:
 
 - **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;
-- **a large standard library**: [the standard library](docs/STD.md)
+- **a large standard library**: [the standard library](../STD.md)
   covers text and Unicode, hashing, JSON, files, time, tasks and
   parallel loops, TCP and an HTTP server, and a terminal; TLS, an HTTP
   client, and DNS are not there yet;
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.
 
-[SPEC §19](SPEC.md#19-reserved-and-unsupported-forms) lists every form
+[SPEC §19](../../SPEC.md#19-reserved-and-unsupported-forms) lists every form
 the compiler rejects as reserved or not supported yet, and the
-[roadmap](docs/ROADMAP.md) lists the plans.
+[roadmap](../ROADMAP.md) lists the plans.
 
 ## Where to go next
 
-- [docs/learn/](docs/learn/README.md): the journeys, which teach the
+- [docs/learn/](README.md): the journeys, which teach the
   language from the first line
-- [docs/QUICK.md](docs/QUICK.md): the language on one page
-- [docs/BEYOND-RUST.md](docs/BEYOND-RUST.md): how Rig differs from
+- [docs/QUICK.md](../QUICK.md): the language on one page
+- [docs/BEYOND-RUST.md](../BEYOND-RUST.md): how Rig differs from
   Rust's model, for readers who know Rust
-- [SYNTAX.md](SYNTAX.md): how every form is written
-- [SPEC.md](SPEC.md): what every form means, and the rules the compiler
+- [SYNTAX.md](../SYNTAX.md): how every form is written
+- [SPEC.md](../../SPEC.md): what every form means, and the rules the compiler
   enforces
-- [docs/STD.md](docs/STD.md): the standard library, imported with
+- [docs/STD.md](../STD.md): the standard library, imported with
   `use std.NAME`
-- [examples/](examples/README.md): complete programs
-- [docs/DESIGN.md](docs/DESIGN.md): why Rig is the way it is
-- [FAQ.md](FAQ.md): common questions
+- [examples/](../../examples/README.md): complete programs
+- [docs/DESIGN.md](../DESIGN.md): why Rig is the way it is
+- [FAQ.md](../FAQ.md): common questions

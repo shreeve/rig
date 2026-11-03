@@ -371,7 +371,6 @@ doc/SPEC/e67517560478 main
 doc/SPEC/0d2b2f7ac401 main
 doc/SPEC/dde4938b3ca6 main
 doc/SPEC/3f113cf696b6 main
-doc/WELCOME/c938e81e644d main
 drop.arg_then_write.catch run
 drop.arg_then_write.destructure run
 drop.arg_then_write.destructure_branch run
@@ -4550,6 +4549,7 @@ doc/CORE/55a54ded4c07 Binder.set_src
 doc/SPEC/75c715adfdce main
 doc/SPEC/538b7f317eef main
 doc/SPEC/018c07bd1110 main
+doc/learn-00-welcome/c938e81e644d main
 doc/learn-01-sigils/07b5d800b3fb main
 doc/learn-01-sigils/75ac9ca749f8 main
 doc/learn-01-sigils/ff4bfba3d6ee main
