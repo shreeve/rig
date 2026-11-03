@@ -5647,7 +5647,7 @@ const builtin = @import("builtin");
 const root = @import("root");
 const leak_checked = builtin.optimize == .debug;
 const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
-const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
+pub const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
 /// Built with `RIG_HEAP_PROFILE=1`, the root module declares
 /// `__rig_heap_profile`, and every allocation goes through `HeapProfile`,
 /// which reports at exit what owned the program's memory at its peak.

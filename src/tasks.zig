@@ -503,9 +503,10 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
         return values;
     }
     var ts = tasks;
-    // Every task is taken or waited for before this returns, so the
-    // count may live on the stack.
-    var w: Wakeup = .{};
+    // On the heap: a panic passed on from a task waited for leaves this
+    // frame while the others may still tell the count, and leaks it.
+    const w = Wakeup.create();
+    defer w.destroy();
     inline for (0..n) |i| _ = w.watch(ts[i].control);
     var taken: [n]bool = @splat(false);
     var got: [n]bool = @splat(false);
@@ -1204,6 +1205,12 @@ pub const Isolate = struct {
     stopping: bool = false,
     /// The fiber waiting for its last task to end (`stop`).
     stopper: rt.sched.Waiters = .{},
+    /// Tasks under it that panicked and have yet to switch off their
+    /// stacks, and the stacks they left it (`keepStack`), which it gives
+    /// back once every task under it has ended, since those tasks may
+    /// read the frames on them (`isolateWith`).
+    leaving: u32 = 0,
+    kept: std.ArrayList(rt.sched.Stack) = .empty,
 
     fn add(self: *Isolate, c: *Control) void {
         self.lock.lock();
@@ -1222,18 +1229,30 @@ pub const Isolate = struct {
         if (c.iso_next) |n| n.iso_prev = c.iso_prev;
         c.iso_prev = null;
         c.iso_next = null;
-        if (self.first == null) _ = self.stopper.wakeAll();
+        if (self.first == null and self.leaving == 0) _ = self.stopper.wakeAll();
+    }
+
+    /// A task that panicked under it has switched off its stack `s`
+    /// for good (`rt.sched.Keep`).
+    fn keepStack(ctx: *anyopaque, s: rt.sched.Stack) void {
+        const self: *Isolate = @ptrCast(@alignCast(ctx));
+        self.lock.lock();
+        defer self.lock.unlock();
+        self.kept.append(std.heap.smp_allocator, s) catch oom();
+        self.leaving -= 1;
+        if (self.first == null and self.leaving == 0) _ = self.stopper.wakeAll();
     }
 
     /// Cancel every task listed, and every one listed later; with
-    /// `wait`, sleep until none is.
+    /// `wait`, sleep until none is and every task that panicked has left
+    /// its stack.
     fn stop(self: *Isolate, wait: bool) void {
         self.lock.lock();
         defer self.lock.unlock();
         self.stopping = true;
         var c = self.first;
         while (c) |x| : (c = x.iso_next) x.cancel();
-        while (wait and self.first != null) _ = rt.sched.sleepOn(&self.stopper, &self.lock, null, false);
+        while (wait and (self.first != null or self.leaving != 0)) _ = rt.sched.sleepOn(&self.stopper, &self.lock, null, false);
     }
 };
 
@@ -1276,6 +1295,8 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
     state.isolate = &rec;
     rt.sched.runApart(&rec.home, &run, Run.entry);
     task().isolate = rec.outer;
+    for (rec.kept.items) |s| rt.sched.giveStack(s);
+    rec.kept.deinit(std.heap.smp_allocator);
     if (rec.panicked.load(.seq_cst)) return panicked_error;
     return run.result;
 }
@@ -1333,7 +1354,8 @@ const panicked_error = error.@"std.task.Stop.panicked";
 /// the fiber leaves the stack apart for its own (`Isolate`). In a task
 /// under it, the tasks are stopped, and this task ends where it stands,
 /// marked as panicked, so its owner's wait or drop passes the panic on,
-/// up to the isolate's fiber.
+/// up to the isolate's fiber; its stack stays the isolate's until every
+/// task under it has ended.
 pub fn panicked(iso: *Isolate) noreturn {
     iso.panicked.store(true, .seq_cst);
     rt.isolatePanicked(iso.id);
@@ -1344,9 +1366,15 @@ pub fn panicked(iso: *Isolate) noreturn {
         task().unwinding = false;
         rt.sched.leaveApart(iso.home);
     }
+    // This task's frames may be lent to tasks under the isolate: its
+    // stack goes to the isolate, which gives it back once they have
+    // ended, and is counted leaving before the task's end can wake it.
+    iso.lock.lock();
+    iso.leaving += 1;
+    iso.lock.unlock();
     iso.stop(false);
     if (task().control) |c| c.finish();
-    rt.sched.abandon();
+    rt.sched.abandon(.{ .ctx = iso, .take = Isolate.keepStack });
 }
 
 // -----------------------------------------------------------------------------
@@ -2255,8 +2283,10 @@ pub fn Actor(comptime T: type) type {
                 m.started = true;
                 self.lock.unlock();
                 held.doing = m.label;
-                if (self.stale) self.remake(&held);
+                // Running before the value is made again, so a panic in
+                // making it answers `m` (`kill`).
                 self.running = m;
+                if (self.stale) self.remake(&held);
                 m.run(m);
                 self.running = null;
                 self.answer(m, Message.done);

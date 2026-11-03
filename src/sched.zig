@@ -84,12 +84,29 @@ pub const Fiber = struct {
     /// (`spendBudget`), so a socket that is always ready cannot keep it
     /// on its worker.
     budget: u8 = budget_size,
+    /// Where its stack goes once it has left it for good, in place of
+    /// back to its worker: set when it panicked under a boundary.
+    keep: ?Keep = null,
     /// The worker it runs on and no other, once pinned (`pinHere`): a
     /// local task, and the task that made one. It waits in that worker's
     /// `pinned` queue, never in a ring or the global queue, so no other
     /// worker takes it.
     home: ?*Worker = null,
 };
+
+/// Where a fiber that panicked under a boundary leaves its stack: `take`
+/// is given it once the fiber has switched off it for good, and the
+/// boundary gives it back (`giveStack`) once the tasks that may read its
+/// frames have ended (`tasks.Isolate`).
+pub const Keep = struct {
+    ctx: *anyopaque,
+    take: *const fn (*anyopaque, Stack) void,
+};
+
+/// Give back a stack a `Keep` was given, to the running worker.
+pub fn giveStack(s: Stack) void {
+    releaseStack(me().?, s);
+}
 
 /// What a worker does with the fiber that just switched away, once it has:
 /// queue it again (`yield`), or record it as waiting (`park`).
@@ -2133,12 +2150,17 @@ fn runFiber(w: *Worker, f: *Fiber) void {
         w.after = null;
         a.run(gone, a.ctx);
     } else if (gone.finished) {
-        if (gone.stack) |s| {
-            gone.stack = null;
-            releaseStack(w, s);
-        }
+        endStack(w, gone);
         if (gone.done) |d| d(gone);
     }
+}
+
+/// The fiber `f` has switched away for good: its stack goes back to `w`,
+/// or to where a panic left it (`Keep`).
+fn endStack(w: *Worker, f: *Fiber) void {
+    const s = f.stack orelse return;
+    f.stack = null;
+    if (f.keep) |k| k.take(k.ctx, s) else releaseStack(w, s);
 }
 
 /// Give a fiber that has not run yet its stack, from this worker, which
@@ -3050,10 +3072,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     const now = me().?;
     if (now.returned) |done| {
         now.returned = null;
-        if (done.stack) |s| {
-            done.stack = null;
-            releaseStack(now, s);
-        }
+        endStack(now, done);
         h.status.store(Header.ended, .seq_cst);
     }
 }
@@ -3238,9 +3257,10 @@ fn takeStack() Stack {
 }
 
 /// Keep a stack a fiber has finished with, for the next on `w`, or
-/// return it to the system when `w` keeps enough.
+/// return it to the system when `w` keeps enough, or always in a build
+/// that sanitizes (`RIG_SANITIZE=1`), so a late write into it faults.
 fn releaseStack(w: *Worker, s: Stack) void {
-    if (w.free_count >= keep_free) return unmapStack(s);
+    if (rt.sanitize or w.free_count >= keep_free) return unmapStack(s);
     const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
     n.* = .{ .stack = s, .next = w.free };
     w.free = n;
@@ -3459,11 +3479,12 @@ pub fn abandonDetached() noreturn {
     finishFiber(current().?);
 }
 
-/// End the running fiber where it stands, its frames left as they are:
-/// a task that panicked (`tasks.panicked`). Its record is marked
-/// `panicked`, so whoever waits for it learns so.
-pub fn abandon() noreturn {
+/// End the running fiber where it stands, its frames left as they are,
+/// and its stack to `keep`: a task that panicked (`tasks.panicked`). Its
+/// record is marked `panicked`, so whoever waits for it learns so.
+pub fn abandon(keep: Keep) noreturn {
     const f = current().?;
+    f.keep = keep;
     const h: *Header = @fieldParentPtr("fiber", f);
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
