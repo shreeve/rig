@@ -5417,7 +5417,8 @@ across modules, and only std.prelude's scope names them.
   writes, in a word of their own apart from `shift`, which every lookup
   reads first. The first put makes room for 4 entries; an indexed
   table's room doubles, but from 32 to 48 and from 48 to 64
-  (`nextRoom`), so a table of 33 to 48 entries holds 48. An indexed
+  (`nextRoom`), so a table of 33 to 48 entries holds 48, and from 2^31
+  to the limit, 2^32 - 1, which growth thus reaches. An indexed
   table makes its gone bits, one an entry, at the first take that leaves
   a hole; `clear` frees them with the index.
 - **Entry reads** go through `entryOf`: in a debug build it tests the

@@ -537,7 +537,7 @@ pub obj Interner
     !@hs.push(h)
     @len += 1
     # A rebuilt table places every id, the new one too.
-    if @table.tags.len > 0 and @len * 5 <= @table.tags.len * 4
+    if @table.tags.len > 0 and @len * 2 <= @table.tags.len
       !@table.place(Int(id), h)
     else if @table.tags.len > 0 or @len > ID_SMALL
       !@rebuild(id_table_size(@len, @table.tags.len))
@@ -630,11 +630,13 @@ obj IdTable
     !@tags.resize(n, 0)
     !@at.resize(n, 0)
 
-# The slots a table needs to hold `want` entries at most two fifths
-# full: a power of two, at least 16, and at least `now`.
+# The slots a table needs to hold `want` entries at most half full: a
+# power of two, at least 16, and at least `now`. A table is rebuilt when
+# an id would fill it past half, so it doubles and is a quarter to half
+# full: a miss probes about 2.5 slots, against 13 at four fifths.
 fun id_table_size(want: Int, now: Int) -> Int
   n = 16 if now < 16 else now
-  while want * 5 > n * 2
+  while want * 2 > n
     n *= 2
   n
 

@@ -5,6 +5,8 @@
 # neither below nor above a number: sort floats with `sort_by` and
 # `total_order`, `sort_by(!xs, |a, b| a.total_order(?b) == .less)`.
 
+use std.math
+
 # Sort `xs` in place, in the order of `<`, keeping equal elements in the
 # order they had. Allocates nothing.
 pub sub sort[T: Ord](xs: ![]T)
@@ -20,11 +22,11 @@ pub sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   width = 20
   a = 0
   while a < n : a += width
-    insertion(!xs[a..min(a + width, n)], less)
+    insertion(!xs[a..math.min(a + width, n)], less)
   while width < n : width *= 2
     a = 0
     while a + width < n : a += 2 * width
-      sym_merge(!xs, less, a, a + width, min(a + 2 * width, n))
+      sym_merge(!xs, less, a, a + width, math.min(a + 2 * width, n))
 
 # Sort `xs` in place in the order of the key `key` gives each element,
 # by `<`, keeping elements of equal keys in the order they had. Allocates
@@ -36,9 +38,6 @@ pub sub sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)
     kb = key(b)
     ka < kb
   )
-
-fun min(a: Int, b: Int) -> Int
-  a if a < b else b
 
 sub insertion[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   i = 1

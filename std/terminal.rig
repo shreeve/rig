@@ -219,6 +219,10 @@ fun intern(styles: !List[Style], ids: !Map[Int, Int], s: ?Style) -> Int
 
 SMALL_STYLES = 32
 
+# The styles a terminal holds before it drops those no cell uses
+# (`restyle`).
+STYLE_ROOM = 4096
+
 # `style_ids` of a terminal's first style, the plain one.
 fun plain_ids() -> Map[Int, Int]
   ids = Map[Int, Int].new()
@@ -302,6 +306,11 @@ KIND: U64 = 0xC0000000
 # are in `extras`, by the cell's index (Ghostty's grapheme map).
 EXTRA: U64 = 0x20000000
 
+# The most runes a char keeps after its first, as Ghostty's
+# grapheme_max_len: one more is dropped, so output cannot grow a cell
+# without bound.
+MAX_EXTRAS = 64
+
 # A cell is protected: printed while protection was on (SPA or DECSCA),
 # so a selective erase, or any erase after SPA, leaves it.
 PROT: U64 = 0x10000000
@@ -333,6 +342,11 @@ fun rune(c: U64) -> Int
 # The style index of a cell.
 fun mark(c: U64) -> Int
   Int(c >> 32)
+
+# Cell `c` with its style index `k` as `to[k]`.
+fun renumber(c: U64, to: ?List[Int]) -> U64
+  return c if c >> 32 == 0
+  (c & 0xFFFFFFFF) | (U64(to[mark(c)]) << 32)
 
 # The row of `cols` cells at `start` of `cells` as text onto `out`: its
 # chars, with `extras` their runes after the first, an empty cell a space
@@ -400,7 +414,8 @@ pub obj Terminal
   hist: List[Int]
   hist_at: Int
   spare: List[Int]
-  # The styles cells use, the first the plain one.
+  # The styles cells use, the first the plain one, and some they no
+  # longer use, which `restyle` drops once there are `style_room` styles.
   styles: List[Style]
   # Each style's index in `styles`, by its `style_key`.
   style_ids: Map[Int, Int]
@@ -489,6 +504,9 @@ pub obj Terminal
   # The UTF-8 decoder of the ground state, which keeps a rune cut between
   # two feeds.
   decoder: utf8.Decoder
+  # The styles `styles` holds before `restyle`: a U32, as a style's index
+  # in a cell is, which keeps the terminal's layout as fast as without it.
+  style_room: U32
 
   # An empty terminal of `cols` by `rows`, the cursor at the top left and a
   # tab stop every 8 columns, keeping up to `scrollback` rows of history.
@@ -504,7 +522,7 @@ pub obj Terminal
       map[y] = y
     Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: Map[Int, List[U32]].new(),
       scrollback: scrollback if scrollback > 0 else 0, hist: List(), hist_at: 0, spare: List(),
-      styles: List([Style.plain()]), style_ids: plain_ids(), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
+      styles: List([Style.plain()]), style_ids: plain_ids(), style_room: U32(STYLE_ROOM), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, protect: false, prot_mode: PROT_OFF, other_prot_mode: PROT_OFF, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
       modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
@@ -528,12 +546,49 @@ pub obj Terminal
 
   # The pen changed: find its index, and the index of an erased cell.
   sub pen_changed(!@)
+    (!@).restyle() if @styles.len >= Int(@style_room)
     @pen_id = intern(!@styles, !@style_ids, ?@pen)
     erased = Style.plain()
     erased.bg = @pen.bg
     @blank_id = intern(!@styles, !@style_ids, ?erased)
     @pen_bits = (U64(@pen_id) << 32) | (PROT if @protect else 0)
     @blank_cell = U64(@blank_id) << 32
+
+  # The styles are `style_room` or more: drop those no cell uses, in
+  # either screen or the history, and number the rest again in order,
+  # every cell's mark with them, then make room for as many again. While
+  # the styles are fewer than a quarter of the cells, only the room
+  # grows, to that quarter. A program that sets a new style for each
+  # rune thus leaves a table no larger than STYLE_ROOM, a quarter of the
+  # cells, or twice the styles its cells use. The pen's index is found
+  # again after this.
+  sub restyle(!@)
+    rarely
+    quarter = (@cells.len + @other_cells.len) / 4
+    if @styles.len < quarter
+      @style_room = U32(quarter)
+      return
+    to = List[Int].filled(@styles.len, -1)
+    to[0] = 0
+    for c in @cells
+      to[mark(c)] = 0
+    for c in @other_cells
+      to[mark(c)] = 0
+    kept = List[Style]()
+    ids = Map[Int, Int].new()
+    for t, k in @styles
+      continue if to[k] < 0
+      to[k] = kept.len
+      key = style_key(t)
+      !ids.put(key, kept.len) if not ids.has(key)
+      !kept.push(+t)
+    for i in 0..@cells.len
+      @cells[i] = renumber(@cells[i], ?to)
+    for i in 0..@other_cells.len
+      @other_cells[i] = renumber(@other_cells[i], ?to)
+    @style_room = U32(2 * kept.len if 2 * kept.len > STYLE_ROOM else STYLE_ROOM)
+    @styles = <kept
+    @style_ids = <ids
 
   # SPA and EPA (ISO, and off) or DECSCA (DEC, and off): whether the cells
   # the cursor prints are protected, and, but for off, the kind of
@@ -611,13 +666,14 @@ pub obj Terminal
     @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
     @flags[p] |= ROW_WIDE if kind != 0
 
-  # Rune `c` added to the char of cell `i`, after its runes.
+  # Rune `c` added to the char of cell `i`, after its runes, unless it
+  # has MAX_EXTRAS of them.
   sub append(!@, i: Int, c: Int)
     if @cells[i] & EXTRA == 0
       @cells[i] |= EXTRA
       !@extras.put(i, List[U32]())
     if (!@extras).edit(i) as l
-      !l.push(U32(c))
+      !l.push(U32(c)) if l.len < MAX_EXTRAS
     @flags[i / @cols] |= ROW_MORE
 
   # Ghostty's rune of width 0 outside mode 2027: added to the char before
@@ -2089,3 +2145,32 @@ sub Terminal.csi_final(!@, b: U8)
       (!@).sgr()
       (!@).pen_changed()
     _ => pass
+
+# ---- Bounds --------------------------------------------------------------
+
+# Output a program writes is untrusted: what it makes a terminal hold
+# stays within the terminal's size, however long it runs.
+
+test "a new style for each rune keeps the table bounded"
+  t = Terminal.new(80, 24, scrollback: 0)
+  for i in 0..20000
+    !t.feed(String("\x1b[38;2;", i >> 16, ";", (i >> 8) & 255, ";", i & 255, "mx"))
+  t.styles.len <= STYLE_ROOM and t.style_ids.len <= STYLE_ROOM
+
+test "styles kept in the history and the other screen stay theirs"
+  t = Terminal.new(10, 2, scrollback: 10)
+  !t.feed("\x1b[1;31mred\x1b[m\r\n2\r\n3\x1b[?1049h\x1b[4malt")
+  for i in 0..5000
+    !t.feed(String("\r\x1b[38;2;0;", i >> 8, ";", i & 255, "mx"))
+  !t.feed("\x1b[?1049l")
+  t.styles.len < 5000 and t.dump() == "^red\n|2\n|3\n~-1 0-2 bold fg=1\ncursor 1 1"
+
+test "a char keeps MAX_EXTRAS runes after its first"
+  t = Terminal.new(10, 2)
+  !t.feed("e")
+  for _ in 0..1000
+    !t.feed("\u{301}")
+  n = 0
+  if t.extras.get(0) as l
+    n = l.len
+  n == MAX_EXTRAS

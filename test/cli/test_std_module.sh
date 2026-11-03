@@ -40,6 +40,11 @@ expect_has "$out" ' 0 failed' "std.crypto's count"
 out=$(RIG_STD="$PWD/lib" rig test std.crypto.x25519 2>&1); expect_rc $? 0 "rig test std.crypto.x25519: $out"
 expect_has "$out" '0 passed, 0 failed' "a module under a directory"
 
+# A single-file module's test blocks, which read its private names:
+# std.terminal's bounds on what output makes it hold.
+out=$(RIG_STD="$PWD/lib" rig test std.terminal 2>&1); expect_rc $? 0 "rig test std.terminal: $out"
+expect_has "$out" ' 0 failed' "std.terminal's count"
+
 # The embedded library, with no RIG_STD.
 out=$(rig test std.utf8 2>&1); expect_rc $? 0 "rig test std.utf8, embedded: $out"
 expect_has "$out" '0 passed, 0 failed' "the embedded std.utf8"
