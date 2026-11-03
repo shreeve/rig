@@ -1294,14 +1294,20 @@ noinline fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: u
 // `segmentOf` and `blockOf` read a small block `alloc` made, which `free`
 // and `freeSmall` are given: Zig's checks on their casts are kept in a
 // debug build and left out of an optimized one, where the allocator's own
-// layout proves them.
+// layout proves them. Both are spelled as the runtime's are.
 const proven_checks = builtin.mode == .debug;
+
+/// A fact the allocator relies on in place of a check, asserted in a
+/// debug build, as the runtime's `invariant` is.
+inline fn invariant(ok: bool) void {
+    if (builtin.mode == .debug) std.debug.assert(ok);
+}
 
 /// The segment that holds `p`, a small block: segments are aligned to
 /// `segment_size`, and a block is never in a segment's first page (its
 /// header's), so the address is the segment's and is not zero.
 inline fn segmentOf(p: [*]u8) *Segment {
-    if (builtin.mode == .debug) std.debug.assert(@intFromPtr(p) & (segment_size - 1) >= page_size);
+    invariant(@intFromPtr(p) & (segment_size - 1) >= page_size);
     // A block lies past its segment's header, so the segment is not null.
     @setRuntimeSafety(proven_checks);
     return @ptrFromInt(@intFromPtr(p) & ~(segment_size - 1));
@@ -1311,7 +1317,7 @@ inline fn segmentOf(p: [*]u8) *Segment {
 /// class's size, every one a multiple of 8, from a page, so aligned for
 /// a `Block`.
 inline fn blockOf(p: [*]u8) *Block {
-    if (builtin.mode == .debug) std.debug.assert(@intFromPtr(p) % @alignOf(Block) == 0);
+    invariant(@intFromPtr(p) % @alignOf(Block) == 0);
     // Every class's size is a multiple of 8 (`classSize`), as is a page.
     @setRuntimeSafety(proven_checks);
     return @ptrCast(@alignCast(p));

@@ -4208,7 +4208,8 @@ pub fn proofPanic() noreturn {
 /// test `p` does not prove fails. A proven test is made only as an
 /// assertion (`verify_proofs`).
 inline fn provenOffset(i: Int, count: usize, width: usize, comptime p: Proven) ?usize {
-    @setRuntimeSafety(false);
+    // The compiler's proof, asserted under `verify_proofs`.
+    @setRuntimeSafety(proven_checks);
     if (i < 0) {
         if (p == .upper) return null;
         if (verify_proofs) proofPanic();
@@ -4282,7 +4283,8 @@ pub inline fn addIf(a: Int, b: Int, ok: bool) Int {
 /// assume does not wrap.
 pub inline fn addProven(a: Int, b: Int) Int {
     if (verify_proofs) _ = std.math.add(Int, a, b) catch proofPanic();
-    @setRuntimeSafety(false);
+    // The compiler's proof, asserted under `verify_proofs`.
+    @setRuntimeSafety(proven_checks);
     return a + b;
 }
 
