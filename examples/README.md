@@ -26,6 +26,6 @@ bin/rig run examples/ownership_tour.rig
 | [json_tour.rig](json_tour.rig) | `std.json`: parse a document into a tape, walk an object's keys and values by `kind` and `next`, read strings, integers, floats, and an array, and report a parse error |
 | [text_tour.rig](text_tour.rig) | bytes, runes, units, and chars of one string with an accented letter and an emoji, counted with `std.text`, `std.utf8`, and `std.utf16` |
 
-[WELCOME.md](../WELCOME.md) introduces the language, and
+[The welcome page](../docs/learn/00-welcome.md) introduces the language, and
 [SPEC.md](../SPEC.md) is its reference; the full test suite lives in
 [test/](../test/README.md).

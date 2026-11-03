@@ -631,6 +631,6 @@ That is the principle behind the whole design:
   the one leak the compiler does not prevent.
 - [Errors and optionals](03-errors.md) shows `T?` and `T!` at the
   scale of a parser.
-- [WELCOME.md](../../WELCOME.md) translates each sigil to Rust and
-  Zig, and [SYNTAX.md](../../SYNTAX.md) lists every position a sigil
+- [The welcome page](00-welcome.md) translates each sigil to Rust and
+  Zig, and [SYNTAX.md](../SYNTAX.md) lists every position a sigil
   may take.

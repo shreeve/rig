@@ -455,7 +455,7 @@ test "r3-s36-docs-p02 return bare moves", '''
   1
   drop 1
 '''
-  # WELCOME "From Rust and Zig": "a bare name never moves an owning value"
+  # docs/learn/00-welcome.md, "From Rust and Zig": "a bare name never moves an owning value"
   obj Res
     n: Int
 

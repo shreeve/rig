@@ -22,6 +22,10 @@ a small Zig file beside the module on Zig's standard library
 ([SPEC §15](../SPEC.md#zig-backed-declarations)). A call to one is
 checked like any call. This page lists everything it has.
 
+Built in, with no import: `print`, `String`, `List`, `Map`, `Set`,
+`Table`, `Slot`, `Cell`, `Signal`, `Actor`, `Frozen`, `Chan`, and
+`Tasks`.
+
 `RIG_STD=dir` makes `rig` read the standard library from `dir` in
 place of the copy built into it. It is a setting for developing the
 library, whose modules may bind Zig files; a program's own modules are

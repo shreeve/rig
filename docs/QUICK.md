@@ -1,7 +1,7 @@
 # Rig on one page
 
 Rig's sigils show who owns a value and who may change it. [CORE](CORE.md)
-states the ownership model in full; [SYNTAX](../SYNTAX.md) and
+states the ownership model in full; [SYNTAX](SYNTAX.md) and
 [SPEC](../SPEC.md) give every form.
 
 Sigils are the language's mechanics; words are its libraries:

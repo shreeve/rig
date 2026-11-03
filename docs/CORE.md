@@ -2,8 +2,8 @@
 
 This page states Rig's whole ownership model in plain sentences. The
 other documents and the compiler derive their ownership rules from it:
-[SPEC](../SPEC.md) gives the details, [SYNTAX](../SYNTAX.md) the forms,
-and [WELCOME](../WELCOME.md) teaches it. A rule anywhere else that does
+[SPEC](../SPEC.md) gives the details, [SYNTAX](SYNTAX.md) the forms,
+and [the welcome page](learn/00-welcome.md) teaches it. A rule anywhere else that does
 not follow from a sentence here is a mistake in one of them.
 
 **Scope:** ownership only. Types, numbers and their conversions,

@@ -3,8 +3,8 @@
 This is the reference for Rig as the compiler implements it: what
 each form means, and the rules `rig check` enforces. How each form is
 written (layout, names, literals, operators and their precedence, and
-the grammar) is in [SYNTAX.md](SYNTAX.md), and a guided start from
-another language is [WELCOME.md](WELCOME.md). For the reasons behind
+the grammar) is in [SYNTAX.md](docs/SYNTAX.md), and a guided start from
+another language is [the welcome page](docs/learn/00-welcome.md). For the reasons behind
 the rules, see [docs/DESIGN.md](docs/DESIGN.md); for what is not built
 yet, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -58,7 +58,7 @@ The standard library, imported with `use std.NAME`, is described in
 A Rig program is a file of declarations: functions (`fun`, `sub`),
 types (`obj`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks, written as
-[SYNTAX.md](SYNTAX.md) shows. Statements live inside functions. A
+[SYNTAX.md](docs/SYNTAX.md) shows. Statements live inside functions. A
 program that runs declares its entry point as `sub main()`, with no
 parameters, or as `fun main() -> Int`, whose value is the process's exit
 status, from 0 to 255 (another value panics). Either may fail: `main`
@@ -88,8 +88,8 @@ nothing to do
 ```
 
 `rig check` checks a program, `rig run` checks, builds, and runs it,
-and `rig --help` lists the other commands (see also the
-[README](README.md#build-and-run)). `rig check` and `rig test` also
+and `rig --help` lists the other commands (see also
+[Running a program](docs/learn/00-welcome.md#running-a-program)). `rig check` and `rig test` also
 accept a directory module as the root. The root's imports are its
 sibling modules, found in the directory's real parent, with symlinks
 resolved, whatever the path is spelled. Given a file of a directory
@@ -1348,7 +1348,7 @@ sub main()
 
 How the sigils of a type combine (`*User?` is an optional handle,
 `?User?` a view of an optional) is in
-[SYNTAX §7](SYNTAX.md#7-types). A handle holds a value, never a
+[SYNTAX §7](docs/SYNTAX.md#7-types). A handle holds a value, never a
 `?T`, `!T`, or slice: `*(?User)` is rejected.
 
 Two kinds of type stand only in some places (Core §5 and sentence 9):
@@ -1426,7 +1426,7 @@ sub main()
 ### Functions
 
 `fun` declares a function that returns a value, and `sub` one that
-does not ([SYNTAX §8](SYNTAX.md#functions)). A `fun` always has a
+does not ([SYNTAX §8](docs/SYNTAX.md#functions)). A `fun` always has a
 return type: a `fun` without `->`, or returning `Void`, is rejected in
 favor of a `sub`. A `sub` marked `!`, `sub save(n: Int)!`, may fail,
 and its type is `sub(Int)!` ([§13](#13-errors)). A function's value is
@@ -1439,7 +1439,7 @@ may be named `_`, any number of times. A parameter may have a default
 value: a literal or a module constant (`LIMIT`, `lib.LIMIT`, `U8.max`),
 which means the same value at every call, in any module. A call passes
 arguments by position, by keyword, or both, positional arguments first
-([SYNTAX §11](SYNTAX.md#calls)). Each parameter gets exactly one
+([SYNTAX §11](docs/SYNTAX.md#calls)). Each parameter gets exactly one
 argument, and every parameter without a default needs one; arity,
 keyword names, and argument types are checked. Arguments are evaluated
 in the order written.
@@ -1958,7 +1958,7 @@ An `obj` lists its fields, then its methods. It is constructed by
 naming its fields, `Point(x: 1, y: 2)`, and an object with exactly one
 field also takes it by position: `Meters(3.5)` is
 `Meters(value: 3.5)`, as `^x`, `*Cell(0)`, and `*Signal(0)` are
-([SYNTAX §11](SYNTAX.md#constructors)). A field may have a default
+([SYNTAX §11](docs/SYNTAX.md#constructors)). A field may have a default
 value, and a constructor may omit that field. Like a parameter default,
 it is a literal (a number, a string, `true` / `false`, `none`, or
 `.variant`) or a module constant, of this module or an imported one
@@ -2039,7 +2039,7 @@ write `!@bump()`: the call writes `@`
 ```
 
 A `?`, `!`, or `<` before a place and a method call marks self:
-`!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](SYNTAX.md#self-sigils)).
+`!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](docs/SYNTAX.md#self-sigils)).
 Writing `?` is optional, since a read self is lent without it. The
 short form is checked against the method: `!` before a method that
 does not take `!@` is rejected (it reads as negation, which is
@@ -2319,7 +2319,7 @@ sub main()
 ### Enums
 
 An `enum` lists variants, which may carry an explicit integer value or
-payload fields, and may have methods ([SYNTAX §8](SYNTAX.md#enums)). A
+payload fields, and may have methods ([SYNTAX §8](docs/SYNTAX.md#enums)). A
 variant is named `.name` where the enum type is known, or `Type.name`.
 A payload variant is constructed with its fields named, like an object,
 and a variant with exactly one field also takes it by position:
@@ -2576,7 +2576,7 @@ sub main()
 ### Symbols
 
 A symbol is `:` and a name, written where an operand starts: `:width`,
-`:if`, `:content-type` ([SYNTAX, Symbols](SYNTAX.md#symbols)). Its
+`:if`, `:content-type` ([SYNTAX, Symbols](docs/SYNTAX.md#symbols)). Its
 type is the builtin `Symbol` wherever it stands: unlike `.width`, it is
 not inferred from context, and `.width` where a `Symbol` is expected is
 rejected. The values of `Symbol` are exactly the symbol literals the
@@ -4845,7 +4845,7 @@ declaration ([§14](#14-modules)), and `extern` declares a C symbol
 
 ## 4. Bindings and assignment
 
-The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment). `x =
+The forms are in [SYNTAX §9](docs/SYNTAX.md#9-bindings-and-assignment). `x =
 e` binds a new local `x` when no `x` is visible, and otherwise assigns
 the visible one: through it, when `x` holds a write view
 ([View places](#view-places)). `x =! e` binds a fixed local, which
@@ -5158,8 +5158,8 @@ a write view is never stored inside a value, and `!Int` cannot stand here
 ### Operators
 
 The operators and their precedence are in
-[SYNTAX §6](SYNTAX.md#6-operators-and-precedence), and how they are
-spaced in [SYNTAX §5](SYNTAX.md#5-prefixes-infixes-and-suffixes): an
+[SYNTAX §6](docs/SYNTAX.md#6-operators-and-precedence), and how they are
+spaced in [SYNTAX §5](docs/SYNTAX.md#5-prefixes-infixes-and-suffixes): an
 infix operator has the same spacing on both sides, and a sigil touches
 what it marks. A sigil before a method call
 applies to the method's self ([§3](#objects)); a call of a field
@@ -5889,7 +5889,7 @@ write `$size(I64)`: Rig's builtin is `$size`; `$sizeOf`, Zig's name for it, work
 ## 6. Control flow
 
 The forms of each statement are in
-[SYNTAX §10](SYNTAX.md#10-statements-and-control-flow); this section
+[SYNTAX §10](docs/SYNTAX.md#10-statements-and-control-flow); this section
 says what they do.
 
 **Headers.** An `if` or `while` condition, a `match` guard, and the
@@ -5910,7 +5910,7 @@ A simple statement (a call, a binding or assignment, a drop, `return`,
 `break`, or `continue`) that ends with a guard, `if cond`, runs only
 when `cond` holds. The guard covers the whole statement, a `catch`
 handler included, and ends it: a deeper line after a guard is rejected
-([SYNTAX §10](SYNTAX.md#guards)).
+([SYNTAX §10](docs/SYNTAX.md#guards)).
 
 ### while
 
@@ -6410,7 +6410,7 @@ value is not.
 `match` runs the first arm whose pattern matches, and no other. It works
 on enums, integers, `Bool`, symbols ([Symbols](#symbols)), error
 values (`catch |err|`,
-[§13](#naming-the-error)), and text; [SYNTAX §12](SYNTAX.md#12-patterns) lists
+[§13](#naming-the-error)), and text; [SYNTAX §12](docs/SYNTAX.md#12-patterns) lists
 the patterns. A range pattern's bounds are constants. Every match must
 cover every value, whether its value is used
 or it is a statement: its arms name every variant or value, or a
@@ -7506,7 +7506,7 @@ whole path (`!p.items.push(3)`, `if !arr[0] as v`, `match !p.e`,
 assigned to or bound by a header: bind the value to a name first. A
 read lend is not written through, `(?p).x = 5`. Three forms are not this
 rule's: a method's self, `(!s).insert(k)`
-([SYNTAX §5](SYNTAX.md#self-sigils)); a value that branches,
+([SYNTAX §5](docs/SYNTAX.md#self-sigils)); a value that branches,
 `(!a if c else !b).x`, whose lends pick the place its path reaches; and
 a lend of a slice, `(?t[..])[0]`, which makes the view the path
 indexes. A written `!` on such a slice the path only reads,
@@ -8076,7 +8076,7 @@ sub main()
 A `!@` method called on a temporary, or on a field or element of
 one, lends it to write, and every change is marked by `!`: without one
 the call is rejected, with the hint to add it. `!Counter(n: 1).bump()`
-is `(!Counter(n: 1)).bump()` ([SYNTAX §5](SYNTAX.md#self-sigils)).
+is `(!Counter(n: 1)).bump()` ([SYNTAX §5](docs/SYNTAX.md#self-sigils)).
 The method sees the temporary in its statement's slot, and its result
 may be used, or not:
 
@@ -9885,7 +9885,7 @@ Rig from `Cell`, `List`, and owned closures (see
 
 A closure starts with its bar list, which holds its **captures**, each
 with a sigil, and then its **parameters**, bare names
-([SYNTAX §11](SYNTAX.md#closures)). A closure reaches the enclosing
+([SYNTAX §11](docs/SYNTAX.md#closures)). A closure reaches the enclosing
 function's locals only through its captures. A bare entry that names a visible local is rejected, with the
 sigils that would capture it, because the spelling alone decides what
 an entry is:
@@ -10730,7 +10730,7 @@ cannot assign to `m.id`: `id` names the none of `Node` (`none id == ...`), so on
 ### Testing a pattern: `matches`
 
 `x matches P` is a `Bool`: whether `x` matches the pattern `P`, which is
-a `match` arm's ([SYNTAX §12](SYNTAX.md#12-patterns)): `.point`,
+a `match` arm's ([SYNTAX §12](docs/SYNTAX.md#12-patterns)): `.point`,
 `.circle(r)`, `.circle(_)`, `.rect(w, h)`, `.rect(h: tall)`, a literal,
 or a range. Several alternatives are a list in parentheses after a
 space, `x matches (.a, .b, .c)`, which may end with a comma and spread
@@ -10969,7 +10969,7 @@ must say what happens to the failure, visibly:
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
 - `catch` binds as `??` does, and the two read left to right, as Zig's
-  `catch` and `orelse` do ([SYNTAX §6](SYNTAX.md#6-operators-and-precedence)):
+  `catch` and `orelse` do ([SYNTAX §6](docs/SYNTAX.md#6-operators-and-precedence)):
   `f() catch none ?? -1` is `(f() catch none) ?? -1`, and a handler is
   an operand of the operators that bind tighter, so one that compares,
   joins with `and` or `or`, or chooses with `if` is parenthesized:
@@ -12225,7 +12225,7 @@ only the standard library binds declarations to Zig code with `extern zig`
 A declaration lists its compile-time parameters in brackets after its
 name, before any run-time parameters: a bare name is a **type
 parameter** and `name: Type` a **compile-time value**
-([SYNTAX §8](SYNTAX.md#generics-and-compile-time-parameters)).
+([SYNTAX §8](docs/SYNTAX.md#generics-and-compile-time-parameters)).
 Functions, `sub`s, methods, and associated functions take both kinds; generic types take type parameters and
 integer values ([generic types](#generic-types)); `main` takes none.
 Each lowers to a Zig `comptime` parameter, a type parameter as
@@ -12257,7 +12257,7 @@ arithmetic on a compile-time parameter (`n + 1`), directly or through a
 unchecked. Inside a body, a compile-time value is an ordinary value, and
 arithmetic on it is checked when it runs. Whether `x[...]` indexes `x`
 or gives it compile-time arguments is decided by what `x` names
-([SYNTAX §11](SYNTAX.md#compile-time-arguments)).
+([SYNTAX §11](docs/SYNTAX.md#compile-time-arguments)).
 
 The brackets choose an instance and the parentheses call it, so a call
 of a function with no run-time parameters is still written `show[3]()`,
@@ -12653,7 +12653,7 @@ sub main()
 A task is a call that runs concurrently with the code after it. A `&`
 touching the `)` of a call, with no operand touching it on the right,
 makes the call a task: `sq(4)&`, `total(?xs)&`, `(!c).bump(2)&`
-([SYNTAX §5](SYNTAX.md#5-prefixes-infixes-and-suffixes)). Spaced, or
+([SYNTAX §5](docs/SYNTAX.md#5-prefixes-infixes-and-suffixes)). Spaced, or
 with an operand touching it, `&` is bitwise and: `a & b`, `f()&b`. Only
 a call of a named function or method is a task; a closure's call or a
 constructor is not.
@@ -12705,7 +12705,7 @@ made, `t = fill(!xs, 3)&`, and waited for there, `>t`; it is not
 moved, held in a list, or returned. A method's self is lent as the
 method takes it: `?c.get()&` to read, `(<c).into()&` to move it in, and
 `!c.bump(2)&` to write, short as any write call that gives no `Bool`
-([Self sigils](SYNTAX.md#self-sigils)).
+([Self sigils](docs/SYNTAX.md#self-sigils)).
 
 ```rig
 sub fill(xs: !List[Int], n: Int)

@@ -29,28 +29,9 @@ sub main()
 result. `?xs` lends `xs` to read. There is no `async`, no `await`, and
 no executor to set up: `total` and `sq` are ordinary functions, and any
 function can run as a task. The task reads the list in place, with no
-copy and no reference count, and the compiler keeps the loan until `>u`.
-So this is rejected:
-
-```rig reject
-fun total(xs: ?List[Int]) -> Int
-  xs.sum()
-
-sub main()
-  xs = List([3, 4])
-  u = total(?xs)&
-  !xs.push(1)
-  print(>u)
-```
-
-```error
-cannot lend `xs` to write while a read loan is live
-```
-
-That is the rule Rig applies to every view, not a special rule for
-tasks. Each idea here has a precedent, in Rust's ownership, Go's waiting
-without `async`, and Erlang's actors. Rig holds them all at once, in a
-handful of sigils:
+copy and no reference count, and the compiler keeps the loan until
+`>u`, so a write to `xs` before then is rejected. That is the rule Rig
+applies to every view, not a special rule for tasks.
 
 - **Effects are visible.** Every move, clone, write, failure path, and
   task is marked on the line where it happens. Reading is unmarked.
@@ -64,27 +45,11 @@ handful of sigils:
 - **Zig's cost model.** The output is plain Zig. Starting and switching
   tasks costs less than in Tokio or Go, and the HTTP server answers
   about as many requests as hyper on a Mac, and more on Linux
-  ([Performance](#performance)).
+  ([benchmarks](docs/launch/benchmarks.md)).
 
-Every `rig` example in this README is checked by the test suite, and
-each one shown with its output runs and prints exactly that.
+Every `rig` example in this README is checked by the test suite.
 
-## Contents
-
-- [The central idea](#the-central-idea)
-- [Ownership without a garbage collector](#ownership-without-a-garbage-collector)
-- [Errors and optionals](#errors-and-optionals)
-- [Concurrency](#concurrency)
-- [The rest of the language](#the-rest-of-the-language)
-- [The standard library](#the-standard-library)
-- [What the compiler guarantees](#what-the-compiler-guarantees)
-- [Performance](#performance)
-- [Status](#status)
-- [Install](#install)
-- [Build and run](#build-and-run)
-- [Where to go next](#where-to-go-next)
-
-## The central idea
+## The sigils
 
 **Sigils are the language's mechanics; words are its libraries.** How
 data is bound, taken, lent, held, failed, and run at the same time is a
@@ -101,531 +66,29 @@ appears:
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |
 
 What a library chooses stays a word: canceling a task is
-`<t.cancel()`, and waiting for the first of several is
-`<ts.wait_first()`.
-
-`?` and `!` carry one idea each, in four positions:
-
-| | before a value | before a type | after a type | after an expression |
-|---|---|---|---|---|
-| `?` "maybe, just look" | `?x` lend to read | `?T` read view | `T?` optional | `e?` pass `none` up |
-| `!` "for real, act" | `!x` lend to write | `!T` write view | `T!` can fail | `e!` pass a failure up |
-
-`!` means "act": write, or fail, as in Ruby's `sort!`. Rig spells
-negation `not`, so `!` never means "not".
-
-A sigil is a prefix where an operand starts, so `a < b` is still a
-comparison. [docs/QUICK.md](docs/QUICK.md) puts every sigil on one
-page, and [docs/DESIGN.md](docs/DESIGN.md) shows their algebra.
-
-## Ownership without a garbage collector
-
-Rig's ownership model is Rust's with two differences: every transfer
-is written, and there is no lifetime syntax, since the checker follows
-where each view came from. The whole model fits on one page,
-[docs/CORE.md](docs/CORE.md), in three words: *you lend a view; the
-compiler remembers the loan.*
-
-```rig
-obj File
-  name: ?String
-  lines: Int
-
-  sub write(!@, n: Int)
-    @lines += n
-
-  drop(!@)
-    print("closing", @name, "after", @lines, "lines")
-
-fun size(f: ?File) -> Int
-  f.lines
-
-sub archive(f: File)
-  print("archiving", f.name)
-
-sub main()
-  log = File(name: "log.txt", lines: 0)
-  !log.write(3)
-  print(size(?log))
-  archive(<log)
-  cfg = *File(name: "cfg.toml", lines: 2)
-  cfg2 = +cfg
-  <cfg
-  print("still open:", cfg2.name)
-```
-
-```output
-3
-archiving log.txt
-closing log.txt after 3 lines
-still open: cfg.toml
-closing cfg.toml after 2 lines
-```
-
-- **Lending.** `!log.write(3)` lends `log` to write, and `size(?log)`
-  lends it to read. The sigil at the call shows what the call may do to
-  your value. Views are checked, never counted, so they cost nothing at
-  run time. A value has many readers or one writer at a time, never
-  both.
-- **Moving.** `<log` moves the file into `archive`, which owns it and
-  closes it on return; a later use of `log` is a compile error.
-- **Sharing.** `*File(...)` puts a file behind a counted handle, `+cfg`
-  makes a second owner, and `<cfg` alone on its line drops the first
-  one now. The file closes when `cfg2`, its last owner, goes out of
-  scope.
-
-An object is a value: it lives where it is declared, and `^` puts it on
-the heap or `*` shares it only when a sigil says so. There are no
-finalizers. The one leak the checker does not prevent is a cycle of
-strong handles, as in Rust and Swift; a weak handle, `~x`, breaks it,
-and a debug build reports the leak.
-
-## Errors and optionals
-
-A `T?` may be `none` and a `T!` may fail. Every call to either says
-what happens: `e?` and `e!` pass the absence or failure up, `??` and
-`catch` handle it.
-
-```rig
-error Stack
-  empty
-
-fun peek(v: ?List[Int]) -> Int?
-  return none if v.len == 0
-  v[v.len - 1]
-
-fun pop(v: !List[Int]) -> Int!
-  return Stack.empty if v.len == 0
-  (!v).pop() ?? 0
-
-fun next(v: ?List[Int]) -> Int?
-  peek(?v)? + 1
-
-fun drain(v: !List[Int]) -> Int!
-  pop(!v)! + pop(!v)!
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  !v.push(2)
-  print(next(?v))
-  print(drain(!v) catch -1)
-  print(next(?v), drain(!v) catch -1)
-```
-
-```output
-3
-3
-none -1
-```
-
-`peek` lends `v` to read and gives an `Int?`; `next` passes its `none`
-up with `?`. `pop` lends `v` to write and gives an `Int!`; `drain`
-passes a failure up with `!`, which `catch` turns into `-1`. There are
-no exceptions and no hidden control flow.
-
-A function may name the set it fails with, `-> T!E`, and a member may
-carry fields, as an enum's variant does:
-
-```rig
-error Parse
-  empty
-  bad(at: Int)
-
-fun digit(s: ?String) -> Int!Parse
-  return Parse.empty if s.len == 0
-  return Parse.bad(at: 0) if s[0] < '0' or s[0] > '9'
-  Int(s[0] - '0')
-
-sub main()
-  for s in ["7", "", "x"]
-    n = digit(s) catch |e|
-      print(e)
-      match e
-        .empty => -1
-        .bad(at) => -10 - at
-    print(n)
-```
-
-```output
-7
-Parse.empty
--1
-Parse.bad(at: 0)
--10
-```
-
-`catch |e|` gives `e` the callee's set, so the `match` names every
-member and needs no `_`. A failure moves its error up through `!` to
-the `catch` that owns it, and a task, `par`, or an actor hands the
-fields to whoever waits. `T!` alone may fail with any error,
-`error L = A | B` joins sets, and a function may take its set as a
-parameter, `fun total[E](f: ?fun() -> Int!E) -> Int!E`, to fail with
-whatever its callback fails with.
-
-An optional costs nothing where its value has room for `none`: a view
-or handle uses address 0, an object holding a String, List, box, `Bool`,
-or enum uses a value of that field no real one holds, and an object
-that is an id names its own, `none id == 0`, so a `Node?` is a
-`Node` or id 0. Any other `T?` is a `T` beside a flag.
-
-## Concurrency
-
-Concurrency is the last row of the sigil table, built on the same rules
-as the rest. [SPEC §18](SPEC.md#18-tasks) has every rule, and
-[docs/launch/post.md](docs/launch/post.md) tells the story.
-
-### Tasks
-
-A task keeps the loans of its arguments until `>t` takes its result,
-and it never outlives the scope that owns it: dropping a task that was
-not waited for cancels it, if it can fail, and waits for it. There are
-no detached tasks and no `'static` bounds. A task's failure arrives
-through `>t`, as any failure does: `>t!` passes it on, and `catch`
-handles it. For a task that can fail, a cancel (`<t.cancel()`) or a
-deadline (`time.within(ns, f)`) arrives as an error at its next waiting
-point, with no token to pass down. Ctrl-C cancels a `main` that can
-fail in the same way: its `defer`s and drops run, the tasks it owns
-are canceled, and the program ends with status 130.
-
-The compiler knows, for every type, whether a value may be sent to another
-core or be read from two at once, and decides where each task may run.
-A task handed a `*T` handle, whose count is not atomic, runs on the
-thread of the task that makes it, so a GUI program's shared state can
-use `&` too. A function value, `fun(Int) -> Int`, is a named
-function's address and holds nothing, so it goes to a task on any core.
-A value that never changes again, `*Frozen(x)`, sits behind a handle
-counted atomically, and any number of tasks read it with no copy.
-Generic code states the same facts as bounds, `[T: Sends]` to go to
-another task and `[T: Syncs]` to be read by several at once, and an API
-object (below) names them in its braces, `^{Job + Sends}`.
-`Tasks[T]` holds a set of tasks, `*Chan[T](n)` is a
-bounded channel, `task.select` commits exactly one of its arms, and
-`par.map` and `par.each` spread a loop over the cores.
-
-### Actors
-
-State that many tasks change lives in an actor, which runs its methods
-one at a time, each to its end:
-
-```rig
-obj Ledger
-  entries: List[Int]
-
-  sub post(!@, n: Int)
-    !@entries.push(n)
-
-  fun count(?@) -> Int
-    @entries.len
-
-sub work(l: *Actor[Ledger])
-  for 0..100
-    !l.post(1)
-
-sub main()
-  l = *Actor(Ledger(entries: List[Int]()))
-  ts = Tasks[Void]()
-  for 0..4
-    !ts.add(work(+l)&)
-  >ts
-  print(l.count())
-```
-
-```output
-400
-```
-
-`*Actor(x)` moves the value into the actor; nothing in `Ledger` changes.
-A call that finds the actor idle takes it in one atomic step and runs
-the method on the caller's own stack, so an uncontended actor costs
-about what a lock does. Rig has no `Mutex` type. A one-word `*Cell`,
-such as a counter, becomes atomic instructions.
-
-### When it goes wrong
-
-**A deadlock is reported, not suffered.** An actor runs one method at a
-time, so a call that comes back to it can never be answered:
-
-```rig
-obj Ledger
-  n: Int
-
-  sub post(!@, bank: *Actor[Bank])
-    @n += bank.balance()
-
-obj Bank
-  cash: Int
-
-  fun balance(?@) -> Int
-    @cash
-
-  sub pay(!@, me: *Actor[Bank], ledger: *Actor[Ledger])
-    !ledger.post(+me)
-
-sub main()
-  bank = *Actor(Bank(cash: 100))
-  ledger = *Actor(Ledger(n: 0))
-  !bank.pay(+bank, +ledger)
-```
-
-Every wait records what it waits on, and the wait that closes a cycle
-panics with the calls, so the program does not hang:
-
-```text
-panic: deadlock: these calls wait on each other, and none can go on: Bank.pay -> Ledger.post -> Bank.balance
-```
-
-**A panic stops at a boundary.** `task.isolate(f)` runs `f`, and a panic
-in it, or in any task it started, fails the call with
-`task.Stop.panicked` while the program goes on. A panic in an actor's
-method ends that actor; `*Actor.supervised(make)` starts a fresh value
-instead.
-
-### A small server
-
-`std.http` serves HTTP/1.1. Each connection is a task, and each request
-runs isolated:
-
-```rig
-use std.http
-use std.net
-
-fun pick(xs: ?List[Int], i: Int) -> Int
-  xs[i]
-
-sub main()!
-  hits = *Cell(0)
-  l = net.listen("127.0.0.1:8080")!
-  http.serve(<l, |+hits, req|
-    match req.path
-      "/hit" => http.text(String("hits ", (!hits).add(1)))
-      "/boom" => http.text(String(pick(List([1, 2, 3]), 7)))
-      _ => http.not_found()
-  )!
-```
-
-The compiler checks that what the closure captures is safe to share
-across connections. `/boom` indexes past the end of a list, so it
-panics, the request answers 500, and the server goes on. The same
-server in Go and in Rust with Tokio and hyper, with what each needs, is
-in [docs/launch/examples/](docs/launch/examples/README.md).
-
-### Tests that fail the same way twice
-
-`rig test` runs concurrent code on one thread, with a virtual clock and
-a seed that picks which task runs next. Sleeps take no time, and the
-same seed gives the same interleaving:
-
-```rig
-use std.time
-
-fun slow(ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
-  ms
-
-test "a deadline stops a slow call"
-  r = time.within(5 * time.MS, || slow(60_000)!) catch -1
-  r == -1
-```
-
-```text
-$ rig test deadline.rig
-ok    test "a deadline stops a slow call"
-1 passed, 0 failed
-```
-
-The one-minute sleep finishes at once. `--seeds=20` runs the tests
-under twenty schedules, and a failing run prints the seed that replays
-it.
-
-## The rest of the language
-
-An **API** is a named set of methods a type provides: `api Shape`
-declares them, `obj Square: Shape` says that `Square` provides it, and
-`add Int: Shape` gives one to a type declared elsewhere. A bound,
-`[T: Shape]`, checks a generic body against the API, and each call
-through it is direct, at no cost. Braces hide the type: an **API
-object**, `?{Shape}`, `!{Shape}`, `^{Shape}`, `*{Shape}`, or
-`~{Shape}`, holds a value of any type that provides `Shape`, viewed,
-boxed, or counted as the sigil says, and calls its methods through a
-table. It carries every loan the value had.
-
-```rig
-api Shape
-  fun area(?@) -> Float
-
-  fun describe(?@) -> String
-    String("area ", @area())
-
-obj Square: Shape
-  side: Float
-
-  fun area(?@) -> Float
-    @side * @side
-
-obj Circle: Shape
-  r: Float
-
-  fun area(?@) -> Float
-    3.0 * @r * @r
-
-fun largest[T: Shape](xs: ?List[T]) -> Float
-  best = 0.0
-  for x in xs
-    best = x.area() if x.area() > best else best
-  best
-
-sub main()
-  squares = List([Square(side: 1.0), Square(side: 3.0)])
-  print(largest(squares))
-  shapes: List[^{Shape}] = List()
-  !shapes.push(^Square(side: 2.0))
-  !shapes.push(^Circle(r: 1.0))
-  for s in shapes
-    print(s.describe())
-```
-
-```output
-9.0
-area 4.0
-area 3.0
-```
-
-`describe` is a default, which each type may override. A generic body
-with no bound is checked at each instance a program makes, against
-what it does with `T`, the methods it calls on one included:
-`fun max[T](a: T, b: T) -> T`. The built-in APIs (`Eq`, `Hash`, `Ord`,
-`Copy`, `Print`, `Sends`, `Syncs`, and more) bound it too, `fun
-max[T: Ord](a: T, b: T) -> T`, and a type names those it gives a meaning
-of its own, `obj Version: Ord`
-([docs/design/apis.md](docs/design/apis.md)). A method's view result
-may name the field it views, `fun digits(!@) -> ?String from @text`, so
-the caller may use self's other fields while the view lives. After a name, `[]` is
-compile time and `()` is run time, so a function with only brackets
-runs in the checker: `fun cap[n: Int] -> Int` makes `cap[8]` a
-constant, in an expression, a module constant, or a type
-(`[cap[4]]U8`), and a failure in it is a Rig error at the call.
-A closure's capture list says how it holds each outer value,
-`|+total, ~clicks| ...`, or one field of it, `|?@template, k| ...`.
-A `Table[T, n]` holds `n` slots, and a `Slot[n]` from it indexes any
-table of that `n` with no bounds test. Rig also has objects, enums
-with payloads and exhaustive `match`, modules of one file or a
-directory, SIMD vectors (`Simd[U8, 16]`), C functions through `extern`
-and `raw`, `test` blocks, and a language server, `rig lsp`
-([editors/](editors/README.md)).
-[WELCOME.md](WELCOME.md) tours them for programmers coming from Rust,
-Zig, C, Python, Ruby, JavaScript, or Go.
-
-## The standard library
-
-A program imports a module with `use std.NAME`
-([docs/STD.md](docs/STD.md)). Built in, with no import: `print`,
-`String`, `List`, `Map`, `Set`, `Table`, `Slot`, `Cell`, `Signal`,
-`Actor`, `Frozen`, `Chan`, and `Tasks`.
-
-| Area | Modules |
-|---|---|
-| Numbers | `std.math`, `std.bigint` (integers of any size), `std.random` (seedable) |
-| System | `std.os` (arguments and environment), `std.file` (files, whole or open, making, moving, and removing them, and what is at a path), `std.io` (copying between files and sockets), `std.time`, `std.target` |
-| Concurrency | `std.task` (cancel, wait, isolate, supervise), `std.par` (parallel `map` and `each`) |
-| Networking | `std.net` (TCP), `std.http` (an HTTP/1.1 server) |
-| Data | `std.sort`, `std.slices`, `std.iter`; `Map` and `Set`, in insertion order, are built in |
-| Text | `std.text`, `std.utf8`, `std.utf16`, `std.unicode` |
-| Experimental | `std.json` (a fast, validating JSON parser; `load` fails with a `JsonError` naming the first error and its byte offset), `std.terminal` (a terminal emulator as a library) |
-
-The modules are Rig code, under `std/`, checked like any other.
-
-## What the compiler guarantees
-
-These promises are about the compiler. A program that breaks one is a
-compiler bug, not a user error.
-
-| Promise | What it means |
-|---|---|
-| Accept means correct | If `rig check` accepts a program, the emitted Zig compiles, runs, and does what the source says. What the compiler cannot lower correctly, it rejects with a Rig diagnostic. |
-| Safe code cannot corrupt memory | Use after move, double free, use after free, dangling views, and leaks cannot happen outside a `raw` block. The test suite runs every program under a sanitizer that crashes at any use of freed memory. |
-| Effects stay visible | No feature hides a move, clone, allocation, failure, or mutation. |
-| Tasks share safely | A task takes only what may be sent to its core or be read from two at once; no two tasks hold a write view of one value. |
-| Tasks end in scope | No task outlives the scope that owns it, or the loans it keeps. |
-
-At run time, integer overflow, out-of-bounds indexing, and a numeric
-conversion that does not fit panic in debug and `--release` builds.
-`--release=fast` drops the overflow and conversion checks, which makes
-an overflow undefined behavior, and keeps the bounds checks. Running
-out of stack stops with `error: rig: stack overflow` in every mode.
-Debug builds check for leaks on exit.
-
-Some of this is machine-checked. Proofs in Lean ([formal/](formal/README.md))
-show, for a small core of the language, that a program the ownership
-checker accepts runs without a memory fault; and, for models of the
-runtime, that a wait is ended by at most one waker and that no task
-outlives its owner. They cover models, not the compiler itself.
-
-## Performance
-
-Tasks are fibers on a worker thread per core, with work stealing, and
-each worker waits on its own kqueue or epoll poller. These numbers are
-from [docs/launch/benchmarks.md](docs/launch/benchmarks.md): an Apple
-M5 (macOS, arm64) and a 22-core Linux machine (x86-64), with Rig built
-`--release=fast`, Tokio with `--release` and LTO, and Go with `go build`.
-
-| Measure (Mac / Linux) | Rig | Tokio | Go |
-|---|---|---|---|
-| start a task and wait for it | 44 / 80 ns | 118 / 250 ns | 188 / 271 ns |
-| switch between tasks | 10 / 8 ns | 42 / 47 ns | 245 / 440 ns |
-| wait behind a long computation | 80 / 77 µs | 4.3 / 2.3 ms | 4.3 / 2.0 ms |
-| actor call, 8 tasks contending | 31 / 35 ns | 269 / 270 ns (actor) | 79 / 65 ns (mutex) |
-| HTTP requests a second | 169,000 / 830,000 | 179,000 / 297,000 (hyper) | 163,000 / 235,000 |
-| memory per idle HTTP connection | 17.0 / 9.2 KiB | 18.6 / 10.8 KiB | 18.3 / 18.7 KiB |
-| memory per sleeping task | 17.0 / 5.2 KiB | 264 / 355 B | 2.9 / 2.9 KiB |
-| CPU work spread over the cores | 78 / 108 ms | 72 / 103 ms | 71 / 93 ms |
-
-Where Rig is behind: a task holds at least one page of stack, so many
-idle tasks cost more than Tokio's; CPU-heavy work spread over the cores
-trails Tokio and Go by 5 to 16 percent, in the compiled loops rather
-than the scheduler; and opening a connection on Linux takes 36 µs,
-against Tokio's 31. The Linux HTTP figure shares the machine with its
-load generator, so a server that spends less CPU leaves more to the
-load; it needs reproducing elsewhere.
-
-Each benchmark directory under [bench/](bench/) builds all three
-versions and prints its table. If a number does not hold up on your
-machine, please say so.
+`<t.cancel()`. Rig spells negation `not`, so `!` never means "not".
+[docs/QUICK.md](docs/QUICK.md) puts every sigil on one page, and
+[the sigils journey](docs/learn/01-sigils.md) teaches them.
 
 ## Status
 
 Rig is young, and its language still changes. The latest release is
 `v0.2.9`. The `main` branch renames `Box`, `Vec`, `Text`, and `struct`
-to `^T`, `List`, `String`, and `obj`; [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md)
-migrates 0.2 programs, `tools/migrate-0.3.py` first.
+to `^T`, `List`, `String`, and `obj`;
+[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) migrates 0.2 programs,
+`tools/migrate-0.3.py` first.
 
-**Built and tested:** the language in this README, its ownership
-checker, pattern tests (`x matches .ready(r)`) and fused iterator
-chains (`xs.filter(f).min_by(k)`, one loop, no allocation), declared error sets whose members carry fields, generics with
-bounds (`[K: Hash]`, `[T: Shape]`) and generic error sets, APIs of a
-program's own and API objects of every form, compile-time
-functions, closures, tables, modules, SIMD vectors, C functions through
-`extern`, `test` blocks, the language server, the concurrency model
-(tasks, sets of tasks, cancellation, deadlines, Ctrl-C, actors, frozen
-values, supervision, channels, `select`, `par`, deterministic tests),
-and the standard library above. The scheduler runs on macOS and Linux, on arm64 and
-x86-64.
-
-**Not built yet:**
-
-- TLS, and an HTTP client.
-- Declared error sets in std's I/O signatures: `FileError` and
-  `NetError` exist, but std's I/O functions still fail with any error.
-- Raw pointers, and API objects of an API with an associated type
-  (`^{Source[Item: Int]}`).
-- Storing or returning a stack closure, and `drop` bodies on enums and
-  generic objects. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
-  lists every form the compiler rejects as not supported yet, each
-  with what to write instead.
-
-**Not in Rig:** macros, which are not planned, and string
-interpolation: text is built with `String(a, b)`.
-
+Built and tested: the language, its ownership checker, generics, APIs
+and API objects, compile-time functions, closures, modules, C
+functions through `extern`, the concurrency model, and the
+[standard library](docs/STD.md). The scheduler runs on macOS and Linux,
+on arm64 and x86-64. Not built yet: TLS and an HTTP client, declared
+error sets in std's I/O signatures, raw pointers, API objects of an API
+with an associated type, storing or returning a stack closure, and
+`drop` bodies on enums and generic objects;
+[SPEC §19](SPEC.md#19-reserved-and-unsupported-forms) lists each form
+the compiler rejects, with what to write instead. Rig has no macros,
+which are not planned, and no string interpolation.
 [HANDOFF.md](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists the plans.
 
@@ -642,62 +105,36 @@ git clone https://github.com/shreeve/nexus ../nexus
 (cd ../nexus && zig build -Doptimize=safe)
 zig build                  # builds bin/rig in the checkout
 cp bin/rig ~/.local/bin/   # puts it on PATH
+bin/rig run examples/hello.rig
 ```
 
 `zig build -Dnexus=PATH`, or `NEXUS=PATH zig build`, names another
 Nexus binary. `rig` runs the `zig` on `PATH`, or `$ZIG` when it is set.
+`rig --help` lists every command, and
+[the welcome page](docs/learn/00-welcome.md#running-a-program) shows
+the common ones.
 
 The test suite runs on Swarm, from [Rip](https://github.com/shreeve/rip),
-which runs on Bun. Its command-line scripts also need bash, GNU
-`timeout` (or `gtimeout`), and perl.
+which runs on Bun: `swarm test/rig.rip all` ([test/](test/README.md)).
+Its command-line scripts also need bash, GNU `timeout` (or `gtimeout`),
+and perl.
 
-## Build and run
-
-```bash
-bin/rig run examples/hello.rig         # check, build, and run (debug, leak-checked)
-bin/rig run --release file.rig         # the same, optimized (safe)
-bin/rig build -o hello file.rig        # a native executable
-bin/rig build --release=fast file.rig  # fast: no overflow checks
-bin/rig build --release --pgo -o app file.rig -- ./train.sh   # optimized by a profile (Linux)
-bin/rig test file.rig                  # run the file's own `test` blocks
-bin/rig test --seeds=20 file.rig       # the same, under 20 schedules
-bin/rig check file.rig                 # check only
-bin/rig emit file.rig                  # print the emitted Zig
-bin/rig clean                          # remove the cache of built programs
-bin/rig lsp                            # the language server (editors/README.md)
-swarm test/rig.rip all                 # the whole test suite (test/README.md)
-```
-
-A debug build reports any allocation still live when `main` returns,
-and exits 1; set `RIG_LEAK_TRACE=1` when building to see where each
-was allocated. `rig run`, `build`, and `test` keep built programs in a
-cache under `~/.cache/rig`, which they trim themselves. `rig --help`
-lists every command, option, and environment variable, the cache's
-included.
-
-`--pgo` builds the program with LLVM's counters, runs the workload
-after `--` (a command that runs the built `app`), and builds it again
-by the profile it gathered; `--bolt` lays a build out by one instead.
-On Trig, PGO is 10% faster on projects it was not trained on, and
-`rig --help` has both flags' requirements.
-
-## Where to go next
+## Where to read next
 
 | To | Read |
 |---|---|
-| learn Rig's ideas, one journey at a time | [docs/learn/](docs/learn/README.md), starting with [sigils](docs/learn/01-sigils.md) |
-| learn Rig from another language | [WELCOME.md](WELCOME.md) |
-| find any document by its question | [docs/README.md](docs/README.md) |
-| see every sigil on one page | [docs/QUICK.md](docs/QUICK.md) |
-| understand ownership | [docs/CORE.md](docs/CORE.md), the whole model on one page |
-| look up how a form is written | [SYNTAX.md](SYNTAX.md) |
+| learn Rig from the language you know, with a tour | [the welcome page](docs/learn/00-welcome.md) |
+| learn Rig's ideas, one journey at a time | [docs/learn/](docs/learn/README.md) |
+| look up how a form is written | [docs/SYNTAX.md](docs/SYNTAX.md) |
 | look up what a form means | [SPEC.md](SPEC.md), the language reference |
+| understand ownership | [docs/CORE.md](docs/CORE.md), the whole model on one page |
 | use the standard library | [docs/STD.md](docs/STD.md) |
+| find common questions | [docs/FAQ.md](docs/FAQ.md), then [docs/DESIGN.md](docs/DESIGN.md) for why |
 | read about concurrency | [docs/launch/post.md](docs/launch/post.md), then [docs/design/concurrency.md](docs/design/concurrency.md) |
 | check the numbers | [docs/launch/benchmarks.md](docs/launch/benchmarks.md), [bench/](bench/) |
 | compare with Rust | [docs/BEYOND-RUST.md](docs/BEYOND-RUST.md) |
-| see why Rig is the way it is | [docs/DESIGN.md](docs/DESIGN.md) |
 | read complete programs | [examples/](examples/README.md) |
-| find common questions | [FAQ.md](FAQ.md) |
 | see how the compiler works | [docs/internals/INTERNALS.md](docs/internals/INTERNALS.md) |
+| find any document by its question | [docs/README.md](docs/README.md) |
+| see what changed | [CHANGELOG.md](CHANGELOG.md) |
 | work on Rig | [AGENTS.md](AGENTS.md), then [HANDOFF.md](HANDOFF.md) |

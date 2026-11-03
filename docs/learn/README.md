@@ -10,6 +10,7 @@ Read them in order; each builds on the ones before it.
 
 | # | Journey | The question it answers |
 |---|---|---|
+| 00 | [Welcome: Rig from the language you know](00-welcome.md) | What is different from Rust, Zig, C, Python, Ruby, JavaScript, or Go? |
 | 01 | [Sigils: a line that says what it does](01-sigils.md) | What does each one-character mark mean, and why are there so few? |
 | 02 | [Ownership without a collector](02-ownership.md) | How does Rig free every allocation at a point you can see? |
 | 03 | [Errors and optionals: failure you can see](03-errors.md) | How does a program fail without exceptions, and say so where it happens? |
@@ -24,5 +25,5 @@ Read them in order; each builds on the ones before it.
 | 12 | A real program, end to end | What does a whole Rig program look like? |
 
 Journeys without a link are being written. Until then,
-[WELCOME.md](../../WELCOME.md) introduces the language for programmers
+[the welcome page](00-welcome.md) introduces the language for programmers
 coming from another one, and [SPEC.md](../../SPEC.md) states each rule.

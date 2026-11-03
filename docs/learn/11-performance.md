@@ -519,7 +519,7 @@ there to check.**
   the benchmarks time.
 - A real program, end to end, is the next journey, not written yet: a
   small service, tested and built for release.
-- [WELCOME.md](../../WELCOME.md) holds the full Rig-to-Zig table,
+- [The welcome page](00-welcome.md) holds the full Rig-to-Zig table,
   [INTERNALS](../internals/INTERNALS.md) the emitter and runtime,
   [the SIMD records](../history/records/simd/simd.md) how vectors were
   designed and measured, and

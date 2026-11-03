@@ -53,7 +53,7 @@ UNDERSCORE = "`_` discards a value"
 MAIN = "module-level declaration `main`"
 DUPLICATE = "duplicate declaration of `main`"
 # Rig's own keywords (`type`, `drop`, `panic`) name nothing but a member
-# (SYNTAX.md, "Keywords"); any diagnostic will do.
+# (docs/SYNTAX.md, "Keywords"); any diagnostic will do.
 KEYWORD = "error:"
 CAPITAL = "a type parameter starts with a capital letter"
 BINDING = {"none": NONE, "_": UNDERSCORE, "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD, "main": MAIN}

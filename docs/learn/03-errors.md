@@ -699,5 +699,5 @@ them.**
   errdefer](../../SPEC.md#defer-and-errdefer) the cleanups, and
   [Several results](../../SPEC.md#several-results) the full rules for
   `-> (A, B)`.
-- [WELCOME.md](../../WELCOME.md) lists the habits from other languages,
+- [The welcome page](00-welcome.md) lists the habits from other languages,
   such as Rust's `?` on a failure, and the error each one gets.
