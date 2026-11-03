@@ -3,8 +3,8 @@
 How Rig stores, measures, and walks text: four units, each with one
 name; one rule for how a measure is spelled; and the standard library
 that follows from them. This page is the design. [SPEC,
-Strings](../SPEC.md#strings) states what the language does, and
-[STD](STD.md) lists each module's functions.
+Strings](../../SPEC.md#strings) states what the language does, and
+[STD](../STD.md) lists each module's functions.
 
 A `String` holds UTF-8 bytes, and `s.len`, `s[i]`, slicing, and
 `std.text` work on them; `std.utf8`, `std.utf16`, and `std.unicode` read
@@ -99,7 +99,7 @@ There is no module-level `unit_index(s, bytes)`; the one-off form is
 
 Every string operation works on bytes unless its name says otherwise:
 `s.len`, `s[i]` (a `U8`), `s[a..b]`, `for b in s`, and
-`s.read[U32, .little](i)`. They are what parsers, protocols, and
+`s.read[U32, .little](../i)`. They are what parsers, protocols, and
 std.json need, they cost a bounds check and no more, and a `?String`
 does not promise valid UTF-8, so a byte is the one unit that always
 means what it says. A byte slice can cut through a rune or a char; when
@@ -183,19 +183,8 @@ Decoding and encoding UTF-8. Each function with a Go twin in
 `unicode/utf8` matches it on every input, valid or not, so a Go port is
 a rename.
 
-| Rig | Returns | Go |
-|---|---|---|
-| `utf8.rune_after(s, i) -> Decoded` | the rune that starts at byte `i` | `DecodeRuneInString(s[i:])` |
-| `utf8.rune_before(s, i) -> Decoded` | the rune that ends at byte `i` | `DecodeLastRuneInString(s[:i])` |
-| `utf8.runes(s)` | each rune of `s`, a plain `Int`, in order | `for _, r := range s` |
-| `utf8.rune_size(s, i) -> Int?` | the bytes of the valid rune at `i`, or `none` | |
-| `utf8.size(r) -> Int?` | the bytes `r` takes in UTF-8, or `none` if `r` is not a rune | `RuneLen` |
-| `utf8.rune_count(s) -> Int` | the runes in `s` | `RuneCountInString` |
-| `utf8.is_valid(s) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
-| `utf8.is_ascii(s) -> Bool` | whether every byte is below 0x80 | |
-| `utf8.ascii_end(s, i) -> Int` | the first byte at or after `i` that is 0x80 or more, or `s.len`: where the run of ASCII from `i` ends | |
-| `utf8.push_rune(!out, r)` | appends `r` as UTF-8 | `AppendRune` |
-| `utf8.REPLACEMENT`, `utf8.RUNE_SELF` | 0xFFFD; 0x80, below which a byte is a whole rune | `RuneError`, `RuneSelf` |
+Its functions, each beside its Go twin, are in [STD,
+std.utf8](../STD.md#stdutf8).
 
 `obj Decoded(rune: Int, size: Int)`: the rune, and the bytes it took
 where it was read.
@@ -233,16 +222,8 @@ rune (a surrogate, a negative, or over 0x10FFFF). A byte index outside
 UTF-16, for code that must agree with JavaScript and the languages built
 on it: a TypeScript checker's positions and columns are UTF-16 units.
 
-| Rig | Returns | Go |
-|---|---|---|
-| `utf16.size(r) -> Int?` | the units `r` takes (1 or 2), or `none` if `r` is not a rune | `utf16.RuneLen` |
-| `utf16.unit_count(s) -> Int` | the UTF-16 units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
-| `utf16.byte_index(s, units) -> Int` | the byte where `units` units into `s` falls (a unit inside a pair lands after its rune), clamped to `0..s.len` | |
-| `utf16.is_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
-| `utf16.is_high_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xDC00`, the first unit of a pair | |
-| `utf16.is_low_surrogate(u) -> Bool` | whether `0xDC00 <= u < 0xE000`, the second unit of a pair | |
-| `utf16.rune_from_pair(hi, lo) -> Int` | the rune a surrogate pair encodes, or U+FFFD if it is not one | `utf16.DecodeRune` |
-| `utf16.pair_from_rune(r) -> Pair` | `Pair(hi, lo)`, or `Pair(0xFFFD, 0xFFFD)` if `r` needs no pair | `utf16.EncodeRune` |
+Its functions, each beside its Go twin where Go has one, are in [STD,
+std.utf16](../STD.md#stdutf16).
 
 Surrogates are units, never runes, so their parameters are named `u`,
 `hi`, and `lo`. On invalid UTF-8, `unit_count` counts each bad byte as
@@ -297,18 +278,10 @@ true false 2 0
 ## Chars: `std.text`
 
 What a reader sees, by the rules of Unicode's text segmentation (UAX
-#29), so char-correct code is one call, and its name says "char":
-
-| Rig | Returns |
-|---|---|
-| `text.char_count(s) -> Int` | how many chars `s` holds |
-| `text.chars(s)` | each char of `s`, in order, as a `?String` slice of `s` |
-| `text.first_chars(s, n) -> ?String` | the first `n` chars of `s`, or all of `s` if it has fewer |
-| `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
-| `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
-| `text.char_width(c) -> Int` | the terminal columns one char `c` takes, 0, 1, or 2, as Ghostty counts them: its first rune's `unicode.width` (by East Asian Width, UAX #11; 0 for a combining mark or a zero-width rune), 2 when a later rune takes a column of its own, and 2 or 1 after an emoji or text variation selector |
-| `text.width(s) -> Int` | the terminal columns `s` takes: `char_width` summed over its chars |
-| `text.CharBreak.new(tailored = false)` | where chars start in text that comes a rune at a time (`!b.next(r) -> Bool`); `tailored`, Ghostty's rules, which join a skin tone only to an emoji modifier base and treat DEL and the soft hyphen as any rune |
+#29), so char-correct code is one call, and its name says "char". Its
+char functions (`char_count`, `chars`, `first_chars`,
+`last_chars`, `char_boundary`, `char_width`, `width`, and
+`CharBreak`) are in [STD, std.text](../STD.md#stdtext).
 
 ```rig
 use std.text

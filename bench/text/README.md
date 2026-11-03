@@ -68,7 +68,7 @@ No case of the 72 is slower. A needle of one byte searches its first
 4 KiB by Zig's own `findScalar`, inline, as `std.mem.find` did, and the
 guard's `line` row runs the same 48.80 instructions per search on both;
 the early hits of one byte time faster here only because that code is
-now inlined into the timing loop, where searches overlap.
+inlined into the timing loop, where searches overlap.
 
 x86-64 (pup, Core Ultra 9 185H, P-core 6 with its sibling idle, fastest
 of 9 runs in turns; its lib.dom.d.ts is 2,349,483 bytes), the same
@@ -89,13 +89,12 @@ No case of the 72 is slower there either. On x86-64 a needle of one
 byte is `findScalar` over the whole text, which a step of 64 bytes did
 not beat, and the searches out of line return a plain index: an
 optional came back through memory, its fields written apart and read
-whole, which stalled every match on a failed store forward (a 3-byte
-needle in 16 bytes had been 54% slower).
+whole, which stalls every match on a failed store forward (a 3-byte
+needle in 16 bytes is 54% slower that way).
 
-The search was first written in plain Zig 0.17 and timed against
-`std.mem.find` (ReleaseSafe, the same cases): a miss of 3, 12, and 40
+The search is plain Zig 0.17, timed against `std.mem.find`
+(ReleaseSafe, the same cases): a miss of 3, 12, and 40
 bytes over lib.dom.d.ts took 76 to 77 µs against 2.8 ms, 664 µs, and
 297 µs, about 31 GB/s, and a miss of one byte 27 µs against 47 µs, 88
-GB/s; no case of 8 B to 64 B was slower once a match at place 0 was
-tested by itself and the search past the first places was moved out of
-line.
+GB/s; no case of 8 B to 64 B is slower, because a match at place 0 is
+tested by itself and the search past the first places is out of line.

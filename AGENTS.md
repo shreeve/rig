@@ -55,6 +55,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `rig.grammar` | the Nexus grammar: tokens, the IR schema, the rules and the node each makes |
 | `src/parser.zig` | generated from `rig.grammar` by `zig build`; not tracked |
 | `src/rig.zig` | the `Lexer` wrapper (layout, line joins, token classes) and the `Parser` wrapper (rewrites the tree into the semantic IR) |
+| `src/diag.zig` | the diagnostics every pass collects and the CLI prints |
 | `src/modules.zig` | loads `use`d files and checks modules in dependency order |
 | `src/sema.zig`, `resolve.zig`, `typecheck.zig`, `cteval.zig` | names, declarations, types, effects, the facts table, and compile-time functions |
 | `src/storage.zig` | the hidden storage emit makes, decided once for emit and the ownership checker |
@@ -63,16 +64,20 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `src/inlining.zig`, `symbols.zig` | program-wide inlining decisions; the program's `:name` symbols |
 | `src/facts.zig` | emit's read-only view of a checked module: the checkers' recorded decisions, and how each type is held in Zig |
 | `src/emit.zig` | Zig code generation, one file per module |
+| `src/table.zig`, `nametable.zig` | how a `Table[T, n]`'s slots are held; the constant table that finds an enum's variant by its text (`E.from_text`) |
+| `src/units.zig`, `split.zig` | split builds: which unit owns each function, and the runtime's state shared across units |
 | `src/runtime.zig`, `sched.zig`, `tasks.zig`, `net.zig`, `alloc.zig` | the runtime, scheduler, tasks and actors, sockets, and the allocator of release builds (a heap per thread), embedded in `bin/rig` and written beside each program |
+| `src/ordered.zig`, `unordered.zig` | the hash tables behind `Map` and `Set` (ordered) and `HashMap` and `HashSet` (unordered), written beside the runtime |
 | `src/main.zig`, `lsp.zig`, `editor.zig` | the CLI (`rig --help`), the language server, editor support |
+| `src/fastmap.zig`, `timing.zig`, `map_trace.zig`, `lib.zig` | the compiler's own integer-keyed hash maps; the per-pass times of `rig check --time`; the Map trace of `RIG_MAP_TRACE=1`; the compiler as a library for `bin/rig-oracle` |
 | `src/frames.zig`, `bolt.zig`, `pgo.zig` | what `rig build` does to an executable: reads each function's frame to warn of one larger than a page, lays it out again with BOLT (`--bolt`, Linux), and optimizes it by a profile (`--pgo`, Linux) |
 | `std/` | the standard library (`.rig`, with Zig shims), embedded in `bin/rig`; `std/prelude.rig` is the built-in `Map` and `Set`, which no program imports |
 | `test/rig/*.rig.test` | the behavior and rejection cases, one file per area |
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
-| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); `store-trim`, which keeps the build store under 40 GB; and `matrix-nightly`, pup's nightly run of the whole matrix |
-| `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (Rig's own Zig notes are docs/internals/zig-0.17.md) |
+| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); and `store-trim`, which keeps the build store under 40 GB |
+| `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (where Rig meets Zig is INTERNALS, "Where Rig meets Zig 0.17") |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
 Which document answers which question:
@@ -89,7 +94,7 @@ Which document answers which question:
 | How do tasks, actors, and the scheduler work? | docs/design/concurrency.md, docs/internals/scheduler.md |
 | How are tests written and run? | docs/internals/tests.md, test/README.md |
 | Why is Rig this way? | docs/DESIGN.md, docs/design/mantras.md |
-| Which Zig 0.17 APIs does Rig use? | docs/internals/zig-0.17.md |
+| Which Zig 0.17 APIs does Rig use? | ZIG-0.17.md; docs/internals/INTERNALS.md, "Where Rig meets Zig 0.17" |
 | What is decided but not started? | docs/ROADMAP.md, docs/internals/backlog.md |
 | What problems have the docs found in the compiler? | the end of docs/internals/backlog.md |
 | Why was it decided so, and what was measured? | docs/history/records/INDEX.md, and its ledger |
@@ -253,7 +258,7 @@ until its rule is built. docs/internals/tests.md has the rest.
 - **Speed:** measure time, interleaved, fastest of N; fewer instructions
   can be slower, and moving code shifts a hot loop by 5-7% on Apple
   cores, so `bench/`'s instruction guards cannot judge one. One
-  comparison within 2% is noise ([RIG-NOTES](docs/history/rig-notes.md));
+  comparison within 2% is noise ([tests.md, "Timing"](docs/internals/tests.md#timing));
   a gain of 1.5 to 2% counts only when it holds over at least 20
   interleaved rounds, with cycles backing the time.
 - **Concurrency** cases run under `seeds: 20`, deterministic schedules

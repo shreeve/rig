@@ -1,6 +1,6 @@
 # Rig, emdb, and WebAssembly
 
-> **History.** This is a dated exploration of Rig, emdb, and WebAssembly. Its open items are in [docs/ROADMAP.md](../ROADMAP.md). It is kept as written.
+> **History.** This is a dated exploration of Rig, emdb, and WebAssembly. None of it is planned. It is kept as written.
 
 A plan, not a feature: what it would take to run Rig on WebAssembly, to
 run emdb there, to use emdb from Rig, and later to write emdb's core in

@@ -62,8 +62,9 @@ A new session, human or agent, takes these steps in order:
 - **Toolchain:** Zig 0.17.0, pinned in `mise.toml`. Nexus 2.0.0
   generates the parser at every build, from the sibling checkout's
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
-  [docs/internals/zig-0.17.md](docs/internals/zig-0.17.md) covers every
-  Zig API Rig uses. Its `@intCast` from a signed type to a narrower
+  [ZIG-0.17.md](ZIG-0.17.md) covers the Zig APIs Rig uses, and
+  INTERNALS, ["Where Rig meets Zig 0.17"](docs/internals/INTERNALS.md#where-rig-meets-zig-017),
+  where Rig depends on them. Its `@intCast` from a signed type to a narrower
   unsigned one miscompiles in release builds (LLVM `trunc nsw`); Rig's
   emitted Zig and runtime cast through the unsigned type of the source's
   width instead, until Zig fixes it.
@@ -87,15 +88,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Patterns and chains (2026-11-02).** The owner's design of a
-  pattern test, from a panel of Rust, Ruby, and Swift programmers
-  ([design/matches.md](docs/design/matches.md)): `x matches P`,
-  alternatives in parentheses that bind when they agree, `name?` and
-  `none` in a payload. Built on branch `matches`; it rejects `x as .p`
-  (loco has one site, `tools/migrate-matches.py` rewrites it). Next, as
-  its own change, the approved fused iterator chains
-  ([design/iterators.md](docs/design/iterators.md)) with `min_by(key)`
-  and `max_by(key)`.
+- **Iterator chains.** The approved fused iterator chains
+  ([design/iterators.md](docs/design/iterators.md)), with `min_by(key)`
+  and `max_by(key)`, are being built on branch `chains`. They follow
+  the pattern test, `x matches P` ([design/matches.md](docs/design/matches.md),
+  #883): alternatives in parentheses that bind when they agree, `name?`
+  and `none` in a payload, and `x as .p` rejected
+  (`tools/migrate-matches.py` rewrites it).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that
@@ -124,28 +123,23 @@ A new session, human or agent, takes these steps in order:
 
 The owner's priority is Trig's speed against tsrs; memory counts where
 it buys speed. Trig checks with several checkers in tasks, and its
-output equals tsc's at each count. Standing-7
-([tsrs-standing-7.md](docs/history/records/2026-10/hash-race/tsrs-standing-7.md),
-PGO Trig) measured it against tsrs as shipped: ts-pattern 16.7% slower
-at one checker and 44.5% at four, zod3 39.3% and 62.9%, with 38-54%
-more peak memory. Trig does the same work as tsrs in its Go mode,
-object for object; shipped tsrs's lazy members save it 42.7 MiB on
-ts-pattern (480k symbols against 934k) and 7.5 MiB on zod3, and are its
-main lead, 12.7-21.5% faster than its own Go mode at four threads.
-Standing-7 predates rig#873 (small objects of integers held as one
-word: every Trig project 0.9-3.6% faster on pup, peak memory level) and
-trig#243 to #246, so a standing-8 comes first. The leads, in order:
+output equals tsc's at each count. Standing-8
+([tsrs-standing-8.md](docs/history/records/2026-10/hash-race/tsrs-standing-8.md),
+#882, PGO Trig after rig#873's packed small objects) measured it
+against tsrs as shipped: ts-pattern 10.6% slower at one checker and
+32.8% at four, zod3 31.8% and 42.9%, with 34-51% more peak memory on
+the large projects. Since then Trig has tsrs's lazy member tables
+(trig#249: ts-pattern 1.3% faster at one checker, zod3 2.8% and 5.1%
+at four, about 10% less peak memory on both), so the next standing
+measures from there. The leads, in order:
 
-1. **tsrs's lazy members, ported faithfully.** Trig's own ceiling saved
-   only about 6 MiB, so it missed what tsrs does; measure tsrs's
-   switches one by one first.
-2. **`get_property_of_type_ex`'s extra calls,** 1.8-2.25 times tsrs's,
+1. **`get_property_of_type_ex`'s extra calls,** 1.8-2.25 times tsrs's,
    counted by call site.
-3. **Flow and name resolution:** their counts match tsrs's, and their
+2. **Flow and name resolution:** their counts match tsrs's, and their
    gap is cost per call (zod3).
-4. **The head:** parse and bind cost per node, and file calls off the
+3. **The head:** parse and bind cost per node, and file calls off the
    blocking pool.
-5. **Trig's full suite in under ten minutes:** split release builds
+4. **Trig's full suite in under ten minutes:** split release builds
    (rig#854's units: 3.1 minutes against 28.6 on pup), one shared build,
    and smaller shards. Its two release compiles take 31 and 18 minutes,
    and its 300-test chunks about 15 minutes each.
@@ -217,7 +211,7 @@ journeys found in the compiler and its docs is at the end of
 
 Toward `v0.3.0` are Rig's and Trig's full suites and the tag. Its migration guide is
 [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), and CHANGELOG's
-"Upgrading from v0.2.9" lists the 43 forms 0.2.9 accepted that 0.3.0
+"Upgrading from v0.2.9" lists the 58 forms 0.2.9 accepted that 0.3.0
 rejects, which the tag's release notes take over. The scripts:
 `tools/migrate-0.3.py` (box, list, string, obj, builtin, label, self,
 const), `tools/state-bounds.py`, and, for programs written against
@@ -270,7 +264,7 @@ release notes.
 - **The parser:** `src/parser.zig` is generated by `zig build` from
   `rig.grammar` and is not tracked; edit the grammar.
   `rig.grammar`, `src/rig.zig`, and `src/diag.zig` are mirrored
-  byte-for-byte in Nexus's `test/rig`, so a change to them needs a Nexus
+  byte-for-byte in Nexus's `grammars/rig`, so a change to them needs a Nexus
   re-sync.
 - **Builtins:** a builtin call is `$name(...)`. Rig's raw builtins track
   Zig's names exactly (`$fromBackingInt`, `$trunc`). The old names are

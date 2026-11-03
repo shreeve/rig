@@ -1,8 +1,10 @@
 # Zig 0.17 `@Vector` on Rig's targets: asm summary
 
+> **History.** This is a dated study of what Zig 0.17's `@Vector` compiles to. The rules as built are in [SPEC.md](../../../../SPEC.md), "Vectors", and [INTERNALS](../../../internals/INTERNALS.md). It is kept as written.
+
 Zig 0.17.0, LLVM 22.1.8. Host: Apple M5.
 
-Every number below was reproduced from the files in [docs/history/simd-zig/](../history/simd-zig/) (outputs and binaries not kept; run these from that directory):
+Every number below was reproduced from the files in [zig/](zig/) (outputs and binaries not kept; run these from that directory):
 
 - `./build.sh` emits asm into `out/<target>/<mode>/<file>.s`, for every `src/*.zig` (`FILES=src/lanes.zig ./build.sh` for one).
 - `./asm.py --counts <file> [mode]` prints a per-function instruction-count table.

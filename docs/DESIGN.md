@@ -439,7 +439,7 @@ held to a positive list of what runs at compile time, as C++'s
 keyword is needed, since the missing parentheses already say "nothing
 here runs when the program does".
 
-### Per-instance checking instead of traits
+### Per-instance checking, bounds, and APIs
 
 A generic body is checked once, with `T` unknown, and records what it
 does with a `T`: arithmetic, ordering, `==`, a literal beside a `T`, a
@@ -479,9 +479,10 @@ has checked in full before its importers: an instance made in another
 module is checked there, and its note points into the declaring
 module's file. The recorded requirements are an unwritten contract: a
 library that starts applying a new operation to `T` can break its
-importers, who see the note in the library. APIs, `api Shape`, which
-keep method dispatch and ownership visible, are designed, to be built
-in stages ([design/apis.md](design/apis.md)).
+importers, who see the note in the library. A bound in the signature,
+`[T: Ord]` or an API of the program's own, `api Shape`, closes that
+contract, and keeps method dispatch and ownership visible
+([design/apis.md](design/apis.md)).
 
 ### Generic functions are called, not passed
 
@@ -593,9 +594,9 @@ goals, and says no where they don't.
 
 | Source | Taken | Left behind |
 |---|---|---|
-| **Rust** | ownership, moves, the shared-or-exclusive rule, `Rc`/`Weak` semantics, RAII drop in reverse field order, enums and `match`, errors as types, "a type with drop glue is not Copy" | lifetime syntax, traits (for now), heavy generic machinery, effects hidden in trait impls |
+| **Rust** | ownership, moves, the shared-or-exclusive rule, `Rc`/`Weak` semantics, RAII drop in reverse field order, enums and `match`, errors as types, "a type with drop glue is not Copy" | lifetime syntax, traits as the only way to write generic code, heavy generic machinery, effects hidden in trait impls |
 | **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; generics checked per instance; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
-| **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes; a function that waits is an ordinary function | interfaces as constraints on type parameters; goroutines that outlive their starter |
+| **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes; interfaces as bounds on type parameters (`[T: Shape]`); a function that waits is an ordinary function | interfaces met without saying so; goroutines that outlive their starter |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | short keywords, readability first | `valid?` names, implicit mutation, calls without parentheses |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) supplied the indentation lexer and much of the surface | reactive operators in the core language |
@@ -610,8 +611,9 @@ goals, and says no where they don't.
 - a custom or LLVM backend: Zig does code generation
 - a reactive framework in the language
 - macros
-- traits and interfaces ahead of a program that needs them: the design
-  is in [design/apis.md](design/apis.md), built in stages
+- a feature ahead of a program that needs it: APIs, bounds, and API
+  objects were built in stages ([design/apis.md](design/apis.md)), each
+  when a program needed it
 - lifetime annotations, unless second-class views prove too weak
 - marketing Rig as an AI language: that tools can read it well follows
   from its design, and is not the goal

@@ -2778,7 +2778,15 @@ What found every regression in the ports above, in order:
   compiled in our aarch64-macos probes); weak zig-libc symbols cannot be
   reliably overridden; response files with `std.Build.Step.Run` broke with the
   configurer/maker split; SPIR-V backend regressions.
-- LLVM loop vectorization remains disabled.
+- LLVM loop vectorization remains disabled (`PipelineTuningOptions.LoopVectorization
+  = false` in `src/zig_llvm.cpp`; [llvm/llvm-project#186922](https://github.com/llvm/llvm-project/issues/186922)
+  miscompiled the Zig compiler itself; upstream turned it back on with LLVM 23,
+  for 0.18). No loop is vectorized by the optimizer, however plain:
+  `for (dst, src) |*d, b| d.* = @as(u64, b) | bits;` stays one element at a
+  time on aarch64 and x86, where the same IR through `zig cc -O3` vectorizes
+  sixteen lanes wide. Explicit `@Vector` code is unaffected, so write hot
+  loops with `@Vector` for this release, and on 0.18 check that the plain
+  loop vectorizes before keeping the workaround.
 - `std.hash.XxHash3.hash` is 2–9× slower than 0.16's for 17–240-byte
   inputs and 30–60× slower above 240 (aarch64-macos, `-Ofast`: 241 bytes
   517 ns against 8.4, 4 KiB 3.3 µs against 0.1). The values are

@@ -2,8 +2,8 @@
 
 > **History.** This records the restructuring of the compiler so the Core's
 > rules come from its structure. All ten steps are done. The ownership
-> model is in [CORE](../CORE.md) and the compiler in
-> [INTERNALS](../internals/INTERNALS.md). It is kept as written.
+> model is in [CORE](../../../CORE.md) and the compiler in
+> [INTERNALS](../../../internals/INTERNALS.md). It is kept as written.
 
 About 90% of earlier soundness bugs traced to three structural weak
 spots, which these steps removed:
@@ -53,4 +53,4 @@ type holds a call's write view, and the payload-view and loop
 diagnostics name only forms that compile.
 
 What the steps left for later is in
-[weak-spots](../internals/weak-spots.md).
+[weak-spots](../../../internals/weak-spots.md).

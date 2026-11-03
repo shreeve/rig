@@ -1,8 +1,8 @@
 # Portable SIMD vectors for Rig
 
-> **History.** This is the proposal that led to `Simd[T, n]`. The design as built is [docs/design/simd.md](../design/simd.md), and the rules are in [SPEC.md](../../SPEC.md). It is kept as written.
+> **History.** This is the proposal that led to `Simd[T, n]`. The decisions are in [simd.md](simd.md), and the rules are in [SPEC.md](../../../../SPEC.md). It is kept as written.
 
-Status: approved by the owner, with the decisions in [design/simd.md](../design/simd.md). It is written against `main` at
+Status: approved by the owner, with the decisions in [simd.md](simd.md). It is written against `main` at
 `8119e590`, and it assumes the `notwide` branch (`x.not()`, and a
 `@Vector`-based `readInt`). Every Zig behavior it relies on was checked
 with Zig 0.17.0. The programs are in `zig/` next to this file (see
@@ -34,7 +34,7 @@ the appendix).
 - **Methods, not `@` builtins.** Rig's `@` builtins are about types
   (`$size(T)`, `$name(T)`), and Zig's value builtins (`@splat`,
   `@select`, `@reduce`) stay raw-only. So vector operations are
-  operators and methods, like `x.not()` and `bytes.read[T, e](at)`.
+  operators and methods, like `x.not()` and `bytes.read[T, e](../../at)`.
 - **Portability.** Rig promises the meaning, not the instructions. With
   no SIMD (WASM MVP), Zig lowers every operation to scalar code with the
   same results and the same panics. Verified under wasmtime.
@@ -126,9 +126,9 @@ In the tables below, `V` is `Simd[T, n]` and `M` is `Simd[Bool, n]`.
 |---|---|---|
 | `Simd[U8, 16].splat(x)` | every lane `x` (a `U8`, or a literal that fits) | `@as(@Vector(16, u8), @splat(x))` |
 | `Simd[U8, 4]([1, 2, 3, 4])` | from an array of exactly `n` lanes. A type called on a value converts it, as `U8(x)` does. | `@as(@Vector(4, u8), arr)` |
-| `Simd[U16, 16](v)` | lane by lane conversion from another `Simd[_, 16]`, checked like `U16(x)` (§2.6) | `@as(@Vector(16, u16), @intCast(v))` (or `@floatFromInt`, `@trunc`, `@floatCast`) |
-| `bytes.read[Simd[U8, 64]](at)` | the 64 bytes from `at`. The byte order may be left out where it cannot matter: lanes of one byte | `rig.simdRead(@Vector(64, u8), bytes, at, .little)` |
-| `bytes.read[Simd[U32, 4], .big](at)` | four `U32`s from `at`, each in byte order `e`; lane `i` is the `U32` at `at + 4 * i` | `rig.simdRead(@Vector(4, u32), bytes, at, .big)` (one load, then `@byteSwap` per lane when `e` is not native) |
+| `Simd[U16, 16](../../v)` | lane by lane conversion from another `Simd[_, 16]`, checked like `U16(x)` (§2.6) | `@as(@Vector(16, u16), @intCast(v))` (or `@floatFromInt`, `@trunc`, `@floatCast`) |
+| `bytes.read[Simd[U8, 64]](../../at)` | the 64 bytes from `at`. The byte order may be left out where it cannot matter: lanes of one byte | `rig.simdRead(@Vector(64, u8), bytes, at, .little)` |
+| `bytes.read[Simd[U32, 4], .big](../../at)` | four `U32`s from `at`, each in byte order `e`; lane `i` is the `U32` at `at + 4 * i` | `rig.simdRead(@Vector(4, u32), bytes, at, .big)` (one load, then `@byteSwap` per lane when `e` is not native) |
 | `bytes.read[Simd[U8, 64]](at, pad: 0x20)` | the same, but the bytes past the end read as `pad`, so only `0 <= at <= len` must hold (§4.1) | `rig.simdReadPadded(...)` |
 | `!bytes.write[Simd[U8, 16]](at, v)` | stores the lanes | `rig.simdWrite(...)` (one unaligned store) |
 | `for v, k in bytes.blocks(64)` | each full block as a `Simd[U8, 64]`, with its offset `k` (§2.8) | a `while` over `rig.simdRead` |
@@ -229,11 +229,11 @@ scalar fallback against a Python reference.
 
 ### 2.6 Conversions
 
-- **Lane type:** `Simd[U16, 16](v)` converts lane by lane, with the
+- **Lane type:** `Simd[U16, 16](../../v)` converts lane by lane, with the
   scalar rules: a value that does not fit panics (Zig's vector
   `@intCast` checks each lane; measured), floats truncate toward zero,
   and `F32(x)` rounds.
-- **To and from arrays:** `Simd[T, n](arr)` and `v.array()`.
+- **To and from arrays:** `Simd[T, n](../../arr)` and `v.array()`.
 - **To and from bytes:** `read` and `write` (§2.1). A raw reinterpretation
   (`Simd[U8, 16]` as `Simd[U64, 2]`) is not proposed: a `write` then a
   `read` says the same thing, and a `bitcast` method is an open question
@@ -265,7 +265,7 @@ names the field"), with one more entry in its list.
   for v, k in bytes.blocks(N)            for v, k in bytes.blocks(N, pad: p)
   ≡ k = 0                                ≡ k = 0
     while k + N <= bytes.len : k += N      while k < bytes.len : k += N
-      v = bytes.read[Simd[U8, N]](k)         v = bytes.read[Simd[U8, N]](k, pad: p)
+      v = bytes.read[Simd[U8, N]](../../k)         v = bytes.read[Simd[U8, N]](k, pad: p)
       body                                   body
   ```
 
@@ -304,7 +304,7 @@ from a type (`sema.holds`: `plain`, no `glue`, no `views`, not `unique`):
 | **A field** (`struct Lexer` with `ahead: Simd[U8, 16]`) | The struct stays plain if its other parts are. `l.ahead = l.ahead + 1` stores, `!l.ahead` lends the field, and `f(l.ahead)` copies. | "A struct's kind follows from its parts." |
 | **In a List** (`List[Simd[U8, 64]]`) | `!xs.push(v)` copies `v` in, `xs[i]` copies a vector out, `!xs[i]` lends one element to write, and `for v in xs` binds copies. | A List holds any value; a plain element copies. Alignment comes from the element type (the runtime's `realloc` of `[]T` respects `@alignOf`; the sanitizer is tested with 64-byte alignment). |
 | **A lend** (`?v`, `!v`, a `?Simd[U8, 16]` parameter) | A read view of a vector reads as its value in an operator, as a read view of an `Int` does. `!v` lets a callee assign the whole vector. | `sema.readsAsValue` gains the vector type (§5.2): one positive entry in the one classifier for that fact. |
-| **Read from `?String` bytes** (`s.read[Simd[U8, 64]](i)`) | The result is a fresh plain value. `s` is read for the call only, and a `String` behind `s` may be changed right after. | Call origins: "a call's result carries the loans of the arguments whose types could hold what it views". A `Simd` holds no view, so it carries none, exactly as `s.read[U64, .little](i)` today. |
+| **Read from `?String` bytes** (`s.read[Simd[U8, 64]](../../i)`) | The result is a fresh plain value. `s` is read for the call only, and a `String` behind `s` may be changed right after. | Call origins: "a call's result carries the loans of the arguments whose types could hold what it views". A `Simd` holds no view, so it carries none, exactly as `s.read[U64, .little](../../i)` today. |
 
 The one place lanes differ from array elements is that a lane is never
 a place. That follows from "a vector is one value", not from a special
@@ -319,7 +319,7 @@ are rejected by the rules that already reject them for any made value:
 
 ### 4.1 Bounds on loads
 
-- **Per load:** `bytes.read[Simd[U8, N]](at)` checks
+- **Per load:** `bytes.read[Simd[U8, N]](../../at)` checks
   `0 <= at` and `at + N <= len` once, in every build mode, as `read`
   does today: one compare and branch per 64 bytes. A constant offset
   into an array is checked at compile time.
@@ -391,8 +391,8 @@ own amount.
 ## 5. Implementation plan
 
 No grammar change. `Simd[U8, 64]` is a `generic_inst` in a type and an
-`inst` in an expression (`Simd[U8, 64].splat(x)`, `Simd[U8, 4](arr)`,
-`s.read[Simd[U8, 64]](i)`). Nexus and the Nexus mirror of `rig.grammar`
+`inst` in an expression (`Simd[U8, 64].splat(x)`, `Simd[U8, 4](../../arr)`,
+`s.read[Simd[U8, 64]](../../i)`). Nexus and the Nexus mirror of `rig.grammar`
 are untouched.
 
 ### 5.1 Types: `src/sema.zig`, `src/resolve.zig`
@@ -460,7 +460,7 @@ re-derives anything from syntax.
 - **Methods:** `Checker.simdCall`, called in `synthMethodCall` beside
   `elemsCall`, `stringCall`, and `notCall`, types each method of §2 and
   records `SimdCall`. The static `Simd[T, n].splat(x)` and the
-  conversion call `Simd[T, n](x)` go through the type-call path
+  conversion call `Simd[T, n](../../x)` go through the type-call path
   (`Point.origin()`, `U8(x)`).
 - **Bytes:** `bytesCall` takes a `Simd` `T` (number lanes only), takes
   one bracket argument when `T`'s lanes are one byte (the single-argument
@@ -774,7 +774,7 @@ fun classify(v: Simd[U8, 64]) -> Classes
 
 sub main()
   s = "{\"a\": [1, 2],\t\"b\":\r\n {}}   xyz  0123456789abcdefghijklmnopqrstuv"
-  c = classify(s.read[Simd[U8, 64]](0))
+  c = classify(s.read[Simd[U8, 64]](../../0))
   print(c.space, c.ops)
 ```
 
@@ -796,8 +796,8 @@ sub main()
    a `Simd` has no `==` (§2.7).
 3. **Implicit splat** of a scalar operand of the lane type
    (recommended), or `Simd[U8, 64].splat(q)` written every time?
-4. **Omitting the byte order** for one-byte lanes (`read[Block](i)`):
-   accept, and allow `read[U8](i)` for symmetry? Or always write
+4. **Omitting the byte order** for one-byte lanes (`read[Block](../../i)`):
+   accept, and allow `read[U8](../../i)` for symmetry? Or always write
    `.little`?
 5. **`pad:` on `read`,** for scalars too, as the general answer to tails?
 6. **Lane writes:** `v.with(i, x)` only (recommended: lanes are not
@@ -814,7 +814,7 @@ sub main()
 11. **`blocks(N)`:** its second binding is the byte offset (recommended)
     or the block number? Does it take `pad:`?
 12. **Constants:** may a module-level constant hold a `Simd` built from
-    literals (`LOW = Simd[U8, 16]([...])`), which Zig folds at compile
+    literals (`LOW = Simd[U8, 16](../../[...])`), which Zig folds at compile
     time? The samples build their tables inside the function to avoid
     the question.
 13. **Scheduling:** vectors are a new language feature, out of scope

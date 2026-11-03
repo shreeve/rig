@@ -110,8 +110,8 @@ With `--own`, the key leaves out what every program shares: the driver
 and the runtime's files (the package's `rig/`), so a change to them
 alone carries every run over, and `--rig` keeps the cache. Each `swarm
 all` runs the matrix so (test/rig.rip, `matrix.run`), building only the
-programs whose own Zig changed; the nightly run on pup
-(tools/matrix-nightly) uses the full key.
+programs whose own Zig changed; a run by hand without `--own` uses the
+full key.
 """
 
 import argparse

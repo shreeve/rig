@@ -9,7 +9,8 @@ and is not updated after the fact, and none is run as a doc test.
 - [ledger.md](ledger.md): the work log; its newest "RESUME HERE" entry is the summary of record.
 - [archive-tags.md](archive-tags.md): work kept as `archive/*` tags rather than branches: what each holds, what was decided, and its records.
 - `2026-10/`: the rounds of 2026-10-21 and 22, by topic (below).
-- `revamp/`: the records of the revamp rounds before them (reports, designs, studies), as they were kept in `.git/revamp/`.
+- `revamp/`: the records of the revamp rounds before them (reports, designs, studies), as they were kept in `.git/revamp/`, and the consolidation that followed them ([consolidation.md](revamp/consolidation.md)).
+- `simd/`: how `Simd[T, n]` was designed and measured: the approved proposal ([simd-proposal.md](simd/simd-proposal.md)), its decisions and rounds ([simd.md](simd/simd.md)), what Zig 0.17's `@Vector` compiles to on each target ([simd-lowering.md](simd/simd-lowering.md)), the Apple silicon opcodes and the Rig operation that reaches each ([simd-opcodes.md](simd/simd-opcodes.md)), and the Zig probes behind them ([zig/](simd/zig/)).
 
 Bulk data (profiles, build trees, source snapshots, probe programs) is not kept here; each report summarizes what its data showed. Raw data a record cites but does not keep is on pup, in `/zfs/trig-pup/records-data/`.
 
@@ -17,6 +18,14 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 | Topic | What it settled | Records |
 |---|---|---|
+| std.json made fast (2026-10) | how std.json was measured and tuned against yyjson, simdjson and the others, on both machines ([json-results.md](2026-10/json/json-results.md)); which instructions its speed needs and the safe Rig operation for each ([json-opcodes.md](2026-10/json/json-opcodes.md)); and what the work found in the language, numbered entries the timing rules of docs/internals/tests.md come from ([rig-notes.md](2026-10/json/rig-notes.md)) | [json/](2026-10/json/) |
+| Rust triage (2026-10-14) | every difference from Rust sorted by what Rig should do about it: take, take later, or leave | [rust-triage.md](2026-10/rust-triage.md) |
+| Rig, emdb, and WebAssembly (2026-10-13) | what Rig on WebAssembly, emdb there, emdb from Rig, and emdb's core in Rig would take; none of it planned | [emdb-wasm.md](2026-10/emdb-wasm.md) |
+| The concurrency panel (2026-10-20) | six experts reviewed the concurrency model as built (runtime, language, adversarial soundness, testing, formal methods, I/O); the owner approved every default | [concurrency-panel/](2026-10/concurrency-panel/README.md) |
+| The traits panels | two panels of three designed traits and reviewed the design; the owner's decisions are docs/design/apis.md's, in today's words `api` and `add` | [traits-panel/](2026-10/traits-panel/README.md) |
+| The naming panel | four seats chose the word for a named set of methods; all ranked `role` first, and the owner chose `api` | [naming-panel/](2026-10/naming-panel/README.md) |
+| Memory and speed both (row 21, 2026-10-31) | arms of the allocator for a heap that does not fault in ahead, against #785's memory cut: arm a (#815) keeps 1 MiB of freed large blocks resident, kv with 64 KiB values 34% less memory for 1.1-1.5% fewer requests a second by the median, xmalloc-test 71% less and level, Trig unchanged | [mem-both/](2026-10/mem-both/README.md) |
+| Measured and not taken, from the backlog (2026-11-03) | bench/hash after inlining a generic type's small members (#246), and 4-byte stored hashes in Map and Set: both measured, nothing built | [backlog-measured.md](2026-10/backlog-measured.md) |
 | A statement's loans end at their last use (33D, #859; the oracle taught CORE §6, #861; 2026-11-01) | CORE §6 rewritten: a call's arguments run left to right, plain data read as a value is copied where it stands, and what an earlier argument hands over stays lent until the call returns; the checker ends a loan at the last use of the value carrying it; drafts, three expert reviews (CORE, compiler, adversarial programs), the owner's six decisions, and the next row approved but not started, the `for` header (t05) (`next-handoff.md`, row 2). The probe programs are not kept | [core-33d/](2026-10/core-33d/) |
 | The matrix gate (row 66, 2026-11-01) | the matrix's programs are built and run, not only checked: in every `swarm all` those whose own Zig changed (`--own --delta`, in packs), and the whole matrix nightly on pup; a known case names its failure; the build store is capped at 40 GB; the five defaults the owner approved | [matrix-gate/](2026-10/matrix-gate/) |
 | Function values and compile-time functions (#532) | a plain `fun` value crosses tasks; `fun cap[n: Int] -> Int`, called `cap[8]`, runs in the checker | [functions/](2026-10/functions/) |
@@ -1634,7 +1643,6 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 ### revamp/reports/
 
-- [SPEC.full.md](revamp/reports/SPEC.full.md): The Rig Language Reference
 - [addpub.py](revamp/reports/addpub.py)
 - [alldiff.sh](revamp/reports/alldiff.sh)
 - [bench.sh](revamp/reports/bench.sh)
@@ -1797,8 +1805,6 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 ### revamp/reports/docs/
 
-- [SPEC.orig.md](revamp/reports/docs/SPEC.orig.md): The Rig Language Reference
-- [SYNTAX.orig.md](revamp/reports/docs/SYNTAX.orig.md): Rig Syntax: A Guide for Zig and Rust Programmers
 - [blocks.py](revamp/reports/docs/blocks.py)
 - [links.py](revamp/reports/docs/links.py)
 - [t.sh](revamp/reports/docs/t.sh)
