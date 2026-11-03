@@ -1744,6 +1744,63 @@ fail "enum names its own optional in a payload", "`Expr?` in `args` is laid out 
     .one(n) => print(n)
     .two(_) => print(0)
 
+fail "object names its own optional through many instances", "`Node?` in `g` is laid out from `Node`'s layout, which needs `g` first"
+  # Each instance a field reaches is looked into, however many there
+  # are: here 78, each holding two more, the last naming `Node?`.
+  obj G0[T]
+    a: G1[List[T]]
+    b: G1[T]
+
+  obj G1[T]
+    a: G2[List[T]]
+    b: G2[T]
+
+  obj G2[T]
+    a: G3[List[T]]
+    b: G3[T]
+
+  obj G3[T]
+    a: G4[List[T]]
+    b: G4[T]
+
+  obj G4[T]
+    a: G5[List[T]]
+    b: G5[T]
+
+  obj G5[T]
+    a: G6[List[T]]
+    b: G6[T]
+
+  obj G6[T]
+    a: G7[List[T]]
+    b: G7[T]
+
+  obj G7[T]
+    a: G8[List[T]]
+    b: G8[T]
+
+  obj G8[T]
+    a: G9[List[T]]
+    b: G9[T]
+
+  obj G9[T]
+    a: G10[List[T]]
+    b: G10[T]
+
+  obj G10[T]
+    a: G11[List[T]]
+    b: G11[T]
+
+  obj G11[T]
+    v: List[T?]
+
+  obj Node
+    n: Int
+    g: G0[Node]
+
+  x: List[Node] = List()
+  print(x.len)
+
 fail "struct duplicate kwarg", "duplicate field `name` in constructor of `User`"
   # A constructor may not name the same field twice.
 

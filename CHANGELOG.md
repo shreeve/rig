@@ -251,7 +251,11 @@ Other:
     List[Expr?])` in `enum Expr`, is rejected with the fix to write, as
     an object's is; Zig failed on it with a dependency loop. Hold an
     optional box (`^Expr?`) or an optional view (`(?Expr)?`).
-61. A read view that holds a copy of its value counts at its value's
+61. A type whose fields reach more than 64 generic instances, the last
+    of which names the type's own optional (`List[Node?]` inside the
+    65th), is rejected as a nearer one is; Zig failed on it with a
+    dependency loop.
+62. A read view that holds a copy of its value counts at its value's
     size against the 8 MiB limit on a value and the 13 MiB limit on a
     frame: `[20000 of ?v]` with `v: Simd[I64, 64]` takes 10240000 bytes,
     as `[20000 of v]` does, and is rejected; it was counted as pointers,

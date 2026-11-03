@@ -7483,7 +7483,7 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// (`^X?`) or an optional view (`(?X)?`) instead, which Zig lays out
 /// without `X`'s layout.
 fn checkOptionalLoops(ctx: *SemContext) std.mem.Allocator.Error!void {
-    var seen: std.ArrayList(SymbolId) = .empty;
+    var seen: ByValueSearch = .{};
     defer seen.deinit(ctx.allocator);
     var walked: std.ArrayList(TypeId) = .empty;
     defer walked.deinit(ctx.allocator);
@@ -7505,8 +7505,10 @@ fn checkOptionalLoops(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// `ty` (through views, handles, type arguments, and the fields of a
 /// generic instance declared here) whose layout needs `holder`'s: `X` is
 /// `holder`, or holds it by value (`byValueTargets`). Its optional is
-/// emit's `rig.Opt` (`optionalRouted`), laid out from `X`'s own.
-fn optionalOfHolder(ctx: *SemContext, ty: TypeId, holder: SymbolId, seen: *std.ArrayList(SymbolId), walked: *std.ArrayList(TypeId)) std.mem.Allocator.Error!?TypeId {
+/// emit's `rig.Opt` (`optionalRouted`), laid out from `X`'s own. An
+/// instance whose arguments nest past `max_instance_depth` is not looked
+/// into: expanding the instances rejects it.
+fn optionalOfHolder(ctx: *SemContext, ty: TypeId, holder: SymbolId, seen: *ByValueSearch, walked: *std.ArrayList(TypeId)) std.mem.Allocator.Error!?TypeId {
     const t = ctx.types.get(ty);
     switch (t) {
         .optional => |inner| if (declaredSym(ctx, inner)) |x| {
@@ -7515,7 +7517,7 @@ fn optionalOfHolder(ctx: *SemContext, ty: TypeId, holder: SymbolId, seen: *std.A
         // `W[Node]` names `Node?` where `W[T]`'s fields name `T?`.
         .parameterized_nominal => |pn| {
             const decl = ctx.symbols.items[pn.sym];
-            if (decl.decl_pos < imported_decl_pos and decl.type_params != null and walked.items.len < 64 and std.mem.indexOfScalar(TypeId, walked.items, ty) == null) {
+            if (decl.decl_pos < imported_decl_pos and decl.type_params != null and instanceNests(ctx, pn) and std.mem.indexOfScalar(TypeId, walked.items, ty) == null) {
                 try walked.append(ctx.allocator, ty);
                 const subst: TypeSubst = .{ .params = decl.type_params.?, .args = pn.args };
                 for (decl.fields orelse &.{}) |*f| for (dataFields(f)) |*d| {
@@ -7531,6 +7533,13 @@ fn optionalOfHolder(ctx: *SemContext, ty: TypeId, holder: SymbolId, seen: *std.A
     return null;
 }
 
+/// Whether no argument of instance `pn` nests past `max_instance_depth`,
+/// the depth past which expanding the instances rejects it.
+fn instanceNests(ctx: *const SemContext, pn: ParamNominal) bool {
+    for (pn.args) |a| if (ctx.typeInfo(a).depth > max_instance_depth) return false;
+    return true;
+}
+
 /// The local declaration a nominal type or generic instance names.
 fn declaredSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     return switch (ctx.types.get(ty)) {
@@ -7540,26 +7549,42 @@ fn declaredSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     };
 }
 
+/// The search `holdsByValue` makes: the types in the order it reaches
+/// them, and which it has reached.
+const ByValueSearch = struct {
+    queue: std.ArrayList(SymbolId) = .empty,
+    reached: std.bit_set.Dynamic = .{},
+
+    fn deinit(self: *ByValueSearch, a: std.mem.Allocator) void {
+        self.queue.deinit(a);
+        self.reached.deinit(a);
+    }
+};
+
 /// Whether a value of the type `from` declares is, or holds by value,
 /// one of the type `target` declares.
-fn holdsByValue(ctx: *const SemContext, from: SymbolId, target: SymbolId, seen: *std.ArrayList(SymbolId)) std.mem.Allocator.Error!bool {
-    seen.clearRetainingCapacity();
-    try seen.append(ctx.allocator, from);
+fn holdsByValue(ctx: *const SemContext, from: SymbolId, target: SymbolId, search: *ByValueSearch) std.mem.Allocator.Error!bool {
+    const queue = &search.queue;
+    queue.clearRetainingCapacity();
+    try search.reached.resize(ctx.allocator, ctx.symbols.items.len, false);
+    search.reached.unsetAll();
+    try queue.append(ctx.allocator, from);
+    search.reached.set(from);
     var next: usize = 0;
-    while (next < seen.items.len) : (next += 1) {
-        const s = seen.items[next];
+    while (next < queue.items.len) : (next += 1) {
+        const s = queue.items[next];
         if (s == target) return true;
-        const before = seen.items.len;
-        for (ctx.symbols.items[s].fields orelse &.{}) |*f| for (dataFields(f)) |*d| try byValueTargets(ctx, d.ty, seen, false);
+        const before = queue.items.len;
+        for (ctx.symbols.items[s].fields orelse &.{}) |*f| for (dataFields(f)) |*d| try byValueTargets(ctx, d.ty, queue, false);
         // Keep each type once.
         var w = before;
-        for (seen.items[before..]) |n| {
-            if (std.mem.indexOfScalar(SymbolId, seen.items[0..w], n) == null) {
-                seen.items[w] = n;
-                w += 1;
-            }
+        for (queue.items[before..]) |n| {
+            if (search.reached.isSet(n)) continue;
+            search.reached.set(n);
+            queue.items[w] = n;
+            w += 1;
         }
-        seen.shrinkRetainingCapacity(w);
+        queue.shrinkRetainingCapacity(w);
     }
     return false;
 }
