@@ -223,3 +223,67 @@ fail "a chain's function cannot fail", "a chain's function cannot fail: handle t
 fail "a chain takes one zip", "a chain takes one `zip`"
   a = [1, 2]
   print(a.zip(a).zip(a).count())
+
+test "a chain's function may take fewer values than its stage passes", "6 2"
+  xs = List[Int]([1, 2, 3])
+  print(xs.enumerate().map(|x| x).sum(), xs.enumerate().filter(|x| x > 1).count())
+
+fail "sum in a chain adds numbers", "7:27: `sum` adds numbers, and these items are `String`s"
+  obj P
+    name: String
+    age: Int
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 30))
+  print(ps.map(|p| +p.name).sum())
+
+fail "filter's function gives a Bool", "2:17: `filter`'s function gives a `Bool`; this one gives `Int`"
+  xs = List[Int]([1, 2, 3])
+  print(xs.filter(|x| x % 2).count())
+
+fail "find's function gives a Bool", "`find`'s function gives a `Bool`; this one gives `Int`"
+  xs = List[Int]([1, 2, 3])
+  print(xs.find(|x| x) ?? 0)
+
+fail "collect of views clones each item", "7:10: `collect` keeps each item; these items are views of `ps`: `.map(|x| +x).collect()` clones each"
+  obj P
+    name: String
+    age: Int
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 30))
+  print(ps.collect().len)
+
+fail "min_by's key has an order", "7:18: `min_by`'s key is compared with `<`; `P` has no order; name `Ord` on its header: `obj P: Ord`"
+  obj P
+    name: String
+    age: Int
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 30))
+  print((ps.min_by(|p| p) ?? return).age)
+
+fail "max's items have an order", "7:11: `max` compares items with `<`; `P` has no order; name `Ord` on its header: `obj P: Ord`"
+  obj P
+    name: String
+    age: Int
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 30))
+  print((ps.max() ?? return).age)
+
+fail "take takes a count", "2:15: `take` takes a count, an `Int`; `\"a\"` is a `Static`"
+  xs = List[Int]([1, 2, 3])
+  print(xs.take("a").count())
+
+fail "map's function gives a value", "2:14: `map`'s function gives each item's new value; this one gives nothing"
+  xs = List[Int]([1, 2, 3])
+  print(xs.map(|x| print(x)).count())
+
+fail "a chain's function takes what its stage passes", "2:14: `map` passes its function each item; this one takes 2 parameters"
+  xs = List[Int]([1, 2, 3])
+  print(xs.map(|x, i| x + i).sum())
+
+fail "a chain's function after zip takes two values at most", "`filter` passes its function each item and the item `zip` pairs with it; this one takes 3 parameters"
+  a = [1, 2]
+  print(a.zip(a).filter(|x, y, z| x > y).count())
