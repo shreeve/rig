@@ -156,6 +156,9 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// The `for` whose source is being checked, which a chain of stages
+    /// may be (`chainCall`).
+    chain_for: Sexp = .nil,
     /// The APIs the module declares and imports, found once
     /// (`visibleApis`).
     visible_apis: ?[]const sema.ApiRef = null,
@@ -3101,6 +3104,9 @@ const Checker = struct {
             }
             const saved_source = self.loop_source_start;
             self.loop_source_start = self.ctx.span(peeled_source).start;
+            const saved_chain_for = self.chain_for;
+            self.chain_for = node;
+            defer self.chain_for = saved_chain_for;
             var source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
@@ -13037,6 +13043,9 @@ const Checker = struct {
         const name_node = ir.Member.name(callee);
         const method = self.text(name_node);
         const pos = srcPos(name_node, self.startOf(obj));
+        if (ct == null and (rig.isChainConsumer(method) or rig.isChainStage(method))) {
+            if (try self.chainCall(callee, method, args)) |ty| return ty;
+        }
 
         // `<Point.origin()`: a function called through its type or module
         // has no receiver for the sigil to apply to.
@@ -14279,6 +14288,97 @@ const Checker = struct {
         };
         const returns = self.ctx.types.get(fn_ty).function.returns;
         return if (self.ctx.types.get(returns) == .fallible) try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = .{ .ok = acc } }), .is_sub = false } }) else plain;
+    }
+
+    /// A chain, `xs.filter(f).count()`: stages on a `for` source whose type
+    /// declares no method of the name, ended by a consumer, or the source
+    /// of a `for`. It is recorded (`SemContext.chains`) and rewritten into
+    /// the loop it means (`Parser.desugarChains`), which the next round
+    /// checks; this round gives it no type. Null when the call is no
+    /// chain: the receiver's own method, or a receiver no `for` walks.
+    fn chainCall(self: *Checker, callee: Sexp, method: []const u8, args: []const Sexp) Error!?TypeId {
+        const call = self.current_call orelse return null;
+        var root = ir.Member.object(callee);
+        var stages: usize = 0;
+        while (root.isKind(.call) and ir.Call.callee(root).isKind(.member) and rig.isChainStage(self.text(ir.Member.name(ir.Call.callee(root))))) {
+            stages += 1;
+            root = ir.Member.object(ir.Call.callee(root));
+        }
+        const kind = (try self.chainSource(root, method, stages)) orelse return null;
+        const consumer = rig.isChainConsumer(method);
+        const for_source = self.chain_for != .nil and sameNode(call, ir.For.source(self.chain_for));
+        if (!consumer and !for_source) {
+            try self.errAt(call, "a chain is not a value: end it with a consumer (`.count()`, `.collect()`), or make it a `for` loop's source", .{});
+            return self.t().invalid_id;
+        }
+        if (!try self.chainShape(callee, method, args)) return self.t().invalid_id;
+        const node = if (for_source) self.chain_for else call;
+        const id = node.list.id;
+        for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
+        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind });
+        return self.t().unknown_id;
+    }
+
+    /// What a chain whose stages end at `root` walks, or null when `root`
+    /// is no `for` source, or its type declares `method` itself, or, with
+    /// no stage, a List's own `sum` or `reduce` takes the call.
+    fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize) Error!?rig.ChainSource {
+        if (root.isKind(.@"..")) return .range;
+        const ty = try self.synthQuiet(root);
+        if (self.isPoison(ty)) return null;
+        const peeled = sema.unwrapViews(self.ctx, ty);
+        const elements = switch (self.ctx.types.get(peeled)) {
+            .slice, .array => true,
+            else => sema.listElem(self.ctx, peeled) != null,
+        };
+        if (elements) {
+            if (stages == 0 and (std.mem.eql(u8, method, "sum") or std.mem.eql(u8, method, "reduce"))) return null;
+            return .elements;
+        }
+        switch (try sema.iterItem(self.ctx, peeled)) {
+            .item => {},
+            else => return null,
+        }
+        if ((try sema.methodOfType(self.ctx, peeled, method)) != null) return null;
+        return .iterator;
+    }
+
+    /// Each stage and the consumer of a chain take the arguments they
+    /// name, reported where they do not.
+    fn chainShape(self: *Checker, callee: Sexp, method: []const u8, args: []const Sexp) Error!bool {
+        var ok = try self.chainArgs(callee, method, args);
+        var obj = ir.Member.object(callee);
+        while (obj.isKind(.call) and ir.Call.callee(obj).isKind(.member)) {
+            const c = ir.Call.callee(obj);
+            const name = self.text(ir.Member.name(c));
+            if (!rig.isChainStage(name)) break;
+            if (!try self.chainArgs(c, name, ir.Call.args(obj))) ok = false;
+            obj = ir.Member.object(c);
+        }
+        return ok;
+    }
+
+    fn chainArgs(self: *Checker, callee: Sexp, name: []const u8, args: []const Sexp) Error!bool {
+        const Want = struct { n: usize, what: []const u8 };
+        const want: Want = if (std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "filter") or std.mem.eql(u8, name, "any") or std.mem.eql(u8, name, "all") or std.mem.eql(u8, name, "find"))
+            .{ .n = 1, .what = "a function of each item, `|x| ...`" }
+        else if (std.mem.eql(u8, name, "min_by") or std.mem.eql(u8, name, "max_by"))
+            .{ .n = 1, .what = "a function giving each item's key, `|x| x.key`" }
+        else if (std.mem.eql(u8, name, "take") or std.mem.eql(u8, name, "skip"))
+            .{ .n = 1, .what = "a count" }
+        else if (std.mem.eql(u8, name, "zip"))
+            .{ .n = 1, .what = "a second source" }
+        else if (std.mem.eql(u8, name, "reduce"))
+            .{ .n = 2, .what = "the starting value and a function of the running value and each item, `|acc, x| ...`" }
+        else
+            .{ .n = 0, .what = "nothing" };
+        for (args) |a| if (a.isKind(.kwarg)) {
+            try self.errAt(a, "`{s}` takes no keyword arguments", .{name});
+            return false;
+        };
+        if (args.len == want.n) return true;
+        try self.errAt(ir.Member.name(callee), "`{s}` in a chain takes {s}", .{ name, want.what });
+        return false;
     }
 
     /// Whether closure literal `f` checks against function type `want`

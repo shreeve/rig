@@ -279,6 +279,9 @@ const SymbolResolver = struct {
 
     fn checkShadowing(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
+        // A hidden name holds a space, so no program writes one: a chain's
+        // loop inside another's closure declares its own.
+        if (std.mem.indexOfScalar(u8, name, ' ') != null) return;
         const pos = srcPos(name_node, 0);
         if (self.visibleLocal(self.scope, name)) |prev| {
             if (self.ctx.symbols.items[prev].kind == .generic_param) return self.checkShadowsDeclaration(name_node, what);
@@ -3861,6 +3864,43 @@ pub const TypeResolver = struct {
 
     // ---- type expressions ---------------------------------------------------
 
+    /// `(item_type h)`, which only a chain's rewrite writes
+    /// (`Parser.desugarChains`): what the hidden binding `h` gives each
+    /// step. A held source gives its items, as `for x in h` binds them
+    /// (an iterator's `next`, a List's, array's, or slice's elements read
+    /// as a `for` reads them); a bound closure, its result; any other
+    /// binding, its own type.
+    fn chainItemType(self: *TypeResolver, leaf: Sexp) Error!TypeId {
+        const t = &self.ctx.types;
+        const name = identAt(self.ctx.source, leaf) orelse return t.invalid_id;
+        const id = self.ctx.lookup(self.scope, name) orelse return t.invalid_id;
+        try self.ctx.recordName(leaf, id);
+        const ty = self.ctx.symbols.items[id].ty;
+        const peeled = sema.unwrapViews(self.ctx, ty);
+        switch (t.get(peeled)) {
+            .function => |f| return switch (t.get(f.returns)) {
+                .fallible => |fl| fl.ok,
+                else => f.returns,
+            },
+            .slice => |sl| return self.readItem(sl.elem),
+            .array => |arr| return self.readItem(arr.elem),
+            .range => |r| return r,
+            else => {},
+        }
+        if (sema.listElem(self.ctx, peeled)) |elem| return self.readItem(elem);
+        switch (try sema.iterItem(self.ctx, peeled)) {
+            .item => |item| return item,
+            else => return ty,
+        }
+    }
+
+    /// An element a `for` reads: a copy of plain data, a read view of
+    /// anything else.
+    fn readItem(self: *TypeResolver, elem: TypeId) Error!TypeId {
+        if (sema.copies(self.ctx, elem) == .yes) return elem;
+        return self.ctx.intern(.{ .read_view = elem });
+    }
+
     pub fn resolveType(self: *TypeResolver, sexp: Sexp) Error!TypeId {
         const t = &self.ctx.types;
         switch (sexp) {
@@ -3921,6 +3961,7 @@ pub const TypeResolver = struct {
             .list => {
                 const head = sexp.kind() orelse return t.invalid_id;
                 switch (head) {
+                    .item_type => return self.chainItemType(ir.get(sexp, .name)),
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = .{ .ok = inner } });

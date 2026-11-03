@@ -435,6 +435,10 @@ tokens
     # (result_part))` of the result in its position.
     destructure                 op:tag(fixed|shadow|shadow_fixed)? targets:group value
     result_part                 @wrapper
+    # The type of what a hidden binding a chain's loop holds gives
+    # (`Parser.desugarChains`): a source's item, a stage's result, or the
+    # binding's own type. Only the rewrite writes it.
+    item_type                   name:leaf @wrapper
     results                     ...values        # `return a, b`: a function's several results
     pass
 
