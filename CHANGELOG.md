@@ -2258,6 +2258,18 @@ The model and its plan are
 [docs/history/records/2026-10/concurrency-panel/](docs/history/records/2026-10/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
+- **A `print` method no longer hangs a program with tasks.** `print`
+  and `warn` held the output lock while a value's own `print` method
+  ran, so a method that printed, warned, wrote `io.stdout()`, or called
+  `os.exit` hung its task, and one that looped past a yield could hang
+  every task that printed (always under `rig test --seeds`). A line
+  whose value may run a `print` method is rendered first, with no lock
+  held, and copied out under it; what the method prints comes before
+  the line, whole, with or without tasks. `warn`, and an error's report
+  as it leaves `main`, are rendered the same way, so a `warn` of any
+  length is one write. `String(...)` writes each piece once, so a
+  `print` method of a value in text over 256 bytes runs once, not
+  twice.
 - **A regular file's read runs in its task.** `file.read` of a regular
   file, and `exists`, `stat`, `realpath`, and `read_dir`, run on the
   task's own worker, not the blocking pool, as Go's and tsrs's do; a
