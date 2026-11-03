@@ -2902,7 +2902,7 @@ const Walk = struct {
             .fiber => |x| x.f.blocked.load(.seq_cst) == x.b,
             .held => |x| x.held_by.load(.seq_cst) == x.h,
             .call => |c| !c.answered(c.msg),
-            .task => |h| h.status.load(.seq_cst) < Header.ending,
+            .task => |h| !h.done.over(),
         };
     }
 
@@ -2990,51 +2990,85 @@ const Walk = struct {
 // Tasks
 // -----------------------------------------------------------------------------
 
-/// What a task's waiter shares with the fiber that runs it: whether the
-/// task has ended, the fiber waiting for it and the epoch of that wait,
-/// and how to free the record. The end is published by the worker the
-/// fiber left for good (`end`), so the record is never freed while the
-/// fiber still runs, and the waiter goes on only once the status says
-/// `ended`, after the waker is done with it.
-pub const Header = struct {
-    fiber: Fiber,
+/// A one-shot completion: a task's end (`Header`), or an actor call's
+/// answer (`tasks.Message`). One fiber may wait for it: it records itself
+/// and the epoch of its wait, and marks the status `waited`. What
+/// finishes it marks it `ending`, wakes that waiter, if any, and only
+/// then `ended`, and the waiter goes on only once it reads `ended`, so
+/// the record it may then free is no longer touched.
+pub const Done = struct {
     status: std.atomic.Value(u8) = .init(running),
-    /// Set when the task panicked and ended where it stood, with no
-    /// result (`abandon`).
-    panicked: std.atomic.Value(bool) = .init(false),
     waiter: std.atomic.Value(?*Fiber) = .init(null),
-    waiter_epoch: std.atomic.Value(u32) = .init(0),
-    destroy: *const fn (*Header) void,
+    epoch: std.atomic.Value(u32) = .init(0),
 
     const running = 0;
     const waited = 1;
     const ending = 2;
     const ended = 3;
 
-    pub fn end(f: *Fiber) void {
-        const h: *Header = @fieldParentPtr("fiber", f);
-        if (h.status.swap(ending, .seq_cst) == waited) {
-            _ = interrupt(h.waiter.load(.seq_cst).?, h.waiter_epoch.load(.seq_cst), false);
+    pub fn finish(d: *Done) void {
+        if (d.status.swap(ending, .seq_cst) == waited) {
+            _ = interrupt(d.waiter.load(.seq_cst).?, d.epoch.load(.seq_cst), false);
         }
-        h.status.store(ended, .seq_cst);
+        d.status.store(ended, .seq_cst);
     }
 
-    /// Whether the task has ended; while its end is being published,
-    /// wait for that to finish.
-    fn isEnded(h: *Header) bool {
+    /// Whether it is finished, or finishing: for a deadlock's walk.
+    pub fn over(d: *const Done) bool {
+        return d.status.load(.seq_cst) >= ending;
+    }
+
+    /// Whether it is finished; while it is finishing, wait for that.
+    pub fn isDone(d: *Done) bool {
         while (true) {
-            const s = h.status.load(.seq_cst);
+            const s = d.status.load(.seq_cst);
             if (s == ended) return true;
             if (s != ending) return false;
             std.atomic.spinLoopHint();
         }
     }
 
+    /// Wait for it to finish, or, when `cancel` is given, for that flag
+    /// to be set first, or for `deadline` to pass, when this gives false.
+    pub inline fn wait(d: *Done, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+        while (!d.isDone()) {
+            if (cancel) |c| if (c.load(.seq_cst)) return false;
+            if (deadline) |t| if (nowNs() >= t) return false;
+            const e = beginWait(cancel != null);
+            d.waiter.store(current().?, .seq_cst);
+            d.epoch.store(e, .seq_cst);
+            if (d.status.cmpxchgStrong(running, waited, .seq_cst, .seq_cst)) |s| {
+                if (s != waited) continue;
+            }
+            if (cancel) |c| if (c.load(.seq_cst)) return false;
+            commitWait(e, deadline);
+        }
+        return true;
+    }
+};
+
+/// What a task's waiter shares with the fiber that runs it: the task's
+/// end (`Done`), whether it panicked, and how to free the record. The end
+/// is published by the worker the fiber left for good (`end`), so the
+/// record is never freed while the fiber still runs.
+pub const Header = struct {
+    fiber: Fiber,
+    done: Done = .{},
+    /// Set when the task panicked and ended where it stood, with no
+    /// result (`abandon`).
+    panicked: std.atomic.Value(bool) = .init(false),
+    destroy: *const fn (*Header) void,
+
+    pub fn end(f: *Fiber) void {
+        const h: *Header = @fieldParentPtr("fiber", f);
+        h.done.finish();
+    }
+
     /// Wait for the task to end, or, when `cancel` is given, for that
     /// flag to be set first, or for `deadline` to pass, when this gives
     /// false.
     fn waitEnd(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
-        if (h.isEnded()) return true;
+        if (h.done.isDone()) return true;
         const b: Blocked = .{ .task = h };
         block(&b);
         defer unblock();
@@ -3046,19 +3080,7 @@ pub const Header = struct {
             // sleeps on its timer instead.
             if (deadline == null and w.lifo.load(.monotonic) == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel);
         }
-        while (!h.isEnded()) {
-            if (cancel) |c| if (c.load(.seq_cst)) return false;
-            if (deadline) |d| if (nowNs() >= d) return false;
-            const e = beginWait(cancel != null);
-            h.waiter.store(current().?, .seq_cst);
-            h.waiter_epoch.store(e, .seq_cst);
-            if (h.status.cmpxchgStrong(running, waited, .seq_cst, .seq_cst)) |s| {
-                if (s != waited) continue;
-            }
-            if (cancel) |c| if (c.load(.seq_cst)) return false;
-            commitWait(e, deadline);
-        }
-        return true;
+        return h.done.wait(cancel, deadline);
     }
 };
 
@@ -3114,9 +3136,9 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
     if (w.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return;
-    h.waiter.store(waiter, .seq_cst);
-    h.waiter_epoch.store(e, .seq_cst);
-    h.status.store(Header.waited, .seq_cst);
+    h.done.waiter.store(waiter, .seq_cst);
+    h.done.epoch.store(e, .seq_cst);
+    h.done.status.store(Done.waited, .seq_cst);
     // The waiter is marked asleep by the task, once this switch has saved
     // it (`fiberMain`), so no waker queues it while it still runs.
     f.handoff = waiter;
@@ -3133,7 +3155,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     if (now.returned) |done| {
         now.returned = null;
         endStack(now, done);
-        h.status.store(Header.ended, .seq_cst);
+        h.done.status.store(Done.ended, .seq_cst);
     }
 }
 
@@ -4027,7 +4049,7 @@ test "a task made while its maker computes runs beside it, from the maker's next
             // The task is in this worker's run-next slot, and this one
             // computes, with a yield check each turn.
             const until = nowNs() + 2 * std.time.ns_per_s;
-            while (j.header.status.load(.seq_cst) < Header.ending and nowNs() < until) {
+            while (!j.header.done.over() and nowNs() < until) {
                 _ = turns.fetchAdd(1, .seq_cst);
                 tick();
             }

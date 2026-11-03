@@ -16,7 +16,7 @@ a program that makes none starts no workers.
   switch saves the registers a call keeps on the stack being left and
   restores those of the stack resumed (`sched.switchTo`, written for
   aarch64 and x86_64).
-- **The boundary.** `tasks.zig` calls the scheduler directly (`Handle`,
+- **The boundary.** `tasks.zig` calls the scheduler directly (`Task`,
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
@@ -218,6 +218,17 @@ over hand, so no cancel reaches a task through a chain another may free.
 A cancel passes only down: a waiter takes none from the task it waits
 on, so canceling the tasks it owns (`par.map`'s helpers after a
 failure) leaves its own `Control` as it was.
+
+A task's end and an actor call's answer are one kind of thing: done
+once, with at most one fiber waiting (`sched.Done`, which `Header` and
+`tasks.Message` hold). The waiter records itself and its wait's number,
+then marks the record waited with a compare-and-swap; what finishes it
+marks it ending, wakes that waiter if one is marked, and only then
+marks it ended. The waiter goes on only once it reads ended, so it may
+free the record at once: no waker touches it after. A set of tasks and
+`task.all` wait on a count instead (`tasks.Wakeup`), which each of their
+tasks adds to as it ends, and a select on the claim of its first arm,
+which the claimer makes under its channel's lock.
 
 A cancel is a handshake of two steps on each side: the canceler sets the
 task's flag and then looks at its wait, and the waiting fiber begins its
