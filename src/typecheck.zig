@@ -156,6 +156,9 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// The `for` whose source is being checked, which a chain of stages
+    /// may be (`chainCall`).
+    chain_for: Sexp = .nil,
     /// The APIs the module declares and imports, found once
     /// (`visibleApis`).
     visible_apis: ?[]const sema.ApiRef = null,
@@ -3101,6 +3104,9 @@ const Checker = struct {
             }
             const saved_source = self.loop_source_start;
             self.loop_source_start = self.ctx.span(peeled_source).start;
+            const saved_chain_for = self.chain_for;
+            self.chain_for = node;
+            defer self.chain_for = saved_chain_for;
             var source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
@@ -13079,6 +13085,10 @@ const Checker = struct {
         // `?@` one reads it where it stands; a `!@` one needs it
         // lent to write, `!mk().m()`, which keeps it in its statement's
         // slot.
+        // A chain, on a value: no module's or type's function.
+        if (ct == null and misreached == null and (rig.isChainConsumer(method) or rig.isChainStage(method))) {
+            if (try self.chainCall(callee, method, args)) |ty| return ty;
+        }
         const saved_receiver = self.receiver_obj;
         self.receiver_obj = obj;
         const obj_ty = try self.synthExpr(obj);
@@ -14279,6 +14289,160 @@ const Checker = struct {
         };
         const returns = self.ctx.types.get(fn_ty).function.returns;
         return if (self.ctx.types.get(returns) == .fallible) try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = .{ .ok = acc } }), .is_sub = false } }) else plain;
+    }
+
+    /// A chain, `xs.filter(f).count()`: stages on a `for` source whose type
+    /// declares no method of the name, ended by a consumer, or the source
+    /// of a `for`. It is recorded (`SemContext.chains`) and rewritten into
+    /// the loop it means (`Parser.desugarChains`), which the next round
+    /// checks; this round gives it no type. Null when the call is no
+    /// chain: the receiver's own method, or a receiver no `for` walks.
+    fn chainCall(self: *Checker, callee: Sexp, method: []const u8, args: []const Sexp) Error!?TypeId {
+        const call = self.current_call orelse return null;
+        var root = ir.Member.object(callee);
+        var stages: usize = 0;
+        var first = method;
+        while (root.isKind(.call) and ir.Call.callee(root).isKind(.member) and rig.isChainStage(self.text(ir.Member.name(ir.Call.callee(root))))) {
+            stages += 1;
+            first = self.text(ir.Member.name(ir.Call.callee(root)));
+            root = ir.Member.object(ir.Call.callee(root));
+        }
+        const found = (try self.chainSource(root, method, stages)) orelse return null;
+        const kind = found.kind;
+        const consumer = rig.isChainConsumer(method);
+        const for_source = self.chain_for != .nil and sameNode(call, ir.For.source(self.chain_for));
+        if (!consumer and !for_source) {
+            try self.errAt(call, "a chain is not a value: end it with a consumer (`.count()`, `.collect()`), or make it a `for` loop's source", .{});
+            return self.t().invalid_id;
+        }
+        if (!try self.chainShape(callee, method, args)) return self.t().invalid_id;
+        // An iterator in a place advances: the chain lends it to write,
+        // and says so, as a `for` over it does.
+        if (kind == .iterator and !for_source and !madeHere(root) and !root.isKind(.write)) {
+            const shown = try self.plainText(root);
+            try self.errAt(root, "a chain advances the iterator `{s}`: lend it to write, `(!{s}).{s}(...)`", .{ shown, shown, first });
+            return self.t().invalid_id;
+        }
+        // A `zip`'s second source: one a chain, walked as the first is.
+        var zip: rig.ChainSource = .elements;
+        var zip_copies = true;
+        var zips: usize = 0;
+        var at = call;
+        while (at.isKind(.call) and ir.Call.callee(at).isKind(.member)) : (at = ir.Member.object(ir.Call.callee(at))) {
+            const c = ir.Call.callee(at);
+            if (!std.mem.eql(u8, self.text(ir.Member.name(c)), "zip")) continue;
+            zips += 1;
+            if (zips > 1) {
+                try self.errAt(ir.Member.name(c), "a chain takes one `zip`", .{});
+                return self.t().invalid_id;
+            }
+            const ys = ir.Call.args(at)[0];
+            const second = (try self.chainSource(ys, "zip", 1)) orelse {
+                try self.errAt(ys, "`zip` walks a List, an array, a slice, or an iterator, and `{s}` is a `{s}`", .{ try self.plainText(ys), try self.tyName(try self.synthQuiet(ys)) });
+                return self.t().invalid_id;
+            };
+            if (second.kind == .range) {
+                try self.errAt(ys, "`zip` with a range: write its numbers with `enumerate`, or hold the range's bounds", .{});
+                return self.t().invalid_id;
+            }
+            if (second.kind == .iterator and !madeHere(ys) and !ys.isKind(.write)) {
+                const shown = try self.plainText(ys);
+                try self.errAt(ys, "`zip` advances the iterator `{s}`: lend it to write, `zip(!{s})`", .{ shown, shown });
+                return self.t().invalid_id;
+            }
+            zip = second.kind;
+            zip_copies = second.copies;
+        }
+        const node = if (for_source) self.chain_for else call;
+        const id = node.list.id;
+        for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
+        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies, .zip = zip, .zip_copies = zip_copies });
+        return self.t().unknown_id;
+    }
+
+    /// A value made where it stands: a call, or a literal.
+    fn madeHere(e: Sexp) bool {
+        return e.isKind(.call) or e.isKind(.array) or e.isKind(.read);
+    }
+
+    /// What a chain whose stages end at `root` walks, or null when `root`
+    /// is no `for` source, or its type declares `method` itself, or, with
+    /// no stage, a List's own `sum` or `reduce` takes the call.
+    fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize) Error!?struct { kind: rig.ChainSource, copies: bool = true } {
+        if (root.isKind(.@"..")) return .{ .kind = .range };
+        // A module's or a type's function (`par.map`, `task.all`) is no chain.
+        if ((try self.moduleNamed(root)) != null or (try self.namedType(root)) != null) return null;
+        const ty = try self.synthQuiet(root);
+        if (self.isPoison(ty)) return null;
+        const peeled = sema.unwrapViews(self.ctx, ty);
+        const elem: ?TypeId = switch (self.ctx.types.get(peeled)) {
+            .slice => |sl| sl.elem,
+            .array => |arr| arr.elem,
+            else => sema.listElem(self.ctx, peeled),
+        };
+        if (elem) |e| {
+            if (stages == 0 and (std.mem.eql(u8, method, "sum") or std.mem.eql(u8, method, "reduce"))) return null;
+            return .{ .kind = .elements, .copies = sema.copies(self.ctx, e) == .yes };
+        }
+        switch (try sema.iterItem(self.ctx, peeled)) {
+            .item => {},
+            else => return null,
+        }
+        if ((try sema.methodOfType(self.ctx, peeled, method)) != null) return null;
+        return .{ .kind = .iterator };
+    }
+
+    /// Each stage and the consumer of a chain take the arguments they
+    /// name, reported where they do not.
+    fn chainShape(self: *Checker, callee: Sexp, method: []const u8, args: []const Sexp) Error!bool {
+        var ok = try self.chainArgs(callee, method, args);
+        var obj = ir.Member.object(callee);
+        while (obj.isKind(.call) and ir.Call.callee(obj).isKind(.member)) {
+            const c = ir.Call.callee(obj);
+            const name = self.text(ir.Member.name(c));
+            if (!rig.isChainStage(name)) break;
+            if (!try self.chainArgs(c, name, ir.Call.args(obj))) ok = false;
+            obj = ir.Member.object(c);
+        }
+        return ok;
+    }
+
+    fn chainArgs(self: *Checker, callee: Sexp, name: []const u8, args: []const Sexp) Error!bool {
+        const Want = struct { n: usize, what: []const u8 };
+        const want: Want = if (std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "filter") or std.mem.eql(u8, name, "any") or std.mem.eql(u8, name, "all") or std.mem.eql(u8, name, "find"))
+            .{ .n = 1, .what = "a function of each item, `|x| ...`" }
+        else if (std.mem.eql(u8, name, "min_by") or std.mem.eql(u8, name, "max_by"))
+            .{ .n = 1, .what = "a function giving each item's key, `|x| x.key`" }
+        else if (std.mem.eql(u8, name, "take") or std.mem.eql(u8, name, "skip"))
+            .{ .n = 1, .what = "a count" }
+        else if (std.mem.eql(u8, name, "zip"))
+            .{ .n = 1, .what = "a second source" }
+        else if (std.mem.eql(u8, name, "reduce"))
+            .{ .n = 2, .what = "the starting value and a function of the running value and each item, `|acc, x| ...`" }
+        else
+            .{ .n = 0, .what = "nothing" };
+        for (args) |a| if (a.isKind(.kwarg)) {
+            try self.errAt(a, "`{s}` takes no keyword arguments", .{name});
+            return false;
+        };
+        if (args.len != want.n) {
+            try self.errAt(ir.Member.name(callee), "`{s}` in a chain takes {s}", .{ name, want.what });
+            return false;
+        }
+        for (args) |a| if (a.isKind(.lambda)) if (failsIn(ir.get(a, .body))) |at| {
+            try self.errAt(at, "a chain's function cannot fail: handle the failure inside it with `catch`, or write the loop", .{});
+            return false;
+        };
+        return true;
+    }
+
+    /// The first `e!` in a closure's body, outside closures inside it.
+    fn failsIn(e: Sexp) ?Sexp {
+        if (e != .list) return null;
+        if (e.isKind(.propagate)) return e;
+        if (e.isKind(.lambda)) return null;
+        for (e.items()) |c| if (failsIn(c)) |at| return at;
+        return null;
     }
 
     /// Whether closure literal `f` checks against function type `want`

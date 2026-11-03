@@ -857,8 +857,9 @@ pub const ModuleGraph = struct {
         // (docs/internals/INTERNALS.md, "Loops over an iterator" and
         // "Strings as bytes"). Each round rewrites what it found, so the
         // rounds end.
-        while (m.sema.iter_loops.items.len > 0 or m.sema.byte_literals.items.len > 0) {
+        while (m.sema.iter_loops.items.len > 0 or m.sema.byte_literals.items.len > 0 or m.sema.chains.items.len > 0) {
             try m.parser.byteLiterals(m.ir, m.sema.byte_literals.items);
+            if (m.sema.chains.items.len > 0) try m.parser.desugarChains(m.ir, m.sema.chains.items);
             if (m.sema.iter_loops.items.len > 0) try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
             m.sema.deinit();
             m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);

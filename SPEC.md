@@ -6252,6 +6252,76 @@ cannot iterate over `Reads`: a `for` walks a type with `next(!@) -> T?`, but its
 write `for x in !c`: the loop advances `c`
 ```
 
+### Chains
+
+A chain is a `for` loop written as calls: stages on any `for` source
+(a List, an array, a slice, a range, or an iterator), ended by a
+consumer, or used as a `for` loop's source. It is the loop it means,
+checked and emitted as that loop, so it costs what the loop costs: no
+allocation but `collect`'s, and each function a stage takes is called
+directly. A type's own method of the same name is called instead.
+
+| Stage | Gives each item |
+|---|---|
+| `filter(f)` | `x` where `f(x)` holds |
+| `map(f)` | `f(x)` |
+| `take(n)`, `skip(n)` | the first `n`, or all but them |
+| `enumerate()` | `x, i`, two values, as `for x, i in xs` binds them |
+| `zip(ys)` | `x, y`, until either source ends; one `zip` a chain |
+
+| Consumer | Result |
+|---|---|
+| `count()`, `sum()` | how many items; their sum, `0` when there are none |
+| `any(f)`, `all(f)` | a `Bool`, stopping at the first item that decides |
+| `find(f)` | the first item `f` passes, or `none` |
+| `min()`, `max()`, `min_by(key)`, `max_by(key)` | the smallest or largest item, or `none`; `min` keeps the first of equal items and `max` the last, as Rust's do |
+| `reduce(start, f)` | as `xs.reduce` |
+| `collect()` | a new `List` of the items, the chain's one allocation |
+
+Each item is what the source's `for` gives: a copy of plain data, else a
+view, which keeps the source lent while a result that is one lives. A
+stage after `enumerate` or `zip` takes a function of two values. Each
+function a chain takes is bound once, before the loop, so a capture
+holds for the whole chain; a function that can fail is rejected for
+now. `take` stops before the item it does not need, so a chain on an
+iterator pulls no item past it. An iterator in a place advances, so a
+chain lends it to write, `(!it).map(f).sum()`; a call whose result
+views its receiver is lent to read, `?m.keys().count()`.
+
+A chain is not a value: bound, passed, or returned without a consumer,
+it is rejected with the ways to end it. `for x in xs.filter(f)` is a
+loop whose body runs for each item the stages pass; its `break` and
+`continue` are its own.
+
+```rig
+obj P
+  name: String
+  age: Int
+
+sub main()
+  xs = List[Int]([3, 8, 1, 9, 4, 7])
+  print(xs.filter(|x| x > 3).map(|x| x * 10).take(2).collect(), xs.filter(|x| x % 2 == 1).count())
+  print((1..10).filter(|i| i % 3 == 0).sum(), xs.any(|x| x == 9), xs.find(|x| x > 5) ?? -1)
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 30))
+  !ps.push(P(name: String("bo"), age: 20))
+  !ps.push(P(name: String("cy"), age: 20))
+  young = ps.min_by(|p| p.age) ?? return
+  old = ps.max_by(|p| p.age) ?? return
+  print(young.name, old.name)
+  for p, i in ps.filter(|p| p.age > 15).enumerate()
+    print(i, p.name)
+```
+
+```output
+[80, 90] 4
+18 true 8
+bo ann
+0 ann
+1 bo
+2 cy
+```
+
 ### Labels, break, and continue
 
 A loop may be labeled `$name:`; `break $name` and `continue $name` then

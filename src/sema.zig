@@ -4357,6 +4357,10 @@ pub const SemContext = struct {
     /// (`rig.ByteLiteral`); a module with any is checked again on the
     /// rewritten tree, as for `iter_loops`.
     byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
+    /// The iterator chains typecheck found (`rig.Chain`), each to be
+    /// rewritten into the loop it means; checked again, as for
+    /// `iter_loops`.
+    chains: std.ArrayList(rig.Chain) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
     /// beside the facts table, not in `check --facts=sema`.
     write_sites: FastMap(NodeKey, WriteSite) = .empty,
@@ -4440,6 +4444,7 @@ pub const SemContext = struct {
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
+        self.chains.deinit(self.allocator);
         self.byte_literals.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
@@ -4583,7 +4588,14 @@ pub const SemContext = struct {
         try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .end = pos, .message = msg, .module = m });
     }
 
-    fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+    fn report(self: *SemContext, severity: diag.Severity, span_at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        // A position past the source's end is a hidden leaf's, reported at
+        // its home (`rig.Parser.span`).
+        var at = span_at;
+        if (at.start >= self.source.len) if (self.parser) |p| {
+            const home = p.span(.{ .src = .{ .pos = at.start, .len = 1, .id = 0 } });
+            at = .{ .start = home.start, .end = @max(home.start, home.end) };
+        };
         const msg = try self.arena.allocator().print(fmt, args);
         if (severity == .@"error") {
             const gop = try self.reported.getOrPut(self.allocator, .{ .pos = at.start, .message = std.hash.Wyhash.hash(0, msg) });
@@ -14907,7 +14919,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
-        .arm, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
+        .arm, .item_type, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
         // `>t`, `f: once T`, `a..=b`, and `(e)`'s `paren`, which the Parser
         // wrapper rewrites or drops first.
         .wait, .once, .@"..=", .paren => .none,

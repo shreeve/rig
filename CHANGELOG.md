@@ -265,6 +265,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Iterator chains.** `xs.filter(f).map(g).sum()`, on any `for` source
+  (a List, array, slice, range, or iterator), is the loop it means,
+  checked and emitted as that loop: stages `filter`, `map`, `take`,
+  `skip`, `enumerate`, `zip`, and consumers `count`, `sum`, `any`,
+  `all`, `find`, `min`, `max`, `min_by`, `max_by`, `reduce`, `collect`,
+  or a `for` over it (docs/design/iterators.md). `min` keeps the first
+  of equal items and `max` the last, as Rust's do. Over 200,000 Map
+  entries, `?m.items().filter(f).min_by(k)` ran 6-8% faster than the
+  hand loop it replaces (it copies the key once, at the end); a
+  filter-map-sum over 20 million `U64`s ran as fast as its loop. A
+  chain's function that can fail is rejected for now.
 - **`x matches P` tests a pattern.** It is a `Bool` anywhere, and in
   an `if` or `while` condition binds the pattern's names in the body;
   anywhere else the names flow right through `and`
