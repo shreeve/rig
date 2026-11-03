@@ -1007,9 +1007,9 @@ test "final-m1-write-receiver-view-in-statement", '''
   26004
   106
 '''
-  # A write view a `!@` method returns of a temporary receiver lent
+  # A write view a `!@` method returns of a temporary self lent
   # with `!`, used within its statement (Core sentence 4); without the `!`
-  # the call is rejected (`test/reject/ownership/write_receiver_temporary.rig`).
+  # the call is rejected (`test/reject/ownership/write_self_temporary.rig`).
 
   obj S
     n: Int
@@ -1050,7 +1050,7 @@ test "final-review-w11-bind-write-view-result-int-inc", "2"
   print(n)
 
 test "final-review-x91b-recv-made-write-explicit"
-  # !mk().bump(): explicit write lend of a temporary receiver (Core sentence 4: accepted, kept in the statement's slot)
+  # !mk().bump(): explicit write lend of a temporary self (Core sentence 4: accepted, kept in the statement's slot)
   obj S
     n: Int
 

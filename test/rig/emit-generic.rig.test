@@ -371,7 +371,7 @@ test "generic read view of vec element", '''
   2
   hi
 '''
-  # A read view of a List element through a lent to read receiver reads
+  # A read view of a List element through a lent to read self reads
   # the element in place.
 
   obj P
@@ -403,7 +403,7 @@ test "generic struct drop glue", '''
   1
   6
 '''
-  # A generic struct instantiated with a handle (`Holder[*Noisy]`) drops the
+  # A generic object instantiated with a handle (`Holder[*Noisy]`) drops the
   # handle it holds.
 
   obj Holder[T]
@@ -420,13 +420,13 @@ test "generic struct drop glue", '''
   h: Holder[*Noisy] = Holder(value: <n, id: 1)
   print(h.id)
 
-test "generic temporary receiver", '''
+test "generic temporary self", '''
   side 2
   side 3
   side 4
   3 43
 '''
-  # A temporary receiver holding a type parameter, evaluated before the
+  # A temporary self holding a type parameter, evaluated before the
   # arguments, is dropped like a resource in the generic body.
 
   fun side(k: Int) -> Int

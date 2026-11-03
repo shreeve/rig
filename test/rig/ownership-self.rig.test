@@ -1,7 +1,7 @@
-# ownership: tests whose names start `receiver`.
+# ownership: tests whose names start `self`.
 
-fail "receiver branch view keeps leaf loans", "17:3: cannot assign to `a.t` while `a` is lent", "24:3: cannot assign to `b.t` while `b` is lent", "32:3: cannot assign to `ts[1].t` while `ts` is lent", errors: 3
-  # A method runs on its receiver where it is: called on a value that
+fail "self branch view keeps leaf loans", "17:3: cannot assign to `a.t` while `a` is lent", "24:3: cannot assign to `b.t` while `b` is lent", "32:3: cannot assign to `ts[1].t` while `ts` is lent", errors: 3
+  # A method runs on its self where it is: called on a value that
   # branches, it runs on the leaf the branch picks, so the view it returns
   # keeps every leaf lent (Core sentence 7), through `if`, `??`, `catch`,
   # and an element of a branching value.
@@ -39,7 +39,7 @@ fail "receiver branch view keeps leaf loans", "17:3: cannot assign to `a.t` whil
   fallback()
   element()
 
-test "receiver by what it hands over", '''
+test "self by what it hands over", '''
   1 3 1
   drop 3
   4 read
@@ -56,7 +56,7 @@ test "receiver by what it hands over", '''
   drop 2
   drop 11
 '''
-  # A method's receiver, by what it hands over: a place, a value made
+  # A method's self, by what it hands over: a place, a value made
   # there, a branching value that may be a name's, and one whose every
   # branch is made there (`<a if c else <b`). A `?@` method reads any of
   # them in place; a `!@` method writes a place it is lent (`!p.m()`);
@@ -96,8 +96,8 @@ test "receiver by what it hands over", '''
   print((<w if not c else <x).take(), "take")
   print(q.id)
 
-fail "receiver field read then written", "21:36: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
-  # A field of a value that is no place, used as a receiver, is read
+fail "self field read then written", "21:36: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
+  # A field of a value that is no place, used as a self, is read
   # where the value is: a later argument cannot lend what the value may
   # be to write.
 
@@ -119,8 +119,8 @@ fail "receiver field read then written", "21:36: cannot lend `a` to write while 
   c = true
   print((a if c else b).v.get(growp(!a)))
 
-fail "receiver plain struct later write", "16:18: cannot lend `a` to write while a read loan is live"
-  # A method takes a plain struct receiver by address and reads it when
+fail "self plain struct later write", "16:18: cannot lend `a` to write while a read loan is live"
+  # A method takes a plain object self by address and reads it when
   # it runs, after its arguments: a later argument cannot write it first.
 
   obj P
@@ -137,8 +137,8 @@ fail "receiver plain struct later write", "16:18: cannot lend `a` to write while
   a = P(x: 1)
   _ = a.show(bump(!a))
 
-fail "receiver read then moved", "21:34: cannot move `a` while `self`'s read of it is in use", errors: 1
-  # A read receiver that is no place is held until the call runs: a later
+fail "self read then moved", "21:34: cannot move `a` while `self`'s read of it is in use", errors: 1
+  # A read self that is no place is held until the call runs: a later
   # argument cannot move what it may be.
 
   obj P
@@ -160,8 +160,8 @@ fail "receiver read then moved", "21:34: cannot move `a` while `self`'s read of 
   c = true
   print((a if c else b).sum(takep(<a)))
 
-fail "receiver read then written", "21:29: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
-  # A read receiver that is no place is copied where it runs, before the
+fail "self read then written", "21:29: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
+  # A read self that is no place is copied where it runs, before the
   # arguments: a later argument cannot lend what it may be to write, or
   # the call would read the copy after its buffer was freed.
 
@@ -183,21 +183,21 @@ fail "receiver read then written", "21:29: cannot lend `a` to write while `self`
   c = true
   print((a if c else b).peek(!a))
 
-fail "receiver sigil parenthesized", "6:9: method `pop` needs `self` lent to write; write `!v.pop()`", errors: 1
+fail "self sigil parenthesized", "6:9: method `pop` needs `self` lent to write; write `!v.pop()`", errors: 1
   # Parentheses around the call make `!` apply to its value, a temporary,
-  # not to the receiver, which the call then needs lent to write.
+  # not to self, which the call then needs lent to write.
 
   v: List[Int] = List()
   !v.push(1)
   n = !(v.pop())
   print(n ?? 0)
 
-fail "receiver stored in argument siblings", "48:11: cannot let this call store a view of `s` in `h`", "56:4: cannot drop `s` while it is lent", "62:12: cannot let this call store a view of `o` in `h`", "68:14: cannot let this call store a view of `ps` in `h`", "76:10: cannot let this call store a view of `s` in `h`", "84:12: cannot let this call store a view of `y` in `h`", "89:12: cannot let this call store a view of `mk()` in `h`", errors: 7
-  # A method may store what its receiver lends or holds in what it was lent
-  # to write, as it may an argument's: a write receiver, a view of the
-  # receiver itself, a field or element of a value, a value reached
-  # through a handle, a consumed receiver's views, and a temporary
-  # receiver, which ends with its statement.
+fail "self stored in argument siblings", "48:11: cannot let this call store a view of `s` in `h`", "56:4: cannot drop `s` while it is lent", "62:12: cannot let this call store a view of `o` in `h`", "68:14: cannot let this call store a view of `ps` in `h`", "76:10: cannot let this call store a view of `s` in `h`", "84:12: cannot let this call store a view of `y` in `h`", "89:12: cannot let this call store a view of `mk()` in `h`", errors: 7
+  # A method may store what its self lends or holds in what it was lent
+  # to write, as it may an argument's: a write self, a view of the
+  # self itself, a field or element of a value, a value reached
+  # through a handle, a consumed self's views, and a temporary
+  # self, which ends with its statement.
 
   obj Holder
     r: []Int
@@ -295,7 +295,7 @@ fail "receiver stored in argument siblings", "48:11: cannot let this call store 
   consumed(!h)
   temporary(!h)
 
-fail "receiver temporary view outlives statement", "36:5: a view of the temporary `mk()` outlives its statement", "37:5: a view of the temporary `mkh()` outlives its statement", "39:6: a view of the temporary `mkf(1) catch b` outlives its statement", errors: 3
+fail "self temporary view outlives statement", "36:5: a view of the temporary `mk()` outlives its statement", "37:5: a view of the temporary `mkh()` outlives its statement", "39:6: a view of the temporary `mkf(1) catch b` outlives its statement", errors: 3
   # A method called on a temporary runs on it where its statement keeps
   # it, so the view it returns may be used only within the statement
   # (Core §3): plain data, a fallible call's value, and a field holding a
@@ -337,15 +337,15 @@ fail "receiver temporary view outlives statement", "36:5: a view of the temporar
   t = (mkf(1) catch b).arr()
   print(r, s.n, t, mk().arr()[0])
 
-fail "receiver view of branch lends it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while `a` is lent", "68:1: cannot lend `vs` to write while a read loan is live", errors: 3
-  # A `?@` method whose result may keep a view of its receiver lends the
-  # receiver, as `?e` does. A receiver that branches lends each leaf it may
-  # be, where it is: whether the branch is the receiver itself, the value a
+fail "self view of branch lends it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while `a` is lent", "68:1: cannot lend `vs` to write while a read loan is live", errors: 3
+  # A `?@` method whose result may keep a view of its self lends the
+  # self, as `?e` does. A self that branches lends each leaf it may
+  # be, where it is: whether the branch is self itself, the value a
   # field or element of it is read from, or `??`, `catch`, or `o?`. So a
   # view of it keeps a loan on each name a leaf names, and a change to one
   # of them while the view is live is rejected; a view of a leaf made there
   # may not outlive its statement. (The forms that keep working:
-  # `test/behavior/ownership/receiver_view_of_branch_lends_leaves.rig`.)
+  # `test/behavior/ownership/self_view_of_branch_lends_leaves.rig`.)
 
   obj S
     t: String
@@ -408,7 +408,7 @@ fail "receiver view of branch lends it", "60:6: a view of the temporary `fails(f
   !vs.clear()
   print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
 
-test "receiver view of branch lends leaves", '''
+test "self view of branch lends leaves", '''
   a text long enough to live on the heap: wa 41
   [1, 1, 1, 1] 51
   [4, 4, 4, 4] 31
@@ -417,12 +417,12 @@ test "receiver view of branch lends leaves", '''
   [1, 2, 3, 4] a text long enough to live on the heap: oo
   42
 '''
-  # A `?@` method whose result may keep a view of a receiver that
-  # branches lends each leaf the receiver may be, where it is: the view
+  # A `?@` method whose result may keep a view of a self that
+  # branches lends each leaf self may be, where it is: the view
   # points into that leaf, and keeps a loan on every name a leaf names, so
   # it may be used after the statement, while those names live unchanged.
-  # A field or element of such a receiver is reached the same way. (Changing one while the view is live
-  # is rejected: `test/reject/ownership/receiver_view_of_branch_lends_it.rig`.)
+  # A field or element of such a self is reached the same way. (Changing one while the view is live
+  # is rejected: `test/reject/ownership/self_view_of_branch_lends_it.rig`.)
   # A branching value of plain data is read as a copy, which its statement
   # keeps: a view of it is used within the statement.
 
@@ -485,12 +485,12 @@ test "receiver view of branch lends leaves", '''
   print(x, u)
   print(first(maybe(true)) ?? 0)
 
-fail "receiver view of temporary leaves tail", "21:3: cannot return a view of `mk(42)`, which this function was not lent", "24:10: cannot return a view of `mk(43)`, which this function was not lent", "27:3: cannot return a view of `mk(44)`, which this function was not lent", "31:5: a view of the temporary `mk(45)` outlives its statement", "33:3: a view of the temporary `mk(46)` outlives its statement", "35:3: a view of the temporary `mk(47)` outlives its statement", "37:8: a view of the temporary `mk(48)` outlives its statement", "38:8: a view of the temporary `mk(49)` outlives its statement", "40:9: a view of the temporary `mk(50)` outlives its statement", "42:3: a view of the temporary `mk(51)` outlives its statement", "46:10: cannot return a view of `mk(y)`, which this function was not lent", errors: 11
-  # A view a method returns of a temporary receiver lives only until its
+fail "self view of temporary leaves tail", "21:3: cannot return a view of `mk(42)`, which this function was not lent", "24:10: cannot return a view of `mk(43)`, which this function was not lent", "27:3: cannot return a view of `mk(44)`, which this function was not lent", "31:5: a view of the temporary `mk(45)` outlives its statement", "33:3: a view of the temporary `mk(46)` outlives its statement", "35:3: a view of the temporary `mk(47)` outlives its statement", "37:8: a view of the temporary `mk(48)` outlives its statement", "38:8: a view of the temporary `mk(49)` outlives its statement", "40:9: a view of the temporary `mk(50)` outlives its statement", "42:3: a view of the temporary `mk(51)` outlives its statement", "46:10: cannot return a view of `mk(y)`, which this function was not lent", errors: 11
+  # A view a method returns of a temporary self lives only until its
   # statement ends, also where the call is a function's or closure's tail,
   # `return`'s value, an `if` or `match` arm's value, or a `break` value:
   # each leaves the statement the temporary ends with. (A write method on
-  # a temporary is rejected outright: `write_receiver_temporary.rig`.)
+  # a temporary is rejected outright: `write_self_temporary.rig`.)
 
   obj S
     n: Int
@@ -534,8 +534,8 @@ fail "receiver view of temporary leaves tail", "21:3: cannot return a view of `m
   f = |?y| mk(y).rd()
   print(tail(?w).n, ret(?v).n, read_tail(?z), r.n, a.n, m.n, b.n, f())
 
-fail "receiver view of temporary outlives statement", "31:5: a view of the temporary `mk()` outlives its statement", "32:5: a view of the temporary `mkh()` outlives its statement", "33:5: a view of the temporary `mkh()` outlives its statement", "37:6: a view of the temporary `ps if c else qs` outlives its statement", errors: 4
-  # A `?@` method whose result may keep a view of a temporary receiver
+fail "self view of temporary outlives statement", "31:5: a view of the temporary `mk()` outlives its statement", "32:5: a view of the temporary `mkh()` outlives its statement", "33:5: a view of the temporary `mkh()` outlives its statement", "37:6: a view of the temporary `ps if c else qs` outlives its statement", errors: 4
+  # A `?@` method whose result may keep a view of a temporary self
   # lends the temporary, which lives until its statement ends, plain data
   # too: the view may be used within the statement, and nowhere after.
   # So does a field or element of a temporary, a Cell-holding part
@@ -574,10 +574,10 @@ fail "receiver view of temporary outlives statement", "31:5: a view of the tempo
   u = (ps if c else qs)[1].arr()
   print(r, s.n, t, u)
 
-fail "receiver view stored in argument", "36:3: cannot reassign `h` while it is lent", "44:4: use of `h.v` while a write loan on `h` is live", "53:6: use of `h.v` while a write loan on `h` is live", "63:6: use of `h.v` while a write loan on `h` is live", errors: 4
-  # A `!@` method may store a view of its receiver in another `!`
-  # argument, which keeps the receiver lent while the argument holds it
-  # (SPEC "Second-class views"): reassigning the receiver, growing what
+fail "self view stored in argument", "36:3: cannot reassign `h` while it is lent", "44:4: use of `h.v` while a write loan on `h` is live", "53:6: use of `h.v` while a write loan on `h` is live", "63:6: use of `h.v` while a write loan on `h` is live", errors: 4
+  # A `!@` method may store a view of its self in another `!`
+  # argument, which keeps self lent while the argument holds it
+  # (SPEC "Second-class views"): reassigning self, growing what
   # the view sees, or using it otherwise is rejected while the argument
   # lives. The oracle's verdicts are stated too, so that a weaker
   # reference checker fails the run.
@@ -642,16 +642,16 @@ fail "receiver view stored in argument", "36:3: cannot reassign `h` while it is 
 
   store_read_view()
 
-test "receiver view used in statement", '''
+test "self view used in statement", '''
   [5, 5, 5, 5] 70
   [2, 2, 2, 2] 38
   2 3
   1001
   aa
 '''
-  # A view a `?@` method returns of a temporary receiver, plain data
+  # A view a `?@` method returns of a temporary self, plain data
   # included, or of a value that branches through data only, is used within
-  # its statement, where its statement keeps the receiver. A method whose
+  # its statement, where its statement keeps self. A method whose
   # result keeps no view reads a value that branches as before, and one
   # called on what each branch lends keeps every branch lent.
 
@@ -692,8 +692,8 @@ test "receiver view used in statement", '''
   print(clobber(1000))
   print(r)
 
-fail "receiver view with move arg", "cannot move `rc` while a read loan is live"
-  # A method call views its receiver for the whole call, so
+fail "self view with move arg", "cannot move `rc` while a read loan is live"
+  # A method call views its self for the whole call, so
   # `rc.show(<rc)` is rejected like `show(?rc, <rc)`.
 
   obj Inner
@@ -710,7 +710,7 @@ fail "receiver view with move arg", "cannot move `rc` while a read loan is live"
   rc = *Wrap(inner: *Inner(x: 5))
   rc.show(<rc)
 
-test "receiver element lent in place", '''
+test "self element lent in place", '''
   1.0 .matte(albedo: 0.5)
   1.0 .matte(albedo: 0.5)
   1.0 .matte(albedo: 0.5)
@@ -809,7 +809,7 @@ test "receiver element lent in place", '''
   if first_of(w.balls[..]) as h
     print(h.t, h.mat)
 
-test "receiver element lent to write in place", ".glass(index: 9.0) .glass(index: 8.0)"
+test "self element lent to write in place", ".glass(index: 9.0) .glass(index: 8.0)"
   # A write method's self is reached in place along its path, a field of
   # an element and an element of an element, so a result that keeps it
   # writes the element itself.
@@ -839,7 +839,7 @@ test "receiver element lent to write in place", ".glass(index: 9.0) .glass(index
   g = Mat.glass(index: 8.0)
   print(pairs[0].b.mat, grid[0][0].mat)
 
-test "receiver element lent in place in an as header", "1.0 .matte(albedo: 0.5)"
+test "self element lent in place in an as header", "1.0 .matte(albedo: 0.5)"
   # `if ?@balls[i].hit(lo) as h` views the element in the List, so the
   # first ball's hit keeps the first ball's material.
 

@@ -405,7 +405,7 @@ fail "review-step45-r2-d15 repoint closure moved w", "cannot reassign `a` while 
   print(a, b)
 
 fail "review-step45-r2-e02 field", "`hold[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
-  # H3: generic loop over ?List[T], body: store into a struct field
+  # H3: generic loop over ?List[T], body: store into an object field
   obj S
     t: String
 
@@ -909,7 +909,7 @@ fail "review-step45-t02 remove string view", "cannot drop `t` while it is lent"
   print(s)
 
 fail "review-step45-t03 vec views moved in struct returned", "cannot drop `t` while it is lent"
-  # a function returns a struct holding a List of views of its param
+  # a function returns an object holding a List of views of its param
   obj Bag
     items: List[?String]
 

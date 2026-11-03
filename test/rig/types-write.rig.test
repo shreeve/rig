@@ -2,7 +2,7 @@
 
 
 fail "write call already lent", "`(!b)` already lends `b` to write: remove the outer `!` and write `(!b).ensure(1, List())`"
-  # A receiver already lent to write, `(!b)`, takes no second `!`: the
+  # A self already lent to write, `(!b)`, takes no second `!`: the
   # outer one is removed, not parenthesized again.
 
 
@@ -46,7 +46,7 @@ test "write call short form", '''
   9
 '''
   # A write call whose value is used and is no `Bool` is written short,
-  # `!v.m(...)`: the `!` lends the receiver of the chain's first method
+  # `!v.m(...)`: the `!` lends self of the chain's first method
   # call, `@` in `!@new_node(k)`, `@nodes` in `!@nodes.remove(0).len`,
   # `p.flags` in `!p.flags.remove(0)`. A call whose declared result is a
   # `T` is short even where `T` is a `Bool`, and so is a `Bool?`, which
@@ -125,7 +125,7 @@ fail "write call short form on a Bool", "17:5: write `(!@seen).add(k)`: a write 
     0
 
 code "write call short form emit", "const x: i64 = (v.pop() orelse 0);", "const n: i64 = self.items.remove(0);"
-  # The short form is the long form's tree (`Parser.receiverSigil`), so
+  # The short form is the long form's tree (`Parser.selfSigil`), so
   # it emits the same Zig as "write call long form emit".
 
   obj Box
@@ -250,8 +250,8 @@ test "write lend function binding", '''
   setf(!h)
   print(h(2))
 
-fail "write receiver branches", "14:2: method `bump` writes `self`, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes `self`, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs `self` lent to write; write `!p.bump()`", errors: 3
-  # A `!@` method writes its receiver: a branching value that may be a
+fail "write self branches", "14:2: method `bump` writes `self`, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes `self`, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs `self` lent to write; write `!p.bump()`", errors: 3
+  # A `!@` method writes its self: a branching value that may be a
   # name's would be written as a copy (plain data too), and a place is
   # lent with `!`.
   obj P
@@ -273,7 +273,7 @@ test "write self assign", '''
   6
   0
 '''
-  # `!@` is assignable: a method can replace the whole receiver.
+  # `!@` is assignable: a method can replace the whole self.
 
   obj Counter
     n: Int
@@ -583,7 +583,7 @@ fail "write through view field mismatch", "6:6: a write view is never stored ins
   print(v.len)
 
 test "write view bindings", "1112"
-  # A write view stands in a parameter, a result, a receiver, and a local
+  # A write view stands in a parameter, a result, a self, and a local
   # or header binding, also as `(!T)?` and `(!T)!`.
 
   obj P
@@ -621,7 +621,7 @@ test "write view bool", '''
   false
 '''
   # A write view of a `Bool` goes where a `!Bool` is expected: a
-  # parameter, a field of a struct, a declared binding, forwarded on.
+  # parameter, a field of an object, a declared binding, forwarded on.
 
   sub flip(f: !Bool)
     f = not f
@@ -647,7 +647,7 @@ test "write view bool", '''
 fail "write view bool as not", "11:7: `!` lends to write; use `not` for negation", "15:6: `!` lends to write; use `not` for negation", "19:13: `!` lends to write; use `not` for negation", "23:20: `!` lends to write; use `not` for negation", "26:13: `!` lends to write; use `not` for negation", "29:15: `!` lends to write; use `not` for negation", "32:9: `ok` does not write `self`; for negation use `not`", "36:6: `!` lends to write; use `not` for negation"
   # `!` is a write view, never negation: a write view of a `Bool`
   # read as a `Bool` is rejected wherever it appears, and so is `!` before
-  # a method that only reads its receiver (`!c.ok()`).
+  # a method that only reads its self (`!c.ok()`).
 
   obj C
     n: Int

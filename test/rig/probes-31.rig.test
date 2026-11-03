@@ -1419,7 +1419,7 @@ fail "review-step45-b04 vecview inner scope", "`t` does not live long enough"
   print(v)
 
 fail "review-step45-b05 vecview field inner scope", "`e` does not live long enough"
-  # a view of an inner-scope Int pushed to an outer struct's List field
+  # a view of an inner-scope Int pushed to an outer object's List field
   obj Bag
     items: List[?Int]
 
@@ -1702,7 +1702,7 @@ test "review-step45-e07 arrayiter field", '''
   b
   1
 '''
-  # consuming a struct's array field
+  # consuming an object's array field
   obj S
     arr: [2]String
     n: Int

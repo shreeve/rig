@@ -134,7 +134,7 @@ test "write lend branching part", '''
   # A field of a branching temporary (`if`, `??`, `catch`) lent to write
   # is written in the statement's slot, never in a copy, whichever site
   # lends it: `swap`, a write slice of an array field, or a
-  # receiver whose call evaluates its arguments first (Core sentence 4).
+  # self whose call evaluates its arguments first (Core sentence 4).
 
 
   obj K2
@@ -195,7 +195,7 @@ test "write lend kept", release: true, '''
 '''
   # A write lend `!x` keeps its write view where the slot's type is one:
   # a type spelled with `!T` (also as `(!T)?`), a parameter declared
-  # `!T`, a write receiver, and a value whose type it gives (an `if`, a
+  # `!T`, a write self, and a value whose type it gives (an `if`, a
   # loop's `break`s). A `?T` slot takes `?n`. Each write below reaches
   # the value lent.
 
@@ -285,12 +285,12 @@ test "write lend read result", '''
   # A call lent `!v` whose result holds no write view reads what it views:
   # while the result lives, `v` is lent to read, so `v` may be read, and
   # other read lends of it are fine (Core sentence 7). This holds for an
-  # argument, a write receiver, a field or element lent to write, a
+  # argument, a write self, a field or element lent to write, a
   # generic call, inside a closure, in a loop, and in deferred code.
   # oracle: main accept
   # oracle: fields accept
   # oracle: elements accept
-  # oracle: receivers accept
+  # oracle: selves accept
   # oracle: loops accept
   # oracle: deferred accept
   # oracle: in_closure accept
@@ -422,7 +422,7 @@ fail "write lend read result is rejected", "43:3: cannot lend `v` to write while
   # oracle: reassigns reject C4
   # oracle: moves reject C4
   # oracle: write_result reject C4
-  # oracle: receiver reject C4
+  # oracle: self reject C4
   # oracle: field reject C4
   # oracle: element reject C4
   # oracle: generic reject C4
@@ -824,7 +824,7 @@ test "write lend temporary hoisted", '''
   drop 5
 '''
   # A call whose keyword arguments run before it (reordered) holds a
-  # receiver lent to write by its address in the statement's slot, a
+  # self lent to write by its address in the statement's slot, a
   # branching one made in every branch and an element of a made array
   # too, and a field of a temporary is sliced to write there (Core
   # sentence 4, §3). `clobber` reuses the stack before the view is read.
@@ -1054,10 +1054,10 @@ test "write lend temporary siblings", '''
   drop 51
 '''
   # `!` lends any temporary to write (Core sentence 4) wherever a write
-  # lend goes: the receiver of a generic type's `!@` method, also in a
-  # generic body, and of a plain struct's; a Text; an array or List lent
+  # lend goes: self of a generic type's `!@` method, also in a
+  # generic body, and of a plain object's; a Text; an array or List lent
   # whole or sliced as a `![]T`; a generic function's `!List[T]`; a call
-  # followed by `?` or `!`, or under `catch`; a receiver whose method
+  # followed by `?` or `!`, or under `catch`; a self whose method
   # takes a closure, which may capture a name to write; a branching value
   # made in every branch; a clone; and `defer`. Each lives in its
   # statement's slot until the statement ends.
@@ -1183,7 +1183,7 @@ test "write lend temporary store ok", '''
   drop ["kept"]
   end kept
 '''
-  # A temporary lent to write as a receiver holds what the call stores, as
+  # A temporary lent to write as a self holds what the call stores, as
   # a name does: a view of a value that outlives the statement may be
   # stored there, and the temporary's `drop` reads it before the statement
   # ends (`test/reject/ownership/write_lend_temporary_stores.rig`). A
@@ -1226,9 +1226,9 @@ test "write lend temporary store ok", '''
   print("end", t)
 
 fail "write lend temporary stores", "33:16: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "36:19: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "42:20: `s` does not live long enough", errors: 3
-  # A temporary lent to write as a method's receiver, or a part of one,
+  # A temporary lent to write as a method's self, or a part of one,
   # holds what the call stores in it, as a name does
-  # (`store_into_unnamed_receiver.rig`): a view of a temporary made after
+  # (`store_into_unnamed_self.rig`): a view of a temporary made after
   # it, which its statement drops first, would be read by its `drop`.
   # oracle: stores_string reject C5
   # oracle: pushes_string reject C5
@@ -1290,7 +1290,7 @@ test "write lend temporary view", '''
   drop 4
 '''
   # `!` lends any value to write (Core sentence 4): a call's result, a
-  # struct literal, a clone, a moved or new handle, a branching value made
+  # object literal, a clone, a moved or new handle, a branching value made
   # in every branch, or a field or element of one, passed where a `!T` or
   # `![]T` is expected. The temporary lives in its statement's slot, where
   # the callee's change is seen and dropped with it.
@@ -1361,7 +1361,7 @@ test "write lend temporary view", '''
   !mka().fill(0)
 
 fail "write method while lent", "cannot lend `u` to write while a read loan is live"
-  # A write-receiver method call needs the receiver not lent.
+  # A `!@` method call needs self not lent.
 
   obj User
     age: Int
@@ -1421,8 +1421,8 @@ test "write param read copy then local store", '''
   optional(!h)
   print(h.s)
 
-fail "write receiver note", "20:21: cannot lend `b` to write while a read loan is live", "20:9: lent to write here, as `self`, which is read until the call starts"
-  # A write receiver is lent to write, and read until its call starts
+fail "write self note", "20:21: cannot lend `b` to write while a read loan is live", "20:9: lent to write here, as `self`, which is read until the call starts"
+  # A write self is lent to write, and read until its call starts
   # (Core §6), so an argument cannot lend it to write; the note says the
   # lend was a write.
 
@@ -1443,9 +1443,9 @@ fail "write receiver note", "20:21: cannot lend `b` to write while a read loan i
   !b.items.push(Item(n: 7))
   print((!b).consume((!b).first()))
 
-fail "write receiver outer bang", "25:4: `pop` changes `self`, a temporary no name holds; the `!` here lends what `pop` returns, not `self`: write `!(mkopt(n)?).pop()`", "28:11: `vs` changes `self`, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of `self`: bind `mk(1)` to a name first"
-  # A `!` that does not reach a write method's temporary receiver: one
-  # outside a chain the receiver-sigil rule stops at (`!o?.pop()` lends
+fail "write self outer bang", "25:4: `pop` changes `self`, a temporary no name holds; the `!` here lends what `pop` returns, not `self`: write `!(mkopt(n)?).pop()`", "28:11: `vs` changes `self`, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of `self`: bind `mk(1)` to a name first"
+  # A `!` that does not reach a write method's temporary self: one
+  # outside a chain the self-sigil rule stops at (`!o?.pop()` lends
   # what `pop` returns), and the `!` before a `for` source, which is the
   # loop's mode. The diagnostic says so, and names what works.
 
@@ -1474,16 +1474,16 @@ fail "write receiver outer bang", "25:4: `pop` changes `self`, a temporary no na
   for x in !mk(1).vs()
     x += 1
 
-fail "write receiver temporary", "41:5: `bump` changes `self`, a temporary no name holds; add `!`: `!(@twice()).bump()`", "48:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().bump()`", "49:1: `bump` changes `self`, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`", "50:7: `next` changes `self`, a temporary no name holds; add `!`: `!mk().next()`", "51:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`", "52:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(+s).bump()`", "53:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().inner.bump()`", "54:1: `bump` changes `self`, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`", "55:7: `at` changes `self`, a temporary no name holds; add `!`: `!mk().at()`", errors: 9
-  # A `!@` method changes its receiver, and every change is marked by
+fail "write self temporary", "41:5: `bump` changes `self`, a temporary no name holds; add `!`: `!(@twice()).bump()`", "48:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().bump()`", "49:1: `bump` changes `self`, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`", "50:7: `next` changes `self`, a temporary no name holds; add `!`: `!mk().next()`", "51:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`", "52:2: `bump` changes `self`, a temporary no name holds; add `!`: `!(+s).bump()`", "53:1: `bump` changes `self`, a temporary no name holds; add `!`: `!mk().inner.bump()`", "54:1: `bump` changes `self`, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`", "55:7: `at` changes `self`, a temporary no name holds; add `!`: `!mk().at()`", errors: 9
+  # A `!@` method changes its self, and every change is marked by
   # `!` (Core sentences 4 and 9): called on a value made in place, which no
   # name holds, with no `!`, it is rejected, with the hint to add one. The
   # same holds for a part of such a value, a field or an element, for a
   # branching value whose every branch is made there, for a method that
-  # returns a view of the receiver, and in a generic body. Each hint, as
-  # written, runs: `test/behavior/ownership/write_receiver_temporary_lent.rig`.
+  # returns a view of self, and in a generic body. Each hint, as
+  # written, runs: `test/behavior/ownership/write_self_temporary_lent.rig`.
   # A write view a call returns is no temporary: the method writes through
-  # it (`test/behavior/ownership/write_receiver_through_returned_view.rig`).
+  # it (`test/behavior/ownership/write_self_through_returned_view.rig`).
 
   obj S
     n: Int
@@ -1533,13 +1533,13 @@ fail "write receiver temporary", "41:5: `bump` changes `self`, a temporary no na
   Wrap(v: 1).again()
   print(s.n)
 
-test "write receiver temporary lent", '''
+test "write self temporary lent", '''
   2
   2
   2 3 2
   1
 '''
-  # Each hint `test/reject/ownership/write_receiver_temporary.rig` gives,
+  # Each hint `test/reject/ownership/write_self_temporary.rig` gives,
   # as written: `!` lends the temporary to write (Core sentence 4), which
   # its statement keeps in a slot until it ends.
 
@@ -1596,10 +1596,10 @@ test "write receiver temporary lent", '''
   print((!(mk() if c else S(n: 5, inner: T(k: 0)))).next(), (![T(k: 1), T(k: 2)][1]).next(), (!(+s)).next())
   print(s.n)
 
-test "write receiver through returned view", "2 11"
+test "write self through returned view", "2 11"
   # A write method called on a write view a call returns writes through
-  # it, to the value the call was lent: the receiver is a view, not a
-  # temporary (`test/reject/ownership/write_receiver_temporary.rig`).
+  # it, to the value the call was lent: self is a view, not a
+  # temporary (`test/reject/ownership/write_self_temporary.rig`).
 
   obj S
     n: Int
@@ -1779,8 +1779,8 @@ fail "write through moved view", "9:3: use of `w` after move"
   print(n)
 
 fail "write through view field keeps loan", "6:6: a write view is never stored inside a value, and `!List[Int]` cannot stand here", errors: 1
-  # A struct never holds a `!T` field whose write view would keep what it
-  # views lent while the struct is used: a write view is never stored
+  # An object never holds a `!T` field whose write view would keep what it
+  # views lent while the object is used: a write view is never stored
   # inside a value, so the field is rejected where it is declared.
 
   obj H
@@ -1801,7 +1801,7 @@ fail "write through view field needs write access", "6:6: a write view is never 
   print(n)
 
 fail "write through view field read path", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
-  # No read view of a struct reaches a write view the struct holds, which
+  # No read view of an object reaches a write view the object holds, which
   # other read views could reach too: a write view is never stored inside
   # a value, so the field is rejected where it is declared.
 
@@ -2029,7 +2029,7 @@ fail "write view copied", "bare use of write view `w` in binding would copy a wr
 
 fail "write view copied by binding", "9:6: a write view is never stored inside a value, and `!Holder` cannot stand here", "12:8: a write view is never stored inside a value, and `!Holder` cannot stand here", errors: 2
   # No read match or loop binding copies a write view out of a payload or
-  # an element: a write view is never stored inside a value, so a struct
+  # an element: a write view is never stored inside a value, so an object
   # field or a variant field that is one is rejected where it is declared.
 
   obj Holder
@@ -2090,7 +2090,7 @@ test "write view in payload", "3"
   print(b.n)
 
 fail "write view in struct copied", "9:11: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
-  # No struct holds a write view, so no copy of one is a second live
+  # No object holds a write view, so no copy of one is a second live
   # mutable path to the viewed value: a write view is never stored inside
   # a value, and the field is rejected where it is declared.
 
@@ -2132,7 +2132,7 @@ test "write view lent as copied read", '''
 fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; lend `self` with `!`: `!xs.fill(0)`", "33:14: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
   # Lending a write view always shows its sigil: a held write view (a
   # `!T` parameter, `@` in a `!@` method, a local) is lent to a `!T`
-  # parameter, a `!@` receiver, or an element method as `!w`. A held
+  # parameter, a `!@` self, or an element method as `!w`. A held
   # read view is lent on bare.
 
   obj Counter

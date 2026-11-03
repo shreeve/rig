@@ -146,7 +146,7 @@ test "drop ends string view", '''
   0
 '''
   # A String may view a Text, so a statement `<s` of a String, or of a
-  # struct or iterator holding Strings, ends the loan it carries: the
+  # object or iterator holding Strings, ends the loan it carries: the
   # Text may then change.
 
   obj Split
@@ -184,7 +184,7 @@ test "drop ends string view", '''
   print(t.len)
 
 fail "drop glue struct alias", "`o1` owns an `Owner`, which can't be copied by `=`: write `<o1` to move it, `+o1` to clone it, or `?o1` to view it"
-  # A struct with a resource field has drop glue, so a bare alias
+  # An object with a resource field has drop glue, so a bare alias
   # (`o2 = o1`) is rejected: both bindings would run the destructor.
 
   obj Owner
@@ -222,7 +222,7 @@ test "drop of views is no use", '''
   2
 '''
   # Dropping a container of views is not a use of those views: a List, a
-  # generic instance, a struct, or a closure's environment that holds views and runs no
+  # generic instance, an object, or a closure's environment that holds views and runs no
   # `drop` body keeps their loans only until its last use, not until it is
   # dropped where its scope ends (Core sentence 6). So the viewed owners may
   # change after that, and a view of a value from an inner block may stay
@@ -355,7 +355,7 @@ test "drop of views is no use", '''
 
 fail "drop of views reads through body", "28:3: cannot assign to `x.n` while `x` is lent", "35:3: cannot assign to `x.n` while `x` is lent", "41:3: cannot assign to `x.n` while `x` is lent", "48:3: cannot assign to `x.n` while `x` is lent", "54:3: cannot assign to `x.n` while `x` is lent", "62:3: cannot assign to `x.n` while `x` is lent", "68:26: `t` does not live long enough", errors: 7
   # A container whose drop runs a `drop` body keeps the loans of the views
-  # it holds until it is dropped, since the body could read them: a struct
+  # it holds until it is dropped, since the body could read them: an object
   # with a `drop` body, a List, counted handle, or closure environment of
   # one. A container used later, or in deferred code, keeps them too.
   # oracle: own_body reject C4

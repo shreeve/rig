@@ -29,7 +29,7 @@ test "rev210-j02 repoint field then write", '''
 
 fail "rev210-k03 generic box inst", "cannot assign to `p.a` while `p.a.name` is lent"
   # Reviewer probe for #210 (field loans): Fields through a box in a
-  # generic struct instance.
+  # generic object instance.
 
   obj Node
     name: String

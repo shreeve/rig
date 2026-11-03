@@ -2274,7 +2274,7 @@ fail "match write payload lent forms", "37:7: cannot lend `t` to write while a r
   # Every form of lend of a `match !e` binding puts a loan on the binding,
   # which a write through it while the view is live conflicts with: a
   # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
-  # a struct, pushed to a List, or kept as an optional, and a view a `?@`
+  # an object, pushed to a List, or kept as an optional, and a view a `?@`
   # method returns.
   # oracle: capture reject C4
   # oracle: loop_over reject C4

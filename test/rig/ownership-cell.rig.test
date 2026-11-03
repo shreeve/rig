@@ -229,8 +229,8 @@ test "cell marked handle views", release: true, '''
     !x.hit()
   print(a.hits.get(), b.hits.get())
 
-test "cell part receiver view in statement", "42"
-  # A `?@` method that returns a view of its receiver, called on a
+test "cell part self view in statement", "42"
+  # A `?@` method that returns a view of its self, called on a
   # Cell-holding field of a temporary handle, runs on the field where its
   # statement's slot keeps the temporary, so the view may be used until the
   # statement ends.

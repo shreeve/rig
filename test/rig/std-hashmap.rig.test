@@ -452,7 +452,7 @@ test "hashmap keys of every kind", '''
 
 test "hashmap ensure chain", "[5, 6] 1"
   # The write view `ensure` returns takes a write call in the same
-  # statement, with no `!` before the receiver it already lends.
+  # statement, with no `!` before self it already lends.
 
   b = HashMap[Int, List[Int]].new()
   (!b).ensure(1, List()).push(5)

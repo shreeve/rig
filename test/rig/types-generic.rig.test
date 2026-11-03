@@ -554,7 +554,7 @@ test "generic equality", '''
   true false
 '''
   # In a generic body `==` compares every equatable `T`: numbers, Strings,
-  # structs, enums, optionals, and generic instances, each by content.
+  # objects, enums, optionals, and generic instances, each by content.
 
   obj Point
     x: Int
@@ -1275,7 +1275,7 @@ test "generic fn methods", '''
   # on a plain type and on a generic one, where they sit beside the
   # type's parameters, whose rules they follow: `Wrap`'s `with` copies a
   # `T`, so a `Wrap` holds plain data. They are inferred or given in brackets, and a
-  # method called through its type takes the receiver first.
+  # method called through its type takes self first.
 
   obj Res
     n: Int
@@ -1328,7 +1328,7 @@ test "generic fn methods", '''
 
 fail "generic fn missing operation", "15:7: `max[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support", "16:7: `bump[P]` cannot use `T = P`: the generic body applies `+` to `T`, which `P` does not support", "17:7: `bump[Bool]` cannot use `T = Bool`: the generic body applies `+` to `T`, which `Bool` does not support"
   # A generic function's body is checked for every instance its calls
-  # make: `>` is defined for numbers and Strings, not for a struct, and
+  # make: `>` is defined for numbers and Strings, not for an object, and
   # the error names the call and, in a note, the body line that needs it.
 
   obj P
@@ -1413,7 +1413,7 @@ test "generic fn owning", '''
   drop 3
   drop 1
 '''
-  # A type parameter bound to an owning type (a struct with a `drop` body,
+  # A type parameter bound to an owning type (an object with a `drop` body,
   # a List, a shared handle) moves where the generic body moves it: the
   # argument the body returns is handed back to the caller, and one it
   # does not return is dropped when the call ends. A Copy type is copied.
@@ -2182,7 +2182,7 @@ test "generic methods over resources", '''
   print(i.v)
 
 fail "generic missing method", "no method `missing` on type `Wrap`"
-  # Calling a method that doesn't exist on a generic receiver names the
+  # Calling a method that doesn't exist on a generic self names the
   # generic type.
 
   obj Wrap[T]
@@ -2266,7 +2266,7 @@ fail "generic optional literal", "8:7: `is3[?String]` cannot use `T = ?String`: 
 
 fail "generic ordering", "11:7: `max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support", "8:8: `>` used on `T` here (ordering comparison)"
   # `<` in a generic body is checked per instance: numbers and Strings are
-  # ordered, structs are not.
+  # ordered, objects are not.
 
   obj Point
     x: Int
@@ -2761,7 +2761,7 @@ fail "generic share of weak", "15:5: `share[~Node]` cannot use `T = ~Node`: the 
   <w
 
 test "generic struct field", "6"
-  # A generic struct instantiated as `Wrap[Int]`; the constructor's field is
+  # A generic object instantiated as `Wrap[Int]`; the constructor's field is
   # checked against the substituted type and `b.value` types as Int.
 
   obj Wrap[T]
@@ -2775,7 +2775,7 @@ test "generic struct holds read view", '''
   2 hey
   hey
 '''
-  # A generic struct, with methods, holds a read view of an owner: the
+  # A generic object, with methods, holds a read view of an owner: the
   # value built from it keeps the owner lent while it, or a view it gave
   # out, is used.
 
@@ -2802,8 +2802,8 @@ test "generic struct holds read view", '''
   print(nested.v.v)
 
 test "generic struct method", "42"
-  # A method on a generic struct: `get` returns `T`, which is Int for a
-  # `Wrap[Int]` receiver.
+  # A method on a generic object: `get` returns `T`, which is Int for a
+  # `Wrap[Int]` self.
 
   obj Wrap[T]
     value: T
@@ -2827,7 +2827,7 @@ test "generic struct two params", '''
   42
   answer
 '''
-  # A generic struct with two type parameters; each field gets its own
+  # A generic object with two type parameters; each field gets its own
   # substituted type.
 
   obj Pair[T, U]

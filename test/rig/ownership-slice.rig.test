@@ -107,7 +107,7 @@ test "slice argument lent", release: true, '''
   print(a)
 
 fail "slice copy same root", "6:3: cannot lend `a` to write while a read loan is live", "11:3: cannot lend `w` to write while a read loan is live"
-  # `copy` writes its receiver while it reads its argument: the two cannot
+  # `copy` writes its self while it reads its argument: the two cannot
   # view the same array, so they never overlap.
 
   sub halves()
@@ -470,7 +470,7 @@ test "slice return array param", '''
 '''
   # A lent to read array parameter points at the caller's array, so a
   # slice or element view of it, or of an array field of a lent to read
-  # struct, may be returned or stored in the caller's values: it views
+  # object, may be returned or stored in the caller's values: it views
   # what the parameter views. A local read view of an array is a
   # pointer too, so a slice of it may outlive the view.
 

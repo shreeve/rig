@@ -2171,7 +2171,7 @@ bomb "random empty range", "random: empty range 4..4"
   print((!r).int(4, 4))
 
 fail "random holder moves", "9:5: `g` is a unique `Game`, which can't be copied by `=`: write `<g` to move it or `?g` to view it", errors: 1
-  # A struct that holds a `Random` is unique too: binding it to another
+  # An object that holds a `Random` is unique too: binding it to another
   # name without `<` would copy the generator.
 
   obj Game

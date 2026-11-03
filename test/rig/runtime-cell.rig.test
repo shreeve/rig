@@ -315,7 +315,7 @@ test "cell set through read view", release: true, '''
   shared 42
 '''
   # A Cell changes by a marked call: `set` and `replace` change it through
-  # a `!T` view, and through a `!@` method of a struct holding one. A
+  # a `!T` view, and through a `!@` method of an object holding one. A
   # by-value parameter owns the shared handle moved into it, which it may
   # lend out.
 
@@ -592,7 +592,7 @@ test "cell view sees updates", '''
   # A read view of a `Cell` (or of a value holding one) is held by
   # pointer, so it sees later `set`s through another handle, however it was kept: returned from a
   # function, stored in a view, an optional, an array, a generic field, or
-  # an enum payload, or taken from a field of a viewed struct.
+  # an enum payload, or taken from a field of a viewed object.
 
   obj W[T]
     v: T

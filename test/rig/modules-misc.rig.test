@@ -7,7 +7,7 @@ test "alias across modules", '''
   true true -128 true
 '''
   # Another module's alias names its type in every role here: it
-  # constructs values of a struct (declared in that module or one it
+  # constructs values of an object (declared in that module or one it
   # imports) or a generic instance, calls associated functions, names
   # variants, and converts to a number type. A local alias of an imported
   # alias does too, and a default naming a limit through an alias, of
@@ -363,7 +363,7 @@ fail "cross arity", "call to `a.add` expects 2 arguments, got 5"
       a + b
 
 fail "cross constructor field", "no field `does_not_exist` on type `Wrap`"
-  # Constructing an imported struct checks its field list: `Wrap` has no
+  # Constructing an imported object checks its field list: `Wrap` has no
   # field `does_not_exist`.
   use a
 
@@ -447,7 +447,7 @@ test "cross module struct", '''
   3 1
   0
 '''
-  # A public struct from another module is constructed as `geo.Point(...)`,
+  # A public object from another module is constructed as `geo.Point(...)`,
   # returned from its functions, and used through its methods and fields.
 
   use geo
@@ -2643,7 +2643,7 @@ fail "private method of generic type", "25:21: method `make` of `lib.Wrap` is pr
         print(@v)
 
 test "pub fun private type", "42"
-  # A `pub fun` may return a private struct: the importer holds the value
+  # A `pub fun` may return a private object: the importer holds the value
   # and reads its fields, though it cannot name the type.
   use a
 
@@ -2768,7 +2768,7 @@ test "pub members", '''
   circle 3 3
   0
 '''
-  # A struct's or enum's `pub` fields and methods are visible to other
+  # An object's or enum's `pub` fields and methods are visible to other
   # modules, through a value, a view, a `*T` handle, a `Box`, and an
   # instance of a generic type; its private members are used by its own
   # module's methods. Variants and payloads are always public.
@@ -3146,7 +3146,7 @@ fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` 
   # A field declared `pub ?name: T` in another module is read-only here,
   # however it would be written: assigned, or a part of it assigned;
   # assigned by an operator; lent to write; taken out; written by a method
-  # that writes its receiver; exchanged; walked or matched to write; and
+  # that writes its self; exchanged; walked or matched to write; and
   # written through a box or a write view. Nor does it set one by
   # constructing the object with its fields given.
 
@@ -3233,7 +3233,7 @@ test "same name local and imported", "1 2"
       P(x: 1)
 
 fail "same named types", "type mismatch: expected `other.Point`, got `Point`"
-  # A struct from another module is a different type from a local struct
+  # An object from another module is a different type from a local object
   # with the same name; diagnostics name it through its module.
 
   use other
@@ -3274,7 +3274,7 @@ test "simd across modules", '''
   5 8 [2, 3, 2, 5] 255
   [true, true, true, true] Simd[U8, 4]
 '''
-  # A vector type, a function taking or making one, and a struct holding
+  # A vector type, a function taking or making one, and an object holding
   # one, used from another module, through an alias of the type too.
 
   use lib

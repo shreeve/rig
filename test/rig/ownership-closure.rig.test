@@ -171,7 +171,7 @@ fail "closure in array literal", "closures cannot escape their defining scope"
   _ = xs
 
 fail "closure in constructor arg", "8:16: closures cannot escape their defining scope"
-  # A lambda literal passed as a struct constructor argument escapes its
+  # A lambda literal passed as an object constructor argument escapes its
   # scope and is rejected.
 
   obj Holder
@@ -457,7 +457,7 @@ test "closure write capture bindings", '''
   1
 '''
   # `|!x|` writes the binding it captures whatever its initializer: a
-  # call's result, a struct holding a view, a shared handle. A closure
+  # call's result, an object holding a view, a shared handle. A closure
   # may store what it captured to read through a write capture: the
   # written value then views it.
 

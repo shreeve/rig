@@ -248,7 +248,7 @@ test "vec of plain structs", '''
   3
   0
 '''
-  # A List holds plain structs, enums (with payloads), and optionals like
+  # A List holds plain objects, enums (with payloads), and optionals like
   # numbers: pushed, indexed, assigned (whole or by field), iterated, and
   # popped by value.
 

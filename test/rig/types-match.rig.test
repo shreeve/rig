@@ -306,7 +306,7 @@ fail "match reversed range", "5:3: empty range `5..1`: a range pattern matches f
     _ => print("out")
 
 fail "match struct value", "cannot `match` on a value of type `P`"
-  # `match` works on enums, integers, and Bool, not on structs.
+  # `match` works on enums, integers, and Bool, not on objects.
 
   obj P
     n: Int
