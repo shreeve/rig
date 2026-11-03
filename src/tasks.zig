@@ -374,11 +374,7 @@ pub const Control = struct {
     fn finish(self: *Control) void {
         if (self.isolate) |iso| iso.remove(self);
         self.done.store(true, .seq_cst);
-        const w = self.wakeup.load(.seq_cst) orelse return;
-        // The last touch of `self`: its owner may free it once it is
-        // listed, by this or by the watch.
-        if (w.collect and !self.listed.swap(true, .acq_rel)) w.list(self);
-        w.tick();
+        if (self.wakeup.load(.seq_cst)) |w| w.ended(self);
     }
 };
 
@@ -422,6 +418,16 @@ const Wakeup = struct {
             control.next = head;
             head = self.ended_list.cmpxchgWeak(head, control, .release, .monotonic) orelse return;
         }
+    }
+
+    /// The task of `control`, which it watches, has ended: list it, when
+    /// it collects them, then tick. Out of line, so a task no set
+    /// watches pays nothing for it at its end.
+    noinline fn ended(self: *Wakeup, control: *Control) void {
+        // The last touch of `control`: its owner may free it once it is
+        // listed, by this or by the watch.
+        if (self.collect and !control.listed.swap(true, .acq_rel)) self.list(control);
+        self.tick();
     }
 
     fn tick(self: *Wakeup) void {
@@ -1221,7 +1227,7 @@ pub const Isolate = struct {
     leaving: u32 = 0,
     kept: std.ArrayList(rt.sched.Stack) = .empty,
 
-    fn add(self: *Isolate, c: *Control) void {
+    noinline fn add(self: *Isolate, c: *Control) void {
         self.lock.lock();
         defer self.lock.unlock();
         if (self.stopping) c.cancel();
@@ -1231,7 +1237,7 @@ pub const Isolate = struct {
         self.first = c;
     }
 
-    fn remove(self: *Isolate, c: *Control) void {
+    noinline fn remove(self: *Isolate, c: *Control) void {
         self.lock.lock();
         defer self.lock.unlock();
         if (c.iso_prev) |p| p.next = c.next else self.first = c.next;
