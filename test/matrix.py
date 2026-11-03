@@ -75,6 +75,7 @@ and again built with `--release`.
     test/matrix.py --timeout 20 --mem 2048   # each program's limits
     test/matrix.py --delta         # check every program, but do not run one
                                    # whose runs passed before (below)
+    test/matrix.py --delta --own   # the same, keyed by each program's own Zig
     test/matrix.py --deep          # also each write of the proof. grid with
                                    # its use nested, and every write, use, and
                                    # guard of the unit. grid
@@ -101,6 +102,13 @@ key is recorded is checked but not run, and counts as ran clean,
 carried over. The cache is not used with `--rig`, whose driver it
 cannot know; otherwise bin/rig is built first, so that it is the
 compiler src/main.zig describes.
+
+With `--own`, the key leaves out what every program shares: the driver
+and the runtime's files (the package's `rig/`), so a change to them
+alone carries every run over, and `--rig` keeps the cache. Each `swarm
+all` runs the matrix so (test/rig.rip, `matrix.run`), building only the
+programs whose own Zig changed; the nightly run on pup
+(tools/matrix-nightly) uses the full key.
 """
 
 import argparse
@@ -175,6 +183,9 @@ def build_store():
 
 
 STORE = build_store()
+if STORE:
+    # Kept small (tools/store-trim): a full run would add about 115 GB.
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "store-trim"), STORE])
 
 
 def results_cache():
@@ -193,11 +204,13 @@ def sha256(*parts):
     return h.hexdigest()
 
 
-def package_listing(rig, path, tmp):
+def package_listing(rig, path, tmp, own=False):
     """Each file of the package `RIG_SANITIZE=1 rig emit` writes for the
     program at `path` (the package `rig run` builds, but for the line
     naming its start hook, which src/main.zig writes), as `hash path`
-    lines, and whether Zig links it with libc; None when emit fails."""
+    lines, and whether Zig links it with libc; with `own`, only the
+    program's own modules, not the runtime's files in `rig/`. None when
+    emit fails."""
     d = tempfile.mkdtemp(dir=tmp)
     try:
         env = dict(os.environ, RIG_OUT_DIR=d, RIG_SANITIZE="1")
@@ -212,6 +225,8 @@ def package_listing(rig, path, tmp):
             dirs.sort()
             for name in sorted(files):
                 f = os.path.join(dirpath, name)
+                if own and os.path.relpath(f, d).split(os.sep)[0] == "rig":
+                    continue
                 listing.append("%s %s" % (hashlib.sha256(open(f, "rb").read()).hexdigest(), os.path.relpath(f, d)))
         if not listing:
             return None
@@ -220,9 +235,9 @@ def package_listing(rig, path, tmp):
         shutil.rmtree(d, ignore_errors=True)
 
 
-# The RIG_ variables that name where things go; every other one is a
-# setting of the run.
-RIG_LOCATIONS = re.compile(r"RIG_(RESULTS_CACHE|BUILD_STORE|OUT_DIR|RUN_STARTED|PROGRAM_STARTED)$")
+# The RIG_ variables that name where things go, or how runs share the
+# machine (tools/heavy's); every other one is a setting of the run.
+RIG_LOCATIONS = re.compile(r"RIG_(RESULTS_CACHE|BUILD_STORE|OUT_DIR|RUN_STARTED|PROGRAM_STARTED|HEAVY_HELD|HEAVY_SLOTS)$")
 
 
 def fixed_inputs():
@@ -238,8 +253,8 @@ class Results:
     named by the key's first two digits; a hit touches it, so a cleanup
     can keep what runs still use."""
 
-    def __init__(self, path, delta, tmp):
-        self.path, self.delta, self.tmp = path, delta, tmp
+    def __init__(self, path, delta, tmp, own):
+        self.path, self.delta, self.tmp, self.own = path, delta, tmp, own
         zig = os.environ.get("ZIG", "zig")
         zenv = subprocess.run([zig, "env"], capture_output=True, text=True)
         if zenv.returncode != 0:
@@ -249,12 +264,14 @@ class Results:
         # RIG_SANITIZE_BLOCKS, or one a program reads).
         verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH, MALFORMED)]
         settings = sorted("%s=%s" % kv for kv in os.environ.items() if kv[0].startswith("RIG_") and not RIG_LOCATIONS.match(kv[0]))
+        # With `own`, the driver is left out, as the runtime's files are.
         self.fixed = fixed_inputs()
-        self.base = sha256("rig results 2 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB, CAP_MODE,
-                           open(os.path.join(ROOT, "src", "main.zig"), "rb").read(), zig, zenv.stdout, *settings)
+        driver = b"" if own else open(os.path.join(ROOT, "src", "main.zig"), "rb").read()
+        self.base = sha256("rig results 2 matrix", "own" if own else "full", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB, CAP_MODE,
+                           driver, zig, zenv.stdout, *settings)
 
     def key(self, path, expect, release):
-        listing = package_listing(RIG, path, self.tmp)
+        listing = package_listing(RIG, path, self.tmp, self.own)
         if listing is None:
             return None
         return sha256(self.base, open(path, "rb").read(), repr(expect), release, listing)
@@ -4233,6 +4250,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=RUN_SECONDS, help=f"seconds each program may take to build and run (default {RUN_SECONDS})")
     ap.add_argument("--mem", type=int, default=RUN_MB, help=f"megabytes each program may use (default {RUN_MB})")
     ap.add_argument("--delta", action="store_true", help="do not build and run a program whose generated source code is unchanged since a run that passed (the results cache)")
+    ap.add_argument("--own", action="store_true", help="key the results cache by each program's own Zig, leaving out the driver and the runtime's files (with --rig too)")
     ap.add_argument("--deep", action="store_true", help="every write of the proof. grid with its use nested too, and the whole unit. grid")
     args = ap.parse_args()
     RIG = os.path.abspath(args.rig) if args.rig else RIG
@@ -4674,14 +4692,15 @@ def main():
     results = {}
     started_dir = tempfile.mkdtemp(prefix="rig-matrix-started.")
     cache = results_cache()
-    if args.delta and (args.rig or not cache):
-        print("note: no results cache (%s); --delta runs everything" % ("--rig" if args.rig else "RIG_RESULTS_CACHE is empty"))
-    if cache and not args.rig:
-        # The cache's keys name src/main.zig: bin/rig must be built from it.
-        b = subprocess.run([os.environ.get("ZIG", "zig"), "build"], cwd=ROOT, stdin=subprocess.DEVNULL)
-        if b.returncode != 0:
-            sys.exit("zig build failed")
-        RESULTS = Results(cache, args.delta, started_dir)
+    if args.delta and ((args.rig and not args.own) or not cache):
+        print("note: no results cache (%s); --delta runs everything" % ("--rig" if cache else "RIG_RESULTS_CACHE is empty"))
+    if cache and (args.own or not args.rig):
+        if not args.rig:
+            # The full key names src/main.zig: bin/rig must be built from it.
+            b = subprocess.run([os.environ.get("ZIG", "zig"), "build"], cwd=ROOT, stdin=subprocess.DEVNULL)
+            if b.returncode != 0:
+                sys.exit("zig build failed")
+        RESULTS = Results(cache, args.delta, started_dir, args.own)
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
             futs = {(pool.submit(run_proof, p, bool(args.keep), started_dir, proofs[i]) if i in proofs else

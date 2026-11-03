@@ -1,0 +1,70 @@
+#!/bin/sh
+# tools/matrix-nightly: the full matrix (test/matrix.py) on Rig's main, on
+# pup, with the full results key: the driver and the runtime's files
+# included, which each `swarm all` leaves out (`--own`). Cron runs it at
+# 00:30, after the 00:00 Trig suite; it runs on demand too:
+#
+#   ssh pup /zfs/trig-pup/matrix/rig/tools/matrix-nightly
+#   ssh pup /zfs/trig-pup/matrix/rig/tools/matrix-nightly 1    (one shard)
+#
+# It waits for Trig's full suites to finish (/zfs/trig-pup/full/lock) and
+# while a timing slot is open (/tmp/slot-active), runs on pup's E-cores
+# (12-19), and starts no shard in the ten minutes before a suite,
+# so it never runs across one. The matrix runs in 32 shards, from where the last run
+# stopped; a program whose runs passed under the same key is carried over
+# (`--delta`), so a night that cannot finish goes on the next. Builds go
+# outside the build store, and everything it writes to /zfs/trig-pup/matrix,
+# never /tmp. It writes /zfs/trig-pup/matrix/LATEST (the commit, the
+# result, the first failures) and adds a line to its history.
+set -u
+export PATH=$HOME/.local/bin:$HOME/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
+export NEXUS=$HOME/Data/Code/nexus/bin/nexus
+M=/zfs/trig-pup/matrix
+SHARDS=32
+LIMIT=${1:-$SHARDS}
+mkdir -p $M/tmp $M/xdg
+exec 9> $M/lock
+flock -n 9 || { echo "matrix-nightly: a run is going"; exit 0; }
+flock /zfs/trig-pup/full/lock true
+while [ -e /tmp/slot-active ]; do sleep 60; done
+
+# Rig's main, in a clone of its own, built under a release slot.
+[ -d $M/rig/.git ] || git clone -q git@github.com:shreeve/rig.git $M/rig
+cd $M/rig && git fetch -q origin && git checkout -q --detach origin/main || { echo "$(date '+%F %R') matrix: cannot update Rig" >> $M/history; exit 1; }
+rig=$(git rev-parse --short HEAD)
+log=$M/run.log
+: > $log
+TRIG_RELEASE_SLOTS='10,11 1,2' /zfs/trig-pup/full/trig/tools/release-slot zig build >> $log 2>&1 || {
+  echo "$(date '+%F %R') matrix rig $rig: RED, Rig did not build" | tee -a $M/history > $M/LATEST; exit 1; }
+
+export TMPDIR=$M/tmp XDG_CACHE_HOME=$M/xdg RIG_BUILD_STORE= RIG_RESULTS_CACHE=$M/results
+start=$(date +%s)
+i=$(cat $M/next 2>/dev/null || echo 1)
+ran=0
+failed=0
+while [ $ran -lt $LIMIT ]; do
+  # No shard starts in the ten minutes before a Trig suite (every four hours).
+  [ $(( $(date +%-H) % 4 )) -eq 3 ] && [ $(date +%-M) -ge 50 ] && break
+  while [ -e /tmp/slot-active ]; do sleep 60; done
+  echo "shard $i/$SHARDS" >> $log
+  taskset -c 12-19 python3 test/matrix.py --delta --shard $i/$SHARDS -j 8 >> $log 2>&1 || failed=$((failed + 1))
+  ran=$((ran + 1))
+  i=$((i % SHARDS + 1))
+  echo $i > $M/next
+done
+mins=$(( ($(date +%s) - start) / 60 ))
+programs=$(grep -o '^[0-9]* programs' $log | awk '{s += $1} END {print s + 0}')
+fails=$(grep -c '^fail ' $log)
+if [ $failed -gt 0 ]; then
+  result="RED, $fails failed of $programs programs, $ran of $SHARDS shards, $mins min"
+elif [ $ran -lt $SHARDS ]; then
+  result="GREEN so far, $programs programs, $ran of $SHARDS shards (the rest next run), $mins min"
+else
+  result="GREEN, $programs programs, $mins min"
+fi
+{
+  echo "$(date '+%F %R') matrix rig $rig: $result"
+  grep '^fail ' $log | head -20 | cut -c1-200
+} > $M/LATEST
+head -1 $M/LATEST >> $M/history
+[ $failed -eq 0 ]

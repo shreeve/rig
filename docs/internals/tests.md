@@ -90,9 +90,10 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
 K, `RIG_SEED`, and gives the same result each time), `whole: true` (the
   body is a whole program, used as written), `file: "NAME.rig"` (the
   name of the case's program file, by default its name, `split_on_a_space.rig`;
-  what a program prints about its own place names it), `known: true` (a
+  what a program prints about its own place names it), `known: "TEXT"` (a
   known bug: the case is written as Rig should behave, passes while it
-  fails, and fails the day it passes, to have the mark taken off).
+  fails with TEXT in its failure, and fails the day it passes, to have
+  the mark taken off, or fails some other way).
 
 Every case that runs is held to the sanitizer: a leak or a use of freed
 memory fails it, and so does a panic in a `test`. A `fail` the compiler

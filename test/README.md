@@ -12,13 +12,14 @@ scripts of `test/cli/` as `cli`; and the probes of past reviews,
 swarm test/rig.rip                 # the core
 swarm test/rig.rip cli             # the scripts of test/cli
 swarm test/rig.rip probes          # the probes of past reviews
-swarm test/rig.rip all             # all three: the full suite, before a release
+swarm test/rig.rip matrix          # the matrix's programs whose own Zig changed, built and run
+swarm test/rig.rip all             # the core, cli, probes, and matrix: the full suite, before a release
 swarm test/rig.rip std-text        # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's)
 swarm test/rig.rip cli.lsp         # one script of test/cli, by its name
 swarm test/rig.rip full            # by hand: every script with its sweeps whole
 swarm test/rig.rip proofs          # by hand: the proven checks' differential run
-test/matrix.py                     # by hand: the form x context x type matrix
+test/matrix.py                     # by hand (nightly on pup): the whole matrix, built and run
 bench/json/check/compare.py        # by hand: std.json against Python's json
 ```
 
@@ -304,6 +305,20 @@ the one `tools/gitdir` finds; from a plain copy of Rig, matrix.py stops
 unless `GIT_DIR`, or both variables, are set. The suite's core runs
 the reference checker over its programs (`oracle.matrix`).
 
+`swarm test/rig.rip all` also builds and runs them, in 40 shards
+(`matrix.run.N`), with `--own --delta`: the key leaves out the driver
+and the runtime's files, so only a program whose own Zig changed is
+built, outside the build store, its output removed once it passes. A
+change that emits the same Zig adds seconds. Each night pup runs the
+whole matrix with the full key (tools/matrix-nightly, 00:30, E-cores),
+which catches what a change to the runtime or the driver alone broke;
+its result is in `/zfs/trig-pup/matrix/LATEST`.
+
+The build store is kept small by tools/store-trim, which the runner and
+matrix.py run before they build: an entry unused for 5 days goes, and
+the least recently used while the store is over
+`RIG_BUILD_STORE_MAX_GB` gigabytes (default 40).
+
 ## Whether a change changes emit
 
 ```bash
@@ -373,7 +388,9 @@ proofs (`src/proofs.zig`), and neither `core` nor `all` includes it.
 ## Known bugs
 
 A known bug is a case of `test/rig` written as Rig should behave, with
-what goes wrong today in its first comment, and marked `known: true`:
-the case passes while it fails, and fails the day it passes. Fix the
-bug, and the case says to take the mark off; take it off, and the
-comment about the bug, in the same commit.
+what goes wrong today in its first comment, and marked with the failure
+it waits for, `known: "TEXT"`: the case passes while it fails with TEXT
+in its failure, and fails the day it passes or fails some other way
+(`known: "zig"` stops passing when `rig` starts rejecting the case
+instead). Fix the bug, and the case says to take the mark off; take it
+off, and the comment about the bug, in the same commit.

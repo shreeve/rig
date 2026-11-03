@@ -71,13 +71,14 @@ A new session, human or agent, takes these steps in order:
   byte-identical to tsc, in about a minute; and loco's (`rig/tools/light`
   in a loc checkout): loco built with that Rig, its output identical to
   the Rust loc's. The full suite (`swarm test/rig.rip all`, the core
-  with test/cli and the probes), `test/matrix.py`, and Trig's full suite
+  with test/cli, the probes, and the matrix's programs whose own Zig
+  changed, built in packs), and Trig's full suite
   (`tools/full-main` on pup; the last result is in
   `/zfs/trig-pup/full/LATEST`) run before each major or minor release,
   optionally before a patch. Nothing runs on a schedule: there are no
   crons and no nightlies. A quick check takes under a minute a repo and
   a long one under ten; one that takes longer is a defect to fix. No
-  case is marked `known: true`.
+  case is marked `known:`; a `known:` names the failure it waits for.
 
 ## In flight
 

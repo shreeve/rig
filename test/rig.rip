@@ -57,26 +57,13 @@ gitDir = ->
 # not built again (`rig batch build`).
 store = process.env.RIG_BUILD_STORE ?? join(gitDir(), 'rig-build-store')
 
-# The store's entries (each named by a hash, which `rig run`, `build`,
-# `test`, and `batch build` mark used each time in its `used`) that no
-# build has used for `storeDays` days go, checked at most once a day:
-# each is renamed out of the store in one step, so no build sees half
-# an entry, and then deleted.
-storeDays = 5
+# The store is kept small by tools/store-trim: entries no build has used
+# for days go, and the least recently used while it is over
+# RIG_BUILD_STORE_MAX_GB (default 40).
 trimStore = ->
-  return if store is '' or not existsSync(store)
-  stamp = join(store, '.trimmed')
-  return if existsSync(stamp) and Date.now() - statSync(stamp).mtimeMs < 24 * 3600 * 1000
-  writeFileSync(stamp, '')
-  for e in readdirSync(store) when /^[0-9a-f]{32}([0-9a-f]{32})?$/.test(e)
-    used = join(store, e, 'used')
-    continue unless existsSync(used) and Date.now() - statSync(used).mtimeMs > storeDays * 24 * 3600 * 1000
-    gone = join(store, ".gone-#{e}-#{process.pid}")
-    try
-      renameSync(join(store, e), gone)
-      rmSync(gone, { recursive: true, force: true })
-    catch err
-      null
+  return if store is ''
+  r = Bun.spawnSync({ cmd: ['python3', join(root, 'tools', 'store-trim'), store], stdout: 'pipe', stderr: 'pipe' })
+  process.stdout.write(r.stdout.toString())
 
 # ---- Reading a test file ---------------------------------------------------
 
@@ -518,11 +505,12 @@ setup = ->
   # but the probes', the docs' examples, examples/, torture, the unit
   # tests, and the oracle, which reads the probes too); `cli`, the
   # scripts of test/cli, which take minutes; `probes`, the cases of
-  # test/rig/probes-*.rig.test, the probes of past reviews; `all`, all
-  # three; and `proofs`, which only a run that names it checks.
+  # test/rig/probes-*.rig.test, the probes of past reviews; `matrix`,
+  # the matrix's programs built and run where their own Zig changed;
+  # `all`, all four; and `proofs`, which only a run that names it checks.
   everything = names.includes('all')
   core = names.length is 0 or names.includes('core')
-  wanted = (n) -> names.includes(n) or (everything and n not in ['proofs', 'proofs-all']) or (core and n not in ['cli', 'probes', 'proofs', 'proofs-all'])
+  wanted = (n) -> names.includes(n) or (everything and n not in ['proofs', 'proofs-all']) or (core and n not in ['cli', 'probes', 'matrix', 'proofs', 'proofs-all'])
   sources = []
   for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
     area = f.slice(0, -'.rig.test'.length)
@@ -533,7 +521,7 @@ setup = ->
   for doc in docFiles()
     sources.push({ area: doc.area, label: doc.rel, inputs: [doc.file], read: ((file) -> -> docs(file))(doc.file) }) if wanted(doc.area) or names.includes('doc')
   scripts = readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).map((f) -> "cli.#{f.slice(0, -3)}")
-  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'generated', 'doc', 'full', 'proofs', 'proofs-all'] and n not in scripts and not sources.some((s) -> s.area is n))
+  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'matrix', 'unit', 'oracle', 'generated', 'doc', 'full', 'proofs', 'proofs-all'] and n not in scripts and not sources.some((s) -> s.area is n))
   throw new Error((if unknown[0].startsWith('cli.') then "no script test/cli/#{unknown[0].slice(4)}.sh" else "no test file test/rig/#{unknown[0]}.rig.test")) if unknown.length > 0
   init()
   trimStore()
@@ -686,6 +674,12 @@ setup = ->
       todo("oracle.#{set}", JSON.stringify({ file: 'test/oracle', name: set, verb: 'oracle', line: 1, path: join(work, 'oracle', "#{set}.list"), opts: { timeout: '900' } }))
     todo('oracle.matrix', JSON.stringify({ file: 'test/matrix.py', name: 'matrix', verb: 'matrix', line: 1, opts: { timeout: '900' } }))
     todo('oracle.lint', JSON.stringify({ file: 'test/oracle', name: 'lint', verb: 'lint', line: 1, opts: {} }))
+  # The matrix's programs built and run, in shards: only those whose own
+  # Zig changed since a run that passed (`--own --delta`), each built
+  # outside the build store and its output removed once it passes.
+  if wanted('matrix')
+    for i in [1..matrixShards]
+      todo("matrix.run.#{i}", JSON.stringify({ file: 'test/matrix.py', name: "run #{i}/#{matrixShards}", verb: 'matrix-run', line: 1, shard: "#{i}/#{matrixShards}", opts: { timeout: '3600' } }))
   # The proven checks' differential runs: each program of the tests and
   # examples/ that the compiler proves a check of (with
   # `proofs-all`, every one) runs in debug, with --release, and with
@@ -695,7 +689,7 @@ setup = ->
     progs = []
     for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
       area = f.slice(0, -'.rig.test'.length)
-      for c in parsed(join(dir, f)) when c.verb in ['test', 'bomb'] and c.opts.known isnt 'true'
+      for c in parsed(join(dir, f)) when c.verb in ['test', 'bomb'] and not c.opts.known?
         progs.push(join(tree, legacy(area, c).file))
     progs.push(join(root, 'examples', f)) for f in readdirSync(join(root, 'examples')).filter((f) -> f.endsWith('.rig')).sort()
     for p, i in progs
@@ -1032,6 +1026,17 @@ checkMatrix = (c) ->
     throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
   passedNow(c, key)
 
+# The matrix's programs built and run (test/matrix.py `--own --delta`),
+# a shard a job. A program whose own Zig is unchanged since a run that
+# passed is checked but not built; the rest build outside the store.
+matrixShards = 40
+checkMatrixRun = (c) ->
+  r = run(['python3', join(root, 'test', 'matrix.py'), '--rig', rig, '--own', '--delta', '--shard', c.shard, '-j', '1'], { RIG_BUILD_STORE: '' }, Number(c.opts.timeout))
+  throw new Error('timed out') unless r.code?
+  unless r.code is 0
+    all = (r.out + r.err).split('\n')
+    throw new Error(all.find((l) -> /^fail /.test(l))?.replace(/\s+/g, ' ') ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+
 # The oracle reads no ownership classification of the compiler's (comments
 # aside), and the compiler never imports the oracle.
 forbidden = new RegExp("ownership\\.zig|typecheck\\.zig|storage\\.zig|\\b(storageOf|recordStorage|Storage|StorageKind|StorageBy|StorageLife|copiesHeader|header_copies|dropsTemp|temp_drops|readsInPlace|in_place_reads|takesSubject|taken_subjects|readsThrough|readsAsView|unboxes|unboxed|arrayViewOf|array_views|lendsText|text_lends|takes|recordTake|moveSource|MoveSource|moveLeaves|MoveLeaf|writesThrough|through_writes|lendsCellTemp|cell_temps|handsOver|livesIn|madeIn|LoanRoots)\\b|sema\\.viewsOf\\b|facts\\.(reads|views)")
@@ -1071,6 +1076,7 @@ perform = (task, ctx) ->
       when 'lint' then checkLint(c)
       when 'generated' then checkGenerated(c)
       when 'matrix' then checkMatrix(c)
+      when 'matrix-run' then checkMatrixRun(c)
       when 'accept' then checkAccept(c)
       when 'parse' then checkParse(c)
       when 'facts' then checkFacts(c)
@@ -1083,15 +1089,15 @@ perform = (task, ctx) ->
   finally
     appendFileSync(join(root, '.swarm', 'times'), "#{Date.now() - started}\t#{basename(task)}\n")
   where = "#{c.file}:#{c.line} #{c.verb} \"#{c.name}\""
-  # A known bug is a case written as Rig should behave, marked `known:
-  # true`: it passes while it fails, and fails the day it passes, so its
-  # mark comes off as the bug is fixed.
-  if c.opts?.known is 'true'
-    # A run that never got as far as the bug (a program that did not run,
-    # a timeout, a crash of the compiler) is no known failure.
-    return if failure? and not /did not run|timed out|crashed|never built/.test(failure.message)
+  # A known bug is a case written as Rig should behave, marked with the
+  # failure it waits for, `known: "TEXT"`: it passes while it fails with
+  # TEXT in the failure, and fails the day it passes, so its mark comes
+  # off as the bug is fixed, or the day it fails some other way.
+  if c.opts?.known?
+    throw new Error("#{where}: a known bug names the failure it waits for: `known: \"TEXT\"`") if c.opts.known is 'true'
+    return if failure? and failure.message.includes(c.opts.known)
     throw new Error("#{where}: a known bug fails for another reason: #{failure.message}") if failure?
-    throw new Error("#{where}: a known bug no longer fails: remove `known: true`")
+    throw new Error("#{where}: a known bug no longer fails: remove `known: \"#{c.opts.known}\"`")
   # A pending doc example states a rule decided but not built: it passes
   # while it fails for want of the rule (rejected, accepted where it must
   # be rejected, or printing something else), and fails the day it works.

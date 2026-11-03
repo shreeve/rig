@@ -5810,7 +5810,7 @@ checker. [docs/internals/tests.md](tests.md) is the format, the
 doc-example contract, and the reference checker's sets, and
 [test/README.md](../../test/README.md) describes each kind.
 
-To fix a bug: write a failing case first (marked `known: true` if it
+To fix a bug: write a failing case first (marked `known: "TEXT"`, the failure it waits for, if it
 will not be fixed in the same change), make it pass, and keep the suite
 green.
 
