@@ -2,9 +2,10 @@
 
 The standard library's cryptography, built for the sanstun port (Firezone's
 WireGuard) from the code of the sanstun panel (2026-10-30), whose reports
-are outside the repository in
-`~/Data/Code/Claude/rig/rig/rust-ports/sanstun/panel/` (SUMMARY.md,
-aead/REPORT.md, curve-hash/REPORT.md). The owner's words: "I'd want it in
+are in [panel/](panel/) ([SUMMARY.md](panel/SUMMARY.md),
+[aead/REPORT.md](panel/aead/REPORT.md),
+[curve-hash/REPORT.md](panel/curve-hash/REPORT.md)); its adversarial
+review is [review.md](review.md). The owner's words: "I'd want it in
 pure Rig (this will be difficult) but also this rig should be in std.crypto
 -- so, I'd like it to be usable from other Rig code, but be part of our
 std.crypto which is Rig's stdlib". He approved the panel's defaults on

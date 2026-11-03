@@ -38,7 +38,7 @@ These are the owner's, made before the first line was written:
 4. **Faster than Ghostty,** measured on the same corpora, while matching
    it.
 5. **Sources:** Ghostty (MIT) for behavior and tests, Dispatch (Paul
-   Miller's Swift port, MIT, `~/Data/Code/rig/misc/dispatch`) for compact
+   Miller's Swift port, MIT) for compact
    structure, and the VT100 ROM listing (Paul Flo Williams, CC BY 4.0)
    for the row map.
 6. **Scrollback** counts lines, 10,000 by default
@@ -141,7 +141,7 @@ What speed taught:
 - **Zig 0.17 turns LLVM's loop vectorizer off** (llvm#186922). A plain
   loop widening bytes into `U64` cells runs one cell at a time, so
   `widen` is a Zig shim using `@Vector`, 35% faster on text.
-  [docs/internals/zig-0.17.md](../internals/zig-0.17.md) §16 and
+  [INTERNALS](../internals/INTERNALS.md#where-rig-meets-zig-017), "Known Zig 0.17 issues Rig works around", and
   `tools/zig-next.py` cover it. On Zig 0.18, whose LLVM vectorizes
   again, `widen` moves back into Rig as a plain loop
   ([ROADMAP](../ROADMAP.md)).
@@ -180,14 +180,4 @@ What speed taught:
 `--fuzz --all` shows these as differences, and each becomes an area in
 `AREAS` with its cases when it is built.
 
-## Next
-
-The order is the owner's to choose; ask before starting any of these:
-
-1. The reading API, which any use of the library needs.
-2. OSC, then mouse and focus reporting, hyperlinks, and OSC 52.
-3. Resize and reflow.
-4. `std.tty`, terminal I/O (raw mode, size, PTYs), last by the owner's
-   plan.
-5. On Zig 0.18.0's release, move `widen` back into Rig and measure the
-   plain loop.
+The order of building them is in the [ROADMAP](../ROADMAP.md).

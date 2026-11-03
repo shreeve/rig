@@ -46,6 +46,9 @@ means the same thing wherever it appears:
 | Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |
 
+[QUICK](docs/QUICK.md) fits them on a page, and
+[the sigils journey](docs/learn/01-sigils.md) teaches them one at a time.
+
 What a library chooses is a word: canceling a task, `<t.cancel()`, or
 waiting for the first of several, `<ts.wait_first()`.
 
@@ -63,9 +66,7 @@ Next to Rust and Zig:
 | `f(x)&` | run the call as a task | `tokio::spawn(f(x))` | `std.Thread.spawn(...)` |
 | `>t` | wait for the task and take its result | `t.await` | `t.join()` |
 
-The [sigils journey](docs/learn/01-sigils.md) teaches them one at a
-time, and [QUICK](docs/QUICK.md) fits them on a page. Four points are
-the ones that surprise readers from other languages:
+Four points are the ones that surprise readers from other languages:
 
 - **Names say what a value is; sigils say how you hold it.** Every named
   type is an owner (`List[T]`, `String`, `Cell[T]`, an object of yours),

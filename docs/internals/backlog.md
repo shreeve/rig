@@ -33,17 +33,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
     results, decided with iterators as values;
   - `ResultBound` per result, so a proven bound on a result reaches the
     name that takes it (`src/proofs.zig`).
-- bench/hash after inlining a generic type's small members (#246), on
-  the Mac (aarch64), pooled medians of 8 layouts x 21 runs against main:
-  - `int hit` is 2-6% slower, and `small 4` and `small 8` 2-3% slower:
-    LLVM spills registers differently in a function that holds several
-    loops once more is inlined into it. The code of `int hit`'s loop is
-    the same as main's, and x86 shows no difference. Needs a study.
-  - `int edit_put-hit` is 3.0% slower (95% interval -3.8% to +9.6%):
-    inside the noise, but worth measuring again.
-  - Judge memory-bound bench/hash rows by medians with intervals and an
-    unchanged control row, not by the fastest of N runs, which swung
-    single rows several percent either way on unchanged code.
 - Keeping a function out of line when its loop makes a call that stays a
   call (through an API table, a `rarely` function, a closure) and it
   would be inlined into a caller with loops of its own. On arm64 the
@@ -99,19 +88,54 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   CLI test (`test/cli/discard_build.sh`), which the checker never sees,
   rather than a case of test/rig. Make it linear, then the program can
   become a case.
+- Big integers: `std.bigint` is built. Trig's own arbitrary-precision
+  integers (its jsnum uses them in 3 places) pass all 32,076 of its test
+  cases; the std one must pass the same cases and be as fast before Trig
+  swaps.
+- **`from @field` through an alias of self**: `whole = ?@` then
+  `whole.text` in a `from @text` body is reported as a view of all of
+  `@`, since an alias of self carries no path. Over-strict; it waits for
+  a program that writes it.
+- **A field of a bounded iterator's type**: `Hold[I: Iter]{inner: I}` is
+  refused by `[I: Iter]` under `from @field`'s rule 4, which judges a
+  field of a type variable at the declaration; judging it per instance
+  would admit it, when an iterator adapter needs one.
+- **API objects, the conservative edges**, each over-strict, none
+  unsound, each waiting for a program that needs it:
+  - a `?String` view of a `String` with `add String: Shape` is no
+    `?{Shape}` ("a view provides no API"), though the `String` itself
+    erases;
+  - a local task over an object, `area_of(s)&` of a `?{Shape}` or
+    `make()&` giving a `^{Shape + Owned}`, is refused as if it could
+    leave its scope;
+  - `fun me(?@) -> ?{Shape} from @` cannot leave, since self erased is
+    a copy by kind (H12);
+  - `swap(!h.g, v)` of a `^{Shape}` is refused as a value that may hold
+    a view, where a `^{Shape + Owned}` swaps.
+- **Traces in Rig terms**: a panic, or an error that leaves `main`,
+  prints Zig's stack trace, whose lines are in the emitted Zig (in the
+  package directory `rig run` names); mapping them to `.rig` lines would
+  need a source map.
+- **An explicit emitter context**: the emitter keeps per-function state
+  in `Emitter.fun`, swapped out around a closure's body; passing it
+  explicitly would make what each helper reads visible.
+- **Tighter generated code**: Debug builds pay for round trips such as
+  `rig.lend(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a
+  generic `for x in xs` copies each element it only lends. Release
+  builds optimize these away.
+- **Nexus's `Span.text`** in place of slicing the source by position.
+- **Runtime tests outside the runtime**: `src/runtime.zig` carries its
+  unit tests into every emitted package; they could move to their own
+  file.
+- **A widening vector conversion and a vector store**
+  (`Simd[U8, 16]` to `Simd[U64, 16]`, stored into a typed slice) would
+  let a loop such as std.terminal's `widen` be vector code whatever the
+  optimizer does. Nothing needs it while `widen` is written in Zig
+  (ROADMAP, "Zig 0.18").
 - `text.ByteSet`, a byte set built once when the program runs and
   searched with `set.find(s, at)`: the run-time sibling of
   `text.find_any[set]`. Built when a port needs a set known only at run
   time; none does yet.
-- Big integers in the standard library, to replace Trig's own: arbitrary
-  precision, enough for JavaScript number and BigInt work (Trig's jsnum
-  uses them in 3 places). Trig's version passes all 32,076 of its test
-  cases; the std one must pass the same cases and be as fast before Trig
-  swaps.
-- Map and Set with 4-byte stored hashes (an entry's hash takes 8 bytes
-  today): the tag from the stored bits up to 2^25 slots, and from the
-  top of the whole hash, recomputed from the keys, past that. It
-  matched the 8-byte version's speed; it saves 4 bytes an entry.
 - The rest of a String's appends by value. `add`'s text and values
   (`appendFixed`, `addValueOf`) still pass the String's address out of
   line, so a loop of `!s.add(..)` keeps its fields in memory as pushes
@@ -134,49 +158,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   branch folds them (6.89 and 6.86G instructions). Keeping the tables
   in registers without the fold would need them proven uncaptured
   across the String's calls; `--release=fast` is unaffected.
-- Faulting memory in ahead, measured; the third form below is built.
-  Trig's ts-pattern takes about 115,000 page faults on pup.
-  Asking for huge pages (`MADV_HUGEPAGE`) made it 13% slower, as pup's
-  fragmented memory made each advised fault try a compaction that
-  failed. Faulting in with one `MADV_POPULATE_WRITE` per stretch rather
-  than a trap per page was measured on pup (Trig: core 3, fastest of 10,
-  interleaved; Rig's benches: 3 or 4 rounds):
-  - each 1 MiB of a segment as the heap reaches it: Trig 1.4 to 1.9%
-    faster, RSS about 2% higher;
-  - that, and each large block whole, and its growth: 2.6 to 4.5%
-    faster, RSS 16 to 26% higher;
-  - that, but a new large block's first three quarters and half of a
-    growth, at most 8 MiB: 2.8 to 5.8% faster, RSS 6 to 9% higher. It
-    made `bench/actors`' spread about three times as slow (each of 22
-    workers faults in its first MiB at start), `spawn` 5% slower, and
-    `bench/http` answer up to 20% fewer requests (buffers written
-    sparsely);
-  - only the half of a growth by `mremap`: no regression, and 0.9% on
-    ts-pattern, which does not pay for its lines.
-
-  The third is built, applied only by the heap that does the program's
-  work (`src/alloc.zig`, `leads`), which keeps Trig's gain at one
-  checker and leaves the benches as they are.
-- The Map's entries in its table slots, measured and not taken. A hit
-  waits on memory twice: for `tags[i]` and `at[i]`, which load
-  together, then for `es[j]`. Putting each key and value in its slot,
-  with the order kept as a List of slot indexes, waits once. On cold
-  lookups over 4M entries (a Mac bench of `CacheKey` keys and `U32`
-  values, dependent, 90% hits) it took 92 to 95 ns against 152 to 156.
-  But real Trig on pup, which inserts nearly as much as it finds, was
-  12% slower on ts-pattern, with 41% more RSS (646 MB against 459), and
-  4 to 6% slower on zod3 and tiny-invariant. `bench/hash`, which looks
-  keys up in the order they were put in, lost too: hits about twice as
-  slow, inserts 40 to 70% slower, iteration about 16 times as slow.
-  Packing the tag and the index into one `U64` slot instead saved
-  nothing: the two arrays already load together. The slot was 40 bytes
-  for a `CacheKey` and a `U32`, where a plain one is 24, because a free
-  slot holds no `K` or `V`, so both are optional fields. A `Slot?` the
-  size of a `Slot` (its place in the order an object that names its
-  none) needs `if !@slots[j] as s` to hand a write view of `s.value`
-  back to `edit`'s caller (`from @`), which the checker accepts (CORE
-  sentence 7), and a field moved out of its object alone (partial
-  moves). A layout to try again starts from that.
 - Remote frees batched per owning heap, as Linux 7.4's slab sheaves
   and snmalloc do. Today each free of a block another heap owns
   (`src/alloc.zig`) is one compare-and-swap onto that heap's remote
@@ -319,14 +300,8 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   does, and otherwise name the form to write in the message (`?k` or
   `?k[..]`). Found with queue row 29 (2026-10-31).
 
-Found while writing the Learn Rig journeys. Those marked *checked* were
-confirmed on `main` when they were written here; check the rest before
-fixing.
+Found while writing the Learn Rig journeys. Check each before fixing.
 
-- **A discarded result passes silently** *(checked)*. `file.remove(p)!`
-  as a statement drops its `Bool` with no error, while a bare `0` is
-  rejected. Make the rule one: a statement whose value is not `Void`
-  needs `_ =`, or say in SPEC why a call's result may go unused.
 - **The shorthand `c.area()` does not see through a box,** though the
   type's own methods do (`b.area()` on a `^Square`); `b.describe()`, a
   default, says "no method `describe` on type `Square`". Decide whether

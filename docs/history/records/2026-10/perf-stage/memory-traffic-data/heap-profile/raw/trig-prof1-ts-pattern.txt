@@ -1,0 +1,60 @@
+rig: heap profile: 133.3 MiB live at the peak, in 177 owners; by what owned them then:
+       MiB  share     blocks    avg B   ever made  owner: a List's or slice's element, a box's value; u8 is text
+     20.00  15.0%          1 20971520          18  rig.ordered.Ordered(checker.InstantiationKey,u32).E__struct_2754
+     17.43  13.1%      27556      663       39603  u64
+     16.08  12.1%        174    96909         802  __rig_std_prelude.Map(u32,u32)
+     15.37  11.5%     116704      138      234803  rig.ordered.Ordered(u32,u32).E__struct_503
+     13.77  10.3%         70   206325         337  rig.ordered.Ordered(checker.CacheKey,u32).E__struct_2746
+      7.05   5.3%      22797      324     1948176  u32
+      7.00   5.3%          1  7340032          16  checker.SymbolData
+      6.96   5.2%        249    29311        2270  ast.NodeRec
+      5.06   3.8%       8816      602      396668  u8
+      4.02   3.0%        172    24480         982  ast.SymbolRec
+      3.01   2.3%      96738       32      138897  checker.NodeRef
+      3.00   2.3%          1  3145728          17  rig.ordered.Ordered(checker.CachedTypeKey,u32).E__struct_2750
+      2.25   1.7%          1  2359296          14  checker.InferenceInfo
+      1.88   1.4%          1  1966080          13  checker.InferenceContext
+      1.57   1.2%        249     6624        1734  ast.ListRec
+      1.50   1.1%          1  1572864          16  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).E__struct_2701
+      1.25   0.9%          1  1310720          14  rig.ordered.Ordered(checker.CachedSignatureKey,u32).E__struct_2760
+      1.07   0.8%        498     2258        3161  ast.TextRec
+      0.63   0.5%        173     3795         749  ast.FlowRec
+      0.63   0.5%          2   327680          28  checker.Loc
+      0.51   0.4%       2124      253       21125  ast.Node
+      0.38   0.3%          1   393216          12  rig.ordered.Ordered(checker.UnionOfUnionKey,u32).E__struct_2753
+      0.33   0.2%          1   344064           7  ast.File
+      0.30   0.2%        190     1630         858  ast.Diagnostic
+      0.29   0.2%       2320      131       15836  rig.runtime.String
+      0.22   0.2%          1   229376          10  checker.Diag
+      0.21   0.2%        172     1303         196  compiler.FileIncludeReason
+      0.14   0.1%          1   151552           7  ast.Binding
+      0.13   0.1%          1   131072          10  rig.ordered.Ordered(checker.DiagnosticLocationKey,rig.runtime.ListOf(u32,0)).E__struct_2768
+      0.10   0.1%        478      224         705  checker.InferMemoInfo
+      0.10   0.1%         11     9451          70  tsoptions.CommandLineOption
+      0.09   0.1%          1    98304          11  rig.ordered.Ordered(u32,checker.DeferredSymbolLinks).E__struct_2702
+      0.09   0.1%         67     1432          75  module.ResolvedModule
+      0.06   0.0%          1    67136           1  checker.Checker
+      0.06   0.0%          1    65536          11  rig.ordered.Ordered(checker.NodeRef,checker.NodeLinks).E__struct_2693
+      0.05   0.0%          1    49152          10  rig.ordered.Ordered(checker.PropertiesTypesKey,u32).E__struct_2751
+      0.04   0.0%        145      320         145  ast.PragmaArgument
+      0.03   0.0%          1    32768          11  rig.ordered.Ordered(u32,checker.SymbolReferenceLinks).E__struct_2700
+      0.03   0.0%          1    29696           6  parser.LazyJSDoc
+      0.03   0.0%          1    28672           7  rig.ordered.Ordered(rig.runtime.String,ast.SourceFileMetaData).E__struct_2558
+        1.01 real         0.65 user         0.03 sys
+           309116928  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               21062  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  90  voluntary context switches
+                1096  involuntary context switches
+         11954767641  instructions retired
+          2924274170  cycles elapsed
+           298518112  peak memory footprint

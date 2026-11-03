@@ -11,7 +11,7 @@ problem **dissolves** instead of being solved.
 
 This page is a plan, not a description of the compiler. What is built is
 in [CORE](../CORE.md) and [SPEC](../../SPEC.md). What Rig takes from Rust and
-what it leaves, feature by feature, is in [RUST-TRIAGE](../history/rust-triage.md);
+what it leaves, feature by feature, is in [RUST-TRIAGE](../history/records/2026-10/rust-triage.md);
 this page builds on it and says where it should change. It comes from a
 panel of six reviewers (Rust soundness, formal methods, types and traits,
 systems and foreign code, concurrency, simplicity and assurance).
@@ -61,7 +61,9 @@ principles:
    lifetime parameters to quantify over, and no variance.
 2. **Ownership is checked per instance, over the whole program.** A
    generic body is checked at each instance, so the proof needs no
-   polymorphism. Rig needs no coherence or orphan rules.
+   polymorphism. An API is checked for coherence over the whole program
+   (a type provides an API at most once; [apis.md](apis.md)), so there
+   are no orphan rules to prove.
 3. **Unsafe code lives in Zig, never in Rig.** Rig has no raw pointers.
    Code that needs them is a Zig-backed declaration with a Rig
    signature, and each such declaration is proved on its own.
@@ -87,10 +89,10 @@ proof, and how a Rig programmer copes without it.
 |---|---|---|
 | Lifetime parameters, variance, higher-ranked bounds (`for<'a>`) | Lifetime inclusion and the variance bugs (#25860, #84591) | Loan sets, `from` and `keeps` |
 | Subtyping under `!` or inside a container | Writing a wider type through a narrower view | `^C` becomes `^Tr` only at a value's top level |
-| Associated types and generic associated types | Type projection and normalization | Trait type parameters. Lending iterators already work (below) |
+| Associated types and generic associated types | Type projection and normalization | Associated types named by the API, not projected. Lending iterators already work (below) |
 | Specialization | Overlapping impls (#40582, #31844) | Fast paths come from kind facts |
-| Blanket impls, `impl Trait` results, auto-trait leakage | Global reasoning about impls | A generic function, a named type, or `^Tr` |
-| Trait objects of traits that are not object-safe | #57893 | Every trait is object-safe by its shape: no generic methods, no `Self` but the `self` parameter |
+| Blanket impls, `impl Trait` results, auto-trait leakage | Global reasoning about impls | A generic function, a named type, or `^{Api}` |
+| Trait objects of traits that are not object-safe | #57893 | Every API object is object-safe by its shape: no generic methods, no `Self` but the `self` parameter |
 | The `Fn` / `FnMut` / `FnOnce` hierarchy | Reentrant closures that write their captures | An owned closure's environment never changes. A stack closure that captures a write view cannot reach itself |
 | `Pin` and self-referential values | #66544 and the `Pin` API | Not needed at all (below) |
 | `#[may_dangle]` | The drop-check escape hatch | A drop reads the views a value holds only if its type has a `drop` body |
@@ -144,24 +146,25 @@ it has no pin: no form, no rules, and no proof.
 
 ## What to build for reach
 
-These come in rough order. Sizes are rough too. The rounds RUST-TRIAGE
-already plans (field loans, `keeps`, path tokens, partial moves, errors
+These come in rough order. Sizes are rough too. The rounds of
+[RUST-TRIAGE](../history/records/2026-10/rust-triage.md) plan (field loans, `keeps`, path tokens, partial moves, errors
 that carry data, `yields !T`) stay as they are.
 
-1. **Static traits with default bodies (round R2).** Bounds such as
-   `[T: Hash]`, and default method bodies, because tsc's visitors need a
-   no-op for every node kind. A default body is a generic body with
-   `Self: Tr`. Iterators as values come from `trait Iter[T]` here, not
-   from `*fun` adaptors. About two weeks.
+1. **APIs with default bodies (built).** Bounds such as `[T: Hash]`,
+   and default method bodies, because tsc's visitors need a no-op for
+   every node kind. A default body is a generic body checked at each
+   instance. Iterators as values come from the `Iter` API, not from
+   `*fun` adaptors ([apis.md](apis.md), Stage 3).
 2. **Generic `drop`, and arrays of owning values in generic code.** A
    `drop` body is allowed only on a non-generic object, and a generic
    object cannot keep a `T` that owns a resource in an array. Both are
    needed for small-vector storage. About a week.
-3. **Trait values with downcast (round R3).** `?Shape` and `^Shape` as
-   values, and `if s as Circle c`. GPUI's element tree and tsc's `Any`
-   need them, so this is a must for parity. It is specified as a
-   closed-world enum: a trait value is a variant, a call is a match, and
-   a downcast is a match. It needs no new typing rule. About three weeks.
+3. **API objects (built).** `?{Shape}`, `!{Shape}`, and `^{Shape}` are
+   values whose type is chosen when the program runs, and a call through
+   one goes through a table ([apis.md](apis.md), Stages 4 and 5). GPUI's
+   element tree and tsc's `Any` need them. Rig has no downcast: a
+   program that needs the concrete type uses an enum, whose `match`
+   names every case.
 4. **Tasks, channels, and actors** are built: [concurrency.md](concurrency.md)
    is their design, and [formal/README.md](../../formal/README.md) their
    proofs so far.
@@ -181,7 +184,7 @@ that carry data, `yields !T`) stay as they are.
    About six weeks.
 
 **What this reaches.** A tsc port needs items 1 and 2 and the rounds
-RUST-TRIAGE already lists. A GPUI-class engine needs all five.
+of RUST-TRIAGE. A GPUI-class engine needs all five.
 
 ## Assurance: four stages of proof
 
@@ -226,7 +229,8 @@ show:
 - no value views itself;
 - every way out of a scope reports the loans it ends;
 - each check the compiler omits as proven really holds;
-- for trait values, that their desugaring adds no rule;
+- for API objects, that erasing a type keeps its loans (proved in
+  `formal/LambdaRig/Erase.lean`);
 - for tasks, freedom from data races (the first slice is proved:
   [formal/README.md](../../formal/README.md), "Tasks and waits").
 
@@ -300,21 +304,6 @@ the Zig subset `emit` uses is written down, and the emitted code is
 linted against it. Second, compiled programs' output is compared with
 the interpreter's. `--release=fast` turns checks off by request, so it
 lies outside the claim.
-
-## Changes this implies for RUST-TRIAGE
-
-- **The machine-checked proof** moves from "Might want" to "Should add
-  soon" for stages 1 and 2.
-- **Concurrency** is tasks and actors, not scoped threads,
-  `Shared`, or async. It needs both thread facts, though not as traits:
-  derived for Rig objects, declared for Zig-backed types.
-- **The narrow raw-pointer facility** is replaced by trusted packages
-  with `extern zig`.
-- **Default bodies** join R2, and **R3** becomes a must for parity.
-- **Iterators as values** come from an R2 trait and `yields`, not from
-  `*fun` adaptors.
-- **`noalias`** waits for stage 2.
-- **"Don't add" grows** by the rows of the table above that it lacks.
 
 ## Open decisions
 

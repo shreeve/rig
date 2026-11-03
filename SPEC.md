@@ -414,7 +414,7 @@ Text is measured in four units, each with one name: a **byte**, what
 `s.len` counts; a **rune**, one code point; a **unit**, one UTF-16 code
 unit; and a **char**, what a reader sees as one character. The four
 words, a table of one char at 1, 2, 3, 8, and 18 bytes, and each unit's
-module are in [TEXT](docs/TEXT.md#four-units-four-words).
+module are in [TEXT](docs/design/text.md#four-units-four-words).
 
 A `String` holds UTF-8 by convention: a byte from 0 to 127 is
 ASCII and a whole rune on its own; every other rune takes 2 to 4 bytes,

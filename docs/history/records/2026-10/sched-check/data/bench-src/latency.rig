@@ -1,0 +1,46 @@
+# Preemption probe for the sched-check study, run with RIG_WORKERS=1.
+# `latency queue free|calls`: main queues a task, then spins; prints how
+# long the task waited to start. `latency timer free|calls`: a task sleeps
+# 10 ms while main spins; prints how long its sleep took.
+use std.os
+use std.task
+use std.time
+
+SPIN = 400000000
+
+called fun step(total: Int, i: Int) -> Int
+  (total + i * 7) % 1000003
+
+fun spin_free(n: Int) -> Int
+  total = 0
+  for i in 0..n
+    total = (total + i * 7) % 1000003
+  total
+
+fun spin_calls(n: Int) -> Int
+  total = 0
+  for i in 0..n
+    total = step(total, i)
+  total
+
+fun stamp(t: time.Instant) -> Int
+  t.elapsed()
+
+fun napper() -> Int!
+  t = time.now()
+  time.sleep(10 * time.MS)!
+  t.elapsed()
+
+sub main()
+  args = os.args()
+  calls = args.len > 2 and args[2] == "calls"
+  if args.len > 1 and args[1] == "timer"
+    a = napper()&
+    x = spin_calls(SPIN) if calls else spin_free(SPIN)
+    n = >a catch 0
+    print("timer", n, x)
+  else
+    t = time.now()
+    a = stamp(t)&
+    x = spin_calls(SPIN) if calls else spin_free(SPIN)
+    print("queue", >a, x)

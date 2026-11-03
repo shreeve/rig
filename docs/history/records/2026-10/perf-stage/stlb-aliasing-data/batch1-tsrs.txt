@@ -1,0 +1,78 @@
+=== zod3 tsrs1
+# kind=tsrs cores=12 cmd=env RAYON_NUM_THREADS=1 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --singleThreaded
+# free 2MiB blocks before 95 after 81; samples 50; vmstat delta thp_fault_alloc=14
+# madvise HUGEPAGE calls 4, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 57.3 MiB; max AnonHugePages seen 28.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena          29.0      28.0     28.0      0.0      28.0
+mimalloc       16.3       0.0      0.0      0.0       0.0
+file           11.8       0.0      0.0      0.0       0.0
+=== zod3 tsrs4
+# kind=tsrs cores=12-15 cmd=env RAYON_NUM_THREADS=4 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --checkers 4
+# free 2MiB blocks before 81 after 83; samples 24; vmstat delta thp_fault_alloc=24
+# madvise HUGEPAGE calls 12, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 87.4 MiB; max AnonHugePages seen 42.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena          47.7      42.0     43.6      0.0      43.6
+mimalloc       27.5       0.0      0.0      0.0       0.0
+file           11.7       0.0      0.0      0.0       0.0
+mmap-other      0.3       0.0      0.0      0.2       0.0
+=== zod3 tsrs1
+# kind=tsrs cores=12 cmd=env RAYON_NUM_THREADS=1 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --singleThreaded
+# free 2MiB blocks before 83 after 77; samples 51; vmstat delta thp_fault_alloc=14
+# madvise HUGEPAGE calls 4, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 57.2 MiB; max AnonHugePages seen 28.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena          29.0      28.0     28.0      0.0      28.0
+mimalloc       16.3       0.0      0.0      0.0       0.0
+file           11.7       0.0      0.0      0.0       0.0
+=== zod3 tsrs4
+# kind=tsrs cores=12-15 cmd=env RAYON_NUM_THREADS=4 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --checkers 4
+# free 2MiB blocks before 77 after 89; samples 27; vmstat delta thp_fault_alloc=24
+# madvise HUGEPAGE calls 12, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 88.7 MiB; max AnonHugePages seen 44.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena          49.8      44.0     45.8      0.0      45.8
+mimalloc       26.6       0.0      0.0      0.0       0.0
+file           11.8       0.0      0.0      0.0       0.0
+mmap-other      0.4       0.0      0.0      0.3       0.0
+=== ts-pattern tsrs1
+# sample error FileNotFoundError(2, 'No such file or directory')
+# kind=tsrs cores=12 cmd=env RAYON_NUM_THREADS=1 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --singleThreaded
+# free 2MiB blocks before 89 after 83; samples 279; vmstat delta thp_fault_alloc=64
+# madvise HUGEPAGE calls 7, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 206.2 MiB; max AnonHugePages seen 128.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena         129.0     128.0    128.0      0.0     128.0
+mimalloc       64.3       0.0      0.0      0.0       0.0
+file           12.5       0.0      0.0      0.0       0.0
+=== ts-pattern tsrs4
+# kind=tsrs cores=12-15 cmd=env RAYON_NUM_THREADS=4 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --checkers 4
+# free 2MiB blocks before 83 after 95; samples 78; vmstat delta thp_fault_alloc=72
+# madvise HUGEPAGE calls 19, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 231.7 MiB; max AnonHugePages seen 138.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena         143.5     138.0    139.5      0.0     139.5
+mimalloc       74.9       0.0      0.0      0.0       0.0
+file           12.6       0.0      0.0      0.0       0.0
+mmap-other      0.4       0.0      0.0      0.3       0.0
+=== ts-pattern tsrs1
+# sample error ProcessLookupError(3, 'No such process')
+# kind=tsrs cores=12 cmd=env RAYON_NUM_THREADS=1 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --singleThreaded
+# free 2MiB blocks before 95 after 94; samples 244; vmstat delta thp_fault_alloc=64
+# madvise HUGEPAGE calls 7, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 205.8 MiB; max AnonHugePages seen 128.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena         129.0     128.0    128.0      0.0     128.0
+mimalloc       64.3       0.0      0.0      0.0       0.0
+file           12.1       0.0      0.0      0.0       0.0
+=== ts-pattern tsrs4
+# kind=tsrs cores=12-15 cmd=env RAYON_NUM_THREADS=4 /tmp/hp/tsrspkg/tsrs -p tsconfig.trig.json --noEmit --checkerAssignment go --noLazyMembers --checkers 4
+# free 2MiB blocks before 94 after 78; samples 78; vmstat delta thp_fault_alloc=73
+# madvise HUGEPAGE calls 19, NOHUGEPAGE 0, POPULATE_WRITE 0, COLLAPSE 0
+peak Rss 231.0 MiB; max AnonHugePages seen 138.0 MiB
+class       Rss MiB  AnonHuge    in hg    in nh  eligible
+arena         143.1     138.0    139.1      0.0     139.1
+mimalloc       74.7       0.0      0.0      0.0       0.0
+file           12.6       0.0      0.0      0.0       0.0
+mmap-other      0.4       0.0      0.0      0.3       0.0

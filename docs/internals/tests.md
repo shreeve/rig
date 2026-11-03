@@ -317,6 +317,38 @@ it in `rig-baseline/<full hash>/` in the repository's git directory,
 where every worktree finds it: a comparison never runs a stale
 `bin/rig`, and only the first one at a commit builds (about a minute).
 
+## Timing
+
+A change that may move speed is judged by time, not by a count:
+
+- **Interleave, and keep the fastest.** Run the variants in turn,
+  round after round, and keep the fastest of N runs of each. One
+  comparison within 2% is noise. A gain of 1.5 to 2% counts only when it
+  holds over at least 20 interleaved rounds, with cycles backing the
+  time.
+- **Layout moves a hot loop.** On Apple cores, code added elsewhere in a
+  function can move its hot loop and its time by 5-7% with the same
+  instructions retired. Only interleaved timing judges a change to a
+  hot loop.
+- **Fewer instructions can be slower.** A position computed from loaded
+  data waits for its load, where a branch the predictor learns does
+  not: a vector whitespace skip that retired 12-29% fewer instructions
+  ran 32-41% slower. The instruction guards (`bench/json/guard.py` and
+  the others under `bench/`) count instructions only, so they pass such
+  a change: a change to a hot loop is timed on both machines, arm64 on
+  the Mac and x86-64 on pup.
+- **Size a check by removing it.** A profile's samples in `rig.at` or an
+  index count the load with its bounds test, so they overstate what the
+  test costs. Remove the check and count
+  (`bench/json/checks/sizing.py`).
+- **macOS instruction counts need a median.** One binary's count from
+  `/usr/bin/time -l` varies by several percent from run to run; take
+  the median of 5.
+
+The measurements behind these rules are records:
+[rig-notes.md](../history/records/2026-10/json/rig-notes.md) and
+[json-results.md](../history/records/2026-10/json/json-results.md).
+
 ## The reference ownership checker
 
 `test/oracle/` is a second ownership checker, written from

@@ -95,7 +95,7 @@ delete of today still works for Candidate 1.
 On x86 the match is `pcmpeqb` and `pmovmskb`. On ARM a 16-lane `bits()`
 has no single instruction; hashbrown uses 8-byte groups there for that
 reason. Rig's `first()` lowers to one crossing on 16 lanes, and `bits()`
-per target ([simd-lowering.md](../../../../internals/simd-lowering.md)), so the
+per target ([simd-lowering.md](../../simd/simd-lowering.md)), so the
 group width is a measured choice per target: 16 lanes, or 8 tags as a
 `U64` read with bit tricks (Go's portable form), which needs nothing
 but `read[U64]`.

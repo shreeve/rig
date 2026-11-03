@@ -2,7 +2,7 @@
 # mk-mac.sh NAME...: compile v/NAME/pkg as `rig build --release` does
 # (zig build-exe -Osafe -fomit-frame-pointer), one at a time, each
 # through Rig's tools/heavy, holding while .mac-quiet exists.
-S=$HOME/Data/Code/Claude/rig/rig/scan-yield-study
+S=${S:-$PWD}  # the study folder
 W=$HOME/Data/Code/worktrees/rig/scan-yield
 for n in "$@"; do
   while [ -e $HOME/Data/Code/mumps-compare/.mac-quiet ]; do echo "# $(date +%T) waiting: .mac-quiet"; sleep 60; done

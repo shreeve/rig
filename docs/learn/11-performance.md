@@ -521,5 +521,6 @@ there to check.**
   small service, tested and built for release.
 - [WELCOME.md](../../WELCOME.md) holds the full Rig-to-Zig table,
   [INTERNALS](../internals/INTERNALS.md) the emitter and runtime,
-  [simd.md](../design/simd.md) the vector design, and
+  [the SIMD records](../history/records/simd/simd.md) how vectors were
+  designed and measured, and
   [SPEC](../../SPEC.md) the rules for `raw` and vectors.

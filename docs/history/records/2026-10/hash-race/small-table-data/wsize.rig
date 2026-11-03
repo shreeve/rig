@@ -1,0 +1,24 @@
+use std.file
+use std.time
+
+fun sq(x: Int) -> Int
+  x * x
+
+sub run(f: !file.File, n: Int)!
+  big = String()
+  for 0..n
+    !big.push('x')
+  start = time.now()
+  for 0..1000
+    (!f).write(big)!
+  warn(n, "bytes:", start.elapsed() / 1000, "us for 1000 writes")
+
+sub main()!
+  t = sq(3)&
+  _ = >t
+  f = file.create("/dev/null")!
+  run(!f, 1)!
+  run(!f, 4096)!
+  run(!f, 65536)!
+  run(!f, 250_000)!
+  run(!f, 1_000_000)!

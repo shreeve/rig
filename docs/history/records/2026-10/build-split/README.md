@@ -268,9 +268,7 @@ was loaded by other sessions' builds throughout.
 
 ## Files
 
-- The prototype is kept in the owner's session folder,
-  `~/Data/Code/Claude/rig/rig/build-split-study/tools/`, since records
-  keep no source: `split.py`, `x.zig`, `build.sh`, `timeit.py`,
+- The prototype is in [tools/](tools/): `split.py`, `x.zig`, `build.sh`, `timeit.py`,
   `check-unit.sh`. `split.py PKG OUT N` (with
   `SPLIT_CG=1` for the call-graph cut) over the package that
   `RIG_OUT_DIR=DIR rig build --release` writes.

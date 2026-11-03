@@ -613,8 +613,8 @@ x86-64.
 **Not built yet:**
 
 - TLS, and an HTTP client.
-- Declared error sets for std's I/O functions, which fail with any
-  error.
+- Declared error sets in std's I/O signatures: `FileError` and
+  `NetError` exist, but std's I/O functions still fail with any error.
 - Raw pointers, and API objects of an API with an associated type
   (`^{Source[Item: Int]}`).
 - Storing or returning a stack closure, and `drop` bodies on enums and
@@ -686,6 +686,7 @@ On Trig, PGO is 10% faster on projects it was not trained on, and
 |---|---|
 | learn Rig's ideas, one journey at a time | [docs/learn/](docs/learn/README.md), starting with [sigils](docs/learn/01-sigils.md) |
 | learn Rig from another language | [WELCOME.md](WELCOME.md) |
+| find any document by its question | [docs/README.md](docs/README.md) |
 | see every sigil on one page | [docs/QUICK.md](docs/QUICK.md) |
 | understand ownership | [docs/CORE.md](docs/CORE.md), the whole model on one page |
 | look up how a form is written | [SYNTAX.md](SYNTAX.md) |

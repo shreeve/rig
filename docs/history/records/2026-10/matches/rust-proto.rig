@@ -1,0 +1,57 @@
+MAX_ENTRIES = 2
+MAX_CACHE_BYTES = 100
+
+obj Image
+  id: Int
+  name: String
+
+obj Rendered
+  image: Image
+
+enum State
+  loading
+  ready(rendered: Rendered?)
+
+obj Entry
+  state: State
+  touched: Int
+  bytes: Int
+
+fun min_by[I: Iter](it: !I, key: ?fun(?I.Item) -> Int, keep: ?fun(?I.Item) -> Bool) -> I.Item?
+  best: I.Item? = none
+  low = 0
+  for x in !it
+    continue if not keep(?x)
+    k = key(?x)
+    if best == none or k < low
+      best = <x
+      low = k
+  best
+
+fun ready(s: ?State) -> Bool
+  if s as .ready(_)
+    return true
+  false
+
+obj Cache
+  entries: Map[String, Entry]
+  bytes: Int
+  retired: List[Image]
+
+  sub trim(!@)
+    while @entries.len > MAX_ENTRIES or @bytes > MAX_CACHE_BYTES
+      items = ?@entries.items()
+      old = min_by(!items, |x| x.value.touched, |x| ready(x.value.state)) ?? break
+      key = +old.key
+      entry = (!@entries).take(key) ?? break
+      @bytes -= entry.bytes
+      if <entry.state as .ready(r) and <r as rendered
+        !@retired.push(<rendered.image)
+
+sub main()
+  c = Cache(entries: Map[String, Entry](), bytes: 0, retired: List[Image]())
+  for i in 0..5
+    !c.entries.put(String("k", i), Entry(state: State.ready(rendered: Rendered(image: Image(id: i, name: String("img")))), touched: 10 - i, bytes: 30))
+    c.bytes += 30
+  (!c).trim()
+  print(c.entries.len, c.bytes, c.retired.len, c.retired[0].id)

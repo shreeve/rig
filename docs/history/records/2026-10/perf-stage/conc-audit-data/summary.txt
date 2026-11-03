@@ -1,0 +1,71 @@
+| project | arm | runs | wall median | wall fastest | cycles u+k | instr u | peak RSS MB | faults | dTLB walks | walk-active cycles | parse | bind | check | total (Trig/tsrs clock) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| empty | base1 | 20 | 22.90 | 21.82 | 87.0M | 186.1M | 27.0 | 1789 | 0.017M | 0.6M | 10.9 | 5.2 | 0.0 | 17.9 |
+| empty | base4 | 20 | 28.82 | 26.30 | 101.7M | 191.9M | 29.7 | 2231 | 0.023M | 0.7M | 11.4 | 5.2 | 0.8 | 20.6 |
+| empty | noy1 | 20 | 22.80 | 21.17 | 85.4M | 179.1M | 27.0 | 1792 | 0.017M | 0.5M | 10.7 | 5.0 | 0.0 | 17.6 |
+| empty | noy4 | 20 | 27.82 | 25.19 | 100.6M | 184.5M | 29.6 | 2236 | 0.022M | 0.7M | 11.1 | 5.0 | 0.9 | 19.9 |
+| empty | pgo1 | 20 | 21.18 | 19.62 | 79.1M | 159.0M | 29.3 | 1806 | 0.017M | 0.6M | 9.8 | 5.0 | 0.0 | 16.1 |
+| empty | pgo4 | 20 | 26.74 | 23.67 | 93.7M | 164.6M | 31.9 | 2252 | 0.023M | 0.7M | 10.2 | 4.8 | 0.9 | 18.6 |
+| empty | tsrs1 | 20 | 17.54 | 16.32 | 63.2M | 116.0M | 17.6 | 2320 | 0.011M | 0.4M | 7.6 | 2.0 | 0.0 | 10.7 |
+| empty | tsrs4 | 20 | 22.85 | 21.09 | 112.8M | 174.1M | 28.6 | 3876 | 0.031M | 1.3M | 11.2 | 0.0 | 0.0 | 16.0 |
+| zod3 | base1 | 20 | 164.51 | 162.25 | 760.6M | 1619.2M | 76.7 | 9278 | 0.172M | 9.2M | 18.6 | 8.1 | 128.2 | 156.9 |
+| zod3 | base4 | 20 | 108.35 | 105.48 | 1118.3M | 2201.4M | 113.0 | 18278 | 0.325M | 16.4M | 22.3 | 8.2 | 63.0 | 97.3 |
+| zod3 | noy1 | 20 | 162.67 | 159.76 | 749.6M | 1561.4M | 76.5 | 9274 | 0.173M | 9.2M | 18.3 | 8.0 | 127.0 | 155.2 |
+| zod3 | noy4 | 20 | 106.94 | 104.56 | 1102.8M | 2130.2M | 112.8 | 18274 | 0.326M | 16.3M | 22.1 | 8.1 | 61.8 | 95.5 |
+| zod3 | pgo1 | 20 | 147.57 | 143.92 | 675.0M | 1396.5M | 77.8 | 9326 | 0.161M | 8.9M | 17.1 | 7.0 | 113.4 | 139.6 |
+| zod3 | pgo4 | 20 | 98.32 | 94.98 | 1001.8M | 1910.0M | 114.5 | 18404 | 0.316M | 16.2M | 20.6 | 7.0 | 55.5 | 87.0 |
+| zod3 | tsrs1 | 20 | 117.34 | 115.38 | 537.5M | 1209.8M | 54.2 | 5427 | 0.081M | 4.2M | 11.6 | 3.0 | 93.5 | 109.8 |
+| zod3 | tsrs4 | 20 | 69.06 | 64.84 | 795.0M | 1700.4M | 85.9 | 9336 | 0.135M | 7.0M | 10.4 | 0.0 | 44.2 | 59.0 |
+| ts-pattern | base1 | 20 | 848.59 | 818.86 | 4015.3M | 9027.0M | 247.2 | 39312 | 1.634M | 80.5M | 19.3 | 8.4 | 795.8 | 826.6 |
+| ts-pattern | base4 | 20 | 347.67 | 339.52 | 4299.4M | 9501.1M | 277.1 | 47541 | 1.200M | 65.4M | 22.6 | 8.4 | 289.6 | 325.6 |
+| ts-pattern | noy1 | 20 | 840.89 | 808.03 | 3982.4M | 8662.2M | 246.9 | 39309 | 1.589M | 78.7M | 18.8 | 8.1 | 786.9 | 817.1 |
+| ts-pattern | noy4 | 20 | 347.47 | 335.81 | 4260.0M | 9119.0M | 277.0 | 47538 | 1.211M | 66.0M | 22.2 | 8.2 | 286.9 | 322.6 |
+| ts-pattern | pgo1 | 20 | 735.46 | 712.48 | 3472.4M | 7971.0M | 259.1 | 14748 | 1.396M | 69.5M | 17.7 | 7.2 | 694.5 | 722.6 |
+| ts-pattern | pgo4 | 20 | 312.54 | 300.66 | 3816.2M | 8395.1M | 279.4 | 47905 | 1.210M | 68.0M | 20.8 | 7.2 | 254.9 | 288.1 |
+| ts-pattern | tsrs1 | 20 | 651.62 | 644.34 | 3071.0M | 7230.5M | 202.3 | 17790 | 1.067M | 49.4M | 11.8 | 3.5 | 624.8 | 643.0 |
+| ts-pattern | tsrs4 | 20 | 244.42 | 234.78 | 3295.3M | 7680.3M | 227.5 | 21347 | 0.644M | 35.6M | 12.2 | 0.0 | 210.2 | 229.6 |
+
+## Serial head (share of wall; parse+bind and everything outside Check time)
+empty       base1  wall    22.90 ms  parse+bind   16.1 ms =  70.5%  all serial (wall - check) 100.0%  Amdahl ceiling 1.00x
+empty       base4  wall    28.82 ms  parse+bind   16.6 ms =  57.8%  all serial (wall - check)  96.6%  Amdahl ceiling 1.04x
+empty       noy1   wall    22.80 ms  parse+bind   15.7 ms =  68.8%  all serial (wall - check) 100.0%  Amdahl ceiling 1.00x
+empty       noy4   wall    27.82 ms  parse+bind   16.1 ms =  57.9%  all serial (wall - check)  96.4%  Amdahl ceiling 1.04x
+empty       pgo1   wall    21.18 ms  parse+bind   14.8 ms =  69.6%  all serial (wall - check) 100.0%  Amdahl ceiling 1.00x
+empty       pgo4   wall    26.74 ms  parse+bind   14.9 ms =  55.9%  all serial (wall - check)  96.3%  Amdahl ceiling 1.04x
+empty       tsrs1  wall    17.54 ms  parse+bind    9.6 ms =  54.7%  all serial (wall - check) 100.0%  Amdahl ceiling 1.00x
+empty       tsrs4  wall    22.85 ms  parse+bind   11.2 ms =  49.0%  all serial (wall - check) 100.0%  Amdahl ceiling 1.00x
+zod3        base1  wall   164.51 ms  parse+bind   26.6 ms =  16.2%  all serial (wall - check)  22.2%  Amdahl ceiling 4.50x
+zod3        base4  wall   108.35 ms  parse+bind   30.5 ms =  28.1%  all serial (wall - check)  41.9%  Amdahl ceiling 2.39x
+zod3        noy1   wall   162.67 ms  parse+bind   26.3 ms =  16.2%  all serial (wall - check)  21.9%  Amdahl ceiling 4.57x
+zod3        noy4   wall   106.94 ms  parse+bind   30.1 ms =  28.2%  all serial (wall - check)  42.1%  Amdahl ceiling 2.37x
+zod3        pgo1   wall   147.57 ms  parse+bind   24.1 ms =  16.4%  all serial (wall - check)  22.9%  Amdahl ceiling 4.37x
+zod3        pgo4   wall    98.32 ms  parse+bind   27.6 ms =  28.0%  all serial (wall - check)  43.3%  Amdahl ceiling 2.31x
+zod3        tsrs1  wall   117.34 ms  parse+bind   14.7 ms =  12.5%  all serial (wall - check)  20.5%  Amdahl ceiling 4.89x
+zod3        tsrs4  wall    69.06 ms  parse+bind   10.4 ms =  15.1%  all serial (wall - check)  35.6%  Amdahl ceiling 2.81x
+ts-pattern  base1  wall   848.59 ms  parse+bind   27.8 ms =   3.3%  all serial (wall - check)   5.6%  Amdahl ceiling 17.83x
+ts-pattern  base4  wall   347.67 ms  parse+bind   31.0 ms =   8.9%  all serial (wall - check)  16.8%  Amdahl ceiling 5.94x
+ts-pattern  noy1   wall   840.89 ms  parse+bind   26.8 ms =   3.2%  all serial (wall - check)   5.5%  Amdahl ceiling 18.09x
+ts-pattern  noy4   wall   347.47 ms  parse+bind   30.5 ms =   8.8%  all serial (wall - check)  16.9%  Amdahl ceiling 5.91x
+ts-pattern  pgo1   wall   735.46 ms  parse+bind   24.9 ms =   3.4%  all serial (wall - check)   5.9%  Amdahl ceiling 17.03x
+ts-pattern  pgo4   wall   312.54 ms  parse+bind   28.1 ms =   9.0%  all serial (wall - check)  18.3%  Amdahl ceiling 5.47x
+ts-pattern  tsrs1  wall   651.62 ms  parse+bind   15.4 ms =   2.4%  all serial (wall - check)   4.4%  Amdahl ceiling 22.73x
+ts-pattern  tsrs4  wall   244.42 ms  parse+bind   12.2 ms =   5.0%  all serial (wall - check)  13.8%  Amdahl ceiling 7.27x
+
+## 4 over 1
+empty       base  RSS 1.101  walks 1.339  walk-active cycles 1.316  faults 1.247  cycles 1.170  wall 1.259  walk-active share of user cycles at 1 0.9% at 4 1.1%
+empty       pgo   RSS 1.088  walks 1.351  walk-active cycles 1.306  faults 1.247  cycles 1.185  wall 1.262  walk-active share of user cycles at 1 1.0% at 4 1.3%
+empty       tsrs  RSS 1.626  walks 2.752  walk-active cycles 2.819  faults 1.670  cycles 1.783  wall 1.303  walk-active share of user cycles at 1 1.0% at 4 1.7%
+zod3        base  RSS 1.474  walks 1.886  walk-active cycles 1.787  faults 1.970  cycles 1.470  wall 0.659  walk-active share of user cycles at 1 1.4% at 4 1.7%
+zod3        pgo   RSS 1.472  walks 1.971  walk-active cycles 1.816  faults 1.973  cycles 1.484  wall 0.666  walk-active share of user cycles at 1 1.5% at 4 2.0%
+zod3        tsrs  RSS 1.585  walks 1.652  walk-active cycles 1.668  faults 1.720  cycles 1.479  wall 0.589  walk-active share of user cycles at 1 0.9% at 4 1.0%
+ts-pattern  base  RSS 1.121  walks 0.734  walk-active cycles 0.812  faults 1.209  cycles 1.071  wall 0.410  walk-active share of user cycles at 1 2.2% at 4 1.7%
+ts-pattern  pgo   RSS 1.078  walks 0.867  walk-active cycles 0.978  faults 3.248  cycles 1.099  wall 0.425  walk-active share of user cycles at 1 2.2% at 4 2.0%
+ts-pattern  tsrs  RSS 1.125  walks 0.604  walk-active cycles 0.720  faults 1.200  cycles 1.073  wall 0.375  walk-active share of user cycles at 1 1.7% at 4 1.2%
+
+## No yield checks against base (negative = less)
+empty       1 checker(s): wall median -0.4%  fastest -3.0%  cycles u+k -1.8%  instr -3.8%
+empty       4 checker(s): wall median -3.5%  fastest -4.2%  cycles u+k -1.1%  instr -3.8%
+zod3        1 checker(s): wall median -1.1%  fastest -1.5%  cycles u+k -1.5%  instr -3.6%
+zod3        4 checker(s): wall median -1.3%  fastest -0.9%  cycles u+k -1.4%  instr -3.2%
+ts-pattern  1 checker(s): wall median -0.9%  fastest -1.3%  cycles u+k -0.8%  instr -4.0%
+ts-pattern  4 checker(s): wall median -0.1%  fastest -1.1%  cycles u+k -0.9%  instr -4.0%

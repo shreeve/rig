@@ -182,7 +182,7 @@ The owner asked for every branch that had landed to go, and for work worth keepi
 
 **Measured.** Trig `--pgo` against shipped tsrs on pup, before #705-#711: ts-pattern at one checker 893 against 665 ms (1.34x; 1.76x at the stage's start), instructions 1.20x, peak memory 1.48x; zod3 1.39x. Trig's own logic is at parity (1,466M against 1,396M cycles); the rest is Rig's patterns. After #710, by share of ts-pattern's 8,527M instructions: List operations 10%, Map/Set 9%, spills 4%, yield checks 3%, `hashMix` 2%. The index tests already cost one compare each, as Rust's do; their count is the gap (2026-10/perf-stage/bounds-enum.md).
 
-**Decisions (the owner).** Match or beat tsrs, every win measured on Trig (2026-10-24). PGO built (2026-10-25). The `$plain(T)` paragraph and its panel's defaults (2026-10-26, 2026-10/core-plain records). hash.Map and hash.Set stay in std.hash (2026-10-25). #705 with #706, #710 with its slower String safe-mode rows noted, #711, and std.hash with zod3's 3% memory (2026-10-26).
+**Decisions (the owner).** Match or beat tsrs, every win measured on Trig (2026-10-24). PGO built (2026-10-25). The `$plain(T)` paragraph and its panel's defaults (2026-10-26, [2026-10/core-plain/](2026-10/core-plain/)). hash.Map and hash.Set stay in std.hash (2026-10-25). #705 with #706, #710 with its slower String safe-mode rows noted, #711, and std.hash with zod3's 3% memory (2026-10-26).
 
 **Next.** #685 (std.hash) after its freed-table memory fix and Trig's light gate; then Trig moves its hot caches onto it. Then the leads above by share, and Trig's NEEDS 62 (blocking calls on the caller's stack while one task can run). HANDOFF.md has the state.
 

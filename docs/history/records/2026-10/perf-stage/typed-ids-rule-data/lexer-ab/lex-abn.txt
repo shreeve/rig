@@ -1,0 +1,15 @@
+empty           base task-clock     23.9 ms  cycles  0.087G  instr  0.213G  faults    2817  rss   30 MB
+empty           lex  task-clock     23.3 ms  cycles  0.085G  instr  0.207G  faults    2813  rss   26 MB
+mitt            base task-clock     27.0 ms  cycles  0.098G  instr  0.229G  faults    3101  rss   32 MB
+mitt            lex  task-clock     26.1 ms  cycles  0.091G  instr  0.219G  faults    3103  rss   28 MB
+neverthrow      base task-clock     27.4 ms  cycles  0.103G  instr  0.242G  faults    3557  rss   31 MB
+neverthrow      lex  task-clock     27.1 ms  cycles  0.102G  instr  0.234G  faults    3560  rss   28 MB
+superstruct     base task-clock     33.9 ms  cycles  0.135G  instr  0.280G  faults    3237  rss   24 MB
+superstruct     lex  task-clock     32.5 ms  cycles  0.130G  instr  0.272G  faults    3239  rss   21 MB
+tiny-invariant  base task-clock     74.9 ms  cycles  0.308G  instr  0.939G  faults    6523  rss   50 MB
+tiny-invariant  lex  task-clock     72.8 ms  cycles  0.301G  instr  0.931G  faults    6522  rss   47 MB
+zod3            base task-clock    163.1 ms  cycles  0.698G  instr  1.663G  faults   10385  rss   78 MB
+zod3            lex  task-clock    161.5 ms  cycles  0.689G  instr  1.658G  faults   10382  rss   76 MB
+ts-pattern      base task-clock    835.2 ms  cycles  3.746G  instr  9.082G  faults   40666  rss  248 MB
+ts-pattern      lex  task-clock    833.8 ms  cycles  3.727G  instr  9.066G  faults   40665  rss  245 MB
+zsh:1: == not found

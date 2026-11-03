@@ -50,7 +50,7 @@ things are worth knowing:
 
 - Printing an error with fields (`print(e)`) brings in its glue's print,
   a few KB of cold code. That moves hot code that follows, the same
-  5-7% lottery any code motion on Apple cores is ([RIG-NOTES](../../../rig-notes.md)).
+  5-7% lottery any code motion on Apple cores is ([RIG-NOTES](../json/rig-notes.md)).
 - A benchmark that compares API shapes must give both sides the same
   cold paths, or it measures the cold paths' size.
 

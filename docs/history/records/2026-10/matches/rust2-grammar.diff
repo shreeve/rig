@@ -1,0 +1,75 @@
+--- rig.grammar (main 122d523bf)
++++ rig.grammar (is + nested patterns, panel probe)
+@@ -81,6 +81,7 @@
+     false
+     and
+     as
++    is
+     break
+     catch
+     continue
+@@ -323,6 +324,7 @@
+ "false"                                     → false
+ "and"                                       → and
+ "as"                                        → as
++"is"                                        → is
+ "break"                                     → break
+ "catch"                                     → catch
+ "continue"                                  → continue
+@@ -442,6 +444,7 @@
+     as                          value name:leaf
+     as_results                  value names:group  # `if f() as a, b`
+     as_pattern                  value pattern      # `if s as .circle(r)`, as parsed
++    is_pattern                  value pattern      # `s is .circle(r)`
+     as_match                    @wrapper           # the one-arm `match` it is (`Parser.asMatch`)
+     while                       cond step? body:block else:block?
+     for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block? lent:tag(lent)?   # `for x in ?b.each()`: the `?` reaches `b`, the self of the source's first method call
+@@ -450,6 +453,7 @@
+     alt_pattern                 ...alts
+     range_pattern               lo hi inclusive:tag(inclusive)?
+     set_pattern                 name:leaf set
++    some_pattern                name:leaf          # `x?`: an optional holding a value, bound to x
+     variant_pattern             name ...bindings   # `.name(...)`, or `E.name(...)`: a member
+     enum_lit                    name:leaf
+     symbol                      name:leaf
+@@ -1092,6 +1096,7 @@
+          | value:cmp AS name:name                   → (as)
+          | value:cmp AS names:anames                → (as_results)
+          | value:cmp AS pattern:aspat               → (as_pattern)
++         | value:cmp IS pattern:pattern             → (is_pattern)
+          | cmp
+ 
+ # Comparisons, which do not chain, over the fallbacks.
+@@ -1119,6 +1124,7 @@
+          | "." name:name "(" ")"                    → (variant_pattern)
+          | "." name:name "(" bindings:pbinds ![","] ")" → (variant_pattern)
+ 
++
+ # The names `as` binds from a call that gives several results; the
+ # rewriter marks a `,` after `as name` outside brackets as AS_COMMA.
+ anames   = name AS_COMMA name                       → (1 3)
+@@ -1187,6 +1193,7 @@
+ # byte, which may bound a range. `lo..hi` excludes its end, `lo..=hi`
+ # includes it.
+ pattern  = patatom
++         | name:name "?"                            → (some_pattern)
+          | lo:patatom ".." hi:patatom               → (range_pattern)
+          | lo:patatom "..=" hi:patatom              → (range_pattern inclusive:inclusive)
+          | name:name ":" set:tname                  → (set_pattern)   # `g: E =>`: an error of set `E`, as `g`
+@@ -1221,8 +1228,14 @@
+ pbinds   = pbind                                    → (1)
+          | pbinds "," pbind                         → (...1 3)
+ 
+-pbind    = name
+-         | name:KWARG_NAME ":" value:name           → (kwarg)
++pbind    = psub
++         | name:KWARG_NAME ":" value:psub           → (kwarg)
++
++psub     = name
++         | name:name "?"                            → (some_pattern)
++         | "." name:name                            → (enum_lit)
++         | "." name:name "(" ")"                    → (variant_pattern)
++         | "." name:name "(" bindings:pbinds ![","] ")" → (variant_pattern)
+ 
+ # --- Closures -----------------------------------------------------------------
+ #

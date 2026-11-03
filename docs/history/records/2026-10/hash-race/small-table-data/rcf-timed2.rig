@@ -1,0 +1,108 @@
+# The Computer Language Benchmarks Game: reverse-complement, after revcomp.rust (Ryohei
+# Machida, after Adam Kewley's C++): 16 bases at a time reversed and complemented by two table
+# lookups (`tbl` on ARM, `pshufb` on x86; the Rust's vector code is x86 only), and each sequence
+# cut into blocks of lines that run on as many tasks.
+use std.file
+use std.math
+use std.par
+use std.text
+use std.time
+
+LINE = 60
+# Four times the Rust's 4096: each block is a write of its own, and in a program with tasks a
+# file write costs about 20 us (notes.md).
+BLOCK_LINES = 16384
+
+type Bytes = Simd[U8, 16]
+
+# The complement of a base by its low five bits, which a letter has the same in either case:
+# `A` and `a` are both 1. Made at compile time.
+fun complements[n: Int] -> [n]U8
+  bases: [16]U8 = "ACGTUMRWSYKVHDBN"
+  pairs: [16]U8 = "TGCAAKYWSRMBDHVN"
+  t = [n of U8(0)]
+  for i in 0..16
+    t[Int(bases[i] & 0x1F)] = pairs[i]
+  t
+
+COMPLEMENT = Simd[U8, 32](complements[32])
+REVERSED = Bytes([15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
+
+# Sixteen bases in reverse order, each replaced by its complement.
+fun reverse_complement(v: Bytes) -> Bytes
+  COMPLEMENT.lookup(v.lookup(REVERSED) & 0x1F)
+
+# The bytes of `s` from `p` up to `q`, which hold no newline, reversed and complemented.
+sub add_reversed(out: !String, s: ?String, p: Int, q: Int)
+  end = q
+  while end - p >= 16
+    end -= 16
+    !out.push(reverse_complement(s.read[Bytes](end)), keep: 16)
+  if end > p
+    if end >= 16
+      !out.push(reverse_complement(s.read[Bytes](end - 16)), keep: end - p)
+    else
+      while end > p
+        end -= 1
+        !out.push(COMPLEMENT[Int(s[end] & 0x1F)])
+
+# Output lines `first` up to `last` of the sequence whose header starts at `head` and whose
+# `bases` bases start at `body`, 60 to a line, each line a newline after it.
+obj Block
+  head: Int
+  body: Int
+  bases: Int
+  first: Int
+  last: Int
+
+# A block's lines, after the sequence's header when it is the first. Output line j holds bases
+# hi - 1 down to lo; they lie in one input line or across two, split where the later begins.
+fun block(input: ?String, b: ?Block) -> String
+  out = String()
+  !out.reserve((b.last - b.first) * (LINE + 1) + b.body - b.head + 16)
+  !out.add(input[b.head..b.body]) if b.first == 0
+  for j in b.first..b.last
+    hi = b.bases - LINE * j
+    lo = math.max(hi - LINE, 0)
+    split = math.max((hi - 1) / LINE * LINE, lo)
+    at = b.body + split + split / LINE
+    add_reversed(!out, input, at, at + hi - split)
+    at = b.body + lo + lo / LINE
+    add_reversed(!out, input, at, at + split - lo)
+    !out.push("\n")
+  out
+
+# Every sequence of `input`, cut into blocks of lines.
+fun blocks(input: ?String) -> List[Block]
+  out = List[Block]()
+  head = 0
+  while head < input.len
+    body = (text.find(input[head..], "\n") ?? input.len - head - 1) + head + 1
+    end = (text.find(input[body..], ">") ?? input.len - body) + body
+    lines = (end - body) / (LINE + 1)
+    rest = (end - body) % (LINE + 1)
+    bases = LINE * lines + (rest - 1 if rest > 0 else 0)
+    count = (bases + LINE - 1) / LINE
+    first = 0
+    while first == 0 or first < count : first += BLOCK_LINES
+      last = math.min(first + BLOCK_LINES, count)
+      !out.push(Block(head: head, body: body, bases: bases, first: first, last: last))
+    head = end
+  out
+
+sub main()!
+  t0 = time.now()
+  input = file.read("/dev/stdin")! ?? String()
+  t1 = time.now()
+  bs = blocks(input)
+  parts = par.map(?bs, |?input, b| block(input, b))
+  t2 = time.now()
+  stdout = file.create("/dev/stdout")!
+  for part in parts
+    (!stdout).write(part)!
+  t3 = time.now()
+  <parts
+  <input
+  t4 = time.now()
+  warn("start", time.since_start() / 1000 - t4.since(t0) / 1000, "read", t1.since(t0) / 1000, "map", t2.since(t1) / 1000, "write", t3.since(t2) / 1000, "drop", t4.since(t3) / 1000)
+

@@ -1,0 +1,43 @@
+From 2d37584c0b8c27245f406bf64383250f0ae7e02e Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Mon, 2 Nov 2026 06:39:41 -0700
+Subject: [PATCH] arm narrow: 256 KiB stretches, large blocks half
+
+---
+ src/alloc.zig | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/alloc.zig b/src/alloc.zig
+index 8b4364788..5ab872096 100644
+--- a/src/alloc.zig
++++ b/src/alloc.zig
+@@ -89,7 +89,7 @@ const page_size: usize = 64 << 10;
+ const pages_per_segment = segment_size / page_size;
+ 
+ /// How much of a segment a heap faults in at once, as it reaches it.
+-const prefault_size: usize = 1 << 20;
++const prefault_size: usize = 256 << 10;
+ const pages_per_prefault = prefault_size / page_size;
+ 
+ /// Linux's `MADV_POPULATE_WRITE` (5.14 and later), which Zig's
+@@ -497,7 +497,7 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
+     h.took(size);
+     lent(h, size);
+     trimKept(h);
+-    prefault(h, got, likelyFilled(size - size / 4));
++    prefault(h, got, likelyFilled(size / 2));
+     return @ptrFromInt(got);
+ }
+ 
+@@ -1372,7 +1372,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+     h.took(new_size - old_size);
+     lent(h, new_size - old_size);
+     trimKept(h);
+-    prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 2));
++    prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 4));
+     if (counts) h.count(@intCast(new_size - old_size), 0);
+     return @ptrFromInt(rc);
+ }
+-- 
+2.55.0
+

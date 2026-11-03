@@ -1,0 +1,60 @@
+rig: heap profile: 48.6 MiB live at the peak, in 171 owners; by what owned them then:
+       MiB  share     blocks    avg B   ever made  owner: a List's or slice's element, a box's value; u8 is text
+      6.59  13.5%        189    36553        1929  ast.NodeRec
+      6.49  13.3%       5789     1175      188185  u32
+      5.36  11.0%        182    30880         730  __rig_std_prelude.Map(u32,u32)
+      4.89  10.1%       5910      868      164506  u8
+      3.98   8.2%      31313      133       56899  rig.ordered.Ordered(u32,u32).E__struct_503
+      3.78   7.8%       5716      693       11189  u64
+      3.41   7.0%        180    19855         934  ast.SymbolRec
+      2.64   5.4%         26   106372         136  rig.ordered.Ordered(checker.CacheKey,u32).E__struct_2746
+      2.50   5.1%          1  2621440          15  rig.ordered.Ordered(checker.InstantiationKey,u32).E__struct_2754
+      1.55   3.2%        189     8616        1504  ast.ListRec
+      1.05   2.2%        378     2902        2490  ast.TextRec
+      0.88   1.8%          1   917504          13  checker.SymbolData
+      0.81   1.7%        181     4710         822  ast.FlowRec
+      0.63   1.3%          2   327680          28  checker.Loc
+      0.47   1.0%          1   491520          11  checker.InferenceContext
+      0.45   0.9%       2006      236       27237  ast.Node
+      0.35   0.7%      10679       34       23465  checker.NodeRef
+      0.33   0.7%          1   344064           7  ast.File
+      0.31   0.6%          1   327680          12  rig.ordered.Ordered(checker.CachedSignatureKey,u32).E__struct_2760
+      0.28   0.6%          1   294912          11  checker.InferenceInfo
+      0.22   0.5%        180     1306         197  compiler.FileIncludeReason
+      0.14   0.3%          1   151552           7  ast.Binding
+      0.12   0.2%          2    61440          61  checker.SpellingCandidate
+      0.10   0.2%         79     1393          84  module.ResolvedModule
+      0.10   0.2%         11     9451          70  tsoptions.CommandLineOption
+      0.09   0.2%          1    98304          12  rig.ordered.Ordered(checker.CachedTypeKey,u32).E__struct_2750
+      0.09   0.2%          1    98304          10  rig.ordered.Ordered(checker.UnionOfUnionKey,u32).E__struct_2753
+      0.09   0.2%          1    98304          12  rig.ordered.Ordered(u32,checker.MappedSymbolLinks).E__struct_2701
+      0.06   0.1%          1    67136           1  checker.Checker
+      0.06   0.1%        456      146        1528  rig.runtime.String
+      0.05   0.1%          1    57344           8  checker.Diag
+      0.05   0.1%         79      597         188  ast.Diagnostic
+      0.04   0.1%         19     2400          84  rig.ordered.Ordered(checker.CacheKey,void).E__struct_2799
+      0.04   0.1%        139      320         139  ast.PragmaArgument
+      0.04   0.1%        180      228         490  ast.FlowListRec
+      0.03   0.1%          2    16416          11  rig.ordered.Ordered(u64,bool).E__struct_2757
+      0.03   0.1%          1    32768          11  rig.ordered.Ordered(u32,checker.SymbolReferenceLinks).E__struct_2700
+      0.03   0.1%          1    32768          10  rig.ordered.Ordered(checker.NodeRef,checker.NodeLinks).E__struct_2693
+      0.03   0.1%         19     1600          84  checker.CacheKey
+      0.03   0.1%          1    28672           7  rig.ordered.Ordered(rig.runtime.String,ast.SourceFileMetaData).E__struct_2558
+        0.14 real         0.11 user         0.01 sys
+            95404032  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                6342  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  98  voluntary context switches
+                 837  involuntary context switches
+          2251110096  instructions retired
+           555752693  cycles elapsed
+            85050880  peak memory footprint
