@@ -377,7 +377,7 @@ detached sigil, is the one reported.
 | `name:` inside `( )` vs `f(not :a)` | `KWARG_NAME` vs a word | a keyword argument or typed parameter: a word right after `(`, `,`, or a closure's opening bar, before a `:` that touches it or that no name touches (`K(break : 3)`); a word anywhere else stays a word, so `f(c or :a)` holds a symbol; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | `while c : step`, `while a ?? break : step` vs `x: Int` vs `x = :width`, `:a =>` | `STEP_COLON` vs `:` vs `SYMBOL_COLON` | decided once, in `Lexer.classifyColon`. The first `:` at a `while` header's bracket depth, after a value or a jump, starts its step. A `:` after a value or a keyword argument's name anywhere else is `:`. A `:` where an operand starts that touches a name is a symbol's, and the word after it, a keyword too, is the symbol's name, with its runs of `-` or `.` and a name character (`symbolName`): `:content-type`, `:a.b`. A `:` there that touches no name is an error (`symbol_detached`, `symbol_name`) |
 | `$size(T)` vs `$outer: for`, `$outer:` over a block, `break $outer`, `break $outer (x)` | `$` vs `LABEL`, `LABEL_COLON` | decided in `Lexer.classifyDollar`. `$` touching a name that touches a `(` is a builtin call, anywhere. Any other `$name` is a label: declared at the start of a line or after another label, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`), with a `:` touching the name, which is `LABEL_COLON` (`label_decl` without it); and named after `break` or `continue`. The `$` touches the name (`dollar_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a `$name` anywhere else is an error (`dollar_stray`). After a declared label's `:` a statement starts; after a jump's label the next token starts an operand |
-| `@`, `!@`, `@hits`, `@visit()` | `IDENT`, and `.` | `@` is self, a name the rewriter returns as `IDENT` whose text is `@`; an `@` touching a name is followed by a `.` the rewriter returns before the name (`member_dot`), so `@hits` parses as the member access `@ . hits`. `@.hits` is an error (`receiver_dot`) |
+| `@`, `!@`, `@hits`, `@visit()` | `IDENT`, and `.` | `@` is self, a name the rewriter returns as `IDENT` whose text is `@`; an `@` touching a name is followed by a `.` the rewriter returns before the name (`member_dot`), so `@hits` parses as the member access `@ . hits`. `@.hits` is an error (`self_dot`) |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `inline` and `called` only there before `fun` or `sub`, `rarely` only alone on its line |
 | `called fun g()`, `pub inline sub s()` vs `called = 3`, `p.inline`, `fun called()` | `CALLED`, `INLINE` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
@@ -575,7 +575,7 @@ wrapper also makes the only rewrites that need to inspect the tree:
   the last two are told by the tree: the chain stops at a `paren`, where
   a `?` or `<` keeps its sigil outside and a `!` takes the parenthesized
   part as the head of its place. The wrapper records the new
-  node's id (`Parser.isReceiverSigil`), since the checker rejects some
+  node's id (`Parser.isSelfSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!@` (the habit of `!` as negation),
   a `<` before one that does not take `<@`, a `?` before one that
@@ -1146,7 +1146,7 @@ its temporaries views (one made before it, so dropped after it), the
 holder uses that view as any owner's drop does: only through a `drop`
 body, or through a live value that views the holder (`holdsPastDrop`,
 Core sentence 6). A receiver that branches lends each leaf where it is instead
-(`receiverLeaves`). No temporary holds a Cell by value: a value that
+(`selfLeaves`). No temporary holds a Cell by value: a value that
 holds one is made only under `*` (Core sentence 9, `Checker.cellMadeAway`
 below), so a Cell a temporary reaches is behind a handle, and a marked
 change to it lands in the shared value, never in a statement's slot. A value
@@ -1234,7 +1234,7 @@ operand it passes through, or the optional `e?` unwraps.
 `sema.valueLeaves(e)` gives the leaves a read reaches through branching
 values, and `sema.yieldsValue(source, s)` whether a statement gives a
 value. Whether a receiver needs `!`, `<`, or nothing follows from what
-it hands over too (`receiverShape`); the self sigil itself is
+it hands over too (`selfShape`); the self sigil itself is
 syntax (Core §8).
 
 A lend of a place is never the base of a path. One walk over each typed
@@ -1684,8 +1684,8 @@ its block yields the address of the place its subject reaches
 (`header_points`), and for an `as`, whether its binding views the value
 inside the optional (`views_optional_value`); and for each call,
 whether it evaluates its arguments first (`hoists_args`), how it holds
-its receiver (`receiver_hold`), whether it consumes a temporary
-receiver (`consumes_receiver`), how it holds each argument
+its receiver (`self_hold`), whether it consumes a temporary
+receiver (`consumes_self`), how it holds each argument
 (`argument_hold`), and whether an argument, an assigned value, or an
 index is pure, staying where it is (`pure_arg`); and for each
 assignment, which of its steps it evaluates into storage in their turn
@@ -1837,7 +1837,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
 | `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
 | `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
-| `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
+| `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `selfHold`, `argumentHold`) | owned, copy, or pointer | call |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
@@ -3714,7 +3714,7 @@ loans its value carries; and an assignment whose target starts from a
 value no var holds (`(!h).r = v`, `wrap(!h).r = v`), through the write
 loans of that value (`walkFieldAssign`). A method runs on its
 receiver where it is, so a receiver that is no place is lent at each
-leaf the value may be (`receiverLeaves`, through `if`, `??`, `catch`, and
+leaf the value may be (`selfLeaves`, through `if`, `??`, `catch`, and
 the fields and elements of such a value): a loan on the place a name
 holds, or on the statement's temporary a made value is, which ends with
 the statement (Core §3). The stores apply first,
@@ -4360,7 +4360,7 @@ A loop's step (`while c : place op= value`) and a deferred assignment
 are assignments, with the same steps and the same fact. The other forms
 that evaluate more than one part record their order as facts too, which
 the checker walks and emit writes: a call evaluates its receiver, then
-its arguments in the order written (`hoists_args`, `receiver_hold`,
+its arguments in the order written (`hoists_args`, `self_hold`,
 `argument_hold`; [Emit](#emit), "Evaluation order of arguments"), and a
 `match`, `if … as`, `while … as`, or `for` evaluates its subject once,
 before its arms or body (`match_block`, `subject_hold`,
@@ -4403,7 +4403,7 @@ imports any other file of the compiler, reaches the context behind
 `Facts`, or asks whether a type moves. `Facts` also answers a few node
 queries that combine recorded facts without a classifier of their own
 (`stmtTemps` and `firstStmtTemp` list the `dropsTemp` facts in the order
-the IR makes them; `receiverOf`, `argParams`, and `receiverWrites` read
+the IR makes them; `selfOf`, `argParams`, and `selfWrites` read
 `callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
 symbols); a query that decides more than that is a recorded fact.
 
@@ -4660,7 +4660,7 @@ symbols); a query that decides more than that is a recorded fact.
   `/` on a `T` is `rig.div`, and the operators sema's requirements allow.
 - **Calls.** Whether a call passes a receiver as its first parameter
   is read from the parameters it fills (`callParamsOf`,
-  `storage.hasReceiver`), by emit, the storage facts, and the ownership
+  `storage.hasSelf`), by emit, the storage facts, and the ownership
   checker alike: `value.method(...)` does, and `Type.f(...)`,
   `module.f(...)`, and a callable a field holds, `s.cb(...)`, do not.
   Arguments are evaluated in source order, into temporaries

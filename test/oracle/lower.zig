@@ -4578,7 +4578,7 @@ const Lowerer = struct {
     };
 
     /// How a method takes its receiver, and its other parameters' types.
-    fn method(self: *Lowerer, call_node: Sexp, callee: Sexp) Error!struct { sema.MethodReceiver, ?MethodParams } {
+    fn method(self: *Lowerer, call_node: Sexp, callee: Sexp) Error!struct { sema.SelfMode, ?MethodParams } {
         const obj = ir.Member.object(callee);
         const mname = leafText(ir.Member.name(callee), self.src);
         // A call through an API (a bound, or the API a type provides): the
@@ -4587,7 +4587,7 @@ const Lowerer = struct {
         if (self.apiMethodOf(call_node)) |am| {
             const ft = am.ctx.types.get(am.field.ty);
             if (ft != .function or ft.function.params.len == 0) return abstain("an API's method, untyped");
-            return .{ am.field.receiver, .{ .ctx = am.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .decl_pos = am.field.decl_pos } };
+            return .{ am.field.self_mode, .{ .ctx = am.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .decl_pos = am.field.decl_pos } };
         }
         if (self.ctx.elemCallOf(callee)) |ec| {
             // An integer's bits and a vector's methods read it as a value.
@@ -4604,7 +4604,7 @@ const Lowerer = struct {
         if (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty)) == .type_var) {
             const ft = self.ctx.types.get(self.ctx.typeOf(callee) orelse return abstain("a method of a type parameter, untyped"));
             if (ft != .function or ft.function.params.len == 0) return abstain("a method of a type parameter, untyped");
-            const mode: sema.MethodReceiver = if (obj.isKind(.write)) .write else if (obj.isKind(.move)) .value else .read;
+            const mode: sema.SelfMode = if (obj.isKind(.write)) .write else if (obj.isKind(.move)) .value else .read;
             return .{ mode, .{ .ctx = self.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .type_param = true } };
         }
         try self.plainInstance(recv_ty);
@@ -4656,16 +4656,16 @@ const Lowerer = struct {
         return null;
     }
 
-    fn methodOf(self: *Lowerer, decl: sema.NominalDecl, mname: []const u8) Error!?struct { sema.MethodReceiver, ?MethodParams } {
+    fn methodOf(self: *Lowerer, decl: sema.NominalDecl, mname: []const u8) Error!?struct { sema.SelfMode, ?MethodParams } {
         _ = self;
         for (decl.symbol().fields orelse &.{}) |f| {
             if (!f.is_method or f.is_drop_method or !std.mem.eql(u8, f.name, mname)) continue;
             const ft = decl.ctx.types.get(f.ty);
             if (ft != .function) return abstain("an unusual method");
             const params = ft.function.params;
-            return switch (f.receiver) {
+            return switch (f.self_mode) {
                 .none => abstain("a function of a type called on a value"),
-                .read, .write, .value => .{ f.receiver, .{ .ctx = decl.ctx, .params = if (params.len > 0) params[1..] else params, .full = ft.function, .builtin = decl.symbol().decl_pos == sema.builtin_decl_pos, .decl_pos = f.decl_pos, .home = homeOf(decl.ctx, decl.symbol()) } },
+                .read, .write, .value => .{ f.self_mode, .{ .ctx = decl.ctx, .params = if (params.len > 0) params[1..] else params, .full = ft.function, .builtin = decl.symbol().decl_pos == sema.builtin_decl_pos, .decl_pos = f.decl_pos, .home = homeOf(decl.ctx, decl.symbol()) } },
             };
         }
         return null;

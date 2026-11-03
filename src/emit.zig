@@ -18,7 +18,7 @@
 //!   field a use may move out of it (`Facts.fieldMoves`) has a flag of
 //!   its own, and the drop takes only the fields still held
 //!   (`rig.dropParts`).
-//! - `!T` parameters, `!@` receivers, and write-view bindings are
+//! - `!T` parameters, `!@` selves, and write-view bindings are
 //!   pointers; reads go through `.*`.
 //! - Every Rig name is written with `rig.writeZigIdent` (`ident`), the
 //!   one place a Rig name becomes a Zig name; a local that would shadow
@@ -441,7 +441,7 @@ pub const Emitter = struct {
     splatting: Sexp = .nil,
     /// The box being erased to a box of an API object (`emitValue`).
     erasing_box: Sexp = .nil,
-    /// Arguments and receivers of the calls being emitted that were
+    /// Arguments and selves of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
     hoisted: std.ArrayList(Hoisted) = .empty,
@@ -1625,8 +1625,8 @@ pub const Emitter = struct {
     fn emitWitnessCall(self: *Emitter, call: Sexp, s: facts.Dispatch.Static) Error!void {
         try self.writeWitnessMethod(s);
         try self.w.writeAll("(");
-        if (!s.receiver_arg) {
-            const recv = self.receiverOf(call) orelse return self.unsupported(call, "a call through a witness without its receiver");
+        if (!s.self_arg) {
+            const recv = self.selfOf(call) orelse return self.unsupported(call, "a call through a witness without its self");
             try self.emitWitnessSelf(call, recv, s);
             // `emitArgs` writes the separators between what it writes.
             const slots = self.facts.callSlotsOf(call);
@@ -1641,14 +1641,14 @@ pub const Emitter = struct {
     /// `s.area(args)` or `Shape.area(s, args)` through an API object's
     /// table (docs/design/apis.md, Stage 4): `s.vt.area(s.ptr, args)`, the
     /// slot a `!` or `catch` lends after the arguments of a fallible
-    /// method. A receiver other than a name is evaluated once, into a
+    /// method. A self other than a name is evaluated once, into a
     /// constant of the call's own block. A result through the caller's
     /// place (`sema.TableEntry` `result_out`) goes into a hidden local
     /// of that block, which the entry writes only when there is one:
     /// `var __rig_res_N = rig.outPlace(O); break ... rig.packOut(O,
     /// s.vt.hit(s.ptr, args, &__rig_res_N), &__rig_res_N)`.
     fn emitObjectCall(self: *Emitter, call: Sexp, d: facts.Dispatch.Dynamic) Error!void {
-        const recv_node = if (d.receiver_arg) ir.Call.args(call)[0] else self.receiverOf(call) orelse return self.unsupported(call, "a call through an API object without its receiver");
+        const recv_node = if (d.self_arg) ir.Call.args(call)[0] else self.selfOf(call) orelse return self.unsupported(call, "a call through an API object without its self");
         const recv = lentPlace(recv_node);
         var buf: Writer.Allocating = .init(self.arena.allocator());
         {
@@ -1672,7 +1672,7 @@ pub const Emitter = struct {
             try self.w.writeAll(", ");
         } else if (!direct) try self.w.print("break :__rig_call_{d} ", .{id});
         try self.w.print("{s}.vt.{f}({s}.ptr", .{ name, ident(d.method), name });
-        const skip: usize = @intFromBool(d.receiver_arg);
+        const skip: usize = @intFromBool(d.self_arg);
         const slots = self.facts.callSlotsOf(call);
         const runtime = (if (slots) |sl| sl.len else ir.Call.args(call).len) -| skip;
         const slot = if (self.fail_slot) |f| sameNode(f.call, call) else false;
@@ -1690,7 +1690,7 @@ pub const Emitter = struct {
     }
 
     /// The self of a call through a witness: a value it consumes, moved
-    /// in; otherwise the receiver's address, which `rig.selfArg` gives as
+    /// in; otherwise self's address, which `rig.selfArg` gives as
     /// the method takes self, a pointer or a copy.
     fn emitWitnessSelf(self: *Emitter, call: Sexp, recv: Sexp, s: facts.Dispatch.Static) Error!void {
         if (s.self_mode == .value) return self.emitExpr(recv);
@@ -1698,13 +1698,13 @@ pub const Emitter = struct {
         try self.writeWitnessMethod(s);
         try self.w.writeAll(", ");
         _ = call;
-        try self.emitReceiverAddress(recv, s);
+        try self.emitSelfAddress(recv, s);
         try self.w.writeAll(")");
     }
 
-    /// The address of the receiver of a call through a witness, or of the
-    /// view it is, as a task's method receiver is given (`emitTask`).
-    fn emitReceiverAddress(self: *Emitter, recv: Sexp, s: facts.Dispatch.Static) Error!void {
+    /// The address of the self of a call through a witness, or of the
+    /// view it is, as a task's method self is given (`emitTask`).
+    fn emitSelfAddress(self: *Emitter, recv: Sexp, s: facts.Dispatch.Static) Error!void {
         const saved = self.read_place;
         defer self.read_place = saved;
         self.read_place = s.self_mode != .write;
@@ -1920,12 +1920,12 @@ pub const Emitter = struct {
         if (is_main) try self.w.writeAll(if (self.fun.main_slot) "__rig_init: std.process.Init.Minimal, __out: rig.ErrSlot" else "__rig_init: std.process.Init.Minimal");
         try self.pushScope();
         defer self.popScope() catch {};
-        // Compile-time parameters come first, after a method's receiver,
+        // Compile-time parameters come first, after a method's self,
         // which Zig's method call syntax needs first.
         try self.bindParams(tparams, false);
         try self.bindParams(params, inlined);
         const rt = params.items();
-        const recv: usize = @intFromBool(self.nominal != null and rt.len > 0 and self.isReceiverParam(rt[0]));
+        const recv: usize = @intFromBool(self.nominal != null and rt.len > 0 and self.isSelfParam(rt[0]));
         // A method under bounds on its type's parameters takes a witness
         // for each that names an API of a program's own, after self.
         self.fun.owner_witnesses = try self.ownerWitnessParams(name_node);
@@ -2049,7 +2049,7 @@ pub const Emitter = struct {
     }
 
     /// A method's self: `?@`, `!@`, or `<@`.
-    fn isReceiverParam(self: *Emitter, p: Sexp) bool {
+    fn isSelfParam(self: *Emitter, p: Sexp) bool {
         return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "@");
     }
 
@@ -2305,7 +2305,7 @@ pub const Emitter = struct {
             .leaf => "__rig_leaf",
             .error_value => "__rig_err",
             .argument => "__rig_arg",
-            .receiver => "__rig_recv",
+            .self => "__rig_recv",
             .environment, .closure_env => "__rig_env",
             .invoked => "__rig_fn",
             .new_value => "__rig_new",
@@ -6833,7 +6833,7 @@ pub const Emitter = struct {
                 self.bare = bare;
                 try self.emitValue(ir.Read.operand(sexp), false);
             } else if (self.isWriteSliceExpr(sexp))
-                // `!x` as a value (an argument, a receiver) is the place's
+                // `!x` as a value (an argument, a self) is the place's
                 // address; a `![]T` is the slice.
                 try self.emitExpr(ir.Write.operand(sexp))
             else
@@ -7777,7 +7777,7 @@ pub const Emitter = struct {
         if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
             // A consuming method of an owned box's value takes the value
             // out of each box, which is freed.
-            if (self.facts.boxedType(t) != null and self.facts.boxedNominal(t) != null and self.facts.methodReceiver(t, field) == .value) {
+            if (self.facts.boxedType(t) != null and self.facts.boxedNominal(t) != null and self.facts.methodSelfMode(t, field) == .value) {
                 var b = t;
                 while (self.facts.boxedType(b)) |inner| : (b = inner) try self.w.writeAll(".unbox()");
             } else try self.writeReach(t);
@@ -7831,7 +7831,7 @@ pub const Emitter = struct {
         return self.fnType(ty) == null;
     }
 
-    /// The object of a member access. Lend sigils on a receiver are
+    /// The object of a member access. Lend sigils on a self are
     /// implicit in Zig's method call syntax; pointers to structs
     /// auto-dereference.
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
@@ -7867,7 +7867,7 @@ pub const Emitter = struct {
         }
         // A value that branches is read as its Rig type: Zig would take
         // a field of each branch's own type (a literal's, a `?String`'s);
-        // a receiver evaluated first is read where it was kept. One its
+        // a self evaluated first is read where it was kept. One its
         // statement's slot keeps (`sema.dropsTemp`), lent to write
         // (`sema.writesTemp`) or not, is reached in the slot (below),
         // which has that type, never in a copy: a change through it is
@@ -8684,7 +8684,7 @@ pub const Emitter = struct {
 
     /// A built-in element method: `!dst.copy(src)` is `rig.copy(dst,
     /// src)`, `fill` and `swap` likewise, and `read` and `write` are
-    /// `rig.readInt` and `rig.writeInt`, on the receiver's elements
+    /// `rig.readInt` and `rig.writeInt`, on self's elements
     /// (`emitElems`). The arguments are plain data, so none is hoisted.
     fn emitElemCall(self: *Emitter, call: Sexp, ec: facts.ElemCall) Error!void {
         try self.inUnit(call);
@@ -8824,13 +8824,13 @@ pub const Emitter = struct {
                     try self.emitExpr(obj);
                     return self.w.writeAll(")");
                 }
-                // In the receiver's type, so that a literal is typed.
+                // In self's type, so that a literal is typed.
                 try self.w.writeAll("(~");
                 try self.writeAsOpen(ec.num);
                 try self.emitBare(obj);
                 return self.w.writeAll("))");
             },
-            // `@as(Int, @clz(x))`: the builtin counts in the receiver's
+            // `@as(Int, @clz(x))`: the builtin counts in self's
             // type, a bit pattern for a signed one, and gives a smaller
             // unsigned integer, which widens to `Int`.
             .leading_zeros, .trailing_zeros, .count_ones => {
@@ -8958,7 +8958,7 @@ pub const Emitter = struct {
                 }
                 return self.w.writeAll(")");
             },
-            // `rig.hash(x)`, of the value the receiver reaches.
+            // `rig.hash(x)`, of the value self reaches.
             .hash => {
                 try self.w.writeAll("rig.hash(");
                 try self.emitExpr(ir.Member.object(callee));
@@ -9044,10 +9044,10 @@ pub const Emitter = struct {
         return if (self.facts.symbols.items[id].kind == .type_alias) ty else null;
     }
 
-    /// The elements of a method's receiver (a slice, an array, a List, or
+    /// The elements of a method's self (a slice, an array, a List, or
     /// a `?String`, viewed or not) as a Zig slice or array pointer: a
     /// slice or `?String` as it is, an array through its address (writable
-    /// when the receiver is written `!xs`), a List through its items.
+    /// when self is written `!xs`), a List through its items.
     fn emitElems(self: *Emitter, recv: Sexp) Error!void {
         const writes = recv.isKind(.write);
         const place = if (recv.isKind(.write) or recv.isKind(.read)) ir.get(recv, .operand) else recv;
@@ -9103,9 +9103,9 @@ pub const Emitter = struct {
     }
 
     /// `f(x)&`: the call started as a task, its arguments evaluated here
-    /// (`rig.Task(T).spawn`). A method's receiver goes by its address,
+    /// (`rig.Task(T).spawn`). A method's self goes by its address,
     /// which the runtime passes on, or reads when the method takes its
-    /// receiver by value (`spawnMethod`).
+    /// self by value (`spawnMethod`).
     fn emitTask(self: *Emitter, sexp: Sexp) Error!void {
         const callee = self.facts.calleeOf(sexp);
         // `c.m(x)&` through an actor's handle (`rig.actorSpawn`).
@@ -9119,12 +9119,12 @@ pub const Emitter = struct {
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
         // Through a witness: its method, given self as it takes it.
-        if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.receiver_arg and d.static.self_mode != .value) {
-            const recv = self.receiverOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its receiver");
+        if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.self_arg and d.static.self_mode != .value) {
+            const recv = self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its self");
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnWitnessLocal(" else ".spawnWitness(");
             try self.writeWitnessMethod(d.static);
             try self.w.writeAll(", ");
-            try self.emitReceiverAddress(recv, d.static);
+            try self.emitSelfAddress(recv, d.static);
             try self.w.writeAll(", .{ ");
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
@@ -9132,28 +9132,28 @@ pub const Emitter = struct {
         // Through an API object whose braces let it go to the task: its
         // table's entry, given the address the object holds.
         if (self.facts.dispatchOf(sexp)) |d| if (d == .dynamic) {
-            const recv = if (d.dynamic.receiver_arg) ir.Call.args(sexp)[0] else self.receiverOf(sexp) orelse return self.unsupported(sexp, "a call through an API object without its receiver");
+            const recv = if (d.dynamic.self_arg) ir.Call.args(sexp)[0] else self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through an API object without its self");
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnObjectLocal(" else ".spawnObject(");
             try self.emitExpr(lentPlace(recv));
             try self.w.print(", \"{s}\", .{{ ", .{d.dynamic.method});
-            try self.emitArgsFrom(sexp, @intFromBool(d.dynamic.receiver_arg));
+            try self.emitArgsFrom(sexp, @intFromBool(d.dynamic.self_arg));
             return self.w.writeAll(" })");
         };
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static) {
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else ".spawn(");
             try self.writeWitnessMethod(d.static);
             try self.w.writeAll(", .{ ");
-            if (!d.static.receiver_arg) {
-                try self.emitExpr(self.receiverOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its receiver"));
+            if (!d.static.self_arg) {
+                try self.emitExpr(self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its self"));
                 if (ir.Call.args(sexp).len > 0) try self.w.writeAll(", ");
             }
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
         };
-        if (self.receiverOf(sexp)) |recv| {
+        if (self.selfOf(sexp)) |recv| {
             const saved = self.read_place;
             defer self.read_place = saved;
-            self.read_place = !self.receiverWrites(sexp);
+            self.read_place = !self.selfWrites(sexp);
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnMethodLocal(" else ".spawnMethod(");
             try self.emitAddressOf(lentPlace(recv));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
@@ -9586,7 +9586,7 @@ pub const Emitter = struct {
     }
 
     /// A call's arguments in parameter order: its compile-time arguments
-    /// (after a receiver passed as an argument), then its run-time ones,
+    /// (after a self passed as an argument), then its run-time ones,
     /// keyword arguments in their parameters' places and defaults for
     /// omitted ones.
     fn emitArgs(self: *Emitter, call: Sexp) Error!void {
@@ -9600,7 +9600,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(call);
         const params = self.callParams(call);
         const generic = self.facts.genericCallOf(call);
-        const ct_at: usize = if (generic) |g| @intFromBool(g.receiver_arg) else 0;
+        const ct_at: usize = if (generic) |g| @intFromBool(g.self_arg) else 0;
         const slots = self.facts.callSlotsOf(call);
         const n = if (slots) |sl| sl.len else args.len;
         var written: usize = 0;
@@ -9608,7 +9608,7 @@ pub const Emitter = struct {
         // compile-time arguments, after self.
         const owner_ws = self.facts.ownerWitnessesOf(call);
         for (0..n + 1) |i| {
-            if (owner_ws) |ow| if (i == @min(@intFromBool(ow.receiver_arg), n)) for (ow.witnesses) |w| {
+            if (owner_ws) |ow| if (i == @min(@intFromBool(ow.self_arg), n)) for (ow.witnesses) |w| {
                 if (written > 0) try self.w.writeAll(", ");
                 written += 1;
                 try self.writeWitness(w);
@@ -9943,7 +9943,7 @@ pub const Emitter = struct {
 
     /// `storage.consumedTemporary`.
     fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
-        return if (try self.need(self.facts.consumesReceiver(call), call)) self.facts.receiverOf(call) else null;
+        return if (try self.need(self.facts.consumesSelf(call), call)) self.facts.selfOf(call) else null;
     }
 
     /// `storage.isPureArg`.
@@ -9951,9 +9951,9 @@ pub const Emitter = struct {
         return self.need(self.facts.isPureArg(e), e);
     }
 
-    /// `storage.receiverOf`.
-    fn receiverOf(self: *Emitter, call: Sexp) ?Sexp {
-        return self.facts.receiverOf(call);
+    /// `storage.selfOf`.
+    fn selfOf(self: *Emitter, call: Sexp) ?Sexp {
+        return self.facts.selfOf(call);
     }
 
     /// Whether an operand tested against `none` or a bare `.variant` is
@@ -9968,25 +9968,25 @@ pub const Emitter = struct {
         return self.need(self.facts.hasStorage(e), e);
     }
 
-    /// `storage.receiverWrites`.
-    fn receiverWrites(self: *Emitter, call: Sexp) bool {
-        return self.facts.receiverWrites(call);
+    /// `storage.selfWrites`.
+    fn selfWrites(self: *Emitter, call: Sexp) bool {
+        return self.facts.selfWrites(call);
     }
 
-    /// Evaluate the receiver of a method call whose arguments are hoisted
+    /// Evaluate the self of a method call whose arguments are hoisted
     /// into `__rig_recv_N` first, so it runs before them, as written: the
     /// address of a place, or a temporary value, dropped after the call.
-    fn hoistReceiver(self: *Emitter, call: Sexp, id: u32) Error!void {
-        const hold = (try self.need(self.facts.receiverHold(call), call)) orelse return;
-        // Lend sigils on a receiver are implicit in Zig's method calls.
-        const recv = lentPlace(self.receiverOf(call).?);
-        const writes = self.receiverWrites(call);
+    fn hoistSelf(self: *Emitter, call: Sexp, id: u32) Error!void {
+        const hold = (try self.need(self.facts.selfHold(call), call)) orelse return;
+        // Lend sigils on a self are implicit in Zig's method calls.
+        const recv = lentPlace(self.selfOf(call).?);
+        const writes = self.selfWrites(call);
         // Held as written below: an address, or a value made here.
         const by: facts.StorageBy = switch (hold) {
             .leaf, .slot, .place => .pointer,
             .consumed, .value => .owned,
         };
-        const name = try self.hiddenStorage(recv, .receiver, by, .{ .id = id });
+        const name = try self.hiddenStorage(recv, .self, by, .{ .id = id });
         try self.writeIndent(self.indent);
         // A value that branches is held as the address of the leaf it
         // takes, and a value kept in its statement's slot, or a part of
@@ -10019,7 +10019,7 @@ pub const Emitter = struct {
         try self.emitBare(recv);
         try self.w.writeAll(";\n");
         if (kind == .value or kind == .optional or (writes and !ptr)) try self.poisonAtExit(name);
-        // Sema rejects a viewed temporary receiver that owns a resource
+        // Sema rejects a viewed temporary self that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
         // value holding a type parameter gets here (`@twice()` of a
         // `Wrap[T]`): plain data in every instance sema accepts, dropped
@@ -10034,8 +10034,8 @@ pub const Emitter = struct {
     }
 
     /// Every argument that is not pure goes into a typed temporary, in
-    /// source order, after the receiver (see `hoistReceiver`), and the
-    /// call itself runs last. An owned temporary, including a receiver
+    /// source order, after self (see `hoistSelf`), and the
+    /// call itself runs last. An owned temporary, including a self
     /// the method consumes, is dropped if a later argument leaves, and
     /// handed to the callee (its flag cleared) only when the call runs.
     /// `pair(mk(1)!, mk(2)!)`, with `mk` returning a `List[Int]`:
@@ -10058,8 +10058,8 @@ pub const Emitter = struct {
         try self.openBrace();
         const first = self.hoisted.items.len;
         if (try self.consumedTemporary(call)) |recv| {
-            try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .receiver, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
-        } else try self.hoistReceiver(call, id);
+            try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .self, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
+        } else try self.hoistSelf(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
             if (try self.isPureArg(value)) continue;
@@ -10081,10 +10081,10 @@ pub const Emitter = struct {
     /// temporary `h.name`. One that owns a resource is dropped at the end
     /// of the call's block unless the call takes it, clearing `h.flag`.
     /// An argument's storage is named here (`suffix`), held as it is
-    /// written: a receiver the method consumes comes named.
+    /// written: a self the method consumes comes named.
     fn hoist(self: *Emitter, h_in: Hoisted, suffix: ?StorageSuffix, params: []const TypeId, slot: usize, fields: bool) Error!void {
         var h = h_in;
-        // A consumed receiver (no suffix: its storage is named) is a value
+        // A consumed self (no suffix: its storage is named) is a value
         // of its own; an argument is held as the plan decided.
         const hold: facts.ArgumentHold = if (suffix == null) .value else try self.need(self.facts.argumentHold(h.node), h.node);
         if (hold == .closure or hold == .callable) {
@@ -10152,7 +10152,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// The temporary an argument or receiver was evaluated into, if it was.
+    /// The temporary an argument or self was evaluated into, if it was.
     fn hoistedOf(self: *Emitter, e: Sexp) ?Hoisted {
         var i = self.hoisted.items.len;
         while (i > 0) {
