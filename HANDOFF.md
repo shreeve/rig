@@ -106,23 +106,21 @@ A new session, human or agent, takes these steps in order:
 ## In flight
 
 - **The revamp of the runtime and std**
-  ([records/2026-11/revamp-runtime/](docs/history/records/2026-11/revamp-runtime/ledger.md)):
-  - **Landed in rounds 1 and 2 (#902-#907):**
-    - three audits;
-    - the output lock never held across a program's `print` method;
-    - panics that leave no lock, mailbox slot, or stack behind (a
-      panicked task's stack outlives the tasks it lent its frames to);
-    - waits that park rather than spin;
-    - several tasks waiting on one socket;
-    - one UTF-8 owner in std;
-    - std.terminal's memory bounded;
-    - "self" for "receiver" in the compiler.
-  - **Round 3, ready to start:** file I/O without `lent`, one completion
-    primitive, accept's poller. Each needs timing on pup
-    ([next-round.md](docs/history/records/2026-11/revamp-runtime/next-round.md)).
-  - **Waiting for the owner:** twelve decisions on std names and
-    behavior, each with a default
-    ([owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)).
+  ([records/2026-11/revamp-runtime/](docs/history/records/2026-11/revamp-runtime/ledger.md))
+  landed in three rounds, #902-#912:
+  - the output lock never held across a program's `print` method;
+  - panics that leave no lock, mailbox slot, or stack behind;
+  - waits that park, and an edge on a socket that reaches every waiter;
+  - file I/O with no lock or table, its descriptor and buffer moved
+    into the pool call (`io.copy` in a task 2.2 times faster on pup);
+  - one completion primitive for a task's end and an actor's answer;
+  - one UTF-8 owner in std, and std.terminal's memory bounded;
+  - "self" for "receiver" in the compiler.
+
+  Open: an actor's runner that panics does not wait for the tasks its
+  method started (concurrency.md, *planned*). Twelve decisions on std
+  names and behavior wait for the owner, each with a default
+  ([owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that

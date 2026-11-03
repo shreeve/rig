@@ -98,3 +98,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-31 | #832: Tables take ranges of one address space; its code is Linux-only (Mac, load 12-16) | rig-fast | 13.69 us | 6.18 us | 49.37 us |
 | 2026-11-03 | main 7cdd87e0b before #904, alternated (pup core 6) | rig-fast | 4.76 us | 4.60 us | 29.34 us |
 | 2026-11-03 | #904 at f848b716e: several tasks wait on one socket; waits park (pup core 6) | rig-fast | 4.77 us | 4.62 us | 28.77 us |
+| 2026-11-03 | #911: a wait on a socket waits for an edge after its own call; http.serve registers at accept (pup core 6, against main d63367d42: 4.81/4.61/28.93 us) | rig-fast | 4.84 us | 4.67 us | 28.97 us |
+| 2026-11-03 | #912: emit calls each wait's slot-taking form (pup core 6, against main 2189f6bd9: 4.81/4.65/28.92 us) | rig-fast | 4.80 us | 4.60 us | 28.85 us |
