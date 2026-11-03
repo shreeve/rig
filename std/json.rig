@@ -36,37 +36,19 @@
 # beyond `Float.max` is an error. Strings: `\u` escapes must pair their
 # surrogates, and raw bytes must be UTF-8 (RFC 3629).
 #
-# Workarounds that stand in for missing Rig capabilities are marked
+# A workaround that stands in for a missing Rig capability is marked
 # NEEDS; docs/design/json.md ("Open items") lists them.
 
 use std.target
 use std.text
 use std.utf8
 
-# ---- Bytes ------------------------------------------------------------
-# NEEDS (character literals): byte values are named here.
-
-TAB: U8 = 0x09
-LF: U8 = 0x0A
-CR: U8 = 0x0D
-SPACE: U8 = 0x20
-QUOTE: U8 = 0x22
-PLUS: U8 = 0x2B
-COMMA: U8 = 0x2C
-MINUS: U8 = 0x2D
-DOT: U8 = 0x2E
-ZERO: U8 = 0x30
-NINE: U8 = 0x39
-COLON: U8 = 0x3A
-LBRACKET: U8 = 0x5B
-BACKSLASH: U8 = 0x5C
-RBRACKET: U8 = 0x5D
-LOWER_E: U8 = 0x65
-LOWER_U: U8 = 0x75
-# `\u`, read as a little-endian U16.
+# The bytes a string's scan stops at, named for the vector compares, and
+# `\u`, read as a little-endian U16. NEEDS (a byte literal beside a
+# vector): beside a `Simd[U8, 16]`, `'"'` is not a byte.
+QUOTE: U8 = '"'
+BACKSLASH: U8 = "\\"
 BACKSLASH_U: U16 = 0x755C
-LBRACE: U8 = 0x7B
-RBRACE: U8 = 0x7D
 
 # ---- Limits -----------------------------------------------------------
 
@@ -124,22 +106,9 @@ pub enum Error
   depth
   too_large
 
-# NEEDS (an enum variant's name as text).
+# The name of `e`, `e.text`.
 pub fun error_name(e: Error) -> Static
-  match e
-    .ok => "ok"
-    .empty => "empty"
-    .unexpected => "unexpected"
-    .eof => "eof"
-    .number => "number"
-    .range => "range"
-    .escape => "escape"
-    .surrogate => "surrogate"
-    .control => "control"
-    .utf8 => "utf8"
-    .trailing => "trailing"
-    .depth => "depth"
-    .too_large => "too_large"
+  e.text
 
 pub obj Doc
   src: ?String
@@ -160,18 +129,16 @@ pub obj Doc
   pub fun size(?@) -> Int
     @tape.len
 
-  # The arms are the T_ tags, as literals: a `match` takes no named
-  # constant as a pattern.
   pub fun kind(?@, i: Int) -> Kind
     match @tape[i] & 15
-      0 => .null
-      1, 2 => .bool
-      3, 4 => .int
-      5 => .float
-      6, 7 => .string
-      8 => .array
-      9 => .array_end
-      10 => .object
+      T_NULL => .null
+      T_FALSE, T_TRUE => .bool
+      T_INT, T_BIG_INT => .int
+      T_FLOAT => .float
+      T_STR, T_ESC_STR => .string
+      T_ARRAY => .array
+      T_ARRAY_END => .array_end
+      T_OBJECT => .object
       _ => .object_end
 
   pub fun get_bool(?@, i: Int) -> Bool
@@ -240,7 +207,7 @@ pub obj Doc
       # A value starts at `i`.
       return (!@).fail(.eof, i) if i >= n
       c = src[i]
-      if c == LBRACE or c == LBRACKET
+      if c == '{' or c == '['
         return (!@).fail(.depth, i) if depth >= MAX_DEPTH
         depth += 1
         top = (!@).open(c, top)
@@ -250,7 +217,7 @@ pub obj Doc
           top = (!@).close(top)
           depth -= 1
           i += 1
-        else if c == LBRACE
+        else if c == '{'
           i = (!@).key(src, i)
           return -1 if i < 0
           continue
@@ -268,13 +235,14 @@ pub obj Doc
         return (!@).fail(.eof, i) if i >= n
         c = src[i]
         in_object = top & 1 == 1
-        if c == COMMA
+        if c == ','
           i = skip_space(src, i + 1)
           if in_object
             i = (!@).key(src, i)
             return -1 if i < 0
           break
-        if c == (RBRACE if in_object else RBRACKET)
+        closing: U8 = '}' if in_object else ']'
+        if c == closing
           top = (!@).close(top)
           depth -= 1
           i += 1
@@ -292,7 +260,7 @@ pub obj Doc
   # whose entry is `top`; returns the new one's entry. Its tape entry
   # holds `top` until `close` makes it name its end.
   fun open(!@, c: U8, top: Int) -> Int
-    is_object = c == LBRACE
+    is_object = c == '{'
     entry = @tape.len * 2 + (1 if is_object else 0)
     !@tape.push(top * 16 + (T_OBJECT if is_object else T_ARRAY))
     entry
@@ -311,23 +279,23 @@ pub obj Doc
   # Parses `"key"` and the `:` after it; returns where the value starts.
   fun key(!@, src: ?String, at: Int) -> Int
     return (!@).fail(.eof, at) if at >= src.len
-    return (!@).fail(.unexpected, at) if src[at] != QUOTE
+    return (!@).fail(.unexpected, at) if src[at] != '"'
     end = (!@).string(src, at)
     return -1 if end < 0
     i = skip_space(src, end)
     return (!@).fail(.eof, i) if i >= src.len
-    return (!@).fail(.unexpected, i) if src[i] != COLON
+    return (!@).fail(.unexpected, i) if src[i] != ':'
     skip_space(src, i + 1)
 
   # Parses the string, number, or literal that starts with `c` at `at`;
   # returns the index after it.
   fun scalar(!@, src: ?String, at: Int, c: U8) -> Int
     match c
-      0x22 => (!@).string(src, at)
-      0x2D, 0x30..0x3A => (!@).number(src, at)
-      0x74 => (!@).literal(src, at, "true", T_TRUE)
-      0x66 => (!@).literal(src, at, "false", T_FALSE)
-      0x6E => (!@).literal(src, at, "null", T_NULL)
+      '"' => (!@).string(src, at)
+      '-', '0'..='9' => (!@).number(src, at)
+      't' => (!@).literal(src, at, "true", T_TRUE)
+      'f' => (!@).literal(src, at, "false", T_FALSE)
+      'n' => (!@).literal(src, at, "null", T_NULL)
       _ => (!@).fail(.unexpected, at)
 
   fun literal(!@, src: ?String, at: Int, word: Static, tag: Int) -> Int
@@ -347,7 +315,7 @@ pub obj Doc
     start = at + 1
     i = skip_plain_ascii(src, start)
     # Most strings are plain ASCII and end at a quote: one read decides.
-    if i >= 0 and i < src.len and src[i] == QUOTE
+    if i >= 0 and i < src.len and src[i] == '"'
       return -1 if (!@).add_string(T_STR, start, i - start, at) < 0
       return i + 1
     (!@).string_rest(src, start, at, i)
@@ -362,10 +330,10 @@ pub obj Doc
       return -1 if i < 0
     return (!@).fail(.eof, i) if i >= src.len
     c = src[i]
-    if c == QUOTE
+    if c == '"'
       return -1 if (!@).add_string(T_STR, start, i - start, at) < 0
       return i + 1
-    return (!@).escaped(src, start, i) if c == BACKSLASH
+    return (!@).escaped(src, start, i) if c == "\\"
     (!@).fail(.control, i)
 
   fun add_string(!@, tag: Int, offset: Int, n: Int, at: Int) -> Int
@@ -394,7 +362,7 @@ pub obj Doc
     i = at
     while i + 16 <= n : i += 16
       cur = src.read[Block](i)
-      stops = (cur == QUOTE) | (cur == BACKSLASH) | (cur < SPACE)
+      stops = (cur == QUOTE) | (cur == BACKSLASH) | (cur < 0x20)
       if stops.first() as k
         # The stop is ASCII, so a sequence it cuts short is an error; the
         # lanes after it only ever add errors, which the check below then
@@ -439,18 +407,18 @@ pub obj Doc
     i = at
     while true
       c = src[i]
-      if c == QUOTE
+      if c == '"'
         return -1 if (!@).add_string(T_ESC_STR, offset, @text.len - offset, start - 1) < 0
         return i + 1
-      if c != BACKSLASH
+      if c != "\\"
         return (!@).fail(.control, i)
       i = (!@).escape(src, i)
       return -1 if i < 0
       # Escapes back to back need no scan between them.
-      continue if i < src.len and src[i] == BACKSLASH
+      continue if i < src.len and src[i] == "\\"
       i = (!@).copy_plain(src, i)
       # Stopped at a quote, backslash or control byte: the loop's top takes it.
-      continue if i < src.len and (src[i] == QUOTE or src[i] == BACKSLASH or src[i] < SPACE)
+      continue if i < src.len and (src[i] == '"' or src[i] == "\\" or src[i] < 0x20)
       j = (!@).plain(src, i)
       return -1 if j < 0
       return (!@).fail(.eof, j) if j >= src.len
@@ -477,7 +445,7 @@ pub obj Doc
   fun escape(!@, src: ?String, at: Int) -> Int
     return (!@).fail(.eof, at + 1) if at + 1 >= src.len
     e = src[at + 1]
-    return (!@).unicode(src, at) if e == LOWER_U
+    return (!@).unicode(src, at) if e == 'u'
     out = ESCAPES[e]
     return (!@).fail(.escape, at + 1) if out == 0
     !@text.push(out)
@@ -498,7 +466,7 @@ pub obj Doc
     if c >= 0xDC00 and c <= 0xDFFF
       return (!@).fail(.surrogate, at)
     if c >= 0xD800 and c <= 0xDBFF
-      if i + 1 >= src.len or src[i] != BACKSLASH or src[i + 1] != LOWER_U
+      if i + 1 >= src.len or src[i] != "\\" or src[i + 1] != 'u'
         return (!@).fail(.surrogate, at)
       low = (!@).hex4(src, i + 2)
       return -1 if low < 0
@@ -530,34 +498,34 @@ pub obj Doc
   fun number(!@, src: ?String, at: Int) -> Int
     n = src.len
     i = at
-    negative = peek(src, i) == MINUS
+    negative = peek(src, i) == '-'
     i += 1 if negative
     first = i
     m: U64 = 0
-    i = take_digits(src, i, !m)
+    i, m = take_digits(src, i, m)
     int_digits = i - first
     return (!@).fail(.number, i) if int_digits == 0
-    return (!@).fail(.number, first + 1) if int_digits > 1 and peek(src, first) == ZERO
+    return (!@).fail(.number, first + 1) if int_digits > 1 and peek(src, first) == '0'
     frac_digits = 0
     is_float = false
-    if peek(src, i) == DOT
+    if peek(src, i) == '.'
       is_float = true
       i += 1
       dot = i
-      i = take_digits(src, i, !m)
+      i, m = take_digits(src, i, m)
       frac_digits = i - dot
       return (!@).fail(.number, i) if frac_digits == 0
     exp = 0
-    if peek(src, i) | 0x20 == LOWER_E
+    if peek(src, i) | 0x20 == 'e'
       is_float = true
       i += 1
-      exp_negative = i < n and src[i] == MINUS
-      i += 1 if i < n and (src[i] == MINUS or src[i] == PLUS)
+      exp_negative = i < n and src[i] == '-'
+      i += 1 if i < n and (src[i] == '-' or src[i] == '+')
       exp_first = i
       while i < n and is_digit(src[i])
         # Past 100000 the value is 0 or out of range anyway.
         if exp < 100000
-          exp = exp * 10 + Int(src[i] - ZERO)
+          exp = exp * 10 + Int(src[i] - '0')
         i += 1
       return (!@).fail(.number, i) if i == exp_first
       exp = -exp if exp_negative
@@ -609,7 +577,7 @@ fun peek(s: ?String, i: Int) -> U8
   s[i]
 
 fun is_digit(c: U8) -> Bool
-  c >= ZERO and c <= NINE
+  c >= '0' and c <= '9'
 
 # The value of the four hex digits at `at`, or a negative number when
 # one is missing or is not a hex digit, from one U32 read. A byte that
@@ -674,28 +642,28 @@ fun skip_space(s: ?String, at: Int) -> Int
   while i < s.len
     c = s[i]
     # Every whitespace byte is a space or below it.
-    return i if c > SPACE
-    if c == SPACE and i + 8 <= s.len and s.read[U64, .little](i) == SPACES
+    return i if c > ' '
+    if c == ' ' and i + 8 <= s.len and s.read[U64, .little](i) == SPACES
       i += 8
-    else if c == SPACE or c == LF or c == CR or c == TAB
+    else if c == ' ' or c == "\n" or c == "\r" or c == "\t"
       i += 1
     else
       return i
   i
 
-# Reads the digits from `at` on into `m`, which wraps past 19 of them;
-# returns where they end. SWAR, as in sonic-rs: one U64 read takes 8
-# digits, or the 1 to 7 that end a run, so only the input's last 7
-# bytes go one at a time. (Wrapping keeps a number of up to 19 digits
-# exact, so there is no cap at 17 digits, as sonic-rs has.)
-# NEEDS (multiple results): `m` is an out-parameter, which stays in a
-# register only when the call is inlined; the byte loop is split off
-# into `take_last_digits` so that this one is small enough to be.
-fun take_digits(s: ?String, at: Int, m: !U64) -> Int
+# Reads the digits from `at` on, after the digits whose value is `m`;
+# returns where they end, and the value of all of them, which wraps past
+# 19 digits. SWAR, as in sonic-rs: one U64 read takes 8 digits, or the 1
+# to 7 that end a run, so only the input's last 7 bytes go one at a time.
+# (Wrapping keeps a number of up to 19 digits exact, so there is no cap
+# at 17 digits, as sonic-rs has.) The byte loop is split off into
+# `take_last_digits` so that this one is small enough to be inlined.
+fun take_digits(s: ?String, at: Int, m: U64) -> (Int, U64)
   # Outside `s` there are no digits to take. From here on
   # 0 <= at <= s.len, which bounds every read below.
-  return at if at < 0 or at > s.len
+  return at, m if at < 0 or at > s.len
   i = at
+  v = m
   while i + 8 <= s.len
     # Each byte less `0`: a byte is a digit when that is below 10, so
     # its top bit is clear in both `d` and `d + 0x76`. A carry only
@@ -706,20 +674,21 @@ fun take_digits(s: ?String, at: Int, m: !U64) -> Int
       k = first_marked64(bad)
       # The k digits, moved up to the top bytes, and the bytes above
       # them shifted out: 8 digits, with leading zeros.
-      m = m *% POW10_U64[k] +% eight_digits(d <<% (64 - 8 * k)) if k > 0
-      return i + k
-    m = m *% 100000000 +% eight_digits(d)
+      v = v *% POW10_U64[k] +% eight_digits(d <<% (64 - 8 * k)) if k > 0
+      return i + k, v
+    v = v *% 100000000 +% eight_digits(d)
     i += 8
-  take_last_digits(s, i, !m)
+  return take_last_digits(s, i, v)
 
 # `take_digits` for the input's last 7 bytes or fewer, a byte at a time.
-fun take_last_digits(s: ?String, at: Int, m: !U64) -> Int
-  return at if at < 0
+fun take_last_digits(s: ?String, at: Int, m: U64) -> (Int, U64)
+  return at, m if at < 0
   i = at
+  v = m
   while i < s.len and is_digit(s[i])
-    m = m *% 10 +% U64(s[i] - ZERO)
+    v = v *% 10 +% U64(s[i] - '0')
     i += 1
-  i
+  return i, v
 
 # 10^0 to 10^8.
 POW10_U64: [9]U64 = [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000]
@@ -745,7 +714,7 @@ ONES64: U64 = 0x0101010101010101
 # The lanes of `v` that end a run of plain ASCII in a string: a quote,
 # a backslash, a control byte, or a byte of 0x80 or more.
 fun special(v: Simd[U8, 16]) -> Simd[Bool, 16]
-  (v == QUOTE) | (v == BACKSLASH) | (v < SPACE) | (v >= 0x80)
+  (v == QUOTE) | (v == BACKSLASH) | (v < 0x20) | (v >= 0x80)
 
 # The index of the first byte from `at` on that is a quote, a
 # backslash, a control byte, or 0x80 or more, or `s.len`: the first
@@ -777,7 +746,7 @@ fun skip_plain_ascii(s: ?String, at: Int) -> Int
     return i + first_marked64(m) if m != 0
     i += 8
   for c, k in s[i..]
-    return i + k if c == QUOTE or c == BACKSLASH or c < SPACE or c >= 0x80
+    return i + k if c == '"' or c == "\\" or c < 0x20 or c >= 0x80
   s.len
 
 # The top bit of each byte of `w` that is `"`, `\`, below 0x20, or 0x80

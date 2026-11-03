@@ -107,8 +107,9 @@ seen, so no read passes the end and the input needs no padding. At the
 first special byte the scan stops; an escape or a run of UTF-8 is
 handled, and scanning resumes right after it, never from the string's
 start. Non-ASCII text is checked 16 bytes at a time up to the string's
-next stop, by Keiser-Lemire's table lookups (simdjson's lookup4), in a
-method kept out of line, since most strings never reach it. Near the
+next stop, by Keiser-Lemire's table lookups (simdjson's lookup4, which
+std.utf8 gives as `block_errors`), in a method kept out of line, since
+most strings never reach it. Near the
 end of the input, or when a block shows an error, it checks a sequence
 at a time from the text's first non-ASCII byte, which gives the
 error's offset. Keys rarely reach the second tier; most value bytes do.
@@ -187,21 +188,11 @@ references' published designs where marked. In order of expected gain:
    the tests write each input as one literal, but a program is at most
    16 MiB of source, so the tests spread their inputs over several
    programs.
-6. **Multiple results** (clarity). A function may give several
-   results (SPEC, "Several results"), but the parser predates it:
-   `take_digits` hands back the digits' value through an out-parameter,
-   which stays in a register only when the call is inlined. The byte
-   loop is split off into `take_last_digits` so that `take_digits` is
-   small enough to inline. Adopting results would drop the
-   out-parameter.
-7. **An enum variant's name as text** (clarity). `e.text` gives it
-   (SPEC, "Enums"), but `error_name` still spells out each `Error`
-   variant's name in a `match`.
-8. **Character literals** (clarity). The language has them (SPEC,
-   "Byte literals"): `'"'`, `'\\'`, `'{'` are `U8` values. The parser
-   still names 19 byte constants and writes `match` arms as hex
-   literals with no name; std.json has yet to adopt them.
-9. **Errors that carry data** (API). Errors with fields are built (SPEC
+6. **A byte literal beside a vector** (clarity). A byte literal takes
+   the type `U8` beside a `U8` (SPEC, "Byte literals"), but not beside
+   a `Simd[U8, 16]`, so the vector compares name `QUOTE` and
+   `BACKSLASH`.
+7. **Errors that carry data** (API). Errors with fields are built (SPEC
    §15), but a parse error here is still a kind and a byte offset: `parse`
    returns a `Bool` and the `Doc` holds `error` and `error_pos`. std.json
    has yet to adopt them, which changes the API to fallible `!`
@@ -211,6 +202,6 @@ The final API is the design owner's decision, and is not settled:
 `parse` and the readers as fallible `!` functions, errors that carry
 their offset, and `!` or `T?` in place of the `-1` that the parser's
 internal steps return on an error. A `T?` costs nothing here: with
-`utf8_end` and `utf8_end3` returning `Int?` in place of `-1`, and no
+`utf8_end` returning `Int?` in place of `-1`, and no
 other change, instructions per byte stayed within 1% on all six corpus
 files. Until then `std.json` is experimental.
