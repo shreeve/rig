@@ -8285,6 +8285,10 @@ fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
     panicWith(msg, writePanic, first_trace_addr orelse @returnAddress());
 }
 
+fn writeText(w: *std.Io.Writer, text: []const u8) std.Io.Writer.Error!void {
+    try w.writeAll(text);
+}
+
 fn writePanic(w: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
     try w.print("panic: {s}\n", .{msg});
 }
@@ -8309,13 +8313,13 @@ pub noinline fn fail(pieces: anytype) noreturn {
 /// death answers the calls queued on it, and a caller that panics at
 /// that answer, on another worker, must not be the one reported.
 fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
-    var stack: [rendered_stack]u8 = undefined;
-    var report: Spill = .init(&stack);
-    write(&report.writer, what) catch unreachable;
-    const ends = panicEnds();
-    if (ends) beginPanic() else flushForPanic();
-    writeStderr(report.writer.buffered());
-    report.deinit();
+    const ends = if (comptime printRunsCode(@TypeOf(what), print_code_depth)) rendered: {
+        var stack: [rendered_stack]u8 = undefined;
+        var report: Spill = .init(&stack);
+        defer report.deinit();
+        write(&report.writer, what) catch unreachable;
+        break :rendered reportPanic(report.writer.buffered(), writeText);
+    } else reportPanic(what, write);
     // The trace names emitted Zig lines. Only the unwinder that cannot
     // fault walks it: the program runs on a stack the runtime maps
     // (`onOwnStack`), which the other one faults on.
@@ -8324,6 +8328,20 @@ fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
     };
     stopPanic();
     std.process.abort();
+}
+
+/// A panic's report, `write(w, what)`, on stderr after what `print` has
+/// buffered, under the lock Zig's own reports take; whether the panic
+/// ends the program (`panicEnds`).
+fn reportPanic(what: anytype, comptime write: anytype) bool {
+    const ends = panicEnds();
+    if (ends) beginPanic() else flushForPanic();
+    var buf: [1024]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    write(&ls.file_writer.interface, what) catch {};
+    ls.file_writer.interface.flush() catch {};
+    return ends;
 }
 
 // Tests. `rig test` builds a driver whose `main` calls `runTests` with
