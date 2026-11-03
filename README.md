@@ -600,7 +600,8 @@ to `^T`, `List`, `String`, and `obj`; [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3
 migrates 0.2 programs, `tools/migrate-0.3.py` first.
 
 **Built and tested:** the language in this README, its ownership
-checker, declared error sets whose members carry fields, generics with
+checker, pattern tests (`x matches .ready(r)`) and fused iterator
+chains (`xs.filter(f).min_by(k)`, one loop, no allocation), declared error sets whose members carry fields, generics with
 bounds (`[K: Hash]`, `[T: Shape]`) and generic error sets, APIs of a
 program's own and API objects of every form, compile-time
 functions, closures, tables, modules, SIMD vectors, C functions through
