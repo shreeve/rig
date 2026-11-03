@@ -9965,9 +9965,9 @@ takes an optional field, `~p.h` holds a field's handle weakly). The
 lend is on that place, so another field of `p` stays free while the
 closure lives, and in the body the path names the capture. The body
 reaches the path and what is below it (`p.a.len`), never `p` or
-another field of it; two captures in one list, one inside the other
-(`|?p, ?p.a|`), are rejected, and an element (`|?xs[i]|`) is lent to a
-name first.
+another field of it, and no `new p` in it names another `p`; two
+captures in one list, one inside the other (`|?p, ?p.a|`), are
+rejected, and an element (`|?xs[i]|`) is lent to a name first.
 
 ```rig
 obj RenderState

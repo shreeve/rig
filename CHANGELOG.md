@@ -240,6 +240,10 @@ Other:
     files and in Markdown's code. Trig has none; loco has one
     (`rig/loc/scan.rig`). `matches` is a word only after a value, so a
     local, parameter, or function named `matches` keeps its name.
+59. In a closure that captures a path, `|?p.a|`, a `new p` is rejected:
+    the body's `p.a` read the capture, not the new `p`, so `new p =
+    P(a: 7)` then `print(p.a)` printed the captured field. Name the new
+    value otherwise.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

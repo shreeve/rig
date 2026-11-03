@@ -1019,7 +1019,10 @@ const SymbolResolver = struct {
                 try self.checkNewLocal(target);
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
-            .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
+            .shadow => {
+                try self.checkCapturedRoot(target);
+                _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) });
+            },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordWrite(node, existing, .compound);
@@ -1064,6 +1067,24 @@ const SymbolResolver = struct {
         if (self.scope == self.module_scope) return;
         try self.checkLambdaShadow(name_node);
         try self.checkShadowsDeclaration(name_node, "local");
+    }
+
+    /// A closure that captures a path, `|?p.a|`, reads the capture
+    /// wherever its body writes the path (`Parser.namePaths`), so no `new
+    /// p` inside it may make `p.a` mean another `p` (SPEC, "Closures").
+    fn checkCapturedRoot(self: *SymbolResolver, name_node: Sexp) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        var sid: ?ScopeId = self.scope;
+        while (sid) |s| : (sid = self.ctx.scopes.items[s].parent) {
+            const scope = self.ctx.scopes.items[s];
+            if (scope.kind == .function or scope.kind == .module) return;
+            if (scope.kind != .lambda) continue;
+            for (scope.symbols.items) |id| {
+                const path = self.ctx.symbols.items[id].name;
+                if (self.ctx.symbols.items[id].kind != .capture or !sema.pathHolds(name, path)) continue;
+                return self.ctx.errAt(name_node, "`new {s}` would hide `{s}`, whose path `{s}` this closure captures; `{s}` in the closure is the capture, so name the new value otherwise", .{ name, name, path, path });
+            }
+        }
     }
 
     /// Inside a lambda, a new local may not reuse a name of the
