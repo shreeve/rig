@@ -23,7 +23,7 @@ pub fun max[T: Ord](a: T, b: T) -> T
 # when `x > hi`. Panics when `hi < lo`.
 pub fun clamp[T: Ord](x: T, lo: T, hi: T) -> T
   if hi < lo
-    clamp_bounds()
+    panic("math.clamp: the low bound is above the high bound")
   lo if x < lo else (hi if hi < x else x)
 
 # The greatest common divisor, never negative; `gcd(0, 0)` is 0. Panics
@@ -87,8 +87,6 @@ extern zig "math.zig"
   fun shortest_digits(f: Float) -> U64
   # The exponent of `shortest` for a finite `f`.
   fun shortest_exp(f: Float) -> Int
-  # Panics: `clamp`'s bounds are the wrong way round.
-  sub clamp_bounds()
 
   # The square root; NaN for a negative `x`.
   pub fun sqrt(x: Float) -> Float

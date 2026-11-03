@@ -39,13 +39,11 @@ pub fn char_end(s: []const u8, i: i64) i64 {
 
 /// The bytes the first `n` chars of `s` take: all of `s` if it has fewer.
 pub fn first_chars_end(s: []const u8, n: i64) i64 {
-    if (n < 0) @panic("text.first_chars: the count is negative");
     return @intCast(walk(s, @intCast(n)).end);
 }
 
 /// Where the last `n` chars of `s` start: 0 if it has fewer.
 pub fn last_chars_start(s: []const u8, n: i64) i64 {
-    if (n < 0) @panic("text.last_chars: the count is negative");
     var back: Back = .{};
     var at = s.len;
     var k: i64 = 0;
@@ -54,8 +52,7 @@ pub fn last_chars_start(s: []const u8, n: i64) i64 {
 }
 
 /// The char boundary at or before byte `i`, `0 <= i <= s.len`.
-pub fn char_boundary(s: []const u8, i: i64) i64 {
-    if (i < 0 or i > s.len) @panic("text.char_boundary: the index is out of bounds");
+pub fn boundary_at(s: []const u8, i: i64) i64 {
     const at: usize = @intCast(i);
     if (at == 0 or at == s.len) return i;
     var back: Back = .{};
@@ -620,7 +617,7 @@ test "forward and backward agree" {
         for (0..s.len + 1) |i| {
             while (k + 1 < count and starts.items[k + 1] <= i) k += 1;
             const want: usize = if (i == s.len) s.len else starts.items[k];
-            try std.testing.expectEqual(@as(i64, @intCast(want)), char_boundary(s, @intCast(i)));
+            try std.testing.expectEqual(@as(i64, @intCast(want)), boundary_at(s, @intCast(i)));
         }
         for (0..count + 2) |m| {
             const first: usize = if (m < count) starts.items[m] else s.len;

@@ -32,7 +32,8 @@ pub obj Random unique
   # An `Int` from `lo` up to but not including `hi`, each equally
   # likely. Panics unless `lo < hi`.
   pub fun int(!@, lo: Int, hi: Int) -> Int
-    check_range(lo, hi)
+    if lo >= hi
+      panic(String("random: empty range ", lo, "..", hi))
     # The number of values, which fits a `U64` even for the widest range.
     n = as_u64(hi -% lo)
     # Rejecting the few smallest values leaves a whole number of runs
@@ -67,6 +68,3 @@ fun as_int(n: U64) -> Int
 extern zig "random.zig"
   # 64 bits from the operating system's entropy source.
   fun entropy() -> U64
-
-  # Panics unless `lo < hi`.
-  sub check_range(lo: Int, hi: Int)

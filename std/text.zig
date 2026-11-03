@@ -11,14 +11,6 @@ const ParseError = error{
     @"std.text.ParseError.overflow",
 };
 
-pub fn empty_separator() void {
-    @panic("text.split: the separator is empty");
-}
-
-pub fn bad_run_count() void {
-    @panic("text.chunks: the count of runs is not positive");
-}
-
 pub fn find(s: []const u8, pat: []const u8) ?i64 {
     return @intCast(search(s, pat) orelse return null);
 }
@@ -333,11 +325,6 @@ const byte_rank: [256]u8 = .{
     101, 102, 157, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 138,
     152, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129,
 };
-
-pub fn bad_base(who: []const u8) void {
-    var buf: [64]u8 = undefined;
-    @panic(std.fmt.bufPrint(&buf, "{s}: the base is not between 2 and 36", .{who}) catch "text: the base is not between 2 and 36");
-}
 
 /// The value of each byte as a digit: `0` to `9`, then the letters `a`
 /// to `z` in either case for 10 to 35, and 36 for any other byte.

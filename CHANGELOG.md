@@ -265,6 +265,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **std's argument panics are Rig's `panic`.** std.text, std.bigint,
+  std.math, and std.random raised the panics of a misused argument (an
+  empty separator, a negative shift, an empty range) from Zig shims;
+  each is a `panic` in the Rig function, with the same message and
+  the position of the std line that raises it, and std/bigint.zig is
+  gone.
 - **std.utf8 checks UTF-8 for std.json and std.utf16.** One block
   check, `utf8.block_errors` (Keiser and Lemire's), serves `is_valid`,
   `rune_count`, `utf16.unit_count`, which is `utf8.weighted_count[2]`,
