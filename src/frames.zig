@@ -132,9 +132,11 @@ fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayLis
         if (off + 8 > bytes.len) return null;
         const cmd = u32At(bytes, off);
         const size = u32At(bytes, off + 4);
+        if (off + size > bytes.len) return null;
         if (cmd == 0x19) {
+            if (size < 72) return null;
             const nsects = u32At(bytes, off + 64);
-            var k: u32 = 0;
+            var k: usize = 0;
             while (k < nsects) : (k += 1) {
                 const s = off + 72 + k * 80;
                 if (s + 80 > bytes.len) return null;
@@ -145,6 +147,7 @@ fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayLis
                 }
             }
         } else if (cmd == 0x2) {
+            if (size < 24) return null;
             symoff = u32At(bytes, off + 8);
             nsyms = u32At(bytes, off + 12);
             stroff = u32At(bytes, off + 16);

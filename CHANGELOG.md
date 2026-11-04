@@ -361,6 +361,18 @@ MIGRATING-0.3 lists each.
   guard that binds is rejected with its own message ("a postfix guard's
   condition binds no names"), and a name an `else` cannot see because its
   condition binds it says so.
+- **Emit is linear in a type's methods.** Each name written inside a
+  type was compared with every method of the type; a set per type
+  makes it a lookup. `rig build` of Trig's checker, whose `Checker`
+  has 3,244 methods, takes 30.3G instructions to reach Zig rather than
+  42.4G (2.03 s rather than 2.52 s), against 27.4G for `rig check`
+  alone.
+- **A shift amount past the width panics with Rig's message.** A
+  run-time amount that is negative or not below the shifted type's bit
+  count, for a scalar or a vector's lanes, panics with ``shift amount
+  `9` is out of range for `U8` (0..7)``, the text of the constant check,
+  not Zig's "integer does not fit in destination type"
+  (`rig.shiftAmount`).
 - **`task.select` names its arms and gives a value that `match` takes
   apart.** `match task.select(add: !a.on_recv(), sub: !b.on_recv(),
   late: time.after(50 * time.MS))!` gives a value of its own type,
