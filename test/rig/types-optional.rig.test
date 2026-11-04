@@ -695,7 +695,7 @@ test "ternary binds with as", '''
   30 0
   9
   3
-  '''
+'''
   # A ternary's condition binds as an `if` condition does, and the names
   # are visible in the value before `if` (SPEC, "Block expressions"):
   # alone, joined by `and`, in an argument, a field initializer, a
@@ -734,7 +734,7 @@ test "ternary binds with as", '''
   print(a + b if pair(3) as a, b else 0)
   print((v + w if get(2) as w else v) if get(1) as v else -1)
 
-fail "ternary binding is not seen by else", "5:31: use of unbound name `x`; the condition binds `x` only for what runs when it holds, not for `else`", "7:9: use of unbound name `y`", "9:10: use of unbound name `z`; the condition binds `z` only for what runs when it holds, not for `else`"
+fail "ternary binding is not seen by else", "7:49: use of unbound name `x`; the condition binds `x` only for what runs when it holds, not for `else`", "9:7: use of unbound name `y`", "13:9: use of unbound name `z`; the condition binds `z` only for what runs when it holds, not for `else`"
   # The names a ternary's condition binds are visible in the value
   # before `if` only: not in the `else` value, nor after the expression;
   # an `if` block's are not seen by its `else` either.
@@ -749,7 +749,7 @@ fail "ternary binding is not seen by else", "5:31: use of unbound name `x`; the 
   else
     print(z)
 
-fail "ternary binding that shadows", "4:22: optional binding `z` shadows the local `z`; use a different name"
+fail "ternary binding that shadows", "6:20: optional binding `z` shadows the local `z`; use a different name"
   # A ternary's binding is a new name, as an `if` condition's is.
   fun get(k: Int) -> Int?
     k if k > 0 else none
@@ -758,7 +758,7 @@ fail "ternary binding that shadows", "4:22: optional binding `z` shadows the loc
   c = z if get(3) as z else 0
   print(c)
 
-fail "postfix guard binds no names", "5:13: a postfix guard binds no names: write an `if` block, whose body sees them", "6:20: a postfix guard binds no names: write an `if` block, whose body sees them", errors: 2
+fail "postfix guard binds no names", "11:13: a postfix guard binds no names: write an `if` block, whose body sees them", "13:15: a postfix guard binds no names: write an `if` block, whose body sees them", errors: 2
   # A guard's statement stands before its condition and sees no name it
   # binds (SPEC §12, "Joined bindings").
   enum Shape

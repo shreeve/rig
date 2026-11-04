@@ -120,18 +120,18 @@ fail "as chain scope", "17:4: use of unbound name `y`", "22:9: use of unbound na
   while make(i) as r and r.id < 3: print(r.id)
     i += 1
 
-fail "as in ternary or guard", "7:10: `as` binds only in the condition of an `if` or `while` block", "9:13: `as` binds only in the condition of an `if` or `while` block"
-  # `as` binds in the condition of an `if` or `while` block, where the
-  # block can see the name; a ternary or a postfix guard has no block.
+fail "as in a guard or under or in a ternary", "7:13: a postfix guard binds no names: write an `if` block, whose body sees them", "8:10: `as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`"
+  # A ternary's condition binds for the value before `if`; a postfix
+  # guard binds no names, and `as` stands under no `or` in either.
 
   fun get(k: Int) -> Int?
     k if k > 0 else none
 
-  v = 1 if get(1) as x else 2
-  print(v)
   print(3) if get(4) as y and y > 3
+  v = 1 if get(1) as x or true else 2
+  print(v)
 
-fail "as outside condition", "7:5: `as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", "8:4: `as` binds only in the condition of an `if` or `while` block", "10:8: `as` binds only in the condition of an `if` or `while` block", "12:7: `as` binds only in the condition of an `if` or `while` block"
+fail "as outside condition", "7:5: `as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`", "8:4: `as` binds only in the condition of an `if` or `while` block", "10:8: `as` binds only in the condition of an `if` or `while` block", "12:7: `as` binds only in the condition of an `if` or `while` block"
   # `as` binds only in the condition of an `if` or `while` block, alone or joined to
   # the rest of it by `and`.
 

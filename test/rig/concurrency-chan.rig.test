@@ -536,3 +536,21 @@ fail "chan select named in a block a view escapes", "11:7: `s` does not live lon
       .got(_) => pass
       .late => pass
   print(r)
+
+test "chan select tested in a ternary", seeds: 20, "7 -1 hi none"
+  # A ternary's condition binds the fields `matches` names, as an `if`
+  # condition does, for the value before `if` (SPEC, "Block
+  # expressions"): a select's value tested there is matched as `match`
+  # matches it, and a received value moved out with `<`.
+  use std.time
+  ch = *Chan[Int](4)
+  !ch.send(7)!
+  x = v if task.select(add: !ch.on_recv(), late: time.after(time.SECOND))! matches .add(v?) else 0
+  !ch.close()
+  y = v if task.select(add: !ch.on_recv(), late: time.after(time.SECOND))! matches .add(v?) else -1
+  words = *Chan[String](1)
+  !words.send(String("hi"))!
+  a = <w if task.select(got: !words.on_recv(), late: time.after(time.SECOND))! matches .got(w?) else String("none")
+  !words.close()
+  b = <w if task.select(got: !words.on_recv(), late: time.after(time.SECOND))! matches .got(w?) else String("none")
+  print(x, y, a, b)
