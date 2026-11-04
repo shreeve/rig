@@ -1911,6 +1911,8 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         // A program with error fields reads them through its glue.
         if (i == 0 and glue) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
+        // Zig addresses a file with u32 offsets (`std.zig.Ast.ByteOffset`).
+        if (file_buffer.written().len > std.math.maxInt(u32)) fatal("error: cannot emit `{s}`: its Zig is 4 GiB or larger, more than Zig reads in one file; split it into modules", .{m.display});
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| {
             // A shim beside the runtime imports it by its path; in a batch

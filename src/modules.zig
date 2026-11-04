@@ -48,8 +48,24 @@ const timing = @import("timing.zig");
 const ir = parser.ir;
 const std_lib = @import("rig_std");
 
-/// The most bytes a source file holds (16 MiB).
-pub const max_source_bytes = 16 * 1024 * 1024;
+/// The most bytes one source file or one module holds: one less than
+/// 2 GiB. A position in a source is a u32 (`parser.Span`): the lower
+/// half of their range addresses the source, and fits the language
+/// server's line and character numbers (the protocol's `uinteger`); the
+/// upper half numbers the leaves the parser wrapper adds past the
+/// source's end (`rig.Parser.hiddenPos`), below sema's sentinel
+/// positions (`sema.imported_decl_pos`). An emitted module is a Zig
+/// file, which Zig addresses with u32 offsets too (`emitPackage`).
+pub const max_source_bytes = std.math.maxInt(Position) >> 1;
+const Position = @FieldType(parser.Span, "start");
+/// The size in the messages of a source too large.
+const max_source_text = "2 GiB";
+
+comptime {
+    for (.{ @FieldType(parser.Src, "pos"), @FieldType(parser.Token, "pos"), @FieldType(diag.Part, "start") }) |T| std.debug.assert(T == Position);
+    std.debug.assert(max_source_bytes + 1 == 2 << 30);
+    std.debug.assert(max_source_bytes < rig.last_hidden_pos and rig.last_hidden_pos < sema.imported_decl_pos);
+}
 
 /// The root module's emitted file. Names starting with `__rig` are the
 /// emitter's, and `use` rejects them.
@@ -617,7 +633,7 @@ pub const ModuleGraph = struct {
             const body = if (std.mem.startsWith(u8, text, "\xEF\xBB\xBF")) text[3..] else text;
             const newline: usize = @intFromBool(body.len > 0 and body[body.len - 1] != '\n');
             if (joined.items.len + body.len + newline > max_source_bytes) {
-                try self.dirError(id, at, "module `{s}` is larger than {d} MiB, the most one module may hold; split it into modules", .{ qualified, max_source_bytes >> 20 });
+                try self.dirError(id, at, "module `{s}` is " ++ max_source_text ++ " or larger, past the most one module may hold; split it into modules", .{qualified});
                 return null;
             }
             try parts.append(a, .{ .start = @intCast(joined.items.len), .path = shown });
@@ -959,9 +975,17 @@ pub fn fileError(err: anyerror) []const u8 {
         error.IsDir => "it is a directory",
         error.NotDir => "a component of the path is not a directory",
         error.AccessDenied, error.PermissionDenied => "permission denied",
-        error.StreamTooLong => std.fmt.comptimePrint("the file is larger than {d} MiB", .{max_source_bytes >> 20}),
+        error.StreamTooLong => "the file is " ++ max_source_text ++ " or larger",
         else => @errorName(err),
     };
+}
+
+test "a source of the most bytes a module holds is read, and one byte more is not" {
+    // `sized` reads only the length: no byte of these is there.
+    const none: [*]const u8 = @ptrFromInt(std.heap.page_size_min);
+    try std.testing.expectEqual(max_source_bytes, (try ModuleGraph.sized(none[0..max_source_bytes])).len);
+    try std.testing.expectError(error.StreamTooLong, ModuleGraph.sized(none[0 .. max_source_bytes + 1]));
+    try std.testing.expectEqualStrings("the file is 2 GiB or larger", fileError(error.StreamTooLong));
 }
 
 test "moduleName strips the directory and .rig" {

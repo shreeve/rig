@@ -69,14 +69,6 @@ bad('unexpected_long.rig', f'  print(1 "{a}")')
 bad('foreign_word.rig', f'  {name} 5')
 bad('detached.rig', f'  x = - {name}\n  print(x)')
 bad('spacing.rig', f'  x = "{a}" +"b"\n  print(x)')
-
-# The source limit is 16 MiB: a literal that fills it is read; one byte
-# more is not.
-limit = 16 << 20
-head = 'sub main()\n  s = "'
-tail = '"\n  print(s.len)\n'
-open('at_limit.rig', 'w').write(head + 'a' * (limit - len(head) - len(tail)) + tail)
-open('over_limit.rig', 'w').write(head + 'a' * (limit + 1 - len(head) - len(tail)) + tail)
 EOF
 
 # The values, in debug and --release.
@@ -123,7 +115,3 @@ check unexpected_long.rig 2:11 'unexpected `"aaaa'
 check foreign_word.rig 2:70004 "unexpected"
 check detached.rig 2:7 "a prefix \`-\` touches its operand: write \`-nxxx"
 check spacing.rig 2:70010 '`a +"b"`: an operator has the same spacing on both sides'
-
-"$RIG" check at_limit.rig >out.txt 2>&1 || fail "a 16 MiB source: $(head -c 2000 out.txt)"
-out=$("$RIG" check over_limit.rig 2>&1); expect_rc $? 1 "a source over 16 MiB"
-expect_has "$out" "the file is larger than 16 MiB" "a source over 16 MiB"
