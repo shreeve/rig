@@ -3250,10 +3250,14 @@ conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.
 
-**Control flow.** `if`, `match`, ternaries, `catch`, and the fallback of
-`??` walk every branch from the same entry state and join the results:
-moved or dropped on any path means moved or dropped after, and loans
-are unioned. A
+**Control flow.** `if`, `match`, ternaries, `catch`, the fallback of
+`??`, and the right side of `and` and `or` walk every branch from the
+same entry state and join the results (`walkMayRun` for a side that
+may not run): moved or dropped on any path means moved or dropped
+after, and loans are unioned. A condition with `as` parts leaves for
+its `else` from each part that may fail, with the effects of that part
+and the ones before it, and the `else` starts from the join of those
+states. A
 `match` scrutinee is resolved as a place (a var, or a field path in
 one), whose root stays lent while a payload binding views it (lent
 to write for `match !x`, whose bindings write through like a local
@@ -3331,8 +3335,8 @@ exit, resume_at })`, which desugars an exit into three steps:
 
 | Exit | `to` | `exit` | `resume_at` |
 |---|---|---|---|
-| an `if`, `match` arm, `catch` handler, or `??` fallback that ends (`leave`) | the construct's entry | | past the construct |
-| a failing part of `if a as x and ...`, `while a as x`, or a guard | the construct's entry | | the `else`, the next arm, or past it |
+| an `if`, `match` arm, `catch` handler, `??` fallback, or right side of `and` or `or` that ends (`leave`) | the construct's entry | | past the construct |
+| each failing part of `if a as x and ...` or `while a as x and ...`, after the part runs; a failing guard | the construct's entry | | the `else`, the next arm, or past it |
 | `break`, `continue` | the loop's entry; for a `continue` in the body of a `while` whose step reads a binding of the condition, the point after the bindings | `jump` | after the statement |
 | a loop's condition failing; the end of its body | the loop's entry | | past the loop; its head |
 | the joins after a loop and a labeled block (`joinAt`) | the entry | | past it |

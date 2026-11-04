@@ -300,6 +300,19 @@ Other:
     "`mk` does not consume `self`; remove the `<`". Write
     `for x in b.mk()`, which consumes the List the call makes, as the
     `<` did.
+70. *Unsound:* the right side of `and` and `or`, and each part of a
+    binding condition after the first (`if a and b as x`, the same in a
+    `while` and a ternary), runs only on some paths, and a move or a
+    take there counts only on those: `ok = no() and take(<g)` then
+    `<a`, where `g` views `a` and has a `drop` body, is "cannot drop
+    `a` while it is lent" (its drop body read freed memory), and a
+    field taken there and assigned after is dropped first (it leaked).
+71. A store the ownership checker would follow through more than 16
+    write views in a chain, and generic methods whose calls do not
+    settle what they require of each other in 1,000 rounds, are "this
+    store (call) is too complex for the ownership checker; split it
+    into smaller functions", as a loop past its bound is; such a
+    program was accepted unchecked.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -357,15 +370,21 @@ MIGRATING-0.3 lists each.
   (keyword arguments out of order, or an owned argument before one
   that can fail), the handle of an actor's method, a self that can
   leave (`(o?).f(...)`, `(o ?? return -1).f(...)`), and a callee that
-  is a value the call reaches (`pick(k)(...)`, `fs[i](...)`,
-  `mk().f(...)`) run first, as written, as a method's self already
-  did. An actor's handle evaluated after an argument that took what
-  it read was a use of freed memory. A function value is copied in its
-  turn, as plain data is.
+  is a value (`pick(k)(...)`, `fs[i](...)`, `mk().f(...)`, `b.f(...)`,
+  a local `f`) run first, as written, as a method's self already
+  did. A function value is copied in its turn, as plain data is. An
+  actor's handle, or a function read through a box, evaluated after an
+  argument that took what it read was a use of freed memory; a callee
+  read after an argument reassigned it called the new function.
 - **A handle made for an actor's read method is dropped.**
   `mka(3).get()` and `mka(3).get()&` drop the handle `mka(3)` gives
   at the statement's end, as any method's made self is; the actor
   leaked.
+- **The ownership checker is linear in a function's branches.** A
+  branch's end reports a dropped loan only when some value declared in
+  the branch is lent: a function of 40,000 `if` statements, each over
+  its own List, checks its ownership in 101 ms (831 ms before), and
+  16,000 in 38 ms (145 ms).
 - **A ternary's condition binds names.** `id = v.id if r.decl as v
   else 0`, `area = r * r if s matches .circle(r) else 0`, and
   `v.id if x as v and v.id > 0 else 0` bind as an `if` condition does,

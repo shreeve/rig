@@ -833,6 +833,131 @@ fail "move self in drop body", "cannot move `@` out of its own drop body"
     drop(!@)
       other = <@
 
+fail "move skipped and", "cannot drop `a` while it is lent"
+  # The right side of `and` runs only when the left is true (SPEC §7),
+  # so a move there leaves `g` live on the path where it is skipped:
+  # `g` still views `a`, and its drop body reads it where its scope
+  # ends (Core §2 sentences 3 and 6).
+  #
+  # oracle: main reject C4
+  obj Guard
+    items: []Int
+
+    drop(!@)
+      print(@items.len, @items[0])
+
+  fun no() -> Bool
+    false
+
+  fun take(g: Guard) -> Bool
+    true
+
+  a: List[Int] = List()
+  !a.push(41)
+  g = Guard(items: ?a[..])
+  ok = no() and take(<g)
+  <a
+  print(ok)
+
+fail "move skipped condition part", "cannot drop `a` while it is lent", "cannot drop `b` while it is lent", "cannot drop `c` while it is lent", errors: 3
+  # A part of a binding condition runs only when the parts before it
+  # held: the `else`, and the path past a `while`, start from the state
+  # each part that may fail leaves, so a move in a later part leaves `g`
+  # live there (Core §2 sentences 3 and 6).
+  #
+  # oracle: main reject C4
+  obj Guard
+    items: []Int
+
+    drop(!@)
+      print(@items.len, @items[0])
+
+  fun no() -> Bool
+    false
+
+  fun take(g: Guard) -> Int?
+    1
+
+  a: List[Int] = List()
+  !a.push(41)
+  g = Guard(items: ?a[..])
+  if no() and take(<g) as k
+    print(k)
+  else
+    <a
+  b: List[Int] = List()
+  !b.push(42)
+  h = Guard(items: ?b[..])
+  i = 0
+  while no() and take(<h) as k
+    i += k
+    break
+  <b
+  c: List[Int] = List()
+  !c.push(43)
+  f = Guard(items: ?c[..])
+  n = k if no() and take(<f) as k else 0
+  <c
+  print(i, n)
+
+test "move skipped drops once", '''
+  drop 1
+  true
+  false
+  drop 2
+  true
+  drop 3
+'''
+  # A move in the right side of `and` or `or` happens only where it
+  # runs: `g` is dropped once on either path.
+  obj Guard
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  fun take(g: Guard) -> Bool
+    true
+
+  sub both(first: Bool, n: Int)
+    g = Guard(n: n)
+    print(first and take(<g))
+
+  sub either(first: Bool, n: Int)
+    g = Guard(n: n)
+    print(first or take(<g))
+
+  both(true, 1)
+  both(false, 2)
+  either(true, 3)
+
+test "move skipped take", '''
+  false replacement
+  replacement
+'''
+  # A take (`<p.f`) in the right side of `and`, or in a later part of a
+  # binding condition, may not run, so the field may still hold its old
+  # value where it is assigned, which the store drops (Core §5).
+  obj P
+    f: String?
+
+  fun no() -> Bool
+    false
+
+  fun eat(s: String?) -> Bool
+    true
+
+  p = P(f: String("original long string for the heap"))
+  ok = no() and eat(<p.f)
+  p.f = String("replacement")
+  print(ok, p.f)
+  q = P(f: String("original long string for the heap"))
+  if no() and <q.f as b
+    print(b)
+  else
+    q.f = String("replacement")
+  print(q.f)
+
 test "move then return in if", '''
   1
   drop
