@@ -251,6 +251,10 @@ Other:
     is shared with the actor's task, so `T` syncs (SPEC §18), as when
     `?` is written: `c.peek(Holder(...))` of a `Holder` holding a
     `^{Job + Sends}` is rejected, as `c.peek(?Holder(...))` was.
+61. An object's none given to its constructor as a qualified variant or
+    a constant, `Tagged(kind: Kind.empty)` or `Tagged(kind: EMPTY)` for
+    `none kind == .empty`, is rejected when checked, as `.empty` was
+    (SPEC "An object that names its none"); it panicked when run.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

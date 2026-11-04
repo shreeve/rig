@@ -12784,9 +12784,15 @@ const Checker = struct {
                 if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), none.field)) continue;
                 break :blk ir.Kwarg.value(a);
             } else if (data == 1) a else continue;
-            const is_none = if (none.variant) |v|
-                value.isKind(.enum_lit) and std.mem.eql(u8, self.text(ir.EnumLit.name(value)), v)
-            else switch (sema.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
+            const is_none = if (none.variant) |v| blk: {
+                // `.empty`, `Kind.empty`, or a constant whose value is it.
+                const named: []const u8 = if (value.isKind(.enum_lit))
+                    self.text(ir.EnumLit.name(value))
+                else if (value.isKind(.member) and self.isTypeName(ir.Member.object(value)))
+                    self.text(ir.Member.name(value))
+                else if (sema.patternConst(self.ctx, value)) |c| if (sema.constScalar(c)) |sc| if (sc == .variant) sc.variant else "" else "" else "";
+                break :blk std.mem.eql(u8, named, v);
+            } else switch (sema.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
                 .value => |v| v == none.value,
                 else => false,
             };
