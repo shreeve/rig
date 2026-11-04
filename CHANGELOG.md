@@ -287,6 +287,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `Map`. `rig check` of a directory module of 400 files that name
   `Map` runs 68% fewer instructions (lexing and parsing it took 409 ms,
   now 21 ms), and bench/check's workload 2.7% fewer.
+- **A match on another module's enum reads its payload fields in that
+  module's types.** Emit told a binding `r?` of an imported variant's
+  optional field by looking the field's type up in the matching
+  module's own type store, where it named another type, or none: a
+  module with fewer types than the enum's stopped the compiler.
 - **`x matches none` says to write `x == none`.** It was rejected as
   "`none` matches every value", which `none`, the absent optional, does
   not.
