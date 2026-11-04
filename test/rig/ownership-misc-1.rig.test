@@ -614,8 +614,8 @@ test "arm temporary views binding", '''
   sub looped(b: ?Bx)
     for i in 0..4
       match b
-        .has(_) if i == 1 => continue
-        .has(_) if i == 3 => break
+        .has if i == 1 => continue
+        .has if i == 3 => break
         .has(x) => print("loop", i, len2(?HT(v: ?x, t: String("z"))))
         .nothing => pass
 
@@ -8689,7 +8689,7 @@ test "partial move field", '''
   eat(<p.a)
   print("after")
 
-fail "payload by name", "20:23: cannot move `a` out of `x`: `match x` reads `x`", "23:22: a guard cannot change the value being matched", errors: 2
+fail "payload by name", "20:21: cannot move `a` out of `x`: `match x` reads `x`", "23:20: a guard cannot change the value being matched", errors: 2
   # A field bound by name is bound as one bound in order is: a read match
   # cannot move it out, and a guard cannot write it.
 
@@ -8709,10 +8709,10 @@ fail "payload by name", "20:23: cannot move `a` out of `x`: `match x` reads `x`"
 
   x: Bag = .two(a: *B(n: 1), t: String("x"))
   match x
-    .two(a: a) => keep(<a)
+    .two(:a) => keep(<a)
     _ => pass
   match !x
-    .two(t: t) if bump(!t) => pass
+    .two(:t) if bump(!t) => pass
     _ => pass
 
 fail "payload by name flow", "21:7: use of `x` after move", "25:1: cannot reassign `y` while it is lent", "31:5: cannot reassign `z` while it is lent", errors: 3
@@ -8729,12 +8729,12 @@ fail "payload by name flow", "21:7: use of `x` after move", "25:1: cannot reassi
 
   fun label(e: ?Bag, d: ?String) -> ?String from e, d
     match e
-      .two(t: t) => ?t
+      .two(:t) => ?t
       _ => d
 
   x: Bag = .two(a: *B(n: 1), t: String("x"))
   match <x
-    .two(t: t) => print(t)
+    .two(:t) => print(t)
     _ => pass
   print(x)
   y: Bag = .two(a: *B(n: 2), t: String("y"))
@@ -8744,7 +8744,7 @@ fail "payload by name flow", "21:7: use of `x` after move", "25:1: cannot reassi
   print(v)
   z: Bag = .two(a: *B(n: 3), t: String("z"))
   match z
-    .two(t: t)
+    .two(:t)
       w = ?t
       z = .empty
       print(w)

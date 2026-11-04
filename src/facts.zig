@@ -1398,7 +1398,7 @@ test "Facts reads every match decision the plan made" {
         \\sub main()
         \\  e = E.a(n: 1, t: String("x"))
         \\  match e
-        \\    .a(n, t) if n > 0 => print(n, t)
+        \\    .a(:n, :t) if n > 0 => print(n, t)
         \\    other => print(other)
         \\
     ;

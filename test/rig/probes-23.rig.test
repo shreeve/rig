@@ -3800,12 +3800,12 @@ test "review-needs50-nested", '''
   sub look(o: ?Outer)
     match o
       .Box(v) => print("box", inner(v))
-      .Pair(a, b) => print("pair", inner(a), inner(b))
+      .Pair(:a, :b) => print("pair", inner(a), inner(b))
 
   fun sum(t: ?Tree) -> Int
     match t
       .Leaf(n) => n
-      .Node(l, r, _) => sum(l) + sum(r)
+      .Node(:l, :r) => sum(l) + sum(r)
 
   look(.Box(v: .L(xs: mk())))
   look(.Pair(a: .S(s: String("hey")), b: .E))
@@ -3945,7 +3945,7 @@ fail "review-needs50-view-escapes", "a view of the temporary `.Table(m: List())`
   fun items(v: ?Val, other: ?List[Int]) -> ?List[Int]
     match v
       .Table(m) => m
-      .Num(_) => other
+      .Num => other
 
   ys = List[Int]()
   if keep2(.Table(m: List())) as v

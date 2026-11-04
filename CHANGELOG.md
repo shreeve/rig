@@ -335,6 +335,20 @@ Other:
     its task does not read it (take the parameter away, or wait before
     writing), and a `?@` method that gives a task is called with its
     lend written, `?b.spawn()`, and keeps `b` lent until the wait.
+74. A pattern binds a variant's fields by name: `:w` binds the field
+    `w`, `w: width` binds it as `width`, and only a variant with one
+    field binds by position too (`.circle(r)`). A positional pattern
+    over several fields, which a reorder of the fields rebinds without a
+    word, is rejected with its by-name form: "`rect` has 2 fields; bind
+    them by name: `.rect(:w, :h)`" (`.rect(h, w)` is `.rect(w: h, h:
+    w)`). `w: w` is rejected for `:w`, and a pattern that binds and
+    tests nothing, `.rect(_, _)`, `.circle(_)`, `.rect(w: _)`, or
+    `.dot()`, for the bare `.rect`; `w: _` beside other fields is left
+    out. Inside a pattern's parentheses `:x` names a field, never a
+    symbol. `tools/migrate-patterns.py PATH...` rewrites each, from each
+    variant's declaration, and prints `MANUAL` where it cannot be sure.
+    It rewrites 21 patterns in 6 of Trig's files and 15 in 4 of
+    loco's (`rig/loc/`), with no `MANUAL`.
 
 Standard library, by `tools/migrate-std-0.3.py` (MIGRATING-0.3, Step
 4), each old name rejected with the new one in the message:
@@ -427,6 +441,12 @@ fails with the reason's own member, `JsonError.eof(at: 5)` (item 72).
 
 ### Language and compiler
 
+- **A pattern binds a variant's fields by name** (Upgrading, item 74):
+  `.rect(:w, h: tall)`, and a variant with one field by position too,
+  `.circle(r)`. The message for a positional pattern over several
+  fields gives the by-name pattern that means what the positions did,
+  and coverage messages name fields the same way
+  (`.d(p: none, r: none)`). The emitted Zig is unchanged.
 - **`$type(x)` takes an operand that runs nothing.** Zig's `@TypeOf`
   never evaluates `x`, while the checkers walked it as run: `$size($type(<s))`
   was a move of `s` that never happened, and `$size($type(f()))` a call

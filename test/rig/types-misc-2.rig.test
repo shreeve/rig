@@ -1678,7 +1678,7 @@ test "generic object holds an optional view of itself", '''
     while cur as at
       n += 1
       match at
-        .link(_, prev)
+        .link(:prev)
           cur = prev
         .stop
           cur = none
@@ -1768,7 +1768,7 @@ fail "enum names its own optional in a payload", "`Expr?` in `args` is laid out 
     .call(args) => print(args.len)
   match l
     .one(n) => print(n)
-    .two(_) => print(0)
+    .two => print(0)
 
 fail "object names its own optional through many instances", "`Node?` in `g` is laid out from `Node`'s layout, which needs `g` first"
   # Each instance a field reaches is looked into, however many there
@@ -3084,7 +3084,7 @@ test "variant keyword construction", '''
   fun area(s: Shape) -> Int
     match s
       .circle(r) => 3 * r * r
-      .rect(w, h) => w * h
+      .rect(:w, :h) => w * h
 
   a: Shape = .circle(radius: 2)
   b = Shape.rect(h: 3, w: 2)
@@ -3216,8 +3216,9 @@ fail "variant literals compared", "7:7: variant `.circle(...)` needs a known enu
 
   print(.circle(r: 1.0) == .circle(r: 1.0))
 
-fail "variant pattern arity", "9:4: variant `rect` has 2 payload fields, pattern destructures 1; bind them all in order, or the ones you need by name: `.rect(w: x)`", "12:4: variant `rect` has 2 payload fields, pattern destructures 3", errors: 2
-  # A pattern that binds in order binds every field of the variant.
+fail "variant pattern arity", "10:4: `rect` has 2 fields; bind them by name: `.rect(:w, :h)`", "13:4: `rect` has 2 fields; bind them by name: `.rect(:w, :h)`", errors: 2
+  # Only a variant with one field binds it by position; a variant of
+  # several binds its fields by name.
 
   enum Shape
     rect(w: Int, h: Int)
@@ -3291,7 +3292,7 @@ test "variant positional construction", '''
   fun area(s: Shape) -> Int
     match s
       .circle(r) => 3 * r * r
-      .rect(w, h) => w * h
+      .rect(:w, :h) => w * h
 
   fun half(n: Int) -> Option[Int]
     return .nothing if n % 2 == 1
@@ -3571,7 +3572,7 @@ test "view lifted to optional", '''
   print(show(?arr[1]))
   e = E.a(c: Counter(hits: 4, name: String("c")), n: 1)
   match !e
-    .a(c, _) => print(show(c))
+    .a(:c) => print(show(c))
     .b => pass
   p = P(x: 1)
   pr = ?p

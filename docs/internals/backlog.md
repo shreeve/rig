@@ -73,7 +73,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   have no second opinion beside the compiler's. Teach it CORE's rules
   for them, as it learned "A failure moves its error" (#601).
 - The reference checker (`bin/rig-oracle`) takes memory quadratic in
-  the exits of one `match` arm. For an arm `.one(_, n)` of `match <e`
+  the exits of one `match` arm. For an arm `.one(:n)` of `match <e`
   with that many `return ... if ...` lines, its peak resident memory:
 
   | Exits | Peak memory |

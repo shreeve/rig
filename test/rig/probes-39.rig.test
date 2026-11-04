@@ -922,7 +922,7 @@ test "syntax-review-complete-e2", "line 3 empty"
 
   match parse("")
     .ok(v) => print(v)
-    .err(l, m) => print("line", l, m)
+    .err(line: l, msg: m) => print("line", l, m)
 
 test "syntax-review-complete-e3", '''
   3 5

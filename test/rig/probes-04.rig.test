@@ -4155,7 +4155,7 @@ test "audit-fuzz-c-tmp-t00027", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -4323,7 +4323,7 @@ test "audit-fuzz-c-tmp-t00148", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -4532,7 +4532,7 @@ test "audit-fuzz-c-tmp-t00214", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -4740,7 +4740,7 @@ test "audit-fuzz-c-tmp-t00237", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -4896,7 +4896,7 @@ test "audit-fuzz-c-tmp-t00260", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -5730,7 +5730,7 @@ test "audit-fuzz-pf2-accepted-46de4c483e", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -6539,7 +6539,7 @@ test "audit-fuzz-pf2-accepted-65d1ddaa89", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0

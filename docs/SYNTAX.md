@@ -910,7 +910,7 @@ enum Shape
   fun area(?@) -> Int
     match @
       .circle(r) => 3 * r * r
-      .rect(w, h) => w * h
+      .rect(:w, :h) => w * h
       .point => 0
 
 sub main()
@@ -1453,7 +1453,7 @@ sub main()
 `match subject` takes an indented list of arms. An arm is
 `pattern => statement`, or a pattern followed by an indented block. A
 pattern may list alternatives (`0, 1 =>`), which bind the same names or
-none (`.failed(c, _), .timed_out(c) =>`), and end with a guard
+none (`.failed(code: c), .timed_out(c) =>`), and end with a guard
 (`k if k < 0 =>`); [§12](#12-patterns) lists the patterns. A test of
 one pattern is `x matches P`, a `Bool`. The first
 arm that matches runs, and there is no fallthrough.
@@ -1921,9 +1921,9 @@ expression, or a `return` value. A `raw` block may yield a value too.
 |---|---|
 | `.name` | an enum variant, or an error value |
 | `E.name`, `m.E.name` | a member of error set `E` (of module `m`); a variant of an enum is written `.name` |
-| `.name(a, b)` | a payload variant, binding its fields in order |
-| `.name(_, b)` | a payload variant, ignoring a field |
-| `.name(f: a)` | a payload variant, binding the fields it names, in any order; the rest are not bound |
+| `.name(:f, :g)` | a payload variant, binding the fields it names under their own names, in any order; the rest are not bound |
+| `.name(f: a)` | a payload variant, binding field `f` as `a` |
+| `.name(a)` | a variant with one field, binding it as `a` |
 | `42`, `-1`, `true` | a literal |
 | `"GET"`, `'GET'` | text with the same bytes; against a `U8`, a byte (`'A'`, `"\n"`), which may bound a range (`'0'..='9'`) |
 | `NAME`, `m.NAME` | a module constant's value: an integer, a `Bool`, or an enum value |
@@ -1933,15 +1933,17 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `_` | everything else |
 | any other name | everything else, bound to the name |
 | `p, q` | any of the alternatives, which bind the same names, each of one type, or none |
-| `.name(r?)` | a payload variant whose optional field holds a value, bound to `r` (`_?` binds none) |
-| `.name(none)` | a payload variant whose optional field holds none |
+| `.name(r?)`, `.name(:f?)`, `.name(f: r?)` | a payload variant whose optional field holds a value, bound to `r` or `f` (`_?` binds none) |
+| `.name(none)`, `.name(f: none)` | a payload variant whose optional field holds none |
 | `p if cond` | what `p` matches, when the guard `cond` holds |
 
 A pattern is one of these, never a float or a byte string. A constant of
 another kind, or whose value the target sets, is compared in a guard:
-`x if x == lib.LIMIT =>`. A pattern binds a variant's fields either in
-order, all of them, or by name, any of them: `.rect(w, h)` or
-`.rect(h: tall)`, never `.rect(w, h: tall)`.
+`x if x == lib.LIMIT =>`. A pattern binds a variant's fields by name,
+any of them, `.rect(:w, h: tall)`, and only a variant with one field by
+position, `.circle(r)`; inside its parentheses `:w` names a field, never
+a symbol. A pattern that binds and tests nothing is the bare variant:
+`.rect`, never `.rect(_, _)`.
 
 `x matches P` tests a value against one pattern, or against
 alternatives in parentheses after a space, `x matches (.a, .b)`, with
@@ -2037,7 +2039,7 @@ match     = "match" value INDENT arm* DEDENT
 arm       = pattern, ... ["if" value] ("=>" simple | block)
 pattern   = patom [(".." | "..=") patom]
 patom     = name | ["-"] integer | "true" | "false"
-          | "." name ["(" [(pbind | name ":" pbind), ...] ")"]
+          | "." name ["(" [(pbind | name ":" pbind | ":" name ["?"]), ...] ")"]
           | [name "."] name "." name | ":" name           # `:` touches the name
 pbind     = name | name "?"                             # `none` tests an optional field
 closure   = ["*"] bars (expr | block)

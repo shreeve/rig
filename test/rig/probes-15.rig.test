@@ -214,7 +214,7 @@ test "r3-s45-c-c04 recursive", "3 3"
   fun sum(t: ?Tree) -> Int
     match t
       .leaf(n) => n
-      .node(l, r) => sum(l) + sum(r)
+      .node(:l, :r) => sum(l) + sum(r)
 
   t = Tree.node(l: ^Tree.leaf(n: 1), r: ^Tree.leaf(n: 2))
   u = +t

@@ -4026,26 +4026,45 @@ pub const Parser = struct {
     }
 
     /// A `matches` whose names nothing can read: one in a `Bool` position
-    /// that no `and` follows. Its pattern, with `_` for each name, is the
-    /// test it means.
+    /// that no `and` follows. Its pattern without the names is the test
+    /// it means: a field bound by a name is left out, and `r?` is `_?`.
     fn unreadBinding(self: *Parser, node: Sexp) void {
         const src = self.base.source;
         const pattern = ir.get(node, .pattern);
-        const at = self.span(pattern);
-        var out: std.ArrayList(u8) = .empty;
-        var first: []const u8 = "";
-        var pos = at.start;
         var names: std.ArrayList(Sexp) = .empty;
         bindingLeaves(src, pattern, &names, self.allocator()) catch return;
-        for (names.items) |n| {
-            const s = self.span(n);
-            if (first.len == 0) first = src[s.start..s.end];
-            out.appendSlice(self.allocator(), src[pos..s.start]) catch return;
-            out.append(self.allocator(), '_') catch return;
-            pos = s.end;
+        if (names.items.len == 0) return;
+        const first = self.span(names.items[0]);
+        const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
+        var out: std.ArrayList(u8) = .empty;
+        const a = self.allocator();
+        if (alts.len > 1) out.append(a, '(') catch return;
+        for (alts, 0..) |alt, i| {
+            if (i > 0) out.appendSlice(a, ", ") catch return;
+            self.unboundText(alt, &out) catch return;
         }
-        out.appendSlice(self.allocator(), src[pos..at.end]) catch return;
-        self.reject(node, self.format("`{s}` is bound but never read; write `{s}`", .{ first, out.items }));
+        if (alts.len > 1) out.append(a, ')') catch return;
+        self.reject(node, self.format("`{s}` is bound but never read; write `{s}`", .{ src[first.start..first.end], out.items }));
+    }
+
+    /// Pattern `alt` as `unreadBinding` writes it, its names gone.
+    fn unboundText(self: *Parser, alt: Sexp, out: *std.ArrayList(u8)) std.mem.Allocator.Error!void {
+        const src = self.base.source;
+        const a = self.allocator();
+        const at = self.span(alt);
+        if (!alt.isKind(.variant_pattern)) return out.appendSlice(a, src[at.start..at.end]);
+        try out.appendSlice(a, src[at.start..self.span(ir.VariantPattern.name(alt)).end]);
+        var n: usize = 0;
+        for (ir.VariantPattern.bindings(alt)) |b| {
+            const keyed = b.isKind(.kwarg);
+            const v = if (keyed) ir.Kwarg.value(b) else b;
+            if (!v.isKind(.some_pattern) and !v.isKind(.none_pattern)) continue;
+            try out.appendSlice(a, if (n == 0) "(" else ", ");
+            n += 1;
+            if (keyed) try out.print(a, "{s}: ", .{leafText(src, ir.Kwarg.name(b).src)});
+            try out.appendSlice(a, if (v.isKind(.some_pattern)) "_?" else "none");
+        }
+        if (n > 0) try out.append(a, ')');
     }
 
     /// The rules of a `matches` as written: a list holds two or more

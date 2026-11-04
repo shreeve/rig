@@ -382,8 +382,8 @@ test "box match enum", '''
 
   fun name(b: !^Shape) -> ?String
     match b
-      .circle(_) => "circle"
-      .square(_) => "square"
+      .circle => "circle"
+      .square => "square"
 
   b = ^Shape.circle(r: 2)
   match ?b
@@ -580,13 +580,13 @@ test "box recursive enum", '''
   fun eval(e: ?Expr) -> Int
     match e
       .num(n) => n
-      .add(l, r) => eval(?l) + eval(?r)
+      .add(:l, :r) => eval(?l) + eval(?r)
       .neg(x) => 0 - eval(?x)
 
   e = ^Expr.add(l: ^.num(n: 2), r: ^Expr.neg(e: ^.num(n: 5)))
   print(eval(?e))
   match ?e
-    .add(l, _) => print("left", eval(?l))
+    .add(:l) => print("left", eval(?l))
     _ => print("other")
 
 fail "box type by another name", "6:13: use of unbound type `Box`; a box is written `^T` as a type and `^value` as an expression", "9:5: use of unbound name `Box`; a box is written `^T` as a type and `^value` as an expression", "10:5: `Cell3` is a type alias for `^Int`; a box is made with `^`: write `^value`"

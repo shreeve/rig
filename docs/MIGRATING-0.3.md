@@ -686,6 +686,50 @@ pattern: `matches`"), so `if s as .circle(r)` is `if s matches
 a name, in `.rig` and `.rig.test` files and in a Markdown file's code;
 `as` that names a value (`if o as x`, `use m as n`) stays.
 
+### A pattern binds fields by name
+
+A pattern binds a variant's fields by name (SPEC "match"): `:w` binds
+the field `w` under its own name, `w: width` binds it as `width`, and a
+variant with one field binds it by position too, `.circle(r)`. Binding
+by position over several fields is rejected, since a reorder of the
+fields would rebind it without a word, and so are the second spellings:
+
+| 0.2.9 accepted | 0.3.0 asks for |
+|---|---|
+| `.rect(w, h)`, `.rect(h, w)` | `.rect(:w, :h)`, `.rect(w: h, h: w)` |
+| `.between(_, close, _)` | `.between(:close)` |
+| `.run(_?, none)` | `.run(id: _?, note: none)` |
+| `.rect(w: w)`, `.ready(note: note?)` | `.rect(:w)`, `.ready(:note?)` |
+| `.rect(_, _)`, `.circle(_)`, `.rect(w: _)`, `.dot()` | `.rect`, `.circle`, `.rect`, `.dot` |
+| `.rect(w: _, h: tall)` | `.rect(h: tall)` |
+
+`tools/migrate-patterns.py PATH...` rewrites each, after `matches` and
+in a `match` arm, in `.rig` and `.rig.test` files and in Markdown's
+```` ```rig ```` blocks, keeping each pattern's meaning: it reads each
+variant's fields from the `enum` and `error` declarations of the files
+it is given and of std. A pattern it cannot be sure of (a variant it
+finds no declaration of, or two declarations of with different fields,
+or a pattern Rig rejected already) it leaves, and prints as `MANUAL`.
+Inside a pattern's parentheses `:x` names a field, never a symbol.
+
+```rig
+enum Region
+  tag(name: Static, lang: Static)
+  between(open: Static, close: Static, lang: Static)
+
+fun closer(r: ?Region) -> U8
+  match r
+    .tag => '<'
+    .between(:close) => close[0]
+
+sub main()
+  print(closer(.between(open: "(", close: ")", lang: "lisp")))
+```
+
+```output
+41
+```
+
 ### The rest
 
 | 0.2.9 accepted | 0.3.0 asks for |

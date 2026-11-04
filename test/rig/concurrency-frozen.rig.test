@@ -432,8 +432,8 @@ test "frozen made in a variant payload", '''
   sub show(f: ?Frame)
     match f
       .bulk(data: d) => print(d)
-      .cell(c: c) => print(c.get())
-      .node(p: p) => print(p.n)
+      .cell(:c) => print(c.get())
+      .node(:p) => print(p.n)
       .null => print("null")
 
   show(Frame.bulk(data: *Frozen(String("x"))))
@@ -441,7 +441,7 @@ test "frozen made in a variant payload", '''
   show(Frame.node(p: *Node(n: 4)))
   o = Outer.wrap(i: Inner.bulk(data: *Frozen(String("n"))))
   match o
-    .wrap(i: i) => match i
+    .wrap(:i) => match i
       .bulk(data: d) => print(d)
       .empty => print("empty")
     .empty => print("empty")
@@ -451,7 +451,7 @@ test "frozen made in a variant payload", '''
   print(l[0], l[1])
   g = Opt[*Frozen[String]].some(v: *Frozen(String("g")))
   match g
-    .some(v: v) => print(v)
+    .some(:v) => print(v)
     .empty => print("empty")
   v: List[*Frozen[String]] = List()
   !v.push(*Frozen(String("p")))

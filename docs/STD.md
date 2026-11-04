@@ -992,8 +992,8 @@ use std.net
 
 fun key(a: ?net.Addr) -> net.Ip
   match a.ip
-    .v4(_) => a.ip
-    .v6(_) => a.ip.prefix(64)
+    .v4 => a.ip
+    .v6 => a.ip.prefix(64)
 
 sub main()!
   seen = Map[net.Ip, Int]()

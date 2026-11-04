@@ -632,8 +632,8 @@ test "box-c3", '''
   fun eval(e: ?Expr) -> Int
     match e
       .num(n) => n
-      .add(l, r) => eval(?l) + eval(?r)
-      .mul(l, r) => eval(?l) * eval(?r)
+      .add(:l, :r) => eval(?l) + eval(?r)
+      .mul(:l, :r) => eval(?l) * eval(?r)
 
   fun num(n: Int) -> ^Expr
     ^.num(n)

@@ -1179,7 +1179,7 @@ test "rev230-discard-exits", "5"
 
   fun arm(e: E, i: Int) -> Int
     match <e
-      .one(_, n)
+      .one(:n)
         return 0 if i == 100
         return 1 if i == 101
         return 2 if i == 102

@@ -337,7 +337,7 @@ fail "review-step1-round2-q93 match temp plain", "`p` is bound but never read; n
   base = P(x: 3, y: 4)
   saved = ?base
   match H(e: E.a(p: P(x: 1, y: 2), q: ?base)).e
-    .a(p, q) => saved = q
+    .a(:p, :q) => saved = q
     .b => pass
   print(saved.x)
 
@@ -993,10 +993,10 @@ fail "review-step10-r2-c02 match view of header temp text", "this `match` reads 
     ?h.e
 
   match pick(?mkh(7))
-    .a(n, _) => print(n)
+    .a(:n) => print(n)
     _ => print(0)
   match pick(?mkh(8))
-    .a(_, t) => print(t)
+    .a(:t) => print(t)
     _ => print(0)
 
 fail "review-step10-r2-c03 match view dispatch dead", "this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first"

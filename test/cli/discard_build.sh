@@ -21,7 +21,7 @@ fun mk(k: Int) -> E
 
 fun arm(e: E, i: Int) -> Int
   match <e
-    .one(_, n)''')
+    .one(:n)''')
 for k in range(12000):
     print(f'      return {k} if i == {100 + k}')
 print('''      n

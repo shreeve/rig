@@ -9,8 +9,8 @@ test "matches is a Bool anywhere", "false true true true false true"
 
   s: St = .failed(code: 4)
   b = s matches .ok
-  some = [s matches .failed(_), s matches (.failed(_), .ok)]
-  print(b, some[0], some[1], not s matches .ok, not (s matches (.failed(_), .ok)), 3 matches (1, 3, 5))
+  some = [s matches .failed, s matches (.failed, .ok)]
+  print(b, some[0], some[1], not s matches .ok, not (s matches (.failed, .ok)), 3 matches (1, 3, 5))
 
 test "matches binds in a condition", '''
   big 4
@@ -23,7 +23,7 @@ test "matches binds in a condition", '''
   s: St = .failed(code: 4)
   if s matches .failed(c) and c > 3
     print("big", c)
-  while s matches .failed(_)
+  while s matches .failed
     s = .ok
   print("done")
 
@@ -75,18 +75,18 @@ test "alternatives that bind the same names", '''
 
   fun report(s: ?St) -> Int
     match s
-      .failed(c, _), .timed_out(c) => c
+      .failed(code: c), .timed_out(c) => c
       _ => 0
 
   s: St = .timed_out(code: 7)
   print(report(s), report(.failed(code: 3, why: String("x"))), report(.ok))
-  if s matches (.failed(c, _), .timed_out(c))
+  if s matches (.failed(code: c), .timed_out(c))
     print("code", c)
   t: St = .failed(code: 9, why: String("boom"))
   # `<` takes the value: each variant's other fields are dropped.
-  if <t matches (.failed(c, _), .timed_out(c))
+  if <t matches (.failed(code: c), .timed_out(c))
     print("took", c)
-  print(s matches (.failed(c, _), .timed_out(c)) and c > 5)
+  print(s matches (.failed(code: c), .timed_out(c)) and c > 5)
 
 test "alternatives that bind, with guards", '''
   7 30 0
@@ -99,7 +99,7 @@ test "alternatives that bind, with guards", '''
 
   fun report(s: ?St) -> Int
     match s
-      .failed(c, _), .timed_out(c) if c > 5 => c
+      .failed(code: c), .timed_out(c) if c > 5 => c
       .failed(code: c), .timed_out(code: c) if c > 2 => c * 10
       _ => 0
 
@@ -107,7 +107,7 @@ test "alternatives that bind, with guards", '''
   t: St = .failed(code: 4, why: String("w"))
   match <t
     .ok => pass
-    .failed(c, _), .timed_out(c) if c > 1 => print("own", c)
+    .failed(code: c), .timed_out(c) if c > 1 => print("own", c)
     _ => pass
 
 test "alternatives that bind a view", "pic pic"
@@ -123,7 +123,7 @@ test "alternatives that bind a view", "pic pic"
   b: Shot = .thumb(img: Img(name: String("pic")))
   out = List[String]()
   for s in [?a, ?b]
-    if s matches (.full(i, _), .thumb(i))
+    if s matches (.full(img: i), .thumb(i))
       !out.push(+i.name)
   print(out[0], out[1])
 
@@ -185,7 +185,7 @@ code "alternatives that bind are one inline prong", '''
 
   fun report(s: ?St) -> Int
     match s
-      .failed(c, _), .timed_out(c) => c
+      .failed(code: c), .timed_out(c) => c
       _ => 0
 
   print(report(.ok))
@@ -265,7 +265,7 @@ fail "an arm's alternatives in parentheses", "7:3: write `.a, .b =>`: an arm lis
   match s
     (.a, .b) => print(1)
 
-fail "a name a Bool cannot read", "6:6: `c` is bound but never read; write `.a(_)`"
+fail "a name a Bool cannot read", "6:6: `c` is bound but never read; write `.a`"
   enum St
     a(code: Int)
     b
@@ -377,7 +377,7 @@ test "a payload's optional tested both ways covers its variant", "3 n o"
 
   print(show(.got(a: 3)), show(.got(a: none)), show(.other))
 
-fail "a payload's optional tested both ways leaves no arm after it", "9:6: this arm never runs: the arms before it cover every value of `.got`", "17:5: this arm never runs: the arms before it cover every value"
+fail "a payload's optional tested both ways leaves no arm after it", "9:5: this arm never runs: the arms before it cover every value of `.got`", "17:5: this arm never runs: the arms before it cover every value"
   enum E
     got(a: Int?)
     other
@@ -386,7 +386,7 @@ fail "a payload's optional tested both ways leaves no arm after it", "9:6: this 
     match e
       .got(x?) => print(x)
       .got(none) => print("n")
-      .got(_) => print("dup")
+      .got => print("dup")
       .other => pass
 
   sub f4(e: E)
@@ -447,7 +447,7 @@ test "a ternary's matches binds for the value before if", '''
     empty
 
   fun area(s: Shape) -> Int
-    r * r if s matches .circle(r) else w * h if s matches .rect(w, h) else 0
+    r * r if s matches .circle(r) else w * h if s matches .rect(:w, :h) else 0
 
   fun bump(r: !Res) -> Int
     r.n *= 2
@@ -457,7 +457,7 @@ test "a ternary's matches binds for the value before if", '''
   shapes = List[Shape]([.circle(r: 2), .rect(w: 1, h: 4), .point])
   total = 0
   for sh in ?shapes
-    total += n if sh matches (.circle(n), .rect(_, n)) else 100
+    total += n if sh matches (.circle(n), .rect(h: n)) else 100
   print(total)
   s: State = .ready(note: String("hi"))
   t = <note if <s matches .ready(note?) else String("none")
@@ -582,10 +582,10 @@ test "alternatives that cover every variant", '''
     print(get(.a(n: 5)), len(.a(t: String("hey"))), len(.b(t: String("ab"))), len(.a(t: none)))
     o: O = .b(k: 7, r: Res(n: 1))
     match <o
-      .a(_, k), .b(k, _) => print("k", k)
+      .a(:k), .b(:k) => print("k", k)
     print("end")
 
-fail "a matches that always holds", "9:16: `(.a(n), .b(n))` matches every `S`, so this test always holds; bind its fields with `match`", "11:19: `(.a(_), .b)` matches every `S`, so this test always holds"
+fail "a matches that always holds", "9:16: `(.a(n), .b(n))` matches every `S`, so this test always holds; bind its fields with `match`", "11:19: `(.a, .b)` matches every `S`, so this test always holds"
   # Alternatives that name every variant always match, as a pattern of
   # an enum with one variant does.
   enum S
@@ -596,7 +596,7 @@ fail "a matches that always holds", "9:16: `(.a(n), .b(n))` matches every `S`, s
     s: S = .b(n: 2)
     if s matches (.a(n), .b(n))
       print(n)
-    print(s matches (.a(_), .b))
+    print(s matches (.a, .b))
 
 fail "error alternatives bind no names in a condition", "7:22: alternatives of an error bind no names", "9:25: alternatives of an error bind no names", "11:24: alternatives of an error bind no names"
   error Er
@@ -660,10 +660,10 @@ test "optional fields are covered value by value", '''
 
   fun four(u: U) -> Int
     match u
-      .d(_?, _, _?) => 1
-      .d(_?, _, none) => 2
-      .d(none, _, _?) => 3
-      .d(none, _, none) => 4
+      .d(p: _?, r: _?) => 1
+      .d(p: _?, r: none) => 2
+      .d(p: none, r: _?) => 3
+      .d(p: none, r: none) => 4
       .a => 0
 
   fun mixed(u: U) -> Int
@@ -682,9 +682,9 @@ test "optional fields are covered value by value", '''
 
   fun pair(s: St) -> Int
     match s
-      .pair(x?, _), .ready(x?) => x
-      .pair(none, y?) => y * 10
-      .pair(none, none), .ready(none) => -1
+      .pair(a: x?), .ready(x?) => x
+      .pair(a: none, b: y?) => y * 10
+      .pair(a: none, b: none), .ready(none) => -1
       .idle => 0
 
   sub main()
@@ -694,7 +694,7 @@ test "optional fields are covered value by value", '''
     for s in [St.ready(note: 1), St.ready(note: none), St.idle, St.pair(a: none, b: 2)]
       print(s matches (.ready(_?), .ready(none)), pair(s))
 
-fail "an arm whose values the arms before it cover", "12:6: this arm never runs: the arms before it cover every value of `.ready(_?)`", "21:6: this arm never runs: the arms before it cover every value of `.d(none, _, _)`", "25:9: `match` is not exhaustive: it misses `.d(none, _, none)`"
+fail "an arm whose values the arms before it cover", "12:6: this arm never runs: the arms before it cover every value of `.ready(_?)`", "21:6: this arm never runs: the arms before it cover every value of `.d(p: none)`", "25:9: `match` is not exhaustive: it misses `.d(p: none, r: none)`"
   enum U
     d(p: Int?, q: Int, r: Int?)
     a
@@ -714,14 +714,14 @@ fail "an arm whose values the arms before it cover", "12:6: this arm never runs:
     match u
       .d(p: _?) => 1
       .d(p: none, r: _?) => 2
-      .d(_, _, none) => 3
+      .d(r: none) => 3
       .d(p: none) => 4
       .a => 0
 
   fun miss(u: U) -> Int
     match u
-      .d(_?, _, _) => 1
-      .d(_, _, _?) => 2
+      .d(p: _?) => 1
+      .d(r: _?) => 2
       .a => 0
 
   sub main()
@@ -766,25 +766,25 @@ test "alternatives of one variant that test its optionals apart", '''
     !ps.push(.pair(a: T(id: 2), b: T(id: 3)))
     !ps.push(.pair(a: none, b: T(id: 4)))
     for p in ?ps
-      if p matches (.pair(x?, none), .pair(x?, _?))
+      if p matches (.pair(a: x?, b: none), .pair(a: x?, b: _?))
         print("x", x.id)
     q: P = .pair(a: T(id: 5), b: T(id: 6))
-    if <q matches (.pair(x?, none), .pair(x?, _?))
+    if <q matches (.pair(a: x?, b: none), .pair(a: x?, b: _?))
       print("took", x.id)
     print("end")
 
-fail "alternatives of one variant that overlap or bind apart", "7:32: this alternative matches values an earlier one does: `.pair(_?, _)` and `.pair(_, _?)` both match `.pair(_?, _?)`", "7:40: `x` is field `a` in `.pair(x?, _)` and field `b` in `.pair(_, x?)`: alternatives of one variant bind each name to one field", "9:46: `x` is field `a` in `.pair(x?, none)` and field `b` in `.pair(none, x?)`", "11:28: this alternative matches values an earlier one does"
+fail "alternatives of one variant that overlap or bind apart", "7:32: this alternative matches values an earlier one does: `.pair(a: _?)` and `.pair(b: _?)` both match `.pair(a: _?, b: _?)`", "7:40: `x` is field `a` in `.pair(a: x?)` and field `b` in `.pair(b: x?)`: alternatives of one variant bind each name to one field", "9:58: `x` is field `a` in `.pair(a: x?, b: none)` and field `b` in `.pair(a: none, b: x?)`", "11:28: this alternative matches values an earlier one does"
   enum P
     pair(a: Int?, b: Int?)
     idle
 
   sub main()
     p: P = .idle
-    if p matches (.pair(x?, _), .pair(_, x?))
+    if p matches (.pair(a: x?), .pair(b: x?))
       print(x)
-    if p matches (.pair(x?, none), .pair(none, x?))
+    if p matches (.pair(a: x?, b: none), .pair(a: none, b: x?))
       print(x)
-    print(p matches (.pair, .pair(_?, _)))
+    print(p matches (.pair, .pair(a: _?)))
 
 test "matches compares with a module constant", "true false true false true"
   # A bare name after `matches` that names a module constant compares
@@ -839,13 +839,13 @@ test "<s matches drops what the pattern leaves out at the end of the block", '''
   sub main()
     s1: S = .a(x: T(id: 1), y: T(id: 2))
     match <s1
-      .a(_, _) => print("arm a(_, _)")
+      .a => print("arm a(_, _)")
       _ => pass
     s2: S = .a(x: T(id: 3), y: T(id: 4))
     if <s2 matches (.a, .b)
       print("if alts bare")
     s3: S = .a(x: T(id: 5), y: T(id: 6))
-    if <s3 matches .a(x, _)
+    if <s3 matches .a(:x)
       print("if binds x", x.id)
     s4: S = .a(x: T(id: 7), y: T(id: 8))
     if <s4 matches .a(y: q)

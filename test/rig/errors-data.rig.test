@@ -22,7 +22,7 @@ test "a member with fields, caught and printed", '''
     r = digit("x1") catch |e|
       print(e)
       match e
-        ParseError.bad(pos, msg) => print("at", pos, msg)
+        ParseError.bad(:pos, :msg) => print("at", pos, msg)
         ParseError.empty => print("empty")
       -2
     print(r)
@@ -235,7 +235,7 @@ test "`match <e` with alternatives, a catch-all, and `g: E`", '''
     for n in [0, 1, 2]
       v = g(n) catch |e|
         match <e
-          E.bad(msg, code) => code + msg.len
+          E.bad(:msg, :code) => code + msg.len
           x: E
             print("E", x)
             -3
@@ -272,7 +272,7 @@ test "guarded arms read the fields in place, and take them", '''
     for n in [0, 1, 3]
       v = f(n) catch |e|
         match <e
-          E.bad(msg, code) if code > 2 => code + msg.len
+          E.bad(:msg, :code) if code > 2 => code + msg.len
           other if other == E.plain => -5
           other
             print(other)

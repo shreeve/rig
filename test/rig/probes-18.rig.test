@@ -33,7 +33,7 @@ test "review-b4b-1-p15 wm box elem", '''
   !v.push(^E.a(n: 1, t: String("v")))
   i = 0
   match !v[i]
-    .a(n, t)
+    .a(:n, :t)
       n += 1
       !t.add("x")
     .b => pass
@@ -52,7 +52,7 @@ test "review-b4b-1-p16 wm catchall", '''
   !v.push(E.a(n: 1, t: String("v")))
   i = 0
   match !v[i]
-    .a(n, _) => n += 1
+    .a(:n) => n += 1
     x => x = E.a(n: 7, t: String("new"))
   match !v[1]
     x => x = E.b
@@ -482,7 +482,7 @@ test "review-b4b-1-p62 wm box vec", '''
 
   sub viaparam(h: !H, i: Int)
     match !h.f[i]
-      .a(n, t)
+      .a(:n, :t)
         n += 1
         !t.add("p")
       .b => pass
@@ -492,7 +492,7 @@ test "review-b4b-1-p62 wm box vec", '''
   if !o as v
     !v.push(E.a(n: 9, t: String("o")))
     match !v[i]
-      .a(n, _) => n += 1
+      .a(:n) => n += 1
       .b => pass
   h = H(f: List())
   !h.f.push(E.a(n: 3, t: String("h")))
@@ -1277,9 +1277,9 @@ fail "review-b4b-2-p26 multi field", "`s` is bound but never read; name it `_` t
   s1 = ?k
   s2 = ?k
   match e
-    .a(r, s, n) if n > 0
+    .a(:r, :s, :n) if n > 0
       s1 = ?r
-    .a(_, s, _) => s2 = ?s
+    .a(:s) => s2 = ?s
     .b => pass
   f = <e
   print(clobber(1))
@@ -1307,10 +1307,10 @@ test "review-b4b-2-p27 multi field ok", '''
   s1 = ?k
   s2 = ?k
   match e
-    .a(r, s, n) if n > 0
+    .a(:r, :s, :n) if n > 0
       s1 = ?r
       s2 = ?s
-    .a(_, s, _) => s2 = ?s
+    .a(:s) => s2 = ?s
     .b => pass
   print(clobber(1))
   print(s1.t, s2.t)

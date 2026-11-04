@@ -284,6 +284,11 @@ const SymbolResolver = struct {
         return self.declare(name_node, .local, .{ .pattern_bound = true });
     }
 
+    /// Bind the name a pattern gives a variant's field.
+    fn bindField(self: *SymbolResolver, name_node: Sexp) Error!void {
+        if (try self.bindFresh(name_node, "pattern binding")) |id| self.ctx.symbols.items[id].flags.payload_field = true;
+    }
+
     fn checkShadowing(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
         // A hidden name holds a space, so no program writes one: a chain's
@@ -1216,7 +1221,7 @@ const SymbolResolver = struct {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {
-                for (ir.VariantPattern.bindings(pattern)) |b| _ = try self.bindFresh(sema.bindingName(b), "pattern binding");
+                for (ir.VariantPattern.bindings(pattern)) |b| try self.bindField(sema.bindingName(b));
             } else if (pattern.isKind(.set_pattern)) {
                 _ = try self.bindFresh(ir.SetPattern.name(pattern), "pattern binding");
             } else if (pattern.isKind(.alt_pattern)) {
@@ -1238,6 +1243,9 @@ const SymbolResolver = struct {
                             continue;
                         }
                         got.value_ptr.* = try self.bindFresh(b, "pattern binding");
+                        if (alt.isKind(.variant_pattern)) if (got.value_ptr.*) |id| {
+                            self.ctx.symbols.items[id].flags.payload_field = true;
+                        };
                     }
                 }
             },

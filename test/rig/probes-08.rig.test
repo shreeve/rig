@@ -462,8 +462,8 @@ test "docs-probes-g1", '''
   fun area(s: ?Shape) -> Int
     match s
       .circle(r) => r * r * 3
-      .rect(w, h) if w > 0 => w * h
-      .rect(_, _) => 0
+      .rect(:w, :h) if w > 0 => w * h
+      .rect => 0
 
   w = Wrap(v: 3)
   print(w.get(), area(?(Shape.rect(w: 2, h: 3))))

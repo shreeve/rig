@@ -153,7 +153,7 @@ dup = {
     'inline_copies': ('Int', [f'a = [{N} of i]', 's = 0'] + rep(20, lambda k: f's += g(?a, {k})') + ['s']),
     'receiver_copies': ('Int', [f'q = Q(a: [{N} of i], b: 1)', 's = 0'] + rep(20, lambda k: f's += q.get({k})') + ['s']),
     'match_alts': ('Int', [f'a = [{N} of i]', 'match i', '  0, 1, 2 => take(a)', '  3, 4 => take(a) + take(a)', '  _ => 0']),
-    'match_payload': ('Int', [f's = T.one([{N} of i])', 'match s', '  .one(v) => take(v)', '  .two(_), .nothing => 0']),
+    'match_payload': ('Int', [f's = T.one([{N} of i])', 'match s', '  .one(v) => take(v)', '  .two, .nothing => 0']),
     'match_guarded': ('Int', [f'a = [{N} of i]', 'match i', '  k if k > 2 => take(a)', '  k if k > 1 => take(a) + 1', '  _ => 0']),
     'generic_use': ('Int', [f'same([{N} of i])[1]']),
     'eq_arrays': ('Bool', [f'a = [{N} of i]', f'b = [{N} of 2]', 'a == b']),
@@ -162,7 +162,7 @@ dup = {
     'hoisted_args': ('Int', ['both(b: make(i), a: make(i + 1))']),
     'match_made': ('Int', ['match mk_t(i)', '  .one(v) => take(v)', '  .two(v) => take(v) + 1', '  .nothing => 0']),
     'nested_value': ('Int', ['v = (make(i) if i > 1 else make(0)) if i > 0 else make(2)', 'v[1]']),
-    'discard_exits': ('Int', [f'e = ES.one(h: HS(s: String("x"), a: [{N} of i]), n: 5)', 'match <e', '  .one(_, n)'] + rep(60, lambda k: f'    return {k} if i == {100 + k}') + ['    n', '  .two => 0']),
+    'discard_exits': ('Int', [f'e = ES.one(h: HS(s: String("x"), a: [{N} of i]), n: 5)', 'match <e', '  .one(:n)'] + rep(60, lambda k: f'    return {k} if i == {100 + k}') + ['    n', '  .two => 0']),
 }
 for name, (rt, lines) in dup.items():
     print(f'called fun {name}(i: Int) -> {rt}')

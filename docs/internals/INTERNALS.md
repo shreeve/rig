@@ -1576,7 +1576,7 @@ instead of re-deriving it by name:
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
 | `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple of pieces `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
-| `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
+| `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, or none for a field the pattern leaves out. A pattern binds by name, any of the fields (`:w` is one leaf in both slots of its `kwarg`, so it reads as `w: w`), and a variant with one field by position too, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
 | `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a self passed as an argument comes first (`P.scale[2](p)`) |
@@ -5923,6 +5923,14 @@ pass owns one part.
   (`alwaysHolds`, where the hidden `_` would never run). A bare name in
   a test binds nothing unless it names a module constant, which it
   compares with (`resolve.bindPattern`).
+- **Fields by name.** The grammar makes `:w` in a payload a `kwarg`
+  whose name and value are one leaf (`pbind`), so every pass reads it as
+  `w: w`; typecheck tells the two apart by the leaf's position, and
+  rejects the written `w: w`, a positional pattern over several fields
+  (giving its by-name text, `byNameText`), and a pattern that binds and
+  tests nothing (`bindsNothing`), all in `fieldBindings` and
+  `checkVariantPattern`. A field's name in a message comes from the
+  variant's declaration (`cubeText`, by the subject's type).
 - **Alternatives that bind.** The resolver gives each alternative's leaf
   of a name one symbol (`resolve.bindPattern`), the later leaves no
   read or use of it (`rebinds`); the checker requires the same names and

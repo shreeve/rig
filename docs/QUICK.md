@@ -90,8 +90,10 @@ on a symbol ends with `_ =>`.
 **Testing a pattern.** `s matches .ready(r)` is a `Bool`, and binds `r`
 in an `if` or `while` body and after `and`; alternatives go in
 parentheses, `s matches (.a, .b)`, and bind names only when each binds
-the same ones. In a payload, `r?` binds an optional field's value and
-`none` matches its absence. One `<` on the subject moves what it binds:
+the same ones. A pattern binds fields by name, `.rect(:w, h: tall)`,
+and a variant with one field by position too, `.circle(r)`. In a
+payload, `r?` binds an optional field's value and `none` matches its
+absence. One `<` on the subject moves what it binds:
 `if <e.state matches .ready(img?)`.
 
 **Self.** A method declares how it takes self, `@`, and its call says

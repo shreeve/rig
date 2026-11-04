@@ -34,7 +34,7 @@ test "alias across modules", '''
       .light => print("light")
     match k
       .light => print("light")
-      .dark(_) => print("dark")
+      .dark => print("dark")
     m = lib.Limits()
     print(m.hi > 3.0e38, m.lo < -3.0e38, m.small, m.wide > 1.0e308)
 
@@ -2511,7 +2511,7 @@ test "payload by name across modules", '''
 
   fun height(s: ?shapes.Shape) -> Int
     match s
-      .rect(h: h) => h
+      .rect(:h) => h
       .point => 0
 
   fun first(x: ?String, d: ?String) -> ?String from x, d

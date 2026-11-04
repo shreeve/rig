@@ -745,7 +745,7 @@ test "drop parts made before a part that fails", '''
   fun payload(n: Int) -> Int!E
     v = V.two(a: String("a"), b: mk(n)!)
     match v
-      .two(a, b) => a.len + b.len
+      .two(:a, :b) => a.len + b.len
       .one => 0
 
   fun joined(n: Int) -> Int!E
