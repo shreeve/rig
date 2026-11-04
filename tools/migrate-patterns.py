@@ -21,7 +21,7 @@ Patterns are found after `matches` and at the start of each arm of a
 `match`. In a Markdown file only ```rig blocks change.
 
 usage: tools/migrate-patterns.py [--dry-run] PATH...
-  Each PATH is a file or a directory searched for .rig, .rig.test, and
+  Each PATH is a file or a directory searched for .rig, .rig.test, .rig.tmpl, and
   .md files. It prints each site it rewrites, each MANUAL one, and a
   count of both.
 """
@@ -401,7 +401,7 @@ def files(paths):
             for root, dirs, names in os.walk(p):
                 dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in ("zig-cache", ".zig-cache", "node_modules", "zig-out"))
                 for name in sorted(names):
-                    if name.endswith((".rig", ".rig.test", ".md")):
+                    if name.endswith((".rig", ".rig.test", ".rig.tmpl", ".md")):
                         yield os.path.join(root, name)
         else:
             yield p
