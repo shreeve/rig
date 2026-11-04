@@ -60,6 +60,9 @@ Each form below was accepted by `v0.3.0` and is rejected now.
   a `drop` body, and a generic instance at a task or a set. Its floors
   rise by what it now decides (59 functions of the tests, 10 of the
   docs).
+- The core suite, `swarm test/rig.rip`, runs the scripts of `test/cli`
+  too, so a change that breaks one fails its gate; `cli` runs them
+  alone.
 
 ## v0.3.0 (2026-11-04)
 

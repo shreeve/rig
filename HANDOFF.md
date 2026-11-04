@@ -87,15 +87,15 @@ A new session, human or agent, takes these steps in order:
   width instead, until Zig fixes it.
 - **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
   the test files, the doc examples, their pending examples the planned
-  Core rules, the examples, the unit tests, and the oracle floors in
-  `test/oracle/coverage`). A change to the compiler, the runtime, or std
+  Core rules, the examples, the unit tests, the oracle floors in
+  `test/oracle/coverage`, and the scripts of test/cli). A change to the compiler, the runtime, or std
   also passes Trig's light gate (`tools/light`, AGENTS.md step 6) before
   it merges: a debug trig on Trig's six cli projects, four ways each,
   byte-identical to tsc, in about a minute; and loco's (`rig/tools/light`
   in a loc checkout): loco built with that Rig, its output identical to
   the Rust loc's. The full suite (`swarm test/rig.rip all`, the core
-  with test/cli, the probes, and the matrix's programs whose own Zig
-  changed, built in packs), and Trig's full suite
+  with the probes and the matrix's programs whose own Zig changed,
+  built in packs), and Trig's full suite
   (`tools/full-main` on pup; the last result is in
   `/zfs/trig-pup/full/LATEST`) run before each major or minor release,
   optionally before a patch. Nothing runs on a schedule: there are no

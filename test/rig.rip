@@ -2,11 +2,11 @@
 #
 #   swarm test/rig.rip             the core (or `core`): every test/rig/*.rig.test but
 #                                  the probes', the docs' ```rig examples, examples/,
-#                                  test/torture, the unit tests, and the oracle, a job
-#                                  per CPU at once
-#   swarm test/rig.rip cli         the scripts of test/cli, which take minutes
+#                                  test/torture, the unit tests, the oracle, and the
+#                                  scripts of test/cli, a job per CPU at once
+#   swarm test/rig.rip cli         the scripts of test/cli alone
 #   swarm test/rig.rip probes      test/rig/probes-*.rig.test, the probes of past reviews
-#   swarm test/rig.rip all         the core, the scripts, and the probes
+#   swarm test/rig.rip all         the core, the probes, and the matrix
 #   swarm test/rig.rip proofs      by hand: the proven checks' differential runs
 #                                  (`proofs-all`: of every program)
 #   swarm test/rig.rip std-text    test/rig/std-text.rig.test alone
@@ -503,14 +503,14 @@ setup = ->
   dir = join(root, 'test', 'rig')
   # The tiers: `core`, which a run with no names checks (every test file
   # but the probes', the docs' examples, examples/, torture, the unit
-  # tests, and the oracle, which reads the probes too); `cli`, the
-  # scripts of test/cli, which take minutes; `probes`, the cases of
+  # tests, the oracle, which reads the probes too, and `cli`, the
+  # scripts of test/cli, which also run alone); `probes`, the cases of
   # test/rig/probes-*.rig.test, the probes of past reviews; `matrix`,
   # the matrix's programs built and run where their own Zig changed;
   # `all`, all four; and `proofs`, which only a run that names it checks.
   everything = names.includes('all')
   core = names.length is 0 or names.includes('core')
-  wanted = (n) -> names.includes(n) or (everything and n not in ['proofs', 'proofs-all']) or (core and n not in ['cli', 'probes', 'matrix', 'proofs', 'proofs-all'])
+  wanted = (n) -> names.includes(n) or (everything and n not in ['proofs', 'proofs-all']) or (core and n not in ['probes', 'matrix', 'proofs', 'proofs-all'])
   sources = []
   for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
     area = f.slice(0, -'.rig.test'.length)
