@@ -4,16 +4,17 @@
 # which allocates its limbs, sized before they are filled, but none for
 # zero; `pow` allocates one more List while it works. `text` allocates
 # the String it returns, and for a number of more than 8 limbs a copy of
-# the limbs to divide and a List of the groups. Reading one, by
-# `compare`, `equals`, `sign`, `bit_len`, and `to_f64`, allocates
-# nothing.
+# the limbs to divide and a List of the groups. Reading one, by `==`,
+# `<` and its kin, `order`, `hash`, `sign`, `bit_len`, and `to_float`,
+# allocates nothing.
 
 # Why a parse failed: the text is not an integer as written.
 pub error ParseError
   invalid
 
-# An integer of any size: a sign and a magnitude.
-pub obj BigInt
+# An integer of any size: a sign and a magnitude. `==` compares two,
+# `<` and `order` order them by value, and a `Map` keys on one.
+pub obj BigInt: Eq + Ord + Hash
   # Whether the number is below zero; never for zero.
   neg: Bool
   # The magnitude, least significant limb first, with no zero limb at
@@ -51,17 +52,22 @@ pub obj BigInt
   pub fun clone(?@) -> BigInt
     BigInt(neg: @neg, limbs: +@limbs)
 
-  # -1, 0, or 1: whether this number is below, equal to, or above
-  # `other`.
-  pub fun compare(?@, other: ?BigInt) -> Int
-    if @neg != other.neg
-      return -1 if @neg else 1
-    c = compare_limbs(@limbs, other.limbs)
-    -c if @neg else c
+  # Whether this number equals `other`: the same sign and limbs.
+  fun eq(?@, other: ?BigInt) -> Bool
+    @neg == other.neg and ?@limbs[..] == ?other.limbs[..]
 
-  # Whether this number equals `other`.
-  pub fun equals(?@, other: ?BigInt) -> Bool
-    @neg == other.neg and compare_limbs(@limbs, other.limbs) == 0
+  # The sign and the limbs, which equal numbers share.
+  sub hash_into(?@, h: !Hasher)
+    !h.add(@neg)
+    !h.add(?@limbs[..])
+
+  # Whether this number is below, equal to, or above `other`.
+  pub fun order(?@, other: ?BigInt) -> Order
+    if @neg != other.neg
+      return .less if @neg else .greater
+    # Of two negative numbers, the larger magnitude is the smaller.
+    return order_limbs(other.limbs, @limbs) if @neg
+    order_limbs(@limbs, other.limbs)
 
   # -1, 0, or 1: the sign of the number.
   pub fun sign(?@) -> Int
@@ -204,7 +210,7 @@ pub obj BigInt
   # The Float nearest this number, ties to even, as Go's `Float64` and
   # JavaScript's `Number` round: an infinity when the number is too
   # large for one.
-  pub fun to_f64(?@) -> Float
+  pub fun to_float(?@) -> Float
     x = ?@limbs[..]
     n = x.len
     if n == 0
@@ -371,15 +377,16 @@ fun is_zero_below(x: []U64, n: Int) -> Bool
     return false if x[i] != 0
   true
 
-fun compare_limbs(x: []U64, y: []U64) -> Int
+# The order of the magnitudes `x` and `y`.
+fun order_limbs(x: []U64, y: []U64) -> Order
   if x.len != y.len
-    return -1 if x.len < y.len else 1
+    return x.len.order(?y.len)
   i = x.len
   while i > 0
     i -= 1
     if x[i] != y[i]
-      return -1 if x[i] < y[i] else 1
-  0
+      return x[i].order(?y[i])
+  .equal
 
 # `x` plus or minus `y`: the sum of two numbers whose signs are `xneg`
 # and `yneg`.
@@ -389,10 +396,10 @@ fun signed(xneg: Bool, yneg: Bool, x: []U64, y: []U64) -> BigInt
     if x.len < y.len
       return BigInt(neg: xneg, limbs: add_limbs(y, x))
     return BigInt(neg: xneg, limbs: add_limbs(x, y))
-  c = compare_limbs(x, y)
-  if c == 0
+  c = order_limbs(x, y)
+  if c == .equal
     return zero()
-  if c > 0
+  if c == .greater
     return BigInt(neg: xneg, limbs: sub_limbs(x, y))
   BigInt(neg: yneg, limbs: sub_limbs(y, x))
 

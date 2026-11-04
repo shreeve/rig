@@ -624,7 +624,7 @@ sub main()
 ## What is not there yet
 
 - No Unicode case mapping. `to_upper` and `to_lower` change ASCII only,
-  and `text.compare` orders by bytes.
+  and `<` and `a.order(?b)` order text by its bytes.
 - No normalization. `é` as one rune and as two are different strings,
   as the program above showed.
 - White space for `trim`, `words`, and `lines` is ASCII's. The Unicode

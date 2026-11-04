@@ -45,7 +45,7 @@ the entry of the one around it until it closes. Escaped strings are
 decoded into one buffer. Integers that fit an `Int` are `Int`s; every
 other number is the nearest `Float`: Clinger, then Eisel-Lemire with
 Rig's `U128`, then `std.text.parse_float` for the rare undecided case or
-more than 19 digits. Each parse reuses the Doc's lists, so a parse
+more than 19 digits. Each `load` reuses the Doc's lists, so a load
 allocates only when a list must grow.
 Nothing is lazy: `parse` does all the work Zig's std.json does.
 
@@ -192,16 +192,10 @@ references' published designs where marked. In order of expected gain:
    the type `U8` beside a `U8` (SPEC, "Byte literals"), but not beside
    a `Simd[U8, 16]`, so the vector compares name `QUOTE` and
    `BACKSLASH`.
-7. **Errors that carry data** (API). Errors with fields are built (SPEC
-   §15), but a parse error here is still a kind and a byte offset: `parse`
-   returns a `Bool` and the `Doc` holds `error` and `error_pos`. std.json
-   has yet to adopt them, which changes the API to fallible `!`
-   functions.
-
-The final API is the design owner's decision, and is not settled:
-`parse` and the readers as fallible `!` functions, errors that carry
-their offset, and `!` or `T?` in place of the `-1` that the parser's
-internal steps return on an error. A `T?` costs nothing here: with
-`utf8_end` returning `Int?` in place of `-1`, and no
-other change, instructions per byte stayed within 1% on all six corpus
-files. Until then `std.json` is experimental.
+7. **Internal steps that fail** (clarity). `json.parse` and `load` fail
+   with a `JsonError` member that carries its offset (SPEC §15), but the
+   parser's internal steps still return `-1` on an error and record the
+   error in the Doc, which `load` gives back. A `T?` costs nothing
+   there: with `utf8_end` returning `Int?` in place of `-1`, and no
+   other change, instructions per byte stayed within 1% on all six
+   corpus files.

@@ -6191,8 +6191,38 @@ pub const CheckOptions = struct {
 /// not declare, when what it does declare goes by another name: `Rng` in
 /// `std.random`, whose generator is `Random`. Empty for any other name.
 pub fn stdNameHint(foreign: *const SemContext, name: []const u8) []const u8 {
-    if (foreign.is_std and std.mem.eql(u8, foreign.name, "std.random") and std.mem.eql(u8, name, "Rng")) return "; its generator is `Random`";
-    return "";
+    return stdRenamed(foreign, "", name) orelse "";
+}
+
+/// The new spelling of a name the standard library gave up: `member` of
+/// the module `foreign`, or of its type `owner` when that is not "". The
+/// "no member", "no method", and "no field" errors end with it.
+pub fn stdRenamed(foreign: *const SemContext, owner: []const u8, member: []const u8) ?[]const u8 {
+    if (!foreign.is_std) return null;
+    const Renamed = struct { []const u8, []const u8, []const u8, []const u8 };
+    const table = [_]Renamed{
+        .{ "std.random", "", "Rng", "; its generator is `Random`" },
+        .{ "std.json", "", "new_doc", "; an empty Doc is `json.Doc()`, and `json.parse(?src)!` parses into a new one" },
+        .{ "std.json", "", "error_name", "; a `JsonError` names its reason and offset: `print(e)`, or `match e` with `.eof(at) => ...`" },
+        .{ "std.json", "", "Error", "; each reason is a member of `JsonError` with its offset, `JsonError.eof(at: 5)`" },
+        .{ "std.text", "", "compare", "; order two texts with `a.order(?b)`, which gives `.less`, `.equal`, or `.greater`" },
+        .{ "std.math", "", "powf", "; `math.pow` takes floats too: `math.pow(x, y)`" },
+        .{ "std.json", "Doc", "size", "; the number of tape entries is the field `doc.len`" },
+        .{ "std.json", "Doc", "get_int", "; write `doc.int(i)`" },
+        .{ "std.json", "Doc", "get_str", "; write `doc.string(i)`" },
+        .{ "std.json", "Doc", "get_bool", "; write `doc.bool(i)`" },
+        .{ "std.json", "Doc", "get_float", "; write `doc.float(i)`" },
+        .{ "std.json", "Doc", "parse", "; `json.parse(?src)!` makes a Doc, and `(!doc).load(?src)!` fills one again, each failing with a `JsonError`" },
+        .{ "std.json", "Doc", "error", "; `json.parse` and `load` fail with a `JsonError` that carries the offset, `JsonError.eof(at: 5)`" },
+        .{ "std.json", "Doc", "error_pos", "; `json.parse` and `load` fail with a `JsonError` that carries the offset, `JsonError.eof(at: 5)`" },
+        .{ "std.bigint", "BigInt", "compare", "; compare with `<` and its kin, or write `a.order(?b)`, which gives `.less`, `.equal`, or `.greater`" },
+        .{ "std.bigint", "BigInt", "equals", "; a BigInt compares with `==`" },
+        .{ "std.bigint", "BigInt", "to_f64", "; write `a.to_float()`" },
+    };
+    for (table) |r| {
+        if (std.mem.eql(u8, r[0], foreign.name) and std.mem.eql(u8, r[1], owner) and std.mem.eql(u8, r[2], member)) return r[3];
+    }
+    return null;
 }
 
 /// `module.name`, a public declaration of the imported module `foreign`,

@@ -49,7 +49,6 @@ never read as the library's.
 | [`std.crypto`](#stdcrypto) | WireGuard's cryptography, in constant time: ChaCha20-Poly1305 and XChaCha20-Poly1305, X25519, BLAKE2s and HMAC-BLAKE2s, `wipe`, `equal` |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
-| [`std.iter`](#stditer) | counting and summing what any iterator gives |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -60,8 +59,8 @@ never read as the library's.
 ## std.math
 
 Number helpers, written in Rig. Like the operators, they panic on
-overflow. `abs`, `min`, `max`, and `clamp` are generic: each call is
-checked for its type, as any generic call is.
+overflow. `abs`, `min`, `max`, `clamp`, and `pow` are generic: each call
+is checked for its type, as any generic call is.
 
 | Function | Result |
 |---|---|
@@ -69,7 +68,7 @@ checked for its type, as any generic call is.
 | `min[T: Ord](a: T, b: T) -> T`, `max[T: Ord](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal. A float provides no `Ord`: it has its own `x.min(y)` and `x.max(y)` |
 | `clamp[T: Ord](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo`. A float has its own `x.clamp(lo, hi)` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
-| `pow(base: Int, power: Int) -> Int` | `base` to the power `power`; a negative `power` gives 1 divided by `base` to the power `-power`, truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, and 0 for any other but 0, which panics as dividing by 0 does |
+| `pow[T: Copy + Num](base: T, power: T) -> T` | `base` to the power `power`, for any number type. An integer's is found by squaring and panics on overflow as `*` does; a negative `power` gives 1 divided by `base` to the power `-power`, truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, and 0 for any other but 0, which panics as dividing by 0 does. A float's is C's `pow`, below |
 | `mod(a: Int, b: Int) -> Int` | the floored remainder, with the sign of `b`; panics when `b` is 0 |
 | `PI`, `E` | the Float constants |
 
@@ -116,7 +115,7 @@ negative number) is NaN, which equals nothing, itself included.
 | `ln(x: Float) -> Float` | the natural logarithm |
 | `log2(x: Float) -> Float` | the base-2 logarithm |
 | `sin(x: Float) -> Float`, `cos(x: Float) -> Float` | the sine and cosine of `x` radians |
-| `powf(x: Float, y: Float) -> Float` | `x` to the power `y` |
+| `pow(x, y)` of floats | `x` to the power `y`, as C's `pow` gives it: 1 for a `y` of 0, even for a NaN `x`; an infinity for a zero `x` and a negative `y` |
 
 ```rig
 use std.math
@@ -124,7 +123,7 @@ use std.math
 sub main()
   print(math.sqrt(2.0) > 1.414, math.floor(-2.5), math.ceil(-2.5))
   print(math.exp(0.0), math.ln(math.E))
-  print(math.cos(math.PI), math.powf(2.0, 0.5) == math.sqrt(2.0))
+  print(math.cos(math.PI), math.pow(2.0, 0.5) == math.sqrt(2.0))
   print(Int(math.floor(7.9)))
   print(math.abs(-0.0), math.trunc(-2.7), math.copysign(3.0, -1.0), math.log2(8.0))
 ```
@@ -180,8 +179,16 @@ Every operation that makes a BigInt allocates one List for its limbs,
 sized before they are filled, but none for a result of zero, and `pow`
 one more List of the result's size while it works. `text` allocates the String it returns,
 and for a number of more than 8 limbs (about 154 digits) a copy of the
-limbs to divide and a List of the 19-digit groups. `compare`, `equals`,
-`sign`, `bit_len`, and `to_f64` only read, and allocate nothing.
+limbs to divide and a List of the 19-digit groups. `==`, `<` and its
+kin, `order`, hashing, `sign`, `bit_len`, and `to_float` only read, and
+allocate nothing.
+
+A BigInt provides `Eq`, `Ord`, and `Hash` ([SPEC, Own
+meanings](../SPEC.md#own-meanings)): `==` compares two by value, `<`,
+`a.order(?b)`, and `sort` order them by value, and a `Map` or a `Set`
+keys on one. Each compares the signs first, then the limb counts, and
+walks the limbs only when both agree, as `==` of two Strings walks
+their bytes.
 
 | Member | Result |
 |---|---|
@@ -189,15 +196,14 @@ limbs to divide and a List of the 19-digit groups. `compare`, `equals`,
 | `bigint.from_int(n: Int) -> BigInt` | `n` as a BigInt |
 | `a.text() -> String` | the number in base 10: a `-` when it is negative, no leading zeros |
 | `a.clone() -> BigInt` | a second BigInt of the same value |
-| `a.compare(b: ?BigInt) -> Int` | -1, 0, or 1, as `a` is below, equal to, or above `b` |
-| `a.equals(b: ?BigInt) -> Bool` | whether the two are equal |
+| `a == b`, `a < b`, `a.order(?b) -> Order` | whether the two are equal; their order by value, `.less`, `.equal`, or `.greater` |
 | `a.sign() -> Int` | -1, 0, or 1 |
 | `a.bit_len() -> Int` | the bits of the magnitude: 0 for zero, 64 for 2^63 |
 | `a.add(b)`, `a.sub(b)`, `a.mul(b)` | the sum, difference, and product |
 | `a.shl(n: Int) -> BigInt` | `a` times 2^n; panics when `n` is negative |
 | `a.shr(n: Int) -> BigInt` | `a` divided by 2^n, rounded toward minus infinity as `>>` rounds, so -1 at the least for a negative number; panics when `n` is negative |
 | `a.pow(e: Int) -> BigInt` | `a` to the power `e`, 1 when `e` is 0; panics when `e` is negative |
-| `a.to_f64() -> Float` | the nearest `Float`, ties to even, and infinite past the largest |
+| `a.to_float() -> Float` | the nearest `Float`, ties to even, and infinite past the largest |
 
 `parse` reads Go's `Int.SetString` syntax: an optional sign, then
 digits in `base`, upper or lower case. Base 0 reads the base from a
@@ -213,16 +219,16 @@ sub main()!
   a = bigint.parse("123456789012345678901234567890")!
   b = bigint.from_int(-42)
   print(a.mul(b).text())
-  print(a.add(b).text(), a.sub(b).text(), a.compare(b), a.equals(a.clone()))
+  print(a.add(b).text(), a.sub(b).text(), a.order(?b), a == a.clone(), b < a)
   print(bigint.parse("0xffff_ffff_ffff_ffff")!.add(bigint.from_int(1)).text())
   print(bigint.from_int(1).shl(100).text(), b.shr(4).text())
-  print(bigint.from_int(3).pow(50).text(), bigint.from_int(10).pow(400).to_f64())
-  print(bigint.parse("9007199254740993")!.to_f64(), (bigint.parse("1_000", 10) catch bigint.from_int(-1)).text())
+  print(bigint.from_int(3).pow(50).text(), bigint.from_int(10).pow(400).to_float())
+  print(bigint.parse("9007199254740993")!.to_float(), (bigint.parse("1_000", 10) catch bigint.from_int(-1)).text())
 ```
 
 ```output
 -5185185138518518513851851851380
-123456789012345678901234567848 123456789012345678901234567932 1 true
+123456789012345678901234567848 123456789012345678901234567932 .greater true true
 18446744073709551616
 1267650600228229401496703205376 -3
 717897987691852588770249 inf
@@ -231,19 +237,7 @@ sub main()!
 
 `9007199254740993` is 2^53 + 1, halfway between two `Float`s, and
 rounds to the even one, 2^53; `"1_000"` in base 10 is `invalid`, as a
-set base reads no `_`. A BigInt has no `==` or `<`, which would
-hide a walk over the limbs; `equals` and `compare` name it.
-
-```rig reject
-use std.bigint
-
-sub main()
-  print(bigint.from_int(1) < bigint.from_int(2))
-```
-
-```error
-operator `<` orders values of one type that provides `Ord`, and `bigint.BigInt` cannot be ordered
-```
+set base reads no `_`.
 
 ## std.os
 
@@ -1379,7 +1373,7 @@ platform. It is not for cryptography.
 | `Random.new() -> Random` | a generator seeded from the operating system's entropy, different on each run |
 | `!r.next() -> U64` | the next 64 random bits |
 | `!r.fork() -> Random` | a new generator, seeded from `r`'s next number |
-| `!r.int(lo: Int, hi: Int) -> Int` | an `Int` from `lo` up to but not including `hi`, each equally likely, for any range up to `Int.min` to `Int.max`; panics unless `lo < hi` |
+| `!r.int(lo: Int, hi: Int) -> Int` | an `Int` from `lo` up to but not including `hi`, each equally likely, for any range up to `Int.min` to `Int.max`, by Lemire's method: the top 64 bits of the next 64 bits times the range's size, one multiply, drawing again for the few values that would make some results likelier; panics unless `lo < hi` |
 | `!r.float() -> Float` | a `Float` from 0 up to but not including 1 |
 | `!r.shuffle(!xs)` | put the elements of the slice `xs` in a random order, each order equally likely |
 
@@ -1516,15 +1510,18 @@ they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`).
 `sort`, `lower_bound`, and `search` take `T: Ord` and order elements
 with `<` ([SPEC, Bounds](../SPEC.md#bounds)), which a float is not;
 `sort_by` takes any `T` and the order a comparator gives, and
-`sort_by_key` the order of a key that provides `Ord`.
+`sort_by_key` the order of a key that provides `Ord`. `lower_bound`
+and `search` take a view of what they look for, `x: ?T`, so a List of
+Strings is searched without giving up or cloning the String sought; a
+literal or a bare name is lent as it is passed.
 
 | Function | Result |
 |---|---|
 | `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
 | `sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
 | `sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)` | the same, in the order of the keys `key` gives, by `<`; `key` is called twice for each comparison |
-| `lower_bound[T: Ord](xs: []T, x: T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
-| `search[T: Ord](xs: []T, x: T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
+| `lower_bound[T: Ord](xs: []T, x: ?T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
+| `search[T: Ord](xs: []T, x: ?T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
 
 `sort` sorts runs of 20 elements by insertion, then merges them in
 place by rotations: O(n log n) comparisons, O(n log² n) swaps, and
@@ -1616,13 +1613,14 @@ sub main()
 
 Linear operations on slices, written in Rig, on arrays and on Lists
 through a slice. `contains` and `index_of` take `T: Eq` and compare
-elements with `==`.
+elements with `==`, and a view of what they look for, `x: ?T`, as
+`sort.search` does.
 
 | Function | Result |
 |---|---|
 | `reverse(xs: ![]T)` | reverse the order of `xs` in place |
-| `contains[T: Eq](xs: []T, x: T) -> Bool` | whether some element equals `x` |
-| `index_of[T: Eq](xs: []T, x: T) -> Int?` | the index of the first element equal to `x`, or `none` |
+| `contains[T: Eq](xs: []T, x: ?T) -> Bool` | whether some element equals `x` |
+| `index_of[T: Eq](xs: []T, x: ?T) -> Int?` | the index of the first element equal to `x`, or `none` |
 
 ```rig
 use std.slices
@@ -1631,64 +1629,15 @@ sub main()
   names = ["cy", "ann", "bob"]
   slices.reverse(!names)
   print(names, slices.index_of(?names, "ann"), slices.contains(?names, "dee"))
+  owned = [String("cy"), String("ann")]
+  sought = String("ann")
+  print(slices.index_of(?owned, ?sought), sought)
 ```
 
 ```output
 ["bob", "ann", "cy"] 1 false
+1 ann
 ```
-
-## std.iter
-
-Functions over any iterator, a value of a type that declares
-`next(!@) -> T?` ([SPEC, APIs](../SPEC.md#apis): it provides `Iter`,
-and its `Item` is `T`). Each takes the iterator lent to write and
-advances it to its end. `count` holds no item past the next `next`, so
-it takes any iterator, one whose items view memory it owns too
-([SPEC, APIs](../SPEC.md#apis)); `sum` takes items that are numbers,
-which view nothing. A chain does the same and more on any `for` source,
-as the loop it means, with no import: `(!it).count()`,
-`xs.filter(f).sum()`, `?m.items().min_by(key)` ([SPEC,
-Chains](../SPEC.md#chains)).
-
-| Function | Result |
-|---|---|
-| `count[I: Iter](it: !I) -> Int` | how many items `it` gives |
-| `sum[I: Iter, I.Item: Num](it: !I) -> I.Item?` | the sum of the items, or `none` when it gives none |
-
-```rig
-use std.iter
-use std.text
-
-obj Upto
-  n: Int
-  hi: Int
-
-  fun next(!@) -> Int?
-    return none if @n >= @hi
-    @n += 1
-    @n
-
-sub main()
-  words = text.split("a b c", " ")
-  print(iter.count(!words))
-  runes = text.chars("abc")
-  print(iter.count(!runes))
-  u = Upto(n: 0, hi: 4)
-  print(iter.sum(!u) ?? 0)
-  e = Upto(n: 0, hi: 0)
-  print(iter.sum(!e) ?? 0)
-```
-
-```output
-3
-3
-10
-0
-```
-
-`Upto` declares `next`, so it provides `Iter` with `Item` an `Int`,
-which provides `Num`. `iter.sum` of an iterator of text is rejected:
-`?String` is no number.
 
 ## Map and Set
 
@@ -2428,7 +2377,6 @@ functions return.
 | `is_digit(b: U8) -> Bool`, `is_alpha(b: U8) -> Bool` | whether `b` is an ASCII digit, or an ASCII letter |
 | `is_space(b: U8) -> Bool` | whether `b` is ASCII whitespace: a space, tab, line feed, vertical tab, form feed, or carriage return |
 | `to_upper(b: U8) -> U8`, `to_lower(b: U8) -> U8` | `b` in upper, or lower, case when it is an ASCII letter, else `b` |
-| `compare(a: ?String, b: ?String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
 | `edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int` | the Levenshtein distance between `a` and `b` over runes (insert, delete, and substitute cost 1); `row` is the caller's scratch; with `max >= 0`, `max + 1` once the distance passes `max` |
 
 ```rig
@@ -2518,12 +2466,13 @@ ParseError.overflow true
 0
 ```
 
-`compare` orders `?String` values in one pass over their bytes, for a sort by a
-key that is a `?String`:
+Text orders by its bytes, as `<` orders it, and `a.order(?b)` gives
+the `Order` of two texts in one pass over their bytes ([Order, Hasher,
+and Printer](#order-hasher-and-printer)), for a sort by a key that is a
+`?String`:
 
 ```rig
 use std.sort
-use std.text
 
 obj City
   name: ?String
@@ -2531,7 +2480,7 @@ obj City
 
 sub main()
   cities = [City(name: "Oslo", pop: 7), City(name: "Bern", pop: 1), City(name: "Lima", pop: 10)]
-  sort.sort_by(!cities, |a, b| text.compare(a.name, b.name) < 0)
+  sort.sort_by(!cities, |a, b| a.name.order(?b.name) == .less)
   for c in cities
     print(c.name, c.pop)
 ```
@@ -2725,15 +2674,22 @@ how runes fit with bytes, units, and chars.
 | `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` | |
 | `size(r: Int) -> Int?` | the bytes, 1 to 4, that `r` takes in UTF-8, or `none` when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF | `RuneLen` |
 | `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
-| `weighted_count[four: Int](s: ?String) -> Int` | the runes of `s` as `rune_count` counts them, but each rune of four bytes counted as `four`, 1 to 4: `utf16.unit_count` is `weighted_count[2]` | |
 | `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
-| `block_errors(cur: Simd[U8, 16], prev: Simd[U8, 16]) -> Simd[U8, 16]` | nonzero in each lane where `cur`, after the 16 bytes `prev`, breaks UTF-8 (Keiser and Lemire's check, which `is_valid`, the counts, and std.json use); a sequence that runs past `cur` is flagged by the block after it | |
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 | `Decoder.new() -> Decoder` | a streaming decoder, fed a byte at a time, for text that arrives in pieces; an ill-formed sequence reads as one `REPLACEMENT` per maximal subpart, as Unicode recommends and terminals do (Ghostty's DFA), where `rune_after` reads one per bad byte, as Go does | |
 | `(!d).next(b: U8) -> Int?` | the rune byte `b` completes, `REPLACEMENT` where a sequence is ill-formed, or `none` while one is under way; after a `REPLACEMENT` with `d.retry` true, feed `b` again, as the start of what follows | |
 | `d.pending() -> Bool` | whether a sequence is under way | |
+
+**Building blocks.** Two functions serve the text modules, which share
+them rather than keep copies; a program counts with `rune_count` and
+`utf16.unit_count` and checks with `is_valid`:
+
+| Name | Meaning |
+|---|---|
+| `weighted_count[four: Int](s: ?String) -> Int` | the runes of `s` as `rune_count` counts them, but each rune of four bytes counted as `four`, 1 to 4: `rune_count` is `weighted_count[1]`, and `utf16.unit_count` is `weighted_count[2]` |
+| `block_errors(cur: Simd[U8, 16], prev: Simd[U8, 16]) -> Simd[U8, 16]` | nonzero in each lane where `cur`, after the 16 bytes `prev`, breaks UTF-8 (Keiser and Lemire's check, which `is_valid`, the counts, and std.json use); a sequence that runs past `cur` is flagged by the block after it |
 
 The case `utf8 go` of `test/rig/std-misc.rig.test` runs Go's own test tables, and
 `test/rig/std-text-go.rig.test` compares every function with Go's answers
@@ -3115,16 +3071,20 @@ before it returns.
 
 | Name | Meaning |
 |---|---|
-| `new_doc() -> Doc` | an empty `Doc`; each `parse` reuses its lists, so a parse allocates only when a list must grow |
-| `(!doc).parse(src: ?String) -> Bool keeps src` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
-| `doc.error: Error`, `doc.error_pos: Int` | the first error, and the byte offset of the byte that cannot be read |
-| `(!doc).load(src: ?String)!JsonError keeps src` | `parse` as a failure: `load` fails with `JsonError.bad(kind: Error, at: Int)`, the error and its offset, where `parse` returns `false` |
-| `error_name(e: Error) -> Static` | `e.text`, the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
-| `doc.size() -> Int` | the number of tape entries |
+| `json.parse(src: ?String) -> Doc!JsonError` | the document `src` holds, read whole into a new Doc's tape; fails with the first error |
+| `json.Doc() -> Doc` | an empty Doc, for `load` to fill again and again |
+| `(!doc).load(src: ?String)!JsonError keeps src` | read all of `src` into `doc`'s tape, reusing its lists, so a load allocates only when a list must grow; fails with the first error, leaving the tape empty |
+| `doc.len: Int` | the number of tape entries, a field only std.json writes |
 | `doc.kind(i: Int) -> Kind` | the entry at `i`: `null`, `bool`, `int`, `float`, `string`, `array`, `array_end`, `object`, or `object_end` |
-| `doc.get_bool(i: Int) -> Bool`, `doc.get_int(i: Int) -> Int`, `doc.get_float(i: Int) -> Float` | the value of a `bool`, `int`, or `float` entry |
-| `doc.get_str(i: Int) -> ?String` | a `string` entry, an object's key included: its decoded UTF-8 bytes |
+| `doc.bool(i: Int) -> Bool`, `doc.int(i: Int) -> Int`, `doc.float(i: Int) -> Float` | the value of a `bool`, `int`, or `float` entry |
+| `doc.string(i: Int) -> ?String` | a `string` entry, an object's key included: its decoded UTF-8 bytes |
 | `doc.next(i: Int) -> Int` | the index just past the value at `i`, past its closing entry for an array or object, to skip it |
+
+A failure is a member of `JsonError` naming the reason, each with `at`,
+the byte offset of the byte that cannot be read: `empty` (only
+whitespace), `unexpected`, `eof`, `number`, `range`, `escape`,
+`surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large`.
+It prints as `JsonError.eof(at: 5)`, and a `match` takes it apart.
 
 An object's entries are its keys and values, alternating, between its
 `object` and `object_end` entries. A string without escapes is a view of
@@ -3133,12 +3093,12 @@ that fits an `Int` is an `int`; any other number is the nearest `Float`
 (`-0` is a `Float`), and one beyond `Float.max` is a `range` error.
 `NaN` and `Infinity` are errors, as are an unpaired surrogate in a `\u`
 escape, bytes that are not UTF-8, and nesting deeper than 1024.
-Duplicate keys are kept, in order. `parse` reads the whole document or
-fails; a failed parse leaves an empty tape. An input over 4 GiB, or a
+Duplicate keys are kept, in order. A parse reads the whole document or
+fails; a failed `load` leaves an empty tape. An input over 4 GiB, or a
 string longer than 2^27 - 1 bytes, is a `too_large` error (no test
 reaches these sizes).
 
-Every reader takes an index `0 <= i < doc.size()`, and each value getter
+Every reader takes an index `0 <= i < doc.len`, and each value getter
 an entry of its own kind: out of range a reader panics, and on another
 kind a getter returns an unspecified value or panics.
 
@@ -3147,24 +3107,19 @@ use std.json
 
 sub main()
   src = "{\"name\": \"Ada\", \"langs\": [\"en\", \"fr\"], \"born\": 1815, \"pi\": 3.5}"
-  doc = json.new_doc()
-  if (!doc).parse(?src)
-    for i in 0..doc.size()
-      match doc.kind(i)
-        .object => print("{")
-        .object_end => print("}")
-        .array => print("[")
-        .array_end => print("]")
-        .string => print("string", doc.get_str(i))
-        .int => print("int", doc.get_int(i))
-        .float => print("float", doc.get_float(i))
-        _ => print("other")
-  else
-    print("error", doc.error)
-  bad = "[1, 2"
-  again = json.new_doc()
-  if not (!again).parse(?bad)
-    print(json.error_name(again.error), "at byte", again.error_pos)
+  doc = json.parse(?src) catch |e|
+    print("error", e)
+    return
+  for i in 0..doc.len
+    match doc.kind(i)
+      .object => print("{")
+      .object_end => print("}")
+      .array => print("[")
+      .array_end => print("]")
+      .string => print("string", doc.string(i))
+      .int => print("int", doc.int(i))
+      .float => print("float", doc.float(i))
+      _ => print("other")
 ```
 
 ```output
@@ -3181,35 +3136,45 @@ int 1815
 string pi
 float 3.5
 }
-eof at byte 5
 ```
 
-`load` is `parse` for a caller that fails rather than tests: it gives
-the failure as a `JsonError`, which `!` passes on and `catch` binds.
+The error passes on with `!` and is caught as any failure is. A
+program that reads many documents makes one Doc and `load`s each into
+it, so its lists are reused:
 
 ```rig
 use std.json
 
 fun count(src: ?String) -> Int!json.JsonError
-  doc = json.new_doc()
-  (!doc).load(src)!
-  doc.size()
+  doc = json.parse(src)!
+  doc.len
 
 sub main()
   print(count("[1, 2, 3]") catch -1)
   n = count("[1, 2") catch |e|
     print(e)
     match e
-      .bad(kind, at) => print(json.error_name(kind), "at byte", at)
+      .eof(at) => print("cut short at byte", at)
+      _ => print("not JSON")
     -1
   print(n)
+  doc = json.Doc()
+  total = 0
+  for src in ["[1]", "{\"a\": [true, null]}", "[1,]"]
+    (!doc).load(src) catch |e|
+      print(e)
+      continue
+    total += doc.len
+  print(total)
 ```
 
 ```output
 5
-JsonError.bad(kind: .eof, at: 5)
-eof at byte 5
+JsonError.eof(at: 5)
+cut short at byte 5
 -1
+JsonError.unexpected(at: 3)
+10
 ```
 
 `bench/json/check/compare.py` checks it against Python's `json` module on 10,511

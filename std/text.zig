@@ -471,11 +471,3 @@ pub fn parse_float(s: []const u8) ParseError!f64 {
     if (std.math.isInf(x) and std.ascii.toLower(rest[0]) != 'i') return error.@"std.text.ParseError.overflow";
     return x;
 }
-
-pub fn compare(a: []const u8, b: []const u8) i64 {
-    return switch (std.mem.order(u8, a, b)) {
-        .lt => -1,
-        .eq => 0,
-        .gt => 1,
-    };
-}

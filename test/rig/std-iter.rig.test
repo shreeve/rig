@@ -1,7 +1,5 @@
-# std: std.iter, functions over any iterator (`[I: Iter]`), and every
-# std iterator an `Iter` whose item is what a `for` loop gives.
-
-use std.iter
+# std: a chain's `count` and `sum` over any iterator (`(!it).count()`),
+# and every std iterator an `Iter` whose item is what a `for` loop gives.
 
 test "iter count", "4 0"
   obj Count
@@ -15,7 +13,7 @@ test "iter count", "4 0"
 
   c = Count(n: 0, hi: 4)
   e = Count(n: 0, hi: 0)
-  print(iter.count(!c), iter.count(!e))
+  print((!c).count(), (!e).count())
 
 test "iter an item whose optional holds its none in the item", "3 1 2 true"
   # `I.Item` of an item whose `T?` is no Zig `?T` (a `Bool` field's
@@ -59,7 +57,7 @@ test "iter an item whose optional holds its none in the item", "3 1 2 true"
   id = 0
   if first(!ids) as y
     id = y.id
-  print(iter.count(!f), n, id, on)
+  print((!f).count(), n, id, on)
 
 test "iter sum", "10 7.5 0"
   obj Count
@@ -82,19 +80,19 @@ test "iter sum", "10 7.5 0"
   c = Count(n: 0, hi: 4)
   h = Halves(x: 8.0)
   e = Count(n: 0, hi: 0)
-  print(iter.sum(!c) ?? 0, iter.sum(!h) ?? 0.0, iter.sum(!e) ?? 0)
+  print((!c).sum(), (!h).sum(), (!e).sum())
 
-fail "iter sum of what is no number", "`iter.sum[text.Split]` cannot use `I.Item = ?String`: `?String` is no number"
+fail "iter sum of what is no number", "3:12: `sum` adds numbers, and these items are `?String`s"
   use std.text
   s = text.split("a b", " ")
-  print(iter.sum(!s))
+  print((!s).sum())
 
-fail "iter count of what is no iterator", "`iter.count[Label]` cannot use `I = Label`: `Label` is no iterator: it declares no `fun next(!@) -> T?`"
+fail "iter count of what is no iterator", "5:12: no method `count` on type `Label`"
   obj Label
     n: Int
 
   l = Label(n: 1)
-  print(iter.count(!l))
+  print((!l).count())
 
 test "iter every std iterator", '''
   3 a
@@ -120,7 +118,7 @@ test "iter every std iterator", '''
 
   sub show[I: Iter, I.Item: Print + Copy](a: !I)
     first = (!a).next()
-    n = 1 + iter.count(!a)
+    n = 1 + (!a).count()
     if first as f
       print(n, f)
 
@@ -176,7 +174,7 @@ test "iter a map's iterator", "2 1 2"
   !st.add(5)
   e = ?st.items()
   v = ?m.values()
-  print(iter.count(!k), iter.count(!e), iter.count(!v))
+  print((!k).count(), (!e).count(), (!v).count())
 
 test "iter sum of a map's values", "30 2.5 0"
   # A chain's `sum` adds items that are views of numbers, a Map's
@@ -249,11 +247,12 @@ test "iter an owned path", "2"
       ?@buf[..@at]
 
   o = Own(buf: String("ab"), at: 0)
-  print(iter.count(!o))
+  print((!o).count())
 
-fail "iter sum holds its first item", "`iter.sum[Nums]` cannot use `I.Item = ?Int`: the generic body applies `+=` to `I.Item`, which `?Int` does not support"
-  # `sum` holds its first item past the next `next`, and adds to it: an
-  # item that views the iterator's own List is no number to add to.
+test "iter sum of items that view the iterator", "7"
+  # A chain's `sum` reads each item into its total before the next
+  # `next`, so an item that views the iterator's own List is added as
+  # its number.
 
   obj Nums
     xs: List[Int]
@@ -266,5 +265,6 @@ fail "iter sum holds its first item", "`iter.sum[Nums]` cannot use `I.Item = ?In
 
   l: List[Int] = List()
   !l.push(3)
+  !l.push(4)
   n = Nums(xs: <l, at: 0)
-  print(iter.sum(!n) ?? 0)
+  print((!n).sum())

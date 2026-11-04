@@ -51,7 +51,7 @@ reasons that are rules, not missing code:
 2. **An adapter whose items are views cannot be bounded.** `from
    @field`'s rule 4 judges a field of a type variable at the
    declaration. A `Take[I: Iter]` over a Map's keys builds and runs,
-   but `iter.count(!t)` of it, or a `Take` of a `Take`, is refused:
+   but `(!t).count()` of it, or a `Take` of a `Take`, is refused:
    "`I.Item = ?Int`: a `?Int` may view memory `Take[Keys[Int, Int]]`
    owns". ROADMAP lists judging it per instance.
 
@@ -139,7 +139,7 @@ sub main()
 
 | Consumer | Result |
 |---|---|
-| `sum()`, `count()` | a number, as `xs.sum()` and `iter.count` give |
+| `sum()`, `count()` | a number, as `xs.sum()` gives; 0 for no items |
 | `reduce(start, f)` | as `xs.reduce` |
 | `collect()` | a new `List` of the items: the chain's one allocation |
 | `any(f)`, `all(f)` | a `Bool`, stopping at the first that decides |

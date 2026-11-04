@@ -496,7 +496,7 @@ sub main()
         t += a[j].shr(37).bit_len()
       t
     ))
-    report("to_f64", size, measure(|?pa, n|
+    report("to_float", size, measure(|?pa, n|
       t = 0
       for i in 0..n
         j = i % K
@@ -506,7 +506,7 @@ sub main()
       t = 0
       for i in 0..n
         j = i % K
-        t +%= Int.wrap(a[j].to_f64().to_bits())
+        t +%= Int.wrap(a[j].to_float().to_bits())
       t
     ))
   for p in [[10, 22], [3, 100], [7, 500], [123, 1000]]
@@ -538,6 +538,6 @@ sub main()
     ), measure(|?bases, +e, n|
       t = 0
       for i in 0..n
-        t +%= Int.wrap(bigint.from_int(bases[i % K]).pow(e).to_f64().to_bits())
+        t +%= Int.wrap(bigint.from_int(bases[i % K]).pow(e).to_float().to_bits())
       t
     ))

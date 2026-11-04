@@ -5,9 +5,9 @@ use std.os
 
 sub main()
   args = os.args()
-  doc = json.new_doc()
+  doc = json.Doc()
   n = 0
   for _ in 0..3
-    if (!doc).parse(args[args.len - 1])
-      n += doc.size()
+    (!doc).load(args[args.len - 1]) catch continue
+    n += doc.len
   print(n)

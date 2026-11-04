@@ -139,14 +139,14 @@ fun read_orders(doc: ?json.Doc) -> List[Order]
     o = Order(who: "", item: "", qty: 0)
     i += 1
     while doc.kind(i) != .object_end
-      key = doc.get_str(i)
+      key = doc.string(i)
       i += 1
       if key == "who"
-        o.who = doc.get_str(i)
+        o.who = doc.string(i)
       else if key == "item"
-        o.item = doc.get_str(i)
+        o.item = doc.string(i)
       else if key == "qty"
-        o.qty = doc.get_int(i)
+        o.qty = doc.int(i)
       i = doc.next(i)
     !orders.push(o)
     i += 1
@@ -156,17 +156,18 @@ sub main()!
   path = "tally-json/orders.json"
   file.write(path, orders_json(), parents: true)!
   src = file.read(path)! ?? String()
-  doc = json.new_doc()
-  if not (!doc).parse(?src)
-    print("bad JSON:", json.error_name(doc.error), "at byte", doc.error_pos)
+  doc = json.parse(?src) catch |e|
+    print("bad JSON:", e)
     return
   orders = read_orders(?doc)
   print(orders.len)
   for o in ?orders
     print(o.who, o.item, o.qty)
-  bad = json.new_doc()
-  if not (!bad).parse("[1, 2")
-    print(json.error_name(bad.error), "at byte", bad.error_pos)
+  _ = json.parse("[1, 2") catch |e|
+    match e
+      .eof(at) => print("cut short at byte", at)
+      _ => print(e)
+    json.Doc()
   _ = file.remove(path)!
   _ = file.remove("tally-json")!
 ```
@@ -177,15 +178,16 @@ ada pen 3
 bob ink 1
 ada ink 2
 cy pen 5
-eof at byte 5
+cut short at byte 5
 ```
 
-`parse` checks the whole text before it returns, and fills the tape. It
-answers `true`, or `false` with `doc.error` and `doc.error_pos` set; a
-bad document never reaches the walk. `doc.kind(i)` says what entry `i`
-is, `doc.get_str(i)` and `doc.get_int(i)` read it, and `doc.next(i)`
-gives the entry after the value at `i`, so it skips an array or an object
-whole.
+`json.parse` checks the whole text before it returns a Doc holding the
+tape, or fails with the reason and the byte where reading stopped,
+`JsonError.eof(at: 5)`; a bad document never reaches the walk, and the
+handler's `json.Doc()`, an empty Doc, is what a failed parse gives
+here. `doc.kind(i)` says what entry `i` is, `doc.string(i)` and
+`doc.int(i)` read it, and `doc.next(i)` gives the entry after the value
+at `i`, so it skips an array or an object whole.
 
 A string without escapes is a view of `src`, so an `Order` holds
 `?String` views and copies no text. The chain of loans is the one of
@@ -399,7 +401,7 @@ sub main()
 ```
 
 ```output
-winners: bob flo true
+winners: flo eli true
 true true
 ```
 
@@ -441,7 +443,7 @@ sub main()!
   for s in ids
     n = bigint.parse(s)!
     sum = sum.add(n)
-    if n.compare(best) > 0
+    if n > best
       best = n.clone()
   print(sum.text(), best.text(), best.bit_len())
   print((bigint.parse("12x") catch bigint.from_int(-1)).text())
@@ -455,22 +457,8 @@ sub main()!
 `bigint.parse` fails with `ParseError.invalid` on text that is not a
 number, and `catch` gives a fallback. A `BigInt` owns its limbs on the
 heap, so it moves, and `n.clone()` makes the second one that `best` keeps.
-`compare` returns -1, 0, or 1, and `bit_len` counts the bits of the
-magnitude.
-
-There is no `<` on a `BigInt`, since it would hide a walk over limbs.
-`compare` and `equals` name the work:
-
-```rig reject
-use std.bigint
-
-sub main()
-  print(bigint.from_int(1) < bigint.from_int(2))
-```
-
-```error
-operator `<` orders values of one type that provides `Ord`, and `bigint.BigInt` cannot be ordered
-```
+A BigInt compares by value with `==` and `<`, as a number does, and
+`bit_len` counts the bits of the magnitude.
 
 ## Color on a terminal
 
@@ -638,20 +626,19 @@ policy. **Words name the policy; sigils mark the mechanics.**
 |---|---|
 | read arguments and variables | `os.args()`, `os.env("NAME") ?? "x"` |
 | write, read, remove a file | `file.write(p, s)!`, `file.read(p)!`, `file.remove(p)!` |
-| read JSON | `(!doc).parse(?src)`, then `doc.kind(i)`, `doc.get_str(i)`, `doc.next(i)` |
+| read JSON | `json.parse(?src)!`, then `doc.kind(i)`, `doc.string(i)`, `doc.next(i)` |
 | count by key | `(!m).ensure(k, 0) += 1` |
 | keep each key once | `(!s).add(k)` |
 | put in order | `sort.sort(!xs)`, `sort.sort_by(!xs, less)` |
 | time a step | `time.now()`, `t.elapsed()`, `time.within(ns, f)` |
 | draw at random | `random.Random.seeded(n)`, `!r.shuffle(!xs)` |
-| count past 64 bits | `bigint.parse(s)!`, `a.add(b)`, `a.compare(b)` |
+| count past 64 bits | `bigint.parse(s)!`, `a.add(b)`, `a < b` |
 | check color | `terminal.Terminal.new(c, r)`, `!t.feed(s)`, `t.dump()` |
 | serve | `http.serve(<l, f)!` |
 
 ## What is not there yet
 
-`std.json` is experimental: its names and shapes will change, to
-fallible `!` functions, once errors can carry data. `std.terminal` is an
+`std.terminal` is an
 emulator, and the standard library lists no call to read standard input
 or to ask whether output is a terminal. `std.net` is TCP, and host names
 are not looked up. `std.http` is an HTTP/1.1 server with no TLS and no

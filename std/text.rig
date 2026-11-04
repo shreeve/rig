@@ -472,10 +472,6 @@ extern zig "text.zig"
   # `ParseError.overflow` when its magnitude is beyond `Float.max`.
   pub fun parse_float(s: ?String) -> Float!
 
-  # The order of `a` and `b` by their bytes, as `<` orders them: -1
-  # when `a` sorts first, 1 when `b` does, and 0 when they are equal.
-  pub fun compare(a: ?String, b: ?String) -> Int
-
 extern zig "char.zig"
   # How many chars `s` holds.
   pub fun char_count(s: ?String) -> Int
