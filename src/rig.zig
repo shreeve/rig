@@ -181,6 +181,14 @@ pub fn asMatchArm(part: Sexp) Sexp {
     return ir.Match.arms(asMatchOf(part))[0];
 }
 
+/// Whether `match` is a `matches` the wrapper lowered (`Parser.boolMatch`,
+/// `Parser.asMatch`): two arms, the pattern's and the hidden `_` every
+/// other value takes.
+pub fn isMatchesTest(match: Sexp) bool {
+    const arms = ir.Match.arms(match);
+    return arms.len == 2 and isHiddenLeaf(ir.Arm.pattern(arms[1]));
+}
+
 /// Whether `cond` joins two parts of a binding condition: an `and` on
 /// its left spine.
 pub fn isConditionJoin(cond: Sexp) bool {
@@ -3930,7 +3938,7 @@ pub const Parser = struct {
     }
 
     /// A condition's `matches`, each part its `and`s join: one that binds
-    /// is `as_match`, and one that does not, a `Bool`.
+    /// or takes its subject (`<s`) is `as_match`, and any other a `Bool`.
     fn lowerCondition(self: *Parser, e: Sexp) std.mem.Allocator.Error!Sexp {
         if (e.isKind(.@"and")) {
             const items = @constCast(e.items());
@@ -3938,7 +3946,9 @@ pub const Parser = struct {
             items[ir.slot(.@"and", .right)] = try self.lowerCondition(items[ir.slot(.@"and", .right)]);
             return e;
         }
-        if (e.isKind(.matches) and matchesBinds(self.base.source, ir.get(e, .pattern))) return self.asMatch(e);
+        // So is one that takes its subject, whose fields the pattern
+        // leaves out drop at the end of the block.
+        if (e.isKind(.matches) and (matchesBinds(self.base.source, ir.get(e, .pattern)) or ir.get(e, .value).isKind(.move))) return self.asMatch(e);
         return self.lowerValue(e);
     }
 
@@ -4033,7 +4043,8 @@ pub const Parser = struct {
     }
 
     /// The rules of a `matches` as written: a list holds two or more
-    /// alternatives, and no alternative matches every value.
+    /// alternatives, and none is `none`. (Whether one matches every value
+    /// waits for the names: a constant compares.)
     fn checkMatches(self: *Parser, node: Sexp) void {
         const src = self.base.source;
         const pattern = ir.get(node, .pattern);
@@ -4045,18 +4056,7 @@ pub const Parser = struct {
         }
         for (alts) |alt| if (alt == .src and std.mem.eql(u8, leafText(src, alt.src), "none")) {
             return self.reject(alt, self.format("write `{s} == none`: an optional is tested against `none` with `==`, and `matches` tests a variant or a value", .{src[value.start..value.end]}));
-        } else if (alt == .src and isNameLeaf(src, alt)) {
-            const t = leafText(src, alt.src);
-            return self.reject(alt, self.format("`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value", .{t}));
         };
-    }
-
-    /// Whether pattern leaf `leaf` is a name, which binds, rather than a
-    /// value: `true`, `false`, and `none` are values.
-    fn isNameLeaf(src: []const u8, leaf: Sexp) bool {
-        const t = leafText(src, leaf.src);
-        if (t.len == 0 or !(std.ascii.isAlphabetic(t[0]) or t[0] == '_')) return false;
-        return !(std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false") or std.mem.eql(u8, t, "none"));
     }
 
     /// `.ready(none)`: a payload position that holds `none` tests that the

@@ -1863,9 +1863,11 @@ pub const Facts = struct {
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
     generic_calls: FastMap(NodeKey, GenericCall) = .empty,
-    /// Positions of names assigned to (`x = e`, `x += e` after
-    /// `x` is declared): a use there writes the binding, not reads it.
-    writes: FastMap(u32, void) = .empty,
+    /// Positions of names that use a binding without reading it: one
+    /// assigned to (`x = e`, `x += e` after `x` is declared), which
+    /// writes it, and a later alternative's leaf of a name the first
+    /// binds (`.a(n), .b(n)`), which binds it again.
+    unread_names: FastMap(u32, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
@@ -6287,7 +6289,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| {
         const sym = ctx.symbols.items[e.value_ptr.*];
-        if (sym.decl_pos != e.key_ptr.* and !ctx.facts.writes.contains(e.key_ptr.*)) read.set(e.value_ptr.*);
+        if (sym.decl_pos != e.key_ptr.* and !ctx.facts.unread_names.contains(e.key_ptr.*)) read.set(e.value_ptr.*);
     }
     for (ctx.symbols.items) |sym| {
         var origin = sym.origin;

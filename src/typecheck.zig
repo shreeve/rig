@@ -1705,7 +1705,7 @@ const Checker = struct {
         } else if (!is_decl) self.ctx.symbols.items[sym_id].flags.rebound = true;
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the viewed value.
-        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
+        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.facts.unread_names.put(self.ctx.allocator, target.src.pos, {});
         // The binding must be one that may change.
         if (!is_decl and !try self.requireAccess(self.placeOf(target), .assign, target)) {
             if (kind.operator() == null) try self.checkExpr(rhs, if (writes_through) sema.unwrapViews(self.ctx, sym.ty) else sym.ty) else _ = try self.synthExpr(rhs);
@@ -2872,87 +2872,11 @@ const Checker = struct {
         }
     }
 
-    /// `if s matches .circle(r)` / `while e matches .item(x)`: the one-arm `match`
-    /// the part is (`rig.asMatchOf`). Its subject is checked as a
-    /// `match`'s, with the same sigils and meaning, and its pattern
-    /// against the subject's type, binding the fields in the arm's scope,
-    /// which the condition's later parts and the body see; the caller
-    /// restores the scope. It is a test, not exhaustive: other values fall
-    /// to the `else` (docs/design/matches.md).
+    /// `s matches .circle(r)` in a condition: the one-arm `match` it is
+    /// (`checkMatchIn`), whose names the rest of the condition and the
+    /// body see.
     fn checkAsMatch(self: *Checker, part: Sexp) Error!void {
-        const node = rig.asMatchOf(part);
-        const arm = rig.asMatchArm(part);
-        const pattern = ir.Arm.pattern(arm);
-        const subject = ir.Match.subject(node);
-        const saved_held = self.held_base;
-        defer self.held_base = saved_held;
-        const saved_in_place = self.in_place;
-        defer self.in_place = saved_in_place;
-        const found = try self.checkMatchSubject(node);
-        const mode = found.mode;
-        var scrutinee = found.scrutinee;
-        _ = self.enter(arm);
-        if (!self.isPoison(scrutinee) and try self.asPatternRejects(subject, pattern, scrutinee)) scrutinee = self.t().invalid_id;
-        if (self.isPoison(scrutinee)) {
-            const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
-            for (alts) |alt| if (alt.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(alt)) |b| self.poisonBinding(sema.bindingName(b));
-            return;
-        }
-        const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and self.hands(ir.Read.operand(subject)).hasStorage())
-            .{ .place = ir.Read.operand(subject), .kind = .match_read, .pattern = pattern }
-        else if (found.hands.hasStorage()) .{ .place = subject, .kind = .match_copy, .pattern = pattern } else null;
-        {
-            const saved_arm_local = self.arm_local;
-            defer self.arm_local = saved_arm_local;
-            self.arm_local = mode == .read and !storage.matchesInPlace(self.ctx, node);
-            const saved_matching = self.matching;
-            defer self.matching = saved_matching;
-            self.matching = node;
-            var cov: MatchCoverage = .{ .variant_total = try self.variantTotal(sema.unwrapViews(self.ctx, scrutinee)) };
-            defer cov.deinit(self.ctx.allocator);
-            const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
-            if (alts.len > 1) try self.checkAlternatives(alts);
-            for (alts) |alt| try self.checkPattern(alt, scrutinee, &cov, mode);
-            if (alts.len > 1) try self.checkAlternativeTypes(alts);
-        }
-        const binds = self.ctx.armPayloadBindings(pattern);
-        for (binds) |b| if (self.ctx.symbolOf(b)) |sym| {
-            if (viewed) |v| try self.copied_from.put(self.ctx.allocator, sym, v);
-            if (mode == .consume) try self.owned_bindings.put(self.ctx.allocator, sym, {});
-            if (mode == .read and viewed == null) try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = if (subject.isKind(.read)) ir.Read.operand(subject) else subject, .kind = .match_read });
-        };
-        // A binding views the subject through the body, and a temporary
-        // the subject reads ends with the subject.
-        if (self.tempBase(subject)) |temp| if (self.armsBind(node)) {
-            try self.errAt(temp, "the bindings of `as` would outlive the temporary `{s}`, which the header drops; bind it to a name first", .{self.sourceText(temp)});
-        };
-    }
-
-    /// Whether `as` cannot test `subject` (of type `scrutinee`) for
-    /// `pattern`, reported: it is an optional, whose value is taken out
-    /// first (rule 6); it is not an enum; or its enum has one variant, so
-    /// the test always holds (rule 3).
-    fn asPatternRejects(self: *Checker, subject: Sexp, pattern: Sexp, scrutinee: TypeId) Error!bool {
-        const reached = sema.unwrapViews(self.ctx, scrutinee);
-        const shown = try self.plainText(stripSigil(subject));
-        if (self.ctx.types.get(reached) == .optional) {
-            const inner = try self.tyName(self.ctx.types.get(reached).optional);
-            const v: []const u8 = if (inner.len > 0 and std.ascii.isAlphabetic(inner[0])) &.{std.ascii.toLower(inner[0])} else "v";
-            const pat = try self.plainText(pattern);
-            try self.errAt(subject, "`{s}` is a `{s}`: take the value out first (`if {s} as {s} and {s} matches {s}`)", .{ shown, try self.tyName(reached), shown, v, v, pat });
-            return true;
-        }
-        const count = sema.enumVariantCount(self.ctx, reached) orelse {
-            const ty = try self.tyName(reached);
-            try self.errAt(subject, "`matches` with a variant pattern tests which variant an enum value is, and `{s}` is {s} `{s}`", .{ shown, article(ty), ty });
-            return true;
-        };
-        if (count == 1) {
-            const name = self.text(ir.get(pattern, .name));
-            try self.errAt(pattern, "`.{s}` is the only variant of `{s}`, so this test always holds; bind its fields with `match`", .{ name, try self.tyName(reached) });
-            return true;
-        }
-        return false;
+        _ = try self.checkMatchIn(rig.asMatchOf(part), .statement, null, true);
     }
 
     /// `if f() as a, b` / `while f() as a, b`: `f()` gives several
@@ -3788,6 +3712,14 @@ const Checker = struct {
     }
 
     fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
+        return self.checkMatchIn(node, position, expected, false);
+    }
+
+    /// `match` `node`, the `Bool` a `matches` is, or, with `opens`, the
+    /// one-arm `match` a `matches` in a condition is (`rig.asMatchOf`),
+    /// whose first arm's scope stays open for the rest of the condition
+    /// and the body. Every form checks its patterns here.
+    fn checkMatchIn(self: *Checker, node: Sexp, position: Position, expected: ?TypeId, opens: bool) Error!TypeId {
         const subject = ir.Match.subject(node);
         const saved_held = self.held_base;
         defer self.held_base = saved_held;
@@ -3795,10 +3727,16 @@ const Checker = struct {
         defer self.in_place = saved_in_place;
         const found = try self.checkMatchSubject(node);
         const mode = found.mode;
-        const scrutinee = found.scrutinee;
+        var scrutinee = found.scrutinee;
         const subject_hands = found.hands;
         const scrut_pos = found.pos;
-        const matchable = found.matchable;
+        var matchable = found.matchable;
+        // A `matches`: its pattern, which the subject is tested against.
+        const tested: Sexp = if (rig.isMatchesTest(node)) ir.Arm.pattern(ir.Match.arms(node)[0]) else .nil;
+        if (tested != .nil and !self.isPoison(scrutinee) and try self.matchesRejects(subject, tested, scrutinee)) {
+            scrutinee = self.t().invalid_id;
+            matchable = true;
+        }
         if (!matchable) {
             try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, Bool, Symbol, and text", .{try self.tyName(scrutinee)});
         }
@@ -3806,8 +3744,8 @@ const Checker = struct {
         // The place a binding that cannot be written views, for the
         // diagnostic that says how to write it.
         const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and self.hands(ir.Read.operand(subject)).hasStorage())
-            .{ .place = ir.Read.operand(subject), .kind = .match_read }
-        else if (subject_hands.hasStorage()) .{ .place = subject, .kind = .match_copy } else null;
+            .{ .place = ir.Read.operand(subject), .kind = .match_read, .pattern = tested }
+        else if (subject_hands.hasStorage()) .{ .place = subject, .kind = .match_copy, .pattern = tested } else null;
         const saved_arm_local = self.arm_local;
         defer self.arm_local = saved_arm_local;
         self.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
@@ -3819,6 +3757,7 @@ const Checker = struct {
         defer arm_values.deinit(self.ctx.allocator);
         defer cov.deinit(self.ctx.allocator);
         var result: ?TypeId = expected;
+        const errors = self.matchesErrors(scrutinee);
 
         for (ir.Match.arms(node)) |arm| {
             const prev = self.enter(arm);
@@ -3826,26 +3765,32 @@ const Checker = struct {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
             if (cov.has_default or self.coversAll(&cov, scrutinee)) {
-                try self.errAt(pattern, "this arm never runs: the arms before it cover every value", .{});
+                // The other values of a `matches`: none, so the test
+                // always holds.
+                if (rig.isHiddenLeaf(pattern)) {
+                    if (!cov.rejected) try self.alwaysHolds(tested, scrutinee);
+                } else try self.errAt(pattern, "this arm never runs: the arms before it cover every value", .{});
             }
             const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
-            if (alts.len > 1) try self.checkAlternatives(alts);
-            if (alts.len > 1 and !self.isPoison(scrutinee)) {
-                const matched = sema.unwrapViews(self.ctx, scrutinee);
-                if (matched == self.t().any_error_id or sema.isErrorSet(self.ctx, matched) or sema.isErrorUnion(self.ctx, matched)) try self.plainAlternatives(alts);
-            }
+            if (tested != .nil and !rig.isHiddenLeaf(pattern)) try self.testCatchAll(subject, alts, &cov);
+            if (alts.len > 1) try self.checkAlternatives(alts, tested != .nil);
+            if (alts.len > 1 and !self.isPoison(scrutinee) and errors) try self.plainAlternatives(alts);
             // A guarded arm may not run for the values its pattern
             // matches, so it covers none of them; later arms may repeat
-            // its pattern.
+            // its pattern. So does an arm that tests an error's optional
+            // field: emit lowers no payload test of an error's member.
             var guarded: MatchCoverage = .{ .before = &cov, .variant_total = cov.variant_total };
             defer guarded.deinit(self.ctx.allocator);
-            const partial = guard != .nil or rig.patternTests(pattern);
-            for (alts) |alt| try self.checkPattern(alt, scrutinee, if (partial) &guarded else &cov, mode);
+            const partial = guard != .nil or (errors and rig.patternTests(pattern));
+            const into = if (partial) &guarded else &cov;
+            into.arm_alts.clearRetainingCapacity();
+            for (alts) |alt| try self.checkPattern(alt, scrutinee, into, mode);
             if (alts.len > 1) try self.checkAlternativeTypes(alts);
             if (partial) {
                 var it = guarded.variants.keyIterator();
                 while (it.next()) |k| try cov.guarded.put(self.ctx.allocator, k.*, {});
-                if (guard == .nil) for (alts) |alt| try self.coverTested(&cov, alt, scrutinee);
+                var parts = guarded.parts.keyIterator();
+                while (parts.next()) |k| try cov.guarded.put(self.ctx.allocator, k.*, {});
             }
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) {
@@ -3886,11 +3831,14 @@ const Checker = struct {
                 },
             }
         }
+        // The pattern's names go on with the rest of the condition and
+        // the body.
+        if (opens) _ = self.enter(ir.Match.arms(node)[0]);
 
         // A binding views the subject through the body, and a temporary
         // the subject reads ends with the subject.
         if (self.tempBase(subject)) |temp| if (self.armsBind(node)) {
-            try self.errAt(temp, "the arms' bindings would outlive the temporary `{s}`, which the `match` subject drops; bind it to a name first", .{self.sourceText(temp)});
+            try self.errAt(temp, "the pattern's bindings would outlive the temporary `{s}`, which the `match` subject drops; bind it to a name first", .{self.sourceText(temp)});
         };
         if (result) |r| for (arm_values.items) |av| try self.adaptLiteral(av.node, av.ty, r);
         const exhaustive = self.coversAll(&cov, scrutinee);
@@ -3900,55 +3848,140 @@ const Checker = struct {
         return result orelse self.t().invalid_id;
     }
 
-    /// An unguarded arm whose variant pattern tests one optional field,
-    /// `.got(v?)` or `.got(none)`, and leaves every other field to match
-    /// any value: the half of the variant it covers. Arms that cover
-    /// both halves of one field cover the variant (`MatchCoverage.tested`).
-    /// Only an enum's: emit lowers no payload test of an error's member,
-    /// so a match on errors that tests one keeps its `_`.
-    fn coverTested(self: *Checker, cov: *MatchCoverage, alt: Sexp, scrutinee: TypeId) Error!void {
-        if (!alt.isKind(.variant_pattern)) return;
-        const subject = sema.unwrapViews(self.ctx, scrutinee);
-        if (subject == self.t().any_error_id or sema.isErrorSet(self.ctx, subject) or sema.isErrorUnion(self.ctx, subject)) return;
-        const tests = self.ctx.payloadTests(alt) orelse return;
-        var field: ?usize = null;
-        for (tests, 0..) |test_of, i| if (test_of != .any) {
-            if (field != null) return;
-            field = i;
-        };
-        const at = field orelse return;
-        const name = self.text(rig.variantPatternName(alt));
-        if (cov.variants.contains(name)) return;
-        const half: u2 = if (tests[at] == .some) 1 else 2;
-        const got = try cov.tested.getOrPut(self.ctx.allocator, name);
-        if (!got.found_existing) got.value_ptr.* = .{ .field = at, .fields = tests.len, .halves = 0 };
-        if (got.value_ptr.field != at) return;
-        got.value_ptr.halves |= half;
-        if (got.value_ptr.halves == 3) try cov.variants.put(self.ctx.allocator, name, self.startOf(alt));
+    /// Whether a match on a value of type `scrutinee` matches errors.
+    fn matchesErrors(self: *Checker, scrutinee: TypeId) bool {
+        if (self.isPoison(scrutinee)) return false;
+        const matched = sema.unwrapViews(self.ctx, scrutinee);
+        return matched == self.t().any_error_id or sema.isErrorSet(self.ctx, matched) or sema.isErrorUnion(self.ctx, matched);
     }
 
-    /// The halves of a variant arms cover by testing its optional field
-    /// `field` of `fields` (`coverTested`): 1 for `v?`, 2 for `none`.
-    const Tested = struct { field: usize, fields: usize, halves: u2 };
+    /// The test `x matches P` whose pattern `pattern` matches every value
+    /// of `scrutinee` always holds, and is rejected: a `Bool` known when
+    /// compiling is `true`, and a pattern that binds is a `match`'s.
+    fn alwaysHolds(self: *Checker, pattern: Sexp, scrutinee: TypeId) Error!void {
+        const reached = sema.unwrapViews(self.ctx, scrutinee);
+        const binds = if (rig.matchesBinds(self.ctx.source, pattern)) "; bind its fields with `match`" else "";
+        if (pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit)) if (sema.enumVariantCount(self.ctx, reached) == 1) {
+            const name = self.text(ir.get(pattern, .name));
+            return self.errAt(pattern, "`.{s}` is the only variant of `{s}`, so this test always holds{s}", .{ name, try self.tyName(reached), binds });
+        };
+        try self.errAt(pattern, "`{s}` matches every `{s}`, so this test always holds{s}", .{ try self.plainText(pattern), try self.tyName(reached), binds });
+    }
 
-    /// The pattern of one half of a variant (`Tested`), `.got(v?)` or
-    /// `.got(_, none)`.
-    fn halfText(self: *Checker, name: []const u8, half: Tested, some: bool) Error![]const u8 {
+    /// `_` or a name after `matches`, alone or among alternatives, matches
+    /// every value: rejected, and its name given no type.
+    fn testCatchAll(self: *Checker, subject: Sexp, alts: []const Sexp, cov: *MatchCoverage) Error!void {
+        for (alts) |alt| if (storage.isCatchAll(self.ctx, alt)) {
+            const name = self.text(alt);
+            const compare = if (std.mem.eql(u8, name, "_")) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to compare with `{s}`, write `{s} == {s}`", .{ name, try self.plainText(stripSigil(subject)), name });
+            try self.errAt(alt, "`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value{s}", .{ name, compare });
+            self.poisonBinding(alt);
+            cov.rejected = true;
+        };
+    }
+
+    /// Whether the test of `subject`, of type `scrutinee`, for `pattern`
+    /// after `matches` is rejected (reported): an optional, whose value is
+    /// taken out first; or, for a pattern that binds a payload, a value
+    /// that is not an enum or an error.
+    fn matchesRejects(self: *Checker, subject: Sexp, pattern: Sexp, scrutinee: TypeId) Error!bool {
+        const reached = sema.unwrapViews(self.ctx, scrutinee);
+        const shown = try self.plainText(stripSigil(subject));
+        if (self.ctx.types.get(reached) == .optional) {
+            const inner = try self.tyName(self.ctx.types.get(reached).optional);
+            const v: []const u8 = if (inner.len > 0 and std.ascii.isAlphabetic(inner[0])) &.{std.ascii.toLower(inner[0])} else "v";
+            const pat = try self.plainText(pattern);
+            try self.errAt(subject, "`{s}` is a `{s}`: take the value out first (`if {s} as {s} and {s} matches {s}`)", .{ shown, try self.tyName(reached), shown, v, v, pat });
+            return true;
+        }
+        if (rig.matchesBinds(self.ctx.source, pattern) and sema.enumVariantCount(self.ctx, reached) == null) {
+            const ty = try self.tyName(reached);
+            try self.errAt(subject, "`matches` with a variant pattern tests which variant an enum value is, and `{s}` is {s} `{s}`", .{ shown, article(ty), ty });
+            return true;
+        }
+        return false;
+    }
+
+    /// The values of a variant a pattern matches: what it tests of each
+    /// payload field (`sema.PayloadTest`), so a cube of the variant's
+    /// values, in which each optional field holds a value or none. A
+    /// pattern that tests no field matches the whole variant.
+    const Cube = []const sema.PayloadTest;
+
+    /// Whether every value cube `c` holds is in one of `parts`. Two cubes
+    /// that meet but do not nest differ on a field `c` leaves open, and
+    /// each half of `c` there is covered or not on its own, so the answer
+    /// is exact; the halves split only on a field some part tests.
+    /// `c` is scratch, restored on return.
+    fn cubeCovered(parts: []const Cube, c: []sema.PayloadTest) bool {
+        return uncoveredCube(parts, c) == null;
+    }
+
+    /// A cube of values inside `c` that none of `parts` holds, in `c`
+    /// (left changed to it), or null when `parts` cover `c`.
+    fn uncoveredCube(parts: []const Cube, c: []sema.PayloadTest) ?[]sema.PayloadTest {
+        var split: ?usize = null;
+        for (parts) |p| {
+            if (cubeHolds(p, c)) return null;
+            if (split == null and cubesMeet(p, c)) {
+                for (p, c, 0..) |pt, ct, i| if (ct == .any and pt != .any) {
+                    split = i;
+                    break;
+                };
+            }
+        }
+        const i = split orelse return c;
+        for ([2]sema.PayloadTest{ .some, .none }) |half| {
+            c[i] = half;
+            if (uncoveredCube(parts, c)) |miss| return miss;
+        }
+        c[i] = .any;
+        return null;
+    }
+
+    /// Whether cube `outer` holds every value of cube `inner`.
+    fn cubeHolds(outer: Cube, inner: Cube) bool {
+        for (outer, inner) |o, i| if (o != .any and o != i) return false;
+        return true;
+    }
+
+    /// Whether cubes `a` and `b` hold a value in common.
+    fn cubesMeet(a: Cube, b: Cube) bool {
+        for (a, b) |x, y| if (x != .any and y != .any and x != y) return false;
+        return true;
+    }
+
+    /// The pattern of the values of cube `c` of variant `name`, as the
+    /// arms would write it: `.got(_?, _, none)`.
+    fn cubeText(self: *Checker, name: []const u8, c: Cube) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         var out: std.ArrayList(u8) = .empty;
         try out.print(a, ".{s}(", .{name});
-        for (0..half.fields) |i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", if (i != half.field) "_" else if (some) "v?" else "none" });
+        for (c, 0..) |test_of, i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", switch (test_of) {
+            .any => "_",
+            .some => "_?",
+            .none => "none",
+        } });
         try out.append(a, ')');
         return out.items;
     }
 
+    /// One alternative of the arm being checked: its variant (or error)
+    /// key, and the values it matches (null: every value of it).
+    const ArmAlt = struct { name: []const u8, cube: ?Cube, pos: u32 };
+
     /// What the arms of a match have covered so far.
     const MatchCoverage = struct {
+        /// Variants (and errors, and other keys) every value of which an
+        /// unguarded arm covers, and where the first such arm is.
         variants: std.StringHashMapUnmanaged(u32) = .empty,
-        /// Variants unguarded arms cover half of, by testing one optional
-        /// field (`coverTested`): the field, and the halves covered, 1
-        /// for `v?` and 2 for `none`.
-        tested: std.StringHashMapUnmanaged(Tested) = .empty,
+        /// Variants unguarded arms cover only some values of, by testing
+        /// optional fields: the cube each such alternative matches. They
+        /// join `variants` once they cover the whole variant.
+        parts: std.StringHashMapUnmanaged(std.ArrayList(Cube)) = .empty,
+        /// The alternatives of the arm being checked so far: no two of one
+        /// variant may match a value in common.
+        arm_alts: std.ArrayList(ArmAlt) = .empty,
         bools: [2]bool = .{ false, false },
         /// Inclusive integer intervals, disjoint, apart, and in order.
         ints: std.ArrayList([2]Wide) = .empty,
@@ -3968,9 +4001,19 @@ const Checker = struct {
 
         fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
             c.variants.deinit(a);
-            c.tested.deinit(a);
+            var it = c.parts.valueIterator();
+            while (it.next()) |l| l.deinit(a);
+            c.parts.deinit(a);
+            c.arm_alts.deinit(a);
             c.ints.deinit(a);
             c.guarded.deinit(a);
+        }
+
+        /// The cubes of variant `name` the arms so far cover, here and
+        /// before, appended to `out`.
+        fn partsOf(c: *const MatchCoverage, name: []const u8, a: std.mem.Allocator, out: *std.ArrayList(Cube)) std.mem.Allocator.Error!void {
+            if (c.parts.get(name)) |l| try out.appendSlice(a, l.items);
+            if (c.before) |b| try b.partsOf(name, a, out);
         }
 
         /// Where the pattern that first covered variant (or error) key
@@ -3978,12 +4021,6 @@ const Checker = struct {
         fn variantAt(c: *const MatchCoverage, name: []const u8) ?u32 {
             if (c.variants.get(name)) |pos| return pos;
             return if (c.before) |b| b.variantAt(name) else null;
-        }
-
-        /// The halves of variant `name` the arms so far cover by tests.
-        fn testedAt(c: *const MatchCoverage, name: []const u8) ?Tested {
-            if (c.tested.get(name)) |half| return half;
-            return if (c.before) |b| b.testedAt(name) else null;
         }
 
         /// Whether a pattern covered Bool value `i` (0 for `false`).
@@ -4285,9 +4322,11 @@ const Checker = struct {
     /// `a, b => ...`: each alternative is a literal, range, or variant;
     /// none matches everything, and they bind names only when every one
     /// binds the same names (`checkAlternativeTypes` checks their types).
-    fn checkAlternatives(self: *Checker, alts: []const Sexp) Error!void {
+    fn checkAlternatives(self: *Checker, alts: []const Sexp, in_test: bool) Error!void {
+        // After `matches`, a catch-all is reported as the test it makes
+        // (`testCatchAll`).
         for (alts) |alt| {
-            if (storage.isCatchAll(self.ctx, alt)) {
+            if (!in_test and storage.isCatchAll(self.ctx, alt)) {
                 try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
                 self.poisonBinding(alt);
             }
@@ -4341,6 +4380,26 @@ const Checker = struct {
     /// Alternatives that bind a name bind it with one type: the field
     /// each binds is of the same type in every one.
     fn checkAlternativeTypes(self: *Checker, alts: []const Sexp) Error!void {
+        // Alternatives of one variant, which test its optional fields
+        // apart, bind each name to one field: emit reads a binding by the
+        // variant the value holds.
+        for (alts, 0..) |alt, i| for (alts[i + 1 ..]) |other| {
+            if (!alt.isKind(.variant_pattern) or !other.isKind(.variant_pattern)) continue;
+            if (!std.mem.eql(u8, self.text(rig.variantPatternName(alt)), self.text(rig.variantPatternName(other)))) continue;
+            const fields = self.ctx.payloadBindings(alt) orelse continue;
+            const others = self.ctx.payloadBindings(other) orelse continue;
+            for (fields, 0..) |b, at| {
+                if (b != .src or std.mem.eql(u8, self.text(b), "_")) continue;
+                for (others, 0..) |o, at_other| {
+                    if (at_other == at or o != .src or !std.mem.eql(u8, self.text(o), self.text(b))) continue;
+                    const set = self.ctx.typeOf(alt) orelse continue;
+                    const v = (try sema.lookupVariant(self.ctx, set, self.text(rig.variantPatternName(alt)))) orelse continue;
+                    try self.errAt(o, "`{s}` is field `{s}` in `{s}` and field `{s}` in `{s}`: alternatives of one variant bind each name to one field", .{ self.text(b), v.payload[at].name, try self.plainText(alt), v.payload[at_other].name, try self.plainText(other) });
+                    self.poisonBinding(b);
+                    return;
+                }
+            }
+        };
         const first = for (alts) |alt| {
             if (alt.isKind(.variant_pattern) and self.ctx.payloadBindings(alt) != null) break alt;
         } else return;
@@ -4404,9 +4463,11 @@ const Checker = struct {
                 count += 1;
                 if (count > 4) continue;
                 if (count > 1) try missing.appendSlice(a, ", ");
-                // Half a variant (`coverTested`): the half its arms miss.
-                if (cov.tested.get(f.name)) |half| {
-                    try missing.print(a, "`{s}`", .{try self.halfText(f.name, half, half.halves == 2)});
+                // Part of a variant: values its arms miss.
+                if (cov.parts.get(f.name)) |parts| {
+                    const whole = try a.alloc(sema.PayloadTest, parts.items[0].len);
+                    @memset(whole, .any);
+                    try missing.print(a, "`{s}`", .{try self.cubeText(f.name, uncoveredCube(parts.items, whole).?)});
                     continue;
                 }
                 try missing.print(a, "`.{s}`{s}", .{ f.name, if (cov.guarded.contains(f.name)) " (its arm has a guard)" else "" });
@@ -4504,19 +4565,19 @@ const Checker = struct {
                                 cov.rejected = true;
                                 return;
                             }
-                            return self.recordCovered(try self.errorArmKey(union_ty, set, self.text(name)), self.startOf(pattern), cov);
+                            return self.recordCovered(try self.errorArmKey(union_ty, set, self.text(name)), null, self.startOf(pattern), cov);
                         }
                         if (sema.unwrapViews(self.ctx, scrutinee) == self.t().any_error_id) {
                             const set = try self.resolveErrorName(name);
                             try self.ctx.recordType(pattern, set);
-                            if (!self.isPoison(set)) try self.recordCovered(try self.errorArmKey(self.t().any_error_id, set, self.text(name)), self.startOf(pattern), cov);
+                            if (!self.isPoison(set)) try self.recordCovered(try self.errorArmKey(self.t().any_error_id, set, self.text(name)), null, self.startOf(pattern), cov);
                             return;
                         }
                         if (!self.isPoison(scrutinee) and (try sema.lookupVariant(self.ctx, scrutinee, self.text(name))) == null) {
                             try self.reportMissingVariant(scrutinee, self.text(name), srcPos(name, 0));
                         }
                         try self.ctx.recordType(pattern, scrutinee);
-                        try self.recordCovered(self.text(name), self.startOf(pattern), cov);
+                        try self.recordCovered(self.text(name), null, self.startOf(pattern), cov);
                     },
                     // `:name`: one value of the program's symbols, which
                     // no set of arms covers.
@@ -4628,17 +4689,67 @@ const Checker = struct {
         try self.coverInts(cov, lo.?, hi.? - 1, pos);
     }
 
-    fn recordCovered(self: *Checker, name: []const u8, pos: u32, cov: *MatchCoverage) Error!void {
-        // Covered by two arms that test its field both ways.
-        if (cov.testedAt(name)) |half| if (half.halves == 3) {
-            return self.err(pos, "this arm never runs: `{s}` and `{s}` cover `.{s}`", .{ try self.halfText(name, half, true), try self.halfText(name, half, false), name });
-        };
-        if (cov.variantAt(name)) |first| {
-            try self.err(pos, "duplicate arm for variant `{s}`", .{name});
-            try self.note(first, "first arm here", .{});
+    /// Record that an alternative at `pos` matches the values `cube`
+    /// tests of key `name` (null: every value of it). It may match no
+    /// value an earlier alternative of its arm does, and some value no
+    /// earlier arm covers.
+    fn recordCovered(self: *Checker, name: []const u8, cube: ?Cube, pos: u32, cov: *MatchCoverage) Error!void {
+        const a = self.ctx.arena.allocator();
+        for (cov.arm_alts.items) |alt| {
+            if (!std.mem.eql(u8, alt.name, name)) continue;
+            if (alt.cube != null and cube != null and !cubesMeet(alt.cube.?, cube.?)) continue;
+            if (alt.cube == null and cube == null) {
+                try self.err(pos, "duplicate arm for variant `{s}`", .{name});
+                try self.note(alt.pos, "first arm here", .{});
+            } else try self.err(pos, "this alternative matches values an earlier one does: `{s}` and `{s}` both match `{s}`; alternatives match different values", .{ try self.cubeOrName(name, alt.cube), try self.cubeOrName(name, cube), try self.cubeText(name, try meetOf(a, alt.cube, cube, self.fieldCount(cube, alt.cube))) });
             return;
         }
-        try cov.variants.put(self.ctx.allocator, name, pos);
+        try cov.arm_alts.append(self.ctx.allocator, .{ .name = name, .cube = cube, .pos = pos });
+        var parts: std.ArrayList(Cube) = .empty;
+        try cov.partsOf(name, a, &parts);
+        if (cov.variantAt(name)) |first| {
+            if (cube == null and parts.items.len == 0) {
+                try self.err(pos, "duplicate arm for variant `{s}`", .{name});
+                return self.note(first, "first arm here", .{});
+            }
+            return self.err(pos, "this arm never runs: the arms before it cover every value of `{s}`", .{try self.cubeOrName(name, cube)});
+        }
+        if (parts.items.len > 0) {
+            const whole = try a.alloc(sema.PayloadTest, parts.items[0].len);
+            if (cube) |c| @memcpy(whole, c) else @memset(whole, .any);
+            if (cubeCovered(parts.items, whole)) return self.err(pos, "this arm never runs: the arms before it cover every value of `{s}`", .{try self.cubeOrName(name, cube)});
+        }
+        const c = cube orelse return cov.variants.put(self.ctx.allocator, name, pos);
+        const got = try cov.parts.getOrPut(self.ctx.allocator, name);
+        if (!got.found_existing) got.value_ptr.* = .empty;
+        try got.value_ptr.append(self.ctx.allocator, c);
+        // The parts may now cover the whole variant.
+        try parts.append(a, c);
+        const whole = try a.alloc(sema.PayloadTest, c.len);
+        @memset(whole, .any);
+        if (cubeCovered(parts.items, whole)) try cov.variants.put(self.ctx.allocator, name, pos);
+    }
+
+    /// The pattern of cube `c` of variant `name`, or `.name` for the whole
+    /// variant.
+    fn cubeOrName(self: *Checker, name: []const u8, c: ?Cube) Error![]const u8 {
+        if (c) |cube| return self.cubeText(name, cube);
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), ".{s}", .{name});
+    }
+
+    /// The fields of the variant of cubes `a` and `b`, one of which is known.
+    fn fieldCount(_: *Checker, a: ?Cube, b: ?Cube) usize {
+        return if (a) |c| c.len else if (b) |c| c.len else 0;
+    }
+
+    /// The values cubes `a` and `b` (null: every value) both hold.
+    fn meetOf(arena: std.mem.Allocator, a: ?Cube, b: ?Cube, len: usize) Error!Cube {
+        const out = try arena.alloc(sema.PayloadTest, len);
+        @memset(out, .any);
+        for ([2]?Cube{ a, b }) |c| if (c) |cube| for (out, cube) |*o, test_of| {
+            if (test_of != .any) o.* = test_of;
+        };
+        return out;
     }
 
     fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
@@ -4657,18 +4768,21 @@ const Checker = struct {
             return;
         };
         try self.ctx.recordType(pattern, set);
-        try self.recordCovered(if (several) try self.errorArmKey(subject, set, vname) else vname, vpos, cov);
+        const key = if (several) try self.errorArmKey(subject, set, vname) else vname;
         const resolved = (try sema.lookupVariant(self.ctx, set, vname)) orelse {
+            try self.recordCovered(key, null, vpos, cov);
             try self.reportMissingVariant(scrutinee, vname, vpos);
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         };
         if (resolved.payload.len == 0) {
+            try self.recordCovered(key, null, vpos, cov);
             if (bindings.len > 0) try self.err(vpos, "variant `{s}` has no payload to destructure", .{vname});
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         }
         const written = (try self.fieldBindings(pattern, resolved.payload)) orelse {
+            try self.recordCovered(key, null, vpos, cov);
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         };
@@ -4678,6 +4792,7 @@ const Checker = struct {
         const binds = try self.payloadTestsOf(pattern, written, resolved.payload);
         try self.ctx.recordPayloadBindings(pattern, binds);
         const tests = self.ctx.payloadTests(pattern);
+        try self.recordCovered(key, tests, vpos, cov);
         for (binds, resolved.payload, 0..) |b, f, i| {
             // A field the pattern leaves out is read as a `_` field is.
             if (b == .nil) {
@@ -18810,7 +18925,7 @@ const Checker = struct {
             // `Color.red` meant `.red`, which the arm covers; what any
             // other rejected pattern meant is unknown.
             if (!value and ty == subject and (try sema.lookupVariant(self.ctx, ty, name)) != null) {
-                try self.recordCovered(name, self.startOf(pattern), cov);
+                try self.recordCovered(name, null, self.startOf(pattern), cov);
                 return self.errAt(pattern, "a pattern names a variant without its enum: `.{s}`; only an error's pattern names its set", .{name});
             }
             cov.rejected = true;
@@ -18827,7 +18942,7 @@ const Checker = struct {
             cov.rejected = true;
             return self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
         }
-        try self.recordCovered(try self.errorArmKey(subject, ty, name), self.startOf(pattern), cov);
+        try self.recordCovered(try self.errorArmKey(subject, ty, name), null, self.startOf(pattern), cov);
     }
 
     /// A module constant's name as a pattern (`ESC`, `lib.ESC`), of type
@@ -18854,7 +18969,7 @@ const Checker = struct {
                 if (cov.hasBool(i)) try self.errAt(pattern, "this pattern overlaps an earlier arm", .{});
                 cov.bools[i] = true;
             },
-            .variant => |name| try self.recordCovered(name, pos, cov),
+            .variant => |name| try self.recordCovered(name, null, pos, cov),
         }
     }
 
@@ -18870,8 +18985,10 @@ const Checker = struct {
             try self.errAt(pattern, "`{s}` is a constant of type `{s}`; a pattern may name a constant that is an integer, a `Bool`, or an enum value", .{ shown, try self.tyName(ty) });
             return null;
         }
-        if (ty != subject) {
-            try self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
+        // An integer literal subject is an `Int` (`defaultIntLiteral`).
+        const want = if (subject == self.t().int_literal_id) self.t().int_id else subject;
+        if (ty != want) {
+            try self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(want), try self.tyName(ty) });
             return null;
         }
         if (try self.perTarget(pattern, "a constant a pattern names")) return null;
