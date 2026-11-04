@@ -263,6 +263,21 @@ test "frozen methods, Maps, and lends", '''
   b = *Frozen(String("abc"))
   print(size(?a), ?a == ?b)
 
+test "frozen List lends its elements", "2 3"
+  # A `*Frozen[List[T]]` lends the `[]T` of the List it froze, to a
+  # concrete parameter and to a generic one alike.
+  fun count(xs: []Int) -> Int
+    xs.len
+
+  fun first[T: Copy](xs: []T) -> T
+    xs[0]
+
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(4)
+  f = *Frozen(<v)
+  print(count(f), first(f))
+
 fail "frozen by value", "4:6: a frozen value lives only behind a shared handle: write `*Frozen[Int]`", "6:11: a frozen value lives only behind a shared handle: write `*Frozen[String]`", errors: 2
   # A frozen value lives only behind `*`: never a field, a parameter, or
   # a view by value.
