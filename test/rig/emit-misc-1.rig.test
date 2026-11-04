@@ -2501,13 +2501,15 @@ test "hoisted callee first", '''
   arg 9
   -1
   67
+  8 8 5 5
 '''
-  # A callee that is a value the call reaches, `pick(k)(...)`,
-  # `fs[i](...)`, or `mk().f(...)`, runs before the arguments, as
-  # written, also when they are evaluated into temporaries first (an
-  # owned argument before one that can fail). A function value is
-  # plain data, copied in its turn: an argument may grow the List it
-  # was read from.
+  # A callee that is a value, `pick(k)(...)`, `fs[i](...)`,
+  # `mk().f(...)`, `h.f(...)`, or a local `f`, runs before the
+  # arguments, as written, also when they are evaluated into temporaries
+  # first (an owned argument before one that can fail). A function value
+  # is plain data, copied in its turn: an argument may grow the List it
+  # was read from, reassign it, or free the box or handle it was read
+  # through.
 
   error Bad
     no
@@ -2549,9 +2551,47 @@ test "hoisted callee first", '''
     !fs.push(add)
     fs[0](String("de"), grow(!fs)!)
 
+  fun mul(s: String, b: Int) -> Int
+    s.len * b
+
+  obj G
+    f: fun(String, Int) -> Int
+    s: String
+
+  fun swap(h: !H, k: Int) -> Int!
+    h.f = mul
+    return Bad.no if k > 100
+    5
+
+  fun swapf(f: !fun(String, Int) -> Int, k: Int) -> Int!
+    f = mul
+    return Bad.no if k > 100
+    5
+
+  fun boxed(g: ^G) -> Int!
+    return Bad.no if g.s.len > 100
+    g.s.len
+
+  fun shared(g: *G) -> Int!
+    return Bad.no if g.s.len > 100
+    g.s.len
+
+  fun moved() -> Int!
+    h = H(f: add)
+    a = h.f(String("abc"), swap(!h, 1)!)
+    f: fun(String, Int) -> Int = add
+    b = f(String("abc"), swapf(!f, 1)!)
+    x = ^G(f: add, s: String("xyz"))
+    c = x.f(String("de"), boxed(<x)!)
+    y = *G(f: add, s: String("xyz"))
+    d = y.f(String("de"), shared(<y)!)
+    print(a, b, c, d)
+    0
+
   print(go(3) catch -1)
   print(go(9) catch -1)
   print(grown() catch -1)
+  _ = moved() catch -1
 
 test "if expr basic", '''
   10

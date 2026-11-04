@@ -228,14 +228,22 @@ pub fn heldSelf(ctx: *const SemContext, call: Sexp) ?Sexp {
 /// The part of a call it evaluates before its arguments, which a call
 /// whose arguments are evaluated first holds in its turn, as written
 /// (`selfHold`): its self (`heldSelf`), held as `self`, or else a
-/// callee that is a value the call reaches, `pick(k)(...)`,
-/// `fs[i](...)`, or `mk().f(...)`, held as `invoked`. A name, a type,
-/// a module's function, an instance, and a closure literal (built
-/// first, `invoked`) are no such value.
+/// callee that is a value, `pick(k)(...)`, `fs[i](...)`, `mk().f(...)`,
+/// `b.f(...)`, or a local `f` an argument may reassign, held as
+/// `invoked`. A function, a constant, a fixed binding, a stack
+/// closure, a type, a module's function, an instance, and a closure
+/// literal (built first, `invoked`) are no such value.
 pub fn heldFirst(ctx: *const SemContext, call: Sexp) ?HeldFirst {
     if (heldSelf(ctx, call)) |recv| return .{ .node = lentPlace(recv), .kind = .self };
     const callee = ctx.calleeOf(call);
-    if (callee == .src or callee.isKind(.lambda) or ctx.instanceOf(callee) != null) return null;
+    if (callee == .src) {
+        const sym = ctx.symbols.items[ctx.symbolOf(callee) orelse return null];
+        switch (sym.kind) {
+            .local, .param, .capture => if (sym.flags.closure or isPureArg(ctx, callee)) return null,
+            else => return null,
+        }
+    }
+    if (callee.isKind(.lambda) or ctx.instanceOf(callee) != null) return null;
     if (callee.isKind(.member) and isTypeCallee(ctx, ir.Member.object(callee))) return null;
     if (fnType(ctx, typeOf(ctx, callee)) == null) return null;
     return .{ .node = callee, .kind = .invoked };
@@ -396,9 +404,11 @@ pub const SelfHold = enum {
 
 /// How a call whose arguments are evaluated first holds its self, or
 /// the callee it evaluates in its place (`heldFirst`), or null when it
-/// is evaluated where the call is: when it reads nothing an argument
-/// could change, as a name or a field path off one does, which the
-/// ownership checker holds for the call.
+/// is evaluated where the call is: a self, or a callee that owns, that
+/// is a name or a field path off one, which the ownership checker
+/// holds for the call, so no argument changes what it reads. A callee
+/// that copies is copied in its turn, as plain data is read (Core
+/// §6), which keeps nothing lent.
 pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     return decide(ctx, call, .self_hold);
 }
@@ -408,15 +418,13 @@ fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     // Lend sigils on a self are implicit in Zig's method calls.
     const first = heldFirst(ctx, call) orelse return null;
     const recv = first.node;
+    if (first.kind == .invoked and !ownsValue(ctx, recv)) return .value;
     const writes = selfWrites(ctx, call);
     const temporary = !hasStorage(ctx, recv) and !recv.isKind(.move);
     // A part that acts or leaves (`o?`, `o ?? return`, `mk()`) runs
     // before the arguments, and one that indexes picks its element
     // first.
     if (!contains(recv, &.{.index}) and !setActs(recv) and !(writes and temporary)) return null;
-    // A callee that copies is copied in its turn, as plain data is
-    // read (Core §6): nothing it was read from stays lent.
-    if (first.kind == .invoked and !ownsValue(ctx, recv)) return .value;
     if (reachesLeaf(ctx, recv)) return .leaf;
     if (temporary and keptInSlot(ctx, recv)) return .slot;
     if (!temporary) return .place;
