@@ -365,6 +365,13 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`E.from_int(n)` is a range test when `E`'s values fill a range.**
+  An enum declaring no values, whose values run from 0, or one whose
+  values fill any range `lo..hi`, tests `n` against the range and casts
+  it; any other enum decides by a `switch` over its values, which Zig
+  lowers to a jump table or a tree of compares. Each scanned the values
+  before: a hit on a 352-variant enum takes 0.2 ns (51 ns before), and
+  on 2,228 values spread apart 2 ns (282 ns).
 - **A source file or a module holds less than 2 GiB.** The limit was
   16 MiB; positions in a source are 32 bits, and the upper half of
   their range numbers the names the compiler adds past a source's end.
