@@ -4432,7 +4432,7 @@ const Checker = struct {
                 }
                 if (sema.patternConst(self.ctx, pattern)) |c| return self.checkConstPattern(pattern, try self.synthExpr(pattern), scrutinee, cov, c);
                 cov.has_default = true;
-                if (resolve.patternBinds(self.ctx.source, pattern)) {
+                if (resolve.leafBinds(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
                         // A binding that is no plain data of a copy of the
                         // subject, or captured as a copy, is usable in its

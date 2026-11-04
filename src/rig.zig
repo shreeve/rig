@@ -48,14 +48,6 @@ pub fn isCtFun(decl: Sexp) bool {
     return def.isKind(.fun) and ir.Fun.params(def) == .nil and ir.Fun.tparams(def) != .nil;
 }
 
-/// Whether `decl` declares an API (`api Shape`) or adds one to a type
-/// (`add Int: Shape`): methods no pass but the checker of conformances
-/// reads, and nothing emits (docs/design/apis.md, Stage 3).
-pub fn isApiDecl(decl: Sexp) bool {
-    const d = unpub(decl);
-    return d.isKind(.api) or d.isKind(.api_add);
-}
-
 /// A declaration without its `pub`.
 pub fn unpub(decl: Sexp) Sexp {
     return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
@@ -1989,13 +1981,6 @@ pub const Lexer = struct {
 
     /// A string starting at `open` that does not lex: a control character
     /// inside it, or no closing quote on its line.
-    /// Whether the quote at `pos` follows a bare `b`, which makes a byte
-    /// literal of it.
-    fn afterBareB(self: *const Lexer, pos: u32) bool {
-        const src = self.base.source;
-        return pos > 0 and src[pos - 1] == 'b' and (pos < 2 or !isIdentCont(src[pos - 2]));
-    }
-
     fn stringError(self: *Lexer, open: u32) Token {
         const src = self.base.source;
         const quote = src[open];
@@ -2238,7 +2223,7 @@ pub fn patternTests(pattern: Sexp) bool {
 
 /// Whether a pattern after `matches` binds a name: a payload field it
 /// names (`.ready(r)`, `.ready(r?)`), in any alternative.
-pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
+pub fn matchesBinds(source: []const u8, pattern: Sexp) bool {
     var count: CountBinds = .{};
     eachPatternBinding(source, pattern, &count);
     return count.n > 0;
@@ -2406,15 +2391,6 @@ pub const Api = enum {
     /// The API a name spells, or null.
     pub fn named(text: []const u8) ?Api {
         return std.meta.stringToEnum(Api, text);
-    }
-
-    /// Whether a type may name this API on its header to give it a meaning
-    /// of its own.
-    pub fn ownable(api: Api) bool {
-        return switch (api) {
-            .Eq, .Hash, .Ord, .Print => true,
-            else => false,
-        };
     }
 };
 
@@ -3936,7 +3912,7 @@ pub const Parser = struct {
             items[ir.slot(.@"and", .right)] = try self.lowerCondition(items[ir.slot(.@"and", .right)]);
             return e;
         }
-        if (e.isKind(.matches) and patternBinds(self.base.source, ir.get(e, .pattern))) return self.asMatch(e);
+        if (e.isKind(.matches) and matchesBinds(self.base.source, ir.get(e, .pattern))) return self.asMatch(e);
         return self.lowerValue(e);
     }
 
@@ -3952,7 +3928,7 @@ pub const Parser = struct {
         }
         if (!e.isKind(.@"and")) {
             if (!e.isKind(.matches)) return e;
-            if (patternBinds(self.base.source, ir.get(e, .pattern))) self.unreadBinding(e);
+            if (matchesBinds(self.base.source, ir.get(e, .pattern))) self.unreadBinding(e);
             return self.boolMatch(e, null);
         }
         var parts: std.ArrayList(Sexp) = .empty;
@@ -3975,7 +3951,7 @@ pub const Parser = struct {
         var left: Sexp = .nil;
         while (i < parts.len) : (i += 1) {
             const p = parts[i];
-            const part = if (p.isKind(.matches) and patternBinds(self.base.source, ir.get(p, .pattern))) blk: {
+            const part = if (p.isKind(.matches) and matchesBinds(self.base.source, ir.get(p, .pattern))) blk: {
                 if (i + 1 == parts.len) self.unreadBinding(p);
                 const rest = if (i + 1 == parts.len) null else try self.lowerChain(parts[i + 1 ..]);
                 i = parts.len;

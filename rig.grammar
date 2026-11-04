@@ -21,13 +21,11 @@
 #   * joins a line that starts with `.` and a name, indented deeper than a
 #     complete statement that opens no block, to that statement (a method
 #     chain written down the page);
-#   * classifies three contextual words: `new` is a keyword only at the
-#     start of a statement before a name, `obj` only at the
-#     start of a declaration (after any `pub`) before a name, `inline`,
-#     and `called` only there before `fun` or `sub`, `rarely` only at the
-#     start of a statement alone on its line, and `of` only after
-#     a value directly inside [ ] (`[n of x]`); each is a name everywhere
-#     else (the other contextual words are the parser's: see @keywords);
+#   * classifies its contextual words, `new`, `obj`, `api`, `add`,
+#     `inline`, `called`, `rarely`, `of`, and `matches`, each a keyword
+#     only where docs/internals/INTERNALS.md ("Keywords") says and a name
+#     everywhere else (the other contextual words are the parser's: see
+#     @keywords);
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
 #   * marks a `&` that touches a `)` and has no operand touching it on
@@ -780,9 +778,9 @@ oname    = name
          | object:oname "." name:name               → (member)
 
 # The lent parameters a function may keep, at the end of its header: it
-# may store what each views in what its write receiver and write
+# may store what each views in what its write self and write
 # parameters lead to (`sub watch(!@, s: ?String) keeps s`; `keeps
-# @` names the receiver).
+# @` names self).
 keeps    = KEEPS onames                             → 2
 
 params   = "(" fields ![","] ")"                     → (...2)
@@ -1170,7 +1168,7 @@ while    = WHILE cond:value [STEP_COLON step:step] body:block [ELSE else:block] 
 
 # A `while` step runs after each iteration: an assignment, or a call,
 # which may propagate its failure (the checker rejects other forms). A
-# call's receiver may take `?`, `!`, or `<` (see the Parser wrapper).
+# call's self may take `?`, `!`, or `<` (see the Parser wrapper).
 step     = assign
          | postfix
          | "?" operand:postfix                      → (read)

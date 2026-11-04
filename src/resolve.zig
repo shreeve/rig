@@ -1186,7 +1186,7 @@ const SymbolResolver = struct {
     /// A local of the name (`new ESC = 5`) hides the constant, as it does
     /// anywhere else: the name then binds, and shadows that local.
     fn constPattern(self: *SymbolResolver, pattern: Sexp) Error!bool {
-        if (!patternBinds(self.ctx.source, pattern)) return false;
+        if (!leafBinds(self.ctx.source, pattern)) return false;
         const name = identAt(self.ctx.source, pattern).?;
         if (self.visibleLocal(self.scope, name) != null) return false;
         const id = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return false;
@@ -1201,7 +1201,7 @@ const SymbolResolver = struct {
     /// names with the same types.
     fn bindPattern(self: *SymbolResolver, pattern: Sexp) Error!void {
         switch (pattern) {
-            .src => if (patternBinds(self.ctx.source, pattern) and !try self.constPattern(pattern)) {
+            .src => if (leafBinds(self.ctx.source, pattern) and !try self.constPattern(pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {
@@ -1213,7 +1213,7 @@ const SymbolResolver = struct {
                 defer seen.deinit(self.ctx.allocator);
                 for (ir.AltPattern.alts(pattern)) |alt| {
                     if (try self.constPattern(alt)) continue;
-                    const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (patternBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
+                    const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (leafBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
                     for (binds) |bound| {
                         const b = sema.bindingName(bound);
                         const name = identAt(self.ctx.source, b) orelse continue;
@@ -4840,7 +4840,7 @@ fn tableElementError(ctx: *SemContext, args: []const TypeId) Error!?[]const u8 {
 
 /// A leaf match pattern that binds its name: not the wildcard `_`, and
 /// not a literal (`1`, `true`).
-pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
+pub fn leafBinds(source: []const u8, pattern: Sexp) bool {
     const text = identAt(source, pattern) orelse return false;
     for ([_][]const u8{ "_", "true", "false" }) |word| if (std.mem.eql(u8, text, word)) return false;
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text) and !sema.isStringLiteralText(text);

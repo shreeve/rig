@@ -283,13 +283,20 @@ the finished semantic IR.
 
 ### Keywords
 
-The reserved words (all but `new`, `obj`, `inline`, `called`, `rarely`, and `of`) are literal lexer
-rules in `rig.grammar` ahead of the identifier rule (`"if" → if`), so
-the lexer's DFA classifies them; `src/rig.zig` keeps no keyword table and
-checks token categories. `new` and `obj` need the next token to be told
-from a name at statement start (`new x = 1`, `obj Point`; but `new = 1`,
-`obj = 5`, `obj.x`), and `of` is part of the wrapper's own bookkeeping,
-so all three stay in the wrapper. `obj` cannot use `@keywords`: a
+The reserved words are literal lexer rules in `rig.grammar` ahead of
+the identifier rule (`"if" → if`), so the lexer's DFA classifies them;
+`src/rig.zig` keeps no keyword table and checks token categories. The
+contextual words are a keyword only in one place and a name everywhere
+else. The lexer rewriter decides nine (`Lexer.classifyWord`,
+`Lexer.isMatches`): `new` at the start of a statement before a name,
+`obj` at the start of a declaration (after any `pub`) before a name,
+`api` and `add` at the start of a module-level declaration, `inline`
+and `called` there before `fun` or `sub`, `rarely` at the start of a
+statement alone on its line, `of` after a value directly inside `[ ]`
+(`[n of x]`), and `matches` after a value. Each needs the tokens around
+it to be told from a name (`new x = 1`, `obj Point`; but `new = 1`,
+`obj = 5`, `obj.x`). The parser decides the rest, `unique`, `from`,
+`static`, `keeps`, and `once`, by `@keywords` (below). `obj` cannot use `@keywords`: a
 statement may start with a name or with a declaration, so the parser's
 state accepts both and promotion would turn every statement-initial
 `obj` into the keyword. `struct` is an ordinary name; a declaration
@@ -323,14 +330,13 @@ needs no care. `rig.markerOf` reads a body that starts with `rarely` as
 the `rarely` marker, which the inlining rule and the function's cold
 start follow.
 
-`unique`, `from` and `static` are contextual. `@keywords ctx unique from
-static` with `@as IDENT = [ctx!]` lets the parser accept each wherever a
-name is legal, promoting it to its keyword only where the grammar
-expects it. The promotion is permissive: every state where one of these
+`unique`, `from`, `static`, `keeps`, and `once` are the parser's.
+`@keywords ctx unique from static keeps once` with `@as IDENT = [ctx!]`
+lets the parser accept each wherever a name is legal, promoting it to
+its keyword only where the grammar expects it. The promotion is permissive: every state where one of these
 words could be a name or the keyword must stay free of LALR conflicts
 (`nexus check rig.grammar` reports none). Because promotion happens in
-the parser, `rig tokens` prints `ident` for `unique`, `from` and
-`static`, not the keyword.
+the parser, `rig tokens` prints `ident` for each, not the keyword.
 
 ### Conflicts policy
 
