@@ -1600,21 +1600,21 @@ test "review-sc4-bx", '''
 
   sub edit(h: !H)
     match !h.s
-      .full(b, k) if k > 0 => b = *B(n: 20)
-      .full(_, k) => k = 5
+      .full(:b, :k) if k > 0 => b = *B(n: 20)
+      .full(:k) => k = 5
       _ => print("e")
 
   fun peek(h: ?H) -> Int
     match ?h.s
-      .full(b, k) if k > 0 => b.n
+      .full(:b, :k) if k > 0 => b.n
       _ => 0
 
   bx = ^Slot.full(b: *B(n: 1), k: 0)
   match !bx
-    .full(b, k) if b.n > 0 => k = 3
+    .full(:b, :k) if b.n > 0 => k = 3
     _ => print("e")
   match ?bx
-    .full(b, k) if k == 3 => print("three", b.n)
+    .full(:b, :k) if k == 3 => print("three", b.n)
     _ => print("e")
   h = H(s: ^Slot.full(b: *B(n: 2), k: 0))
   edit(!h)
@@ -1623,7 +1623,7 @@ test "review-sc4-bx", '''
   o: Slot? = .full(b: *B(n: 7), k: 1)
   if ?o as s
     match s
-      .full(b, k) if k > 0 => print("opt", b.n)
+      .full(:b, :k) if k > 0 => print("opt", b.n)
       _ => print("e")
   print("end")
 
@@ -1662,7 +1662,7 @@ test "review-sc4-c1", '''
 
   fun pick(p: Pair, first: Bool) -> *B
     match <p
-      .two(a, b)
+      .two(:a, :b)
         if first
           return <a
         <b
@@ -1672,7 +1672,7 @@ test "review-sc4-c1", '''
   while i < 3
     p: Pair = .two(a: *B(n: i), b: *B(n: i + 10))
     match <p
-      .two(a, b)
+      .two(:a, :b)
         if i == 1
           keep(<a)
         else
@@ -1684,8 +1684,8 @@ test "review-sc4-c1", '''
   print(x.n, y.n)
   q: Pair = .two(a: *B(n: 70), b: *B(n: 71))
   q2 = match <q
-    .two(a, b) if a.n > 100 => <a
-    .two(a, b) => <b
+    .two(:a, :b) if a.n > 100 => <a
+    .two(:a, :b) => <b
     .nothing => *B(n: 0)
   print(q2.n)
   print("end")
@@ -1774,7 +1774,7 @@ fail "review-sc4-dg2", "`v` does not live long enough"
   s: Slot = .full(b: B(n: 1), v: List())
   z: List[Int] = List()
   x = match <s
-    .full(b, v) if b.n > 0 => ?v[..]
+    .full(:b, :v) if b.n > 0 => ?v[..]
     _ => ?z[..]
   print(x.len)
 
@@ -1895,12 +1895,12 @@ test "review-sc4-gen1", '''
   fun count(t: ?Tree) -> Int
     match t
       .leaf(b) => b.n
-      .node(l, r) => count(?l) + count(?r)
+      .node(:l, :r) => count(?l) + count(?r)
 
   fun sum(t: Tree) -> Int
     match <t
       .leaf(b) => b.n
-      .node(l, r)
+      .node(:l, :r)
         a = <l.unbox()
         c = <r.unbox()
         sum(<a) + sum(<c)
@@ -2051,20 +2051,20 @@ test "review-sc4-q1", '''
 
   o: Outer = .wrap(i: .one(b: *B(n: 1)), k: 0)
   match !o
-    .wrap(i, k)
+    .wrap(:i, :k)
       k += 1
       match !i
         .one(b) => b = *B(n: 2)
         .zero => print("z")
     .nada => print("n")
   match o
-    .wrap(i, k)
+    .wrap(:i, :k)
       match i
         .one(b) => print(b.n, k)
         .zero => print("z")
     .nada => print("n")
   match <o
-    .wrap(i, _)
+    .wrap(:i)
       match <i
         .one(b) if b.n > 5 => keep(<b)
         .one(b) => print("small", b.n)
@@ -2308,16 +2308,16 @@ fail "review-sc4-tr", "`r` is bound but never read; name it `_` to ignore the va
     match t
       .leaf(b) if b.n > 100 => 100
       .leaf(b) => b.n
-      .node(l, r) if count(?l) > 5 => 99
-      .node(l, r) => count(?l) + count(?r)
+      .node(:l, :r) if count(?l) > 5 => 99
+      .node(:l, :r) => count(?l) + count(?r)
 
   fun sum(t: Tree) -> Int
     match <t
       .leaf(b) if b.n > 3 => b.n * 10
-      .node(l, r) if count(?l) > 2
+      .node(:l, :r) if count(?l) > 2
         a = <l.unbox()
         sum(<a)
-      .node(l, r)
+      .node(:l, :r)
         a = <l.unbox()
         c = <r.unbox()
         sum(<a) + sum(<c)
@@ -2326,7 +2326,7 @@ fail "review-sc4-tr", "`r` is bound but never read; name it `_` to ignore the va
   sub edit(t: !Tree)
     match !t
       .leaf(b) if b.n == 3 => b = *B(n: 30)
-      .node(l, r) if count(?l) > 0
+      .node(:l, :r) if count(?l) > 0
         edit(!l)
         edit(!r)
       _ => print("x")

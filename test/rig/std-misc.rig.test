@@ -924,7 +924,7 @@ test "json load fails with the error parse records", '''
     n = size_of(!doc, ?bad) catch |e|
       print(e)
       match e
-        .bad(kind, at) => print(json.error_name(kind), at, doc.size())
+        .bad(:kind, :at) => print(json.error_name(kind), at, doc.size())
       -1
     print(n)
 

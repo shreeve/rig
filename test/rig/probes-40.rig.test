@@ -87,7 +87,7 @@ test "syntax-review-designer-p21 expr", "3"
   fun eval(e: ?Expr) -> Int
     match e
       .num(v) => v
-      .add(l, r) => eval(?l) + eval(?r)
+      .add(:l, :r) => eval(?l) + eval(?r)
 
   e: Expr = .add(l: ^Expr.num(1), r: ^Expr.num(2))
   print(eval(?e))
@@ -1086,7 +1086,7 @@ test "syntax-review-ux-rs1", '''
       .plus => a + b
       .minus => a - b
       .star => a * b
-      .num(_) => return EvalError.unexpected
+      .num => return EvalError.unexpected
 
   fun eval(toks: ?List[Token]) -> Int!
     acc = 0

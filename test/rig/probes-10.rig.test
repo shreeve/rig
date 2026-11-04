@@ -1071668,10 +1071668,10 @@ test "purity-newbie-expr", '''
   fun eval(e: ?Expr) -> Float!
     match e
       .num(v) => v
-      .add(l, r) => eval(?l)! + eval(?r)!
-      .mul(l, r) => eval(?l)! * eval(?r)!
+      .add(left: l, right: r) => eval(?l)! + eval(?r)!
+      .mul(left: l, right: r) => eval(?l)! * eval(?r)!
       .neg(x) => -eval(?x)!
-      .div(l, r)
+      .div(left: l, right: r)
         d = eval(?r)!
         return EvalError.divide_by_zero if d == 0.0
         eval(?l)! / d
@@ -1071712,10 +1071712,10 @@ test "purity-newbie-expr shared", "-20.0"
   fun eval(e: ?*Expr) -> Float
     match e
       .num(v) => v
-      .add(l, r) => eval(?l) + eval(?r)
-      .mul(l, r) => eval(?l) * eval(?r)
+      .add(left: l, right: r) => eval(?l) + eval(?r)
+      .mul(left: l, right: r) => eval(?l) * eval(?r)
       .neg(x) => -eval(?x)
-      .div(l, r) => eval(?l) / eval(?r)
+      .div(left: l, right: r) => eval(?l) / eval(?r)
 
   # (2 + 3) * -4
   e = *Expr.mul(left: *Expr.add(left: *Expr.num(2), right: *Expr.num(3)), right: *Expr.neg(*Expr.num(4)))

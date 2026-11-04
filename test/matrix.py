@@ -1650,14 +1650,14 @@ PAYLOAD_SUBJECTS = {
 PAYLOAD_ESCAPES = {
     "arm": dict(arm=[".a(r) => see(?r)", ".b(r) => see(?r)"]),
     "arm_guard": dict(arm=[".a(r) if ok(?r) => see(?r)", "_ => pass"]),
-    "arm_local": dict(arm=[".a(r)", "  w = ?r", "  see(w)", ".b(_) => pass"]),
-    "arm_whole": dict(arm=[".b(_) => pass", "x => seee(?x)"]),
+    "arm_local": dict(arm=[".a(r)", "  w = ?r", "  see(w)", ".b => pass"]),
+    "arm_whole": dict(arm=[".b => pass", "x => seee(?x)"]),
     "return": dict(ret=[".a(r) => ?r", ".b(r) => ?r"]),
     "guard": dict(ret=[".a(r) if ok(?r) => ?r", ".a(r) => ?r", ".b(r) => ?r"]),
     "whole": dict(ret=["x => ?x"], whole=True),
-    "store": dict(store=[".a(r) => saved = ?r", ".b(_) => pass"]),
+    "store": dict(store=[".a(r) => saved = ?r", ".b => pass"]),
     "guard_store": dict(store=[".a(r) if ok(?r) => saved = ?r", "_ => pass"]),
-    "whole_store": dict(store=[".b(_) => pass", "x => saved = ?x"], whole=True),
+    "whole_store": dict(store=[".b => pass", "x => saved = ?x"], whole=True),
     "copy": dict(ret=[".a(r) => r", ".b(r) => r"], copy=True),
     "copy_guard": dict(ret=[".a(r) if ok(?r) => r", ".a(r) => r", ".b(r) => r"], copy=True),
     "copy_whole": dict(ret=["x => x"], whole=True, copy=True),
@@ -1756,8 +1756,8 @@ VIEWPAY_SUBJECTS = {
 VIEWPAY_USES = {
     "ret": dict(arms=[".a(r) => r", ".b(r) => r"]),
     "guard": dict(arms=[".a(r) if ok(r) => r", "_ => d"]),
-    "arm": dict(arms=[".a(r)", "  see(r)", "  d", ".b(_) => d"], arm=True),
-    "store": dict(arms=[".a(r) => saved = r", ".b(_) => pass"], store=True),
+    "arm": dict(arms=[".a(r)", "  see(r)", "  d", ".b => d"], arm=True),
+    "store": dict(arms=[".a(r) => saved = r", ".b => pass"], store=True),
     "whole": dict(arms=[".b(r) => r", "w => match w", "  .a(r) => r", "  .b(r) => r"]),
 }
 

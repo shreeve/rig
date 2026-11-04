@@ -1238,10 +1238,11 @@ patatom  = name
 
 pqual    = object:name "." name:name                → (member)
 
-# A payload field is bound by position (`.rect(w, h)`) or by name
-# (`.rect(w: a)`); the checker rejects a pattern that mixes the two.
-# Written out rather than `L(pbind)`, which conflicts with a trailing
-# comma.
+# A payload field is bound by name: `:w` binds field `w` as `w`, the
+# same leaf in both slots, and `w: a` binds it as `a`. A variant with one
+# field also binds it by position, `.circle(r)`; the checker rejects
+# position in a variant of more. Written out rather than `L(pbind)`,
+# which conflicts with a trailing comma.
 pbinds   = pbind                                    → (1)
          | pbinds "," pbind                         → (...1 3)
 
@@ -1249,6 +1250,8 @@ pbinds   = pbind                                    → (1)
 # holds one; `none` matches only when it holds none (`Parser.pbindNone`).
 pbind    = pnest
          | name:KWARG_NAME ":" value:pnest          → (kwarg)
+         | SYMBOL_COLON name                        → (kwarg 2 2)
+         | SYMBOL_COLON name "?"                    → (kwarg 2 (some_pattern 2))
 
 pnest    = name
          | name:name "?"                            → (some_pattern)

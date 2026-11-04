@@ -1739,7 +1739,7 @@ test "keywords as member names", '''
   print(b.error(), b)
   e = Ev.key(type: 7, match: false)
   match e
-    .key(k, m) => print(k, m)
+    .key(type: k, match: m) => print(k, m)
     .quit => print("quit")
   print(e)
 
@@ -2855,9 +2855,9 @@ test "match guards and alternatives", '''
   fun describe(s: ?Shape) -> ?String
     match s
       .circle(r) if r > 10 => "big circle"
-      .circle(_), .square(_) => "round or square"
-      .rect(w, h) if w == h => "square rect"
-      .rect(_, _) => "rect"
+      .circle, .square => "round or square"
+      .rect(:w, :h) if w == h => "square rect"
+      .rect => "rect"
       .point => "point"
 
   fun bucket(n: Int) -> ?String
@@ -4998,8 +4998,8 @@ test "trailing comma patterns and bars", '''
 
   s = Shape.rect(w: 2, h: 3)
   match s
-    .rect(w, h,) => print(w * h)
-    .dot() => print(0)
+    .rect(:w, :h,) => print(w * h)
+    .dot => print(0)
   k = 10
   f = |+k, a: Int,| a + k
   g: fun(Int, Int) -> Int = |a, b,| a * b
@@ -5031,7 +5031,7 @@ test "trailing commas", '''
     ]
     s: Shape = .rect(w: 4, h: 5,)
     match s
-      .rect(w, h) => print(area(w, h))
+      .rect(:w, :h) => print(area(w, h))
     print(area(
       sizes[0],
       sizes[1],

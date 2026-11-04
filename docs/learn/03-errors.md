@@ -398,7 +398,7 @@ sub main()
     print(e)
     match e
       .missing(line) => print("  line", line, "has no `=`")
-      .not_a_number(line, found) => print("  line", line, "has", found)
+      .not_a_number(:line, :found) => print("  line", line, "has", found)
   print(bad[0] == Config.missing)
 ```
 
@@ -412,8 +412,10 @@ true
 ```
 
 `Config.missing(line: n)` makes the error with its field. An error
-prints with its fields, and a pattern binds them,
-`.missing(line) =>`. `bad[0] == Config.missing` tests which member an
+prints with its fields, and a pattern binds them: a member with one
+field by position, `.missing(line) =>`, and one with more by name,
+`.not_a_number(:line, :found) =>`, where `:line` binds the field
+`line` and `line: n` would bind it as `n`. `bad[0] == Config.missing` tests which member an
 error is and compares no fields.
 
 A failure moves its error up through each `!` to the `catch` that

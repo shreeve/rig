@@ -313,6 +313,20 @@ Other:
     store (call) is too complex for the ownership checker; split it
     into smaller functions", as a loop past its bound is; such a
     program was accepted unchecked.
+72. A pattern binds a variant's fields by name: `:w` binds the field
+    `w`, `w: width` binds it as `width`, and only a variant with one
+    field binds by position too (`.circle(r)`). A positional pattern
+    over several fields, which a reorder of the fields rebinds without a
+    word, is rejected with its by-name form: "`rect` has 2 fields; bind
+    them by name: `.rect(:w, :h)`" (`.rect(h, w)` is `.rect(w: h, h:
+    w)`). `w: w` is rejected for `:w`, and a pattern that binds and
+    tests nothing, `.rect(_, _)`, `.circle(_)`, `.rect(w: _)`, or
+    `.dot()`, for the bare `.rect`; `w: _` beside other fields is left
+    out. Inside a pattern's parentheses `:x` names a field, never a
+    symbol. `tools/migrate-patterns.py PATH...` rewrites each, from each
+    variant's declaration, and prints `MANUAL` where it cannot be sure.
+    It rewrites 21 patterns in 6 of Trig's files and 15 in 4 of
+    loco's (`rig/loc/`), with no `MANUAL`.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -365,6 +379,12 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A pattern binds a variant's fields by name** (Upgrading, item 72):
+  `.rect(:w, h: tall)`, and a variant with one field by position too,
+  `.circle(r)`. The message for a positional pattern over several
+  fields gives the by-name pattern that means what the positions did,
+  and coverage messages name fields the same way
+  (`.d(p: none, r: none)`). The emitted Zig is unchanged.
 - **A source file or a module holds less than 2 GiB.** The limit was
   16 MiB; positions in a source are 32 bits, and the upper half of
   their range numbers the names the compiler adds past a source's end.

@@ -33,7 +33,7 @@ test "match capture generated names", '''
 
   s = Sh.c(r: R(n: 1), k: 2)
   match <s
-    .c(_, k)
+    .c(:k)
       payload_1 = k + 1
       whole_2 = k
       payload_0 = 0
@@ -231,7 +231,7 @@ test "match payload destructure", "7"
   s: Shape = .triangle(a: 3, b: 4)
   match s
     .circle(r) => print(r)
-    .triangle(a, b) => print(a + b)
+    .triangle(:a, :b) => print(a + b)
     .origin => print(0)
 
 test "match payload move disarms scrutinee", '''
@@ -369,19 +369,19 @@ test "match subject evaluated once", '''
     print("kept", b.n)
 
   match <make(1)
-    .full(b, _) if b.n > 5 => keep(<b)
+    .full(:b) if b.n > 5 => keep(<b)
     _ => print("other")
   match <make(2)
-    .full(b, c) if b.n > 5 => keep(<b)
-    .full(_, c) if c.n > 5 => keep(<c)
+    .full(:b, :c) if b.n > 5 => keep(<b)
+    .full(:c) if c.n > 5 => keep(<c)
     _ => print("other")
   x = match <make(4)
-    .full(b, _) if b.n > 50 => <b
-    .full(_, c) => <c
+    .full(:b) if b.n > 50 => <b
+    .full(:c) => <c
     .empty => *B(n: 0)
   print(x.n)
   match <make(5)
-    .full(_, _), .empty => print("either")
+    .full, .empty => print("either")
   match mk()
     .circle(r) if r > 5 => print("big")
     .circle(r) if r > 1 => print("mid", r)
@@ -409,7 +409,7 @@ test "match value multi field payload", "7"
   fun measure(s: Shape) -> Int
     match s
       .circle(r) => r
-      .triangle(a, b) => a + b
+      .triangle(:a, :b) => a + b
 
   s: Shape = .triangle(a: 3, b: 4)
   print(measure(s))
@@ -448,7 +448,7 @@ test "match write vec element", release: true, '''
 
   sub bump(p: !List[E], i: Int)
     match !p[i]
-      .a(n, t)
+      .a(:n, :t)
         n += 1
         !t.add("p")
       .b => pass
@@ -458,25 +458,25 @@ test "match write vec element", release: true, '''
   !v.push(E.b)
   i = 0
   match !v[i]
-    .a(n, t)
+    .a(:n, :t)
       n += 10
       !t.add("x")
     .b => pass
   match !v[0]
-    .a(n, _) => n += 100
+    .a(:n) => n += 100
     .b => pass
   bump(!v, i)
   s: List[S] = List()
   !s.push(S(e: E.a(n: 2, t: String("s"))))
   match !s[i].e
-    .a(n, t)
+    .a(:n, :t)
       n += 20
       !t.add("y")
     .b => pass
   h = H(f: List())
   !h.f.push(E.a(n: 3, t: String("h")))
   match !h.f[i]
-    .a(n, t)
+    .a(:n, :t)
       n += 30
       !t.add("z")
     .b => pass
@@ -485,7 +485,7 @@ test "match write vec element", release: true, '''
   !w.push(E.a(n: 4, t: String("w")))
   !vv.push(<w)
   match !vv[0][i]
-    .a(n, _) => n += 40
+    .a(:n) => n += 40
     .b => pass
   print(v[0], s[0].e, h.f[0], vv[0][0])
 

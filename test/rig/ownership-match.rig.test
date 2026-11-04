@@ -57,7 +57,7 @@ test "match arm statement liveness", '''
   !v.push(.circle(r: 5))
   x = !v
   match ?x[0]
-    .circle(_) => print("simple", grow(!v))
+    .circle => print("simple", grow(!v))
     .point => pass
   y = !v
   match ?y[0]
@@ -66,7 +66,7 @@ test "match arm statement liveness", '''
     .point => pass
   print(v.len)
 
-fail "match bare payload move", "23:17: cannot move `v` out of `o`: `match o` reads `o`; write `match <o` to take its fields", "28:27: cannot move `box` out of `s`: `match s` reads `s`; write `match <s` to take its fields", "32:23: cannot drop `box` out of `t`: `match t` reads `t`; write `match <t` to take its fields"
+fail "match bare payload move", "23:17: cannot move `v` out of `o`: `match o` reads `o`; write `match <o` to take its fields", "28:25: cannot move `box` out of `s`: `match s` reads `s`; write `match <s` to take its fields", "32:21: cannot drop `box` out of `t`: `match t` reads `t`; write `match <t` to take its fields"
   # A bare `match e` on a value that owns a resource reads it: moving a
   # payload out takes `match <e`, which consumes `e`.
 
@@ -94,11 +94,11 @@ fail "match bare payload move", "23:17: cannot move `v` out of `o`: `match o` re
 
   s: Slot = .tagged(box: *B(n: 1), tag: 2)
   match s
-    .tagged(box, _) => eat(<box)
+    .tagged(:box) => eat(<box)
     .empty => print(0)
   t: Slot = .tagged(box: *B(n: 3), tag: 4)
   match t
-    .tagged(box, _) => <box
+    .tagged(:box) => <box
     .empty => print(0)
   g = get(.some(v: *B(n: 5)), *B(n: 6))
   print(g.n)
@@ -231,7 +231,7 @@ test "match consume", '''
 
   p: Pair = .two(a: *B(n: 1), b: *B(n: 2))
   match <p
-    .two(a, b)
+    .two(:a, :b)
       keep(<a)
       print("arm end", b.n)
     .one(a) => keep(<a)
@@ -239,11 +239,11 @@ test "match consume", '''
   print("after")
   q: Pair = .two(a: *B(n: 3), b: *B(n: 4))
   match <q
-    .two(_, b) => keep(<b)
+    .two(:b) => keep(<b)
     _ => print("other")
   r: Pair = .one(a: *B(n: 5))
   match <r
-    .two(a, b) => print("two", a.n, b.n)
+    .two(:a, :b) => print("two", a.n, b.n)
     _ => print("other")
   o: Opt = .some(v: *B(n: 6))
   x = get(<o, *B(n: 7))
@@ -327,7 +327,7 @@ test "match copy payload tail", '''
 
   fun go(s: S) -> Int
     match s
-      .one(_, k) => k
+      .one(:k) => k
       .empty => 0
 
   s: S = .one(a: *B(n: 1), k: 3)
@@ -561,14 +561,14 @@ test "match guards after subject", '''
   n = match ?v[0]
     .point => 0
     .circle(r) if r > count(?v) and bump(!hits) => r
-    .circle(_) if grow(!other) => 1
-    .circle(_) => 2
+    .circle if grow(!other) => 1
+    .circle => 2
   print(grow(!v), n, hits, v.len, other.len)
   w = !v
   m = match ?w[0]
     .point => 0
-    .circle(_) if grow(!other) => 1
-    .circle(_) => 2
+    .circle if grow(!other) => 1
+    .circle => 2
   print(m, grow(!v), v.len, other.len)
   k = v[0]
   match k
@@ -804,19 +804,19 @@ test "match payload by name", release: true, '''
 
   fun res(e: ?E, d: ?Res) -> ?Res from e, d
     match e
-      .pair(r: r) if r.t.len > 3 => ?r
-      .pair(r: r) => r
+      .pair(:r) if r.t.len > 3 => ?r
+      .pair(:r) => r
       .nothing => d
 
   fun take(e: E) -> Res
     match <e
-      .pair(k: k) if k > 10 => Res(t: String("big"))
-      .pair(r: r) => <r
+      .pair(:k) if k > 10 => Res(t: String("big"))
+      .pair(:r) => <r
       .nothing => Res(t: String("none"))
 
   x: Bag = .three(a: *B(n: 1), label: String("one"), xs: List())
   match <x
-    .three(a: a)
+    .three(:a)
       keep(<a)
       print("arm end")
     _ => pass
@@ -850,7 +850,7 @@ test "match payload by name", release: true, '''
   print(res(?f, ?dr).t)
   # A write match on owning fields, by name.
   match !g
-    .three(label: t, a: a)
+    .three(label: t, :a)
       t = String("changed")
       a = *B(n: 6)
     _ => pass
@@ -914,7 +914,7 @@ test "match payload move with plain sibling", '''
   rc = *Wrap(payload: 5)
   s: Slot = .tagged(box: <rc, tag: 9)
   match <s
-    .tagged(box, tag)
+    .tagged(:box, :tag)
       print(tag)
       eat(<box)
     .empty => print(0)
@@ -1106,7 +1106,7 @@ test "match payload view in arm", '''
         w = ?r
         print(clobber(3000))
         print(w.n, w.t)
-      .b(_) => pass
+      .b => pass
 
   sub guarded(b: ?E)
     match b
@@ -1120,13 +1120,13 @@ test "match payload view in arm", '''
 
   fun whole2(e: ?E) -> Int
     match e
-      .b(_) => 0
+      .b => 0
       x => count(x)
 
   fun copied(e: ?E) -> String
     match e
       .a(r) => +r.t
-      .b(_) => String("none")
+      .b => String("none")
 
   fun pick(v: ?V, d: ?Res) -> ?Res
     match v
@@ -1140,7 +1140,7 @@ test "match payload view in arm", '''
 
   fun gsize[T](o: ?Opt[T]) -> Int
     match o
-      .some(_) => 1
+      .some => 1
       .nothing => 0
 
   e = E.a(r: Res(n: 1, t: String("hello")))
@@ -1247,7 +1247,7 @@ test "match payload view outlives arm", release: true, '''
   fun elems(e: ?E, d: ?[2]Int) -> []Int from e, d
     match e
       .a(r) => ?r.xs[0..2]
-      .b(_) => ?d[0..1]
+      .b => ?d[0..1]
 
   fun pick(e: ?K) -> ?String from e
     match ?e
@@ -1269,11 +1269,11 @@ test "match payload view outlives arm", release: true, '''
     saved = ?k
     match e
       .a(r) => saved = ?r
-      .b(_) => pass
+      .b => pass
     hold = Hold(r: ?k)
     match e
       .a(r) => hold.r = ?r
-      .b(_) => pass
+      .b => pass
     v = match e
       .a(r) => ?r
       .b(r) => ?r
@@ -1465,7 +1465,7 @@ fail "match read payload assign", "11:5: cannot assign to `r`: it is a copy of a
     .square(s) => print(s)
   print(c)
 
-fail "match subject lent through arms", "32:23: cannot lend `v` to write while a write loan is live", "38:29: cannot lend `v` to write while a write loan is live", "43:25: cannot lend `v` to write while a write loan is live", "49:16: cannot lend `h` to write while a write loan is live", "52:15: cannot lend `v` to write while a read loan is live", errors: 5
+fail "match subject lent through arms", "32:20: cannot lend `v` to write while a write loan is live", "38:26: cannot lend `v` to write while a write loan is live", "43:22: cannot lend `v` to write while a write loan is live", "49:16: cannot lend `h` to write while a write loan is live", "52:15: cannot lend `v` to write while a read loan is live", errors: 5
   # A `match` reads its subject again after a guard runs, to test the next
   # arm's pattern: what the subject views stays lent through every guard,
   # in a nested match too. A write lend of it there is rejected, as is one
@@ -1497,18 +1497,18 @@ fail "match subject lent through arms", "32:23: cannot lend `v` to write while a
   w = !v
   n = match ?w[0]
     .point => 0
-    .circle(_) if grow(!v) => 1
-    .circle(_) => 2
+    .circle if grow(!v) => 1
+    .circle => 2
   print(n)
   x = !v
   match ?x[0]
     .point => print(0)
-    .circle(_) => print(grow(!v), x.len)
+    .circle => print(grow(!v), x.len)
   k = 1
   y = !v
   match k
     1 => match ?y[0]
-      .circle(_) if grow(!v) => print(k)
+      .circle if grow(!v) => print(k)
       _ => print(0)
     _ => print(k)
   h = H(o: ^3)
@@ -1532,7 +1532,7 @@ test "match subject loan ends with bindings", '''
 
   sub prune(t: !Tree)
     match !t
-      .node(l, _)
+      .node(:l)
         l = ^Tree.leaf(v: 7)
         t = .leaf(v: 5)
       .leaf(v) => v += 1
@@ -1544,7 +1544,7 @@ test "match subject loan ends with bindings", '''
 
   t: Tree = .node(l: ^Tree.leaf(v: 1), r: ^Tree.leaf(v: 3))
   match !t
-    .node(l, _)
+    .node(:l)
       l = ^Tree.leaf(v: 7)
       t = .leaf(v: 4)
     .leaf(v) => v += 1
@@ -1564,14 +1564,14 @@ fail "match subject reassign while binding live", "11:5: cannot reassign `t` whi
 
   t: Tree = .node(l: ^Tree.leaf(v: 1), r: ^Tree.leaf(v: 3))
   match !t
-    .node(l, _)
+    .node(:l)
       t = .leaf(v: 4)
       l = ^Tree.leaf(v: 7)
     .leaf(v)
       t = .leaf(v: 9)
       v += 1
   match ?t
-    .node(l, _)
+    .node(:l)
       t = .leaf(v: 4)
       print(l)
     _ => print("x")
@@ -1774,14 +1774,14 @@ test "match write payload", '''
   sub grow(s: !Shape)
     match !s
       .circle(r) => r += 1
-      .rect(w, h)
+      .rect(:w, :h)
         w *= 2
         h = 10
 
   c: Shape = .circle(r: 1)
   match !c
     .circle(r) => r += 1
-    .rect(w, _) => w = 0
+    .rect(:w) => w = 0
   print(c)
   grow(!c)
   print(c)
@@ -1795,12 +1795,12 @@ test "match write payload", '''
   print(b)
   s: Slot = .full(b: *B(n: 1), v: List())
   match !s
-    .full(h, v)
+    .full(b: h, :v)
       h = *B(n: 2)
       !v.push(7)
     .empty => print("empty")
   match s
-    .full(h, v) => print(h.n, v.len, v[0])
+    .full(b: h, :v) => print(h.n, v.len, v[0])
     .empty => print("empty")
   match !c
     whole => whole = .rect(w: 1, h: 1)
@@ -2401,7 +2401,7 @@ test "match write payload views", '''
     match !e
       .a(r) => r
       .c(r) => r
-      .b(_) => d
+      .b => d
 
   sub grow(e: !E)
     match !e
@@ -2410,7 +2410,7 @@ test "match write payload views", '''
         !r.t.add("!")
       .a(r) => r.n = 0
       .b(p) => p.x += 1
-      .c(_) => pass
+      .c => pass
 
   sub reset(e: !E)
     match !e
@@ -2494,32 +2494,32 @@ test "match as a pattern owns and drops", '''
       .empty
 
   s = mk(1)
-  if <s matches .one(a, _)
+  if <s matches .one(:a)
     print("got", a.n)
   print("--")
   t: Box = .none_left(c: Res(n: 9))
-  if <t matches .one(a, _)
+  if <t matches .one(:a)
     print("no", a.n)
   else
     print("else runs")
   print("--")
-  if mk(5) matches .one(x, y)
+  if mk(5) matches .one(a: x, b: y)
     print("temp", x.n, y.n)
   print("--")
   u = mk(7)
-  if u matches .one(a, b) and a.n > 0
+  if u matches .one(:a, :b) and a.n > 0
     print("read", a.n, b.n)
   if !u matches .one(a: f)
     f = Res(n: 70)
-  if u matches .one(a: a)
+  if u matches .one(:a)
     print("now", a.n)
-  v = if u matches .one(a: a)
+  v = if u matches .one(:a)
     a.n
   else
     -1
   print("value", v)
   i = 0
-  while step(i) matches .one(p, q) : i += 1
+  while step(i) matches .one(a: p, b: q) : i += 1
     print("loop", p.n, q.n)
   print("end")
 

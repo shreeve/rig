@@ -74,8 +74,8 @@ enum E
 
 fun count(e: ?E) -> Int
   match e
-    .a(r, k) => r.n + k
-    .b(_, k) => k
+    .a(:r, :k) => r.n + k
+    .b(:k) => k
 
 fun whole(e: ?E) -> Int
   match e
@@ -83,7 +83,7 @@ fun whole(e: ?E) -> Int
 
 fun guarded(e: ?E) -> Int
   match e
-    .a(_, k) if k > 5 => k
+    .a(:k) if k > 5 => k
     x => count(x)
 
 sub main()

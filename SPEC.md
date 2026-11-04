@@ -2580,9 +2580,10 @@ sub main()
 
 A symbol is `:` and a name, written where an operand starts: `:width`,
 `:if`, `:content-type` ([SYNTAX, Symbols](docs/SYNTAX.md#symbols)). Its
-type is the builtin `Symbol` wherever it stands: unlike `.width`, it is
-not inferred from context, and `.width` where a `Symbol` is expected is
-rejected. The values of `Symbol` are exactly the symbol literals the
+type is the builtin `Symbol` wherever it stands but one: unlike
+`.width`, it is not inferred from context, and `.width` where a `Symbol`
+is expected is rejected. Inside a variant pattern's parentheses, `:w`
+names the field `w` it binds ([match](#match)), never a symbol. The values of `Symbol` are exactly the symbol literals the
 whole program writes, in every module, std included, so every symbol
 has a name that lives for the whole program.
 
@@ -5737,7 +5738,7 @@ fun find(k: Int) -> Decl?
   Decl(id: k * 10) if k > 0 else none
 
 fun area(s: Shape) -> Int
-  r * r if s matches .circle(r) else w * h if s matches .rect(w, h) else 0
+  r * r if s matches .circle(r) else w * h if s matches .rect(:w, :h) else 0
 
 sub main()
   d = find(4)
@@ -6533,8 +6534,8 @@ of its values: a later arm may repeat its pattern, and
 the match still needs arms for them. Alternatives
 are literals, ranges, or variants, listed without parentheses (`.a, .b
 =>`), and none may be a catch-all. They bind names only when every one
-binds the same names, each with one type (`.failed(c, _), .timed_out(c)
-=> report(c)`); otherwise `_` fills a payload field. Alternatives match
+binds the same names, each with one type (`.failed(code: c), .timed_out(c)
+=> report(c)`); otherwise none binds. Alternatives match
 different values: two of one variant test its optional fields apart
 (`.ready(_?), .ready(none)`), and bind each name to one field.
 Alternatives of an error bind none.
@@ -6548,7 +6549,7 @@ enum Shape
 fun describe(s: Shape) -> ?String
   match s
     .circle(r) if r > 10 => "big circle"
-    .circle(_), .square(_) => "small shape"
+    .circle, .square => "small shape"
     .point => "point"
 
 sub main()
@@ -6564,10 +6565,26 @@ big circle small shape point
 even 4
 ```
 
-A pattern binds a variant's fields either in order, all of them, or by
-name, any of them; it doesn't mix the two. A field a pattern leaves out
-is not bound: it stays with the subject, or under `match <e` it is
-dropped at the end of the arm, as a `_` field is.
+A pattern binds a variant's fields by name, any of them, in any order:
+`:w` binds the field `w` under its own name, and `w: width` binds it as
+`width`, the field on the left as in a constructor's `w: 1`. A variant
+with one field also binds it by position, under any name: `.circle(r)`,
+`.circle(radius)`, and `.circle(:r)` are one pattern. A field a pattern
+leaves out is not bound: it stays with the subject, or under `match <e`
+it is dropped at the end of the arm. Inside the parentheses `:x` always
+names a field, never a symbol. Each idea has one spelling, and the
+others are rejected, each with that spelling in the message:
+
+- binding a variant of several fields by position, which a change to
+  the order of its fields would silently rebind: `.rect(w, h)` is
+  `.rect(:w, :h)`, and `.rect(h, w)` is `.rect(w: h, h: w)`;
+- `w: w`, which is `:w`, and `w: w?`, which is `:w?`;
+- a pattern that binds and tests nothing: `.rect(_, _)`, `.circle(_)`,
+  `.rect(w: _)`, and `.dot()` are `.rect`, `.circle`, and `.dot`, and a
+  field bound as `_` beside others is left out.
+
+`_?` and `none` test a field ([§12](#testing-a-pattern-matches)), so they
+stay: `.ready(_?)`, `.got(value: none)`.
 
 ```rig
 enum Shape
@@ -6578,10 +6595,10 @@ sub main()
   s: Shape = .rect(w: 3, h: 4, label: String("box"))
   match s
     .rect(h: tall) if tall > 3 => print("tall", tall)
-    .rect(w, h, _) => print(w * h)
+    .rect(:w, :h) => print(w * h)
     .point => pass
   match !s
-    .rect(label: l, w: w)
+    .rect(label: l, :w)
       w = 30
       l = String("wide")
     .point => pass
@@ -6601,11 +6618,25 @@ enum Shape
 
 sub main()
   match Shape.rect(w: 1, h: 2)
-    .rect(w, h: b) => print(w, b)
+    .rect(w, h) => print(w, h)
 ```
 
 ```error
-`.rect` binds its fields both in order and by name
+`rect` has 2 fields; bind them by name: `.rect(:w, :h)`
+```
+
+```rig reject
+enum Shape
+  rect(w: Int, h: Int)
+  point
+
+sub main()
+  s = Shape.rect(w: 1, h: 2)
+  print(s matches .rect(_, _))
+```
+
+```error
+`.rect(_, _)` binds nothing: write `.rect`
 ```
 
 A range pattern `lo..hi` is half-open like the range it is written as,
@@ -6796,13 +6827,13 @@ sub keep(b: *B)
 sub main()
   s: Slot = .full(b: *B(n: 1), uses: 0)
   match !s
-    .full(_, uses) => uses += 1
+    .full(:uses) => uses += 1
     .empty => print("empty")
   match s
-    .full(b, uses) => print(b.n, uses)
+    .full(:b, :uses) => print(b.n, uses)
     .empty => print("empty")
   match <s
-    .full(b, _) => keep(<b)
+    .full(:b) => keep(<b)
     .empty => print("empty")
   print("end")
 ```
@@ -9650,7 +9681,7 @@ enum Expr
 fun eval(e: ?Expr) -> Int
   match e
     .num(n) => n
-    .add(l, r) => eval(?l) + eval(?r)
+    .add(:l, :r) => eval(?l) + eval(?r)
 
 fun num(n: Int) -> ^Expr
   ^.num(n)
@@ -10844,8 +10875,7 @@ cannot assign to `m.id`: `id` names the none of `Node` (`none id == ...`), so on
 
 `x matches P` is a `Bool`: whether `x` matches the pattern `P`, which is
 a `match` arm's ([SYNTAX §12](docs/SYNTAX.md#12-patterns)): `.point`,
-`.circle(r)`, `.circle(_)`, `.rect(w, h)`, `.rect(h: tall)`, a literal,
-or a range. Several alternatives are a list in parentheses after a
+`.circle(r)`, `.rect(:w, :h)`, `.rect(h: tall)`, a literal, or a range. Several alternatives are a list in parentheses after a
 space, `x matches (.a, .b, .c)`, which may end with a comma and spread
 over lines. It is the `match` with `P => true` and `_ => false`, and
 costs what that `match` costs. Negation follows the comparison rule:
@@ -10861,7 +10891,7 @@ else 0` ([Block expressions](#block-expressions)). Anywhere else, the names flow
 right through `and`, and only there: `x matches .ready(s) and s
 matches (.done, .cached)` is a `Bool` in a closure too. A name nothing
 reads is rejected, as anywhere: where it ends a `Bool`, the pattern
-with `_` for it is what is meant (`ok = s matches .rect(_, _)`).
+without it is what is meant (`ok = s matches .rect`).
 `while e matches .item(x)` repeats while the value matches; its step
 cannot read the fields, which live only in the body.
 
@@ -10904,9 +10934,11 @@ covers the values it tests, each optional field holding a value or
 none: `.ready(r?)` and `.ready(none)` cover `.ready`, and so do four
 arms over two fields, or arms over different fields that leave no value
 out. An arm whose values the arms before it cover never runs, and is
-rejected; a match that misses some names one, `.d(none, _, none)`. An
-error's optional field takes no test: bind it, `.bad(n)`, and test `n
-== none`.
+rejected; a match that misses some names one, `.d(p: none, r: none)`.
+By name, the test follows the field: `:note?` binds the field `note`
+when it holds a value, `note: n?` binds it as `n`, and `note: none` and
+`note: _?` test it. An error's optional field takes no test: bind it,
+`.bad(n)`, and test `n == none`.
 
 ```rig
 enum Shape
@@ -10935,7 +10967,7 @@ fun radius(m: Shape?) -> Int
     0
 
 fun code(s: ?State) -> Int
-  if s matches (.failed(c, _), .timed_out(c))
+  if s matches (.failed(code: c), .timed_out(c))
     return c
   0
 
@@ -10947,7 +10979,7 @@ sub main()
   !shapes.push(.rect(w: 2, h: 2))
   flat = 0
   for s in ?shapes
-    flat += 1 if s matches (.point, .rect(_, _))
+    flat += 1 if s matches (.point, .rect)
   print(flat, code(.timed_out(code: 7)), code(.ready(note: none)))
   s: State = .ready(note: String("hi"))
   if <s matches .ready(note?)
@@ -10972,9 +11004,9 @@ enum Job
 
 fun kind(j: Job) -> Int
   match j
-    .run(_?, _?) => 1
-    .run(_?, none) => 2
-    .run(none, _) => 3
+    .run(id: _?, note: _?) => 1
+    .run(id: _?, note: none) => 2
+    .run(id: none) => 3
     .idle => 0
 
 sub main()

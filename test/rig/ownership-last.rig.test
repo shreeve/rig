@@ -67,7 +67,7 @@ test "last match on a made value whose arm writes", "2"
   v: List[Item] = List()
   !v.push(Item(n: 1))
   match find(!v)
-    .found(_) => !v.push(Item(n: 0))
+    .found => !v.push(Item(n: 0))
     .missing => print("none")
   print(v.len)
 
@@ -454,7 +454,7 @@ fail "last match guard writes what a later arm reads", "cannot lend `v` to write
   v: List[Item] = List()
   !v.push(Item(n: 1))
   match find(?v)
-    .found(_) if bump(!v) < 0 => print("a")
+    .found if bump(!v) < 0 => print("a")
     .found(it) => print(it.n)
     .missing => print("none")
 

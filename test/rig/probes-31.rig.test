@@ -539,7 +539,7 @@ test "review-step3-o15b", '''
 
   fun whole(e: ?E) -> ?E
     match e
-      .b(_) => e
+      .b => e
       x => ?x
 
   fun clobber(n: Int) -> Int
@@ -567,7 +567,7 @@ test "review-step3-o16 whole local", '''
   k = E.b(n: 0)
   saved = ?k
   match e
-    .b(_) => pass
+    .b => pass
     x => saved = ?x
   arr = [1, 2, 3, 4, 5, 6, 7, 8]
   print(arr[2])
@@ -588,7 +588,7 @@ test "review-step3-q93b", "3"
   base = P(x: 3, y: 4)
   saved = ?base
   match H(e: E.a(p: P(x: 1, y: 2), q: ?base)).e
-    .a(_, q) => saved = q
+    .a(:q) => saved = q
     .b => pass
   print(saved.x)
 
@@ -759,7 +759,7 @@ test "review-step3-r2-g17 generic concrete payload", '''
 
   fun peek[T](o: ?Pair[T]) -> ?Res
     match o
-      .a(r, _) => r
+      .a(:r) => r
       .b(r) => r
 
   fun clobber(n: Int) -> Int
@@ -876,12 +876,12 @@ fail "review-step3-r2-n10 nested payload", "`i` does not live long enough"
 
   fun deep(o: ?Out, d: ?Res) -> ?Res
     match o
-      .w(i, t) if t.len > 0
+      .w(:i, :t) if t.len > 0
         match i
           .x(r) if r.n > 0 => r
           .x(r) => r
           .y => d
-      .w(i, _)
+      .w(:i)
         match i
           .x(r) => r
           .y => d
@@ -983,8 +983,8 @@ test "review-step3-r2-n15 take match", '''
 
   e = E.a(r: Res(n: 1, t: String("x")), s: Res(n: 2, t: String("y")))
   match <e
-    .a(r, s) if r.n > 5 => eat(<r)
-    .a(r, _) => eat(<r)
+    .a(:r, :s) if r.n > 5 => eat(<r)
+    .a(:r) => eat(<r)
     .b => pass
   print("end")
 

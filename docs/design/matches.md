@@ -56,7 +56,8 @@ reads the value once.
 | Form | Example |
 |---|---|
 | one pattern | `x matches .ready(r)` |
-| an optional inside | `x matches .ready(rendered?)` |
+| fields by name | `x matches .rect(:w, h: tall)` |
+| an optional inside | `x matches .ready(rendered?)`, `.ready(:rendered?)` |
 | alternatives | `x matches (.a, .b, .c)` |
 | alternatives that bind | `x matches (.failed(c), .timed_out(c))` |
 | a full match, unchanged | `match x` / `.a, .b => ...` / `_ => pass` |
@@ -103,7 +104,7 @@ fun kind(s: Shape) -> ?String
     return "big circle"
   if s matches .rect(h: tall) and tall > 3
     return "tall rect"
-  if s matches (.point, .rect(_, _))
+  if s matches (.point, .rect)
     return "flat"
   "other"
 
@@ -117,13 +118,71 @@ sub main()
   n = 0
   for s in ?shapes
     n += 1 if round(s)
-  print(n, not shapes[0] matches (.circle(_), .rect(_, _)))
+  print(n, not shapes[0] matches (.circle, .rect))
 ```
 
 ```output
 12 0 0
 big circle tall rect flat other
 1 true
+```
+
+## Fields by name
+
+A pattern binds a variant's fields by name: `:w` binds the field `w`
+under its own name, and `w: width` binds it as `width`, the field on
+the left as a constructor writes it, `Shape.rect(w: 1.0, h: 2.0)`. A
+variant with one field also binds it by position, under any name,
+`.circle(r)`; when it gains a second field, that pattern is rejected
+with the by-name fix.
+
+Binding by position is the one pattern rule that changes a program's
+meaning without a word. Swap two fields of one type in a declaration,
+and every positional pattern binds the other field: the constructors,
+already written by name, survive the change, so nothing points at the
+patterns. A field added anywhere breaks every positional pattern too,
+even one that reads none of the fields. By name, a pattern is immune
+to both: a reorder changes nothing, and a renamed field is an error
+where it is named. Rust's struct variants, OCaml's records, and
+Haskell's puns bind by name for the same reason.
+
+One idea has one spelling, so the others are rejected with it in the
+message:
+
+| Written | Rejected for |
+|---|---|
+| `.rect(w, h)`, `.rect(h, w)` | `.rect(:w, :h)`, `.rect(w: h, h: w)`: the meaning the positions had |
+| `.rect(w: w)`, `.ready(note: note?)` | `.rect(:w)`, `.ready(:note?)` |
+| `.rect(_, _)`, `.circle(_)`, `.rect(w: _)`, `.dot()` | `.rect`, `.circle`, `.dot`: a pattern that binds and tests nothing is the bare variant |
+| `.rect(:w, h: _)` | `.rect(:w)`: a field left out |
+
+`_?` and `none` test a field, so they stay: `.ready(_?)`,
+`.run(:id, note: none)`. Inside the parentheses `:x` always names a
+field, never a `Symbol`: `:enter` that names no field is "no field
+`enter` on variant `key`", and a symbol a field holds is tested in a
+guard or after `and`.
+
+```rig
+enum Region
+  tag(name: Static, lang: Static)
+  between(open: Static, close: Static, lang: Static)
+
+fun lang_of(r: ?Region) -> Static
+  match r
+    .tag(:lang), .between(:lang) => lang
+
+fun closer(r: ?Region) -> U8
+  match r
+    .tag => '>'
+    .between(:close) => close[0]
+
+sub main()
+  r: Region = .between(open: "/*", close: "*/", lang: "c")
+  print(lang_of(?r), closer(?r))
+```
+
+```output
+c 42
 ```
 
 ## Ownership
@@ -233,7 +292,7 @@ These edges are each rejected with the plain form in the message:
    pattern binds only in the condition of an `if`, a `while`, or a
    ternary.
 8. **A name nothing reads** where a `Bool` goes (`ok = x matches
-   .a(r)`) is rejected: "write `.a(_)`".
+   .a(r)`) is rejected: "write `.a`", the pattern without it.
 9. **`not`** takes the whole test: `not x matches (...)` means
    `not (x matches (...))`.
 
@@ -338,6 +397,7 @@ sub main()
 | | Rust | Rig |
 |---|---|---|
 | a variant | `if let Shape::Circle(r) = s` | `if s matches .circle(r)` |
+| fields by name | `if let Shape::Rect { w, h: tall } = s` | `if s matches .rect(:w, h: tall)` |
 | a test | `matches!(s, A \| B)` | `s matches (.a, .b)` |
 | an optional | `if let Some(v) = bar()` | `if bar() as v` |
 | an optional field | `if let Ready(Some(r)) = s` | `if s matches .ready(r?)` |

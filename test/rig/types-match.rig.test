@@ -43,7 +43,7 @@ fail "match bool value partial", "`match` is not exhaustive: it misses `false`; 
     true => "yes"
   print(s)
 
-fail "match duplicate after guard", "12:4: duplicate arm for variant `circle`", "14:3: this arm never runs"
+fail "match duplicate after guard", "12:3: duplicate arm for variant `circle`", "14:3: this arm never runs"
   # An arm may repeat the pattern of a guarded arm before it, but not of
   # an unguarded one; an arm after a catch-all never runs, guarded or not.
 
@@ -55,7 +55,7 @@ fail "match duplicate after guard", "12:4: duplicate arm for variant `circle`", 
   match s
     .circle(r) if r > 0 => print("positive")
     .circle(r) => print(r)
-    .circle(_) if true => print("again")
+    .circle if true => print("again")
     _ => print("other")
     .point if true => print("point")
 
@@ -81,7 +81,7 @@ fail "match duplicate literal", "overlaps an earlier arm"
     2 => print("two")
     _ => print("other")
 
-fail "match guard changes subject", "16:24: a guard cannot change the value being matched", "23:13: a guard cannot change the value being matched"
+fail "match guard changes subject", "16:21: a guard cannot change the value being matched", "23:13: a guard cannot change the value being matched"
   # A guard changes nothing it matches: when it fails, a later arm matches
   # the same value, so it may not lend the subject to write, a binding of
   # the arm, or anything reached from them.
@@ -97,8 +97,8 @@ fail "match guard changes subject", "16:24: a guard cannot change the value bein
   fun kind(s: !Shape) -> Int
     match s
       .point => 0
-      .circle(_) if flip(!s) => 1
-      .circle(_) => 2
+      .circle if flip(!s) => 1
+      .circle => 2
 
   c: Shape = .circle(r: 1)
   print(kind(!c))
@@ -217,7 +217,7 @@ fail "match int runs", "11:5: this pattern overlaps an earlier arm", "14:5: this
 
   print(bytes(1), signed(1), negative(1))
 
-fail "match large enum", "27:3: duplicate member `op3` in `Op`", "33:6: duplicate arm for variant `op5`", "33:6: variant `op5` has 2 payload fields, pattern destructures 1", "35:5: duplicate arm for variant `op0`", "36:6: no variant `op21` on enum `Op`", "30:9: `match` is not exhaustive: it misses `.op2`, `.op3`, `.op4`, `.op6`, and 13 more", "39:10: no variant `op22` on enum `Op`"
+fail "match large enum", "27:3: duplicate member `op3` in `Op`", "33:6: duplicate arm for variant `op5`", "33:6: `op5` has 2 fields; bind them by name: `.op5(:a, :b)`", "35:5: duplicate arm for variant `op0`", "36:6: no variant `op21` on enum `Op`", "30:9: `match` is not exhaustive: it misses `.op2`, `.op3`, `.op4`, `.op6`, and 13 more", "39:10: no variant `op22` on enum `Op`"
   # An enum of many variants finds each by name: a pattern or a value
   # naming one it lacks is rejected, as is a repeated arm, and a match
   # that misses some names them. A variant declared twice is rejected
@@ -249,7 +249,7 @@ fail "match large enum", "27:3: duplicate member `op3` in `Op`", "33:6: duplicat
   fun cost(o: ?Op) -> Int
     match o
       .op0 => 0
-      .op5(a, b) => a + b
+      .op5(:a, :b) => a + b
       .op5(a) => a
       .op1 => 1
       .op0 => 2
@@ -586,7 +586,7 @@ test "match constant pattern in each mode", '''
     t: Shape = .point
     match <t
       POINT => print("moved point")
-      .circle(_) => pass
+      .circle => pass
 
 fail "match constant pattern hidden by a local", "8:5: pattern binding `ESC` shadows the local `ESC`; use a different name"
   # A local made with `new` hides the constant, as it does anywhere
@@ -634,13 +634,13 @@ test "matches", '''
     "other"
 
   fun describe(s: Shape) -> String
-    if s matches .circle(_)
+    if s matches .circle
       n = if s matches .circle(r)
         r
       else
         0
       String("circle ", n)
-    else if s matches .rect(w, h)
+    else if s matches .rect(:w, :h)
       String("rect ", w * h)
     else
       String("none")
@@ -693,7 +693,7 @@ test "matches in a loop", '''
     print(x)
   print("done", i)
 
-fail "matches rejected", "9:6: `matches` with a variant pattern tests which variant an enum value is, and `n` is an `Int`", "11:17: no variant `two` on enum `Box`", "13:17: variant `one` has 2 payload fields, pattern destructures 1", "21:5: cannot assign to `r`: it is a copy of a field of `s`; to change the field in place, test it with `!s matches .one(a: r)`", errors: 4
+fail "matches rejected", "9:6: `matches` with a variant pattern tests which variant an enum value is, and `n` is an `Int`", "11:17: no variant `two` on enum `Box`", "13:17: `one` has 2 fields; bind them by name: `.one(:a, :b)`", "21:5: cannot assign to `r`: it is a copy of a field of `s`; to change the field in place, test it with `!s matches .one(a: r)`", errors: 4
   obj Res
     n: Int
 
@@ -702,7 +702,7 @@ fail "matches rejected", "9:6: `matches` with a variant pattern tests which vari
     empty
 
   fun f(s: Box, n: Int) -> Int
-    if n matches .one(a, b)
+    if n matches .one(:a, :b)
       return 1
     if s matches .two(x)
       return 2
@@ -931,3 +931,180 @@ fail "match on text after its catch-all", "this arm never runs: the arms before 
       "a" => 1
 
   print(f("a"))
+
+test "a pattern binds fields by name", '''
+  3 4
+  tall 4
+  5 5 5
+  7
+  1 none
+  true false
+  hi 2
+  wide
+  bad 7
+  0
+'''
+  # `:w` binds the field `w` under its own name and `w: tall` as `tall`,
+  # in any order; a variant with one field binds it by position too.
+  # The same in an arm, an `if`, a ternary, a `Bool`, and alternatives,
+  # and with `?`: `:note?` binds the field's value, `note: n?` renames
+  # it, `note: none` tests it holds none.
+  enum Shape
+    rect(w: Int, h: Int)
+    circle(r: Int)
+    square(side: Int)
+
+  enum Job
+    run(id: Int, note: Int?)
+    named(label: String, n: Int)
+    idle
+
+  error E
+    bad(msg: Static, code: Int)
+
+  fun fail_with(c: Int) -> Int!E
+    return E.bad(msg: "bad", code: c)
+
+  sub main()
+    s: Shape = .rect(w: 3, h: 4)
+    match s
+      .rect(:w, :h) => print(w, h)
+      _ => pass
+    if s matches .rect(h: tall, :w) and tall > w
+      print("tall", tall)
+    c: Shape = .circle(r: 5)
+    a = r if c matches .circle(r) else 0
+    b = r if c matches .circle(:r) else 0
+    d = radius if c matches .circle(radius) else 0
+    print(a, b, d)
+    q: Shape = .square(side: 7)
+    if q matches (.circle(:r), .square(side: r))
+      print(r)
+    j: Job = .run(id: 1, note: none)
+    match j
+      .run(:id, note: none) => print(id, "none")
+      .run(:note?) => print(note)
+      .named(:n) => print(n)
+      .idle => pass
+    k: Job = .run(id: 2, note: 9)
+    print(k matches .run(note: _?), j matches .run(note: _?))
+    m: Job = .named(label: String("hi"), n: 2)
+    if m matches .named(:label, :n)
+      print(label, n)
+    match !m
+      .named(:label)
+        label = String("wide")
+      _ => pass
+    if <m matches .named(:label)
+      print(<label)
+    r = fail_with(7) catch |e|
+      match e
+        .bad(:msg, :code) => print(msg, code)
+      0
+    print(r)
+
+fail "a variant of several fields binds by name", "11:6: `rect` has 2 fields; bind them by name: `.rect(:w, :h)`", "14:6: `rect` has 2 fields; bind them by name: `.rect(w: h, h: w)`", "17:6: `rect` has 2 fields; bind them by name: `.rect(:w)`", "20:6: `run` has 2 fields; bind them by name: `.run(id: _?, note: none)`", "22:17: `rect` has 2 fields; bind them by name: `.rect(w: a, h: b)`", "24:25: `rect` has 2 fields; bind them by name: `.rect(:w, :h)`", errors: 6
+  # A positional pattern over several fields would bind other fields,
+  # silently, when they change order: the message gives the pattern by
+  # name, meaning what the positions meant.
+  enum Shape
+    rect(w: Int, h: Int)
+    run(id: Int?, note: Int?)
+
+  sub main()
+    s: Shape = .rect(w: 1, h: 2)
+    match s
+      .rect(w, h) => print(w, h)
+      _ => pass
+    match s
+      .rect(h, w) => print(w, h)
+      _ => pass
+    match s
+      .rect(w, _) => print(w)
+      _ => pass
+    match s
+      .run(_?, none) => print(1)
+      _ => pass
+    if s matches .rect(a, b)
+      print(a, b)
+    print(1 if s matches .rect(w, h, x) else 0)
+
+fail "a variant of one field gains a second", "9:17: `circle` has 2 fields; bind them by name: `.circle(:r, :d)`"
+  # `.circle(r)` binds the one field by position until the variant has
+  # two: then it names the fix by name.
+  enum Shape
+    circle(r: Int, d: Int)
+    point
+
+  sub main()
+    s: Shape = .circle(r: 1, d: 2)
+    if s matches .circle(r)
+      print(r)
+
+fail "a pattern that binds and tests nothing", "13:19: `.rect(_, _)` binds nothing: write `.rect`", "14:19: `.circle(_)` binds nothing: write `.circle`", "15:19: `.dot()` binds nothing: write `.dot`", "16:19: `.rect(w: _)` binds nothing: write `.rect`", "17:19: `.rect()` binds nothing: write `.rect`", "18:26: `h: _` binds nothing: leave the field out", "21:5: `E.bad(_)` binds nothing: write `E.bad`", errors: 7
+  # The bare variant tests the variant: one spelling for it.
+  enum Shape
+    rect(w: Int, h: Int)
+    circle(r: Int)
+    dot
+
+  error E
+    bad(code: Int)
+
+  sub main()
+    s: Shape = .dot
+    e: E = E.bad(code: 1)
+    print(s matches .rect(_, _))
+    print(s matches .circle(_))
+    print(s matches .dot())
+    print(s matches .rect(w: _))
+    print(s matches .rect())
+    if s matches .rect(:w, h: _)
+      print(w)
+    match e
+      E.bad(_) => print(1)
+
+fail "a field named twice over", "8:22: `w: w` repeats the name: write `:w`", "10:23: `note: note?` repeats the name: write `:note?`", errors: 2
+  enum Shape
+    rect(w: Int, h: Int)
+    ready(note: Int?)
+    dot
+
+  sub main()
+    s: Shape = .dot
+    if s matches .rect(w: w)
+      print(w)
+    if s matches .ready(note: note?)
+      print(note)
+
+fail "inside a pattern, `:x` names a field", "7:22: no field `enter` on variant `key`", "9:25: no field `x` on variant `key`", errors: 2
+  enum Key
+    key(name: Symbol, code: Int)
+    idle
+
+  sub main()
+    k: Key = .key(name: :enter, code: 13)
+    if k matches .key(:enter)
+      print(1)
+    print(k matches .key(:x) and x == 1)
+
+fail "a field bound and never read", "8:12: `w` is bound but never read; leave its field out of the pattern"
+  enum Shape
+    rect(w: Int, h: Int)
+    dot
+
+  sub main()
+    s: Shape = .dot
+    match s
+      .rect(:w, :h) => print(h)
+      _ => pass
+
+fail "a field a Bool cannot read", "7:8: `h` is bound but never read; write `.rect`"
+  enum Shape
+    rect(w: Int, h: Int)
+    dot
+
+  sub main()
+    s: Shape = .dot
+    ok = s matches .rect(:h)
+    print(ok)

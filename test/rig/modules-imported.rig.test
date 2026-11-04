@@ -292,7 +292,7 @@ test "imported enum match", '''
   fun area(s: ?colors.Shape) -> Int
     match s
       .circle(r) => 3 * r * r
-      .rect(w, h) => w * h
+      .rect(:w, :h) => w * h
       .dot => 0
 
   sub main()
@@ -753,7 +753,7 @@ test "imported variant positional", '''
   fun radius(s: geo.Shape) -> Int
     match s
       .circle(r) => r
-      .rect(w, h) => w + h
+      .rect(:w, :h) => w + h
 
   sub main()
     a: geo.Shape = .circle(4)
@@ -942,9 +942,9 @@ test "imported enum's optional payload field", "0 2"
 
   e = lib.make()
   match <e
-    .got(r?, n)
+    .got(:r?, :n)
       print(r.v.len, n)
-    .got(_, n)
+    .got(:n)
       print(0, n)
     .idle
       print(0)

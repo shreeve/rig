@@ -744,7 +744,7 @@ test "actor made where its type is expected", seeds: 20, "1 2 3 4"
   b = Box(a: *Actor(Counter(n: 3)))
   l = Link.act(a: *Actor(Counter(n: 4)))
   m = match l
-    .act(a: a) => a.get()
+    .act(:a) => a.get()
     .null => 0
   print(x.get(), take(*Actor(Counter(n: 2))), b.a.get(), m)
 

@@ -942,7 +942,7 @@ test "header plain parts", '''
   base = P(x: 3, y: 4)
   saved = ?base
   match W(q: Q.a(p: P(x: 1, y: 2), q: ?base)).q
-    .a(_, q) => saved = q
+    .a(:q) => saved = q
     .b => pass
   print(saved.x)
   print("end")
@@ -1613,7 +1613,7 @@ test "header temporary points", release: true, '''
     print(n)
   match pe[idx(?String("a"))]
     .a(n) if n > 1 => print("a", n)
-    .a(_) => print("small")
+    .a => print("small")
     .b => print("b")
 
 fail "header temporary rejected", "36:5: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `opt(?String(\"abc\"))` to a name first", "38:8: bind `opt(?String(\"\"))` to a name first", "40:7: bind `mkh(4)` to a name first", "43:32: bind the index to a name first", errors: 4

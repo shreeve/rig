@@ -1047,6 +1047,9 @@ pub const SymbolFlags = packed struct(u64) {
     comptime_known: bool = false,
     /// Bound by a `for` loop or a match pattern: not assignable.
     pattern_bound: bool = false,
+    /// Bound to a variant's field by a pattern (`.rect(:w)`): left out
+    /// of the pattern when nothing reads it.
+    payload_field: bool = false,
     /// Bound by `if e as x` / `while e as x`: when it holds its own
     /// value, a field of it can be taken out (`<x.next`).
     as_bound: bool = false,
@@ -1104,7 +1107,7 @@ pub const SymbolFlags = packed struct(u64) {
     select_result: bool = false,
     _: u13 = 0,
     /// Room for flags to come.
-    spare: u31 = 0,
+    spare: u30 = 0,
 };
 
 /// How a method takes its self, from the declared first parameter.
@@ -6363,7 +6366,10 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
         // at the scope's end.
         if (moves(ctx, sym.ty) != .no) continue;
         if (sym.flags.pattern_bound) {
-            try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
+            if (sym.flags.payload_field)
+                try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; leave its field out of the pattern", .{sym.name})
+            else
+                try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
         } else if (sym.flags.closure) {
             try ctx.lintErr(sym.decl_pos, "`{s}` is a closure that is never called: call it, or remove it", .{sym.name});
         } else {

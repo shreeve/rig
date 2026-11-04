@@ -1292,7 +1292,7 @@ test "clone owners", '''
   fun sum(t: ?Tree) -> Int
     match t
       .leaf(n) => n
-      .node(l, r) => sum(l) + sum(r)
+      .node(:l, :r) => sum(l) + sum(r)
 
   v: List[Int] = List()
   !v.push(1)
@@ -6881,7 +6881,7 @@ test "payload by name", release: true, '''
         _ => pass
     .bare => pass
   match !w
-    .wrap(n: n, inner: s)
+    .wrap(:n, inner: s)
       n += 1
       match !s
         .rect(depth: d) => d = 99
@@ -6889,10 +6889,10 @@ test "payload by name", release: true, '''
     .bare => pass
   print(w)
 
-fail "payload by name is rejected", "12:4: `.rect` binds its fields both in order and by name; a pattern binds a variant's fields either in order, all of them, or by name, any of them", "15:4: `.rect` binds its fields both in order and by name", "18:9: no field `width` on variant `rect`", "21:15: field `w` is bound twice", "24:4: variant `point` has no payload to destructure", errors: 5
-  # A pattern binds a variant's fields either in order, all of them, or by
-  # name, any of them; it doesn't mix the two. Each name is a field of the
-  # variant, bound once.
+fail "payload by name is rejected", "12:4: `rect` has 2 fields; bind them by name: `.rect(:w, :h)`", "15:4: `rect` has 2 fields; bind them by name: `.rect(:w, :h)`", "18:9: no field `width` on variant `rect`", "21:15: field `w` is bound twice", "24:4: variant `point` has no payload to destructure", errors: 5
+  # A pattern binds a variant's fields by name, any of them; only a
+  # variant with one field binds by position. Each name is a field of
+  # the variant, bound once.
 
   enum Shape
     rect(w: Int, h: Int)
@@ -7315,7 +7315,7 @@ test "read locals", '''
     print("tick")
   sh: Shape = .circle(r: 1)
   match sh
-    .circle(_) => print("circle")
+    .circle => print("circle")
     _ => print("other")
   if maybe(1) as _
     print("some")

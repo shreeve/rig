@@ -298,14 +298,14 @@ test "review-step45-i05 clone recursive", '''
   fun len(l: ?Chain) -> Int
     match l
       .nil => 0
-      .cons(_, t) => 1 + len(?t)
+      .cons(tail: t) => 1 + len(?t)
 
   l = Chain.cons(head: String("a"), tail: ^Chain.cons(head: String("b"), tail: ^Chain.nil))
   c = +l
   <l
   print(len(?c))
   match c
-    .cons(h, _) => print(h)
+    .cons(head: h) => print(h)
     .nil => print("nil")
 
 test "review-step45-i08 clone weak", '''

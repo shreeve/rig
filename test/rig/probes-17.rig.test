@@ -2018,14 +2018,14 @@ test "review-b4b-1-p12 wm value pos", '''
   i = 0
   k = 3
   r = match !v[i]
-    .a(n, t) if k > 2
+    .a(:n, :t) if k > 2
       n += 1
       !t.add("g")
       n
-    .a(n, _) => n
+    .a(:n) => n
     .b => 0
   print(r, v[0])
   match !v[i]
-    .a(n, _) => n += 5
+    .a(:n) => n += 5
     .b => pass
   print(v[0])

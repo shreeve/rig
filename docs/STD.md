@@ -998,8 +998,8 @@ use std.net
 
 fun key(a: ?net.Addr) -> net.Ip
   match a.ip
-    .v4(_) => a.ip
-    .v6(_) => a.ip.prefix(64)
+    .v4 => a.ip
+    .v6 => a.ip.prefix(64)
 
 sub main()!
   seen = Map[net.Ip, Int]()
@@ -3200,7 +3200,7 @@ sub main()
   n = count("[1, 2") catch |e|
     print(e)
     match e
-      .bad(kind, at) => print(json.error_name(kind), "at byte", at)
+      .bad(:kind, :at) => print(json.error_name(kind), "at byte", at)
     -1
   print(n)
 ```

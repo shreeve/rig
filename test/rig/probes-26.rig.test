@@ -1139,7 +1139,7 @@ fail "review-revamp-checkers-p-g1", "cannot lend `c` to read while a write loan 
   w = !c
   n = match ?c
     .point => 0
-    .circle(_) if flip(!w) => 1
+    .circle if flip(!w) => 1
     .circle(r) => r
   print(n)
 
@@ -1158,8 +1158,8 @@ fail "review-revamp-checkers-p-g2", "cannot lend `v` to write while a write loan
   w = !v
   n = match ?w[0]
     .point => 0
-    .circle(_) if grow(!v) => 1
-    .circle(_) => 2
+    .circle if grow(!v) => 1
+    .circle => 2
   print(n)
 
 fail "review-revamp-checkers-p-j7", "`k` is bound but never read; name it `_` to ignore the value"
@@ -1502,12 +1502,12 @@ test "review-revamp-checkers-p-s4", '''
   !v0.push(1)
   e: E = .a(v: <v0)
   match ?e
-    .a(_)
+    .a
       e = .b
       print("reassigned")
     .b => print("b")
   match !e
-    .a(_) => print("a")
+    .a => print("a")
     _
       e = .a(v: List())
       print("set")

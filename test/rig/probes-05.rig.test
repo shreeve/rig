@@ -638,7 +638,7 @@ fail "audit-fuzz-pf2-accepted-92f228c2c3", "`a` is bound but never read; name it
 
   fun go(s: S) -> Int
     match s
-      .one(a, k) => k
+      .one(:a, :k) => k
       .empty => 0
 
   sub main()
@@ -795,7 +795,7 @@ test "audit-fuzz-pf2-accepted-93a212d1be", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -1397,7 +1397,7 @@ test "audit-fuzz-pf2-accepted-a4356ecaae", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -1702,7 +1702,7 @@ test "audit-fuzz-pf2-accepted-c157353cf4", '''
   fun hr(e: HR) -> Int
     match <e
       .one(r) => r.look()
-      .two(a, b)
+      .two(:a, :b)
         print("use", b.id)
         a.look()
       .empty => 0
@@ -2487,7 +2487,7 @@ test "audit-ownership-d07 match clone payload store", '''
   keep: List[*Tok] = List()
   s: Slot = .pair(a: *Tok(n: 1), b: *Tok(n: 2))
   match s
-    .pair(a, b)
+    .pair(:a, :b)
       !keep.push(+a)
       !keep.push(+b)
     _ => print("other")
@@ -2522,7 +2522,7 @@ test "audit-ownership-d08 match consume tail value", '''
   fun pick(s: Slot) -> *Tok?
     match <s
       .full(t) => t
-      .pair(a, b) => b
+      .pair(:a, :b) => b
       .empty => none
 
   if pick(.pair(a: *Tok(n: 1), b: *Tok(n: 2))) as t
@@ -2551,7 +2551,7 @@ fail "audit-ownership-d09 match view tail value", "`a` is bound but never read; 
   fun pick(s: ?Slot) -> *Tok?
     match s
       .full(t) => +t
-      .pair(a, b) => +b
+      .pair(:a, :b) => +b
       .empty => none
 
   s: Slot = .pair(a: *Tok(n: 1), b: *Tok(n: 2))
@@ -2616,8 +2616,8 @@ test "audit-ownership-d14 match consume guard reads", '''
 
   s: Slot = .pair(a: *Tok(n: 1), b: *Tok(n: 2))
   match <s
-    .pair(a, b) if a.n > 5 => eat(<a)
-    .pair(a, b) if b.n > 1 => eat(<b)
+    .pair(:a, :b) if a.n > 5 => eat(<a)
+    .pair(:a, :b) if b.n > 1 => eat(<b)
     _ => print("other")
   print("end")
 

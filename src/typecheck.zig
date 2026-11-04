@@ -3752,7 +3752,7 @@ const Checker = struct {
         const saved_matching = self.matching;
         defer self.matching = saved_matching;
         self.matching = node;
-        var cov: MatchCoverage = .{ .variant_total = try self.variantTotal(sema.unwrapViews(self.ctx, scrutinee)) };
+        var cov: MatchCoverage = .{ .variant_total = try self.variantTotal(sema.unwrapViews(self.ctx, scrutinee)), .subject = scrutinee };
         var arm_values: std.ArrayList(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
         defer cov.deinit(self.ctx.allocator);
@@ -3780,7 +3780,7 @@ const Checker = struct {
             // A guarded arm may not run for the values its pattern
             // matches, so it covers none of them; later arms may repeat
             // its pattern.
-            var guarded: MatchCoverage = .{ .before = &cov, .variant_total = cov.variant_total };
+            var guarded: MatchCoverage = .{ .before = &cov, .variant_total = cov.variant_total, .subject = scrutinee };
             defer guarded.deinit(self.ctx.allocator);
             const partial = guard != .nil;
             const into = if (partial) &guarded else &cov;
@@ -3952,19 +3952,32 @@ const Checker = struct {
         return true;
     }
 
-    /// The pattern of the values of cube `c` of variant `name`, as the
-    /// arms would write it: `.got(_?, _, none)`.
-    fn cubeText(self: *Checker, name: []const u8, c: Cube) Error![]const u8 {
+    /// The pattern of the values of cube `c` of variant `name` of enum
+    /// `subject`, as the arms would write it: `.got(a: _?, c: none)`.
+    fn cubeText(self: *Checker, subject: TypeId, name: []const u8, c: Cube) Error![]const u8 {
         const a = self.ctx.arena.allocator();
+        const fields = self.variantFields(subject, name);
         var out: std.ArrayList(u8) = .empty;
-        try out.print(a, ".{s}(", .{name});
-        for (c, 0..) |test_of, i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", switch (test_of) {
-            .any => "_",
-            .some => "_?",
-            .none => "none",
-        } });
-        try out.append(a, ')');
+        try out.print(a, ".{s}", .{name});
+        var n: usize = 0;
+        for (c, 0..) |test_of, i| {
+            if (test_of == .any) continue;
+            try out.appendSlice(a, if (n == 0) "(" else ", ");
+            n += 1;
+            if (fields.len > 1) try out.print(a, "{s}: ", .{fields[i].name});
+            try out.appendSlice(a, if (test_of == .some) "_?" else "none");
+        }
+        if (n > 0) try out.append(a, ')');
         return out.items;
+    }
+
+    /// The payload fields of variant `name` of enum `subject`.
+    fn variantFields(self: *Checker, subject: TypeId, name: []const u8) []const Field {
+        const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, subject)) orelse return &.{};
+        for (decl.symbol().fields orelse &.{}) |f| {
+            if (f.is_variant and std.mem.eql(u8, f.name, name)) return f.payload orelse &.{};
+        }
+        return &.{};
     }
 
     /// One alternative of the arm being checked: its variant (or error)
@@ -3999,6 +4012,8 @@ const Checker = struct {
         /// arms before it cover: its patterns may not repeat that either,
         /// and what they cover is its own.
         before: ?*const MatchCoverage = null,
+        /// The type matched, whose variants' fields name a cube's tests.
+        subject: TypeId = sema.type_invalid,
 
         fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
             c.variants.deinit(a);
@@ -4468,7 +4483,7 @@ const Checker = struct {
                 if (cov.parts.get(f.name)) |parts| {
                     const whole = try a.alloc(sema.PayloadTest, parts.items[0].len);
                     @memset(whole, .any);
-                    try missing.print(a, "`{s}`", .{try self.cubeText(f.name, uncoveredCube(parts.items, whole).?)});
+                    try missing.print(a, "`{s}`", .{try self.cubeText(ty, f.name, uncoveredCube(parts.items, whole).?)});
                     continue;
                 }
                 try missing.print(a, "`.{s}`{s}", .{ f.name, if (cov.guarded.contains(f.name)) " (its arm has a guard)" else "" });
@@ -4702,7 +4717,7 @@ const Checker = struct {
             if (alt.cube == null and cube == null) {
                 try self.err(pos, "duplicate arm for variant `{s}`", .{name});
                 try self.note(alt.pos, "first arm here", .{});
-            } else try self.err(pos, "this alternative matches values an earlier one does: `{s}` and `{s}` both match `{s}`; alternatives match different values", .{ try self.cubeOrName(name, alt.cube), try self.cubeOrName(name, cube), try self.cubeText(name, try meetOf(a, alt.cube, cube, self.fieldCount(cube, alt.cube))) });
+            } else try self.err(pos, "this alternative matches values an earlier one does: `{s}` and `{s}` both match `{s}`; alternatives match different values", .{ try self.cubeOrName(cov.subject, name, alt.cube), try self.cubeOrName(cov.subject, name, cube), try self.cubeText(cov.subject, name, try meetOf(a, alt.cube, cube, self.fieldCount(cube, alt.cube))) });
             return;
         }
         try cov.arm_alts.append(self.ctx.allocator, .{ .name = name, .cube = cube, .pos = pos });
@@ -4713,12 +4728,12 @@ const Checker = struct {
                 try self.err(pos, "duplicate arm for variant `{s}`", .{name});
                 return self.note(first, "first arm here", .{});
             }
-            return self.err(pos, "this arm never runs: the arms before it cover every value of `{s}`", .{try self.cubeOrName(name, cube)});
+            return self.err(pos, "this arm never runs: the arms before it cover every value of `{s}`", .{try self.cubeOrName(cov.subject, name, cube)});
         }
         if (parts.items.len > 0) {
             const whole = try a.alloc(sema.PayloadTest, parts.items[0].len);
             if (cube) |c| @memcpy(whole, c) else @memset(whole, .any);
-            if (cubeCovered(parts.items, whole)) return self.err(pos, "this arm never runs: the arms before it cover every value of `{s}`", .{try self.cubeOrName(name, cube)});
+            if (cubeCovered(parts.items, whole)) return self.err(pos, "this arm never runs: the arms before it cover every value of `{s}`", .{try self.cubeOrName(cov.subject, name, cube)});
         }
         const c = cube orelse return cov.variants.put(self.ctx.allocator, name, pos);
         const got = try cov.parts.getOrPut(self.ctx.allocator, name);
@@ -4733,8 +4748,8 @@ const Checker = struct {
 
     /// The pattern of cube `c` of variant `name`, or `.name` for the whole
     /// variant.
-    fn cubeOrName(self: *Checker, name: []const u8, c: ?Cube) Error![]const u8 {
-        if (c) |cube| return self.cubeText(name, cube);
+    fn cubeOrName(self: *Checker, subject: TypeId, name: []const u8, c: ?Cube) Error![]const u8 {
+        if (c) |cube| return self.cubeText(subject, name, cube);
         return std.fmt.allocPrint(self.ctx.arena.allocator(), ".{s}", .{name});
     }
 
@@ -4776,6 +4791,10 @@ const Checker = struct {
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         };
+        if (self.bindsNothing(pattern)) {
+            try self.recordCovered(key, null, vpos, cov);
+            return self.errAt(pattern, "`{s}` binds nothing: write `{s}`", .{ self.sourceText(pattern), self.patternHead(pattern) });
+        }
         if (resolved.payload.len == 0) {
             try self.recordCovered(key, null, vpos, cov);
             if (bindings.len > 0) try self.err(vpos, "variant `{s}` has no payload to destructure", .{vname});
@@ -4966,32 +4985,46 @@ const Checker = struct {
     }
 
     /// The binding of each of `fields`, in field order, that the variant
-    /// pattern `pattern` writes. A pattern binds a variant's fields either
-    /// in order, all of them, or by name, any of them, and `.nil` stands
-    /// for a field it leaves out (`sema.SemContext.payloadBindings`).
-    /// Null after reporting a pattern that does neither.
+    /// pattern `pattern` writes. A pattern binds a variant's fields by
+    /// name (`:w`, `w: width`), and a variant with one field also by
+    /// position (`.circle(r)`); `.nil` stands for a field it leaves out
+    /// (`sema.SemContext.payloadBindings`). Null after reporting a
+    /// pattern that does neither.
     fn fieldBindings(self: *Checker, pattern: Sexp, fields: []const Field) Error!?[]const Sexp {
         const name = rig.variantPatternName(pattern);
         const vname = self.text(name);
         const bindings = ir.VariantPattern.bindings(pattern);
         var named: usize = 0;
+        var ok = true;
         for (bindings) |b| {
-            if (b.isKind(.kwarg)) named += 1;
+            if (!b.isKind(.kwarg)) continue;
+            named += 1;
+            const key = ir.Kwarg.name(b);
+            const value = ir.Kwarg.value(b);
+            const leaf = if (value.isKind(.some_pattern)) ir.SomePattern.name(value) else value;
+            // `:w` is one leaf in both slots.
+            if (leaf != .src or leaf.src.pos == key.src.pos) continue;
+            const kname = self.text(key);
+            if (value == .src and std.mem.eql(u8, self.text(leaf), "_")) {
+                try self.errAt(b, "`{s}: _` binds nothing: leave the field out", .{kname});
+                ok = false;
+            } else if (std.mem.eql(u8, self.text(leaf), kname)) {
+                try self.errAt(b, "`{s}` repeats the name: write `:{s}{s}`", .{ self.sourceText(b), kname, if (value.isKind(.some_pattern)) "?" else "" });
+                ok = false;
+            }
         }
-        if (named == 0) {
-            if (bindings.len == fields.len) return bindings;
-            try self.err(name.src.pos, "variant `{s}` has {d} payload field{s}, pattern destructures {d}; bind them all in order, or the ones you need by name: `.{s}({s}: x)`", .{
-                vname, fields.len, plural(fields.len), bindings.len, vname, fields[0].name,
-            });
+        if (named == 0 and fields.len == 1) {
+            if (bindings.len == 1) return bindings;
+            try self.err(name.src.pos, "`{s}` has one field: bind it as `{s}(x)`, or by name, `{s}(:{s})`", .{ vname, self.patternHead(pattern), self.patternHead(pattern), fields[0].name });
             return null;
         }
         if (named < bindings.len) {
-            try self.err(name.src.pos, "`.{s}` binds its fields both in order and by name; a pattern binds a variant's fields either in order, all of them, or by name, any of them", .{vname});
+            try self.err(name.src.pos, "`{s}` has {d} field{s}; bind them by name: `{s}`", .{ vname, fields.len, plural(fields.len), try self.byNameText(pattern, fields, named == 0 and bindings.len == fields.len) });
             return null;
         }
+        if (!ok) return null;
         const binds = try self.ctx.arena.allocator().alloc(Sexp, fields.len);
         @memset(binds, .nil);
-        var ok = true;
         for (bindings) |b| {
             const field = ir.Kwarg.name(b);
             const fname = self.text(field);
@@ -5010,6 +5043,55 @@ const Checker = struct {
             binds[i] = ir.Kwarg.value(b);
         }
         return if (ok) binds else null;
+    }
+
+    /// The variant a pattern names, as written: `.rect`, or `E.bad`.
+    fn patternHead(self: *Checker, pattern: Sexp) []const u8 {
+        const named = ir.VariantPattern.name(pattern);
+        if (named.isKind(.member)) return self.sourceText(named);
+        const start = self.startOf(pattern);
+        return self.ctx.source[start .. self.ctx.span(named).end];
+    }
+
+    /// Variant pattern `pattern` written by name over `fields`: the
+    /// positional bindings it holds field by field (`.rect(w, _)` is
+    /// `.rect(:w)`, `.rect(h, w)` is `.rect(w: h, h: w)`) when `mapped`,
+    /// else each field under its own name.
+    fn byNameText(self: *Checker, pattern: Sexp, fields: []const Field, mapped: bool) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var out: std.ArrayList(u8) = .empty;
+        try out.appendSlice(a, self.patternHead(pattern));
+        var n: usize = 0;
+        for (fields, 0..) |f, i| {
+            const part = if (!mapped) try a.print(":{s}", .{f.name}) else blk: {
+                const b = ir.VariantPattern.bindings(pattern)[i];
+                if (b.isKind(.none_pattern)) break :blk try a.print("{s}: none", .{f.name});
+                const some = b.isKind(.some_pattern);
+                const bound = self.text(if (some) ir.SomePattern.name(b) else b);
+                const q = if (some) "?" else "";
+                if (std.mem.eql(u8, bound, "_")) {
+                    if (!some) continue;
+                    break :blk try a.print("{s}: _?", .{f.name});
+                }
+                if (std.mem.eql(u8, bound, f.name)) break :blk try a.print(":{s}{s}", .{ f.name, q });
+                break :blk try a.print("{s}: {s}{s}", .{ f.name, bound, q });
+            };
+            try out.appendSlice(a, if (n == 0) "(" else ", ");
+            try out.appendSlice(a, part);
+            n += 1;
+        }
+        if (n > 0) try out.append(a, ')');
+        return out.items;
+    }
+
+    /// Whether variant pattern `pattern` binds and tests nothing: no
+    /// field, or `_` for each (`.rect(_, _)`, `.rect(w: _)`, `.dot()`).
+    fn bindsNothing(self: *Checker, pattern: Sexp) bool {
+        for (ir.VariantPattern.bindings(pattern)) |b| {
+            const v = if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b;
+            if (v != .src or !std.mem.eql(u8, self.text(v), "_")) return false;
+        }
+        return true;
     }
 
     fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, pos: u32) Error!void {

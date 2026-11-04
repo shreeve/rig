@@ -338,7 +338,7 @@ test "chan made in a variant payload", seeds: 20, "7"
   sub run()!
     l = Link.ch(c: *Chan[Int](2))
     match !l
-      .ch(c: c)
+      .ch(:c)
         !c.send(7)!
         print((!c).recv()! ?? -1)
       .null => print("null")
@@ -526,14 +526,14 @@ fail "chan select named in a block a view escapes", "11:7: `s` does not live lon
   if true
     s = String("inner")
     match task.select(got: !a.on_recv(), late: time.after(1))!
-      .got(_) => pass
+      .got => pass
       .late => pass
     r = ?s
   if true
     t = String("inner")
     r = ?t
     match task.select(got: !a.on_recv(), late: time.after(1))!
-      .got(_) => pass
+      .got => pass
       .late => pass
   print(r)
 

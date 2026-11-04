@@ -990,7 +990,7 @@ sub main()
     print(err)
     match err
       .empty => -1
-      .bad(pos, msg)
+      .bad(:pos, :msg)
         print("at", pos, msg)
         -2
   print(n)

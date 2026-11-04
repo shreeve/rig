@@ -1806,7 +1806,7 @@ test "enum payload method", '''
 
     fun is_point(?@) -> Bool
       match @
-        .circle(_) => false
+        .circle => false
         .point => true
 
   s: Shape = .circle(radius: 2)
@@ -1828,7 +1828,7 @@ test "enum payload shared leak", "1"
   rc = *Wrap(payload: 5)
   s: Slot = .full(b: <rc)
   match s
-    .full(_) => print(1)
+    .full => print(1)
     .empty => print(0)
 
 test "error set value", "timeout"
@@ -2121,7 +2121,7 @@ test "guarded match element of read vec", '''
   fun f(v: ?List[E]) -> Int
     match v[0]
       .a(n) if n > 1 => n
-      .a(_) => 1
+      .a => 1
       .b(n) => n
 
   fun g(v: ?List[E], i: Int) -> Int
@@ -2176,19 +2176,19 @@ test "guarded match read view element", '''
   fun plain(v: ?List[E]) -> Int
     match v[0]
       .a(n) if n > 1 => n
-      .a(_) => 1
+      .a => 1
       .b(n) => n
 
   fun text(v: ?List[T]) -> Int
     match v[0]
       .a(t) if t.len > 1 => t.len
-      .a(_) => 1
+      .a => 1
       .b => 0
 
   sub cell(v: ?List[*K])
     match v[0]
       .a(x) if x.c.get() == 0 => print("zero")
-      .a(_) => print("set")
+      .a => print("set")
       .b => pass
 
   fun field(h: ?H) -> Int
