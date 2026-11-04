@@ -15157,7 +15157,7 @@ const Checker = struct {
         if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on; {s}", .{shape});
         // Every arm's function first, each typed alone (`armResult`):
         // their join is what each must give, so no arm's order decides it.
-        const Arm = struct { recv: bool, elem: TypeId, given: []const TypeId, gives: TypeId };
+        const Arm = struct { recv: bool, elem: TypeId, given: []const TypeId, gives: TypeId, panics: bool };
         const arms = try self.ctx.arena.allocator().alloc(Arm, args.len);
         for (args, arms) |arm, *out| {
             if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return try self.badCall(args, arm, "{s}", .{shape});
@@ -15174,14 +15174,19 @@ const Checker = struct {
             const arm_args = ir.Call.args(arm);
             if (arm_args.len != @as(usize, if (recv) 1 else 2)) return try self.badCall(args, arm, "{s}", .{shape});
             const given: []const TypeId = if (recv) try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .optional = elem })}) else &.{};
-            const gives = (try self.armResult(arm_args[arm_args.len - 1], given)) orelse return try self.skipCall(args);
-            out.* = .{ .recv = recv, .elem = elem, .given = given, .gives = gives };
+            const f = arm_args[arm_args.len - 1];
+            const gives = (try self.armResult(f, given)) orelse return try self.skipCall(args);
+            const panics = gives == self.t().noreturn_id or (f.isKind(.lambda) and sema.tailOf(ir.Lambda.body(f)).isKind(.panic));
+            out.* = .{ .recv = recv, .elem = elem, .given = given, .gives = gives, .panics = panics };
         }
-        // The join: the first arm's value, failing when any arm can, with
+        // The join: the first returning arm's value, failing when any arm can, with
         // the set of them that holds every other, else any error.
         var sets: std.ArrayList(TypeId) = .empty;
         for (arms) |arm| if (self.ctx.types.get(arm.gives) == .fallible) try sets.append(self.ctx.arena.allocator(), self.ctx.types.get(arm.gives).fallible.set);
-        const first = arms[0].gives;
+        // An arm that never returns (`panic`) gives no value to join.
+        const first = for (arms) |arm| {
+            if (!arm.panics) break arm.gives;
+        } else arms[0].gives;
         const value = if (self.ctx.types.get(first) == .fallible) self.ctx.types.get(first).fallible.ok else first;
         const returns = if (sets.items.len == 0) value else try self.ctx.intern(.{ .fallible = .{ .ok = value, .set = for (sets.items) |held| {
             for (sets.items) |other| {

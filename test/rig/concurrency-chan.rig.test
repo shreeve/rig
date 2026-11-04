@@ -134,6 +134,18 @@ test "chan select arms join their types", seeds: 20, '''
     0
   _ = third
 
+test "chan select arm that panics joins nothing", seeds: 20, "7"
+  # An arm that never returns gives no value, so it decides no type, in
+  # either order.
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !b.send(7)!
+  x = task.select(
+    (!a).on_recv(|v| panic("no")),
+    (!b).on_recv(|v| v ?? 0),
+  )!
+  print(x)
+
 test "chan deadline and cancel", seeds: 20, '''
   -9
   Stop.canceled

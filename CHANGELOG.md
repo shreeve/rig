@@ -328,7 +328,8 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `xs.reduce(0, g)` of a closure binding `g` were rejected as if the
   call kept the argument ("keeps `p` lent in what `peek` stores").
 - **`task.select`'s arms join their types.** An arm that can fail and
-  one that cannot give the type that can, in either order; the first
+  one that cannot give the type that can, in either order, and an arm
+  that panics decides nothing; the first
   arm alone decided it, so `select(a.on_recv(|v| v ?? 0),
   b.on_recv(|v| chk(v)!))` was rejected and the same arms swapped ran.
 - **A `par` closure in error is reported once.** `par.map(?xs, |x| x +
