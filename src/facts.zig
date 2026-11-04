@@ -1275,6 +1275,52 @@ test "emit reads the checkers' decisions only through Facts" {
     }
 }
 
+test "emit names hidden storage only through hiddenStorage" {
+    const emit_source = @embedFile("emit.zig");
+    // The base names `hiddenStorage` gives the storage the facts record,
+    // read from its body.
+    const begin = std.mem.indexOf(u8, emit_source, "    fn hiddenStorage(").?;
+    const end = begin + std.mem.indexOf(u8, emit_source[begin..], "\n    }\n").?;
+    var bases: std.ArrayList([]const u8) = .empty;
+    defer bases.deinit(std.testing.allocator);
+    // Spellings of a base that name no storage: a table entry's result
+    // parameter, a parameter a function owns or holds the header of, and
+    // a loop's index counter.
+    const others = [_][]const u8{ "rig.someOut({s}{s}), __rig_res);\\n", ", __rig_res: *rig.Payload(", "__rig_arg_{d}", "__rig_lent_{s}", "__rig_lent_{d}", "__rig_i_{d}" };
+    var pass: enum { bases, uses } = .bases;
+    while (true) : (pass = .uses) {
+        var tokens = std.zig.Tokenizer.init(emit_source);
+        while (true) {
+            const t = tokens.next();
+            if (t.tag == .eof) break;
+            if (t.tag != .string_literal) continue;
+            const text = emit_source[t.loc.start + 1 .. t.loc.end - 1];
+            const inside = t.loc.start > begin and t.loc.end < end;
+            if (pass == .bases) {
+                if (inside and std.mem.startsWith(u8, text, "__rig_")) try bases.append(std.testing.allocator, text);
+                continue;
+            }
+            if (inside) continue;
+            for (others) |o| {
+                if (std.mem.eql(u8, o, text)) break;
+            } else for (bases.items) |b| {
+                var at: usize = 0;
+                while (std.mem.indexOfPos(u8, text, at, b)) |i| : (at = i + 1) {
+                    // `__rig_i` is not `__rig_it` or `__rig_in_self`.
+                    const rest = text[i + b.len ..];
+                    const name = rest.len > 0 and std.ascii.isAlphanumeric(rest[0]) or
+                        rest.len > 1 and rest[0] == '_' and std.ascii.isAlphabetic(rest[1]);
+                    if (i > 0 and text[i - 1] == '_' or name) continue;
+                    std.debug.print("emit.zig spells the storage name {s} outside hiddenStorage: \"{s}\"\n", .{ b, text });
+                    return error.TestUnexpectedResult;
+                }
+            }
+        }
+        if (pass == .uses) break;
+    }
+    try std.testing.expect(bases.items.len > 20);
+}
+
 test "Facts answers as the context it was made from" {
     const source =
         \\obj S
