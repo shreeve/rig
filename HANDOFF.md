@@ -121,6 +121,21 @@ A new session, human or agent, takes these steps in order:
   method started (concurrency.md, *planned*). Twelve decisions on std
   names and behavior wait for the owner, each with a default
   ([owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)).
+- **The revamp of the compiler**
+  ([records/2026-11/revamp-compiler/](docs/history/records/2026-11/revamp-compiler/ledger.md)):
+  - **Phase 1, the front end and the type checker (#914-#917),
+    landed.** It fixed nine accepted programs that misbehaved or crashed
+    the compiler, among them three crossing holes for tasks and actors,
+    and a `select` arm closure that read a dead frame.
+  - **Simplifications:** ten type walks share one list of a value's
+    parts; built-in type names are found through scope; compile-time
+    calls have one argument check.
+  - **Check speed:** `rig check` is 4.7% faster; `bench/check/guard.py`
+    runs as documented and holds the new baseline.
+  - **Phase 2 (ownership, storage, facts, emit) is ready to start:**
+    [next-phase.md](docs/history/records/2026-11/revamp-compiler/next-phase.md).
+  - **Waiting for the owner:** five decisions, each with a default
+    ([owner-decisions.md](docs/history/records/2026-11/revamp-compiler/owner-decisions.md)).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that
