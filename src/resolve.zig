@@ -1023,7 +1023,9 @@ const SymbolResolver = struct {
             },
             .shadow => {
                 try self.checkCapturedRoot(target);
-                _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) });
+                // A name a `for` over a chain binds is a loop binding.
+                const loop_name = if (self.ctx.parser) |p| p.isLoopName(target) else false;
+                _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda), .pattern_bound = loop_name });
             },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {

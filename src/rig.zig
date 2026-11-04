@@ -2547,6 +2547,10 @@ pub const Parser = struct {
     /// `(move place)` selves written in front of the call
     /// (`!v.push(x)`), not in parentheses.
     self_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The positions of the names a `for` over a chain binds, which its
+    /// loop binds in its body (`lowerForChain`): loop bindings, as
+    /// immutable as any `for`'s (`isLoopName`).
+    loop_names: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -4501,6 +4505,11 @@ pub const Parser = struct {
         };
     }
 
+    /// Whether `leaf` is a name a `for` over a chain binds (`loop_names`).
+    pub fn isLoopName(self: *const Parser, leaf: Sexp) bool {
+        return leaf == .src and self.loop_names.contains(leaf.src.pos);
+    }
+
     /// Whether `node` is a self sigil the wrapper moved onto the
     /// self: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
     pub fn isSelfSigil(self: *const Parser, node: Sexp) bool {
@@ -5364,7 +5373,11 @@ pub const Parser = struct {
         const lends = l.source == .elements and !l.copies and !made;
         const value = if (made) try l.node(.move, &.{item}) else if (lends) try l.node(.read, &.{item}) else item;
         try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.@"var"(node), .nil, value }));
-        if (ir.For.index(node) != .nil) if (l.second_of[last]) |s| try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.index(node), .nil, try l.leaf(s) }));
+        try self.loop_names.put(a, ir.For.@"var"(node).src.pos, {});
+        if (ir.For.index(node) != .nil) if (l.second_of[last]) |s| {
+            try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.index(node), .nil, try l.leaf(s) }));
+            try self.loop_names.put(a, ir.For.index(node).src.pos, {});
+        };
         for (ir.rest(ir.For.body(node), .stmts)) |s| try body.append(a, s);
         try pre.append(a, try l.loop(h, try l.block(body.items), ir.For.@"else"(node)));
         return l.block(pre.items);

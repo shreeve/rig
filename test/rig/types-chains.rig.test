@@ -444,3 +444,21 @@ test "an inclusive range at each integer type's largest and smallest values", ''
   print((U8(254)..=U8(255)).count(), (U16(65534)..=U16(65535)).count(), (U32(4294967294)..=U32(4294967295)).count(), (U64(18446744073709551614)..=U64(18446744073709551615)).count())
   print((I8(126)..=I8(127)).count(), (I16(32766)..=I16(32767)).count(), (I32(2147483646)..=I32(2147483647)).count(), (I64(9223372036854775806)..=I64(9223372036854775807)).count())
   print((U8(0)..=U8(1)).count(), (I8(-128)..=I8(-127)).max() ?? I8(0), (I64(-9223372036854775808)..=I64(-9223372036854775807)).min() ?? I64(0), (-9223372036854775808..=-9223372036854775807).count())
+
+fail "a for over a chain binds its items immutably", "11:3: cannot assign to `x`; loop and pattern bindings are immutable (bind a copy with `new x = x`)", "14:3: cannot assign to `y`; loop and pattern bindings are immutable (bind a copy with `new y = y`)", errors: 2
+  # Each item is what the source's `for` gives, a copy of plain data,
+  # and a loop's binding is immutable: `x += 10` would change the copy.
+  obj B
+    xs: List[Int]
+
+    fun items(!@) -> !List[Int] from @
+      !@xs
+
+  b = B(xs: List([1, 2]))
+  for x in !b.items().filter(|x| x > 1)
+    x += 10
+    print(x)
+  for y in b.xs.take(1)
+    y = 0
+    print(y)
+  print(b.xs)
