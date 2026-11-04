@@ -5070,3 +5070,7 @@ doc/learn-04-concurrency/439618379468 main
 doc/learn-09-tests/1178031fbec9 test"two_tasks_append_to_one_list"
 doc/launch-post/439618379468 main
 doc/SPEC/395f1249d8ac main
+test/reject/concurrency/task_in_a_local_object_keeps_its_loan.rig main
+test/reject/concurrency/task_in_a_local_object_keeps_its_owner.rig main
+test/reject/concurrency/task_in_an_optional_keeps_its_loan.rig main
+test/reject/concurrency/task_in_a_shared_object_keeps_its_loan.rig main
