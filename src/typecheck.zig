@@ -9413,13 +9413,17 @@ const Checker = struct {
     /// task's call or an actor's), crosses as: a value erased there as
     /// the API object it becomes; a closure literal written there is lent
     /// as a callable view, as `?f` of a closure is, since it views what it
-    /// captures. The one classifier for both
+    /// captures; a value lent bare where a view goes, as that view. The
+    /// one classifier for both
     /// (`crossCheck`, `actorCall`).
     fn crossingTypeOf(self: *Checker, part: Sexp, ty: TypeId) Error!TypeId {
         // A value erased where it is passed crosses as the API object it
         // becomes, by that object's braces, never by its known type (Core
         // §4: an object without the bound a task needs goes to no task).
         if (self.ctx.erasureOf(part)) |er| return er.view;
+        // A bare value lent where a view goes crosses as the view, shared
+        // (Core sentence 1; SPEC §18: a `?T` crosses when `T` syncs).
+        if (self.ctx.lendOf(part)) |lend| if (lend.implicit) return lend.view;
         if (self.fnArg(part, ty) != .literal) return ty;
         const fn_ty = sema.unwrapViews(self.ctx, ty);
         return switch (self.ctx.types.get(fn_ty)) {
@@ -14030,7 +14034,10 @@ const Checker = struct {
         try self.noteCallee(rest);
         const info = methodParams(m.field, true, self.declSource(m.nominal_sym));
         const mark = self.ctx.diagnostics.items.len;
-        try self.checkArgs(args, rest, info, method, pos, .{ .declared = rest.params });
+        // The handle stands for self, which the actor's task holds: what the
+        // call passes on is the method's own, past its self.
+        const passed: sema.Origins = .{ .result = o.result >> 1, .stores = o.stores >> 1, .lent = o.lent >> 1, .once = o.once >> 1 };
+        try self.checkArgs(args, rest, info, method, pos, .{ .origins = passed, .declared = rest.params });
         if (self.ctx.diagnostics.items.len != mark) return f.returns;
         // What crosses to the actor's task.
         for (args) |a| {
@@ -14264,7 +14271,7 @@ const Checker = struct {
         try self.noteCallee(f);
         // `mk().reduce(...)` reads a temporary, dropped when its statement ends.
         if (self.isTemporary(obj)) try self.lendTemp(obj);
-        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{ .names = &.{ "start", "f" } }, "reduce", pos, .{ .has_self = true });
+        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{ .names = &.{ "start", "f" } }, "reduce", pos, .{ .has_self = true, .origins = .{ .stores = 0 } });
         if (self.current_call) |c| try self.ctx.recordReduceCall(c);
         return result;
     }

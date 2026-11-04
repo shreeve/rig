@@ -247,6 +247,10 @@ Other:
     unbound was accepted, and `[flag[1]]Int` for a `Bool` parameter was
     "must be known at compile time". Pass a value of the parameter's
     type.
+60. *Unsound:* a value lent bare to an actor's method where a `?T` goes
+    is shared with the actor's task, so `T` syncs (SPEC §18), as when
+    `?` is written: `c.peek(Holder(...))` of a `Holder` holding a
+    `^{Job + Sends}` is rejected, as `c.peek(?Holder(...))` was.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -277,6 +281,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `task.supervise(f, restarts: 2, restarts: 3)`,
   `*Actor.supervised(..., restarts: 2, restarts: 3)`, and `f(1, a: 2)`
   also reported a parameter missing.
+- **An actor's method and `reduce` take a place lent bare where a view
+  goes.** `d.peek(p)`, for `fun peek(?@, h: ?Plain)`, and
+  `xs.reduce(0, g)` of a closure binding `g` were rejected as if the
+  call kept the argument ("keeps `p` lent in what `peek` stores").
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under
