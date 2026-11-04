@@ -3193,6 +3193,7 @@ test/reject/ownership/call_write_lend_kept.rig write_result_split
 test/reject/ownership/callable_call_result_loans.rig bad
 test/reject/ownership/callable_view_escape.rig keep
 test/reject/ownership/callable_view_escape.rig leak
+test/reject/ownership/callable_view_escape.rig main
 test/reject/ownership/callable_view_results.rig bad
 test/reject/ownership/callable_view_results.rig main
 test/reject/ownership/callee_read_then_written.rig main
@@ -3275,6 +3276,7 @@ test/reject/ownership/drop_body_reads_younger_view.rig main
 test/reject/ownership/drop_captured_resource.rig main
 test/reject/ownership/drop_glue_struct_alias.rig main
 test/reject/ownership/drop_of_views_reads_through_body.rig counted
+test/reject/ownership/drop_of_views_reads_through_body.rig closure_env
 test/reject/ownership/drop_of_views_reads_through_body.rig deferred
 test/reject/ownership/drop_of_views_reads_through_body.rig outlived
 test/reject/ownership/drop_of_views_reads_through_body.rig own_body
@@ -5048,7 +5050,11 @@ test/reject/concurrency/frozen_lent_to_a_task.rig main
 test/reject/concurrency/task_moved_keeps_its_loans.rig main
 test/reject/concurrency/task_returned_keeps_its_loan.rig main
 test/reject/concurrency/task_returned_keeps_its_owner.rig main
+test/reject/concurrency/task_returned_in_a_set_keeps_its_loans.rig main
+test/reject/concurrency/task_added_to_a_set_by_a_function_keeps_its_loan.rig main
 test/reject/concurrency/task_returned_through_a_lent_closure_literal_keeps_its_loan.rig main
+test/reject/concurrency/task_returned_through_a_generic_keeps_its_loan.rig main
+test/reject/concurrency/task_returned_out_of_a_deadline's_closure_keeps_its_loan.rig main
 test/reject/concurrency/task_of_a_local_returned.rig start
 test/reject/concurrency/task_of_a_local_returned_through_a_call.rig outer
 test/reject/concurrency/task_returned_from_names_another.rig start
@@ -5076,3 +5082,8 @@ test/reject/concurrency/task_in_a_local_object_keeps_its_loan.rig main
 test/reject/concurrency/task_in_a_local_object_keeps_its_owner.rig main
 test/reject/concurrency/task_in_an_optional_keeps_its_loan.rig main
 test/reject/concurrency/task_in_a_shared_object_keeps_its_loan.rig main
+test/reject/concurrency/sets_loans.rig main
+test/reject/concurrency/sets_waited_give_what_their_tasks_view.rig main
+test/reject/concurrency/sets_in_a_closure_keep_their_loans.rig main
+test/reject/concurrency/sets_through_a_generic_keep_their_loans.rig main
+test/reject/concurrency/sets_stored_by_a_generic_keep_their_loans.rig main

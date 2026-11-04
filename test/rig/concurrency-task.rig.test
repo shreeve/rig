@@ -1147,7 +1147,7 @@ fail "task in a shared object keeps its loan", "cannot lend `xs` to write while 
   print(xs.len)
 
 fail "task returned out of a deadline's closure keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
-  # The oracle abstains here (a generic instance at a view).
+  # oracle: main reject C4
   use std.time
 
   fun total(v: ?List[Int]) -> Int

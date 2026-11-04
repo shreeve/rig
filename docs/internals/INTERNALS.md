@@ -6151,12 +6151,19 @@ dropped (an `errdefer` only where the function fails); reads what a
 handle holds through a loan on the handle, every handle carrying its
 contents' loans; makes a closure a value carrying its captures' loans
 and checks its body as a function whose captures hold the caller's
-loans; lets no value carrying a loan into a Cell, a Signal, or an owned
+loans, a closure literal lent to a call lending the call its captures
+and never itself (Core §7), and an environment holding a value with a
+`drop` body, a task's among them, keeping its loans until the closure
+is dropped; lets no value carrying a loan into a Cell, a Signal, or an owned
 closure (Core s9); and checks a generic body once, each type parameter
 owning and holding no view, with a copy of one left to each instance
 (SPEC "Generic bodies"), and a call of a generic function or type at
 type arguments of plain data, or of owners where the bodies it runs
-never copy a type parameter. Where a `$plain(T)` operand of a
+never copy a type parameter, a task or a set of tasks among them, whose
+loans the signature's types carry as a type parameter may hold anything.
+A set of tasks keeps its tasks' loans: `!ts.add(t)` stores the task's,
+and `>ts` takes the set and gives what its tasks gave, carrying those its
+type could hold. Where a `$plain(T)` operand of a
 condition's `and` chain has held, in the operands after it, the code
 the condition guards, and the closures made there, `T` is plain data
 (`Kinds.narrowed`), so a copy there asks nothing of an owner's instance
@@ -6214,9 +6221,9 @@ C5. A `g: E =>` arm binds the subject as a variant pattern binds a
 payload (an error matched as an enum of its sets): a view of `err` under
 `match err`, the error itself under `match <err`. In `kinds.Reach` a
 union of sets holds each of its sets, and `error` may own what any view
-points into, but views nothing itself. A wait on a task (`>t!`, `>t
-catch`) is a call of the task's `wait`, which the oracle does not
-model, nor what a task holds of its call's loans, so it abstains there.
+points into, but views nothing itself. A wait on a task or a set of tasks
+(`>t!`, `>ts catch`) is a call of its `wait`, which fails as any call
+does.
 
 Several results are hidden statement temporaries, one a result, each
 carrying the loans its own type could view (Core s7, per result); each

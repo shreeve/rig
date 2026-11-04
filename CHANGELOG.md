@@ -51,6 +51,16 @@ Each form below was accepted by `v0.3.0` and is rejected now.
 - Each name `as a, b` binds is a new name, checked as `as v`'s is: one
   that shadows a local, or a module-level declaration, is rejected.
 
+### Tests
+
+- The reference ownership checker (`bin/rig-oracle`) agrees with the
+  compiler on a closure literal lent to a call, whose result carries the
+  loans of what the closure captured, and decides the flow of sets of
+  tasks: `!ts.add`, `>ts`, a closure holding a set or another value with
+  a `drop` body, and a generic instance at a task or a set. Its floors
+  rise by what it now decides (59 functions of the tests, 10 of the
+  docs).
+
 ## v0.3.0 (2026-11-04)
 
 `v0.3.0` follows `v0.2.9` (Zig 0.17.0, Nexus 2.0.0) and changes the

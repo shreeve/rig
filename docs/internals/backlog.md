@@ -313,10 +313,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   it, or reject it with a message, and then let such tests cover a
   member as they cover an enum's variant (SPEC "Testing a pattern").
   Found reviewing #923 (2026-11-04).
-- **The oracle decides no `Tasks` set flow.** It abstains on every
-  `!ts.add(...)` ("a method reached through a handle") and on a generic
-  store ("a generic instance at a view"), so the set cases of
-  `concurrency-task` have no second checker. Found reviewing #934.
 
 Found while writing the Learn Rig journeys. Check each before fixing.
 
