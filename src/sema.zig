@@ -2298,6 +2298,14 @@ pub const StorageKind = enum {
     index,
     /// The place an assignment stores to, found once (`__rig_slot`).
     slot,
+    /// The API object a call through its table reads twice, for the
+    /// table and the value, evaluated once (`__rig_obj`): a copy of the
+    /// view or box, which nothing views.
+    api_object,
+    /// The place a call through an API object's table writes its result
+    /// to (`TableEntry.result_out`), copied out as the call returns
+    /// (`__rig_res`).
+    result_place,
     /// The several results a call gives, held for its statement while
     /// each target takes its own, left to right (`__rig_res`): a
     /// destructure's, `q, r = f()`. A result no target takes (`_`) it
