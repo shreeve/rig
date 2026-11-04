@@ -5033,29 +5033,16 @@ pub const Emitter = struct {
         const first_name = self.srcText(rig.variantPatternName(first));
         const first_binds = self.facts.payloadBindings(first).?;
         const first_fields = self.variantPayload(info.ty.?, first_name) orelse return self.unsupported(first, "this payload pattern");
-        const variants = try a.alloc([]const u8, alts.len);
-        for (alts, variants) |alt, *v| v.* = self.srcText(if (alt.isKind(.variant_pattern)) rig.variantPatternName(alt) else ir.get(alt, .name));
         const tag = try self.fmt("__rig_tag_{d}", .{self.nextId()});
         if (info.mode == .consume) {
             const payload = try self.hiddenStorage(arm, .payload, .owned, .fresh);
             try self.w.print("|{s}, {s}| ", .{ payload, tag });
             var prelude = try self.consumedPayload(first_binds, first_fields, self.payloadFacts(info.ty.?), payload, .nil);
             const owned = try a.dupe(OwnedBinding, prelude.owned);
-            for (owned) |*o| o.expr = try self.altSwitch(tag, alts, variants, o.local.sym, payload, info);
+            for (owned) |*o| o.expr = try self.altSwitch(.{ .tag = tag, .reads = try self.altReads(alts, o.local.sym, info), .enum_ty = info.ty.? }, payload, false, false);
             prelude.owned = owned;
-            // The parts each variant leaves unbound.
-            var drops: std.ArrayList(AltDrop) = .empty;
-            for (alts, variants) |alt, v| {
-                const fields = self.variantPayload(info.ty.?, v) orelse continue;
-                const binds: []const Sexp = if (alt.isKind(.variant_pattern)) self.facts.payloadBindings(alt) orelse &.{} else &.{};
-                for (fields, 0..) |f, i| {
-                    const b: Sexp = if (i < binds.len) binds[i] else .nil;
-                    const kept = b == .src and !std.mem.eql(u8, self.srcText(b), "_") and self.usedPayloadLocal(b, .nil) != null;
-                    if (!kept) try drops.append(a, .{ .tag = tag, .variant = v, .expr = try self.fmt("{s}.{f}", .{ payload, ident(f.name) }) });
-                }
-            }
             prelude.drops = &.{};
-            prelude.alt_drops = drops.items;
+            prelude.alt_drops = try self.altDrops(alts, info, tag, payload, false, .nil);
             return prelude;
         }
         const aliases = try a.dupe(Alias, try self.payloadAliases(first_binds, info, first_name, .{ .arm = arm }, .nil));
@@ -5064,9 +5051,7 @@ pub const Emitter = struct {
         var j: usize = 0;
         for (first_binds) |b| {
             const local = self.usedPayloadLocal(b, .nil) orelse continue;
-            const fields = try a.alloc([]const u8, alts.len);
-            for (alts, variants, fields) |alt, v, *f| f.* = self.altField(alt, v, local.sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
-            aliases[j].alts = .{ .tag = tag, .variants = variants, .fields = fields };
+            aliases[j].alts = .{ .tag = tag, .reads = try self.altReads(alts, local.sym, info), .enum_ty = info.ty.? };
             j += 1;
         }
         const by_ptr = info.mode == .write or for (aliases) |al| {
@@ -5099,28 +5084,51 @@ pub const Emitter = struct {
         return n;
     }
 
-    /// The field of variant `variant` that alternative `alt` binds to
-    /// symbol `sym`.
-    fn altField(self: *Emitter, alt: Sexp, variant: []const u8, sym: SymbolId, info: MatchInfo) ?[]const u8 {
-        if (!alt.isKind(.variant_pattern)) return null;
-        const fields = self.variantPayload(info.ty.?, variant) orelse return null;
-        for (self.facts.payloadBindings(alt) orelse return null, 0..) |b, i| {
-            if (b == .src and self.facts.symbolOf(b) == sym and i < fields.len) return fields[i].name;
+    /// What alternatives `alts` read for the name of symbol `sym`, once
+    /// per variant (alternatives of one variant, which test its optional
+    /// fields apart, bind the name to one field): the field, and whether
+    /// the binding is the value inside it (`r?`, `Facts.payloadTests`).
+    fn altReads(self: *Emitter, alts: []const Sexp, sym: SymbolId, info: MatchInfo) Error![]const AltRead {
+        var reads: std.ArrayList(AltRead) = .empty;
+        next: for (alts) |alt| {
+            if (!alt.isKind(.variant_pattern)) return self.unsupported(alt, "an alternative that does not bind the name");
+            const variant = self.srcText(rig.variantPatternName(alt));
+            for (reads.items) |r| if (std.mem.eql(u8, r.variant, variant)) continue :next;
+            const fields = self.variantPayload(info.ty.?, variant) orelse return self.unsupported(alt, "this payload pattern");
+            const tests = self.facts.payloadTests(alt);
+            const at = for (self.facts.payloadBindings(alt) orelse &.{}, 0..) |b, i| {
+                if (b == .src and self.facts.symbolOf(b) == sym and i < fields.len) break i;
+            } else return self.unsupported(alt, "an alternative that does not bind the name");
+            try reads.append(self.arena.allocator(), .{ .variant = variant, .field = fields[at].name, .unwrap = if (tests) |t| t[at] == .some else false });
         }
-        return null;
+        return reads.items;
     }
 
-    /// `switch (tag) { .a => payload.f, ... }`: the field each variant of
-    /// alternatives binds to `sym`, by the `inline` prong's tag.
-    fn altSwitch(self: *Emitter, tag: []const u8, alts: []const Sexp, variants: []const []const u8, sym: SymbolId, payload: []const u8, info: MatchInfo) Error![]const u8 {
+    /// `switch (tag) { .a => payload.f, ... }`: the read each variant of
+    /// alternatives makes of its field of `payload` (`fieldRead`), by the
+    /// tag; `else` only for the variants they leave out, which no value
+    /// that reaches it holds.
+    fn altSwitch(self: *Emitter, alts: AltFields, payload: []const u8, addr: bool, bytes: bool) Error![]const u8 {
         var buf: Writer.Allocating = .init(self.arena.allocator());
-        try buf.writer.print("switch ({s}) {{ ", .{tag});
-        for (alts, variants) |alt, v| {
-            const f = self.altField(alt, v, sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
-            try buf.writer.print(".{f} => {s}.{f}, ", .{ ident(v), payload, ident(f) });
+        try buf.writer.print("switch ({s}) {{ ", .{alts.tag});
+        for (alts.reads) |r| {
+            const base = if (alts.per_variant) try self.fmt("{s}.{f}", .{ payload, ident(r.variant) }) else payload;
+            try buf.writer.print(".{f} => {s}, ", .{ ident(r.variant), try self.fieldRead(base, r.field, addr, bytes, r.unwrap) });
         }
-        try buf.writer.writeAll("else => unreachable }");
+        if (alts.reads.len < self.facts.variantCount(alts.enum_ty) orelse 0) try buf.writer.writeAll("else => unreachable ");
+        try buf.writer.writeAll("}");
         return buf.written();
+    }
+
+    /// The read of field `field` of `base` that a payload binding makes:
+    /// its address (`addr`), its bytes (`bytes`, a String field read as a
+    /// view), and, for `r?`, the value inside the optional field, which
+    /// the arm's test found there (`unwrap`).
+    fn fieldRead(self: *Emitter, base: []const u8, field: []const u8, addr: bool, bytes: bool, unwrap: bool) Error![]const u8 {
+        const by_addr = addr and !bytes;
+        const tail: []const u8 = if (bytes) ".bytes()" else "";
+        if (unwrap) return self.fmt("rig.{s}({s}{s}.{f}).?{s}", .{ if (by_addr) "somePtr" else "some", if (by_addr) "&" else "", base, ident(field), tail });
+        return self.fmt("{s}{s}.{f}{s}", .{ if (by_addr) "&" else "", base, ident(field), tail });
     }
 
     /// The first alternative of `pattern` that binds a name, whose leaves
@@ -5133,12 +5141,9 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// Each alternative's variant name.
-    fn altVariants(self: *Emitter, pattern: Sexp) Error![]const []const u8 {
-        const alts = ir.AltPattern.alts(pattern);
-        const variants = try self.arena.allocator().alloc([]const u8, alts.len);
-        for (alts, variants) |alt, *v| v.* = self.srcText(if (alt.isKind(.variant_pattern)) rig.variantPatternName(alt) else ir.get(alt, .name));
-        return variants;
+    /// The variant alternative `alt` names.
+    fn altVariant(self: *Emitter, alt: Sexp) []const u8 {
+        return self.srcText(if (alt.isKind(.variant_pattern)) rig.variantPatternName(alt) else ir.get(alt, .name));
     }
 
     /// The bindings of alternatives `pattern` that `used_in` uses, on a
@@ -5148,16 +5153,13 @@ pub const Emitter = struct {
         const a = self.arena.allocator();
         const alts = ir.AltPattern.alts(pattern);
         const first = self.firstBinding(pattern) orelse return &.{};
-        const variants = try self.altVariants(pattern);
         const name = self.srcText(rig.variantPatternName(first));
         const binds = self.facts.payloadBindings(first).?;
         const aliases = try a.dupe(Alias, try self.payloadAliases(binds, info, name, .{ .expr = subj }, used_in));
         var j: usize = 0;
         for (binds) |b| {
             const local = self.usedPayloadLocal(b, used_in) orelse continue;
-            const fields = try a.alloc([]const u8, alts.len);
-            for (alts, variants, fields) |alt, v, *f| f.* = self.altField(alt, v, local.sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
-            aliases[j].alts = .{ .tag = subj, .variants = variants, .fields = fields, .per_variant = true };
+            aliases[j].alts = .{ .tag = subj, .reads = try self.altReads(alts, local.sym, info), .enum_ty = info.ty.?, .per_variant = true };
             j += 1;
         }
         return aliases;
@@ -5169,36 +5171,39 @@ pub const Emitter = struct {
     fn selectedOwnedAlts(self: *Emitter, pattern: Sexp, info: MatchInfo, whole: []const u8, used_in: Sexp) Error!Prelude {
         const a = self.arena.allocator();
         const alts = ir.AltPattern.alts(pattern);
-        const variants = try self.altVariants(pattern);
         const first = self.firstBinding(pattern) orelse return self.unsupported(pattern, "alternatives that bind no name");
         const first_name = self.srcText(rig.variantPatternName(first));
         const first_fields = self.variantPayload(info.ty.?, first_name) orelse return self.unsupported(first, "this payload pattern");
         var prelude = try self.consumedPayload(self.facts.payloadBindings(first).?, first_fields, self.payloadFacts(info.ty.?), try self.fmt("{s}.{f}", .{ whole, ident(first_name) }), used_in);
         const owned = try a.dupe(OwnedBinding, prelude.owned);
-        for (owned) |*o| {
-            var buf: Writer.Allocating = .init(a);
-            try buf.writer.print("switch ({s}) {{ ", .{whole});
-            for (alts, variants) |alt, v| {
-                const f = self.altField(alt, v, o.local.sym, info) orelse return self.unsupported(alt, "an alternative that does not bind the name");
-                try buf.writer.print(".{f} => {s}.{f}.{f}, ", .{ ident(v), whole, ident(v), ident(f) });
-            }
-            try buf.writer.writeAll("else => unreachable }");
-            o.expr = buf.written();
-        }
+        for (owned) |*o| o.expr = try self.altSwitch(.{ .tag = whole, .reads = try self.altReads(alts, o.local.sym, info), .enum_ty = info.ty.?, .per_variant = true }, whole, false, false);
         prelude.owned = owned;
+        prelude.drops = &.{};
+        prelude.alt_drops = try self.altDrops(alts, info, whole, whole, true, used_in);
+        return prelude;
+    }
+
+    /// The parts of its payload each variant of alternatives `alts`
+    /// leaves unbound (no binding `used_in` uses), which a `match <x` arm
+    /// drops when the value, by `tag`, is of that variant: each variant's
+    /// once, as alternatives of one variant bind the same fields.
+    /// `per_variant`: the payload is `payload.variant`, else `payload`.
+    fn altDrops(self: *Emitter, alts: []const Sexp, info: MatchInfo, tag: []const u8, payload: []const u8, per_variant: bool, used_in: Sexp) Error![]const AltDrop {
+        const a = self.arena.allocator();
         var drops: std.ArrayList(AltDrop) = .empty;
-        for (alts, variants) |alt, v| {
+        next: for (alts, 0..) |alt, j| {
+            const v = self.altVariant(alt);
+            for (alts[0..j]) |earlier| if (std.mem.eql(u8, v, self.altVariant(earlier))) continue :next;
             const fields = self.variantPayload(info.ty.?, v) orelse continue;
             const binds: []const Sexp = if (alt.isKind(.variant_pattern)) self.facts.payloadBindings(alt) orelse &.{} else &.{};
+            const base = if (per_variant) try self.fmt("{s}.{f}", .{ payload, ident(v) }) else payload;
             for (fields, 0..) |f, i| {
                 const b: Sexp = if (i < binds.len) binds[i] else .nil;
                 const kept = b == .src and !std.mem.eql(u8, self.srcText(b), "_") and self.usedPayloadLocal(b, used_in) != null;
-                if (!kept) try drops.append(a, .{ .tag = whole, .variant = v, .expr = try self.fmt("{s}.{f}.{f}", .{ whole, ident(v), ident(f.name) }) });
+                if (!kept) try drops.append(a, .{ .tag = tag, .variant = v, .expr = try self.fmt("{s}.{f}", .{ base, ident(f.name) }) });
             }
         }
-        prelude.drops = &.{};
-        prelude.alt_drops = drops.items;
-        return prelude;
+        return drops.items;
     }
 
     fn consumedPayload(self: *Emitter, captures: []const Sexp, fields: []const facts.Field, of: Facts, payload: []const u8, used_in: Sexp) Error!Prelude {
@@ -5399,9 +5404,7 @@ pub const Emitter = struct {
             const addr = try self.need(self.facts.bindsByAddress(b), b);
             const bytes = self.bindsStringBytes(b, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(b));
-            if (self.unwrapsField(b, f, of)) {
-                try self.line("const {s} = rig.{s}({s}{s}.{f}).?{s};", .{ stored.zig_name, if (addr and !bytes) "somePtr" else "some", if (addr and !bytes) "&" else "", payload, ident(f.name), if (bytes) ".bytes()" else "" });
-            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ stored.zig_name, if (addr and !bytes) "&" else "", payload, ident(f.name), if (bytes) ".bytes()" else "" });
+            try self.line("const {s} = {s};", .{ stored.zig_name, try self.fieldRead(payload, f.name, addr, bytes, self.unwrapsField(b, f, of)) });
         }
     }
 
@@ -5470,7 +5473,11 @@ pub const Emitter = struct {
     /// `per_variant`: the payload is the subject itself, read through
     /// each variant (`{payload}.{variant}.{field}`), on a match that picks
     /// its arm first (`selectedAlts`).
-    const AltFields = struct { tag: []const u8, variants: []const []const u8, fields: []const []const u8, per_variant: bool = false };
+    const AltFields = struct { tag: []const u8, reads: []const AltRead, enum_ty: TypeId, per_variant: bool = false };
+
+    /// What one variant of alternatives that bind reads for a name
+    /// (`altReads`): its field, the value inside it for `r?` (`unwrap`).
+    const AltRead = struct { variant: []const u8, field: []const u8, unwrap: bool };
 
     /// A part a `match <x` arm of alternatives drops, of variant `variant`
     /// only: the prong's tag `tag` says which it took.
@@ -5619,21 +5626,10 @@ pub const Emitter = struct {
             if (a.alts) |alts| {
                 // Each instance of the `inline` prong reads its own
                 // variant's field: Zig analyzes only the tag's prong.
-                try self.writeIndent(self.indent);
-                try self.w.print("const {s} = switch ({s}) {{ ", .{ a.zig_name, alts.tag });
-                for (alts.variants, alts.fields) |v, f| {
-                    try self.w.print(".{f} => {s}{s}.", .{ ident(v), if (a.addr and !a.bytes) "&" else "", a.payload });
-                    if (alts.per_variant) try self.w.print("{f}.", .{ident(v)});
-                    try self.w.print("{f}{s}, ", .{ ident(f), if (a.bytes) ".bytes()" else "" });
-                }
-                try self.w.writeAll("else => unreachable };\n");
+                try self.line("const {s} = {s};", .{ a.zig_name, try self.altSwitch(alts, a.payload, a.addr, a.bytes) });
             } else if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
-            } else if (a.unwrap) {
-                // `r?`: the value inside the optional field, which the
-                // arm's test found there.
-                try self.line("const {s} = rig.{s}({s}{s}.{f}).?{s};", .{ a.zig_name, if (a.addr and !a.bytes) "somePtr" else "some", if (a.addr and !a.bytes) "&" else "", a.payload, ident(a.field), if (a.bytes) ".bytes()" else "" });
-            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr and !a.bytes) "&" else "", a.payload, ident(a.field), if (a.bytes) ".bytes()" else "" });
+            } else try self.line("const {s} = {s};", .{ a.zig_name, try self.fieldRead(a.payload, a.field, a.addr, a.bytes, a.unwrap) });
         }
         // Zig writes a deferred call again at each exit: the part goes by
         // address, never by value (`rig.discardAt`).
