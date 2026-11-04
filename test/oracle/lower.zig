@@ -3878,7 +3878,12 @@ const Lowerer = struct {
             // statement, lent to the call (Core s1, §3): the result's view
             // of it ends with the statement.
             const made_plain = self.f.vars.items[v].kind == .plain and !self.isPlaceSyntax(val) and val.kind() != null;
-            if (arg_how == .view and self.f.vars.items[v].hidden and (self.f.vars.items[v].kind == .owning or made_plain)) {
+            // A closure literal lent to a call lends its captures for that
+            // call (Core §7), and is stored nowhere: a result that cannot
+            // hold a closure carries the loans of what it captured, never
+            // a loan of the closure itself.
+            const lent_closure = val.isKind(.lambda) and !self.holdsCallable(try self.typeOf(e));
+            if (arg_how == .view and !lent_closure and self.f.vars.items[v].hidden and (self.f.vars.items[v].kind == .owning or made_plain)) {
                 const vv = self.f.vars.items[v];
                 v = try self.lend(.{ .root = v, .path = &.{}, .ty = vv.ty }, .read, val, vv.ty);
             }

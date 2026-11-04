@@ -1920,6 +1920,7 @@ test/reject/errors/a_narrowed_error_under_`match_e`_is_a_view_of_the_caught_one.
 test/reject/errors/a_narrowed_error_under_`match_e`_is_a_view_of_the_caught_one.rig escaped
 test/reject/ownership/apis_a_result_from_the_API's_parameter.rig take
 test/reject/ownership/closure_write_capture_returns_no_owner.rig main
+test/reject/ownership/closure_literal_lent_returns_a_view_that_keeps_its_loan.rig main
 test/reject/ownership/field_view_loop_elements_keep_the_list_lent.rig main
 test/reject/ownership/header_ternary_binding_is_used_after_a_move_in_its_condition.rig main
 test/reject/ownership/header_ternary_view_outlives_the_place_it_views.rig main
@@ -5047,6 +5048,7 @@ test/reject/concurrency/frozen_lent_to_a_task.rig main
 test/reject/concurrency/task_moved_keeps_its_loans.rig main
 test/reject/concurrency/task_returned_keeps_its_loan.rig main
 test/reject/concurrency/task_returned_keeps_its_owner.rig main
+test/reject/concurrency/task_returned_through_a_lent_closure_literal_keeps_its_loan.rig main
 test/reject/concurrency/task_of_a_local_returned.rig start
 test/reject/concurrency/task_of_a_local_returned_through_a_call.rig outer
 test/reject/concurrency/task_returned_from_names_another.rig start
