@@ -27,12 +27,14 @@ items, with their probe cases, are in
 - **Per-server `http.serve` limits**: arguments to `http.serve` that set the header, body, and timeout limits for one server; the environment sets them for the whole process today ([STD, std.http](STD.md#stdhttp)).
 - **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
 - **Text over several lines**: a literal that spans lines, for help text and templates; today each line is a literal and `String(a, b, c)` joins them (SPEC "Strings").
+- **A `select` that takes a write loan once**: `task.select(!n, a.on_recv(|n, v| ...), ...)` lends `n` to write once and hands that one view to the arm that runs, so the arms need not each capture it (two write captures of one value are rejected, since every arm is made before one runs; records/2026-11/revamp-compiler/panel-decisions.md).
 - **Several results**, after their first form (SPEC "Several results"):
   in registers when small, `from` per result, and a `for` that binds
   them each step.
 
 ## Speed
 
+- **A check-speed round** once the language's features settle, after the compiler revamp's phase 2: `rig check` does about 12% more work on bench/check's workload than on 10-13, about 1% for each feature and no single regression (records/2026-11/revamp-compiler/ledger.md). Measured on Trig's real check (about 2 s) as well as the workload, with a budget for each pass.
 - **SIMD**, beyond `Simd[T, n]` as built (SPEC "Vectors"): lane shifts, `pad:` reads and `blocks(N)`, and one load for 4- and 8-byte byte-lane reads on ARM.
 - **Zig 0.18**: LLVM's loop vectorizer, which Zig 0.17 turns off
   (the Zig 0.17 workarounds in [INTERNALS](internals/INTERNALS.md)), is back; measure plain loops again,

@@ -134,8 +134,11 @@ A new session, human or agent, takes these steps in order:
     runs as documented and holds the new baseline.
   - **Phase 2 (ownership, storage, facts, emit) is ready to start:**
     [next-phase.md](docs/history/records/2026-11/revamp-compiler/next-phase.md).
-  - **Waiting for the owner:** five decisions, each with a default
-    ([owner-decisions.md](docs/history/records/2026-11/revamp-compiler/owner-decisions.md)).
+  - **Its five decisions** were approved after a panel of three
+    experts agreed with each
+    ([panel-decisions.md](docs/history/records/2026-11/revamp-compiler/panel-decisions.md)).
+    The check guard is a merge gate (AGENTS step 6), and the `for`-source
+    sigil and marked `collect` of views are being built.
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that

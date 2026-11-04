@@ -207,7 +207,10 @@ until its rule is built. docs/internals/tests.md has the rest.
    2% of its `guard.txt` on every row for `Map` and `HashMap`, so a
    speed won on the tables stays won, and std.text's search the same
    way: `bench/text/guard.py`, within 2% of its `guard.txt` on every
-   row. A change meant to move a row
+   row. A change to the compiler shows `rig check`'s speed the same
+   way: `bench/check/guard.py`, within 2% of its `guard.txt` in
+   instructions, against the committed baseline and not the parent
+   commit, so no creep of 1% a change adds up unnoticed. A change meant to move a row
    commits the new baseline with `--update` and says why in its PR.
 7. **PR,** opened early as a draft whose body is a checklist of the
    steps, the gates among them; `gh pr ready` when done. Commit only
