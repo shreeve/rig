@@ -14947,6 +14947,7 @@ const Checker = struct {
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
+        if (self.isPoison(value)) return try self.skipCall(args);
         if (kind == .map and sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, shown, value, "x");
         if (kind == .map and f.isKind(.lambda)) {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
@@ -15044,6 +15045,7 @@ const Checker = struct {
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
+        if (self.isPoison(value)) return try self.skipCall(args);
         const none = value == self.t().void_id;
         // A write view given back would reach a task's state, or what it
         // holds, after the task, beside the state's own.

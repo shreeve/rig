@@ -289,6 +289,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   one that cannot give the type that can, in either order; the first
   arm alone decided it, so `select(a.on_recv(|v| v ?? 0),
   b.on_recv(|v| chk(v)!))` was rejected and the same arms swapped ran.
+- **A `par` closure in error is reported once.** `par.map(?xs, |x| x +
+  nope)!` also reported "`!` needs a fallible operand; this expression
+  has type `List[invalid]`"; the call now builds nothing on a body in
+  error, as a generic call does.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under
