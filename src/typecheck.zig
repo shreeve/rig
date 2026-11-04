@@ -208,6 +208,9 @@ const Checker = struct {
     /// The calls whose lasting lends were reported (`keptLends`), so that
     /// one reached from two kept values is reported once.
     kept_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The chains whose result holds views of the items of their source,
+    /// each a consumer's call to the source it walks (`chainTypes`).
+    chain_views: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
     /// The closures and outer locals whose missing capture was reported
     /// (`useName`), each a closure's scope above a local's symbol.
     uncaptured_reported: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -447,6 +450,7 @@ const Checker = struct {
         self.expected.deinit(a);
         self.value_tails.deinit(a);
         self.kept_reported.deinit(a);
+        self.chain_views.deinit(a);
         self.lend_of.deinit(a);
         self.branch_lends.deinit(a);
         self.copied_from.deinit(a);
@@ -14296,7 +14300,9 @@ const Checker = struct {
             zip = second.kind;
             zip_copies = second.copies;
         }
-        if (!try self.chainTypes(call, root, kind, zip)) return self.t().invalid_id;
+        var views = false;
+        if (!try self.chainTypes(call, root, kind, zip, &views)) return self.t().invalid_id;
+        if (views and !for_source) try self.chain_views.put(self.ctx.allocator, nodeId(call), root);
         const node = if (for_source) self.chain_for else call;
         const id = node.list.id;
         for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
@@ -14394,8 +14400,10 @@ const Checker = struct {
     /// the consumer checked against what reaches it and reported in the
     /// chain's terms, so no error names the loop it becomes. False when
     /// one is reported. An item whose type is not known (a function whose
-    /// own errors its loop reports) is checked no further.
-    fn chainTypes(self: *Checker, call: Sexp, root: Sexp, kind: rig.ChainSource, zip: rig.ChainSource) Error!bool {
+    /// own errors its loop reports) is checked no further. `views`: the
+    /// consumer gives items that may hold views (`collect`, `find`, `min`,
+    /// `max`, `min_by`, `max_by`), which keep the source lent.
+    fn chainTypes(self: *Checker, call: Sexp, root: Sexp, kind: rig.ChainSource, zip: rig.ChainSource, views: *bool) Error!bool {
         const a = self.ctx.arena.allocator();
         var calls: std.ArrayList(Sexp) = .empty;
         var at = call;
@@ -14482,18 +14490,15 @@ const Checker = struct {
                     try self.errAt(args[0], "`{s}`'s key is compared with `<`; `{s}` has no order{s}", .{ name, try self.tyName(shown), try sema.lackDetail(self.ctx, a, shown, .Ord, lack) });
                     return false;
                 };
-            } else if (std.mem.eql(u8, name, "collect")) {
-                // A List the chain gives owns its items: a view would
-                // outlive what it views.
-                if (item) |it| switch (self.ctx.types.get(it)) {
-                    .read_view, .write_view => {
-                        try self.errAt(name_node, "`collect` keeps each item; these items are views of `{s}`: `.map(|x| +x).collect()` clones each", .{try self.plainText(root)});
-                        return false;
-                    },
-                    else => {},
-                };
             }
         }
+        const last = self.text(ir.Member.name(ir.Call.callee(call)));
+        const gives_items = for ([_][]const u8{ "collect", "find", "min", "max", "min_by", "max_by" }) |c| {
+            if (std.mem.eql(u8, last, c)) break true;
+        } else false;
+        if (gives_items) if (item) |it| {
+            views.* = sema.mayHoldView(self.ctx, it);
+        };
         return true;
     }
 
@@ -16649,6 +16654,22 @@ const Checker = struct {
 
     fn keptLeaf(self: *Checker, e: Sexp, kept: Kept) Error!void {
         if (e != .list) return;
+        // A chain whose result holds views of its source's items keeps
+        // the source lent, as a call keeps an argument it carries:
+        // `vs = ?names.filter(f).collect()`.
+        if (self.chain_views.get(nodeId(e))) |root| {
+            if (self.kept_reported.contains(nodeId(e))) return;
+            if (!self.implicitSelf(root)) return self.keptLeaf(root, kept);
+            if (self.ctx.quiet != 0) return;
+            try self.kept_reported.put(self.ctx.allocator, nodeId(e), {});
+            // A chain reported is not rewritten into its loop, so the
+            // report is the round's last word on it.
+            for (self.ctx.chains.items, 0..) |c, i| if (c.node == e.list.id) {
+                _ = self.ctx.chains.swapRemove(i);
+                break;
+            };
+            return self.reportKept(e, root, kept);
+        }
         const ty = self.ctx.typeOf(e) orelse return;
         if (self.isPoison(ty) or !sema.mayHoldView(self.ctx, ty)) return;
         switch (e.kind() orelse return) {

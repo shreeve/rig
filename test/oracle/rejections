@@ -3811,6 +3811,7 @@ test/reject/std/random_holder_moves.rig main
 test/reject/std/random_moves.rig main
 test/reject/std/random_not_copy.rig main
 test/reject/types/closure_lending_hints_ownership.rig main
+test/reject/types/collected_views_keep_their_source_lent.rig main
 test/reject/types/fallback_not_fresh.rig main
 test/reject/types/generic_fn_double_move.rig twice
 test/reject/types/generic_fn_escaping_view.rig local

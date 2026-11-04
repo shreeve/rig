@@ -6330,8 +6330,21 @@ chain lends it to write, `(!it).map(f).sum()`; a call whose result
 views its self is lent to read, `?m.keys().count()`. A chain is
 checked stage by stage before it becomes its loop, so an error names
 the stage and the items it meets: `` `sum` adds numbers, and these items
-are `String`s ``, `` `filter`'s function gives a `Bool` ``; `collect` of
-views is rejected with the fix, `.map(|x| +x).collect()`.
+are `String`s ``, `` `filter`'s function gives a `Bool` ``.
+
+A consumer that gives items (`collect`, `find`, `min`, `max`,
+`min_by`, `max_by`) gives what the source's `for` gives, views of
+elements that are not plain data, and copies none: its result keeps
+the source lent while it lives. Bound to a name or returned, it is
+written with the lend, `vs = ?names.filter(f).collect()`, as any call
+whose result keeps its argument lent is ([§7](#lending)); used within
+its statement, `print(names.find(f) ?? "")`, it lends unmarked.
+`.map(|x| +x).collect()` collects copies, which keep nothing lent. In
+a `for` header, a sigil before a chain lends its source as it lends a
+method call's self (`for x in !xs.filter(f)` walks
+`(!xs).filter(f)`); one that reaches no place does nothing and is
+rejected, and a `<` is written on the source it takes,
+`(<xs).filter(f)`.
 
 A chain is not a value: bound, passed, or returned without a consumer,
 it is rejected with the ways to end it. A chain has at most 64
@@ -6351,8 +6364,8 @@ sub main()
   !ps.push(P(name: String("ann"), age: 30))
   !ps.push(P(name: String("bo"), age: 20))
   !ps.push(P(name: String("cy"), age: 20))
-  young = ps.min_by(|p| p.age) ?? return
-  old = ps.max_by(|p| p.age) ?? return
+  young = ?ps.min_by(|p| p.age) ?? return
+  old = ?ps.max_by(|p| p.age) ?? return
   print(young.name, old.name)
   for p, i in ps.filter(|p| p.age > 15).enumerate()
     print(i, p.name)

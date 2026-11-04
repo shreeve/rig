@@ -7598,11 +7598,11 @@ pub const Checker = struct {
             }
             // A source already reported (used while a write loan is live) is
             // not reported again as a conflicting view.
-            // A read view held in a part of a value (`s.names`, a
-            // `?List[T]` field) is read as any view is, and its elements
-            // view what it views, not the value holding it: the loop walks
-            // the view it read, as `all = s.names` and `for n in all` do.
-            const held_view = if (self.resolvePlace(source)) |p| p.path != whole_path and mode != .write and self.refOfType(self.exprType(source)) == .read else false;
+            // A read view held in a binding or a part of a value (`all`,
+            // `s.names`, a `?List[T]`) is read as any view is, and its
+            // elements view what it views, not the place holding it: the
+            // loop walks the view it read, as `?all[0]` does.
+            const held_view = if (self.resolvePlace(source) != null) mode != .write and self.refOfType(self.exprType(source)) == .read else false;
             if (held_view) spec.moved = value.loans;
             if (self.errors_found == found and !held_view) if (self.resolvePlace(source)) |p| {
                 const id = p.root;

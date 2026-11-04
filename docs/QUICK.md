@@ -69,8 +69,9 @@ has any number of read views or one write view, never both.
 while `r` is used later, `v` may not change, move, or drop. `for x in
 ?v` reads each element in place, and `for x in !v` lets the body change
 it. The same holds for a call whose result keeps its argument lent:
-`r = head(?v)`, `xs = ?b.all()`, and `!xs.push(head(?v))` are written, while `print(head(v).len)`
-needs no mark, since its loan ends with the statement.
+`r = head(?v)`, `xs = ?b.all()`, `vs = ?v.filter(f).collect()`, and
+`!xs.push(head(?v))` are written, while `print(head(v).len)` needs no
+mark, since its loan ends with the statement.
 
 **A call keeps only what it says.** A view lent to a call ends when the
 call returns, unless the function names that parameter in `keeps`:

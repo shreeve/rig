@@ -1020,3 +1020,42 @@ fail "for through a shared handle holds it", "6:3: cannot reassign `h` while it 
   for x in ?h
     print(x)
     <h
+
+test "for over a call that gives a write view walks it for writing", "[2, 3] [20, 30]"
+  # A call's result is walked as its type says: a `!List` is walked for
+  # writing, as `!xs` walks a place.
+  fun all(xs: !List[Int]) -> !List[Int] from xs
+    xs
+
+  obj B
+    xs: List[Int]
+
+    fun items(!@) -> !List[Int] from @
+      !@xs
+
+  xs = List[Int]([1, 2])
+  for x in all(!xs)
+    x += 1
+  b = B(xs: List([2, 3]))
+  for x in (!b).items()
+    x *= 10
+  print(xs, b.xs)
+
+test "for over a read view binding views what it views", "1 1"
+  # A read view in a binding is read as any view is: the loop's elements
+  # view the List it views, not the binding, as `?src[0]` does.
+  obj P
+    name: String
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann")))
+  vs: List[?P] = List()
+  if ps.len > 0
+    src = ?ps
+    for p in src
+      !vs.push(p)
+  ws: List[?P] = List()
+  if ps.len > 0
+    s = ?ps
+    !ws.push(?s[0])
+  print(vs.len, ws.len)

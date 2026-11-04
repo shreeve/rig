@@ -50,7 +50,7 @@ test "min_by over owned elements keeps the first of equal keys", "bo"
   !ps.push(P(name: String("ann"), age: 30))
   !ps.push(P(name: String("bo"), age: 20))
   !ps.push(P(name: String("cy"), age: 20))
-  y = ps.min_by(|p| p.age) ?? return
+  y = ?ps.min_by(|p| p.age) ?? return
   print(y.name)
 
 test "max_by over owned elements keeps the last of equal keys", "cy"
@@ -62,7 +62,7 @@ test "max_by over owned elements keeps the last of equal keys", "cy"
   !ps.push(P(name: String("ann"), age: 10))
   !ps.push(P(name: String("bo"), age: 20))
   !ps.push(P(name: String("cy"), age: 20))
-  y = ps.max_by(|p| p.age) ?? return
+  y = ?ps.max_by(|p| p.age) ?? return
   print(y.name)
 
 test "chains over ranges", "18 5 [4, 9, 16, 25]"
@@ -271,14 +271,65 @@ fail "find's function gives a Bool", "`find`'s function gives a `Bool`; this one
   xs = List[Int]([1, 2, 3])
   print(xs.find(|x| x) ?? 0)
 
-fail "collect of views clones each item", "7:10: `collect` keeps each item; these items are views of `ps`: `.map(|x| +x).collect()` clones each"
+test "collect of views keeps its source lent", "ann cy 1"
+  # A chain's items are what its source's `for` gives, views of owner
+  # elements, and `collect` keeps them: the List keeps its source lent
+  # while it lives, so the lend is written where it is bound.
   obj P
     name: String
     age: Int
 
   ps = List[P]()
   !ps.push(P(name: String("ann"), age: 30))
-  print(ps.collect().len)
+  !ps.push(P(name: String("bo"), age: 10))
+  !ps.push(P(name: String("cy"), age: 20))
+  old = ?ps.filter(|p| p.age > 15).collect()
+  names: List[String] = List()
+  !names.push(String("ann"))
+  !names.push(String("bo"))
+  long = ?names.filter(|s| s.len > 2).collect()
+  print(old[0].name, old[1].name, long.len)
+
+fail "a chain whose result views its source is marked where it is bound", "5:6: `names.filter(|s| s.len > 2).collect()` keeps `names` lent while `vs` lives; write `?names.filter(|s| s.len > 2).collect()`", "6:5: `names.find(|s| s.len > 2)` keeps `names` lent while `f` lives; write `?names.find(|s| s.len > 2)`", "7:5: `names.max_by(|s| s.len)` keeps `names` lent while `m` lives; write `?names.max_by(|s| s.len)`", errors: 3
+  # As a call that keeps its argument lent, `r = head(?v)`. A chain used
+  # within its statement lends its source there, unmarked.
+  names: List[String] = List()
+  !names.push(String("ann"))
+  vs = names.filter(|s| s.len > 2).collect()
+  f = names.find(|s| s.len > 2)
+  m = names.max_by(|s| s.len)
+  print(vs.len, f ?? "", m ?? "", names.filter(|s| s.len > 2).count())
+
+fail "collected views keep their source lent", "cannot lend `names` to write while a read loan is live"
+  names: List[String] = List()
+  !names.push(String("ann"))
+  vs = ?names.filter(|s| s.len > 2).collect()
+  !names.push(String("bo"))
+  print(vs.len)
+
+fail "a sigil before a chain in a for header lends its source", "8:10: a `<` before a chain is written on the source it takes: `(<xs).filter(...)` takes `xs`, and `xs.filter(...)` walks it where it stands", "10:11: the `?` before this chain reaches no place and does nothing: remove it; the chain walks `mk()` as a `for` over it would", errors: 2
+  # `for x in !xs.filter(f)` walks `(!xs).filter(f)`, as the sigil
+  # lends a method call's self anywhere; one that reaches no place does
+  # nothing, and a `<` that takes the source is written on it.
+  fun mk() -> List[Int]
+    List([1, 2])
+
+  xs = List[Int]([1, 2])
+  for x in <xs.filter(|x| x > 0)
+    print(x)
+  for x in ?mk().filter(|x| x > 0)
+    print(x)
+
+test "a sigil before a chain in a for header reaches its source", '''
+  1
+  2
+  | 3
+'''
+  xs = List[Int]([1, 2])
+  for x in !xs.filter(|x| x > 0)
+    print(x)
+  for x in (<xs).filter(|x| x > 1)
+    print("|", x + 1)
 
 fail "min_by's key has an order", "7:18: `min_by`'s key is compared with `<`; `P` has no order; name `Ord` on its header: `obj P: Ord`"
   obj P
