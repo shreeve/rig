@@ -352,6 +352,15 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A ternary's condition binds names.** `id = v.id if r.decl as v
+  else 0`, `area = r * r if s matches .circle(r) else 0`, and
+  `v.id if x as v and v.id > 0 else 0` bind as an `if` condition does,
+  with its ownership (an owned temporary, `?a` and `!a` views, `<a.f`),
+  and the names are visible in the value before `if` only. The test
+  runs first, and emit writes Zig's `if (x) |v| v.id else 0`. A postfix
+  guard that binds is rejected with its own message ("a postfix guard's
+  condition binds no names"), and a name an `else` cannot see because its
+  condition binds it says so.
 - **`task.select` names its arms and gives a value that `match` takes
   apart.** `match task.select(add: !a.on_recv(), sub: !b.on_recv(),
   late: time.after(50 * time.MS))!` gives a value of its own type,

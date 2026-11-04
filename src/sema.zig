@@ -1272,6 +1272,15 @@ pub const Symbol = struct {
     assoc_of: ?AssocOf = null,
     /// A type parameter: the associated types made for it, each once.
     assoc: []const SymbolId = &.{},
+
+    /// Whether this symbol, declared in a body, is not yet visible at
+    /// `pos`: a local declared after it. A binding a pattern or a
+    /// condition makes opens the scope it is visible in, so it is
+    /// visible throughout it: the value of `v.id if x as v else 0`
+    /// stands before the condition that binds `v`.
+    pub fn declaredAfter(sym: Symbol, pos: u32) bool {
+        return sym.kind == .local and sym.decl_pos > pos and !sym.flags.pattern_bound and !sym.flags.as_bound;
+    }
 };
 
 /// What an associated type is: `name` of its `base`'s provider for `api`
@@ -4696,14 +4705,14 @@ pub const SemContext = struct {
     }
 
     /// Like `lookup`, but a local declared after `pos` in a body is not
-    /// visible there yet.
+    /// visible there yet (`declaredAfter`).
     pub fn lookupBefore(self: *const SemContext, from_scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
         var sid: ?ScopeId = from_scope;
         while (sid) |s| {
             if (s == scope_invalid or s >= self.scopes.items.len) break;
             if (s == module_scope) if (self.fileModule(name, pos)) |id| return id;
             var id = self.lookupInScopeOnly(s, name) orelse symbol_invalid;
-            while (id != symbol_invalid and s != module_scope and self.symbols.items[id].kind == .local and self.symbols.items[id].decl_pos > pos) id = self.symbols.items[id].prev_in_scope;
+            while (id != symbol_invalid and s != module_scope and self.symbols.items[id].declaredAfter(pos)) id = self.symbols.items[id].prev_in_scope;
             if (id != symbol_invalid) return id;
             sid = self.scopes.items[s].parent;
         }
@@ -4718,7 +4727,7 @@ pub const SemContext = struct {
             if (id == scope_invalid or id >= self.scopes.items.len) break;
             for (self.scopes.items[id].symbols.items) |sym_id| {
                 const sym = self.symbols.items[sym_id];
-                if (id != module_scope and sym.kind == .local and sym.decl_pos > pos) continue;
+                if (id != module_scope and sym.declaredAfter(pos)) continue;
                 if (keep(sym)) s.offer(sym.name);
             }
             sid = self.scopes.items[id].parent;

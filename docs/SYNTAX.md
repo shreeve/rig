@@ -1178,6 +1178,9 @@ A statement is one of:
 `if cond` takes an indented block, `else if` chains, and `else` ends
 the chain. Where its value is used, `if` is an expression, and the
 one-line form is `a if c else b` (Python's order, not C's `c ? a : b`).
+Its condition binds names as a block's does, and they are seen by the
+value before `if` only: `v.id if r as v else 0`,
+`r * r if s matches .circle(r) else 0`.
 
 ```rig
 sub main()
@@ -1545,9 +1548,10 @@ An `if` or `while` condition binds the value inside an optional with
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
 | `if f() as a, b`, `while f() as a, b` | each of the several results inside the optional a call gives, `-> (A, B)?` |
+| `v.id if a as v else 0` | a ternary's condition binds as an `if`'s does, for the value before `if` only |
 
 `as` stands nowhere else: not under `or` or `not`, and not in a
-ternary's or a guard's condition.
+guard's condition.
 
 ## 11. Expressions
 

@@ -147,6 +147,10 @@ A new session, human or agent, takes these steps in order:
   what programs write. The closure arms are the old spelling for this
   release (`tools/migrate-select.py`); a task's end as an arm is next
   (ROADMAP).
+- **A ternary's condition binds names** (owner, 2026-11-04), built:
+  `v.id if r.decl as v else 0` and `r * r if s matches .circle(r) else
+  0`, the names visible in the value before `if` only (SPEC, "Block
+  expressions"). A postfix guard still binds none.
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that
