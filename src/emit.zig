@@ -1668,12 +1668,13 @@ pub const Emitter = struct {
         const direct = recv == .src;
         const out = self.facts.resultOut(d);
         const id = self.nextId();
-        const name = if (direct) buf.written() else try self.fmt("__rig_obj_{d}", .{id});
+        const name = if (direct) buf.written() else try self.hiddenStorage(recv, .api_object, .copy, .{ .id = id });
+        const res = if (out) try self.hiddenStorage(call, .result_place, .owned, .{ .id = id }) else "";
         if (!direct or out) try self.w.print("(__rig_call_{d}: {{ ", .{id});
         if (!direct) try self.w.print("const {s} = {s}; ", .{ name, buf.written() });
         if (out) {
             const result = self.typeOf(call) orelse return self.unsupported(call, "an untyped call through an API object");
-            try self.w.print("var __rig_res_{d} = rig.outPlace(", .{id});
+            try self.w.print("var {s} = rig.outPlace(", .{res});
             try self.emitTypeTy(result);
             try self.w.print("); break :__rig_call_{d} rig.packOut(", .{id});
             try self.emitTypeTy(result);
@@ -1686,7 +1687,7 @@ pub const Emitter = struct {
         const slot = if (self.fail_slot) |f| sameNode(f.call, call) else false;
         if (runtime > 0 or slot) try self.w.writeAll(", ");
         try self.emitArgsFrom(call, skip);
-        if (out) try self.w.print(", &__rig_res_{d}), &__rig_res_{d}", .{ id, id });
+        if (out) try self.w.print(", &{s}), &{s}", .{ res, res });
         try self.w.writeAll(")");
         if (!direct or out) try self.w.writeAll("; })");
     }
@@ -2320,7 +2321,8 @@ pub const Emitter = struct {
             .base => "__rig_base",
             .index => "__rig_ix",
             .slot => "__rig_slot",
-            .results => "__rig_res",
+            .api_object => "__rig_obj",
+            .results, .result_place => "__rig_res",
             .held_header => "__rig_header",
             // The storage of these is another's: the header's value, the
             // capture it copies, or Zig's (`zigTemporary`).
