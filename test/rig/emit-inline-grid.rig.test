@@ -519,7 +519,7 @@ bomb "inline grid const narrow reached", "panic: integer does not fit in destina
       print(U8(z_narrow))
     print("ok")
 
-bomb "inline grid const shift reached", "panic: integer does not fit in destination type", prints: "3", release: true
+bomb "inline grid const shift reached", "panic: shift amount `70` is out of range for `Int` (0..63)", prints: "3", release: true
   # The shift use of a constant, run, panics.
 
   use std.os
@@ -615,7 +615,7 @@ bomb "inline grid ignored narrow reached", "panic: integer does not fit in desti
       print(U8(z_narrow))
     print("ok")
 
-bomb "inline grid ignored shift reached", "panic: integer does not fit in destination type", prints: "3", release: true
+bomb "inline grid ignored shift reached", "panic: shift amount `70` is out of range for `Int` (0..63)", prints: "3", release: true
   # The shift use of a constant, its parameter ignored, run, panics.
 
   use std.os
@@ -723,7 +723,7 @@ bomb "inline grid transitive narrow reached", "panic: integer does not fit in de
       print(U8(z_narrow))
     print("ok")
 
-bomb "inline grid transitive shift reached", "panic: integer does not fit in destination type", prints: "3", release: true
+bomb "inline grid transitive shift reached", "panic: shift amount `70` is out of range for `Int` (0..63)", prints: "3", release: true
   # The shift use of another inlined call's constant, run, panics.
 
   use std.os

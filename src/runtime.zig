@@ -4954,11 +4954,26 @@ inline fn laneShiftWhole(comptime op: Shift, v: anytype, amount: anytype) @TypeO
 
 /// A shift amount for every lane of `V`, in the width Zig shifts by.
 inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vector.len, std.math.Log2Int(@typeInfo(V).vector.child)) {
-    const A = @TypeOf(amount);
-    if (A == comptime_int) return @splat(amount);
-    // Through the unsigned type of its width (`unsigned`).
-    const u: @Int(.unsigned, @bitSizeOf(A)) = @intCast(amount);
-    return @splat(@intCast(u));
+    return @splat(shiftAmount(@typeInfo(V).vector.child, amount));
+}
+
+/// The amount `n` of a shift of a `T` (`x << n`, `x <<% n`, `x >> n`),
+/// in the width Zig shifts a `T` by. One that is negative or not below
+/// `T`'s bit count panics with the text of the constant check; with
+/// runtime safety off (`--release=fast`) it is unchecked, as a
+/// conversion is. A constant amount is checked when it compiles. Not
+/// `inline`: its result type is worked out once per type, not at every
+/// shift of a function, which Zig's branch quota would count.
+pub fn shiftAmount(comptime T: type, n: anytype) std.math.Log2Int(T) {
+    if (@TypeOf(n) == comptime_int) return n;
+    if (std.debug.runtime_safety and (n < 0 or n >= @bitSizeOf(T))) shiftPanic(T, n);
+    return @intCast(unsigned(n));
+}
+
+noinline fn shiftPanic(comptime T: type, n: anytype) noreturn {
+    @branchHint(.cold);
+    const name = comptime if (T == i64) "Int" else std.fmt.comptimePrint("{c}{d}", .{ @as(u8, if (@typeInfo(T).int.signedness == .signed) 'I' else 'U'), @bitSizeOf(T) });
+    std.debug.panic("shift amount `{d}` is out of range for `" ++ name ++ "` (0..{d})", .{ n, @bitSizeOf(T) - 1 });
 }
 
 /// `x`, an integer, as the unsigned type of its width, for a cast to a
