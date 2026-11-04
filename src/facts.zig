@@ -906,6 +906,11 @@ pub const Facts = struct {
     pub fn selfOf(f: Facts, call: Sexp) ?Sexp {
         return storage.selfOf(f.c(), call);
     }
+    /// What a call whose arguments are evaluated first holds as its self
+    /// (`storage.heldSelf`).
+    pub fn heldSelf(f: Facts, call: Sexp) ?Sexp {
+        return storage.heldSelf(f.c(), call);
+    }
     /// Whether the method of `value.method(...)` takes `!@`.
     pub fn selfWrites(f: Facts, call: Sexp) bool {
         return storage.selfWrites(f.c(), call);

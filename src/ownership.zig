@@ -2877,14 +2877,15 @@ pub const Checker = struct {
     }
 
     /// Whether the value of `e` can carry no loan: its type holds no
-    /// view, it is no callable, whose captures it carries, and no value
-    /// of a type parameter's type, which an instance's may hold.
+    /// view, it is no callable, whose captures it carries, no value of a
+    /// type parameter's type, which an instance's may hold, and no arm
+    /// of `task.select`, which lends until its select returns.
     fn carriesNoLoan(self: *const Checker, e: Sexp) bool {
         if (isLambda(e)) return false;
         const ty = self.exprType(e) orelse return false;
         if (self.mayCarryLoan(ty) or self.genericType(ty)) return false;
         const ctx = self.sema;
-        return sema.calledFn(ctx, ty) == null and !sema.holdsCallable(ctx, ty);
+        return sema.calledFn(ctx, ty) == null and !sema.holdsCallable(ctx, ty) and !(e.isKind(.call) and ctx.selectArmOf(e) != null);
     }
 
     /// `v`, a view walked from `temps_start`, read through for the value
@@ -5756,7 +5757,10 @@ pub const Checker = struct {
                 return .{};
             };
             self.taintGeneric(self.exprType(node), if (field_call) from_args else result);
-            self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+            // An arm of `task.select` lends until the select returns,
+            // which runs the arm it commits after making every arm (the
+            // arm's storage lives for the select): the select ends them.
+            if (self.sema.selectArmOf(node) == null) self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
         // The result views only what could hold it (Core sentence 7). A

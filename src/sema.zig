@@ -2337,6 +2337,9 @@ pub const StorageLife = enum {
     expression,
     /// Until its call returns.
     call,
+    /// Until the `task.select` whose arm it is a part of returns: the
+    /// select makes every arm, then runs the one it commits.
+    select,
     /// Until its assignment's store.
     assignment,
     /// Until the block it is made in ends: each pass of a loop's body

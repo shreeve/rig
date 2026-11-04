@@ -24,6 +24,7 @@ const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
 const Storage = sema.Storage;
 const StorageBy = sema.StorageBy;
+const StorageLife = sema.StorageLife;
 
 // =============================================================================
 // The predicates emit and the plan share
@@ -212,6 +213,15 @@ pub fn selfOf(ctx: *const SemContext, call: Sexp) ?Sexp {
     return ir.Member.object(ctx.calleeOf(call));
 }
 
+/// What a call whose arguments are evaluated first holds as its self
+/// (`selfHold`): the self of `value.method(...)`, or the channel of an
+/// arm of `task.select`, `ch` of `(!ch).on_recv(f)`, which the select
+/// evaluates in the arm's turn.
+pub fn heldSelf(ctx: *const SemContext, call: Sexp) ?Sexp {
+    if (ctx.selectArmOf(call) != null) return ir.get(ir.Member.object(ctx.calleeOf(call)), .operand);
+    return selfOf(ctx, call);
+}
+
 /// Whether `call` passes a self, its callee's object, as its first
 /// parameter (`value.method(...)`), as its recorded parameters say
 /// (`SemContext.callParamsOf`): not `Type.f(...)`, `module.f(...)`, or a
@@ -269,7 +279,25 @@ pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
 
 fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     if (call.isKind(.array)) return leavesAfterOwned(ctx, false, ir.Array.elems(call));
-    if (!call.isKind(.call) or isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
+    if (!call.isKind(.call)) return false;
+    // `task.select` evaluates its arms' parts first, in their order, in
+    // storage that lives until the arm it commits has run; an arm holds
+    // none of its own.
+    if (ctx.selectArmOf(call) != null) return false;
+    if (ctx.isSelect(call)) {
+        var owned = false;
+        for (ir.Call.args(call)) |arm| {
+            if (callHoistsArgs(ctx, arm)) return true;
+            if (leavesAfterOwned(ctx, owned, ir.Call.args(arm))) return true;
+            for (ir.Call.args(arm)) |a| owned = owned or ownsValue(ctx, argValue(a));
+        }
+        return false;
+    }
+    return callHoistsArgs(ctx, call);
+}
+
+fn callHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
+    if (isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
     // A closure literal lent to the call gets an environment first.
     for (args) |a| if (lentLiteral(ctx, argValue(a))) return true;
@@ -347,7 +375,7 @@ pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
 fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
     // Lend sigils on a self are implicit in Zig's method calls.
-    const recv = lentPlace(selfOf(ctx, call) orelse return null);
+    const recv = lentPlace(heldSelf(ctx, call) orelse return null);
     const writes = selfWrites(ctx, call);
     const temporary = !hasStorage(ctx, recv) and !recv.isKind(.move);
     if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return null;
@@ -1997,11 +2025,21 @@ const Planner = struct {
         // A closure literal called where it is written is built first.
         if (callee.isKind(.lambda)) try p.record(callee, .invoked, .owned, .call);
         if (!hoists) return;
+        // The parts of `task.select` are its arms' (`hoistsArgs`).
+        if (ctx.isSelect(c)) {
+            for (ir.Call.args(c)) |arm| try p.callParts(arm, .select);
+        } else try p.callParts(c, .call);
+    }
+
+    /// The storage of the self and the arguments of call `c`, evaluated
+    /// first, which lives for `life`.
+    fn callParts(p: *Planner, c: Sexp, life: StorageLife) !void {
+        const ctx = p.ctx;
         if (selfHold(ctx, c)) |hold| {
-            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(selfOf(ctx, c).?);
-            try p.record(recv, .self, hold.by(hasStorage(ctx, recv)), .call);
+            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(heldSelf(ctx, c).?);
+            try p.record(recv, .self, hold.by(hasStorage(ctx, recv)), life);
         }
-        for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai));
+        for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai), life);
     }
 
     /// An array literal whose elements are evaluated first holds each
@@ -2012,27 +2050,27 @@ const Planner = struct {
         for (ir.Array.elems(arr)) |v| {
             _ = isPureArg(ctx, v);
             _ = argumentHold(ctx, v);
-            if (hoists) try p.argument(v, null);
+            if (hoists) try p.argument(v, null, .call);
         }
     }
 
     /// The storage of `v`, a part of a call or an array literal that is
     /// evaluated first (`hoistsArgs`), filling a parameter of type
     /// `param` if any: a value of its own, a copy, or a view, as the
-    /// lend and the parameter say.
-    fn argument(p: *Planner, v: Sexp, param: ?TypeId) !void {
+    /// lend and the parameter say, which lives for `life`.
+    fn argument(p: *Planner, v: Sexp, param: ?TypeId, life: StorageLife) !void {
         const ctx = p.ctx;
         if (isPureArg(ctx, v)) return;
         const by: StorageBy = switch (argumentHold(ctx, v)) {
             .closure => by: {
-                try p.record(v, .environment, .owned, .call);
+                try p.record(v, .environment, .owned, life);
                 break :by .owned;
             },
             .callable => .owned,
             .lent => .pointer,
             .value => if (param) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
         };
-        try p.record(v, .argument, by, .call);
+        try p.record(v, .argument, by, life);
     }
 
     fn assignment(p: *Planner, set: Sexp) !void {
