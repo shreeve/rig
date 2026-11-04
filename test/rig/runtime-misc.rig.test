@@ -2655,3 +2655,52 @@ test "weak upgrade result dropped", '''
   print("rc dropped")               # `m` still holds the Noisy
   <w
   # scope exit drops `m`, the last strong handle: prints 1
+
+test "text equality at every length", "0 100 100 [1, 2, 3, 4, 5, 6]"
+  # Text compares by its bytes at every length to 100: equal copies,
+  # a length one longer, and a difference at each byte, through `==`,
+  # a view of each, the keys of `Map` and `HashMap`, and a string
+  # pattern, whose sizes take different paths.
+
+  fun text(n: Int, at: Int) -> String
+    s = String()
+    for i in 0..n
+      !s.push('x' if i == at else 'a')
+    s
+
+  fun route(p: ?String) -> Int
+    match p
+      "" => 1
+      "abc" => 2
+      "abcdefghij" => 3
+      "abcdefghijklmnopqrstuvwxyz" => 4
+      "abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz" => 5
+      "abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz" => 6
+      _ => 0
+
+  wrong = 0
+  m = Map[String, Int]()
+  h = HashMap[String, Int]()
+  for n in 0..100
+    a = text(n, -1)
+    wrong += 1 if a != text(n, -1)
+    wrong += 1 if a == text(n + 1, -1)
+    b = text(n, 0)
+    wrong += 1 if n > 1 and ?a[1..] != ?b[1..]
+    for at in 0..n
+      wrong += 1 if a == text(n, at)
+    !m.put(+a, n)
+    !h.put(+a, n)
+  for n in 0..100
+    a = text(n, -1)
+    wrong += 1 if (m.get(?a) ?? -1) != n
+    wrong += 1 if (h.get(?a) ?? -1) != n
+    wrong += 1 if n > 0 and m.has(text(n, n - 1))
+    wrong += 1 if n > 0 and h.has(text(n, n / 2))
+  az = "abcdefghijklmnopqrstuvwxyz"
+  keys = [String(""), String("abc"), String("abcdefghij"), String(az), String(az, "-", az), String(az, "-", az, "-", az)]
+  wrong += 1 if route("abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxy_") != 0
+  routes: List[Int] = List()
+  for k in ?keys
+    !routes.push(route(k))
+  print(wrong, m.len, h.len, routes)

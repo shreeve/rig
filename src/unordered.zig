@@ -232,20 +232,6 @@ inline fn textHash(s: []const u8) u64 {
     return std.hash.Wyhash.hash(0, s);
 }
 
-/// Text equality by words up to 32 bytes.
-inline fn textEql(a: []const u8, b: []const u8) bool {
-    const n = a.len;
-    if (n != b.len) return false;
-    const p = a.ptr;
-    const q = b.ptr;
-    if (n >= 8 and n <= 16)
-        return (read64(p) ^ read64(q)) | (read64(p + n - 8) ^ read64(q + n - 8)) == 0;
-    if (n > 16 and n <= 32)
-        return (read64(p) ^ read64(q)) | (read64(p + 8) ^ read64(q + 8)) |
-            (read64(p + n - 16) ^ read64(q + n - 16)) | (read64(p + n - 8) ^ read64(q + n - 8)) == 0;
-    return std.mem.eql(u8, a, b);
-}
-
 /// The multiplier of the table's integer hash: odd, and not the golden
 /// ratio's 0x9e3779b97f4a7c15, a common stride, whose square spreads
 /// keys of that stride into a few groups.
@@ -355,7 +341,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 const s = e.*;
                 return s.key == k;
             }
-            if (text_key) return textEql(rt.stringBytes(e.key), rt.stringBytes(k));
+            if (text_key) return rt.bytesEql(rt.stringBytes(e.key), rt.stringBytes(k));
             return switch (@typeInfo(K)) {
                 .int, .bool, .@"enum" => e.key == k,
                 else => rt.eql(e.key, k),
