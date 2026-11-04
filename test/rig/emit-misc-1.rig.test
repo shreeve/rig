@@ -2454,6 +2454,145 @@ test "hoisted self index first", '''
   print(cs[0].n, cs[1].n, k)
   run() catch print("e")
 
+test "hoisted self that leaves first", '''
+  -5
+  -1
+  arg 1
+  arg 2
+  121
+  arg 3
+  arg 4
+  143
+'''
+  # A self that can leave, `o?` or `o ?? return`, runs before the
+  # arguments, as written, also when they are evaluated into temporaries
+  # first: it leaves before any argument runs.
+
+  obj R
+    n: Int
+
+    fun len2(?@, a: Int, b: Int) -> Int
+      @n * 100 + a * 10 + b
+
+  fun say(k: Int) -> Int
+    print("arg", k)
+    k
+
+  fun go(o: R?) -> Int?
+    (o?).len2(b: say(1), a: say(2))
+
+  fun go2(o: R?) -> Int
+    (o ?? return -1).len2(b: say(3), a: say(4))
+
+  print(go(none) ?? -5)
+  print(go2(none))
+  print(go(R(n: 1)) ?? -5)
+  print(go2(R(n: 1)))
+
+test "hoisted callee first", '''
+  callee 7
+  arg 3
+  arg 0
+  arg 4
+  mkh
+  arg 5
+  21
+  callee 7
+  arg 9
+  -1
+  67
+  8 8 5 5
+'''
+  # A callee that is a value, `pick(k)(...)`, `fs[i](...)`,
+  # `mk().f(...)`, `h.f(...)`, or a local `f`, runs before the
+  # arguments, as written, also when they are evaluated into temporaries
+  # first (an owned argument before one that can fail). A function value
+  # is plain data, copied in its turn: an argument may grow the List it
+  # was read from, reassign it, or free the box or handle it was read
+  # through.
+
+  error Bad
+    no
+
+  fun say(k: Int) -> Int!
+    print("arg", k)
+    return Bad.no if k > 8
+    k
+
+  fun add(s: String, n: Int) -> Int
+    s.len + n
+
+  fun pick(k: Int) -> fun(String, Int) -> Int
+    print("callee", k)
+    add
+
+  obj H
+    f: fun(String, Int) -> Int
+
+  fun mkh() -> H
+    print("mkh")
+    H(f: add)
+
+  fun go(k: Int) -> Int!
+    fs = [add, add]
+    a = pick(7)(String("abc"), say(k)!)
+    b = fs[say(0)!](String("ab"), say(k + 1)!)
+    c = mkh().f(String("abcd"), say(k + 2)!)
+    a + b + c
+
+  fun grow(fs: !List[fun(String, Int) -> Int]) -> Int!
+    for _ in 0..64
+      !fs.push(add)
+    return Bad.no if fs.len > 1000
+    fs.len
+
+  fun grown() -> Int!
+    fs: List[fun(String, Int) -> Int] = List()
+    !fs.push(add)
+    fs[0](String("de"), grow(!fs)!)
+
+  fun mul(s: String, b: Int) -> Int
+    s.len * b
+
+  obj G
+    f: fun(String, Int) -> Int
+    s: String
+
+  fun swap(h: !H, k: Int) -> Int!
+    h.f = mul
+    return Bad.no if k > 100
+    5
+
+  fun swapf(f: !fun(String, Int) -> Int, k: Int) -> Int!
+    f = mul
+    return Bad.no if k > 100
+    5
+
+  fun boxed(g: ^G) -> Int!
+    return Bad.no if g.s.len > 100
+    g.s.len
+
+  fun shared(g: *G) -> Int!
+    return Bad.no if g.s.len > 100
+    g.s.len
+
+  fun moved() -> Int!
+    h = H(f: add)
+    a = h.f(String("abc"), swap(!h, 1)!)
+    f: fun(String, Int) -> Int = add
+    b = f(String("abc"), swapf(!f, 1)!)
+    x = ^G(f: add, s: String("xyz"))
+    c = x.f(String("de"), boxed(<x)!)
+    y = *G(f: add, s: String("xyz"))
+    d = y.f(String("de"), shared(<y)!)
+    print(a, b, c, d)
+    0
+
+  print(go(3) catch -1)
+  print(go(9) catch -1)
+  print(grown() catch -1)
+  _ = moved() catch -1
+
 test "if expr basic", '''
   10
   20

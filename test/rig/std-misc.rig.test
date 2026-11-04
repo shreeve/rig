@@ -2546,7 +2546,7 @@ fail "target arch const arithmetic", "8:15: the operands of a module constant's 
   sub main()
     print(RATIO, DOUBLE, NEG, TABLE, WIDE, SAME)
 
-bomb "target arch shift panics", "integer does not fit"
+bomb "target arch shift panics", "shift amount `16` is out of range for `U8` (0..7)"
   # A shift by a per-target constant is checked when the program runs, as
   # a shift by any value Rig does not know is: Zig does not reject it
   # when it compiles.

@@ -5206,7 +5206,9 @@ sub main()
 ```
 
 Bitwise operators need integers; a shift amount may be any
-integer, from 0 up to the bit count of the shifted type. A left shift that
+integer below the bit count of the shifted type, and not negative: a
+constant one outside that is rejected, and one computed when the program
+runs panics, ``shift amount `9` is out of range for `U8` (0..7)``. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
 

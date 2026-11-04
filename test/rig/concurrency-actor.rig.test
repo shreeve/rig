@@ -163,6 +163,106 @@ test "actor arguments", seeds: 20, "3 4 [4]"
   !ys.push(2)
   print(c.sum(?ys), c.size("abc"), c.all())
 
+test "actor call handle first", seeds: 20, '''
+  pick 1
+  consume 1
+  a
+  21
+  pick 1
+  b
+  a
+  42
+  pick 1
+  b
+  a
+  63
+'''
+  # The handle of an actor's method runs before the arguments, as
+  # written, also when they are evaluated into temporaries first
+  # (keyword arguments out of order): an argument that takes what the
+  # handle's expression reads runs after it.
+  obj Acc
+    total: Int
+
+    sub add(!@, a: Int, b: Int)
+      @total += a * 10 + b
+
+    fun get(?@) -> Int
+      @total
+
+  fun side(s: ?String, n: Int) -> Int
+    print(s)
+    n
+
+  fun consume(hs: List[*Actor[Acc]]) -> Int
+    print("consume", hs.len)
+    hs.len
+
+  fun pick(hs: ?List[*Actor[Acc]], i: Int) -> *Actor[Acc]
+    print("pick", hs.len)
+    +hs[i]
+
+  hs = List[*Actor[Acc]]()
+  !hs.push(*Actor(Acc(total: 0)))
+  keep = +hs[0]
+  !pick(?hs, 0).add(b: consume(<hs), a: side("a", 2))
+  print(keep.get())
+  gs = List[*Actor[Acc]]()
+  !gs.push(+keep)
+  !pick(?gs, 0).add(b: side("b", 1), a: side("a", 2))
+  print(keep.get())
+  t = (!pick(?gs, 0)).add(b: side("b", 1), a: side("a", 2))&
+  >t
+  print(keep.get())
+
+test "actor made handle dropped", seeds: 20, '''
+  3
+  1
+  5
+  621
+  8
+  421
+  -1
+  1065
+'''
+  # A handle made by a call and used for a method that only reads the
+  # actor is a temporary its statement drops, as a method's self is:
+  # called, started as a task, through a branch, and evaluated before
+  # arguments that run first.
+  error Bad
+    no
+
+  obj Acc
+    total: Int
+
+    fun get(?@) -> Int
+      @total
+
+    fun mix(?@, a: Int, b: Int) -> Int
+      @total * 100 + a * 10 + b
+
+  fun mka(n: Int) -> *Actor[Acc]
+    *Actor(Acc(total: n))
+
+  fun fails(k: Int) -> Int!
+    return Bad.no if k > 8
+    k
+
+  fun go(k: Int) -> Int!
+    mka(4).mix(String("ab").len, fails(k)!)
+
+  print(mka(3).get())
+  print((*Actor(Acc(total: 1))).get())
+  t = mka(5).get()&
+  print(>t)
+  print(mka(6).mix(b: 1, a: 2))
+  c = true
+  print((mka(8) if c else mka(9)).get())
+  print(go(1) catch -1)
+  print(go(9) catch -1)
+  u = mka(10).mix(b: fails(5) catch 0, a: fails(6) catch 0)&
+  print(>u)
+
 test "actor deadline and cancel", seeds: 20, '''
   -1
   -2

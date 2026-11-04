@@ -57,6 +57,7 @@ pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
+pub const BuiltinCall = sema.BuiltinCall;
 pub const Proven = sema.Proven;
 pub const ProvenIf = sema.ProvenIf;
 pub const FlagTest = sema.FlagTest;
@@ -83,13 +84,11 @@ pub const Header = sema.Header;
 pub const Storage = sema.Storage;
 pub const StorageKind = sema.StorageKind;
 pub const StorageBy = sema.StorageBy;
-pub const Answer = sema.Answer;
 pub const Clone = sema.Clone;
 pub const SelfMode = sema.SelfMode;
 pub const Upgrade = sema.Upgrade;
 pub const Lift = sema.Lift;
 pub const TypedInt = sema.TypedInt;
-pub const ValueParts = sema.ValueParts;
 pub const ArgSlot = sema.ArgSlot;
 pub const Instance = sema.Instance;
 pub const HandsKind = sema.Hands.Kind;
@@ -297,13 +296,6 @@ pub const Facts = struct {
     pub fn isLargeOwner(f: Facts, node: Sexp) bool {
         return f.c().large_frames.contains(f.c().startOf(node));
     }
-    /// The marker of the `fun` or `sub` `node`: `rarely`, its body's
-    /// first line, starts it with the cold hint, and `called` emits it
-    /// `noinline fn`.
-    pub fn markerOf(f: Facts, node: Sexp) rig.Marker {
-        _ = f;
-        return rig.markerOf(node);
-    }
     /// Whether the call may reach a function emitted `inline`, whose
     /// result Zig could know at compile time.
     pub fn callsInlined(f: Facts, call: Sexp) bool {
@@ -374,6 +366,15 @@ pub const Facts = struct {
     }
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
+    }
+    /// Whether `call` is of the built-in `swap` (`SemContext.isSwapCall`).
+    pub fn isSwapCall(f: Facts, call: Sexp) bool {
+        return f.c().isSwapCall(call);
+    }
+    /// The built-in type's method a call's callee names, which emit
+    /// lowers on its own (`sema.BuiltinCall`).
+    pub fn builtinCallOf(f: Facts, callee: Sexp) ?BuiltinCall {
+        return f.c().builtinCallOf(callee);
     }
     pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().splatOf(node);
@@ -597,9 +598,6 @@ pub const Facts = struct {
     pub fn upgradeOf(f: Facts, node: Sexp) ?Upgrade {
         return f.c().upgradeOf(node);
     }
-    pub fn repoints(f: Facts, node: Sexp) bool {
-        return f.c().repoints(node);
-    }
     pub fn writesThrough(f: Facts, node: Sexp) bool {
         return f.c().writesThrough(node);
     }
@@ -643,13 +641,13 @@ pub const Facts = struct {
     pub fn heldBaseOf(f: Facts, node: Sexp) ?Sexp {
         return f.c().heldBaseOf(node);
     }
-    /// The bindings of a variant pattern, by field (a by-name pattern's
-    /// in the order of the payload's fields).
     /// The type of the field payload binding `b` binds, at the matched
     /// instance.
     pub fn payloadFieldOf(f: Facts, b: Sexp) ?TypeId {
         return f.c().payloadFieldOf(b);
     }
+    /// The bindings of a variant pattern, by field (a by-name pattern's
+    /// in the order of the payload's fields).
     pub fn payloadBindings(f: Facts, pattern: Sexp) ?[]const Sexp {
         return f.c().payloadBindings(pattern);
     }
@@ -744,11 +742,6 @@ pub const Facts = struct {
     /// Whether a payload binding points at the field it binds.
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
         return storage.decided(f.c(), b, .payload_by_address);
-    }
-    /// Whether a write may go through binding `sym` (`.write`), only
-    /// a read (`.read`), or it is no view (`SemContext.bindingAccess`).
-    pub fn bindingAccess(f: Facts, sym: SymbolId) ?sema.Access {
-        return f.c().bindingAccess(sym);
     }
     /// How binding `sym`, which binds a value of type `reached`, reads
     /// through a write view: `reached` is one, and the binding only reads
@@ -907,10 +900,10 @@ pub const Facts = struct {
     pub fn selfOf(f: Facts, call: Sexp) ?Sexp {
         return storage.selfOf(f.c(), call);
     }
-    /// What a call whose arguments are evaluated first holds as its self
-    /// (`storage.heldSelf`).
-    pub fn heldSelf(f: Facts, call: Sexp) ?Sexp {
-        return storage.heldSelf(f.c(), call);
+    /// The part a call whose arguments are evaluated first holds before
+    /// them, its self or its callee (`storage.heldFirst`).
+    pub fn heldFirst(f: Facts, call: Sexp) ?storage.HeldFirst {
+        return storage.heldFirst(f.c(), call);
     }
     /// Whether the method of `value.method(...)` takes `!@`.
     pub fn selfWrites(f: Facts, call: Sexp) bool {
@@ -921,9 +914,6 @@ pub const Facts = struct {
         return storage.argParams(f.c(), call);
     }
     /// A closure literal lent as a callable view.
-    pub fn lentLiteral(f: Facts, e: Sexp) bool {
-        return storage.lentLiteral(f.c(), e);
-    }
     pub fn lambdaYields(f: Facts, lambda: Sexp) bool {
         return storage.lambdaYields(f.c(), lambda);
     }
@@ -1001,11 +991,6 @@ pub const Facts = struct {
     pub fn isNumeric(f: Facts, ty: TypeId) bool {
         return sema.isNumeric(f.c(), ty);
     }
-    /// How a `Table` of `ty` fills its slots (`sema.tableFill`): an object
-    /// that fills with zeros says so to the runtime (`__rig_zeros`).
-    pub fn tableFill(f: Facts, ty: TypeId) sema.TableFill {
-        return sema.tableFill(f.c(), ty);
-    }
     /// How a table fills its slots with the type `sym` declares
     /// (`sema.declFill`).
     pub fn declFill(f: Facts, sym: SymbolId) sema.TableFill {
@@ -1063,10 +1048,6 @@ pub const Facts = struct {
         return sema.ownApiOf(f.c(), ty, api);
     }
 
-    /// Whether error set `ty` has a member with fields (`sema.setHasFields`).
-    pub fn setHasFields(f: Facts, ty: TypeId) bool {
-        return sema.setHasFields(f.c(), ty);
-    }
 
     /// Whether a value of `ty` is a `rig.ErrorValue` (`sema.isErrorValueForm`).
     pub fn isErrorValueForm(f: Facts, ty: TypeId) bool {
@@ -1150,8 +1131,8 @@ pub const Facts = struct {
     pub fn namedNoneOfSym(f: Facts, sym: SymbolId) ?sema.NamedNone {
         return f.c().named_nones.get(sym);
     }
-    /// The bits of the object `sym` declares here when it is word-sized
-    /// (`sema.wordBits`): its read views copy it.
+    /// Whether `ty` is word-sized (`sema.wordBits`): its read views copy
+    /// it.
     pub fn wordSized(f: Facts, ty: TypeId) bool {
         return sema.wordBits(f.c(), ty) != null;
     }
@@ -1181,10 +1162,6 @@ pub const Facts = struct {
     pub fn optionalRouted(f: Facts, inner: TypeId, strict: bool) bool {
         return sema.optionalRouted(f.c(), inner, strict);
     }
-    /// Whether the type `sym` declares is an object (`sema.isObjectSym`).
-    pub fn isObjectSym(f: Facts, sym: SymbolId) bool {
-        return sema.isObjectSym(f.c(), sym);
-    }
     /// Whether the type `sym` declares is an object or a payload enum
     /// (`sema.isCompoundSym`).
     pub fn isCompoundSym(f: Facts, sym: SymbolId) bool {
@@ -1199,18 +1176,19 @@ pub const Facts = struct {
 /// The syntax helpers emit shares with the checkers: functions of the IR
 /// alone, which read no fact and decide nothing a fact owns.
 pub const syntax = struct {
+    /// The marker of the `fun` or `sub` `node`: `rarely`, its body's
+    /// first line, starts it with the cold hint, and `called` emits it
+    /// `noinline fn`.
+    pub const markerOf = rig.markerOf;
     pub const lentPlace = storage.lentPlace;
     pub const argValue = storage.argValue;
     pub const eachTargetStep = storage.eachTargetStep;
     pub const assignedThrough = storage.assignedThrough;
     pub const eachGuardPart = rig.eachGuardPart;
-    pub const eachGuardOperand = rig.eachGuardOperand;
-    pub const leavesBody = rig.leavesBody;
     pub const funRarely = rig.funRarely;
     pub const contains = storage.contains;
     pub const isStringLiteralText = sema.isStringLiteralText;
     pub const SingleQuoted = sema.SingleQuoted;
-    pub const subjectRereadable = storage.subjectRereadable;
     pub const isLiteralText = storage.isLiteralText;
     pub const valueParts = sema.valueParts;
     pub const tailOf = sema.tailOf;
@@ -1223,10 +1201,8 @@ pub const syntax = struct {
     pub const paramName = sema.paramName;
     pub const paramNameNode = sema.paramNameNode;
     pub const tparamsOf = sema.tparamsOf;
-    pub const dataFields = sema.dataFields;
     pub const isProxy = sema.isProxy;
     pub const ownApiMethod = sema.ownApiMethod;
-    pub const Api = sema.Api;
     pub const isIntLiteralText = sema.isIntLiteralText;
     pub const isFloatLiteralText = sema.isFloatLiteralText;
     pub const isNumericTypeName = resolve.isNumericTypeName;
@@ -1277,6 +1253,52 @@ test "emit reads the checkers' decisions only through Facts" {
             return error.TestUnexpectedResult;
         }
     }
+}
+
+test "emit names hidden storage only through hiddenStorage" {
+    const emit_source = @embedFile("emit.zig");
+    // The base names `hiddenStorage` gives the storage the facts record,
+    // read from its body.
+    const begin = std.mem.indexOf(u8, emit_source, "    fn hiddenStorage(").?;
+    const end = begin + std.mem.indexOf(u8, emit_source[begin..], "\n    }\n").?;
+    var bases: std.ArrayList([]const u8) = .empty;
+    defer bases.deinit(std.testing.allocator);
+    // Spellings of a base that name no storage: a table entry's result
+    // parameter, a parameter a function owns or holds the header of, and
+    // a loop's index counter.
+    const others = [_][]const u8{ "rig.someOut({s}{s}), __rig_res);\\n", ", __rig_res: *rig.Payload(", "__rig_arg_{d}", "__rig_lent_{s}", "__rig_lent_{d}", "__rig_i_{d}" };
+    var pass: enum { bases, uses } = .bases;
+    while (true) : (pass = .uses) {
+        var tokens = std.zig.Tokenizer.init(emit_source);
+        while (true) {
+            const t = tokens.next();
+            if (t.tag == .eof) break;
+            if (t.tag != .string_literal) continue;
+            const text = emit_source[t.loc.start + 1 .. t.loc.end - 1];
+            const inside = t.loc.start > begin and t.loc.end < end;
+            if (pass == .bases) {
+                if (inside and std.mem.startsWith(u8, text, "__rig_")) try bases.append(std.testing.allocator, text);
+                continue;
+            }
+            if (inside) continue;
+            for (others) |o| {
+                if (std.mem.eql(u8, o, text)) break;
+            } else for (bases.items) |b| {
+                var at: usize = 0;
+                while (std.mem.indexOfPos(u8, text, at, b)) |i| : (at = i + 1) {
+                    // `__rig_i` is not `__rig_it` or `__rig_in_self`.
+                    const rest = text[i + b.len ..];
+                    const name = rest.len > 0 and std.ascii.isAlphanumeric(rest[0]) or
+                        rest.len > 1 and rest[0] == '_' and std.ascii.isAlphabetic(rest[1]);
+                    if (i > 0 and text[i - 1] == '_' or name) continue;
+                    std.debug.print("emit.zig spells the storage name {s} outside hiddenStorage: \"{s}\"\n", .{ b, text });
+                    return error.TestUnexpectedResult;
+                }
+            }
+        }
+        if (pass == .uses) break;
+    }
+    try std.testing.expect(bases.items.len > 20);
 }
 
 test "Facts answers as the context it was made from" {
