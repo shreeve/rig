@@ -10,6 +10,20 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ## Unreleased
 
+### Added
+
+- **A task's end as an arm of `task.select`:** `done: ?t.on_end()`
+  completes once the task `t` has ended, before the select or while it
+  waits, beside the receive, send, and deadline arms. The arm lends `t`
+  to read, so its variant carries nothing and the select neither waits
+  for `t` nor takes its result: the winner's body takes it with `>t`
+  (`>t!`, or `catch`), which gives it at once. A task that fails or is
+  canceled has ended as any other; the select fails only with its own
+  cancel or deadline. Two task arms are a race. The arm waits on the
+  task's completion record (`sched.Done`) and takes its wait back as
+  the select returns, so a task moved on after its arm lost ends with
+  no stale waiter (SPEC "Channels").
+
 ### Compiler
 
 - Emit decides nothing the checkers did not walk: whether a `match` arm

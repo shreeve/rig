@@ -94,6 +94,7 @@ pub const selectInto = tasks.selectInto;
 pub const recvArm = tasks.recvArm;
 pub const sendArm = tasks.sendArm;
 pub const afterArm = tasks.afterArm;
+pub const endArm = tasks.endArm;
 pub const selectValue = tasks.selectValue;
 pub const Select = tasks.Select;
 pub const actorSupervised = tasks.actorSupervised;

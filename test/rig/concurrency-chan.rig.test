@@ -554,3 +554,231 @@ test "chan select tested in a ternary", seeds: 20, "7 -1 hi none"
   !words.close()
   b = <w if task.select(got: !words.on_recv(), late: time.after(time.SECOND))! matches .got(w?) else String("none")
   print(x, y, a, b)
+
+test "chan select end before and after", seeds: 20, timeout: 10, "25 7"
+  # `name: ?t.on_end()` completes once the task `t` has ended, whether it
+  # ended before the select or ends while it waits. Its variant carries
+  # nothing: the select lends `t` to read, and the body takes the value
+  # with `>t`, which then gives it at once.
+  use std.task
+  use std.time
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  fun later(ms: Int) -> Int!
+    time.sleep(ms * time.MS)!
+    7
+
+  t = sq(5)&
+  time.sleep(5 * time.MS)!
+  a = 0
+  match task.select(done: ?t.on_end(), late: time.after(time.SECOND))!
+    .done => a = >t
+    .late => print("late")
+  u = later(2)&
+  b = 0
+  match task.select(done: ?u.on_end(), late: time.after(10 * time.SECOND))!
+    .done => b = >u!
+    .late => print("late")
+  print(a, b)
+
+test "chan select end never", seeds: 20, timeout: 10, "late -1"
+  # A task that does not end in time loses to the deadline, and the
+  # select leaves it as it was: still running, held by its owner.
+  use std.task
+  use std.time
+
+  fun stuck(g: *Chan[Int]) -> Int!
+    (!g).recv()! ?? 0
+
+  g = *Chan[Int](1)
+  t = stuck(+g)&
+  match task.select(done: ?t.on_end(), late: time.after(time.MS))!
+    .done => print(>t!)
+    .late => print("late", <t.cancel() catch -1)
+
+test "chan select end of a failing task", seeds: 20, timeout: 10, '''
+  2
+  Parity.odd
+  0
+'''
+  # A task that fails ends as any other: the arm wins, and `>t` gives its
+  # error, which `!` passes on or `catch` handles. The select itself
+  # fails only with its own cancel or deadline.
+  use std.task
+  use std.time
+
+  error Parity
+    odd
+
+  fun half(x: Int) -> Int!
+    return Parity.odd if x % 2 == 1
+    x / 2
+
+  fun pick(x: Int) -> Int!
+    t = half(x)&
+    match task.select(done: ?t.on_end(), late: time.after(time.SECOND))!
+      .done => >t!
+      .late => -2
+
+  print(pick(4) catch -1)
+  x = pick(3) catch |e|
+    print(e)
+    0
+  print(x)
+
+test "chan select end canceled", seeds: 20, timeout: 10, '''
+  watching
+  -1
+'''
+  # A task canceled while its select waits on the end of a task it
+  # holds fails there with `Stop.canceled`; the task it waited on is
+  # canceled as it drops.
+  use std.task
+  use std.time
+
+  fun stuck(g: *Chan[Int]) -> Int!
+    (!g).recv()! ?? 0
+
+  fun watch(g: *Chan[Int], ready: *Chan[Int]) -> Int!
+    t = stuck(+g)&
+    !ready.send(1)!
+    match task.select(done: ?t.on_end())!
+      .done => >t!
+
+  g = *Chan[Int](1)
+  ready = *Chan[Int](1)
+  w = watch(+g, +ready)&
+  _ = (!ready).recv()!
+  print("watching")
+  print(<w.cancel() catch -1)
+
+test "chan select end race", seeds: 20, timeout: 10, '''
+  fast 2
+  slow 1
+'''
+  # Two task arms: the first task to end wins, a race. The other runs
+  # on, and is waited for after.
+  use std.task
+
+  fun gated(g: *Chan[Int], n: Int) -> Int!
+    _ = (!g).recv()!
+    n
+
+  fun now(n: Int) -> Int
+    n
+
+  g = *Chan[Int](1)
+  a = gated(+g, 1)&
+  b = now(2)&
+  match task.select(slow: ?a.on_end(), fast: ?b.on_end())!
+    .slow => print("slow first")
+    .fast => print("fast", >b)
+  !g.close()
+  print("slow", >a!)
+
+test "chan select end beside a closed channel", seeds: 20, timeout: 10, '''
+  closed
+  3
+'''
+  # A task arm beside a receive: a closed channel gives `none` at once,
+  # while the task waits on.
+  use std.task
+
+  fun gated(g: *Chan[Int]) -> Int!
+    _ = (!g).recv()!
+    3
+
+  g = *Chan[Int](1)
+  c = *Chan[Int](1)
+  !c.close()
+  t = gated(+g)&
+  match task.select(got: !c.on_recv(), done: ?t.on_end())!
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+    .done => print("ended")
+  !g.send(1)!
+  print(>t!)
+
+test "chan select end lost, then waited elsewhere", seeds: 20, timeout: 10, '''
+  lost
+  9
+'''
+  # A task arm that loses takes its wait back: the task, moved to
+  # another task after the select, ends with no waiter and is waited
+  # there, with no trace of the task that selected on it, which has
+  # ended and been freed by then.
+  use std.task
+  use std.time
+
+  fun gated(g: *Chan[Int]) -> Int!
+    _ = (!g).recv()!
+    9
+
+  fun watch(t: Task[Int!], ch: *Chan[Int]) -> Task[Int!]!
+    match task.select(got: !ch.on_recv(), done: ?t.on_end())!
+      .got => print("lost")
+      .done => print("won")
+    <t
+
+  fun finish(t: Task[Int!]) -> Int!
+    >t!
+
+  g = *Chan[Int](1)
+  ch = *Chan[Int](1)
+  !ch.send(1)!
+  t = gated(+g)&
+  w = watch(<t, +ch)&
+  t2 = >w!
+  !g.send(1)!
+  time.sleep(5 * time.MS)!
+  f = finish(<t2)&
+  print(>f!)
+
+test "chan select end of the same task twice", seeds: 20, timeout: 10, "a 4"
+  # Two arms may wait on one task's end; the select takes them in an
+  # order that turns, so either may win.
+  use std.task
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(2)&
+  match task.select(a: ?t.on_end(), b: ?t.on_end())!
+    .a => print("a", >t)
+    .b => print("a", >t)
+
+fail "chan select end lends the task", "11:61: cannot move `t` while a read loan is live", errors: 1
+  use std.task
+  use std.time
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  fun take(t: Task[Int]) -> Int
+    >t
+
+  t = sq(2)&
+  match task.select(done: ?t.on_end(), late: time.after(take(<t)))!
+    .done => pass
+    .late => pass
+
+fail "chan select end spelled", "9:23: an arm on a task's end lends the task to read, and leaves it to its holder: `done: ?t.on_end()`", "10:23: an arm on a task's end lends", "11:23: an arm on a task's end lends", "12:24: `n` is a `Int`, not a task; each arm of `task.select` is", "13:24: a task arm takes nothing: `done: ?t.on_end()`", "14:8: `on_end` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: ?t.on_end(), ...)`", "15:18: each arm of `task.select` has a name, the variant its value matches in a `match`: `t: ?t.on_end()`", "17:4: variant `done` has no payload to destructure", errors: 8
+  use std.task
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(2)&
+  n = 3
+  _ = task.select(done: ?t.on_end())!
+  _ = task.select(done: !t.on_end())!
+  _ = task.select(done: <t.on_end())!
+  _ = task.select(done: t.on_end())!
+  _ = task.select(done: ?n.on_end())!
+  _ = task.select(done: ?t.on_end(1))!
+  _ = ?t.on_end()
+  _ = task.select(?t.on_end())!
+  match task.select(done: ?t.on_end())!
+    .done(r) => print(r)

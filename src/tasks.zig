@@ -1635,6 +1635,65 @@ pub const AfterArm = struct {
     fn finish(_: *AfterArm) void {}
 };
 
+/// A task's end: `?t.on_end()`, which completes once the task has
+/// ended, and carries nothing: the select lends the task, whose holder
+/// takes its result with `>t`. It holds no channel (`key` 0) and waits
+/// on the task's `Done`, as `>t` does, and takes its watch back when the
+/// select returns, so a task that ends later, wherever it was moved,
+/// wakes no fiber of this select's.
+pub const EndArm = struct {
+    done: *rt.sched.Done,
+
+    fn key(_: *EndArm) usize {
+        return 0;
+    }
+
+    fn now(a: *EndArm) bool {
+        return a.done.over();
+    }
+
+    /// A task that ended since `now` looked claims the select here, for
+    /// its end will wake no one.
+    fn wait(a: *EndArm, sel: *Sel, arm: u32) void {
+        if (a.done.watch(sel.fiber, sel.epoch.load(.seq_cst))) _ = sel.claim(arm);
+    }
+
+    fn unwait(a: *EndArm) void {
+        a.done.unwatch();
+    }
+
+    fn won(_: *EndArm) void {}
+    fn lost(_: *EndArm) void {}
+    fn finish(_: *EndArm) void {}
+};
+
+/// `rig.endArm(t)`: the arm of `?t.on_end()`, given the task where it is
+/// held, or a view of it.
+pub fn endArm(t: anytype) EndArm {
+    return .{ .done = endDone(t) };
+}
+
+fn endDone(t: anytype) *rt.sched.Done {
+    const T = @TypeOf(t);
+    if (@typeInfo(T) == .pointer and @typeInfo(@typeInfo(T).pointer.child) == .pointer) return endDone(t.*);
+    return &t.job.header.done;
+}
+
+/// The first of `arms`' task arms whose task has ended, if any.
+fn endDue(arms: anytype) ?u32 {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) == EndArm) {
+        if (arms[k].now()) return k;
+    };
+    return null;
+}
+
+/// The select begins wait `e`: its task arms' ends wake that one.
+fn endRewatch(arms: anytype, e: u32) void {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) == EndArm) arms[k].done.rewatch(e);
+}
+
 /// `rig.afterArm(n, unit_ns)`: the arm of `time.after(n)`, whose time
 /// is `n` units of `unit_ns` nanoseconds from now (`sema.after_arm`).
 pub fn afterArm(n: Int, unit_ns: Int) AfterArm {
@@ -1728,10 +1787,12 @@ fn selectArms(arms: anytype) anyerror!u32 {
             break;
         }
         if (afterDue(arms)) |k| if (sel.claim(k)) break;
+        if (endDue(arms)) |k| if (sel.claim(k)) break;
         rt.sched.commitWait(e, wake_at);
         if (sel.state.load(.seq_cst) != Sel.open) break;
         e = rt.sched.beginWait(true);
         sel.epoch.store(e, .seq_cst);
+        endRewatch(arms, e);
     }
     // Take back the arms still waiting; the winner's claimer is done with
     // it, since it held that channel's lock.
@@ -1811,7 +1872,7 @@ fn chanKeys(arms: anytype) ChanKeys(@typeInfo(@TypeOf(arms.*)).@"struct".field_t
 
 fn lockAt(arms: anytype, key: usize) void {
     const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
-    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) != AfterArm) if (arms[k].key() == key) {
+    inline for (0..n) |k| if (comptime @hasField(@TypeOf(arms[k]), "chan")) if (arms[k].key() == key) {
         arms[k].chan.lock.lock();
         return;
     };
@@ -1819,7 +1880,7 @@ fn lockAt(arms: anytype, key: usize) void {
 
 fn unlockAt(arms: anytype, key: usize) void {
     const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
-    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) != AfterArm) if (arms[k].key() == key) {
+    inline for (0..n) |k| if (comptime @hasField(@TypeOf(arms[k]), "chan")) if (arms[k].key() == key) {
         arms[k].chan.lock.unlock();
         return;
     };

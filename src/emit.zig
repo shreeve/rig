@@ -9282,12 +9282,18 @@ pub const Emitter = struct {
                 return self.w.print(", {d})", .{facts.after_arm.unit_ns});
             }
             const handle = ir.get(ir.Member.object(callee), .operand);
-            try self.w.writeAll(if (kind == .recv) "rig.recvArm(" else "rig.sendArm(");
-            // A channel its select evaluated in the arm's turn is read
-            // where it was held (`hoistSelf`).
+            try self.w.writeAll(switch (kind) {
+                .recv => "rig.recvArm(",
+                .send => "rig.sendArm(",
+                else => "rig.endArm(",
+            });
+            // A channel or task its select evaluated in the arm's turn is
+            // read where it was held (`hoistSelf`).
             if (self.hoistedOf(handle)) |h| {
                 try self.w.print("{s}{s}", .{ h.name, if (self.facts.storageOf(handle, .self).?.by == .pointer) ".*" else "" });
             } else try self.emitMemberBase(handle, self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel"));
+            // A task's end: the task alone, read where it is held.
+            if (kind == .end) return self.w.writeAll(")");
             try self.w.writeAll(", ");
             try self.emitArgs(sexp);
             // A named arm calls no function (`selectValue`).

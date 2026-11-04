@@ -165,8 +165,9 @@ A new session, human or agent, takes these steps in order:
   arms `.add(v?)`, `.add(none)`, `.late`. A compile-time function that
   builds types may later replace `sema.selectType` without changing
   what programs write. The closure arms are the old spelling for this
-  release (`tools/migrate-select.py`); a task's end as an arm is next
-  (ROADMAP).
+  release (`tools/migrate-select.py`). A task's end is an arm too,
+  built: `done: ?t.on_end()` lends `t`, its variant carries nothing,
+  and the body takes the result with `>t`; two task arms are a race.
 - **A ternary's condition binds names** (owner, 2026-11-04), built:
   `v.id if r.decl as v else 0` and `r * r if s matches .circle(r) else
   0`, the names visible in the value before `if` only (SPEC, "Block
