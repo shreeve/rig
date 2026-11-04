@@ -4505,8 +4505,8 @@ symbols); a query that decides more than that is a recorded fact.
   methods, an enclosing local), each compared by its Zig name as Zig
   compares them, is renamed to a name of the emitter's,
   `__rig_local_x_3`, which no later name of the program's can be.
-- **Bindings** are `const` unless reassigned, written through, holding
-  a value that moves (`sema.moves`), or
+- **Bindings** are `const` unless reassigned, written through, owning
+  what they hold (`Symbol.hold`, which the storage plan records), or
   initialized by a compile-time-known value, which Zig would fold.
 - **Automatic drop.** An owning binding gets a `defer` that releases
   it. A binding of a value that moves but needs no cleanup (a unique
