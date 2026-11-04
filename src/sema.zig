@@ -1870,6 +1870,8 @@ pub const Facts = struct {
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
     /// Callee (`member`) node -> the built-in type's method it calls.
     builtin_calls: FastMap(NodeKey, BuiltinCall) = .empty,
+    /// Calls of the built-in `swap`, not hidden by a declaration.
+    swap_calls: FastMap(NodeKey, void) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
     /// no view of them (`SemContext.lendsTempArray`).
     temp_arrays: FastMap(NodeKey, void) = .empty,
@@ -5395,6 +5397,15 @@ pub const SemContext = struct {
     /// The built-in type's method a call's callee (`member`) names.
     pub fn builtinCallOf(self: *const SemContext, callee: Sexp) ?BuiltinCall {
         return self.facts.builtin_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    pub fn recordSwapCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.swap_calls.put(self.allocator, recordKey(call), {});
+    }
+
+    /// Whether `call` is of the built-in `swap` (`recordSwapCall`).
+    pub fn isSwapCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.swap_calls.contains(nodeKey(call) orelse return false);
     }
 
     /// The recorded answer to `q` about `node`; null when no pass has

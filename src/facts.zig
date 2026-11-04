@@ -376,6 +376,10 @@ pub const Facts = struct {
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
     }
+    /// Whether `call` is of the built-in `swap` (`SemContext.isSwapCall`).
+    pub fn isSwapCall(f: Facts, call: Sexp) bool {
+        return f.c().isSwapCall(call);
+    }
     /// The built-in type's method a call's callee names, which emit
     /// lowers on its own (`sema.BuiltinCall`).
     pub fn builtinCallOf(f: Facts, callee: Sexp) ?BuiltinCall {
