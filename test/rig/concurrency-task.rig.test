@@ -1051,6 +1051,80 @@ fail "task returned with a text view keeps it", "cannot lend `s` to write while 
   !s.add("d")
   print(>t)
 
+fail "task in a local object keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # An object holding a task keeps the task's loans while it lives.
+  # oracle: main reject C4
+  obj Job
+    t: Task[Int]
+
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  xs: List[Int] = List()
+  j = Job(t: total(?xs)&)
+  !xs.push(2)
+  t = <j.t
+  print(>t)
+
+fail "task in a local object keeps its owner", "cannot drop `xs` while it is lent", errors: 1
+  # oracle: main reject C4
+  obj Job
+    t: Task[Int]
+
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  !xs.push(2)
+  j = Job(t: total(?xs)&)
+  <xs
+  t = <j.t
+  print(>t)
+
+fail "task in an optional keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  xs: List[Int] = List()
+  o: Task[Int]? = total(?xs)&
+  !xs.push(1)
+  if <o as t
+    print(>t)
+
+fail "task in a shared object keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # A count of a `*Job` keeps the loans of the task the Job holds.
+  # oracle: main reject C4
+  obj Job
+    t: Task[Int]
+
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  xs: List[Int] = List()
+  j = *Job(t: total(?xs)&)
+  k = +j
+  <j
+  !xs.push(1)
+  <k
+  print(xs.len)
+
+fail "task returned out of a deadline's closure keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # The oracle abstains here (a generic instance at a view).
+  use std.time
+
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  xs: List[Int] = List()
+  t = time.within(time.MS * 100, |?xs| total(?xs)&) catch return
+  !xs.push(2)
+  print(>t)
+
 fail "task in a Cell", "a Cell holds no task, and `Task[Int]` is one: a cycle through a Cell could keep the task from ever being waited for; wait for it first and keep what it gives", errors: 1
   # A Cell is a shared home, which holds no task, even one with no loan.
   fun sq(x: Int) -> Int

@@ -320,6 +320,20 @@ Other:
     leaves its binding by no use of its name: `break t` of one is
     "`t` is a task lent to write, ... only waited for or canceled where
     it is bound", as `<t` was. Wait for the task first.
+73. *Unsound:* a value holding a task keeps the task's loans while it
+    lives. A local object (`j = Job(t: total(?xs)&)`), an optional
+    (`o: Task[Int]? = total(?xs)&`), a count of a `*Job` holding one,
+    and a task given back by a `time.within` closure (`|?xs|
+    total(?xs)&`) let `!xs.push(2)` or `<xs` through before the wait,
+    and the task read the List after it changed or was dropped (one
+    program printed `0` for `3`, and the sanitizer did not see it).
+    Each is "cannot lend `xs` to write while a read loan is live" or
+    "cannot drop `xs` while it is lent": wait for the task first.
+    The same rule rejects two sound forms: a function `-> Task[Int]`
+    keeps the caller's lent parameter lent until the wait, even when
+    its task does not read it (take the parameter away, or wait before
+    writing), and a `?@` method that gives a task is called with its
+    lend written, `?b.spawn()`, and keeps `b` lent until the wait.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
