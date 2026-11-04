@@ -8549,9 +8549,9 @@ pub const Emitter = struct {
 
     /// `rig.swapPlaces(&a, &b)` / `rig.swapValue(&place, value)`: each
     /// place by its address, a held write view as the pointer it is
-    /// (`sema.swapsTwoPlaces`).
-    fn emitSwapCall(self: *Emitter, args: []const Sexp) Error!void {
-        const two = args.len == 2 and self.facts.swapsTwoPlaces(args[1]);
+    /// (`SemContext.swapCallOf`).
+    fn emitSwapCall(self: *Emitter, args: []const Sexp, swap: facts.SwapCall) Error!void {
+        const two = args.len == 2 and swap == .places;
         try self.w.writeAll(if (two) "rig.swapPlaces(" else "rig.swapValue(");
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
@@ -9152,7 +9152,7 @@ pub const Emitter = struct {
             .warn => self.emitWarn(args),
         };
         if (self.stringCall(sexp)) |op| return self.emitStringCall(sexp, op);
-        if (self.facts.isSwapCall(sexp)) return self.emitSwapCall(args);
+        if (self.facts.swapCallOf(sexp)) |swap| return self.emitSwapCall(args, swap);
         if (callee == .src and self.facts.symbolOf(callee) == null and facts.syntax.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
         // names, or a value of the object it names.

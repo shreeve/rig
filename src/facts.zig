@@ -58,6 +58,7 @@ pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
 pub const BuiltinCall = sema.BuiltinCall;
+pub const SwapCall = sema.SwapCall;
 pub const Proven = sema.Proven;
 pub const ProvenIf = sema.ProvenIf;
 pub const FlagTest = sema.FlagTest;
@@ -265,11 +266,6 @@ pub const Facts = struct {
     pub fn startOf(f: Facts, node: Sexp) u32 {
         return f.c().startOf(node);
     }
-    /// Whether the built-in `swap`'s second argument exchanges a second
-    /// place, not a value (`sema.swapsTwoPlaces`).
-    pub fn swapsTwoPlaces(f: Facts, arg: Sexp) bool {
-        return sema.swapsTwoPlaces(f.c(), arg, f.c().typeOf(arg));
-    }
     /// Whether the function or method whose name leaf is `name` is
     /// emitted `inline` (`inlining.decide`).
     pub fn isInlined(f: Facts, name: Sexp) bool {
@@ -367,9 +363,10 @@ pub const Facts = struct {
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
     }
-    /// Whether `call` is of the built-in `swap` (`SemContext.isSwapCall`).
-    pub fn isSwapCall(f: Facts, call: Sexp) bool {
-        return f.c().isSwapCall(call);
+    /// What `call` of the built-in `swap` exchanges
+    /// (`SemContext.swapCallOf`); null for any other call.
+    pub fn swapCallOf(f: Facts, call: Sexp) ?SwapCall {
+        return f.c().swapCallOf(call);
     }
     /// The built-in type's method a call's callee names, which emit
     /// lowers on its own (`sema.BuiltinCall`).
