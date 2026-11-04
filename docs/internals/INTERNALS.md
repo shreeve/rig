@@ -5071,7 +5071,15 @@ symbols); a query that decides more than that is a recorded fact.
   `storage.heldSelf`), then its arguments; and the ownership checker
   holds an arm's loans until the select returns. Sema records which
   expressions are lent this way (`SemContext.lendOf`, the `callable`
-  row).
+  row). A select of named arms (`task.select(got: !a.on_recv(), late:
+  time.after(ns))`, `Checker.taskSelectNamed`) holds no function: its
+  value's type is an enum made once per list of names and payloads
+  (`sema.selectType`, flagged `select_result`, named `select(got,
+  late)`), which emit writes as `rig.Select(&.{ names }, &.{ payloads
+  })`, one Zig type per list, and the call as `rig.selectValue(T, .{
+  arms })`, which fills the winner's variant from the index `selectArms`
+  gives. A deadline arm is `rig.afterArm(ns)`, which holds no channel
+  and wakes the select at its time.
 - **Zig-backed declarations.** An `extern zig "file.zig"` block imports
   the file, which `rig` writes into the package as `rig/std/file.zig`
   from the module graph (`Module.shims`, read where the module is), and

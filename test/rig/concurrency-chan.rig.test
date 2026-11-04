@@ -296,7 +296,7 @@ fail "chan only behind a handle", "a channel lives only behind a shared handle: 
 fail "chan holds no view", "a channel's values hold no loan, and a `?String` may hold a view"
   c = *Chan[?String](4)
 
-fail "chan arm outside select", "`on_recv` makes an arm of `task.select`, and stands only as one of its arguments: `task.select((!c).on_recv(...), ...)`", errors: 1
+fail "chan arm outside select", "`on_recv` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: !c.on_recv(...), ...)`", errors: 1
   c = *Chan[Int](1)
   _ = (!c).on_recv(|v| v)
 
@@ -374,3 +374,149 @@ test "chan close with a sender waiting panics in the sender", seeds: 20, timeout
   print(r)
   print((!ch).recv()! ?? -1)
   print((!ch).recv()! ?? -1)
+
+test "chan select named", seeds: 20, timeout: 10, "4"
+  # `task.select(name: arm, ...)` gives a value whose variants are the
+  # arms' names; the winner's body runs in the enclosing scope, so two
+  # bodies write one value. A closed channel gives `none`.
+  use std.task
+  use std.time
+
+  sub feed(ch: *Chan[Int], n: Int)!
+    for i in 1..=n
+      !ch.send(i)!
+    !ch.close()
+
+  a = *Chan[Int](4)
+  b = *Chan[Int](4)
+  fa = feed(+a, 3)&
+  fb = feed(+b, 2)&
+  n = 0
+  a_open = true
+  b_open = true
+  while a_open or b_open
+    match task.select(
+      add:  !a.on_recv(),
+      sub:  !b.on_recv(),
+      late: time.after(time.SECOND)
+    )!
+      .add(v?) => n += v
+      .add(none) => a_open = false
+      .sub(v?) => n -= v
+      .sub(none) => b_open = false
+      .late => print("timeout")
+  >fa!
+  >fb!
+  print(n + 1)
+
+test "chan select named send", seeds: 20, "hi full"
+  # A send arm carries nothing; a send that loses drops its value.
+  a = *Chan[String](1)
+  b = *Chan[String](1)
+  !a.send(String("hi"))!
+  !b.send(String("full"))!
+  match task.select(got: !a.on_recv(), put: !b.on_send(<String("lost")))!
+    .got(s?) => print(s, (!b).recv()! ?? String("none"))
+    .got(none) => print("closed")
+    .put => print("sent")
+
+test "chan select named value", seeds: 20, timeout: 10, '''
+  true
+  late
+  kept 1
+'''
+  # The select's value is a value like any other: bound, tested with
+  # `matches`, and matched later. A received String moves out of it.
+  use std.task
+  use std.time
+
+  a = *Chan[String](1)
+  r = task.select(got: !a.on_recv(), late: time.after(time.MS))!
+  print(r matches .late)
+  if r matches .late
+    print("late")
+  !a.send(String("kept"))!
+  kept = List[String]()
+  r2 = task.select(got: !a.on_recv(), late: time.after(time.SECOND))!
+  match <r2
+    .got(s?) => !kept.push(<s)
+    .got(none) => print("closed")
+    .late => print("late")
+  print(kept[0], kept.len)
+
+test "chan select named fails at a deadline", seeds: 20, timeout: 10, "Stop.timeout"
+  # The select is a fallible waiting point: a task's deadline fails it.
+  use std.task
+  use std.time
+
+  q = *Chan[Int](1)
+  r = time.within(time.MS, |!q| task.select(got: !q.on_recv())!) catch |e|
+    print(e)
+    return
+  _ = r
+
+test "chan select named in a generic", seeds: 20, "7 none"
+  # A receive arm of a `T` carries a `T?`, in a generic body as anywhere.
+  fun first[T](a: *Chan[T], b: *Chan[T]) -> T?!
+    match task.select(x: !a.on_recv(), y: !b.on_recv())!
+      .x(v) => v
+      .y(v) => v
+
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !a.send(7)!
+  x = first(+a, +b)! ?? -1
+  !b.close()
+  !a.close()
+  print(x, "none" if first(+a, +b)! == none else "value")
+
+fail "chan select named arms", "6:35: each arm of `task.select` has a name, the variant its value matches in a `match`: `b: !b.on_recv()`", "7:34: two arms of `task.select` are named `x`", "8:20: a named arm gives what it receives to the `match` on the select's value, and takes no function: `x: !a.on_recv()`", "9:10: `after` makes a deadline arm of `task.select`", errors: 4
+  use std.task
+  use std.time
+
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  _ = task.select(x: !a.on_recv(), !b.on_recv())!
+  _ = task.select(x: !a.on_recv(), x: !b.on_recv())!
+  _ = task.select(x: (!a).on_recv(|v| v))!
+  _ = time.after(5)
+
+fail "chan select named match", "6:7: `match` is not exhaustive: it misses `.got(none)`, `.late`", "10:4: variant `put` has no payload to destructure", "11:10: type mismatch: expected `Int`, got `select(got, put)`"
+  use std.task
+  use std.time
+
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  match task.select(got: !a.on_recv(), late: time.after(5))!
+    .got(v?) => print(v)
+  match task.select(got: !a.on_recv(), put: !b.on_send(<1))!
+    .got(v) => print(v ?? 0)
+    .put(v) => print(v)
+  n: Int = task.select(got: !a.on_recv(), put: !b.on_send(<1))!
+  print(n)
+
+fail "chan select named sends what it moves", "4:17: use of `s` after move"
+  a = *Chan[String](1)
+  s = String("x")
+  match task.select(put: !a.on_send(<s))!
+    .put => print(s)
+
+fail "chan select named in a block a view escapes", "11:7: `s` does not live long enough", "14:7: `t` does not live long enough"
+  use std.task
+  use std.time
+
+  a = *Chan[Int](1)
+  r: ?String = "outer"
+  if true
+    s = String("inner")
+    match task.select(got: !a.on_recv(), late: time.after(1))!
+      .got(_) => pass
+      .late => pass
+    r = ?s
+  if true
+    t = String("inner")
+    r = ?t
+    match task.select(got: !a.on_recv(), late: time.after(1))!
+      .got(_) => pass
+      .late => pass
+  print(r)

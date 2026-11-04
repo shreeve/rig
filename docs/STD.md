@@ -769,6 +769,7 @@ it cannot be mixed up with the wall clock's nanoseconds; only
 | `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
 | `sleep(ns: Int)!task.Stop` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
+| `after(ns: Int)` | a deadline arm of `task.select`, `late: time.after(ns)`, which completes once `ns` nanoseconds have passed since the select made it; it stands only in a select ([SPEC §18](../SPEC.md#channels)) |
 | `within[R](ns: Int, f: once ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(d, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
 | `since_start() -> Int` | the nanoseconds on the monotonic clock since the program started: a duration, which a function value can read with no `Instant` to hold. Only a program that names it reads the clock as it starts |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
@@ -834,7 +835,7 @@ same waiting points fail with `Stop.timeout`.
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: ns)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `ns` nanoseconds; past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
-| `select(arm, ...)` | wait until one arm, `(!ch).on_recv(f)` or `(!ch).on_send(<v, f)`, can complete, commit it alone, and give what its `f` gives ([SPEC §18](../SPEC.md#channels)) |
+| `select(name: arm, ...)` | wait until one arm, `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, or `name: time.after(ns)`, can complete, commit it alone, and give a value whose variant is the winner's name, matched by `match`: a receive's carries the value as `T?`, none once the channel is closed and empty ([SPEC §18](../SPEC.md#channels)) |
 
 A long computation calls `task.check()!` where stopping is safe:
 

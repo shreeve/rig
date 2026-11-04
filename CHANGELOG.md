@@ -324,6 +324,23 @@ channel, or the List holding it, that another arm waits on
 
 ### Language and compiler
 
+- **`task.select` names its arms and gives a value that `match` takes
+  apart.** `match task.select(add: !a.on_recv(), sub: !b.on_recv(),
+  late: time.after(50 * time.MS))!` gives a value of its own type,
+  `select(add, sub, late)` in messages, whose variants are the arms'
+  names: a receive's carries the value as `T?`, a send's and a
+  deadline's nothing. No arm holds a closure, so the winner's body runs
+  in the enclosing scope, two bodies may write one value, and arms may
+  give different types; the value may be bound and matched later, or
+  tested with `matches`. `time.after(ns)` is the deadline arm. Arms of
+  closures are the old spelling, still accepted;
+  `tools/migrate-select.py` rewrites them. An unnamed arm of the new
+  form is rejected with its name to write.
+- **Arms that test one optional field both ways cover the variant.**
+  `.got(v?)` and `.got(none)`, with no guard, cover `.got`, so a `match`
+  needs no `_` for it; a `_` after them that covers nothing else is an
+  arm that never runs.
+
 - **An arm of `task.select` keeps its closure until the select runs
   it.** Emit made each arm's closure environment in a block of the arm
   that ended before the select called the arm, so an arm that captured

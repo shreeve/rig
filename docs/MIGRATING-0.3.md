@@ -593,6 +593,7 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | `b'A'`, `b"\n"` | `'A'`, `"\n"` where a `U8` or a `[N]U8` goes | by hand |
 | `within:` on a set's wait, `wait_all`, `task.both` | `time.within(ns, \|\| ...)`, `>ts`, `task.all` | by hand, as the compiler says |
 | a public generic that nests itself through a call through an API on ever deeper instances | reported where it is declared, though nothing calls it (#647) | by hand |
+| `task.select((!a).on_recv(\|v\| f(v)), (!b).on_send(<x, \|\| 0))!`, arms of closures | still accepted; `match task.select(a: !a.on_recv(), b: !b.on_send(<x))!` with arms `.a(v) => f(v)` and `.b => 0`, which goes in the next release | `tools/migrate-select.py PATH` (`MANUAL` for a closure over several lines, a `catch` after the select, a select in an expression) |
 | an arm of `task.select` that reads, takes, or writes what another arm's closure or channel uses: `<s` beside `\|?s, v\|`, `n` sent beside `\|!n, v\|`, two arms' `\|!n, v\|`, `<a` beside `(!a).on_recv(...)`, `<chs` beside `(!chs[0])` | rejected: every arm is made before the select runs one; bind what the arms share before the select, or give each its own | by hand |
 
 `std.json` needs no change: `(!doc).parse(?src)` still answers a

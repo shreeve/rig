@@ -3831,6 +3831,7 @@ const Checker = struct {
             if (partial) {
                 var it = guarded.variants.keyIterator();
                 while (it.next()) |k| try cov.guarded.put(self.ctx.allocator, k.*, {});
+                if (guard == .nil) for (alts) |alt| try self.coverTested(&cov, alt);
             }
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) {
@@ -3885,9 +3886,36 @@ const Checker = struct {
         return result orelse self.t().invalid_id;
     }
 
+    /// An unguarded arm whose variant pattern tests one optional field,
+    /// `.got(v?)` or `.got(none)`, and leaves every other field to match
+    /// any value: the half of the variant it covers. Arms that cover
+    /// both halves of one field cover the variant (`MatchCoverage.tested`).
+    fn coverTested(self: *Checker, cov: *MatchCoverage, alt: Sexp) Error!void {
+        if (!alt.isKind(.variant_pattern)) return;
+        const tests = self.ctx.payloadTests(alt) orelse return;
+        var field: ?usize = null;
+        for (tests, 0..) |test_of, i| if (test_of != .any) {
+            if (field != null) return;
+            field = i;
+        };
+        const at = field orelse return;
+        const name = self.text(rig.variantPatternName(alt));
+        if (cov.variants.contains(name)) return;
+        const half: u2 = if (tests[at] == .some) 1 else 2;
+        const got = try cov.tested.getOrPut(self.ctx.allocator, name);
+        if (!got.found_existing) got.value_ptr.* = .{ .field = at, .halves = 0 };
+        if (got.value_ptr.field != at) return;
+        got.value_ptr.halves |= half;
+        if (got.value_ptr.halves == 3) try cov.variants.put(self.ctx.allocator, name, self.startOf(alt));
+    }
+
     /// What the arms of a match have covered so far.
     const MatchCoverage = struct {
         variants: std.StringHashMapUnmanaged(u32) = .empty,
+        /// Variants unguarded arms cover half of, by testing one optional
+        /// field (`coverTested`): the field, and the halves covered, 1
+        /// for `v?` and 2 for `none`.
+        tested: std.StringHashMapUnmanaged(struct { field: usize, halves: u2 }) = .empty,
         bools: [2]bool = .{ false, false },
         /// Inclusive integer intervals, disjoint, apart, and in order.
         ints: std.ArrayList([2]Wide) = .empty,
@@ -3907,6 +3935,7 @@ const Checker = struct {
 
         fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
             c.variants.deinit(a);
+            c.tested.deinit(a);
             c.ints.deinit(a);
             c.guarded.deinit(a);
         }
@@ -4334,7 +4363,16 @@ const Checker = struct {
             for (fields) |f| {
                 if (!f.is_variant or cov.variants.contains(f.name)) continue;
                 count += 1;
-                if (count <= 4) try missing.print(a, "{s}`.{s}`{s}", .{ if (count > 1) ", " else "", f.name, if (cov.guarded.contains(f.name)) " (its arm has a guard)" else "" });
+                if (count > 4) continue;
+                if (count > 1) try missing.appendSlice(a, ", ");
+                // Half a variant (`coverTested`): the half its arms miss.
+                if (cov.tested.get(f.name)) |half| if (f.payload) |payload| {
+                    try missing.print(a, "`.{s}(", .{f.name});
+                    for (0..payload.len) |i| try missing.print(a, "{s}{s}", .{ if (i > 0) ", " else "", if (i != half.field) "_" else if (half.halves == 1) "none" else "v?" });
+                    try missing.appendSlice(a, ")`");
+                    continue;
+                };
+                try missing.print(a, "`.{s}`{s}", .{ f.name, if (cov.guarded.contains(f.name)) " (its arm has a guard)" else "" });
             }
             if (count > 4) try missing.print(a, ", and {d} more", .{count - 4});
             if (count > 0) return self.err(pos, "`match` is not exhaustive: it misses {s}; {s}", .{ missing.items, if (count > 1) "add an arm for each, or `_ =>` for the rest" else fix });
@@ -13167,7 +13205,7 @@ const Checker = struct {
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.chanValue(self.ctx, peeled) != null and (std.mem.eql(u8, method, "on_recv") or std.mem.eql(u8, method, "on_send"))) {
-                try self.err(pos, "`{s}` makes an arm of `task.select`, and stands only as one of its arguments: `task.select((!{s}).{s}(...), ...)`", .{ method, try self.plainText(stripSigil(obj)), method });
+                try self.err(pos, "`{s}` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: !{s}.{s}(...), ...)`", .{ method, try self.plainText(stripSigil(obj)), method });
             } else if (std.mem.eql(u8, method, "text") and (self.hasVariantNames(peeled) or peeled == self.t().symbol_id)) {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
@@ -14819,8 +14857,7 @@ const Checker = struct {
     /// Null for any other call of module `module_sym`. One lookup of the
     /// module for every call through one.
     fn stdForm(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-        const module = (self.ctx.foreign_semas.get(origin) orelse return null).name;
+        const module = self.stdModule(module_sym) orelse return null;
         const eql = std.mem.eql;
         if (eql(u8, module, "std.task")) {
             if (eql(u8, name, "all")) return try self.taskJoin(pos, args);
@@ -14834,6 +14871,8 @@ const Checker = struct {
             if (eql(u8, name, "serve")) return try self.httpServe(module_sym, pos, args);
         } else if (eql(u8, module, "std.io")) {
             if (eql(u8, name, "copy")) return try self.ioCopy(pos, args);
+        } else if (eql(u8, module, "std.time")) {
+            if (eql(u8, name, "after")) return try self.badCall(args, pos, "`after` makes a deadline arm of `task.select`, and stands only as one of its arguments: `task.select(late: time.after(ns), ...)`", .{});
         }
         return null;
     }
@@ -15166,8 +15205,12 @@ const Checker = struct {
     /// the same type, and is a closure written in the arm, a closure's
     /// view, or a function's name. A fallible waiting point.
     fn taskSelect(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
+        if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on, each named: `task.select(got: !ch.on_recv(), late: time.after(ns))`", .{});
+        for (args) |a| if (a.isKind(.kwarg)) return self.taskSelectNamed(pos, args);
+        // An arm of the named form written without its name.
+        for (args) |arm| if (try self.namedArmShape(arm))
+            return try self.badArms(args, arm, "each arm of `task.select` has a name, the variant its value matches in a `match`: `{s}: {s}`", .{ try self.armName(arm), try self.armText(arm) });
         const shape = "each arm of `task.select` is `(!ch).on_recv(|v| ...)` or `(!ch).on_send(<v, || ...)`";
-        if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on; {s}", .{shape});
         // Every arm's function first, each typed alone (`armResult`):
         // their join is what each must give, so no arm's order decides it.
         const Arm = struct { recv: bool, elem: TypeId, given: []const TypeId, gives: TypeId, panics: bool };
@@ -15229,6 +15272,133 @@ const Checker = struct {
         if (saved_call) |c| try self.ctx.recordSelect(c);
         self.ctx.makes_tasks = true;
         return try self.ctx.intern(.{ .fallible = .{ .ok = value } });
+    }
+
+    /// `task.select(name: arm, ...)`: wait until one arm can complete,
+    /// commit it alone, and give a value of the select's own type
+    /// (`sema.selectType`), whose variants are the arms' names: a
+    /// receive, `!ch.on_recv()`, carries the value as `T?`, none once the
+    /// channel is closed and empty; a send, `!ch.on_send(<v)`, and a
+    /// deadline, `time.after(ns)`, carry nothing. No arm holds a
+    /// function, so the `match` on the value runs the winner's body in
+    /// the enclosing scope. A fallible waiting point.
+    fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
+        const shape = "each arm of `task.select` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, or `name: time.after(ns)`";
+        const a = self.ctx.arena.allocator();
+        const names = try a.alloc([]const u8, args.len);
+        const payloads = try a.alloc(?TypeId, args.len);
+        const saved_call = self.current_call;
+        const saved_callee = self.callee_node;
+        defer {
+            self.current_call = saved_call;
+            self.callee_node = saved_callee;
+        }
+        for (args, names, payloads, 0..) |arg, *name, *payload, i| {
+            if (!arg.isKind(.kwarg)) return try self.badArms(args, arg, "each arm of `task.select` has a name, the variant its value matches in a `match`: `{s}: {s}`", .{ try self.armName(arg), try self.armText(arg) });
+            name.* = self.text(ir.Kwarg.name(arg));
+            for (names[0..i]) |earlier| if (std.mem.eql(u8, earlier, name.*))
+                return try self.badArms(args, ir.Kwarg.name(arg), "two arms of `task.select` are named `{s}`; each name is a variant of the value it gives, so each is its own", .{name.*});
+            const arm = ir.Kwarg.value(arg);
+            if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return try self.badArms(args, arm, "{s}", .{shape});
+            const callee = ir.Call.callee(arm);
+            const method = self.text(ir.Member.name(callee));
+            const arm_args = ir.Call.args(arm);
+            self.current_call = arm;
+            self.callee_node = callee;
+            if (try self.isAfterArm(arm)) {
+                const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = self.t().void_id, .is_sub = true };
+                try self.noteCallee(f);
+                try self.checkArgs(arm_args, f, .{ .names = &.{"ns"} }, "after", self.startOf(callee), .{ .declared = f.params });
+                try self.ctx.recordType(arm, self.t().void_id);
+                try self.ctx.recordSelectArm(arm, .after);
+                payload.* = null;
+                continue;
+            }
+            const recv = std.mem.eql(u8, method, "on_recv");
+            if (!recv and !std.mem.eql(u8, method, "on_send")) return try self.badArms(args, arm, "{s}", .{shape});
+            const obj = ir.Member.object(callee);
+            if (!obj.isKind(.write)) return try self.badArms(args, obj, "an arm receives or sends, which changes the channel: mark it, `!{s}.{s}(...)`", .{ self.sourceText(obj), method });
+            const handle = ir.get(obj, .operand);
+            const handle_ty = try self.synthExpr(handle);
+            if (self.isPoison(handle_ty)) return try self.skipArms(args);
+            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badArms(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
+            if (arm_args.len != @as(usize, if (recv) 0 else 1)) {
+                if (recv) return try self.badArms(args, arm, "a named arm gives what it receives to the `match` on the select's value, and takes no function: `{s}: !{s}.on_recv()`", .{ name.*, self.sourceText(handle) });
+                return try self.badArms(args, arm, "a named arm sends one value and takes no function: `{s}: !{s}.on_send(<v)`", .{ name.*, self.sourceText(handle) });
+            }
+            const f: FunctionType = .{ .params = if (recv) &.{} else try self.ctx.dupeIds(&.{elem}), .returns = self.t().void_id, .is_sub = true };
+            try self.noteCallee(f);
+            try self.checkArgs(arm_args, f, .{ .names = if (recv) &.{} else &.{"value"} }, method, self.startOf(callee), .{ .declared = f.params });
+            try self.ctx.recordType(arm, self.t().void_id);
+            try self.ctx.recordSelectArm(arm, if (recv) .recv else .send);
+            payload.* = if (recv) try self.ctx.intern(.{ .optional = elem }) else null;
+        }
+        if (saved_call) |c| try self.ctx.recordSelect(c);
+        self.ctx.makes_tasks = true;
+        return try self.ctx.intern(.{ .fallible = .{ .ok = try sema.selectType(self.ctx, names, payloads, pos) } });
+    }
+
+    /// `badCall` of `task.select`: the arms' channels and values are
+    /// checked, not the arms, which stand only in a select.
+    fn badArms(self: *Checker, args: []const Sexp, at: anytype, comptime fmt: []const u8, fmt_args: anytype) Error!TypeId {
+        if (@TypeOf(at) == Sexp) try self.errAt(at, fmt, fmt_args) else try self.err(at, fmt, fmt_args);
+        return self.skipArms(args);
+    }
+
+    fn skipArms(self: *Checker, args: []const Sexp) Error!TypeId {
+        for (args) |a| {
+            const arm = storage.argValue(a);
+            if (arm.isKind(.call) and ir.Call.callee(arm).isKind(.member)) {
+                const obj = ir.Member.object(ir.Call.callee(arm));
+                if ((try self.moduleNamed(obj)) == null) _ = try self.synthExpr(if (obj.isKind(.write) or obj.isKind(.read)) ir.get(obj, .operand) else obj);
+                try self.synthArgs(ir.Call.args(arm));
+            } else try self.synthArgs(&.{arm});
+        }
+        return self.t().invalid_id;
+    }
+
+    /// Whether `arm` is a deadline arm, `time.after(ns)` of `std.time`.
+    fn isAfterArm(self: *Checker, arm: Sexp) Error!bool {
+        if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return false;
+        const callee = ir.Call.callee(arm);
+        if (!std.mem.eql(u8, self.text(ir.Member.name(callee)), "after")) return false;
+        const module = (try self.moduleNamed(ir.Member.object(callee))) orelse return false;
+        return std.mem.eql(u8, self.stdModule(module) orelse return false, "std.time");
+    }
+
+    /// Whether `arm`, unnamed, is written as an arm of the named form
+    /// (`taskSelectNamed`): `!ch.on_recv()`, `!ch.on_send(<v)`, or
+    /// `time.after(ns)`.
+    fn namedArmShape(self: *Checker, arm: Sexp) Error!bool {
+        if (try self.isAfterArm(arm)) return true;
+        if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return false;
+        const method = self.text(ir.Member.name(ir.Call.callee(arm)));
+        const n = ir.Call.args(arm).len;
+        return (std.mem.eql(u8, method, "on_recv") and n == 0) or (std.mem.eql(u8, method, "on_send") and n == 1);
+    }
+
+    /// A name for an unnamed arm, which its diagnostic suggests: its
+    /// channel's, when that is a name, `late` for a deadline, else `arm`.
+    fn armName(self: *Checker, arm: Sexp) Error![]const u8 {
+        if (try self.isAfterArm(arm)) return "late";
+        if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return "arm";
+        const obj = ir.Member.object(ir.Call.callee(arm));
+        const handle = if (obj.isKind(.write) or obj.isKind(.read)) ir.get(obj, .operand) else obj;
+        return if (handle == .src) self.text(handle) else "arm";
+    }
+
+    /// An arm as written, its channel's `!` included.
+    fn armText(self: *Checker, arm: Sexp) Error![]const u8 {
+        const shown = try self.plainText(arm);
+        if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member) or !ir.Member.object(ir.Call.callee(arm)).isKind(.write)) return shown;
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "!{s}", .{shown});
+    }
+
+    /// The name of std module `module_sym` names (`std.time`), or null for
+    /// a module of the program's own.
+    fn stdModule(self: *Checker, module_sym: SymbolId) ?[]const u8 {
+        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
+        return (self.ctx.foreign_semas.get(origin) orelse return null).name;
     }
 
     /// What an arm's function `f`, given `params`, gives: a closure
