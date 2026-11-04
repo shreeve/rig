@@ -386,6 +386,15 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **`$type(x)` takes an operand that runs nothing.** Zig's `@TypeOf`
+  never evaluates `x`, while the checkers walked it as run: `$size($type(<s))`
+  was a move of `s` that never happened, and `$size($type(f()))` a call
+  of `f` that never ran. A call, a move, a write lend, a clone, a box or
+  handle, a propagation, a `catch`, or a `panic` in the operand is
+  rejected, naming what was found. `$variants($type(x))`, which stopped
+  the build with an internal error, is rejected as any `$type` outside
+  `$size`, `$align`, `$name`, and `$plain` is. No program in the corpus
+  wrote either.
 - **`E.from_int(n)` is a range test when `E`'s values fill a range.**
   An enum declaring no values, whose values run from 0, or one whose
   values fill any range `lo..hi`, tests `n` against the range and casts

@@ -5858,7 +5858,10 @@ the name its `(`, which a builtin always takes. Rig's own work anywhere:
 `$size(T)` and `$align(T)` are a type's size and alignment in bytes,
 `$name(T)` is its name, `$plain(T)` is whether it is plain data
 ([Generic bodies](#generic-bodies)), and `$type(x)`, only as the
-argument of one of these four, is the type of `x`. `$variants(T)` is the variants of a
+argument of one of these four, is the type of `x`. `$type` does not
+run `x`, so `x` holds nothing that would run or change ownership: a
+call, a move, a write lend, a clone, a box or handle, a propagation, a
+`catch`, or a `panic` in it is rejected. `$variants(T)` is the variants of a
 plain enum ([§3](#enums)). A type argument is written as one is
 in an expression (`List[Int]`, `?P`, `Int?`; a slice, array, or function
 type through a `type` alias).
