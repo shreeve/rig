@@ -9316,6 +9316,20 @@ pub const Emitter = struct {
         // `task.select(arm, ...)`: each arm a channel operation and the
         // function the runtime calls when it is the one that commits.
         if (self.facts.isSelect(sexp)) {
+            // Named arms: the value of the select's own type
+            // (`rig.Select`), the winner's variant.
+            if (self.selectResult(sexp)) |ty| {
+                // The runtime's own call, which takes no slot.
+                _ = self.takeFailSlot(sexp);
+                try self.w.writeAll("rig.selectValue(");
+                try self.emitTypeTy(ty);
+                try self.w.writeAll(", .{ ");
+                for (args, 0..) |arm, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.emitExpr(argValue(arm));
+                }
+                return self.w.writeAll(" })");
+            }
             // The runtime calls the arm's function with the slot.
             const out = self.slotOf(sexp);
             try self.w.writeAll("rig.selectInto(.{ ");
@@ -9328,6 +9342,11 @@ pub const Emitter = struct {
         // An arm of `task.select`: the channel, the value an arm sends,
         // and the function the runtime calls.
         if (self.facts.selectArmOf(sexp)) |kind| {
+            if (kind == .after) {
+                try self.w.writeAll("rig.afterArm(");
+                try self.emitArgs(sexp);
+                return self.w.print(", {d})", .{facts.after_arm.unit_ns});
+            }
             const handle = ir.get(ir.Member.object(callee), .operand);
             try self.w.writeAll(if (kind == .recv) "rig.recvArm(" else "rig.sendArm(");
             // A channel its select evaluated in the arm's turn is read
@@ -9337,6 +9356,8 @@ pub const Emitter = struct {
             } else try self.emitMemberBase(handle, self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel"));
             try self.w.writeAll(", ");
             try self.emitArgs(sexp);
+            // A named arm calls no function (`selectValue`).
+            if (ir.Call.args(sexp).len == @as(usize, if (kind == .recv) 0 else 1)) try self.w.writeAll(if (kind == .recv) "{}" else ", {}");
             return self.w.writeAll(")");
         }
         // `http.serve(<listener, f)`: the runtime's server.
@@ -10078,7 +10099,7 @@ pub const Emitter = struct {
     /// select commits has run.
     fn hoistParts(self: *Emitter, call: Sexp, id: u32) Error!void {
         if (self.facts.isSelect(call)) {
-            for (ir.Call.args(call)) |arm| try self.hoistParts(arm, self.nextId());
+            for (ir.Call.args(call)) |arm| try self.hoistParts(argValue(arm), self.nextId());
             return;
         }
         const args = ir.Call.args(call);
@@ -11089,6 +11110,18 @@ pub const Emitter = struct {
     /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.facts.symbols.items[sym];
+        // The value of `task.select(name: arm, ...)`: one Zig type per
+        // list of names and payloads (`rig.Select`).
+        if (s.flags.select_result) {
+            try self.w.writeAll("rig.Select(&.{ ");
+            for (s.fields.?, 0..) |f, i| try self.w.print("{s}\"{s}\"", .{ if (i > 0) ", " else "", f.name });
+            try self.w.writeAll(" }, &.{ ");
+            for (s.fields.?, 0..) |f, i| {
+                if (i > 0) try self.w.writeAll(", ");
+                if (f.payload) |p| try self.emitTypeTy(p[0].ty) else try self.w.writeAll("void");
+            }
+            return self.w.writeAll(" })");
+        }
         if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or sym == self.facts.printer_sym_id or sym == self.facts.hasher_sym_id) {
             // The runtime's `Box(T)` is `^T`.
             return self.w.print("rig.{s}", .{if (sym == self.facts.box_sym_id) "Box" else s.name});
@@ -11144,6 +11177,20 @@ pub const Emitter = struct {
     fn known(self: *Emitter, ty: TypeId) ?TypeId {
         if (ty == self.facts.types.unknown_id or ty == self.facts.types.invalid_id) return null;
         return ty;
+    }
+
+    /// The type of the value `task.select(name: arm, ...)` gives, when
+    /// `call` is one (`sema.selectType`); null for a select of closures.
+    fn selectResult(self: *Emitter, call: Sexp) ?TypeId {
+        const ty = self.typeOf(call) orelse return null;
+        const ok = switch (self.facts.types.get(ty)) {
+            .fallible => |f| f.ok,
+            else => return null,
+        };
+        return switch (self.facts.types.get(ok)) {
+            .nominal => |sym| if (self.facts.symbols.items[sym].flags.select_result) ok else null,
+            else => null,
+        };
     }
 
     /// `storage.fnType`.

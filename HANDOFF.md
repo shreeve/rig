@@ -139,6 +139,14 @@ A new session, human or agent, takes these steps in order:
     ([panel-decisions.md](docs/history/records/2026-11/revamp-compiler/panel-decisions.md)).
     The check guard is a merge gate (AGENTS step 6), and the `for`-source
     sigil and marked `collect` of views are being built.
+- **`select` as a value matched by `match`**, approved and built as
+  a test case (records/2026-11/revamp-compiler/panel-select-*.md):
+  `match task.select(add: !a.on_recv(), late: time.after(ns))!` with
+  arms `.add(v?)`, `.add(none)`, `.late`. A compile-time function that
+  builds types may later replace `sema.selectType` without changing
+  what programs write. The closure arms are the old spelling for this
+  release (`tools/migrate-select.py`); a task's end as an arm is next
+  (ROADMAP).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that

@@ -10891,7 +10891,12 @@ alternatives follow the same rule ([match](#match)).
 A payload field that is optional takes `name?`, which matches when it
 holds a value and binds the value, or `none`, which matches when it
 holds none; `_?` tests that it holds one. An arm with such a test, like
-a guarded arm, covers none of its variant's values.
+a guarded arm, covers none of its variant's values, but for this: arms
+with no guard that test one field, and match any value of the others,
+cover the variant once both `name?` and `none` are among them
+(`.ready(r?)` and `.ready(none)` cover `.ready`), and a later arm for
+it never runs. This holds for an enum's variants; a match on errors
+keeps every such arm partial, so it still needs `_`.
 
 ```rig
 enum Shape
@@ -13444,26 +13449,40 @@ through a handle the task holds, and each is a fallible waiting point,
 as `time.sleep` is: a canceled task fails there with
 `task.Stop.canceled`, and past its deadline with `task.Stop.timeout`.
 
-`task.select(arm, ...)` waits until one of its arms can complete,
-commits that one alone, and gives what its function gives:
+`task.select(name: arm, ...)` waits until one of its arms can
+complete, commits that one alone, and gives a value of its own type,
+whose variants are the arms' names, in order. Every arm is named, and
+a `match` on the value runs the winner's body:
 
-- `(!ch).on_recv(f)` receives; `f` takes the value as `T?`, `none`
-  once the channel is closed and empty.
-- `(!ch).on_send(<v, f)` sends `v`; `f` takes nothing. A send arm that
-  loses drops its value.
+- `name: !ch.on_recv()` receives; its variant carries the value as
+  `T?`, `none` once the channel is closed and empty, in a field named
+  `value` (`.got(v?)`, or `.got(value: v?)` by name).
+- `name: !ch.on_send(<v)` sends `v`; its variant carries nothing. A
+  send arm that loses drops its value.
+- `name: time.after(ns)` is a deadline: it completes once `ns`
+  nanoseconds have passed since the select made it, and carries
+  nothing. When it falls with the task's own deadline (`time.within`),
+  the task's comes first, and the select fails with
+  `task.Stop.timeout`.
 
-Each `f` is a closure written in the arm, a closure's view (`?g`), or a
-function's name, and all give the same type, an arm that can fail
-meeting one that cannot as a `T` meets a `T!`, in any order; the select
-calls it on its own task. The select makes every arm, in order, before
-it waits, so what an arm lends (a closure's `|?x|` or `|!x|`) stays
-lent, and what it sends stays taken, until the select returns: one arm
-may not take or write what another arm's closure views. Of arms ready
-at once, the select takes them in an order that turns, so none starves.
-It is a fallible waiting point too.
+Messages name the type by its arms, `select(got, quit, late)`; a
+program never writes it. The value is an ordinary value: it is bound
+and matched later, tested with `matches`, or matched at once, and the
+`match` checks it as any other: every variant covered, each payload of
+its type, a received value moved out with `<`. No arm holds a
+function, so nothing is captured: a `match` runs the winner's body in
+the enclosing scope, and two bodies may write one value. The select
+makes every arm, in order, before it waits, so what an arm lends stays
+lent, and what it sends stays taken, until the select returns. Of arms
+ready at once, the select takes them in an order that turns, so none
+starves. It is a fallible waiting point too: a canceled task fails it
+with `task.Stop.canceled`, and past its deadline with
+`task.Stop.timeout`. An arm with no name is rejected, as is
+`on_recv`, `on_send`, or `time.after` anywhere but in a select.
 
 ```rig
 use std.task
+use std.time
 
 sub produce(ch: *Chan[Int], n: Int)!
   for i in 0..n
@@ -13483,17 +13502,36 @@ sub main()!
   print(sum)
   quit = *Chan[Int](1)
   !quit.send(1)!
-  r = task.select(
-    (!ch).on_recv(|v| "value" if v != none else "closed"),
-    (!quit).on_recv(|_| "quit"),
-  )!
-  print(r == "closed" or r == "quit")
+  open = true
+  while open
+    match task.select(
+      got:  !ch.on_recv(),
+      quit: !quit.on_recv(),
+      late: time.after(time.SECOND)
+    )!
+      .got(v?) => sum += v
+      .got(none) => open = false
+      .quit => open = false
+      .late => print("late")
+  print(sum)
 ```
 
 ```output
 10
-true
+10
 ```
+
+The old spelling of a select, still accepted, gives each arm a
+function instead of a name, and the select gives what the winner's
+function gives: `(!ch).on_recv(f)`, whose `f` takes the value as
+`T?`, and `(!ch).on_send(<v, f)`, whose `f` takes nothing. Each `f` is
+a closure written in the arm, a closure's view (`?g`), or a function's
+name, and all give the same type, an arm that can fail meeting one
+that cannot as a `T` meets a `T!`, in any order; the select calls it
+on its own task. What an arm's closure lends (`|?x|` or `|!x|`) stays
+lent until the select returns: one arm may not take or write what
+another arm's closure views. `tools/migrate-select.py` rewrites it to
+named arms ([MIGRATING-0.3](docs/MIGRATING-0.3.md)).
 
 ### Frozen values
 

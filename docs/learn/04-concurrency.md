@@ -320,7 +320,8 @@ a value and gives it as `Int?`, or `none` once the channel is closed
 and empty, which ends each `while`. Both change the channel, so both
 are marked with `!`, and both can fail, because a canceled task stops
 there. `task.select` waits on several channels and commits exactly one
-arm ([SPEC, Channels](../../SPEC.md#channels)).
+arm, giving a value named for it that a `match` takes apart
+([SPEC, Channels](../../SPEC.md#channels)).
 
 
 ## Deadlocks that report themselves

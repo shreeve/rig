@@ -664,7 +664,8 @@ restarted by a small parent) remains, as defence in depth.
   one word is (built);
 - `select` over channel operations, which commits exactly one arm
   atomically, CML-style, so a message is never taken by an arm that then
-  loses (built: `task.select((!a).on_recv(|v| ...), (!b).on_send(<x, || ...))`);
+  loses (built: `match task.select(got: !a.on_recv(), put: !b.on_send(<x), late: time.after(ns))!`,
+  whose value's variant is the winner's name, its body run in the enclosing scope);
 - `task.supervise` and `*Actor.supervised`.
 
 **Not planned:** a `Mutex`, which an idle actor already is, and a
