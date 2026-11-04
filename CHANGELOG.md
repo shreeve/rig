@@ -240,18 +240,41 @@ Other:
     files and in Markdown's code. Trig has none; loco has one
     (`rig/loc/scan.rig`). `matches` is a word only after a value, so a
     local, parameter, or function named `matches` keeps its name.
-59. *Unsound:* a compile-time call folded in a type, an alias, or an
+59. *Unsound:* a generic type's fields go to a task as they hold each
+    argument: a `W[Task[Int]]` whose field is `r: ?T` holds a
+    `?Task[Int]`, which no task but its holder may read, and was given
+    to a task on another core. So was an object held both by value and
+    through a view (`a: G`, `b: ?G`), whose view was not looked into, and
+    a type that a local task takes and a channel it holds carries
+    (`g: G`, `c: *Chan[G]`, `G` holding a `*List`), whose elements go to
+    any task.
+    Each is rejected where the value goes to the task, as the same type
+    written without generics is.
+60. A payload enum naming its own optional in its layout, `call(args:
+    List[Expr?])` in `enum Expr`, is rejected with the fix to write, as
+    an object's is; Zig failed on it with a dependency loop. Hold an
+    optional box (`^Expr?`) or an optional view (`(?Expr)?`).
+61. A type whose fields reach more than 64 generic instances, the last
+    of which names the type's own optional (`List[Node?]` inside the
+    65th), is rejected as a nearer one is; Zig failed on it with a
+    dependency loop.
+62. A read view that holds a copy of its value counts at its value's
+    size against the 8 MiB limit on a value and the 13 MiB limit on a
+    frame: `[20000 of ?v]` with `v: Simd[I64, 64]` takes 10240000 bytes,
+    as `[20000 of v]` does, and is rejected; it was counted as pointers,
+    and a larger one overflowed the stack. Keep such data in a `List`.
+63. *Unsound:* a compile-time call folded in a type, an alias, or an
     enum's value holds each argument to its parameter's type, as a call
     in a body does: `[size[Other.east]]Int`, for `fun size[d: Dir]`,
     was computed as `Dir.east`, `[size[Nope.east]]Int` with `Nope`
     unbound was accepted, and `[flag[1]]Int` for a `Bool` parameter was
     "must be known at compile time". Pass a value of the parameter's
     type.
-60. *Unsound:* a value lent bare to an actor's method where a `?T` goes
+64. *Unsound:* a value lent bare to an actor's method where a `?T` goes
     is shared with the actor's task, so `T` syncs (SPEC §18), as when
     `?` is written: `c.peek(Holder(...))` of a `Holder` holding a
     `^{Job + Sends}` is rejected, as `c.peek(?Holder(...))` was.
-61. An object's none given to its constructor as a qualified variant or
+65. An object's none given to its constructor as a qualified variant or
     a constant, `Tagged(kind: Kind.empty)` or `Tagged(kind: EMPTY)` for
     `none kind == .empty`, is rejected when checked, as `.empty` was
     (SPEC "An object that names its none"); it panicked when run.
@@ -313,6 +336,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **`sum` adds a generic's elements.** `xs.sum()` of a `[]T` with
   `T: Num` adds them, as `+` on a `T` does, and on an unbounded `T` is
   checked at each instance; it was "`sum` adds numbers".
+- **A type that prints itself prints whatever it holds,** a `[]U8`
+  included, and a generic one whatever its type arguments are (a
+  `G[[]U8]`), since its `print` method chooses what to write; a weak
+  handle prints whether its value lives whatever it reaches, a `~T` of
+  an object holding a `^{Shape}` with no `Print` included.
+- **A `*Frozen[List[T]]` lends its `[]T` to a generic parameter,** as
+  it does to a concrete one: `first(f)` with `first[T](xs: []T)` infers
+  `T` from the List the handle froze.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under

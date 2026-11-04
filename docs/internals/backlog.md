@@ -284,7 +284,8 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   read view of a box is rejected wherever it is written, or a `?T`
   given a box may be held as one.
 - **An object's own optional in its fields is rejected, not built.**
-  `kids: List[Node?]`, `prev: ?Node?`, and `^(Node?)` in `obj Node` are
+  `kids: List[Node?]`, `prev: ?Node?`, and `^(Node?)` in `obj Node`
+  (or in a payload of `enum Node`) are
   refused (sema `checkOptionalLoops`), since `rig.Opt(Node)` asks Zig
   for `Node`'s layout while `Node` is laid out. A layout chosen lazily,
   inside a struct whose fields Zig resolves later, would let them

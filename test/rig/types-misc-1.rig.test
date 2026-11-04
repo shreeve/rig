@@ -5963,6 +5963,18 @@ fail "mask size", "6:9: `[140000]Simd[Bool, 64]` takes 8960000 bytes; a value ta
 
   print(two(1), narrow(1))
 
+fail "read view size", "5:5: `[20000]?Simd[Int, 64]` takes 10240000 bytes; a value takes at most 8388608 (8 MiB)", "7:5: `[600000]?I128` takes 9600000 bytes", "9:4: `[1000000](?Int)?` takes 9000000 bytes"
+  # A read view of a number or a vector holds a copy of it, so it takes
+  # the value's bytes, and its optional a flag more, where a view lent by
+  # address is a pointer.
+  v = Simd[I64, 64].splat(7)
+  a = [20000 of ?v]
+  w: I128 = 3
+  b = [600000 of ?w]
+  n = 4
+  c: [1000000](?Int)? = [1000000 of ?n]
+  print(a[0][3], b[0], c[0])
+
 fail "missing view sigil", "16:9: type mismatch: expected `?S`, got `S`; lend it to read: `?s`", "17:6: type mismatch: expected `!Int`, got `Int`; lend it to write: `!x`"
   # A value where a view of it is expected, and the lend is written (a
   # binding keeps it; a write lend is always written): the message names
@@ -6962,6 +6974,57 @@ fail "print byte slice", "11:7: cannot print a `[]U8`: it would print as text, l
   x = Wrap(v: ?a[0..1])
   print(x)
   print(a, a[0])
+
+test "print through its own print and a weak handle", "B ~(alive) ~(alive)"
+  # A type that prints itself writes only what its method chooses, so
+  # the `[]U8` it holds is not printed; a weak handle prints only whether
+  # its value lives, so what it reaches need not print.
+  api Shape
+    fun area(?@) -> Int
+
+  obj Sq: Shape
+    s: Int
+
+    fun area(?@) -> Int
+      @s * @s
+
+  obj B: Print
+    b: []U8
+
+    sub print(?@, out: !Printer)
+      !out.text("B")
+
+  obj Holder
+    sh: ^{Shape}
+
+  arr: [2]U8 = [1, 2]
+  x = B(b: ?arr[..])
+  h = *Holder(sh: ^Sq(s: 2))
+  s: *{Shape} = *Sq(s: 3)
+  print(x, ~h, ~s)
+
+test "print a generic that prints itself", "G G"
+  # A generic type with its own `print` writes what its method chooses,
+  # whatever its type arguments hold.
+  api Shape
+    fun area(?@) -> Int
+
+  obj Sq: Shape
+    s: Int
+
+    fun area(?@) -> Int
+      @s * @s
+
+  obj G[T]: Print
+    b: T
+
+    sub print(?@, out: !Printer)
+      !out.text("G")
+
+  arr: [2]U8 = [65, 66]
+  x = G(b: ?arr[..])
+  y: G[^{Shape}] = G(b: ^Sq(s: 2))
+  print(x, y)
 
 fail "print byte slice generic", "9:1: `show[[]U8]` cannot use `T = []U8`: the generic body prints a value that holds a `T`, and a `[]U8` would print as text, like a `?String`", "10:6: cannot warn a `[]U8`: it would warn as text, like a `?String`; warn the bytes one by one", "11:14: cannot print a `[]U8`: it would print as text, like a `?String`; print the bytes one by one", errors: 3
   # Printability is a fact of each type, checked for each instance of a
