@@ -474,8 +474,17 @@ parser kept, which `Parser.parseTree` checks for every long token. That
 holds while `rig.grammar`'s `@lexer` has no state, guards, or `@code`:
 a lexer rule that adds one must move `leafEnd` to the parser's table of
 long-token ends, and the check turns a missed case into a panic rather
-than a wrong end. A source file holds at most 16 MiB
-(`modules.max_source_bytes`).
+than a wrong end. A source file, or a directory module's files joined,
+holds less than 2 GiB (`modules.max_source_bytes`, half the range of a
+u32 position, which a comptime assertion ties to `parser.Span`). The
+upper half is the hidden leaves' (`Parser.hiddenPos`): a padded
+closure's `_` parameters and a chain's names take the positions past the
+source's end, up to `rig.last_hidden_pos`, below sema's two sentinel
+positions (`sema.imported_decl_pos`, `builtin_decl_pos`); past it the
+parse fails as out of memory. The lower half also keeps every line and
+character the language server reports within the protocol's
+`uinteger`, and an emitted module of 4 GiB or more, past Zig's u32
+offsets, stops the build with an error (`emitPackage`).
 
 `rig tokens` shows its output.
 
