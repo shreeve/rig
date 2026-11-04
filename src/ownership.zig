@@ -7673,7 +7673,11 @@ pub const Checker = struct {
             // elements view what it views, not the place holding it: the
             // loop walks the view it read, as `?all[0]` does.
             const held_view = if (self.resolvePlace(source) != null) mode != .write and self.refOfType(self.exprType(source)) == .read else false;
-            if (held_view) spec.moved = value.loans;
+            if (held_view) {
+                spec.moved = value.loans;
+                // Its elements are slot views, as `for x in ?p`'s are.
+                spec.resource_list = sema.forViewsSlot(self.sema, node);
+            }
             if (self.errors_found == found and !held_view) if (self.resolvePlace(source)) |p| {
                 const id = p.root;
                 const kind: LoanKind = if (mode == .write) .write else .read;

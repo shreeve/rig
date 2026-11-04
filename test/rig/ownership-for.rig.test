@@ -1059,3 +1059,18 @@ test "for over a read view binding views what it views", "1 1"
     s = ?ps
     !ws.push(?s[0])
   print(vs.len, ws.len)
+
+fail "a loop over a read view binding binds slot views, as one over ?p does", "5:8: cannot move loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  a = List[String]()
+  !a.push(String("a String long enough to be held on the heap"))
+  src = ?a
+  for x in src
+    z = <x
+    print(z)
+
+fail "a loop over ?p binds slot views", "4:8: cannot move loop view `y`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  a = List[String]()
+  !a.push(String("a String long enough to be held on the heap"))
+  for y in ?a
+    w = <y
+    print(w)
