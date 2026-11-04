@@ -14066,6 +14066,10 @@ const Checker = struct {
                 };
             },
         }
+        // A handle made here that the call only reads is a temporary its
+        // statement drops, as a method's self is (one lent to write is
+        // kept by its lend).
+        if (self_mode == .read and !self.hands(obj).hasStorage()) try self.readLeaf(obj);
         const o = m.field.origins;
         if (o.declared or o.stores & o.lent != 0) return self.badCall(args, pos, "`{s}` has `keeps` or `from`, and an actor holds no loan, nor gives a view of its state: a handle cannot call it", .{method});
         const f = m.fn_ty;

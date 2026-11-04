@@ -365,6 +365,21 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A call evaluates what it calls before its arguments, every form
+  of it.** When a call's arguments run first, into temporaries
+  (keyword arguments out of order, or an owned argument before one
+  that can fail), the handle of an actor's method, a self that can
+  leave (`(o?).f(...)`, `(o ?? return -1).f(...)`), and a callee that
+  is a value (`pick(k)(...)`, `fs[i](...)`, `mk().f(...)`, `b.f(...)`,
+  a local `f`) run first, as written, as a method's self already
+  did. A function value is copied in its turn, as plain data is. An
+  actor's handle, or a function read through a box, evaluated after an
+  argument that took what it read was a use of freed memory; a callee
+  read after an argument reassigned it called the new function.
+- **A handle made for an actor's read method is dropped.**
+  `mka(3).get()` and `mka(3).get()&` drop the handle `mka(3)` gives
+  at the statement's end, as any method's made self is; the actor
+  leaked.
 - **The ownership checker is linear in a function's branches.** A
   branch's end reports a dropped loan only when some value declared in
   the branch is lent: a function of 40,000 `if` statements, each over
