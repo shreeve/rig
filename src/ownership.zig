@@ -1176,7 +1176,9 @@ pub const Checker = struct {
     /// self's type gives: refused there, or, where those arguments
     /// are a generic body's own parameters, required of that body in
     /// turn. Repeated until no call adds a requirement, as one method
-    /// calls another.
+    /// calls another; a round adds only requirements not yet held, so
+    /// this settles. The bound is a backstop, as a loop's is: a chain
+    /// it cannot settle is rejected, never accepted.
     fn checkMethodCalls(self: *Checker) Error!void {
         const ctx = self.sema;
         var reported: std.AutoHashMapUnmanaged(u32, void) = .empty;
@@ -1184,7 +1186,7 @@ pub const Checker = struct {
         var changed = true;
         var changed_at: u32 = 0;
         var rounds: u32 = 0;
-        while (changed and rounds < 16) : (rounds += 1) {
+        while (changed and rounds < 1000) : (rounds += 1) {
             changed = false;
             var ci: usize = 0;
             while (ci < self.method_calls.items.len) : (ci += 1) {
@@ -5279,7 +5281,7 @@ pub const Checker = struct {
         if (!self.storesLoans(self.exprType(target), value)) return;
         // A value never holds a view of itself (Core §5): a part of `id`
         // may not take a loan on a part of `id`.
-        if (try self.selfViewIn(id, value.loans, &.{}, &.{}, pos)) |l| {
+        if (try self.selfViewIn(id, value.loans, &.{}, &.{})) |l| {
             try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
             return self.noteLoan(l);
         }
@@ -6383,7 +6385,7 @@ pub const Checker = struct {
     /// the write loans held on the way), which are the way in, not views
     /// stored.
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool, lends: []const Loan) Error!void {
-        if (try self.selfViewIn(id, v_in.loans, lends, through, pos)) |l| return self.reportSelfView(id, l, lends, pos, via);
+        if (try self.selfViewIn(id, v_in.loans, lends, through)) |l| return self.reportSelfView(id, l, lends, pos, via);
         // A value that holds only Strings keeps only what leads to a String.
         // What lands in a value that holds only Strings needs only what
         // could hold them (`carry`).
@@ -6442,12 +6444,12 @@ pub const Checker = struct {
     /// A loan on a part of var `id` that a value carrying `loans` keeps,
     /// directly or through what the vars they are on hold (a view of `r`
     /// keeps what `r` views), but for `lends` and the loans on `through`:
-    /// the ways the store goes in (`absorbLoans`), at `pos`. A value never
-    /// holds a view of itself (Core §5).
-    fn selfViewIn(self: *Checker, id: VarId, loans: []const Loan, lends: []const Loan, through: []const VarId, pos: u32) Error!?Loan {
-        // `loans`, then what the vars they are on hold, which is copied
-        // only where there is some.
-        var seen: std.ArrayList(VarId) = .empty;
+    /// the ways the store goes in (`absorbLoans`). A value never holds a
+    /// view of itself (Core §5).
+    fn selfViewIn(self: *Checker, id: VarId, loans: []const Loan, lends: []const Loan, through: []const VarId) Error!?Loan {
+        // `loans`, then what the vars they are on hold, each var once,
+        // which is copied only where there is some.
+        var seen: ?std.DynamicBitSetUnmanaged = null;
         var work: std.ArrayList(Loan) = .empty;
         var i: usize = 0;
         while (true) : (i += 1) {
@@ -6458,12 +6460,10 @@ pub const Checker = struct {
                 continue;
             }
             const held = self.flows.items[l.root].loans;
-            if (held.len == 0 or std.mem.findScalar(VarId, through, l.root) != null or std.mem.findScalar(VarId, seen.items, l.root) != null) continue;
-            if (seen.items.len >= 64) {
-                try self.tooComplex(pos, "store");
-                break;
-            }
-            try seen.append(self.arena(), l.root);
+            if (held.len == 0 or std.mem.findScalar(VarId, through, l.root) != null) continue;
+            if (seen == null) seen = try .initEmpty(self.arena(), self.vars.items.len);
+            if (seen.?.isSet(l.root)) continue;
+            seen.?.set(l.root);
             try work.appendSlice(self.arena(), held);
         }
         return null;
