@@ -315,7 +315,9 @@ changed again before 0.3.0: `Moves` and `Shares` are `Sends` and
 public generic that nests itself through a call through an API is
 reported where it is declared (#647), and, the select making every arm
 before it runs one, an arm of `task.select` may not take or write what
-another arm's closure views, nor two arms lend one value to write
+another arm's closure views, nor two arms lend one value to write,
+nor read what an earlier arm's closure lends to write, nor take a
+channel, or the List holding it, that another arm waits on
 (*unsound*: the first read freed memory). MIGRATING-0.3 lists each.
 `std.json` callers change nothing: `parse` still answers a `Bool`, and
 `load`, failing with `JsonError`, is new.
@@ -327,8 +329,9 @@ another arm's closure views, nor two arms lend one value to write
   that ended before the select called the arm, so an arm that captured
   (`|+k, v|`, `|?s, v|`) read a dead stack frame: it printed garbage or
   panicked. The select's block now holds every arm's parts, their
-  storage fact's life `select`, and a later arm that fails drops the
-  value an earlier send arm made, which leaked.
+  storage fact's life `select`, each arm's channel evaluated first in
+  its turn, and a later arm that fails drops the value an earlier send
+  arm made, which leaked.
 - **A keyword argument given twice is the call's one error.**
   `*Actor(x, mailbox: 4, mailbox: 8)` crashed the compiler, and
   `task.supervise(f, restarts: 2, restarts: 3)`,

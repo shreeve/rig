@@ -138,6 +138,45 @@ test "chan select arm fails after a send arm's value", seeds: 20, "2 -1"
 
   print(run(3) catch -1, run(-1) catch -1)
 
+test "chan select makes its arms in order", seeds: 20, '''
+  self 1
+  arg 1
+  self 2
+  self 3
+  arg 3
+  1
+  5 1
+'''
+  # Each arm's channel is evaluated in the arm's turn, before its
+  # arguments and before any later arm's: a later arm that changes an
+  # index does not change the channel an earlier arm waits on.
+  fun at(tag: ?String, n: Int) -> Int
+    print(tag)
+    n
+
+  fun bump(i: !Int) -> Int
+    i += 1
+    0
+
+  chs = List[*Chan[Int]]()
+  for 0..3
+    !chs.push(*Chan[Int](4))
+  s = String("a String long enough to be held on the heap")
+  x = task.select(
+    (!chs[at("self 1", 0)]).on_send(at("arg 1", 5), || 1),
+    (!chs[at("self 2", 1)]).on_recv(|?s, v| s.len),
+    (!chs[at("self 3", 2)]).on_send(at("arg 3", 5), || 3),
+  )!
+  print(x)
+  for 0..4
+    !chs[1].send(7)!
+  i = 0
+  y = task.select(
+    (!chs[i]).on_recv(|?s, v| v ?? -1),
+    (!chs[1]).on_send(bump(!i), || 100),
+  )!
+  print(y, i)
+
 fail "chan select arm views what another arm moves", "10:17: cannot move `s` while a read loan is live", errors: 1
   # Every arm is made before the select runs one: the first arm's view
   # of `s` lives while the second takes `s`.

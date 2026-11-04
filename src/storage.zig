@@ -213,6 +213,15 @@ pub fn selfOf(ctx: *const SemContext, call: Sexp) ?Sexp {
     return ir.Member.object(ctx.calleeOf(call));
 }
 
+/// What a call whose arguments are evaluated first holds as its self
+/// (`selfHold`): the self of `value.method(...)`, or the channel of an
+/// arm of `task.select`, `ch` of `(!ch).on_recv(f)`, which the select
+/// evaluates in the arm's turn.
+pub fn heldSelf(ctx: *const SemContext, call: Sexp) ?Sexp {
+    if (ctx.selectArmOf(call) != null) return ir.get(ir.Member.object(ctx.calleeOf(call)), .operand);
+    return selfOf(ctx, call);
+}
+
 /// Whether `call` passes a self, its callee's object, as its first
 /// parameter (`value.method(...)`), as its recorded parameters say
 /// (`SemContext.callParamsOf`): not `Type.f(...)`, `module.f(...)`, or a
@@ -366,7 +375,7 @@ pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
 fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
     // Lend sigils on a self are implicit in Zig's method calls.
-    const recv = lentPlace(selfOf(ctx, call) orelse return null);
+    const recv = lentPlace(heldSelf(ctx, call) orelse return null);
     const writes = selfWrites(ctx, call);
     const temporary = !hasStorage(ctx, recv) and !recv.isKind(.move);
     if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return null;
@@ -2027,7 +2036,7 @@ const Planner = struct {
     fn callParts(p: *Planner, c: Sexp, life: StorageLife) !void {
         const ctx = p.ctx;
         if (selfHold(ctx, c)) |hold| {
-            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(selfOf(ctx, c).?);
+            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(heldSelf(ctx, c).?);
             try p.record(recv, .self, hold.by(hasStorage(ctx, recv)), life);
         }
         for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai), life);

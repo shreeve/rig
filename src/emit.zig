@@ -9330,7 +9330,11 @@ pub const Emitter = struct {
         if (self.facts.selectArmOf(sexp)) |kind| {
             const handle = ir.get(ir.Member.object(callee), .operand);
             try self.w.writeAll(if (kind == .recv) "rig.recvArm(" else "rig.sendArm(");
-            try self.emitMemberBase(handle, self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel"));
+            // A channel its select evaluated in the arm's turn is read
+            // where it was held (`hoistSelf`).
+            if (self.hoistedOf(handle)) |h| {
+                try self.w.print("{s}{s}", .{ h.name, if (self.facts.storageOf(handle, .self).?.by == .pointer) ".*" else "" });
+            } else try self.emitMemberBase(handle, self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel"));
             try self.w.writeAll(", ");
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
@@ -9984,7 +9988,7 @@ pub const Emitter = struct {
     fn hoistSelf(self: *Emitter, call: Sexp, id: u32) Error!void {
         const hold = (try self.need(self.facts.selfHold(call), call)) orelse return;
         // Lend sigils on a self are implicit in Zig's method calls.
-        const recv = lentPlace(self.selfOf(call).?);
+        const recv = lentPlace(self.facts.heldSelf(call).?);
         const writes = self.selfWrites(call);
         // Held as written below: an address, or a value made here.
         const by: facts.StorageBy = switch (hold) {

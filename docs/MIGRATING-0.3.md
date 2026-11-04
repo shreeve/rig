@@ -593,7 +593,7 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | `b'A'`, `b"\n"` | `'A'`, `"\n"` where a `U8` or a `[N]U8` goes | by hand |
 | `within:` on a set's wait, `wait_all`, `task.both` | `time.within(ns, \|\| ...)`, `>ts`, `task.all` | by hand, as the compiler says |
 | a public generic that nests itself through a call through an API on ever deeper instances | reported where it is declared, though nothing calls it (#647) | by hand |
-| an arm of `task.select` that takes or writes what another arm's closure views, or two arms that lend one value to write | rejected: every arm is made before the select runs one; bind what the arms share before the select, or give each its own | by hand |
+| an arm of `task.select` that reads, takes, or writes what another arm's closure or channel uses: `<s` beside `\|?s, v\|`, `n` sent beside `\|!n, v\|`, two arms' `\|!n, v\|`, `<a` beside `(!a).on_recv(...)`, `<chs` beside `(!chs[0])` | rejected: every arm is made before the select runs one; bind what the arms share before the select, or give each its own | by hand |
 
 `std.json` needs no change: `(!doc).parse(?src)` still answers a
 `Bool`, and `(!doc).load(?src)`, which fails with
