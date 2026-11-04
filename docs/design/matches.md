@@ -220,9 +220,9 @@ These edges are each rejected with the plain form in the message:
 2. **Two or more.** A list of one, `(.a)`, is rejected: "write
    `x matches .a`".
 3. **A real test.** `_` or a bare name, alone or in a list, matches
-   everything and is rejected; to compare with a constant, use `==`.
-   `none` is rejected too, with "write `x == none`", the test of an
-   optional.
+   everything and is rejected; to compare with a local, use `==`. A
+   module constant's name compares with it, as in a match arm. `none`
+   is rejected too, with "write `x == none`", the test of an optional.
 4. **No call.** `matches(` with no space is rejected: "write
    `matches (`". It is never read as a call.
 5. **An arm's alternatives** take no parentheses: `(.a, .b) =>` is
@@ -238,12 +238,21 @@ These edges are each rejected with the plain form in the message:
    `not (x matches (...))`.
 
 Besides these: no `if` guard in the pattern (the condition joins with
-`and`); an enum with one variant always matches, so testing it with a
-pattern that binds is rejected for a `match`; an optional subject is
-rejected rather than failing to match on `none` (take its value out
-first, or test a payload's optional with `name?`); alternatives of an
-error bind no names; and an arm that tests a payload's optional, like a
-guarded arm, covers none of its variant's values.
+`and`); a test that always holds is rejected, a pattern of an enum
+with one variant or alternatives that name every variant, so binding
+their fields is a `match`'s; an optional subject is rejected rather
+than failing to match on `none` (take its value out first, or test a
+payload's optional with `name?`); alternatives of an error bind no
+names; and alternatives match different values, two of one variant
+testing its optionals apart and binding each name to one field.
+
+An arm that tests a payload's optional covers the values it tests, each
+optional field holding a value or none, so `.ready(r?)` and
+`.ready(none)` cover `.ready`, and an arm whose values the arms before
+it cover is rejected as one that never runs. An error's optional field
+takes no test: it is bound, and tested with `==`. Each form, a match arm,
+the `Bool`, and the one arm of a condition, checks and lowers a pattern
+the same way.
 
 ```rig reject
 enum S
@@ -342,8 +351,6 @@ Each pass's part is in [INTERNALS](../internals/INTERNALS.md#how-matches-is-buil
 
 ## Later, not now
 
-- Coverage across tests of one optional field: `.ready(r?)` with
-  `.ready(none)` covering `.ready`.
 - Matching through an optional subject (`if m matches .circle(r)` on a
   `Shape?`).
 - A form that binds into the rest of the function and leaves early when

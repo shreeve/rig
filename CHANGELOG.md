@@ -621,6 +621,46 @@ MIGRATING-0.3 lists each.
   subject sets how every binding is held: `if <e.state matches
   .ready(img?)` owns `img`. The diagnostic for a field of a read
   binding passed by value offers `<` on the subject before `+`.
+- **Every form checks and lowers a pattern one way.** A match arm, the
+  `Bool` of `matches`, and the one arm of an `if`, `while`, or ternary
+  condition share their checks, so each accepts and rejects the same
+  patterns. Alternatives that bind `name?` beside a plain field
+  (`.b(m), .d(m?)`) bind the value inside the optional in every form;
+  the Zig failed with "expected `i64`, found `?i64`" for a String, a
+  List, an object, an `Int` in arithmetic, and a write view. A match
+  arm whose alternatives name every variant runs; its Zig failed with
+  "unreachable else prong". In a condition, error alternatives that
+  bind, and a name alternatives bind that nothing reads, are rejected
+  as the `Bool` form and a match arm reject them; the Zig failed.
+  `if <s matches .a`, binding nothing, drops what the pattern leaves
+  out at the end of the block, as `match <s` does; it dropped the value
+  before the body. `n matches K`, `K` a module constant, compares with
+  it, as a match arm does; it was rejected as matching every value.
+  A literal subject compares with an `Int` constant (`match 4` / `K
+  =>`), which was "expected `Int`, got `Int`".
+- **Optional fields are covered value by value.** An arm that tests a
+  payload's optionals covers the values it tests, each field holding a
+  value or none, so arms over two fields, or over different fields,
+  cover a variant once no value is left out, and a match that misses
+  one names it (`.d(none, _, none)`). Rejected: an arm whose values
+  the arms before it cover (`.ready(_?) => 1` then `.ready(_?) => 2`),
+  which was accepted and never ran; two alternatives of one variant
+  that match a value in common, or bind a name to two fields; and a
+  `matches` whose alternatives name every variant, which always holds
+  (`if s matches (.a(n), .b(n))`, whose Zig failed): bind its fields
+  with `match`. `(.ready(_?), .ready(none))` is accepted, as
+  alternatives that match different values. A test of an error's
+  optional field (`.bad(n?)`, `.bad(none)`) is rejected with the
+  binding to write instead; its Zig failed.
+- *Unsound:* names that alternatives bind (`.b(t), .c(t)`) take the
+  loans and moves one pattern's names take, in the ownership checker
+  and its oracle: reassigning, moving, or reading the subject while one
+  lives, and moving one twice, were accepted and used freed memory.
+- **`name?` in a generic instance.** `.b(n?)` of an `E[Int?]` binds the
+  value inside, by the pattern's test; its Zig failed when the type
+  argument was optional. Alternatives whose name nothing reads compile
+  in a generic body, and `return v` of a read binding copies the view,
+  as the tail value does.
 - **A clone ends a view before the call writes.** A clone that holds
   no view is made where it stands and keeps nothing lent there (CORE
   §6), so `!m.take(+e.key)` works where `e` views `m`, as in a cache's
