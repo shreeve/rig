@@ -15209,14 +15209,11 @@ const Checker = struct {
         if (!std.mem.eql(u8, foreign.name, "std.task") or !std.mem.eql(u8, name, "select")) return null;
         const shape = "each arm of `task.select` is `(!ch).on_recv(|v| ...)` or `(!ch).on_send(<v, || ...)`";
         if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on; {s}", .{shape});
-        var result: ?TypeId = null;
-        const saved_call = self.current_call;
-        const saved_callee = self.callee_node;
-        defer {
-            self.current_call = saved_call;
-            self.callee_node = saved_callee;
-        }
-        for (args) |arm| {
+        // Every arm's function first, each typed alone (`armResult`):
+        // their join is what each must give, so no arm's order decides it.
+        const Arm = struct { recv: bool, elem: TypeId, given: []const TypeId, gives: TypeId };
+        const arms = try self.ctx.arena.allocator().alloc(Arm, args.len);
+        for (args, arms) |arm, *out| {
             if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return try self.badCall(args, arm, "{s}", .{shape});
             const callee = ir.Call.callee(arm);
             const method = self.text(ir.Member.name(callee));
@@ -15230,31 +15227,47 @@ const Checker = struct {
             const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badCall(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             const arm_args = ir.Call.args(arm);
             if (arm_args.len != @as(usize, if (recv) 1 else 2)) return try self.badCall(args, arm, "{s}", .{shape});
-            const f = arm_args[arm_args.len - 1];
-            const given: []const TypeId = if (recv) &.{try self.ctx.intern(.{ .optional = elem })} else &.{};
-            const returns = result orelse blk: {
-                const r = try self.armResult(f, given);
-                break :blk r orelse return try self.skipCall(args);
-            };
-            result = returns;
-            const fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(given), .returns = returns, .is_sub = sema.returnsNothing(self.ctx, returns) } });
+            const given: []const TypeId = if (recv) try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .optional = elem })}) else &.{};
+            const gives = (try self.armResult(arm_args[arm_args.len - 1], given)) orelse return try self.skipCall(args);
+            out.* = .{ .recv = recv, .elem = elem, .given = given, .gives = gives };
+        }
+        // The join: the first arm's value, failing when any arm can, with
+        // the set of them that holds every other, else any error.
+        var sets: std.ArrayList(TypeId) = .empty;
+        for (arms) |arm| if (self.ctx.types.get(arm.gives) == .fallible) try sets.append(self.ctx.arena.allocator(), self.ctx.types.get(arm.gives).fallible.set);
+        const first = arms[0].gives;
+        const value = if (self.ctx.types.get(first) == .fallible) self.ctx.types.get(first).fallible.ok else first;
+        const returns = if (sets.items.len == 0) value else try self.ctx.intern(.{ .fallible = .{ .ok = value, .set = for (sets.items) |held| {
+            for (sets.items) |other| {
+                if (!sema.errorSubset(self.ctx, other, held)) break;
+            } else break held;
+        } else self.t().any_error_id } });
+        const saved_call = self.current_call;
+        const saved_callee = self.callee_node;
+        defer {
+            self.current_call = saved_call;
+            self.callee_node = saved_callee;
+        }
+        for (args, arms) |arm, info| {
+            const callee = ir.Call.callee(arm);
+            const method = self.text(ir.Member.name(callee));
+            const arm_args = ir.Call.args(arm);
+            const fn_ty = try self.ctx.intern(.{ .function = .{ .params = info.given, .returns = returns, .is_sub = sema.returnsNothing(self.ctx, returns) } });
             const lent = try sema.callableOfFn(self.ctx, fn_ty);
-            const call: FunctionType = .{ .params = if (recv) try self.ctx.dupeIds(&.{lent}) else try self.ctx.dupeIds(&.{ elem, lent }), .returns = returns, .is_sub = sema.returnsNothing(self.ctx, returns) };
+            const call: FunctionType = .{ .params = if (info.recv) try self.ctx.dupeIds(&.{lent}) else try self.ctx.dupeIds(&.{ info.elem, lent }), .returns = returns, .is_sub = sema.returnsNothing(self.ctx, returns) };
             self.current_call = arm;
             self.callee_node = callee;
             try self.noteCallee(call);
-            try self.checkArgs(arm_args, call, .{ .names = if (recv) &.{"f"} else &.{ "value", "f" } }, method, self.startOf(callee), .{ .declared = call.params });
+            try self.checkArgs(arm_args, call, .{ .names = if (info.recv) &.{"f"} else &.{ "value", "f" } }, method, self.startOf(callee), .{ .declared = call.params });
             try self.ctx.recordType(arm, returns);
-            try self.ctx.recordSelectArm(arm, if (recv) .recv else .send);
+            try self.ctx.recordSelectArm(arm, if (info.recv) .recv else .send);
         }
-        const r = result.?;
         if (saved_call) |c| try self.ctx.recordSelect(c);
         self.ctx.makes_tasks = true;
-        const value = if (self.ctx.types.get(r) == .fallible) self.ctx.types.get(r).fallible.ok else r;
         return try self.ctx.intern(.{ .fallible = .{ .ok = value } });
     }
 
-    /// What the first arm's function `f`, given `params`, gives: a closure
+    /// What an arm's function `f`, given `params`, gives: a closure
     /// written there, checked quietly first as one that cannot fail, a
     /// closure's view, or a function's name.
     fn armResult(self: *Checker, f: Sexp, params: []const TypeId) Error!?TypeId {

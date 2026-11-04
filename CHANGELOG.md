@@ -285,6 +285,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   goes.** `d.peek(p)`, for `fun peek(?@, h: ?Plain)`, and
   `xs.reduce(0, g)` of a closure binding `g` were rejected as if the
   call kept the argument ("keeps `p` lent in what `peek` stores").
+- **`task.select`'s arms join their types.** An arm that can fail and
+  one that cannot give the type that can, in either order; the first
+  arm alone decided it, so `select(a.on_recv(|v| v ?? 0),
+  b.on_recv(|v| chk(v)!))` was rejected and the same arms swapped ran.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under
