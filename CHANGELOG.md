@@ -240,11 +240,34 @@ Other:
     files and in Markdown's code. Trig has none; loco has one
     (`rig/loc/scan.rig`). `matches` is a word only after a value, so a
     local, parameter, or function named `matches` keeps its name.
-59. In a closure that captures a path, `|?p.a|`, a `new p` is rejected:
+59. *Unsound:* a generic type's fields go to a task as they hold each
+    argument: a `W[Task[Int]]` whose field is `r: ?T` holds a
+    `?Task[Int]`, which no task but its holder may read, and was given
+    to a task on another core. So was an object held both by value and
+    through a view (`a: G`, `b: ?G`), whose view was not looked into, and
+    a type that a local task takes and a channel it holds carries
+    (`g: G`, `c: *Chan[G]`, `G` holding a `*List`), whose elements go to
+    any task.
+    Each is rejected where the value goes to the task, as the same type
+    written without generics is.
+60. A payload enum naming its own optional in its layout, `call(args:
+    List[Expr?])` in `enum Expr`, is rejected with the fix to write, as
+    an object's is; Zig failed on it with a dependency loop. Hold an
+    optional box (`^Expr?`) or an optional view (`(?Expr)?`).
+61. A type whose fields reach more than 64 generic instances, the last
+    of which names the type's own optional (`List[Node?]` inside the
+    65th), is rejected as a nearer one is; Zig failed on it with a
+    dependency loop.
+62. A read view that holds a copy of its value counts at its value's
+    size against the 8 MiB limit on a value and the 13 MiB limit on a
+    frame: `[20000 of ?v]` with `v: Simd[I64, 64]` takes 10240000 bytes,
+    as `[20000 of v]` does, and is rejected; it was counted as pointers,
+    and a larger one overflowed the stack. Keep such data in a `List`.
+63. In a closure that captures a path, `|?p.a|`, a `new p` is rejected:
     the body's `p.a` read the capture, not the new `p`, so `new p =
     P(a: 7)` then `print(p.a)` printed the captured field. Name the new
     value otherwise.
-60. A type parameter may not take the name of a built-in type written
+64. A type parameter may not take the name of a built-in type written
     in Rig (`Map`, `Set`, `Item`, `Keys`, ...), as it may not take
     `Int`'s or `List`'s: `fun f[Item](x: Int)` is rejected with "has the
     name of a built-in type". One that used the name was rejected
@@ -301,6 +324,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   and a longer chain is rejected with the limit. A `map` before
   `count`, whose items `count` does not read, is accepted: it was
   rejected as an unread hidden binding.
+- **A type that prints itself prints whatever it holds,** a `[]U8`
+  included, and a generic one whatever its type arguments are (a
+  `G[[]U8]`), since its `print` method chooses what to write; a weak
+  handle prints whether its value lives whatever it reaches, a `~T` of
+  an object holding a `^{Shape}` with no `Print` included.
+- **A `*Frozen[List[T]]` lends its `[]T` to a generic parameter,** as
+  it does to a concrete one: `first(f)` with `first[T](xs: []T)` infers
+  `T` from the List the handle froze.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under

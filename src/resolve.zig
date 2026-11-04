@@ -5396,15 +5396,49 @@ fn method(ctx: *SemContext, name: []const u8, self_mode: SelfMode, params: []con
 /// (`sema.signatureOrigins`), so a wrapper of the same signature passes
 /// on exactly what it does.
 fn registerTables(ctx: *SemContext, module_scope: ScopeId) Error!void {
-    ctx.ordered_map_sym_id = try registerTable(ctx, module_scope, "OrderedMap", true, true);
-    ctx.ordered_set_sym_id = try registerTable(ctx, module_scope, "OrderedSet", false, true);
-    ctx.unordered_map_sym_id = try registerTable(ctx, module_scope, "UnorderedMap", true, false);
-    ctx.unordered_set_sym_id = try registerTable(ctx, module_scope, "UnorderedSet", false, false);
+    ctx.ordered_map_sym_id = try registerTable(ctx, module_scope, "OrderedMap", true, true, &table_origins[0]);
+    ctx.ordered_set_sym_id = try registerTable(ctx, module_scope, "OrderedSet", false, true, &table_origins[1]);
+    ctx.unordered_map_sym_id = try registerTable(ctx, module_scope, "UnorderedMap", true, false, &table_origins[2]);
+    ctx.unordered_set_sym_id = try registerTable(ctx, module_scope, "UnorderedSet", false, false, &table_origins[3]);
 }
+
+/// The origins of a table's members' signatures (`sema.signatureOrigins`),
+/// in the order `registerTable` makes them: the same in every module, so
+/// worked out by the first module to register the table and read by the
+/// rest (`tableMethod`). `state` is empty, being written by one module, or
+/// ready to read.
+const TableOrigins = struct {
+    of: [max_members]sema.Origins = undefined,
+    state: std.atomic.Value(enum(u8) { empty, writing, ready }) = .init(.empty),
+
+    const max_members = 32;
+};
+
+var table_origins: [4]TableOrigins = @splat(.{});
+
+/// A table being registered, and its members' origins: read when ready,
+/// else worked out, and written when this module is the first.
+const TableBuild = struct {
+    origins: *TableOrigins,
+    read: bool,
+    write: bool,
+    next: usize = 0,
+
+    fn begin(origins: *TableOrigins) TableBuild {
+        if (origins.state.load(.acquire) == .ready) return .{ .origins = origins, .read = true, .write = false };
+        const first = origins.state.cmpxchgStrong(.empty, .writing, .acquire, .monotonic) == null;
+        return .{ .origins = origins, .read = false, .write = first };
+    }
+
+    fn end(t: *const TableBuild) void {
+        if (t.write) t.origins.state.store(.ready, .release);
+    }
+};
 
 /// One table (`registerTables`): a Map's, of keys and values, or a Set's,
 /// of keys; walked in order by runs (`ordered`), or slot by slot.
-fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_map: bool, ordered: bool) Error!SymbolId {
+fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_map: bool, ordered: bool, origins: *TableOrigins) Error!SymbolId {
+    var t: TableBuild = .begin(origins);
     const named: ?ScopeId = if (ctx.is_std and std.mem.eql(u8, ctx.name, "std." ++ rig.builtin_module_name)) module_scope else null;
     const int = ctx.types.int_id;
     const opt_int = try ctx.intern(.{ .optional = int });
@@ -5418,8 +5452,8 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
     var fields: std.ArrayList(Field) = .empty;
     defer fields.deinit(ctx.allocator);
     const a = ctx.allocator;
-    try fields.append(a, try tableMethod(ctx, "find", .read, &.{ read_self, read_k }, opt_int));
-    try fields.append(a, try tableMethod(ctx, "key", .read, &.{ read_self, int }, read_k));
+    try fields.append(a, try tableMethod(ctx, &t, "find", .read, &.{ read_self, read_k }, opt_int));
+    try fields.append(a, try tableMethod(ctx, &t, "key", .read, &.{ read_self, int }, read_k));
     if (is_map) {
         const v = g.params[1];
         const read_v = try ctx.intern(.{ .read_view = v });
@@ -5428,31 +5462,31 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
         const update_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{ read_k, write_v }), .returns = void_id, .is_sub = true } }));
         const retain_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{ read_k, write_v }), .returns = boolean, .is_sub = false } }));
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, "value", .read, &.{ read_self, int }, read_v),
-            try tableMethod(ctx, "value_mut", .write, &.{ write_self, int }, write_v),
-            try tableMethod(ctx, "put", .write, &.{ write_self, k, v }, boolean),
-            try tableMethod(ctx, "replace", .write, &.{ write_self, k, v }, opt_v),
-            try tableMethod(ctx, "put_new", .write, &.{ write_self, k, v }, boolean),
+            try tableMethod(ctx, &t, "value", .read, &.{ read_self, int }, read_v),
+            try tableMethod(ctx, &t, "value_mut", .write, &.{ write_self, int }, write_v),
+            try tableMethod(ctx, &t, "put", .write, &.{ write_self, k, v }, boolean),
+            try tableMethod(ctx, &t, "replace", .write, &.{ write_self, k, v }, opt_v),
+            try tableMethod(ctx, &t, "put_new", .write, &.{ write_self, k, v }, boolean),
             // The unordered table's `ensure` lends the value where its
             // probe found or put the key, and writes the count to the
             // HashMap's `len` only for a new one (`notFromLen`); the
             // ordered table's gives the entry's index.
-            if (ordered) try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v }, int) else try notFromLen(try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v, try ctx.intern(.{ .write_view = int }) }, write_v)),
-            try tableMethod(ctx, "insert_new", .write, &.{ write_self, k, v }, int),
-            try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_v),
-            try lendsEntries(try tableMethod(ctx, "update", .write, &.{ write_self, update_f }, void_id)),
-            try lendsEntries(try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id)),
+            if (ordered) try tableMethod(ctx, &t, "ensure", .write, &.{ write_self, k, v }, int) else try notFromLen(try tableMethod(ctx, &t, "ensure", .write, &.{ write_self, k, v, try ctx.intern(.{ .write_view = int }) }, write_v)),
+            try tableMethod(ctx, &t, "insert_new", .write, &.{ write_self, k, v }, int),
+            try tableMethod(ctx, &t, "take", .write, &.{ write_self, read_k }, opt_v),
+            try lendsEntries(try tableMethod(ctx, &t, "update", .write, &.{ write_self, update_f }, void_id)),
+            try lendsEntries(try tableMethod(ctx, &t, "retain", .write, &.{ write_self, retain_f }, void_id)),
         });
     } else {
         const opt_k = try ctx.intern(.{ .optional = k });
         const retain_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{read_k}), .returns = boolean, .is_sub = false } }));
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, "add", .write, &.{ write_self, k }, boolean),
-            try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_k),
-            try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id),
+            try tableMethod(ctx, &t, "add", .write, &.{ write_self, k }, boolean),
+            try tableMethod(ctx, &t, "take", .write, &.{ write_self, read_k }, opt_k),
+            try tableMethod(ctx, &t, "retain", .write, &.{ write_self, retain_f }, void_id),
         });
     }
-    try fields.append(a, try tableMethod(ctx, "count", .read, &.{read_self}, int));
+    try fields.append(a, try tableMethod(ctx, &t, "count", .read, &.{read_self}, int));
     if (is_map) {
         // A lookup that hands back the value's view at once, so the entry
         // it found is read where it was found, in either table: declared
@@ -5462,38 +5496,48 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
         const opt_read_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .read_view = v }) });
         const opt_write_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .write_view = v }) });
         try fields.appendSlice(a, &.{
-            try fromSelf(try tableMethod(ctx, "get", .read, &.{ read_self, read_k }, opt_read_v)),
-            try fromSelf(try tableMethod(ctx, "edit", .write, &.{ write_self, read_k }, opt_write_v)),
+            try fromSelf(try tableMethod(ctx, &t, "get", .read, &.{ read_self, read_k }, opt_read_v)),
+            try fromSelf(try tableMethod(ctx, &t, "edit", .write, &.{ write_self, read_k }, opt_write_v)),
         });
     }
     if (ordered) {
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, "written", .read, &.{read_self}, int),
-            try tableMethod(ctx, "holes", .read, &.{read_self}, boolean),
-            try tableMethod(ctx, "live_from", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, "gone_from", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, "nth", .read, &.{ read_self, int }, int),
+            try tableMethod(ctx, &t, "written", .read, &.{read_self}, int),
+            try tableMethod(ctx, &t, "holes", .read, &.{read_self}, boolean),
+            try tableMethod(ctx, &t, "live_from", .read, &.{ read_self, int }, int),
+            try tableMethod(ctx, &t, "gone_from", .read, &.{ read_self, int }, int),
+            try tableMethod(ctx, &t, "nth", .read, &.{ read_self, int }, int),
         });
     } else {
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, "next_slot", .read, &.{ read_self, try ctx.intern(.{ .write_view = int }), try ctx.intern(.{ .write_view = int }) }, int),
+            try tableMethod(ctx, &t, "next_slot", .read, &.{ read_self, try ctx.intern(.{ .write_view = int }), try ctx.intern(.{ .write_view = int }) }, int),
         });
     }
     try fields.appendSlice(a, &.{
-        try tableMethod(ctx, "clear", .write, &.{write_self}, void_id),
-        try tableMethod(ctx, "reserve", .write, &.{ write_self, int }, void_id),
+        try tableMethod(ctx, &t, "clear", .write, &.{write_self}, void_id),
+        try tableMethod(ctx, &t, "reserve", .write, &.{ write_self, int }, void_id),
     });
     try setFields(ctx, g.sym, fields.items);
+    t.end();
     return g.sym;
 }
 
-/// A member of a table, with the origins of its signature
-/// (`registerTables`).
-fn tableMethod(ctx: *SemContext, name: []const u8, self_mode: SelfMode, params: []const TypeId, returns: TypeId) Error!Field {
+/// A member of a table, with the origins of its signature, read from the
+/// first module's (`TableOrigins`) or worked out. Self-checking builds
+/// work out each and compare.
+fn tableMethod(ctx: *SemContext, t: *TableBuild, name: []const u8, self_mode: SelfMode, params: []const TypeId, returns: TypeId) Error!Field {
     var f = try method(ctx, name, self_mode, params, returns, null);
+    const i = t.next;
+    t.next += 1;
+    if (t.read and !@import("build_options").self_check) {
+        f.origins = t.origins.of[i];
+        return f;
+    }
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     f.origins = try sema.signatureOrigins(ctx, scratch.allocator(), ctx.types.get(f.ty).function);
+    if (t.read) std.debug.assert(std.meta.eql(t.origins.of[i], f.origins));
+    if (t.write) t.origins.of[i] = f.origins;
     return f;
 }
 

@@ -2278,7 +2278,8 @@ signature holds. A value takes at most `sema.max_value_bytes`
 (8 MiB), from `sema.minBytes`, which counts what a value holds inline:
 a `Cell[T]` is its `T`, a `Signal[T]` its value twice (the current and
 a pending one) and its subscriber list, a `List` its buffer's slice and
-length, and a `^T` its pointer. An array type is checked where it is
+length, a `^T` its pointer, and a read view the value it copies when it
+is lent by copy (`lendByValue`: `?I128` is 16 bytes), else a pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
 from an argument, at that argument (`checkArraysIn`); a synthesis whose
 diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
@@ -2909,6 +2910,17 @@ the latter with the innermost type that stops it, through one walk,
   hidden value (`Checker.erasable`), and a view's braces name only the
   bound its form uses (`sema.formBraces`, applied as the view's type is
   interned), so `?b` of a `^{A + Sends}` is a `?{A}`;
+- a generic type's fields are walked once for each way it goes, with
+  its parameters open (`fieldsBlock`), which keeps the parameters they
+  hold and how each goes: `r: ?T` reads its `T` from the task the value
+  goes to. An instance walks each argument as its parameter goes
+  (`instanceBlock`), so a `W[Task[Int]]` holding `r: ?T` crosses only
+  where a `?Task[Int]` would. Each declared type is walked once for
+  each way it goes, and to a local task or any, so one held by value and
+  through a view is looked into for both. A type met inside its own
+  fields, directly or through another generic, is read before its list
+  is whole; the walk then runs again, with the lists it kept, until no
+  list read early grows (`Walk.run`);
 - a type parameter with no bound is decided in each instance, and one
   with bounds as they say (`Sends`, `Syncs`, `boundBlocker`).
 
@@ -2973,8 +2985,13 @@ give to a body that prints it must state `Print`
 asks of what a body does. What a callee's parameter needs, the
 caller's parameters in its argument need, found by the walk that
 decides the need: `sema.taskParams` for a task, and for printing
-`sema.printedTypeVars`, the walk of `holdsByteSlice` that also finds
-the parameters a printed value holds (`Requirement.printable`). A
+`sema.printedTypeVars`, the walk of `unprintedIn` that also finds
+the parameters a printed value holds (`Requirement.printable`).
+`unprintedIn` is the one walk of what `print` writes of a value: it
+finds a `[]U8` (`sema.printable`) and an API object that cannot print
+(`sema.objectUnprinted`), and enters neither a weak handle, which
+prints whether its value lives, nor the fields or type arguments of a
+type that prints itself. A
 generic type's printing, checked at its every instance, passes to the
 parameters of each instance a body names (`generic_uses`, with
 `generic_uses_at` for the note).
@@ -5404,7 +5421,9 @@ across modules, and only std.prelude's scope names them.
   of a Rig declaration of its signature with no `from` or `keeps`
   (`sema.signatureOrigins`): a reader's result views only the table, a
   writer stores the keys and values it takes, and nothing keeps a
-  closure. `update` and `retain` lend their own entries to the closure
+  closure. They are the same in every module, so the first module to
+  register a table works them out and the rest read them
+  (`resolve.TableOrigins`). `update` and `retain` lend their own entries to the closure
   (`Field.lends_entries`), which makes the requirement a Rig body that
   did so would (`PlainRequirement.callable`). `ensure_with` calls
   `make` in the prelude (`add_made`), whose result held as a `V` makes
