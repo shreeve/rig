@@ -10004,19 +10004,21 @@ pub const Emitter = struct {
     }
 
     /// Evaluate the self of a method call whose arguments are hoisted
-    /// into `__rig_recv_N` first, so it runs before them, as written: the
-    /// address of a place, or a temporary value, dropped after the call.
+    /// into `__rig_recv_N` first, or the callee it evaluates in its place
+    /// into `__rig_fn_N` (`heldFirst`), so it runs before them, as
+    /// written: the address of a place, or a temporary value, dropped
+    /// after the call. Zig follows a pointer to a struct for a method,
+    /// but neither one to a handle nor one to a callee.
     fn hoistSelf(self: *Emitter, call: Sexp, id: u32) Error!void {
         const hold = (try self.need(self.facts.selfHold(call), call)) orelse return;
         // Lend sigils on a self are implicit in Zig's method calls.
-        const recv = lentPlace(self.facts.heldSelf(call).?);
+        const first = self.facts.heldFirst(call).?;
+        const recv = first.node;
         const writes = self.selfWrites(call);
-        // Held as written below: an address, or a value made here.
-        const by: facts.StorageBy = switch (hold) {
-            .leaf, .slot, .place => .pointer,
-            .consumed, .value => .owned,
-        };
-        const name = try self.hiddenStorage(recv, .self, by, .{ .id = id });
+        // Held as written below: an address, a value made here, or a
+        // copy of a callee in one.
+        const name = try self.hiddenStorage(recv, first.kind, hold.by(try self.hasStorage(recv)), .{ .id = id });
+        const deref = first.kind == .invoked or self.reachesHandle(self.typeOf(recv));
         try self.writeIndent(self.indent);
         // A value that branches is held as the address of the leaf it
         // takes, and a value kept in its statement's slot, or a part of
@@ -10026,7 +10028,7 @@ pub const Emitter = struct {
             try self.w.print("const {s} = ", .{name});
             if (hold == .leaf) try self.emitLeafPtr(recv, self.typeOf(recv).?) else try self.emitSlotAddress(recv);
             try self.w.writeAll(";\n");
-            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = self.reachesHandle(self.typeOf(recv)) });
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = deref });
         }
         if (hold == .place) {
             const saved = self.read_place;
@@ -10035,7 +10037,7 @@ pub const Emitter = struct {
             try self.w.print("const {s} = ", .{name});
             try self.emitAddressOf(recv);
             try self.w.writeAll(";\n");
-            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = self.reachesHandle(self.typeOf(recv)) });
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = deref });
         }
         const ty = self.typeOf(recv);
         const ptr = if (ty) |t| self.isPtrViewTy(t) else false;

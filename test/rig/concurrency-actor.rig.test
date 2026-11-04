@@ -163,6 +163,58 @@ test "actor arguments", seeds: 20, "3 4 [4]"
   !ys.push(2)
   print(c.sum(?ys), c.size("abc"), c.all())
 
+test "actor call handle first", seeds: 20, '''
+  pick 1
+  consume 1
+  a
+  21
+  pick 1
+  b
+  a
+  42
+  pick 1
+  b
+  a
+  63
+'''
+  # The handle of an actor's method runs before the arguments, as
+  # written, also when they are evaluated into temporaries first
+  # (keyword arguments out of order): an argument that takes what the
+  # handle's expression reads runs after it.
+  obj Acc
+    total: Int
+
+    sub add(!@, a: Int, b: Int)
+      @total += a * 10 + b
+
+    fun get(?@) -> Int
+      @total
+
+  fun side(s: ?String, n: Int) -> Int
+    print(s)
+    n
+
+  fun consume(hs: List[*Actor[Acc]]) -> Int
+    print("consume", hs.len)
+    hs.len
+
+  fun pick(hs: ?List[*Actor[Acc]], i: Int) -> *Actor[Acc]
+    print("pick", hs.len)
+    +hs[i]
+
+  hs = List[*Actor[Acc]]()
+  !hs.push(*Actor(Acc(total: 0)))
+  keep = +hs[0]
+  !pick(?hs, 0).add(b: consume(<hs), a: side("a", 2))
+  print(keep.get())
+  gs = List[*Actor[Acc]]()
+  !gs.push(+keep)
+  !pick(?gs, 0).add(b: side("b", 1), a: side("a", 2))
+  print(keep.get())
+  t = (!pick(?gs, 0)).add(b: side("b", 1), a: side("a", 2))&
+  >t
+  print(keep.get())
+
 test "actor deadline and cancel", seeds: 20, '''
   -1
   -2

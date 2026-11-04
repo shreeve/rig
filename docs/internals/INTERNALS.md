@@ -1862,8 +1862,8 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
 | `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
 | `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
-| `argument`, `self` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `selfHold`, `argumentHold`); a `task.select` evaluates its arms' parts first, in its own block, and an arm none; an arm's channel is its `self` (`heldSelf`) | owned, copy, or pointer | call; select, for an arm's |
-| `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call; select, for an arm's |
+| `argument`, `self` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `selfHold`, `argumentHold`); a `task.select` evaluates its arms' parts first, in its own block, and an arm none; an actor's handle and an arm's channel are its `self` (`heldSelf`) | owned, copy, or pointer | call; select, for an arm's |
+| `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written; the callee of a call whose arguments are evaluated first, when it is a value the call reaches (`pick(k)(...)`, `fs[i](...)`; `heldFirst`) | owned, copy, or pointer | call; select, for an arm's |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
@@ -4958,7 +4958,13 @@ symbols); a query that decides more than that is a recorded fact.
   in the order they are written and passed in the order the parameters
   are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,
   written `{ a1 = <first written>; a2 = <second written>; f(<declared
-  order>) }`. An argument is left where it stands (`isPureArg`) only if
+  order>) }`. What the call evaluates before its arguments comes
+  first in that block (`storage.heldFirst`, `selfHold`): a method's
+  self, an actor's handle, a select arm's channel, or a callee that is
+  a value the call reaches, when it acts, leaves, or indexes (a name or
+  a field path off one is read where the call is, which the ownership
+  checker holds for the call). A callee that copies is copied, as
+  plain data is read. An argument is left where it stands (`isPureArg`) only if
   evaluating it early or late reads nothing a later-written argument
   could change: a literal, a constant, or a view held as a pointer to a
   name. A view held by value (a `?String`'s bytes, a slice, a copy of a

@@ -352,6 +352,16 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A call evaluates what it calls before its arguments, every form
+  of it.** When a call's arguments run first, into temporaries
+  (keyword arguments out of order, or an owned argument before one
+  that can fail), the handle of an actor's method, a self that can
+  leave (`(o?).f(...)`, `(o ?? return -1).f(...)`), and a callee that
+  is a value the call reaches (`pick(k)(...)`, `fs[i](...)`,
+  `mk().f(...)`) run first, as written, as a method's self already
+  did. An actor's handle evaluated after an argument that took what
+  it read was a use of freed memory. A function value is copied in its
+  turn, as plain data is.
 - **A ternary's condition binds names.** `id = v.id if r.decl as v
   else 0`, `area = r * r if s matches .circle(r) else 0`, and
   `v.id if x as v and v.id > 0 else 0` bind as an `if` condition does,

@@ -2279,11 +2279,14 @@ pub const StorageKind = enum {
     /// An argument of a call whose arguments are evaluated first
     /// (`__rig_arg`).
     argument,
-    /// The self of such a call (`__rig_recv`).
+    /// The self of such a call, or an actor's handle, or a select
+    /// arm's channel (`__rig_recv`): `storage.heldFirst`.
     self,
     /// The environment of a closure literal lent to a call (`__rig_env`).
     environment,
-    /// A closure literal called where it is written (`__rig_fn`).
+    /// A closure literal called where it is written, or the callee of a
+    /// call whose arguments are evaluated first, which a value the call
+    /// reaches is (`__rig_fn`): `storage.heldFirst`.
     invoked,
     /// The environment an owned closure allocates (`__rig_env`), which
     /// the closure value then owns.

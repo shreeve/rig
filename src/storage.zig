@@ -214,14 +214,39 @@ pub fn selfOf(ctx: *const SemContext, call: Sexp) ?Sexp {
 }
 
 /// What a call whose arguments are evaluated first holds as its self
-/// (`selfHold`): the self of `value.method(...)`, or the channel of an
-/// arm of `task.select`, `ch` of `!ch.on_recv()`, which the select
-/// evaluates in the arm's turn. A deadline arm, `time.after(ns)`, has
-/// none.
+/// (`selfHold`): the self of `value.method(...)`, the handle of an
+/// actor's method, `h.m(...)`, which stands for its self, or the
+/// channel of an arm of `task.select`, `ch` of `!ch.on_recv()`, which
+/// the select evaluates in the arm's turn. A deadline arm,
+/// `time.after(ns)`, has none.
 pub fn heldSelf(ctx: *const SemContext, call: Sexp) ?Sexp {
     if (ctx.selectArmOf(call)) |arm| return if (arm == .after) null else ir.get(ir.Member.object(ctx.calleeOf(call)), .operand);
+    if (ctx.isActorCall(call)) return ir.Member.object(ctx.calleeOf(call));
     return selfOf(ctx, call);
 }
+
+/// The part of a call it evaluates before its arguments, which a call
+/// whose arguments are evaluated first holds in its turn, as written
+/// (`selfHold`): its self (`heldSelf`), held as `self`, or else a
+/// callee that is a value the call reaches, `pick(k)(...)`,
+/// `fs[i](...)`, or `mk().f(...)`, held as `invoked`. A name, a type,
+/// a module's function, an instance, and a closure literal (built
+/// first, `invoked`) are no such value.
+pub fn heldFirst(ctx: *const SemContext, call: Sexp) ?HeldFirst {
+    if (heldSelf(ctx, call)) |recv| return .{ .node = lentPlace(recv), .kind = .self };
+    const callee = ctx.calleeOf(call);
+    if (callee == .src or callee.isKind(.lambda) or ctx.instanceOf(callee) != null) return null;
+    if (callee.isKind(.member) and isTypeCallee(ctx, ir.Member.object(callee))) return null;
+    if (fnType(ctx, typeOf(ctx, callee)) == null) return null;
+    return .{ .node = callee, .kind = .invoked };
+}
+
+/// The part `heldFirst` gives, without its lend sigils, and the kind of
+/// storage that holds it.
+pub const HeldFirst = struct {
+    node: Sexp,
+    kind: sema.StorageKind,
+};
 
 /// Whether `call` passes a self, its callee's object, as its first
 /// parameter (`value.method(...)`), as its recorded parameters say
@@ -341,7 +366,8 @@ fn leavesAfterOwned(ctx: *const SemContext, owned_before: bool, parts: []const S
 }
 
 /// How a call whose arguments are evaluated first (`hoistsArgs`) holds
-/// its self while they run.
+/// its self, or the callee it evaluates in its place (`heldFirst`),
+/// while they run.
 pub const SelfHold = enum {
     /// An owned temporary the method consumes, handed over when the
     /// call runs (`consumedTemporary`).
@@ -368,8 +394,11 @@ pub const SelfHold = enum {
     }
 };
 
-/// How a call whose arguments are evaluated first holds its self,
-/// or null when it is evaluated where the call is.
+/// How a call whose arguments are evaluated first holds its self, or
+/// the callee it evaluates in its place (`heldFirst`), or null when it
+/// is evaluated where the call is: when it reads nothing an argument
+/// could change, as a name or a field path off one does, which the
+/// ownership checker holds for the call.
 pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     return decide(ctx, call, .self_hold);
 }
@@ -377,10 +406,17 @@ pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
 fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
     // Lend sigils on a self are implicit in Zig's method calls.
-    const recv = lentPlace(heldSelf(ctx, call) orelse return null);
+    const first = heldFirst(ctx, call) orelse return null;
+    const recv = first.node;
     const writes = selfWrites(ctx, call);
     const temporary = !hasStorage(ctx, recv) and !recv.isKind(.move);
-    if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return null;
+    // A part that acts or leaves (`o?`, `o ?? return`, `mk()`) runs
+    // before the arguments, and one that indexes picks its element
+    // first.
+    if (!contains(recv, &.{.index}) and !setActs(recv) and !(writes and temporary)) return null;
+    // A callee that copies is copied in its turn, as plain data is
+    // read (Core §6): nothing it was read from stays lent.
+    if (first.kind == .invoked and !ownsValue(ctx, recv)) return .value;
     if (reachesLeaf(ctx, recv)) return .leaf;
     if (temporary and keptInSlot(ctx, recv)) return .slot;
     if (!temporary) return .place;
@@ -1702,7 +1738,7 @@ const Planner = struct {
         // How the storage drops the value it holds, for emit to read.
         switch (kind) {
             .held => _ = dropKind(p.ctx, p.ctx.heldBaseOf(node) orelse return),
-            .new_value, .argument, .self => _ = dropKind(p.ctx, node),
+            .new_value, .argument, .self, .invoked => _ = dropKind(p.ctx, node),
             else => {},
         }
     }
@@ -2033,13 +2069,14 @@ const Planner = struct {
         } else try p.callParts(c, .call);
     }
 
-    /// The storage of the self and the arguments of call `c`, evaluated
-    /// first, which lives for `life`.
+    /// The storage of the parts of call `c` evaluated first, in the
+    /// order written: its self or callee (`heldFirst`), then its
+    /// arguments, which lives for `life`.
     fn callParts(p: *Planner, c: Sexp, life: StorageLife) !void {
         const ctx = p.ctx;
         if (selfHold(ctx, c)) |hold| {
-            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(heldSelf(ctx, c).?);
-            try p.record(recv, .self, hold.by(hasStorage(ctx, recv)), life);
+            const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
+            try p.record(first.node, first.kind, hold.by(hasStorage(ctx, first.node)), life);
         }
         for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai), life);
     }

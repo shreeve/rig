@@ -907,10 +907,10 @@ pub const Facts = struct {
     pub fn selfOf(f: Facts, call: Sexp) ?Sexp {
         return storage.selfOf(f.c(), call);
     }
-    /// What a call whose arguments are evaluated first holds as its self
-    /// (`storage.heldSelf`).
-    pub fn heldSelf(f: Facts, call: Sexp) ?Sexp {
-        return storage.heldSelf(f.c(), call);
+    /// The part a call whose arguments are evaluated first holds before
+    /// them, its self or its callee (`storage.heldFirst`).
+    pub fn heldFirst(f: Facts, call: Sexp) ?storage.HeldFirst {
+        return storage.heldFirst(f.c(), call);
     }
     /// Whether the method of `value.method(...)` takes `!@`.
     pub fn selfWrites(f: Facts, call: Sexp) bool {
