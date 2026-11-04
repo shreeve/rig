@@ -456,6 +456,23 @@ test "slice sum", '''
   print(a.sum(), xs.sum(), xs.sum(start: 5), fs.sum(), empty.sum(), bs.sum(start: U8(1)))
   print(total(?a), total(?xs), ?a[1..].sum())
 
+test "slice sum of a generic's elements", "6 3.5 4"
+  # A `T: Num` is a number at every instance, so its elements add, and
+  # an unbounded `T` adds as `+` on it does, checked at each instance.
+  fun total[T: Num](xs: []T) -> T
+    xs.sum()
+
+  fun from_first[T](xs: []T) -> T
+    xs.sum(start: xs[0])
+
+  print(total([1, 2, 3]), total([1.5, 2.0]), from_first([1, 2]))
+
+fail "slice sum of a public generic's elements states Num", "`pub fun total[T]` does arithmetic on `T`s: write `[T: Num]`", errors: 1
+  pub fun total[T](xs: []T) -> T
+    xs.sum()
+
+  print(total([1, 2]))
+
 bomb "slice sum overflow", "integer overflow"
   # An Int sum overflows as `+` does.
   xs = [Int.max, 1]

@@ -14693,6 +14693,11 @@ const Checker = struct {
         if (self.isSelfSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, "sum", "only reads its elements");
         const numeric = switch (self.ctx.types.get(elem)) {
             .int, .float => true,
+            // Each instance's `+` (`Num`), as an operator's on a `T`.
+            .type_var => |param| blk: {
+                try self.require(param, .numeric, pos, "sum");
+                break :blk true;
+            },
             else => false,
         };
         if (!numeric) return self.badCall(args, obj, "`sum` adds numbers: an `Int`, a `Float`, or a sized integer or float; the elements of `{s}` are `{s}`", .{ try self.tyName(obj_ty), try self.tyName(elem) });
