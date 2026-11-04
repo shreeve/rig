@@ -1182,6 +1182,7 @@ pub const Checker = struct {
         var reported: std.AutoHashMapUnmanaged(u32, void) = .empty;
         defer reported.deinit(self.gpa);
         var changed = true;
+        var changed_at: u32 = 0;
         var rounds: u32 = 0;
         while (changed and rounds < 16) : (rounds += 1) {
             changed = false;
@@ -1211,7 +1212,10 @@ pub const Checker = struct {
                         self.method_pos = mc.scope;
                         const before = self.plain_reqs.items.len;
                         try self.requireCallable(mc.pos, inst, r.in_result);
-                        if (self.plain_reqs.items.len > before) changed = true;
+                        if (self.plain_reqs.items.len > before) {
+                            changed = true;
+                            changed_at = mc.pos;
+                        }
                         continue;
                     }
                     if (!self.mayCarryLoan(arg)) continue;
@@ -1223,6 +1227,7 @@ pub const Checker = struct {
                 }
             }
         }
+        if (changed) try self.tooComplex(changed_at, "call");
     }
 
     /// An instance whose argument for `param` owns a resource, where a
@@ -1273,6 +1278,12 @@ pub const Checker = struct {
     /// An error about `node`, reported at its span.
     fn errAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
         return self.errSpan(self.span(node), fmt, args);
+    }
+
+    /// A bound on the checker's work is hit at `pos`, by `what` there:
+    /// the program is rejected, never accepted unchecked.
+    fn tooComplex(self: *Checker, pos: u32, what: []const u8) Error!void {
+        return self.err(pos, "this {s} is too complex for the ownership checker; split it into smaller functions", .{what});
     }
 
     fn errSpan(self: *Checker, at: diag.Span, comptime fmt: []const u8, args: anytype) Error!void {
@@ -5268,7 +5279,7 @@ pub const Checker = struct {
         if (!self.storesLoans(self.exprType(target), value)) return;
         // A value never holds a view of itself (Core §5): a part of `id`
         // may not take a loan on a part of `id`.
-        if (try self.selfViewIn(id, value.loans, &.{}, &.{})) |l| {
+        if (try self.selfViewIn(id, value.loans, &.{}, &.{}, pos)) |l| {
             try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
             return self.noteLoan(l);
         }
@@ -6372,7 +6383,7 @@ pub const Checker = struct {
     /// the write loans held on the way), which are the way in, not views
     /// stored.
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool, lends: []const Loan) Error!void {
-        if (try self.selfViewIn(id, v_in.loans, lends, through)) |l| return self.reportSelfView(id, l, lends, pos, via);
+        if (try self.selfViewIn(id, v_in.loans, lends, through, pos)) |l| return self.reportSelfView(id, l, lends, pos, via);
         // A value that holds only Strings keeps only what leads to a String.
         // What lands in a value that holds only Strings needs only what
         // could hold them (`carry`).
@@ -6413,7 +6424,7 @@ pub const Checker = struct {
         const held = f.loans;
         f.loans = try self.unionLoans(held, out.items);
         try self.setFlow(id, f);
-        if (!deeper or through.len > 16) return;
+        if (!deeper) return;
         // Only a var that holds a write view writes what its write loans
         // lead to. Any other keeps a write loan only as what it copied
         // out through one (`k.a = r.s`): what is stored in it stays there.
@@ -6423,6 +6434,7 @@ pub const Checker = struct {
             if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;
             // Only a value that can hold a view can have one stored in it.
             if (!self.mayCarryLoan(self.pointee(self.vars.items[l.root].ty))) continue;
+            if (through.len > 16) return self.tooComplex(pos, "store");
             try self.absorbLoans(l.root, v, pos, next, via, true, try std.mem.concat(self.arena(), Loan, &.{ lends, &.{l} }));
         }
     }
@@ -6430,9 +6442,9 @@ pub const Checker = struct {
     /// A loan on a part of var `id` that a value carrying `loans` keeps,
     /// directly or through what the vars they are on hold (a view of `r`
     /// keeps what `r` views), but for `lends` and the loans on `through`:
-    /// the ways the store goes in (`absorbLoans`). A value never holds a
-    /// view of itself (Core §5).
-    fn selfViewIn(self: *Checker, id: VarId, loans: []const Loan, lends: []const Loan, through: []const VarId) Error!?Loan {
+    /// the ways the store goes in (`absorbLoans`), at `pos`. A value never
+    /// holds a view of itself (Core §5).
+    fn selfViewIn(self: *Checker, id: VarId, loans: []const Loan, lends: []const Loan, through: []const VarId, pos: u32) Error!?Loan {
         // `loans`, then what the vars they are on hold, which is copied
         // only where there is some.
         var seen: std.ArrayList(VarId) = .empty;
@@ -6447,7 +6459,10 @@ pub const Checker = struct {
             }
             const held = self.flows.items[l.root].loans;
             if (held.len == 0 or std.mem.findScalar(VarId, through, l.root) != null or std.mem.findScalar(VarId, seen.items, l.root) != null) continue;
-            if (seen.items.len >= 64) break;
+            if (seen.items.len >= 64) {
+                try self.tooComplex(pos, "store");
+                break;
+            }
             try seen.append(self.arena(), l.root);
             try work.appendSlice(self.arena(), held);
         }
@@ -8395,7 +8410,8 @@ pub const Checker = struct {
     /// (`noteGenericStore`, `recordStore`), through the write views a
     /// local holds.
     fn genericStoreIn(self: *Checker, id: VarId, stored: Value, pos: u32, depth: u32) Error!void {
-        if (depth > 16 or !self.holdsGeneric(self.pointee(self.vars.items[id].ty))) return;
+        if (!self.holdsGeneric(self.pointee(self.vars.items[id].ty))) return;
+        if (depth > 16) return self.tooComplex(pos, "store");
         const c = self.vars.items[id];
         if (c.kind == .param and c.ref != .none) {
             // The caller's value outlives this function's own values, as

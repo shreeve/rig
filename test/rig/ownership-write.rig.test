@@ -2872,3 +2872,29 @@ fail "write view lent through a binding stays lent", "24:7: cannot assign to `@s
     none
 
   pass
+
+fail "write view chain past the checker bound", "23:1: this store is too complex for the ownership checker; split it into smaller functions"
+  # A store through a write view lands in what each write view on the
+  # way leads to; the checker follows 17 of them, and past that rejects
+  # the store rather than accept it unchecked (AGENTS.md, North Star 1).
+  s = String("x")
+  v: List[?String] = List()
+  w1 = !v
+  w2 = !w1
+  w3 = !w2
+  w4 = !w3
+  w5 = !w4
+  w6 = !w5
+  w7 = !w6
+  w8 = !w7
+  w9 = !w8
+  w10 = !w9
+  w11 = !w10
+  w12 = !w11
+  w13 = !w12
+  w14 = !w13
+  w15 = !w14
+  w16 = !w15
+  w17 = !w16
+  !w17.push(?s)
+  print(v.len)

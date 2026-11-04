@@ -307,6 +307,12 @@ Other:
     `<a`, where `g` views `a` and has a `drop` body, is "cannot drop
     `a` while it is lent" (its drop body read freed memory), and a
     field taken there and assigned after is dropped first (it leaked).
+71. A store the ownership checker would follow through more than 16
+    write views in a chain, or whose views reach more than 64 values,
+    and generic methods whose calls require each other more than 16
+    deep, are "this store (call) is too complex for the ownership
+    checker; split it into smaller functions", as a loop past its
+    bound is; such a program was accepted unchecked.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

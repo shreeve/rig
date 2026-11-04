@@ -630,6 +630,7 @@ a name, in `.rig` and `.rig.test` files and in a Markdown file's code;
 | a parameter `?^T`, a read view of a box | `?T`, which takes a `^T` too |
 | `peek(+w)` where `peek` takes a read view, or `(+w).len()` of a `?@` method | `peek(?w)`, `w.len()` |
 | a move or a take in the right side of `and` or `or`, or in a later part of `if a and b as x`, where a value it leaves alive views what is dropped after (`no() and take(<g)` then `<a`) | rejected (*unsound*: a drop body read freed memory); move it where it always runs, or drop the viewed value after the viewer |
+| a store through more than 16 write views in a chain | "too complex for the ownership checker": lend fewer write views in a chain |
 
 ## Programs written against `main` between releases
 
