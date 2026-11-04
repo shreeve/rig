@@ -3,12 +3,13 @@
 //! Lowers the semantic IR (`docs/internals/INTERNALS.md`) of one checked module to Zig
 //! 0.17 source. The program has already passed sema and ownership
 //! checking; this pass only chooses a representation, and it
-//! reads everything it needs to know about names and types from sema's
-//! facts table (`sema.zig`): which symbol a name denotes, whether a
-//! `set` declares or reassigns, and the type of every expression.
+//! reads everything it needs to know about names and types through
+//! `Facts` (`facts.zig`): which symbol a name denotes, whether a `set`
+//! declares or reassigns, the type of every expression, and the storage
+//! the plan decided.
 //!
 //! - A binding is `const` unless it is reassigned, written through
-//!   (`!x`, `x.f = ...`), holds a Cell or a value with drop glue (whose
+//!   (`!x`, `x.f = ...`), owns what it holds (`Symbol.hold`, whose
 //!   methods take `*Self`), or has a compile-time-known initializer,
 //!   which Zig would otherwise fold at compile time.
 //! - A resource binding (`*T`, `~T`, a value with drop glue, or an
@@ -555,6 +556,8 @@ pub const Emitter = struct {
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
+        self.erased_slots.deinit(self.allocator);
+        self.additions.deinit(self.allocator);
         self.targets.deinit(self.allocator);
         self.units.deinit(self.allocator);
         self.cut_exports.deinit(self.allocator);
@@ -979,7 +982,7 @@ pub const Emitter = struct {
         if (has_payloads) {
             try self.w.print("pub const {f} = union(enum) {{\n", .{ident(name)});
             try self.emitUnionVariants(1);
-            } else {
+        } else {
             try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
             for (self.nominalFields()) |f| {
                 if (!f.is_variant) continue;
@@ -1635,7 +1638,7 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         if (!s.self_arg) {
             const recv = self.selfOf(call) orelse return self.unsupported(call, "a call through a witness without its self");
-            try self.emitWitnessSelf(call, recv, s);
+            try self.emitWitnessSelf(recv, s);
             // `emitArgs` writes the separators between what it writes.
             const slots = self.facts.callSlotsOf(call);
             const runtime = if (slots) |sl| sl.len else ir.Call.args(call).len;
@@ -1701,12 +1704,11 @@ pub const Emitter = struct {
     /// The self of a call through a witness: a value it consumes, moved
     /// in; otherwise self's address, which `rig.selfArg` gives as
     /// the method takes self, a pointer or a copy.
-    fn emitWitnessSelf(self: *Emitter, call: Sexp, recv: Sexp, s: facts.Dispatch.Static) Error!void {
+    fn emitWitnessSelf(self: *Emitter, recv: Sexp, s: facts.Dispatch.Static) Error!void {
         if (s.self_mode == .value) return self.emitExpr(recv);
         try self.w.writeAll("rig.selfArg(");
         try self.writeWitnessMethod(s);
         try self.w.writeAll(", ");
-        _ = call;
         try self.emitSelfAddress(recv, s);
         try self.w.writeAll(")");
     }
@@ -1726,11 +1728,6 @@ pub const Emitter = struct {
         return self.facts.symbols.items[self.nominal.?.sym].fields orelse &.{};
     }
 
-    /// `pub const __rig_name = .{ .module = "geo", .name = .{ "Point" } };`:
-    /// the type being emitted as sema's printer spells it, for `$name` of
-    /// a type parameter (`rig.typeName`): its module (`nameModule`), and
-    /// its spelling, a generic type's at the parameters of each instance
-    /// (`.{ "Pair[", A, ", ", B, "]" }`).
     /// The runtime's hooks into the methods by which the type being
     /// emitted gives `==`, hashing, ordering, or printing a meaning of its
     /// own (docs/design/apis.md, Stage 2): `rig.eql`, `rig.hash`,
@@ -1757,6 +1754,11 @@ pub const Emitter = struct {
         }
     }
 
+    /// `pub const __rig_name = .{ .module = "geo", .name = .{ "Point" } };`:
+    /// the type being emitted as sema's printer spells it, for `$name` of
+    /// a type parameter (`rig.typeName`): its module (`nameModule`), and
+    /// its spelling, a generic type's at the parameters of each instance
+    /// (`.{ "Pair[", A, ", ", B, "]" }`).
     fn emitRigName(self: *Emitter, depth: u32) Error!void {
         const sym = self.nominal.?.sym;
         const a = self.arena.allocator();
@@ -1874,7 +1876,7 @@ pub const Emitter = struct {
 
         const tparams = facts.syntax.tparamsOf(node);
         const inlined = self.facts.isInlined(name_node);
-        const marker = self.facts.markerOf(node);
+        const marker = facts.syntax.markerOf(node);
         const entry_check = self.yield_checks and self.facts.hasEntryCheck(name_node);
         // A function that always panics is cold, as a `rarely` one is,
         // so a call of it is laid out off the path that does not.
@@ -2398,7 +2400,7 @@ pub const Emitter = struct {
     fn writeLocalDrop(self: *Emitter, local: *const Local, kind: ResourceKind) Error!void {
         if (local.parts.len == 0) return self.writeDrop(local.zig_name, kind);
         try self.w.print("rig.dropParts(&{s}, ", .{local.zig_name});
-        try self.writeParts(local, "", local.parts.len);
+        try self.writeParts(local, "");
         try self.w.writeAll(")");
     }
 
@@ -2411,7 +2413,7 @@ pub const Emitter = struct {
     /// `&.{ "a", "a.b" }, &.{ f1, f2 }`: the paths of `local`'s fields
     /// moved out at or below `under` (`""` for all of them), relative to
     /// it, and their flags.
-    fn writeParts(self: *Emitter, local: *const Local, under: []const u8, _: usize) Error!void {
+    fn writeParts(self: *Emitter, local: *const Local, under: []const u8) Error!void {
         try self.w.writeAll("&.{");
         var n: usize = 0;
         for (local.parts) |p| if (partUnder(p, under)) |rel| {
@@ -2606,10 +2608,6 @@ pub const Emitter = struct {
         if (self.poison) try self.w.print(" rig.poison(&{s});", .{name});
     }
 
-    /// Declare a slot for each owning temporary in statement `stmt` (not
-    /// in the blocks or closures it holds, whose statements are emitted
-    /// on their own, or in its headers, which are their own statements:
-    /// `openHeader`) that has none yet, inline before the statement.
     /// Declare a slot for each copy an API object in statement `stmt`
     /// views (`sema.stmtErasedCopies`), before the statement, so it lives
     /// to its block's end: `var __rig_erased_3: Point = undefined;`.
@@ -2642,6 +2640,10 @@ pub const Emitter = struct {
         return null;
     }
 
+    /// Declare a slot for each owning temporary in statement `stmt` (not
+    /// in the blocks or closures it holds, whose statements are emitted
+    /// on their own, or in its headers, which are their own statements:
+    /// `openHeader`) that has none yet, inline before the statement.
     fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
         var temps: std.ArrayList(Sexp) = .empty;
         try self.facts.stmtTemps(self.arena.allocator(), stmt, &temps);
@@ -3227,7 +3229,7 @@ pub const Emitter = struct {
         // what is still held, and holds all of the new value after.
         if (try self.partsOf(target)) |at| if (self.partsBelow(at.local, at.path)) {
             try self.w.print("; rig.dropParts({s}, ", .{slot});
-            try self.writeParts(at.local, at.path, 0);
+            try self.writeParts(at.local, at.path);
             try self.w.print("); {s}.* = ", .{slot});
             try self.writeNewValue(new);
             try self.w.writeAll(";");
@@ -4746,12 +4748,6 @@ pub const Emitter = struct {
         }
     }
 
-    /// `facts.syntax.subjectRereadable`.
-    fn subjectRereadable(self: *Emitter, info: MatchInfo) bool {
-        _ = self;
-        return facts.syntax.subjectRereadable(info.subject);
-    }
-
     /// Evaluate the subject once, into `info.reread`: a field path as
     /// it is, an element by its address, a value no binding holds (a
     /// call's result, or what `match <` takes from one) into a local.
@@ -4997,9 +4993,6 @@ pub const Emitter = struct {
         return self.wholeAlias(name, buf.written(), used_in);
     }
 
-    /// The prelude of a `match <x` arm on payload variant `fields`, held
-    /// in `payload`: bound fields become owned locals, and the rest is
-    /// dropped at the end of the arm.
     /// The prong of an arm of alternatives that bind names
     /// (`Facts.altsBind`): an `inline` prong, which Zig writes once per
     /// variant, capturing the payload and the tag. Each binding reads its
@@ -5190,6 +5183,9 @@ pub const Emitter = struct {
         return prelude;
     }
 
+    /// The prelude of a `match <x` arm on payload variant `fields`, held
+    /// in `payload`: bound fields become owned locals, and the rest is
+    /// dropped at the end of the arm.
     fn consumedPayload(self: *Emitter, captures: []const Sexp, fields: []const facts.Field, of: Facts, payload: []const u8, used_in: Sexp) Error!Prelude {
         if (captures.len == 0) return self.ownedParts(&.{.nil}, &.{.{ .expr = payload }}, used_in);
         const parts = try self.arena.allocator().alloc(OwnedPart, fields.len);
@@ -5450,8 +5446,7 @@ pub const Emitter = struct {
     /// A payload binding: `const zig_name = payload.field`, or of
     /// `payload` itself when `field` is empty (`&place` for the whole
     /// value of a `match !x`); `addr` takes the field's address, for a
-    /// `match !x` binding that writes it.
-    /// `addr`: the binding points at the field.
+    /// `match !x` binding that writes it: the binding points at the field.
     const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, bytes: bool = false, alts: ?AltFields = null, unwrap: bool = false };
 
     /// The field a binding of alternatives reads in each variant, by the
@@ -6163,9 +6158,8 @@ pub const Emitter = struct {
     /// (`sema.Erasure`): its address, or that of the copy it views, and
     /// its type's table, `rig.ApiView(__rig_table_Shape){ .ptr = &sq, .vt
     /// = __rig_table_Shape_of(Square, __rig_impl_Shape_Square) }`.
-    fn erasedObject(self: *Emitter, node: Sexp, at: LendAt, from: TypeId) Error![]const u8 {
+    fn erasedObject(self: *Emitter, node: Sexp, at: LendAt) Error![]const u8 {
         const e = self.facts.erasureOf(node) orelse return self.unsupported(node, "an API object no check recorded");
-        _ = from;
         const ty = try self.typeText(e.from);
         var ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         if (e.copy) {
@@ -6251,7 +6245,7 @@ pub const Emitter = struct {
                 return self.fmt("(if ({s}) |*{s}| {s} else null)", .{ value, name, inner });
             },
             .callable => unreachable,
-            .erase => return self.erasedObject(node, at, from),
+            .erase => return self.erasedObject(node, at),
             // A code's error value, a constant of the program.
             .code => at = .{ .text = try self.fmt("rig.codeView({s})", .{if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text}), .ptr = true },
         };
@@ -9939,11 +9933,6 @@ pub const Emitter = struct {
         return self.need(self.facts.hoistsArgs(call), call);
     }
 
-    /// `storage.lentLiteral`.
-    fn lentLiteral(self: *Emitter, e: Sexp) bool {
-        return self.facts.lentLiteral(e);
-    }
-
     /// `storage.consumedTemporary`.
     fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
         return if (try self.need(self.facts.consumesSelf(call), call)) self.facts.selfOf(call) else null;
@@ -10155,8 +10144,6 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
         try self.hoisted.append(self.allocator, h);
     }
-
-    /// `storage.keptInSlot`.
 
     /// The address of `e` in its statement's slot (`keptInSlot`).
     fn emitSlotAddress(self: *Emitter, e: Sexp) Error!void {
@@ -11448,9 +11435,6 @@ pub const Emitter = struct {
         if (self.poison) try self.line("defer rig.poison(&{s});", .{name});
     }
 
-    /// Report a construct the emitter cannot lower. Sema is responsible
-    /// for rejecting it with a proper diagnostic; reaching this is a
-    /// compiler bug.
     // =========================================================================
     // Units (docs/internals/INTERNALS.md, "Proven checks")
     // =========================================================================
@@ -11574,6 +11558,9 @@ pub const Emitter = struct {
         if (local.is_ptr and self.facts.symbols.items[sym].ty == self.facts.types.int_id) try self.w.writeAll(".*");
     }
 
+    /// Report a construct the emitter cannot lower. Sema is responsible
+    /// for rejecting it with a proper diagnostic; reaching this is a
+    /// compiler bug.
     fn unsupported(self: *Emitter, node: Sexp, what: []const u8) Error {
         const lc = diag.lineCol(self.source, self.facts.startOf(if (node == .nil) self.stmt else node));
         std.debug.print("{d}:{d}: internal error: cannot emit {s} (sema should have rejected it)\n", .{ lc.line, lc.col, what });
