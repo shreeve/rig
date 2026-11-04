@@ -48,10 +48,10 @@ A new session, human or agent, takes these steps in order:
 
 ## Current state
 
-- **Release:** `v0.2.9` is the latest release (Zig 0.17.0, Nexus
-  2.0.0). `main` is ahead of it toward `v0.3.0`, which is not tagged.
-  The changes since `v0.2.9`, renames and removed spellings included,
-  are in [CHANGELOG.md](CHANGELOG.md).
+- **Release:** `v0.3.0` is the latest release (Zig 0.17.0, Nexus
+  2.0.0). What changed since `v0.2.9`, the renames and removed
+  spellings included, is in [CHANGELOG.md](CHANGELOG.md), and
+  [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) migrates a 0.2 program.
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag; its release notes include a
@@ -149,12 +149,10 @@ A new session, human or agent, takes these steps in order:
     (`tools/migrate-std-0.3.py`); a task returned with read loans;
     the `$type` rule; and by-name patterns (`tools/migrate-patterns.py`).
     Four more holes on main were closed.
-  - **Next:** v0.3.0's full suites and release notes, for the owner's
-    go and tag. Trig (branch `rig-030`) and loc (`rig-0.3-patterns`)
-    land their migrations once on this Rig. Set aside for v0.3.1:
-    `@embed`, a task's end as a `select` arm, keyword durations, `as a,
-    b` shadowing, two gaps in the oracle, and the test/cli scripts as a
-    gate for compiler PRs.
+  - **Next, right after v0.3.0 (the owner):** `@embed`, a task's end as
+    a `select` arm, keyword durations, `as a, b` shadowing, two gaps in
+    the oracle, emit's last decisions moved into storage, and the
+    test/cli scripts as a gate for compiler PRs.
 - **`select` as a value matched by `match`**, approved and built as
   a test case (records/2026-11/revamp-compiler/panel-select-*.md):
   `match task.select(add: !a.on_recv(), late: time.after(ns))!` with
@@ -299,10 +297,10 @@ is written last; how a journey is written, and its outline, are in
 journeys found in the compiler and its docs is at the end of
 [docs/internals/backlog.md](docs/internals/backlog.md).
 
-Toward `v0.3.0` are Rig's and Trig's full suites and the tag. Its migration guide is
+`v0.3.0`'s migration guide is
 [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), and CHANGELOG's
-"Upgrading from v0.2.9" lists the 58 forms 0.2.9 accepted that 0.3.0
-rejects, which the tag's release notes take over. The scripts:
+"Upgrading from v0.2.9" lists the 74 forms 0.2.9 accepted that 0.3.0
+rejects. The scripts:
 `tools/migrate-0.3.py` (box, list, string, obj, builtin, label, self,
 const), `tools/state-bounds.py`, and, for programs written against
 `main` between the releases, `tools/migrate-builtin-map.py`,
@@ -327,7 +325,7 @@ The North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
 - **The weak spots and open questions** in
   [docs/internals/weak-spots.md](docs/internals/weak-spots.md), bug
   fixes, docs, tests, and speed.
-- **Language and library work toward `v0.3.0` and Trig,** listed in
+- **Language and library work toward `v0.3.1` and Trig,** listed in
   [docs/ROADMAP.md](docs/ROADMAP.md). Each fits the Core.
 
 **Needs the design owner first:**

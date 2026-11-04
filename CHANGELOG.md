@@ -1,16 +1,16 @@
 # Changelog
 
-What changed in Rig. The entry under "Unreleased" lists what
-`main` carries beyond the last tag; the tag's release notes take it
-over, with its "Upgrading" section and the migration guide,
-[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md).
+What changed in Rig, newest release first. An entry "Unreleased",
+when there is one, lists what `main` carries beyond the last tag; the
+next tag's release notes take it over. 0.3.0's "Upgrading" section goes
+with the migration guide, [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md).
 [HANDOFF](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists what is planned.
 
-## Unreleased (toward v0.3.0)
+## v0.3.0 (2026-11-04)
 
-`v0.2.9` is the latest release (Zig 0.17.0, Nexus 2.0.0). `main` has
-changed the language since it.
+`v0.3.0` follows `v0.2.9` (Zig 0.17.0, Nexus 2.0.0) and changes the
+language since it.
 
 ### Upgrading from v0.2.9
 
