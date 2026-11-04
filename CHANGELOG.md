@@ -302,6 +302,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **A compile-time `panic` reads its message's escapes as the run time
   does.** `panic("bad \x41 \u{42}")` in a compile-time function was
   reported as `bad x41 u{42}`; it is `bad A B`.
+- **A `?T` parameter takes a literal beside a `String`.** `keep(String("own"),
+  "lit")`, for `fun keep[T](a: T, b: ?T)`, was "conflicting types for
+  `T`: `String` and `Static`"; a `Static` binds as the `?String` it is
+  read as, so `T` is `String`.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under

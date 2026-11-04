@@ -12380,8 +12380,9 @@ const Checker = struct {
                     b.text_view = inf.viewing;
                 } else if (b.ty == value) {
                     if (!inf.viewing) b.text_view = false;
-                } else if (b.ty == self.t().string_id and inf.viewing and value == self.t().string_view_id) {
-                    // A `?T` meets the read view of the `String` that `T` is.
+                } else if (b.ty == self.t().string_id and inf.viewing and (value == self.t().string_view_id or value == self.t().static_id)) {
+                    // A `?T` meets the read view of the `String` that `T`
+                    // is, and a `Static`, which is read as one (`meets`).
                 } else if (b.text_view and value == self.t().string_id) {
                     b.ty = value;
                     b.arg = arg;
@@ -12402,7 +12403,7 @@ const Checker = struct {
                 defer inf.exact -= held;
                 const viewing = inf.viewing;
                 defer inf.viewing = viewing;
-                inf.viewing = at == .string_view and self.ctx.types.get(pattern) == .read_view;
+                inf.viewing = (at == .string_view or at == .static) and self.ctx.types.get(pattern) == .read_view;
                 const viewed = switch (at) {
                     .read_view, .write_view => |inner| inner,
                     else => actual,
