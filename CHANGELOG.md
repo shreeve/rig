@@ -294,6 +294,12 @@ Other:
     n(ts: []Task[Int])`, and a `[]Holder` lent to an actor whose
     `Holder` holds a `^{Job + Sends}`, are rejected. A `![]T` still
     needs only that `T` sends.
+69. A sigil before a `for` source's method call lends the call's self,
+    as before any call (SPEC "for"), so `for x in <b.mk()`, where `mk`
+    does not consume `self`, is rejected as `<b.mk()` is anywhere:
+    "`mk` does not consume `self`; remove the `<`". Write
+    `for x in b.mk()`, which consumes the List the call makes, as the
+    `<` did.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -318,11 +324,48 @@ before it runs one, an arm of `task.select` may not take or write what
 another arm's closure views, nor two arms lend one value to write,
 nor read what an earlier arm's closure lends to write, nor take a
 channel, or the List holding it, that another arm waits on
-(*unsound*: the first read freed memory). MIGRATING-0.3 lists each.
+(*unsound*: the first read freed memory). A sigil before a `for`
+source's method call or chain lends its self or source as anywhere:
+`for x in !(!b).items()` is "remove the outer `!`", `for x in
+!b.each().filter(f)` of a `?@` `each` is "remove the `!`", `for x in
+<xs.filter(f)` is "`(<xs).filter(...)` takes `xs`, and
+`xs.filter(...)` walks it where it stands", a `?` or `<` before a
+chain that reaches no place (`?mk().filter(f)`) is "remove it", and
+`?it.filter(f)` of an iterator is "lend it to write". A chain whose
+result keeps its source lent is written with the lend where it is
+bound or returned, as any such call is: `vs =
+?names.filter(f).collect()`, `y = ?ps.min_by(f) ?? return`.
+MIGRATING-0.3 lists each.
 `std.json` callers change nothing: `parse` still answers a `Bool`, and
 `load`, failing with `JsonError`, is new.
 
 ### Language and compiler
+
+- **A sigil before a `for` source's method call lends its self,** as
+  before any call: `for x in !b.drain()` is `for x in (!b).drain()`,
+  which was rejected ("write `(!b).drain()`"), as `?b.each()` already
+  was. A call's result is walked as its type says: a `!List[T]` for
+  writing, so `for x in (!b).items()` writes the elements, and a List
+  made there is consumed. In a chain the sigil lends the source, so
+  `for x in <xs.filter(f)`, which walked `xs` and dropped the `<`, is
+  rejected with both spellings, and a `?` or `<` before a chain that
+  reaches no place, which did nothing, is rejected.
+- **`collect` keeps views.** A chain's items are what its source's
+  `for` gives, and `ps.filter(f).collect()` of a `List[P]` gives a
+  `List[?P]` that keeps `ps` lent, as one of a `List[String]` gave a
+  `List[?String]`; it was rejected ("`collect` keeps each item"),
+  against SPEC. A chain whose result keeps its source lent (`collect`,
+  `find`, `min`, `max`, `min_by`, `max_by` of views) is written with
+  the lend where it is bound, `vs = ?names.filter(f).collect()`, as
+  `r = head(?v)` is; the unmarked form was accepted.
+- **A loop over a read view held in a binding views what the view
+  views.** `src = ?ps` then `for p in src` and `!vs.push(p)` was
+  rejected, "`src` does not live long enough", where `!vs.push(?src[0])`
+  and a loop over a view held in a field were accepted, as CORE §9 and
+  the reference checker allow.
+- **Two arms of `task.select` that lend one value to write** are
+  rejected with the rewrite: "let one arm write it, or have each arm
+  give a value and write `n` after the select".
 
 - **An arm of `task.select` keeps its closure until the select runs
   it.** Emit made each arm's closure environment in a block of the arm
