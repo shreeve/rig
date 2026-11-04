@@ -157,6 +157,9 @@ const Checker = struct {
     /// The locals that hold a task lent to write, each moved only into
     /// its own wait, `>t`, or `<t.cancel()`.
     write_tasks: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// A binding that never changes whose value is a plain enum's
+    /// variant the checker knows, by name (`constVariant`).
+    fixed_variants: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
     /// The task a wait, `>t`, or a `<t.cancel()` being checked takes.
     task_wait: Sexp = .nil,
     /// The value of the object or enum field, or the field default, being
@@ -1799,6 +1802,8 @@ const Checker = struct {
                 .int => |i| i,
                 else => .{},
             } });
+        } else if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written) {
+            if (self.constVariant(rhs)) |v| try self.fixed_variants.put(self.ctx.arena.allocator(), sym_id, v);
         }
     }
 
@@ -12715,20 +12720,28 @@ const Checker = struct {
                 if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), none.field)) continue;
                 break :blk ir.Kwarg.value(a);
             } else if (data == 1) a else continue;
-            const is_none = if (none.variant) |v| blk: {
-                // `.empty`, `Kind.empty`, or a constant whose value is it.
-                const named: []const u8 = if (value.isKind(.enum_lit))
-                    self.text(ir.EnumLit.name(value))
-                else if (value.isKind(.member) and self.isTypeName(ir.Member.object(value)))
-                    self.text(ir.Member.name(value))
-                else if (sema.patternConst(self.ctx, value)) |c| if (sema.constScalar(c)) |sc| if (sc == .variant) sc.variant else "" else "" else "";
-                break :blk std.mem.eql(u8, named, v);
-            } else switch (sema.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
+            const is_none = if (none.variant) |v|
+                std.mem.eql(u8, self.constVariant(value) orelse "", v)
+            else switch (sema.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
                 .value => |v| v == none.value,
                 else => false,
             };
             if (is_none) try self.errAt(value, "a `{s}` never holds `{s}` {s}, which is what a `{s}?` holds for `none`; write `none` where no `{s}` is meant", .{ name, none.field, self.sourceText(value), name, name });
         }
+    }
+
+    /// The variant a plain enum's value `e` is when the checker knows it:
+    /// `.empty`, `Kind.empty`, a constant, a compile-time call's value, or
+    /// a binding that never changes of one (`fixed_variants`), as
+    /// `constIntBy` knows an integer's. Null for any other value.
+    fn constVariant(self: *Checker, e: Sexp) ?[]const u8 {
+        if (e.isKind(.enum_lit)) return self.text(ir.EnumLit.name(e));
+        if (e.isKind(.member) and self.isTypeName(ir.Member.object(e))) return self.text(ir.Member.name(e));
+        if (sema.cteval.recorded(self.ctx, e)) |r| return if (r.value == .variant) sema.cteval.variantName(self.ctx, r.ty, r.value.variant) else null;
+        if (e == .src) if (self.ctx.symbolOf(e)) |id| if (self.fixed_variants.get(id)) |v| return v;
+        const c = sema.patternConst(self.ctx, e) orelse return null;
+        const sc = sema.constScalar(c) orelse return null;
+        return if (sc == .variant) sc.variant else null;
     }
 
     /// Whether every data field of a type has a default, so `T()` makes

@@ -286,7 +286,8 @@ Other:
     `^{Job + Sends}` is rejected, as `c.peek(?Holder(...))` was.
 67. An object's none given to its constructor as a qualified variant or
     a constant, `Tagged(kind: Kind.empty)` or `Tagged(kind: EMPTY)` for
-    `none kind == .empty`, is rejected when checked, as `.empty` was
+    `none kind == .empty`, or as a binding that never changes or a
+    compile-time call's value, is rejected when checked, as `.empty` was
     (SPEC "An object that names its none"); it panicked when run.
 68. *Unsound:* a slice going to a task shares its elements, so they
     sync, as a `?T`'s value does (SPEC §18): `n(?ts)&` for `fun

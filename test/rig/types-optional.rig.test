@@ -580,6 +580,26 @@ fail "optional named none qualified or constant", "13:20: a `Tagged` never holds
     b = Tagged(kind: EMPTY)
     print(a.kind, b.kind)
 
+fail "optional named none fixed or computed", "16:20: a `Tagged` never holds `kind` k", "17:20: a `Tagged` never holds `kind` pick[0]", errors: 2
+  # A binding that never changes, or a compile-time call, is a constant
+  # too, as the integer none's are.
+  enum Kind
+    empty
+    full
+
+  obj Tagged
+    kind: Kind
+    none kind == .empty
+
+  fun pick[n: Int] -> Kind
+    Kind.empty
+
+  sub main()
+    k =! Kind.empty
+    a = Tagged(kind: k)
+    b = Tagged(kind: pick[0])
+    print(a.kind, b.kind)
+
 fail "optional named none declarations", "4:3: an object names its none by its one field, and `Two` has 2", "8:8: an object names its none by a field that is an integer or a plain enum; `s` is a `String`", "12:3: a member line `name field == value` is the none of an object, written `none v == ...`", "16:8: `Big` has no field `w`", "20:13: `v` is a `U8`, which cannot hold 300", "23:12: `v`'s default is its none, which no `Def` holds", "29:3: only an object names its none; `Pick` is an enum", errors: 7
   obj Two
     a: Int
