@@ -484,7 +484,7 @@ test "audit-fuzz-pf2-accepted-7d63489cb0", '''
   print("ret", f1(5))
   print("ret", f1((-1)))
 
-bomb "audit-fuzz-pf2-accepted-7e0d4419c1", "integer does not fit in destination type", prints: "before"
+bomb "audit-fuzz-pf2-accepted-7e0d4419c1", "panic: shift amount `129` is out of range for `I128` (0..127)", prints: "before"
   fun id_i8(x: I8) -> I8
     x
 

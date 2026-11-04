@@ -1287,8 +1287,6 @@ around the rule.
   - is spread over lines or at module level;
   - meets a context no plain form fits.
 - **The suite enforces the hints.** `test/hints.py` applies each hint in every reject test, and fails if the program then draws an error it did not draw before, at the same place with the same text. The rewritten line's columns are mapped through the rewrite.
-The suite's `classify` check fails on any classifier
-of this kind left outside `handsOver`.
 
 A branch is a value, never a place (Core §3), so every in-place read
 of one is a lend of it, and a lend of a branch lends each branch.
@@ -1549,6 +1547,8 @@ instead of re-deriving it by name:
 | `ctCallOf(node)` | for a compile-time call, `(ct_call cap 8)`: the value the checker computed and its type (`cteval.Result`), none in a compile-time function's body ([Compile-time functions](#compile-time-functions)) |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
+| `builtinCallOf(callee)` | for a call of a built-in type's method that emit lowers on its own (`sema.BuiltinCall`): `x.is_empty()` of a built-in length, a Cell-held List's `push`, `pop`, `clear`, `keep`, and `get`, a task set's `wait_first`, `get` of an array, a slice, or a `?String`, and a Cell's `set`, `swap`, `compare_swap`, `add`, and `sub`, recorded where typecheck resolves each, so emit matches no method name |
+| `isSwapCall(call)` | whether a call is of the built-in `swap`, not hidden by a declaration |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
@@ -1866,6 +1866,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written; the callee of a call whose arguments are evaluated first, when it is a value (`pick(k)(...)`, `fs[i](...)`, `b.f(...)`; `heldFirst`) | owned, copy, or pointer | call; select, for an arm's |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
+| `api_object`, `result_place` | `__rig_obj`, `__rig_res` | a call through an API object's table: the object, read once for its table and its value unless a name holds it, and the place a large optional result is written to (`TableEntry.result_out`) | copy, owned | call |
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
 | `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `held_header` | `__rig_header` | a parameter lent a `String`, or a `List` with no inline room, to write, which the body uses in a loop: its header, held for the body and written back by `defer`, which the parameter's name views (`storage.planHeldHeaders`); none where a task, a closure, or a `raw` block names the parameter, or the result holds a view | copy | block |
@@ -1937,8 +1938,8 @@ each argument and self the `by` of what it writes there (an
 address, a copy, a value of its own), which must agree. Emit names every
 hidden storage location through one function, `Emitter.hiddenStorage`,
 which requires the fact, held the same way, and reaches an internal
-error otherwise; the suite's `classify` check fails on a storage name
-spelled anywhere else. A capture is storage only for a binding something
+error otherwise; a unit test of `src/facts.zig` fails on a storage name
+spelled anywhere else in `src/emit.zig`. A capture is storage only for a binding something
 reads, which `plan` decides as emit does: a name other than its
 declaration names it, or a closure captures it.
 
@@ -4508,8 +4509,8 @@ symbols); a query that decides more than that is a recorded fact.
   methods, an enclosing local), each compared by its Zig name as Zig
   compares them, is renamed to a name of the emitter's,
   `__rig_local_x_3`, which no later name of the program's can be.
-- **Bindings** are `const` unless reassigned, written through, holding
-  a value that moves (`sema.moves`), or
+- **Bindings** are `const` unless reassigned, written through, owning
+  what they hold (`Symbol.hold`, which the storage plan records), or
   initialized by a compile-time-known value, which Zig would fold.
 - **Automatic drop.** An owning binding gets a `defer` that releases
   it. A binding of a value that moves but needs no cleanup (a unique

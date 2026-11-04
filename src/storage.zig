@@ -1831,6 +1831,7 @@ const Planner = struct {
                     _ = printsByAddress(ctx, a);
                 };
                 try p.call(e);
+                try p.objectCall(e);
             },
             // `panic` reads its message as `print` reads its arguments.
             .panic => for (ir.Panic.args(e)) |a| {
@@ -2087,6 +2088,22 @@ const Planner = struct {
             try p.record(first.node, first.kind, hold.by(hasStorage(ctx, first.node)), life);
         }
         for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai), life);
+    }
+
+    /// The storage of a call through an API object's table: the object,
+    /// unless a name holds it, and the place a result through the
+    /// caller's place is written to (`TableEntry.result_out`), each for
+    /// the call.
+    fn objectCall(p: *Planner, c: Sexp) !void {
+        const ctx = p.ctx;
+        const d = switch (ctx.dispatchOf(c) orelse return) {
+            .dynamic => |d| d,
+            else => return,
+        };
+        const recv = lentPlace(if (d.self_arg) ir.Call.args(c)[0] else selfOf(ctx, c) orelse return);
+        if (recv != .src) try p.record(recv, .api_object, .copy, .call);
+        const entry = sema.tableEntry(ctx, d) orelse return;
+        if (entry.result_out) try p.record(c, .result_place, .owned, .call);
     }
 
     /// An array literal whose elements are evaluated first holds each

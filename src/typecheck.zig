@@ -9545,7 +9545,10 @@ const Checker = struct {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
                 if (std.mem.eql(u8, name, "warn")) return self.checkWarn(args);
                 if (std.mem.eql(u8, name, "String")) return self.checkStringNew(node, args);
-                if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
+                if (std.mem.eql(u8, name, "swap")) {
+                    try self.ctx.recordSwapCall(node);
+                    return self.checkSwap(callee, args);
+                }
                 if (resolve.isNumericTypeName(name)) {
                     var r = self.resolver();
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
@@ -13191,6 +13194,7 @@ const Checker = struct {
             return self.noteMethod(callee, mode, ty);
         };
         if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| {
+            try self.ctx.recordBuiltinCall(callee, .element_get);
             _ = try self.checkSelfSigil(obj, .read, ty, ty, method);
             return self.noteMethod(callee, .read, ty);
         };
@@ -13202,6 +13206,7 @@ const Checker = struct {
                 .is_sub = false,
             };
             try self.noteCallee(f);
+            try self.ctx.recordBuiltinCall(callee, .is_empty);
             try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "is_empty", pos, .{ .has_self = true });
             _ = try self.checkSelfSigil(obj, .read, f.returns, f.returns, method);
             return self.noteMethod(callee, .read, f.returns);
@@ -13257,7 +13262,17 @@ const Checker = struct {
             return self.skipCall(args);
         };
         const self_mode = resolved.field.self_mode;
-        if (resolved.nominal_sym == self.ctx.cell_sym_id and !try self.cellMethod(obj_ty, method, pos)) return self.skipCall(args);
+        if (resolved.nominal_sym == self.ctx.cell_sym_id) {
+            if (!try self.cellMethod(obj_ty, method, pos)) return self.skipCall(args);
+            // On the Cell itself, or a view of it; a shared handle's is
+            // its value's.
+            const Change = enum { set, swap, compare_swap, add, sub };
+            const own = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty))) {
+                .parameterized_nominal => |pn| pn.sym == self.ctx.cell_sym_id,
+                else => false,
+            };
+            if (own and std.meta.stringToEnum(Change, method) != null) try self.ctx.recordBuiltinCall(callee, .cell_change);
+        }
         _ = try self.noteMethod(callee, self_mode, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
         const misplaced_sigil = self_mode != .none and try self.checkSelfSigil(obj, self_mode, resolved.fn_ty.returns, if (resolved.module == null) declaredResult(self.ctx, resolved.field.ty, resolved.fn_ty.returns) else resolved.fn_ty.returns, method);
@@ -15674,6 +15689,7 @@ const Checker = struct {
         if (!sema.isTaskSet(self.ctx, set)) return null;
         const first = std.mem.eql(u8, method, "wait_first");
         if (!first and !rig.isWaitMember(callee)) return null;
+        if (first) try self.ctx.recordBuiltinCall(callee, .wait_first);
         const each = sema.taskResult(self.ctx, set).?;
         const fails = self.ctx.types.get(each) == .fallible;
         const value = if (fails) self.ctx.types.get(each).fallible.ok else each;
@@ -15739,6 +15755,13 @@ const Checker = struct {
         const Member = enum { push, pop, keep, clear, get };
         const member = std.meta.stringToEnum(Member, method) orelse return null;
         if (member == .get and args.len == 0) return null;
+        try self.ctx.recordBuiltinCall(callee, switch (member) {
+            .push => .list_push,
+            .pop => .list_pop,
+            .keep => .list_keep,
+            .clear => .list_clear,
+            .get => .list_get,
+        });
         const cell = sema.unwrapReadAccess(self.ctx, obj_ty);
         const recv = try self.ctx.intern(if (member == .get) .{ .read_view = cell } else .{ .write_view = cell });
         const opt_elem = try self.ctx.intern(.{ .optional = elem });
