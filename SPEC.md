@@ -12955,8 +12955,8 @@ thread.
 | Type | sends | syncs |
 |---|---|---|
 | plain data, `String`, `List[T]`, `^T`, objects and enums | when every part sends | when every part syncs |
-| `?T` | when `T` syncs | when `T` syncs |
-| `!T` | when `T` sends | never |
+| `?T`, `[]T` | when `T` syncs | when `T` syncs |
+| `!T`, `![]T` | when `T` sends | never |
 | `Task[T]` | when `T` sends | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |

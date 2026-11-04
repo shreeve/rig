@@ -288,6 +288,11 @@ Other:
     a constant, `Tagged(kind: Kind.empty)` or `Tagged(kind: EMPTY)` for
     `none kind == .empty`, is rejected when checked, as `.empty` was
     (SPEC "An object that names its none"); it panicked when run.
+68. *Unsound:* a slice going to a task shares its elements, so they
+    sync, as a `?T`'s value does (SPEC §18): `n(?ts)&` for `fun
+    n(ts: []Task[Int])`, and a `[]Holder` lent to an actor whose
+    `Holder` holds a `^{Job + Sends}`, are rejected. A `![]T` still
+    needs only that `T` sends.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

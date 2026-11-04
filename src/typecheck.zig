@@ -13991,7 +13991,7 @@ const Checker = struct {
                 try self.errAt(arg, "a method an actor runs takes no write view: `{s}` lends `{s}` to write", .{ self.sourceText(arg), try self.plainText(stripSigil(arg)) });
                 return self.t().invalid_id;
             }
-            const how: sema.Crossing = if (k == .read_view) .shares else .moves;
+            const how: sema.Crossing = if (k == .read_view or k == .slice) .shares else .moves;
             const inner = if (k == .read_view) sema.unwrapViews(self.ctx, ty) else ty;
             if (try sema.crossingBlocker(self.ctx, inner, how)) |blocker| {
                 if (try self.statedCrossing(blocker, how, self.startOf(arg))) return self.t().invalid_id;

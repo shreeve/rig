@@ -874,3 +874,29 @@ fail "actor argument lent bare crosses as a view", "an actor runs its methods on
 
   c = *Actor(Counter(hits: 0))
   print(c.peek(Holder(j: ^Sum(xs: List([1, 2])))))
+
+fail "actor slice argument shares its elements", "an actor runs its methods on a task of its own, and `xs` is lent to it to read"
+  # A slice lent to an actor, bare or with `?`, is read on its task, so
+  # its elements sync (SPEC §18).
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(?@) -> Int
+      @xs.len
+
+  obj Holder
+    j: ^{Job + Sends}
+
+  obj Counter
+    hits: Int
+
+    fun sl(?@, xs: []Holder) -> Int
+      xs.len + @hits
+
+  c = *Actor(Counter(hits: 0))
+  xs = List[Holder]()
+  !xs.push(Holder(j: ^Sum(xs: List([1]))))
+  print(c.sl(xs))
