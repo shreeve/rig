@@ -15174,7 +15174,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
-        .arm, .item_type, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
+        .arm, .item_type, .item_value, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
         // `>t`, `f: once T`, `a..=b`, and `(e)`'s `paren`, which the Parser
         // wrapper rewrites or drops first.
         .wait, .once, .@"..=", .paren => .none,

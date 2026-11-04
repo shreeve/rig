@@ -437,6 +437,9 @@ tokens
     # (`Parser.desugarChains`): a source's item, a stage's result, or the
     # binding's own type. Only the rewrite writes it.
     item_type                   name:leaf @wrapper
+    # The value of that item: a read view of plain data read out, as the
+    # running total of a chain's `sum` holds it.
+    item_value                  name:leaf @wrapper
     results                     ...values        # `return a, b`: a function's several results
     pass
 

@@ -178,6 +178,18 @@ test "iter a map's iterator", "2 1 2"
   v = ?m.values()
   print(iter.count(!k), iter.count(!e), iter.count(!v))
 
+test "iter sum of a map's values", "30 2.5 0"
+  # A chain's `sum` adds items that are views of numbers, a Map's
+  # values, by their numbers; the sum of none is 0.
+  m: Map[Int, Int] = Map()
+  !m.put(1, 10)
+  !m.put(2, 20)
+  f: Map[String, F32] = Map()
+  !f.put(String("a"), 1.5)
+  !f.put(String("b"), 1.0)
+  e: Map[Int, Int] = Map()
+  print(?m.values().sum(), ?f.values().sum(), ?e.values().sum())
+
 test "iter holds two items", '''
   1 2
   10 20
