@@ -8196,7 +8196,7 @@ test "review-std-r1", '''
   f = (!r).float()
   print(f >= 0.0 and f < 1.0)
 
-test "review-std-r2", "1227844342346046656"
+test "review-std-r2", "5225608189600411231"
   r = random.Random.seeded(1)
   print((!r).int(-1, Int.max))
 

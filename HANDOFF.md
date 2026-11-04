@@ -138,21 +138,23 @@ A new session, human or agent, takes these steps in order:
     calls have one argument check.
   - **Check speed:** `rig check` is 4.7% faster; `bench/check/guard.py`
     runs as documented and holds the new baseline.
-  - **Phase 2 (ownership, storage, facts, emit) is ready to start:**
-    [next-phase.md](docs/history/records/2026-11/revamp-compiler/next-phase.md).
   - **Its five decisions** were approved after a panel of three
     experts agreed with each
     ([panel-decisions.md](docs/history/records/2026-11/revamp-compiler/panel-decisions.md)).
     They landed in #922, with `select` as a value matched by `match` (#923),
     the conditional-expression binding rule (#924), and a fix for a
-    check-speed regression on deep generic chains (#925). Rig's full suite
-    on main passes (11,345 jobs).
-  - **Next, all in v0.3.0 (the owner, 2026-11-04):** phase 2, ownership,
-    storage, facts, and emit
-    ([next-phase.md](docs/history/records/2026-11/revamp-compiler/next-phase.md)),
-    and the 12 std decisions
-    ([revamp-runtime/owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)),
-    then the release preparation for the owner's go.
+    check-speed regression on deep generic chains (#925).
+  - **Phase 2 and the rest of v0.3.0's scope (#927-#937), landed:**
+    ownership, storage, facts, and emit; the twelve std decisions
+    (`tools/migrate-std-0.3.py`); a task returned with read loans;
+    the `$type` rule; and by-name patterns (`tools/migrate-patterns.py`).
+    Four more holes on main were closed.
+  - **Next:** v0.3.0's full suites and release notes, for the owner's
+    go and tag. Trig (branch `rig-030`) and loc (`rig-0.3-patterns`)
+    land their migrations once on this Rig. Set aside for v0.3.1:
+    `@embed`, a task's end as a `select` arm, keyword durations, `as a,
+    b` shadowing, two gaps in the oracle, and the test/cli scripts as a
+    gate for compiler PRs.
 - **`select` as a value matched by `match`**, approved and built as
   a test case (records/2026-11/revamp-compiler/panel-select-*.md):
   `match task.select(add: !a.on_recv(), late: time.after(ns))!` with

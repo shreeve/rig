@@ -914,24 +914,29 @@
                            ^ constant.numeric
                              ^ operator
                                  ^ operator
->     .rect(w, h) if w == h => return w * w
+>     .rect(:w, :h) if w == h => return w * w
       ^ punctuation
            ^ punctuation
-             ^ punctuation
-                ^ punctuation
-                  ^^ keyword.control
-                       ^^ operator
-                            ^^ operator
-                               ^^^^^^ keyword.control
-                                        ^ operator
->     .rect(w, h) => return w * h
+            ^^ variable.parameter
+              ^ punctuation
+                ^^ variable.parameter
+                  ^ punctuation
+                    ^^ keyword.control
+                         ^^ operator
+                              ^^ operator
+                                 ^^^^^^ keyword.control
+                                          ^ operator
+>     .rect(:w, h: height) => return w * height
       ^ punctuation
            ^ punctuation
-             ^ punctuation
-                ^ punctuation
-                  ^^ operator
-                     ^^^^^^ keyword.control
-                              ^ operator
+            ^^ variable.parameter
+              ^ punctuation
+                ^ variable.parameter
+                 ^ punctuation
+                         ^ punctuation
+                           ^^ operator
+                              ^^^^^^ keyword.control
+                                       ^ operator
 >     .point => return 0
       ^ punctuation
              ^^ operator

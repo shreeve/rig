@@ -1797,7 +1797,7 @@ test "review-revamp-rest-p3-m1", "250 5 255 1 3 9 7 true"
     pub type Nums = [3]Int
     pub type Opt = Int?
 
-fail "review-revamp-rest-p4-d08", "`r` is bound but never read; name it `_` to ignore the value"
+fail "review-revamp-rest-p4-d08", "`r` is bound but never read; leave its field out of the pattern"
   enum Sh
     circle(r: Int)
     sq(s: Int)

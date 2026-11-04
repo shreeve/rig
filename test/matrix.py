@@ -1436,8 +1436,8 @@ def fold_cells():
 
 
 def fold_pattern(role):
-    """A `.v` pattern that binds only the field of `role`."""
-    return ".v(" + ", ".join("abcd"[i] if i == role else "_" for i in range(4)) + ")"
+    """A `.v` pattern that binds only the field of `role`, by name."""
+    return ".v(:" + "abcd"[role] + ")"
 
 
 def fold_program(c, a, op):

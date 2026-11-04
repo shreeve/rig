@@ -168,3 +168,50 @@ phase 2).
   (cli.deep_types, cli.value_depth, about 5 s); the core suite alone missed
   #925's regression.
 - The owner, 2026-11-04: phase 2 (ownership, storage, facts, emit) goes into v0.3.0 too.
+
+### Phase 2 and the v0.3.0 items (2026-11-04): #927-#937
+
+Three audits read ownership, storage, facts, and emit
+(audit-ownership.md, audit-storage-emit.md, audit-emit.md). Each
+soundness change had an independent review (review-927, 929, 931, 934,
+935, and pattern-review/), and each review but #934's found more, fixed
+before merge.
+
+- #927: a move or take inside `and`, `or`, or a condition's parts is
+  joined across the paths that run, which closes a use after move on
+  main. Its review found one bound rejecting a program CORE allows
+  (fixed).
+- #929: a call evaluates its handle, self, or callee before its hoisted
+  arguments; an actor's handle could be freed first. Its review found a
+  callee named by a field path still read late (fixed in the PR).
+- #930 (replaces #928, closed by a branch deleted early): emit builds a
+  type's method-name sets once, reports a shift past the width in Rig's
+  words, and reads three more decisions as recorded facts.
+- #931: one pattern path for every form; an optional field is covered
+  value by value. Its review found the names an alternative binds went
+  unchecked by the ownership checker (fixed, with the oracle's).
+- #932: a source file or module may hold up to 2 GiB (was 16 MiB), with
+  a Rig diagnostic past it, so Trig can drop its split of libtrees.
+- #933: `E.from_int(n)` is a range test when E's values fill a range.
+  Trig's A/B on that path: mitt 15.6 ms to 12.0 ms.
+- #934: a function returns a task holding read loans as it returns any
+  result that keeps them; sema's origins and the oracle's task model
+  agree with the ownership checker. Four shapes that read freed memory
+  are rejected.
+- #935: the twelve std decisions (revamp-runtime/owner-decisions.md) with
+  tools/migrate-std-0.3.py. Its review found two silent meaning changes
+  in the script (fixed). Trig: 46 rewrites by the script, 23 by hand.
+- #936: `$type(x)` rejects an operand that would run (a move, a write
+  lend, a call), with the fix in its message.
+- #937: a pattern binds a variant's fields by name (`.rect(:w, h:
+  height)`), with tools/migrate-patterns.py. Trig: 21 sites; loc: 15.
+- Gates on #937 with main merged: core suite 7,225 jobs and test/cli 121,
+  none died; Trig's light gate and `tools/pup cases` (809 jobs) green on
+  Trig's branch rig-030, which carries both migrations; loco's light
+  gate green on loc's branch rig-0.3-patterns.
+- The owner, 2026-11-04: v0.3.0's scope is frozen at these, plus the
+  editor colouring of `:w` and these records. After it lands, the next
+  round takes up the items set aside for v0.3.1: `@embed`, a task's end
+  as a `select` arm, keyword durations, `as a, b` shadowing, the
+  oracle's two gaps, emit's last decisions moved into storage, and the
+  test/cli scripts as a gate for compiler PRs.
