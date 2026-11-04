@@ -1,12 +1,12 @@
 # rig check of bench/check/gen.py's workload, ReleaseSafe; bench/check/guard.py --update writes it
 # instructions: median of 5; ms.PASS: best of 7 of `rig check --time`, on the Mac
-instructions 1894726980
-ms.lex_and_parse 10.022
-ms.resolve 7.314
-ms.typecheck 15.084
-ms.storage 45.013
-ms.ownership 8.853
-ms.proofs 4.191
-ms.inlining 5.131
-ms.other 1.851
-ms.total 98.197
+instructions 2130157291
+ms.lex_and_parse 14.094
+ms.resolve 11.536
+ms.typecheck 19.630
+ms.storage 26.512
+ms.ownership 11.354
+ms.proofs 7.197
+ms.inlining 6.460
+ms.other 3.239
+ms.total 101.390

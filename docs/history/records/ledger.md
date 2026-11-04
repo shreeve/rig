@@ -163,6 +163,30 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## RESUME HERE (2026-11-04, early): the compiler revamp, phase 1
+
+**Landed: #914-#917, the front end and the type checker** (records:
+2026-11/revamp-compiler/).
+- Five audits, about 61,000 lines read line by line.
+- Nine accepted programs that misbehaved, crashed the compiler, or failed
+  in Zig, all fixed.
+- Each soundness change was reviewed independently. Each review found
+  more, which was fixed before merge. #916's review found #917: a
+  `select` arm closure read a dead frame, on main (North Star 2).
+- No real .rig file under ~/Data/Code changed its accept or reject.
+- `rig check` is 4.7% faster; bench/check/guard.py is fixed and holds the
+  new baseline.
+
+**Check speed's history:** 2,091M instructions on 10-15, 2,654M on 10-31,
+2,143M on 11-01 (row 33A), 2,234M at the phase's base, and 2,129M now.
+Each feature added about 1%; no single regression.
+
+**Next:**
+- Phase 2, ownership, storage, facts, and emit
+  (revamp-compiler/next-phase.md).
+- The owner's five decisions (revamp-compiler/owner-decisions.md).
+- Then v0.3.0's release preparation, for the owner's go.
+
 ## RESUME HERE (2026-11-03, evening): the runtime and std revamp, rounds 1 and 2
 
 **Landed on main, 2026-11-03.** The owner ran /codebase-revamp scoped to the runtime and std. He chose themed PRs that the lead merges on green gates, with std API changes allowed through migration. Overnight he gave full authority. Every code PR passed:

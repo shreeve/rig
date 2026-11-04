@@ -79,9 +79,10 @@ def pass_times(rig, d, n):
     return best
 
 
-def build(out):
-    subprocess.run(["zig", "build", "-j2", "-Doptimize=safe", "-p", out], cwd=ROOT, check=True)
-    return os.path.join(out, "bin", "rig")
+def build():
+    # zig build writes bin/rig in the checkout (ReleaseSafe), whatever the prefix.
+    subprocess.run(["zig", "build", "-j2", "-Doptimize=safe"], cwd=ROOT, check=True)
+    return os.path.join(ROOT, "bin", "rig")
 
 
 def read_base():
@@ -100,7 +101,7 @@ def main():
     update = "--update" in args
     rig = args[args.index("--rig") + 1] if "--rig" in args else None
     with tempfile.TemporaryDirectory() as tmp:
-        rig = os.path.abspath(rig) if rig else build(os.path.join(tmp, "build"))
+        rig = os.path.abspath(rig) if rig else build()
         work = write(os.path.join(tmp, "workload"), gen.workload())
         now = {"instructions": median_instructions(rig, work, 5)}
         load = os.getloadavg()[0]
