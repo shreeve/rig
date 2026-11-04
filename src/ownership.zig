@@ -1322,8 +1322,8 @@ pub const Checker = struct {
     /// loop ends past every use. `lo > hi` when it has none.
     fn extent(self: *const Checker, s: Sexp) struct { lo: u32, hi: u32 } {
         switch (s) {
-            .src => {
-                const at = self.startOf(s);
+            .src => |leaf| {
+                const at = if (leaf.pos < self.source.len) leaf.pos else self.startOf(s);
                 return .{ .lo = at, .hi = at };
             },
             .list => {
