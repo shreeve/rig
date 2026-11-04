@@ -358,9 +358,10 @@ const Nominal = struct {
     /// How `Self` is spelled: the type name, or `__rig_Self` inside a generic.
     name: []const u8,
     sym: SymbolId,
-    members: []const Sexp,
-    /// The Zig name of each of its methods (`ident`).
-    methods: []const []const u8,
+    /// Its methods' names, as written (`writeModuleName`) and as Zig
+    /// names (`ident`, `nameTaken`), each set built once per type.
+    rig_methods: std.StringHashMapUnmanaged(void),
+    zig_methods: std.StringHashMapUnmanaged(void),
     /// It is held as one word, a `packed struct` (`storage.decideWords`).
     word: bool = false,
 };
@@ -1141,12 +1142,19 @@ pub const Emitter = struct {
         const prev = self.nominal;
         const sym = self.facts.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
         const name = if (generic) "__rig_Self" else try self.fmt("{f}", .{ident(self.srcText(name_node))});
-        var methods: std.ArrayList([]const u8) = .empty;
-        for (members) |m| if (m.isKind(.fun) or m.isKind(.sub)) {
-            try methods.append(self.arena.allocator(), try self.fmt("{f}", .{ident(self.srcText(ir.get(m, .name)))}));
-        };
-        self.nominal = .{ .name = name, .sym = sym, .members = members, .methods = methods.items };
+        self.nominal = try self.nominalOf(name, sym, members);
         return prev;
+    }
+
+    fn nominalOf(self: *Emitter, name: []const u8, sym: SymbolId, members: []const Sexp) Error!Nominal {
+        const a = self.arena.allocator();
+        var n: Nominal = .{ .name = name, .sym = sym, .rig_methods = .empty, .zig_methods = .empty };
+        for (members) |m| if (m.isKind(.fun) or m.isKind(.sub)) {
+            const rig_name = self.srcText(ir.get(m, .name));
+            try n.rig_methods.put(a, rig_name, {});
+            try n.zig_methods.put(a, try self.fmt("{f}", .{ident(rig_name)}), {});
+        };
+        return n;
     }
 
     /// `pub fn Name(comptime T: type, comptime n: i64, ...) type { return
@@ -1616,7 +1624,7 @@ pub const Emitter = struct {
     fn emitAddedMethod(self: *Emitter, conf: facts.Conformance, node: Sexp, depth: u32) Error!void {
         const prev = self.nominal;
         defer self.nominal = prev;
-        self.nominal = .{ .name = "@This()", .sym = conf.self_sym, .members = &.{node}, .methods = &.{try self.fmt("{f}", .{ident(self.srcText(ir.get(node, .name)))})} };
+        self.nominal = try self.nominalOf("@This()", conf.self_sym, &.{node});
         try self.emitMethods(&.{node}, depth);
     }
 
@@ -2246,7 +2254,7 @@ pub const Emitter = struct {
         if (self.module_names.contains(zig_name)) return true;
         if (self.nominal) |n| {
             if (std.mem.eql(u8, n.name, zig_name)) return true;
-            for (n.methods) |m| if (std.mem.eql(u8, m, zig_name)) return true;
+            if (n.zig_methods.contains(zig_name)) return true;
         }
         return self.local_names.contains(zig_name);
     }
@@ -6316,12 +6324,9 @@ pub const Emitter = struct {
     /// A module-level name. Inside a type with a method of the same name,
     /// Zig would find both, so it is qualified with the module itself.
     fn writeModuleName(self: *Emitter, name: []const u8) Error!void {
-        if (self.nominal) |n| for (n.members) |m| {
-            if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
-            if (!std.mem.eql(u8, self.srcText(ir.get(m, .name)), name)) continue;
+        if (self.nominal) |n| if (n.rig_methods.contains(name)) {
             self.uses_module = true;
             try self.w.writeAll("__rig_module.");
-            break;
         };
         try self.w.print("{f}", .{ident(name)});
     }
