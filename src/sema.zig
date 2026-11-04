@@ -1877,8 +1877,9 @@ pub const Facts = struct {
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
     /// Callee (`member`) node -> the built-in type's method it calls.
     builtin_calls: FastMap(NodeKey, BuiltinCall) = .empty,
-    /// Calls of the built-in `swap`, not hidden by a declaration.
-    swap_calls: FastMap(NodeKey, void) = .empty,
+    /// Calls of the built-in `swap`, not hidden by a declaration: whether
+    /// each exchanges two places or puts a value in one.
+    swap_calls: FastMap(NodeKey, SwapCall) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
     /// no view of them (`SemContext.lendsTempArray`).
     temp_arrays: FastMap(NodeKey, void) = .empty,
@@ -2477,6 +2478,28 @@ pub const Question = enum(u8) {
     /// held and dropped when nothing takes it, or null when it owns
     /// nothing (`storage.dropKind`).
     drop_kind,
+    /// Of a `match` arm: whether its pattern takes every value, a name
+    /// that binds or `_` (`storage.catchesAll`).
+    catch_all,
+    /// Of a `match`: whether it picks its arm before it runs one
+    /// (`storage.matchSelects`).
+    match_selects,
+    /// Of a read `for` or an `if … as`: whether its binding is the bytes
+    /// of a String it reaches (`storage.bindsStringBytes`).
+    binds_string_bytes,
+    /// Of `return a, b`'s parts: whether they are evaluated into storage
+    /// first (`storage.hoistsResults`).
+    hoists_results,
+    /// Of an `as`: how its read binding of a write view in the optional
+    /// is bound, if it is one (`storage.throughWrite`).
+    through_write,
+    /// Of a compound assignment: the call it lowers to, which assigns the
+    /// call's result, if any (`storage.compoundCall`).
+    compound_call,
+    /// Of an assignment that declares a binding: whether the binding holds
+    /// its value, a pointer, or the address of the place it lends
+    /// (`storage.bindHold`).
+    bind_hold,
 };
 
 /// A recorded answer to a `Question`, with the node it is about, and the
@@ -3227,7 +3250,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall => try w.print(" {s}", .{@tagName(v)}),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
@@ -5409,13 +5432,14 @@ pub const SemContext = struct {
         return self.facts.builtin_calls.get(nodeKey(callee) orelse return null);
     }
 
-    pub fn recordSwapCall(self: *SemContext, call: Sexp) !void {
-        try self.facts.swap_calls.put(self.allocator, recordKey(call), {});
+    pub fn recordSwapCall(self: *SemContext, call: Sexp, swap: SwapCall) !void {
+        try self.facts.swap_calls.put(self.allocator, recordKey(call), swap);
     }
 
-    /// Whether `call` is of the built-in `swap` (`recordSwapCall`).
-    pub fn isSwapCall(self: *const SemContext, call: Sexp) bool {
-        return self.facts.swap_calls.contains(nodeKey(call) orelse return false);
+    /// What `call` of the built-in `swap` exchanges (`recordSwapCall`);
+    /// null for any other call.
+    pub fn swapCallOf(self: *const SemContext, call: Sexp) ?SwapCall {
+        return self.facts.swap_calls.get(nodeKey(call) orelse return null);
     }
 
     /// The recorded answer to `q` about `node`; null when no pass has
@@ -7908,6 +7932,11 @@ pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
 pub fn isBuiltinCallName(name: []const u8) bool {
     return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "swap");
 }
+
+/// What a call of the built-in `swap` exchanges: two places, `swap(!a,
+/// !b)`, or a place and a value it puts there, giving back what was
+/// there, `old = swap(!x, v)` (`swapsTwoPlaces`, recorded by typecheck).
+pub const SwapCall = enum { places, value };
 
 /// Whether the built-in `swap`'s second argument `arg`, of type `ty`
 /// where known, is a second place lent to write, `!b` or a held `!T`: the

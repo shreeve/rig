@@ -674,8 +674,6 @@ pub fn subjectRereadable(subject: Sexp) bool {
 /// a value that owns a resource hands the arm its fields.
 pub const MatchMode = enum { read, write, consume };
 
-/// The enum a `match` switches on: the one a box or handle holds, or
-/// the subject's type.
 /// The type an arm's member pattern is of: an error member's own set,
 /// which the subject may be one of; else the subject's, `subject`.
 fn armType(ctx: *const SemContext, pattern: Sexp, subject: ?TypeId) ?TypeId {
@@ -683,6 +681,8 @@ fn armType(ctx: *const SemContext, pattern: Sexp, subject: ?TypeId) ?TypeId {
     return subject;
 }
 
+/// The enum a `match` switches on: the one a box or handle holds, or
+/// the subject's type.
 pub fn matchedType(ctx: *const SemContext, match: Sexp) ?TypeId {
     const scrutinee = ir.Match.subject(match);
     const ty = typeOf(ctx, scrutinee) orelse return null;
@@ -708,6 +708,18 @@ pub fn isCatchAll(ctx: *const SemContext, pattern: Sexp) bool {
     return pattern == .src and !isLiteralText(rig.leafText(ctx.source, pattern.src)) and sema.patternConst(ctx, pattern) == null;
 }
 
+/// Whether the pattern of `match` arm `arm` takes every value
+/// (`isCatchAll`), decided once. Asked of the arm, not of its pattern: a
+/// `matches` test's hidden `_` arm has its pattern at the position of the
+/// pattern written, which may be a leaf as well.
+pub fn catchesAll(ctx: *const SemContext, arm: Sexp) bool {
+    return decide(ctx, arm, .catch_all);
+}
+
+fn decideCatchesAll(ctx: *const SemContext, arm: Sexp) bool {
+    return isCatchAll(ctx, ir.Arm.pattern(arm));
+}
+
 /// Whether some arm of `match` has a guard.
 pub fn matchGuarded(match: Sexp) bool {
     for (ir.Match.arms(match)) |arm| if (ir.Arm.guard(arm) != .nil or rig.patternTests(ir.Arm.pattern(arm))) return true;
@@ -715,8 +727,13 @@ pub fn matchGuarded(match: Sexp) bool {
 }
 
 /// Whether `match` picks its arm before it runs one: an arm has a guard,
-/// or the match is on text, which a Zig `switch` cannot test.
+/// or the match is on text, which a Zig `switch` cannot test. Decided
+/// once.
 pub fn matchSelects(ctx: *const SemContext, match: Sexp) bool {
+    return decide(ctx, match, .match_selects);
+}
+
+fn decideMatchSelects(ctx: *const SemContext, match: Sexp) bool {
     if (matchGuarded(match)) return true;
     const ty = matchedType(ctx, match) orelse return false;
     return sema.isText(ctx, sema.unwrapViews(ctx, ty));
@@ -944,11 +961,24 @@ fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
     return ctx.types.get(t) == .array and owns(ctx, ctx.types.get(t).array.elem) and (mode == .move or !hasStorage(ctx, source));
 }
 
+/// Whether the binding of a read `for` or of an `if … as` is the bytes
+/// of a String it reaches (`loopBindsStringBytes`,
+/// `optionalBindsStringBytes`), decided once.
+pub fn bindsStringBytes(ctx: *const SemContext, node: Sexp) bool {
+    return decide(ctx, node, .binds_string_bytes);
+}
+
+fn decideBindsStringBytes(ctx: *const SemContext, node: Sexp) bool {
+    if (node.isKind(.@"for")) return loopBindsStringBytes(ctx, node);
+    if (node.isKind(.as)) return optionalBindsStringBytes(ctx, node);
+    return false;
+}
+
 /// Whether a read `for` over an array, a slice, or a List binds the bytes
 /// of each String element: its binding is a `?String`, the read view of a
 /// `String`, so the loop walks the elements by address and the binding is
 /// each one's `.bytes()`.
-pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
+fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     if (ir.For.mode(loop).tag == .write) return false;
     const source = ir.For.source(loop);
     if (source.isKind(.@"..") or forConsumes(ctx, loop)) return false;
@@ -967,13 +997,41 @@ pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
 /// Whether `if value as name` binds the bytes of a String that a write
 /// view in the optional points at (`(!String)?`): the binding is a
 /// `?String`, the read view of that String.
-pub fn optionalBindsStringBytes(ctx: *const SemContext, cond: Sexp) bool {
+fn optionalBindsStringBytes(ctx: *const SemContext, cond: Sexp) bool {
     const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
     const bound = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
     const t = typeOf(ctx, ir.As.value(cond)) orelse return false;
     return switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
         .optional => |inner| ctx.types.get(inner) == .write_view and sema.viewsStringBytes(ctx, inner, bound),
         else => false,
+    };
+}
+
+/// How a read binding of a write view is bound (`throughWrite`).
+pub const ThroughWrite = enum { pointer, value };
+
+/// How the binding of `if value as name` reads through a write view, decided
+/// once: when the optional holds one and the binding only reads
+/// (`bindingAccess`), it is bound as the read view of what that write view
+/// views. `.pointer`: the write view itself (a `?P`, or a `[]T` of a
+/// `![]T`); `.value`: the value it points at, copied out, as a `?T` of a
+/// scalar or a view is a copy (`sema.lendByValue`). Null for any other
+/// binding.
+pub fn throughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
+    return decide(ctx, cond, .through_write);
+}
+
+fn decideThroughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
+    const sym = ctx.symbolOf(ir.As.name(cond)) orelse return null;
+    if (ctx.bindingAccess(sym) != .read) return null;
+    const t = typeOf(ctx, ir.As.value(cond)) orelse return null;
+    const reached = switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
+        .optional => |inner| inner,
+        else => return null,
+    };
+    return switch (ctx.types.get(reached)) {
+        .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner)) .value else .pointer,
+        else => null,
     };
 }
 
@@ -1213,17 +1271,22 @@ pub fn setActs(e: Sexp) bool {
     return contains(e, &([_]Tag{ .call, .builtin, .set, .drop, .panic } ++ leave_kinds));
 }
 
-/// Whether step `e` of an assignment can leave before the store: `!`,
-/// `?`, `return`, `break`, or `continue`.
 /// Whether `return a, b` (`results`) evaluates its parts into storage
 /// first, in their order (`argument` storage, one per part): a part that
 /// can leave (`!`, `?`, a jump) comes after one that owns, which a
 /// tuple Zig builds as it goes would lose on the way out. The storage
-/// drops an owned part on that way, and the return takes each.
+/// drops an owned part on that way, and the return takes each. Decided
+/// once.
 pub fn hoistsResults(ctx: *const SemContext, results: Sexp) bool {
+    return decide(ctx, results, .hoists_results);
+}
+
+fn decideHoistsResults(ctx: *const SemContext, results: Sexp) bool {
     return leavesAfterOwned(ctx, false, ir.Results.values(results));
 }
 
+/// Whether step `e` of an assignment can leave before the store: `!`,
+/// `?`, `return`, `break`, or `continue`.
 fn setLeaves(e: Sexp) bool {
     return contains(e, &leave_kinds);
 }
@@ -1378,7 +1441,7 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_self, .pure_arg, .lane_checked, .fills_in_place => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_self, .pure_arg, .lane_checked, .fills_in_place, .catch_all, .match_selects, .binds_string_bytes, .hoists_results => bool,
         .self_hold => ?SelfHold,
         .argument_hold => ArgumentHold,
         .match_mode => MatchMode,
@@ -1388,6 +1451,9 @@ pub fn Answer(comptime q: sema.Question) type {
         .set_order => SetOrder,
         .step_point => StepPoint,
         .drop_kind => ?sema.ResourceKind,
+        .through_write => ?ThroughWrite,
+        .compound_call => ?CompoundCall,
+        .bind_hold => BindHold,
     };
 }
 
@@ -1432,6 +1498,13 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .step_point => Node.of(decideStepPoint),
         .fills_in_place => Node.of(decideFillsInPlace),
         .drop_kind => Node.of(decideDropKind),
+        .catch_all => Node.of(decideCatchesAll),
+        .match_selects => Node.of(decideMatchSelects),
+        .binds_string_bytes => Node.of(decideBindsStringBytes),
+        .hoists_results => Node.of(decideHoistsResults),
+        .through_write => Node.of(decideThroughWrite),
+        .compound_call => Node.of(decideCompoundCall),
+        .bind_hold => Node.of(decideBindHold),
     };
 }
 
@@ -1923,6 +1996,9 @@ const Planner = struct {
         const value = ir.As.value(cond);
         const name = ir.As.name(cond);
         const used = p.isUsed(name);
+        // How the binding is bound, decided for every `as`, which emit reads.
+        _ = bindsStringBytes(ctx, cond);
+        _ = throughWrite(ctx, cond);
         // A place, or a part of a value the `if` holds, is bound where it
         // stands.
         if (ctx.headerOf(cond)) |how| {
@@ -1957,13 +2033,13 @@ const Planner = struct {
         if (ty != null and owns(ctx, ty.?)) try p.record(cond, .as_value, .owned, .body);
         // The bytes of the String a captured write view points at: the
         // pointer is captured, and the binding takes its bytes.
-        if (used and optionalBindsStringBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
+        if (used and bindsStringBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
     }
 
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
         const source = ir.For.source(loop);
-        if (loopBindsStringBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
+        if (bindsStringBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
             try p.record(loop, .range_end, .owned, .construct);
@@ -1994,10 +2070,11 @@ const Planner = struct {
         _ = matchesInPlace(ctx, m);
         _ = matchRereads(ctx, m);
         _ = subjectHold(ctx, m);
+        _ = matchSelects(ctx, m);
         for (ir.Match.arms(m)) |arm| {
             const pattern = ir.Arm.pattern(arm);
-            if (pattern == .src) {
-                if (isCatchAll(ctx, pattern) and ctx.symbolOf(pattern) != null) _ = catchAllCaptured(ctx, pattern, m);
+            if (catchesAll(ctx, arm)) {
+                if (ctx.symbolOf(pattern) != null) _ = catchAllCaptured(ctx, pattern, m);
             } else for (prongsOf(ctx, &pattern)) |prong| if (prong.isKind(.variant_pattern)) {
                 for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
                     _ = bindsByAddress(ctx, b, m);
@@ -2028,7 +2105,7 @@ const Planner = struct {
         const ty = matchedType(ctx, m);
         for (ir.Match.arms(m)) |arm| {
             const pattern = ir.Arm.pattern(arm);
-            if (isCatchAll(ctx, pattern)) {
+            if (catchesAll(ctx, arm)) {
                 if (mode == .consume) try p.record(arm, .whole, .owned, .arm);
                 continue;
             }
@@ -2144,9 +2221,9 @@ const Planner = struct {
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
         const order = setOrder(ctx, set);
-        if (kind.operator()) |op| {
+        if (kind.operator() != null) {
             try p.openAssign(set, order);
-            if (target != .src and (assignsThroughCall(ctx, op, target, value) or laneChecked(ctx, set))) try p.record(target, .slot, .pointer, .assignment);
+            if (compoundCall(ctx, set) != null and target != .src) try p.record(target, .slot, .pointer, .assignment);
             return;
         }
         if (target != .src) {
@@ -2159,7 +2236,10 @@ const Planner = struct {
             return;
         }
         const sym = ctx.symbolOf(target) orelse return;
-        if (ctx.symbols.items[sym].decl_pos == target.src.pos) return;
+        if (ctx.symbols.items[sym].decl_pos == target.src.pos) {
+            _ = bindHold(ctx, set);
+            return;
+        }
         // A reassigned resource's new value is made before the old one
         // is dropped. Any other store whose value can act makes its value
         // first, as every assignment does (`storesAfterValue`).
@@ -2247,38 +2327,103 @@ const Planner = struct {
     }
 };
 
-/// Whether `x op= v` lowers to a call that assigns its result, as
-/// `Emitter.emitCompound` lowers it: `rig.rem`, `@shlExact`, an integer
-/// `/`, and on a vector the runtime's lane shifts and saturating `+|` and
-/// `-|`, and a mask's `&`, `|`, and `^` (`rig.Mask`): its place is found
-/// once. A checked `+=`, `-=`, or `*=` on integer lanes does too
-/// (`laneChecked`), which the caller asks separately.
-fn assignsThroughCall(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
-    switch (op) {
-        .@"%", .@"<<" => return true,
+/// How a new binding holds its value (`bindHold`).
+pub const BindHold = enum {
+    /// The value, made or copied; a read view that copies
+    /// (`sema.lendByValue`) is held as the value it views.
+    value,
+    /// A view held as a pointer (`viewHeldAsPointer`), however it was
+    /// obtained.
+    pointer,
+    /// The address of the place `?x` or `!x` lends.
+    lend,
+};
+
+/// How the binding assignment `set` declares holds its value, decided
+/// once: a view of a place lent by address holds the place's address, any
+/// other view held as a pointer holds the pointer, and everything else
+/// the value. A write view of slice elements, a callable view, and a view
+/// of an API object are values however they are lent.
+pub fn bindHold(ctx: *const SemContext, set: Sexp) BindHold {
+    return decide(ctx, set, .bind_hold);
+}
+
+fn decideBindHold(ctx: *const SemContext, set: Sexp) BindHold {
+    const sym = ctx.symbolOf(ir.Set.target(set)) orelse return .value;
+    const value = ir.Set.value(set);
+    const ty = known(ctx, ctx.symbols.items[sym].ty) orelse
+        return if (value.isKind(.read) or value.isKind(.write)) .lend else .value;
+    // A read view that copies (`sema.lendByValue`) is no address.
+    const by_address = switch (ctx.types.get(ty)) {
+        .read_view => sema.viewHeldAsPointer(ctx, ty) or genericReadView(ctx, ty) != null,
+        .write_view => true,
+        else => false,
+    };
+    if (by_address and (value.isKind(.read) or value.isKind(.write)) and
+        sema.writeSliceElem(ctx, ty) == null and sema.callableFn(ctx, ty) == null and sema.objectView(ctx, ty) == null) return .lend;
+    return if (sema.viewHeldAsPointer(ctx, ty)) .pointer else .value;
+}
+
+/// The call a compound assignment `x op= v` lowers to, which assigns the
+/// call's result (`compoundCall`): its place is found once.
+pub const CompoundCall = enum {
+    /// A mask's `&`, `|`, and `^` (`rig.maskAnd`, `rig.Mask`).
+    mask,
+    /// A vector's lane shifts (`rig.vecShl`, `rig.vecShlWrap`,
+    /// `rig.vecShr`), which take the amount as it is.
+    lane_shift,
+    /// A vector's saturating `+|` and `-|` (`rig.vecAddSat`,
+    /// `rig.vecSubSat`).
+    lane_saturate,
+    /// `rig.rem`, for `%`.
+    rem,
+    /// `@divTrunc`, an integer `/`.
+    div,
+    /// `rig.div`, a `/` of a type parameter's values.
+    div_generic,
+    /// `@shlExact`, a scalar `<<`.
+    shl,
+    /// A checked `+`, `-`, or `*` on integer lanes (`laneChecked`).
+    lane_checked,
+};
+
+/// The call compound assignment `set` lowers to, which assigns its
+/// result, or null for Zig's own compound assignment; decided once.
+pub fn compoundCall(ctx: *const SemContext, set: Sexp) ?CompoundCall {
+    return decide(ctx, set, .compound_call);
+}
+
+fn decideCompoundCall(ctx: *const SemContext, set: Sexp) ?CompoundCall {
+    const op = rig.bindingKindOf(ir.Set.op(set)).operator() orelse return null;
+    const target = ir.Set.target(set);
+    const lanes: ?sema.SimdType = if (typeOf(ctx, target)) |t| switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
+        .simd => |v| v,
+        else => null,
+    } else null;
+    if (lanes) |v| switch (op) {
+        .@"&", .@"|", .@"^" => if (v.elem == ctx.types.bool_id) return .mask,
+        .@"<<", .@"<<%", .@">>" => return .lane_shift,
+        .@"+|", .@"-|" => return .lane_saturate,
+        else => {},
+    };
+    return switch (op) {
+        .@"%" => .rem,
         .@"/" => {
-            for ([2]Sexp{ target, value }) |e| {
+            var call: CompoundCall = .div;
+            for ([2]Sexp{ target, ir.Set.value(set) }) |e| {
                 const ty = typeOf(ctx, e) orelse continue;
                 switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
-                    .float, .float_literal => return false,
+                    .float, .float_literal => return null,
+                    .type_var => call = .div_generic,
                     else => {},
                 }
             }
-            return true;
+            return call;
         },
-        .@"<<%", .@">>", .@"+|", .@"-|", .@"&", .@"|", .@"^" => {
-            const ty = typeOf(ctx, target) orelse return false;
-            const v = switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
-                .simd => |v| v,
-                else => return false,
-            };
-            return switch (op) {
-                .@"&", .@"|", .@"^" => v.elem == ctx.types.bool_id,
-                else => true,
-            };
-        },
-        else => return false,
-    }
+        .@"<<" => .shl,
+        .@"+", .@"-", .@"*" => if (laneChecked(ctx, set)) .lane_checked else null,
+        else => null,
+    };
 }
 
 fn isListTy(ctx: *const SemContext, ty: TypeId) bool {

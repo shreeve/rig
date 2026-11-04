@@ -43,8 +43,10 @@ pub const TypeId = sema.TypeId;
 pub const SymbolId = sema.SymbolId;
 pub const MemberCompares = sema.MemberCompares;
 
-/// How a read binding of a write view is bound (`Facts.readsThroughWrite`).
-pub const ThroughWrite = enum { pointer, value };
+pub const ThroughWrite = storage.ThroughWrite;
+pub const CompoundCall = storage.CompoundCall;
+pub const BindHold = storage.BindHold;
+pub const SwapCall = sema.SwapCall;
 pub const Wide = sema.Wide;
 pub const Type = sema.Type;
 pub const TypeStore = sema.TypeStore;
@@ -265,11 +267,6 @@ pub const Facts = struct {
     pub fn startOf(f: Facts, node: Sexp) u32 {
         return f.c().startOf(node);
     }
-    /// Whether the built-in `swap`'s second argument exchanges a second
-    /// place, not a value (`sema.swapsTwoPlaces`).
-    pub fn swapsTwoPlaces(f: Facts, arg: Sexp) bool {
-        return sema.swapsTwoPlaces(f.c(), arg, f.c().typeOf(arg));
-    }
     /// Whether the function or method whose name leaf is `name` is
     /// emitted `inline` (`inlining.decide`).
     pub fn isInlined(f: Facts, name: Sexp) bool {
@@ -367,9 +364,10 @@ pub const Facts = struct {
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
     }
-    /// Whether `call` is of the built-in `swap` (`SemContext.isSwapCall`).
-    pub fn isSwapCall(f: Facts, call: Sexp) bool {
-        return f.c().isSwapCall(call);
+    /// What `call` of the built-in `swap` exchanges
+    /// (`SemContext.swapCallOf`); null for any other call.
+    pub fn swapCallOf(f: Facts, call: Sexp) ?SwapCall {
+        return f.c().swapCallOf(call);
     }
     /// The built-in type's method a call's callee names, which emit
     /// lowers on its own (`sema.BuiltinCall`).
@@ -714,13 +712,15 @@ pub const Facts = struct {
     pub fn holdsView(f: Facts, match: Sexp) ?bool {
         return storage.decided(f.c(), match, .holds_view);
     }
-    /// `storage.isCatchAll`.
-    pub fn isCatchAll(f: Facts, pattern: Sexp) bool {
-        return storage.isCatchAll(f.c(), pattern);
+    /// Whether the pattern of `match` arm `arm` takes every value
+    /// (`storage.catchesAll`).
+    pub fn catchesAll(f: Facts, arm: Sexp) ?bool {
+        return storage.decided(f.c(), arm, .catch_all);
     }
-    /// `storage.matchSelects`.
-    pub fn matchSelects(f: Facts, match: Sexp) bool {
-        return storage.matchSelects(f.c(), match);
+    /// Whether `match` picks its arm before it runs one
+    /// (`storage.matchSelects`).
+    pub fn matchSelects(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .match_selects);
     }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
@@ -730,33 +730,31 @@ pub const Facts = struct {
     pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
         return storage.decided(f.c(), pattern, .catch_all_by_address);
     }
-    /// Whether `if … as` binds the bytes of the String a write view in the
-    /// optional points at.
-    pub fn optionalBindsStringBytes(f: Facts, cond: Sexp) bool {
-        return storage.optionalBindsStringBytes(f.c(), cond);
-    }
-    /// Whether a read `for` binds the bytes of each String element.
-    pub fn loopBindsStringBytes(f: Facts, loop: Sexp) bool {
-        return storage.loopBindsStringBytes(f.c(), loop);
+    /// Whether a read `for` binds the bytes of each String element, or
+    /// `if … as` the bytes of the String a write view in the optional
+    /// points at (`storage.bindsStringBytes`).
+    pub fn bindsStringBytes(f: Facts, node: Sexp) ?bool {
+        return storage.decided(f.c(), node, .binds_string_bytes);
     }
     /// Whether a payload binding points at the field it binds.
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
         return storage.decided(f.c(), b, .payload_by_address);
     }
-    /// How binding `sym`, which binds a value of type `reached`, reads
-    /// through a write view: `reached` is one, and the binding only reads
-    /// (`bindingAccess`), so it is bound as the read view of what that
-    /// write view views. `.pointer`: the write view itself (a `?P`, or a
-    /// `[]T` of a `![]T`); `.value`: the value it points at, copied out, as
-    /// a `?T` of a scalar or a view is a copy (`sema.lendByValue`). Null
-    /// for any other binding.
-    pub fn readsThroughWrite(f: Facts, sym: SymbolId, reached: TypeId) ?ThroughWrite {
-        const ctx = f.c();
-        if (ctx.bindingAccess(sym) != .read) return null;
-        return switch (ctx.types.get(reached)) {
-            .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner)) .value else .pointer,
-            else => null,
-        };
+    /// How the binding of `if … as` reads through a write view in the
+    /// optional (`storage.throughWrite`): the outer null when no checker
+    /// decided it.
+    pub fn throughWrite(f: Facts, cond: Sexp) ??ThroughWrite {
+        return storage.decided(f.c(), cond, .through_write);
+    }
+    /// The call compound assignment `set` lowers to
+    /// (`storage.compoundCall`): the outer null when no checker decided it.
+    pub fn compoundCall(f: Facts, set: Sexp) ??CompoundCall {
+        return storage.decided(f.c(), set, .compound_call);
+    }
+    /// How the binding assignment `set` declares holds its value
+    /// (`storage.bindHold`).
+    pub fn bindHold(f: Facts, set: Sexp) ?BindHold {
+        return storage.decided(f.c(), set, .bind_hold);
     }
     /// Whether a `print`, `String(...)`, or `add` argument is read by address
     /// (`storage.printsByAddress`).
@@ -982,8 +980,10 @@ pub const Facts = struct {
     pub fn isSetParam(f: Facts, ty: TypeId) bool {
         return sema.isSetParam(f.c(), ty);
     }
-    pub fn hoistsResults(f: Facts, results: Sexp) bool {
-        return storage.hoistsResults(f.c(), results);
+    /// Whether `return a, b`'s parts are made into storage first
+    /// (`storage.hoistsResults`).
+    pub fn hoistsResults(f: Facts, results: Sexp) ?bool {
+        return storage.decided(f.c(), results, .hoists_results);
     }
     pub fn resultsOf(f: Facts, ty: TypeId) ?[]const TypeId {
         return sema.resultsOf(f.c(), ty);
@@ -1047,7 +1047,6 @@ pub const Facts = struct {
     pub fn ownApiOf(f: Facts, ty: TypeId, api: sema.Api) ?sema.Field {
         return sema.ownApiOf(f.c(), ty, api);
     }
-
 
     /// Whether a value of `ty` is a `rig.ErrorValue` (`sema.isErrorValueForm`).
     pub fn isErrorValueForm(f: Facts, ty: TypeId) bool {
@@ -1299,6 +1298,78 @@ test "emit names hidden storage only through hiddenStorage" {
         if (pass == .uses) break;
     }
     try std.testing.expect(bases.items.len > 20);
+}
+
+test "a Facts method about a node reads what a checker recorded" {
+    const source = @embedFile("facts.zig");
+    // A method of `Facts` that takes a node answers from a record: a
+    // decision (`storage.decided`), the facts table, or the storage facts,
+    // read through the context. These still find their answer with a
+    // helper of storage or sema, each by the node's shape over recorded
+    // symbols, types, and constants; the list only shrinks.
+    const readers = [_][]const u8{
+        "callsRigFunction", "patternConst", "stmtTemps",       "stmtErasedCopies", "firstStmtTemp",
+        "constIntOf",       "intLimit",     "stringCall",      "isPrintCall",      "printCall",
+        "isNoneLeaf",       "isTypeCallee", "moduleMemberSym", "selfOf",           "heldFirst",
+        "selfWrites",       "argParams",    "lambdaYields",    "matchedType",
+    };
+    var seen: [readers.len]bool = @splat(false);
+    const begin = std.mem.indexOf(u8, source, "pub const Facts = struct {").?;
+    const end = begin + std.mem.indexOf(u8, source[begin..], "\n};\n").?;
+    var tokens = std.zig.Tokenizer.init(source);
+    tokens.index = begin;
+    var methods: usize = 0;
+    while (true) {
+        var t = tokens.next();
+        if (t.tag == .eof or t.loc.start >= end) break;
+        if (t.tag != .keyword_fn) continue;
+        const name_tok = tokens.next();
+        const name = source[name_tok.loc.start..name_tok.loc.end];
+        // The parameters, then the body, each to its closing bracket.
+        var takes_node = false;
+        var depth: usize = 0;
+        while (true) {
+            t = tokens.next();
+            if (t.tag == .l_paren) depth += 1;
+            if (t.tag == .r_paren) depth -= 1;
+            if (t.tag == .identifier and std.mem.eql(u8, source[t.loc.start..t.loc.end], "Sexp")) takes_node = true;
+            if (depth == 0 and t.tag == .r_paren) break;
+        }
+        while (t.tag != .l_brace) t = tokens.next();
+        depth = 1;
+        // The last three tokens: `storage` `.` `name` before a `(` is a
+        // call of storage's `name`.
+        var last: [3]std.zig.Token = undefined;
+        var count: usize = 0;
+        var classifier: ?[]const u8 = null;
+        while (depth > 0) {
+            t = tokens.next();
+            if (t.tag == .l_brace) depth += 1;
+            if (t.tag == .r_brace) depth -= 1;
+            if (t.tag == .l_paren and count >= 3 and last[1].tag == .period and last[2].tag == .identifier and last[0].tag == .identifier) {
+                const base = source[last[0].loc.start..last[0].loc.end];
+                const called = source[last[2].loc.start..last[2].loc.end];
+                if ((std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema")) and !std.mem.eql(u8, called, "decided")) classifier = called;
+            }
+            last = .{ last[1], last[2], t };
+            count += 1;
+        }
+        if (!takes_node) continue;
+        methods += 1;
+        const listed = for (readers, 0..) |r, i| {
+            if (std.mem.eql(u8, r, name)) break i;
+        } else null;
+        if (listed) |i| seen[i] = classifier != null;
+        if (classifier != null and listed == null) {
+            std.debug.print("Facts.{s} answers about a node by calling {s}, not by reading a record\n", .{ name, classifier.? });
+            return error.TestUnexpectedResult;
+        }
+    }
+    for (readers, seen) |r, s| if (!s) {
+        std.debug.print("Facts.{s} no longer calls a helper of storage or sema: take it off the list\n", .{r});
+        return error.TestUnexpectedResult;
+    };
+    try std.testing.expect(methods > 50);
 }
 
 test "Facts answers as the context it was made from" {
