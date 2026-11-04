@@ -116,7 +116,7 @@ sub swap_range[T](xs: ![]T, a: Int, b: Int, n: Int)
 # The index where `x` belongs in `xs`, which is sorted in the order of
 # `<`: the first element not less than `x`, or `xs.len` when there is
 # none. Inserting `x` there keeps `xs` sorted.
-pub fun lower_bound[T: Ord](xs: []T, x: T) -> Int
+pub fun lower_bound[T: Ord](xs: []T, x: ?T) -> Int
   lo = 0
   hi = xs.len
   while lo < hi
@@ -130,7 +130,7 @@ pub fun lower_bound[T: Ord](xs: []T, x: T) -> Int
 # The index of an element equal to `x` in `xs`, which is sorted in the
 # order of `<`, found by binary search: the first such element; `none`
 # when there is none.
-pub fun search[T: Ord](xs: []T, x: T) -> Int?
+pub fun search[T: Ord](xs: []T, x: ?T) -> Int?
   lo = 0
   hi = xs.len
   while lo < hi

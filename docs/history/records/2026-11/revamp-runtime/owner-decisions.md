@@ -45,3 +45,35 @@ them. Evidence is in audit-std.md and audit-runtime.md beside this file.
 12. **Printing deep values.** A value nested more than 64 deep prints
     `...`. Detecting cycles by address would print acyclic data whole.
     Default: **keep the depth limit**.
+
+## Decided (the owner, 2026-11-04)
+
+After a panel of three (Rust, Zig, and a Swift/Ruby designer) answered
+his questions on each item:
+
+1. std.json: `json.parse(?src)!` makes a document in one step;
+   `json.Doc()` stays for reuse; `doc.size()` is `doc.len`; the getters
+   are `doc.int(i)`, `doc.string(i)`, `doc.bool(i)`, `doc.float(i)`; the
+   error reasons are members of `JsonError` itself, each carrying its
+   position (`.eof(at:)`), not `JsonError.Kind`, which would clash with
+   `json.Kind`; `json.error_name` and the parse that answers a `Bool` go.
+2. `compare` goes from std.text and std.bigint; callers write
+   `a.order(?b)`.
+3. BigInt's `equals` goes (it gets `==`, item 6); `to_f64` is
+   `to_float`; `crypto.equal` stays, a constant-time comparison.
+4. `slices.contains`, `index_of`, `sort.lower_bound`, and `search` take
+   the needle as `x: ?T`.
+5. std.iter goes; callers use chains, whose empty sum is 0.
+6. BigInt provides `Eq`, `Ord`, and `Hash` through the APIs, with its
+   own `order`.
+7. The fixed hash seed stays.
+8. `random.int` by Lemire's multiply-and-reject; the seeded sequences
+   that change are said in the release notes.
+9. One `math.pow` for Int and Float replaces `powf`; no `**`.
+10. `utf8.block_errors` and `weighted_count` stay public, labeled
+    building blocks in STD, pointing to `rune_count` and `unit_count`.
+11. Small blocks returning to the system: a later measurement.
+12. The print depth limit stays.
+
+Every old name is rejected with a hint naming the new one, and
+`tools/migrate-std-0.3.py` rewrites a program's uses.

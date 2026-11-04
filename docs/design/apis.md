@@ -385,8 +385,9 @@ arguments do not cross; a channel send, an actor's argument, and
 implied wherever the type is named; `sort`, `search`, `lower_bound`,
 `min`, `max`, `clamp` take `T: Ord`; `contains` and `index_of` take
 `T: Eq`; `abs` takes `T: Signed + Ord`. `sort_by` stays unbounded, and
-`sort_by_key` joins it. `BigInt` keeps `compare` and `equals`, with no
-`<`. `iter.count` and `iter.sum` wait for `Iter`, in Stage 3.
+`sort_by_key` joins it. `BigInt` provides `Eq`, `Ord`, and `Hash`, with
+its own `order`. Counting and summing any iterator wait for `Iter`, in
+Stage 3.
 
 **Errors.** An error about a built-in API says what cannot be done, at
 the user's line:
@@ -463,8 +464,8 @@ meets a `pub` API, a bound by an API checked at each instance, a call
 through a bound with the API's clauses and set, `Shape.area(c)` and the
 shorthand `c.area()`, witnesses, a generic type's among its
 arguments, method-level bounds, additions to `Slot[n]` and
-`Table[T, n]`, associated types with their bounds, `Iter` with
-`iter.count` and `iter.sum` ([SPEC, APIs](../../SPEC.md#apis)), implied
+`Table[T, n]`, associated types with their bounds, `Iter` with a
+chain's `count` and `sum` over it ([SPEC, APIs](../../SPEC.md#apis)), implied
 bounds, and the rule that public generics state their bounds ([SPEC,
 Bounds](../../SPEC.md#bounds)).
 
@@ -512,7 +513,8 @@ and `fun next(!@) -> Item?`. A type provides it when it declares that
 method, by the one rule the loop uses to find an iterator, and its
 `Item` is what `next` gives; no header names it, as none names `Sends`.
 It comes with this stage because its useful bound names its item type,
-`[I: Iter, I.Item: Ord]`, and with it come `iter.count` and `iter.sum`.
+`[I: Iter, I.Item: Ord]`, and with it a chain's `count` and `sum` over
+any iterator.
 A value of `I.Item` that `next` gives views the iterator only at an
 instance whose items may view memory the iterator owns, judged per
 instance as a call through a bound is (Core sentence 7 at the
@@ -521,7 +523,7 @@ iterator is rejected, at the call that makes the instance. Items of a
 plain type, and those of a `next` that names only fields declared as
 read views (`next(!@) -> (?K)? from @map`), as a Map's and a Set's
 do, view no iterator, and a body that holds no item past the next
-`next`, as `iter.count`, takes every iterator.
+`next`, as a chain's `count`, takes every iterator.
 
 **A type provides an API on its header,** `obj Square: Shape`,
 beside `unique` (`obj Ticket unique: Print`). The type's methods are

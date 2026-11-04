@@ -118,9 +118,15 @@ A new session, human or agent, takes these steps in order:
   - "self" for "receiver" in the compiler.
 
   Open: an actor's runner that panics does not wait for the tasks its
-  method started (concurrency.md, *planned*). Twelve decisions on std
-  names and behavior wait for the owner, each with a default
-  ([owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)).
+  method started (concurrency.md, *planned*). The owner decided the
+  twelve std questions on 2026-11-04
+  ([owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)):
+  the renames and behaviors of items 1-6, 8, 9, and 10's labels are
+  built (`json.parse`, `JsonError` members with offsets, `order` for
+  `compare`, BigInt's `Eq + Ord + Hash`, search by `x: ?T`, std.iter
+  gone, Lemire's `random.int`, one `math.pow`), with
+  `tools/migrate-std-0.3.py`; 7 and 12 stay as they are, and 11 is a
+  later measurement.
 - **The revamp of the compiler**
   ([records/2026-11/revamp-compiler/](docs/history/records/2026-11/revamp-compiler/ledger.md)):
   - **Phase 1, the front end and the type checker (#914-#917),

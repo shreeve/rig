@@ -16,7 +16,8 @@ changed the language since it.
 
 [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) takes a 0.2.9 program to
 0.3.0 in order: `tools/migrate-0.3.py`, the spellings rewritten by hand,
-`tools/state-bounds.py`, and what the compiler asks for. Each form
+`tools/state-bounds.py`, `tools/migrate-std-0.3.py`, and what the
+compiler asks for. Each form
 below was accepted by `v0.2.9` and is rejected by 0.3.0, most with the
 form to write in the message. A form marked *unsound* let a program
 read freed memory or write through a view it should not have; the rest
@@ -349,6 +350,46 @@ Other:
     It rewrites 21 patterns in 6 of Trig's files and 15 in 4 of
     loco's (`rig/loc/`), with no `MANUAL`.
 
+Standard library, by `tools/migrate-std-0.3.py` (MIGRATING-0.3, Step
+4), each old name rejected with the new one in the message:
+
+72. std.json: `json.parse(?src)!` makes a Doc in one step, and
+    `json.new_doc()` is `json.Doc()`, which `(!doc).load(?src)!` fills
+    again and again. `(!doc).parse(?src)`, which answered a `Bool`, is
+    gone. `doc.size()` is the field `doc.len`, and `get_int`,
+    `get_str`, `get_bool`, `get_float` are `doc.int(i)`,
+    `doc.string(i)`, `doc.bool(i)`, `doc.float(i)`. Each reason a
+    document cannot be read is a member of `JsonError` carrying its
+    offset, `JsonError.eof(at: 5)`: `JsonError.bad(kind:, at:)`,
+    `json.Error`, `json.error_name`, `doc.error`, and `doc.error_pos`
+    are gone.
+73. `text.compare(a, b)` and a BigInt's `a.compare(b)`, which gave -1,
+    0, or 1, are gone: `a.order(?b)` gives `.less`, `.equal`, or
+    `.greater`, and `<` compares. The script rewrites a comparison of
+    the result with 0, and prints `MANUAL` for a result used as an
+    `Int`.
+74. A BigInt compares with `==`, and `a.equals(b)` is gone; `to_f64` is
+    `to_float`.
+75. `math.powf(x, y)` is `math.pow(x, y)`, one `pow` for every number
+    type.
+76. `std.iter` is gone: `iter.count(!it)` is `(!it).count()`, and
+    `iter.sum(!it) ?? 0` is `(!it).sum()`, which gives 0 for no items
+    where `iter.sum` gave `none`.
+77. `slices.contains`, `slices.index_of`, `sort.lower_bound`, and
+    `sort.search` take a view of what they look for, `x: ?T`, so a
+    clone passed there, `+s`, is "lend `?s` instead", and a branching
+    value, `a if c else b`, is lent as `?(a if c else b)`; a literal or
+    a bare name is lent as before.
+
+Trig: 38 sites rewritten by the script, 22 left `MANUAL` (20 a
+`compare` result used as an `Int`, a `powf` of two `Number`s, one
+test's `parse`). loco needs no change.
+
+One change in what a program prints: `random.int` draws by Lemire's
+method, one multiply in place of two divisions, so a seeded `Random`'s
+`int` and `shuffle` give other numbers than 0.2.9's for the same seed.
+`next` and `float` are unchanged.
+
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
 then `break slot(!n)`) holds the write view, as an `if` does, so `l = 1`
@@ -395,8 +436,8 @@ copy. A loop over a read view held in a binding or a field
 (`for x in src`, `src = ?a`) binds slot views, as `for x in ?a` does:
 `z = <x` there is "cannot move loop view `x`".
 MIGRATING-0.3 lists each.
-`std.json` callers change nothing: `parse` still answers a `Bool`, and
-`load`, failing with `JsonError`, is new.
+`(!doc).load(?src)`, failing with `JsonError.bad(kind:, at:)` on `main`,
+fails with the reason's own member, `JsonError.eof(at: 5)` (item 72).
 
 ### Language and compiler
 
@@ -406,6 +447,15 @@ MIGRATING-0.3 lists each.
   fields gives the by-name pattern that means what the positions did,
   and coverage messages name fields the same way
   (`.d(p: none, r: none)`). The emitted Zig is unchanged.
+- **`$type(x)` takes an operand that runs nothing.** Zig's `@TypeOf`
+  never evaluates `x`, while the checkers walked it as run: `$size($type(<s))`
+  was a move of `s` that never happened, and `$size($type(f()))` a call
+  of `f` that never ran. A call, a move, a write lend, a clone, a box or
+  handle, a propagation, a `catch`, or a `panic` in the operand is
+  rejected, naming what was found. `$variants($type(x))`, which stopped
+  the build with an internal error, is rejected as any `$type` outside
+  `$size`, `$align`, `$name`, and `$plain` is. No program in the corpus
+  wrote either.
 - **`E.from_int(n)` is a range test when `E`'s values fill a range.**
   An enum declaring no values, whose values run from 0, or one whose
   values fill any range `lo..hi`, tests `n` against the range and casts
@@ -632,6 +682,21 @@ MIGRATING-0.3 lists each.
   CJK text it takes 80 µs where it took 127 µs, and pure ASCII as fast
   as before. std.json's guard: gsoc-2018 takes 4.5% fewer instructions
   per byte, the other five files within 0.5%.
+- **std's names, one per idea** (owner, 2026-11-04). std.json reads a
+  document in one step, `json.parse(?src)!`, and fails with the reason
+  as a member of `JsonError` carrying its offset; a Doc's length is
+  `doc.len` and its getters `doc.int(i)`, `doc.string(i)`, `doc.bool(i)`,
+  `doc.float(i)`. `BigInt` provides `Eq`, `Ord`, and `Hash`, so `==`,
+  `<`, `sort`, and a Map's keys take it, and `order` replaces
+  `compare` there and in std.text. One `math.pow` serves every number
+  type, an integer's by squaring and a float's by Zig's `std.math.pow`.
+  `slices.contains`, `index_of`, `sort.lower_bound`, and `search` take
+  a view of what they look for. std.iter goes: a chain counts and sums
+  any iterator, and a chain's `sum` adds items that view numbers, as a
+  Map's values are (`?m.values().sum()`), which it rejected.
+  `random.int` draws by Lemire's method, one multiply and a division
+  only on the rare draw it rejects. `tools/migrate-std-0.3.py` rewrites
+  the old names.
 - **Iterator chains.** `xs.filter(f).map(g).sum()`, on any `for` source
   (a List, array, slice, range, or iterator), is the loop it means,
   checked and emitted as that loop: stages `filter`, `map`, `take`,

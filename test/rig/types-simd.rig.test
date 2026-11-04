@@ -373,11 +373,9 @@ test "simd lanes", '''
   0 0 0 0 0 0
 '''
   # `m.lanes()` gives the true lanes of a mask, lowest first, as `Int`s:
-  # an iterator, so a loop may stop and another resume it, std.iter takes
-  # it, and a loop over it has a value. Every lane count agrees with
+  # an iterator, so a loop may stop and another resume it, a chain counts
+  # and sums it, and a loop over it has a value. Every lane count agrees with
   # `bits()` on random masks.
-
-  use std.iter
 
   fun shown[n: Int](m: Simd[Bool, n]) -> String
     out = String()
@@ -418,7 +416,7 @@ test "simd lanes", '''
     for k in !it
       break if k == 2
     rest = (v == 1).lanes()
-    print(first_of(!it), iter.count(!it), iter.count(!it), iter.sum(!rest) ?? 0)
+    print(first_of(!it), (!it).count(), (!it).count(), (!rest).sum())
     found = for k in (v == 1).lanes()
       break k if k > 3
     else

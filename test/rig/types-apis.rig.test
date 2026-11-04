@@ -3332,8 +3332,6 @@ test "apis iter a body that holds no item past a change", '''
   # takes an iterator whose items view its own memory: it counts them,
   # gives one back, or holds one only until the next change.
 
-  use std.iter
-
   obj Buf
     buf: String
     n: Int
@@ -3361,7 +3359,7 @@ test "apis iter a body that holds no item past a change", '''
   b = Buf(buf: String(""), n: 0)
   c = Buf(buf: String(""), n: 0)
   d = Buf(buf: String(""), n: 2)
-  print(iter.count(!b), steps(!c), iter.count(!d))
+  print((!b).count(), steps(!c), (!d).count())
   e = Buf(buf: String(""), n: 0)
   print(peek(!e) ?? "none")
   f = Buf(buf: String(""), n: 1)

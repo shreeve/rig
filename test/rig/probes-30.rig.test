@@ -5,53 +5,48 @@ use std.random
 use std.random as rnd
 
 fail "review-stdjson-dangle drop", "cannot drop `s` while it is lent"
-  doc = json.new_doc()
   s = String("[\"abc\"]")
-  if (!doc).parse(?s)
-    <s
-    print(doc.get_str(1))
+  doc = json.parse(?s) catch return
+  <s
+  print(doc.string(1))
 
 fail "review-stdjson-dangle loop", "`s` does not live long enough"
-  doc = json.new_doc()
+  doc = json.Doc()
   for _ in 0..2
     s = String("[\"abc\"]")
-    ok = (!doc).parse(?s)
-    print(ok)
-  print(doc.get_str(1))
+    (!doc).load(?s) catch return
+  print(doc.string(1))
 
 fail "review-stdjson-dangle mutate", "cannot lend `s` to write while a read loan is live"
-  doc = json.new_doc()
   s = String("[\"abc\"]")
-  if (!doc).parse(?s)
-    !s.clear()
-    print(doc.get_str(1))
+  doc = json.parse(?s) catch return
+  !s.clear()
+  print(doc.string(1))
 
 fail "review-stdjson-dangle reparse", "cannot let this call store a view of `s` in `doc`: `doc` outlives it"
   sub keep(doc: !json.Doc)
     s = String("[\"abc\"]")
-    print((!doc).parse(?s))
+    (!doc).load(?s) catch return
 
-  doc = json.new_doc()
+  doc = json.Doc()
   keep(!doc)
-  print(doc.get_str(1))
+  print(doc.string(1))
 
 fail "review-stdjson-dangle return", "cannot return a view of `s`, which this function was not lent"
   fun make() -> json.Doc
     s = String("[\"abc\"]")
-    doc = json.new_doc()
-    print((!doc).parse(?s))
-    doc
+    json.parse(?s) catch json.Doc()
 
   doc = make()
-  print(doc.get_str(1))
+  print(doc.string(1))
 
 fail "review-stdjson-stale view", "cannot lend `doc` to write while a read loan is live"
-  doc = json.new_doc()
+  doc = json.Doc()
   a = "[\"a\\n\"]"
   b = "[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n\"]"
-  print((!doc).parse(?a))
-  v = ?doc.get_str(1)
-  print((!doc).parse(?b))
+  (!doc).load(?a) catch return
+  v = ?doc.string(1)
+  (!doc).load(?b) catch return
   print(v)
 
 fail "review-step1-p1 store return writeparam", "cannot lend `v` to write while a read loan is live"

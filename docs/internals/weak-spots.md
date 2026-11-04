@@ -100,9 +100,10 @@ and run the suite after.
 - **Field-precise re-pointing:** its own round (decision 1d): what a
   var holds is still per var, so re-pointing `p.v` keeps the old view's
   loans while `p` lives.
-- **Std search taking `x: ?T`:** it would reject
-  `slices.contains(?v[..], ?t[4..5])`; decide whether implicit lends
-  extend to branching values.
+- **Branching values lent implicitly:** a bare `a if c else b` passed
+  where a `?T` goes, as to `slices.contains` or `sort.search`, is a type
+  mismatch, where a bare name or literal is lent; `?(a if c else b)`
+  lends it. Decide whether implicit lends extend to branching values.
 - **`into` for stores, function-type `from`, and path tokens:** Core
   changes, each its own reviewed change.
 

@@ -127,6 +127,11 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
 - **Runtime tests outside the runtime**: `src/runtime.zig` carries its
   unit tests into every emitted package; they could move to their own
   file.
+- **A float's `math.pow` as accurate as libm's**: Zig's
+  `std.math.pow` gives C's answers for zeros, infinities, and NaN, but
+  its values can differ from libm's in the last digits: `pow(1.0000001,
+  1e9)` is 2.688103843211962e43 where libm gives 2.6881038582144647e43
+  (5.6e-9 relative), and `pow(0.999, 12345.6)` is about 500 ULP off.
 - **A widening vector conversion and a vector store**
   (`Simd[U8, 16]` to `Simd[U64, 16]`, stored into a typed slice) would
   let a loop such as std.terminal's `widen` be vector code whatever the

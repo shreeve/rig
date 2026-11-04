@@ -3952,13 +3952,11 @@ what they hold (an `Int`, a `String`), or view what the iterator only
 views, view no base: `text.split`'s, and those of a `next` whose `from`
 names only fields declared as read views (`next(!@) -> (?K)? from
 @map`, as a Map's and a Set's iterators declare). A body that holds no
-item past a change of its base, as `iter.count` does, takes every
-iterator.
-std.iter's `count` and `sum` take any iterator ([STD](docs/STD.md#stditer)).
+item past a change of its base, as a chain's `count` does, takes every
+iterator: `(!it).count()` and `(!it).sum()` take any iterator
+([Chains](#chains)).
 
 ```rig
-use std.iter
-
 api Source
   type Item
 
@@ -3986,7 +3984,8 @@ sub main()
   c = Count(n: 0, hi: 4)
   print(most(!c) ?? -1)
   d = Count(n: 0, hi: 4)
-  print(iter.count(!d), iter.sum(!(Count(n: 0, hi: 4))) ?? 0)
+  e = Count(n: 0, hi: 4)
+  print((!d).count(), (!e).sum())
 ```
 
 ```output
@@ -3995,8 +3994,6 @@ sub main()
 ```
 
 ```rig reject
-use std.iter
-
 obj Floats
   x: Float
 
@@ -4004,7 +4001,7 @@ obj Floats
     none
 
 fun distinct[I: Iter, I.Item: Hash](it: !I) -> Int
-  iter.count(!it)
+  (!it).count()
 
 sub main()
   f = Floats(x: 1.0)
@@ -5859,7 +5856,10 @@ the name its `(`, which a builtin always takes. Rig's own work anywhere:
 `$size(T)` and `$align(T)` are a type's size and alignment in bytes,
 `$name(T)` is its name, `$plain(T)` is whether it is plain data
 ([Generic bodies](#generic-bodies)), and `$type(x)`, only as the
-argument of one of these four, is the type of `x`. `$variants(T)` is the variants of a
+argument of one of these four, is the type of `x`. `$type` does not
+run `x`, so `x` holds nothing that would run or change ownership: a
+call, a move, a write lend, a clone, a box or handle, a propagation, a
+`catch`, or a `panic` in it is rejected. `$variants(T)` is the variants of a
 plain enum ([§3](#enums)). A type argument is written as one is
 in an expression (`List[Int]`, `?P`, `Int?`; a slice, array, or function
 type through a `type` alias).

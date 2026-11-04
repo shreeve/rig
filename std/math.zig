@@ -1,4 +1,4 @@
-//! `std.math`: the Float functions, on Zig's builtins and `std.math`.
+//! `std.math`: the Float functions and `pow`, on Zig's builtins and `std.math`.
 
 const std = @import("std");
 
@@ -42,8 +42,27 @@ pub fn cos(x: f64) f64 {
     return @cos(x);
 }
 
-pub fn powf(x: f64, y: f64) f64 {
-    return std.math.pow(f64, x, y);
+/// `base` to the power `power`: a float's by `std.math.pow`, an integer's
+/// by squaring, whose `*` and `@divTrunc` check overflow and a zero divisor
+/// as Rig's `*` and `/` do.
+pub fn power_of(comptime T: type, base: T, power: T) T {
+    if (@typeInfo(T) == .float) return std.math.pow(T, base, power);
+    if (comptime @typeInfo(T).int.signedness == .signed) {
+        if (power < 0) {
+            if (base == 1 or base == 0) return @divTrunc(1, base);
+            if (base == -1) return if (@rem(power, 2) == 0) 1 else -1;
+            return 0;
+        }
+    }
+    var result: T = 1;
+    var b = base;
+    var e = power;
+    while (e > 0) {
+        if ((e & 1) == 1) result *= b;
+        e >>= 1;
+        if (e > 0) b *= b;
+    }
+    return result;
 }
 
 /// The shortest decimal of a finite `x`, with trailing zeros moved into the

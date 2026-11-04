@@ -1118,8 +1118,6 @@ fail "generic plain of a type that holds a parameter narrows nothing", "`boxed[S
   print(boxed(3), boxed(String("s")))
 
 test "generic plain narrows an associated type", "2 2"
-  use std.iter
-
   obj Count
     n: Int
     hi: Int
@@ -1145,7 +1143,7 @@ test "generic plain narrows an associated type", "2 2"
         _ = a
         _ = b
         return 2
-    iter.count(!it)
+    (!it).count()
 
   c = Count(n: 0, hi: 3)
   w = Words(i: 0)
@@ -1710,8 +1708,6 @@ test "generic plain of a value's type parameter narrows", "2 1"
   print(keep(3).len, keep(String("s")).len)
 
 test "generic plain of a value's associated type narrows", "2 2"
-  use std.iter
-
   obj Count
     n: Int
     hi: Int
@@ -1737,7 +1733,7 @@ test "generic plain of a value's associated type narrows", "2 2"
         _ = a
         _ = b
         return 2
-    1 + iter.count(!it)
+    1 + (!it).count()
 
   c = Count(n: 0, hi: 3)
   w = Words(i: 0)
