@@ -18,7 +18,7 @@ program() {
     printf '\nenum G\n'
     for ((i = 0; i < n / 2; i++)); do printf '  g%d\n' $i; done
     printf '\nfun payloads(x: ?E) -> Int\n  t = 0\n  match x\n'
-    for ((i = 0; i < n; i++)); do printf '    .v%d(a, b) => t += a + b + %d\n' $i $i; done
+    for ((i = 0; i < n; i++)); do printf '    .v%d(:a, :b) => t += a + b + %d\n' $i $i; done
     printf '  t\n\nfun ints(x: Int) -> Int\n  r = match x\n'
     for ((i = 0; i < n; i++)); do printf '    %d => %d\n' $((2 * (n - i))) $i; done
     printf '    _ => 0\n  r\n\nfun run(x: U16) -> Int\n  r = match x\n'

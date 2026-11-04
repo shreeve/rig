@@ -84,7 +84,7 @@ fail "name grid local _", "`_` discards a value"
 
   fun lm0(p: LP0) -> Int
     match p
-      .pp => _
+      .pp(v: _) => _
       .qq => 0
 
   sub lb0(_: !Int)

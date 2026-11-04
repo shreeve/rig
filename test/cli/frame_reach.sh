@@ -153,7 +153,7 @@ dup = {
     'inline_copies': ('Int', [f'a = [{N} of i]', 's = 0'] + rep(20, lambda k: f's += g(?a, {k})') + ['s']),
     'receiver_copies': ('Int', [f'q = Q(a: [{N} of i], b: 1)', 's = 0'] + rep(20, lambda k: f's += q.get({k})') + ['s']),
     'match_alts': ('Int', [f'a = [{N} of i]', 'match i', '  0, 1, 2 => take(a)', '  3, 4 => take(a) + take(a)', '  _ => 0']),
-    'match_payload': ('Int', [f's = T.one([{N} of i])', 'match s', '  .one(v) => take(v)', '  .two(_), .nothing => 0']),
+    'match_payload': ('Int', [f's = T.one([{N} of i])', 'match s', '  .one(v) => take(v)', '  .two, .nothing => 0']),
     'match_guarded': ('Int', [f'a = [{N} of i]', 'match i', '  k if k > 2 => take(a)', '  k if k > 1 => take(a) + 1', '  _ => 0']),
     'generic_use': ('Int', [f'same([{N} of i])[1]']),
     'eq_arrays': ('Bool', [f'a = [{N} of i]', f'b = [{N} of 2]', 'a == b']),
