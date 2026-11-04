@@ -52,6 +52,7 @@ pub const Symbol = sema.Symbol;
 pub const Field = sema.Field;
 pub const FunctionType = sema.FunctionType;
 pub const ParamNominal = sema.ParamNominal;
+pub const after_arm = sema.after_arm;
 pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;

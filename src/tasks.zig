@@ -1614,6 +1614,52 @@ pub fn SendArm(comptime T: type, comptime F: type) type {
     };
 }
 
+/// A deadline arm: `time.after(ns)`, which completes once its time,
+/// `ns` nanoseconds after the arm is made, has come. It holds no channel
+/// (`key` 0, which `lockAll` skips) and carries nothing.
+pub const AfterArm = struct {
+    at: i96,
+
+    fn key(_: *AfterArm) usize {
+        return 0;
+    }
+
+    fn now(a: *AfterArm) bool {
+        return nowNs() >= a.at;
+    }
+
+    fn wait(_: *AfterArm, _: *Sel, _: u32) void {}
+    fn unwait(_: *AfterArm) void {}
+    fn won(_: *AfterArm) void {}
+    fn lost(_: *AfterArm) void {}
+    fn finish(_: *AfterArm) void {}
+};
+
+/// `rig.afterArm(n, unit_ns)`: the arm of `time.after(n)`, whose time
+/// is `n` units of `unit_ns` nanoseconds from now (`sema.after_arm`).
+pub fn afterArm(n: Int, unit_ns: Int) AfterArm {
+    return .{ .at = nowNs() + @as(i96, @max(n, 0)) * unit_ns };
+}
+
+/// The earliest time of `arms`' deadline arms, if any.
+fn afterAt(arms: anytype) ?i96 {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    var at: ?i96 = null;
+    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) == AfterArm) {
+        at = earlier(at, arms[k].at);
+    };
+    return at;
+}
+
+/// The first of `arms`' deadline arms whose time has come, if any.
+fn afterDue(arms: anytype) ?u32 {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) == AfterArm) {
+        if (arms[k].now()) return k;
+    };
+    return null;
+}
+
 /// `rig.recvArm(handle, f)` and `rig.sendArm(handle, v, f)`: the arms
 /// `task.select` takes.
 pub fn recvArm(handle: anytype, f: anytype) RecvArm(ChanItem(@TypeOf(handle)), @TypeOf(f)) {
@@ -1672,13 +1718,17 @@ fn selectArms(arms: anytype) anyerror!u32 {
     sel.epoch.store(e, .seq_cst);
     inline for (0..n) |k| arms[k].wait(&sel, k);
     unlockAll(arms);
+    // A deadline arm wakes the select at its time, as the task's own
+    // deadline does, and claims it then.
+    const wake_at = earlier(task().deadline, afterAt(arms));
     while (true) {
         if (sel.state.load(.seq_cst) != Sel.open) break;
         if (canceledHere() or pastDeadline()) {
             _ = sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .seq_cst, .seq_cst);
             break;
         }
-        rt.sched.commitWait(e, task().deadline);
+        if (afterDue(arms)) |k| if (sel.claim(k)) break;
+        rt.sched.commitWait(e, wake_at);
         if (sel.state.load(.seq_cst) != Sel.open) break;
         e = rt.sched.beginWait(true);
         sel.epoch.store(e, .seq_cst);
@@ -1761,7 +1811,7 @@ fn chanKeys(arms: anytype) ChanKeys(@typeInfo(@TypeOf(arms.*)).@"struct".field_t
 
 fn lockAt(arms: anytype, key: usize) void {
     const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
-    inline for (0..n) |k| if (arms[k].key() == key) {
+    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) != AfterArm) if (arms[k].key() == key) {
         arms[k].chan.lock.lock();
         return;
     };
@@ -1769,7 +1819,7 @@ fn lockAt(arms: anytype, key: usize) void {
 
 fn unlockAt(arms: anytype, key: usize) void {
     const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
-    inline for (0..n) |k| if (arms[k].key() == key) {
+    inline for (0..n) |k| if (comptime @TypeOf(arms[k]) != AfterArm) if (arms[k].key() == key) {
         arms[k].chan.lock.unlock();
         return;
     };
@@ -1795,6 +1845,40 @@ pub fn selectInto(arms_in: anytype, out: anytype) SelectOut(@TypeOf(arms_in)) {
         return arms[k].f.call(rt.argsWithSlot(F, .{}, slot));
     };
     unreachable;
+}
+
+/// `task.select(name: arm, ...)`: wait until one of `arms_in`
+/// completes, commit it alone, and give the value of `U`, the select's
+/// union (`Select`), whose variant is the winner's: a receive's value,
+/// or none once its channel is closed and empty; a send or a deadline
+/// carries nothing. The values of the sending arms that lose are
+/// dropped.
+pub fn selectValue(comptime U: type, arms_in: anytype) anyerror!U {
+    var arms = arms_in;
+    const n = @typeInfo(@TypeOf(arms)).@"struct".field_types.len;
+    const names = @typeInfo(U).@"union".field_names;
+    const winner = try selectArms(&arms);
+    inline for (0..n) |k| if (k == winner) {
+        if (@hasDecl(@TypeOf(arms[k]), "Value")) return @unionInit(U, names[k], .{ .value = arms[k].got });
+        return @unionInit(U, names[k], {});
+    };
+    unreachable;
+}
+
+/// The value `task.select(name: arm, ...)` gives: a tagged union whose
+/// variants are the arms' names, in order, each carrying `value` of its
+/// type in `types`, or nothing for `void`. One per list of names and
+/// types, wherever it is written, as an enum of the program's is.
+pub fn Select(comptime names: []const []const u8, comptime types: []const type) type {
+    var values: [names.len]u32 = undefined;
+    var fields: [names.len]type = undefined;
+    for (&values, &fields, types, 0..) |*v, *f, T, i| {
+        v.* = i;
+        f.* = if (T == void) void else struct { value: T };
+    }
+    const Tag = @Enum(u32, .exhaustive, names, &values);
+    const attrs: [names.len]std.lang.Type.Union.FieldAttributes = @splat(.{});
+    return @Union(.auto, Tag, names, &fields, &attrs);
 }
 
 fn SelectOut(comptime Arms: type) type {

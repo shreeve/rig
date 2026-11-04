@@ -361,3 +361,68 @@ fail "the owner's example: an alternative that does not bind the name", "`c` is 
   x: State = .ready
   if x matches (.failed(c), .timed_out)
     report(c)
+
+test "a payload's optional tested both ways covers its variant", "3 n o"
+  # Arms with no guard that test one optional field both ways, `v?` and
+  # `none`, cover the variant: the match needs no `_` for it.
+  enum E
+    got(a: Int?)
+    other
+
+  fun show(e: E) -> ?String
+    match e
+      .got(x?) => "3" if x == 3 else "?"
+      .got(none) => "n"
+      .other => "o"
+
+  print(show(.got(a: 3)), show(.got(a: none)), show(.other))
+
+fail "a payload's optional tested both ways leaves no arm after it", "9:6: this arm never runs: `.got(v?)` and `.got(none)` cover `.got`", "17:5: this arm never runs: the arms before it cover every value"
+  enum E
+    got(a: Int?)
+    other
+
+  sub f3(e: E)
+    match e
+      .got(x?) => print(x)
+      .got(none) => print("n")
+      .got(_) => print("dup")
+      .other => pass
+
+  sub f4(e: E)
+    match e
+      .got(x?) => print(x)
+      .got(none) => print("n")
+      .other => pass
+      _ => print("x")
+
+  f3(.other)
+  f4(.other)
+
+fail "an error's optional tested both ways covers no member", "13:9: `match` is not exhaustive: it misses `.bad` (its arm has a guard)", "19:9: `match` on `L` is not exhaustive"
+  # Emit lowers no payload test of an error's member, so a match on
+  # errors keeps the rule that a test covers nothing.
+  error A
+    bad(line: Int?)
+    other
+
+  error B
+    zed
+
+  error L = A | B
+
+  sub one(e: A)
+    match e
+      .bad(l?) => print("bad", l)
+      .bad(none) => print("bad none")
+      .other => print("other")
+
+  sub two(e: L)
+    match e
+      .bad(l?) => print("bad", l)
+      .bad(none) => print("bad none")
+      .bad(_) => print("bad any")
+      .other => print("other")
+
+  one(A.other)
+  two(B.zed)

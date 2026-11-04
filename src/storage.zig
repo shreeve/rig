@@ -215,10 +215,11 @@ pub fn selfOf(ctx: *const SemContext, call: Sexp) ?Sexp {
 
 /// What a call whose arguments are evaluated first holds as its self
 /// (`selfHold`): the self of `value.method(...)`, or the channel of an
-/// arm of `task.select`, `ch` of `(!ch).on_recv(f)`, which the select
-/// evaluates in the arm's turn.
+/// arm of `task.select`, `ch` of `!ch.on_recv()`, which the select
+/// evaluates in the arm's turn. A deadline arm, `time.after(ns)`, has
+/// none.
 pub fn heldSelf(ctx: *const SemContext, call: Sexp) ?Sexp {
-    if (ctx.selectArmOf(call) != null) return ir.get(ir.Member.object(ctx.calleeOf(call)), .operand);
+    if (ctx.selectArmOf(call)) |arm| return if (arm == .after) null else ir.get(ir.Member.object(ctx.calleeOf(call)), .operand);
     return selfOf(ctx, call);
 }
 
@@ -286,7 +287,8 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     if (ctx.selectArmOf(call) != null) return false;
     if (ctx.isSelect(call)) {
         var owned = false;
-        for (ir.Call.args(call)) |arm| {
+        for (ir.Call.args(call)) |named| {
+            const arm = argValue(named);
             if (callHoistsArgs(ctx, arm)) return true;
             if (leavesAfterOwned(ctx, owned, ir.Call.args(arm))) return true;
             for (ir.Call.args(arm)) |a| owned = owned or ownsValue(ctx, argValue(a));
@@ -2027,7 +2029,7 @@ const Planner = struct {
         if (!hoists) return;
         // The parts of `task.select` are its arms' (`hoistsArgs`).
         if (ctx.isSelect(c)) {
-            for (ir.Call.args(c)) |arm| try p.callParts(arm, .select);
+            for (ir.Call.args(c)) |arm| try p.callParts(argValue(arm), .select);
         } else try p.callParts(c, .call);
     }
 

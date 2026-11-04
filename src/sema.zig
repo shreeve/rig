@@ -1099,7 +1099,10 @@ pub const SymbolFlags = packed struct(u64) {
     /// state their bounds"). Its body is checked against its bounds alone,
     /// as a bounded parameter's is (`checkedByBounds`).
     states_bounds: bool = false,
-    _: u14 = 0,
+    /// The type of the value `task.select(name: arm, ...)` gives
+    /// (`selectType`): an enum whose variants are the arms' names.
+    select_result: bool = false,
+    _: u13 = 0,
     /// Room for flags to come.
     spare: u31 = 0,
 };
@@ -3994,6 +3997,9 @@ pub const SemContext = struct {
     /// The module makes a task (`f(x)&`): the program's root declares
     /// `__rig_tasks`, which runs it on the scheduler.
     makes_tasks: bool = false,
+    /// The types of the values `task.select(name: arm, ...)` gives, each
+    /// once (`selectType`), in the arena.
+    select_types: std.ArrayList(SymbolId) = .empty,
     /// The module makes an actor (`*Actor(x)`): the program's root
     /// declares `__rig_actors`, so its waits are watched for deadlocks.
     makes_actors: bool = false,
@@ -11074,8 +11080,66 @@ pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     return b.marked or b.string_view;
 }
 
-/// An arm of `task.select`: `(!ch).on_recv(f)` or `(!ch).on_send(<v, f)`.
-pub const SelectArm = enum { recv, send };
+/// An arm of `task.select`: a receive, `!ch.on_recv()` (or the old
+/// `(!ch).on_recv(f)`), a send, `!ch.on_send(<v)` (or `(!ch).on_send(<v,
+/// f)`), or a deadline, `time.after(ns)`.
+pub const SelectArm = enum { recv, send, after };
+
+/// The type of the value `task.select(name: arm, ...)` gives: an enum
+/// named `select(add, sub, late)` whose variants are `names`, in order,
+/// each carrying `value` of its payload, `T?` for a receive of a `T`, or
+/// nothing where it is null. One type per list of names and payloads,
+/// as `rig.Select` makes one in Zig. It is declared at `pos`, the first
+/// select that gives it, and named by no source.
+pub fn selectType(ctx: *SemContext, names: []const []const u8, payloads: []const ?TypeId, pos: u32) std.mem.Allocator.Error!TypeId {
+    found: for (ctx.select_types.items) |id| {
+        const fields = ctx.symbols.items[id].fields.?;
+        if (fields.len != names.len) continue;
+        for (fields, names, payloads) |f, n, p| {
+            if (!std.mem.eql(u8, f.name, n)) continue :found;
+            const held = f.payload orelse &.{};
+            if (p) |ty| {
+                if (held.len != 1 or held[0].ty != ty) continue :found;
+            } else if (held.len != 0) continue :found;
+        }
+        return ctx.intern(.{ .nominal = id });
+    }
+    const a = ctx.arena.allocator();
+    const fields = try a.alloc(Field, names.len);
+    var name: std.ArrayList(u8) = .empty;
+    try name.appendSlice(a, "select(");
+    for (fields, names, payloads, 0..) |*f, n, p, i| {
+        if (i > 0) try name.appendSlice(a, ", ");
+        try name.appendSlice(a, n);
+        const payload: ?[]const Field = if (p) |ty| try a.dupe(Field, &.{.{ .name = "value", .ty = ty, .decl_pos = pos }}) else null;
+        f.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = pos, .is_variant = true, .payload = payload };
+    }
+    try name.append(a, ')');
+    const id = try ctx.addSymbol(.{ .name = name.items, .kind = .nominal_type, .ty = ctx.types.unknown_id, .decl_pos = pos, .scope = module_scope, .fields = fields, .flags = .{ .select_result = true } });
+    try ctx.select_types.append(ctx.arena.allocator(), id);
+    // What its values hold, as `computeContents` and `computeReach`
+    // find for a declared type, before the type is interned.
+    try symbolContents(ctx, id);
+    var r: Reach = .{};
+    for (fields) |*f| for (dataFields(f)) |d| {
+        r = r.with(try reachOf(ctx, d.ty, .all, null));
+    };
+    ctx.symbols.items[id].contents.cell = r.cell;
+    ctx.symbols.items[id].contents.unique = r.unique;
+    ctx.symbols.items[id].contents.views = r.views;
+    return ctx.intern(.{ .nominal = id });
+}
+
+/// The deadline arm of `task.select`, `time.after(ns)`: the name of its
+/// one parameter and the nanoseconds in each of its units. The one place
+/// its spelling is decided: `.{ .param = "ms", .unit_ns = 1_000_000 }`
+/// would make it `time.after(ms: 50)`.
+pub const after_arm = .{ .param = "ns", .unit_ns = 1 };
+
+/// Whether `sym` is the type of a `task.select`'s value (`selectType`).
+pub fn isSelectType(ctx: *const SemContext, sym: SymbolId) bool {
+    return ctx.symbols.items[sym].flags.select_result;
+}
 
 /// Whether `ty` is a task, `Task[T]`.
 pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
