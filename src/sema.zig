@@ -1868,6 +1868,8 @@ pub const Facts = struct {
     writes: FastMap(u32, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
+    /// Callee (`member`) node -> the built-in type's method it calls.
+    builtin_calls: FastMap(NodeKey, BuiltinCall) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
     /// no view of them (`SemContext.lendsTempArray`).
     temp_arrays: FastMap(NodeKey, void) = .empty,
@@ -2586,6 +2588,27 @@ pub const Use = enum {
     lend,
 };
 
+/// A method of a built-in type that emit lowers to an operation of the
+/// runtime's or of Zig's, as typecheck resolved it
+/// (`SemContext.builtinCallOf`).
+pub const BuiltinCall = enum {
+    /// `x.is_empty()` of a built-in length: `x.len == 0`.
+    is_empty,
+    /// The List's own methods, of a Cell holding a List.
+    list_push,
+    list_pop,
+    list_clear,
+    list_keep,
+    list_get,
+    /// `ts.wait_first()` of a task set.
+    wait_first,
+    /// `xs.get(i)` of an array, a slice, or a `?String`.
+    element_get,
+    /// `set`, `swap`, `compare_swap`, `add`, and `sub` of a Cell reached
+    /// by value or by a view, which change it through its address.
+    cell_change,
+};
+
 /// A built-in method on the elements of a slice, an array, a List, or a
 /// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `xs.sum()`
 /// and `xs.sum(start: n)` of numbers (`elem` their type), `xs.prefetch(i)`,
@@ -3192,7 +3215,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall => try w.print(" {s}", .{@tagName(v)}),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
@@ -5363,6 +5386,15 @@ pub const SemContext = struct {
     /// The built-in element method a call's callee (`member`) names.
     pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    pub fn recordBuiltinCall(self: *SemContext, callee: Sexp, call: BuiltinCall) !void {
+        try self.facts.builtin_calls.put(self.allocator, recordKey(callee), call);
+    }
+
+    /// The built-in type's method a call's callee (`member`) names.
+    pub fn builtinCallOf(self: *const SemContext, callee: Sexp) ?BuiltinCall {
+        return self.facts.builtin_calls.get(nodeKey(callee) orelse return null);
     }
 
     /// The recorded answer to `q` about `node`; null when no pass has

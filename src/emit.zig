@@ -9263,33 +9263,7 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
-        // `x.is_empty()` of a built-in length is `x.len == 0`.
-        if (callee.isKind(.member) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "is_empty") and ir.Call.args(sexp).len == 0) if (self.typeOf(ir.Member.object(callee))) |t| {
-            if (self.isCellListTy(t) or self.hasLen(t) or self.facts.unwrapAccess(t) == self.facts.types.string_id or self.hasLenReached(t)) {
-                try self.w.writeAll("(");
-                try self.emitMemberNamed(callee, "len");
-                return self.w.writeAll(" == 0)");
-            }
-        };
-        // A Cell holding a List answers the List's members.
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellListTy(t)) {
-            const m = self.srcText(ir.Member.name(callee));
-            const method: ?[]const u8 = if (std.mem.eql(u8, m, "push"))
-                "listPush"
-            else if (std.mem.eql(u8, m, "pop"))
-                "listPop"
-            else if (std.mem.eql(u8, m, "clear"))
-                "listClear"
-            else if (std.mem.eql(u8, m, "keep"))
-                "listKeep"
-            else if (std.mem.eql(u8, m, "get") and ir.Call.args(sexp).len == 1) "listGet" else null;
-            if (method) |name| {
-                try self.emitCellPtr(ir.Member.object(callee));
-                try self.w.print(".{s}(", .{name});
-                try self.emitArgs(sexp);
-                return self.w.writeAll(")");
-            }
-        };
+        if (self.facts.builtinCallOf(callee)) |b| return self.emitBuiltinCall(sexp, callee, b);
         // `task.all(a, b, ...)`: the tasks, waited for together.
         if (self.facts.isTaskJoin(sexp)) {
             const out = self.slotOf(sexp);
@@ -9425,11 +9399,6 @@ pub const Emitter = struct {
                 try self.emitMemberNamed(callee, "wait_all");
                 return self.w.print("Into({s})", .{out});
             }
-            if (std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "wait_first")) {
-                const out = self.slotOf(sexp);
-                try self.emitExpr(callee);
-                return self.w.print("Into({s})", .{out});
-            }
         };
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.task_sym_id)) {
             const out = self.slotOf(sexp);
@@ -9437,28 +9406,53 @@ pub const Emitter = struct {
             return self.w.print("Into({s})", .{out});
         };
         try self.checkCallTarget(sexp);
-        // `get` on an array, a slice, or a `?String`.
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isSequence(t) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "get")) {
-            try self.w.writeAll("rig.elementAt(");
-            try self.emitBare(ir.Member.object(callee));
-            try self.w.writeAll(", ");
-            try self.emitArgs(sexp);
-            return self.w.writeAll(")");
-        };
-        // `set`, `swap`, `compare_swap`, `add`, and `sub` change a Cell
-        // through any path to it: the Cell's address, a mutable pointer
-        // (`emitCellAddress`).
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.cell_sym_id)) {
-            const m = self.srcText(ir.Member.name(callee));
-            if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "swap") or std.mem.eql(u8, m, "compare_swap") or std.mem.eql(u8, m, "add") or std.mem.eql(u8, m, "sub")) {
-                try self.emitCellAddress(ir.Member.object(callee));
-                try self.w.print(".{s}(", .{m});
-                try self.emitArgs(sexp);
-                return self.w.writeAll(")");
-            }
-        };
         try self.emitExpr(callee);
         try self.w.writeAll("(");
+        try self.emitArgs(sexp);
+        try self.w.writeAll(")");
+    }
+
+    /// A method of a built-in type that typecheck resolved as one emit
+    /// lowers on its own (`Facts.builtinCallOf`): `x.is_empty()` of a
+    /// built-in length is `x.len == 0`; a Cell holding a List answers the
+    /// List's members; a set's `wait_first` takes the slot
+    /// (`wait_firstInto`); `get` of an array, a slice, or a `?String` is
+    /// `rig.elementAt`; and `set`, `swap`, `compare_swap`, `add`, and
+    /// `sub` change a Cell through any path to it, a mutable pointer
+    /// (`emitCellAddress`).
+    fn emitBuiltinCall(self: *Emitter, sexp: Sexp, callee: Sexp, b: facts.BuiltinCall) Error!void {
+        const obj = ir.Member.object(callee);
+        switch (b) {
+            .is_empty => {
+                try self.w.writeAll("(");
+                try self.emitMemberNamed(callee, "len");
+                return self.w.writeAll(" == 0)");
+            },
+            .list_push, .list_pop, .list_clear, .list_keep, .list_get => {
+                try self.emitCellPtr(obj);
+                try self.w.writeAll(switch (b) {
+                    .list_push => ".listPush(",
+                    .list_pop => ".listPop(",
+                    .list_clear => ".listClear(",
+                    .list_keep => ".listKeep(",
+                    else => ".listGet(",
+                });
+            },
+            .wait_first => {
+                const out = self.slotOf(sexp);
+                try self.emitExpr(callee);
+                return self.w.print("Into({s})", .{out});
+            },
+            .element_get => {
+                try self.w.writeAll("rig.elementAt(");
+                try self.emitBare(obj);
+                try self.w.writeAll(", ");
+            },
+            .cell_change => {
+                try self.emitCellAddress(obj);
+                try self.w.print(".{f}(", .{ident(self.srcText(ir.Member.name(callee)))});
+            },
+        }
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
     }
@@ -9471,14 +9465,6 @@ pub const Emitter = struct {
         if (!check_units) return;
         if (self.facts.callTargetOf(call)) |t| if (t == .function) return;
         if (self.facts.callsRigFunction(call)) return self.unsupported(call, "a call of a Rig function no check resolved (callTargetOf)");
-    }
-
-    /// An array, a slice, or a `?String`, or a view of one.
-    fn isSequence(self: *Emitter, ty: TypeId) bool {
-        return switch (self.facts.types.get(self.peelViews(ty))) {
-            .array, .slice, .string_view, .static => true,
-            else => false,
-        };
     }
 
     /// A mutable pointer to the Cell `obj` denotes: a shared handle's

@@ -57,6 +57,7 @@ pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
+pub const BuiltinCall = sema.BuiltinCall;
 pub const Proven = sema.Proven;
 pub const ProvenIf = sema.ProvenIf;
 pub const FlagTest = sema.FlagTest;
@@ -374,6 +375,11 @@ pub const Facts = struct {
     }
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
+    }
+    /// The built-in type's method a call's callee names, which emit
+    /// lowers on its own (`sema.BuiltinCall`).
+    pub fn builtinCallOf(f: Facts, callee: Sexp) ?BuiltinCall {
+        return f.c().builtinCallOf(callee);
     }
     pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().splatOf(node);
