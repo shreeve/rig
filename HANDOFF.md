@@ -141,9 +141,12 @@ A new session, human or agent, takes these steps in order:
     the conditional-expression binding rule (#924), and a fix for a
     check-speed regression on deep generic chains (#925). Rig's full suite
     on main passes (11,345 jobs).
-  - **Next:** the 12 std decisions
+  - **Next, all in v0.3.0 (the owner, 2026-11-04):** phase 2, ownership,
+    storage, facts, and emit
+    ([next-phase.md](docs/history/records/2026-11/revamp-compiler/next-phase.md)),
+    and the 12 std decisions
     ([revamp-runtime/owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)),
-    then v0.3.0's release preparation for the owner's go.
+    then the release preparation for the owner's go.
 - **`select` as a value matched by `match`**, approved and built as
   a test case (records/2026-11/revamp-compiler/panel-select-*.md):
   `match task.select(add: !a.on_recv(), late: time.after(ns))!` with

@@ -167,3 +167,4 @@ phase 2).
 - For the owner: a compiler PR should also run the test/cli stress scripts
   (cli.deep_types, cli.value_depth, about 5 s); the core suite alone missed
   #925's regression.
+- The owner, 2026-11-04: phase 2 (ownership, storage, facts, emit) goes into v0.3.0 too.
