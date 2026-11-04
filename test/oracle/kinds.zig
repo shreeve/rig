@@ -647,11 +647,14 @@ pub const Reach = struct {
     /// type does not show (Core §7). A function type held in a value is a
     /// function value, a named function's address, which holds nothing
     /// (Core §7, "A function value is an address"): no value holds a
-    /// stack closure.
+    /// stack closure. A task, and a set of them, keeps every loan its
+    /// calls were given, whose types its own does not show
+    /// (docs/design/concurrency.md, "Where a task may go").
     fn anything(n: Node) bool {
         return switch (n.ctx.types.get(n.ty)) {
             .function => !n.held,
             .callable, .api_object, .invalid, .unknown => true,
+            .parameterized_nominal => |pn| pn.sym == n.ctx.task_sym_id or pn.sym == n.ctx.tasks_sym_id,
             .type_var => |sym| if (n.subst) |s| s.lookup(sym) == null else true,
             else => false,
         };

@@ -11291,6 +11291,14 @@ pub fn isTaskSet(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// Whether `ty` is a task or a set of tasks, which keeps every loan its
+/// calls' arguments carry, whatever its type names: what it views may
+/// be anything (Core sentence 7; docs/design/concurrency.md, "Where a
+/// task may go").
+pub fn holdsCallLoans(ctx: *const SemContext, ty: TypeId) bool {
+    return isTask(ctx, ty) or isTaskSet(ctx, ty);
+}
+
 /// The `T` of a `Task[T]` or a `Tasks[T]`: what each of its tasks gives.
 pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
@@ -12128,6 +12136,14 @@ const TargetWalk = struct {
                 if (!self.written_only or self.written) self.out.any = true;
                 return;
             },
+            // A task, or a set of them, keeps the loans of its calls'
+            // arguments, which its type does not name, as the ownership
+            // checker's `carryAs` does (docs/design/concurrency.md,
+            // "Where a task may go").
+            .parameterized_nominal => if (holdsCallLoans(ctx, node.ty)) {
+                if (!self.written_only or self.written) self.out.any = true;
+                return;
+            },
             else => {},
         }
         if (is_view) return;
@@ -12223,6 +12239,8 @@ const ReachWalk = struct {
             .callable, .api_object, .invalid, .unknown => return self.reached(path, true),
             .shared, .weak => |inner| if (ctx.types.get(inner) == .function) return self.reached(path, true),
             .function => return if (!node.held) self.reached(path, true),
+            // A task keeps whatever its call was lent (`holdsCallLoans`).
+            .parameterized_nominal => if (holdsCallLoans(ctx, node.ty)) return self.reached(path, true),
             // A type parameter stands for anything; in a generic type's
             // field, for the instance's arguments, which are walked apart.
             .type_var => {

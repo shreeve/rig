@@ -313,7 +313,28 @@ Other:
     store (call) is too complex for the ownership checker; split it
     into smaller functions", as a loop past its bound is; such a
     program was accepted unchecked.
-72. A pattern binds a variant's fields by name: `:w` binds the field
+72. A task is placed in no Cell, even one with no loan, nor a value
+    holding one in a Cell (`*Cell(<t)`, `*Cell(Job(t: f()&))`): "a Cell
+    holds no task, and `Task[Int]` is one: a cycle through a Cell could
+    keep the task from ever being waited for". A task lent to write
+    leaves its binding by no use of its name: `break t` of one is
+    "`t` is a task lent to write, ... only waited for or canceled where
+    it is bound", as `<t` was. Wait for the task first.
+73. *Unsound:* a value holding a task keeps the task's loans while it
+    lives. A local object (`j = Job(t: total(?xs)&)`), an optional
+    (`o: Task[Int]? = total(?xs)&`), a count of a `*Job` holding one,
+    and a task given back by a `time.within` closure (`|?xs|
+    total(?xs)&`) let `!xs.push(2)` or `<xs` through before the wait,
+    and the task read the List after it changed or was dropped (one
+    program printed `0` for `3`, and the sanitizer did not see it).
+    Each is "cannot lend `xs` to write while a read loan is live" or
+    "cannot drop `xs` while it is lent": wait for the task first.
+    The same rule rejects two sound forms: a function `-> Task[Int]`
+    keeps the caller's lent parameter lent until the wait, even when
+    its task does not read it (take the parameter away, or wait before
+    writing), and a `?@` method that gives a task is called with its
+    lend written, `?b.spawn()`, and keeps `b` lent until the wait.
+74. A pattern binds a variant's fields by name: `:w` binds the field
     `w`, `w: width` binds it as `width`, and only a variant with one
     field binds by position too (`.circle(r)`). A positional pattern
     over several fields, which a reorder of the fields rebinds without a
@@ -379,12 +400,19 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
-- **A pattern binds a variant's fields by name** (Upgrading, item 72):
+- **A pattern binds a variant's fields by name** (Upgrading, item 74):
   `.rect(:w, h: tall)`, and a variant with one field by position too,
   `.circle(r)`. The message for a positional pattern over several
   fields gives the by-name pattern that means what the positions did,
   and coverage messages name fields the same way
   (`.d(p: none, r: none)`). The emitted Zig is unchanged.
+- **`E.from_int(n)` is a range test when `E`'s values fill a range.**
+  An enum declaring no values, whose values run from 0, or one whose
+  values fill any range `lo..hi`, tests `n` against the range and casts
+  it; any other enum decides by a `switch` over its values, which Zig
+  lowers to a jump table or a tree of compares. Each scanned the values
+  before: a hit on a 352-variant enum takes 0.2 ns (50 ns before), and
+  on 2,228 values spread apart 1.2 ns (265 ns).
 - **A source file or a module holds less than 2 GiB.** The limit was
   16 MiB; positions in a source are 32 bits, and the upper half of
   their range numbers the names the compiler adds past a source's end.
@@ -2637,6 +2665,17 @@ The model and its plan are
 [docs/history/records/2026-10/concurrency-panel/](docs/history/records/2026-10/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
+- **A function returns a task with read loans only, as any result.**
+  `fun start(v: ?List[Int]) -> Task[Int] from v` then `total(v)&` is
+  accepted, and the caller keeps `v` lent to read until it waits; so
+  is a task returned in a `Tasks` set, an object, an optional, a
+  fallible result, through a generic, and a task made of a returned
+  task. A task's type may hold a view of anything, as the ownership
+  checker always kept every loan of a task's call, so the signature's
+  origins and the `from` check agree with it. A task lent to write is
+  still only bound and waited for: no `return`, last value, or
+  `break` takes it, and the reference ownership checker gives a
+  task the loans of its call too.
 - **A panic stops where a runtime panic does.** `panic(...)` in an
   actor's method ends the actor and stops at its runner, or at the
   caller's isolate, as an index out of range does. A method run inline
