@@ -97,6 +97,13 @@ code "reduce calls the runtime's inline loop", "rig.reduceInto(xs, @as(f64, 0.0)
 
   print(total([1.0]))
 
+test "reduce function a closure binding", "6"
+  # `reduce` keeps nothing of its function: a closure binding is lent
+  # bare, as to any `?fun` parameter (Core sentence 1).
+  xs = List([1, 2, 3])
+  g = |a: Int, b: ?Int| a + b
+  print(xs.reduce(0, g))
+
 fail "reduce takes a start and a function", "`reduce` takes the starting value and the function that gives the next value from the running one and each element"
   print([1, 2].reduce(0))
 

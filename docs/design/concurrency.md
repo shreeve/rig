@@ -368,8 +368,8 @@ there. The checker derives two facts for every type:
 | Type | sends | syncs |
 |---|---|---|
 | plain data, `String`, `List[T]`, `^T`, objects and enums | when every part sends | when every part syncs |
-| `?T` (a read view) | when `T` syncs | when `T` syncs |
-| `!T` (a write view) | when `T` sends | never |
+| `?T` (a read view), `[]T` | when `T` syncs | when `T` syncs |
+| `!T` (a write view), `![]T` | when `T` sends | never |
 | `*T` and `~T` of a type that is not synchronized, `Cell[T]`, `Signal[T]` | never | never |
 | a function value, `fun(A) -> R` or `sub(A)`: a named function's address | yes | yes |
 | a callable view `?fun`, which may view a stack closure's captures; an owned closure `*fun` or `~fun` | never | never |

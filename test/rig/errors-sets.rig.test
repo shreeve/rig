@@ -899,3 +899,15 @@ test "sets a guarded set arm of a match that takes an error binds it", '''
         print(g)
       _
         print(0)
+
+fail "sets returned error of another set", "8:10: `e` is an `AB` error, which `Other`, the error set `f` declares, does not hold"
+  error AB
+    a
+
+  error Other
+    b
+
+  fun f(e: AB) -> Int!Other
+    return e
+
+  print(f(AB.a) catch 0)

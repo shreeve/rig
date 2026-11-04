@@ -272,6 +272,28 @@ Other:
     `Int`'s or `List`'s: `fun f[Item](x: Int)` is rejected with "has the
     name of a built-in type". One that used the name was rejected
     already; Trig and loco have none.
+65. *Unsound:* a compile-time call folded in a type, an alias, or an
+    enum's value holds each argument to its parameter's type, as a call
+    in a body does: `[size[Other.east]]Int`, for `fun size[d: Dir]`,
+    was computed as `Dir.east`, as was a constant `H: Other = .east` or
+    a call giving an `Other`, `[size[Nope.east]]Int` with `Nope`
+    unbound was accepted, and `[flag[1]]Int` for a `Bool` parameter was
+    "must be known at compile time". Pass a value of the parameter's
+    type.
+66. *Unsound:* a value lent bare to an actor's method where a `?T` goes
+    is shared with the actor's task, so `T` syncs (SPEC §18), as when
+    `?` is written: `c.peek(Holder(...))` of a `Holder` holding a
+    `^{Job + Sends}` is rejected, as `c.peek(?Holder(...))` was.
+67. An object's none given to its constructor as a qualified variant or
+    a constant, `Tagged(kind: Kind.empty)` or `Tagged(kind: EMPTY)` for
+    `none kind == .empty`, or as a binding that never changes or a
+    compile-time call's value, is rejected when checked, as `.empty` was
+    (SPEC "An object that names its none"); it panicked when run.
+68. *Unsound:* a slice going to a task shares its elements, so they
+    sync, as a `?T`'s value does (SPEC §18): `n(?ts)&` for `fun
+    n(ts: []Task[Int])`, and a `[]Holder` lent to an actor whose
+    `Holder` holds a `^{Job + Sends}`, are rejected. A `![]T` still
+    needs only that `T` sends.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -297,6 +319,40 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A keyword argument given twice is the call's one error.**
+  `*Actor(x, mailbox: 4, mailbox: 8)` crashed the compiler, and
+  `task.supervise(f, restarts: 2, restarts: 3)`,
+  `*Actor.supervised(..., restarts: 2, restarts: 3)`, and `f(1, a: 2)`
+  also reported a parameter missing.
+- **An actor's method and `reduce` take a place lent bare where a view
+  goes.** `d.peek(p)`, for `fun peek(?@, h: ?Plain)`, and
+  `xs.reduce(0, g)` of a closure binding `g` were rejected as if the
+  call kept the argument ("keeps `p` lent in what `peek` stores").
+- **`task.select`'s arms join their types.** An arm that can fail and
+  one that cannot give the type that can, in either order, and an arm
+  that panics decides nothing; the first
+  arm alone decided it, so `select(a.on_recv(|v| v ?? 0),
+  b.on_recv(|v| chk(v)!))` was rejected and the same arms swapped ran.
+- **A `par` closure in error is reported once.** `par.map(?xs, |x| x +
+  nope)!` also reported "`!` needs a fallible operand; this expression
+  has type `List[invalid]`"; the call now builds nothing on a body in
+  error, as a generic call does.
+- **Three messages say what is wrong.** `a > 2` of an `a: Int?` says an
+  optional orders only beside another, and gives `a ?? x` and `if a as
+  v`, where it said `Int?` cannot be ordered; `List(["p", "q"])` for a
+  `List[?String]` says to push each element, `!xs.push(x)`, not a copy,
+  which such a List does not take; and an error of a set whose name
+  starts with a vowel is "an `AB` error".
+- **A compile-time `panic` reads its message's escapes as the run time
+  does.** `panic("bad \x41 \u{42}")` in a compile-time function was
+  reported as `bad x41 u{42}`; it is `bad A B`.
+- **A `?T` parameter takes a literal beside a `String`.** `keep(String("own"),
+  "lit")`, for `fun keep[T](a: T, b: ?T)`, was "conflicting types for
+  `T`: `String` and `Static`"; a `Static` binds as the `?String` it is
+  read as, so `T` is `String`.
+- **`sum` adds a generic's elements.** `xs.sum()` of a `[]T` with
+  `T: Num` adds them, as `+` on a `T` does, and on an unbounded `T` is
+  checked at each instance; it was "`sum` adds numbers".
 - **A built-in type written in Rig is found by scope.** `Map`, `Set`,
   and the other types of std/prelude.rig are declared in a scope around
   each module's that names one, where any nearer name hides them. The

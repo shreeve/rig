@@ -1058,13 +1058,19 @@ fail "call arity", "call to `add` expects 2 arguments, got 1"
   x = add(1)
   print(x)
 
-fail "call keyword twice", "parameter `a` of `sub_ab` is given twice"
-  # A parameter cannot be given twice.
+fail "call keyword twice", "parameter `a` of `sub_ab` is given twice", errors: 1
+  # A parameter cannot be given twice, and the call has no other fault.
 
   fun sub_ab(a: Int, b: Int) -> Int
     a - b
 
   print(sub_ab(1, a: 2))
+
+fail "call keyword name twice", "4:20: parameter `a` of `sub_ab` is given twice", errors: 1
+  fun sub_ab(a: Int, b: Int) -> Int
+    a - b
+
+  print(sub_ab(a: 1, a: 2, b: 3))
 
 fail "call non function", "4:5: `x` has type `Int` and cannot be called"
   # Calling a value that is not a function (`x(1)` with `x: Int`) is rejected.

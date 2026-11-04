@@ -868,7 +868,7 @@ const Pass = struct {
         self.cycles += 1;
         const f = self.fns.items[w];
         const c = self.mods[f.module].sema;
-        const at = std.mem.lastIndexOfScalar(u32, self.stack.items, w).?;
+        const at = std.mem.findScalarLast(u32, self.stack.items, w).?;
         const path = self.stack.items[at + 1 ..];
         if (path.len == 0) {
             try c.err(f.pos, "`{s}` is `inline` and calls itself, so no call of it can be inlined; drop `inline`", .{try self.shown(w)});

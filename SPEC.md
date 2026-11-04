@@ -12955,8 +12955,8 @@ thread.
 | Type | sends | syncs |
 |---|---|---|
 | plain data, `String`, `List[T]`, `^T`, objects and enums | when every part sends | when every part syncs |
-| `?T` | when `T` syncs | when `T` syncs |
-| `!T` | when `T` sends | never |
+| `?T`, `[]T` | when `T` syncs | when `T` syncs |
+| `!T`, `![]T` | when `T` sends | never |
 | `Task[T]` | when `T` sends | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
@@ -13351,8 +13351,9 @@ commits that one alone, and gives what its function gives:
   loses drops its value.
 
 Each `f` is a closure written in the arm, a closure's view (`?g`), or a
-function's name, and all give the same type; the select calls it on its
-own task. Of arms ready at once, the select takes them in an
+function's name, and all give the same type, an arm that can fail
+meeting one that cannot as a `T` meets a `T!`, in any order; the select
+calls it on its own task. Of arms ready at once, the select takes them in an
 order that turns, so none starves. It is a fallible waiting point too.
 
 ```rig

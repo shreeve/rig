@@ -814,3 +814,89 @@ test "actor & calls wait for a mailbox slot asleep", seeds: 20, timeout: 10, "4"
     !ts.add((!c).add(1)&)
   xs = >ts!
   print(xs.len)
+
+fail "actor mailbox given twice", "parameter `mailbox` of `Actor` is given twice", errors: 1
+  obj Counter
+    hits: Int
+
+    fun get(?@) -> Int
+      @hits
+
+  c = *Actor(Counter(hits: 0), mailbox: 4, mailbox: 8)
+  print(c.get())
+
+fail "actor supervised option given twice", "parameter `restarts` of `Actor.supervised` is given twice", errors: 1
+  obj Box
+    hits: Int
+
+    fun get(?@) -> Int
+      @hits
+
+  c = *Actor.supervised(*|| Box(hits: 0), restarts: 2, restarts: 3)
+  print(c.get())
+
+test "actor argument lent bare to a view parameter", seeds: 20, "5"
+  # A bare place where a `?T` goes is lent, as `?p` would lend it (Core
+  # sentence 1): the actor's method keeps nothing of it.
+  obj Plain
+    n: Int
+
+  obj Counter
+    hits: Int
+
+    fun peek(?@, h: ?Plain) -> Int
+      h.n + @hits
+
+  d = *Actor(Counter(hits: 1))
+  p = Plain(n: 4)
+  print(d.peek(p))
+
+fail "actor argument lent bare crosses as a view", "an actor runs its methods on a task of its own, and `Holder(j: ^Sum(xs: List([1, 2])))` is lent to it to read: `?Holder` holds `{Job + Sends}`"
+  # A value lent bare where a `?T` goes is shared with the actor's task,
+  # so `T` syncs (SPEC §18), as when `?` is written.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(?@) -> Int
+      @xs.len
+
+  obj Holder
+    j: ^{Job + Sends}
+
+  obj Counter
+    hits: Int
+
+    fun peek(?@, h: ?Holder) -> Int
+      h.j.run() + @hits
+
+  c = *Actor(Counter(hits: 0))
+  print(c.peek(Holder(j: ^Sum(xs: List([1, 2])))))
+
+fail "actor slice argument shares its elements", "an actor runs its methods on a task of its own, and `xs` is lent to it to read"
+  # A slice lent to an actor, bare or with `?`, is read on its task, so
+  # its elements sync (SPEC §18).
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(?@) -> Int
+      @xs.len
+
+  obj Holder
+    j: ^{Job + Sends}
+
+  obj Counter
+    hits: Int
+
+    fun sl(?@, xs: []Holder) -> Int
+      xs.len + @hits
+
+  c = *Actor(Counter(hits: 0))
+  xs = List[Holder]()
+  !xs.push(Holder(j: ^Sum(xs: List([1]))))
+  print(c.sl(xs))

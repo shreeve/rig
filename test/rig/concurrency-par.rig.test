@@ -626,3 +626,14 @@ test "par workers in a function of views", seeds: 20, "[2, 3, 4] 3"
   ys = run(!states[..], ?xs)
   !xs.push(4)
   print(ys, states[0].n + states[1].n)
+
+fail "par closure in error reported once", "7:30: use of unbound name `nope`", "use of unbound name `nope2`", errors: 2
+  # A closure whose body is in error gives no value to build on, so the
+  # call reports nothing more, as a generic call would.
+  use std.par
+
+  sub main()
+    xs = List([1, 2])
+    print(par.map(?xs, |x| x + nope)!)
+    states = [0, 0]
+    print(par.workers(!states, ?xs, |s, x| x + nope2)!)

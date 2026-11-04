@@ -90,6 +90,62 @@ test "chan select a closure's view in any arm", seeds: 20, "1007 2007"
   )!
   print(first, second + 1000)
 
+test "chan select arms join their types", seeds: 20, '''
+  7 7
+  Worse.no
+'''
+  # Every arm gives the same type: one that can fail and one that cannot
+  # join as one that can, in either order, and two sets as any error.
+  error Bad
+    no
+
+  error Worse
+    no
+
+  fun chk(n: Int) -> Int!
+    if n < 0
+      return Bad.no
+    n
+
+  fun worse(n: Int) -> Int!Worse
+    if n < 0
+      return Worse.no
+    n
+
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !b.send(7)!
+  first = task.select(
+    (!a).on_recv(|v| v ?? 0),
+    (!b).on_recv(|v| chk(v ?? 0)!),
+  )!
+  !b.send(7)!
+  second = task.select(
+    (!b).on_recv(|v| chk(v ?? 0)!),
+    (!a).on_recv(|v| v ?? 0),
+  )!
+  print(first, second)
+  !b.send(-1)!
+  third = task.select(
+    (!a).on_recv(|v| chk(v ?? 0)!),
+    (!b).on_recv(|v| worse(v ?? 0)!),
+  ) catch |e|
+    print(e)
+    0
+  _ = third
+
+test "chan select arm that panics joins nothing", seeds: 20, "7"
+  # An arm that never returns gives no value, so it decides no type, in
+  # either order.
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !b.send(7)!
+  x = task.select(
+    (!a).on_recv(|v| panic("no")),
+    (!b).on_recv(|v| v ?? 0),
+  )!
+  print(x)
+
 test "chan deadline and cancel", seeds: 20, '''
   -9
   Stop.canceled

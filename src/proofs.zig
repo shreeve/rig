@@ -37,7 +37,7 @@
 //! A body is cut into units (`rig.eachUnit`): a statement, a guard part,
 //! a `while` step, a `for` source, a `match`'s selection, a `raw` block.
 //! Inside a unit nothing is ordered: every check in unit `u` is proved
-//! from the facts at its entry less every write anywhere in `u` (`A(u)`),
+//! from the facts at its entry less every write anywhere in `u` (`E - K(u)`),
 //! and a fact `u` makes (a guard, a check that ran, `i = 0`) holds only
 //! once `u` is done, and only if `u` writes nothing it names. Between
 //! units the walk follows the skeleton: block order, guard parts, the
@@ -1205,7 +1205,7 @@ const Pass = struct {
         }
     }
 
-    /// A unit: its checks from `A(u)`, the facts at its entry less every
+    /// A unit: its checks from `E - K(u)`, the facts at its entry less every
     /// write in it; then the facts it made, its store, and what the store
     /// makes.
     fn walkUnit(p: *Pass, root: Sexp, kind: rig.UnitKind, st: *State) Error!void {
@@ -1238,9 +1238,9 @@ const Pass = struct {
         try p.addMade(st, &stored, &k);
     }
 
-    /// The parts of unit code under `e`, each from `a_state`, `A(u)`: the
+    /// The parts of unit code under `e`, each from `a_state`, `E - K(u)`: the
     /// checks it holds, its jumps, and the units of the blocks and closure
-    /// bodies in it, each from `A(u)` too.
+    /// bodies in it, each from `E - K(u)` too.
     fn walkParts(p: *Pass, e: Sexp, a_state: *const State) Error!void {
         if (e != .list) return;
         const kind = e.kind() orelse {
@@ -1687,7 +1687,7 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
     var sums: Summaries = .{ .ctx = ctx, .a = arena.allocator() };
     try sums.all(root);
     var p: Pass = .{ .ctx = ctx, .a = arena.allocator() };
-    try rig.eachBody(root, &p, walkDeclBody);
+    try rig.eachBody(root, &p, Pass.walkBody);
     var it = p.proven.iterator();
     while (it.next()) |e| if (e.value_ptr.any()) try ctx.proven.put(ctx.allocator, e.key_ptr.*, e.value_ptr.*);
     // Each flag a test rests on, with its tests as emit writes them.
@@ -1710,10 +1710,6 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
         };
         try ctx.flags.put(ctx.allocator, flag, out);
     }
-}
-
-fn walkDeclBody(p: *Pass, owner: Sexp, body: Sexp) Error!void {
-    try p.walkBody(owner, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -1847,14 +1843,6 @@ const Summaries = struct {
         return out.items;
     }
 
-    /// The bound of the function that `call` calls: another module's,
-    /// found with that module, or one of this module's, which `visit`
-    /// found first.
-    fn of(s: *Summaries, call: Sexp) Error!?sema.ResultBound {
-        const f = calledFn(s.ctx, call) orelse return null;
-        return f.ctx.result_bounds.get(f.pos);
-    }
-
     /// Each value the function `node` can return: every `return`'s, and
     /// its body's tail unless that is a `return`. Null when one returns
     /// no value.
@@ -1900,7 +1888,7 @@ const Summaries = struct {
                     const n = sema.identAt(ctx.source, ir.Kwarg.name(arg)) orelse continue;
                     if (!contains(names.items, n)) try names.append(s.a, n);
                 };
-            } else if (try s.of(v)) |b| for (b.fields) |f| {
+            } else if (resultBoundOf(s.ctx, v)) |b| for (b.fields) |f| {
                 if (!contains(names.items, f.name)) try names.append(s.a, f.name);
             };
         }
@@ -1935,7 +1923,7 @@ const Summaries = struct {
     /// that bounds its result.
     fn wholeOf(s: *Summaries, v: Sexp) Error!?u64 {
         if (literalOf(s.ctx, v)) |c| return if (c <= max_k) c else null;
-        const b = (try s.of(v)) orelse return null;
+        const b = resultBoundOf(s.ctx, v) orelse return null;
         return b.whole;
     }
 
@@ -1953,7 +1941,7 @@ const Summaries = struct {
             return null;
         }
         if (s.ctx.typeOf(v) != ty) return null;
-        const b = (try s.of(v)) orelse return null;
+        const b = resultBoundOf(s.ctx, v) orelse return null;
         return b.field(name);
     }
 };
@@ -1970,7 +1958,7 @@ pub fn walkTrace(ctx: *SemContext, a: std.mem.Allocator, root: Sexp, out: *std.A
     defer arena.deinit();
     var trace: std.ArrayList(UnitEvent) = .empty;
     var p: Pass = .{ .ctx = ctx, .a = arena.allocator(), .trace = &trace };
-    try rig.eachBody(root, &p, walkDeclBody);
+    try rig.eachBody(root, &p, Pass.walkBody);
     try out.appendSlice(a, trace.items);
 }
 
