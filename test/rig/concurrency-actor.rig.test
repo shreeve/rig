@@ -215,6 +215,54 @@ test "actor call handle first", seeds: 20, '''
   >t
   print(keep.get())
 
+test "actor made handle dropped", seeds: 20, '''
+  3
+  1
+  5
+  621
+  8
+  421
+  -1
+  1065
+'''
+  # A handle made by a call and used for a method that only reads the
+  # actor is a temporary its statement drops, as a method's self is:
+  # called, started as a task, through a branch, and evaluated before
+  # arguments that run first.
+  error Bad
+    no
+
+  obj Acc
+    total: Int
+
+    fun get(?@) -> Int
+      @total
+
+    fun mix(?@, a: Int, b: Int) -> Int
+      @total * 100 + a * 10 + b
+
+  fun mka(n: Int) -> *Actor[Acc]
+    *Actor(Acc(total: n))
+
+  fun fails(k: Int) -> Int!
+    return Bad.no if k > 8
+    k
+
+  fun go(k: Int) -> Int!
+    mka(4).mix(String("ab").len, fails(k)!)
+
+  print(mka(3).get())
+  print((*Actor(Acc(total: 1))).get())
+  t = mka(5).get()&
+  print(>t)
+  print(mka(6).mix(b: 1, a: 2))
+  c = true
+  print((mka(8) if c else mka(9)).get())
+  print(go(1) catch -1)
+  print(go(9) catch -1)
+  u = mka(10).mix(b: fails(5) catch 0, a: fails(6) catch 0)&
+  print(>u)
+
 test "actor deadline and cancel", seeds: 20, '''
   -1
   -2

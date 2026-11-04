@@ -362,6 +362,10 @@ MIGRATING-0.3 lists each.
   did. An actor's handle evaluated after an argument that took what
   it read was a use of freed memory. A function value is copied in its
   turn, as plain data is.
+- **A handle made for an actor's read method is dropped.**
+  `mka(3).get()` and `mka(3).get()&` drop the handle `mka(3)` gives
+  at the statement's end, as any method's made self is; the actor
+  leaked.
 - **A ternary's condition binds names.** `id = v.id if r.decl as v
   else 0`, `area = r * r if s matches .circle(r) else 0`, and
   `v.id if x as v and v.id > 0 else 0` bind as an `if` condition does,
