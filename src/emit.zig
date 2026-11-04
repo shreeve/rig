@@ -10054,14 +10054,33 @@ pub const Emitter = struct {
     ///         break :__rig_call_N pair(rig.take(&__rig_live_N_0, __rig_arg_N_0), ...);
     ///     }
     fn emitHoistedCall(self: *Emitter, call: Sexp) Error!void {
-        const args = ir.Call.args(call);
-        const params = self.callParams(call);
-        const slots = self.facts.callSlotsOf(call);
-        const fields = self.buildsValue(call);
         const id = self.nextId();
         try self.w.print("__rig_call_{d}: ", .{id});
         try self.openBrace();
         const first = self.hoisted.items.len;
+        try self.hoistParts(call, id);
+        try self.writeIndent(self.indent);
+        try self.w.print("break :__rig_call_{d} ", .{id});
+        try self.emitCallDirect(call);
+        self.hoisted.shrinkRetainingCapacity(first);
+        try self.w.writeAll(";\n");
+        try self.closeBrace();
+    }
+
+    /// The self and the arguments of `call`, a call whose arguments are
+    /// evaluated first, each into its storage in the block being
+    /// emitted, which `emitCallDirect` then reads (`hoisted`). Those of
+    /// `task.select` are its arms' own, which live until the arm the
+    /// select commits has run.
+    fn hoistParts(self: *Emitter, call: Sexp, id: u32) Error!void {
+        if (self.facts.isSelect(call)) {
+            for (ir.Call.args(call)) |arm| try self.hoistParts(arm, self.nextId());
+            return;
+        }
+        const args = ir.Call.args(call);
+        const params = self.callParams(call);
+        const slots = self.facts.callSlotsOf(call);
+        const fields = self.buildsValue(call);
         if (try self.consumedTemporary(call)) |recv| {
             try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .self, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
         } else try self.hoistSelf(call, id);
@@ -10073,12 +10092,6 @@ pub const Emitter = struct {
             } else ai else ai;
             try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params, slot, fields);
         }
-        try self.writeIndent(self.indent);
-        try self.w.print("break :__rig_call_{d} ", .{id});
-        try self.emitCallDirect(call);
-        self.hoisted.shrinkRetainingCapacity(first);
-        try self.w.writeAll(";\n");
-        try self.closeBrace();
     }
 
     /// Evaluate `h.node`, the argument for parameter slot `slot` (or a

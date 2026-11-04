@@ -1860,8 +1860,8 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
 | `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
 | `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
-| `argument`, `self` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `selfHold`, `argumentHold`) | owned, copy, or pointer | call |
-| `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
+| `argument`, `self` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `selfHold`, `argumentHold`); a `task.select` evaluates its arms' parts first, in its own block, and an arm none | owned, copy, or pointer | call; select, for an arm's |
+| `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call; select, for an arm's |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
@@ -5060,7 +5060,10 @@ symbols); a query that decides more than that is a recorded fact.
   to a call makes the call's arguments hoisted: in source order, its
   environment `var __rig_env_N = struct {...}{...}` (dropped at the end
   of the call's block when it owns captures) and then the `FnRef` over
-  it. Sema records which expressions are lent this way
+  it. An arm of `task.select` keeps its `FnRef` until the select
+  runs it, so the select's block holds every arm's parts (their life
+  is `select`), and the ownership checker holds an arm's loans until
+  the select returns. Sema records which expressions are lent this way
   (`SemContext.lendOf`, the `callable` row).
 - **Zig-backed declarations.** An `extern zig "file.zig"` block imports
   the file, which `rig` writes into the package as `rig/std/file.zig`
