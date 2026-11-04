@@ -244,7 +244,10 @@ Other:
     argument: a `W[Task[Int]]` whose field is `r: ?T` holds a
     `?Task[Int]`, which no task but its holder may read, and was given
     to a task on another core. So was an object held both by value and
-    through a view (`a: G`, `b: ?G`), whose view was not looked into.
+    through a view (`a: G`, `b: ?G`), whose view was not looked into, and
+    a type that a local task takes and a channel it holds carries
+    (`g: G`, `c: *Chan[G]`, `G` holding a `*List`), whose elements go to
+    any task.
     Each is rejected where the value goes to the task, as the same type
     written without generics is.
 60. A payload enum naming its own optional in its layout, `call(args:
@@ -286,7 +289,8 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 ### Language and compiler
 
 - **A type that prints itself prints whatever it holds,** a `[]U8`
-  included, since its `print` method chooses what to write, and a weak
+  included, and a generic one whatever its type arguments are (a
+  `G[[]U8]`), since its `print` method chooses what to write; a weak
   handle prints whether its value lives whatever it reaches, a `~T` of
   an object holding a `^{Shape}` with no `Print` included.
 - **A `*Frozen[List[T]]` lends its `[]T` to a generic parameter,** as

@@ -11151,7 +11151,7 @@ pub fn crossingBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allo
 fn blockerOf(ctx: *const SemContext, ty: TypeId, how: Crossing) ?Blocker {
     var walk: Walk = .{};
     defer walk.deinit(ctx.allocator);
-    if (blockerIn(ctx, ty, how, false, &walk)) |b| return b;
+    if (walk.run(ctx, ty, how, false)) |b| return b;
     if (boundBlocker(ctx, ty, how)) |t| return .{ .ctx = ctx, .ty = t };
     return null;
 }
@@ -11188,7 +11188,7 @@ pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocat
 pub fn taskBlocker(ctx: *SemContext, ty: TypeId, reach: TaskReach) std.mem.Allocator.Error!?TypeId {
     var walk: Walk = .{};
     defer walk.deinit(ctx.allocator);
-    const b = blockerIn(ctx, ty, reach.how, reach.local, &walk) orelse return null;
+    const b = walk.run(ctx, ty, reach.how, reach.local) orelse return null;
     return try localized(ctx, b);
 }
 
@@ -11209,28 +11209,63 @@ pub fn taskParams(ctx: *const SemContext, ty: TypeId, reach: TaskReach, out: *st
     if (!ctx.typeInfo(ty).has_type_var) return;
     var walk: Walk = .{ .reached = out };
     defer walk.deinit(ctx.allocator);
-    _ = blockerIn(ctx, ty, reach.how, reach.local, &walk);
+    _ = walk.run(ctx, ty, reach.how, reach.local);
     if (walk.failed) return error.OutOfMemory;
 }
 
 const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
-/// A declared type `blockerIn` looks into, and how its value goes.
-const WalkKey = struct { ctx: *const SemContext, sym: SymbolId, how: Crossing };
+/// A declared type `blockerIn` looks into, how its value goes, and
+/// whether to a local task.
+const WalkKey = struct { ctx: *const SemContext, sym: SymbolId, how: Crossing, local: bool };
 
-/// A walk of `blockerIn`: the declared types it has looked into, each
-/// with the type parameters its fields hold and how they go (null while
-/// its fields are walked), and, when collected, the type parameters it
-/// reaches (`taskParams`).
+/// What a walk knows of a declared type at one key: the type parameters
+/// its fields hold and how each goes, kept over the walk's rounds; the
+/// round it was last looked into; and whether its fields are being
+/// walked, so that the list is not yet whole.
+const Held = struct {
+    params: std.ArrayList(TaskParam) = .empty,
+    round: u32 = 0,
+    open: bool = false,
+};
+
+/// A walk of `blockerIn`: the declared types it has looked into, and,
+/// when collected, the type parameters it reaches (`taskParams`).
 const Walk = struct {
-    seen: FastMap(WalkKey, ?[]const TaskParam) = .empty,
+    seen: FastMap(WalkKey, *Held) = .empty,
     reached: ?*std.ArrayList(TaskParam) = null,
+    round: u32 = 0,
+    /// Each list read while its fields were walked (an instance of a type
+    /// met inside its own fields, directly or through another generic),
+    /// with its length once read.
+    early: std.ArrayList(struct { held: *Held, len: usize }) = .empty,
     failed: bool = false,
 
     fn deinit(walk: *Walk, a: std.mem.Allocator) void {
         var it = walk.seen.valueIterator();
-        while (it.next()) |held| if (held.*) |h| a.free(h);
+        while (it.next()) |held| {
+            held.*.params.deinit(a);
+            a.destroy(held.*);
+        }
         walk.seen.deinit(a);
+        walk.early.deinit(a);
+    }
+
+    /// `blockerIn` of `ty`, in rounds: a list read before it was whole
+    /// and longer after is read again in the next round. Lists only grow,
+    /// and each is bounded by its parameters, so the rounds end; the last
+    /// reads every list whole. Unless a type holds an instance of itself,
+    /// one round does.
+    fn run(walk: *Walk, ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool) ?Blocker {
+        while (true) {
+            walk.round += 1;
+            walk.early.clearRetainingCapacity();
+            if (blockerIn(ctx, ty, how, local, walk)) |b| return b;
+            if (walk.failed) return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
+            for (walk.early.items) |e| {
+                if (e.held.params.items.len > e.len) break;
+            } else return null;
+        }
     }
 };
 
@@ -11464,42 +11499,49 @@ fn instanceBlock(ctx: *const SemContext, ty: TypeId, pn: ParamNominal, how: Cros
         return b;
     }
     const params = decl.ctx.symbols.items[decl.sym].type_params orelse &.{};
-    const held = walk.seen.get(.{ .ctx = decl.ctx, .sym = decl.sym, .how = how }).? orelse {
-        // An instance in its own fields: with its own parameters it holds
-        // what the fields being walked find; with others, each argument
-        // goes as it may anywhere in them.
-        for (pn.args, 0..) |a, i| {
-            if (i < params.len and decl.ctx == ctx and std.meta.eql(ctx.types.get(a), Type{ .type_var = params[i] })) continue;
-            for ([_]Crossing{ .moves, .shares }) |h| if (blockerIn(ctx, a, h, local, walk)) |b| return b;
-        }
-        return null;
-    };
-    for (held) |r| {
+    const held = walk.seen.get(.{ .ctx = decl.ctx, .sym = decl.sym, .how = how, .local = local }).?;
+    // The list grows as it is read when the instance is in its own
+    // fields (`next: ^P[Y, X]?`), so it is read by index.
+    var n: usize = 0;
+    while (n < held.params.items.len) : (n += 1) {
+        const r = held.params.items[n];
         const i = std.mem.findScalar(SymbolId, params, r.param) orelse continue;
         if (i < pn.args.len) if (blockerIn(ctx, pn.args[i], r.reach.how, local, walk)) |b| return b;
     }
+    // Read before its fields are all walked: what they find after is read
+    // in another round (`Walk.run`).
+    if (held.open) walk.early.append(ctx.allocator, .{ .held = held, .len = n }) catch {
+        walk.failed = true;
+    };
     return null;
 }
 
 /// What in the fields and payloads of a declared type keeps it from
-/// meeting `how` (`blockerIn`); a type already being looked into adds
-/// nothing. A generic parameter in a field stands for an argument: the
-/// parameters the fields hold, and how, are kept with the type for its
-/// instances (`instanceBlock`).
+/// meeting `how` (`blockerIn`); a type already looked into this round
+/// adds nothing. A generic parameter in a field stands for an argument:
+/// the parameters the fields hold, and how, are kept with the type for
+/// its instances (`instanceBlock`).
 fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, local: bool, walk: *Walk) ?Blocker {
-    const key: WalkKey = .{ .ctx = ctx, .sym = sym, .how = how };
-    const got = walk.seen.getOrPut(ctx.allocator, key) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
-    if (got.found_existing) return null;
-    got.value_ptr.* = null;
-    var held: std.ArrayList(TaskParam) = .empty;
-    defer held.deinit(ctx.allocator);
+    const invalid: Blocker = .{ .ctx = ctx, .ty = ctx.types.invalid_id };
+    const got = walk.seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym, .how = how, .local = local }) catch return invalid;
+    if (!got.found_existing) {
+        got.value_ptr.* = ctx.allocator.create(Held) catch {
+            _ = walk.seen.remove(got.key_ptr.*);
+            return invalid;
+        };
+        got.value_ptr.*.* = .{};
+    }
+    const held = got.value_ptr.*;
+    if (held.round == walk.round) return null;
+    held.round = walk.round;
+    held.open = true;
+    defer held.open = false;
     const reached = walk.reached;
-    walk.reached = &held;
+    walk.reached = &held.params;
     defer walk.reached = reached;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
         for (dataFields(f)) |d| if (blockerIn(ctx, d.ty, how, local, walk)) |b| return b;
     }
-    walk.seen.getPtr(key).?.* = held.toOwnedSlice(ctx.allocator) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
     return null;
 }
 
@@ -12487,9 +12529,9 @@ const PrintedVars = struct { out: *std.ArrayList(SymbolId), a: std.mem.Allocator
 /// optionals, views, `*` handles, a failure's value, elements, type
 /// arguments, and the fields and payloads of a declared type, but not
 /// into a weak handle, which prints only whether its value lives, or the
-/// fields of a type that prints itself (`Print`). The walk keeps a stack
-/// of its own, so a long chain of types, each holding the next, does not
-/// nest it; each declaration is walked once. With `vars`, it also
+/// fields and type arguments of a type that prints itself (`Print`). The
+/// walk keeps a stack of its own, so a long chain of types, each holding
+/// the next, does not nest it; each declaration is walked once. With `vars`, it also
 /// collects the type parameters it reaches (`printedTypeVars`).
 fn unprintedIn(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, find: enum { bytes, object }, vars: ?PrintedVars) !?TypeId {
     var todo: std.ArrayList(PrintItem) = .empty;
@@ -12528,14 +12570,18 @@ fn unprintedIn(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, find: e
                 try todo.append(a, .{ .ctx = c, .ty = arr.elem, .top = item.top });
                 continue;
             },
-            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg, .top = item.top }),
-            .nominal, .imported_nominal => {},
+            .parameterized_nominal, .nominal, .imported_nominal => {},
             else => continue,
         }
         const decl = nominalDecl(c, item.ty) orelse continue;
-        if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
-        // A type that prints itself prints no field it does not choose to.
+        // A type that prints itself prints no part it does not choose to:
+        // its method's own requirements cover its type arguments.
         if (ownApiMethod(decl.ctx.symbols.items[decl.sym], .Print) != null) continue;
+        switch (c.types.get(item.ty)) {
+            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg, .top = item.top }),
+            else => {},
+        }
+        if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
         for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
             for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
         }

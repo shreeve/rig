@@ -1317,6 +1317,83 @@ test "task generic fields that cross", seeds: 20, "5 5"
   k = wait(<n)&
   print(>u, >k)
 
+fail "task generic reached again under the other crossing", "`<top` is given to a task: `Top` holds `Task[Int]`", errors: 1
+  # `?G[Int]` walks `G` to share, its channel walks it to move, and its
+  # `up: ?G[T]` reaches `G` again to share: the moved walk keeps that its
+  # `T` is read, whichever field of `Top` comes first.
+  obj G[T]
+    v: T
+    c: (*Chan[G[T]])?
+    up: (?G[T])?
+
+  obj Top
+    b: ?G[Int]
+    a: G[Task[Int]]
+
+  fun work() -> Int
+    5
+
+  fun wait(t: Top) -> Int
+    1
+
+  g = G[Int](v: 1, c: none, up: none)
+  t2 = work()&
+  ga = G[Task[Int]](v: work()&, c: none, up: none)
+  a = G[Task[Int]](v: <t2, c: none, up: ?ga)
+  top = Top(b: ?g, a: <a)
+  k = wait(<top)&
+  print(>k)
+
+test "task mutually recursive generics move their tasks", seeds: 20, "5 5"
+  # A generic reaching its own instance through another generic, or with
+  # its parameters swapped, holds each argument as its fields do.
+  obj A[T]
+    v: T
+    b: ^B[T]?
+
+  obj B[T]
+    a: ^A[T]?
+
+  obj P[X, Y]
+    x: X
+    y: Y
+    next: ^P[Y, X]?
+
+  fun work() -> Int
+    5
+
+  fun wait(a: A[Task[Int]]) -> Int
+    t = <a.v
+    >t
+
+  fun wait2(p: P[Int, Task[Int]]) -> Int
+    t = <p.y
+    >t
+
+  x = A[Task[Int]](v: work()&, b: none)
+  k = wait(<x)&
+  p = P[Int, Task[Int]](x: 1, y: work()&, next: none)
+  k2 = wait2(<p)&
+  print(>k, >k2)
+
+fail "task local channel element held too", "`<p` is given to a task: `Pair` holds `*List[Int]`", errors: 1
+  # A channel's elements go to any task, so a `G` that a local task may
+  # take is walked again as an element, whichever field comes first.
+  obj G
+    l: *List[Int]
+
+  obj Pair
+    g: G
+    c: *Chan[G]
+
+  fun peek(p: Pair) -> Int
+    p.g.l.len
+
+  c = *Chan[G](4)
+  p = Pair(g: G(l: *List[Int]()), c: <c)
+  u = peek(<p)&
+  print(>u)
+
 test "task generic instances that go to tasks", seeds: 20, "1 1 1 1 1"
   # An instance whose `T` holds nothing that goes to no task gives it to
   # tasks, local ones included, a function value among them.

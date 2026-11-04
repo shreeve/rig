@@ -6997,6 +6997,29 @@ test "print through its own print and a weak handle", "B ~(alive) ~(alive)"
   s: *{Shape} = *Sq(s: 3)
   print(x, ~h, ~s)
 
+test "print a generic that prints itself", "G G"
+  # A generic type with its own `print` writes what its method chooses,
+  # whatever its type arguments hold.
+  api Shape
+    fun area(?@) -> Int
+
+  obj Sq: Shape
+    s: Int
+
+    fun area(?@) -> Int
+      @s * @s
+
+  obj G[T]: Print
+    b: T
+
+    sub print(?@, out: !Printer)
+      !out.text("G")
+
+  arr: [2]U8 = [65, 66]
+  x = G(b: ?arr[..])
+  y: G[^{Shape}] = G(b: ^Sq(s: 2))
+  print(x, y)
+
 fail "print byte slice generic", "9:1: `show[[]U8]` cannot use `T = []U8`: the generic body prints a value that holds a `T`, and a `[]U8` would print as text, like a `?String`", "10:6: cannot warn a `[]U8`: it would warn as text, like a `?String`; warn the bytes one by one", "11:14: cannot print a `[]U8`: it would print as text, like a `?String`; print the bytes one by one", errors: 3
   # Printability is a fact of each type, checked for each instance of a
   # generic body: a `T` that is `[]U8` would print as text. `warn` and

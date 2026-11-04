@@ -2893,8 +2893,11 @@ the latter with the innermost type that stops it, through one walk,
   goes to. An instance walks each argument as its parameter goes
   (`instanceBlock`), so a `W[Task[Int]]` holding `r: ?T` crosses only
   where a `?Task[Int]` would. Each declared type is walked once for
-  each way, so one held by value and through a view is looked into for
-  both;
+  each way it goes, and to a local task or any, so one held by value and
+  through a view is looked into for both. A type met inside its own
+  fields, directly or through another generic, is read before its list
+  is whole; the walk then runs again, with the lists it kept, until no
+  list read early grows (`Walk.run`);
 - a type parameter with no bound is decided in each instance, and one
   with bounds as they say (`Sends`, `Syncs`, `boundBlocker`).
 
@@ -2964,8 +2967,8 @@ the parameters a printed value holds (`Requirement.printable`).
 `unprintedIn` is the one walk of what `print` writes of a value: it
 finds a `[]U8` (`sema.printable`) and an API object that cannot print
 (`sema.objectUnprinted`), and enters neither a weak handle, which
-prints whether its value lives, nor the fields of a type that prints
-itself. A
+prints whether its value lives, nor the fields or type arguments of a
+type that prints itself. A
 generic type's printing, checked at its every instance, passes to the
 parameters of each instance a body names (`generic_uses`, with
 `generic_uses_at` for the note).
