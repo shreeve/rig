@@ -8866,7 +8866,9 @@ order is unspecified, with `HashItems`, `HashKeys`, `HashValues`, and
 mask's true lanes ([Vectors](#vectors)), and
 `Order`, `Hasher`, and `Printer` ([Own meanings](#own-meanings)). Their
 names are not reserved: a module that declares a type of its own of one
-of these names hides the built-in one.
+of these names hides the built-in one, as a variant, a local, a
+parameter, or a file's `use ... as Map` of the name does where it is
+seen.
 
 `Table[T, n]` and `Slot[n]` ([Table](#table)) are built into the
 compiler, as a List is, but their names are not reserved either: a

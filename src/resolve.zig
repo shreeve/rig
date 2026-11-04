@@ -575,7 +575,9 @@ const SymbolResolver = struct {
         const name_node = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
         const name = identAt(self.ctx.source, name_node) orelse return;
         const pos = srcPos(name_node, 0);
-        const file = sema.fileIndex(self.ctx.parts, pos);
+        // The prelude's hidden name holds no position in a file
+        // (`Parser.preludeUse`); its `use` does.
+        const file = sema.fileIndex(self.ctx.parts, self.ctx.startOf(node));
         // As for any binding (`declare`): `none` is the absent optional.
         if (std.mem.eql(u8, name, "none")) try self.ctx.err(pos, "`none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`", .{});
         if (self.ctx.fileModule(name, pos)) |prev| {
@@ -2503,8 +2505,7 @@ pub const TypeResolver = struct {
         if (self.ctx.symbols.items[id].kind != .generic_param) return self.ctx.types.invalid_id;
         // Reusing the name of the type's own parameter was reported.
         for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) return self.ctx.types.invalid_id;
-        const builtin_generic = if (self.ctx.lookupInScopeOnly(sema.module_scope, name)) |d| self.ctx.symbols.items[d].decl_pos == sema.builtin_decl_pos else false;
-        if (primitiveTypeId(self.ctx, name) != null or isNumericTypeName(name) or std.mem.eql(u8, name, "Self") or builtin_generic) {
+        if (isBuiltinName(self.ctx, name)) {
             try self.ctx.errAt(p, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{name});
             return self.ctx.types.invalid_id;
         }
@@ -3565,12 +3566,11 @@ pub const TypeResolver = struct {
     fn checkTypeParamNames(self: *TypeResolver, sym_id: SymbolId, members: []const Sexp) Error!void {
         for (self.ctx.symbols.items[sym_id].type_params orelse &.{}) |tp| {
             const p = self.ctx.symbols.items[tp];
-            if (primitiveTypeId(self.ctx, p.name) != null or isNumericTypeName(p.name) or std.mem.eql(u8, p.name, "Self")) {
+            if (isBuiltinName(self.ctx, p.name)) {
                 try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{p.name});
             } else if (self.ctx.lookupInScopeOnly(sema.module_scope, p.name)) |decl| {
                 try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ p.name, p.name });
-                const d = self.ctx.symbols.items[decl];
-                if (d.decl_pos != sema.builtin_decl_pos) try self.ctx.note(d.decl_pos, "`{s}` declared here", .{p.name});
+                try self.ctx.note(self.ctx.symbols.items[decl].decl_pos, "`{s}` declared here", .{p.name});
             } else for (members) |m| {
                 if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
                 if (!std.mem.eql(u8, identAt(self.ctx.source, ir.get(m, .name)) orelse "", p.name)) continue;
@@ -5288,6 +5288,52 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "wait_first", .value, &.{s.self_ty}, st, null),
         });
     }
+    try registerPrelude(ctx, module_scope);
+}
+
+/// The built-in types written in Rig that the module names
+/// (`Parser.prelude_names`), std/prelude.rig's, in a scope around the
+/// module's, so that any declaration of the module and any name of a
+/// narrower scope hides one, as it would an outer name. A generic type is
+/// the proxy of its declaration (`sema.proxyOf`), and `Lanes`, the one
+/// that is not, an alias of it.
+fn registerPrelude(ctx: *SemContext, module_scope: ScopeId) Error!void {
+    const imp = for (ctx.imports) |imp| {
+        if (std.mem.eql(u8, imp.local_name, rig.builtin_binding_name)) break imp;
+    } else return;
+    const names = if (ctx.parser) |p| p.prelude_names else std.math.maxInt(u16);
+    if (names == 0) return;
+    const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
+    ctx.scopes.items[module_scope].parent = scope;
+    const prelude = imp.sema;
+    for (prelude.scopes.items[sema.module_scope].symbols.items) |fid| {
+        const fsym = prelude.symbols.items[fid];
+        if (names & rig.builtinTypeBit(fsym.name) == 0 or !fsym.flags.is_public or fsym.decl_pos >= sema.imported_decl_pos) continue;
+        const id = switch (fsym.kind) {
+            .generic_type => try sema.proxyOf(ctx, .{ .module_id = imp.module_id, .sym = fid }),
+            .nominal_type => try ctx.addSymbol(.{
+                .name = fsym.name,
+                .kind = .type_alias,
+                .ty = try ctx.intern(.{ .imported_nominal = .{ .module_id = imp.module_id, .sym_id = fid } }),
+                .decl_pos = sema.imported_decl_pos,
+                .scope = scope,
+                .flags = .{ .is_public = true },
+            }),
+            else => continue,
+        };
+        try ctx.addToScope(scope, id);
+    }
+}
+
+/// Whether `name` is a built-in type's, which a type parameter may not
+/// take: a primitive or sized number, `Self`, a built-in generic or enum,
+/// or a type of the prelude (`registerPrelude`).
+fn isBuiltinName(ctx: *const SemContext, name: []const u8) bool {
+    if (primitiveTypeId(ctx, name) != null or isNumericTypeName(name) or std.mem.eql(u8, name, "Self")) return true;
+    // A module's own declaration hides a prelude type of its name.
+    if (ctx.lookupInScopeOnly(sema.module_scope, name)) |d| return ctx.symbols.items[d].decl_pos == sema.builtin_decl_pos;
+    const outer = ctx.scopes.items[sema.module_scope].parent orelse return false;
+    return ctx.lookupInScopeOnly(outer, name) != null;
 }
 
 const Generic = struct {

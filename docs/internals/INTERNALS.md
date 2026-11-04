@@ -901,6 +901,23 @@ iterator](#loops-over-an-iterator)), and only the second check's
 context is the module's. The CLI prints at most 100 errors for a
 program and counts the rest.
 
+**The prelude.** The built-in types written in Rig (`Map`, `Set`,
+`HashMap`, `HashSet`, their iterators and entries, and `Lanes`) are
+std/prelude.rig's, which no program imports. The Parser wrapper notes
+which of their names a module spells, as a bit each
+(`Parser.prelude_names`), and gives a module that spells one, or a
+`lanes` method, a hidden `use` of the prelude (`Parser.preludeUse`),
+bound as `__rig_prelude`, which no program can write. Resolve declares
+the types the module names in a scope around the module's
+(`resolve.registerPrelude`): a generic type as the proxy of its
+declaration (`sema.proxyOf`), as `lib.Wrap[Int]` names one, and
+`Lanes` as an alias of its type. A name finds a prelude type only when
+nothing nearer takes it, so a module's own `Map`, a file's `use ...
+as Map`, a variant `.Set`, a local `Values`, or a closure parameter
+`Map` keeps its name, and messages say `Map` as the program does. A
+type parameter may not take a prelude type's name, nor any built-in
+type's (`resolve.isBuiltinName`).
+
 ### Directory modules
 
 A directory module is the one-file module whose source is its `.rig`
@@ -2788,8 +2805,8 @@ form of its own for it. Its type is `Lanes`, written in Rig in
 std/prelude.rig: a `U64` of bits, lane `k` at bit `k << shift`, and a
 `next` that gives `ctz >> shift` and clears the lowest bit. Typecheck
 gives the call that type (`Checker.lanesType`, the prelude's `Lanes`
-through the hidden import the Parser wrapper adds to each file that
-names a member `lanes`, `Parser.lanesMembers`) and records it as the
+through the hidden import the Parser wrapper adds to a module that
+names a member `lanes`, `Parser.preludeUse`) and records it as the
 elem call `.lanes`; emit writes `rig.maskTrueLanes(Lanes, m)`, and the
 runtime picks the form: on NEON the nibble mask of 16 lanes with one
 bit kept a nibble (shift 2) and the bytes of 8 with one bit kept a byte

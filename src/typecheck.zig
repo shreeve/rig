@@ -10828,7 +10828,7 @@ const Checker = struct {
 
     /// The prelude's `Lanes`, the iterator `m.lanes()` gives: imported
     /// under the hidden name every file that calls a `lanes` method uses
-    /// (`Parser.builtinRefs`), or the prelude's own.
+    /// (`Parser.preludeUse`), or the prelude's own.
     fn lanesType(self: *Checker, pos: u32) Error!?TypeId {
         for (self.ctx.imports) |imp| {
             if (!std.mem.eql(u8, imp.local_name, rig.builtin_binding_name)) continue;

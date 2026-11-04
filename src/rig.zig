@@ -2129,8 +2129,7 @@ const HiddenName = enum(u16) {
     /// of tasks (`isWaitCall`).
     wait = 4,
     /// The module of the built-in types written in Rig (`Map`, `Set`),
-    /// which a module that names one uses
-    /// (`Parser.builtinRefs`).
+    /// which a module that names one uses (`Parser.preludeUse`).
     builtin_module = 5,
     /// The values of a `matches` that holds in a Bool position: the arms
     /// of the `match` it is (`Parser.boolMatch`).
@@ -2312,10 +2311,22 @@ pub const builtin_binding_name = "__rig_prelude";
 /// The built-in types written in Rig, in `std/prelude.rig`: a
 /// program names them with no import, and its own declaration of one
 /// hides it.
-pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Item", "Items", "Keys", "Values", "Members", "HashMap", "HashSet", "HashItems", "HashKeys", "HashValues", "HashMembers", "Lanes" };
+/// Each has a bit of `Parser.prelude_names`.
+const builtin_type_names = std.StaticStringMap(u16).initComptime(.{
+    .{ "Map", 1 << 0 },        .{ "Set", 1 << 1 },        .{ "Item", 1 << 2 },        .{ "Items", 1 << 3 },
+    .{ "Keys", 1 << 4 },       .{ "Values", 1 << 5 },     .{ "Members", 1 << 6 },     .{ "HashMap", 1 << 7 },
+    .{ "HashSet", 1 << 8 },    .{ "HashItems", 1 << 9 },  .{ "HashKeys", 1 << 10 },   .{ "HashValues", 1 << 11 },
+    .{ "HashMembers", 1 << 12 }, .{ "Lanes", 1 << 13 },
+});
+
+/// The bit of `Parser.prelude_names` that says a module names the
+/// built-in type `name`, or 0 when `name` is none.
+pub fn builtinTypeBit(name: []const u8) u16 {
+    return builtin_type_names.get(name) orelse 0;
+}
 
 /// Whether `leaf` is the hidden name of the module of the built-in types
-/// written in Rig (`Parser.builtinRefs`).
+/// written in Rig (`Parser.preludeUse`).
 pub fn isBuiltinModuleLeaf(leaf: Sexp) bool {
     return leaf == .src and leaf.src.id == hidden_id_base + @intFromEnum(HiddenName.builtin_module);
 }
@@ -2575,6 +2586,13 @@ pub const Parser = struct {
     /// How many `obj` or `enum` bodies the node being rewritten is in: a
     /// function there is a method.
     type_depth: u32 = 0,
+    /// The module is the prelude, which declares the built-in types it
+    /// names (`preludeUse`).
+    prelude: bool = false,
+    /// The built-in types written in Rig the module names, a bit each
+    /// (`builtinTypeBit`), which resolve declares for it
+    /// (`resolve.registerPrelude`).
+    prelude_names: u16 = 0,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -3494,7 +3512,7 @@ pub const Parser = struct {
                 stripParens(out);
                 self.strayRarely(out, false, false);
                 self.moduleConsts(out);
-                return self.builtinRefs(try self.attachMethods(out));
+                return self.preludeUse(try self.attachMethods(out));
             },
             .@"struct", .@"enum", .errors, .api, .api_add => try self.pubMembers(out),
             .generic_struct => {
@@ -3636,144 +3654,45 @@ pub const Parser = struct {
         }
     }
 
-    /// A name of a built-in type written in Rig (`builtin_type_names`),
-    /// where it refers to the type, is that type of the hidden module
-    /// that declares them, `__rig_prelude.Map`, and each file that names
-    /// one uses that module, so the passes after the wrapper read it as
-    /// any imported type. A module that declares a name of its own, or
-    /// imports a module under it, keeps its own.
-    fn builtinRefs(self: *Parser, module: Sexp) std.mem.Allocator.Error!Sexp {
-        var hidden: [builtin_type_names.len]bool = @splat(false);
-        for (module.items()[1..]) |d0| {
-            const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
-            const name: Sexp = switch (d.kind() orelse continue) {
-                .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .fun, .sub, .@"extern", .extern_fun, .extern_sub => ir.get(d, .name),
-                .use => if (ir.Use.alias(d) != .nil) ir.Use.alias(d) else blk: {
-                    const p = ir.Use.name(d);
-                    break :blk if (p.isKind(.member)) ir.Member.name(p) else p;
-                },
-                .set => ir.Set.target(d),
-                else => continue,
-            };
-            if (name != .src) continue;
-            const text = leafText(self.base.source, name.src);
-            for (builtin_type_names, 0..) |n, i| if (std.mem.eql(u8, n, text)) {
-                hidden[i] = true;
-            };
-        }
-        var firsts: std.ArrayList(u32) = .empty;
-        const out = try self.rewriteBuiltin(module, &hidden, &firsts);
-        // `m.lanes()` of a mask gives the prelude's `Lanes`, so a file that
-        // names a member `lanes` uses the prelude too; the prelude itself,
-        // which declares every built-in type, does not.
-        const prelude = std.mem.allEqual(bool, &hidden, true);
-        if (!prelude) try self.lanesMembers(out, &firsts);
-        if (firsts.items.len == 0) return out;
-        // One `use` of the module in each file that names a built-in
-        // type, at the first name there.
-        const items = out.items();
-        const uses = try self.allocator().alloc(Sexp, firsts.items.len);
-        for (firsts.items, uses) |pos, *u| u.* = try self.base.newNode(.use, &.{ hiddenLeaf(pos, .builtin_module), .nil }, .{ .start = pos, .end = pos + 1 });
-        const all = try std.mem.concat(self.allocator(), Sexp, &.{ items[0..1], uses, items[1..] });
-        return .{ .list = parser.List.withId(all, out.list.id) };
+    /// A module that names a built-in type written in Rig
+    /// (`builtin_type_names`), or a `lanes` method, whose mask iterator is
+    /// one, uses the hidden module that declares them, the prelude, at
+    /// the first such name. Resolve puts the types it names in a scope
+    /// around the module's (`resolve.registerPrelude`), where a name means
+    /// a built-in type only when no declaration or narrower scope takes it.
+    fn preludeUse(self: *Parser, module: Sexp) std.mem.Allocator.Error!Sexp {
+        if (self.prelude) return module;
+        var first: ?u32 = null;
+        self.builtinNames(module, &first);
+        const pos = first orelse return module;
+        // The leaf holds a position past the source's end, as a chain's
+        // names do, so the name at `pos` keeps its own.
+        const use = try self.base.newNode(.use, &.{ try self.synthLeaf(pos, .builtin_module), .nil }, .{ .start = pos, .end = pos + 1 });
+        const items = module.items();
+        const all = try std.mem.concat(self.allocator(), Sexp, &.{ items[0..1], &.{use}, items[1..] });
+        return .{ .list = parser.List.withId(all, module.list.id) };
     }
 
-    /// `node` with each name of a built-in type that refers to it made
-    /// `__rig_prelude.Name` (`builtinRefs`). A declaration's own name, a
-    /// member's name, a field's, a binding's, and a parameter's are names
-    /// of their own, and stay. `firsts` gets the position of the first
-    /// such name of each file.
-    fn rewriteBuiltin(self: *Parser, node: Sexp, outer: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
-        if (node != .list) return node;
-        const kind = node.kind();
-        const items = node.items();
-        // An API's associated type (`type Item`) hides a built-in type of
-        // its name in the API.
-        var own: [builtin_type_names.len]bool = undefined;
-        const hidden = if (kind == .api) blk: {
-            @memcpy(&own, outer[0..builtin_type_names.len]);
-            for (ir.rest(node, .members)) |m| {
-                if (!m.isKind(.api_type) or ir.ApiType.name(m) != .src) continue;
-                const text = leafText(self.base.source, ir.ApiType.name(m).src);
-                for (builtin_type_names, 0..) |n, i| if (std.mem.eql(u8, n, text)) {
-                    own[i] = true;
-                };
-            }
-            break :blk own[0..];
-        } else outer;
-        var copy: ?[]Sexp = null;
-        for (items, 0..) |c, i| {
-            if (kind != null and i == 0) continue;
-            const new = if (c == .src) blk: {
-                // Leaves in an untagged list (parameters, captures, names)
-                // are names of their own.
-                const k = kind orelse break :blk c;
-                if (!self.refersAt(node, k, c)) break :blk c;
-                break :blk try self.builtinRef(c, hidden, firsts);
-            } else try self.rewriteBuiltin(c, hidden, firsts);
-            if (std.meta.eql(new, c)) continue;
-            if (copy == null) copy = try self.allocator().dupe(Sexp, items);
-            copy.?[i] = new;
+    /// Each leaf of `node` spelled as a built-in type written in Rig, in
+    /// `prelude_names`, and the position of the first, or of a member
+    /// `lanes`, in `first` (`preludeUse`). A member's name, `lib.Set`, is
+    /// another module's.
+    fn builtinNames(self: *Parser, node: Sexp, first: *?u32) void {
+        switch (node) {
+            .src => |leaf| {
+                if (isHiddenLeaf(node)) return;
+                const bit = builtinTypeBit(leafText(self.base.source, leaf));
+                if (bit == 0) return;
+                self.prelude_names |= bit;
+                if (first.* == null) first.* = leaf.pos;
+            },
+            .list => if (node.isKind(.member)) {
+                self.builtinNames(ir.Member.object(node), first);
+                const name = ir.Member.name(node);
+                if (first.* == null and name == .src and std.mem.eql(u8, leafText(self.base.source, name.src), "lanes")) first.* = name.src.pos;
+            } else for (node.items()) |c| self.builtinNames(c, first),
+            else => {},
         }
-        const out = copy orelse return node;
-        return .{ .list = parser.List.withId(out, node.list.id) };
-    }
-
-    /// Adds to `firsts` the position of the first member named `lanes` in
-    /// each file that has one and no other name of a built-in type
-    /// (`builtinRefs`).
-    fn lanesMembers(self: *Parser, node: Sexp, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!void {
-        if (node != .list) return;
-        if (node.isKind(.member)) {
-            const name = ir.Member.name(node);
-            if (name == .src and !isHiddenLeaf(name) and std.mem.eql(u8, leafText(self.base.source, name.src), "lanes")) {
-                const file = self.fileAt(name.src.pos);
-                const seen = for (firsts.items) |p| {
-                    if (self.fileAt(p) == file) break true;
-                } else false;
-                if (!seen) try firsts.append(self.allocator(), name.src.pos);
-            }
-        }
-        for (node.items()) |c| try self.lanesMembers(c, firsts);
-    }
-
-    /// The file of a module of several files that `pos` is in: how many
-    /// files end before it (`Lexer.ends`).
-    fn fileAt(self: *const Parser, pos: u32) usize {
-        var n: usize = 0;
-        for (self.base.lexer.ends) |e| {
-            if (pos >= e) n += 1;
-        }
-        return n;
-    }
-
-    /// Whether leaf `c`, a child of `node` (of kind `k`), stands where a
-    /// name refers to a type or a value, rather than naming a new one.
-    fn refersAt(self: *Parser, node: Sexp, k: Tag, c: Sexp) bool {
-        _ = self;
-        // A generic instance's type is named in its `name` slot.
-        if (k == .generic_inst) return true;
-        inline for ([_]parser.Role{ .name, .alias, .label, .@"var", .index, .target, .operand, .owner }) |r| {
-            if (ir.has(k, r) and std.meta.eql(ir.get(node, r), c)) return false;
-        }
-        return true;
-    }
-
-    /// `leaf` as `__rig_prelude.Name` when it names a built-in type its
-    /// module does not hide.
-    fn builtinRef(self: *Parser, leaf: Sexp, hidden: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
-        const text = leafText(self.base.source, leaf.src);
-        const i = for (builtin_type_names, 0..) |n, i| {
-            if (std.mem.eql(u8, n, text)) break i;
-        } else return leaf;
-        if (hidden[i] or isHiddenLeaf(leaf)) return leaf;
-        const file = self.fileAt(leaf.src.pos);
-        const seen = for (firsts.items) |p| {
-            if (self.fileAt(p) == file) break true;
-        } else false;
-        if (!seen) try firsts.append(self.allocator(), leaf.src.pos);
-        const at: parser.Span = .{ .start = leaf.src.pos, .end = leafEnd(self.base.source, leaf.src) };
-        return self.base.newNode(.member, &.{ hiddenLeaf(leaf.src.pos, .builtin_module), leaf }, at);
     }
 
     /// The type parameters among `walked[slot]`, a declaration's

@@ -429,7 +429,7 @@ pub const ModuleGraph = struct {
         in_std: bool,
         /// The module of the built-in types written in Rig, which the
         /// Parser wrapper has a module that names one use
-        /// (`Parser.builtinRefs`): of the standard library, and named by
+        /// (`Parser.preludeUse`): of the standard library, and named by
         /// no program.
         builtin: bool,
 
@@ -767,6 +767,7 @@ pub const ModuleGraph = struct {
             };
             const p = try self.allocator.create(parser.Parser);
             p.* = parser.Parser.initFiles(self.allocator, source, ends);
+            p.prelude = std.mem.eql(u8, name, "std." ++ rig.builtin_module_name);
 
             self.modules.appendAssumeCapacity(.{
                 .id = id,

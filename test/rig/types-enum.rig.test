@@ -1015,3 +1015,37 @@ test "a short form a fallback gives through a branch, a block, or a bound catch"
       print(e)
       .ip(7)
     print(d, handle(4) catch |e| (.err(e) if n == 1 else .idle))
+
+test "enum variants may take the names of built-in types", '''
+  set map
+  true false
+  -1
+'''
+  # A variant names itself: `List`, `Set`, and `Map` here are variants,
+  # never the built-in types of those names, in an enum and in an error
+  # set alike.
+
+  enum Kind
+    List
+    Set
+    Map
+
+  error Oops
+    Set
+    Keys
+
+  fun name(k: Kind) -> Static
+    match k
+      .List => "list"
+      .Set => "set"
+      .Map => "map"
+
+  fun pick(n: Int) -> Int!Oops
+    return Oops.Keys if n == 0
+    n
+
+  print(name(.Set), name(.Map))
+  n = pick(0) catch |e|
+    print(e == .Keys, e == .Set)
+    -1
+  print(n)
