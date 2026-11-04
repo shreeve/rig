@@ -287,6 +287,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `Map`. `rig check` of a directory module of 400 files that name
   `Map` runs 68% fewer instructions (lexing and parsing it took 409 ms,
   now 21 ms), and bench/check's workload 2.7% fewer.
+- **`x matches none` says to write `x == none`.** It was rejected as
+  "`none` matches every value", which `none`, the absent optional, does
+  not.
 - **A chain takes up to 64 stages.** One of 9 to 12 stages was
   rejected with a message about a hidden name (closure `0`, or `none`),
   and one of 13 or more stopped the compiler; each stage up to 64 works,

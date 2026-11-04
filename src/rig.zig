@@ -4041,16 +4041,20 @@ pub const Parser = struct {
             const one = self.span(alts[0]);
             return self.reject(pattern, self.format("write `{s} matches {s}`: a list holds two or more alternatives", .{ src[value.start..value.end], src[one.start..one.end] }));
         }
-        for (alts) |alt| if (alt == .src and isNameLeaf(src, alt)) {
+        for (alts) |alt| if (alt == .src and std.mem.eql(u8, leafText(src, alt.src), "none")) {
+            return self.reject(alt, self.format("write `{s} == none`: an optional is tested against `none` with `==`, and `matches` tests a variant or a value", .{src[value.start..value.end]}));
+        } else if (alt == .src and isNameLeaf(src, alt)) {
             const t = leafText(src, alt.src);
             return self.reject(alt, self.format("`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value", .{t}));
         };
     }
 
+    /// Whether pattern leaf `leaf` is a name, which binds, rather than a
+    /// value: `true`, `false`, and `none` are values.
     fn isNameLeaf(src: []const u8, leaf: Sexp) bool {
         const t = leafText(src, leaf.src);
         if (t.len == 0 or !(std.ascii.isAlphabetic(t[0]) or t[0] == '_')) return false;
-        return !(std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false"));
+        return !(std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false") or std.mem.eql(u8, t, "none"));
     }
 
     /// `.ready(none)`: a payload position that holds `none` tests that the
