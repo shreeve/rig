@@ -27,6 +27,7 @@ and [DESIGN](DESIGN.md) say why; [SYNTAX](SYNTAX.md),
 | Does Rig have traits or interfaces? | [design/apis.md](design/apis.md): APIs, `api Shape`, and API objects, `?{Shape}`, built in five stages |
 | How fast is it, and how was that measured? | [launch/benchmarks.md](launch/benchmarks.md), and each benchmark's README under [bench/](../bench/) |
 | What changed since the last release? | [CHANGELOG.md](../CHANGELOG.md) |
+| What did a release bring, in brief? | [releases/](releases/), one page a release |
 | How do I move code from 0.2 to 0.3? | [MIGRATING-0.3.md](MIGRATING-0.3.md) |
 | What is planned? | [ROADMAP.md](ROADMAP.md), and the engineering detail in [internals/backlog.md](internals/backlog.md) |
 | What does Rig guarantee, and how is it checked? | [learn/10-safety.md](learn/10-safety.md), then [formal/README.md](../formal/README.md) |
