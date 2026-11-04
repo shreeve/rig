@@ -232,6 +232,20 @@ fail "a chain's function cannot fail", "a chain's function cannot fail: handle t
   sub main()
     print(total(List[Int]([2, 4])) catch -1)
 
+test "count reads no item a map gives", "3 2"
+  # The map still runs, its result unread.
+  xs = List[Int]([1, 2, 3])
+  print(xs.map(|x| x * 2).count(), (1..9).map(|x| x * 2).take(2).count())
+
+test "a chain of many stages", "[11, 12, 13] 3"
+  # Each stage binds its own hidden names, numbered by its place.
+  xs = List[Int]([1, 2, 3])
+  print(xs.map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).collect(), xs.map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).map(|x| x + 1).take(9).count())
+
+fail "a chain has at most 64 stages", "2:7: this chain has 65 stages, and a chain has at most 64: end it with `.collect()` part way and chain on the List that gives, or write the loop"
+  xs = List[Int]([1, 2, 3])
+  print(xs.map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).map(|x| x + 1).count())
+
 fail "a chain takes one zip", "a chain takes one `zip`"
   a = [1, 2]
   print(a.zip(a).zip(a).count())

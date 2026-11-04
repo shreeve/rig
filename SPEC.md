@@ -6300,9 +6300,9 @@ are `String`s ``, `` `filter`'s function gives a `Bool` ``; `collect` of
 views is rejected with the fix, `.map(|x| +x).collect()`.
 
 A chain is not a value: bound, passed, or returned without a consumer,
-it is rejected with the ways to end it. `for x in xs.filter(f)` is a
-loop whose body runs for each item the stages pass; its `break` and
-`continue` are its own.
+it is rejected with the ways to end it. A chain has at most 64
+stages. `for x in xs.filter(f)` is a loop whose body runs for each
+item the stages pass; its `break` and `continue` are its own.
 
 ```rig
 obj P
@@ -8867,7 +8867,9 @@ order is unspecified, with `HashItems`, `HashKeys`, `HashValues`, and
 mask's true lanes ([Vectors](#vectors)), and
 `Order`, `Hasher`, and `Printer` ([Own meanings](#own-meanings)). Their
 names are not reserved: a module that declares a type of its own of one
-of these names hides the built-in one.
+of these names hides the built-in one, as a variant, a local, a
+parameter, or a file's `use ... as Map` of the name does where it is
+seen.
 
 `Table[T, n]` and `Slot[n]` ([Table](#table)) are built into the
 compiler, as a List is, but their names are not reserved either: a
@@ -9967,9 +9969,9 @@ takes an optional field, `~p.h` holds a field's handle weakly). The
 lend is on that place, so another field of `p` stays free while the
 closure lives, and in the body the path names the capture. The body
 reaches the path and what is below it (`p.a.len`), never `p` or
-another field of it; two captures in one list, one inside the other
-(`|?p, ?p.a|`), are rejected, and an element (`|?xs[i]|`) is lent to a
-name first.
+another field of it, and no `new p` in it names another `p`; two
+captures in one list, one inside the other (`|?p, ?p.a|`), are
+rejected, and an element (`|?xs[i]|`) is lent to a name first.
 
 ```rig
 obj RenderState

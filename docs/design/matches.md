@@ -217,6 +217,8 @@ These edges are each rejected with the plain form in the message:
    `x matches .a`".
 3. **A real test.** `_` or a bare name, alone or in a list, matches
    everything and is rejected; to compare with a constant, use `==`.
+   `none` is rejected too, with "write `x == none`", the test of an
+   optional.
 4. **No call.** `matches(` with no space is rejected: "write
    `matches (`". It is never read as a call.
 5. **An arm's alternatives** take no parentheses: `(.a, .b) =>` is

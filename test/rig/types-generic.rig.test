@@ -2287,7 +2287,7 @@ fail "generic ordering payload enum", "8:12: `math.max[Shape]` cannot use `T = S
 
   print(math.max(Shape.dot, Shape.dot))
 
-fail "generic param names", "generic parameter `Item` has the same name as the module-level declaration `Item`", "generic parameter `Int` has the name of a built-in type", "generic parameter `List` has the same name as the module-level declaration `List`", "generic parameter `T` has the same name as a method of the type", "parameter `U` has the name of the generic parameter `U`"
+fail "generic param names", "generic parameter `Item` has the same name as the module-level declaration `Item`", "generic parameter `Int` has the name of a built-in type", "generic parameter `List` has the name of a built-in type", "generic parameter `T` has the same name as a method of the type", "parameter `U` has the name of the generic parameter `U`"
   # A generic parameter needs a name of its own: not a built-in type, not
   # `Self`, not a module-level declaration or a method of the type. Inside
   # the type, locals and parameters cannot reuse it either.

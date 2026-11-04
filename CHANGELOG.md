@@ -263,18 +263,27 @@ Other:
     frame: `[20000 of ?v]` with `v: Simd[I64, 64]` takes 10240000 bytes,
     as `[20000 of v]` does, and is rejected; it was counted as pointers,
     and a larger one overflowed the stack. Keep such data in a `List`.
-63. *Unsound:* a compile-time call folded in a type, an alias, or an
+63. In a closure that captures a path, `|?p.a|`, a `new p` is rejected:
+    the body's `p.a` read the capture, not the new `p`, so `new p =
+    P(a: 7)` then `print(p.a)` printed the captured field. Name the new
+    value otherwise.
+64. A type parameter may not take the name of a built-in type written
+    in Rig (`Map`, `Set`, `Item`, `Keys`, ...), as it may not take
+    `Int`'s or `List`'s: `fun f[Item](x: Int)` is rejected with "has the
+    name of a built-in type". One that used the name was rejected
+    already; Trig and loco have none.
+65. *Unsound:* a compile-time call folded in a type, an alias, or an
     enum's value holds each argument to its parameter's type, as a call
     in a body does: `[size[Other.east]]Int`, for `fun size[d: Dir]`,
     was computed as `Dir.east`, `[size[Nope.east]]Int` with `Nope`
     unbound was accepted, and `[flag[1]]Int` for a `Bool` parameter was
     "must be known at compile time". Pass a value of the parameter's
     type.
-64. *Unsound:* a value lent bare to an actor's method where a `?T` goes
+66. *Unsound:* a value lent bare to an actor's method where a `?T` goes
     is shared with the actor's task, so `T` syncs (SPEC §18), as when
     `?` is written: `c.peek(Holder(...))` of a `Holder` holding a
     `^{Job + Sends}` is rejected, as `c.peek(?Holder(...))` was.
-65. An object's none given to its constructor as a qualified variant or
+67. An object's none given to its constructor as a qualified variant or
     a constant, `Tagged(kind: Kind.empty)` or `Tagged(kind: EMPTY)` for
     `none kind == .empty`, is rejected when checked, as `.empty` was
     (SPEC "An object that names its none"); it panicked when run.
@@ -336,6 +345,33 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **`sum` adds a generic's elements.** `xs.sum()` of a `[]T` with
   `T: Num` adds them, as `+` on a `T` does, and on an unbounded `T` is
   checked at each instance; it was "`sum` adds numbers".
+- **A built-in type written in Rig is found by scope.** `Map`, `Set`,
+  and the other types of std/prelude.rig are declared in a scope around
+  each module's that names one, where any nearer name hides them. The
+  Parser wrapper rewrote every leaf so spelled into the prelude's type,
+  whatever it named: an enum's or error set's variant `Set` or `Map`
+  vanished from its type, so a `match` without it was accepted as
+  exhaustive; a local or closure parameter named `Values` or `Map` was
+  "a type, not a value"; one file's `use x as Map` hid the built-in
+  `Map` from every file of a directory module; and messages named
+  `__rig_prelude.Map`. Each keeps its own name now, and messages say
+  `Map`. `rig check` of a directory module of 400 files that name
+  `Map` runs 68% fewer instructions (lexing and parsing it took 409 ms,
+  now 21 ms), and bench/check's workload 2.7% fewer.
+- **A match on another module's enum reads its payload fields in that
+  module's types.** Emit told a binding `r?` of an imported variant's
+  optional field by looking the field's type up in the matching
+  module's own type store, where it named another type, or none: a
+  module with fewer types than the enum's stopped the compiler.
+- **`x matches none` says to write `x == none`.** It was rejected as
+  "`none` matches every value", which `none`, the absent optional, does
+  not.
+- **A chain takes up to 64 stages.** One of 9 to 12 stages was
+  rejected with a message about a hidden name (closure `0`, or `none`),
+  and one of 13 or more stopped the compiler; each stage up to 64 works,
+  and a longer chain is rejected with the limit. A `map` before
+  `count`, whose items `count` does not read, is accepted: it was
+  rejected as an unread hidden binding.
 - **A type that prints itself prints whatever it holds,** a `[]U8`
   included, and a generic one whatever its type arguments are (a
   `G[[]U8]`), since its `print` method chooses what to write; a weak

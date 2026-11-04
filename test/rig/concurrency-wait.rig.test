@@ -159,6 +159,13 @@ fail "wait a member after a failure", "`>t!` waits for a task, and `.len` applie
     t = pair()&
     print(>t!.len)
 
+fail "wait a field of self", "`>@` waits for a task, and `t` applies to what it gives: write `(>@).t`; to wait for a task that `@t` holds, take it out to a name first"
+  obj Job
+    t: Task[Int]
+
+    sub run(<@)
+      print(>@t)
+
 fail "wait a call", "`>` waits for a task that is held: make the call a task and bind it, `t = sq(5)&`, then wait for it, `>t`"
   fun sq(x: Int) -> Int
     x * x
