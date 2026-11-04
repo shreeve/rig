@@ -3591,7 +3591,7 @@ const Lowerer = struct {
                 // value in one and gives back what was there.
                 exchange = true;
                 const swap_args = ir.Call.args(e);
-                if (swap_args.len == 2 and sema.swapsTwoPlaces(self.ctx, swap_args[1], self.ctx.typeOf(swap_args[1]))) all_read = true else shapes = &.{ .view, .take };
+                if (swap_args.len == 2 and self.ctx.swapCallOf(e) == .places) all_read = true else shapes = &.{ .view, .take };
             } else if (self.ctx.stringCallOf(e) == .new) {
                 // `String(...)` formats its arguments as `print` does.
                 all_read = true;

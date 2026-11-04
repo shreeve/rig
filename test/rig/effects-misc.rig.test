@@ -1302,6 +1302,19 @@ fail "swap signal whole", "7:8: `swap` moves values whole, and a `Signal[Int]` c
   trade(+a, +b)
   print(a.get(), b.get())
 
+test "swap a value a call views", "2 2 1"
+  # A second argument that is no lend, a call's write view, is the value
+  # it views, which `swap` puts in the place: typecheck decides which
+  # swap it is once, and the ownership checker and emit read it.
+
+  fun pick(a: !Int) -> !Int
+    a
+
+  x = 1
+  y = 2
+  old = swap(!x, pick(!y))
+  print(x, y, old)
+
 fail "unknown builtin", "builtin `$min` is not supported; the builtins are `$size`"
   # A builtin Rig does not have is reported once, with the list of the
   # builtins it has.

@@ -9785,10 +9785,7 @@ const Checker = struct {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
                 if (std.mem.eql(u8, name, "warn")) return self.checkWarn(args);
                 if (std.mem.eql(u8, name, "String")) return self.checkStringNew(node, args);
-                if (std.mem.eql(u8, name, "swap")) {
-                    try self.ctx.recordSwapCall(node);
-                    return self.checkSwap(callee, args);
-                }
+                if (std.mem.eql(u8, name, "swap")) return self.checkSwap(node, callee, args);
                 if (resolve.isNumericTypeName(name)) {
                     var r = self.resolver();
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
@@ -10049,10 +10046,17 @@ const Checker = struct {
     /// there, owned. The second argument is a place when it is lent to
     /// write, `!b` or a held `!T` (`sema.swapsTwoPlaces`), and a value
     /// otherwise.
-    fn checkSwap(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
-        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return self.badCall(args, callee, "`swap` takes a place lent to write, and another to exchange it with, `swap(!a, !b)`, or a value to put in it, `old = swap(!x, v)`", .{});
+    /// What it exchanges is decided here, once, and recorded
+    /// (`SemContext.swapCallOf`), for the ownership checker and emit.
+    fn checkSwap(self: *Checker, call: Sexp, callee: Sexp, args: []const Sexp) Error!TypeId {
+        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) {
+            try self.ctx.recordSwapCall(call, .value);
+            return self.badCall(args, callee, "`swap` takes a place lent to write, and another to exchange it with, `swap(!a, !b)`, or a value to put in it, `old = swap(!x, v)`", .{});
+        }
+        const places = sema.swapsTwoPlaces(self.ctx, args[1], self.heldViewType(args[1]));
+        try self.ctx.recordSwapCall(call, if (places) .places else .value);
         const a = (try self.swapPlace(args[0], "swap")) orelse return self.skipCall(args[1..]);
-        if (sema.swapsTwoPlaces(self.ctx, args[1], self.heldViewType(args[1]))) {
+        if (places) {
             const b = (try self.swapPlace(args[1], "swap")) orelse return self.t().void_id;
             if (a != b) try self.errAt(args[1], "`swap` exchanges two places of one type; got `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().void_id;
@@ -10072,8 +10076,8 @@ const Checker = struct {
         const args = ir.Call.args(call);
         if (args.len == 0) return false;
         const v = self.sourceText(args[args.len - 1]);
-        if (callee == .src and std.mem.eql(u8, self.text(callee), "swap") and self.lookupQuiet(callee) == null) {
-            if (args.len != 2 or sema.swapsTwoPlaces(self.ctx, args[1], self.ctx.typeOf(args[1]))) return false;
+        if (self.ctx.swapCallOf(call)) |swap| {
+            if (args.len != 2 or swap == .places) return false;
             const place = self.sourceText(if (args[0].isKind(.write)) ir.Write.operand(args[0]) else args[0]);
             try self.errAt(stmt, "this `swap` gives back the old value of `{s}`, which a statement throws away: to store `{s}`, write `{s} = {s}`; to exchange two places, lend both to write, `swap(!{s}, !b)`", .{ place, v, place, v, place });
             return true;

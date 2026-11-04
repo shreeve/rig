@@ -5562,7 +5562,7 @@ pub const Checker = struct {
         // Compile-time arguments (`f[3](x)`) are constants: no effect.
         const callee = self.sema.calleeOf(node);
         const args = ir.Call.args(node);
-        if (self.isSwapBuiltin(callee) and args.len == 2) return self.walkSwapCall(args, sema.swapsTwoPlaces(self.sema, args[1], self.exprType(args[1])));
+        if (self.sema.swapCallOf(node)) |swap| if (args.len == 2) return self.walkSwapCall(args, swap == .places);
         // The value the call calls (a closure's captures, what a lent
         // callable lends), which its result always carries, and its
         // self's value.
@@ -6183,12 +6183,6 @@ pub const Checker = struct {
         const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
         const value = sema.copiedThrough(ctx, self.exprType(arg) orelse return false) orelse return false;
         return !self.mayCarryLoan(value);
-    }
-
-    /// Whether `callee` is the built-in `swap`, not hidden by a declaration.
-    fn isSwapBuiltin(self: *Checker, callee: Sexp) bool {
-        if (callee != .src or !std.mem.eql(u8, self.text(callee), "swap")) return false;
-        return self.sema.symbolOf(callee) == null;
     }
 
     /// `swap(!a, !b)` (`swap` true) / `old = swap(!place, v)`: the places

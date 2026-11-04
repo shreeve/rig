@@ -24,6 +24,21 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
   the select returns, so a task moved on after its arm lost ends with
   no stale waiter (SPEC "Channels").
 
+### Compiler
+
+- Emit decides nothing the checkers did not walk: whether a `match` arm
+  takes every value, whether a `match` picks its arm first, whether a
+  loop or `as` binds a String's bytes, whether `return a, b` makes its
+  parts first, how an `as` binding reads through a write view, how a
+  new binding holds its value, and which call a compound assignment
+  lowers to are decisions of the storage plan, verified at its end, and
+  emit reads them. What a `swap` exchanges is decided once, by
+  typecheck, and read by the ownership checker, the oracle, and emit:
+  `old = swap(!x, pick(!y))`, with `pick` giving a write view, puts the
+  value it views in `x`, where emit wrote an exchange of two places
+  that Zig rejected. A unit test fails on a `Facts` method that answers
+  about a node with a classifier instead of a record.
+
 ## v0.3.0 (2026-11-04)
 
 `v0.3.0` follows `v0.2.9` (Zig 0.17.0, Nexus 2.0.0) and changes the
