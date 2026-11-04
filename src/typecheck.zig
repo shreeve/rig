@@ -5058,6 +5058,13 @@ const Checker = struct {
             return self.t().int_literal_id;
         }
         const id = (try self.useName(leaf)) orelse return self.t().unknown_id;
+        // A task lent to write is only waited for or canceled where it is
+        // bound: no use of its name moves it on, a `return` or a last
+        // value among them.
+        if (self.write_tasks.count() != 0 and !sameSite(leaf, self.task_wait) and self.write_tasks.contains(id)) {
+            try self.errAt(leaf, "`{s}` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>{s}`", .{ s, s });
+            return self.t().invalid_id;
+        }
         const sym = self.ctx.symbols.items[id];
         switch (sym.kind) {
             .nominal_type, .generic_type, .type_alias, .generic_param => {
@@ -7207,10 +7214,6 @@ const Checker = struct {
     fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Move.operand(e);
         const ty = try self.synthExpr(operand);
-        if (operand == .src and !sameSite(operand, self.task_wait)) if (self.ctx.symbolOf(operand)) |id| if (self.write_tasks.contains(id)) {
-            try self.errAt(e, "`{s}` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>{s}`", .{ self.text(operand), self.text(operand) });
-            return self.t().invalid_id;
-        };
         if (operand == .src) if (self.ctx.symbolOf(operand)) |id| try self.ctx.recordWrite(e, id, .move);
         if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
         if (self.isPoison(ty)) return ty;

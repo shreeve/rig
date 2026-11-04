@@ -3627,9 +3627,12 @@ pub const Checker = struct {
         if (v.loans.len == 0) return v;
         // A task is its call, still running: it keeps every loan of its
         // arguments as lent, a write loan to write, whatever its result's
-        // type could view (docs/design/concurrency.md, "Loans and structure").
-        // A set of tasks keeps those of each.
-        if (sema.isTask(ctx, t) or sema.isTaskSet(ctx, t)) return v;
+        // type could view (docs/design/concurrency.md, "Where a task may
+        // go"). A set of tasks keeps those of each. A call that gives a
+        // task (`-> Task[T]`) gives a result like any other: no task lent
+        // to write leaves where it is bound, so what it keeps are read
+        // loans.
+        if (!result and sema.holdsCallLoans(ctx, t)) return v;
         if (!self.viewsOnlyRead(t)) return v;
         const reads = result or sema.holdsViewOnly(ctx, t);
         var out: std.ArrayList(Loan) = .empty;
@@ -5868,8 +5871,10 @@ pub const Checker = struct {
         const ctx = self.sema;
         if (sema.resultsOf(ctx, ty)) |tys| return self.callResults(node, temps_start, stored, result, tys);
         if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carryResult(ty, result));
-        if (self.viewsOnlyRead(ty)) return self.endWriteLends(temps_start, stored, try self.carryResult(ty, result));
-        return self.carryResult(ty, result);
+        // A task, `f(x)&`, is its call, still running (`carryAs`).
+        const kept = if (ir.Call.task(node) != .nil) try self.carry(ty, result) else try self.carryResult(ty, result);
+        if (self.viewsOnlyRead(ty)) return self.endWriteLends(temps_start, stored, kept);
+        return kept;
     }
 
     /// A call that gives several results, `-> (A, B)`: each carries the

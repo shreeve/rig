@@ -656,6 +656,7 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | `x += 10` in `for x in xs.filter(f)`, which changed a copy | `for x in !xs` to change the elements, or `new y = x` for a copy | by hand, as the compiler says |
 | `z = <x` in `for x in src` of a read view `src = ?a`, or of a view in a field | as in `for x in ?a`: clone what the loop view reaches, or loop over `<a` to take the elements | by hand, as the compiler says |
 | an arm of `task.select` that reads, takes, or writes what another arm's closure or channel uses: `<s` beside `\|?s, v\|`, `n` sent beside `\|!n, v\|`, two arms' `\|!n, v\|`, `<a` beside `(!a).on_recv(...)`, `<chs` beside `(!chs[0])` | rejected: every arm is made before the select runs one; bind what the arms share before the select, or give each its own | by hand |
+| a task in a Cell, `*Cell(<t)`, or a value holding one there; `break t` of a task lent to write | rejected: wait for the task, and keep what it gives | by hand, as the compiler says |
 
 `std.json` needs no change: `(!doc).parse(?src)` still answers a
 `Bool`, and `(!doc).load(?src)`, which fails with

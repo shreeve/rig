@@ -502,7 +502,580 @@ fail "task write loan moved", "`t` is a task lent to write, which keeps its writ
   t = fill(!xs, 4)&
   !ts.push(<t)
 
+test "task returned with from", seeds: 20, "2 3"
+  # A task with read loans only is returned as any result is: `from v`
+  # says it views `v`, so the caller keeps `xs` lent to read until it
+  # waits for the task.
+  # oracle: start accept
+  # oracle: main accept
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  fun start(v: ?List[Int]) -> Task[Int] from v
+    total(v)&
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  !xs.push(2)
+  t = start(?xs)
+  print(xs.len, >t)
+
+test "task returned", seeds: 20, "6"
+  # Without `from`, the result keeps the loans of each parameter whose
+  # type could hold what a task views, which may be anything.
+  # oracle: start accept
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  fun start(v: ?List[Int], k: Int) -> Task[Int]
+    total(v)&
+
+  xs: List[Int] = List()
+  !xs.push(6)
+  t = start(?xs, 1)
+  print(>t)
+
+fail "task returned keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int]) -> Task[Int] from v
+    total(v)&
+
+  xs: List[Int] = List()
+  t = start(?xs)
+  !xs.push(2)
+  print(>t)
+
+fail "task returned keeps its owner", "cannot drop `xs` while it is lent", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int]) -> Task[Int]
+    total(v)&
+
+  xs: List[Int] = List()
+  t = start(?xs)
+  <xs
+  print(>t)
+
+fail "task of a local returned", "cannot return a view of `v`, which this function was not lent", errors: 1
+  # A task that reads a local of its function cannot outlive it.
+  # oracle: start reject C5
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start() -> Task[Int]
+    v: List[Int] = List()
+    total(?v)&
+
+  t = start()
+  print(>t)
+
+fail "task of a local returned through a call", "cannot return a view of `v`, which this function was not lent", errors: 1
+  # oracle: outer reject C5
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int]) -> Task[Int]
+    total(v)&
+
+  fun outer() -> Task[Int]
+    v: List[Int] = List()
+    start(?v)
+
+  t = outer()
+  print(>t)
+
+fail "task returned from names no view", "`n: Int` cannot hold a view of what `start` returns, so its result never views it", errors: 1
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int], n: Int) -> Task[Int] from n
+    total(v)&
+
+  print(1)
+
+fail "task returned from names another", "`start` returns a view of `b`, but its signature says it views only `a`", errors: 1
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(a: ?List[Int], b: ?List[Int]) -> Task[Int] from a
+    total(b)&
+
+  print(1)
+
+test "task returned from a write view reads", seeds: 20, '''
+  1
+  1
+'''
+  # A task lent to read through a write view the function was lent is
+  # returned as a result that holds no write view: the caller's write
+  # lend ends at the call, and `xs` is read, not written, while the task
+  # lives.
+  # oracle: main accept
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: !List[Int]) -> Task[Int]
+    !v.push(4)
+    total(?v)&
+
+  xs: List[Int] = List()
+  t = start(!xs)
+  print(xs.len)
+  print(>t)
+
+fail "task returned from a write view keeps it read", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: !List[Int]) -> Task[Int]
+    total(?v)&
+
+  xs: List[Int] = List()
+  t = start(!xs)
+  !xs.push(4)
+  print(>t)
+
+fail "task write loan returned", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = fill(!v)&`, then `>t`", errors: 1
+  fun fill(v: !List[Int]) -> Int
+    !v.push(1)
+    v.len
+
+  fun start(v: !List[Int]) -> Task[Int]
+    fill(!v)&
+
+  xs: List[Int] = List()
+  t = start(!xs)
+  print(>t)
+
+fail "task write loan bound then returned", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+  fun fill(v: !List[Int]) -> Int
+    !v.push(1)
+    v.len
+
+  fun start(v: !List[Int]) -> Task[Int]
+    t = fill(!v)&
+    t
+
+  xs: List[Int] = List()
+  t = start(!xs)
+  print(>t)
+
+fail "task write loan bound then returned by return", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+  fun fill(v: !List[Int]) -> Int
+    !v.push(1)
+    v.len
+
+  fun start(v: !List[Int]) -> Task[Int]
+    t = fill(!v)&
+    return t
+
+  xs: List[Int] = List()
+  t = start(!xs)
+  print(>t)
+
+fail "task write loan broken out of a loop", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+  fun fill(v: !List[Int]) -> Int
+    !v.push(1)
+    v.len
+
+  xs: List[Int] = List()
+  r = while true
+    t = fill(!xs)&
+    break t
+  print(>r)
+
+fail "task write loan stored by a function", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = fill(!v)&`, then `>t`", errors: 1
+  fun fill(v: !List[Int]) -> Int
+    !v.push(1)
+    v.len
+
+  sub add(ts: !Tasks[Int], v: !List[Int])
+    !ts.add(fill(!v)&)
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  add(!ts, !xs)
+  print(>ts)
+
+test "task returned in a set", seeds: 20, "[3, 3]"
+  # A set of tasks is returned as a task is, keeping each task's loans.
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  fun group(v: ?List[Int]) -> Tasks[Int] from v
+    ts = Tasks[Int]()
+    !ts.add(total(v)&)
+    !ts.add(total(v)&)
+    ts
+
+  xs: List[Int] = List()
+  !xs.push(3)
+  ts = group(?xs)
+  print(>ts)
+
+fail "task returned in a set keeps its loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun group(v: ?List[Int]) -> Tasks[Int]
+    ts = Tasks[Int]()
+    !ts.add(total(v)&)
+    ts
+
+  xs: List[Int] = List()
+  ts = group(?xs)
+  !xs.push(3)
+  print(>ts)
+
+test "task added to a set by a function", seeds: 20, "[6]"
+  # A function that adds a task lent its parameter keeps that parameter.
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  sub add(ts: !Tasks[Int], v: ?List[Int]) keeps v
+    !ts.add(total(v)&)
+
+  xs: List[Int] = List()
+  !xs.push(6)
+  ts = Tasks[Int]()
+  add(!ts, ?xs)
+  print(>ts)
+
+fail "task added to a set keeps its parameter", "`add` stores a view of `v` in `ts`, which its caller reaches, but its signature does not keep `v`; say so: `keeps v`", errors: 1
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  sub add(ts: !Tasks[Int], v: ?List[Int])
+    !ts.add(total(v)&)
+
+  print(1)
+
+fail "task added to a set by a function keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  sub add(ts: !Tasks[Int], v: ?List[Int]) keeps v
+    !ts.add(total(v)&)
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  add(!ts, ?xs)
+  !xs.push(6)
+  print(>ts)
+
+test "task returned in an object", seeds: 20, "5"
+  # oracle: mk accept
+  # oracle: main accept
+  obj Job
+    t: Task[Int]
+
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  fun mk(v: ?List[Int]) -> Job
+    Job(t: total(v)&)
+
+  xs: List[Int] = List()
+  !xs.push(5)
+  j = mk(?xs)
+  t = <j.t
+  print(>t)
+
+fail "task returned in an object keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  obj Job
+    t: Task[Int]
+
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun mk(v: ?List[Int]) -> Job
+    Job(t: total(v)&)
+
+  xs: List[Int] = List()
+  j = mk(?xs)
+  !xs.push(5)
+  <j
+
+test "task returned through a generic", seeds: 20, "5"
+  fun same[T](x: T) -> T
+    x
+
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  xs: List[Int] = List()
+  !xs.push(5)
+  t = same(total(?xs)&)
+  print(>t)
+
+fail "task returned through a generic keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  fun same[T](x: T) -> T
+    x
+
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  xs: List[Int] = List()
+  t = same(total(?xs)&)
+  !xs.push(5)
+  print(>t)
+
+test "task returned fallible or absent", seeds: 20, '''
+  2
+  2
+'''
+  # oracle: start accept
+  # oracle: maybe accept
+  # oracle: main accept
+  error E
+    bad
+
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  fun start(v: ?List[Int], ok: Bool) -> Task[Int]! from v
+    return E.bad if not ok
+    total(v)&
+
+  fun maybe(v: ?List[Int], ok: Bool) -> Task[Int]? from v
+    return none if not ok
+    total(v)&
+
+  xs: List[Int] = List()
+  !xs.push(2)
+  t = start(?xs, true) catch return
+  print(>t)
+  if maybe(?xs, true) as u
+    print(>u)
+
+fail "task returned fallible keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  error E
+    bad
+
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int], ok: Bool) -> Task[Int]!
+    return E.bad if not ok
+    total(v)&
+
+  xs: List[Int] = List()
+  t = start(?xs, true) catch return
+  !xs.push(2)
+  print(>t)
+
+fail "task returned absent keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun maybe(v: ?List[Int], ok: Bool) -> Task[Int]?
+    return none if not ok
+    total(v)&
+
+  xs: List[Int] = List()
+  t = maybe(?xs, true)
+  !xs.push(2)
+  if <t as u
+    print(>u)
+
+test "task of a returned task", seeds: 20, "3 2"
+  # A task given a task keeps that task's loans; a function that makes
+  # one from a task it takes returns it `from` that task.
+  # oracle: chain accept
+  # oracle: main accept
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  fun start(v: ?List[Int]) -> Task[Int] from v
+    total(v)&
+
+  fun later(t: Task[Int]) -> Int
+    >t + 1
+
+  fun chain(t: Task[Int]) -> Task[Int] from t
+    later(<t)&
+
+  xs: List[Int] = List()
+  !xs.push(2)
+  u = chain(start(?xs))
+  w = later(start(?xs))&
+  print(>u, >w - 1)
+
+fail "task of a returned task keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int]) -> Task[Int]
+    total(v)&
+
+  fun later(t: Task[Int]) -> Int
+    >t + 1
+
+  fun chain(t: Task[Int]) -> Task[Int]
+    later(<t)&
+
+  xs: List[Int] = List()
+  u = chain(start(?xs))
+  !xs.push(1)
+  print(>u)
+
+test "task returned by a method", seeds: 20, "7"
+  # oracle: main accept
+  obj Bag
+    items: List[Int]
+
+    fun run(?@) -> Task[Int] from @
+      total(?@items)&
+
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  b = Bag(items: List())
+  !b.items.push(7)
+  t = ?b.run()
+  print(>t)
+
+fail "task returned by a method keeps self", "cannot lend `b.items` to write while a read loan on `b` is live", errors: 1
+  # oracle: main reject C4
+  obj Bag
+    items: List[Int]
+
+    fun run(?@) -> Task[Int] from @
+      total(?@items)&
+
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  b = Bag(items: List())
+  t = ?b.run()
+  !b.items.push(7)
+  print(>t)
+
+test "task returned into a list", seeds: 20, "2"
+  # oracle: main accept
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int]) -> Task[Int] from v
+    total(v)&
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ts: List[Task[Int]] = List()
+  !ts.push(start(?xs))
+  !ts.push(start(?xs))
+  n = 0
+  for t in <ts
+    n += >t
+  print(n)
+
+fail "task returned into a list keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun start(v: ?List[Int]) -> Task[Int] from v
+    total(v)&
+
+  xs: List[Int] = List()
+  ts: List[Task[Int]] = List()
+  !ts.push(start(?xs))
+  !xs.push(1)
+  for t in <ts
+    print(>t)
+
+test "task returned with a text view", seeds: 20, '''
+  3
+  abcd
+'''
+  # oracle: main accept
+  fun count(s: ?String) -> Int
+    s.len
+
+  fun start(s: ?String) -> Task[Int] from s
+    count(s)&
+
+  s = String("abc")
+  t = start(?s)
+  print(>t)
+  !s.add("d")
+  print(s)
+
+fail "task returned with a text view keeps it", "cannot lend `s` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun count(s: ?String) -> Int
+    s.len
+
+  fun start(s: ?String) -> Task[Int] from s
+    count(s)&
+
+  s = String("abc")
+  t = start(?s)
+  !s.add("d")
+  print(>t)
+
+fail "task in a Cell", "a Cell holds no task, and `Task[Int]` is one: a cycle through a Cell could keep the task from ever being waited for; wait for it first and keep what it gives", errors: 1
+  # A Cell is a shared home, which holds no task, even one with no loan.
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(3)&
+  c = *Cell(<t)
+  print(1)
+
+fail "task in an object in a Cell", "a Cell holds no task, and `H` holds one", errors: 1
+  obj H
+    t: Task[Int]
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  c = *Cell(H(t: sq(3)&))
+  print(1)
+
+fail "task set in a Cell", "a Cell holds no task, and `Tasks[Int]` is one", errors: 1
+  c = *Cell(Tasks[Int]())
+  print(1)
+
 fail "task read loan live", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
   fun total(xs: ?List[Int]) -> Int
     xs.len
 
@@ -1519,3 +2092,16 @@ fail "task slice argument shares its elements", "`?ts` is given to a task: `[]Ta
   !ts.push(work()&)
   t = n(?ts)&
   print(>t)
+
+fail "task waited for after its owner drops", "cannot drop `v` while it is lent", errors: 1
+  # oracle: spawn reject C4
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  fun spawn() -> Int
+    v: List[Int] = List()
+    t = total(?v)&
+    <v
+    >t
+
+  print(spawn())
