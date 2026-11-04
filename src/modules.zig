@@ -534,7 +534,8 @@ pub const ModuleGraph = struct {
                 try self.stdError(id, at, file, err);
                 return null;
             } orelse {
-                try self.dirError(id, at, "the standard library has no module `{s}`", .{comps[0]});
+                const hint = if (std.mem.eql(u8, comps[0], "iter")) "; a chain counts and sums what it gives: `xs.filter(f).count()`, `(!it).sum()`" else "";
+                try self.dirError(id, at, "the standard library has no module `{s}`{s}", .{ comps[0], hint });
                 return null;
             };
             return .{ .key = found.key, .display = found.display, .source = found.source, .parts = &.{} };

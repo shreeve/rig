@@ -3951,13 +3951,11 @@ what they hold (an `Int`, a `String`), or view what the iterator only
 views, view no base: `text.split`'s, and those of a `next` whose `from`
 names only fields declared as read views (`next(!@) -> (?K)? from
 @map`, as a Map's and a Set's iterators declare). A body that holds no
-item past a change of its base, as `iter.count` does, takes every
-iterator.
-std.iter's `count` and `sum` take any iterator ([STD](docs/STD.md#stditer)).
+item past a change of its base, as a chain's `count` does, takes every
+iterator: `(!it).count()` and `(!it).sum()` take any iterator
+([Chains](#chains)).
 
 ```rig
-use std.iter
-
 api Source
   type Item
 
@@ -3985,7 +3983,8 @@ sub main()
   c = Count(n: 0, hi: 4)
   print(most(!c) ?? -1)
   d = Count(n: 0, hi: 4)
-  print(iter.count(!d), iter.sum(!(Count(n: 0, hi: 4))) ?? 0)
+  e = Count(n: 0, hi: 4)
+  print((!d).count(), (!e).sum())
 ```
 
 ```output
@@ -3994,8 +3993,6 @@ sub main()
 ```
 
 ```rig reject
-use std.iter
-
 obj Floats
   x: Float
 
@@ -4003,7 +4000,7 @@ obj Floats
     none
 
 fun distinct[I: Iter, I.Item: Hash](it: !I) -> Int
-  iter.count(!it)
+  (!it).count()
 
 sub main()
   f = Floats(x: 1.0)

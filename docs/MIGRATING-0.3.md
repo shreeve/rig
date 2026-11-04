@@ -285,7 +285,87 @@ sub main()
 4 3.0
 ```
 
-## Step 4: what the compiler now asks for
+## Step 4: the standard library's renames, `tools/migrate-std-0.3.py`
+
+```sh
+python3 tools/migrate-std-0.3.py --dry-run src/   # what would change
+python3 tools/migrate-std-0.3.py src/             # rewrite in place
+```
+
+It rewrites the `.rig` and `.rig.test` files under the path and the
+```` ```rig ```` blocks of its Markdown, finding a module used under
+another name (`use std.text as stdtext`) by that name:
+
+| 0.2.9 | 0.3.0 |
+|---|---|
+| `doc = json.new_doc()`, then `if not (!doc).parse(s)` and a block that leaves | `doc = json.parse(s) catch \|_\|` and the block |
+| `return x if not (!doc).parse(s)` after `json.new_doc()` | `doc = json.parse(s) catch return x` |
+| `json.new_doc()` | `json.Doc()`, filled by `(!doc).load(s)!` |
+| `doc.size()`, `doc.get_int(i)`, `get_str`, `get_bool`, `get_float` | `doc.len`, `doc.int(i)`, `string`, `bool`, `float` |
+| `text.compare(a, b) < 0`, a BigInt's `a.compare(b) > 0` | `a.order(?b) == .less`, `a.order(b) == .greater`: each comparison with 0 has its `Order` |
+| `c = a.compare(b)`, every use of `c` comparing it with 0 | `c = a.order(b)`, with each use's `Order` |
+| a BigInt's `a.equals(b)`, `not a.equals(b)`, `a.to_f64()` | `a == b`, `a != b`, `a.to_float()` |
+| `math.powf(x, y)`, `math.powf(2, -1)` | `math.pow(x, y)`, `math.pow(2.0, -1.0)`: an integer literal powf took as a Float is written as one |
+| `iter.count(!it)`, `iter.sum(!it) ?? 0` | `(!it).count()`, `(!it).sum()`; `use std.iter` goes |
+| `slices.contains(xs, <s)`, `+s`, `a if c else b`, and the same in `index_of`, `sort.search`, `sort.lower_bound` | `slices.contains(xs, ?s)`, `?(a if c else b)` |
+
+It prints `MANUAL path:line` for what it leaves: a `compare` result used
+as an `Int` (returned, passed on, or added), a parse whose `Bool` is
+used otherwise, a Doc's `error` and `error_pos`, `json.error_name`, an
+`iter.sum` whose `none` is used or whose `?? 0` has more after it, a
+`powf` of arguments not visibly Floats (`pow` of two `Int`s is an
+Int's), a `-` before a `compare`, and a ```` ```rig reject ```` block.
+Write `a.order(?b)` and compare it with `.less`, `.equal`, or
+`.greater`, or `<`; a failure of `json.parse` or `load` is a member of
+`JsonError` carrying its offset, `JsonError.eof(at: 5)`, which prints
+so and which `match` takes apart. On Trig's sources it rewrites 38
+sites and leaves 22: 20 `compare` results used as an `Int`, a `powf` of
+two `Number`s, and one test's parse.
+
+```rig reject
+use std.json
+
+sub main()
+  doc = json.new_doc()
+  print(doc.size())
+```
+
+```error
+no member `new_doc` in module `json`; an empty Doc is `json.Doc()`, and `json.parse(?src)!` parses into a new one
+```
+
+```rig
+use std.bigint
+use std.json
+
+sub main()
+  doc = json.parse("{\"n\": 12345678901234567890}") catch |e|
+    print(e)
+    return
+  print(doc.len, doc.kind(2), doc.float(2))
+  a = bigint.parse("12345678901234567890") catch bigint.from_int(0)
+  b = bigint.from_int(1).shl(64)
+  print(a < b, a == b, a.order(?b), b.to_float())
+  _ = json.parse("[1,") catch |e|
+    match e
+      .eof(at) => print("cut short at", at)
+      _ => print(e)
+    json.Doc()
+```
+
+```output
+4 .float 12345678901234567000.0
+true false .less 18446744073709552000.0
+cut short at 3
+```
+
+`random.int` draws by Lemire's method, one multiply in place of two
+divisions, so a seeded generator's `int`, and the `shuffle` built on
+it, give other numbers than 0.2.9's for the same seed; `next` and
+`float` give the same. A test that pins a seeded `int` or `shuffle`
+records the new ones.
+
+## Step 5: what the compiler now asks for
 
 ### A loop's write view is held, not copied
 
@@ -660,9 +740,9 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | a value holding a task (a local object, a `Task[T]?`, a `*Job`, a `time.within` closure's result), then its source written or dropped before the wait | rejected (*unsound*: the task read the source after it changed or was dropped): wait for the task first | by hand, as the compiler says |
 | a `-> Task[T]` function lent a parameter its task does not read, then that parameter's owner written before the wait; `b.spawn()` of a `?@` method that gives a task | the caller keeps the lend until the wait: wait first, or take the parameter away; write `?b.spawn()` | by hand, as the compiler says |
 
-`std.json` needs no change: `(!doc).parse(?src)` still answers a
-`Bool`, and `(!doc).load(?src)`, which fails with
-`JsonError.bad(kind:, at:)`, is new beside it.
+A program that used `(!doc).load(?src)` and `JsonError.bad(kind:,
+at:)` on `main` matches the reason itself, `.eof(at)`, and drops
+`json.error_name`; the rest of std.json is Step 4's.
 
 ```rig
 api Job: Sends

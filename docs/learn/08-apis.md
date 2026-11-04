@@ -181,8 +181,6 @@ Some APIs name a type that each provider chooses. The built-in one a
 provides it, and its `Item` is that `T`:
 
 ```rig
-use std.iter
-
 obj Countdown
   n: Int
 
@@ -201,7 +199,7 @@ sub main()
   for x in Countdown(n: 3)
     print(x)
   c = Countdown(n: 4)
-  print(iter.sum(!c) ?? 0)
+  print((!c).sum())
   d = Countdown(n: 5)
   print(largest(!d) ?? -1)
 ```
@@ -217,9 +215,9 @@ sub main()
 `Countdown` names no API. Declaring `next` is enough, so a `for` loop
 walks it. `I.Item` is the item type of whatever iterator `largest` is
 given, and `I.Item: Ord + Copy` bounds it as its own entry in the
-brackets. `iter.sum` is written the same way, with `I.Item: Num`. An
-API of a program's own declares such a type with `type Item`
-([SPEC, APIs](../../SPEC.md#apis)).
+brackets. A chain's `sum`, `(!c).sum()`, adds what any iterator gives
+when its items are numbers. An API of a program's own declares such a
+type with `type Item` ([SPEC, APIs](../../SPEC.md#apis)).
 
 ## Giving `==` a meaning of its own
 

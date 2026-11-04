@@ -3997,6 +3997,13 @@ pub const TypeResolver = struct {
                 const head = sexp.kind() orelse return t.invalid_id;
                 switch (head) {
                     .item_type => return self.chainItemType(ir.get(sexp, .name)),
+                    .item_value => {
+                        const item = try self.chainItemType(ir.get(sexp, .name));
+                        return switch (t.get(item)) {
+                            .read_view => |inner| if (sema.copies(self.ctx, inner) == .yes) inner else item,
+                            else => item,
+                        };
+                    },
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = .{ .ok = inner } });

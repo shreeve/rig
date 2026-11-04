@@ -3,6 +3,7 @@
 # literals, and main loops over them). Prints each parse as the
 # canonical dump that bench/json/check/README.md describes.
 use std.json
+use std.text
 
 HEX = "0123456789abcdef"
 
@@ -23,30 +24,34 @@ sub put_string(out: !String, s: ?String)
   !out.push(0x0A)
 
 sub dump(d: ?json.Doc, out: !String)
-  for i in 0..d.size()
+  for i in 0..d.len
     match d.kind(i)
       .null => put_line(!out, "null")
-      .bool => put_line(!out, "true" if d.get_bool(i) else "false")
-      .int => !out.add("i ", d.get_int(i), "\n")
-      .float => !out.add("f ", d.get_float(i).to_bits(), "\n")
-      .string => put_string(!out, d.get_str(i))
+      .bool => put_line(!out, "true" if d.bool(i) else "false")
+      .int => !out.add("i ", d.int(i), "\n")
+      .float => !out.add("f ", d.float(i).to_bits(), "\n")
+      .string => put_string(!out, d.string(i))
       .array => put_line(!out, "[")
       .array_end => put_line(!out, "]")
       .object => put_line(!out, "{")
       .object_end => put_line(!out, "}")
 
 # The case is copied into a String, as a program's input would be.
-sub run(name: Static, text: Static)
-  src = String(text)
-  d = json.new_doc()
+sub run(name: Static, data: Static)
+  src = String(data)
+  d = json.Doc()
   out = String("=== ", name, "\n")
-  if (!d).parse(?src)
+  failed = String()
+  (!d).load(?src) catch |e| (!failed).add(String(e))
+  if failed.len == 0
     dump(?d, !out)
   else
-    !out.add("error ", json.error_name(d.error), " ", d.error_pos, "\n")
+    # `JsonError.eof(at: 5)` as `error eof 5`.
+    open = text.find(?failed, "(") ?? 0
+    !out.add("error ", failed[10..open], " ", failed[open + 5..failed.len - 1], "\n")
   print(out)
 
-$CASES:@
+@CASES@
 
 sub main()
-$MAIN:@
+@MAIN@

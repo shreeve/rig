@@ -36,14 +36,18 @@ pub obj Random unique
       panic(String("random: empty range ", lo, "..", hi))
     # The number of values, which fits a `U64` even for the widest range.
     n = U64.wrap(hi -% lo)
-    # Rejecting the few smallest values leaves a whole number of runs
-    # of `n`, so every result is equally likely.
-    t = (0 -% n) % n
-    x = (!@).next()
-    while x < t
-      x = (!@).next()
+    # Lemire's method: the top 64 bits of a draw times `n` are below
+    # `n`. The low 64 bits fall below `2^64 % n` for the few draws that
+    # would make some results likelier; those are drawn again, so every
+    # result is equally likely, and the division runs only when the low
+    # bits are below `n`, rarely for a small range.
+    m = U128((!@).next()) *% U128(n)
+    if U64.wrap(m) < n
+      t = (0 -% n) % n
+      while U64.wrap(m) < t
+        m = U128((!@).next()) *% U128(n)
     # `lo` plus less than `n` is below `hi`, so it fits an `Int`.
-    lo +% Int.wrap(x % n)
+    lo +% Int.wrap(U64.wrap(m >> 64))
 
   # A `Float` from 0 up to but not including 1.
   pub fun float(!@) -> Float

@@ -5024,7 +5024,7 @@ const Checker = struct {
         };
         const sym = decl.symbol();
         if (sym.fields == null) return;
-        try self.err(pos, "no variant `{s}` on enum `{s}`", .{ vname, try self.tyName(sema.unwrapViews(self.ctx, enum_ty)) });
+        try self.err(pos, "no variant `{s}` on enum `{s}`{s}", .{ vname, try self.tyName(sema.unwrapViews(self.ctx, enum_ty)), sema.stdRenamed(decl.ctx, sym.name, vname) orelse "" });
         try self.noteDeclared(sym, decl.module_id == null);
     }
 
@@ -8167,7 +8167,8 @@ const Checker = struct {
         } else if (owner.fields == null) {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {
-            try self.err(pos, "no field `{s}` on type `{s}`{s}", .{ field, owner.name, try self.memberHint(owner.fields.?, field, .field) });
+            const hint = sema.stdRenamed(decl.ctx, owner.name, field) orelse try self.memberHint(owner.fields.?, field, .field);
+            try self.err(pos, "no field `{s}` on type `{s}`{s}", .{ field, owner.name, hint });
             try self.noteDeclared(owner, decl.module_id == null);
         }
         return self.t().invalid_id;
@@ -13384,7 +13385,8 @@ const Checker = struct {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
-                try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
+                const hint = sema.stdRenamed(decl.ctx, sym.name, method) orelse try self.memberHint(sym.fields orelse &.{}, method, .method);
+                try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, hint });
                 try self.noteDeclared(sym, decl.module_id == null);
             } else if (self.ctx.types.get(peeled) == .weak) {
                 try self.weakReach(obj, peeled, pos);
@@ -16063,7 +16065,8 @@ const Checker = struct {
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant, .instance = ty });
             return ty;
         }
-        try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, try self.memberHint(nt.sym.fields orelse &.{}, name, .associated) });
+        const hint = (if (nt.foreign) |fo| sema.stdRenamed(fo.ctx, nt.sym.name, name) else null) orelse try self.memberHint(nt.sym.fields orelse &.{}, name, .associated);
+        try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, hint });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.skipCall(args);
     }
