@@ -137,8 +137,16 @@ A new session, human or agent, takes these steps in order:
   - **Its five decisions** were approved after a panel of three
     experts agreed with each
     ([panel-decisions.md](docs/history/records/2026-11/revamp-compiler/panel-decisions.md)).
-    The check guard is a merge gate (AGENTS step 6), and the `for`-source
-    sigil and marked `collect` of views are being built.
+    They landed in #922, with `select` as a value matched by `match` (#923),
+    the conditional-expression binding rule (#924), and a fix for a
+    check-speed regression on deep generic chains (#925). Rig's full suite
+    on main passes (11,345 jobs).
+  - **Next, all in v0.3.0 (the owner, 2026-11-04):** phase 2, ownership,
+    storage, facts, and emit
+    ([next-phase.md](docs/history/records/2026-11/revamp-compiler/next-phase.md)),
+    and the 12 std decisions
+    ([revamp-runtime/owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)),
+    then the release preparation for the owner's go.
 - **`select` as a value matched by `match`**, approved and built as
   a test case (records/2026-11/revamp-compiler/panel-select-*.md):
   `match task.select(add: !a.on_recv(), late: time.after(ns))!` with

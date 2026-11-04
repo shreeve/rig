@@ -129,3 +129,42 @@ T4, T9 (no smaller), T10, U11 (grammar), V12 (emit), D1 and M4's slice half
 and C2 (sema and typecheck together), U12's 131 sibling messages, and the
 CallSite constructor (it changes origins the ownership checker reads:
 phase 2).
+
+### After phase 1: the approved decisions, select, the ternary rule (2026-11-04)
+
+- #922: the five decisions (panel-decisions.md). A sigil on a `for`
+  source that is a call lends the call's self, checked over 272 source
+  shapes; `collect` of views is allowed, and a bound chain result that
+  keeps its source lent is marked (`vs = ?xs.filter(f).collect()`). Its
+  review found a CRITICAL hole on main since chains landed: a hidden leaf
+  past the file's end (a chain's names, a closure padded to its type) put a
+  scope's end past every later use, which switched off "does not live long
+  enough" in any block holding one. A view escaping its block read freed
+  memory. Fixed as a class (`extent` reads a leaf by where it sits in the
+  source).
+- #923: `select` as a value matched by `match` (the owner's idea, refined by
+  the panel; panel-select-*.md, spelling `add:` unanimous, panel-spell-*.md):
+  named arms `!ch.on_recv()`, `!ch.on_send(<v)`, and
+  `time.after(50 * time.MS)`. One `rig.Select(names, payloads)` union is
+  made per arm list. `.got(v?)` and `.got(none)` together cover an enum's
+  variant. tools/migrate-select.py rewrites the closure form, and prints
+  MANUAL where a rewrite could change meaning. Its review found error-set
+  coverage keys and the script's meaning change, both fixed.
+- #924: a conditional expression's condition binds as an `if` condition
+  does, visible in the value before `if` (the owner, directly). Its review
+  found the statement form rejected (fixed); `as a, b` silently shadowing
+  an outer local is older and in backlog.md.
+- #925: `rig check` of a chain of 20,000 generic types took 198 s on main
+  against 0.6 s before #914. The cause was C4's fix dropping the 64-instance
+  cap, so each field re-walked the chain. Each instance is now walked
+  once, and C4 holds. Found only by the full suite's cli.deep_types:
+  compiler PRs ran the core suite, which leaves out test/cli.
+- Full suite on main 534c3c523: 11,345 jobs, 0 died.
+- The owner, 2026-11-04: the select deadline stays `time.after(50 *
+  time.MS)` (keyword durations recorded in ROADMAP for later). The 12 std
+  decisions of revamp-runtime/owner-decisions.md go into v0.3.0 after his
+  review.
+- For the owner: a compiler PR should also run the test/cli stress scripts
+  (cli.deep_types, cli.value_depth, about 5 s); the core suite alone missed
+  #925's regression.
+- The owner, 2026-11-04: phase 2 (ownership, storage, facts, emit) goes into v0.3.0 too.
