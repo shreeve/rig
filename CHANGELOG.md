@@ -10,6 +10,16 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ## Unreleased
 
+### Upgrading from v0.3.0
+
+Each form below was accepted by `v0.3.0` and is rejected now.
+
+1. A name of a several-result binding, `if f() as a, b`, that reuses a
+   visible local's name: "optional binding `a` shadows the local `a`",
+   as `if g() as a` already said. It holds in an `if`, an `else if`, a
+   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
+   `a` two meanings). Rename the binding.
+
 ### Added
 
 - **A task's end as an arm of `task.select`:** `done: ?t.on_end()`
@@ -38,6 +48,8 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
   value it views in `x`, where emit wrote an exchange of two places
   that Zig rejected. A unit test fails on a `Facts` method that answers
   about a node with a classifier instead of a record.
+- Each name `as a, b` binds is a new name, checked as `as v`'s is: one
+  that shadows a local, or a module-level declaration, is rejected.
 
 ## v0.3.0 (2026-11-04)
 

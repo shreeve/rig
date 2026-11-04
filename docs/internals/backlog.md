@@ -313,15 +313,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   it, or reject it with a message, and then let such tests cover a
   member as they cover an enum's variant (SPEC "Testing a pattern").
   Found reviewing #923 (2026-11-04).
-- **`as a, b` shadows an outer local silently.** `if f() as a, b`
-  with a local `a` already in scope binds a new `a` with no error, where
-  `if g() as a` rejects the shadow ("optional binding `a` shadows the
-  local `a`"): `Parser` makes each name a `.shadow` set, so the
-  resolver's `as_results` part never calls `checkShadowing`. A ternary
-  makes it easy to write: `x = a + b if pair(3) as a, b else a` uses
-  `a` for two values. Calling `checkShadowing` for each name rejects
-  programs that are accepted, so it needs release notes and a note for
-  Trig. Found reviewing #924 (2026-11-04).
 - **A task returned through a lent closure literal: the oracle rejects
   what the compiler accepts.** `t = call(|?xs| total(?xs)&)`, with `fun
   call(f: ?fun() -> Task[Int]) -> Task[Int]`, is "C5 a loan of a
