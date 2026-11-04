@@ -2262,16 +2262,15 @@ const Checker = struct {
     /// Whether the handle `place` names may be written where it stands,
     /// so that a lend of it may be the handle's own: `requireAccess` with
     /// no exemption for a handle that changes by a marked call.
-    fn handleWritable(self: *Checker, place: Place, operand: Sexp) bool {
+    fn handleWritable(self: *Checker, place: Place, operand: Sexp) Error!bool {
         const mark = self.ctx.diagnostics.items.len;
         const saved = self.handle_exempt;
         self.handle_exempt = false;
         defer self.handle_exempt = saved;
         self.ctx.quiet += 1;
         defer self.ctx.quiet -= 1;
-        const ok = self.requireAccess(place, .lend_write, operand) catch false;
-        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-        return ok;
+        defer self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        return self.requireAccess(place, .lend_write, operand);
     }
 
     /// Whether `place` is a handle that changes by a marked call
@@ -3294,9 +3293,9 @@ const Checker = struct {
         const name = self.text(ir.For.@"var"(node));
         // A bare `for xs` hints in its own form: `for !it`, not `for _ in !it`.
         const head = if (self.startOf(ir.For.@"var"(node)) == self.startOf(node))
-            try self.ctx.allocator.dupe(u8, "for ")
+            "for "
         else
-            try std.fmt.allocPrint(self.ctx.allocator, "for {s} in ", .{name});
+            try self.ctx.arena.allocator().print("for {s} in ", .{name});
         const index = ir.For.index(node);
         if (index != .nil) {
             const bang: []const u8 = if (self.hands(source).kind == .place) "!" else "";
@@ -4661,7 +4660,7 @@ const Checker = struct {
             if (b.isKind(.some_pattern) or b.isKind(.none_pattern)) tested = true;
         }
         if (!tested) return written;
-        const a = self.ctx.allocator;
+        const a = self.ctx.arena.allocator();
         const binds = try a.dupe(Sexp, written);
         const tests = try a.alloc(sema.PayloadTest, written.len);
         for (binds, tests, fields) |*b, *test_of, f| {
@@ -6790,7 +6789,7 @@ const Checker = struct {
         // only where `c` may be written (`handleWritable`, the one fact
         // `requireAccess` decides). Anywhere else, and as a self never
         // matters, it lends what the handle holds: that value's write view.
-        if (kind == .write and self.lendsHandle(place) and !sameNode(e, self.self_obj) and !self.handleWritable(place, operand)) {
+        if (kind == .write and self.lendsHandle(place) and !sameNode(e, self.self_obj) and !try self.handleWritable(place, operand)) {
             const handle = sema.unwrapViews(self.ctx, inner);
             const view = try self.ctx.intern(.{ .write_view = self.ctx.types.get(handle).shared });
             if (sema.lendsAs(self.ctx, handle, .write, view)) |lend| try self.ctx.recordLend(e, lend);

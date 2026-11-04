@@ -838,7 +838,16 @@ fn evaluate(ctx: *SemContext, t: Target, args: []const CtVal) Error!Outcome {
     };
     var run: Run = .{ .ev = .{ .ctx = t.ctx, .module_id = t.module_id, .gpa = ctx.allocator, .arena = .init(ctx.allocator) }, .t = t, .args = args };
     defer run.ev.deinit();
-    const thread = std.Thread.spawn(.{ .stack_size = eval_stack_bytes }, Run.main, .{&run}) catch return error.OutOfMemory;
+    const thread = std.Thread.spawn(.{ .stack_size = eval_stack_bytes }, Run.main, .{&run}) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        // A limit of the machine's, reported at the call, not taken for
+        // a lack of memory.
+        else => {
+            const sym = t.ctx.symbols.items[t.sym];
+            const what = try t.ctx.arena.allocator().print("cannot run: the system starts no thread with a {d} MiB stack for it ({s})", .{ eval_stack_bytes >> 20, @errorName(e) });
+            return .{ .failed = .{ .what = what, .module = t.module_id, .pos = sym.decl_pos, .node = sym.name, .frame = "" } };
+        },
+    };
     thread.join();
     return run.out;
 }
