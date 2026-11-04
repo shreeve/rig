@@ -293,6 +293,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   nope)!` also reported "`!` needs a fallible operand; this expression
   has type `List[invalid]`"; the call now builds nothing on a body in
   error, as a generic call does.
+- **Three messages say what is wrong.** `a > 2` of an `a: Int?` says an
+  optional orders only beside another, and gives `a ?? x` and `if a as
+  v`, where it said `Int?` cannot be ordered; `List(["p", "q"])` for a
+  `List[?String]` says to push each element, `!xs.push(x)`, not a copy,
+  which such a List does not take; and an error of a set whose name
+  starts with a vowel is "an `AB` error".
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under

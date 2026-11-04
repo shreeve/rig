@@ -5681,7 +5681,11 @@ const Checker = struct {
             const ok = if (want_int) sema.isInteger(self.ctx, ty) else sema.isNumeric(self.ctx, ty);
             if (!ok) {
                 if (req == .ordered) {
-                    try self.orderingOperand(operands[i], op, ty);
+                    // An optional orders beside another (`orderedBeside`).
+                    if (self.ctx.types.get(ty) == .optional and self.ctx.types.get(if (i == 0) b else a) != .optional) {
+                        const shown = self.sourceText(operands[i]);
+                        try self.errAt(operands[i], "operator `{s}` orders an optional only beside another, and `{s}` is {s} `{s}` beside {s} `{s}`: give it a value, `{s} ?? x`, or test it, `if {s} as v`", .{ op, shown, article(try self.tyName(ty)), try self.tyName(ty), article(try self.tyName(if (i == 0) b else a)), try self.tyName(if (i == 0) b else a), shown, shown });
+                    } else try self.orderingOperand(operands[i], op, ty);
                 } else {
                     // String is built, not added: `String(a, b)`, `!t.add(b)`.
                     const is_text = ty == self.t().string_view_id or ty == self.t().static_id or ty == self.t().string_id;
@@ -6576,7 +6580,8 @@ const Checker = struct {
         if (self.ctx.isErrorMember(e)) {
             return self.errAt(e, "`{s}` is not in `{s}`, the error set {s} declares", .{ shown, try self.tyName(declared), fname });
         }
-        return self.errAt(e, "`{s}` is a `{s}` error, which `{s}`, the error set {s} declares, does not hold", .{ shown, try self.tyName(actual), try self.tyName(declared), fname });
+        const set = try self.tyName(actual);
+        return self.errAt(e, "`{s}` is {s} `{s}` error, which `{s}`, the error set {s} declares, does not hold", .{ shown, article(set), set, try self.tyName(declared), fname });
     }
 
     /// The header the function being checked would write to fail with
@@ -18819,6 +18824,9 @@ const Checker = struct {
             const why = if (sema.mayHoldView(self.ctx, elem)) "holds a view" else self.movesBecause(elem);
             if (arg.isKind(.array) and sema.isObject(self.ctx, elem)) {
                 try self.errAt(arg, "`List(...)` copies plain data, and `{s}` {s}: make the List with `List[{s}]()`, then push each element, `!xs.push({s}(...))`", .{ name, why, name, name });
+            } else if (sema.readViewField(self.ctx, elem) or self.ctx.types.get(elem) == .write_view) {
+                // A List of views takes each as it is; `+x` would own.
+                try self.errAt(arg, "`List(...)` copies plain data, and `{s}` {s}: make the List with `List[{s}]()`, then push each element, `!xs.push(x)`", .{ name, why, name });
             } else {
                 try self.errAt(arg, "`List(...)` copies plain data, and `{s}` {s}: make the List with `List[{s}]()`, then push a copy of each element, `!xs.push(+x)`", .{ name, why, name });
             }

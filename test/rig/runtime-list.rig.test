@@ -762,6 +762,10 @@ fail "list from array owners", "`List(...)` copies plain data, and `String` owns
   xs = List(?a[..])
   print(xs)
 
+fail "list from array views", "1:25: `List(...)` copies plain data, and `?String` holds a view: make the List with `List[?String]()`, then push each element, `!xs.push(x)`", errors: 1
+  b: List[?String] = List(["p", "q"])
+  print(b)
+
 fail "list from a literal of objects", "5:15: `List(...)` copies plain data, and `Order` holds a view: make the List with `List[Order]()`, then push each element, `!xs.push(Order(...))`", errors: 1
   obj Order
     who: ?String

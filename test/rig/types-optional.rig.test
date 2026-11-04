@@ -644,3 +644,8 @@ code "a payload enum's optional goes through the optional helpers", "return rig.
     Event.send(n: k)
 
   print(next(1) ?? Event.done)
+
+fail "optional ordered beside its value", "3:7: operator `>` orders an optional only beside another, and `a` is an `Int?` beside an `Int`: give it a value, `a ?? x`, or test it, `if a as v`", errors: 1
+  # Two optionals order, none first; an optional beside a value does not.
+  a: Int? = 3
+  print(a > 2)
