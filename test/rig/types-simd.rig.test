@@ -1584,7 +1584,7 @@ test "simd saturating", release: true, '''
   h = Simd[U8, 32](b) -| Simd[U8, 32].splat(60)
   print(h[14], h[15], h[16], h[31])
 
-bomb "simd shift amount panics", "integer does not fit in destination type", prints: "[1, 1, 1, 1]", release: true
+bomb "simd shift amount panics", "panic: shift amount `16` is out of range for `U16` (0..15)", prints: "[1, 1, 1, 1]", release: true
   # A shift amount known only when the program runs must be below the lane
   # width, as a scalar's is.
 
