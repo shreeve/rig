@@ -1604,13 +1604,13 @@ the `?String`, and emit writes each as the String's `.bytes()`:
   table, recorded on the lend (`readViewOf`);
 - `for x in ?v` over a String element is `for e in ?v` with `x = ?e[..]` in
   the body: the loop walks the elements by address and binds each one's
-  bytes (`storage.loopBindsStringBytes`, the loop's `element` storage);
+  bytes (`storage.bindsStringBytes`, the loop's `element` storage);
 - a payload binding of a String field, `.full(t)`, is `t = ?payload.t[..]`,
   bound by address (`viewsStringBytes`, `storage.payloadByAddress`), and
   the ownership checker gives it the `read` ref a view of a field has,
   so it views the matched value (`bindPayload`);
 - `if o as p` over an optional String, or a `(!String)?`, is `p = ?inner[..]`
-  (`storage.optionalBindsStringBytes`, `bindOptionalView`);
+  (`storage.bindsStringBytes`, `bindOptionalView`);
 - a capture `|?t|` of a String is `?t[..]` (`writeCapturedView`);
 - a generic `?T` at `T = String` is `rig.ReadView(rig.String)`, which is
   `[]const u8`; `rig.lend` of a String is its bytes, and what `rig.viewed`
@@ -1697,7 +1697,11 @@ on it where it is (`matches_in_place`), reads it again
 `__rig_subject` (`subject_hold`), or switches where a view a call
 returns points (`holds_view`), and for each of its bindings whether it
 is captured by address (`catch_all_by_address`, `payload_by_address`, a
-question about the binding within its match); and for each `for`,
+question about the binding within its match), whether it picks its arm
+before it runs one (`match_selects`: an arm has a guard, or the match is
+on text), and for each arm whether its pattern takes every value
+(`catch_all`, asked of the arm: a `matches` test's hidden `_` arm has its
+pattern at the position of the pattern written); and for each `for`,
 whether it consumes its source (`for_consumes`: a List it takes or its
 source makes that owns resources, or an array of values that move,
 which it takes or its source makes), which emit lowers to a consuming
@@ -1716,14 +1720,23 @@ expression hands over (`sema.handsOver`'s kind), which the plan decides
 for every expression, as `reaches_leaf`; and for each header, whether
 its block yields the address of the place its subject reaches
 (`header_points`), and for an `as`, whether its binding views the value
-inside the optional (`views_optional_value`); and for each call,
+inside the optional (`views_optional_value`), and how a read binding of a
+write view inside is bound (`through_write`); for a read `for` or an
+`as`, whether the binding is the bytes of a String it reaches
+(`binds_string_bytes`); for `return a, b`, whether its parts are made
+first (`hoists_results`); and for each call,
 whether it evaluates its arguments first (`hoists_args`), how it holds
 its self (`self_hold`), whether it consumes a temporary
 self (`consumes_self`), how it holds each argument
 (`argument_hold`), and whether an argument, an assigned value, or an
 index is pure, staying where it is (`pure_arg`); and for each
 assignment, which of its steps it evaluates into storage in their turn
-(`set_order`, [Assignments](#assignments)); for each array literal,
+(`set_order`, [Assignments](#assignments)), for one that declares a
+binding, whether the binding holds its value, a pointer, or the address
+of the place it lends (`bind_hold`), and for a compound one, the call it
+lowers to, which assigns its result and finds its place once
+(`compound_call`: `rig.rem`, `@divTrunc`, `@shlExact`, a vector's lane
+shifts, saturating and checked lanes, a mask's operators); for each array literal,
 whether it evaluates its elements first (`hoists_args`), and how it
 holds each (`argument_hold`, `pure_arg`); and for each `while`,
 where its step runs (`step_point`, [Loops](#loops)); and for each box and
@@ -3613,7 +3626,7 @@ decides a binding's mode another way (a unit test checks the sources):
 - **Emit** binds a `.read` binding of a write view, a match's payload
   or an `as` binding's value inside, as the read view of what it views:
   the write view itself, or the value it points at, copied out, for a
-  scalar or a view (`Facts.readsThroughWrite`).
+  scalar or a view (`storage.throughWrite`, a decision about the `as`).
 - **Diagnostics** of a write through a read binding name the binding
   that writes (`readMatchHint`): `match !e`, `if !o as x`, a branch lent
   to write, `if !o as x` for `o?`, or, for a part of a value made in the
@@ -4522,7 +4535,9 @@ symbols); a query that decides more than that is a recorded fact.
   `__rig_local_x_3`, which no later name of the program's can be.
 - **Bindings** are `const` unless reassigned, written through, owning
   what they hold (`Symbol.hold`, which the storage plan records), or
-  initialized by a compile-time-known value, which Zig would fold.
+  initialized by a compile-time-known value, which Zig would fold. A
+  binding holds its value, a pointer, or the address of the place it
+  lends as the plan decided (`bind_hold`).
 - **Automatic drop.** An owning binding gets a `defer` that releases
   it. A binding of a value that moves but needs no cleanup (a unique
   value) gets the same `defer` and guard, which `rig.drop` reduces to

@@ -43,8 +43,10 @@ pub const TypeId = sema.TypeId;
 pub const SymbolId = sema.SymbolId;
 pub const MemberCompares = sema.MemberCompares;
 
-/// How a read binding of a write view is bound (`Facts.readsThroughWrite`).
-pub const ThroughWrite = enum { pointer, value };
+pub const ThroughWrite = storage.ThroughWrite;
+pub const CompoundCall = storage.CompoundCall;
+pub const BindHold = storage.BindHold;
+pub const SwapCall = sema.SwapCall;
 pub const Wide = sema.Wide;
 pub const Type = sema.Type;
 pub const TypeStore = sema.TypeStore;
@@ -58,7 +60,6 @@ pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
 pub const BuiltinCall = sema.BuiltinCall;
-pub const SwapCall = sema.SwapCall;
 pub const Proven = sema.Proven;
 pub const ProvenIf = sema.ProvenIf;
 pub const FlagTest = sema.FlagTest;
@@ -711,13 +712,15 @@ pub const Facts = struct {
     pub fn holdsView(f: Facts, match: Sexp) ?bool {
         return storage.decided(f.c(), match, .holds_view);
     }
-    /// `storage.isCatchAll`.
-    pub fn isCatchAll(f: Facts, pattern: Sexp) bool {
-        return storage.isCatchAll(f.c(), pattern);
+    /// Whether the pattern of `match` arm `arm` takes every value
+    /// (`storage.catchesAll`).
+    pub fn catchesAll(f: Facts, arm: Sexp) ?bool {
+        return storage.decided(f.c(), arm, .catch_all);
     }
-    /// `storage.matchSelects`.
-    pub fn matchSelects(f: Facts, match: Sexp) bool {
-        return storage.matchSelects(f.c(), match);
+    /// Whether `match` picks its arm before it runs one
+    /// (`storage.matchSelects`).
+    pub fn matchSelects(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .match_selects);
     }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
@@ -727,33 +730,31 @@ pub const Facts = struct {
     pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
         return storage.decided(f.c(), pattern, .catch_all_by_address);
     }
-    /// Whether `if … as` binds the bytes of the String a write view in the
-    /// optional points at.
-    pub fn optionalBindsStringBytes(f: Facts, cond: Sexp) bool {
-        return storage.optionalBindsStringBytes(f.c(), cond);
-    }
-    /// Whether a read `for` binds the bytes of each String element.
-    pub fn loopBindsStringBytes(f: Facts, loop: Sexp) bool {
-        return storage.loopBindsStringBytes(f.c(), loop);
+    /// Whether a read `for` binds the bytes of each String element, or
+    /// `if … as` the bytes of the String a write view in the optional
+    /// points at (`storage.bindsStringBytes`).
+    pub fn bindsStringBytes(f: Facts, node: Sexp) ?bool {
+        return storage.decided(f.c(), node, .binds_string_bytes);
     }
     /// Whether a payload binding points at the field it binds.
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
         return storage.decided(f.c(), b, .payload_by_address);
     }
-    /// How binding `sym`, which binds a value of type `reached`, reads
-    /// through a write view: `reached` is one, and the binding only reads
-    /// (`bindingAccess`), so it is bound as the read view of what that
-    /// write view views. `.pointer`: the write view itself (a `?P`, or a
-    /// `[]T` of a `![]T`); `.value`: the value it points at, copied out, as
-    /// a `?T` of a scalar or a view is a copy (`sema.lendByValue`). Null
-    /// for any other binding.
-    pub fn readsThroughWrite(f: Facts, sym: SymbolId, reached: TypeId) ?ThroughWrite {
-        const ctx = f.c();
-        if (ctx.bindingAccess(sym) != .read) return null;
-        return switch (ctx.types.get(reached)) {
-            .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner)) .value else .pointer,
-            else => null,
-        };
+    /// How the binding of `if … as` reads through a write view in the
+    /// optional (`storage.throughWrite`): the outer null when no checker
+    /// decided it.
+    pub fn throughWrite(f: Facts, cond: Sexp) ??ThroughWrite {
+        return storage.decided(f.c(), cond, .through_write);
+    }
+    /// The call compound assignment `set` lowers to
+    /// (`storage.compoundCall`): the outer null when no checker decided it.
+    pub fn compoundCall(f: Facts, set: Sexp) ??CompoundCall {
+        return storage.decided(f.c(), set, .compound_call);
+    }
+    /// How the binding assignment `set` declares holds its value
+    /// (`storage.bindHold`).
+    pub fn bindHold(f: Facts, set: Sexp) ?BindHold {
+        return storage.decided(f.c(), set, .bind_hold);
     }
     /// Whether a `print`, `String(...)`, or `add` argument is read by address
     /// (`storage.printsByAddress`).
@@ -979,8 +980,10 @@ pub const Facts = struct {
     pub fn isSetParam(f: Facts, ty: TypeId) bool {
         return sema.isSetParam(f.c(), ty);
     }
-    pub fn hoistsResults(f: Facts, results: Sexp) bool {
-        return storage.hoistsResults(f.c(), results);
+    /// Whether `return a, b`'s parts are made into storage first
+    /// (`storage.hoistsResults`).
+    pub fn hoistsResults(f: Facts, results: Sexp) ?bool {
+        return storage.decided(f.c(), results, .hoists_results);
     }
     pub fn resultsOf(f: Facts, ty: TypeId) ?[]const TypeId {
         return sema.resultsOf(f.c(), ty);
@@ -1044,7 +1047,6 @@ pub const Facts = struct {
     pub fn ownApiOf(f: Facts, ty: TypeId, api: sema.Api) ?sema.Field {
         return sema.ownApiOf(f.c(), ty, api);
     }
-
 
     /// Whether a value of `ty` is a `rig.ErrorValue` (`sema.isErrorValueForm`).
     pub fn isErrorValueForm(f: Facts, ty: TypeId) bool {

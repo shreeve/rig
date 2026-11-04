@@ -2478,6 +2478,28 @@ pub const Question = enum(u8) {
     /// held and dropped when nothing takes it, or null when it owns
     /// nothing (`storage.dropKind`).
     drop_kind,
+    /// Of a `match` arm: whether its pattern takes every value, a name
+    /// that binds or `_` (`storage.catchesAll`).
+    catch_all,
+    /// Of a `match`: whether it picks its arm before it runs one
+    /// (`storage.matchSelects`).
+    match_selects,
+    /// Of a read `for` or an `if … as`: whether its binding is the bytes
+    /// of a String it reaches (`storage.bindsStringBytes`).
+    binds_string_bytes,
+    /// Of `return a, b`'s parts: whether they are evaluated into storage
+    /// first (`storage.hoistsResults`).
+    hoists_results,
+    /// Of an `as`: how its read binding of a write view in the optional
+    /// is bound, if it is one (`storage.throughWrite`).
+    through_write,
+    /// Of a compound assignment: the call it lowers to, which assigns the
+    /// call's result, if any (`storage.compoundCall`).
+    compound_call,
+    /// Of an assignment that declares a binding: whether the binding holds
+    /// its value, a pointer, or the address of the place it lends
+    /// (`storage.bindHold`).
+    bind_hold,
 };
 
 /// A recorded answer to a `Question`, with the node it is about, and the

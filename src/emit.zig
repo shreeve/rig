@@ -2817,7 +2817,6 @@ pub const Emitter = struct {
         try self.inUnit(sexp);
         const kind = rig.bindingKindOf(ir.Set.op(sexp));
         const target = ir.Set.target(sexp);
-        const type_node = ir.Set.type(sexp);
         const expr = ir.Set.value(sexp);
 
         if (kind.operator()) |op| {
@@ -2849,7 +2848,7 @@ pub const Emitter = struct {
         const in_place = try self.need(self.facts.fillsInPlace(sexp), sexp);
         if (self.facts.symbols.items[sym].decl_pos == target.src.pos) {
             if (in_place) return self.emitFillBind(target, sym, expr);
-            try self.emitBind(target, sym, type_node, expr);
+            try self.emitBind(sexp, sym);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
             if (in_place) {
@@ -2962,27 +2961,20 @@ pub const Emitter = struct {
         try self.w.print(" = undefined; @memset(&{s}, {s});", .{ stored.zig_name, value_buf.written() });
     }
 
-    /// A new binding.
-    fn emitBind(self: *Emitter, name_node: Sexp, sym: SymbolId, type_node: Sexp, expr: Sexp) Error!void {
+    /// A new binding, declared by assignment `set`.
+    fn emitBind(self: *Emitter, set: Sexp, sym: SymbolId) Error!void {
+        const name_node = ir.Set.target(set);
+        const type_node = ir.Set.type(set);
+        const expr = ir.Set.value(set);
         if (expr.isKind(.lambda)) return self.emitClosureBinding(name_node, sym, expr);
 
         const s = self.facts.symbols.items[sym];
         const ty = self.symType(sym);
-        const binds_view = if (ty) |t| switch (self.facts.types.get(t)) {
-            .read_view, .write_view => true,
-            else => false,
-        } else true;
-        // A read view that copies (`sema.lendByValue`) is held as the
-        // value it views, as every other `?T` of the type is, so a call's
-        // result can rebind it.
-        const copies = if (ty) |t| switch (self.facts.types.get(t)) {
-            .read_view => !self.isPtrViewTy(t) and self.genericReadView(t) == null,
-            else => false,
-        } else false;
-        const is_lend = binds_view and !copies and (expr.isKind(.read) or expr.isKind(.write)) and
-            (ty == null or (self.facts.writeSliceElem(ty.?) == null and self.facts.callableFn(ty.?) == null and self.facts.objectView(ty.?) == null));
-        // A write view is held as a pointer however it was obtained.
-        const holds_ptr = is_lend or (ty != null and self.isPtrViewTy(ty.?));
+        // The address of a place lent, a view held as a pointer, or the
+        // value (`storage.bindHold`).
+        const hold = try self.need(self.facts.bindHold(set), set);
+        const is_lend = hold == .lend;
+        const holds_ptr = hold != .value;
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
         if (!holds_ptr) local.kind = self.holdOf(sym);
         if (local.kind != null) local.guard = self.resourceGuard(sym);
@@ -3376,31 +3368,34 @@ pub const Emitter = struct {
     }
 
     /// `x op= e` on a name or place, with the place evaluated once, after
-    /// `e` (`openAssign`). The operators that lower to a builtin
-    /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
-    /// builtin's result, as do the checked operators on integer vector lanes
-    /// (`laneHelper`); the others use Zig's own compound assignment.
+    /// `e` (`openAssign`). An operator that lowers to a call
+    /// (`storage.compoundCall`: `@divTrunc` for integer `/`, `rig.rem`,
+    /// `@shlExact`, a vector's lane shifts, saturating and checked lanes,
+    /// and a mask's operators) assigns the call's result; the others use
+    /// Zig's own compound assignment.
     fn emitCompound(self: *Emitter, set: Sexp, op: Tag) Error!void {
         try self.inUnit(set);
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
         const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
+        const call = try self.need(self.facts.compoundCall(set), set);
         // A vector's lanes shift (`vecShift`) and saturate through the
         // runtime, which takes the amount as it is.
-        const vector = self.isSimd(self.typeOf(target));
-        const lanes = shift and vector;
-        const mask_op: ?[]const u8 = if (self.isMask(self.typeOf(target))) switch (op) {
-            .@"&" => "rig.maskAnd",
-            .@"|" => "rig.maskOr",
-            .@"^" => "rig.maskXor",
-            else => null,
+        const lanes = call == .lane_shift;
+        const builtin: ?[]const u8 = if (call) |c| switch (c) {
+            .mask => switch (op) {
+                .@"&" => "rig.maskAnd",
+                .@"|" => "rig.maskOr",
+                else => "rig.maskXor",
+            },
+            .lane_shift => vecShift(op),
+            .lane_saturate => if (op == .@"+|") "rig.vecAddSat" else "rig.vecSubSat",
+            .rem => "rig.rem",
+            .div => "@divTrunc",
+            .div_generic => "rig.div",
+            .shl => "@shlExact",
+            .lane_checked => self.laneHelper(set, op),
         } else null;
-        const builtin: ?[]const u8 = if (mask_op) |m| m else if (lanes) vecShift(op) else if (vector and op == .@"+|") "rig.vecAddSat" else if (vector and op == .@"-|") "rig.vecSubSat" else switch (op) {
-            .@"/", .@"%" => self.divBuiltin(op, target, value),
-            .@"<<" => "@shlExact",
-            .@"+", .@"-", .@"*" => self.laneHelper(set, op),
-            else => null,
-        };
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
         const order = try self.openAssign(set, if (value_ty) |t| self.peelViews(t) else null, .value);
@@ -3598,7 +3593,7 @@ pub const Emitter = struct {
         const ret = self.fun.return_ty orelse return self.unsupported(value, "several results from a function that gives one");
         const tys = self.facts.resultsOf(ret) orelse return self.unsupported(value, "several results from a function that gives one");
         const parts = ir.Results.values(value);
-        if (self.facts.hoistsResults(value)) return self.emitHoistedResults(value, parts, tys);
+        if (try self.need(self.facts.hoistsResults(value), value)) return self.emitHoistedResults(value, parts, tys);
         try self.w.writeAll("return .{ ");
         for (parts, tys, 0..) |p, ty, i| {
             if (i > 0) try self.w.writeAll(", ");
@@ -4302,7 +4297,7 @@ pub const Emitter = struct {
         const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
         // A binding that is the bytes of a String element walks the elements
         // by address and takes each one's bytes.
-        const string_bytes = self.facts.loopBindsStringBytes(sexp);
+        const string_bytes = try self.need(self.facts.bindsStringBytes(sexp), sexp);
         const by_ptr = mode == .write or owned or string_bytes or
             (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view and !elem_is_view);
 
@@ -4518,7 +4513,7 @@ pub const Emitter = struct {
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
             .in_place = try self.need(self.facts.matchesInPlace(sexp), sexp),
         };
-        const guarded = self.facts.matchSelects(sexp);
+        const guarded = try self.need(self.facts.matchSelects(sexp), sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
         // subject is read again.
@@ -4617,7 +4612,7 @@ pub const Emitter = struct {
             defer self.popScope() catch {};
 
             var prelude: Prelude = .{};
-            if (self.isCatchAll(pattern)) {
+            if (try self.catchesAll(arm)) {
                 has_default = true;
                 try self.w.writeAll("else => ");
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
@@ -4940,9 +4935,9 @@ pub const Emitter = struct {
         return .{ lo, if (rig.isInclusive(pattern)) hi else hi - 1 };
     }
 
-    /// `storage.isCatchAll`.
-    fn isCatchAll(self: *Emitter, pattern: Sexp) bool {
-        return self.facts.isCatchAll(pattern);
+    /// Whether the pattern of `arm` takes every value (`storage.catchesAll`).
+    fn catchesAll(self: *Emitter, arm: Sexp) Error!bool {
+        return self.need(self.facts.catchesAll(arm), arm);
     }
 
     /// `x => ...` binding the whole value as `expr`, when the arm uses it
@@ -5205,7 +5200,7 @@ pub const Emitter = struct {
         for (arms, 0..) |arm, i| {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
-            const catch_all = self.isCatchAll(pattern);
+            const catch_all = try self.catchesAll(arm);
             try self.writeIndent(self.indent);
             if (!catch_all) {
                 try self.w.writeAll("if (");
@@ -5221,7 +5216,7 @@ pub const Emitter = struct {
                 continue;
             }
             try self.openBrace();
-            try self.guardBindings(pattern, guard, info, subj);
+            try self.guardBindings(arm, info, subj);
             try self.writeIndent(self.indent);
             try self.w.writeAll("if (");
             try self.emitHeader(guard);
@@ -5340,10 +5335,13 @@ pub const Emitter = struct {
         }
     }
 
-    /// Before a guard: the bindings of `pattern` that `guard` names, read
-    /// from `subj` (for `match <x`, views of the value still in `x`).
-    fn guardBindings(self: *Emitter, pattern: Sexp, guard: Sexp, info: MatchInfo, subj: []const u8) Error!void {
-        if (self.isCatchAll(pattern)) {
+    /// Before an arm's guard: the bindings of its pattern that the guard
+    /// names, read from `subj` (for `match <x`, views of the value still in
+    /// `x`).
+    fn guardBindings(self: *Emitter, arm: Sexp, info: MatchInfo, subj: []const u8) Error!void {
+        const pattern = ir.Arm.pattern(arm);
+        const guard = ir.Arm.guard(arm);
+        if (try self.catchesAll(arm)) {
             const sym = self.facts.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
             const aliases = try self.wholeBinding(pattern, subj, info, .nil);
@@ -5388,7 +5386,7 @@ pub const Emitter = struct {
             const whole = try self.hiddenStorage(arm, .whole, .owned, .fresh);
             const head = try self.fmt("const {s} = {s};", .{ whole, taken });
             var prelude: Prelude = undefined;
-            if (self.isCatchAll(pattern)) {
+            if (try self.catchesAll(arm)) {
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, body);
             } else if (self.facts.altsBind(pattern)) {
@@ -5411,7 +5409,7 @@ pub const Emitter = struct {
             prelude.head = head;
             return prelude;
         }
-        if (self.isCatchAll(pattern)) {
+        if (try self.catchesAll(arm)) {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
             return .{ .aliases = try self.wholeBinding(pattern, subj, info, body) };
         }
@@ -5794,15 +5792,15 @@ pub const Emitter = struct {
         }
         if (sym == null or !self.facts.isUsed(sym.?)) {
             try self.w.writeAll("|_| ");
-        } else if (self.facts.optionalBindsStringBytes(cond)) {
+        } else if (try self.need(self.facts.bindsStringBytes(cond), cond)) {
             const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
             try self.w.print("|{s}| ", .{tmp});
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .value = true } };
         } else {
             // A read binding of a write view to a value read by copy holds
             // the write view, a pointer to that value
-            // (`Facts.readsThroughWrite`).
-            const through = if (self.optionalInner(value)) |inner| self.facts.readsThroughWrite(sym.?, inner) else null;
+            // (`storage.throughWrite`).
+            const through = try self.need(self.facts.throughWrite(cond), cond);
             const local = try self.declare(.{ .sym = sym.?, .ty = ty, .is_ptr = through == .value }, self.srcText(name));
             try self.w.print("|{s}| ", .{local.zig_name});
         }
@@ -5822,8 +5820,8 @@ pub const Emitter = struct {
         const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
         // A read binding of a write view inside the optional is the read
         // view of what it views: the write view itself, or the value it
-        // points at, copied out (`Facts.readsThroughWrite`).
-        const through: ?facts.ThroughWrite = if (self.optionalInner(ir.As.value(o.cond))) |inner| self.facts.readsThroughWrite(sym, inner) else null;
+        // points at, copied out (`storage.throughWrite`).
+        const through = try self.need(self.facts.throughWrite(o.cond), o.cond);
         // A binding of the String inside, or of the String a write view inside
         // points at, is its bytes.
         const inner = self.optionalInner(ir.As.value(o.cond));
