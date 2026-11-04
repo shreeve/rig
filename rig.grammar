@@ -606,6 +606,7 @@ tokens
     storage.modifier    '!' before '?' not after [A-Za-z0-9_(\[=?@]
     variable.parameter  [A-Za-z_] [A-Za-z0-9_]* after ':' not before [A-Za-z0-9_.]
     type                [A-Z] [A-Za-z0-9_]* not before [A-Za-z0-9_]
+    variable.parameter  ':' [A-Za-z_] [A-Za-z0-9_]* not before [A-Za-z0-9_)\]] after [^()\n]* ')' [^\n]* "=>"
     constant.symbol     ':' [A-Za-z_] [A-Za-z0-9_]* (('-' | '.') [A-Za-z0-9_]+)* not before [A-Za-z0-9_)\]]
 
     keyword.control     "if" "else" "while" "for" "in" "match" "return" "break" "continue"

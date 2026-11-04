@@ -175,8 +175,8 @@ fun tasks(xs: ?List[Int], ts: !Tasks[Int]) -> Int!
 fun shapes(s: ?Shape) -> Int
   match s
     .circle(r) => return 3 * r * r
-    .rect(w, h) if w == h => return w * w
-    .rect(w, h) => return w * h
+    .rect(:w, :h) if w == h => return w * w
+    .rect(:w, h: height) => return w * height
     .point => return 0
 
 sub resources()

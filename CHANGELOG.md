@@ -446,7 +446,10 @@ fails with the reason's own member, `JsonError.eof(at: 5)` (item 72).
   `.circle(r)`. The message for a positional pattern over several
   fields gives the by-name pattern that means what the positions did,
   and coverage messages name fields the same way
-  (`.d(p: none, r: none)`). The emitted Zig is unchanged.
+  (`.d(p: none, r: none)`). The emitted Zig is unchanged. Editors
+  colour a pattern's `:w` as the field's name, not as a symbol: the
+  language server everywhere, and the generated grammars in a `match`
+  arm.
 - **`$type(x)` takes an operand that runs nothing.** Zig's `@TypeOf`
   never evaluates `x`, while the checkers walked it as run: `$size($type(<s))`
   was a move of `s` that never happened, and `$size($type(f()))` a call

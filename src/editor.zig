@@ -377,7 +377,18 @@ const Classifier = struct {
                 if (!gop.found_existing) gop.value_ptr.* = .{ .kind = .property };
             },
             .enum_lit, .symbol => try c.put(ir.get(node, .name), .{ .kind = .enumMember }),
-            .variant_pattern => try c.put(rig.variantPatternName(node), .{ .kind = .enumMember }),
+            .variant_pattern => {
+                try c.put(rig.variantPatternName(node), .{ .kind = .enumMember });
+                // `:w` names the field `w` and binds it, as `w: w` would:
+                // coloured as that field's name is, its `:` with it.
+                const source = c.parsed.p.base.source;
+                for (ir.VariantPattern.bindings(node)) |b| if (b.isKind(.kwarg)) {
+                    const name = c.parsed.leafSpan(ir.get(b, .name)) orelse continue;
+                    if (name.start == 0 or source[name.start - 1] != ':') continue;
+                    try c.putAt(name.start - 1, .{ .kind = .parameter, .need = .initOne(.symbol_colon) });
+                    try c.putAt(name.start, .{ .kind = .parameter });
+                };
+            },
             .labeled => try c.label(ir.Labeled.label(node)),
             .@"break" => try c.label(ir.get(node, .label)),
             .@"continue" => try c.label(ir.get(node, .label)),
@@ -801,6 +812,23 @@ test "tokens: labels, builtins, suffix sigils, and a rejected token" {
         \\
     );
     for ([_][]const u8{ "f:function.declaration !:modifier ", "$:label outer:label ::label while:keyword.control ", "break:keyword.control $:label outer:label ", "$:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
+        if (std.mem.find(u8, got, want) == null) {
+            std.debug.print("missing `{s}` in: {s}\n", .{ want, got });
+            return error.TestExpectedEqual;
+        }
+    }
+}
+
+test "tokens: a by-name pattern's `:w` is a field's name, not a symbol" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const got = try renderTokens(arena.allocator(),
+        \\fun f(s: Shape) -> Int
+        \\  match s
+        \\    .rect(:w, h: height) => :w
+        \\
+    );
+    for ([_][]const u8{ "rect:enumMember ::parameter w:parameter h:parameter ", "=>:operator ::enumMember w:enumMember " }) |want| {
         if (std.mem.find(u8, got, want) == null) {
             std.debug.print("missing `{s}` in: {s}\n", .{ want, got });
             return error.TestExpectedEqual;

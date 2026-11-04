@@ -163,6 +163,25 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## RESUME HERE (2026-11-04, evening): v0.3.0's scope landed
+
+**Landed: #927-#937** (records: 2026-11/revamp-compiler/ledger.md,
+"Phase 2 and the v0.3.0 items"):
+- phase 2 of the compiler revamp: ownership, storage, facts, and emit;
+- the twelve std decisions;
+- tasks that return with read loans;
+- the `$type` rule;
+- by-name patterns.
+
+Five soundness holes on main were closed, each found by an audit or a
+review: short-circuits, a call's handle, alternatives' names, task lends,
+and a hidden leaf's extent (#922). Trig's and loc's migrations wait on
+branches (rig-030, rig-0.3-patterns), each green on its gate.
+
+**Next:** the full suites, Rig's and Trig's; the release notes; then the
+owner's go and tag for v0.3.0. After it, the v0.3.1 items the owner set
+aside (the revamp-compiler ledger lists them).
+
 ## RESUME HERE (2026-11-04, early): the compiler revamp, phase 1
 
 **Landed: #914-#917, the front end and the type checker** (records:
