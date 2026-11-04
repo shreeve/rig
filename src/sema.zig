@@ -1868,6 +1868,10 @@ pub const Facts = struct {
     writes: FastMap(u32, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
+    /// Callee (`member`) node -> the built-in type's method it calls.
+    builtin_calls: FastMap(NodeKey, BuiltinCall) = .empty,
+    /// Calls of the built-in `swap`, not hidden by a declaration.
+    swap_calls: FastMap(NodeKey, void) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
     /// no view of them (`SemContext.lendsTempArray`).
     temp_arrays: FastMap(NodeKey, void) = .empty,
@@ -2279,11 +2283,14 @@ pub const StorageKind = enum {
     /// An argument of a call whose arguments are evaluated first
     /// (`__rig_arg`).
     argument,
-    /// The self of such a call (`__rig_recv`).
+    /// The self of such a call, or an actor's handle, or a select
+    /// arm's channel (`__rig_recv`): `storage.heldFirst`.
     self,
     /// The environment of a closure literal lent to a call (`__rig_env`).
     environment,
-    /// A closure literal called where it is written (`__rig_fn`).
+    /// A closure literal called where it is written, or the callee of a
+    /// call whose arguments are evaluated first, which a value the call
+    /// reaches is (`__rig_fn`): `storage.heldFirst`.
     invoked,
     /// The environment an owned closure allocates (`__rig_env`), which
     /// the closure value then owns.
@@ -2298,6 +2305,14 @@ pub const StorageKind = enum {
     index,
     /// The place an assignment stores to, found once (`__rig_slot`).
     slot,
+    /// The API object a call through its table reads twice, for the
+    /// table and the value, evaluated once (`__rig_obj`): a copy of the
+    /// view or box, which nothing views.
+    api_object,
+    /// The place a call through an API object's table writes its result
+    /// to (`TableEntry.result_out`), copied out as the call returns
+    /// (`__rig_res`).
+    result_place,
     /// The several results a call gives, held for its statement while
     /// each target takes its own, left to right (`__rig_res`): a
     /// destructure's, `q, r = f()`. A result no target takes (`_`) it
@@ -2576,6 +2591,27 @@ pub const Use = enum {
     take,
     /// Lends it: `?e`, `!e`.
     lend,
+};
+
+/// A method of a built-in type that emit lowers to an operation of the
+/// runtime's or of Zig's, as typecheck resolved it
+/// (`SemContext.builtinCallOf`).
+pub const BuiltinCall = enum {
+    /// `x.is_empty()` of a built-in length: `x.len == 0`.
+    is_empty,
+    /// The List's own methods, of a Cell holding a List.
+    list_push,
+    list_pop,
+    list_clear,
+    list_keep,
+    list_get,
+    /// `ts.wait_first()` of a task set.
+    wait_first,
+    /// `xs.get(i)` of an array, a slice, or a `?String`.
+    element_get,
+    /// `set`, `swap`, `compare_swap`, `add`, and `sub` of a Cell reached
+    /// by value or by a view, which change it through its address.
+    cell_change,
 };
 
 /// A built-in method on the elements of a slice, an array, a List, or a
@@ -3184,7 +3220,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall => try w.print(" {s}", .{@tagName(v)}),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
@@ -5355,6 +5391,24 @@ pub const SemContext = struct {
     /// The built-in element method a call's callee (`member`) names.
     pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    pub fn recordBuiltinCall(self: *SemContext, callee: Sexp, call: BuiltinCall) !void {
+        try self.facts.builtin_calls.put(self.allocator, recordKey(callee), call);
+    }
+
+    /// The built-in type's method a call's callee (`member`) names.
+    pub fn builtinCallOf(self: *const SemContext, callee: Sexp) ?BuiltinCall {
+        return self.facts.builtin_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    pub fn recordSwapCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.swap_calls.put(self.allocator, recordKey(call), {});
+    }
+
+    /// Whether `call` is of the built-in `swap` (`recordSwapCall`).
+    pub fn isSwapCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.swap_calls.contains(nodeKey(call) orelse return false);
     }
 
     /// The recorded answer to `q` about `node`; null when no pass has

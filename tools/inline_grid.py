@@ -22,7 +22,7 @@ USES = {
     "overflow": ("Int", "9223372036854775807", "1 + z", "panic: integer overflow"),
     "overflow8": ("U8", "U8(255)", "z + U8(1)", "panic: integer overflow"),
     "narrow": ("Int", "300", "U8(z)", "panic: integer does not fit in destination type"),
-    "shift": ("Int", "70", "1 << z", "panic: integer does not fit in destination type"),
+    "shift": ("Int", "70", "1 << z", "panic: shift amount `70` is out of range for `Int` (0..63)"),
     "index": ("Int", "7", "xs[z]", "panic: index out of bounds"),
 }
 SHAPES = ["const", "ignored", "transitive", "ctbool", "ctint", "ctenum", "ctthrough"]

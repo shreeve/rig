@@ -158,24 +158,25 @@ $ echo $?
 ```
 
 The program never reads past the list. It stops at the access, with
-status 134, which every panic has. Four checks work this way:
+status 134, which every panic has. Five checks work this way:
 
 | Check | What it catches | What you see |
 |---|---|---|
 | Bounds | an index or slice outside its list, string, or array | `panic: index out of bounds` |
 | Overflow | an integer operation that does not fit its type | `panic: integer overflow` |
 | Conversion | a numeric conversion whose value does not fit | `panic: integer does not fit in destination type` |
+| Shift | a shift amount negative or not below the bit count | ``panic: shift amount `9` is out of range for `U8` (0..7)`` |
 | Leaks | memory still allocated when `main` ends | `error: rig: memory leak detected: ...`, status 1 |
 
 A cast in a `raw` block is a conversion like any other: `$intCast(300)`
 to a `U8` panics instead of wrapping. Built with `RIG_SANITIZE=1`, a
-program also gets a fifth check. Each block of memory has pages of its
+program also gets a sixth check. Each block of memory has pages of its
 own, a free makes them inaccessible, and no address is used twice, so a
 use of freed memory crashes at the access instead of printing a stale
 value. The test suite sets it for every program it runs.
 
-`--release` keeps bounds, overflow, and conversion, in Zig's safe mode.
-`--release=fast` drops the overflow and conversion checks by request, so
+`--release` keeps bounds, overflow, conversion, and shift, in Zig's safe mode.
+`--release=fast` drops the overflow, conversion, and shift checks by request, so
 there an overflow is undefined behavior. That mode is outside the
 guarantee.
 

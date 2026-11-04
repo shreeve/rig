@@ -800,6 +800,32 @@ fail "shift literal context is rejected", "4:14: shift amount `15` is out of ran
   c = 1 << 64
   print(a, b, c)
 
+bomb "shift amount past the width panics", "panic: shift amount `9` is out of range for `U8` (0..7)", prints: "8 0 8"
+  # A shift amount known only when the program runs must be below the bit
+  # count of the shifted type, for `<<`, `<<%`, and `>>` alike.
+
+  fun rt(x: Int) -> Int
+    x
+
+  x: U8 = 1
+  k = rt(3)
+  print(x << k, x >> k, x <<% k)
+  n = rt(9)
+  print(x >> n)
+
+bomb "shift amount negative panics", "panic: shift amount `-1` is out of range for `I32` (0..31)", prints: "-2"
+  # A negative amount panics as one past the width does, in a compound
+  # assignment as in an expression.
+
+  fun rt(x: Int) -> Int
+    x
+
+  y: I32 = -8
+  y >>= rt(2)
+  print(y)
+  y <<%= rt(-1)
+  print(y)
+
 bomb "shift overflow panics", "left shift overflowed bits", prints: "4611686018427387904"
   # A left shift that loses bits overflows, like `+` and `*`: here at run
   # time, as a panic.
@@ -896,7 +922,7 @@ test "shl wrap", release: true, '''
   f: U8 = 1
   print(f <<% 1 <<% 1 <<% 1)
 
-bomb "shl wrap amount panics", "integer does not fit in destination type", prints: "128", release: true
+bomb "shl wrap amount panics", "panic: shift amount `8` is out of range for `U8` (0..7)", prints: "128", release: true
   # The amount of `<<%` must be below the width, as for `<<`: it is not masked.
 
   fun shift(x: U8, n: Int) -> U8

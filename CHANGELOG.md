@@ -372,6 +372,21 @@ MIGRATING-0.3 lists each.
   module of eight, checks in 0.3 s and builds in debug in under 2 s.
 - **A closure that captures a field path longer than 65533 bytes is
   rejected** with a message; it crashed the compiler.
+- **A call evaluates what it calls before its arguments, every form
+  of it.** When a call's arguments run first, into temporaries
+  (keyword arguments out of order, or an owned argument before one
+  that can fail), the handle of an actor's method, a self that can
+  leave (`(o?).f(...)`, `(o ?? return -1).f(...)`), and a callee that
+  is a value (`pick(k)(...)`, `fs[i](...)`, `mk().f(...)`, `b.f(...)`,
+  a local `f`) run first, as written, as a method's self already
+  did. A function value is copied in its turn, as plain data is. An
+  actor's handle, or a function read through a box, evaluated after an
+  argument that took what it read was a use of freed memory; a callee
+  read after an argument reassigned it called the new function.
+- **A handle made for an actor's read method is dropped.**
+  `mka(3).get()` and `mka(3).get()&` drop the handle `mka(3)` gives
+  at the statement's end, as any method's made self is; the actor
+  leaked.
 - **The ownership checker is linear in a function's branches.** A
   branch's end reports a dropped loan only when some value declared in
   the branch is lent: a function of 40,000 `if` statements, each over
@@ -386,6 +401,18 @@ MIGRATING-0.3 lists each.
   guard that binds is rejected with its own message ("a postfix guard's
   condition binds no names"), and a name an `else` cannot see because its
   condition binds it says so.
+- **Emit is linear in a type's methods.** Each name written inside a
+  type was compared with every method of the type; a set per type
+  makes it a lookup. `rig build` of Trig's checker, whose `Checker`
+  has 3,244 methods, takes 30.3G instructions to reach Zig rather than
+  42.4G (2.03 s rather than 2.52 s), against 27.4G for `rig check`
+  alone.
+- **A shift amount past the width panics with Rig's message.** A
+  run-time amount that is negative or not below the shifted type's bit
+  count, for a scalar or a vector's lanes, panics with ``shift amount
+  `9` is out of range for `U8` (0..7)``, the text of the constant check,
+  not Zig's "integer does not fit in destination type"
+  (`rig.shiftAmount`).
 - **`task.select` names its arms and gives a value that `match` takes
   apart.** `match task.select(add: !a.on_recv(), sub: !b.on_recv(),
   late: time.after(50 * time.MS))!` gives a value of its own type,
