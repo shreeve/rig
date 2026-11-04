@@ -68,6 +68,15 @@ out=$("$TIMEOUT_CMD" 120 "$RIG" check generic.rig 2>&1); expect_rc $? 1 "a chain
 expect_has "$out" 'generic.rig:60002:15: error: `G18999[Int]` nests 1001 types deep by value; a value nests at most 1000 deep' "a chain of 20,000 generic types"
 expect_eq "$(grep -c 'error:' <<<"$out")" 1 "errors for a chain of 20,000 generic types"
 
+# A chain of 20,000 generic types whose last names its parameter's
+# optional: the check that no type names its own optional in its
+# layout walks the chain once, not once from each link.
+{
+    decls 20000 'obj G%d[T]\n  a: G%d[T]\n' 'obj G%d[T]\n  v: List[T?]'
+    printf '\nsub main()\n  print(1)\n'
+} >optional.rig
+out=$("$TIMEOUT_CMD" 120 "$RIG" check optional.rig 2>&1); expect_rc $? 0 "a chain of 20,000 generic types naming an optional: $out"
+
 # A chain of 300 generic instances, made, compared, kept, and dropped.
 {
     decls 300 'obj G%d[T]\n  a: G%d[T]\n' 'obj G%d[T]\n  v: T\n'
