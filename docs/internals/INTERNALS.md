@@ -5907,21 +5907,43 @@ pass owns one part.
 - **Parser.** `value matches mpat` sits where `as` does, below `not`
   and above the comparisons (`rig.grammar`, `mpat`), so the grammar has
   no conflict for it. The wrapper lowers each `matches` where it stands
-  (`Parser.lowerMatches`): in a condition, a pattern that binds is the
-  one-arm `match` `as_match`, as `as` with a pattern is; anywhere else,
-  `match x` with `P => true` and `_ => false`, the rest of an `and`
-  chain the value of `P`'s arm. The hidden `_`, `true`, and `false`
-  leaves stand inside the `matches` keyword, where no other leaf does.
+  (`Parser.lowerMatches`): in a condition, a pattern that binds, or a
+  test that takes its subject (`<s`), is the one-arm `match`
+  `as_match`, as `as` with a pattern is; anywhere else, `match x` with
+  `P => true` and `_ => false`, the rest of an `and` chain the value of
+  `P`'s arm. The hidden `_`, `true`, and `false` leaves stand inside the
+  `matches` keyword, where no other leaf does, and the hidden `_` marks
+  the match as a test (`rig.isMatchesTest`).
+- **One check.** Every form is a `match`, and `typecheck.checkMatchIn`
+  checks each: a match arm, the `Bool`, and, keeping its first arm's
+  scope open, `as_match`. A test rejects an optional subject, a
+  catch-all (`testCatchAll`), and a pattern that matches every value
+  (`alwaysHolds`, where the hidden `_` would never run). A bare name in
+  a test binds nothing unless it names a module constant, which it
+  compares with (`resolve.bindPattern`).
 - **Alternatives that bind.** The resolver gives each alternative's leaf
-  of a name one symbol (`resolve.bindPattern`); the checker requires
-  the same names and the same field types. Emit writes an `inline`
-  prong, which Zig instantiates per variant, each binding read through a
-  switch on the prong's comptime tag; under `<s` each instance drops the
-  fields its variant leaves out (`altsProng`).
+  of a name one symbol (`resolve.bindPattern`), the later leaves no
+  read or use of it (`rebinds`); the checker requires the same names and
+  the same field types, and two alternatives of one variant the same
+  field. Emit writes an `inline` prong, which Zig instantiates per
+  variant, each binding read through a switch on the prong's comptime
+  tag, once per variant, unwrapping the field of a `name?`
+  (`altReads`, `altSwitch`), with an `else` only for the variants the
+  alternatives leave out; under `<s` each instance drops the fields its
+  variant leaves out (`altDrops`).
 - **`name?` and `none`.** The checker records each test
-  (`payloadTests`), binds `name` to the optional's value, and treats the
-  arm as guarded; the match then picks its arm first
-  (`emitGuardedMatch`), testing the field with `rig.somePtr`.
+  (`payloadTests`), binds `name` to the optional's value, and covers
+  the values the tests leave: a cube of the variant's values, in which
+  each optional field holds a value or none (`MatchCoverage.parts`).
+  An alternative whose cube the arms before it cover never runs, one
+  that meets an earlier alternative of its arm is rejected, and the
+  variant is covered once its cubes cover every value
+  (`uncoveredCube`, which also names a value a match misses). A match
+  with a test picks its arm first (`emitGuardedMatch`), testing the
+  field with `rig.somePtr`. A test of an error's optional field is
+  rejected: an error's fields are read whole from its bytes. Emit
+  unwraps a `name?` by the recorded test, never by the field's type,
+  which a generic instance may make optional itself (`E[Int?]`).
 - **Tests.** `test/rig/types-matches.rig.test`, the `matches` cases of
   `types-match`, and the examples of docs/design/matches.md.
 
