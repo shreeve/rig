@@ -527,9 +527,9 @@ reads as negation. The method's declared result decides: a call
 returning a `T` is short even where `T` is a `Bool`. Every other write
 call is short wherever its value goes, `x = !v.pop()`, `while
 !it.next() as x`, `t = !@new_node(k)` ([SPEC §3](../SPEC.md#objects) has
-the checks). Two places keep the long form whatever the call gives: a
-`for` source, where a leading `!` is the loop's mode (`for x in
-(!it).items()`), and an assignment's target, `(!a).at_mut(i).n = 1`.
+the checks), a `for` source among them: `for x in !b.drain()` is
+`for x in (!b).drain()`. An assignment's target keeps the long form
+whatever the call gives, `(!a).at_mut(i).n = 1`.
 
 ```rig
 obj Stack

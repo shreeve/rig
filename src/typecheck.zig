@@ -232,19 +232,12 @@ const Checker = struct {
     /// (`sema.PlainRegion`).
     plain_cond: ?PlainCond = null,
     /// A call whose value a `!` written before it lends to write, with
-    /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`), or the
-    /// source of a `for` whose `!` is the loop's mode: a write method on
-    /// a temporary self there has a `!` that does not reach it.
+    /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`): a write
+    /// method on a temporary self there has a `!` that does not reach it.
     outer_write: Sexp = .nil,
     /// The member a method call is checked through, while its self
     /// mode is checked.
     self_of: Sexp = .nil,
-    /// `outer_write` is a `for` source.
-    outer_write_is_loop: bool = false,
-    /// Where the `for` source being checked starts: a `!` there is the
-    /// loop's mode, so a write call there keeps its parentheses
-    /// (`parenthesized`).
-    loop_source_start: ?u32 = null,
     /// The argument being checked, when the call keeps no view of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
@@ -2670,10 +2663,8 @@ const Checker = struct {
 
     /// Whether a write call on `recv`, returning `returns`, is written
     /// `(!s).m(...)`: its value is used (`usesValue`) and is a `Bool`
-    /// (`isBoolResult`), so its `!` never reads as `not`; or it starts a
-    /// `for` source, where a leading `!` is the loop's mode.
+    /// (`isBoolResult`), so its `!` never reads as `not`.
     fn parenthesized(self: *Checker, recv: Sexp, returns: TypeId) bool {
-        if (self.loop_source_start) |at| if (self.ctx.span(selfPlace(recv)).start == at) return true;
         return self.isBoolResult(returns) and self.usesValue(recv, returns);
     }
 
@@ -3049,7 +3040,7 @@ const Checker = struct {
         var frame: LoopFrame = undefined;
         try self.enterLoop(&frame, node);
         frame.part = .source;
-        const mode = ir.For.mode(node).tag;
+        var mode = ir.For.mode(node).tag;
         const binding = ir.For.@"var"(node);
         const index_binding = ir.For.index(node);
         const source = ir.For.source(node);
@@ -3076,14 +3067,6 @@ const Checker = struct {
             defer self.held_base = saved_held;
             if (mode == .iter) self.held_base = self.madeBase(source);
             // `for x in ?xs[a..b]` walks a slice of `xs`.
-            const saved_outer = self.outer_write;
-            const saved_loop = self.outer_write_is_loop;
-            if (mode == .write and source.isKind(.call)) {
-                self.outer_write = source;
-                self.outer_write_is_loop = true;
-            }
-            const saved_source = self.loop_source_start;
-            self.loop_source_start = self.ctx.span(peeled_source).start;
             const saved_chain_for = self.chain_for;
             self.chain_for = node;
             defer self.chain_for = saved_chain_for;
@@ -3091,17 +3074,21 @@ const Checker = struct {
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
-            self.loop_source_start = saved_source;
             // A `for` over an iterator is the `while` it means (`iterLoop`).
             if (try self.iterLoop(node, source, mode, source_ty)) {
-                self.outer_write = saved_outer;
-                self.outer_write_is_loop = saved_loop;
                 elem_ty = self.t().invalid_id;
             } else {
+                // A value made here is walked as its type says: a write
+                // view a call gives is walked for writing, as `!xs` walks
+                // a place (`for x in (!b).items()`), and the loop's mode
+                // says so for every pass after this one.
+                if (mode == .iter and self.hands(source).kind == .made and self.ctx.types.get(source_ty) == .write_view) {
+                    mode = .write;
+                    eff = .write;
+                    @constCast(node.items())[ir.slot(.@"for", .mode)] = .{ .tag = .write };
+                }
                 // `for x in <e` moves `e` as `<e` does.
                 if (mode == .move and !self.isPoison(source_ty)) _ = try self.rejectMadeParts(source, source);
-                self.outer_write = saved_outer;
-                self.outer_write_is_loop = saved_loop;
                 // A branch the loop walks where it stands is lent there, as
                 // its mode lends it (`for x in ?S`, `for x in !S`) or read.
                 if (mode != .move and !self.isPoison(source_ty) and !try self.headerLendsBranch(.{ .node = peeled_source, .sigil = switch (mode) {
@@ -3229,16 +3216,6 @@ const Checker = struct {
         return a.print("write `{s}{s}`, which holds it for the loop", .{ head, shown });
     }
 
-    /// A method call on a name or fields from one (`b.each()`), where a
-    /// sigil written before it reaches that place.
-    fn selfCall(source: Sexp) bool {
-        if (!source.isKind(.call)) return false;
-        const callee = ir.Call.callee(source);
-        if (!rig.isMethodCallee(callee)) return false;
-        const member = if (callee.isKind(.member)) callee else ir.get(callee, .object);
-        return isFieldPath(ir.Member.object(member));
-    }
-
     /// A name, or fields from one: the places a loop over an iterator
     /// advances where they stand.
     fn isFieldPath(e: Sexp) bool {
@@ -3281,22 +3258,14 @@ const Checker = struct {
             return true;
         }
         const how: rig.IterSource = switch (mode) {
-            // `for x in ?b.each()`: the `?` reaches the call's self,
-            // `(?b).each()`, and the loop holds the iterator it makes.
-            .read, .write => if (kind == .made and ir.For.lent(node) != .nil) .lent else if (mode == .read) {
+            .read => {
                 if (kind == .made) {
                     try self.errAt(source, "`{s}?{s}` would only read an iterator made here, which `next` cannot advance; {s}", .{ head, shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "`{s}?{s}` would only read an iterator, which `next` cannot advance; write `{s}!{s}` to advance it in place", .{ head, shown, head, shown });
                 return true;
-            } else if (kind == .place) .place else {
-                if (kind == .made and selfCall(source)) {
-                    // A method that writes its self is reported where
-                    // it is called, with `(!b).drain()` to write; any
-                    // other method's iterator is held with `?`.
-                    const callee = ir.Call.callee(source);
-                    const writes = if (self.methods.get(nodeId(callee))) |m| m.self_mode == .write else false;
-                    if (!writes) try self.errAt(source, "`!{s}` advances a place, and this is a value made here, which holds no write view; write `{s}?{s}`, which holds it for the loop", .{ shown, head, shown });
-                } else if (kind == .made) {
+            },
+            .write => if (kind == .place) .place else {
+                if (kind == .made) {
                     try self.errAt(source, "`!{s}` advances a place, and this is a value made here; {s}", .{ shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
                 return true;
@@ -6675,15 +6644,8 @@ const Checker = struct {
             return self.lendSlice(operand, kind);
         }
         const saved_outer = self.outer_write;
-        const saved_loop = self.outer_write_is_loop;
-        defer {
-            self.outer_write = saved_outer;
-            self.outer_write_is_loop = saved_loop;
-        }
-        if (kind == .write and operand.isKind(.call)) {
-            self.outer_write = operand;
-            self.outer_write_is_loop = false;
-        }
+        defer self.outer_write = saved_outer;
+        if (kind == .write and operand.isKind(.call)) self.outer_write = operand;
         // A temporary lent lives until its statement ends, which drops
         // it; the ownership checker keeps a view of it from outliving
         // the statement.
@@ -14280,10 +14242,27 @@ const Checker = struct {
             try self.errAt(call, "this chain has {d} stages, and a chain has at most {d}: end it with `.collect()` part way and chain on the List that gives, or write the loop", .{ count, rig.max_chain_stages });
             return self.t().invalid_id;
         }
+        // A `for` header's sigil before a chain lends the chain's source,
+        // as before any method call (`for x in !xs.filter(f)` walks
+        // `(!xs).filter(f)`): one that reaches no place lends nothing, and
+        // a `<` is written on the source it takes.
+        if (for_source) {
+            const mode = ir.For.mode(self.chain_for).tag;
+            if (mode == .read or mode == .move) {
+                const mark: []const u8 = if (mode == .read) "?" else "<";
+                try self.errAt(root, "the `{s}` before this chain reaches no place and does nothing: remove it; the chain walks `{s}` as a `for` over it would", .{ mark, try self.plainText(root) });
+                return self.t().invalid_id;
+            }
+            if (root.isKind(.move) and self.isSelfSigil(root)) {
+                const shown = try self.plainText(ir.get(root, .operand));
+                try self.errAt(root, "a `<` before a chain is written on the source it takes: `(<{s}).{s}(...)` takes `{s}`, and `{s}.{s}(...)` walks it where it stands", .{ shown, first, shown, shown, first });
+                return self.t().invalid_id;
+            }
+        }
         // An iterator in a place advances: the chain lends it to write,
-        // and says so, as a `for` over it does.
-        if (kind == .iterator and !for_source and !madeHere(root) and !root.isKind(.write)) {
-            const shown = try self.plainText(root);
+        // and says so, as a `for` over it does. A read view of one cannot.
+        if (kind == .iterator and (root.isKind(.read) or (!for_source and !madeHere(root) and !root.isKind(.write)))) {
+            const shown = try self.plainText(if (root.isKind(.read)) ir.get(root, .operand) else root);
             try self.errAt(root, "a chain advances the iterator `{s}`: lend it to write, `(!{s}).{s}(...)`", .{ shown, shown, first });
             return self.t().invalid_id;
         }
@@ -15894,7 +15873,6 @@ const Checker = struct {
         // A `!` that is there but does not reach self.
         const outer = self.outer_write;
         if (outer.isKind(.call) and sameNode(ir.Call.callee(outer), self.self_of)) {
-            if (self.outer_write_is_loop) return self.errAt(recv, "`{s}` changes `self`, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of `self`: bind `{s}` to a name first", .{ method, shown });
             return self.errAt(recv, "`{s}` changes `self`, a temporary no name holds; the `!` here lends what `{s}` returns, not `self`: write `{s}`", .{ method, method, call });
         }
         try self.errAt(recv, "`{s}` changes `self`, a temporary no name holds; add `!`: `{s}`", .{ method, call });
