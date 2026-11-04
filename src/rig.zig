@@ -2357,6 +2357,11 @@ pub fn hiddenIteratorName() []const u8 {
     return HiddenName.iterator.text();
 }
 
+/// The last position a hidden leaf takes (`Parser.hiddenPos`): the two
+/// above it are sema's sentinels (`sema.imported_decl_pos`), and a leaf
+/// there ends with no overflow.
+pub const last_hidden_pos: u32 = std.math.maxInt(u32) - 2;
+
 /// A leaf for a name no source text holds, at `pos` inside the `for`
 /// keyword (which holds no leaf); its `id` tells `leafText` which name.
 fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
@@ -2572,12 +2577,13 @@ pub const Parser = struct {
     /// out their parameter list, each reported, so that one run shows
     /// every header to fix.
     more_failures: std.ArrayList(diag.Diagnostic) = .empty,
-    /// How many hidden parameters `padLambda` has made; each takes the
+    /// How many hidden leaves `hiddenPos` has placed; each takes the
     /// next position past the end of the source, which no leaf of the
     /// source holds, so facts keyed by position stay apart.
     padded: u32 = 0,
-    /// Where each hidden parameter `padLambda` made belongs: the start of
-    /// its closure, so a diagnostic about it points into the closure.
+    /// Where each hidden leaf `hiddenPos` placed belongs (the start of a
+    /// padded closure, or the name a chain's names stand for), so a
+    /// diagnostic about it points into the source.
     pad_homes: std.ArrayList(u32) = .empty,
     /// The node ids of the `(read place)`, `(write place)`, and
     /// `(move place)` selves written in front of the call
@@ -4691,6 +4697,12 @@ pub const Parser = struct {
             .cap_write => .write,
             else => unreachable,
         };
+        // The name's leaf spans the sigil too, and its `len` stays under
+        // 65535, which stands for a long token `leafEnd` scans again.
+        if (text.len + 1 >= std.math.maxInt(u16)) {
+            self.reject(place, "a captured field path is longer than 65533 bytes; bind it to a shorter name first, and capture the name");
+            return node;
+        }
         out[ir.slot(.cap_read, .name)] = .{ .src = .{ .pos = at.start, .len = @intCast(text.len + 1), .id = path_capture_id } };
         out[ir.slot(.cap_read, .value)] = try self.base.newNode(lend, &.{place}, at);
         return node;
@@ -4845,13 +4857,7 @@ pub const Parser = struct {
         const out = try mutable.allocator().alloc(Sexp, count);
         @memcpy(out[0..have.len], have);
         const at = mutable.span(lambda).start;
-        for (out[have.len..]) |*p| {
-            mutable.padded += 1;
-            var leaf = hiddenLeaf(at, .discard);
-            leaf.src.pos = @intCast(mutable.base.source.len + mutable.padded);
-            try mutable.pad_homes.append(mutable.allocator(), at);
-            p.* = leaf;
-        }
+        for (out[have.len..]) |*p| p.* = hiddenLeaf(try mutable.hiddenPos(at), .discard);
         slot.* = try mutable.base.newList(out, .{ .start = at, .end = at });
     }
 
@@ -5224,11 +5230,20 @@ pub const Parser = struct {
     /// A leaf of hidden name `name` at a position past the source's end,
     /// which `span` reads as `home`.
     fn synthLeaf(self: *Parser, home: u32, name: HiddenName) std.mem.Allocator.Error!Sexp {
-        self.padded += 1;
-        var leaf = hiddenLeaf(home, name);
-        leaf.src.pos = @intCast(self.base.source.len + self.padded);
+        return hiddenLeaf(try self.hiddenPos(home), name);
+    }
+
+    /// The next position past the source's end, for a hidden leaf that
+    /// `span` reads as `home`. A source holds under 2 GiB
+    /// (`modules.max_source_bytes`), so over 2^31 of them fit below
+    /// `last_hidden_pos`; past it the room for hidden leaves is used up,
+    /// and the parse fails as out of memory.
+    fn hiddenPos(self: *Parser, home: u32) std.mem.Allocator.Error!u32 {
+        const pos = self.base.source.len + self.padded + 1;
+        if (pos > last_hidden_pos) return error.OutOfMemory;
         try self.pad_homes.append(self.allocator(), home);
-        return leaf;
+        self.padded += 1;
+        return @intCast(pos);
     }
 
     /// One chain as its loop (`desugarChains`).
@@ -6089,6 +6104,22 @@ test "leafEnd and leafText: a long leaf's whole text, as the parser kept it" {
     try testing.expectEqual(kept.end, leafEnd(source, leaf));
     try testing.expectEqual(@as(usize, 65535), leafText(source, leaf).len);
     try testing.expectEqualStrings(p.base.leafText(.{ .src = leaf }), leafText(source, leaf));
+}
+
+test "hidden leaves take the positions past the source's end, up to `last_hidden_pos`" {
+    const source = "sub main()\n  print(1)\n";
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const first = try p.hiddenPos(3);
+    try testing.expectEqual(@as(u32, source.len + 1), first);
+    try testing.expectEqual(parser.Span{ .start = 3, .end = 3 }, p.span(hiddenLeaf(first, .discard)));
+    // As many as fit past a source of the most bytes a module holds;
+    // the last ends with no overflow, and one more is out of room.
+    p.padded = last_hidden_pos - 1 - source.len;
+    const last = try p.hiddenPos(5);
+    try testing.expectEqual(last_hidden_pos, last);
+    try testing.expectEqual(last_hidden_pos + 1, leafEnd(source, hiddenLeaf(last, .discard).src));
+    try testing.expectError(error.OutOfMemory, p.hiddenPos(5));
 }
 
 test "leafSpan: from the first leaf to the end of the last" {
