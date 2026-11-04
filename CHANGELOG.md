@@ -300,6 +300,13 @@ Other:
     "`mk` does not consume `self`; remove the `<`". Write
     `for x in b.mk()`, which consumes the List the call makes, as the
     `<` did.
+70. *Unsound:* the right side of `and` and `or`, and each part of a
+    binding condition after the first (`if a and b as x`, the same in a
+    `while` and a ternary), runs only on some paths, and a move or a
+    take there counts only on those: `ok = no() and take(<g)` then
+    `<a`, where `g` views `a` and has a `drop` body, is "cannot drop
+    `a` while it is lent" (its drop body read freed memory), and a
+    field taken there and assigned after is dropped first (it leaked).
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

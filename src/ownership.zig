@@ -57,9 +57,12 @@
 //!
 //! Control flow
 //! ------------
-//! * `if`, `match`, ternaries, `catch` and `??` walk every branch from the
-//!   same entry state and `join` the results: a value moved or dropped on any
-//!   path is moved or dropped afterwards, and loans are unioned. A guard
+//! * `if`, `match`, ternaries, `catch`, `??`, and the right side of `and`
+//!   and `or` walk every branch from the same entry state and `join` the
+//!   results: a value moved or dropped on any path is moved or dropped
+//!   afterwards, and loans are unioned. Each part of a binding condition
+//!   that fails leaves for the `else` with the effects of the parts that
+//!   ran, and the `else` starts from their join. A guard
 //!   that fails runs on the way to the later arms, which start from the
 //!   join of the entry state with what each failed guard left. A match
 //!   without a catch-all arm also joins the state where no arm ran.
@@ -3042,7 +3045,15 @@ pub const Checker = struct {
                 // Operators on values produce fresh Copy results. A binary
                 // operator reads its left operand where it runs, and uses
                 // it after the right one runs.
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
+                // The right side of `and` and `or` runs only when the left
+                // does not decide; the left is a `Bool`, which holds
+                // nothing while it runs.
+                .@"and", .@"or" => blk: {
+                    _ = try self.walk(ir.get(sexp, .left));
+                    _ = try self.walkMayRun(ir.get(sexp, .right), null, sexp);
+                    break :blk .{};
+                },
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
                     const operands = rig.children(sexp);
                     if (operands.len == 2) {
                         _ = try self.walkThenHeld(operands[0], .operand, operands[1]);
@@ -7068,21 +7079,20 @@ pub const Checker = struct {
 
     /// `if a as x` and `if a as x and ...`: the parts run in order, each
     /// binding in a scope over the rest and the then-branch. The `else`
-    /// runs when a part fails, so it starts from the state after the
-    /// parts with their bindings gone.
+    /// runs when a part fails, so it starts from the join of the states
+    /// after each part, with their bindings gone.
     fn walkIfBinding(self: *Checker, node: Sexp, t: ?Tail) Error!Value {
         const then_b = ir.If.then(node);
         const else_b = ir.If.@"else"(node);
         const base = try self.here();
         const depth = self.scopes.items.len;
-        try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
-        const failed = try self.exitTo(.{ .to = base, .resume_at = self.resumeAt(else_b, node) });
+        const fails = try self.walkConditionParts(ir.If.cond(node), then_b, .{ .to = base, .resume_at = self.resumeAt(else_b, node) }, self.loop);
         var v1 = try self.walkTailPart(then_b, t);
         while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
         const past = self.resumeAt(.nil, node);
         const s1 = try self.leave(base, past);
-        try self.apply(failed);
+        try self.apply(try self.joinAll(fails));
         const v2 = if (else_b != .nil) try self.walkTailPart(else_b, t) else Value{};
         const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
@@ -7093,16 +7103,36 @@ pub const Checker = struct {
     /// value inside its optional into a binding, in a new scope over
     /// `body`, which the caller pops. The binding holds what the value
     /// views; the loans taken to compute it end there, so the path
-    /// where there is no value is free to use them.
-    fn walkConditionParts(self: *Checker, cond: Sexp, body: Sexp) Error!void {
+    /// where there is no value is free to use them. A part that fails
+    /// takes the exit `fail`, inside `loop`, with the effects of the
+    /// parts before it and its own, and none of the later ones': the
+    /// states it leaves with, one per part, which the caller joins
+    /// (`joinAll`) once back at `fail.to`.
+    fn walkConditionParts(self: *Checker, cond: Sexp, body: Sexp, fail: ExitTo, loop: ?*LoopCtx) Error![]const State {
         const Parts = struct {
             c: *Checker,
             body: Sexp,
+            fail: ExitTo,
+            loop: ?*LoopCtx,
+            fails: *std.ArrayList(State),
             pub fn part(v: @This(), p: Sexp) Error!void {
-                return v.c.walkConditionPart(p, v.body);
+                try v.c.walkConditionPart(p, v.body);
+                const saved = v.c.loop;
+                defer v.c.loop = saved;
+                v.c.loop = v.loop;
+                try v.fails.append(v.c.arena(), try v.c.exitTo(v.fail));
             }
         };
-        try rig.eachGuardPart(cond, Parts{ .c = self, .body = body });
+        var fails: std.ArrayList(State) = .empty;
+        try rig.eachGuardPart(cond, Parts{ .c = self, .body = body, .fail = fail, .loop = loop, .fails = &fails });
+        return fails.items;
+    }
+
+    /// The join of `states`, all relative to the current point.
+    fn joinAll(self: *Checker, states: []const State) Error!State {
+        var out: State = .{ .reachable = false };
+        for (states) |s| out = try self.join(out, s);
+        return out;
     }
 
     /// One part of a condition (`rig.eachGuardPart`).
@@ -7153,11 +7183,18 @@ pub const Checker = struct {
     fn walkNullish(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const v1 = try self.walkPayloadHolder(node, ir.@"??".left(node));
+        return self.valueUnion(v1, try self.walkMayRun(ir.@"??".right(node), t, node));
+    }
+
+    /// Walk `part` of `node`, which runs on some paths through `node`
+    /// only: the right side of `and`, `or`, and `??`. What follows starts
+    /// from the join of the state before it with the state after it.
+    fn walkMayRun(self: *Checker, part: Sexp, t: ?Tail, node: Sexp) Error!Value {
         const base = try self.here();
-        const v2 = try self.walkTailPart(ir.@"??".right(node), t);
+        const v = try self.walkTailPart(part, t);
         const s = try self.leave(base, self.resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
-        return self.valueUnion(v1, v2);
+        return v;
     }
 
     const Held = struct { base: Sexp, id: VarId };
@@ -7752,7 +7789,7 @@ pub const Checker = struct {
             it = try self.loopIteration(spec, &ctx);
             try self.rewind(entry);
         }
-        try self.apply(it.exit);
+        try self.apply(try self.joinAll(it.exit));
         // The `else` runs after the loop: a jump in it leaves the loop
         // around this one. A loop used as a value yields the `else` value
         // or a `break` value.
@@ -7772,7 +7809,7 @@ pub const Checker = struct {
 
     /// One walk of a loop: the states at the back edge and where the
     /// condition fails, relative to the loop entry.
-    const Iteration = struct { back: State, exit: State };
+    const Iteration = struct { back: State, exit: []const State };
 
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iteration {
         ctx.breaks.clearRetainingCapacity();
@@ -7783,16 +7820,14 @@ pub const Checker = struct {
         const depth = self.scopes.items.len;
         // The loop ends when its condition fails: for a binding
         // condition, when a part fails, with the bindings before it gone.
-        var exit: State = .{ .reachable = false };
+        // A failing part leaves the loop for its `else`, or past it.
+        const fail: ExitTo = .{ .to = ctx.point, .resume_at = self.resumeAt(ir.get(spec.node, .@"else"), spec.node) };
+        var exit: []const State = &.{};
         if (spec.cond_binds) {
-            try self.walkConditionParts(spec.cond.?, spec.body);
-            // A failing part leaves the loop for its `else`, or past it.
-            self.loop = ctx.parent;
-            defer self.loop = ctx;
-            exit = try self.exitTo(.{ .to = ctx.point, .resume_at = self.resumeAt(ir.get(spec.node, .@"else"), spec.node) });
+            exit = try self.walkConditionParts(spec.cond.?, spec.body, fail, ctx.parent);
         } else {
             if (spec.cond) |c| try self.walkStmt(c);
-            if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = self.resumeAt(ir.get(spec.node, .@"else"), spec.node) });
+            if (!spec.cond_always_true) exit = try self.arena().dupe(State, &.{try self.exitTo(fail)});
         }
         // The loop is `while true { x = a or break; body: { body }; step }`
         // (docs/internals/INTERNALS.md, "Loops"): a `continue` in the body leaves
