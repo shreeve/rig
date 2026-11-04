@@ -120,7 +120,7 @@ fail "as chain scope", "17:4: use of unbound name `y`", "22:9: use of unbound na
   while make(i) as r and r.id < 3: print(r.id)
     i += 1
 
-fail "as in a guard or under or in a ternary", "7:13: a postfix guard binds no names: write an `if` block, whose body sees them", "8:10: `as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`"
+fail "as in a guard or under or in a ternary", "7:13: a postfix guard's condition binds no names; write an `if` block", "8:10: `as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`"
   # A ternary's condition binds for the value before `if`; a postfix
   # guard binds no names, and `as` stands under no `or` in either.
 

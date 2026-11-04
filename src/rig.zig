@@ -1418,7 +1418,7 @@ pub const Lexer = struct {
             // joins the names `as` binds. Inside brackets a `,` after
             // `x as a` separates arguments or elements, unless names and
             // a ternary's `else` follow (`f(a + b if g() as a, b else 0)`).
-            .comma => if (self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma) and (self.nesting == 0 or self.namesThenElse())) .as_comma else .comma,
+            .comma => if (self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma) and (self.nesting == 0 or namesThenElse(self.base))) .as_comma else .comma,
             .err => return self.lexError(tok),
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok) else tok.cat,
         };
@@ -1863,7 +1863,7 @@ pub const Lexer = struct {
                     if (depth == 0) return false;
                     depth -= 1;
                 },
-                .comma => if (depth == 0 and !(names and prev == .ident)) return false,
+                .comma => if (depth == 0 and !(names and prev == .ident and namesThenElse(probe))) return false,
                 .@"else" => if (depth == 0) return true,
                 else => {},
             }
@@ -1877,9 +1877,9 @@ pub const Lexer = struct {
     }
 
     /// Whether the rest of the names `as` binds and then a ternary's
-    /// `else` follow this `,`: `b else` or `b, c else`.
-    fn namesThenElse(self: *const Lexer) bool {
-        var probe = self.base;
+    /// `else` follow the `,` `from` stands after: `b else` or `b, c else`.
+    fn namesThenElse(from: BaseLexer) bool {
+        var probe = from;
         while (true) {
             var t = probe.next();
             while (t.cat == .newline) t = probe.next();
@@ -6030,6 +6030,7 @@ test "if: block, guard, ternary" {
     try expectCats("x = a if c else b", &.{ .ident, .assign, .ident, .ternary_if, .ident, .@"else", .ident });
     try expectCats("x = a if f() as a, b else 0", &.{ .ident, .assign, .ident, .ternary_if, .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident, .@"else", .integer });
     try expectCats("f(a if c, b)", &.{ .ident, .lparen, .ident, .post_if, .ident, .comma, .ident, .rparen });
+    try expectCats("[a if g() as a, b if c else 0]", &.{ .lbracket, .ident, .post_if, .ident, .lparen, .rparen, .as, .ident, .comma, .ident, .ternary_if, .ident, .@"else", .integer, .rbracket });
     try expectCats("f(a if g() as a, b else 0, c)", &.{ .ident, .lparen, .ident, .ternary_if, .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident, .@"else", .integer, .comma, .ident, .rparen });
     try expectCats("f(a if c else b)", &.{ .ident, .lparen, .ident, .ternary_if, .ident, .@"else", .ident, .rparen });
 }

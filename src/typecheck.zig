@@ -2483,9 +2483,10 @@ const Checker = struct {
         defer self.plain_cond = saved_plain;
         self.plain_cond = if (self.isBlockIf(node) or (position == .statement and else_node == .nil)) try self.plainCondOf(cond, &.{then_node}) else null;
         // A ternary's names reach the value before `if`, as a block's
-        // reach the block; a postfix guard binds none.
-        if (position == .statement and !self.isBlockIf(node) and rig.bindsInCondition(cond)) {
-            try self.errAt(cond, "a postfix guard binds no names: write an `if` block, whose body sees them", .{});
+        // reach the block; a postfix guard, which has no `else`, binds
+        // none.
+        if (position == .statement and else_node == .nil and !self.isBlockIf(node) and rig.bindsInCondition(cond)) {
+            try self.errAt(cond, "a postfix guard's condition binds no names; write an `if` block", .{});
         }
         try self.checkCondition(cond);
         self.plain_cond = saved_plain;

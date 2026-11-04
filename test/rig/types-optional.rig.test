@@ -758,7 +758,7 @@ fail "ternary binding that shadows", "6:20: optional binding `z` shadows the loc
   c = z if get(3) as z else 0
   print(c)
 
-fail "postfix guard binds no names", "11:13: a postfix guard binds no names: write an `if` block, whose body sees them", "13:15: a postfix guard binds no names: write an `if` block, whose body sees them", errors: 2
+fail "postfix guard binds no names", "11:13: a postfix guard's condition binds no names; write an `if` block", "13:15: a postfix guard's condition binds no names; write an `if` block", errors: 2
   # A guard's statement stands before its condition and sees no name it
   # binds (SPEC §12, "Joined bindings").
   enum Shape
@@ -773,3 +773,29 @@ fail "postfix guard binds no names", "11:13: a postfix guard binds no names: wri
   total = 0
   total += r if s matches .circle(r)
   print(total)
+
+test "a ternary statement binds", '''
+  1
+  0
+  7
+'''
+  # `a if c else b` as a statement is a ternary, not a postfix guard: its
+  # condition binds for the statement before `if`.
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  print(v) if get(1) as v else print(0)
+  print(v) if get(0) as v else print(0)
+  n = 0
+  n = v if get(7) as v else -1
+  print(n)
+
+fail "a postfix guard ends an element before a ternary", "7:8: a postfix `if` guard must end a statement"
+  # The names `as` binds end where a name is not followed by `,` or the
+  # ternary's `else`: here the first `if` is a guard, and the second the
+  # ternary.
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  x = [a if get(1) as a, b if true else 0]
+  print(x)

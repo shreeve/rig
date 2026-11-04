@@ -358,8 +358,8 @@ MIGRATING-0.3 lists each.
   with its ownership (an owned temporary, `?a` and `!a` views, `<a.f`),
   and the names are visible in the value before `if` only. The test
   runs first, and emit writes Zig's `if (x) |v| v.id else 0`. A postfix
-  guard that binds is rejected with its own message ("a postfix guard
-  binds no names"), and a name an `else` cannot see because its
+  guard that binds is rejected with its own message ("a postfix guard's
+  condition binds no names"), and a name an `else` cannot see because its
   condition binds it says so.
 - **`task.select` names its arms and gives a value that `match` takes
   apart.** `match task.select(add: !a.on_recv(), sub: !b.on_recv(),
