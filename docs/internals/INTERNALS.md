@@ -4476,12 +4476,16 @@ value that moves where the storage plan decides it (`Symbol.hold`,
 makes no decision with a classifier the checkers also call: a unit test
 of `facts.zig` reads `emit.zig` with Zig's tokenizer and fails if emit
 imports any other file of the compiler, reaches the context behind
-`Facts`, or asks whether a type moves. `Facts` also answers a few node
-queries that combine recorded facts without a classifier of their own
-(`stmtTemps` and `firstStmtTemp` list the `dropsTemp` facts in the order
-the IR makes them; `selfOf`, `argParams`, and `selfWrites` read
-`callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
-symbols); a query that decides more than that is a recorded fact.
+`Facts`, or asks whether a type moves. A method of `Facts` that takes a
+node reads a record: a decision (`storage.decided`), the facts table, or
+the storage facts. A second unit test reads `facts.zig` the same way and
+fails on such a method that calls a function of `storage` or `sema`
+instead, but for a listed few that combine recorded facts by the node's
+shape without a classifier of their own (`stmtTemps` and `firstStmtTemp`
+list the `dropsTemp` facts in the order the IR makes them; `selfOf`,
+`argParams`, and `selfWrites` read `callParamsOf`; `isNoneLeaf`,
+`stringCall`, and `isTypeCallee` read symbols); the list only shrinks,
+and a query that decides more than that is a recorded fact.
 
 - **Names.** One function decides how a Rig name becomes a Zig name,
   `rig.writeZigIdent`, and every declaration and every use of a name

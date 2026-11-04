@@ -1300,6 +1300,78 @@ test "emit names hidden storage only through hiddenStorage" {
     try std.testing.expect(bases.items.len > 20);
 }
 
+test "a Facts method about a node reads what a checker recorded" {
+    const source = @embedFile("facts.zig");
+    // A method of `Facts` that takes a node answers from a record: a
+    // decision (`storage.decided`), the facts table, or the storage facts,
+    // read through the context. These still find their answer with a
+    // helper of storage or sema, each by the node's shape over recorded
+    // symbols, types, and constants; the list only shrinks.
+    const readers = [_][]const u8{
+        "callsRigFunction", "patternConst", "stmtTemps",       "stmtErasedCopies", "firstStmtTemp",
+        "constIntOf",       "intLimit",     "stringCall",      "isPrintCall",      "printCall",
+        "isNoneLeaf",       "isTypeCallee", "moduleMemberSym", "selfOf",           "heldFirst",
+        "selfWrites",       "argParams",    "lambdaYields",    "matchedType",
+    };
+    var seen: [readers.len]bool = @splat(false);
+    const begin = std.mem.indexOf(u8, source, "pub const Facts = struct {").?;
+    const end = begin + std.mem.indexOf(u8, source[begin..], "\n};\n").?;
+    var tokens = std.zig.Tokenizer.init(source);
+    tokens.index = begin;
+    var methods: usize = 0;
+    while (true) {
+        var t = tokens.next();
+        if (t.tag == .eof or t.loc.start >= end) break;
+        if (t.tag != .keyword_fn) continue;
+        const name_tok = tokens.next();
+        const name = source[name_tok.loc.start..name_tok.loc.end];
+        // The parameters, then the body, each to its closing bracket.
+        var takes_node = false;
+        var depth: usize = 0;
+        while (true) {
+            t = tokens.next();
+            if (t.tag == .l_paren) depth += 1;
+            if (t.tag == .r_paren) depth -= 1;
+            if (t.tag == .identifier and std.mem.eql(u8, source[t.loc.start..t.loc.end], "Sexp")) takes_node = true;
+            if (depth == 0 and t.tag == .r_paren) break;
+        }
+        while (t.tag != .l_brace) t = tokens.next();
+        depth = 1;
+        // The last three tokens: `storage` `.` `name` before a `(` is a
+        // call of storage's `name`.
+        var last: [3]std.zig.Token = undefined;
+        var count: usize = 0;
+        var classifier: ?[]const u8 = null;
+        while (depth > 0) {
+            t = tokens.next();
+            if (t.tag == .l_brace) depth += 1;
+            if (t.tag == .r_brace) depth -= 1;
+            if (t.tag == .l_paren and count >= 3 and last[1].tag == .period and last[2].tag == .identifier and last[0].tag == .identifier) {
+                const base = source[last[0].loc.start..last[0].loc.end];
+                const called = source[last[2].loc.start..last[2].loc.end];
+                if ((std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema")) and !std.mem.eql(u8, called, "decided")) classifier = called;
+            }
+            last = .{ last[1], last[2], t };
+            count += 1;
+        }
+        if (!takes_node) continue;
+        methods += 1;
+        const listed = for (readers, 0..) |r, i| {
+            if (std.mem.eql(u8, r, name)) break i;
+        } else null;
+        if (listed) |i| seen[i] = classifier != null;
+        if (classifier != null and listed == null) {
+            std.debug.print("Facts.{s} answers about a node by calling {s}, not by reading a record\n", .{ name, classifier.? });
+            return error.TestUnexpectedResult;
+        }
+    }
+    for (readers, seen) |r, s| if (!s) {
+        std.debug.print("Facts.{s} no longer calls a helper of storage or sema: take it off the list\n", .{r});
+        return error.TestUnexpectedResult;
+    };
+    try std.testing.expect(methods > 50);
+}
+
 test "Facts answers as the context it was made from" {
     const source =
         \\obj S

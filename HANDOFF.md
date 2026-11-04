@@ -153,6 +153,12 @@ A new session, human or agent, takes these steps in order:
     a `select` arm, keyword durations, `as a, b` shadowing, two gaps in
     the oracle, emit's last decisions moved into storage, and the
     test/cli scripts as a gate for compiler PRs.
+  - **Emit's last decisions** (branch `emit-facts`): the classifiers
+    `Facts` still called are recorded decisions of the storage plan
+    (`catch_all`, `match_selects`, `binds_string_bytes`,
+    `hoists_results`, `through_write`, `bind_hold`, `compound_call`),
+    and a `swap`'s kind is typecheck's record; a unit test holds
+    `Facts` to reading records.
 - **`select` as a value matched by `match`**, approved and built as
   a test case (records/2026-11/revamp-compiler/panel-select-*.md):
   `match task.select(add: !a.on_recv(), late: time.after(ns))!` with
