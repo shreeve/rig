@@ -300,6 +300,19 @@ Other:
     "`mk` does not consume `self`; remove the `<`". Write
     `for x in b.mk()`, which consumes the List the call makes, as the
     `<` did.
+70. *Unsound:* the right side of `and` and `or`, and each part of a
+    binding condition after the first (`if a and b as x`, the same in a
+    `while` and a ternary), runs only on some paths, and a move or a
+    take there counts only on those: `ok = no() and take(<g)` then
+    `<a`, where `g` views `a` and has a `drop` body, is "cannot drop
+    `a` while it is lent" (its drop body read freed memory), and a
+    field taken there and assigned after is dropped first (it leaked).
+71. A store the ownership checker would follow through more than 16
+    write views in a chain, and generic methods whose calls do not
+    settle what they require of each other in 1,000 rounds, are "this
+    store (call) is too complex for the ownership checker; split it
+    into smaller functions", as a loop past its bound is; such a
+    program was accepted unchecked.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -352,6 +365,11 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The ownership checker is linear in a function's branches.** A
+  branch's end reports a dropped loan only when some value declared in
+  the branch is lent: a function of 40,000 `if` statements, each over
+  its own List, checks its ownership in 101 ms (831 ms before), and
+  16,000 in 38 ms (145 ms).
 - **A ternary's condition binds names.** `id = v.id if r.decl as v
   else 0`, `area = r * r if s matches .circle(r) else 0`, and
   `v.id if x as v and v.id > 0 else 0` bind as an `if` condition does,
