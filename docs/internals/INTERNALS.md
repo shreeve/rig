@@ -5395,7 +5395,9 @@ across modules, and only std.prelude's scope names them.
   of a Rig declaration of its signature with no `from` or `keeps`
   (`sema.signatureOrigins`): a reader's result views only the table, a
   writer stores the keys and values it takes, and nothing keeps a
-  closure. `update` and `retain` lend their own entries to the closure
+  closure. They are the same in every module, so the first module to
+  register a table works them out and the rest read them
+  (`resolve.TableOrigins`). `update` and `retain` lend their own entries to the closure
   (`Field.lends_entries`), which makes the requirement a Rig body that
   did so would (`PlainRequirement.callable`). `ensure_with` calls
   `make` in the prelude (`add_made`), whose result held as a `V` makes
