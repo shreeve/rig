@@ -8392,45 +8392,13 @@ const Checker = struct {
             for (given) |g| _ = try self.synthQuiet(g);
             return self.t().invalid_id;
         };
-        if (given.len != f.ct_params.len) {
-            try self.errAt(e, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ name, f.ct_params.len, plural(f.ct_params.len), given.len });
+        if (!try sema.cteval.arityFits(self.ctx, e, f, name)) {
             for (given) |g| _ = try self.synthQuiet(g);
             return self.t().invalid_id;
         }
         if (self.in_ct_fun) return self.ctCallInBody(e, target, f, name);
-        const vals = try self.ctx.arena.allocator().alloc(sema.cteval.CtVal, given.len);
-        var ok = true;
-        for (given, f.ct_params, 0..) |g, pty_there, i| {
-            const pty = if (target.ctx == self.ctx) pty_there else try sema.importType(self.ctx, target.ctx, pty_there, target.module_id);
-            const mark = self.ctx.diagnostics.items.len;
-            try self.checkCtValue(g, pty, i, name);
-            if (self.ctx.diagnostics.items.len != mark) {
-                ok = false;
-                continue;
-            }
-            if (self.enclosingCtParam(g)) |param| {
-                try self.errAt(g, "compile-time argument {d} of `{s}` is the compile-time parameter `{s}`; a compile-time function is called with values known where the call is written", .{ i + 1, name, self.ctx.symbols.items[param].name });
-                ok = false;
-                continue;
-            }
-            const names: resolve.ConstNames = .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
-            switch (try sema.cteval.argValue(self.ctx, g, pty, names)) {
-                .value => |v| {
-                    if (!try sema.cteval.fits(self.ctx, g, v, pty, i, name)) ok = false;
-                    vals[i] = v;
-                },
-                .failed => ok = false,
-                .overflow => {
-                    try self.errAt(g, "compile-time argument {d} of `{s}` is too large to compute", .{ i + 1, name });
-                    ok = false;
-                },
-                .not_constant => {
-                    try self.errAt(g, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, name });
-                    ok = false;
-                },
-            }
-        }
-        if (!ok) return self.t().invalid_id;
+        const names: resolve.ConstNames = .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
+        const vals = (try sema.cteval.argValues(self.ctx, e, target, f, name, names, self)) orelse return self.t().invalid_id;
         const c = (try sema.cteval.callAt(self.ctx, e, target, vals)) orelse return self.t().invalid_id;
         try sema.cteval.recordCall(self.ctx, e, target, vals, c, self.scope != self.module_scope);
         return c.ty;
@@ -8451,17 +8419,6 @@ const Checker = struct {
         const found = (try self.foreignSymbol(module, self.text(ir.Member.name(callee)), ir.Member.name(callee).src.pos)) orelse return null;
         if (!sema.cteval.isCtFunction(found.ctx, found.id)) return null;
         return .{ .ctx = found.ctx, .sym = found.id, .module_id = found.module_id };
-    }
-
-    /// The compile-time parameter of an enclosing generic function that
-    /// `e` names, or a `=!` binding of one: a value that differs per
-    /// instance, which a compile-time call does not take.
-    fn enclosingCtParam(self: *Checker, e: Sexp) ?SymbolId {
-        if (e != .src) return null;
-        const id = self.ctx.symbolOf(e) orelse return null;
-        if (self.ctx.ct_locals.contains(id)) return id;
-        const sym = self.ctx.symbols.items[id];
-        return if (sym.kind == .param and sym.flags.comptime_known) id else null;
     }
 
     /// A compile-time call in a compile-time function's body: the
@@ -11540,7 +11497,7 @@ const Checker = struct {
     }
 
     /// Compile-time argument `i` of `callee`, a value of type `ty`.
-    fn checkCtValue(self: *Checker, a: Sexp, ty: TypeId, i: usize, callee: []const u8) Error!void {
+    pub fn checkCtValue(self: *Checker, a: Sexp, ty: TypeId, i: usize, callee: []const u8) Error!void {
         if (self.isTypeName(a)) return self.errAt(a, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ i + 1, callee, try self.tyName(ty) });
         const mark = self.ctx.diagnostics.items.len;
         try self.checkExpr(a, ty);

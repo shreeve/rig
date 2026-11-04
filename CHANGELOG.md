@@ -240,6 +240,13 @@ Other:
     files and in Markdown's code. Trig has none; loco has one
     (`rig/loc/scan.rig`). `matches` is a word only after a value, so a
     local, parameter, or function named `matches` keeps its name.
+59. *Unsound:* a compile-time call folded in a type, an alias, or an
+    enum's value holds each argument to its parameter's type, as a call
+    in a body does: `[size[Other.east]]Int`, for `fun size[d: Dir]`,
+    was computed as `Dir.east`, `[size[Nope.east]]Int` with `Nope`
+    unbound was accepted, and `[flag[1]]Int` for a `Bool` parameter was
+    "must be known at compile time". Pass a value of the parameter's
+    type.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`

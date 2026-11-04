@@ -863,10 +863,11 @@ fn report(ctx: *SemContext, call: Sexp, why: Failure) Error!void {
 }
 
 /// The value of an argument for a parameter of type `ty` (of `ctx`), as
-/// `names` knows constants: null when it is not known at compile time.
-pub const Arg = union(enum) { value: CtVal, not_constant, failed, overflow };
+/// `names` knows constants: `not_constant` when it is not known at
+/// compile time, `mismatch` when it combines integers of two types.
+const Arg = union(enum) { value: CtVal, not_constant, failed, overflow, mismatch: @FieldType(sema.CtFold, "mismatch") };
 
-pub fn argValue(ctx: *SemContext, arg: Sexp, ty: TypeId, names: anytype) Error!Arg {
+fn argValue(ctx: *SemContext, arg: Sexp, ty: TypeId, names: anytype) Error!Arg {
     if (arg.isKind(.ct_call)) {
         const v = (try names.ctValue(arg)) orelse return .failed;
         return .{ .value = v };
@@ -876,7 +877,8 @@ pub fn argValue(ctx: *SemContext, arg: Sexp, ty: TypeId, names: anytype) Error!A
             .value => |t| .{ .value = .{ .int = t.v } },
             .failed => .failed,
             .overflow => .overflow,
-            .not_constant, .mismatch => .not_constant,
+            .mismatch => |m| .{ .mismatch = m },
+            .not_constant => .not_constant,
         },
         .bool => {
             if (sema.constBoolBy(ctx, arg, names)) |b| return .{ .value = .{ .boolean = b } };
@@ -894,6 +896,136 @@ pub fn argValue(ctx: *SemContext, arg: Sexp, ty: TypeId, names: anytype) Error!A
             return .{ .value = .{ .variant = i } };
         },
     }
+}
+
+/// Whether the compile-time call `e` of `name` gives as many arguments
+/// as its signature `f` takes; reported when it does not.
+pub fn arityFits(ctx: *SemContext, e: Sexp, f: sema.FunctionType, name: []const u8) Error!bool {
+    const n = argsOf(e).len;
+    if (n == f.ct_params.len) return true;
+    try ctx.errAt(e, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ name, f.ct_params.len, if (f.ct_params.len == 1) "" else "s", n });
+    return false;
+}
+
+/// The values of the arguments of the compile-time call `e` of `t`, `f`
+/// its signature, as `names` knows constants; null after a diagnostic.
+/// Each is first held to its parameter's type: by `typed`, the checker,
+/// where it types the call (`Checker.checkCtValue`), else by what it
+/// spells (`spelledType`), where a type, an alias, or an enum's value
+/// folds the call. Each is then a value known where the call is written.
+pub fn argValues(ctx: *SemContext, e: Sexp, t: Target, f: sema.FunctionType, name: []const u8, names: anytype, typed: anytype) Error!?[]CtVal {
+    const given = argsOf(e);
+    const vals = try ctx.arena.allocator().alloc(CtVal, given.len);
+    var ok = true;
+    for (given, f.ct_params, 0..) |g, pty_there, i| {
+        const pty = if (t.ctx == ctx) pty_there else try sema.importType(ctx, t.ctx, pty_there, t.module_id);
+        const mark = ctx.diagnostics.items.len;
+        if (@TypeOf(typed) == void) try spelledFits(ctx, g, pty, names) else try typed.checkCtValue(g, pty, i, name);
+        if (ctx.diagnostics.items.len != mark) {
+            ok = false;
+            continue;
+        }
+        if (paramArg(ctx, g, names)) |param| {
+            try ctx.errAt(g, "compile-time argument {d} of `{s}` is the compile-time parameter `{s}`; a compile-time function is called with values known where the call is written", .{ i + 1, name, ctx.symbols.items[param].name });
+            ok = false;
+            continue;
+        }
+        switch (try argValue(ctx, g, pty, names)) {
+            .value => |v| {
+                if (!try fits(ctx, g, v, pty, i, name)) ok = false;
+                vals[i] = v;
+            },
+            .failed => ok = false,
+            .overflow => {
+                try ctx.errAt(g, "compile-time argument {d} of `{s}` is too large to compute", .{ i + 1, name });
+                ok = false;
+            },
+            .mismatch => |m| {
+                try ctx.errAt(m.node, "compile-time argument {d} of `{s}` combines `{s}` and `{s}`; convert one to the other's type", .{
+                    i + 1,                                                       name,
+                    try sema.formatType(ctx, try ctx.intern(.{ .int = m.a })), try sema.formatType(ctx, try ctx.intern(.{ .int = m.b })),
+                });
+                ok = false;
+            },
+            .not_constant => {
+                try ctx.errAt(g, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, name });
+                ok = false;
+            },
+        }
+    }
+    return if (ok) vals else null;
+}
+
+/// Report argument `g` of a compile-time call folded outside a body
+/// when what it spells is no value of its parameter's type `ty`: it
+/// names an unbound name, or it is a value of another type (`1` for a
+/// `Bool`, `Other.east` for a `Dir`). The checker types an argument
+/// written in a body or a constant itself.
+fn spelledFits(ctx: *SemContext, g: Sexp, ty: TypeId, names: anytype) Error!void {
+    const got = (try spelledType(ctx, g, names, 0)) orelse return;
+    if (got == ctx.types.invalid_id) return;
+    const same = switch (ctx.types.get(ty)) {
+        .int => ctx.types.get(got) == .int,
+        .bool => ctx.types.get(got) == .bool,
+        else => got == ty,
+    };
+    if (!same) try ctx.errAt(g, "type mismatch: expected `{s}`, got `{s}`", .{ try sema.formatType(ctx, ty), try sema.formatType(ctx, got) });
+}
+
+/// The type of the value argument `e` spells, as `names` sees names: an
+/// integer literal, `true` or `false`, a member of a named type
+/// (`Dir.east`, `lib.Dir.east`, `U8.max`), or a module constant whose
+/// value is one; null when its spelling does not say, and the invalid
+/// type after reporting an unbound name.
+fn spelledType(ctx: *SemContext, e: Sexp, names: anytype, depth: u32) Error!?TypeId {
+    // A chain of constants longer than this is a cycle, reported elsewhere.
+    if (depth > 64) return null;
+    if (e == .src) {
+        const word = identAt(ctx.source, e) orelse return null;
+        if (sema.isIntLiteralText(word)) return ctx.types.int_id;
+        if (std.mem.eql(u8, word, "true") or std.mem.eql(u8, word, "false")) return ctx.types.bool_id;
+        const id = names.symbol(e) orelse {
+            if (resolve.isBuiltinTypeName(ctx, word)) return null;
+            try ctx.errAt(e, "use of unbound name `{s}`", .{word});
+            return ctx.types.invalid_id;
+        };
+        if (!sema.isModuleConst(ctx, id)) return null;
+        for (ctx.const_order.items) |decl| {
+            const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+            if (ctx.symbolOf(ir.Set.target(set)) != id) continue;
+            const module: resolve.ConstNames = .{ .ctx = ctx, .scope = sema.module_scope };
+            return spelledType(ctx, ir.Set.value(set), module, depth + 1);
+        }
+        return null;
+    }
+    if (!e.isKind(.member)) return null;
+    const obj = ir.Member.object(e);
+    const root = if (obj.isKind(.member)) ir.Member.object(obj) else obj;
+    if (root != .src) return null;
+    const word = identAt(ctx.source, root) orelse return null;
+    const id = names.symbol(root) orelse {
+        if (obj != .src or !resolve.isBuiltinTypeName(ctx, word)) {
+            try ctx.errAt(root, "use of unbound name `{s}`", .{word});
+            return ctx.types.invalid_id;
+        }
+        var r: resolve.TypeResolver = .{ .ctx = ctx, .scope = names.scope };
+        return try r.resolveType(obj);
+    };
+    const sym = ctx.symbols.items[id];
+    switch (sym.kind) {
+        // `lib.K`, a constant of another module, typed there; `lib.Dir.east`.
+        .module => if (obj == .src) {
+            const module_id = ctx.module_refs.get(id) orelse return null;
+            const foreign = ctx.foreign_semas.get(module_id) orelse return null;
+            const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+            if (!sema.isModuleConst(foreign, fid)) return null;
+            return try sema.importType(ctx, foreign, foreign.symbols.items[fid].ty, module_id);
+        },
+        .nominal_type, .type_alias => if (obj != .src) return null,
+        else => return null,
+    }
+    var r: resolve.TypeResolver = .{ .ctx = ctx, .scope = names.scope };
+    return try r.resolveType(obj);
 }
 
 /// The variants of plain enum `ty`, in order.
@@ -948,44 +1080,17 @@ pub fn valueCall(ctx: *SemContext, e: Sexp, names: anytype) Error!Folded {
     const t = targetOf(ctx, calleeOf(e), names) orelse return .not_call;
     const name = diag.textOf(ctx.source, ctx.span(calleeOf(e)));
     const f = (try signatureOf(t)) orelse return .failed;
-    const given = argsOf(e);
-    if (given.len != f.ct_params.len) {
-        try ctx.errAt(e, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ name, f.ct_params.len, if (f.ct_params.len == 1) "" else "s", given.len });
-        return .failed;
-    }
-    const vals = try ctx.arena.allocator().alloc(CtVal, given.len);
-    var ok = true;
-    for (given, f.ct_params, 0..) |g, pty_there, i| {
-        const pty = if (t.ctx == ctx) pty_there else try sema.importType(ctx, t.ctx, pty_there, t.module_id);
-        if (try paramArg(ctx, g, names)) |param| {
-            try ctx.errAt(g, "compile-time argument {d} of `{s}` is the compile-time parameter `{s}`; a compile-time function is called with values known where the call is written", .{ i + 1, name, ctx.symbols.items[param].name });
-            ok = false;
-            continue;
-        }
-        switch (try argValue(ctx, g, pty, names)) {
-            .value => |v| {
-                if (!try fits(ctx, g, v, pty, i, name)) ok = false;
-                vals[i] = v;
-            },
-            .failed => ok = false,
-            .overflow => {
-                try ctx.errAt(g, "compile-time argument {d} of `{s}` is too large to compute", .{ i + 1, name });
-                ok = false;
-            },
-            .not_constant => {
-                try ctx.errAt(g, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, name });
-                ok = false;
-            },
-        }
-    }
-    if (!ok) return .failed;
+    if (!try arityFits(ctx, e, f, name)) return .failed;
+    const vals = (try argValues(ctx, e, t, f, name, names, {})) orelse return .failed;
     const called = (try callAt(ctx, e, t, vals)) orelse return .failed;
     return .{ .called = called };
 }
 
 /// The compile-time parameter of an enclosing generic function or type
-/// that `arg` names, as `names` sees names; null for anything else.
-fn paramArg(ctx: *SemContext, arg: Sexp, names: anytype) Error!?SymbolId {
+/// that `arg` names, or a `=!` binding of one, as `names` sees names: a
+/// value that differs per instance, which a compile-time call does not
+/// take. Null for anything else.
+fn paramArg(ctx: *SemContext, arg: Sexp, names: anytype) ?SymbolId {
     if (arg != .src) return null;
     const id = names.symbol(arg) orelse return null;
     if (ctx.ct_locals.contains(id)) return id;
@@ -995,7 +1100,7 @@ fn paramArg(ctx: *SemContext, arg: Sexp, names: anytype) Error!?SymbolId {
 
 /// Whether argument `i` of `name`, value `v`, fits its parameter's type
 /// `ty`; reported when it does not.
-pub fn fits(ctx: *SemContext, arg: Sexp, v: CtVal, ty: TypeId, i: usize, name: []const u8) Error!bool {
+fn fits(ctx: *SemContext, arg: Sexp, v: CtVal, ty: TypeId, i: usize, name: []const u8) Error!bool {
     if (v != .int or sema.intFits(ctx, ty, v.int)) return true;
     const shown = try sema.formatType(ctx, ty);
     try ctx.errAt(arg, "compile-time argument {d} of `{s}` is `{d}`, which {s} `{s}` cannot hold", .{ i + 1, name, v.int, resolve.an(shown), shown });
