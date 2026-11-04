@@ -1866,6 +1866,10 @@ pub const Facts = struct {
     /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: FastMap(u32, void) = .empty,
+    /// Positions of a later alternative's leaf of a name the first binds
+    /// (`.a(n), .b(n)`): it binds the name again, and neither reads nor
+    /// uses it.
+    rebinds: FastMap(u32, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
     /// Callee (`member`) node -> the built-in type's method it calls.
@@ -6371,7 +6375,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| {
         const sym = ctx.symbols.items[e.value_ptr.*];
-        if (sym.decl_pos != e.key_ptr.* and !ctx.facts.writes.contains(e.key_ptr.*)) read.set(e.value_ptr.*);
+        if (sym.decl_pos != e.key_ptr.* and !ctx.facts.writes.contains(e.key_ptr.*) and !ctx.facts.rebinds.contains(e.key_ptr.*)) read.set(e.value_ptr.*);
     }
     for (ctx.symbols.items) |sym| {
         var origin = sym.origin;

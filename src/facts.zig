@@ -1021,6 +1021,10 @@ pub const Facts = struct {
     pub fn methodSelfMode(f: Facts, self_ty: TypeId, name: []const u8) ?SelfMode {
         return sema.methodSelfMode(f.c(), self_ty, name);
     }
+    /// How many variants enum type `enum_ty` has (`sema.enumVariantCount`).
+    pub fn variantCount(f: Facts, enum_ty: TypeId) ?usize {
+        return sema.enumVariantCount(f.c(), enum_ty);
+    }
     /// The payload fields of variant `vname` of an enum type.
     pub fn variantPayload(f: Facts, enum_ty: TypeId, vname: []const u8) ?[]const Field {
         return storage.variantPayload(f.c(), enum_ty, vname);

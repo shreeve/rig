@@ -377,7 +377,7 @@ test "a payload's optional tested both ways covers its variant", "3 n o"
 
   print(show(.got(a: 3)), show(.got(a: none)), show(.other))
 
-fail "a payload's optional tested both ways leaves no arm after it", "9:6: this arm never runs: `.got(v?)` and `.got(none)` cover `.got`", "17:5: this arm never runs: the arms before it cover every value"
+fail "a payload's optional tested both ways leaves no arm after it", "9:6: this arm never runs: the arms before it cover every value of `.got`", "17:5: this arm never runs: the arms before it cover every value"
   enum E
     got(a: Int?)
     other
@@ -399,33 +399,22 @@ fail "a payload's optional tested both ways leaves no arm after it", "9:6: this 
   f3(.other)
   f4(.other)
 
-fail "an error's optional tested both ways covers no member", "13:9: `match` is not exhaustive: it misses `.bad` (its arm has a guard)", "19:9: `match` on `L` is not exhaustive"
-  # Emit lowers no payload test of an error's member, so a match on
-  # errors keeps the rule that a test covers nothing.
-  error A
-    bad(line: Int?)
-    other
+fail "an error's optional field takes no test", "7:10: `_?` tests an optional field of an error, which a pattern cannot: bind it as `v`, then test `v == none`", "8:10: `n?` tests an optional field of an error", "12:18: `none` tests an optional field of an error"
+  error E
+    bad(n: Int?)
+    worse(n: Int)
 
-  error B
-    zed
-
-  error L = A | B
-
-  sub one(e: A)
+  fun f(e: E) -> Int
     match e
-      .bad(l?) => print("bad", l)
-      .bad(none) => print("bad none")
-      .other => print("other")
+      .bad(_?) => 1
+      .bad(n?) => n
+      _ => 3
 
-  sub two(e: L)
-    match e
-      .bad(l?) => print("bad", l)
-      .bad(none) => print("bad none")
-      .bad(_) => print("bad any")
-      .other => print("other")
+  fun h(e: E) -> Bool
+    e matches .bad(none)
 
-  one(A.other)
-  two(B.zed)
+  sub main()
+    print(f(E.bad(n: 4)), h(E.bad(n: none)))
 
 test "a ternary's matches binds for the value before if", '''
   9 10 0
@@ -479,3 +468,492 @@ test "a ternary's matches binds for the value before if", '''
   doubled = bump(!r) if !slot matches .full(r) else 0
   n = r.n if slot matches .full(r) else 0
   print(doubled, n / 2)
+
+test "alternatives that bind name? read the value inside, in every form", '''
+  2 true 2
+  5 true 8
+  0 false -1
+  3 false -1
+  0 false -1
+  2 false -1
+  20 false -1
+  10 false -1
+  300 false -1
+  200 false -1
+  written
+  2
+'''
+  # `.d(m?)` beside `.b(m)` binds the value inside the optional field,
+  # in a match arm, an `if`, an `and`, a `Bool`, a ternary, a `while`,
+  # and a write view, for plain data, a String, a List, and an object.
+  obj P
+    n: Int
+
+  enum T
+    b(x: Int)
+    d(p: Int?)
+    e(s: String?)
+    f(s: String)
+    g(l: List[Int]?)
+    h(l: List[Int])
+    i(o: P?)
+    j(o: P)
+    a
+
+  fun pos(n: Int) -> Bool
+    n > 0
+
+  fun num(v: ?T) -> Int
+    if v matches (.b(m), .d(m?))
+      return m + 1
+    match v
+      .e(s?), .f(s) => s.len
+      .g(l?), .h(l) => l.len * 10
+      .i(o?), .j(o) => o.n * 100
+      _ => 0
+
+  sub main()
+    vs: List[T] = List()
+    !vs.push(.b(x: 1))
+    !vs.push(.d(p: 4))
+    !vs.push(.d(p: none))
+    !vs.push(.e(s: String("hey")))
+    !vs.push(.e(s: none))
+    !vs.push(.f(s: String("ab")))
+    !vs.push(.g(l: List[Int]([1, 2])))
+    !vs.push(.h(l: List[Int]([1])))
+    !vs.push(.i(o: P(n: 3)))
+    !vs.push(.j(o: P(n: 2)))
+    for v in ?vs
+      print(num(v), v matches (.b(m), .d(m?)) and pos(m), m * 2 if v matches (.d(m?), .b(m)) else -1)
+    w: T = .e(s: String("long enough for the heap ....."))
+    if !w matches (.e(s?), .f(s))
+      s = String("written")
+    if w matches (.e(s?), .f(s)) and s.len > 3
+      print(s)
+    i = 0
+    u: T = .d(p: 2)
+    while u matches (.b(m), .d(m?)) and m > 0
+      u = .d(p: m - 1)
+      i += 1
+    print(i)
+
+test "alternatives that cover every variant", '''
+  2
+  5 3 2 -1
+  k 7
+  drop 1
+  end
+'''
+  # A match arm whose alternatives name every variant reads each
+  # binding by the variant the value holds, read, taken, and with an
+  # optional tested beside a plain field.
+  enum S
+    a(n: Int)
+    b(n: Int)
+
+  enum R
+    a(t: String?)
+    b(t: String)
+
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  enum O
+    a(r: Res, k: Int)
+    b(k: Int, r: Res)
+
+  fun get(s: S) -> Int
+    match s
+      .a(n), .b(n) => n
+
+  fun len(r: ?R) -> Int
+    match r
+      .a(t?), .b(t) => t.len
+      .a(none) => -1
+
+  sub main()
+    s: S = .b(n: 2)
+    match s
+      .a(n), .b(n) => print(n)
+    print(get(.a(n: 5)), len(.a(t: String("hey"))), len(.b(t: String("ab"))), len(.a(t: none)))
+    o: O = .b(k: 7, r: Res(n: 1))
+    match <o
+      .a(_, k), .b(k, _) => print("k", k)
+    print("end")
+
+fail "a matches that always holds", "9:16: `(.a(n), .b(n))` matches every `S`, so this test always holds; bind its fields with `match`", "11:19: `(.a(_), .b)` matches every `S`, so this test always holds"
+  # Alternatives that name every variant always match, as a pattern of
+  # an enum with one variant does.
+  enum S
+    a(n: Int)
+    b(n: Int)
+
+  sub main()
+    s: S = .b(n: 2)
+    if s matches (.a(n), .b(n))
+      print(n)
+    print(s matches (.a(_), .b))
+
+fail "error alternatives bind no names in a condition", "7:22: alternatives of an error bind no names", "9:25: alternatives of an error bind no names", "11:24: alternatives of an error bind no names"
+  error Er
+    bad(n: Int)
+    worse(n: Int)
+    gone
+
+  fun t(s: Er) -> Int
+    if s matches (.bad(n), .worse(n))
+      return n
+    while s matches (.bad(n), .worse(n))
+      return n
+    n if s matches (.bad(n), .worse(n)) else 0
+
+  sub main()
+    print(t(Er.gone))
+
+fail "a name alternatives bind that nothing reads", "8:23: `v` is bound but never read", "10:26: `v` is bound but never read", "12:29: `v` is bound but never read", "14:11: `v` is bound but never read"
+  # The name the second alternative binds again is no read of it.
+  enum E
+    left(v: Int)
+    right(v: Int)
+    neither
+
+  fun get(e: E) -> Int
+    if e matches (.left(v), .right(v))
+      return 1
+    while e matches (.left(v), .right(v))
+      return 2
+    r = 3 if e matches (.left(v), .right(v)) else 0
+    match e
+      .left(v), .right(v) => r
+      .neither => 0
+
+  sub main()
+    print(get(.left(v: 1)))
+
+test "optional fields are covered value by value", '''
+  1 1 1
+  2 2 3
+  3 1 2
+  4 3 2
+  0 0 0
+  true 1
+  true -1
+  false 0
+  false 20
+'''
+  # Arms that test optional fields cover the values they test, each
+  # field holding a value or none: four arms over two fields, arms over
+  # different fields, and alternatives with an optional beside a plain
+  # field.
+  enum U
+    d(p: Int?, q: Int, r: Int?)
+    a
+
+  enum St
+    ready(note: Int?)
+    pair(a: Int?, b: Int?)
+    idle
+
+  fun four(u: U) -> Int
+    match u
+      .d(_?, _, _?) => 1
+      .d(_?, _, none) => 2
+      .d(none, _, _?) => 3
+      .d(none, _, none) => 4
+      .a => 0
+
+  fun mixed(u: U) -> Int
+    match u
+      .d(r: _?) => 1
+      .d(p: _?) => 2
+      .d(p: none) => 3
+      .a => 0
+
+  fun mixed2(u: U) -> Int
+    match u
+      .d(p: _?, r: _?) => 1
+      .d(p: none) => 2
+      .d(r: none) => 3
+      .a => 0
+
+  fun pair(s: St) -> Int
+    match s
+      .pair(x?, _), .ready(x?) => x
+      .pair(none, y?) => y * 10
+      .pair(none, none), .ready(none) => -1
+      .idle => 0
+
+  sub main()
+    us = [U.d(p: 1, q: 0, r: 1), U.d(p: 1, q: 0, r: none), U.d(p: none, q: 0, r: 1), U.d(p: none, q: 0, r: none), U.a]
+    for u in us
+      print(four(u), mixed(u), mixed2(u))
+    for s in [St.ready(note: 1), St.ready(note: none), St.idle, St.pair(a: none, b: 2)]
+      print(s matches (.ready(_?), .ready(none)), pair(s))
+
+fail "an arm whose values the arms before it cover", "12:6: this arm never runs: the arms before it cover every value of `.ready(_?)`", "21:6: this arm never runs: the arms before it cover every value of `.d(none, _, _)`", "25:9: `match` is not exhaustive: it misses `.d(none, _, none)`"
+  enum U
+    d(p: Int?, q: Int, r: Int?)
+    a
+
+  enum St
+    ready(note: Int?)
+    idle
+
+  fun dup(s: St) -> Int
+    match s
+      .ready(_?) => 1
+      .ready(_?) => 2
+      .ready(none) => 3
+      .idle => 0
+
+  fun dead(u: U) -> Int
+    match u
+      .d(p: _?) => 1
+      .d(p: none, r: _?) => 2
+      .d(_, _, none) => 3
+      .d(p: none) => 4
+      .a => 0
+
+  fun miss(u: U) -> Int
+    match u
+      .d(_?, _, _) => 1
+      .d(_, _, _?) => 2
+      .a => 0
+
+  sub main()
+    print(dup(.idle), dead(.a), miss(.a))
+
+test "alternatives of one variant that test its optionals apart", '''
+  true
+  true
+  false
+  x 1
+  x 2
+  took 5
+  drop 5
+  drop 6
+  end
+  drop 4
+  drop 3
+  drop 2
+  drop 1
+'''
+  # They match different values, bind each name to one field, and under
+  # `<s` drop each part once.
+  obj T
+    id: Int
+
+    drop(!@)
+      print("drop", @id)
+
+  enum P
+    pair(a: T?, b: T?)
+    idle
+
+  enum St
+    ready(note: Int?)
+    idle
+
+  sub main()
+    for s in [St.ready(note: 1), St.ready(note: none), St.idle]
+      print(s matches (.ready(_?), .ready(none)))
+    ps: List[P] = List()
+    !ps.push(.pair(a: T(id: 1), b: none))
+    !ps.push(.pair(a: T(id: 2), b: T(id: 3)))
+    !ps.push(.pair(a: none, b: T(id: 4)))
+    for p in ?ps
+      if p matches (.pair(x?, none), .pair(x?, _?))
+        print("x", x.id)
+    q: P = .pair(a: T(id: 5), b: T(id: 6))
+    if <q matches (.pair(x?, none), .pair(x?, _?))
+      print("took", x.id)
+    print("end")
+
+fail "alternatives of one variant that overlap or bind apart", "7:32: this alternative matches values an earlier one does: `.pair(_?, _)` and `.pair(_, _?)` both match `.pair(_?, _?)`", "7:40: `x` is field `a` in `.pair(x?, _)` and field `b` in `.pair(_, x?)`: alternatives of one variant bind each name to one field", "9:46: `x` is field `a` in `.pair(x?, none)` and field `b` in `.pair(none, x?)`", "11:28: this alternative matches values an earlier one does"
+  enum P
+    pair(a: Int?, b: Int?)
+    idle
+
+  sub main()
+    p: P = .idle
+    if p matches (.pair(x?, _), .pair(_, x?))
+      print(x)
+    if p matches (.pair(x?, none), .pair(none, x?))
+      print(x)
+    print(p matches (.pair, .pair(_?, _)))
+
+test "matches compares with a module constant", "true false true false true"
+  # A bare name after `matches` that names a module constant compares
+  # with it, as in a match arm.
+  K = 3
+
+  enum Temp
+    warm
+    cold
+
+  WARM: Temp = .warm
+
+  sub main()
+    n = 3
+    t: Temp = .cold
+    print(n matches K, 4 matches K, n matches (1, K), t matches WARM, n == 3 if n matches K else false)
+
+test "<s matches drops what the pattern leaves out at the end of the block", '''
+  arm a(_, _)
+  drop 2
+  drop 1
+  if alts bare
+  drop 4
+  drop 3
+  if binds x 5
+  drop 5
+  drop 6
+  if by name y 8
+  drop 8
+  drop 7
+  drop 10
+  drop 9
+  ternary 1
+  while bare
+  drop 12
+  drop 11
+  end
+'''
+  # In every form, binding or not: the value a test takes drops after
+  # the body, as `match <s` drops it after the arm.
+  obj T
+    id: Int
+
+    drop(!@)
+      print("drop", @id)
+
+  enum S
+    a(x: T, y: T)
+    b(x: T)
+    c
+
+  sub main()
+    s1: S = .a(x: T(id: 1), y: T(id: 2))
+    match <s1
+      .a(_, _) => print("arm a(_, _)")
+      _ => pass
+    s2: S = .a(x: T(id: 3), y: T(id: 4))
+    if <s2 matches (.a, .b)
+      print("if alts bare")
+    s3: S = .a(x: T(id: 5), y: T(id: 6))
+    if <s3 matches .a(x, _)
+      print("if binds x", x.id)
+    s4: S = .a(x: T(id: 7), y: T(id: 8))
+    if <s4 matches .a(y: q)
+      print("if by name y", q.id)
+    s5: S = .a(x: T(id: 9), y: T(id: 10))
+    n = 1 if <s5 matches .a else 0
+    print("ternary", n)
+    s6: S = .a(x: T(id: 11), y: T(id: 12))
+    while <s6 matches .a
+      print("while bare")
+      s6 = .c
+    print("end")
+
+fail "matches with a name that is no constant", "4:19: `k` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value; to compare with `k`, write `n == k`", "5:19: `_` matches every value", "6:23: `k` matches every value"
+  sub main()
+    n = 3
+    k = 3
+    print(n matches k)
+    print(n matches _)
+    print(n matches (1, k), k)
+
+fail "names alternatives bind take the loans one pattern takes", "12:5: cannot reassign `s` while it is lent", "20:13: use of `t` after move", "28:15: use of `t` after move", "34:10: cannot move `s` while a read loan is live", "40:11: use of `s` while a write loan is live"
+  enum S
+    a(t: String?)
+    b(t: String)
+    c(t: String)
+
+  sub eat(s: S)
+    print(s)
+
+  sub reassign()
+    s: S = .a(t: String("long string here to be on the heap ....."))
+    if s matches (.a(t?), .b(t))
+      s = .b(t: String("x"))
+      print(t)
+
+  sub moved()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    match <s
+      .b(t), .c(t)
+        eat(.b(t: <t))
+        print(t)
+      _ => pass
+
+  sub twice()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    ys: List[String] = List[String]()
+    if <s matches (.b(t), .c(t))
+      !ys.push(<t)
+      !ys.push(<t)
+    print(ys)
+
+  sub taken()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    if s matches (.b(t), .c(t))
+      eat(<s)
+      print(t)
+
+  sub written()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    if !s matches (.b(t), .c(t))
+      print(s)
+      t = String("w")
+
+  sub main()
+    reassign()
+    moved()
+    twice()
+    taken()
+    written()
+
+test "name? in a generic instance, and a read binding returned", '''
+  3 -1 104 -100 0
+  1
+  long string here to be on the heap .....
+'''
+  enum E[T]
+    a(n: T?)
+    b(n: T)
+    neither
+
+  fun f(e: E[Int?]) -> Int
+    match e
+      .b(n?) => n
+      .b(none) => -1
+      .a(m?) => 100 + (m ?? 5)
+      .a(none) => -100
+      .neither => 0
+
+  fun get[T](e: ?E[T]) -> Int
+    match e
+      .a(v?), .b(v) => 1
+      _ => 0
+
+  enum S
+    t(s: String)
+    c
+
+  fun text(s: ?S) -> ?String from s
+    if s matches .t(v)
+      return v
+    match s
+      .t(v) => return v
+      .c => return "none"
+
+  sub main()
+    print(f(.b(n: 3)), f(.b(n: none)), f(.a(n: 4)), f(.a(n: none)), f(.neither))
+    a: E[Int] = .b(n: 3)
+    print(get(a))
+    s: S = .t(s: String("long string here to be on the heap ....."))
+    print(text(s))
