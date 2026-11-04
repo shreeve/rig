@@ -2737,15 +2737,6 @@ pub const Emitter = struct {
         try self.closeHeader(h);
     }
 
-    /// Whether the header over construct subject `e`, of header `node`,
-    /// is evaluated as a copy: it makes temporaries and reaches no place
-    /// (`headerPoints`). The checker records the same (`copiesHeader`).
-    fn copiesSubject(self: *Emitter, node: Sexp, e: Sexp) Error!bool {
-        const copies = self.hasTemps(e) and !try self.headerPoints(e);
-        if (copies != self.facts.copiesHeader(node)) return self.unsupported(node, "a header copy the checker did not record");
-        return copies;
-    }
-
     fn emitStmtOnly(self: *Emitter, sexp: Sexp) Error!void {
         self.stmt = sexp;
         try self.inUnit(sexp);
@@ -4301,9 +4292,6 @@ pub const Emitter = struct {
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.headerOf(sexp);
-        // A source with temporaries that reaches no place is walked as a
-        // copy, which the checker records (`copiesHeader`).
-        if (mode != .move and header != .taken and !rig.isRangeIndex(source)) _ = try self.copiesSubject(sexp, source);
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
@@ -4528,10 +4516,6 @@ pub const Emitter = struct {
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
             .in_place = try self.need(self.facts.matchesInPlace(sexp), sexp),
         };
-        // A subject with temporaries that reaches no place is matched as
-        // a copy, which the checker records (`copiesHeader`).
-        const held_view = try self.need(self.facts.holdsView(sexp), sexp);
-        if (info.mode != .consume and !held_view) _ = try self.copiesSubject(sexp, info.subject);
         const guarded = self.facts.matchSelects(sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
@@ -5712,7 +5696,7 @@ pub const Emitter = struct {
         // The header binds a copy of a value with temporaries that reaches
         // no place (`copiesHeader`); a place it reaches, the place's own.
         const owns = value.isKind(.move) or (try self.need(self.facts.handsOver(value), value) == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
-        const copies = !owns and try self.copiesSubject(cond, value);
+        const copies = !owns and self.facts.copiesHeader(cond);
         const points = try self.headerPoints(value);
         // An optional that goes through the helpers is tested as the Zig
         // optional `rig.some` gives, and captured by address through
