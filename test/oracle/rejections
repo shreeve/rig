@@ -3478,6 +3478,8 @@ test/reject/ownership/move_part_that_copies.rig through_handle
 test/reject/ownership/move_part_that_copies.rig through_views
 test/reject/ownership/move_part_that_copies.rig write_part
 test/reject/ownership/move_scrutinee_while_payload_live.rig main
+test/reject/ownership/move_skipped_and.rig main
+test/reject/ownership/move_skipped_condition_part.rig main
 test/reject/ownership/move_through_branch_or_exit.rig f
 test/reject/ownership/move_through_branch_or_exit.rig g
 test/reject/ownership/move_through_branch_or_exit.rig main
