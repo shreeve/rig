@@ -4070,8 +4070,9 @@ pub fn frexpExponent(x: anytype) i64 {
 /// When `E`'s values fill a range `lo..hi`, as an enum declaring no
 /// values does from 0, `n` is tested against the range and cast; else a
 /// `switch` over `E`'s values decides, which Zig lowers to a jump table
-/// or a tree of compares. Scanning the values instead cost a hit 51 ns
-/// on a 352-variant enum, and a binary search 3 ns, against 0.2 ns.
+/// or a tree of compares. On a 352-variant enum a hit costs 0.2 ns,
+/// against 50 ns for scanning the values and 2.6 ns for a binary search;
+/// on 2,228 values spread apart, 1.2 ns against 265 and 4.4.
 pub fn enumFromInt(comptime E: type, n: anytype) Opt(E) {
     const info = @typeInfo(E).@"enum";
     const vs = info.field_values;
@@ -4092,7 +4093,12 @@ pub fn enumFromInt(comptime E: type, n: anytype) Opt(E) {
     const tag = std.math.cast(info.tag_type, n) orelse return pack(Opt(E), null);
     return switch (@as(OpenEnum(E), @fromBackingInt(tag))) {
         _ => pack(Opt(E), null),
-        else => pack(Opt(E), @as(E, @fromBackingInt(tag))),
+        // The prong is a variant's value: Zig's test that it names one
+        // would decide again what the switch did.
+        else => named: {
+            @setRuntimeSafety(false);
+            break :named pack(Opt(E), @as(E, @fromBackingInt(tag)));
+        },
     };
 }
 
