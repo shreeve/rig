@@ -1743,3 +1743,75 @@ fail "header view loans", "22:5: cannot lend `v` to write while a read loan is l
     print(saved.n)
 
   loops()
+
+test "header ternary bindings own and lend as if does", '''
+  drop 4
+  8
+  7 7
+  8 8
+  drop 3
+  103 true
+  1 20
+  drop 20
+  drop 1
+  drop 8
+'''
+  # A ternary's condition holds its binding as `if a as x` does (SPEC
+  # §12): a temporary's value is owned by the binding and dropped after
+  # the value, `?m` and `!m` bind views, `<b.r` takes the value out of a
+  # field, and `<r` moves the owned binding out.
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  obj Box
+    r: Res?
+
+  fun make(k: Int) -> Res?
+    Res(n: k) if k > 0 else none
+
+  fun peek(o: ?Res?) -> Int
+    r.n if o as r else -1
+
+  fun bump(r: !Res) -> Int
+    r.n += 1
+    r.n
+
+  a = r.n * 2 if make(4) as r else 0
+  print(a)
+  m: Res? = Res(n: 7)
+  print(r.n if ?m as r else 0, peek(?m))
+  c = bump(!r) if !m as r else 0
+  print(c, peek(?m))
+  bx = Box(r: Res(n: 3))
+  d = r.n + 100 if <bx.r as r else 0
+  print(d, bx.r == none)
+  e = <r if make(1) as r else Res(n: 0)
+  f = <r if make(-1) as r else Res(n: 20)
+  print(e.n, f.n)
+
+fail "header ternary binding is used after a move in its condition", "7:5: use of `s` after move"
+  # The condition runs first, though the value before `if` is written
+  # first: a move in the condition comes before the value's reads.
+  fun take(s: String) -> Int?
+    s.len if s.len > 0 else none
+
+  s = String("abc")
+  n = s.len + v if take(<s) as v else 0
+  print(n)
+
+fail "header ternary view outlives the place it views", "11:6: `r` does not live long enough"
+  # A binding of a temporary lives only for the value before `if`, so a
+  # view of it cannot leave the expression.
+  obj Res
+    n: Int
+    s: String
+
+  fun make(k: Int) -> Res?
+    Res(n: k, s: String("x")) if k > 0 else none
+
+  o = Res(n: 0, s: String("z"))
+  v = ?r if make(1) as r else ?o
+  print(v.n)

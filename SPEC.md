@@ -5709,6 +5709,57 @@ sub main()
 negative 11
 ```
 
+A ternary's condition binds names as an `if` condition does, with
+`as` ([§12](#12-optionals)) and `matches`
+([§12](#testing-a-pattern-matches)), joined by `and`, and they are
+visible only in the value before `if`: not in the `else` value, and not
+after the expression. The condition runs first, as in every
+conditional, so `v.id if r.decl as v else 0` reads `v` before the
+condition that binds it is written. Each binding is held as an `if`
+holds it: the value inside a temporary is owned by the binding and
+dropped after the value, `?a` and `!a` bind views, and `<a.f` takes the
+value out of a field. A postfix guard binds no names.
+
+```rig
+obj Decl
+  id: Int
+
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+  point
+
+fun find(k: Int) -> Decl?
+  Decl(id: k * 10) if k > 0 else none
+
+fun area(s: Shape) -> Int
+  r * r if s matches .circle(r) else w * h if s matches .rect(w, h) else 0
+
+sub main()
+  d = find(4)
+  print(v.id if d as v else 0, v.id if find(0) as v else 0)
+  print(v.id if d as v and v.id > 50 else -1)
+  print(area(.circle(r: 3)), area(.rect(w: 2, h: 5)), area(.point))
+```
+
+```output
+40 0
+-1
+9 10 0
+```
+
+```rig reject
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main()
+  print(x if get(1) as x else x)
+```
+
+```error
+use of unbound name `x`; the condition binds `x` only for what runs when it holds, not for `else`
+```
+
 A statement `<e` moves `e` nowhere, so what it takes is dropped now
 ([Drop](#drop)): `<x` drops the binding `x`, `<s.f` and `<v[i]` take an
 optional field or element and drop it, leaving `none`, and `<mk()`
@@ -10541,6 +10592,7 @@ object), and a `T` beside a flag otherwise, as any other type's is.
 | `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#places)) |
 | `while a as x` | repeat while `a` produces a value |
 | `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |
+| `v if a as x else w` | the same in a ternary: `x` is visible in `v` only, and `w` is the value when `a` is `none` ([Block expressions](#block-expressions)) |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
 
 Fields and methods are not reachable through an optional; take the
@@ -10675,10 +10727,11 @@ ends then). Each binding takes its own form: `if ?o as x and !p as y`
 views from both. A binding made before a part that fails is dropped
 before `else` runs. A `while` step may read the bindings (it runs
 after the body, before they go) when every binding of the condition is
-plain data and no `continue` in the condition can skip one. `as` stands
-nowhere else: not under `or` or `not`, not in the condition of a
-ternary or a postfix guard (which have no block to see the name), and
-not in an expression.
+plain data and no `continue` in the condition can skip one. A
+ternary's condition binds the same way, for the value before `if`
+([Block expressions](#block-expressions)). `as` stands nowhere else:
+not under `or` or `not`, not in a postfix guard's condition (the
+statement before it sees no name), and not in an expression.
 
 ```rig
 fun get(k: Int) -> Int?
@@ -10716,7 +10769,7 @@ sub main()
 ```
 
 ```error
-`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`
+`as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`
 ```
 
 ### An object that names its none
@@ -10796,7 +10849,9 @@ costs what that `match` costs. Negation follows the comparison rule:
 In the condition of an `if` or `while`, the names a pattern binds are
 bound in the body, and in the rest of the condition after an `and`:
 `if s matches .circle(r) and r > 10`. It is a `match` with that one
-arm, whose other values fall to `else`. Anywhere else, the names flow
+arm, whose other values fall to `else`. In a ternary's condition they
+are bound in the value before `if`, `r * r if s matches .circle(r)
+else 0` ([Block expressions](#block-expressions)). Anywhere else, the names flow
 right through `and`, and only there: `x matches .ready(s) and s
 matches (.done, .cached)` is a `Bool` in a closure too. A name nothing
 reads is rejected, as anywhere: where it ends a `Bool`, the pattern

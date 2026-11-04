@@ -426,3 +426,56 @@ fail "an error's optional tested both ways covers no member", "13:9: `match` is 
 
   one(A.other)
   two(B.zed)
+
+test "a ternary's matches binds for the value before if", '''
+  9 10 0
+  106
+  hi other
+  14 7
+  drop 14
+'''
+  # A ternary's condition binds the names a pattern binds, as an `if`
+  # condition does, for the value before `if` (SPEC, "Block
+  # expressions"): one pattern, alternatives, `<s` taking a field out,
+  # and `!s` binding a write view.
+  enum Shape
+    circle(r: Int)
+    rect(w: Int, h: Int)
+    point
+
+  enum State
+    ready(note: String?)
+    failed(code: Int)
+
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  enum Slot
+    full(r: Res)
+    empty
+
+  fun area(s: Shape) -> Int
+    r * r if s matches .circle(r) else w * h if s matches .rect(w, h) else 0
+
+  fun bump(r: !Res) -> Int
+    r.n *= 2
+    r.n
+
+  print(area(.circle(r: 3)), area(.rect(w: 2, h: 5)), area(.point))
+  shapes = List[Shape]([.circle(r: 2), .rect(w: 1, h: 4), .point])
+  total = 0
+  for sh in ?shapes
+    total += n if sh matches (.circle(n), .rect(_, n)) else 100
+  print(total)
+  s: State = .ready(note: String("hi"))
+  t = <note if <s matches .ready(note?) else String("none")
+  u: State = .failed(code: 3)
+  w = <note if <u matches .ready(note?) else String("other")
+  print(t, w)
+  slot: Slot = .full(r: Res(n: 7))
+  doubled = bump(!r) if !slot matches .full(r) else 0
+  n = r.n if slot matches .full(r) else 0
+  print(doubled, n / 2)

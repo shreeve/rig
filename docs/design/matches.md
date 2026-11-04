@@ -62,7 +62,9 @@ reads the value once.
 | a full match, unchanged | `match x` / `.a, .b => ...` / `_ => pass` |
 
 - **A `Bool` anywhere.** In an `if` or `while` condition, the names the
-  pattern binds are bound in the body and after `and`. Anywhere else
+  pattern binds are bound in the body and after `and`; in a ternary's,
+  in the value before `if` (`r * r if s matches .circle(r) else 0`),
+  as `as` binds there. Anywhere else
   they flow right through `and` and only there, so
   `x matches .ready(s) and s matches (.done, .cached)` works in a
   closure too.
@@ -143,6 +145,8 @@ not, the value is dropped as the test fails, before `else` runs, as
 Rust 2024 drops an `if let`'s temporaries before its `else`. `s` is
 moved either way. When a field of a read binding is passed where a
 value is owned, the diagnostic offers `<` on the subject before `+`.
+A ternary's condition holds its bindings the same way, for the value
+before `if`: `<note if <e matches .ready(note?) else String("none")`.
 
 ```rig
 obj Rendered
@@ -226,7 +230,8 @@ These edges are each rejected with the plain form in the message:
 6. **Patterns after `matches`.** The parser reads patterns there, so a
    parenthesized list is never the rejected tuple form.
 7. **Names flow right through `and`** in any expression; elsewhere a
-   pattern binds only in an `if` or `while` condition.
+   pattern binds only in the condition of an `if`, a `while`, or a
+   ternary.
 8. **A name nothing reads** where a `Bool` goes (`ok = x matches
    .a(r)`) is rejected: "write `.a(_)`".
 9. **`not`** takes the whole test: `not x matches (...)` means

@@ -1416,8 +1416,9 @@ pub const Lexer = struct {
             .ampersand => if (self.isTaskAmp(tok)) .task_amp else .ampersand,
             // `if f() as a, b`: a `,` after `as name` outside brackets
             // joins the names `as` binds. Inside brackets a `,` after
-            // `x as a` separates arguments or elements.
-            .comma => if (self.nesting == 0 and self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma)) .as_comma else .comma,
+            // `x as a` separates arguments or elements, unless names and
+            // a ternary's `else` follow (`f(a + b if g() as a, b else 0)`).
+            .comma => if (self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma) and (self.nesting == 0 or namesThenElse(self.base))) .as_comma else .comma,
             .err => return self.lexError(tok),
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok) else tok.cat,
         };
@@ -1845,10 +1846,13 @@ pub const Lexer = struct {
     }
 
     /// Scan ahead on the current logical line for an `else` at this
-    /// nesting level (the ternary form `a if c else b`).
+    /// nesting level (the ternary form `a if c else b`). A `,` between
+    /// the names `as` binds (`if f() as a, b else 0`) goes on.
     fn elseFollows(self: *const Lexer) bool {
         var probe = self.base;
         var depth: u32 = 0;
+        var prev: TokenCat = .eof;
+        var names = false;
         while (true) {
             const t = probe.next();
             switch (t.cat) {
@@ -1859,9 +1863,33 @@ pub const Lexer = struct {
                     if (depth == 0) return false;
                     depth -= 1;
                 },
-                .comma => if (depth == 0) return false,
+                .comma => if (depth == 0 and !(names and prev == .ident and namesThenElse(probe))) return false,
                 .@"else" => if (depth == 0) return true,
                 else => {},
+            }
+            names = switch (t.cat) {
+                .ident => prev == .as or (names and prev == .comma),
+                .comma => names,
+                else => false,
+            };
+            prev = t.cat;
+        }
+    }
+
+    /// Whether the rest of the names `as` binds and then a ternary's
+    /// `else` follow the `,` `from` stands after: `b else` or `b, c else`.
+    fn namesThenElse(from: BaseLexer) bool {
+        var probe = from;
+        while (true) {
+            var t = probe.next();
+            while (t.cat == .newline) t = probe.next();
+            if (t.cat != .ident) return false;
+            t = probe.next();
+            while (t.cat == .newline) t = probe.next();
+            switch (t.cat) {
+                .comma => {},
+                .@"else" => return true,
+                else => return false,
             }
         }
     }
@@ -6000,6 +6028,10 @@ test "if: block, guard, ternary" {
     try expectCats("return if c", &.{ .@"return", .post_if, .ident });
     try expectCats("return x if c", &.{ .@"return", .ident, .post_if, .ident });
     try expectCats("x = a if c else b", &.{ .ident, .assign, .ident, .ternary_if, .ident, .@"else", .ident });
+    try expectCats("x = a if f() as a, b else 0", &.{ .ident, .assign, .ident, .ternary_if, .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident, .@"else", .integer });
+    try expectCats("f(a if c, b)", &.{ .ident, .lparen, .ident, .post_if, .ident, .comma, .ident, .rparen });
+    try expectCats("[a if g() as a, b if c else 0]", &.{ .lbracket, .ident, .post_if, .ident, .lparen, .rparen, .as, .ident, .comma, .ident, .ternary_if, .ident, .@"else", .integer, .rbracket });
+    try expectCats("f(a if g() as a, b else 0, c)", &.{ .ident, .lparen, .ident, .ternary_if, .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident, .@"else", .integer, .comma, .ident, .rparen });
     try expectCats("f(a if c else b)", &.{ .ident, .lparen, .ident, .ternary_if, .ident, .@"else", .ident, .rparen });
 }
 
