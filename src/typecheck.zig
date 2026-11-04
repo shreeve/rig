@@ -12999,12 +12999,7 @@ const Checker = struct {
             }
         }
         if (try self.moduleNamed(obj)) |id| {
-            if (ct == null) if (try self.taskJoin(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
-            if (ct == null) if (try self.parCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
-            if (ct == null) if (try self.isolateCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
-            if (ct == null) if (try self.httpServe(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
-            if (ct == null) if (try self.ioCopy(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
-            if (ct == null) if (try self.taskSelect(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
+            if (ct == null) if (try self.stdForm(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         }
         if (try self.builtinTypeNamed(obj, self.ctx.simd_sym_id, .simd)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
@@ -14805,17 +14800,38 @@ const Checker = struct {
         return any;
     }
 
+    /// A call of a std function the checker types itself, since Rig cannot
+    /// declare it (`task.all`, `isolate`, `supervise`, `select`,
+    /// `par.map`, `each`, `workers`, `http.serve`, `io.copy`): its type.
+    /// Null for any other call of module `module_sym`. One lookup of the
+    /// module for every call through one.
+    fn stdForm(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
+        const module = (self.ctx.foreign_semas.get(origin) orelse return null).name;
+        const eql = std.mem.eql;
+        if (eql(u8, module, "std.task")) {
+            if (eql(u8, name, "all")) return try self.taskJoin(pos, args);
+            if (eql(u8, name, "select")) return try self.taskSelect(pos, args);
+            if (eql(u8, name, "isolate") or eql(u8, name, "supervise")) return try self.isolateCall(eql(u8, name, "supervise"), pos, args);
+        } else if (eql(u8, module, "std.par")) {
+            if (eql(u8, name, "workers")) return try self.parWorkers(pos, args);
+            if (eql(u8, name, "map")) return try self.parCall(.map, pos, args);
+            if (eql(u8, name, "each")) return try self.parCall(.each, pos, args);
+        } else if (eql(u8, module, "std.http")) {
+            if (eql(u8, name, "serve")) return try self.httpServe(module_sym, pos, args);
+        } else if (eql(u8, module, "std.io")) {
+            if (eql(u8, name, "copy")) return try self.ioCopy(pos, args);
+        }
+        return null;
+    }
+
     /// `task.all(a, b, ...)` of `std.task`: wait for tasks of any types,
     /// which the call takes, and give each one's value as several
     /// results, failing when any task can. Rig declares no function of
     /// any number of arguments, so the call is typed here, its
-    /// parameters the tasks' own types (`argType`). Null when
-    /// `module_sym` is not `std.task`, or `name` is not `all`.
-    fn taskJoin(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (!std.mem.eql(u8, foreign.name, "std.task")) return null;
-        if (!std.mem.eql(u8, name, "all")) return null;
+    /// parameters the tasks' own types (`argType`).
+    fn taskJoin(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
+        const name = "all";
         if (args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
         const a = self.ctx.arena.allocator();
         const params = try a.alloc(TypeId, args.len);
@@ -14853,14 +14869,8 @@ const Checker = struct {
     /// in the call, whose result decides whether it fails, or a function's
     /// name. Every task reads what `f` captures, and `map`'s elements, so
     /// these must sync; `each`'s elements and `map`'s values go to other
-    /// tasks, so these must be sendable. Null when `module_sym` is not `std.par`,
-    /// or `name` neither.
-    fn parCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (!std.mem.eql(u8, foreign.name, "std.par")) return null;
-        if (std.mem.eql(u8, name, "workers")) return try self.parWorkers(pos, args);
-        const kind: sema.ParCall = if (std.mem.eql(u8, name, "map")) .map else if (std.mem.eql(u8, name, "each")) .each else return null;
+    /// tasks, so these must be sendable.
+    fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp) Error!TypeId {
         const shown = if (kind == .map) "par.map" else "par.each";
         const example = if (kind == .map) "par.map(?xs, |x| x * 2)" else "par.each(!xs, |x| x *= 2)";
         var positional: usize = 0;
@@ -15049,14 +15059,9 @@ const Checker = struct {
     /// body propagates, or a function's name. Its frames are dropped at a
     /// panic with whatever they half-changed, so nothing outside `f` is
     /// lent to it to write: no capture is `|!x|`. A task started in `f`
-    /// ends in it, so `f` gives no value that holds one. Null when
-    /// `module_sym` is not `std.task`, or `name` not `isolate`.
-    fn isolateCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (!std.mem.eql(u8, foreign.name, "std.task")) return null;
-        const supervise = std.mem.eql(u8, name, "supervise");
-        if (!supervise and !std.mem.eql(u8, name, "isolate")) return null;
+    /// ends in it, so `f` gives no value that holds one. `task.supervise`
+    /// when `supervise`.
+    fn isolateCall(self: *Checker, supervise: bool, pos: u32, args: []const Sexp) Error!TypeId {
         const shown = if (supervise) "task.supervise" else "task.isolate";
         if (supervise) {
             for (args[@min(args.len, 1)..]) |a| {
@@ -15152,12 +15157,8 @@ const Checker = struct {
     /// value received as `T?`, none once the channel is closed and empty,
     /// or `(!ch).on_send(<v, f)`, whose `f` takes nothing; every `f` gives
     /// the same type, and is a closure written in the arm, a closure's
-    /// view, or a function's name. A fallible waiting point. Null when `module_sym` is not
-    /// `std.task`, or `name` not `select`.
-    fn taskSelect(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (!std.mem.eql(u8, foreign.name, "std.task") or !std.mem.eql(u8, name, "select")) return null;
+    /// view, or a function's name. A fallible waiting point.
+    fn taskSelect(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         const shape = "each arm of `task.select` is `(!ch).on_recv(|v| ...)` or `(!ch).on_send(<v, || ...)`";
         if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on; {s}", .{shape});
         // Every arm's function first, each typed alone (`armResult`):
@@ -15258,12 +15259,9 @@ const Checker = struct {
     /// closure written in the call, or a function's name. Every
     /// connection's task calls `f`, so each capture must sync and none
     /// is a write view, as `par.map`'s. It fails as the listener fails, or
-    /// when its task is canceled. Null when `module_sym` is not
-    /// `std.http`, or `name` not `serve`.
-    fn httpServe(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (!std.mem.eql(u8, foreign.name, "std.http") or !std.mem.eql(u8, name, "serve")) return null;
+    /// when its task is canceled. Null when `module_sym`, `std.http`,
+    /// declares no `Request` or `Response`.
+    fn httpServe(self: *Checker, module_sym: SymbolId, pos: u32, args: []const Sexp) Error!?TypeId {
         const example = "`http.serve(<listener, |req| http.text(\"hi\"))`";
         if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return try self.badCall(args, pos, "`http.serve` takes a `net.Listener` and the function that answers each request: {s}", .{example});
         const req_sym = self.foreignLookup(module_sym, "Request") orelse return null;
@@ -15301,12 +15299,8 @@ const Checker = struct {
     /// `io.copy(!from, !to)` of `std.io`: copy what `from` reads to `to`
     /// until `from` ends, and give how many bytes. Each is a `file.File`
     /// or a `net.Stream`, lent to write. Rig has no interfaces, so the
-    /// checker types it, as it does `http.serve`. Null when `module_sym`
-    /// is not `std.io`, or `name` not `copy`.
-    fn ioCopy(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (!std.mem.eql(u8, foreign.name, "std.io") or !std.mem.eql(u8, name, "copy")) return null;
+    /// checker types it, as it does `http.serve`.
+    fn ioCopy(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return try self.badCall(args, pos, "`io.copy` takes what to read and what to write, each a `file.File` or a `net.Stream`: `io.copy(!src, !dst)`", .{});
         var params: [2]TypeId = undefined;
         for (args, 0..) |a, i| {
