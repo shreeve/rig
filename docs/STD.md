@@ -68,7 +68,7 @@ is checked for its type, as any generic call is.
 | `min[T: Ord](a: T, b: T) -> T`, `max[T: Ord](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal. A float provides no `Ord`: it has its own `x.min(y)` and `x.max(y)` |
 | `clamp[T: Ord](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo`. A float has its own `x.clamp(lo, hi)` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
-| `pow[T: Copy + Num](base: T, power: T) -> T` | `base` to the power `power`, for any number type. An integer's is found by squaring and panics on overflow as `*` does; a negative `power` gives 1 divided by `base` to the power `-power`, truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, and 0 for any other but 0, which panics as dividing by 0 does. A float's is C's `pow`, below |
+| `pow[T: Copy + Num](base: T, power: T) -> T` | `base` to the power `power`, for any number type. An integer's is found by squaring and panics on overflow as `*` does; a negative `power` gives 1 divided by `base` to the power `-power`, truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, and 0 for any other but 0, which panics as dividing by 0 does. A float's is Zig's `std.math.pow`, below |
 | `mod(a: Int, b: Int) -> Int` | the floored remainder, with the sign of `b`; panics when `b` is 0 |
 | `PI`, `E` | the Float constants |
 
@@ -115,7 +115,7 @@ negative number) is NaN, which equals nothing, itself included.
 | `ln(x: Float) -> Float` | the natural logarithm |
 | `log2(x: Float) -> Float` | the base-2 logarithm |
 | `sin(x: Float) -> Float`, `cos(x: Float) -> Float` | the sine and cosine of `x` radians |
-| `pow(x, y)` of floats | `x` to the power `y`, as C's `pow` gives it: 1 for a `y` of 0, even for a NaN `x`; an infinity for a zero `x` and a negative `y` |
+| `pow(x, y)` of floats | `x` to the power `y`, by Zig's `std.math.pow`, with C's answers for zeros, infinities, and NaN: 1 for a `y` of 0, even for a NaN `x`; an infinity for a zero `x` and a negative `y`. Elsewhere it can differ from C's `pow` in the last digits |
 
 ```rig
 use std.math

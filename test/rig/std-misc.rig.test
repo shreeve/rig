@@ -280,7 +280,7 @@ bomb "bigint base one panics", "bigint.parse: the base is not 0 or between 2 and
 
   print((bigint.parse("0", 1) catch bigint.from_int(0)).text())
 
-fail "std old names", "no member `new_doc` in module `json`; an empty Doc is `json.Doc()`, and `json.parse(?src)!` parses into a new one", "no method `parse` on type `Doc`; `json.parse(?src)!` makes a Doc, and `(!doc).load(?src)!` fills one again", "no method `size` on type `Doc`; the number of tape entries is the field `doc.len`", "no method `get_int` on type `Doc`; write `doc.int(i)`", "no method `get_str` on type `Doc`; write `doc.string(i)`", "no method `get_bool` on type `Doc`; write `doc.bool(i)`", "no method `get_float` on type `Doc`; write `doc.float(i)`", "no field `error` on type `Doc`; `json.parse` and `load` fail with a `JsonError` that carries the offset", "no field `error_pos` on type `Doc`", "no member `error_name` in module `json`; a `JsonError` names its reason and offset", "no member `compare` in module `text`; order two texts with `a.order(?b)`", "no member `powf` in module `math`; `math.pow` takes floats too", "no method `compare` on type `BigInt`; compare with `<` and its kin, or write `a.order(?b)`", "no method `equals` on type `BigInt`; a BigInt compares with `==`", "no method `to_f64` on type `BigInt`; write `a.to_float()`", errors: 16
+fail "std old names", "no member `new_doc` in module `json`; an empty Doc is `json.Doc()`, and `json.parse(?src)!` parses into a new one", "no method `parse` on type `Doc`; `json.parse(?src)!` makes a Doc, and `(!doc).load(?src)!` fills one again", "no method `size` on type `Doc`; the number of tape entries is the field `doc.len`", "no method `get_int` on type `Doc`; write `doc.int(i)`", "no method `get_str` on type `Doc`; write `doc.string(i)`", "no method `get_bool` on type `Doc`; write `doc.bool(i)`", "no method `get_float` on type `Doc`; write `doc.float(i)`", "no field `error` on type `Doc`; `json.parse` and `load` fail with a `JsonError` that carries the offset", "no field `error_pos` on type `Doc`", "no member `error_name` in module `json`; a `JsonError` names its reason and offset", "no member `compare` in module `text`; order two texts with `a.order(?b)`", "no member `powf` in module `math`; `math.pow` takes floats too", "no method `compare` on type `BigInt`; compare with `<` and its kin, or write `a.order(?b)`", "no method `equals` on type `BigInt`; a BigInt compares with `==`", "no method `to_f64` on type `BigInt`; write `a.to_float()`", "no variant `bad` on enum `json.JsonError`; each reason is a member of its own with its offset", errors: 17
   # Each name the standard library gave up for 0.3.0 is rejected with the
   # one that replaced it (tools/migrate-std-0.3.py rewrites most).
 
@@ -292,6 +292,11 @@ fail "std old names", "no member `new_doc` in module `json`; an empty Doc is `js
   print(text.compare("a", "b"), math.powf(2.0, 3.0))
   a = bigint.from_int(1)
   print(a.compare(a.clone()), a.equals(a.clone()), a.to_f64())
+  _ = json.parse("[") catch |err|
+    match err
+      .bad(kind, at) => print(at)
+      _ => print(0)
+    json.Doc()
 
 fail "std.iter is gone", "the standard library has no module `iter`; a chain counts and sums what it gives: `xs.filter(f).count()`, `(!it).sum()`"
   use std.iter
@@ -943,6 +948,7 @@ test "json load fails with the error and its offset", '''
   JsonError.unexpected(at: 4)
   unexpected at 4 0
   -1
+  4
   3 JsonError.trailing(at: 4)
 '''
   # `load` fails with the reason, a member of `JsonError` carrying the
@@ -965,6 +971,8 @@ test "json load fails with the error and its offset", '''
         _ => print("other")
       -1
     print(n)
+    (!doc).load("[1, 2]") catch |e| print("stale", e)
+    print(doc.len)
     one = json.parse("[1]") catch json.Doc()
     _ = json.parse("[1] 2") catch |e|
       print(one.len, e)
@@ -2043,7 +2051,7 @@ test "math int", '''
   # std.math's integer helpers, written in Rig: `abs` is generic over
   # signed numbers, `min`, `max`, and `clamp` over ordered types, which
   # a float is not (it has its own); `gcd` and `mod` take `Int`s, and
-  # `pow` any number type, a float's by C's `pow`.
+  # `pow` any number type, a float's by Zig's `std.math.pow`.
 
   print(math.abs(-7), math.abs(7), math.abs(0), math.abs(-2.5), math.abs(I8(-3)))
   print(math.min(3, 9), math.max(3, 9), (-1.5).min(2.0), math.max("a", "b"))

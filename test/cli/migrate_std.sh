@@ -114,3 +114,41 @@ expect_eq "$got" "3 -1
 false true 4.0
 [\"angular\", \"react\", \"vue\"] true 1024.0
 4 0 .less" "the migrated program's output"
+
+# What would change meaning is not rewritten so: an integer literal in
+# `powf` was a Float, and `pow` would take it as an Int, so it is
+# written `2.0`; a `powf` of arguments not visibly Floats is MANUAL; and
+# `?? 0 + 1` is `?? (0 + 1)`, so it is MANUAL, where `?? 0` before a `)`
+# is rewritten.
+cat >meaning.rig <<'END'
+use std.iter
+use std.math
+
+obj Upto
+  n: Int
+  hi: Int
+
+  fun next(!@) -> Int?
+    return none if @n >= @hi
+    @n += 1
+    @n
+
+fun third(x: Float, y: Float) -> Float
+  math.powf(x, y) / 3.0
+
+sub main()
+  a = Upto(n: 0, hi: 4)
+  b = Upto(n: 0, hi: 4)
+  print(math.powf(2, -1), math.powf(2, 3) / 3, third(2.0, 3.0))
+  print(iter.sum(!a) ?? 0 + 1, (iter.sum(!b) ?? 0))
+END
+python3 "$ROOT/tools/migrate-std-0.3.py" meaning.rig >m.txt 2>&1 || fail "migrate: $(cat m.txt)"
+expect_has "$(cat m.txt)" "MANUAL meaning.rig:14: \`math.powf(x, y)\` of arguments not visibly Floats" "a powf of names"
+expect_has "$(cat m.txt)" "MANUAL meaning.rig:20: \`iter.sum(!it) ?? ...\` with more after it" "a ?? 0 with more after it"
+expect_has "$(cat m.txt)" "3 rewritten, 2 MANUAL" "the totals"
+grep -qF 'print(math.pow(2.0, -1.0), math.pow(2.0, 3.0) / 3, third(2.0, 3.0))' meaning.rig || fail "powf literals: $(cat meaning.rig)"
+grep -qF 'print(iter.sum(!a) ?? 0 + 1, ((!b).sum()))' meaning.rig || fail "iter.sum: $(cat meaning.rig)"
+sed -i.bak -e 's/math.powf(x, y)/math.pow(x, y)/' -e 's/iter.sum(!a) ?? 0 + 1/(!a).sum() + 1/' -e '/use std.iter/d' meaning.rig
+got=$(rig run meaning.rig 2>&1) || fail "meaning.rig: $got"
+expect_eq "$got" "0.5 2.6666666666666665 2.6666666666666665
+11 10" "the meaning kept"

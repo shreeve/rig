@@ -346,9 +346,9 @@ Standard library, by `tools/migrate-std-0.3.py` (MIGRATING-0.3, Step
     value, `a if c else b`, is lent as `?(a if c else b)`; a literal or
     a bare name is lent as before.
 
-Trig: 39 sites rewritten by the script, 21 left `MANUAL` (20 a
-`compare` result used as an `Int`, one test's `parse`). loco needs no
-change.
+Trig: 38 sites rewritten by the script, 22 left `MANUAL` (20 a
+`compare` result used as an `Int`, a `powf` of two `Number`s, one
+test's `parse`). loco needs no change.
 
 One change in what a program prints: `random.int` draws by Lemire's
 method, one multiply in place of two divisions, so a seeded `Random`'s
@@ -632,7 +632,7 @@ fails with the reason's own member, `JsonError.eof(at: 5)` (item 72).
   `doc.float(i)`. `BigInt` provides `Eq`, `Ord`, and `Hash`, so `==`,
   `<`, `sort`, and a Map's keys take it, and `order` replaces
   `compare` there and in std.text. One `math.pow` serves every number
-  type, an integer's by squaring and a float's by C's `pow`.
+  type, an integer's by squaring and a float's by Zig's `std.math.pow`.
   `slices.contains`, `index_of`, `sort.lower_bound`, and `search` take
   a view of what they look for. std.iter goes: a chain counts and sums
   any iterator, and a chain's `sum` adds items that view numbers, as a

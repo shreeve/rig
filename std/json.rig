@@ -177,6 +177,7 @@ pub obj Doc
   # leaving the tape empty.
   pub sub load(!@, src: ?String)!JsonError keeps src
     @src = src
+    @fault = none
     !@tape.clear()
     !@text.clear()
     !@floats.clear()

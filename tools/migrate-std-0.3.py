@@ -18,7 +18,8 @@
               compares it with 0, is rewritten with its uses.
   bigint      `a.equals(b)` -> `a == b` (`not a.equals(b)` -> `a != b`),
               `a.to_f64()` -> `a.to_float()`.
-  math        `math.powf(x, y)` -> `math.pow(x, y)`.
+  math        `math.powf(x, y)` -> `math.pow(x, y)`, an integer literal
+              there written as a float literal, `2` -> `2.0`.
   iter        `iter.count(!it)` -> `(!it).count()`, `iter.sum(!it) ?? 0`
               -> `(!it).sum()`, and `use std.iter` goes once nothing
               names it.
@@ -29,14 +30,20 @@
 
 A module used under another name (`use std.text as stdtext`) is found by
 that name. The BigInt rewrites run only in a file that uses std.bigint
-and declares no method of the same name itself, and the json ones in a
-file that uses std.json. Strings and comments are never changed.
+and declares no method of the same name itself, and the json getters in
+a file that uses std.json. The tool reads no types: in such a file, a
+`.equals(`, `.compare(`, `.to_f64(`, or `.get_int(` of a type of
+another module that has a method of that name is rewritten too, so read
+its diff (`--dry-run`) where such a type is used. Strings and comments
+are never changed.
 
 Each site no rewrite fits is printed `MANUAL path:line: why`: a parse
 whose result is used otherwise, a Doc's `error` or `error_pos`,
 `json.error_name`, a `compare` result used as an `Int`, an `iter.sum`
-whose `none` is used, and a ```` ```rig reject ```` block, which may show
-an old name rejected on purpose. A second run changes nothing.
+whose `none` is used or whose `?? 0` has more after it, a `powf` of
+arguments not visibly Floats, a `-` before a `compare`, and a
+```` ```rig reject ```` block, which may show an old name rejected on
+purpose. A second run changes nothing.
 
 usage: tools/migrate-std-0.3.py [--dry-run] PATH...
   Each PATH is a file or a directory searched for .rig, .rig.tmpl,
@@ -159,6 +166,12 @@ def receiver_start(s, end):
     return j if j < end else -1
 
 
+def is_float(x):
+    """Whether `x` is visibly a Float: a float literal, or a `Float(...)`
+    or `Float.` member."""
+    return bool(re.match(r"^-?[\d_]+(\.[\d_]+)?([eE][-+]?\d+)?$", x) and re.search(r"[.eE]", x)) or x.startswith("Float(") or x.startswith("Float.")
+
+
 def flat(x):
     """`x` with what its brackets hold taken out: `a[i - 1].b(c)` is
     `a[].b()`."""
@@ -258,11 +271,36 @@ class Unit:
         if self.mods("bigint"):
             self.bigint()
         for m in self.mods("math"):
-            for i in range(len(self.lines)):
-                self.sub(r"\b%s\.powf\(" % re.escape(m), m + ".pow(", i)
+            self.powf(m)
         if self.mods("iter"):
             self.iter()
         self.needles()
+
+    def powf(self, m):
+        """`math.powf(x, y)` -> `math.pow(x, y)`. powf took Floats, so an
+        integer literal there was a Float; `pow` would take it as an
+        `Int`, so it is written as a float literal. When neither argument
+        is then visibly a Float, `pow` could be an Int's: MANUAL."""
+        for i in range(len(self.lines)):
+            at = 0
+            while True:
+                line = self.lines[i]
+                mask = code_mask(line)
+                h = next((mm for mm in re.finditer(r"\b%s\.powf\(" % re.escape(m), line) if mm.start() >= at and mask[mm.start()]), None)
+                if not h:
+                    break
+                at = h.end()
+                close = closing(line, h.end() - 1)
+                args = split_args(line[h.end():close]) if close > 0 else []
+                if len(args) != 2:
+                    self.note(i, "`%s.powf` with other than two arguments on one line: write `%s.pow` with Float arguments" % (m, m))
+                    continue
+                args = [a + ".0" if re.match(r"^-?[\d_]+$", a) else a for a in args]
+                if not any(is_float(a) for a in args):
+                    self.note(i, "`%s.powf(x, y)` of arguments not visibly Floats: write `%s.pow(x, y)` once each is a Float (a literal `2.0`, or `Float(n)`), since `pow` of two Ints is an Int's" % (m, m))
+                    continue
+                self.lines[i] = line[:h.start()] + "%s.pow(%s)" % (m, ", ".join(args)) + line[close + 1:]
+                self.n += 1
 
     def json(self):
         js = self.mods("json")
@@ -367,6 +405,9 @@ class Unit:
                 start = m.start()
             rest = line[close + 1:]
             before = line[:start]
+            if re.search(r"(^|[^\w)\]\s])\s*-\s*$|^\s*-\s*$", before if text_form else line[:max(receiver_start(line, start), 0)]):
+                self.note(i, "`-` of a `compare` result: write `b.order(?a)`, or compare `a.order(?b)` with the `Order` it means")
+                continue
             r = re.match(r"\s*(<=|>=|==|!=|<|>)\s*0\b(?!\.)", rest)
             lb = re.search(r"\b0\s*(<=|>=|==|!=|<|>)\s*$", before) if text_form else None
             if r:
@@ -495,7 +536,7 @@ class Unit:
                 if n:
                     op, a = "!=", n.start()
                 expr = "%s %s %s" % (recv, op, other)
-                if line[close + 1:close + 2] == ".":
+                if line[close + 1:close + 2] == "." or re.match(r"\s*(==|!=|<=|>=|<|>|\?\?)", line[close + 1:]):
                     expr = "(%s)" % expr
                 self.lines[i] = line[:a] + expr + line[close + 1:]
                 self.n += 1
@@ -518,9 +559,12 @@ class Unit:
                         continue
                     rest = line[close + 1:]
                     if m.group(1) == "sum":
-                        z = re.match(r"\s*\?\?\s*0(\.0+)?(?![.\w])", rest)
+                        z = re.match(r"\s*\?\?\s*0(\.0+)?(?=\s*($|#|[),\]]|\s(and|or|if|else)\b))", rest)
                         if not z:
-                            self.note(i, "`iter.sum` gives `none` for no items, and a chain's `sum()` 0: write `(!it).sum()` where 0 serves")
+                            if re.match(r"\s*\?\?", rest):
+                                self.note(i, "`iter.sum(!it) ?? ...` with more after it, which `??` takes in (`?? 0 + 1` is `?? (0 + 1)`): write `(!it).sum()` and what the default means")
+                            else:
+                                self.note(i, "`iter.sum` gives `none` for no items, and a chain's `sum()` 0: write `(!it).sum()` where 0 serves")
                             continue
                         rest = rest[z.end():]
                     self.lines[i] = line[:m.start()] + "(%s).%s()" % (arg, m.group(1)) + rest

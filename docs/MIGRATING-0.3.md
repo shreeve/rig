@@ -305,20 +305,22 @@ another name (`use std.text as stdtext`) by that name:
 | `text.compare(a, b) < 0`, a BigInt's `a.compare(b) > 0` | `a.order(?b) == .less`, `a.order(b) == .greater`: each comparison with 0 has its `Order` |
 | `c = a.compare(b)`, every use of `c` comparing it with 0 | `c = a.order(b)`, with each use's `Order` |
 | a BigInt's `a.equals(b)`, `not a.equals(b)`, `a.to_f64()` | `a == b`, `a != b`, `a.to_float()` |
-| `math.powf(x, y)` | `math.pow(x, y)` |
+| `math.powf(x, y)`, `math.powf(2, -1)` | `math.pow(x, y)`, `math.pow(2.0, -1.0)`: an integer literal powf took as a Float is written as one |
 | `iter.count(!it)`, `iter.sum(!it) ?? 0` | `(!it).count()`, `(!it).sum()`; `use std.iter` goes |
 | `slices.contains(xs, <s)`, `+s`, `a if c else b`, and the same in `index_of`, `sort.search`, `sort.lower_bound` | `slices.contains(xs, ?s)`, `?(a if c else b)` |
 
 It prints `MANUAL path:line` for what it leaves: a `compare` result used
 as an `Int` (returned, passed on, or added), a parse whose `Bool` is
 used otherwise, a Doc's `error` and `error_pos`, `json.error_name`, an
-`iter.sum` whose `none` is used, and a ```` ```rig reject ```` block.
+`iter.sum` whose `none` is used or whose `?? 0` has more after it, a
+`powf` of arguments not visibly Floats (`pow` of two `Int`s is an
+Int's), a `-` before a `compare`, and a ```` ```rig reject ```` block.
 Write `a.order(?b)` and compare it with `.less`, `.equal`, or
 `.greater`, or `<`; a failure of `json.parse` or `load` is a member of
 `JsonError` carrying its offset, `JsonError.eof(at: 5)`, which prints
-so and which `match` takes apart. On Trig's sources it rewrites 39
-sites and leaves 21, each a `compare` result used as an `Int` but one
-test's parse.
+so and which `match` takes apart. On Trig's sources it rewrites 38
+sites and leaves 22: 20 `compare` results used as an `Int`, a `powf` of
+two `Number`s, and one test's parse.
 
 ```rig reject
 use std.json

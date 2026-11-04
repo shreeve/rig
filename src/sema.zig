@@ -6218,6 +6218,7 @@ pub fn stdRenamed(foreign: *const SemContext, owner: []const u8, member: []const
         .{ "std.json", "Doc", "get_float", "; write `doc.float(i)`" },
         .{ "std.json", "Doc", "parse", "; `json.parse(?src)!` makes a Doc, and `(!doc).load(?src)!` fills one again, each failing with a `JsonError`" },
         .{ "std.json", "Doc", "error", "; `json.parse` and `load` fail with a `JsonError` that carries the offset, `JsonError.eof(at: 5)`" },
+        .{ "std.json", "JsonError", "bad", "; each reason is a member of its own with its offset: `.eof(at)`, `JsonError.unexpected(at: 3)`" },
         .{ "std.json", "Doc", "error_pos", "; `json.parse` and `load` fail with a `JsonError` that carries the offset, `JsonError.eof(at: 5)`" },
         .{ "std.bigint", "BigInt", "compare", "; compare with `<` and its kin, or write `a.order(?b)`, which gives `.less`, `.equal`, or `.greater`" },
         .{ "std.bigint", "BigInt", "equals", "; a BigInt compares with `==`" },

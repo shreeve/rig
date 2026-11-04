@@ -5024,7 +5024,7 @@ const Checker = struct {
         };
         const sym = decl.symbol();
         if (sym.fields == null) return;
-        try self.err(pos, "no variant `{s}` on enum `{s}`", .{ vname, try self.tyName(sema.unwrapViews(self.ctx, enum_ty)) });
+        try self.err(pos, "no variant `{s}` on enum `{s}`{s}", .{ vname, try self.tyName(sema.unwrapViews(self.ctx, enum_ty)), sema.stdRenamed(decl.ctx, sym.name, vname) orelse "" });
         try self.noteDeclared(sym, decl.module_id == null);
     }
 
@@ -16062,7 +16062,8 @@ const Checker = struct {
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant, .instance = ty });
             return ty;
         }
-        try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, try self.memberHint(nt.sym.fields orelse &.{}, name, .associated) });
+        const hint = (if (nt.foreign) |fo| sema.stdRenamed(fo.ctx, nt.sym.name, name) else null) orelse try self.memberHint(nt.sym.fields orelse &.{}, name, .associated);
+        try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, hint });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.skipCall(args);
     }

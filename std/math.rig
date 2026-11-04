@@ -42,7 +42,8 @@ pub fun gcd(a: Int, b: Int) -> Int
 # A negative `power` gives 1 divided by `base` to the power `-power`,
 # truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, 0
 # for any other `base` but 0, which panics as dividing by zero does. A
-# float's is C's `pow`, with its answers for zeros, infinities, and NaN.
+# float's is Zig's `std.math.pow`, with C's answers for zeros,
+# infinities, and NaN.
 pub fun pow[T: Copy + Num](base: T, power: T) -> T
   power_of(base, power)
 
