@@ -6756,9 +6756,10 @@ pub const Checker = struct {
 
     /// A bare name that leaves the function moves out: a match payload
     /// out of its scrutinee, and an owning value out of its binding, so
-    /// deferred code at that exit sees it moved.
+    /// deferred code at that exit sees it moved. A payload that is a read
+    /// view copies (Core sentence 1), as it does as the tail value.
     fn returnMoves(self: *const Checker, v: Var) bool {
-        if (v.payload_view) return true;
+        if (v.payload_view) return v.ref != .read or self.owningKind(v.ty) != null;
         return self.owningKind(v.ty) != null;
     }
 
@@ -7519,6 +7520,15 @@ pub const Checker = struct {
                         if (b == .src and !std.mem.eql(u8, self.text(b), "_")) _ = try self.bindPayload(b, info, scrut_value);
                     }
                 }
+                // Alternatives that bind bind one symbol per name, at the
+                // first alternative that binds it; every alternative binds
+                // the same names with the same types, so they are bound
+                // as that one binds them.
+                if (pattern.isKind(.alt_pattern)) for (ir.AltPattern.alts(pattern)) |alt| {
+                    if (!alt.isKind(.variant_pattern) or !rig.matchesBinds(self.sema.source, alt)) continue;
+                    _ = try self.bindPattern(alt, info, scrut_value);
+                    break;
+                };
                 // `g: E =>` binds the whole error, narrowed to a set, as a
                 // payload is bound: a view of the matched value under
                 // `match e`, the value itself under `match <e`.

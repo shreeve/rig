@@ -4693,7 +4693,7 @@ pub const Emitter = struct {
                     } else if (fields.len > 0 and err_value) {
                         // A member's fields, taken from the error's bytes.
                         const payload = try self.hiddenStorage(arm, .payload, .owned, .fresh);
-                        prelude = try self.consumedPayload(captures, fields, self.payloadFacts(arm_info.ty.?), payload, .nil);
+                        prelude = try self.consumedPayload(pattern, fields, payload, .nil);
                         var buf: Writer.Allocating = .init(self.arena.allocator());
                         {
                             const saved_w = self.w;
@@ -4707,7 +4707,7 @@ pub const Emitter = struct {
                     } else if (fields.len > 0) {
                         const payload = try self.hiddenStorage(arm, .payload, .owned, .fresh);
                         try self.w.print("|{s}| ", .{payload});
-                        prelude = try self.consumedPayload(captures, fields, self.payloadFacts(arm_info.ty.?), payload, .nil);
+                        prelude = try self.consumedPayload(pattern, fields, payload, .nil);
                     }
                 } else if (captures.len > 0 and err_value) {
                     // A member's fields, read in place from the error.
@@ -4721,9 +4721,9 @@ pub const Emitter = struct {
                         try self.emitMemberFieldsTy(set, vname);
                         try self.w.writeAll(")");
                     }
-                    prelude.aliases = try self.payloadAliases(captures, arm_info, vname, .{ .expr = buf.written() }, .nil);
+                    prelude.aliases = try self.payloadAliases(pattern, arm_info, vname, .{ .expr = buf.written() }, .nil);
                 } else if (captures.len > 0) {
-                    prelude.aliases = try self.payloadAliases(captures, info, vname, .{ .arm = arm }, .nil);
+                    prelude.aliases = try self.payloadAliases(pattern, info, vname, .{ .arm = arm }, .nil);
                     // A payload a read binds as a view is reached in place.
                     const by_ptr = info.mode == .write or for (prelude.aliases) |a| {
                         if (a.addr) break true;
@@ -5019,7 +5019,7 @@ pub const Emitter = struct {
         if (info.mode == .consume) {
             const payload = try self.hiddenStorage(arm, .payload, .owned, .fresh);
             try self.w.print("|{s}, {s}| ", .{ payload, tag });
-            var prelude = try self.consumedPayload(first_binds, first_fields, self.payloadFacts(info.ty.?), payload, .nil);
+            var prelude = try self.consumedPayload(first, first_fields, payload, .nil);
             const owned = try a.dupe(OwnedBinding, prelude.owned);
             for (owned) |*o| o.expr = try self.altSwitch(.{ .tag = tag, .reads = try self.altReads(alts, o.local.sym, info), .enum_ty = info.ty.? }, payload, false, false);
             prelude.owned = owned;
@@ -5027,7 +5027,7 @@ pub const Emitter = struct {
             prelude.alt_drops = try self.altDrops(alts, info, tag, payload, false, .nil);
             return prelude;
         }
-        const aliases = try a.dupe(Alias, try self.payloadAliases(first_binds, info, first_name, .{ .arm = arm }, .nil));
+        const aliases = try a.dupe(Alias, try self.payloadAliases(first, info, first_name, .{ .arm = arm }, .nil));
         if (aliases.len == 0) return .{};
         // The aliases are the used bindings, in field order.
         var j: usize = 0;
@@ -5043,27 +5043,11 @@ pub const Emitter = struct {
         return .{ .aliases = aliases };
     }
 
-    /// Whether payload binding `b` of field `f` binds the value inside the
-    /// optional field, `r?` (`Facts.payloadTests`): the type it binds is
-    /// the optional's, one optional fewer. `f`'s type is in the store of
-    /// `of`, the module that declares the enum (`payloadFacts`).
-    fn unwrapsField(self: *Emitter, b: Sexp, f: facts.Field, of: Facts) bool {
-        const bound = self.facts.payloadFieldOf(b) orelse return false;
-        return optionals(of, f.ty) == optionals(self.facts, bound) + 1;
-    }
-
-    /// The facts whose store holds the types of `enum_ty`'s variants'
-    /// fields (`variantPayload`): those of the module that declares it.
-    fn payloadFacts(self: *Emitter, enum_ty: TypeId) Facts {
-        return if (self.facts.nominalDecl(enum_ty)) |d| d.facts else self.facts;
-    }
-
-    /// How many optionals wrap `ty`, in `of`'s store.
-    fn optionals(of: Facts, ty: TypeId) usize {
-        var n: usize = 0;
-        var t = ty;
-        while (of.types.get(t) == .optional) : (n += 1) t = of.types.get(t).optional;
-        return n;
+    /// Whether binding `i` of variant pattern `pattern` binds the value
+    /// inside its optional field, `r?` (`Facts.payloadTests`).
+    fn unwraps(self: *Emitter, pattern: Sexp, i: usize) bool {
+        const tests = self.facts.payloadTests(pattern) orelse return false;
+        return i < tests.len and tests[i] == .some;
     }
 
     /// What alternatives `alts` read for the name of symbol `sym`, once
@@ -5137,7 +5121,7 @@ pub const Emitter = struct {
         const first = self.firstBinding(pattern) orelse return &.{};
         const name = self.srcText(rig.variantPatternName(first));
         const binds = self.facts.payloadBindings(first).?;
-        const aliases = try a.dupe(Alias, try self.payloadAliases(binds, info, name, .{ .expr = subj }, used_in));
+        const aliases = try a.dupe(Alias, try self.payloadAliases(first, info, name, .{ .expr = subj }, used_in));
         var j: usize = 0;
         for (binds) |b| {
             const local = self.usedPayloadLocal(b, used_in) orelse continue;
@@ -5156,7 +5140,7 @@ pub const Emitter = struct {
         const first = self.firstBinding(pattern) orelse return self.unsupported(pattern, "alternatives that bind no name");
         const first_name = self.srcText(rig.variantPatternName(first));
         const first_fields = self.variantPayload(info.ty.?, first_name) orelse return self.unsupported(first, "this payload pattern");
-        var prelude = try self.consumedPayload(self.facts.payloadBindings(first).?, first_fields, self.payloadFacts(info.ty.?), try self.fmt("{s}.{f}", .{ whole, ident(first_name) }), used_in);
+        var prelude = try self.consumedPayload(first, first_fields, try self.fmt("{s}.{f}", .{ whole, ident(first_name) }), used_in);
         const owned = try a.dupe(OwnedBinding, prelude.owned);
         for (owned) |*o| o.expr = try self.altSwitch(.{ .tag = whole, .reads = try self.altReads(alts, o.local.sym, info), .enum_ty = info.ty.?, .per_variant = true }, whole, false, false);
         prelude.owned = owned;
@@ -5191,10 +5175,11 @@ pub const Emitter = struct {
     /// The prelude of a `match <x` arm on payload variant `fields`, held
     /// in `payload`: bound fields become owned locals, and the rest is
     /// dropped at the end of the arm.
-    fn consumedPayload(self: *Emitter, captures: []const Sexp, fields: []const facts.Field, of: Facts, payload: []const u8, used_in: Sexp) Error!Prelude {
+    fn consumedPayload(self: *Emitter, pattern: Sexp, fields: []const facts.Field, payload: []const u8, used_in: Sexp) Error!Prelude {
+        const captures = self.facts.payloadBindings(pattern) orelse &.{};
         if (captures.len == 0) return self.ownedParts(&.{.nil}, &.{.{ .expr = payload }}, used_in);
         const parts = try self.arena.allocator().alloc(OwnedPart, fields.len);
-        for (fields, parts, captures) |f, *part, c| part.* = .{ .expr = if (self.unwrapsField(c, f, of)) try self.fmt("rig.some({s}.{f}).?", .{ payload, ident(f.name) }) else try self.fmt("{s}.{f}", .{ payload, ident(f.name) }) };
+        for (fields, parts, 0..) |f, *part, i| part.* = .{ .expr = try self.fieldRead(payload, f.name, false, false, self.unwraps(pattern, i)) };
         return self.ownedParts(captures, parts, used_in);
     }
 
@@ -5377,10 +5362,9 @@ pub const Emitter = struct {
         const err_value = self.matchesErrorValue(info);
         const enum_ty = if (err_value) self.typeOf(pattern) orelse info.ty.? else info.ty.?;
         const fields = self.variantPayload(enum_ty, vname) orelse return self.unsupported(pattern, "this payload pattern");
-        const of = self.payloadFacts(enum_ty);
         // An error's fields are read through its bytes.
         const payload = if (err_value) try self.errorFieldsText(pattern, info, subj) else try self.fmt("{s}.{f}", .{ subj, ident(vname) });
-        for (self.facts.payloadBindings(pattern) orelse &.{}, fields) |b, f| {
+        for (self.facts.payloadBindings(pattern) orelse &.{}, fields, 0..) |b, f, i| {
             const sym = self.facts.symbolOf(b) orelse continue;
             if (!self.usesSymbol(guard, sym)) continue;
             const local = self.payloadLocal(b) orelse continue;
@@ -5389,7 +5373,7 @@ pub const Emitter = struct {
             const addr = try self.need(self.facts.bindsByAddress(b), b);
             const bytes = self.bindsStringBytes(b, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(b));
-            try self.line("const {s} = {s};", .{ stored.zig_name, try self.fieldRead(payload, f.name, addr, bytes, self.unwrapsField(b, f, of)) });
+            try self.line("const {s} = {s};", .{ stored.zig_name, try self.fieldRead(payload, f.name, addr, bytes, self.unwraps(pattern, i)) });
         }
     }
 
@@ -5414,7 +5398,7 @@ pub const Emitter = struct {
                 const enum_ty = if (info.error_set) self.typeOf(pattern) orelse info.ty.? else info.ty.?;
                 const fields = self.variantPayload(enum_ty, vname) orelse &.{};
                 const payload = if (self.matchesErrorValue(info)) try self.fmt("{s}.*", .{try self.errorFieldsText(pattern, info, whole)}) else try self.fmt("{s}.{f}", .{ whole, ident(vname) });
-                prelude = try self.consumedPayload(self.facts.payloadBindings(pattern) orelse &.{}, fields, self.payloadFacts(enum_ty), payload, body);
+                prelude = try self.consumedPayload(pattern, fields, payload, body);
             } else if (pattern.isKind(.set_pattern) and self.matchesErrorValue(info) and self.isErrorValueTy(self.peelViews(self.typeOf(pattern) orelse info.ty.?))) {
                 // `g: E =>` of an error that carries fields: the arm owns
                 // the error itself as `g`.
@@ -5437,13 +5421,13 @@ pub const Emitter = struct {
         if (self.facts.altsBind(pattern)) return .{ .aliases = try self.selectedAlts(pattern, info, subj, body) };
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(rig.variantPatternName(pattern));
-        const captures = self.facts.payloadBindings(pattern) orelse return .{};
+        if (self.facts.payloadBindings(pattern) == null) return .{};
         if (self.matchesErrorValue(info)) {
             var arm_info = info;
             arm_info.ty = self.typeOf(pattern) orelse info.ty;
-            return .{ .aliases = try self.payloadAliases(captures, arm_info, vname, .{ .expr = try self.errorFieldsText(pattern, info, subj) }, body) };
+            return .{ .aliases = try self.payloadAliases(pattern, arm_info, vname, .{ .expr = try self.errorFieldsText(pattern, info, subj) }, body) };
         }
-        return .{ .aliases = try self.payloadAliases(captures, info, vname, .{ .expr = try self.fmt("{s}.{f}", .{ subj, ident(vname) }) }, body) };
+        return .{ .aliases = try self.payloadAliases(pattern, info, vname, .{ .expr = try self.fmt("{s}.{f}", .{ subj, ident(vname) }) }, body) };
     }
 
     /// A payload binding: `const zig_name = payload.field`, or of
@@ -5569,9 +5553,10 @@ pub const Emitter = struct {
     /// when given), declared in the arm's scope, read from the payload
     /// `at` names. A `match !x` binding (`writes`) points at its field,
     /// unless the field is itself a view, which is bound as it is.
-    fn payloadAliases(self: *Emitter, captures: []const Sexp, info: MatchInfo, variant: []const u8, at: PayloadAt, used_in: Sexp) Error![]const Alias {
+    fn payloadAliases(self: *Emitter, pattern: Sexp, info: MatchInfo, variant: []const u8, at: PayloadAt, used_in: Sexp) Error![]const Alias {
         const writes = info.mode == .write;
-        const fields = self.variantPayload(info.ty.?, variant) orelse return self.unsupported(captures[0], "this payload pattern");
+        const captures = self.facts.payloadBindings(pattern) orelse &.{};
+        const fields = self.variantPayload(info.ty.?, variant) orelse return self.unsupported(pattern, "this payload pattern");
         var out: std.ArrayList(Alias) = .empty;
         var payload: ?[]const u8 = switch (at) {
             .expr => |e| e,
@@ -5584,13 +5569,13 @@ pub const Emitter = struct {
             if (self.usedPayloadLocal(c, used_in) == null) continue;
             if (try self.need(self.facts.bindsByAddress(c), c)) by_addr = true;
         }
-        for (captures, fields) |c, f| {
+        for (captures, fields, 0..) |c, f, i| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const addr = try self.need(self.facts.bindsByAddress(c), c);
             const bytes = self.bindsStringBytes(c, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .bytes = bytes, .unwrap = self.unwrapsField(c, f, self.payloadFacts(info.ty.?)) });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .bytes = bytes, .unwrap = self.unwraps(pattern, i) });
         }
         return out.items;
     }

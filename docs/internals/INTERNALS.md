@@ -5913,7 +5913,7 @@ pass owns one part.
   compares with (`resolve.bindPattern`).
 - **Alternatives that bind.** The resolver gives each alternative's leaf
   of a name one symbol (`resolve.bindPattern`), the later leaves no
-  read of it (`unread_names`); the checker requires the same names and
+  read or use of it (`rebinds`); the checker requires the same names and
   the same field types, and two alternatives of one variant the same
   field. Emit writes an `inline` prong, which Zig instantiates per
   variant, each binding read through a switch on the prong's comptime
@@ -5930,8 +5930,10 @@ pass owns one part.
   variant is covered once its cubes cover every value
   (`uncoveredCube`, which also names a value a match misses). A match
   with a test picks its arm first (`emitGuardedMatch`), testing the
-  field with `rig.somePtr`. On errors, a tested arm covers nothing, as
-  a guarded one.
+  field with `rig.somePtr`. A test of an error's optional field is
+  rejected: an error's fields are read whole from its bytes. Emit
+  unwraps a `name?` by the recorded test, never by the field's type,
+  which a generic instance may make optional itself (`E[Int?]`).
 - **Tests.** `test/rig/types-matches.rig.test`, the `matches` cases of
   `types-match`, and the examples of docs/design/matches.md.
 

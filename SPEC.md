@@ -10902,9 +10902,9 @@ covers the values it tests, each optional field holding a value or
 none: `.ready(r?)` and `.ready(none)` cover `.ready`, and so do four
 arms over two fields, or arms over different fields that leave no value
 out. An arm whose values the arms before it cover never runs, and is
-rejected; a match that misses some names one, `.d(none, _, none)`. This
-holds for an enum's variants; a match on errors keeps every such arm
-partial, as a guarded arm is, so it still needs `_`.
+rejected; a match that misses some names one, `.d(none, _, none)`. An
+error's optional field takes no test: bind it, `.bad(n)`, and test `n
+== none`.
 
 ```rig
 enum Shape

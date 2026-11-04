@@ -399,33 +399,22 @@ fail "a payload's optional tested both ways leaves no arm after it", "9:6: this 
   f3(.other)
   f4(.other)
 
-fail "an error's optional tested both ways covers no member", "13:9: `match` is not exhaustive: it misses `.bad` (its arm has a guard)", "19:9: `match` on `L` is not exhaustive"
-  # Emit lowers no payload test of an error's member, so a match on
-  # errors keeps the rule that a test covers nothing.
-  error A
-    bad(line: Int?)
-    other
+fail "an error's optional field takes no test", "7:10: `_?` tests an optional field of an error, which a pattern cannot: bind it as `v`, then test `v == none`", "8:10: `n?` tests an optional field of an error", "12:18: `none` tests an optional field of an error"
+  error E
+    bad(n: Int?)
+    worse(n: Int)
 
-  error B
-    zed
-
-  error L = A | B
-
-  sub one(e: A)
+  fun f(e: E) -> Int
     match e
-      .bad(l?) => print("bad", l)
-      .bad(none) => print("bad none")
-      .other => print("other")
+      .bad(_?) => 1
+      .bad(n?) => n
+      _ => 3
 
-  sub two(e: L)
-    match e
-      .bad(l?) => print("bad", l)
-      .bad(none) => print("bad none")
-      .bad(_) => print("bad any")
-      .other => print("other")
+  fun h(e: E) -> Bool
+    e matches .bad(none)
 
-  one(A.other)
-  two(B.zed)
+  sub main()
+    print(f(E.bad(n: 4)), h(E.bad(n: none)))
 
 test "a ternary's matches binds for the value before if", '''
   9 10 0
@@ -877,3 +866,94 @@ fail "matches with a name that is no constant", "4:19: `k` matches every value, 
     print(n matches k)
     print(n matches _)
     print(n matches (1, k), k)
+
+fail "names alternatives bind take the loans one pattern takes", "12:5: cannot reassign `s` while it is lent", "20:13: use of `t` after move", "28:15: use of `t` after move", "34:10: cannot move `s` while a read loan is live", "40:11: use of `s` while a write loan is live"
+  enum S
+    a(t: String?)
+    b(t: String)
+    c(t: String)
+
+  sub eat(s: S)
+    print(s)
+
+  sub reassign()
+    s: S = .a(t: String("long string here to be on the heap ....."))
+    if s matches (.a(t?), .b(t))
+      s = .b(t: String("x"))
+      print(t)
+
+  sub moved()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    match <s
+      .b(t), .c(t)
+        eat(.b(t: <t))
+        print(t)
+      _ => pass
+
+  sub twice()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    ys: List[String] = List[String]()
+    if <s matches (.b(t), .c(t))
+      !ys.push(<t)
+      !ys.push(<t)
+    print(ys)
+
+  sub taken()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    if s matches (.b(t), .c(t))
+      eat(<s)
+      print(t)
+
+  sub written()
+    s: S = .b(t: String("long string here to be on the heap ....."))
+    if !s matches (.b(t), .c(t))
+      print(s)
+      t = String("w")
+
+  sub main()
+    reassign()
+    moved()
+    twice()
+    taken()
+    written()
+
+test "name? in a generic instance, and a read binding returned", '''
+  3 -1 104 -100 0
+  1
+  long string here to be on the heap .....
+'''
+  enum E[T]
+    a(n: T?)
+    b(n: T)
+    neither
+
+  fun f(e: E[Int?]) -> Int
+    match e
+      .b(n?) => n
+      .b(none) => -1
+      .a(m?) => 100 + (m ?? 5)
+      .a(none) => -100
+      .neither => 0
+
+  fun get[T](e: ?E[T]) -> Int
+    match e
+      .a(v?), .b(v) => 1
+      _ => 0
+
+  enum S
+    t(s: String)
+    c
+
+  fun text(s: ?S) -> ?String from s
+    if s matches .t(v)
+      return v
+    match s
+      .t(v) => return v
+      .c => return "none"
+
+  sub main()
+    print(f(.b(n: 3)), f(.b(n: none)), f(.a(n: 4)), f(.a(n: none)), f(.neither))
+    a: E[Int] = .b(n: 3)
+    print(get(a))
+    s: S = .t(s: String("long string here to be on the heap ....."))
+    print(text(s))

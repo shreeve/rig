@@ -642,7 +642,18 @@ MIGRATING-0.3 lists each.
   `matches` whose alternatives name every variant, which always holds
   (`if s matches (.a(n), .b(n))`, whose Zig failed): bind its fields
   with `match`. `(.ready(_?), .ready(none))` is accepted, as
-  alternatives that match different values.
+  alternatives that match different values. A test of an error's
+  optional field (`.bad(n?)`, `.bad(none)`) is rejected with the
+  binding to write instead; its Zig failed.
+- *Unsound:* names that alternatives bind (`.b(t), .c(t)`) take the
+  loans and moves one pattern's names take, in the ownership checker
+  and its oracle: reassigning, moving, or reading the subject while one
+  lives, and moving one twice, were accepted and used freed memory.
+- **`name?` in a generic instance.** `.b(n?)` of an `E[Int?]` binds the
+  value inside, by the pattern's test; its Zig failed when the type
+  argument was optional. Alternatives whose name nothing reads compile
+  in a generic body, and `return v` of a read binding copies the view,
+  as the tail value does.
 - **A clone ends a view before the call writes.** A clone that holds
   no view is made where it stands and keeps nothing lent there (CORE
   §6), so `!m.take(+e.key)` works where `e` views `m`, as in a cache's

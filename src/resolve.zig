@@ -1233,7 +1233,7 @@ const SymbolResolver = struct {
                         if (got.found_existing) {
                             if (got.value_ptr.*) |id| {
                                 try self.ctx.recordName(b, id);
-                                try self.ctx.facts.unread_names.put(self.ctx.allocator, b.src.pos, {});
+                                try self.ctx.facts.rebinds.put(self.ctx.allocator, b.src.pos, {});
                             }
                             continue;
                         }

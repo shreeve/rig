@@ -249,7 +249,8 @@ testing its optionals apart and binding each name to one field.
 An arm that tests a payload's optional covers the values it tests, each
 optional field holding a value or none, so `.ready(r?)` and
 `.ready(none)` cover `.ready`, and an arm whose values the arms before
-it cover is rejected as one that never runs. Each form, a match arm,
+it cover is rejected as one that never runs. An error's optional field
+takes no test: it is bound, and tested with `==`. Each form, a match arm,
 the `Bool`, and the one arm of a condition, checks and lowers a pattern
 the same way.
 

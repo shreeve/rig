@@ -1705,7 +1705,7 @@ const Checker = struct {
         } else if (!is_decl) self.ctx.symbols.items[sym_id].flags.rebound = true;
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the viewed value.
-        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.facts.unread_names.put(self.ctx.allocator, target.src.pos, {});
+        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
         // The binding must be one that may change.
         if (!is_decl and !try self.requireAccess(self.placeOf(target), .assign, target)) {
             if (kind.operator() == null) try self.checkExpr(rhs, if (writes_through) sema.unwrapViews(self.ctx, sym.ty) else sym.ty) else _ = try self.synthExpr(rhs);
@@ -3758,6 +3758,8 @@ const Checker = struct {
         defer cov.deinit(self.ctx.allocator);
         var result: ?TypeId = expected;
         const errors = self.matchesErrors(scrutinee);
+        // A test whose pattern is rejected is not said to always hold too.
+        const reported = self.ctx.diagnostics.items.len;
 
         for (ir.Match.arms(node)) |arm| {
             const prev = self.enter(arm);
@@ -3768,7 +3770,7 @@ const Checker = struct {
                 // The other values of a `matches`: none, so the test
                 // always holds.
                 if (rig.isHiddenLeaf(pattern)) {
-                    if (!cov.rejected) try self.alwaysHolds(tested, scrutinee);
+                    if (!cov.rejected and self.ctx.diagnostics.items.len == reported) try self.alwaysHolds(tested, scrutinee);
                 } else try self.errAt(pattern, "this arm never runs: the arms before it cover every value", .{});
             }
             const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
@@ -3777,11 +3779,10 @@ const Checker = struct {
             if (alts.len > 1 and !self.isPoison(scrutinee) and errors) try self.plainAlternatives(alts);
             // A guarded arm may not run for the values its pattern
             // matches, so it covers none of them; later arms may repeat
-            // its pattern. So does an arm that tests an error's optional
-            // field: emit lowers no payload test of an error's member.
+            // its pattern.
             var guarded: MatchCoverage = .{ .before = &cov, .variant_total = cov.variant_total };
             defer guarded.deinit(self.ctx.allocator);
-            const partial = guard != .nil or (errors and rig.patternTests(pattern));
+            const partial = guard != .nil;
             const into = if (partial) &guarded else &cov;
             into.arm_alts.clearRetainingCapacity();
             for (alts) |alt| try self.checkPattern(alt, scrutinee, into, mode);
@@ -4792,6 +4793,19 @@ const Checker = struct {
         const binds = try self.payloadTestsOf(pattern, written, resolved.payload);
         try self.ctx.recordPayloadBindings(pattern, binds);
         const tests = self.ctx.payloadTests(pattern);
+        // An error's member carries its fields in the error's bytes, read
+        // whole: a pattern binds an optional field and does not test it.
+        if (tests != null and self.matchesErrors(scrutinee)) {
+            for (written) |w| if (w.isKind(.some_pattern) or w.isKind(.none_pattern)) {
+                const shown = if (w.isKind(.some_pattern)) self.text(ir.SomePattern.name(w)) else "v";
+                const bind = if (std.mem.eql(u8, shown, "_")) "v" else shown;
+                try self.errAt(w, "`{s}` tests an optional field of an error, which a pattern cannot: bind it as `{s}`, then test `{s} == none`", .{ try self.plainText(w), bind, bind });
+                break;
+            };
+            cov.rejected = true;
+            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            return;
+        }
         try self.recordCovered(key, tests, vpos, cov);
         for (binds, resolved.payload, 0..) |b, f, i| {
             // A field the pattern leaves out is read as a `_` field is.
