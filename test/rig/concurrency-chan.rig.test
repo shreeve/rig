@@ -191,7 +191,9 @@ fail "chan select arm views what another arm moves", "10:17: cannot move `s` whi
   )!
   print(x)
 
-fail "chan select arms lend to write", "cannot lend `n` to write while a write loan is live", errors: 1
+fail "chan select arms lend to write", "12:18: cannot lend `n` to write while a write loan is live: `task.select` makes every arm before it runs one, so two arms cannot each hold `n` to write; let one arm write it, or have each arm give a value and write `n` after the select", errors: 1
+  # Only one arm runs, but every arm's closure is made before the select
+  # runs one, so two write captures of `n` would live at once (CORE §4).
   a = *Chan[Int](1)
   b = *Chan[Int](1)
   !b.send(7)!
@@ -206,6 +208,20 @@ fail "chan select arms lend to write", "cannot lend `n` to write while a write l
       n
     ),
   )!
+  print(x, n)
+
+test "chan select arms give values", "2 2", seeds: 20
+  # The rewrite the error above names: each arm gives a value, and `n`
+  # is written after the select.
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !b.send(7)!
+  n = 0
+  x = task.select(
+    (!a).on_recv(|v| 1),
+    (!b).on_recv(|v| 2),
+  )!
+  n += x
   print(x, n)
 
 test "chan select arms join their types", seeds: 20, '''

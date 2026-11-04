@@ -1425,6 +1425,13 @@ pub const Checker = struct {
         const lent = try self.lentText(l, path);
         const in_index = if (l.path == path) "in an index of a place it is lending" else try self.arena().print("in an index of {s}, a place being lent", .{lent});
         const held = try self.heldReadClause(l.held_read, lent);
+        // Every arm of `task.select` is made before it runs one, so what
+        // two arms lend lives at once: the fix moves the use out of one.
+        if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and inTwoArms(self.cur_stmt, pos, l.pos, self.sema)) {
+            try self.err(pos, "cannot lend `{s}` to write while a write loan{s} is live: `task.select` makes every arm before it runs one, so two arms cannot each hold `{s}` to write; let one arm write it, or have each arm give a value and write `{s}` after the select", .{ name, on, name, name });
+            try self.noteLoan(l);
+            return l;
+        }
         switch (access) {
             .read => try self.err(pos, "cannot lend `{s}` to read while a write loan{s} is live", .{ name, on }),
             .write => if (l.place_hold)
@@ -1445,6 +1452,25 @@ pub const Checker = struct {
         try self.noteLoan(l);
         if (access != .read and l.held_read == .callee) try self.noteCloneCallee(l.pos);
         return l;
+    }
+
+    /// Whether positions `a` and `b` lie in two arms of one `task.select`
+    /// in `node`.
+    fn inTwoArms(node: Sexp, a: u32, b: u32, ctx: *const sema.SemContext) bool {
+        if (node != .list) return false;
+        if (node.isKind(.call)) {
+            var arm_a: ?usize = null;
+            var arm_b: ?usize = null;
+            for (ir.Call.args(node), 0..) |arg, i| {
+                if (!arg.isKind(.call) or ctx.selectArmOf(arg) == null) continue;
+                const x = extent(arg);
+                if (a >= x.lo and a <= x.hi) arm_a = i;
+                if (b >= x.lo and b <= x.hi) arm_b = i;
+            }
+            if (arm_a != null and arm_b != null) return arm_a.? != arm_b.?;
+        }
+        for (node.items()) |c| if (inTwoArms(c, a, b, ctx)) return true;
+        return false;
     }
 
     /// The fix for a call that lends all of `recv` (place `path` of var
