@@ -11015,3 +11015,64 @@ fail "kept view in a closure given to a generic", "`head(v)` keeps `v` lent whil
     r = head(v)
     r[0] + x
   ))
+
+fail "a chain in a block keeps its scope's end in the source", "7:10: `qs` does not live long enough"
+  # A chain's hidden names sit past the source's end; the block still
+  # ends where its last line does, so a view escaping it is caught.
+  new best: (?String)? = none
+  if true
+    qs = List[String]()
+    !qs.push(String("a String long enough to be held on the heap"))
+    best = ?qs[0]
+    xs = List[Int]([1, 2])
+    print(xs.filter(|x| x > 1).count())
+  if best as b
+    print(b)
+
+fail "collected views do not outlive their source's block", "8:9: `qs` does not live long enough"
+  obj P
+    name: String
+
+  new best: List[?P]? = none
+  if true
+    qs = List[P]()
+    !qs.push(P(name: String("a String long enough to be held on the heap")))
+    vs = ?qs.filter(|p| p.name.len > 0).collect()
+    best = <vs
+  if best as b
+    print(b[0].name)
+
+fail "collected String views do not outlive their source's block", "5:11: `qs` does not live long enough"
+  new best: List[?String]? = none
+  if true
+    qs = List[String]()
+    !qs.push(String("a String long enough to be held on the heap"))
+    best = ?qs.filter(|p| p.len > 0).collect()
+  if best as b
+    print(b[0])
+
+fail "a padded closure in a block keeps its scope's end in the source", "10:10: `qs` does not live long enough"
+  # A closure padded to its type has a hidden parameter past the
+  # source's end, as a chain's names are.
+  sub each(f: ?sub(Int, Int))
+    f(1, 2)
+
+  new best: (?String)? = none
+  if true
+    qs = List[String]()
+    !qs.push(String("a String long enough to be held on the heap"))
+    best = ?qs[0]
+    each(|a| print(a))
+  if best as b
+    print(b)
+
+fail "a bare for in a block keeps its scope's end in the source", "5:10: `qs` does not live long enough"
+  new best: (?String)? = none
+  if true
+    qs = List[String]()
+    !qs.push(String("a String long enough to be held on the heap"))
+    best = ?qs[0]
+    for 0..2
+      print("x")
+  if best as b
+    print(b)

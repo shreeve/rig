@@ -1298,6 +1298,49 @@ pub const Checker = struct {
         try self.diagnostics.append(self.gpa, .{ .severity = .note, .pos = pos, .message = msg, .module = module_id });
     }
 
+    /// Where the step of `while` loop `node` runs: after its body.
+    fn stepAt(self: *const Checker, node: Sexp) u32 {
+        return self.extent(ir.While.body(node)).hi +| 1;
+    }
+
+    /// Where a path that skips the rest of `node` goes on: at `next`, a
+    /// later part of it, or else past its end.
+    fn resumeAt(self: *const Checker, next: Sexp, node: Sexp) u32 {
+        return self.resumeBefore(next, self.extent(node).hi +| 1);
+    }
+
+    /// Where a path that skips to `next` goes on, in a node whose end is
+    /// `past` (`resumeAt` with that node's end found once).
+    fn resumeBefore(self: *const Checker, next: Sexp, past: u32) u32 {
+        return if (next == .nil) past else @min(self.extent(next).lo, past);
+    }
+
+    /// The first and last leaf positions in `s`, every one where its
+    /// span puts it: a hidden leaf a rewrite padded past the source's end
+    /// (a chain's names, a closure's padded parameter) stands at its
+    /// home in the source (`Parser.span`), so no scope, statement, or
+    /// loop ends past every use. `lo > hi` when it has none.
+    fn extent(self: *const Checker, s: Sexp) struct { lo: u32, hi: u32 } {
+        switch (s) {
+            .src => {
+                const at = self.startOf(s);
+                return .{ .lo = at, .hi = at };
+            },
+            .list => {
+                var lo: u32 = std.math.maxInt(u32);
+                var hi: u32 = 0;
+                for (s.items()) |c| {
+                    const e = self.extent(c);
+                    if (e.hi < e.lo) continue;
+                    lo = @min(lo, e.lo);
+                    hi = @max(hi, e.hi);
+                }
+                return .{ .lo = lo, .hi = hi };
+            },
+            else => return .{ .lo = std.math.maxInt(u32), .hi = 0 },
+        }
+    }
+
     /// The source range of a node: its span from the parser.
     fn span(self: *const Checker, node: Sexp) diag.Span {
         return self.sema.span(node);
@@ -1427,7 +1470,7 @@ pub const Checker = struct {
         const held = try self.heldReadClause(l.held_read, lent);
         // Every arm of `task.select` is made before it runs one, so what
         // two arms lend lives at once: the fix moves the use out of one.
-        if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and inTwoArms(self.cur_stmt, pos, l.pos, self.sema)) {
+        if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and self.inTwoArms(self.cur_stmt, pos, l.pos)) {
             try self.err(pos, "cannot lend `{s}` to write while a write loan{s} is live: `task.select` makes every arm before it runs one, so two arms cannot each hold `{s}` to write; let one arm write it, or have each arm give a value and write `{s}` after the select", .{ name, on, name, name });
             try self.noteLoan(l);
             return l;
@@ -1456,20 +1499,21 @@ pub const Checker = struct {
 
     /// Whether positions `a` and `b` lie in two arms of one `task.select`
     /// in `node`.
-    fn inTwoArms(node: Sexp, a: u32, b: u32, ctx: *const sema.SemContext) bool {
+    fn inTwoArms(self: *const Checker, node: Sexp, a: u32, b: u32) bool {
+        const ctx = self.sema;
         if (node != .list) return false;
         if (node.isKind(.call)) {
             var arm_a: ?usize = null;
             var arm_b: ?usize = null;
             for (ir.Call.args(node), 0..) |arg, i| {
                 if (!arg.isKind(.call) or ctx.selectArmOf(arg) == null) continue;
-                const x = extent(arg);
+                const x = self.extent(arg);
                 if (a >= x.lo and a <= x.hi) arm_a = i;
                 if (b >= x.lo and b <= x.hi) arm_b = i;
             }
             if (arm_a != null and arm_b != null) return arm_a.? != arm_b.?;
         }
-        for (node.items()) |c| if (inTwoArms(c, a, b, ctx)) return true;
+        for (node.items()) |c| if (self.inTwoArms(c, a, b)) return true;
         return false;
     }
 
@@ -1559,7 +1603,7 @@ pub const Checker = struct {
         var scope = self.scopes.pop().?;
         defer scope.defers.deinit(self.gpa);
         const start = scope.start;
-        const ext = extent(scope.node);
+        const ext = self.extent(scope.node);
         try self.releaseVarsFrom(start, self.reachable, if (ext.hi >= ext.lo) ext.hi +| 1 else null);
         self.truncateVars(start);
     }
@@ -2213,7 +2257,7 @@ pub const Checker = struct {
             .list => {
                 const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
                 for (e.items()) |c| {
-                    const step_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else at;
+                    const step_at = if (sema.isWhileStep(e, c)) at orelse self.stepAt(e) else at;
                     try self.indexUses(c, deferred, step_at);
                 }
             },
@@ -2394,14 +2438,14 @@ pub const Checker = struct {
     /// loop's step runs.
     fn stmtStart(self: *const Checker) u32 {
         if (self.step_at) |at| return at;
-        const ext = extent(self.cur_stmt);
+        const ext = self.extent(self.cur_stmt);
         return if (ext.hi >= ext.lo) ext.lo else self.anchor;
     }
 
     /// The first position after the current statement.
     fn stmtEnd(self: *const Checker) u32 {
         if (self.step_at) |at| return at +| 1;
-        return extent(self.cur_stmt).hi +| 1;
+        return self.extent(self.cur_stmt).hi +| 1;
     }
 
     fn addTemp(self: *Checker, l: Loan) Error!void {
@@ -6994,7 +7038,7 @@ pub const Checker = struct {
         try self.walkStmt(cond);
         self.after_value.shrinkRetainingCapacity(@min(mark, self.after_value.items.len));
         const base = try self.here();
-        const past = resumeAt(.nil, node);
+        const past = self.resumeAt(.nil, node);
         const v1 = try self.walkTailPart(then_b, t);
         const s1 = try self.leave(base, past);
         const v2 = if (else_b != .nil) try self.walkTailPart(else_b, t) else Value{};
@@ -7011,9 +7055,9 @@ pub const Checker = struct {
     /// Returns the mark to drop them back to once the condition is walked.
     fn useBranchesAfter(self: *Checker, node: Sexp, cond: Sexp) Error!usize {
         const mark = self.after_value.items.len;
-        const at = extent(cond).lo;
+        const at = self.extent(cond).lo;
         for ([_]Sexp{ ir.If.then(node), ir.If.@"else"(node) }) |b| {
-            if (b == .nil or extent(b).lo >= at) continue;
+            if (b == .nil or self.extent(b).lo >= at) continue;
             if (b.isKind(.set)) {
                 _ = try self.useAfterValue(b);
                 try self.useAfterValueIn(ir.Set.value(b));
@@ -7033,10 +7077,10 @@ pub const Checker = struct {
         const depth = self.scopes.items.len;
         try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
-        const failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(else_b, node) });
+        const failed = try self.exitTo(.{ .to = base, .resume_at = self.resumeAt(else_b, node) });
         var v1 = try self.walkTailPart(then_b, t);
         while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
-        const past = resumeAt(.nil, node);
+        const past = self.resumeAt(.nil, node);
         const s1 = try self.leave(base, past);
         try self.apply(failed);
         const v2 = if (else_b != .nil) try self.walkTailPart(else_b, t) else Value{};
@@ -7099,7 +7143,7 @@ pub const Checker = struct {
         }
         var v2 = try self.walkTailPart(handler, t);
         v2 = try self.leaveScope(v2);
-        const s = try self.leave(base, resumeAt(.nil, node));
+        const s = try self.leave(base, self.resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -7111,7 +7155,7 @@ pub const Checker = struct {
         const v1 = try self.walkPayloadHolder(node, ir.@"??".left(node));
         const base = try self.here();
         const v2 = try self.walkTailPart(ir.@"??".right(node), t);
-        const s = try self.leave(base, resumeAt(.nil, node));
+        const s = try self.leave(base, self.resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -7263,7 +7307,7 @@ pub const Checker = struct {
         var value: Value = .{};
         var catch_all = false;
         const arms = ir.Match.arms(match);
-        const past = resumeAt(.nil, match);
+        const past = self.resumeAt(.nil, match);
         for (arms, 0..) |arm, i| {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
@@ -7292,7 +7336,7 @@ pub const Checker = struct {
                 // A header, its own statement.
                 try self.walkStmt(guard);
                 // A failing guard goes on to the next arm, or past the match.
-                failed = try self.exitTo(.{ .to = base, .resume_at = resumeBefore(if (i + 1 < arms.len) arms[i + 1] else .nil, past) });
+                failed = try self.exitTo(.{ .to = base, .resume_at = self.resumeBefore(if (i + 1 < arms.len) arms[i + 1] else .nil, past) });
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
@@ -7664,12 +7708,12 @@ pub const Checker = struct {
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
-        try self.joinAt(ctx.point, ctx.breaks.items, resumeAt(.nil, node));
+        try self.joinAt(ctx.point, ctx.breaks.items, self.resumeAt(.nil, node));
         return .{};
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-        var ctx: LoopCtx = .{ .node = spec.node, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo, .reads = self.pending_reads or self.readsValue(spec.node) };
+        var ctx: LoopCtx = .{ .node = spec.node, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = self.extent(spec.node).lo, .reads = self.pending_reads or self.readsValue(spec.node) };
         self.pending_reads = false;
         self.loop = &ctx;
         defer self.loop = ctx.parent;
@@ -7718,7 +7762,7 @@ pub const Checker = struct {
                 self.value_reads = false;
             } else try self.walkStmt(e);
         }
-        try self.joinAt(ctx.point, ctx.breaks.items, resumeAt(.nil, spec.node));
+        try self.joinAt(ctx.point, ctx.breaks.items, self.resumeAt(.nil, spec.node));
         return value;
     }
 
@@ -7741,10 +7785,10 @@ pub const Checker = struct {
             // A failing part leaves the loop for its `else`, or past it.
             self.loop = ctx.parent;
             defer self.loop = ctx;
-            exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
+            exit = try self.exitTo(.{ .to = ctx.point, .resume_at = self.resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         } else {
             if (spec.cond) |c| try self.walkStmt(c);
-            if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
+            if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = self.resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         }
         // The loop is `while true { x = a or break; body: { body }; step }`
         // (docs/internals/INTERNALS.md, "Loops"): a `continue` in the body leaves
@@ -7762,7 +7806,7 @@ pub const Checker = struct {
         try self.walkStmt(spec.body);
         if (step_inside) {
             while (self.scopes.items.len > ctx.step_depth) try self.popScope();
-            if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, stepAt(spec.node));
+            if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, self.stepAt(spec.node));
             ctx.step_point = null;
             try self.walkStep(spec.cont.?, spec.node);
         }
@@ -7787,7 +7831,7 @@ pub const Checker = struct {
     fn walkStep(self: *Checker, step: Sexp, node: Sexp) Error!void {
         const saved = self.step_at;
         defer self.step_at = saved;
-        if (saved == null) self.step_at = stepAt(node);
+        if (saved == null) self.step_at = self.stepAt(node);
         try self.walkStmt(step);
     }
 
@@ -8684,43 +8728,6 @@ fn encloses(outer: *const LoopCtx, inner: ?*const LoopCtx) bool {
     var l = inner;
     while (l) |ctx| : (l = ctx.parent) if (ctx == outer) return true;
     return false;
-}
-
-/// Where the step of `while` loop `node` runs: after its body.
-fn stepAt(node: Sexp) u32 {
-    return extent(ir.While.body(node)).hi +| 1;
-}
-
-/// Where a path that skips the rest of `node` goes on: at `next`, a
-/// later part of it, or else past its end.
-fn resumeAt(next: Sexp, node: Sexp) u32 {
-    return resumeBefore(next, extent(node).hi +| 1);
-}
-
-/// Where a path that skips to `next` goes on, in a node whose end is
-/// `past` (`resumeAt` with that node's end found once).
-fn resumeBefore(next: Sexp, past: u32) u32 {
-    return if (next == .nil) past else @min(extent(next).lo, past);
-}
-
-/// The lowest and highest source positions in `s`; `lo > hi` when it
-/// has none.
-fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
-    switch (s) {
-        .src => |src| return .{ .lo = src.pos, .hi = src.pos },
-        .list => {
-            var lo: u32 = std.math.maxInt(u32);
-            var hi: u32 = 0;
-            for (s.items()) |c| {
-                const e = extent(c);
-                if (e.hi < e.lo) continue;
-                lo = @min(lo, e.lo);
-                hi = @max(hi, e.hi);
-            }
-            return .{ .lo = lo, .hi = hi };
-        },
-        else => return .{ .lo = std.math.maxInt(u32), .hi = 0 },
-    }
 }
 
 // =============================================================================
