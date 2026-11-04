@@ -1,0 +1,16 @@
+# Rust panelist: five close calls
+
+**1. `!` on a call as a `for` source: AGREE.**
+In Rust a prefix `&mut` binds to the whole expression (`&mut b.counter()` lends the *result* mutably), and the method call's self mode is inferred from the signature. Rig chose differently: a sigil before a call lends the call's self (`x = !v.pop()`, `?b.each()`). Having `for` be the only place where `!b.f()` means something else is an exception users and AIs will trip on, which SPEC 2060 has to explain with its "long form" note. For a call result, the loop's mode is not needed. An iterator made by the call is a temporary the loop has to advance, so it is lent to write anyway. A call that returns `![]T` or `!List` already says "write" in its type. Keep loop write mode for places only (`for x in !xs`, `!b.xs`). One condition: anything accepted today that the change re-reads must be *rejected with a fix*, never accepted with a new meaning. That includes `for x in !it.items()` where `items` takes `?@`.
+
+**2. `collect` of views: AGREE.**
+`names.iter().filter(f).collect::<Vec<&String>>()` is everyday Rust. The borrow checker keeps `names` borrowed while the Vec lives, and nobody thinks of it as a hazard. Forcing `.map(|x| +x)` turns a zero-copy idiom into N hidden-cost allocations, which runs against Rig's cost model. The clone is still one visible `+` away for anyone who wants owned values. The risk is the error that comes later, when `!names.push(..)` is rejected far from the `collect`. That diagnostic must name the collected list and the line of the `collect`, as rustc's "borrow later used here" does.
+
+**3. Check-speed guard as a gate: AGREE, with a ratchet.**
+rustc-perf counts `instructions:u` because wall time is too noisy. It runs after every merge, plus try runs before merge, and has a weekly triage. It does not block merges, and Rust still drifts by many small steps. Rig is small and the guard costs 1–2 minutes, so blocking is affordable. The catch is the 27% drift: it came from roughly 1% steps, and a per-PR 2% threshold measured against the parent misses those. Compare against the committed `guard.txt` instead, and make `--update` carry a reason in the PR. Then the total drift shows up in git.
+
+**4. Dedicated round after phase 2: AGREE.**
+This matches Rust's history: continuous guarding plus periodic focused efforts (Nethercote's rounds) gave the big wins. Once item 3 stops the drift, waiting until features settle avoids optimizing code that is about to move. Measure on Trig's real check, cycles and time, not only the synthetic guard.
+
+**5. Two write captures in `task.select`: AGREE.**
+Rust rejects exactly this: two closures that each capture `&mut n` and are alive at once give E0499. `tokio::select!` avoids the problem because its handlers are *blocks* run after a winner is chosen, not closures. Each branch's future is built up front, while the `=> { n += v }` bodies are not, so every handler can write `n`. Keeping the rejection is sound. The better long-term alternative is a select form whose arm bodies act like `match` arms, checked as alternatives the way `if`/`else` branches are. That is a CORE paragraph for later. For now, the error should point users to "return a value, write `n` after the select", which is the Rust idiom too.

@@ -1,6 +1,6 @@
 # Compiler revamp, phase 1: decisions for the owner (2026-11-03)
 
-Each has a default; "approve the defaults" takes them all.
+Each had a default. A panel of three experts agreed with all five, so all the defaults were approved on the owner's instruction (2026-11-04; panel-decisions.md).
 
 1. **`!` on a `for` source** (audit-frontend F6). `for x in ?b.each()`
    applies `?` to the call's self, but `for x in !b.counter()` takes `!`
