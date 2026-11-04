@@ -3811,6 +3811,7 @@ test/reject/std/random_holder_moves.rig main
 test/reject/std/random_moves.rig main
 test/reject/std/random_not_copy.rig main
 test/reject/types/closure_lending_hints_ownership.rig main
+test/reject/types/collected_views_keep_their_source_lent.rig main
 test/reject/types/fallback_not_fresh.rig main
 test/reject/types/generic_fn_double_move.rig twice
 test/reject/types/generic_fn_escaping_view.rig local
@@ -5028,3 +5029,8 @@ test/reject/ownership/generic_value_of_an_enum_payload.rig main
 test/reject/ownership/generic_value_of_optionals_of_a_view.rig main
 doc/CORE/de4c477c6213 main
 test/reject/ownership/a_view_handed_to_a_call_that_writes_what_it_views.rig main
+test/reject/ownership/a_chain_in_a_block_keeps_its_scope's_end_in_the_source.rig main
+test/reject/ownership/collected_views_do_not_outlive_their_source's_block.rig main
+test/reject/ownership/collected_String_views_do_not_outlive_their_source's_block.rig main
+test/reject/ownership/a_padded_closure_in_a_block_keeps_its_scope's_end_in_the_source.rig main
+test/reject/ownership/a_bare_for_in_a_block_keeps_its_scope's_end_in_the_source.rig main

@@ -409,12 +409,13 @@ fail "for iterator kept view", "26:5: `for iterator` does not live long enough",
     if keep as k
       print(k.name)
 
-fail "for iterator made view", "37:10: `b.each()` keeps `b` lent while the loop walks it; write `for ... in ?b.each()`", "39:11: `!b.each()` advances a place, and this is a value made here, which holds no write view; write `for x in ?b.each()`, which holds it for the loop", "41:13: method `drain` needs `self` lent to write; write `(!b).drain()`", errors: 3
+fail "for iterator made view", "38:10: `b.each()` keeps `b` lent while the loop walks it; write `for ... in ?b.each()`", "40:10: `each` does not write `self`; remove the `!`", errors: 2
   # An iterator a method returns views the place it came from, so the
   # loop keeps that place lent: the lend is written on self, as
-  # `for x in ?b.each()`. No iterator holds a write view, so `!` before
-  # the source is rejected, with the form that compiles: `?` for a method
-  # that reads its self, and `(!b).drain()` for one that writes it.
+  # `for x in ?b.each()`. A sigil before the call is its self's, as
+  # before any call: `!b.each()` is rejected for a method that reads its
+  # self, and `!b.drain()` lends `b` to write for one that writes it
+  # ("for iterator write self").
 
   obj Cur
     xs: ?List[Int]
@@ -450,8 +451,43 @@ fail "for iterator made view", "37:10: `b.each()` keeps `b` lent while the loop 
     print(x)
   for x in !b.each()
     print(x)
+
+test "for iterator write self", '''
+  4 5 |
+  1
+  0
+  | 0
+'''
+  # `for x in !b.drain()` is `for x in (!b).drain()`: the `!` lends the
+  # call's self, as before any call, and the loop holds the iterator the
+  # call makes. A `!List` the call gives is walked for writing.
+
+  obj Count
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
+
+  obj Bag
+    xs: List[Int]
+
+    fun drain(!@) -> Count
+      n = @xs.len
+      !@xs.clear()
+      Count(n: n)
+
+    fun items(!@) -> !List[Int] from @
+      !@xs
+
+  b = Bag(xs: List([3, 4]))
+  for x in !b.items()
+    x += 1
+  print(b.xs[0], b.xs[1], "|")
   for x in !b.drain()
     print(x)
+  print("|", b.xs.len)
 
 fail "for iterator not writable", "15:13: cannot lend to write through a read view `?Count`", "19:13: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)", "23:11: cannot lend fixed binding `k` to write (bound with `=!`)", "26:11: `for n in ?c` would only read an iterator, which `next` cannot advance; write `for n in !c` to advance it in place", "28:11: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for n in Count(lo: 0, hi: 2)`, which holds it for the loop", errors: 5
   # `for x in it` is `while (!it).next() as x`, so the iterator must be
@@ -984,3 +1020,57 @@ fail "for through a shared handle holds it", "6:3: cannot reassign `h` while it 
   for x in ?h
     print(x)
     <h
+
+test "for over a call that gives a write view walks it for writing", "[2, 3] [20, 30]"
+  # A call's result is walked as its type says: a `!List` is walked for
+  # writing, as `!xs` walks a place.
+  fun all(xs: !List[Int]) -> !List[Int] from xs
+    xs
+
+  obj B
+    xs: List[Int]
+
+    fun items(!@) -> !List[Int] from @
+      !@xs
+
+  xs = List[Int]([1, 2])
+  for x in all(!xs)
+    x += 1
+  b = B(xs: List([2, 3]))
+  for x in (!b).items()
+    x *= 10
+  print(xs, b.xs)
+
+test "for over a read view binding views what it views", "1 1"
+  # A read view in a binding is read as any view is: the loop's elements
+  # view the List it views, not the binding, as `?src[0]` does.
+  obj P
+    name: String
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann")))
+  vs: List[?P] = List()
+  if ps.len > 0
+    src = ?ps
+    for p in src
+      !vs.push(p)
+  ws: List[?P] = List()
+  if ps.len > 0
+    s = ?ps
+    !ws.push(?s[0])
+  print(vs.len, ws.len)
+
+fail "a loop over a read view binding binds slot views, as one over ?p does", "5:8: cannot move loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  a = List[String]()
+  !a.push(String("a String long enough to be held on the heap"))
+  src = ?a
+  for x in src
+    z = <x
+    print(z)
+
+fail "a loop over ?p binds slot views", "4:8: cannot move loop view `y`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  a = List[String]()
+  !a.push(String("a String long enough to be held on the heap"))
+  for y in ?a
+    w = <y
+    print(w)

@@ -417,6 +417,58 @@ new
 2 1
 ```
 
+### A sigil before a `for` source's method call lends its self
+
+`for x in <b.items()` took the List `items` made, with `<` as the loop's
+mode. A sigil before a method call lends the call's self, in a `for`
+header as anywhere, so `<` there is checked against the method, and one
+that does not consume `self` is rejected. The loop consumes a List the
+call makes without it, and `!b.drain()` lends `b` to write.
+
+```rig reject
+obj Bag
+  xs: List[Int]
+
+  fun items(?@) -> List[Int]
+    +@xs
+
+sub main()
+  b = Bag(xs: List([1, 2]))
+  for x in <b.items()
+    print(x)
+```
+
+```error
+`items` does not consume `self`; remove the `<`: a call's result moves without it
+```
+
+```rig
+obj Bag
+  xs: List[Int]
+
+  fun items(?@) -> List[Int]
+    +@xs
+
+  fun drain(!@) -> List[Int]
+    swap(!@xs, List())
+
+sub main()
+  b = Bag(xs: List([1, 2]))
+  for x in b.items()
+    print(x)
+  for x in !b.drain()
+    print(x * 10)
+  print(b.xs.len)
+```
+
+```output
+1
+2
+10
+20
+0
+```
+
 ### Spacing decides an operator
 
 An operator has the same spacing on both sides, and a bracket, a call's
@@ -593,6 +645,12 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | `b'A'`, `b"\n"` | `'A'`, `"\n"` where a `U8` or a `[N]U8` goes | by hand |
 | `within:` on a set's wait, `wait_all`, `task.both` | `time.within(ns, \|\| ...)`, `>ts`, `task.all` | by hand, as the compiler says |
 | a public generic that nests itself through a call through an API on ever deeper instances | reported where it is declared, though nothing calls it (#647) | by hand |
+| `for x in !(!b).items()` | `for x in (!b).items()`, which walks the `!List` the call gives for writing | by hand, as the compiler says |
+| a sigil before a chain in a `for` header that the chain dropped: `<xs.filter(f)`, `?mk().filter(f)`, `<mk().filter(f)`, `!b.each().filter(f)` of a `?@` `each`, `?it.filter(f)` of an iterator | `(<xs).filter(f)` to take `xs` or `xs.filter(f)` to walk it; no sigil; `(!it).filter(f)` | by hand, as the compiler says |
+| a chain whose result keeps its source lent, bound or returned unmarked: `vs = names.filter(f).collect()`, `f = names.find(g)`, `y = ps.min_by(k) ?? return` | `vs = ?names.filter(f).collect()`, `?names.find(g)`, `?ps.min_by(k)` | by hand, as the compiler says |
+| a view escaping a block that holds a chain or a padded closure (`best = ?qs[0]` beside `xs.filter(f).count()`) | rejected, as in any block (*unsound*: it read freed memory); keep the viewed value alive as long as the view | by hand |
+| `x += 10` in `for x in xs.filter(f)`, which changed a copy | `for x in !xs` to change the elements, or `new y = x` for a copy | by hand, as the compiler says |
+| `z = <x` in `for x in src` of a read view `src = ?a`, or of a view in a field | as in `for x in ?a`: clone what the loop view reaches, or loop over `<a` to take the elements | by hand, as the compiler says |
 | an arm of `task.select` that reads, takes, or writes what another arm's closure or channel uses: `<s` beside `\|?s, v\|`, `n` sent beside `\|!n, v\|`, two arms' `\|!n, v\|`, `<a` beside `(!a).on_recv(...)`, `<chs` beside `(!chs[0])` | rejected: every arm is made before the select runs one; bind what the arms share before the select, or give each its own | by hand |
 
 `std.json` needs no change: `(!doc).parse(?src)` still answers a

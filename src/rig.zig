@@ -297,8 +297,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
         // whose `paren` is dropped: each before any pass reads a statement.
         .wait, .once, .@"..=", .paren => .none,
-        // A function's and a loop's markers, never a statement.
-        .outside, .lent => .none,
+        // A function's marker, never a statement.
+        .outside => .none,
     };
 }
 
@@ -2482,16 +2482,13 @@ pub const IterSource = enum {
     /// A place the loop advances where it stands: `for x in it` and
     /// `for x in !it` are `while (!it).next() as x`.
     place,
-    /// A value made here, held in a hidden binding for the whole loop.
+    /// A value made here, held in a hidden binding for the whole loop:
+    /// `for x in mk()`, or `for x in ?b.each()`, whose `?` lends the
+    /// call's self as before any call.
     made,
     /// A place the loop takes (`for x in <it`), moved into the hidden
     /// binding it holds for the whole loop.
     moved,
-    /// A value a method call makes, with the loop's `?` on the call's
-    /// self by self-sigil rule (`for x in ?b.each()` is
-    /// `for x in (?b).each()`), held in a hidden binding as `made` is:
-    /// the loop's `lent` tag (`Parser.lentSource`).
-    lent,
 };
 
 /// A `for` node to rewrite (`Parser.desugarIterLoops`), with how it
@@ -2550,6 +2547,10 @@ pub const Parser = struct {
     /// `(move place)` selves written in front of the call
     /// (`!v.push(x)`), not in parentheses.
     self_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The positions of the names a `for` over a chain binds, which its
+    /// loop binds in its body (`lowerForChain`): loop bindings, as
+    /// immutable as any `for`'s (`isLoopName`).
+    loop_names: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -3436,7 +3437,8 @@ pub const Parser = struct {
     //   * a closure's bar list (the grammar's `params`) splits into its
     //     captures and parameters:
     //       (lambda _ ((cap_clone v) a) _ body)  →  (lambda (captures (cap_clone v)) (a) _ body)
-    //   * `for` source sigils move into the mode slot:
+    //   * a `for` source sigil the self rewrite (below) leaves in place
+    //     moves into the mode slot:
     //       (for iter x _ (read xs) body _)  →  (for read x _ xs body _)
     //   * a statement `<e` whose value is not used drops now: a block's
     //     statement, a `defer` or `errdefer` body, an arm's body, or a
@@ -3460,15 +3462,9 @@ pub const Parser = struct {
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) return sexp;
         var items = sexp.items();
-        // A `for` source sigil is the loop's mode, taken before the
-        // self rewrite can see it.
-        var loop_sigil: Sexp = .nil;
         if (sexp.kind() == .@"for") {
             const copy = try self.allocator().dupe(Sexp, items);
             self.bareFor(sexp, copy);
-            const source = ir.For.source(sexp);
-            if (ir.For.mode(sexp).tag == .iter and source.isKind(.read)) loop_sigil = source;
-            normFor(copy);
             items = copy;
         }
         const walked = try self.allocator().alloc(Sexp, items.len);
@@ -3479,9 +3475,11 @@ pub const Parser = struct {
         if (in_type) self.type_depth += 1;
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         if (in_type) self.type_depth -= 1;
+        // A `for` source sigil the self rewrite left in place is the
+        // loop's mode; one before a method call went to its self.
+        if (sexp.kind() == .@"for") normFor(walked);
         dropParens(sexp.kind(), walked);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
-        if (loop_sigil != .nil) try self.loopSelf(out, loop_sigil);
         try self.lowerMatches(out.kind(), walked);
         switch (out.kind() orelse return out) {
             .module => {
@@ -4457,27 +4455,6 @@ pub const Parser = struct {
         return node == .list and self.paren_suffixes.contains(node.list.id);
     }
 
-    /// Mark the `for` loop `loop` whose source was written after `sigil`,
-    /// a `?`, `lent`, when the self-sigil rule puts that sigil on the self
-    /// of the source's first method call (`lentSource`).
-    fn loopSelf(self: *Parser, loop: Sexp, sigil: Sexp) std.mem.Allocator.Error!void {
-        const lent = try self.base.newNode(sigil.kind().?, &.{ir.For.source(loop)}, self.span(sigil));
-        const moved = try self.selfSigil(lent);
-        if (moved.list.id == lent.list.id) return;
-        @constCast(loop.items())[ir.slot(.@"for", .lent)] = .{ .tag = .lent };
-    }
-
-    /// The source of the `for` loop `loop`, marked `lent`, with its `?` on
-    /// the self of its first method call: `for x in ?b.each()` holds
-    /// `(?b).each()`. A prefix sigil touches its operand, so the `?`
-    /// stands right before the source.
-    fn lentSource(self: *Parser, loop: Sexp) std.mem.Allocator.Error!Sexp {
-        const source = ir.For.source(loop);
-        const at = self.span(source);
-        const lent = try self.base.newNode(.read, &.{source}, .{ .start = at.start -| 1, .end = at.end });
-        return self.selfSigil(lent);
-    }
-
     /// `>t`: the call `<t.wait()` makes, `(call _ (member (move t) wait))`,
     /// with a hidden `wait` (`isWaitCall`). Every node spans the `>t`, so
     /// a message quotes it as written, and the move is a self sigil,
@@ -4526,6 +4503,11 @@ pub const Parser = struct {
             .end = whole.end,
             .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}{s}`; to wait for a task that `{s}{s}` holds, take it out to a name first, then wait for that, `>t`", .{ written, rest, written, dot, rest, written[1..], rest }) catch "a wait takes a name alone: write `(>t).x`",
         };
+    }
+
+    /// Whether `leaf` is a name a `for` over a chain binds (`loop_names`).
+    pub fn isLoopName(self: *const Parser, leaf: Sexp) bool {
+        return leaf == .src and self.loop_names.contains(leaf.src.pos);
     }
 
     /// Whether `node` is a self sigil the wrapper moved onto the
@@ -5242,14 +5224,6 @@ pub const Parser = struct {
         std.mem.reverse(ChainStep, steps.items);
         // Typecheck rejects a longer chain (`max_chain_stages`).
         std.debug.assert(steps.items.len <= max_chain_stages);
-        // `for x in ?m.keys().filter(f)`: the loop's mode holds the `?`,
-        // which reaches the self of the source's call, as it does for a
-        // loop over the call itself.
-        if (is_for and ir.For.mode(node).tag == .read and cur.isKind(.call) and ir.Call.callee(cur).isKind(.member)) {
-            const callee = ir.Call.callee(cur);
-            const obj = ir.Member.object(callee);
-            if (!obj.isKind(.read)) @constCast(callee.items())[ir.slot(.member, .object)] = try self.base.newNode(.read, &.{obj}, self.span(obj));
-        }
         const root = cur;
         const extent = self.span(node);
         const home = if (consumer) |cs| cs.at else if (steps.items.len > 0) steps.items[steps.items.len - 1].at else extent.start;
@@ -5399,7 +5373,11 @@ pub const Parser = struct {
         const lends = l.source == .elements and !l.copies and !made;
         const value = if (made) try l.node(.move, &.{item}) else if (lends) try l.node(.read, &.{item}) else item;
         try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.@"var"(node), .nil, value }));
-        if (ir.For.index(node) != .nil) if (l.second_of[last]) |s| try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.index(node), .nil, try l.leaf(s) }));
+        try self.loop_names.put(a, ir.For.@"var"(node).src.pos, {});
+        if (ir.For.index(node) != .nil) if (l.second_of[last]) |s| {
+            try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.index(node), .nil, try l.leaf(s) }));
+            try self.loop_names.put(a, ir.For.index(node).src.pos, {});
+        };
         for (ir.rest(ir.For.body(node), .stmts)) |s| try body.append(a, s);
         try pre.append(a, try l.loop(h, try l.block(body.items), ir.For.@"else"(node)));
         return l.block(pre.items);
@@ -5630,11 +5608,7 @@ pub const Parser = struct {
         var hold: ?Sexp = null;
         var iter = source;
         if (l.source != .place) {
-            const value = switch (l.source) {
-                .moved => try self.base.newNode(.move, &.{source}, at),
-                .lent => try self.lentSource(loop),
-                else => source,
-            };
+            const value = if (l.source == .moved) try self.base.newNode(.move, &.{source}, at) else source;
             // `h` is declared before the loop, at the position before
             // its `for`, so the loop does not enclose its declaration:
             // what it holds stays in force through every iteration

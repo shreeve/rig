@@ -1443,25 +1443,20 @@ fail "write self note", "20:21: cannot lend `b` to write while a read loan is li
   !b.items.push(Item(n: 7))
   print((!b).consume((!b).first()))
 
-fail "write self outer bang", "25:4: `pop` changes `self`, a temporary no name holds; the `!` here lends what `pop` returns, not `self`: write `!(mkopt(n)?).pop()`", "28:11: `vs` changes `self`, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of `self`: bind `mk(1)` to a name first"
+fail "write self outer bang", "20:4: `pop` changes `self`, a temporary no name holds; the `!` here lends what `pop` returns, not `self`: write `!(mkopt(n)?).pop()`"
   # A `!` that does not reach a write method's temporary self: one
   # outside a chain the self-sigil rule stops at (`!o?.pop()` lends
-  # what `pop` returns), and the `!` before a `for` source, which is the
-  # loop's mode. The diagnostic says so, and names what works.
+  # what `pop` returns). The diagnostic says so, and names what works.
 
   obj S
     n: Int
-    items: List[Int]
 
     fun pop(!@) -> Int
       @n += 1
       @n
 
-    fun vs(!@) -> ![]Int
-      !@items[..]
-
   fun mk(n: Int) -> S
-    S(n: n, items: List())
+    S(n: n)
 
   fun mkopt(n: Int) -> S?
     return none if n == 0
@@ -1471,6 +1466,21 @@ fail "write self outer bang", "25:4: `pop` changes `self`, a temporary no name h
     !mkopt(n)?.pop()
 
   print(go(1) ?? 0)
+
+fail "write self for source temporary", "14:11: a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Before a `for` source's method call, `!` reaches the temporary self,
+  # as anywhere: `!mk(1).vs()` is `(!mk(1)).vs()`, whose view the loop
+  # would walk after its header drops `mk(1)`.
+
+  obj S
+    items: List[Int]
+
+    fun vs(!@) -> ![]Int
+      !@items[..]
+
+  fun mk(n: Int) -> S
+    S(items: List([n]))
+
   for x in !mk(1).vs()
     x += 1
 

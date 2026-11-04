@@ -2057,8 +2057,8 @@ not inserted". Any other write call is written short wherever its
 value goes, `x = !v.pop()`, `while !it.next() as x`, `t =
 !@new_node(k)`. The result the method declares decides, before its
 type's arguments apply: `!flags.remove(0)` on a `List[Bool]` returns
-`T`, and is short. A `for` source keeps the long form, `for x in
-(!it).items()`, since a `!` before it is the loop's mode. A `Bool`
+`T`, and is short. A `for` source is no exception: `for x in
+!b.drain()` is `for x in (!b).drain()` ([for](#for)). A `Bool`
 call whose value is discarded is short
 too: a statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`,
 and `_ = !set.insert(k)`, since `_ =` discards. The long form
@@ -6087,6 +6087,40 @@ drop 2
 after
 ```
 
+A sigil before a method call lends the call's self, as before any call
+([§3](#objects)): `for x in !b.items()` is `for x in (!b).items()`,
+and `for x in ?b.each()` is `for x in (?b).each()`. The loop walks
+what the call gives as its type says: a write view (`!List[T]`,
+`![]T`) for writing, as `!xs` walks a place, a read view where it
+stands, and a List made there is consumed. So `!` and `<` before a
+source are the loop's mode only for a place, or a value the sigil
+lends whole (`!all(!xs)`, a call that is no method's).
+
+```rig
+obj Bag
+  xs: List[Int]
+
+  fun items(!@) -> !List[Int] from @
+    !@xs
+
+  fun drain(!@) -> List[Int]
+    swap(!@xs, List())
+
+sub main()
+  b = Bag(xs: List([1, 2]))
+  for x in !b.items()
+    x *= 10
+  for x in !b.drain()
+    print(x)
+  print(b.xs.len)
+```
+
+```output
+10
+20
+0
+```
+
 A List source is a place, which the loop walks in place. A List of plain
 data may also be a value made there (a call, or a branching value whose
 every branch is made there), whose new List the loop consumes as `<v`
@@ -6136,7 +6170,7 @@ written decides what the loop does with it:
 | `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while (!it).next() as x` |
 | `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
 | `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
-| `?b.each()`: a method call whose `?` reaches its self, as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent to read while the loop holds `h` |
+| `?b.each()`, `!b.drain()`: a method call, whose sigil lends its self as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent while the loop holds `h` |
 | `?it` | rejected: reading an iterator cannot advance it |
 
 A type with a `next` of another shape (`next(?@)`, one that takes
@@ -6296,8 +6330,21 @@ chain lends it to write, `(!it).map(f).sum()`; a call whose result
 views its self is lent to read, `?m.keys().count()`. A chain is
 checked stage by stage before it becomes its loop, so an error names
 the stage and the items it meets: `` `sum` adds numbers, and these items
-are `String`s ``, `` `filter`'s function gives a `Bool` ``; `collect` of
-views is rejected with the fix, `.map(|x| +x).collect()`.
+are `String`s ``, `` `filter`'s function gives a `Bool` ``.
+
+A consumer that gives items (`collect`, `find`, `min`, `max`,
+`min_by`, `max_by`) gives what the source's `for` gives, views of
+elements that are not plain data, and copies none: its result keeps
+the source lent while it lives. Bound to a name or returned, it is
+written with the lend, `vs = ?names.filter(f).collect()`, as any call
+whose result keeps its argument lent is ([§7](#lending)); used within
+its statement, `print(names.find(f) ?? "")`, it lends unmarked.
+`.map(|x| +x).collect()` collects copies, which keep nothing lent. In
+a `for` header, a sigil before a chain lends its source as it lends a
+method call's self (`for x in !xs.filter(f)` walks
+`(!xs).filter(f)`); one that reaches no place does nothing and is
+rejected, and a `<` is written on the source it takes,
+`(<xs).filter(f)`.
 
 A chain is not a value: bound, passed, or returned without a consumer,
 it is rejected with the ways to end it. A chain has at most 64
@@ -6317,8 +6364,8 @@ sub main()
   !ps.push(P(name: String("ann"), age: 30))
   !ps.push(P(name: String("bo"), age: 20))
   !ps.push(P(name: String("cy"), age: 20))
-  young = ps.min_by(|p| p.age) ?? return
-  old = ps.max_by(|p| p.age) ?? return
+  young = ?ps.min_by(|p| p.age) ?? return
+  old = ?ps.max_by(|p| p.age) ?? return
   print(young.name, old.name)
   for p, i in ps.filter(|p| p.age > 15).enumerate()
     print(i, p.name)
