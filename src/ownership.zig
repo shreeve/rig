@@ -1616,10 +1616,7 @@ pub const Checker = struct {
     /// and its holder is still live at position `end`, where the scope
     /// ends (or after the current statement when null).
     fn releaseVarsFrom(self: *Checker, start: u32, report: bool, end: ?u32) Error!void {
-        const lent = for (self.loan_counts.items[@min(start, self.loan_counts.items.len)..]) |n| {
-            if (n > 0) break true;
-        } else false;
-        if (lent) {
+        if (self.lentFrom(start)) {
             if (report) for (self.flows.items[0..@min(start, self.flows.items.len)], 0..) |f, holder| {
                 if (hasLoanFrom(f.loans, start)) _ = try self.reportHolder(f, @intCast(holder), start, end);
             };
@@ -1883,6 +1880,13 @@ pub const Checker = struct {
         }
     }
 
+    /// Whether some var's flow holds a loan on a var `>= start`.
+    fn lentFrom(self: *const Checker, start: u32) bool {
+        return for (self.loan_counts.items[@min(start, self.loan_counts.items.len)..]) |n| {
+            if (n > 0) break true;
+        } else false;
+    }
+
     /// Whether some var's flow holds a loan on `root` (a temporary may
     /// still).
     fn isLent(self: *const Checker, root: VarId) bool {
@@ -2016,6 +2020,7 @@ pub const Checker = struct {
     /// a loan on a statement's temporary that it keeps past its
     /// statement. Each holder is reported once.
     fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
+        if (!self.lentFrom(depth)) return;
         for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
             if (!hasLoanFrom(f.loans, depth)) continue;
             if (!(try self.reportHolder(f, @intCast(holder), depth, at))) try self.reportTempHolder(f, @intCast(holder), depth);

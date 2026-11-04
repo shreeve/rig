@@ -359,6 +359,11 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **The ownership checker is linear in a function's branches.** A
+  branch's end reports a dropped loan only when some value declared in
+  the branch is lent: a function of 40,000 `if` statements, each over
+  its own List, checks its ownership in 101 ms (831 ms before), and
+  16,000 in 38 ms (145 ms).
 - **A ternary's condition binds names.** `id = v.id if r.decl as v
   else 0`, `area = r * r if s matches .circle(r) else 0`, and
   `v.id if x as v and v.id > 0 else 0` bind as an `if` condition does,
