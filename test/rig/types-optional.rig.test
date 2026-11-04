@@ -686,3 +686,90 @@ fail "optional ordered beside its value", "3:7: operator `>` orders an optional 
   # Two optionals order, none first; an optional beside a value does not.
   a: Int? = 3
   print(a > 2)
+
+test "ternary binds with as", '''
+  40 0 40
+  -1 40
+  8
+  5 9
+  30 0
+  9
+  3
+  '''
+  # A ternary's condition binds as an `if` condition does, and the names
+  # are visible in the value before `if` (SPEC, "Block expressions"):
+  # alone, joined by `and`, in an argument, a field initializer, a
+  # closure, and over several results.
+  obj Decl
+    id: Int
+
+  obj P
+    x: Int
+    y: Int
+
+  fun find(k: Int) -> Decl?
+    Decl(id: k * 10) if k > 0 else none
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun pair(k: Int) -> (Int, Int)?
+    return k, k * 2 if k > 0
+    none
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  fun id_of(k: Int) -> Int
+    return v.id if find(k) as v else 0
+
+  d = find(4)
+  print(v.id if d as v else 0, v.id if find(0) as v else 0, id_of(4))
+  print(v.id if d as v and v.id > 50 else -1, v.id if d as v and v.id > 5 else -1)
+  print(twice(v if get(4) as v else 0))
+  p = P(x: v if get(5) as v else 0, y: v if get(-1) as v else 9)
+  print(p.x, p.y)
+  f = |k: Int| v * 10 if get(k) as v else 0
+  print(f(3), f(-3))
+  print(a + b if pair(3) as a, b else 0)
+  print((v + w if get(2) as w else v) if get(1) as v else -1)
+
+fail "ternary binding is not seen by else", "5:31: use of unbound name `x`; the condition binds `x` only for what runs when it holds, not for `else`", "7:9: use of unbound name `y`", "9:10: use of unbound name `z`; the condition binds `z` only for what runs when it holds, not for `else`"
+  # The names a ternary's condition binds are visible in the value
+  # before `if` only: not in the `else` value, nor after the expression;
+  # an `if` block's are not seen by its `else` either.
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  a = y if get(1) as y else x if get(2) as x else x
+  print(a)
+  print(y)
+  if get(3) as z
+    print(z)
+  else
+    print(z)
+
+fail "ternary binding that shadows", "4:22: optional binding `z` shadows the local `z`; use a different name"
+  # A ternary's binding is a new name, as an `if` condition's is.
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  z = 5
+  c = z if get(3) as z else 0
+  print(c)
+
+fail "postfix guard binds no names", "5:13: a postfix guard binds no names: write an `if` block, whose body sees them", "6:20: a postfix guard binds no names: write an `if` block, whose body sees them", errors: 2
+  # A guard's statement stands before its condition and sees no name it
+  # binds (SPEC §12, "Joined bindings").
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  s: Shape = .circle(r: 2)
+  print(y) if get(4) as y and y > 3
+  total = 0
+  total += r if s matches .circle(r)
+  print(total)

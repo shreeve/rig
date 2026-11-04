@@ -230,6 +230,9 @@ const Checker = struct {
     logic_operands: [2]Sexp = .{ .nil, .nil },
     /// The condition of the `if` value being checked.
     ternary_cond: Sexp = .nil,
+    /// The binding conditions whose `else` is being checked, innermost
+    /// last: a name one binds is unbound there (`unboundHint`).
+    else_conds: std.ArrayList(Sexp) = .empty,
     /// The condition being checked whose `and` chain narrows, at a
     /// `$plain(T)` operand, what runs once the test has held
     /// (`sema.PlainRegion`).
@@ -461,6 +464,7 @@ const Checker = struct {
         self.result_hints.deinit(a);
         self.jump_targets.deinit(a);
         self.panic_places.deinit(a);
+        self.else_conds.deinit(a);
     }
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
@@ -2477,9 +2481,12 @@ const Checker = struct {
         const saved_plain = self.plain_cond;
         defer self.plain_cond = saved_plain;
         self.plain_cond = if (self.isBlockIf(node) or (position == .statement and else_node == .nil)) try self.plainCondOf(cond, &.{then_node}) else null;
-        if (!self.isBlockIf(node) and rig.bindsInCondition(cond)) {
-            try self.checkExpr(cond, self.t().bool_id);
-        } else try self.checkCondition(cond);
+        // A ternary's names reach the value before `if`, as a block's
+        // reach the block; a postfix guard binds none.
+        if (position == .statement and !self.isBlockIf(node) and rig.bindsInCondition(cond)) {
+            try self.errAt(cond, "a postfix guard binds no names: write an `if` block, whose body sees them", .{});
+        }
+        try self.checkCondition(cond);
         self.plain_cond = saved_plain;
         self.ternary_cond = saved_cond;
         self.no_hold = saved_hold;
@@ -2487,14 +2494,14 @@ const Checker = struct {
         self.scope = prev;
 
         if (position == .statement) {
-            if (else_node != .nil) _ = try self.branch(else_node, expected, position);
+            if (else_node != .nil) _ = try self.elseBranch(cond, else_node, expected, position);
             return self.t().void_id;
         }
         if (else_node == .nil) {
             try self.errAt(then_node, "`if` used as a value requires an `else` branch", .{});
             return self.t().invalid_id;
         }
-        const else_ty = try self.branch(else_node, expected, position);
+        const else_ty = try self.elseBranch(cond, else_node, expected, position);
         if (expected) |e| return e;
         const u = (try self.unify(then_ty, else_ty, self.startOf(else_node))) orelse return self.t().invalid_id;
         // All-literal branches take their type from the context later.
@@ -2514,6 +2521,33 @@ const Checker = struct {
         }
         // All-literal branches still yield an `Int` (or `Float`).
         try self.recordAdapted(value, ty, self.canonical(target));
+    }
+
+    /// The `else` of an `if` whose condition is `cond`.
+    fn elseBranch(self: *Checker, cond: Sexp, node: Sexp, expected: ?TypeId, position: Position) Error!TypeId {
+        const binds = rig.bindsInCondition(cond);
+        if (binds) try self.else_conds.append(self.ctx.allocator, cond);
+        defer if (binds) {
+            _ = self.else_conds.pop();
+        };
+        return self.branch(node, expected, position);
+    }
+
+    /// Whether the binding condition `cond` binds `name`.
+    fn conditionBinds(self: *Checker, cond: Sexp, name: []const u8) Error!bool {
+        for (try self.guardParts(cond)) |p| {
+            const names: []const Sexp = switch (p.kind() orelse continue) {
+                .as => (&ir.As.name(p))[0..1],
+                .as_results => ir.AsResults.names(p).items(),
+                .as_match => self.ctx.armPayloadBindings(ir.Arm.pattern(rig.asMatchArm(p))),
+                else => continue,
+            };
+            for (names) |n| {
+                const leaf = if (n.isKind(.set)) ir.Set.target(n) else n;
+                if (leaf == .src and std.mem.eql(u8, self.text(leaf), name)) return true;
+            }
+        }
+        return false;
     }
 
     fn branch(self: *Checker, node: Sexp, expected: ?TypeId, position: Position) Error!TypeId {
@@ -3037,6 +3071,11 @@ const Checker = struct {
         frame.part = .body;
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
+        const binds = rig.bindsInCondition(cond);
+        if (binds) try self.else_conds.append(self.ctx.allocator, cond);
+        defer if (binds) {
+            _ = self.else_conds.pop();
+        };
         try self.checkLoopElse(&frame, ir.While.@"else"(node));
     }
 
@@ -5127,6 +5166,9 @@ const Checker = struct {
             .{ "printf", "; Rig prints a line with `print(...)`" },
         };
         for (others) |o| if (std.mem.eql(u8, name, o[0])) return o[1];
+        for (self.else_conds.items) |c| if (try self.conditionBinds(c, name)) {
+            return self.ctx.arena.allocator().print("; the condition binds `{s}` only for what runs when it holds, not for `else`", .{name});
+        };
         var s: sema.Suggest = .{ .name = name };
         self.ctx.offerVisible(&s, self.scope, leaf.src.pos, struct {
             fn keep(sym: sema.Symbol) bool {
@@ -5149,7 +5191,7 @@ const Checker = struct {
             const sym = self.ctx.symbols.items[id];
             // A module-level constant is visible in every function body,
             // and in every constant (`SemContext.const_order`).
-            const later = sym.decl_pos > pos and scope != self.module_scope;
+            const later = scope != self.module_scope and sym.declaredAfter(pos);
             if (sym.kind == .local and (later or id == self.pending or std.mem.findScalar(SymbolId, self.pending_names, id) != null)) {
                 id = sym.prev_in_scope;
                 continue;
@@ -5249,17 +5291,17 @@ const Checker = struct {
             },
             .panic => self.checkPanic(e),
             .as => blk: {
-                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`", .{});
                 _ = try self.synthExpr(ir.As.value(e));
                 break :blk self.t().invalid_id;
             },
             .as_match => blk: {
-                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`", .{});
                 _ = try self.synthQuiet(ir.Match.subject(rig.asMatchOf(e)));
                 break :blk self.t().invalid_id;
             },
             .as_results => blk: {
-                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block or of a ternary, alone or joined to the rest by `and`", .{});
                 _ = try self.synthQuiet(ir.AsResults.value(e));
                 for (ir.AsResults.names(e).items()) |n| if (n.isKind(.set)) try self.poisonTarget(n);
                 break :blk self.t().invalid_id;
