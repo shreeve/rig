@@ -4697,6 +4697,12 @@ pub const Parser = struct {
             .cap_write => .write,
             else => unreachable,
         };
+        // The name's leaf spans the sigil too, and its `len` stays under
+        // 65535, which stands for a long token `leafEnd` scans again.
+        if (text.len + 1 >= std.math.maxInt(u16)) {
+            self.reject(place, "a captured field path is longer than 65533 bytes; bind it to a shorter name first, and capture the name");
+            return node;
+        }
         out[ir.slot(.cap_read, .name)] = .{ .src = .{ .pos = at.start, .len = @intCast(text.len + 1), .id = path_capture_id } };
         out[ir.slot(.cap_read, .value)] = try self.base.newNode(lend, &.{place}, at);
         return node;

@@ -365,11 +365,13 @@ MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
-- **A source file or a module holds up to 2 GiB.** The limit was
+- **A source file or a module holds less than 2 GiB.** The limit was
   16 MiB; positions in a source are 32 bits, and the upper half of
   their range numbers the names the compiler adds past a source's end.
   A program of 24 MB of string literals, in one file or in a directory
   module of eight, checks in 0.3 s and builds in debug in under 2 s.
+- **A closure that captures a field path longer than 65533 bytes is
+  rejected** with a message; it crashed the compiler.
 - **The ownership checker is linear in a function's branches.** A
   branch's end reports a dropped loan only when some value declared in
   the branch is lent: a function of 40,000 `if` statements, each over

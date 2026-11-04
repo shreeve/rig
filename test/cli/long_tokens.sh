@@ -69,6 +69,14 @@ bad('unexpected_long.rig', f'  print(1 "{a}")')
 bad('foreign_word.rig', f'  {name} 5')
 bad('detached.rig', f'  x = - {name}\n  print(x)')
 bad('spacing.rig', f'  x = "{a}" +"b"\n  print(x)')
+
+# A captured field path's leaf spans its sigil, `?p.` and the name: a
+# path of 65533 bytes is captured, and one byte more is rejected.
+def captured(file, n):
+    field = 'f' * n
+    open(file, 'w').write(f'obj P\n  {field}: Int\n\nsub main()\n  p = P({field}: 1)\n  g = |?p.{field}| p.{field} + 1\n  print(g())\n')
+captured('capture_at_limit.rig', 65531)
+captured('capture_over_limit.rig', 65532)
 EOF
 
 # The values, in debug and --release.
@@ -115,3 +123,7 @@ check unexpected_long.rig 2:11 'unexpected `"aaaa'
 check foreign_word.rig 2:70004 "unexpected"
 check detached.rig 2:7 "a prefix \`-\` touches its operand: write \`-nxxx"
 check spacing.rig 2:70010 '`a +"b"`: an operator has the same spacing on both sides'
+check capture_over_limit.rig 6:9 "a captured field path is longer than 65533 bytes"
+
+out=$(rig run capture_at_limit.rig 2>&1) || fail "rig run capture_at_limit.rig: $(head -c 2000 <<<"$out")"
+expect_eq "$out" "2" "a captured path of 65533 bytes"
