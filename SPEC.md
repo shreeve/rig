@@ -10839,7 +10839,9 @@ holds none; `_?` tests that it holds one. An arm with such a test, like
 a guarded arm, covers none of its variant's values, but for this: arms
 with no guard that test one field, and match any value of the others,
 cover the variant once both `name?` and `none` are among them
-(`.ready(r?)` and `.ready(none)` cover `.ready`).
+(`.ready(r?)` and `.ready(none)` cover `.ready`), and a later arm for
+it never runs. This holds for an enum's variants; a match on errors
+keeps every such arm partial, so it still needs `_`.
 
 ```rig
 enum Shape
@@ -13398,12 +13400,15 @@ whose variants are the arms' names, in order. Every arm is named, and
 a `match` on the value runs the winner's body:
 
 - `name: !ch.on_recv()` receives; its variant carries the value as
-  `T?`, `none` once the channel is closed and empty.
+  `T?`, `none` once the channel is closed and empty, in a field named
+  `value` (`.got(v?)`, or `.got(value: v?)` by name).
 - `name: !ch.on_send(<v)` sends `v`; its variant carries nothing. A
   send arm that loses drops its value.
 - `name: time.after(ns)` is a deadline: it completes once `ns`
   nanoseconds have passed since the select made it, and carries
-  nothing.
+  nothing. When it falls with the task's own deadline (`time.within`),
+  the task's comes first, and the select fails with
+  `task.Stop.timeout`.
 
 Messages name the type by its arms, `select(got, quit, late)`; a
 program never writes it. The value is an ordinary value: it is bound

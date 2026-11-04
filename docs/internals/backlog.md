@@ -300,6 +300,14 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   whether a write view of an array lends its elements to read, as `?a`
   does, and otherwise name the form to write in the message (`?k` or
   `?k[..]`). Found with queue row 29 (2026-10-31).
+- **A payload test on an error's member never lowers.** `.bad(l?)` or
+  `.bad(none)` in a `match` on an error of a set whose `bad` holds an
+  optional field passes `rig check` and fails in Zig (`type 'anyerror'
+  does not support field access`), with `_` for the rest or not; on a
+  union of sets emit reports "cannot emit this payload pattern". Lower
+  it, or reject it with a message, and then let such tests cover a
+  member as they cover an enum's variant (SPEC "Testing a pattern").
+  Found reviewing #923 (2026-11-04).
 
 Found while writing the Learn Rig journeys. Check each before fixing.
 

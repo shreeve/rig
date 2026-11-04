@@ -324,7 +324,10 @@ before it runs one, an arm of `task.select` may not take or write what
 another arm's closure views, nor two arms lend one value to write,
 nor read what an earlier arm's closure lends to write, nor take a
 channel, or the List holding it, that another arm waits on
-(*unsound*: the first read freed memory). A sigil before a `for`
+(*unsound*: the first read freed memory). An arm for an enum's
+variant after arms that test its optional field both ways
+(`.got(v?)`, `.got(none)`, then `.got(_)`, or a `_` that covers
+nothing else) never runs and is rejected. A sigil before a `for`
 source's method call or chain lends its self or source as anywhere:
 `for x in !(!b).items()` is "remove the outer `!`", `for x in
 !b.each().filter(f)` of a `?@` `each` is "remove the `!`", `for x in
@@ -362,9 +365,12 @@ MIGRATING-0.3 lists each.
   `tools/migrate-select.py` rewrites them. An unnamed arm of the new
   form is rejected with its name to write.
 - **Arms that test one optional field both ways cover the variant.**
-  `.got(v?)` and `.got(none)`, with no guard, cover `.got`, so a `match`
-  needs no `_` for it; a `_` after them that covers nothing else is an
-  arm that never runs.
+  `.got(v?)` and `.got(none)`, with no guard, cover an enum's `.got`, so
+  a `match` needs no `_` for it. An arm after them that only that
+  variant reaches never runs and is rejected: `.got(_)` ("this arm never
+  runs: `.got(v?)` and `.got(none)` cover `.got`"), and a `_` that
+  covers nothing else. A match on errors is unchanged: such arms cover
+  no member there.
 - **A sigil before a `for` source's method call lends its self,** as
   before any call: `for x in !b.drain()` is `for x in (!b).drain()`,
   which was rejected ("write `(!b).drain()`"), as `?b.each()` already

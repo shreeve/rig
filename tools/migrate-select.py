@@ -17,8 +17,10 @@ It rewrites a select that is a statement, a binding's value (`x =`),
 or a `return`'s, followed by `!` alone, whose closures each fit on one
 line. Anything else it leaves, printing `MANUAL path:line` and why: a
 `catch` after the select, a closure over several lines, a closure that
-moves a capture in (`|<x|`), a select inside another, or a select in an
-expression.
+moves a capture in (`|<x|`) or holds one weakly (`|~x|`), one that
+copies a capture in (`|+k, v|`) that another arm names, which could
+change it after the copy, a select inside another, or a select in an
+expression. A rewrite never changes what the program does.
 
 usage: tools/migrate-select.py [--dry-run] PATH...
   Each PATH is a file or a directory searched for .rig and .rig.test
@@ -122,8 +124,9 @@ def body_of(f, op):
             return "a select inside another"
         if any(p.startswith("<") for p in params):
             return "a closure that moves a capture in (`|<x|`)"
-        caps = [p for p in params if p[0] in "+?!~"]
-        rest = [p for p in params if p[0] not in "+?!~"]
+        if any(p.startswith("~") for p in params):
+            return "a closure that holds a capture weakly (`|~x|`)"
+        rest = [p for p in params if p[0] not in "+?!"]
         if op == "recv":
             if len(rest) != 1:
                 return "a receive's closure without its value"
@@ -137,6 +140,26 @@ def body_of(f, op):
     if not NAME.match(name):
         return "an arm's function that is neither a closure nor a name"
     return ("v", "%s(v)" % name) if op == "recv" else (None, "%s()" % name)
+
+
+CAPTURES = re.compile(r"\|([^|]*)\|")
+
+
+def copied_elsewhere(arm, others):
+    """Why an arm's closure that copies a capture in (`|+k, v|`) cannot
+    become a body that reads `k` once the select returns: another arm
+    names `k`, and may change it after the copy is made. None when no
+    other arm names one."""
+    m = CAPTURES.search(arm)
+    if not m:
+        return None
+    for p in split_top(m.group(1)):
+        if not p.startswith("+"):
+            continue
+        name = p[1:].strip()
+        if any(re.search(r"\b%s\b" % re.escape(name), o) for o in others):
+            return "a closure that copies `%s` in, which another arm names: the body would read it after the select" % name
+    return None
 
 
 SITE = re.compile(r"task\.select\(")
@@ -169,7 +192,11 @@ def rewrite(text, path, manual):
             why = "a select followed by `%s`, not `!` alone" % tail.strip() if tail.strip() else "a select that is not followed by `!`"
         arms = []
         if not why:
-            for a in split_top(text[m.end() : end]):
+            texts = split_top(text[m.end() : end])
+            for k, a in enumerate(texts):
+                why = copied_elsewhere(a, texts[:k] + texts[k + 1 :])
+                if why:
+                    break
                 got = arm_of(a)
                 if isinstance(got, str):
                     why = got

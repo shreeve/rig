@@ -9345,7 +9345,7 @@ pub const Emitter = struct {
             if (kind == .after) {
                 try self.w.writeAll("rig.afterArm(");
                 try self.emitArgs(sexp);
-                return self.w.writeAll(")");
+                return self.w.print(", {d})", .{facts.after_arm.unit_ns});
             }
             const handle = ir.get(ir.Member.object(callee), .operand);
             try self.w.writeAll(if (kind == .recv) "rig.recvArm(" else "rig.sendArm(");

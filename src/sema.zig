@@ -11130,6 +11130,12 @@ pub fn selectType(ctx: *SemContext, names: []const []const u8, payloads: []const
     return ctx.intern(.{ .nominal = id });
 }
 
+/// The deadline arm of `task.select`, `time.after(ns)`: the name of its
+/// one parameter and the nanoseconds in each of its units. The one place
+/// its spelling is decided: `.{ .param = "ms", .unit_ns = 1_000_000 }`
+/// would make it `time.after(ms: 50)`.
+pub const after_arm = .{ .param = "ns", .unit_ns = 1 };
+
 /// Whether `sym` is the type of a `task.select`'s value (`selectType`).
 pub fn isSelectType(ctx: *const SemContext, sym: SymbolId) bool {
     return ctx.symbols.items[sym].flags.select_result;

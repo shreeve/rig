@@ -3804,7 +3804,7 @@ const Checker = struct {
             if (partial) {
                 var it = guarded.variants.keyIterator();
                 while (it.next()) |k| try cov.guarded.put(self.ctx.allocator, k.*, {});
-                if (guard == .nil) for (alts) |alt| try self.coverTested(&cov, alt);
+                if (guard == .nil) for (alts) |alt| try self.coverTested(&cov, alt, scrutinee);
             }
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) {
@@ -3863,8 +3863,12 @@ const Checker = struct {
     /// `.got(v?)` or `.got(none)`, and leaves every other field to match
     /// any value: the half of the variant it covers. Arms that cover
     /// both halves of one field cover the variant (`MatchCoverage.tested`).
-    fn coverTested(self: *Checker, cov: *MatchCoverage, alt: Sexp) Error!void {
+    /// Only an enum's: emit lowers no payload test of an error's member,
+    /// so a match on errors that tests one keeps its `_`.
+    fn coverTested(self: *Checker, cov: *MatchCoverage, alt: Sexp, scrutinee: TypeId) Error!void {
         if (!alt.isKind(.variant_pattern)) return;
+        const subject = sema.unwrapViews(self.ctx, scrutinee);
+        if (subject == self.t().any_error_id or sema.isErrorSet(self.ctx, subject) or sema.isErrorUnion(self.ctx, subject)) return;
         const tests = self.ctx.payloadTests(alt) orelse return;
         var field: ?usize = null;
         for (tests, 0..) |test_of, i| if (test_of != .any) {
@@ -3876,10 +3880,25 @@ const Checker = struct {
         if (cov.variants.contains(name)) return;
         const half: u2 = if (tests[at] == .some) 1 else 2;
         const got = try cov.tested.getOrPut(self.ctx.allocator, name);
-        if (!got.found_existing) got.value_ptr.* = .{ .field = at, .halves = 0 };
+        if (!got.found_existing) got.value_ptr.* = .{ .field = at, .fields = tests.len, .halves = 0 };
         if (got.value_ptr.field != at) return;
         got.value_ptr.halves |= half;
         if (got.value_ptr.halves == 3) try cov.variants.put(self.ctx.allocator, name, self.startOf(alt));
+    }
+
+    /// The halves of a variant arms cover by testing its optional field
+    /// `field` of `fields` (`coverTested`): 1 for `v?`, 2 for `none`.
+    const Tested = struct { field: usize, fields: usize, halves: u2 };
+
+    /// The pattern of one half of a variant (`Tested`), `.got(v?)` or
+    /// `.got(_, none)`.
+    fn halfText(self: *Checker, name: []const u8, half: Tested, some: bool) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var out: std.ArrayList(u8) = .empty;
+        try out.print(a, ".{s}(", .{name});
+        for (0..half.fields) |i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", if (i != half.field) "_" else if (some) "v?" else "none" });
+        try out.append(a, ')');
+        return out.items;
     }
 
     /// What the arms of a match have covered so far.
@@ -3888,7 +3907,7 @@ const Checker = struct {
         /// Variants unguarded arms cover half of, by testing one optional
         /// field (`coverTested`): the field, and the halves covered, 1
         /// for `v?` and 2 for `none`.
-        tested: std.StringHashMapUnmanaged(struct { field: usize, halves: u2 }) = .empty,
+        tested: std.StringHashMapUnmanaged(Tested) = .empty,
         bools: [2]bool = .{ false, false },
         /// Inclusive integer intervals, disjoint, apart, and in order.
         ints: std.ArrayList([2]Wide) = .empty,
@@ -3918,6 +3937,12 @@ const Checker = struct {
         fn variantAt(c: *const MatchCoverage, name: []const u8) ?u32 {
             if (c.variants.get(name)) |pos| return pos;
             return if (c.before) |b| b.variantAt(name) else null;
+        }
+
+        /// The halves of variant `name` the arms so far cover by tests.
+        fn testedAt(c: *const MatchCoverage, name: []const u8) ?Tested {
+            if (c.tested.get(name)) |half| return half;
+            return if (c.before) |b| b.testedAt(name) else null;
         }
 
         /// Whether a pattern covered Bool value `i` (0 for `false`).
@@ -4339,12 +4364,10 @@ const Checker = struct {
                 if (count > 4) continue;
                 if (count > 1) try missing.appendSlice(a, ", ");
                 // Half a variant (`coverTested`): the half its arms miss.
-                if (cov.tested.get(f.name)) |half| if (f.payload) |payload| {
-                    try missing.print(a, "`.{s}(", .{f.name});
-                    for (0..payload.len) |i| try missing.print(a, "{s}{s}", .{ if (i > 0) ", " else "", if (i != half.field) "_" else if (half.halves == 1) "none" else "v?" });
-                    try missing.appendSlice(a, ")`");
+                if (cov.tested.get(f.name)) |half| {
+                    try missing.print(a, "`{s}`", .{try self.halfText(f.name, half, half.halves == 2)});
                     continue;
-                };
+                }
                 try missing.print(a, "`.{s}`{s}", .{ f.name, if (cov.guarded.contains(f.name)) " (its arm has a guard)" else "" });
             }
             if (count > 4) try missing.print(a, ", and {d} more", .{count - 4});
@@ -4565,6 +4588,10 @@ const Checker = struct {
     }
 
     fn recordCovered(self: *Checker, name: []const u8, pos: u32, cov: *MatchCoverage) Error!void {
+        // Covered by two arms that test its field both ways.
+        if (cov.testedAt(name)) |half| if (half.halves == 3) {
+            return self.err(pos, "this arm never runs: `{s}` and `{s}` cover `.{s}`", .{ try self.halfText(name, half, true), try self.halfText(name, half, false), name });
+        };
         if (cov.variantAt(name)) |first| {
             try self.err(pos, "duplicate arm for variant `{s}`", .{name});
             try self.note(first, "first arm here", .{});
@@ -14856,7 +14883,7 @@ const Checker = struct {
         } else if (eql(u8, module, "std.io")) {
             if (eql(u8, name, "copy")) return try self.ioCopy(pos, args);
         } else if (eql(u8, module, "std.time")) {
-            if (eql(u8, name, "after")) return try self.badCall(args, pos, "`after` makes a deadline arm of `task.select`, and stands only as one of its arguments: `task.select(late: time.after(ns), ...)`", .{});
+            if (eql(u8, name, "after")) return try self.badCall(args, pos, "`after` makes a deadline arm of `task.select`, and stands only as one of its arguments: `task.select(late: time.after({s}), ...)`", .{sema.after_arm.param});
         }
         return null;
     }
@@ -15189,7 +15216,7 @@ const Checker = struct {
     /// the same type, and is a closure written in the arm, a closure's
     /// view, or a function's name. A fallible waiting point.
     fn taskSelect(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
-        if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on, each named: `task.select(got: !ch.on_recv(), late: time.after(ns))`", .{});
+        if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on, each named: `task.select(got: !ch.on_recv(), late: time.after({s}))`", .{sema.after_arm.param});
         for (args) |a| if (a.isKind(.kwarg)) return self.taskSelectNamed(pos, args);
         // An arm of the named form written without its name.
         for (args) |arm| if (try self.namedArmShape(arm))
@@ -15267,7 +15294,7 @@ const Checker = struct {
     /// function, so the `match` on the value runs the winner's body in
     /// the enclosing scope. A fallible waiting point.
     fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
-        const shape = "each arm of `task.select` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, or `name: time.after(ns)`";
+        const shape = "each arm of `task.select` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, or `name: time.after(" ++ sema.after_arm.param ++ ")`";
         const a = self.ctx.arena.allocator();
         const names = try a.alloc([]const u8, args.len);
         const payloads = try a.alloc(?TypeId, args.len);
@@ -15292,7 +15319,7 @@ const Checker = struct {
             if (try self.isAfterArm(arm)) {
                 const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = self.t().void_id, .is_sub = true };
                 try self.noteCallee(f);
-                try self.checkArgs(arm_args, f, .{ .names = &.{"ns"} }, "after", self.startOf(callee), .{ .declared = f.params });
+                try self.checkArgs(arm_args, f, .{ .names = &.{sema.after_arm.param} }, "after", self.startOf(callee), .{ .declared = f.params });
                 try self.ctx.recordType(arm, self.t().void_id);
                 try self.ctx.recordSelectArm(arm, .after);
                 payload.* = null;

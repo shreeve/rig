@@ -1635,9 +1635,10 @@ pub const AfterArm = struct {
     fn finish(_: *AfterArm) void {}
 };
 
-/// `rig.afterArm(ns)`: the arm of `time.after(ns)`.
-pub fn afterArm(ns: Int) AfterArm {
-    return .{ .at = nowNs() + @max(ns, 0) };
+/// `rig.afterArm(n, unit_ns)`: the arm of `time.after(n)`, whose time
+/// is `n` units of `unit_ns` nanoseconds from now (`sema.after_arm`).
+pub fn afterArm(n: Int, unit_ns: Int) AfterArm {
+    return .{ .at = nowNs() + @as(i96, @max(n, 0)) * unit_ns };
 }
 
 /// The earliest time of `arms`' deadline arms, if any.
