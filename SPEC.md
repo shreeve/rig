@@ -12854,7 +12854,13 @@ After `>u`, `xs` can be lent to write again. A task lent to write
 keeps its write loan while it runs, and no value holds a write view
 ([Write views](#write-views)), so it is bound to a local where it is
 made, `t = fill(!xs, 3)&`, and waited for there, `>t`; it is not
-moved, held in a list, or returned. A method's self is lent as the
+moved, held in a list, or returned. A task with read loans only goes
+where a value holding those views goes: held in a list, a set, or an
+object, and returned, `-> Task[Int] from xs`, as any result is
+([Core sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)): a
+task's type may hold a view of anything, so the caller keeps what it
+was lent until it waits. No task is held in a Cell, a channel, an
+actor, or an owned closure. A method's self is lent as the
 method takes it: `?c.get()&` to read, `(<c).into()&` to move it in, and
 `!c.bump(2)&` to write, short as any write call that gives no `Bool`
 ([Self sigils](docs/SYNTAX.md#self-sigils)).
@@ -12884,6 +12890,48 @@ sub main()
   u = total(?xs)&
   !xs.push(1)
   print(>u)
+```
+
+```error
+cannot lend `xs` to write while a read loan is live
+```
+
+```rig
+fun total(xs: ?List[Int]) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun start(xs: ?List[Int]) -> Task[Int] from xs
+  total(xs)&
+
+sub main()
+  xs: List[Int] = List()
+  !xs.push(5)
+  t = start(?xs)
+  print(xs.len, >t)
+  !xs.push(6)
+  print(xs.len)
+```
+
+```output
+1 5
+2
+```
+
+```rig reject
+fun total(xs: ?List[Int]) -> Int
+  xs.len
+
+fun start(xs: ?List[Int]) -> Task[Int] from xs
+  total(xs)&
+
+sub main()
+  xs: List[Int] = List()
+  t = start(?xs)
+  !xs.push(6)
+  print(>t)
 ```
 
 ```error

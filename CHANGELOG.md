@@ -313,6 +313,27 @@ Other:
     store (call) is too complex for the ownership checker; split it
     into smaller functions", as a loop past its bound is; such a
     program was accepted unchecked.
+72. A task is placed in no Cell, even one with no loan, nor a value
+    holding one in a Cell (`*Cell(<t)`, `*Cell(Job(t: f()&))`): "a Cell
+    holds no task, and `Task[Int]` is one: a cycle through a Cell could
+    keep the task from ever being waited for". A task lent to write
+    leaves its binding by no use of its name: `break t` of one is
+    "`t` is a task lent to write, ... only waited for or canceled where
+    it is bound", as `<t` was. Wait for the task first.
+73. *Unsound:* a value holding a task keeps the task's loans while it
+    lives. A local object (`j = Job(t: total(?xs)&)`), an optional
+    (`o: Task[Int]? = total(?xs)&`), a count of a `*Job` holding one,
+    and a task given back by a `time.within` closure (`|?xs|
+    total(?xs)&`) let `!xs.push(2)` or `<xs` through before the wait,
+    and the task read the List after it changed or was dropped (one
+    program printed `0` for `3`, and the sanitizer did not see it).
+    Each is "cannot lend `xs` to write while a read loan is live" or
+    "cannot drop `xs` while it is lent": wait for the task first.
+    The same rule rejects two sound forms: a function `-> Task[Int]`
+    keeps the caller's lent parameter lent until the wait, even when
+    its task does not read it (take the parameter away, or wait before
+    writing), and a `?@` method that gives a task is called with its
+    lend written, `?b.spawn()`, and keeps `b` lent until the wait.
 
 One form changes meaning rather than failing: a binding with no type of
 a loop's value that is a write view at every `break` (`l = while true`
@@ -2624,6 +2645,17 @@ The model and its plan are
 [docs/history/records/2026-10/concurrency-panel/](docs/history/records/2026-10/concurrency-panel/README.md). The plan's
 first step is on `main` (SPEC §18):
 
+- **A function returns a task with read loans only, as any result.**
+  `fun start(v: ?List[Int]) -> Task[Int] from v` then `total(v)&` is
+  accepted, and the caller keeps `v` lent to read until it waits; so
+  is a task returned in a `Tasks` set, an object, an optional, a
+  fallible result, through a generic, and a task made of a returned
+  task. A task's type may hold a view of anything, as the ownership
+  checker always kept every loan of a task's call, so the signature's
+  origins and the `from` check agree with it. A task lent to write is
+  still only bound and waited for: no `return`, last value, or
+  `break` takes it, and the reference ownership checker gives a
+  task the loans of its call too.
 - **A panic stops where a runtime panic does.** `panic(...)` in an
   actor's method ends the actor and stops at its runner, or at the
   caller's isolate, as an index out of range does. A method run inline

@@ -317,6 +317,16 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `a` for two values. Calling `checkShadowing` for each name rejects
   programs that are accepted, so it needs release notes and a note for
   Trig. Found reviewing #924 (2026-11-04).
+- **A task returned through a lent closure literal: the oracle rejects
+  what the compiler accepts.** `t = call(|?xs| total(?xs)&)`, with `fun
+  call(f: ?fun() -> Task[Int]) -> Task[Int]`, is "C5 a loan of a
+  temporary outlives its statement" in the oracle; the same DIFF stands
+  for a plain view, `call(|?xs| xs)`. The oracle should keep a lent
+  closure's captures, not the temporary. Found reviewing #934.
+- **The oracle decides no `Tasks` set flow.** It abstains on every
+  `!ts.add(...)` ("a method reached through a handle") and on a generic
+  store ("a generic instance at a view"), so the set cases of
+  `concurrency-task` have no second checker. Found reviewing #934.
 
 Found while writing the Learn Rig journeys. Check each before fixing.
 

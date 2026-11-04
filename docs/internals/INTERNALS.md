@@ -3732,7 +3732,9 @@ origins its type gives.
 `reachTargets`). A view's *targets* are the memory its views point
 into: a `?T`'s or `!T`'s `T`, a `[]T`'s or `![]T`'s `T` elements, a
 `?String`'s bytes (a String's, or a literal's); a function type walked
-itself (a closure binding's), a lent callable, an owned closure, a type
+itself (a closure binding's), a lent callable, an owned closure, a task
+or a set of tasks (which keeps every loan of its calls, as the
+ownership checker's `carryAs` does: `sema.holdsCallLoans`), a type
 parameter, or a type not known points anywhere, and a function value
 held in a value (`ViewNode.held`), a named function's address, nowhere
 (CORE §7). A slice's targets

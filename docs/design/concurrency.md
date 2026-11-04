@@ -202,15 +202,20 @@ place a fallible type stands as a type argument.
   closure once (`f: once ?fun() -> R!`), so the closure may move the
   task in.
 - A function may return a task (`-> Task[T]`). The task keeps the loans
-  its signature shows, as any result does.
+  its signature shows, as any result does: a task's type may hold a
+  view of anything, so the result keeps the loans of each parameter
+  whose type could hold a view, or of those its `from` names
+  (`-> Task[Int] from v`), and the caller keeps them until it waits.
 
 **Where a task may go.** A task holds the loans of its arguments, so it
 goes only where a value holding those views may go:
 - a task with read loans only may be bound, held in a `Tasks` set or
   another owned value, and returned with `from`;
 - a task with a write loan may only be bound to a local and waited for,
-  since no value holds a write view;
-- no task, whatever its loans, is ever placed in a shared home (below).
+  since no value holds a write view: no `return`, last value, `break`,
+  or move takes it on;
+- no task, whatever its loans, is ever placed in a shared home (below):
+  no Cell, channel, actor, or owned closure holds one.
   So a task cannot be leaked, and there are no orphans.
 
 **When a task can't be made.** If the runtime cannot get a stack for a

@@ -4770,6 +4770,10 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const a = ctx.arena.allocator();
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
+        // A Cell is a shared home, which holds no task, whatever its
+        // loans (docs/design/concurrency.md, "Where a task may go"): a
+        // cycle through it could keep a task from ever being waited for.
+        if (sema.holdsTask(ctx, args[0])) return try a.print("a Cell holds no task, and `{s}` {s}: a cycle through a Cell could keep the task from ever being waited for; wait for it first and keep what it gives", .{ arg, if (sema.holdsCallLoans(ctx, args[0])) "is one" else "holds one" });
         if (sema.holdsNoLoanButText(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
         return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`), plain data (an object, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `List[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
     }
