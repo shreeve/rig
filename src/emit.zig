@@ -3427,19 +3427,14 @@ pub const Emitter = struct {
                 try self.emitTarget(target);
                 try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
-            const cast = shift and !lanes;
             try self.w.writeAll(", ");
-            const through = if (cast) try self.openUnsignedCast(value, self.typeOf(value), null) else false;
-            try self.emitBare(value);
-            if (cast) try self.closeUnsignedCast(through);
+            if (shift and !lanes) try self.emitShiftAmount(self.typeOf(target), value) else try self.emitBare(value);
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return self.closeAssign(order);
         }
         try self.emitTarget(target);
         try self.w.print(" {s}= ", .{if (op == .@"<<%") "<<" else @tagName(op)});
-        const through = if (shift) try self.openUnsignedCast(value, self.typeOf(value), null) else false;
-        try self.emitBare(value);
-        if (shift) try self.closeUnsignedCast(through);
+        if (shift) try self.emitShiftAmount(self.typeOf(target), value) else try self.emitBare(value);
         try self.w.writeAll(";");
         return self.closeAssign(order);
     }
@@ -6755,8 +6750,8 @@ pub const Emitter = struct {
     }
 
     /// `@intCast(` of `value`, of type `from`, to an unsigned integer
-    /// type `to_bits` wide (null when Zig infers it, a shift amount's or
-    /// an enum's backing type), closed by `closeUnsignedCast` with what it
+    /// type `to_bits` wide (null when Zig infers it, an enum's backing
+    /// type), closed by `closeUnsignedCast` with what it
     /// returns. A signed value narrowed is cast to the unsigned type of
     /// its own width first: Zig lowers a cast from a signed type to a
     /// narrower unsigned one as LLVM `trunc nsw`, a promise that the value
@@ -6776,6 +6771,16 @@ pub const Emitter = struct {
         if (to_bits) |bits| if (bits >= info.width()) return false;
         try self.w.print("@as(u{d}, @intCast(", .{info.width()});
         return true;
+    }
+
+    /// The amount of a shift of a `shifted`, checked and in the width Zig
+    /// shifts by: `rig.shiftAmount(T, n)`.
+    fn emitShiftAmount(self: *Emitter, shifted: ?TypeId, amount: Sexp) Error!void {
+        try self.w.writeAll("rig.shiftAmount(");
+        try self.emitTypeTy(self.peelViews(shifted orelse self.facts.types.int_id));
+        try self.w.writeAll(", ");
+        try self.emitBare(amount);
+        try self.w.writeAll(")");
     }
 
     fn closeUnsignedCast(self: *Emitter, through: bool) Error!void {
@@ -7033,9 +7038,9 @@ pub const Emitter = struct {
             .@"<<", .@"<<%", .@">>" => {
                 // Like `+`, a left shift that loses bits (or the sign)
                 // overflows (`@shlExact`); `<<%` drops them, as Zig's `<<`
-                // does. The shift amount is cast to the width Zig requires,
-                // so one at or over the width panics in either; the shifted
-                // value has the expression's type.
+                // does. The amount is checked and cast to the width Zig
+                // shifts by (`emitShiftAmount`); the shifted value has the
+                // expression's type.
                 if (self.isSimd(self.typeOf(sexp))) {
                     try self.w.print("{s}(", .{vecShift(head)});
                     try self.emitBare(ir.get(sexp, .left));
@@ -7048,13 +7053,11 @@ pub const Emitter = struct {
                 const parens = !shl and !bare;
                 if (parens) try self.w.writeAll("(");
                 if (shl) try self.w.writeAll("@shlExact(");
-                try self.writeAsOpen(self.typeOf(sexp) orelse self.facts.types.int_id);
+                const shifted = self.typeOf(sexp) orelse self.facts.types.int_id;
+                try self.writeAsOpen(shifted);
                 try self.emitBare(ir.get(sexp, .left));
                 try self.w.writeAll(if (shl) "), " else if (wrap) ") << " else ") >> ");
-                const amount = ir.get(sexp, .right);
-                const through = try self.openUnsignedCast(amount, self.typeOf(amount), null);
-                try self.emitBare(amount);
-                try self.closeUnsignedCast(through);
+                try self.emitShiftAmount(shifted, ir.get(sexp, .right));
                 if (shl) try self.w.writeAll(")");
                 if (parens) try self.w.writeAll(")");
             },
