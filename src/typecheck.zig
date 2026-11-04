@@ -3086,7 +3086,7 @@ const Checker = struct {
                 // view a call gives is walked for writing, as `!xs` walks
                 // a place (`for x in (!b).items()`), and the loop's mode
                 // says so for every pass after this one.
-                if (mode == .iter and self.hands(source).kind == .made and self.ctx.types.get(source_ty) == .write_view) {
+                if (mode == .iter and self.ctx.types.get(source_ty) == .write_view and self.hands(source).kind == .made) {
                     mode = .write;
                     eff = .write;
                     @constCast(node.items())[ir.slot(.@"for", .mode)] = .{ .tag = .write };
@@ -16657,7 +16657,7 @@ const Checker = struct {
         // A chain whose result holds views of its source's items keeps
         // the source lent, as a call keeps an argument it carries:
         // `vs = ?names.filter(f).collect()`.
-        if (self.chain_views.get(nodeId(e))) |root| {
+        if (self.chain_views.count() > 0 and e.isKind(.call)) if (self.chain_views.get(nodeId(e))) |root| {
             if (self.kept_reported.contains(nodeId(e))) return;
             if (!self.implicitSelf(root)) return self.keptLeaf(root, kept);
             if (self.ctx.quiet != 0) return;
@@ -16669,7 +16669,7 @@ const Checker = struct {
                 break;
             };
             return self.reportKept(e, root, kept);
-        }
+        };
         const ty = self.ctx.typeOf(e) orelse return;
         if (self.isPoison(ty) or !sema.mayHoldView(self.ctx, ty)) return;
         switch (e.kind() orelse return) {
