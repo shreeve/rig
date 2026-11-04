@@ -1266,17 +1266,42 @@ const Checker = struct {
     }
 
     /// Whether evaluating `e` runs code or leaves: a call, a builtin, a
-    /// propagation, or a `catch`. A closure literal inside `e` runs
-    /// nothing until it is called.
+    /// propagation, or a `catch`.
     fn hasEffect(e: Sexp) bool {
-        const kind = e.kind() orelse return false;
+        return effectIn(e, false) != null;
+    }
+
+    /// The first part of `e` whose evaluation runs code or leaves: a
+    /// call, a builtin, a propagation, or a `catch`, and with `sigils`
+    /// also a move, a write lend, a clone, a box, a shared or weak
+    /// handle, or a `panic`. A closure literal inside `e` runs
+    /// nothing until it is called.
+    fn effectIn(e: Sexp, sigils: bool) ?Sexp {
+        const kind = e.kind() orelse return null;
         switch (kind) {
-            .call, .builtin, .propagate, .propagate_none, .@"catch" => return true,
-            .lambda => return false,
+            .call, .builtin, .propagate, .propagate_none, .@"catch" => return e,
+            .move, .write, .clone, .box, .share, .weak, .panic => if (sigils) return e,
+            .lambda => return null,
             else => {},
         }
-        for (rig.children(e)) |c| if (hasEffect(c)) return true;
-        return false;
+        for (rig.children(e)) |c| if (effectIn(c, sigils)) |found| return found;
+        return null;
+    }
+
+    /// What `effectIn` found, as a diagnostic names it.
+    fn effectName(e: Sexp) []const u8 {
+        return switch (e.kind().?) {
+            .call, .builtin => "the call",
+            .propagate, .propagate_none => "the propagation",
+            .@"catch" => "the `catch`",
+            .move => "the move",
+            .write => "the write lend",
+            .clone => "the clone",
+            .box => "the box",
+            .share => "the shared handle",
+            .weak => "the weak handle",
+            else => "the panic",
+        };
     }
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
@@ -19466,7 +19491,18 @@ const Checker = struct {
                 // Under a query spelled Zig's way, its fix-it covers this one.
                 const outer_rig = std.meta.stringToEnum(Builtin, name).?.isSafe();
                 if (b != .type and self.raw_depth == 0 and outer_rig) try self.zigQueryName(a, inner, "type");
-                const of = try self.synthExpr(ir.Builtin.args(a)[0]);
+                const operand = ir.Builtin.args(a)[0];
+                const of = try self.synthExpr(operand);
+                if (std.mem.eql(u8, name, "variants")) {
+                    try self.err(ir.Builtin.name(a).src.pos, "`${s}` is only allowed as the argument of `$size`, `$align`, `$name`, or `$plain`", .{inner});
+                    return false;
+                }
+                // Zig's `@TypeOf` never evaluates its operand, so the
+                // operand may hold nothing that would run.
+                if (effectIn(operand, true)) |found| {
+                    try self.errAt(found, "`${s}` does not run its operand, so {s} `{s}` never happens; write the operand without `<`, `!`, or a call", .{ inner, effectName(found), self.sourceText(found) });
+                    return false;
+                }
                 try self.requireNamed(name, of, a);
                 return true;
             };
