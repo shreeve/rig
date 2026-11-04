@@ -2471,7 +2471,8 @@ const Checker = struct {
         const else_node = ir.If.@"else"(node);
 
         const prev = self.scope;
-        // A ternary or a postfix guard has no block to bind a name for.
+        // A ternary or a postfix guard has no block to hold what its
+        // condition makes.
         const saved_hold = self.no_hold;
         self.no_hold = saved_hold or position == .value;
         const saved_cond = self.ternary_cond;

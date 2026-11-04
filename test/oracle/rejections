@@ -1921,6 +1921,8 @@ test/reject/errors/a_narrowed_error_under_`match_e`_is_a_view_of_the_caught_one.
 test/reject/ownership/apis_a_result_from_the_API's_parameter.rig take
 test/reject/ownership/closure_write_capture_returns_no_owner.rig main
 test/reject/ownership/field_view_loop_elements_keep_the_list_lent.rig main
+test/reject/ownership/header_ternary_binding_is_used_after_a_move_in_its_condition.rig main
+test/reject/ownership/header_ternary_view_outlives_the_place_it_views.rig main
 test/reject/ownership/last_List_field_of_an_earlier_argument_while_a_later_one_writes.rig main
 test/reject/ownership/last_String_operand's_write_view_while_it_is_read.rig main
 test/reject/ownership/last_String_view_operand_while_a_later_one_writes.rig main
