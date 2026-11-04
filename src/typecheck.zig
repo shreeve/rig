@@ -15073,13 +15073,7 @@ const Checker = struct {
         const f = args[0];
         var fn_ty: TypeId = undefined;
         if (f.isKind(.lambda)) {
-            // Checked quietly first as a closure that cannot fail: one
-            // whose body needs to fail is checked as one that can.
-            const quiet = try self.isolateLambdaType(f, false);
-            fn_ty = if (quiet.clean) quiet.ty else blk: {
-                const failing = try self.isolateLambdaType(f, true);
-                break :blk if (failing.clean) failing.ty else quiet.ty;
-            };
+            fn_ty = try self.closureType(f, &.{}, false);
         } else {
             const ty = try self.argType(f);
             if (self.isPoison(ty)) return try self.skipCall(args);
@@ -15220,23 +15214,11 @@ const Checker = struct {
     }
 
     /// What an arm's function `f`, given `params`, gives: a closure
-    /// written there, checked quietly first as one that cannot fail, a
-    /// closure's view, or a function's name.
+    /// written there (`closureType`), a closure's view, or a function's
+    /// name.
     fn armResult(self: *Checker, f: Sexp, params: []const TypeId) Error!?TypeId {
         if (f.isKind(.lambda)) {
-            const quiet = blk: {
-                const mark = self.ctx.diagnostics.items.len;
-                self.ctx.quiet += 1;
-                self.tentative += 1;
-                defer {
-                    self.ctx.quiet -= 1;
-                    self.tentative -= 1;
-                    self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-                }
-                const ty = try self.checkLambdaGiven(f, null, params, false);
-                break :blk .{ ty, self.ctx.diagnostics.items.len == mark };
-            };
-            const ty = if (quiet[1]) quiet[0] else try self.checkLambdaGiven(f, null, params, true);
+            const ty = try self.closureType(f, params, false);
             if (self.isPoison(ty) or self.ctx.types.get(ty) != .function) return null;
             return self.ctx.types.get(ty).function.returns;
         }
@@ -15333,35 +15315,13 @@ const Checker = struct {
         return std.mem.eql(u8, foreign.name, module) and std.mem.eql(u8, foreign.symbols.items[n.sym_id].name, name);
     }
 
-    /// The type closure literal `f` has where `task.isolate` runs it,
-    /// checked quietly; one that `fails` may propagate with `!`.
-    fn isolateLambdaType(self: *Checker, f: Sexp, fails: bool) Error!ParLambda {
-        const mark = self.ctx.diagnostics.items.len;
-        self.ctx.quiet += 1;
-        self.tentative += 1;
-        defer {
-            self.ctx.quiet -= 1;
-            self.tentative -= 1;
-            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-        }
-        const ty = try self.checkLambdaGiven(f, null, &.{}, fails);
-        return .{ .ty = ty, .clean = self.ctx.diagnostics.items.len == mark };
-    }
-
     /// The function type of `f`, the function `par.map`, `par.each`, or
     /// `par.workers` calls on each element, which takes `params` (the
     /// element, or a task's state and the item): a closure written in the
     /// call, which fails when its body propagates a failure, or a
     /// function's name. Null after a diagnostic.
     fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const TypeId, shown: []const u8) Error!?TypeId {
-        if (f.isKind(.lambda)) {
-            // Checked quietly first as a closure that cannot fail: one
-            // whose body needs to fail is checked as one that can.
-            const quiet = try self.parLambdaType(kind, f, params, false);
-            if (quiet.clean) return quiet.ty;
-            const failing = try self.parLambdaType(kind, f, params, true);
-            return if (failing.clean) failing.ty else quiet.ty;
-        }
+        if (f.isKind(.lambda)) return try self.closureType(f, params, kind == .each);
         const ty = try self.argType(f);
         if (self.isPoison(ty)) return null;
         switch (self.fnArg(f, ty)) {
@@ -15395,8 +15355,6 @@ const Checker = struct {
         return null;
     }
 
-    const ParLambda = struct { ty: TypeId, clean: bool };
-
     /// Reports `f`, a closure that is not written in the call `shown`,
     /// which runs it on several tasks at once (`FnArg.binding`,
     /// `FnArg.view`): every task would read what it captures, which its
@@ -15406,26 +15364,32 @@ const Checker = struct {
         try self.errAt(f, "`{s}` calls `{s}` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `{s}`", .{ shown, self.sourceText(f), example });
     }
 
-    /// The type closure literal `f` has where `par.map`, `par.each`, or
-    /// `par.workers` lends it `params`, checked quietly; one that `fails`
-    /// may propagate with `!`. Whether it checked with no diagnostic.
-    fn parLambdaType(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const TypeId, fails: bool) Error!ParLambda {
-        const mark = self.ctx.diagnostics.items.len;
-        self.ctx.quiet += 1;
-        self.tentative += 1;
-        defer {
-            self.ctx.quiet -= 1;
-            self.tentative -= 1;
-            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-        }
-        const ty = switch (kind) {
-            .map, .workers => try self.checkLambdaGiven(f, null, params, fails),
-            .each => blk: {
+    /// The type of closure literal `f` written where the function a std
+    /// form calls goes (`task.isolate`, `par.map`, `task.select`'s arms),
+    /// lent `params`, which fails when its body propagates a failure:
+    /// checked quietly as one that cannot fail, then as one that can, and,
+    /// when neither checks clean, as one that cannot, whose errors the
+    /// call's own check of `f` reports. A `sub` gives nothing, as
+    /// `par.each`'s closure.
+    fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) Error!TypeId {
+        var quiet: TypeId = undefined;
+        for ([_]bool{ false, true }) |fails| {
+            const mark = self.ctx.diagnostics.items.len;
+            self.ctx.quiet += 1;
+            self.tentative += 1;
+            defer {
+                self.ctx.quiet -= 1;
+                self.tentative -= 1;
+                self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+            }
+            const ty = if (sub) blk: {
                 const returns = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id;
                 break :blk try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = true } }));
-            },
-        };
-        return .{ .ty = ty, .clean = self.ctx.diagnostics.items.len == mark };
+            } else try self.checkLambdaGiven(f, null, params, fails);
+            if (self.ctx.diagnostics.items.len == mark) return ty;
+            if (!fails) quiet = ty;
+        }
+        return quiet;
     }
 
     /// Whether capture `cap` of the closure `par.map`, `par.each`, or
