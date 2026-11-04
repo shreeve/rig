@@ -1287,8 +1287,6 @@ around the rule.
   - is spread over lines or at module level;
   - meets a context no plain form fits.
 - **The suite enforces the hints.** `test/hints.py` applies each hint in every reject test, and fails if the program then draws an error it did not draw before, at the same place with the same text. The rewritten line's columns are mapped through the rewrite.
-The suite's `classify` check fails on any classifier
-of this kind left outside `handsOver`.
 
 A branch is a value, never a place (Core §3), so every in-place read
 of one is a lend of it, and a lend of a branch lends each branch.
@@ -1866,6 +1864,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call; select, for an arm's |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
+| `api_object`, `result_place` | `__rig_obj`, `__rig_res` | a call through an API object's table: the object, read once for its table and its value unless a name holds it, and the place a large optional result is written to (`TableEntry.result_out`) | copy, owned | call |
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
 | `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `held_header` | `__rig_header` | a parameter lent a `String`, or a `List` with no inline room, to write, which the body uses in a loop: its header, held for the body and written back by `defer`, which the parameter's name views (`storage.planHeldHeaders`); none where a task, a closure, or a `raw` block names the parameter, or the result holds a view | copy | block |
@@ -1937,8 +1936,8 @@ each argument and self the `by` of what it writes there (an
 address, a copy, a value of its own), which must agree. Emit names every
 hidden storage location through one function, `Emitter.hiddenStorage`,
 which requires the fact, held the same way, and reaches an internal
-error otherwise; the suite's `classify` check fails on a storage name
-spelled anywhere else. A capture is storage only for a binding something
+error otherwise; a unit test of `src/facts.zig` fails on a storage name
+spelled anywhere else in `src/emit.zig`. A capture is storage only for a binding something
 reads, which `plan` decides as emit does: a name other than its
 declaration names it, or a closure captures it.
 
