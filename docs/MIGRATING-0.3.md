@@ -648,6 +648,9 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | `for x in !(!b).items()` | `for x in (!b).items()`, which walks the `!List` the call gives for writing | by hand, as the compiler says |
 | a sigil before a chain in a `for` header that the chain dropped: `<xs.filter(f)`, `?mk().filter(f)`, `<mk().filter(f)`, `!b.each().filter(f)` of a `?@` `each`, `?it.filter(f)` of an iterator | `(<xs).filter(f)` to take `xs` or `xs.filter(f)` to walk it; no sigil; `(!it).filter(f)` | by hand, as the compiler says |
 | a chain whose result keeps its source lent, bound or returned unmarked: `vs = names.filter(f).collect()`, `f = names.find(g)`, `y = ps.min_by(k) ?? return` | `vs = ?names.filter(f).collect()`, `?names.find(g)`, `?ps.min_by(k)` | by hand, as the compiler says |
+| a view escaping a block that holds a chain or a padded closure (`best = ?qs[0]` beside `xs.filter(f).count()`) | rejected, as in any block (*unsound*: it read freed memory); keep the viewed value alive as long as the view | by hand |
+| `x += 10` in `for x in xs.filter(f)`, which changed a copy | `for x in !xs` to change the elements, or `new y = x` for a copy | by hand, as the compiler says |
+| `z = <x` in `for x in src` of a read view `src = ?a`, or of a view in a field | as in `for x in ?a`: clone what the loop view reaches, or loop over `<a` to take the elements | by hand, as the compiler says |
 | an arm of `task.select` that reads, takes, or writes what another arm's closure or channel uses: `<s` beside `\|?s, v\|`, `n` sent beside `\|!n, v\|`, two arms' `\|!n, v\|`, `<a` beside `(!a).on_recv(...)`, `<chs` beside `(!chs[0])` | rejected: every arm is made before the select runs one; bind what the arms share before the select, or give each its own | by hand |
 
 `std.json` needs no change: `(!doc).parse(?src)` still answers a

@@ -335,6 +335,14 @@ chain that reaches no place (`?mk().filter(f)`) is "remove it", and
 result keeps its source lent is written with the lend where it is
 bound or returned, as any such call is: `vs =
 ?names.filter(f).collect()`, `y = ?ps.min_by(f) ?? return`.
+*Unsound:* a view escaping a block that also held a chain or a closure
+padded to its type (`each(|a| print(a))` for a `sub(Int, Int)`) is
+"does not live long enough", as it is in any other block; it read
+freed memory. A `for` over a chain binds its items immutably, as any
+`for` does: `for x in !b.items().filter(f)` then `x += 10` changed a
+copy. A loop over a read view held in a binding or a field
+(`for x in src`, `src = ?a`) binds slot views, as `for x in ?a` does:
+`z = <x` there is "cannot move loop view `x`".
 MIGRATING-0.3 lists each.
 `std.json` callers change nothing: `parse` still answers a `Bool`, and
 `load`, failing with `JsonError`, is new.
@@ -363,6 +371,15 @@ MIGRATING-0.3 lists each.
   rejected, "`src` does not live long enough", where `!vs.push(?src[0])`
   and a loop over a view held in a field were accepted, as CORE §9 and
   the reference checker allow.
+- **A block that holds a chain or a padded closure checks its views'
+  lifetimes** (*unsound*). Their hidden names sit past the source's
+  end, and the ownership checker took a node's extent from its leaves'
+  raw positions, so such a block ended past every use and no view
+  escaping it was reported: `best = ?qs[0]` in a block beside
+  `xs.filter(f).count()` read `qs` after it was freed. A hidden leaf
+  now stands where its span puts it, at its home in the source.
+- **A `for` over a chain binds its items immutably,** as any `for`
+  does; assigning one changed a copy and was accepted.
 - **Two arms of `task.select` that lend one value to write** are
   rejected with the rewrite: "let one arm write it, or have each arm
   give a value and write `n` after the select".
