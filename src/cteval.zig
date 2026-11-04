@@ -983,8 +983,8 @@ fn spelledFits(ctx: *SemContext, g: Sexp, ty: TypeId, names: anytype) Error!void
 
 /// The type of the value argument `e` spells, as `names` sees names: an
 /// integer literal, `true` or `false`, a member of a named type
-/// (`Dir.east`, `lib.Dir.east`, `U8.max`), or a module constant whose
-/// value is one; null when its spelling does not say, and the invalid
+/// (`Dir.east`, `lib.Dir.east`, `U8.max`), a compile-time call, or a
+/// module constant, by its declared type or else its value; null when its spelling does not say, and the invalid
 /// type after reporting an unbound name.
 fn spelledType(ctx: *SemContext, e: Sexp, names: anytype, depth: u32) Error!?TypeId {
     // A chain of constants longer than this is a cycle, reported elsewhere.
@@ -1002,10 +1002,22 @@ fn spelledType(ctx: *SemContext, e: Sexp, names: anytype, depth: u32) Error!?Typ
         for (ctx.const_order.items) |decl| {
             const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
             if (ctx.symbolOf(ir.Set.target(set)) != id) continue;
+            // A constant's declared type, `H: Other = .east`, else the
+            // type its value spells.
+            if (ir.Set.type(set) != .nil) {
+                var r: resolve.TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope };
+                return try r.resolveType(ir.Set.type(set));
+            }
             const module: resolve.ConstNames = .{ .ctx = ctx, .scope = sema.module_scope };
             return spelledType(ctx, ir.Set.value(set), module, depth + 1);
         }
         return null;
+    }
+    // A compile-time call gives its declared result's type.
+    if (e.isKind(.ct_call)) {
+        const t = targetOf(ctx, calleeOf(e), names) orelse return null;
+        const f = (try signatureOf(t)) orelse return null;
+        return if (t.ctx == ctx) f.returns else try sema.importType(ctx, t.ctx, f.returns, t.module_id);
     }
     if (!e.isKind(.member)) return null;
     const obj = ir.Member.object(e);

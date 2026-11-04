@@ -1326,3 +1326,49 @@ fail "ctfun array past the value limit", "compile-time call `bytes[8388609]` mak
     t.len
 
   print(bytes[8388609])
+
+fail "ctfun argument types of a typed constant or a call where a type folds the call", "23:12: type mismatch: expected `Dir`, got `Other`", "24:12: type mismatch: expected `Dir`, got `Other`", "25:12: type mismatch: expected `Dir`, got `Int`", errors: 3, whole: true
+  # A constant's declared type, and a compile-time call's result, are
+  # the argument's type, as in a body.
+  enum Dir
+    north
+    east
+
+  enum Other
+    west
+    east
+
+  fun size[d: Dir] -> Int
+    Int(d) + 1
+
+  fun oth[n: Int] -> Other
+    Other.east
+
+  fun add[n: Int] -> Int
+    n + 1
+
+  H: Other = .east
+
+  sub main()
+    a: [size[H]]Int = [1, 2]
+    b: [size[oth[0]]]Int = [1, 2]
+    c: [size[add[0]]]Int = [1, 2]
+    print(a.len, b.len, c.len)
+
+test "ctfun typed constant and call arguments where a type folds the call", "2 2", whole: true
+  enum Dir
+    north
+    east
+
+  fun size[d: Dir] -> Int
+    Int(d) + 1
+
+  fun dir[n: Int] -> Dir
+    Dir.east
+
+  G: Dir = .east
+
+  sub main()
+    a: [size[G]]Int = [1, 2]
+    b: [size[dir[0]]]Int = [1, 2]
+    print(a.len, b.len)
