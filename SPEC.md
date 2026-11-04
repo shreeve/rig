@@ -6534,8 +6534,10 @@ the match still needs arms for them. Alternatives
 are literals, ranges, or variants, listed without parentheses (`.a, .b
 =>`), and none may be a catch-all. They bind names only when every one
 binds the same names, each with one type (`.failed(c, _), .timed_out(c)
-=> report(c)`); otherwise `_` fills a payload field. Alternatives of an
-error bind none.
+=> report(c)`); otherwise `_` fills a payload field. Alternatives match
+different values: two of one variant test its optional fields apart
+(`.ready(_?), .ready(none)`), and bind each name to one field.
+Alternatives of an error bind none.
 
 ```rig
 enum Shape
@@ -10881,12 +10883,15 @@ alternatives follow the same rule ([match](#match)).
   before another `.name` inside them, is a list missing its parentheses,
   and `matches(` is no call: write `matches (`.
 - No alternative matches everything: `_` or a bare name after
-  `matches` is rejected; to compare with a constant, use `==`.
+  `matches` is rejected, and to compare with a local, use `==`. A name
+  of a module constant compares with it, as in a match arm
+  (`n matches LIMIT`).
 - No `if` guard in the pattern: the condition joins with `and`.
 - `x matches .p` replaces `x as .p`, which is rejected: `as` names a
   value (`if o as v`, `if f() as a, b`), and `matches` tests a pattern.
-- An enum with one variant always matches, and the test of a binding
-  pattern is rejected: bind its fields with `match`.
+- A test that always holds is rejected: a pattern of an enum with one
+  variant, or alternatives that name every variant, matches every
+  value. Bind its fields with `match`.
 - An optional subject is rejected rather than failing to match on
   `none`: take its value out first, `if m as s and s matches
   .circle(r)`, or test a payload's optional with `name?` (below).
@@ -10894,13 +10899,14 @@ alternatives follow the same rule ([match](#match)).
 
 A payload field that is optional takes `name?`, which matches when it
 holds a value and binds the value, or `none`, which matches when it
-holds none; `_?` tests that it holds one. An arm with such a test, like
-a guarded arm, covers none of its variant's values, but for this: arms
-with no guard that test one field, and match any value of the others,
-cover the variant once both `name?` and `none` are among them
-(`.ready(r?)` and `.ready(none)` cover `.ready`), and a later arm for
-it never runs. This holds for an enum's variants; a match on errors
-keeps every such arm partial, so it still needs `_`.
+holds none; `_?` tests that it holds one. An arm with such a test
+covers the values it tests, each optional field holding a value or
+none: `.ready(r?)` and `.ready(none)` cover `.ready`, and so do four
+arms over two fields, or arms over different fields that leave no value
+out. An arm whose values the arms before it cover never runs, and is
+rejected; a match that misses some names one, `.d(none, _, none)`. An
+error's optional field takes no test: bind it, `.bad(n)`, and test `n
+== none`.
 
 ```rig
 enum Shape
@@ -10954,6 +10960,34 @@ big circle tall rect point other
 2 7 0
 hi
 ```
+
+A tested arm, and a module constant after `matches`:
+
+```rig
+LIMIT = 3
+
+enum Job
+  run(id: Int?, note: Int?)
+  idle
+
+fun kind(j: Job) -> Int
+  match j
+    .run(_?, _?) => 1
+    .run(_?, none) => 2
+    .run(none, _) => 3
+    .idle => 0
+
+sub main()
+  print(kind(.run(id: 1, note: none)), kind(.run(id: none, note: 2)), kind(.idle))
+  n = 3
+  print(n matches LIMIT, n matches (1, 2))
+```
+
+```output
+2 3 0
+true false
+```
+
 
 ### The fallback of `??`
 

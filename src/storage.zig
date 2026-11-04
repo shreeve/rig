@@ -1499,11 +1499,12 @@ pub fn verifyDecisions(ctx: *const SemContext) void {
 pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     var p: Planner = .{ .ctx = ctx };
     // A binding is read where a name other than its declaration names
-    // it, or a closure captures it (`SemContext.used`).
+    // it (a later alternative's binds it again, `rebinds`), or a closure
+    // captures it (`SemContext.used`).
     ctx.used.deinit(ctx.allocator);
     ctx.used = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     var names = ctx.facts.names.iterator();
-    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.*) ctx.used.set(e.value_ptr.*);
+    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.* and !ctx.facts.rebinds.contains(e.key_ptr.*)) ctx.used.set(e.value_ptr.*);
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < ctx.used.bit_length) ctx.used.set(s.origin);
     planHolds(ctx);
     try p.walk(tree);

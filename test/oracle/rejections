@@ -3820,6 +3820,11 @@ test/reject/types/fallback_not_fresh.rig main
 test/reject/types/generic_fn_double_move.rig twice
 test/reject/types/generic_fn_escaping_view.rig local
 test/reject/types/module_level_binding_ownership.rig main
+test/reject/types/names_alternatives_bind_take_the_loans_one_pattern_takes.rig reassign
+test/reject/types/names_alternatives_bind_take_the_loans_one_pattern_takes.rig moved
+test/reject/types/names_alternatives_bind_take_the_loans_one_pattern_takes.rig twice
+test/reject/types/names_alternatives_bind_take_the_loans_one_pattern_takes.rig taken
+test/reject/types/names_alternatives_bind_take_the_loans_one_pattern_takes.rig written
 test/reject/types/apis_bounded_copy.rig twice
 test/reject/types/apis_pub_states_its_bounds_cell.rig boxed
 test/reject/types/apis_pub_states_its_bounds_adds_to_its_bounds.rig total

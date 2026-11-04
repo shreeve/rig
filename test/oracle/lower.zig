@@ -1789,12 +1789,24 @@ const Lowerer = struct {
         switch (pattern) {
             .src => if (self.bindsName(pattern)) try self.bindHeld(pattern, h, h.ty),
             .list => switch (pattern.kind() orelse return abstain("an unusual pattern")) {
+                // `r?` binds the value inside the optional field, which is
+                // stored there as a `T` is.
                 .variant_pattern => for (self.ctx.payloadBindings(pattern) orelse &.{}, 0..) |b, i| {
-                    try self.bindHeld(b, h, self.payloadOf(h.ty, pattern, i));
+                    const field = self.payloadOf(h.ty, pattern, i);
+                    const some = if (self.ctx.payloadTests(pattern)) |t| t[i] == .some else false;
+                    try self.bindHeld(b, h, if (some and field != null) self.optionalInner(field.?) else field);
                 },
+                // Alternatives bind the same names with the same types, one
+                // symbol each, at the first alternative that binds: they
+                // are bound as it binds them.
                 .alt_pattern => for (ir.AltPattern.alts(pattern)) |alt| {
-                    if (alt.isKind(.variant_pattern) and ir.VariantPattern.bindings(alt).len > 0) return abstain("alternatives that bind");
-                    if (alt == .src and self.bindsName(alt)) return abstain("alternatives that bind");
+                    if (alt == .src and self.bindsName(alt)) return abstain("an alternative that binds the whole value");
+                    if (!alt.isKind(.variant_pattern)) continue;
+                    const binds = self.ctx.payloadBindings(alt) orelse continue;
+                    const binding = for (binds) |b| {
+                        if (b == .src and self.bindsName(b)) break true;
+                    } else false;
+                    if (binding) return self.bindPattern(alt, h);
                 },
                 // `g: E =>` narrows the subject, an `error` or a union of
                 // sets, to the set `E`: matched as an enum of its sets
