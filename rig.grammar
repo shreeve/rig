@@ -448,7 +448,7 @@ tokens
     matches                     value pattern      # `s matches .circle(r)`, as parsed (`Parser.lowerMatches`)
     as_match                    @wrapper           # the one-arm `match` it is (`Parser.asMatch`)
     while                       cond step? body:block else:block?
-    for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block? lent:tag(lent)?   # `for x in ?b.each()`: the `?` reaches `b`, the self of the source's first method call
+    for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block?
     match                       subject ...arms:arm
     arm                         pattern guard? body
     alt_pattern                 ...alts
@@ -1176,7 +1176,7 @@ step     = assign
          | "<" operand:postfix                      → (move)
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
-# mode slot.
+# mode slot, unless it lends a method call's self (`!b.each()`).
 for      = FOR var:name ["," index:name] IN source:value body:block [ELSE else:block]
                                                     → (for mode:iter)
          | FOR source:value body:block [ELSE else:block]

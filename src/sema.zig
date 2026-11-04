@@ -15048,8 +15048,8 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // `>t`, `f: once T`, `a..=b`, and `(e)`'s `paren`, which the Parser
         // wrapper rewrites or drops first.
         .wait, .once, .@"..=", .paren => .none,
-        // A function's and a loop's markers.
-        .outside, .lent => .none,
+        // A function's marker.
+        .outside => .none,
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,

@@ -331,7 +331,8 @@ Machine-specific practice (the owner's machines):
 - **The tree is not what the grammar says.** The Parser wrapper rewrites
   it before any pass runs (INTERNALS, "The parser wrapper"): a statement
   `<x` becomes `(drop x)`; `!x.v.push(1)` becomes `(!x.v).push(1)`; a
-  `for` source sigil moves into the loop's mode; `pub` on a member is
+  `for` source sigil moves into the loop's mode unless it lends a method
+  call's self (`for x in !b.drain()`); `pub` on a member is
   stripped and recorded; a module-level `x = v` is a constant. A `for`
   over an iterator becomes a `while` after the module's first check, so
   sema runs twice. Use `rig parse` and `rig normalize` to see both trees.

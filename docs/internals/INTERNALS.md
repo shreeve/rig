@@ -587,7 +587,9 @@ wrapper also makes the only rewrites that need to inspect the tree:
   a `<` before one that does not take `<@`, a `?` before one that
   takes `!@` or `<@`, and a `!` call whose declared `Bool` value is
   used, written `(!set).insert(k)` there (`Checker.parenthesized`). A `for` source sigil
-  is the loop's mode, moved before this rewrite sees it.
+  this rule leaves in place is the loop's mode, moved into its slot
+  after the rewrite (`Parser.normFor`): `for x in !b.drain()` holds
+  `(!b).drain()`, and `for x in !xs` is the loop `(for write x _ xs ...)`.
 
 It also rejects a tree nested more than 1000 deep, since every later
 pass walks the tree recursively.
@@ -4202,7 +4204,7 @@ what it hands over (`sema.handsOver`), as every header does:
 | a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
 | a made value `e` | `{ h = e; while (!h).next() as x }` |
 | `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
-| `?e`, a made value whose `?` the self-sigil rule puts on a place's method call (`?b.each()`: the loop's `lent` tag, `Parser.lentSource`) | `{ h = (?b).each(); while (!h).next() as x }` |
+| a method call whose sigil the self-sigil rule put on its self (`?b.each()`, `!b.drain()`): a made value | `{ h = (?b).each(); while (!h).next() as x }` |
 | `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made

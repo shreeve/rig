@@ -176,9 +176,13 @@ loop's and a closure argument's. Nothing is new:
   element is lent, `?T`, as `reduce` lends it. A value a stage makes
   (`map(|s| s.len)`) is owned by the step, and dropped at the end of
   its item unless a consumer keeps it.
-- **`collect()` owns what it keeps.** It moves made values into its
-  List, and copies plain ones; a view item is rejected, with the fix:
-  `.map(|s| +s).collect()` clones each.
+- **`collect()` keeps what it is given.** It moves made values into
+  its List, copies plain ones, and keeps a view item as the view, so
+  the List keeps the source lent while it lives. A consumer whose
+  result keeps the source lent (`collect`, `find`, `min`, `max`,
+  `min_by`, `max_by` of views) is written with the lend where it is
+  bound, `vs = ?names.filter(f).collect()`, as any call that keeps an
+  argument lent; `.map(|s| +s).collect()` clones each instead.
 - **A closure that can fail makes the consumer fallible**, ending at
   the first failure, as `reduce` does; the call says `!` or `catch`.
 
