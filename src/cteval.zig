@@ -1692,8 +1692,15 @@ pub const Eval = struct {
         const w = &out.writer;
         for (ir.Panic.args(s), 0..) |arg, i| {
             if (i > 0) w.writeAll(" ") catch return error.OutOfMemory;
+            // A literal's bytes, its escapes read as the run time reads them.
             if (isStringLiteral(self.ctx.source, arg)) {
-                writeStringLiteral(w, self.text(arg)) catch return error.OutOfMemory;
+                const lit = self.text(arg);
+                if (lit[0] == '"') {
+                    _ = std.zig.string_literal.parseWrite(w, lit) catch return error.OutOfMemory;
+                } else {
+                    var it = sema.SingleQuoted.init(lit);
+                    while (it.next()) |c| w.writeByte(c) catch return error.OutOfMemory;
+                }
                 continue;
             }
             const v = try self.value(arg);
@@ -2145,24 +2152,3 @@ fn yieldsValue(ctx: *const SemContext, s: Sexp) bool {
     };
 }
 
-/// A string literal's text as `panic` writes it: without its quotes,
-/// its escapes read.
-fn writeStringLiteral(w: *std.Io.Writer, lit: []const u8) !void {
-    if (lit.len < 2) return w.writeAll(lit);
-    const body = lit[1 .. lit.len - 1];
-    var i: usize = 0;
-    while (i < body.len) : (i += 1) {
-        if (body[i] != '\\' or i + 1 == body.len) {
-            try w.writeByte(body[i]);
-            continue;
-        }
-        i += 1;
-        try w.writeByte(switch (body[i]) {
-            'n' => '\n',
-            't' => '\t',
-            'r' => '\r',
-            '0' => 0,
-            else => body[i],
-        });
-    }
-}

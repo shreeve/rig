@@ -299,6 +299,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `List[?String]` says to push each element, `!xs.push(x)`, not a copy,
   which such a List does not take; and an error of a set whose name
   starts with a vowel is "an `AB` error".
+- **A compile-time `panic` reads its message's escapes as the run time
+  does.** `panic("bad \x41 \u{42}")` in a compile-time function was
+  reported as `bad x41 u{42}`; it is `bad A B`.
 - **The compiler says self, never receiver.** `rig check --facts`
   names the self of a method call `self` (`self call 18:9-18:13 ...`
   under `--facts=storage`, ` self` among a call's fills under
