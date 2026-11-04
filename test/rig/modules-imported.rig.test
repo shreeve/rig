@@ -933,3 +933,65 @@ fail "imported write call short form", "13:6: write `(!s).mark(1)`: a write call
 
       pub fun take(!@) -> T
         !@items.remove(0)
+
+test "imported enum's optional payload field", "0 2"
+  # The fields of another module's variant hold types of that module's
+  # store, which has more types than this one: a binding `r?` is told
+  # by them there.
+  use lib
+
+  e = lib.make()
+  match <e
+    .got(r?, n)
+      print(r.v.len, n)
+    .got(_, n)
+      print(0, n)
+    .idle
+      print(0)
+
+  file "lib.rig"
+    pub obj O0
+      pub v: Int
+
+    pub obj O1
+      pub v: List[Int]
+      pub w: O0?
+
+    pub obj O2
+      pub v: List[Int]
+      pub w: O1?
+
+    pub obj O3
+      pub v: List[Int]
+      pub w: O2?
+
+    pub obj O4
+      pub v: List[Int]
+      pub w: O3?
+
+    pub obj O5
+      pub v: List[Int]
+      pub w: O4?
+
+    pub obj O6
+      pub v: List[Int]
+      pub w: O5?
+
+    pub obj O7
+      pub v: List[Int]
+      pub w: O6?
+
+    pub obj O8
+      pub v: List[Int]
+      pub w: O7?
+
+    pub obj O9
+      pub v: List[Int]
+      pub w: O8?
+
+    pub enum Ev
+      got(r: O9?, n: Int)
+      idle
+
+    pub fun make() -> Ev
+      Ev.got(r: none, n: 2)

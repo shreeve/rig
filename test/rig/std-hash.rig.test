@@ -868,6 +868,50 @@ test "hash prelude beside a program's own", '''
     pub fun make(n: Int) -> Map
       Map(n: n)
 
+test "hash prelude names stay their own", "3 2 7 0"
+  # A name of a built-in type written in Rig, as `Map` or `Values`, is
+  # the built-in type only where nothing nearer takes it: a local, a
+  # closure's parameter, and another file's `use ... as Map` keep theirs.
+
+  use lib
+
+  Values = 3
+  f = |Map: Int| Map + 1
+  print(Values, f(1), lib.a(), lib.b())
+
+  file "lib/a.rig"
+    use other as Map
+
+    pub fun a() -> Int
+      Map.k()
+
+  file "lib/b.rig"
+    pub fun b() -> Int
+      m = Map[Int, Int]()
+      m.len
+
+  file "other.rig"
+    pub fun k() -> Int
+      7
+
+fail "hash prelude names in messages", "3:4: generic type `Set` requires type arguments; write `Set[T]`", "4:4: generic type `Map` expects 2 type arguments, got 1", "6:11: generic parameter `Item` has the name of a built-in type", "9:9: generic parameter `Keys` has the name of a built-in type", "12:7: generic parameter `Cell` has the name of a built-in type", "15:9: generic parameter `Cell` has the name of a built-in type", errors: 6
+  # A built-in type written in Rig is named as the program names it, and
+  # a type parameter may not take its name, nor any built-in type's.
+  s: Set = 3
+  m: Map[Int] = 3
+
+  fun first[Item](xs: ?List[Item]) -> Int
+    1
+
+  obj Box[Keys]
+    x: Int
+
+  fun f[Cell](x: Cell) -> Int
+    1
+
+  obj Cup[Cell]
+    x: Int
+
 fail "hash prelude needs no use", "4:1: every program has `std.prelude`, its `Map` and `Set`, already: remove the `use`"
   # The prelude, which holds Map and Set, is every program's: importing
   # it is rejected.

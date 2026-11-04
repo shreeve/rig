@@ -48,14 +48,6 @@ pub fn isCtFun(decl: Sexp) bool {
     return def.isKind(.fun) and ir.Fun.params(def) == .nil and ir.Fun.tparams(def) != .nil;
 }
 
-/// Whether `decl` declares an API (`api Shape`) or adds one to a type
-/// (`add Int: Shape`): methods no pass but the checker of conformances
-/// reads, and nothing emits (docs/design/apis.md, Stage 3).
-pub fn isApiDecl(decl: Sexp) bool {
-    const d = unpub(decl);
-    return d.isKind(.api) or d.isKind(.api_add);
-}
-
 /// A declaration without its `pub`.
 pub fn unpub(decl: Sexp) Sexp {
     return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
@@ -1989,13 +1981,6 @@ pub const Lexer = struct {
 
     /// A string starting at `open` that does not lex: a control character
     /// inside it, or no closing quote on its line.
-    /// Whether the quote at `pos` follows a bare `b`, which makes a byte
-    /// literal of it.
-    fn afterBareB(self: *const Lexer, pos: u32) bool {
-        const src = self.base.source;
-        return pos > 0 and src[pos - 1] == 'b' and (pos < 2 or !isIdentCont(src[pos - 2]));
-    }
-
     fn stringError(self: *Lexer, open: u32) Token {
         const src = self.base.source;
         const quote = src[open];
@@ -2129,8 +2114,7 @@ const HiddenName = enum(u16) {
     /// of tasks (`isWaitCall`).
     wait = 4,
     /// The module of the built-in types written in Rig (`Map`, `Set`),
-    /// which a module that names one uses
-    /// (`Parser.builtinRefs`).
+    /// which a module that names one uses (`Parser.preludeUse`).
     builtin_module = 5,
     /// The values of a `matches` that holds in a Bool position: the arms
     /// of the `match` it is (`Parser.boolMatch`).
@@ -2145,46 +2129,26 @@ const HiddenName = enum(u16) {
     chain_key = 12,
     chain_first = 13,
     chain_next = 14,
-    stage_1 = 15,
-    count_1 = 16,
-    limit_1 = 17,
-    stage_2 = 18,
-    count_2 = 19,
-    limit_2 = 20,
-    stage_3 = 21,
-    count_3 = 22,
-    limit_3 = 23,
-    stage_4 = 24,
-    count_4 = 25,
-    limit_4 = 26,
-    stage_5 = 27,
-    count_5 = 28,
-    limit_5 = 29,
-    stage_6 = 30,
-    count_6 = 31,
-    limit_6 = 32,
-    stage_7 = 33,
-    count_7 = 34,
-    limit_7 = 35,
-    stage_8 = 36,
-    count_8 = 37,
-    limit_8 = 38,
-    zero_value = 39,
-    one_value = 40,
-    none_value = 41,
-    list_type = 42,
-    push_name = 43,
-    chain_index = 44,
-    int_type = 45,
-    len_name = 46,
-    range_from = 47,
-    range_to = 48,
+    zero_value = 15,
+    one_value = 16,
+    none_value = 17,
+    list_type = 18,
+    push_name = 19,
+    chain_index = 20,
+    int_type = 21,
+    len_name = 22,
+    range_from = 23,
+    range_to = 24,
     /// The index of the first item a `min` over a List's made values
     /// took, so the loop over the rest starts after it.
-    chain_at = 49,
+    chain_at = 25,
     /// An inclusive range's cursor has taken its end, which may be its
     /// type's largest value, past which it cannot step.
-    chain_done = 50,
+    chain_done = 26,
+    /// The hidden bindings of a chain's stages, three a stage
+    /// (`Parser.stageName`), `max_chain_stages` of them: the names past
+    /// the last one above.
+    _,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -2203,30 +2167,6 @@ const HiddenName = enum(u16) {
             .chain_key => "chain key",
             .chain_first => "chain first",
             .chain_next => "chain next",
-            .stage_1 => "chain stage 1",
-            .count_1 => "chain count 1",
-            .limit_1 => "chain limit 1",
-            .stage_2 => "chain stage 2",
-            .count_2 => "chain count 2",
-            .limit_2 => "chain limit 2",
-            .stage_3 => "chain stage 3",
-            .count_3 => "chain count 3",
-            .limit_3 => "chain limit 3",
-            .stage_4 => "chain stage 4",
-            .count_4 => "chain count 4",
-            .limit_4 => "chain limit 4",
-            .stage_5 => "chain stage 5",
-            .count_5 => "chain count 5",
-            .limit_5 => "chain limit 5",
-            .stage_6 => "chain stage 6",
-            .count_6 => "chain count 6",
-            .limit_6 => "chain limit 6",
-            .stage_7 => "chain stage 7",
-            .count_7 => "chain count 7",
-            .limit_7 => "chain limit 7",
-            .stage_8 => "chain stage 8",
-            .count_8 => "chain count 8",
-            .limit_8 => "chain limit 8",
             .zero_value => "0",
             .one_value => "1",
             .none_value => "none",
@@ -2239,9 +2179,31 @@ const HiddenName = enum(u16) {
             .range_to => "chain to",
             .chain_at => "chain at",
             .chain_done => "chain done",
+            _ => stage_texts[@intFromEnum(self) - first_stage],
         };
     }
+
+    /// The first stage's names follow the last named one.
+    const first_stage = @intFromEnum(HiddenName.chain_done) + 1;
+
+    /// `chain stage n`, `chain count n`, and `chain limit n` of each stage.
+    const stage_texts = blk: {
+        @setEvalBranchQuota(100_000);
+        var texts: [3 * max_chain_stages][]const u8 = undefined;
+        for (0..max_chain_stages) |i| for ([_][]const u8{ "stage", "count", "limit" }, 0..) |w, j| {
+            texts[3 * i + j] = std.fmt.comptimePrint("chain {s} {d}", .{ w, i + 1 });
+        };
+        break :blk texts;
+    };
+
+    comptime {
+        std.debug.assert(first_stage + stage_texts.len <= 0x100);
+    }
 };
+
+/// The stages a chain may have: each binds three hidden names, and
+/// hidden names have 256 ids in all (`hidden_id_base`).
+pub const max_chain_stages = 64;
 
 /// Whether a pattern tests an optional payload field, `r?` or `none`,
 /// in any alternative: its arm may not run for the values of its
@@ -2261,7 +2223,7 @@ pub fn patternTests(pattern: Sexp) bool {
 
 /// Whether a pattern after `matches` binds a name: a payload field it
 /// names (`.ready(r)`, `.ready(r?)`), in any alternative.
-pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
+pub fn matchesBinds(source: []const u8, pattern: Sexp) bool {
     var count: CountBinds = .{};
     eachPatternBinding(source, pattern, &count);
     return count.n > 0;
@@ -2334,10 +2296,22 @@ pub const builtin_binding_name = "__rig_prelude";
 /// The built-in types written in Rig, in `std/prelude.rig`: a
 /// program names them with no import, and its own declaration of one
 /// hides it.
-pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Item", "Items", "Keys", "Values", "Members", "HashMap", "HashSet", "HashItems", "HashKeys", "HashValues", "HashMembers", "Lanes" };
+/// Each has a bit of `Parser.prelude_names`.
+const builtin_type_names = std.StaticStringMap(u16).initComptime(.{
+    .{ "Map", 1 << 0 },        .{ "Set", 1 << 1 },        .{ "Item", 1 << 2 },        .{ "Items", 1 << 3 },
+    .{ "Keys", 1 << 4 },       .{ "Values", 1 << 5 },     .{ "Members", 1 << 6 },     .{ "HashMap", 1 << 7 },
+    .{ "HashSet", 1 << 8 },    .{ "HashItems", 1 << 9 },  .{ "HashKeys", 1 << 10 },   .{ "HashValues", 1 << 11 },
+    .{ "HashMembers", 1 << 12 }, .{ "Lanes", 1 << 13 },
+});
+
+/// The bit of `Parser.prelude_names` that says a module names the
+/// built-in type `name`, or 0 when `name` is none.
+pub fn builtinTypeBit(name: []const u8) u16 {
+    return builtin_type_names.get(name) orelse 0;
+}
 
 /// Whether `leaf` is the hidden name of the module of the built-in types
-/// written in Rig (`Parser.builtinRefs`).
+/// written in Rig (`Parser.preludeUse`).
 pub fn isBuiltinModuleLeaf(leaf: Sexp) bool {
     return leaf == .src and leaf.src.id == hidden_id_base + @intFromEnum(HiddenName.builtin_module);
 }
@@ -2417,15 +2391,6 @@ pub const Api = enum {
     /// The API a name spells, or null.
     pub fn named(text: []const u8) ?Api {
         return std.meta.stringToEnum(Api, text);
-    }
-
-    /// Whether a type may name this API on its header to give it a meaning
-    /// of its own.
-    pub fn ownable(api: Api) bool {
-        return switch (api) {
-            .Eq, .Hash, .Ord, .Print => true,
-            else => false,
-        };
     }
 };
 
@@ -2597,6 +2562,13 @@ pub const Parser = struct {
     /// How many `obj` or `enum` bodies the node being rewritten is in: a
     /// function there is a method.
     type_depth: u32 = 0,
+    /// The module is the prelude, which declares the built-in types it
+    /// names (`preludeUse`).
+    prelude: bool = false,
+    /// The built-in types written in Rig the module names, a bit each
+    /// (`builtinTypeBit`), which resolve declares for it
+    /// (`resolve.registerPrelude`).
+    prelude_names: u16 = 0,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -3516,7 +3488,7 @@ pub const Parser = struct {
                 stripParens(out);
                 self.strayRarely(out, false, false);
                 self.moduleConsts(out);
-                return self.builtinRefs(try self.attachMethods(out));
+                return self.preludeUse(try self.attachMethods(out));
             },
             .@"struct", .@"enum", .errors, .api, .api_add => try self.pubMembers(out),
             .generic_struct => {
@@ -3658,144 +3630,45 @@ pub const Parser = struct {
         }
     }
 
-    /// A name of a built-in type written in Rig (`builtin_type_names`),
-    /// where it refers to the type, is that type of the hidden module
-    /// that declares them, `__rig_prelude.Map`, and each file that names
-    /// one uses that module, so the passes after the wrapper read it as
-    /// any imported type. A module that declares a name of its own, or
-    /// imports a module under it, keeps its own.
-    fn builtinRefs(self: *Parser, module: Sexp) std.mem.Allocator.Error!Sexp {
-        var hidden: [builtin_type_names.len]bool = @splat(false);
-        for (module.items()[1..]) |d0| {
-            const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
-            const name: Sexp = switch (d.kind() orelse continue) {
-                .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .fun, .sub, .@"extern", .extern_fun, .extern_sub => ir.get(d, .name),
-                .use => if (ir.Use.alias(d) != .nil) ir.Use.alias(d) else blk: {
-                    const p = ir.Use.name(d);
-                    break :blk if (p.isKind(.member)) ir.Member.name(p) else p;
-                },
-                .set => ir.Set.target(d),
-                else => continue,
-            };
-            if (name != .src) continue;
-            const text = leafText(self.base.source, name.src);
-            for (builtin_type_names, 0..) |n, i| if (std.mem.eql(u8, n, text)) {
-                hidden[i] = true;
-            };
-        }
-        var firsts: std.ArrayList(u32) = .empty;
-        const out = try self.rewriteBuiltin(module, &hidden, &firsts);
-        // `m.lanes()` of a mask gives the prelude's `Lanes`, so a file that
-        // names a member `lanes` uses the prelude too; the prelude itself,
-        // which declares every built-in type, does not.
-        const prelude = std.mem.allEqual(bool, &hidden, true);
-        if (!prelude) try self.lanesMembers(out, &firsts);
-        if (firsts.items.len == 0) return out;
-        // One `use` of the module in each file that names a built-in
-        // type, at the first name there.
-        const items = out.items();
-        const uses = try self.allocator().alloc(Sexp, firsts.items.len);
-        for (firsts.items, uses) |pos, *u| u.* = try self.base.newNode(.use, &.{ hiddenLeaf(pos, .builtin_module), .nil }, .{ .start = pos, .end = pos + 1 });
-        const all = try std.mem.concat(self.allocator(), Sexp, &.{ items[0..1], uses, items[1..] });
-        return .{ .list = parser.List.withId(all, out.list.id) };
+    /// A module that names a built-in type written in Rig
+    /// (`builtin_type_names`), or a `lanes` method, whose mask iterator is
+    /// one, uses the hidden module that declares them, the prelude, at
+    /// the first such name. Resolve puts the types it names in a scope
+    /// around the module's (`resolve.registerPrelude`), where a name means
+    /// a built-in type only when no declaration or narrower scope takes it.
+    fn preludeUse(self: *Parser, module: Sexp) std.mem.Allocator.Error!Sexp {
+        if (self.prelude) return module;
+        var first: ?u32 = null;
+        self.builtinNames(module, &first);
+        const pos = first orelse return module;
+        // The leaf holds a position past the source's end, as a chain's
+        // names do, so the name at `pos` keeps its own.
+        const use = try self.base.newNode(.use, &.{ try self.synthLeaf(pos, .builtin_module), .nil }, .{ .start = pos, .end = pos + 1 });
+        const items = module.items();
+        const all = try std.mem.concat(self.allocator(), Sexp, &.{ items[0..1], &.{use}, items[1..] });
+        return .{ .list = parser.List.withId(all, module.list.id) };
     }
 
-    /// `node` with each name of a built-in type that refers to it made
-    /// `__rig_prelude.Name` (`builtinRefs`). A declaration's own name, a
-    /// member's name, a field's, a binding's, and a parameter's are names
-    /// of their own, and stay. `firsts` gets the position of the first
-    /// such name of each file.
-    fn rewriteBuiltin(self: *Parser, node: Sexp, outer: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
-        if (node != .list) return node;
-        const kind = node.kind();
-        const items = node.items();
-        // An API's associated type (`type Item`) hides a built-in type of
-        // its name in the API.
-        var own: [builtin_type_names.len]bool = undefined;
-        const hidden = if (kind == .api) blk: {
-            @memcpy(&own, outer[0..builtin_type_names.len]);
-            for (ir.rest(node, .members)) |m| {
-                if (!m.isKind(.api_type) or ir.ApiType.name(m) != .src) continue;
-                const text = leafText(self.base.source, ir.ApiType.name(m).src);
-                for (builtin_type_names, 0..) |n, i| if (std.mem.eql(u8, n, text)) {
-                    own[i] = true;
-                };
-            }
-            break :blk own[0..];
-        } else outer;
-        var copy: ?[]Sexp = null;
-        for (items, 0..) |c, i| {
-            if (kind != null and i == 0) continue;
-            const new = if (c == .src) blk: {
-                // Leaves in an untagged list (parameters, captures, names)
-                // are names of their own.
-                const k = kind orelse break :blk c;
-                if (!self.refersAt(node, k, c)) break :blk c;
-                break :blk try self.builtinRef(c, hidden, firsts);
-            } else try self.rewriteBuiltin(c, hidden, firsts);
-            if (std.meta.eql(new, c)) continue;
-            if (copy == null) copy = try self.allocator().dupe(Sexp, items);
-            copy.?[i] = new;
+    /// Each leaf of `node` spelled as a built-in type written in Rig, in
+    /// `prelude_names`, and the position of the first, or of a member
+    /// `lanes`, in `first` (`preludeUse`). A member's name, `lib.Set`, is
+    /// another module's.
+    fn builtinNames(self: *Parser, node: Sexp, first: *?u32) void {
+        switch (node) {
+            .src => |leaf| {
+                if (isHiddenLeaf(node)) return;
+                const bit = builtinTypeBit(leafText(self.base.source, leaf));
+                if (bit == 0) return;
+                self.prelude_names |= bit;
+                if (first.* == null) first.* = leaf.pos;
+            },
+            .list => if (node.isKind(.member)) {
+                self.builtinNames(ir.Member.object(node), first);
+                const name = ir.Member.name(node);
+                if (first.* == null and name == .src and std.mem.eql(u8, leafText(self.base.source, name.src), "lanes")) first.* = name.src.pos;
+            } else for (node.items()) |c| self.builtinNames(c, first),
+            else => {},
         }
-        const out = copy orelse return node;
-        return .{ .list = parser.List.withId(out, node.list.id) };
-    }
-
-    /// Adds to `firsts` the position of the first member named `lanes` in
-    /// each file that has one and no other name of a built-in type
-    /// (`builtinRefs`).
-    fn lanesMembers(self: *Parser, node: Sexp, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!void {
-        if (node != .list) return;
-        if (node.isKind(.member)) {
-            const name = ir.Member.name(node);
-            if (name == .src and !isHiddenLeaf(name) and std.mem.eql(u8, leafText(self.base.source, name.src), "lanes")) {
-                const file = self.fileAt(name.src.pos);
-                const seen = for (firsts.items) |p| {
-                    if (self.fileAt(p) == file) break true;
-                } else false;
-                if (!seen) try firsts.append(self.allocator(), name.src.pos);
-            }
-        }
-        for (node.items()) |c| try self.lanesMembers(c, firsts);
-    }
-
-    /// The file of a module of several files that `pos` is in: how many
-    /// files end before it (`Lexer.ends`).
-    fn fileAt(self: *const Parser, pos: u32) usize {
-        var n: usize = 0;
-        for (self.base.lexer.ends) |e| {
-            if (pos >= e) n += 1;
-        }
-        return n;
-    }
-
-    /// Whether leaf `c`, a child of `node` (of kind `k`), stands where a
-    /// name refers to a type or a value, rather than naming a new one.
-    fn refersAt(self: *Parser, node: Sexp, k: Tag, c: Sexp) bool {
-        _ = self;
-        // A generic instance's type is named in its `name` slot.
-        if (k == .generic_inst) return true;
-        inline for ([_]parser.Role{ .name, .alias, .label, .@"var", .index, .target, .operand, .owner }) |r| {
-            if (ir.has(k, r) and std.meta.eql(ir.get(node, r), c)) return false;
-        }
-        return true;
-    }
-
-    /// `leaf` as `__rig_prelude.Name` when it names a built-in type its
-    /// module does not hide.
-    fn builtinRef(self: *Parser, leaf: Sexp, hidden: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
-        const text = leafText(self.base.source, leaf.src);
-        const i = for (builtin_type_names, 0..) |n, i| {
-            if (std.mem.eql(u8, n, text)) break i;
-        } else return leaf;
-        if (hidden[i] or isHiddenLeaf(leaf)) return leaf;
-        const file = self.fileAt(leaf.src.pos);
-        const seen = for (firsts.items) |p| {
-            if (self.fileAt(p) == file) break true;
-        } else false;
-        if (!seen) try firsts.append(self.allocator(), leaf.src.pos);
-        const at: parser.Span = .{ .start = leaf.src.pos, .end = leafEnd(self.base.source, leaf.src) };
-        return self.base.newNode(.member, &.{ hiddenLeaf(leaf.src.pos, .builtin_module), leaf }, at);
     }
 
     /// The type parameters among `walked[slot]`, a declaration's
@@ -4039,7 +3912,7 @@ pub const Parser = struct {
             items[ir.slot(.@"and", .right)] = try self.lowerCondition(items[ir.slot(.@"and", .right)]);
             return e;
         }
-        if (e.isKind(.matches) and patternBinds(self.base.source, ir.get(e, .pattern))) return self.asMatch(e);
+        if (e.isKind(.matches) and matchesBinds(self.base.source, ir.get(e, .pattern))) return self.asMatch(e);
         return self.lowerValue(e);
     }
 
@@ -4055,7 +3928,7 @@ pub const Parser = struct {
         }
         if (!e.isKind(.@"and")) {
             if (!e.isKind(.matches)) return e;
-            if (patternBinds(self.base.source, ir.get(e, .pattern))) self.unreadBinding(e);
+            if (matchesBinds(self.base.source, ir.get(e, .pattern))) self.unreadBinding(e);
             return self.boolMatch(e, null);
         }
         var parts: std.ArrayList(Sexp) = .empty;
@@ -4078,7 +3951,7 @@ pub const Parser = struct {
         var left: Sexp = .nil;
         while (i < parts.len) : (i += 1) {
             const p = parts[i];
-            const part = if (p.isKind(.matches) and patternBinds(self.base.source, ir.get(p, .pattern))) blk: {
+            const part = if (p.isKind(.matches) and matchesBinds(self.base.source, ir.get(p, .pattern))) blk: {
                 if (i + 1 == parts.len) self.unreadBinding(p);
                 const rest = if (i + 1 == parts.len) null else try self.lowerChain(parts[i + 1 ..]);
                 i = parts.len;
@@ -4144,16 +4017,20 @@ pub const Parser = struct {
             const one = self.span(alts[0]);
             return self.reject(pattern, self.format("write `{s} matches {s}`: a list holds two or more alternatives", .{ src[value.start..value.end], src[one.start..one.end] }));
         }
-        for (alts) |alt| if (alt == .src and isNameLeaf(src, alt)) {
+        for (alts) |alt| if (alt == .src and std.mem.eql(u8, leafText(src, alt.src), "none")) {
+            return self.reject(alt, self.format("write `{s} == none`: an optional is tested against `none` with `==`, and `matches` tests a variant or a value", .{src[value.start..value.end]}));
+        } else if (alt == .src and isNameLeaf(src, alt)) {
             const t = leafText(src, alt.src);
             return self.reject(alt, self.format("`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value", .{t}));
         };
     }
 
+    /// Whether pattern leaf `leaf` is a name, which binds, rather than a
+    /// value: `true`, `false`, and `none` are values.
     fn isNameLeaf(src: []const u8, leaf: Sexp) bool {
         const t = leafText(src, leaf.src);
         if (t.len == 0 or !(std.ascii.isAlphabetic(t[0]) or t[0] == '_')) return false;
-        return !(std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false"));
+        return !(std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false") or std.mem.eql(u8, t, "none"));
     }
 
     /// `.ready(none)`: a payload position that holds `none` tests that the
@@ -4641,11 +4518,13 @@ pub const Parser = struct {
             };
             return;
         }
+        // `>@t` waits for self: its field is `(>@).t`.
+        const dot = if (std.mem.endsWith(u8, written, "@") and rest.len > 0 and isIdentStart(rest[0])) "." else "";
         self.failure = .{
             .severity = .@"error",
             .pos = self.span(head).end,
             .end = whole.end,
-            .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}`; to wait for a task that `{s}{s}` holds, take it out to a name first, then wait for that, `>t`", .{ written, rest, written, rest, written[1..], rest }) catch "a wait takes a name alone: write `(>t).x`",
+            .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}{s}`; to wait for a task that `{s}{s}` holds, take it out to a name first, then wait for that, `>t`", .{ written, rest, written, dot, rest, written[1..], rest }) catch "a wait takes a name alone: write `(>t).x`",
         };
     }
 
@@ -5093,9 +4972,8 @@ pub const Parser = struct {
         /// What a `zip`'s second source is (`Chain.zip`).
         zip: ChainSource = .elements,
         zip_copies: bool = true,
-        /// No stage or consumer reads the item (`count` after counts
-        /// alone): the loop binds `_`.
-        unread: bool = false,
+        /// The consumer is `count`, which reads no item.
+        counts: bool = false,
         /// An element source's elements are plain data (`Chain.copies`).
         copies: bool = true,
         /// A range source includes its end (`a..=b`).
@@ -5193,7 +5071,8 @@ pub const Parser = struct {
                 if (eq(st.name, "filter")) {
                     try body.append(a, try l.when(try l.node(.not, &.{try l.call(l.funs[i].?, try l.passed(i))}), &.{try l.skip()}));
                 } else if (eq(st.name, "map")) {
-                    try body.append(a, try l.bind(.chain_item, .nil, try l.call(l.funs[i].?, try l.passed(i))));
+                    const value = try l.call(l.funs[i].?, try l.passed(i));
+                    try body.append(a, if (l.readFrom(n)) try l.bind(.chain_item, .nil, value) else try l.assign(.discard, value));
                 } else if (eq(st.name, "take")) {
                     // An iterator or a range stops before its next item
                     // instead (`headWith`).
@@ -5238,7 +5117,15 @@ pub const Parser = struct {
         const Head = struct { item: Sexp, index: Sexp = .nil, src: Sexp, cond: Sexp, pre: [2]Sexp = .{ .nil, .nil } };
 
         fn head(l: *const ChainLowering) std.mem.Allocator.Error!Head {
-            return l.headWith(false, !l.unread);
+            return l.headWith(false, l.readFrom(0));
+        }
+
+        /// Whether a stage from `i` on, or the consumer, reads the item:
+        /// one no one reads is not bound (`_`).
+        fn readFrom(l: *const ChainLowering, i: usize) bool {
+            if (!l.counts) return true;
+            for (l.steps[i..]) |st| if (eq(st.name, "map") or eq(st.name, "filter")) return true;
+            return false;
         }
 
         /// Whether a stage reads the item (a `filter` or `map`).
@@ -5312,15 +5199,16 @@ pub const Parser = struct {
     }
 
     fn countName(n: usize) HiddenName {
-        return @enumFromInt(@intFromEnum(HiddenName.stage_1) + (n - 1) * 3 + 1);
+        return @enumFromInt(@intFromEnum(stageName(n)) + 1);
     }
 
     fn limitName(n: usize) HiddenName {
-        return @enumFromInt(@intFromEnum(HiddenName.stage_1) + (n - 1) * 3 + 2);
+        return @enumFromInt(@intFromEnum(stageName(n)) + 2);
     }
 
+    /// The hidden names of stage `n`, from 1 (`HiddenName.stage_texts`).
     fn stageName(n: usize) HiddenName {
-        return @enumFromInt(@intFromEnum(HiddenName.stage_1) + (n - 1) * 3);
+        return @enumFromInt(HiddenName.first_stage + (n - 1) * 3);
     }
 
     /// A leaf of hidden name `name` at a position past the source's end,
@@ -5352,6 +5240,8 @@ pub const Parser = struct {
             cur = ir.Member.object(callee);
         }
         std.mem.reverse(ChainStep, steps.items);
+        // Typecheck rejects a longer chain (`max_chain_stages`).
+        std.debug.assert(steps.items.len <= max_chain_stages);
         // `for x in ?m.keys().filter(f)`: the loop's mode holds the `?`,
         // which reaches the self of the source's call, as it does for a
         // loop over the call itself.
@@ -5449,9 +5339,7 @@ pub const Parser = struct {
                 l.second_ty[k] = stageName(k);
             }
         }
-        l.unread = !is_for and eq(consumer.?.name, "count") and for (steps.items) |st| {
-            if (eq(st.name, "map") or eq(st.name, "filter")) break false;
-        } else true;
+        l.counts = !is_for and eq(consumer.?.name, "count");
         if (is_for) return self.lowerForChain(&l, node, &pre);
         return self.lowerConsumer(&l, consumer.?, &pre);
     }
@@ -5667,7 +5555,7 @@ pub const Parser = struct {
         const indexed = l.source == .elements;
         if (indexed) try pre.append(a, try l.bind(.chain_at, .nil, try l.leaf(.zero_value)));
         const opt_ty = try l.node(.optional, &.{try l.itemType(item_ty)});
-        const fh = try l.headWith(indexed, !l.unread);
+        const fh = try l.headWith(indexed, l.readFrom(0));
         var fb: std.ArrayList(Sexp) = .empty;
         try l.stages(&fb, true);
         if (indexed) try fb.append(a, try l.assign(.chain_at, try l.leaf(.chain_index)));
@@ -5678,7 +5566,7 @@ pub const Parser = struct {
         try pre.append(a, try l.bind(.chain_best, try l.itemType(item_ty), try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
         if (by) try pre.append(a, try l.bind(.chain_value, .nil, try l.call(.chain_key, &.{.chain_best})));
         // The rest.
-        const rh = try l.headWith(indexed, !l.unread);
+        const rh = try l.headWith(indexed, l.readFrom(0));
         var rb: std.ArrayList(Sexp) = .empty;
         if (indexed) try rb.append(a, try l.when(try l.node(.@"<=", &.{ try l.leaf(.chain_index), try l.leaf(.chain_at) }), &.{try l.skip()}));
         try l.stages(&rb, false);

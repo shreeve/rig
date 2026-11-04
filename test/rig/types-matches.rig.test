@@ -235,6 +235,11 @@ fail "a list of one alternative", "6:17: write `s matches .a`: a list holds two 
   s: St = .a
   print(s matches (.a))
 
+fail "matches none is an optional's test", "3:17: write `o == none`: an optional is tested against `none` with `==`, and `matches` tests a variant or a value", errors: 1
+  # `none` is the absent optional, not a name that matches every value.
+  o: Int? = none
+  print(o matches none)
+
 fail "matches with a catch-all", "6:17: `_` matches every value, so `matches` would always hold"
   enum St
     a

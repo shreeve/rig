@@ -575,7 +575,9 @@ const SymbolResolver = struct {
         const name_node = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
         const name = identAt(self.ctx.source, name_node) orelse return;
         const pos = srcPos(name_node, 0);
-        const file = sema.fileIndex(self.ctx.parts, pos);
+        // The prelude's hidden name holds no position in a file
+        // (`Parser.preludeUse`); its `use` does.
+        const file = sema.fileIndex(self.ctx.parts, self.ctx.startOf(node));
         // As for any binding (`declare`): `none` is the absent optional.
         if (std.mem.eql(u8, name, "none")) try self.ctx.err(pos, "`none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`", .{});
         if (self.ctx.fileModule(name, pos)) |prev| {
@@ -1019,7 +1021,10 @@ const SymbolResolver = struct {
                 try self.checkNewLocal(target);
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
-            .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
+            .shadow => {
+                try self.checkCapturedRoot(target);
+                _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) });
+            },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordWrite(node, existing, .compound);
@@ -1064,6 +1069,24 @@ const SymbolResolver = struct {
         if (self.scope == self.module_scope) return;
         try self.checkLambdaShadow(name_node);
         try self.checkShadowsDeclaration(name_node, "local");
+    }
+
+    /// A closure that captures a path, `|?p.a|`, reads the capture
+    /// wherever its body writes the path (`Parser.namePaths`), so no `new
+    /// p` inside it may make `p.a` mean another `p` (SPEC, "Closures").
+    fn checkCapturedRoot(self: *SymbolResolver, name_node: Sexp) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        var sid: ?ScopeId = self.scope;
+        while (sid) |s| : (sid = self.ctx.scopes.items[s].parent) {
+            const scope = self.ctx.scopes.items[s];
+            if (scope.kind == .function or scope.kind == .module) return;
+            if (scope.kind != .lambda) continue;
+            for (scope.symbols.items) |id| {
+                const path = self.ctx.symbols.items[id].name;
+                if (self.ctx.symbols.items[id].kind != .capture or !sema.pathHolds(name, path)) continue;
+                return self.ctx.errAt(name_node, "`new {s}` would hide `{s}`, whose path `{s}` this closure captures; `{s}` in the closure is the capture, so name the new value otherwise", .{ name, name, path, path });
+            }
+        }
     }
 
     /// Inside a lambda, a new local may not reuse a name of the
@@ -1163,7 +1186,7 @@ const SymbolResolver = struct {
     /// A local of the name (`new ESC = 5`) hides the constant, as it does
     /// anywhere else: the name then binds, and shadows that local.
     fn constPattern(self: *SymbolResolver, pattern: Sexp) Error!bool {
-        if (!patternBinds(self.ctx.source, pattern)) return false;
+        if (!leafBinds(self.ctx.source, pattern)) return false;
         const name = identAt(self.ctx.source, pattern).?;
         if (self.visibleLocal(self.scope, name) != null) return false;
         const id = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return false;
@@ -1178,7 +1201,7 @@ const SymbolResolver = struct {
     /// names with the same types.
     fn bindPattern(self: *SymbolResolver, pattern: Sexp) Error!void {
         switch (pattern) {
-            .src => if (patternBinds(self.ctx.source, pattern) and !try self.constPattern(pattern)) {
+            .src => if (leafBinds(self.ctx.source, pattern) and !try self.constPattern(pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {
@@ -1190,7 +1213,7 @@ const SymbolResolver = struct {
                 defer seen.deinit(self.ctx.allocator);
                 for (ir.AltPattern.alts(pattern)) |alt| {
                     if (try self.constPattern(alt)) continue;
-                    const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (patternBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
+                    const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (leafBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
                     for (binds) |bound| {
                         const b = sema.bindingName(bound);
                         const name = identAt(self.ctx.source, b) orelse continue;
@@ -2482,8 +2505,7 @@ pub const TypeResolver = struct {
         if (self.ctx.symbols.items[id].kind != .generic_param) return self.ctx.types.invalid_id;
         // Reusing the name of the type's own parameter was reported.
         for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) return self.ctx.types.invalid_id;
-        const builtin_generic = if (self.ctx.lookupInScopeOnly(sema.module_scope, name)) |d| self.ctx.symbols.items[d].decl_pos == sema.builtin_decl_pos else false;
-        if (primitiveTypeId(self.ctx, name) != null or isNumericTypeName(name) or std.mem.eql(u8, name, "Self") or builtin_generic) {
+        if (isBuiltinName(self.ctx, name)) {
             try self.ctx.errAt(p, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{name});
             return self.ctx.types.invalid_id;
         }
@@ -3544,12 +3566,11 @@ pub const TypeResolver = struct {
     fn checkTypeParamNames(self: *TypeResolver, sym_id: SymbolId, members: []const Sexp) Error!void {
         for (self.ctx.symbols.items[sym_id].type_params orelse &.{}) |tp| {
             const p = self.ctx.symbols.items[tp];
-            if (primitiveTypeId(self.ctx, p.name) != null or isNumericTypeName(p.name) or std.mem.eql(u8, p.name, "Self")) {
+            if (isBuiltinName(self.ctx, p.name)) {
                 try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{p.name});
             } else if (self.ctx.lookupInScopeOnly(sema.module_scope, p.name)) |decl| {
                 try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ p.name, p.name });
-                const d = self.ctx.symbols.items[decl];
-                if (d.decl_pos != sema.builtin_decl_pos) try self.ctx.note(d.decl_pos, "`{s}` declared here", .{p.name});
+                try self.ctx.note(self.ctx.symbols.items[decl].decl_pos, "`{s}` declared here", .{p.name});
             } else for (members) |m| {
                 if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
                 if (!std.mem.eql(u8, identAt(self.ctx.source, ir.get(m, .name)) orelse "", p.name)) continue;
@@ -4819,7 +4840,7 @@ fn tableElementError(ctx: *SemContext, args: []const TypeId) Error!?[]const u8 {
 
 /// A leaf match pattern that binds its name: not the wildcard `_`, and
 /// not a literal (`1`, `true`).
-pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
+pub fn leafBinds(source: []const u8, pattern: Sexp) bool {
     const text = identAt(source, pattern) orelse return false;
     for ([_][]const u8{ "_", "true", "false" }) |word| if (std.mem.eql(u8, text, word)) return false;
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text) and !sema.isStringLiteralText(text);
@@ -5267,6 +5288,52 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "wait_first", .value, &.{s.self_ty}, st, null),
         });
     }
+    try registerPrelude(ctx, module_scope);
+}
+
+/// The built-in types written in Rig that the module names
+/// (`Parser.prelude_names`), std/prelude.rig's, in a scope around the
+/// module's, so that any declaration of the module and any name of a
+/// narrower scope hides one, as it would an outer name. A generic type is
+/// the proxy of its declaration (`sema.proxyOf`), and `Lanes`, the one
+/// that is not, an alias of it.
+fn registerPrelude(ctx: *SemContext, module_scope: ScopeId) Error!void {
+    const imp = for (ctx.imports) |imp| {
+        if (std.mem.eql(u8, imp.local_name, rig.builtin_binding_name)) break imp;
+    } else return;
+    const names = if (ctx.parser) |p| p.prelude_names else std.math.maxInt(u16);
+    if (names == 0) return;
+    const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
+    ctx.scopes.items[module_scope].parent = scope;
+    const prelude = imp.sema;
+    for (prelude.scopes.items[sema.module_scope].symbols.items) |fid| {
+        const fsym = prelude.symbols.items[fid];
+        if (names & rig.builtinTypeBit(fsym.name) == 0 or !fsym.flags.is_public or fsym.decl_pos >= sema.imported_decl_pos) continue;
+        const id = switch (fsym.kind) {
+            .generic_type => try sema.proxyOf(ctx, .{ .module_id = imp.module_id, .sym = fid }),
+            .nominal_type => try ctx.addSymbol(.{
+                .name = fsym.name,
+                .kind = .type_alias,
+                .ty = try ctx.intern(.{ .imported_nominal = .{ .module_id = imp.module_id, .sym_id = fid } }),
+                .decl_pos = sema.imported_decl_pos,
+                .scope = scope,
+                .flags = .{ .is_public = true },
+            }),
+            else => continue,
+        };
+        try ctx.addToScope(scope, id);
+    }
+}
+
+/// Whether `name` is a built-in type's, which a type parameter may not
+/// take: a primitive or sized number, `Self`, a built-in generic or enum,
+/// or a type of the prelude (`registerPrelude`).
+fn isBuiltinName(ctx: *const SemContext, name: []const u8) bool {
+    if (primitiveTypeId(ctx, name) != null or isNumericTypeName(name) or std.mem.eql(u8, name, "Self")) return true;
+    // A module's own declaration hides a prelude type of its name.
+    if (ctx.lookupInScopeOnly(sema.module_scope, name)) |d| return ctx.symbols.items[d].decl_pos == sema.builtin_decl_pos;
+    const outer = ctx.scopes.items[sema.module_scope].parent orelse return false;
+    return ctx.lookupInScopeOnly(outer, name) != null;
 }
 
 const Generic = struct {

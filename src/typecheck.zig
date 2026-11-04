@@ -4432,7 +4432,7 @@ const Checker = struct {
                 }
                 if (sema.patternConst(self.ctx, pattern)) |c| return self.checkConstPattern(pattern, try self.synthExpr(pattern), scrutinee, cov, c);
                 cov.has_default = true;
-                if (resolve.patternBinds(self.ctx.source, pattern)) {
+                if (resolve.leafBinds(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
                         // A binding that is no plain data of a copy of the
                         // subject, or captured as a copy, is usable in its
@@ -10828,7 +10828,7 @@ const Checker = struct {
 
     /// The prelude's `Lanes`, the iterator `m.lanes()` gives: imported
     /// under the hidden name every file that calls a `lanes` method uses
-    /// (`Parser.builtinRefs`), or the prelude's own.
+    /// (`Parser.preludeUse`), or the prelude's own.
     fn lanesType(self: *Checker, pos: u32) Error!?TypeId {
         for (self.ctx.imports) |imp| {
             if (!std.mem.eql(u8, imp.local_name, rig.builtin_binding_name)) continue;
@@ -14333,6 +14333,12 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (!try self.chainShape(callee, method, args)) return self.t().invalid_id;
+        // Each stage binds hidden names of its own (`Parser.stageName`).
+        const count = if (consumer) stages else stages + 1;
+        if (count > rig.max_chain_stages) {
+            try self.errAt(call, "this chain has {d} stages, and a chain has at most {d}: end it with `.collect()` part way and chain on the List that gives, or write the loop", .{ count, rig.max_chain_stages });
+            return self.t().invalid_id;
+        }
         // An iterator in a place advances: the chain lends it to write,
         // and says so, as a `for` over it does.
         if (kind == .iterator and !for_source and !madeHere(root) and !root.isKind(.write)) {
