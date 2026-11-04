@@ -341,6 +341,15 @@ fail "ctfun panic", "7:9: compile-time call `cap[0]` panics: cap needs a positiv
   sub main()
     print(cap[0])
 
+fail "ctfun panic escapes", "compile-time call `f[1]` panics: bad A B"
+  # A compile-time panic reads its message's escapes as the run time does.
+  fun f[n: Int] -> Int
+    if n > 0
+      panic("bad \x41 \u{42}")
+    n
+
+  print(f[1])
+
 fail "ctfun fill length", "compile-time call `z[-1]` makes an array of length -1"
   fun z[n: Int] -> [n]Int
     [n of 0]
@@ -591,6 +600,83 @@ fail "ctfun in a generic body", "compile-time argument 1 of `cap` is the compile
     x
 
   print(make[2]())
+
+fail "ctfun argument types where a type folds the call", "20:12: use of unbound name `Nowhere`", "21:12: type mismatch: expected `Dir`, got `Other`", "22:12: type mismatch: expected `Dir`, got `Other`", "23:12: type mismatch: expected `Bool`, got `Int`", whole: true
+  # A call folded in a type, an alias, or an enum's value holds each
+  # argument to its parameter's type, as a call in a body does.
+  enum Dir
+    north
+    east
+
+  enum Other
+    west
+    east
+
+  HOME = Other.east
+
+  fun size[d: Dir] -> Int
+    Int(d) + 1
+
+  fun flag[b: Bool] -> Int
+    1
+
+  sub main()
+    a: [size[Nowhere.east]]Int = [1, 2]
+    b: [size[Other.east]]Int = [1, 2]
+    c: [size[HOME]]Int = [1, 2]
+    d: [flag[1]]Int = [1]
+    print(a.len, b.len, c.len, d.len)
+
+fail "ctfun argument names where an alias folds the call", "7:19: use of unbound name `Nope`", whole: true
+  enum Dir
+    north
+
+  fun size[d: Dir] -> Int
+    Int(d) + 1
+
+  type Pair = [size[Nope.north]]Int
+
+  sub main()
+    p: Pair = [1, 2]
+    print(p.len)
+
+fail "ctfun argument names where an enum's value folds the call", "8:12: use of unbound name `Bogus`", whole: true
+  enum Dir
+    north
+
+  fun size[d: Dir] -> Int
+    Int(d) + 1
+
+  enum Code
+    x = size[Bogus.north]
+
+  sub main()
+    print(Int(Code.x))
+
+fail "ctfun argument types of another module's call", "3:20: type mismatch: expected `lib.Dir`, got `lib.Other`", "6:16: type mismatch: expected `lib.Dir`, got `lib.Other`", whole: true
+  use lib
+
+  type B = [lib.size[lib.AWAY]]Int
+
+  enum Code
+    x = lib.size[lib.Other.east]
+
+  sub main()
+    print(Int(Code.x))
+
+  file "lib.rig"
+    pub enum Dir
+      north
+      east
+
+    pub enum Other
+      a
+      east
+
+    pub AWAY = Other.east
+
+    pub fun size[d: Dir] -> Int
+      Int(d) + 1
 
 fail "ctfun cycle", "1:5: constant `N` depends on itself (`N` → `f` → `N`)", errors: 1, whole: true
   N = f[1]
@@ -1240,3 +1326,49 @@ fail "ctfun array past the value limit", "compile-time call `bytes[8388609]` mak
     t.len
 
   print(bytes[8388609])
+
+fail "ctfun argument types of a typed constant or a call where a type folds the call", "23:12: type mismatch: expected `Dir`, got `Other`", "24:12: type mismatch: expected `Dir`, got `Other`", "25:12: type mismatch: expected `Dir`, got `Int`", errors: 3, whole: true
+  # A constant's declared type, and a compile-time call's result, are
+  # the argument's type, as in a body.
+  enum Dir
+    north
+    east
+
+  enum Other
+    west
+    east
+
+  fun size[d: Dir] -> Int
+    Int(d) + 1
+
+  fun oth[n: Int] -> Other
+    Other.east
+
+  fun add[n: Int] -> Int
+    n + 1
+
+  H: Other = .east
+
+  sub main()
+    a: [size[H]]Int = [1, 2]
+    b: [size[oth[0]]]Int = [1, 2]
+    c: [size[add[0]]]Int = [1, 2]
+    print(a.len, b.len, c.len)
+
+test "ctfun typed constant and call arguments where a type folds the call", "2 2", whole: true
+  enum Dir
+    north
+    east
+
+  fun size[d: Dir] -> Int
+    Int(d) + 1
+
+  fun dir[n: Int] -> Dir
+    Dir.east
+
+  G: Dir = .east
+
+  sub main()
+    a: [size[G]]Int = [1, 2]
+    b: [size[dir[0]]]Int = [1, 2]
+    print(a.len, b.len)

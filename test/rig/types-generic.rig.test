@@ -3592,3 +3592,18 @@ test "generic read view of each kind a read view copies", '''
   print(show(s), show(f), show(m), show(o), show(y), show(ot), show(e), show(b))
   if show(v) as w
     print(w.area())
+
+test "generic view parameter takes a literal beside a String", '''
+  own
+  own
+'''
+  # A `?T` takes a `Static` as the `?String` it is read as, so `T` is
+  # the `String` the other argument gives, in either order.
+  fun keep[T](a: T, b: ?T) -> T
+    a
+
+  fun keep2[T](b: ?T, a: T) -> T
+    a
+
+  print(keep(String("own"), "lit"))
+  print(keep2("lit", String("own")))

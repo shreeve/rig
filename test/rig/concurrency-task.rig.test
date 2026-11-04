@@ -1505,3 +1505,17 @@ fail "task generic type method reached in a generic body", "`Box[*Node].run` can
     b.run()
 
   print(outer(3), outer(*Node(v: 1)))
+
+fail "task slice argument shares its elements", "`?ts` is given to a task: `[]Task[Int]` holds `Task[Int]`", errors: 1
+  # A slice is a read view of its elements, so every task that holds it
+  # reads them: they must sync, as a `?T`'s value must.
+  fun n(ts: []Task[Int]) -> Int
+    ts.len
+
+  fun work() -> Int
+    1
+
+  ts = List[Task[Int]]()
+  !ts.push(work()&)
+  t = n(?ts)&
+  print(>t)

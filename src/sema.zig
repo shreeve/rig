@@ -11314,11 +11314,17 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
             break :blk null;
         },
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, walk),
-        .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, walk),
+        // A write slice lends its elements to one task, to write.
+        .write_view => |inner| if (how == .shares) here else switch (ctx.types.get(inner)) {
+            .slice => |sl| blockerIn(ctx, sl.elem, .moves, local, walk),
+            else => blockerIn(ctx, inner, .moves, local, walk),
+        },
         .optional, .range => |inner| blockerIn(ctx, inner, how, local, walk),
         .fallible => |inner| blockerIn(ctx, inner.ok, how, local, walk),
         .array => |a| blockerIn(ctx, a.elem, how, local, walk),
-        .slice => |sl| blockerIn(ctx, sl.elem, how, local, walk),
+        // A slice is a read view of its elements, which every task that
+        // holds it reads.
+        .slice => |sl| blockerIn(ctx, sl.elem, .shares, local, walk),
         .results => |parts| for (parts) |part| {
             if (blockerIn(ctx, part, how, local, walk)) |b| break b;
         } else null,

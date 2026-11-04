@@ -2591,7 +2591,12 @@ A call is computed where it is first needed (`cteval.callAt`): where a
 type, a constant, or an enum value is resolved, `ctFoldBy` asks
 `ConstNames.ctCall`, which computes it; in a body, typecheck computes it
 (`Checker.synthCtCall`) and records it (`SemContext.ctCallOf`), which
-`CheckedNames.ctCall`, emit, and the oracle read. Each call written is
+`CheckedNames.ctCall`, emit, and the oracle read. Either way its
+arguments go through one check, `cteval.argValues`: each is held to its
+parameter's type, by the checker in a body (`Checker.checkCtValue`),
+else by what it spells (`cteval.spelledType`: a literal, a member of a
+named type, `Dir.east`, or a constant whose value is one), then must be
+a value known where the call is written. Each call written is
 computed alone, from an empty memo of its own (`Eval.memo`), so its
 verdict never depends on what came before; the declaring module keeps
 each call's outcome, failures too (`State.memo`), for the same call
