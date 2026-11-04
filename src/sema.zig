@@ -7828,6 +7828,32 @@ pub const TypeChildren = struct {
     }
 };
 
+/// The parts a value of a type holds, which a walk of what it holds
+/// folds over after its own arms: an optional's, view's, or handle's
+/// value, a failure's value, an array's or slice's element, and a
+/// generic instance's arguments.
+pub const HeldParts = struct {
+    ty: Type,
+    i: usize = 0,
+
+    pub fn of(ctx: *const SemContext, ty: TypeId) HeldParts {
+        return .{ .ty = ctx.types.get(ty) };
+    }
+
+    pub fn next(self: *HeldParts) ?TypeId {
+        const i = self.i;
+        self.i += 1;
+        return switch (self.ty) {
+            .optional, .read_view, .write_view, .shared, .weak => |inner| if (i == 0) inner else null,
+            .fallible => |f| if (i == 0) f.ok else null,
+            .array => |a| if (i == 0) a.elem else null,
+            .slice => |sl| if (i == 0) sl.elem else null,
+            .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
+            else => null,
+        };
+    }
+};
+
 /// Whether a value of `ty` may hold a value of a type parameter: the
 /// parameter itself, or a type built from it (`List[T]`, `T?`, `Bag[T]`),
 /// but no function, and not a compile-time value (`Simd[U8, n]`).
@@ -8306,17 +8332,9 @@ pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
 /// optional, a handle, an array or slice, or a type argument). A
 /// callable view is only ever a parameter, a local, or a result.
 pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
-    switch (ctx.types.get(ty)) {
-        .callable => return true,
-        .read_view, .write_view, .optional, .shared, .weak => |inner| return holdsCallable(ctx, inner),
-        .fallible => |inner| return holdsCallable(ctx, inner.ok),
-        .slice => |sl| return holdsCallable(ctx, sl.elem),
-        .array => |a| return holdsCallable(ctx, a.elem),
-        .parameterized_nominal => |pn| for (pn.args) |a| {
-            if (holdsCallable(ctx, a)) return true;
-        },
-        else => {},
-    }
+    if (ctx.types.get(ty) == .callable) return true;
+    var parts: HeldParts = .of(ctx, ty);
+    while (parts.next()) |part| if (holdsCallable(ctx, part)) return true;
     return false;
 }
 
@@ -8391,22 +8409,18 @@ pub const boxed_function = "`^` boxes a value; a function has no box (`^fun` is 
 /// two holdings (`heapStacked`), or null.
 pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
     switch (ctx.types.get(ty)) {
-        .shared => |inner| return if (heapStacked(ctx, inner)) ty else findHeapStacked(ctx, inner),
-        .weak, .read_view, .write_view, .optional, .range, .callable => |inner| return findHeapStacked(ctx, inner),
-        .fallible => |inner| return findHeapStacked(ctx, inner.ok),
-        .slice => |s| return findHeapStacked(ctx, s.elem),
-        .array => |a| return findHeapStacked(ctx, a.elem),
+        .shared => |inner| if (heapStacked(ctx, inner)) return ty,
+        .range, .callable => |inner| return findHeapStacked(ctx, inner),
         .function => |f| {
             for (f.params) |p| if (findHeapStacked(ctx, p)) |found| return found;
             return findHeapStacked(ctx, f.returns);
         },
-        .parameterized_nominal => |pn| {
-            if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty;
-            for (pn.args) |a| if (findHeapStacked(ctx, a)) |found| return found;
-            return null;
-        },
-        else => return null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty,
+        else => {},
     }
+    var parts: HeldParts = .of(ctx, ty);
+    while (parts.next()) |part| if (findHeapStacked(ctx, part)) |found| return found;
+    return null;
 }
 
 /// The first stacked holding (`findHeapStacked`) among the fields and
@@ -8528,16 +8542,13 @@ fn handleAt(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
     return switch (ctx.types.get(ty)) {
         // An API object's hidden value may hold one (Core §4).
         .shared, .weak, .api_object => true,
-        .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, path),
-        .fallible => |f| handleAt(ctx, f.ok, path),
-        .array => |a| handleAt(ctx, a.elem, path),
-        .slice => |s| handleAt(ctx, s.elem, path),
-        .parameterized_nominal => |pn| blk: {
-            for (pn.args) |arg| if (handleAt(ctx, arg, path)) break :blk true;
-            break :blk fieldsHoldHandle(ctx, ty, path);
-        },
+        .range, .callable => |inner| handleAt(ctx, inner, path),
         .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, path),
-        else => false,
+        else => blk: {
+            var parts: HeldParts = .of(ctx, ty);
+            while (parts.next()) |part| if (handleAt(ctx, part, path)) break :blk true;
+            break :blk ctx.types.get(ty) == .parameterized_nominal and fieldsHoldHandle(ctx, ty, path);
+        },
     };
 }
 
@@ -9096,18 +9107,10 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey,
     if (objectHeld(ctx, ty)) |h| return if (heldObjectOwned(ctx, ty, h)) null else ty;
     if (apiObject(ctx, ty)) |o| return if (objectBounds(ctx, o).contains(.Owned)) null else ty;
     switch (ctx.types.get(ty)) {
-        .optional, .read_view, .write_view, .shared, .weak, .range => |inner| return objectUnownedIn(ctx, inner, seen),
-        .fallible => |inner| return objectUnownedIn(ctx, inner.ok, seen),
-        .array => |a| return objectUnownedIn(ctx, a.elem, seen),
-        .slice => |sl| return objectUnownedIn(ctx, sl.elem, seen),
+        .range => |inner| return objectUnownedIn(ctx, inner, seen),
         .results => |parts| {
             for (parts) |part| if (try objectUnownedIn(ctx, part, seen)) |o| return o;
             return null;
-        },
-        .parameterized_nominal => |pn| {
-            for (pn.args) |a| if (try objectUnownedIn(ctx, a, seen)) |o| return o;
-            if (isBuiltinGeneric(ctx, pn.sym)) return null;
-            return objectUnownedFields(ctx, pn.sym, seen);
         },
         .nominal => |sym| return objectUnownedFields(ctx, sym, seen),
         .imported_nominal => {
@@ -9115,7 +9118,15 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey,
             // Found in another module's table: the whole type names it.
             return if (try objectUnownedFields(decl.ctx, decl.sym, seen) != null) ty else null;
         },
-        else => return null,
+        else => {
+            var parts: HeldParts = .of(ctx, ty);
+            while (parts.next()) |part| if (try objectUnownedIn(ctx, part, seen)) |o| return o;
+            const pn = switch (ctx.types.get(ty)) {
+                .parameterized_nominal => |pn| pn,
+                else => return null,
+            };
+            return if (isBuiltinGeneric(ctx, pn.sym)) null else objectUnownedFields(ctx, pn.sym, seen);
+        },
     }
 }
 
@@ -10982,17 +10993,10 @@ fn isHeldWriteView(ctx: *const SemContext, ty: TypeId) bool {
 /// through views, handles, optionals, elements, and type arguments. A
 /// declared type's fields are decided where they are declared.
 fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .write_view => true,
-        .read_view, .shared, .weak, .optional => |inner| nestsWriteView(ctx, inner),
-        .fallible => |inner| nestsWriteView(ctx, inner.ok),
-        .array => |a| nestsWriteView(ctx, a.elem),
-        .slice => |s| nestsWriteView(ctx, s.elem),
-        .parameterized_nominal => |pn| for (pn.args) |a| {
-            if (nestsWriteView(ctx, a)) break true;
-        } else false,
-        else => false,
-    };
+    if (ctx.types.get(ty) == .write_view) return true;
+    var parts: HeldParts = .of(ctx, ty);
+    while (parts.next()) |part| if (nestsWriteView(ctx, part)) return true;
+    return false;
 }
 
 /// Whether `ty` is a declared type (a `Cell[T]` included) that holds a
@@ -11415,27 +11419,28 @@ pub fn holdsTask(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) bool {
-    return switch (ctx.types.get(ty)) {
-        .read_view, .write_view, .optional, .shared, .weak, .range => |inner| taskIn(ctx, inner, seen),
-        .fallible => |inner| taskIn(ctx, inner.ok, seen),
-        .array => |a| taskIn(ctx, a.elem, seen),
-        .slice => |sl| taskIn(ctx, sl.elem, seen),
+    switch (ctx.types.get(ty)) {
+        .range => |inner| return taskIn(ctx, inner, seen),
         .results => |parts| for (parts) |part| {
-            if (taskIn(ctx, part, seen)) break true;
-        } else false,
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk true;
-            for (pn.args) |a| if (taskIn(ctx, a, seen)) break :blk true;
-            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk false;
-            break :blk fieldsHoldTask(ctx, pn.sym, seen);
+            if (taskIn(ctx, part, seen)) return true;
         },
-        .nominal => |sym| fieldsHoldTask(ctx, sym, seen),
-        .imported_nominal => blk: {
-            const decl = nominalDecl(ctx, ty) orelse break :blk false;
-            break :blk fieldsHoldTask(decl.ctx, decl.sym, seen);
+        .nominal => |sym| return fieldsHoldTask(ctx, sym, seen),
+        .imported_nominal => {
+            const decl = nominalDecl(ctx, ty) orelse return false;
+            return fieldsHoldTask(decl.ctx, decl.sym, seen);
         },
-        else => false,
-    };
+        else => {
+            var parts: HeldParts = .of(ctx, ty);
+            while (parts.next()) |part| if (taskIn(ctx, part, seen)) return true;
+            const pn = switch (ctx.types.get(ty)) {
+                .parameterized_nominal => |pn| pn,
+                else => return false,
+            };
+            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) return true;
+            return !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.simd_sym_id and fieldsHoldTask(ctx, pn.sym, seen);
+        },
+    }
+    return false;
 }
 
 fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *FastMap(SymbolKey, void)) bool {
@@ -12906,12 +12911,10 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
     if (!ctx.typeInfo(ty).has_type_var) return;
     switch (ctx.types.get(ty)) {
         .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
-        .optional, .read_view, .write_view, .shared, .weak => |inner| try reachedTypeVars(ctx, inner, out, a),
-        .fallible => |inner| try reachedTypeVars(ctx, inner.ok, out, a),
-        .array => |arr| try reachedTypeVars(ctx, arr.elem, out, a),
-        .slice => |sl| try reachedTypeVars(ctx, sl.elem, out, a),
-        .parameterized_nominal => |pn| for (pn.args) |arg| try reachedTypeVars(ctx, arg, out, a),
-        else => {},
+        else => {
+            var parts: HeldParts = .of(ctx, ty);
+            while (parts.next()) |part| try reachedTypeVars(ctx, part, out, a);
+        },
     }
 }
 
@@ -12919,20 +12922,17 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
 /// as `reachedTypeVars` walks, or through one of several results.
 pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
-    return switch (ctx.types.get(ty)) {
-        .type_var => |s| s == sym,
-        .optional, .read_view, .write_view, .shared, .weak => |inner| reachesTypeVar(ctx, inner, sym),
-        .fallible => |inner| reachesTypeVar(ctx, inner.ok, sym),
-        .array => |arr| reachesTypeVar(ctx, arr.elem, sym),
-        .slice => |sl| reachesTypeVar(ctx, sl.elem, sym),
-        .parameterized_nominal => |pn| for (pn.args) |arg| {
-            if (reachesTypeVar(ctx, arg, sym)) break true;
-        } else false,
+    switch (ctx.types.get(ty)) {
+        .type_var => |s| return s == sym,
         .results => |parts| for (parts) |part| {
-            if (reachesTypeVar(ctx, part, sym)) break true;
-        } else false,
-        else => false,
-    };
+            if (reachesTypeVar(ctx, part, sym)) return true;
+        },
+        else => {
+            var parts: HeldParts = .of(ctx, ty);
+            while (parts.next()) |part| if (reachesTypeVar(ctx, part, sym)) return true;
+        },
+    }
+    return false;
 }
 
 /// A set parameter `ty` names other than after `!`, as a value's type
@@ -12940,24 +12940,23 @@ pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
 /// the set a function fails with (errors-spec §3.5).
 pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     if (!ctx.typeInfo(ty).has_type_var) return null;
-    return switch (ctx.types.get(ty)) {
-        .type_var => |sym| if (ctx.symbols.items[sym].flags.set_param) sym else null,
-        .optional, .read_view, .write_view, .shared, .weak, .callable, .range, .slot => |inner| setParamAsValue(ctx, inner),
-        .fallible => |f| setParamAsValue(ctx, f.ok),
-        .array => |arr| setParamAsValue(ctx, arr.elem),
-        .slice => |sl| setParamAsValue(ctx, sl.elem),
-        .simd => |v| setParamAsValue(ctx, v.elem),
-        .parameterized_nominal => |pn| for (pn.args) |arg| {
-            if (setParamAsValue(ctx, arg)) |sym| break sym;
-        } else null,
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| return if (ctx.symbols.items[sym].flags.set_param) sym else null,
+        .callable, .range, .slot => |inner| return setParamAsValue(ctx, inner),
+        .simd => |v| return setParamAsValue(ctx, v.elem),
         .results => |parts| for (parts) |part| {
-            if (setParamAsValue(ctx, part)) |sym| break sym;
-        } else null,
-        .function => |f| for (f.params) |param| {
-            if (setParamAsValue(ctx, param)) |sym| break sym;
-        } else setParamAsValue(ctx, f.returns),
-        else => null,
-    };
+            if (setParamAsValue(ctx, part)) |sym| return sym;
+        },
+        .function => |f| {
+            for (f.params) |param| if (setParamAsValue(ctx, param)) |sym| return sym;
+            return setParamAsValue(ctx, f.returns);
+        },
+        else => {
+            var parts: HeldParts = .of(ctx, ty);
+            while (parts.next()) |part| if (setParamAsValue(ctx, part)) |sym| return sym;
+        },
+    }
+    return null;
 }
 
 /// A set parameter `ty` names as the set of a function value or an owned
@@ -12978,17 +12977,14 @@ pub fn setParamUnlent(ctx: *const SemContext, ty: TypeId) ?SymbolId {
             for (f.params) |param| if (setParamUnlent(ctx, param)) |sym| break :blk sym;
             break :blk setParamUnlent(ctx, okOf(ctx, f.returns));
         },
-        .optional, .read_view, .write_view, .shared, .weak => |inner| setParamUnlent(ctx, inner),
-        .fallible => |f| setParamUnlent(ctx, f.ok),
-        .array => |arr| setParamUnlent(ctx, arr.elem),
-        .slice => |sl| setParamUnlent(ctx, sl.elem),
-        .parameterized_nominal => |pn| for (pn.args) |arg| {
-            if (setParamUnlent(ctx, arg)) |sym| break sym;
-        } else null,
         .results => |parts| for (parts) |part| {
             if (setParamUnlent(ctx, part)) |sym| break sym;
         } else null,
-        else => null,
+        else => blk: {
+            var parts: HeldParts = .of(ctx, ty);
+            while (parts.next()) |part| if (setParamUnlent(ctx, part)) |sym| break :blk sym;
+            break :blk null;
+        },
     };
 }
 
