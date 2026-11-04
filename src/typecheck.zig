@@ -9545,7 +9545,10 @@ const Checker = struct {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
                 if (std.mem.eql(u8, name, "warn")) return self.checkWarn(args);
                 if (std.mem.eql(u8, name, "String")) return self.checkStringNew(node, args);
-                if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
+                if (std.mem.eql(u8, name, "swap")) {
+                    try self.ctx.recordSwapCall(node);
+                    return self.checkSwap(callee, args);
+                }
                 if (resolve.isNumericTypeName(name)) {
                     var r = self.resolver();
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);

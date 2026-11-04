@@ -6272,7 +6272,7 @@ pub const Emitter = struct {
             if (self.subjectView(sexp, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
             return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
-        if (std.mem.eql(u8, name, "none")) {
+        if (self.isNoneLeaf(sexp)) {
             if (self_check) if (self.typeOf(sexp)) |t| if (self.isEnumTy(t)) return self.unsupported(sexp, "`none` with an enum type");
             return self.w.writeAll("null");
         }
@@ -8572,13 +8572,6 @@ pub const Emitter = struct {
     // Calls
     // -------------------------------------------------------------------------
 
-    /// Whether `call` calls the built-in `swap`.
-    fn isSwapCall(self: *Emitter, call: Sexp) bool {
-        const callee = self.facts.calleeOf(call);
-        if (callee != .src or self.facts.symbolOf(callee) != null) return false;
-        return std.mem.eql(u8, self.srcText(callee), "swap");
-    }
-
     /// `rig.swapPlaces(&a, &b)` / `rig.swapValue(&place, value)`: each
     /// place by its address, a held write view as the pointer it is
     /// (`sema.swapsTwoPlaces`).
@@ -9184,7 +9177,7 @@ pub const Emitter = struct {
             .warn => self.emitWarn(args),
         };
         if (self.stringCall(sexp)) |op| return self.emitStringCall(sexp, op);
-        if (self.isSwapCall(sexp)) return self.emitSwapCall(args);
+        if (self.facts.isSwapCall(sexp)) return self.emitSwapCall(args);
         if (callee == .src and self.facts.symbolOf(callee) == null and facts.syntax.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
         // names, or a value of the object it names.
@@ -9820,7 +9813,7 @@ pub const Emitter = struct {
             return self.w.print("__rig_sym.Symbol.@\"{s}\"", .{rig.leafText(decl.source, ir.Symbol.name(e).src)});
         }
         if (isDefaultLiteralNode(decl.source, e)) {
-            if (self_check and e == .src) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t) != null and std.mem.eql(u8, rig.leafText(decl.source, e.src), "none")) return self.unsupported(e, "`none` with an enum type");
+            if (self_check and e == .src) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t) != null and decl.isNoneLeaf(e)) return self.unsupported(e, "`none` with an enum type");
             return writeLiteral(self.w, decl.source, e);
         }
         if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll("rig.String.empty");
@@ -11697,7 +11690,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     switch (e) {
         .src => {
             const t = em.srcText(e);
-            if (isLiteralText(t) or std.mem.eql(u8, t, "none")) return true;
+            if (isLiteralText(t) or em.isNoneLeaf(e)) return true;
             // A label or member name, which names no symbol.
             const sym = em.facts.symbolOf(e) orelse return true;
             const sd = em.facts.symbols.items[sym];
