@@ -96,15 +96,12 @@ pub fn main(init: std.process.Init) !void {
             }
         }
         const per: f64 = @floatFromInt(pairs * reps);
-        const ns = struct {
-            fn f(t: u64, p: f64) f64 {
-                return @as(f64, @floatFromInt(t)) / p;
-            }
-        }.f;
-        std.debug.print("{d:>5} {d:>9.3} {d:>9.3} {d:>7.2}   {d:>9.3} {d:>9.3} {d:>7.2}\n", .{
-            n,                                                                         ns(best[0][0], per),                               ns(best[0][1], per),
-            @as(f64, @floatFromInt(best[0][1])) / @as(f64, @floatFromInt(best[0][0])), ns(best[1][0], per),                               ns(best[1][1], per),
-            @as(f64, @floatFromInt(best[1][1])) / @as(f64, @floatFromInt(best[1][0])),
-        });
+        var row: [6]f64 = undefined;
+        for (0..2) |d| {
+            const t_std: f64 = @floatFromInt(best[d][0]);
+            const t_rig: f64 = @floatFromInt(best[d][1]);
+            row[d * 3 ..][0..3].* = .{ t_std / per, t_rig / per, t_rig / t_std };
+        }
+        std.debug.print("{d:>5} {d:>9.3} {d:>9.3} {d:>7.2}   {d:>9.3} {d:>9.3} {d:>7.2}\n", .{ n, row[0], row[1], row[2], row[3], row[4], row[5] });
     }
 }
