@@ -3042,6 +3042,33 @@ pub const Done = struct {
         }
     }
 
+    /// A select's arm on it (`tasks.EndArm`): record wait `epoch` of
+    /// `fiber` as the one to wake, as `wait` does, and give whether it
+    /// is finished or finishing already, when nothing may wake the
+    /// fiber for it. The fiber is its one waiter: it holds what this is
+    /// the end of, and two arms of its select on one end record the same.
+    pub fn watch(d: *Done, fiber: *Fiber, epoch: u32) bool {
+        d.waiter.store(fiber, .seq_cst);
+        d.epoch.store(epoch, .seq_cst);
+        if (d.status.cmpxchgStrong(running, waited, .seq_cst, .seq_cst)) |s| return s != waited;
+        return false;
+    }
+
+    /// The watcher begins wait `epoch`: that is the one to wake. It
+    /// looks once more after (`over`), so a finish that read the wait
+    /// before is seen there.
+    pub fn rewatch(d: *Done, epoch: u32) void {
+        d.epoch.store(epoch, .seq_cst);
+    }
+
+    /// Take a watch back, so what finishes it later wakes no one, and the
+    /// next waiter, on any fiber, records itself afresh. While it is
+    /// finishing, wait for that, so its waker is done with the watcher.
+    pub fn unwatch(d: *Done) void {
+        _ = d.status.cmpxchgStrong(waited, running, .seq_cst, .seq_cst);
+        _ = d.isDone();
+    }
+
     /// Wait for it to finish, or, when `cancel` is given, for that flag
     /// to be set first, or for `deadline` to pass, when this gives false.
     pub inline fn wait(d: *Done, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
@@ -3588,6 +3615,33 @@ pub fn abandon(ended: *const fn (*Fiber) void) noreturn {
     const h: *Header = @fieldParentPtr("fiber", f);
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
+}
+
+test "a watch on a task's end, taken back, leaves its finish waking no one" {
+    // A select's arm records its fiber as the end's one waiter (`watch`)
+    // and takes the watch back when another arm wins (`unwatch`): the
+    // finish after, wherever the task went, touches no fiber.
+    var stale: Fiber = undefined;
+    var d: Done = .{};
+    try std.testing.expect(!d.watch(&stale, 7));
+    try std.testing.expectEqual(Done.waited, d.status.load(.seq_cst));
+    // A second arm of the same select on the same end records the same.
+    try std.testing.expect(!d.watch(&stale, 7));
+    d.rewatch(8);
+    try std.testing.expectEqual(@as(u32, 8), d.epoch.load(.seq_cst));
+    d.unwatch();
+    try std.testing.expectEqual(Done.running, d.status.load(.seq_cst));
+    // With no waiter left, a finish that tried to wake one would stop
+    // at its `.?`.
+    d.waiter.store(null, .seq_cst);
+    d.finish();
+    try std.testing.expect(d.isDone());
+    // A watch made once it is over says so, for the arm to claim.
+    var e: Done = .{};
+    e.finish();
+    try std.testing.expect(e.watch(&stale, 1));
+    e.unwatch();
+    try std.testing.expect(e.isDone());
 }
 
 test "no cache line holds two workers' fields" {

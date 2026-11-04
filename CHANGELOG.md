@@ -8,6 +8,22 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 [HANDOFF](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists what is planned.
 
+## Unreleased
+
+### Added
+
+- **A task's end as an arm of `task.select`:** `done: ?t.on_end()`
+  completes once the task `t` has ended, before the select or while it
+  waits, beside the receive, send, and deadline arms. The arm lends `t`
+  to read, so its variant carries nothing and the select neither waits
+  for `t` nor takes its result: the winner's body takes it with `>t`
+  (`>t!`, or `catch`), which gives it at once. A task that fails or is
+  canceled has ended as any other; the select fails only with its own
+  cancel or deadline. Two task arms are a race. The arm waits on the
+  task's completion record (`sched.Done`) and takes its wait back as
+  the select returns, so a task moved on after its arm lost ends with
+  no stale waiter (SPEC "Channels").
+
 ## v0.3.0 (2026-11-04)
 
 `v0.3.0` follows `v0.2.9` (Zig 0.17.0, Nexus 2.0.0) and changes the

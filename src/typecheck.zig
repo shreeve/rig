@@ -13488,6 +13488,8 @@ const Checker = struct {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.chanValue(self.ctx, peeled) != null and (std.mem.eql(u8, method, "on_recv") or std.mem.eql(u8, method, "on_send"))) {
                 try self.err(pos, "`{s}` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: !{s}.{s}(...), ...)`", .{ method, try self.plainText(stripSigil(obj)), method });
+            } else if (sema.isTask(self.ctx, peeled) and std.mem.eql(u8, method, "on_end")) {
+                try self.err(pos, "`on_end` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: ?{s}.on_end(), ...)`", .{try self.plainText(stripSigil(obj))});
             } else if (std.mem.eql(u8, method, "text") and (self.hasVariantNames(peeled) or peeled == self.t().symbol_id)) {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
@@ -15598,7 +15600,7 @@ const Checker = struct {
     /// function, so the `match` on the value runs the winner's body in
     /// the enclosing scope. A fallible waiting point.
     fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
-        const shape = "each arm of `task.select` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, or `name: time.after(" ++ sema.after_arm.param ++ ")`";
+        const shape = "each arm of `task.select` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(" ++ sema.after_arm.param ++ ")`";
         const a = self.ctx.arena.allocator();
         const names = try a.alloc([]const u8, args.len);
         const payloads = try a.alloc(?TypeId, args.len);
@@ -15629,9 +15631,26 @@ const Checker = struct {
                 payload.* = null;
                 continue;
             }
+            const obj = ir.Member.object(callee);
+            if (std.mem.eql(u8, method, "on_end")) {
+                // A task's end: the arm lends the task to read, so the
+                // select neither waits it nor takes its value, which the
+                // winner's body takes with `>t`.
+                if (!obj.isKind(.read)) return try self.badArms(args, obj, "an arm on a task's end lends the task to read, and leaves it to its holder: `{s}: ?{s}.on_end()`", .{ name.*, self.sourceText(stripSigil(obj)) });
+                const task_node = ir.get(obj, .operand);
+                const task_ty = try self.synthExpr(task_node);
+                if (self.isPoison(task_ty)) return try self.skipArms(args);
+                if (!sema.isTask(self.ctx, sema.unwrapViews(self.ctx, task_ty))) return try self.badArms(args, task_node, "`{s}` is a `{s}`, not a task; {s}", .{ self.sourceText(task_node), try self.tyName(task_ty), shape });
+                if (arm_args.len != 0) return try self.badArms(args, arm, "a task arm takes nothing: `{s}: ?{s}.on_end()`", .{ name.*, self.sourceText(task_node) });
+                const f: FunctionType = .{ .params = &.{}, .returns = self.t().void_id, .is_sub = true };
+                try self.noteCallee(f);
+                try self.ctx.recordType(arm, self.t().void_id);
+                try self.ctx.recordSelectArm(arm, .end);
+                payload.* = null;
+                continue;
+            }
             const recv = std.mem.eql(u8, method, "on_recv");
             if (!recv and !std.mem.eql(u8, method, "on_send")) return try self.badArms(args, arm, "{s}", .{shape});
-            const obj = ir.Member.object(callee);
             if (!obj.isKind(.write)) return try self.badArms(args, obj, "an arm receives or sends, which changes the channel: mark it, `!{s}.{s}(...)`", .{ self.sourceText(obj), method });
             const handle = ir.get(obj, .operand);
             const handle_ty = try self.synthExpr(handle);
@@ -15689,7 +15708,7 @@ const Checker = struct {
         if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return false;
         const method = self.text(ir.Member.name(ir.Call.callee(arm)));
         const n = ir.Call.args(arm).len;
-        return (std.mem.eql(u8, method, "on_recv") and n == 0) or (std.mem.eql(u8, method, "on_send") and n == 1);
+        return (std.mem.eql(u8, method, "on_recv") and n == 0) or (std.mem.eql(u8, method, "on_send") and n == 1) or std.mem.eql(u8, method, "on_end");
     }
 
     /// A name for an unnamed arm, which its diagnostic suggests: its
@@ -15702,11 +15721,13 @@ const Checker = struct {
         return if (handle == .src) self.text(handle) else "arm";
     }
 
-    /// An arm as written, its channel's `!` included.
+    /// An arm as written, its channel's `!` or its task's `?` included.
     fn armText(self: *Checker, arm: Sexp) Error![]const u8 {
         const shown = try self.plainText(arm);
-        if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member) or !ir.Member.object(ir.Call.callee(arm)).isKind(.write)) return shown;
-        return std.fmt.allocPrint(self.ctx.arena.allocator(), "!{s}", .{shown});
+        if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return shown;
+        const obj = ir.Member.object(ir.Call.callee(arm));
+        const mark: []const u8 = if (obj.isKind(.write)) "!" else if (obj.isKind(.read)) "?" else return shown;
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}{s}", .{ mark, shown });
     }
 
     /// The name of std module `module_sym` names (`std.time`), or null for

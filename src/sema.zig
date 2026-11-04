@@ -11247,8 +11247,8 @@ pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
 
 /// An arm of `task.select`: a receive, `!ch.on_recv()` (or the old
 /// `(!ch).on_recv(f)`), a send, `!ch.on_send(<v)` (or `(!ch).on_send(<v,
-/// f)`), or a deadline, `time.after(ns)`.
-pub const SelectArm = enum { recv, send, after };
+/// f)`), a deadline, `time.after(ns)`, or a task's end, `?t.on_end()`.
+pub const SelectArm = enum { recv, send, after, end };
 
 /// The type of the value `task.select(name: arm, ...)` gives: an enum
 /// named `select(add, sub, late)` whose variants are `names`, in order,

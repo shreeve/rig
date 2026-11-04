@@ -5104,7 +5104,12 @@ symbols); a query that decides more than that is a recorded fact.
   })`, one Zig type per list, and the call as `rig.selectValue(T, .{
   arms })`, which fills the winner's variant from the index `selectArms`
   gives. A deadline arm is `rig.afterArm(ns)`, which holds no channel
-  and wakes the select at its time.
+  and wakes the select at its time. A task's end, `?t.on_end()`, is
+  `rig.endArm(t)`, the task held as an arm's self (`heldSelf`), lent
+  to read until the select returns: it holds no channel either, waits
+  on the task's `sched.Done` (`watch`), and takes the watch back as the
+  select returns (`unwatch`). Its variant carries nothing; the body
+  waits the task with `>t`, which then gives the result at once.
 - **Zig-backed declarations.** An `extern zig "file.zig"` block imports
   the file, which `rig` writes into the package as `rig/std/file.zig`
   from the module graph (`Module.shims`, read where the module is), and

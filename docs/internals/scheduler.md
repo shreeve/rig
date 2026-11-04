@@ -233,7 +233,16 @@ marks it ended. The waiter goes on only once it reads ended, so it may
 free the record at once: no waker touches it after. A set of tasks and
 `task.all` wait on a count instead (`tasks.Wakeup`), which each of their
 tasks adds to as it ends, and a select on the claim of its first arm,
-which the claimer makes under its channel's lock.
+which the claimer makes under its channel's lock. A select's arm on a
+task's end (`?t.on_end()`) is that task's one waiter for a while: it
+records the select's fiber and wait (`Done.watch`), renews the wait's
+number each time the select waits again (`rewatch`), and looks at the
+end once more after each, claiming the select itself when it finds the
+task ended. As the select returns, every such arm takes its watch back
+(`unwatch`, waiting out a finish under way), so the end, when it comes
+later, wakes no one, and the next waiter, on whatever task holds the
+task by then, records itself afresh. Only the task's holder waits on
+it: a view of a task goes to no other task, so one waiter is enough.
 
 A cancel is a handshake of two steps on each side: the canceler sets the
 task's flag and then looks at its wait, and the waiting fiber begins its

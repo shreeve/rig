@@ -13582,6 +13582,16 @@ a `match` on the value runs the winner's body:
   nothing. When it falls with the task's own deadline (`time.within`),
   the task's comes first, and the select fails with
   `task.Stop.timeout`.
+- `name: ?t.on_end()` waits for the task `t` to end; its variant
+  carries nothing. The arm lends `t` to read: the select neither waits
+  for `t` nor takes its result, and `t` stays its holder's. The
+  winner's body takes the result with `>t`, which gives it at once, a
+  failure as any wait gives one (`>t!`, or `catch`): a task that fails
+  or is canceled has ended as any other, and the select itself fails
+  only with its own cancel or deadline. Two task arms are a race: the
+  first task to end wins, and the others run on, held as before.
+  `!t.on_end()` and `<t.on_end()` are rejected, since the arm changes
+  and takes nothing.
 
 Messages name the type by its arms, `select(got, quit, late)`; a
 program never writes it. The value is an ordinary value: it is bound
@@ -13596,7 +13606,8 @@ ready at once, the select takes them in an order that turns, so none
 starves. It is a fallible waiting point too: a canceled task fails it
 with `task.Stop.canceled`, and past its deadline with
 `task.Stop.timeout`. An arm with no name is rejected, as is
-`on_recv`, `on_send`, or `time.after` anywhere but in a select.
+`on_recv`, `on_send`, `on_end`, or `time.after` anywhere but in a
+select.
 
 ```rig
 use std.task
@@ -13637,6 +13648,35 @@ sub main()!
 ```output
 10
 10
+```
+
+A race waits on the ends of several tasks, and the first to end wins.
+The others are still held, and drop as any task does: one that can
+fail is canceled then.
+
+```rig
+use std.task
+use std.time
+
+fun fetch(n: Int, ms: Int) -> Int!
+  time.sleep(ms * time.MS)!
+  n * 10
+
+sub main()!
+  near = fetch(1, 1)&
+  far = fetch(2, 5000)&
+  match task.select(
+    near: ?near.on_end(),
+    far:  ?far.on_end(),
+    late: time.after(time.SECOND)
+  )!
+    .near => print("near", >near!)
+    .far => print("far", >far!)
+    .late => print("late")
+```
+
+```output
+near 10
 ```
 
 The old spelling of a select, still accepted, gives each arm a
