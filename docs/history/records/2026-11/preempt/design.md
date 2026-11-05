@@ -164,7 +164,9 @@ than 32 KiB above the guard, and the monitor signals again next period.
   beside the workers, so `Worker` is unchanged; `Task.start` calls
   `rt.callCode`, a plain `@call(.auto)` when preemption is off. The
   release builds of bench/tasks and bench/actors are the same machine
-  code as main's (`otool -t`, identical, on the Mac).
+  code as main's (`otool -t`, identical, on the Mac). A split build's
+  unit 0 defines one more cell, the preemption array, which no code
+  reads.
 - With it: `linksection(rig.preempt_section)` on each non-inline
   function and closure, `__rig_preempt` in the root, the checks
   compiled out, the monitor thread, SIGURG's handler, each spin lock

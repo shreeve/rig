@@ -51,8 +51,8 @@ comptime {
         started,
         workers_asked,
         graph,
+        preempt_states,
     };
-    if (split.on and split.main and preempt) _ = preempt_states;
 }
 
 /// A fiber: a task's own stack, and the stack pointer it left when it
