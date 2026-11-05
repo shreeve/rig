@@ -1,0 +1,9 @@
+981c981
+<     const huge = len > huge_page and hugeFree();
+---
+>     const huge = false; // VARIANT region: the region asks once (newTableRegion)
+1047c1047,1048
+<     std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+---
+>     // VARIANT region: one policy for the whole region, set once.
+>     std.posix.madvise(raw.ptr, raw.len, if (hugeFree()) std.os.linux.MADV.HUGEPAGE else std.os.linux.MADV.NOHUGEPAGE) catch {};

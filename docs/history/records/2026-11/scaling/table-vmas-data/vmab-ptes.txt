@@ -1,0 +1,11 @@
+# vmabench 30000 2048 1 (one page per page-table page) and 30000 4 1 (dense), interleaved, core 16, 22:16
+exitwatch at-exit 61.02 reaped 83.42 rss-at-exit 120480 status 0
+exitwatch at-exit 44.53 reaped 49.12 rss-at-exit 120480 status 0
+exitwatch at-exit 59.70 reaped 85.11 rss-at-exit 120480 status 0
+exitwatch at-exit 45.71 reaped 50.28 rss-at-exit 120480 status 0
+exitwatch at-exit 60.27 reaped 84.17 rss-at-exit 120476 status 0
+exitwatch at-exit 44.72 reaped 49.43 rss-at-exit 120480 status 0
+exitwatch at-exit 59.62 reaped 84.31 rss-at-exit 120480 status 0
+exitwatch at-exit 44.49 reaped 49.13 rss-at-exit 120480 status 0
+exitwatch at-exit 58.92 reaped 81.73 rss-at-exit 120476 status 0
+exitwatch at-exit 45.01 reaped 49.45 rss-at-exit 120480 status 0
