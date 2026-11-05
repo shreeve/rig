@@ -96,6 +96,18 @@ a bare number, and of `per:` of `task.supervise` and
   a change that breaks one fails its gate; `cli` and `probes` run them
   alone.
 
+### Runtime
+
+- Text compares by one byte equality of the runtime's, `bytesEql`:
+  String `==` and `!=`, a string pattern, the text keys of `Map`,
+  `Set`, `HashMap`, and `HashSet`, `E.from_text`, and `==` on slices of
+  integers. It tests lengths, then overlapping words and 16-byte
+  vectors, each one unaligned load: 3-50% faster than `std.mem.eql`
+  at every length to 128 bytes on the Mac, and 8-73% on x86-64 with
+  AVX2. In code a `--pgo` profile finds cold its loads stay wide,
+  where `std.mem.eql`'s array casts moved each byte through the stack
+  (`bench/eql`).
+
 ## v0.3.0 (2026-11-04)
 
 `v0.3.0` follows `v0.2.9` (Zig 0.17.0, Nexus 2.0.0) and changes the

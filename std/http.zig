@@ -13,7 +13,7 @@ pub fn arg_of(query: []const u8, name: []const u8) ?rig.String {
     var it = std.mem.splitScalar(u8, query, '&');
     while (it.next()) |pair| {
         const eq = std.mem.findScalar(u8, pair, '=') orelse pair.len;
-        if (!std.mem.eql(u8, pair[0..eq], name)) continue;
+        if (!rig.bytesEql(pair[0..eq], name)) continue;
         return fresh(if (eq < pair.len) pair[eq + 1 ..] else "");
     }
     return null;

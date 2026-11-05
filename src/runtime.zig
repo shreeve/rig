@@ -1905,7 +1905,7 @@ pub fn eql(a: anytype, b: anytype) bool {
         return eql(x, y);
     }
     // A String compares with a String or a `?String` by its bytes.
-    if (comptime isString(A) or isString(B)) return std.mem.eql(u8, stringBytes(a), stringBytes(b));
+    if (comptime isString(A) or isString(B)) return bytesEql(stringBytes(a), stringBytes(b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
@@ -1962,7 +1962,67 @@ pub fn stringBytes(x: anytype) []const u8 {
 /// Whether text `x` (`stringBytes`) has the bytes of `lit`: a string
 /// pattern's test.
 pub fn textIs(x: anytype, lit: []const u8) bool {
-    return std.mem.eql(u8, stringBytes(x), lit);
+    return bytesEql(stringBytes(x), lit);
+}
+
+/// Whether two byte slices hold the same bytes: text `==`, a pattern's
+/// text, and the built-in tables' text keys. Lengths first, then by
+/// size: 0-3 bytes by the first, middle, and last byte; 4-7 by two
+/// overlapping 32-bit words; 8-16 by two overlapping 64-bit words;
+/// 17-32 by two overlapping 16-byte vectors; longer by
+/// `bytesEqlLong`. Every word and vector is one unaligned pointer
+/// load, never an array `@bitCast`, which Zig lowers byte by byte and
+/// LLVM folds back into a load only where it optimizes for speed: in
+/// code a profile finds cold (`--pgo`), `std.mem.eql`'s chunk loop
+/// stays byte by byte, through the stack.
+pub inline fn bytesEql(a: []const u8, b: []const u8) bool {
+    const n = a.len;
+    if (n != b.len) return false;
+    const p = a.ptr;
+    const q = b.ptr;
+    if (n <= 16) {
+        if (n >= 8) return (loadUnaligned(u64, p) ^ loadUnaligned(u64, q)) | (loadUnaligned(u64, p + n - 8) ^ loadUnaligned(u64, q + n - 8)) == 0;
+        if (n >= 4) return (loadUnaligned(u32, p) ^ loadUnaligned(u32, q)) | (loadUnaligned(u32, p + n - 4) ^ loadUnaligned(u32, q + n - 4)) == 0;
+        if (n == 0) return true;
+        return (p[0] ^ q[0]) | (p[n / 2] ^ q[n / 2]) | (p[n - 1] ^ q[n - 1]) == 0;
+    }
+    if (n <= 32) return !anyByte(V16, (loadUnaligned(V16, p) ^ loadUnaligned(V16, q)) | (loadUnaligned(V16, p + n - 16) ^ loadUnaligned(V16, q + n - 16)));
+    return bytesEqlLong(p, q, n);
+}
+
+const V16 = @Vector(16, u8);
+
+/// `bytesEql` past 32 bytes: the first 16, apart, so a difference
+/// there ends the test at once; then to 64 bytes the next 16 and the
+/// last 32, which overlap; longer, 32 bytes a step, then the last 32.
+/// A plain function, which LLVM inlines into a hot caller and calls
+/// from a cold one.
+fn bytesEqlLong(p: [*]const u8, q: [*]const u8, n: usize) bool {
+    if (anyByte(V16, loadUnaligned(V16, p) ^ loadUnaligned(V16, q))) return false;
+    if (n <= 64) return !anyByte(V16, (loadUnaligned(V16, p + 16) ^ loadUnaligned(V16, q + 16)) | diff32(p + n - 32, q + n - 32));
+    var i: usize = 16;
+    while (i < n - 32) : (i += 32) {
+        if (anyByte(V16, diff32(p + i, q + i))) return false;
+    }
+    return !anyByte(V16, diff32(p + n - 32, q + n - 32));
+}
+
+/// The 32 bytes at `p` and `q` XORed, folded into one 16-byte vector,
+/// which is zero where they are equal: a 32-byte vector's mask costs
+/// more than it saves on 16-byte machines (aarch64, x86-64 before AVX2).
+inline fn diff32(p: [*]const u8, q: [*]const u8) V16 {
+    return (loadUnaligned(V16, p) ^ loadUnaligned(V16, q)) | (loadUnaligned(V16, p + 16) ^ loadUnaligned(V16, q + 16));
+}
+
+/// Whether any byte of `v` is not zero: a compare and a mask (`pmovmskb`,
+/// `umaxv`), where a reduction by `or` folds the bytes one by one.
+inline fn anyByte(comptime V: type, v: V) bool {
+    return @reduce(.Or, v != @as(V, @splat(0)));
+}
+
+/// The `T` at `p`, at any alignment, in one load.
+inline fn loadUnaligned(comptime T: type, p: [*]const u8) T {
+    return @as(*align(1) const T, @ptrCast(p)).*;
 }
 
 /// Whether `==`, hashing, and cloning reach a field of type `F` through
@@ -2007,10 +2067,10 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             return eqlAs(o.child, x, y);
         },
         .pointer => |p| {
-            if (comptime isStringView(T)) return std.mem.eql(u8, a, b);
+            if (comptime isStringView(T)) return bytesEql(a, b);
             if (comptime isShared(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
-            if (comptime isScalar(p.child)) return std.mem.eql(p.child, a, b);
+            if (comptime isScalar(p.child)) return if (comptime std.meta.hasUniqueRepresentation(p.child)) bytesEql(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b)) else std.mem.eql(p.child, a, b);
             if (a.len != b.len) return false;
             for (a, b) |x, y| if (!eqlAs(p.child, x, y)) return false;
             return true;
@@ -2020,7 +2080,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             return true;
         },
         .@"struct" => |s| {
-            if (@hasDecl(T, "__rig_string")) return std.mem.eql(u8, a.list.items, b.list.items);
+            if (@hasDecl(T, "__rig_string")) return bytesEql(a.list.items, b.list.items);
             inline for (s.field_names, s.field_types) |name, F| if (!(if (comptime outOfLine(F)) @call(.never_inline, eqlAs, .{ F, @field(a, name), @field(b, name) }) else eqlAs(F, @field(a, name), @field(b, name)))) return false;
             return true;
         },
@@ -2227,9 +2287,10 @@ pub fn isVariantDiscard(x: anytype, comptime tag: @EnumLiteral()) bool {
     return isVariant(x, tag);
 }
 
-/// Compared by `std.mem.eql`. Floats are not: it finds two slices of
-/// the same elements equal without comparing them, and NaN equals
-/// nothing.
+/// Compared by their bytes (`bytesEql`), or by `std.mem.eql` where a
+/// value has bits that do not count. Floats are not: it finds two
+/// slices of the same elements equal without comparing them, and NaN
+/// equals nothing.
 fn isScalar(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .int, .bool, .@"enum", .error_set => true,
@@ -4191,7 +4252,7 @@ pub const NameTable = struct {
             if (slot_tag == 0) return null;
             if (slot_tag == tag) {
                 const id = t.slots[i];
-                if (std.mem.eql(u8, t.names[id], word)) return id;
+                if (bytesEql(t.names[id], word)) return id;
             }
         }
     }
@@ -8890,6 +8951,24 @@ const DropOrder = struct {
         self.n.* += 1;
     }
 };
+
+test "bytesEql: every length to 200, every alignment, a difference at every byte" {
+    var a: [264]u8 = undefined;
+    var b: [264]u8 = undefined;
+    for (&a, 0..) |*c, i| c.* = @truncate(i *% 31 +% 5);
+    for (0..200) |n| for (0..8) |oa| for (0..8) |ob| {
+        @memcpy(b[ob..][0..n], a[oa..][0..n]);
+        const x = a[oa..][0..n];
+        const y = b[ob..][0..n];
+        try testing.expect(bytesEql(x, y));
+        if (n > 0) try testing.expect(!bytesEql(x, b[ob..][0 .. n - 1]));
+        for (0..n) |k| {
+            b[ob + k] ^= 0x40;
+            try testing.expect(!bytesEql(x, y));
+            b[ob + k] ^= 0x40;
+        }
+    };
+}
 
 test "prefetch: any index, in range or not" {
     var a = [_]u64{ 1, 2, 3 };
