@@ -287,6 +287,10 @@ const JumpTarget = struct {
 
 const LoopPart = enum { cond, body, step };
 
+/// A range loop written in blocks (`Emitter.emitRangeFor`): its index in
+/// `targets`, its count of turns, its counter, and its block's end.
+const SplitLoop = struct { index: usize, turns: []const u8, counter: []const u8, stop: []const u8 };
+
 /// A labeled construct being written into a buffer of its own, until
 /// `closeLabeled` knows whether its label is used.
 const Labeled = struct { label: *ZigLabel, saved: *Writer, buf: *Writer.Allocating };
@@ -507,6 +511,10 @@ pub const Emitter = struct {
     /// jump goes: the unit-order test of the proof pass
     /// (`proofs.checkUnitOrder`).
     unit_trace: ?*std.ArrayList(UnitEvent) = null,
+    /// The range loop whose blocks are being written (`emitRangeFor`):
+    /// a jump that leaves it gives back the turns of its block it did
+    /// not run (`writeRefund`).
+    split_loop: ?SplitLoop = null,
     /// Write every test, ignoring which are known to pass (`provenOf`):
     /// `RIG_NO_PROOFS`, for the differential run of the proofs.
     no_proofs: bool = false,
@@ -3685,12 +3693,17 @@ pub const Emitter = struct {
         if (jump.dest.to != .exit) return self.unsupported(node, "a `break` that does not leave its target");
         if (self.unit_trace) |tr| try tr.append(self.allocator, .{ .jump = .{ .node = node.list.id, .to = .exit } });
         const t = jump.target;
-        if (value == .nil) return self.w.print("break :{s};", .{jumpTo(t.brk)});
-        const ty = t.value_ty orelse return self.unsupported(node, "a `break` value outside a loop used as a value");
-        try self.w.print("break :{s} ", .{jumpTo(t.brk)});
-        self.bare = true;
-        try self.emitValueAs(value, ty);
-        try self.w.writeAll(";");
+        const refund = try self.writeRefund(t, true);
+        if (value == .nil) {
+            try self.w.print("break :{s};", .{jumpTo(t.brk)});
+        } else {
+            const ty = t.value_ty orelse return self.unsupported(node, "a `break` value outside a loop used as a value");
+            try self.w.print("break :{s} ", .{jumpTo(t.brk)});
+            self.bare = true;
+            try self.emitValueAs(value, ty);
+            try self.w.writeAll(";");
+        }
+        if (refund) try self.w.writeAll(" }");
     }
 
     /// `(continue label?)`: the Zig jump from the part of the loop being
@@ -3713,7 +3726,9 @@ pub const Emitter = struct {
         if (zig.to != jump.dest.to) return self.unsupported(node, "a `continue` the checkers sent elsewhere");
         if (self.unit_trace) |tr| try tr.append(self.allocator, .{ .jump = .{ .node = node.list.id, .to = zig.to } });
         const label = zig.label orelse return self.unsupported(node, "a `continue` from a part with no block");
+        const refund = try self.writeRefund(t, false);
         try self.w.print("{s} :{s};", .{ zig.word, jumpTo(label) });
+        if (refund) try self.w.writeAll(" }");
     }
 
     /// Statement `if`: `(if cond then else?)`.
@@ -4461,12 +4476,29 @@ pub const Emitter = struct {
         }
         const more = if (rig.isInclusive(range)) try self.hiddenStorage(sexp, .range_more, .owned, .{ .id = id }) else "";
         if (more.len > 0) try self.line("var {s} = {s} <= {s};", .{ more, counter, end });
+        // A range whose body holds no loop runs in blocks of the turns
+        // left before the next yield check: a plain inner loop, which
+        // compiles as one with no check, then the check once
+        // (docs/internals/INTERNALS.md, "Loops").
+        const split = lp.turns != null and more.len == 0 and
+            !facts.syntax.contains(ir.For.body(sexp), &.{ .@"while", .@"for" });
+        const stop = if (split) try self.fmt("__rig_stop_{d}", .{id}) else "";
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
+        const saved_split = self.split_loop;
+        defer self.split_loop = saved_split;
         if (more.len > 0) {
             try self.w.print("while ({s}) ", .{more});
             try self.writeStep(lp, try self.fmt("{s} = {s} < {s}; {s} +%= 1;", .{ more, counter, end, counter }));
+        } else if (split) {
+            const turns = lp.turns.?;
+            try self.w.print("while ({s} < {s}) ", .{ counter, end });
+            try self.openBrace();
+            try self.line("const {s} = rig.turnStop(&{s}, {s}, {s});", .{ stop, turns, counter, end });
+            try self.writeIndent(self.indent);
+            try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, stop, counter });
+            self.split_loop = .{ .index = lp.index, .turns = turns, .counter = counter, .stop = stop };
         } else {
             try self.w.print("while ({s} < {s}) ", .{ counter, end });
             try self.writeStep(lp, try self.fmt("{s} += 1", .{counter}));
@@ -4477,7 +4509,27 @@ pub const Emitter = struct {
             try self.line("const {s} = {s};", .{ stored.zig_name, counter });
         };
         try self.closeLoopBody(lp, body, ir.For.body(sexp));
+        if (split) {
+            try self.w.writeAll("\n");
+            try self.line("rig.turnEnd(&{s});", .{lp.turns.?});
+            try self.closeBrace();
+        }
         try self.closeLabeled(l);
+    }
+
+    /// Before a jump to `target`, which leaves the split loop being
+    /// written when it is that loop or one around it (a `continue` of
+    /// the loop itself stays in it), give back the turns of the block not
+    /// run: `{ rig.turnRefund(...); ` before the jump, whose caller then
+    /// closes the brace. A block, so the jump stays one expression where
+    /// it is one (`a ?? break`). Whether it wrote one.
+    fn writeRefund(self: *Emitter, target: *const JumpTarget, is_break: bool) Error!bool {
+        const s = self.split_loop orelse return false;
+        const index = (@intFromPtr(target) - @intFromPtr(self.targets.items.ptr)) / @sizeOf(JumpTarget);
+        const leaves = if (is_break) index <= s.index else index < s.index;
+        if (!leaves) return false;
+        try self.w.print("{{ rig.turnRefund(&{s}, rig.turnsLeft({s}, {s})); ", .{ s.turns, s.counter, s.stop });
+        return true;
     }
 
     // -------------------------------------------------------------------------

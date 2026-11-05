@@ -4512,6 +4512,61 @@ pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(
     return &items.ptr[provenOffset(i, items.len, 1, p) orelse indexPanic()];
 }
 
+// Blocks of a counted loop (docs/internals/INTERNALS.md, "Loops"). A
+// range `for i in a..b` whose body holds no loop runs in blocks: each
+// takes as many of the turns left as the count before the next yield
+// check (`turn`) allows, runs them in a plain inner loop, then checks
+// once. A jump that leaves a block gives back the turns it did not run,
+// so the count is the one a check on every turn would keep, and a task
+// yields on the same turns.
+
+/// The turns a range has left at `i` before `end`, at most
+/// `maxInt(u64)`, for a range of any integer type.
+pub inline fn turnsLeft(i: anytype, end: @TypeOf(i)) u64 {
+    const W = @Int(.signed, @bitSizeOf(@TypeOf(i)) + 1);
+    const d = @as(W, end) - @as(W, i);
+    if (d <= 0) return 0;
+    if (@bitSizeOf(W) > 64 and d > std.math.maxInt(u64)) return std.math.maxInt(u64);
+    return @intCast(d);
+}
+
+/// The turns of the next block of a range with `left` turns to go,
+/// taken from the count `n`: all of them off the scheduler, or with
+/// preemption by signal, which needs no checks.
+pub inline fn turnTake(n: *u32, left: u64) u64 {
+    if (!scheduled or preempt or @inComptime()) return left;
+    const k: u32 = @intCast(@min(left, n.*));
+    n.* -= k;
+    return k;
+}
+
+/// Where the next block of a range at `i` before `end` stops, its turns
+/// taken from the count `n` (`turnTake`), computed one bit wider than
+/// the range's type, which may not hold the block's length.
+pub inline fn turnStop(n: *u32, i: anytype, end: @TypeOf(i)) @TypeOf(i) {
+    const W = @Int(.signed, @bitSizeOf(@TypeOf(i)) + 1);
+    const turns: W = @intCast(turnTake(n, turnsLeft(i, end)));
+    return @intCast(@as(W, i) + turns);
+}
+
+/// The end of a block: the yield check, when the block took the last
+/// turns of the count (`turn`).
+pub inline fn turnEnd(n: *u32) void {
+    if (!scheduled or preempt or @inComptime()) return;
+    if (n.* == 0) {
+        @branchHint(.unlikely);
+        n.* = tick_turns;
+        callKeeping(tickC);
+    }
+}
+
+/// A jump that leaves a block with `left` of its turns not run gives
+/// them back to the count.
+pub inline fn turnRefund(n: *u32, left: u64) void {
+    if (!scheduled or preempt or @inComptime()) return;
+    n.* += @intCast(left);
+}
+
 // Flags (docs/internals/INTERNALS.md, "Flags"). The compiler tests some
 // facts once, as a statement starts, into a flag (`okNonneg`, `okBelow`),
 // and a test those facts prove is omitted while the flag is true. While

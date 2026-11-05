@@ -1474,6 +1474,148 @@ code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
   t = find([1, 2, 3], 2)&
   print(>t)
 
+code "task a counted loop runs in blocks", "rig.turnStop(&"
+  # A counted range whose body holds no loop runs in blocks of the
+  # turns left before the next yield check: a plain inner loop, then
+  # one check (docs/internals/INTERNALS.md, "Loops").
+  fun total(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      s += i
+    s
+
+  t = total(10)&
+  print(>t)
+
+code "task a split loop keeps its proven index", "atProven(i, .both)"
+  # The index the range bounds is proven inside the block as before.
+  fun total(xs: ?List[Int]) -> Int
+    s = 0
+    for i in 0..xs.len
+      s += xs[i]
+    s
+
+  xs = List([1, 2, 3])
+  t = total(?xs)&
+  print(>t)
+
+code "task a loop with a loop inside counts each turn", "while (__rig_i_5 < __rig_end_5) : ({ rig.turn(&"
+  # Only the innermost loop runs in blocks: a range with a loop in its
+  # body counts each of its own turns.
+  fun grid(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      for j in 0..n
+        s += i * j
+    s
+
+  t = grid(3)&
+  print(>t)
+
+test "task split loops keep their jumps", seeds: 20, '''
+  45 4 25 7 9 -1 15
+'''
+  # A block of a split loop changes no jump: `break` leaves the loop,
+  # with a value or not, `continue` goes on to the next turn, `return`
+  # leaves the function, and `else` runs when the loop ends unbroken.
+  fun count(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      s += i
+    s
+
+  fun first_over(n: Int, k: Int) -> Int
+    for i in 0..n
+      break i if i * i > k
+    else
+      -1
+
+  fun odd_sum(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      continue if i % 2 == 0
+      s += i
+    s
+
+  fun find(n: Int, k: Int) -> Int
+    for i in 0..n
+      if i == k
+        return i
+    -1
+
+  fun stop_at(n: Int, k: Int) -> Int
+    last = 0
+    for i in 0..n
+      break if i > k
+      last = i
+    last
+
+  fun upto(n: Int, limit: Int?) -> Int
+    s = 0
+    for i in 0..n
+      cap = limit ?? break
+      break if i > cap
+      s += i
+    s
+
+  a = count(10)&
+  b = first_over(100, 10)&
+  c = odd_sum(10)&
+  d = find(5000, 7)&
+  e = stop_at(5000, 9)&
+  f = first_over(3, 100)&
+  g = upto(5000, 5)&
+  print(>a, >b, >c, >d, >e, >f, >g)
+
+test "task split loops at block edges", seeds: 20, '''
+  0 0 523776 524800 2096128 3 1023 1024 2047 3071
+'''
+  # Ranges empty, reversed, and of exactly one, one more than one, and
+  # two blocks of turns, and breaks on each side of a block's end.
+  fun sum(lo: Int, hi: Int) -> Int
+    s = 0
+    for i in lo..hi
+      s += i
+    s
+
+  fun last_before(n: Int, k: Int) -> Int
+    last = -1
+    for i in 0..n
+      break if i == k
+      last = i
+    last
+
+  a = sum(0, 0)&
+  b = sum(5, 2)&
+  c = sum(0, 1024)&
+  d = sum(0, 1025)&
+  e = sum(0, 2048)&
+  f = sum(0, 3)&
+  g = last_before(5000, 1024)&
+  h = last_before(5000, 1025)&
+  i = last_before(5000, 2048)&
+  j = last_before(5000, 3072)&
+  print(>a, >b, >c, >d, >e, >f, >g, >h, >i, >j)
+
+test "task split loops of a narrow type", seeds: 20, "2951 -5050"
+  # A range of a type narrower than Int, whose length its own type
+  # cannot hold, still runs every turn.
+  fun wide(lo: I8, hi: I8) -> Int
+    s = 0
+    for i in lo..hi
+      s += Int(i)
+    s
+
+  fun back(n: Int) -> Int
+    s = 0
+    for i in -n..0
+      s += i
+    s
+
+  a = wide(-100, 127)&
+  b = back(100)&
+  print(>a, >b)
+
 test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
   # Loops over a List and a Table lent to several tasks at once, long
   # enough to pass many yield checks, with `continue`, `return`, a loop

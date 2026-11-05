@@ -339,7 +339,18 @@ fails, and yields only when other work waits.
   `while`'s continue expression, so a turn that leaves its loop counts
   nothing: a probe of a `Map` that finds its key at once, or a scan
   that returns at its first element, pays no check. Zig's own `for`,
-  which has no continue expression, counts as each turn's body starts. The task yields when work waits for its worker (in its "run
+  which has no continue expression, counts as each turn's body starts.
+  A range `for i in a..b` whose body holds no loop runs in blocks
+  instead: each takes as many of the turns left as the count allows
+  (`rig.turnStop`), runs them in a plain inner loop, and checks once at
+  its end (`rig.turnEnd`). A jump that leaves a block gives back the
+  turns it did not run (`rig.turnRefund`), so the count, and so every
+  yield and every seeded schedule, is the one a check on each turn
+  keeps. The inner loop compiles as a loop with no check: a check on
+  each turn sits on the loop's chain of dependent work, and costs
+  `spin` in bench/tasks about 25% of its cycles
+  ([docs/history/records/2026-11/taskbench/loop-disassembly.md](../history/records/2026-11/taskbench/loop-disassembly.md)).
+  The task yields when work waits for its worker (in its "run
   next" slot, its ring, or the global queue) or for another busy one
   (the flag below).
 - **Recursion.** Every cycle of calls passes through a function that

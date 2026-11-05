@@ -4116,6 +4116,22 @@ loop's continue expression, and its source is evaluated before the loop
 is entered, so a jump in it targets the loop around this one, as the
 checker walks it before `walkLoop`.
 
+**Blocks of a range.** In a program that makes tasks, a range
+`for i in a..b` whose body holds no loop (`syntax.contains`, outside
+closures) is two Zig loops (`emitRangeFor`): an outer `while (i < end)`
+that takes a block of the turns left before the next yield check
+(`rig.turnStop`), and an inner `while (i < stop) : (i += 1)` around the
+body's block, with no check in it; after the inner loop, one check
+(`rig.turnEnd`). The labels do not move: the Rig loop's label is on the
+outer `while`, so a `break` leaves both, and the body's block is the
+inner loop's, so a `continue` goes on to the next turn. A jump that
+leaves a block (a `break` of this loop or one around it, or a
+`continue` of one around it) is written `{ rig.turnRefund(...); jump }`,
+giving back the turns the block did not run (`writeRefund`), so the
+count of turns, and every yield, is what a check on each turn keeps. A
+`..=` range, a range with a loop in its body, and every other loop
+count each turn as above.
+
 **Jump targets.** Which construct each `break` and `continue` names
 (the `while` or `for`, or a labeled `match` or `raw` block) is one rule,
 `sema.eachJumpTo`, which lists the jumps that name a construct. It is
