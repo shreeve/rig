@@ -51,6 +51,7 @@ comptime {
         started,
         workers_asked,
         graph,
+        preempt_states,
     };
 }
 
@@ -93,7 +94,15 @@ pub const Fiber = struct {
 
 /// Give back a stack a task that panicked left to its boundary
 /// (`abandon`, `tasks.Isolate`), to the running worker.
-pub fn giveStack(s: Stack) void {
+pub const giveStack = if (preempt) giveStackApart else giveStackIn;
+
+/// `giveStack` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn giveStackApart(s: Stack) void {
+    return giveStackIn(s);
+}
+
+fn giveStackIn(s: Stack) void {
     releaseStack(me().?, s);
 }
 
@@ -186,6 +195,7 @@ inline fn me_slot() *?*Worker {
 /// switch, and a compiler may reuse a thread-local's address within a
 /// function, so every read goes through this call, which is never inlined.
 noinline fn me() ?*Worker {
+    if (preempt) mustNotBeInCode(@returnAddress());
     return me_slot().*;
 }
 
@@ -230,8 +240,15 @@ const Flag = extern struct {
 };
 
 /// The fiber running on this thread, or none outside every fiber.
-pub fn current() ?*Fiber {
-    const w = me() orelse return null;
+pub inline fn current() ?*Fiber {
+    if (preempt) return @call(.never_inline, currentOf, .{});
+    return currentOf();
+}
+
+fn currentOf() ?*Fiber {
+    // Under preemption its own read of the slot, with no check: this call
+    // is never inlined into the program's code.
+    const w = (if (preempt) me_slot().* else me()) orelse return null;
     return w.current;
 }
 
@@ -249,7 +266,15 @@ pub fn current() ?*Fiber {
 /// `g`'s first yield check, loop or recursive (`waiting`). A worker that
 /// searches also takes a fiber left in a busy worker's slot a while
 /// (`stealNext`). Outside the workers, `f` goes to the global queue.
-pub fn wake(f: *Fiber) void {
+pub const wake = if (preempt) wakeApart else wakeIn;
+
+/// `wake` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn wakeApart(f: *Fiber) void {
+    return wakeIn(f);
+}
+
+fn wakeIn(f: *Fiber) void {
     if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     const here = me();
     if (f.home) |home| if (home != here) return wakeHome(f, home);
@@ -274,8 +299,16 @@ pub fn wake(f: *Fiber) void {
 /// waking a sleeping worker only when other work waits here, ahead of
 /// `f`, which one could take meanwhile: a fiber alone, as a lone task's
 /// `task.check()` yields, runs again next.
-fn wakeLast(f: *Fiber) void {
-    if (deterministic.*) return wake(f);
+const wakeLast = if (preempt) wakeLastApart else wakeLastIn;
+
+/// `wakeLast` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn wakeLastApart(f: *Fiber) void {
+    return wakeLastIn(f);
+}
+
+fn wakeLastIn(f: *Fiber) void {
+    if (deterministic.*) return wakeIn(f);
     if (f.home) |home| return wakeHome(f, home);
     const w = me() orelse {
         global.push(f);
@@ -298,7 +331,15 @@ fn wakeHome(f: *Fiber, home: *Worker) void {
 /// task it makes to (`spawn`): what makes a task local. A local task
 /// shares handles whose counts are not atomic with the task that made it,
 /// so both stay on one thread from then on.
-pub fn pinHere() ?*Worker {
+pub const pinHere = if (preempt) pinHereApart else pinHereIn;
+
+/// `pinHere` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn pinHereApart() ?*Worker {
+    return pinHereIn();
+}
+
+fn pinHereIn() ?*Worker {
     if (deterministic.*) return null;
     const w = me() orelse return null;
     w.current.?.home = w;
@@ -306,12 +347,18 @@ pub fn pinHere() ?*Worker {
 }
 
 /// Let other fibers run, then go on.
-pub fn yield() void {
-    stop(.{ .run = requeue });
+pub const yield = if (preempt) yieldApart else yieldIn;
+
+noinline fn yieldApart() void {
+    yieldIn();
+}
+
+fn yieldIn() void {
+    stopIn(.{ .run = requeue });
 }
 
 fn requeue(f: *Fiber, _: ?*anyopaque) void {
-    wakeLast(f);
+    wakeLastIn(f);
 }
 
 /// A yield check of a loop (`rt.turn`): yield when other work waits
@@ -389,8 +436,418 @@ fn claimWaiting(w: *Worker) void {
     }
 }
 
+/// Take into `w`'s ring work that waits for another busy worker, as
+/// `claimWaiting` does: half of another's ring, or the fiber in another's
+/// "run next" slot; whether any was taken. A preempted fiber's
+/// (`preempted`), which then holds the fiber rather than yield.
+fn stealWaiting(w: *Worker) bool {
+    if (workers.*.len < 2) return false;
+    for (workers.*) |*v| {
+        if (v == w) continue;
+        if (w.ring.stealFrom(&v.ring)) |f| {
+            w.stole += 1;
+            _ = w.ring.push(f);
+            return true;
+        }
+    }
+    for (workers.*) |*v| {
+        if (v == w) continue;
+        if (takeNext(v)) |f| {
+            _ = w.ring.push(f);
+            return true;
+        }
+    }
+    return false;
+}
+
 fn hasOwnWork(w: *Worker) bool {
     return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
+}
+
+// -----------------------------------------------------------------------------
+// Preemption
+// -----------------------------------------------------------------------------
+//
+// A program built with `RIG_PREEMPT=signal` has no yield checks
+// (`rt.preempt`): a monitor thread looks at the workers every `Monitor`
+// period, and one that has run the same fiber for a slice while other
+// work waits for it, or whose timers are due or whose poller holds
+// events, gets SIGURG. Its handler stops the fiber only where that is
+// safe: the program counter in the program's own code (`preempt_section`,
+// which the compiler puts every function of Rig source in), on a stack
+// with room for the trampoline. It then makes the fiber return into
+// `preemptEntry`, as if called there: the trampoline saves every
+// register the interrupted code may hold, the flags, and the vector and
+// x87 state, calls `preempted`, which runs what `tick` would and puts
+// the fiber in the global queue, and returns to the instruction it
+// stopped at with all of them restored.
+//
+// Any worker may take a fiber stopped so: the program's own code keeps
+// nothing of its worker in a register, since the scheduler's code that
+// reads its worker is never inlined into it (`current`,
+// `mustNotBeInCode`), and the thread-local it reads (`rt.task`'s) is used
+// only outside every fiber. A program that makes a local task is not
+// built to be preempted (`bin/rig` keeps its yield checks): local tasks
+// share counts that are not atomic and take turns at their waits and
+// yield checks, where none is half-changed.
+
+/// Whether this build has the preemption `RIG_PREEMPT=signal` asks for:
+/// a target whose signal context and trampoline are written here, and
+/// LLVM's backend, whose assembler takes the trampoline (Zig's own x86_64
+/// backend, which a debug build for Linux uses, takes neither `xsave`
+/// nor `ret $n`). Elsewhere a program built so keeps its yield checks.
+pub const preempt_built = builtin.os.tag == .linux and builtin.cpu.arch == .x86_64 and
+    builtin.zig_backend == .stage2_llvm;
+
+/// The section of the program's own code, the only code a signal stops a
+/// task in.
+pub const preempt_section = if (builtin.object_format == .macho) "__TEXT,__rig_text" else "rig_text";
+
+const preempt = rt.preempt;
+/// Whether the program is built to be preempted, for alloc.zig's locks.
+pub const preempting = preempt;
+
+/// The bounds of `preempt_section`, which the linker defines.
+/// Weak: a program all of whose code the optimizer inlined into the
+/// runtime's has no such section, and is never stopped.
+const code_start = if (preempt) @extern(?*const u8, .{ .name = "__start_rig_text", .linkage = .weak }) else {};
+const code_end = if (preempt) @extern(?*const u8, .{ .name = "__stop_rig_text", .linkage = .weak }) else {};
+
+/// What preemption keeps for each worker, beside its `Worker`, which
+/// stays as it is in a program not built to be preempted.
+var preempt_states_var: [max_workers]Preempt = @splat(.{});
+const preempt_states = split.cell(&preempt_states_var, "sched.preempt_states");
+
+inline fn preOf(w: *const Worker) *Preempt {
+    return &preempt_states[(@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker)];
+}
+
+/// What preemption keeps for a worker.
+const Preempt = struct {
+    /// Its thread, to signal (`rt.threadId`). Each worker's begins a
+    /// cache line, as a `Worker` does.
+    tid: usize align(std.atomic.cache_line) = 0,
+    /// How many fibers it has started running: the monitor sees it run
+    /// one fiber for as long as this stays the same.
+    runs: std.atomic.Value(u32) = .init(0),
+    /// Fibers it preempted, and the signals the monitor sent it.
+    preempts: u64 = 0,
+    signals: std.atomic.Value(u64) = .init(0),
+    /// Signals that found the program counter outside the program's code,
+    /// or too little stack for the trampoline.
+    outside: u64 = 0,
+    cramped: u64 = 0,
+    /// Locks it holds (`holdOff`): while any is held, no signal stops
+    /// the fiber holding it.
+    no_preempt: u32 = 0,
+    held_off: u64 = 0,
+};
+
+/// A lock is taken on this thread: no signal stops its fiber until it is
+/// let go (`holdOn`). Every spin lock and the output lock count. The
+/// optimizer may inline a lock's code into the program's own
+/// (`preempt_section`); the count goes through this call, never inlined,
+/// to this thread's worker, and a lock is never held across a switch, so
+/// it is taken and let go on one thread.
+pub noinline fn holdOff() void {
+    if (!preempt) return;
+    if (me_slot().*) |w| preOf(w).no_preempt += 1;
+}
+
+/// A lock `holdOff` counted is let go.
+pub noinline fn holdOn() void {
+    if (!preempt) return;
+    if (me_slot().*) |w| preOf(w).no_preempt -|= 1;
+}
+
+/// The signal the monitor stops a fiber by. SIGURG, as Go's: the system
+/// sends it only to a process that asks for out-of-band data, and a
+/// program that does not handle it ignores it.
+const preempt_signal: std.posix.SIG = .URG;
+
+/// The room below the stack pointer the trampoline needs: the red zone,
+/// its own frame, and `preempted`'s calls.
+const preempt_room = 32 << 10;
+
+fn installPreempt() void {
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .sigaction = onPreempt },
+        .mask = std.posix.sigemptyset(),
+        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK | std.posix.SA.RESTART,
+    };
+    std.posix.sigaction(preempt_signal, &act, null);
+}
+
+/// Linux x86-64's `ucontext_t`, as far as its registers: the general
+/// registers start at byte 40, the stack pointer 15th and the program
+/// counter 16th of them (`REG_RSP`, `REG_RIP`).
+const linux_rsp = 40 + 15 * 8;
+const linux_rip = 40 + 16 * 8;
+
+/// SIGURG: stop the running fiber where it is, if it is safe to, by
+/// making it call `preemptEntry`. Async-signal-safe: it reads this
+/// thread's worker and the fiber's stack bounds, and writes one word on
+/// the fiber's stack below its red zone.
+fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+    const uc: [*]u8 = @ptrCast(ctx orelse return);
+    const w = me_slot().* orelse return;
+    const f = w.current orelse return;
+    const pc_at: *usize = @ptrCast(@alignCast(uc + linux_rip));
+    const sp_at: *usize = @ptrCast(@alignCast(uc + linux_rsp));
+    const pc = pc_at.*;
+    const sp = sp_at.*;
+    if (pc < @intFromPtr(code_start) or pc >= @intFromPtr(code_end)) {
+        preOf(w).outside += 1;
+        return;
+    }
+    if (preOf(w).no_preempt != 0) {
+        preOf(w).held_off += 1;
+        return;
+    }
+    // Room for the trampoline above the guard, and this handler on its
+    // own stack, not below the fiber's stack pointer.
+    const guard = f.state.stack_guard;
+    const here = @frameAddress();
+    if ((guard.hi != 0 and sp < guard.hi + preempt_room) or (here < sp and here > sp -| (8 << 20))) {
+        preOf(w).cramped += 1;
+        return;
+    }
+    const ret = sp - 128 - 8;
+    @as(*usize, @ptrFromInt(ret)).* = pc;
+    sp_at.* = ret;
+    pc_at.* = @intFromPtr(&preemptEntry);
+}
+
+/// The vector and x87 state the trampoline saves: by `xsave`, x87, SSE,
+/// and, as the target has them, AVX's upper halves and AVX-512's masks
+/// and registers (components 0, 1, 2, 5, 6, 7, at their standard
+/// offsets); by `fxsave`, x87 and SSE alone.
+const vector_state: struct { size: usize, mask: u32, save: []const u8, restore: []const u8 } = blk: {
+    if (!preempt) break :blk .{ .size = 0, .mask = 0, .save = "", .restore = "" };
+    const has = std.Target.x86.featureSetHas;
+    const fs = builtin.cpu.features;
+    if (!has(fs, .xsave)) break :blk .{ .size = 512, .mask = 0, .save = "fxsave64 (%%rsp)", .restore = "fxrstor64 (%%rsp)" };
+    const avx512 = has(fs, .avx512f);
+    const avx = has(fs, .avx);
+    break :blk .{
+        .size = if (avx512) 2688 else if (avx) 832 else 576,
+        .mask = if (avx512) 0xe7 else if (avx) 0x7 else 0x3,
+        .save = "xsave64 (%%rsp)",
+        .restore = "xrstor64 (%%rsp)",
+    };
+};
+
+/// Where a preempted fiber resumes, entered with the program counter it
+/// stopped at on top of its stack, 128 bytes (the red zone) below where
+/// its stack pointer was. It saves the flags and the registers a call may
+/// change, clears the direction flag, saves the vector state on a 64-byte
+/// boundary (its header zeroed, as `xrstor` needs), calls `preempted`,
+/// restores all of it, and returns past the red zone.
+fn preemptEntry() callconv(.naked) void {
+    const size = comptime std.mem.alignForward(usize, vector_state.size, 64);
+    const header = if (vector_state.mask == 0) "" else std.fmt.comptimePrint(
+        \\ movq $0, {0d}(%%rsp)
+        \\ movq $0, {1d}(%%rsp)
+        \\ movq $0, {2d}(%%rsp)
+        \\ movq $0, {3d}(%%rsp)
+        \\ movq $0, {4d}(%%rsp)
+        \\ movq $0, {5d}(%%rsp)
+        \\ movq $0, {6d}(%%rsp)
+        \\ movq $0, {7d}(%%rsp)
+        \\ movl ${8d}, %%eax
+        \\ xorl %%edx, %%edx
+        \\
+    , .{ 512, 520, 528, 536, 544, 552, 560, 568, vector_state.mask });
+    const mask = if (vector_state.mask == 0) "" else std.fmt.comptimePrint(
+        \\ movl ${d}, %%eax
+        \\ xorl %%edx, %%edx
+        \\
+    , .{vector_state.mask});
+    asm volatile (std.fmt.comptimePrint(
+            \\ pushfq
+            \\ pushq %%rbp
+            \\ movq %%rsp, %%rbp
+            \\ pushq %%rax
+            \\ pushq %%rcx
+            \\ pushq %%rdx
+            \\ pushq %%rsi
+            \\ pushq %%rdi
+            \\ pushq %%r8
+            \\ pushq %%r9
+            \\ pushq %%r10
+            \\ pushq %%r11
+            \\ cld
+            \\ andq $-64, %%rsp
+            \\ subq ${d}, %%rsp
+            \\
+        , .{size}) ++ header ++ vector_state.save ++ "\n" ++
+            \\ callq %[f:P]
+            \\
+        ++ mask ++ vector_state.restore ++ "\n" ++
+            \\ leaq -72(%%rbp), %%rsp
+            \\ popq %%r11
+            \\ popq %%r10
+            \\ popq %%r9
+            \\ popq %%r8
+            \\ popq %%rdi
+            \\ popq %%rsi
+            \\ popq %%rdx
+            \\ popq %%rcx
+            \\ popq %%rax
+            \\ popq %%rbp
+            \\ popfq
+            \\ retq $128
+        :
+        : [f] "X" (&preemptedC),
+    );
+}
+
+fn preemptedC() callconv(.c) void {
+    preempted();
+}
+
+/// A fiber the monitor's signal stopped (`preemptEntry`): do what a loop's
+/// yield check does (`tick`), wake what its worker's timers and poller
+/// make ready, and if work waits, for this worker or for another busy
+/// one, go back in line behind it, in the global queue.
+fn preempted() void {
+    const w = me() orelse return;
+    serviceBusy(w);
+    if (!hasOwnWork(w)) {
+        if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
+    }
+    // A program built to be preempted makes no local task (`bin/rig`
+    // keeps the yield checks of one that does), so no fiber is pinned;
+    // one that were is never stopped, since its siblings share counts
+    // that are not atomic and may run only at its waiting points.
+    if (w.current.?.home != null) return;
+    preOf(w).preempts += 1;
+    stopIn(.{ .run = behind });
+}
+
+/// Queue the fiber `f` just preempted in the global queue, as Go does:
+/// behind the fibers made or woken on any worker, which each worker runs
+/// first, and the other preempted ones; a worker looks there every 61
+/// turns and when its own queues are empty.
+fn behind(f: *Fiber, _: ?*anyopaque) void {
+    global.push(f);
+    notify();
+}
+
+/// What `me` does when it is called from the program's own code, which
+/// a signal may stop anywhere: such code could keep the worker it gave in
+/// a register, and after a stop resume on another worker with it. The
+/// scheduler's code that reads its worker is never inlined there
+/// (`current`); a call that is panics, the first time it runs.
+fn mustNotBeInCode(ret: usize) void {
+    if (ret >= @intFromPtr(code_start) and ret < @intFromPtr(code_end)) {
+        @branchHint(.cold);
+        @panic("rig: the scheduler's code was inlined into the program's, where a signal may stop it");
+    }
+}
+
+// The monitor: a thread of its own, started with the workers.
+
+/// The slice a fiber runs while other work waits before it is
+/// preempted: 10 ms, as Go's, or `RIG_PREEMPT_SLICE_US` microseconds.
+fn sliceNs() i96 {
+    return envUs("RIG_PREEMPT_SLICE_US", 10_000);
+}
+
+/// The microseconds the environment variable `name` gives, else `default`,
+/// in nanoseconds: the prototype's knobs.
+fn envUs(comptime name: []const u8, default: u32) i96 {
+    if (rt.process.*) |p| if (p.environ.getPosix(name)) |v| {
+        const n = std.fmt.parseInt(u32, v, 10) catch 0;
+        if (n > 0) return @as(i96, n) * std.time.ns_per_us;
+    };
+    return @as(i96, default) * std.time.ns_per_us;
+}
+
+fn startMonitor() void {
+    installPreempt();
+    const t = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
+    t.detach();
+}
+
+/// Every period: signal each worker that has run one fiber since the
+/// last look while work waited for it all that time, work it had then
+/// and has still, having started none since (so the work waits no more
+/// than about two periods, as a yield check's turns let it); or that has
+/// run one for a slice while any work waits (`workWaits`); or whose
+/// timers are due or whose poller holds events. The period is the wait
+/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting, 1
+/// ms while any runs a fiber, and twice as long each period every worker
+/// spends without, up to 10 ms.
+fn watchSlices(slice: i96, wait: i96) void {
+    var seen: [max_workers]u32 = @splat(0);
+    var since: [max_workers]i96 = @splat(0);
+    var had: [max_workers]bool = @splat(false);
+    var period: i96 = std.time.ns_per_ms;
+    while (!stopping.load(.acquire)) {
+        sleepNs(period);
+        const now = nowReal();
+        var busy = false;
+        var queued = false;
+        for (workers.*, 0..) |*w, i| {
+            const runs = preOf(w).runs.load(.monotonic);
+            const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
+            const work = queuedHere(w);
+            queued = queued or work;
+            defer had[i] = work;
+            if (!running or runs != seen[i]) {
+                seen[i] = runs;
+                since[i] = now;
+                busy = busy or running;
+                continue;
+            }
+            busy = true;
+            const waited = work and had[i];
+            if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
+            // Again every period until it stops: a signal that finds the
+            // fiber outside the program's code does nothing.
+            _ = preOf(w).signals.fetchAdd(1, .monotonic);
+            signalThread(preOf(w).tid);
+        }
+        period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
+    }
+}
+
+/// Whether work waits in `w`'s own queues: its "run next" slot, its
+/// ring, and its pinned fibers, where fibers made or woken wait. Fibers
+/// that were preempted wait in the global queue, which only the slice
+/// hurries (`preempted`).
+fn queuedHere(w: *Worker) bool {
+    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0;
+}
+
+/// Whether work waits that a preempted fiber of the busy worker `w` would
+/// run: its own, or work that waits for a busy worker (`waiting`).
+fn workWaits(w: *Worker) bool {
+    return hasOwnWork(w) or waiting.load(.monotonic) != 0;
+}
+
+/// Whether the busy worker `w` has a timer due, or descriptors whose
+/// poller holds events, which its own yield checks would have seen to.
+fn serviceDue(w: *Worker, now: i96) bool {
+    if (w.timers.due.load(.monotonic) <= now) return true;
+    if (w.poller.count.load(.monotonic) == 0) return false;
+    var fds = [1]std.posix.pollfd{.{ .fd = w.poller.fd, .events = std.posix.POLL.IN, .revents = 0 }};
+    return (std.posix.poll(&fds, 0) catch 0) > 0;
+}
+
+fn sleepNs(ns: i96) void {
+    const req: std.os.linux.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@mod(ns, std.time.ns_per_s)) };
+    _ = std.os.linux.nanosleep(&req, null);
+}
+
+fn signalThread(id: usize) void {
+    if (id == 0) return;
+    if (builtin.link_libc) {
+        _ = std.c.pthread_kill(@ptrFromInt(id), preempt_signal);
+    } else {
+        _ = std.os.linux.tgkill(std.os.linux.getpid(), @intCast(id), preempt_signal);
+    }
 }
 
 /// How many times in a row a worker runs its "run next" fiber before it
@@ -1193,7 +1650,15 @@ pub const Registration = struct {
 
 /// Watch `fd`, which must not block, with the running worker's poller
 /// (worker 0's outside the workers); null when the kernel refuses it.
-pub fn register(fd: i32) ?*Registration {
+pub const register = if (preempt) registerApart else registerIn;
+
+/// `register` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn registerApart(fd: i32) ?*Registration {
+    return registerIn(fd);
+}
+
+fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
     const w = me() orelse &workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
@@ -1301,7 +1766,15 @@ const budget_size = 128;
 
 /// A wait ended at once: spend from the running fiber's budget, and yield
 /// once it is spent, so other work on its worker runs.
-pub fn spendBudget() void {
+pub const spendBudget = if (preempt) spendBudgetApart else spendBudgetIn;
+
+/// `spendBudget` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn spendBudgetApart() void {
+    return spendBudgetIn();
+}
+
+fn spendBudgetIn() void {
     const f = current() orelse return;
     f.budget -%= 1;
     if (f.budget != 0) return;
@@ -2004,11 +2477,25 @@ fn leavable(comptime T: type) bool {
 /// runs on the worker once this fiber has switched away: it records the
 /// fiber where the waker will find it, or queues it again when what it
 /// waits for has already happened.
-pub fn park(after: After) void {
-    stop(after);
+pub const park = if (preempt) parkApart else parkIn;
+
+noinline fn parkApart(after: After) void {
+    parkIn(after);
 }
 
-fn stop(after: After) void {
+fn parkIn(after: After) void {
+    stopIn(after);
+}
+
+const stop = if (preempt) stopApart else stopIn;
+
+/// `stop` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn stopApart(after: After) void {
+    return stopIn(after);
+}
+
+fn stopIn(after: After) void {
     const w = me().?;
     const f = w.current.?;
     // A fiber that stops goes back to its worker, so whoever handed it
@@ -2074,6 +2561,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot().* = &workers.*[0];
+    if (preempt) preOf(&workers.*[0]).tid = rt.threadId();
     if (deterministic.*) wake(&m.fiber) else _ = workers.*[0].ring.push(&m.fiber);
     loop(&workers.*[0]);
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
@@ -2110,7 +2598,10 @@ fn printStats() void {
     if (!std.mem.eql(u8, v, "1")) return;
     var buf: [256]u8 = undefined;
     for (workers.*, 0..) |*w, i| {
-        const line = std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw }) catch continue;
+        const line = (if (preempt)
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room)\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped })
+        else
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
 }
@@ -2141,6 +2632,7 @@ fn startWorkers() void {
     workers.* = all_workers.*[0..n];
     for (workers.*[1..]) |*w| w.poller.open();
     for (workers.*[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
+    if (preempt and !deterministic.*) startMonitor();
 }
 
 /// How many workers the program asked for (`task.workers`), in place of
@@ -2178,6 +2670,7 @@ fn workerMain(w: *Worker) void {
     const alt = rt.AltStack.attach();
     defer alt.detach();
     me_slot().* = w;
+    if (preempt) preOf(w).tid = rt.threadId();
     loop(w);
 }
 
@@ -2213,6 +2706,7 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
+    if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(f);
     w.current = f;
@@ -2648,6 +3142,7 @@ pub const SpinLock = struct {
     /// between its threads' calls (on loco at one worker, a yield after
     /// 100 reads raises kernel time by 43%).
     pub fn lock(l: *SpinLock) void {
+        if (preempt) holdOff();
         while (l.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) {
             while (l.held.load(.monotonic)) std.atomic.spinLoopHint();
         }
@@ -2655,10 +3150,14 @@ pub const SpinLock = struct {
 
     pub fn unlock(l: *SpinLock) void {
         l.held.store(false, .release);
+        if (preempt) holdOn();
     }
 
     pub fn tryLock(l: *SpinLock) bool {
-        return l.held.cmpxchgStrong(false, true, .acquire, .monotonic) == null;
+        if (preempt) holdOff();
+        const took = l.held.cmpxchgStrong(false, true, .acquire, .monotonic) == null;
+        if (preempt and !took) holdOn();
+        return took;
     }
 };
 
@@ -2742,11 +3241,13 @@ var graph_var: std.atomic.Value(bool) = .init(false);
 const graph = split.cell(&graph_var, "sched.graph");
 
 fn lockGraph() void {
+    if (preempt) holdOff();
     while (graph.cmpxchgWeak(false, true, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
 }
 
 fn unlockGraph() void {
     graph.store(false, .seq_cst);
+    if (preempt) holdOn();
 }
 
 /// The running fiber blocks on `b` until `unblock`: publish it, and walk
@@ -3108,7 +3609,13 @@ pub const Header = struct {
     /// Wait for the task to end, or, when `cancel` is given, for that
     /// flag to be set first, or for `deadline` to pass, when this gives
     /// false.
-    fn waitEnd(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+    const waitEnd = if (preempt) waitEndApart else waitEndIn;
+
+    noinline fn waitEndApart(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+        return waitEndIn(h, cancel, deadline);
+    }
+
+    fn waitEndIn(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
         if (h.done.isDone()) return true;
         const b: Blocked = .{ .task = h };
         block(&b);
@@ -3295,7 +3802,15 @@ const FreeBlock = struct { next: ?*FreeBlock };
 
 /// A block of `block_size` bytes: one this worker kept, or a new one from
 /// the system.
-pub fn takeBlock() *[block_size]u8 {
+pub const takeBlock = if (preempt) takeBlockApart else takeBlockIn;
+
+/// `takeBlock` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn takeBlockApart() *[block_size]u8 {
+    return takeBlockIn();
+}
+
+fn takeBlockIn() *[block_size]u8 {
     if (me()) |w| if (w.blocks) |b| {
         w.blocks = b.next;
         w.block_count -= 1;
@@ -3306,7 +3821,15 @@ pub fn takeBlock() *[block_size]u8 {
 
 /// Give back a block `takeBlock` gave: this worker keeps it, or the
 /// system has it back.
-pub fn giveBlock(given: *[block_size]u8) void {
+pub const giveBlock = if (preempt) giveBlockApart else giveBlockIn;
+
+/// `giveBlock` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn giveBlockApart(given: *[block_size]u8) void {
+    return giveBlockIn(given);
+}
+
+fn giveBlockIn(given: *[block_size]u8) void {
     if (me()) |w| if (w.block_count < keep_blocks) {
         const b: *FreeBlock = @ptrCast(@alignCast(given));
         b.next = w.blocks;
@@ -3578,7 +4101,15 @@ fn frameCalling(arg: usize, entry: usize, top: usize) usize {
 /// work or after a panic, and the fiber goes on here on its own stack,
 /// whose frames the stack apart could not reach. The stack apart is then
 /// kept for the next.
-pub fn runApart(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
+pub const runApart = if (preempt) runApartApart else runApartIn;
+
+/// `runApart` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn runApartApart(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
+    return runApartIn(home, arg, entry);
+}
+
+fn runApartIn(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
     const s = takeStack();
     const state = rt.task();
     const guard = state.stack_guard;
@@ -5047,4 +5578,36 @@ test "a wait to write on a full buffer ends when the other end closes, and the w
     try std.testing.expectEqual(Readiness.ready, Run.got);
     try std.testing.expect(Run.took < std.time.ns_per_s);
     try std.testing.expect(Run.failed);
+}
+
+test "every lock the runtime takes is counted for preemption" {
+    // A lock taken in code the optimizer inlines into the program's own,
+    // where a signal may stop the fiber holding it, must count itself
+    // (`holdOff`, within the three lines before it), or say why it need
+    // not ("uncounted"). A spin on a flag or a word (a compare-and-swap
+    // from false or 0, a swap to true) and each `std.Io.Mutex` the
+    // runtime takes, in every file the runtime is made of, are what the
+    // scan finds.
+    const files = [_][]const u8{ @embedFile("runtime.zig"), @embedFile("sched.zig"), @embedFile("tasks.zig"), @embedFile("alloc.zig"), @embedFile("net.zig"), @embedFile("ordered.zig"), @embedFile("unordered.zig"), @embedFile("table.zig"), @embedFile("split.zig") };
+    const takes = [_][]const u8{ "cmpxchgWeak(false, true", "cmpxchgStrong(false, true", "cmpxchgWeak(0, 1", "cmpxchgStrong(0, 1", ".swap(true", "lockUncancelable(", ".lock(io", "_lock.tryLock()" };
+    for (files) |text| {
+        var before: [3][]const u8 = .{ "", "", "" };
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |line| {
+            defer before = .{ before[1], before[2], line };
+            const code = std.mem.trimStart(u8, line, " ");
+            if (std.mem.startsWith(u8, code, "//") or std.mem.indexOf(u8, line, "const takes") != null) continue;
+            const takes_one = for (takes) |t| {
+                if (std.mem.indexOf(u8, line, t) != null) break true;
+            } else false;
+            if (!takes_one) continue;
+            const counted = for (before ++ [1][]const u8{line}) |l| {
+                if (std.mem.indexOf(u8, l, "holdOff") != null or std.mem.indexOf(u8, l, "ncounted") != null) break true;
+            } else false;
+            if (!counted) {
+                std.debug.print("a lock taken without the count: {s}\n", .{code});
+                return error.Uncounted;
+            }
+        }
+    }
 }
