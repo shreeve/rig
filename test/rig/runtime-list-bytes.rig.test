@@ -1018,3 +1018,68 @@ fail "list of an enum of two bytes from an embedded file holding no variant's va
 
   file "big.bin", hex
     0101
+
+fail "list of records with an error from an embedded file", "field `e` of `Rec` is a `Disk`, which is not an integer, a float, or an object or array of them"
+  # An error set's members are errors, not an enum's values.
+  error Disk
+    full
+    empty
+
+  obj Rec
+    e: Disk
+    n: U8
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes($embed("recs.bin"))
+
+  file "recs.bin", hex
+    00 00
+
+test "list of records Zig lays out its own way, from an embedded file", "2 .c .b 7 1 2 -3 20", release: true
+  # Zig's own layout puts `flags` first and the enums last, so each record
+  # is read field by field.
+  enum Kind
+    a
+    b
+    c
+
+  obj Half
+    x: U32
+    y: U32
+
+  obj Node
+    kind: Kind
+    keyword: Kind
+    pad: U16
+    flags: U32
+    half: Half
+    pos: I32
+
+  xs: List[Node] = List()
+  !xs.extend_from_bytes($embed("nodes.bin"))
+  print(xs.len, xs[1].kind, xs[1].keyword, xs[1].flags, xs[1].half.x, xs[1].half.y, xs[1].pos, $size(Node))
+
+  file "nodes.bin", hex
+    0000 0000 00000000 00000000 00000000 00000000
+    0201 0000 07000000 01000000 02000000 fdffffff
+
+test "a record of another module's enum, from an embedded file", ".wide 9"
+  use geo
+
+  sub main()
+    xs: List[geo.Rec] = List()
+    !xs.extend_from_bytes($embed("recs.bin"))
+    print(xs[0].shape, xs[0].n)
+
+  file "geo.rig"
+    pub enum Shape
+      thin
+      wide
+
+    pub obj Rec
+      pub n: U16
+      pub shape: Shape
+      pub pad: U8
+
+  file "recs.bin", hex
+    0900 01 00

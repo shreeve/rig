@@ -11190,7 +11190,7 @@ pub fn bytesRecord(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!RecordA
 /// null for an enum held as a `union(enum)` (a variant written `a()`).
 pub fn enumBytes(home: *const SemContext, sym: SymbolId) ?u64 {
     const symbol = home.symbols.items[sym];
-    if (symbol.flags.enum_union) return null;
+    if (symbol.flags.enum_union or symbol.flags.error_set) return null;
     if (symbol.flags.enum_valued) return 4;
     var n: u64 = 0;
     for (symbol.fields orelse &.{}) |f| n += @intFromBool(f.is_variant);
@@ -11268,7 +11268,8 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
         .object => {},
         .payload_enum => return .{ .not = .{ .shown = shown, .why = .enumeration } },
         .other => {
-            if (!isPlainEnum(home, ty)) return .{ .not = .{ .shown = shown, .why = .other } };
+            // An error set's members are errors, not an enum's values.
+            if (!isPlainEnum(home, ty) or decl.symbol().flags.error_set) return .{ .not = .{ .shown = shown, .why = .other } };
             const not: NotRecord = .{ .shown = shown, .why = .enumeration };
             const n = enumBytes(decl.ctx, decl.sym) orelse return .{ .not = not };
             if (n == 0) return .{ .not = .{ .shown = shown, .why = .empty } };

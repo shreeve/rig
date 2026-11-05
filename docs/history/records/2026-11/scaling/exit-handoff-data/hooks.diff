@@ -1,0 +1,103 @@
+diff --git i/src/emit.zig w/src/emit.zig
+index 92f762eab..f950f9bb1 100644
+--- i/src/emit.zig
++++ w/src/emit.zig
+@@ -66,6 +66,9 @@ pub const sched_source = @embedFile("sched.zig");
+ /// runtime too.
+ pub const alloc_filename = "rig/alloc.zig";
+ pub const alloc_source = @embedFile("alloc.zig");
++/// The exit handoff (`src/handoff.zig`), written beside the runtime too.
++pub const handoff_filename = "rig/handoff.zig";
++pub const handoff_source = @embedFile("handoff.zig");
+ 
+ /// Sockets and the HTTP server (`src/net.zig`), written beside the runtime too.
+ pub const net_filename = "rig/net.zig";
+diff --git i/src/main.zig w/src/main.zig
+index aa8c3f30a..127a473c4 100644
+--- i/src/main.zig
++++ w/src/main.zig
+@@ -310,6 +310,13 @@ const Env = struct {
+         return env.flag("RIG_SANITIZE");
+     }
+ 
++    /// `RIG_EXIT_HANDOFF`: the program forks as it starts, and the
++    /// process its caller waits for exits as soon as the program's output
++    /// is written, before its memory is torn down (`handoff.zig`).
++    fn exitHandoff(env: Env) bool {
++        return env.flag("RIG_EXIT_HANDOFF");
++    }
++
+     fn verifyProofs(env: Env) bool {
+         return env.flag("RIG_VERIFY_PROOFS");
+     }
+@@ -346,6 +353,7 @@ const Env = struct {
+         if (env.mapTrace()) try w.writeAll("pub const __rig_map_trace = true;\n");
+         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
+         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
++        if (env.exitHandoff()) try w.writeAll("pub const __rig_exit_handoff = true;\n");
+         if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
+         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
+     }
+@@ -1284,6 +1292,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
+         .{ .path = emit.sched_filename, .contents = emit.sched_source },
+         .{ .path = emit.net_filename, .contents = emit.net_source },
+         .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
++        .{ .path = emit.handoff_filename, .contents = emit.handoff_source },
+         .{ .path = emit.table_filename, .contents = emit.table_source },
+         .{ .path = emit.ordered_filename, .contents = emit.ordered_source },
+         .{ .path = emit.unordered_filename, .contents = emit.unordered_source },
+@@ -1864,6 +1873,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
+         try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
+         try files.append(allocator, .{ .path = emit.net_filename, .contents = emit.net_source });
+         try files.append(allocator, .{ .path = emit.alloc_filename, .contents = emit.alloc_source });
++        try files.append(allocator, .{ .path = emit.handoff_filename, .contents = emit.handoff_source });
+         try files.append(allocator, .{ .path = emit.table_filename, .contents = emit.table_source });
+         try files.append(allocator, .{ .path = emit.ordered_filename, .contents = emit.ordered_source });
+         try files.append(allocator, .{ .path = emit.unordered_filename, .contents = emit.unordered_source });
+diff --git i/src/runtime.zig w/src/runtime.zig
+index 15c261929..3025ec426 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -7182,7 +7182,12 @@ fn mapStack(guards: []const usize) ?usize {
+ /// `main` with the program's `main`, and by `runTests`. A program whose
+ /// stack and guard cannot be mapped stops before it runs.
+ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+-    if (!own_stack) return @call(.auto, f, args);
++    if (exit_handoff) handoff.begin();
++    if (!own_stack) {
++        const result = @call(.auto, f, args);
++        if (exit_handoff) handoff.mainReturned(result);
++        return result;
++    }
+     const top = mapStack(&guard_sizes) orelse {
+         std.debug.print("rig: cannot reserve the program's stack and the guard below it\n", .{});
+         std.process.exit(1);
+@@ -7207,6 +7212,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
+     if (scheduled) {
+         sched.runMain(&call, &Call.run, top - unwind_headroom, task().stack_guard);
+     } else switchStack(&call, &Call.run, top - unwind_headroom);
++    if (exit_handoff) handoff.mainReturned(call.result);
+     return call.result;
+ }
+ 
+@@ -7592,6 +7598,12 @@ const reads_start = builtin.is_test or (@hasDecl(root, "__rig_since_start") and
+ /// No other program has the call.
+ const pgo = @hasDecl(root, "__rig_pgo") and root.__rig_pgo;
+ 
++/// The exit handoff (`handoff.zig`), in a program built with
++/// `RIG_EXIT_HANDOFF=1`; never in a PGO build, whose profile its caller
++/// reads once it exits.
++const handoff = @import("handoff.zig");
++const exit_handoff = handoff.supported and !pgo and @hasDecl(root, "__rig_exit_handoff") and root.__rig_exit_handoff;
++
+ /// Write the profile of LLVM's counters, in a `--pgo` program's
+ /// instrumented build, at each way the process ends but a panic: the
+ /// end of `main` (`finish`), `os.exit` (`endProcess`), and a closed
+@@ -7755,6 +7767,7 @@ const threaded = split.cell(&threaded_var, "runtime.threaded");
+ /// Every thread ends with it.
+ fn endProcess(status: u8) noreturn {
+     if (pgo) writeProfile();
++    if (exit_handoff) handoff.end(status);
+     if (builtin.link_libc) std.c._exit(status);
+     if (builtin.os.tag == .linux) std.os.linux.exit_group(status);
+     std.process.exit(status);

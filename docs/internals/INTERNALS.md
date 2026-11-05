@@ -937,9 +937,12 @@ emit writes through the runtime's `rig.Embed`, which holds the bytes at
 they lie. `@embedFile` places a file at 1, and an aligned Zig constant
 of its bytes costs a build 1.5 s and 430 MB more per 8 MB, so `Embed`
 has the assembler include the file (`.incbin` after `.balign 16`, a
-global assembly block) under a weak, hidden symbol in a section of its
-own, named for the container and the path, so the units of a split
-build that each hold it link to one copy. The assembler reads the file
+global assembly block) under a symbol named for the container and the
+path. On ELF the symbol is weak and hidden in a section of its own, so
+the units of a split build that each hold it link to one copy; on
+Mach-O it is local to its object, since a weak definition makes dyld
+bind weak symbols at every launch (about 9 million instructions for
+Trig's 238 embeds), and each unit of a split build holds its own copy. The assembler reads the file
 by its absolute path: emit writes `emit.embed_dir_mark` where the
 module's directory goes, and `writePackage` writes the package's
 directory in its place, so the package's text, which its build is
