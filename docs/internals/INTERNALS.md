@@ -918,6 +918,30 @@ iterator](#loops-over-an-iterator)), and only the second check's
 context is the module's. The CLI prints at most 100 errors for a
 program and counts the rest.
 
+**Embedded files.** Typecheck records each `$embed("path")` as an
+`EmbedSite`: the call, its literal's span, and the bytes the literal
+holds (`Checker.embedOf`), so the path is known where the call is
+written, and the call is a `Static` and a constant (`isComptimeKnown`).
+Once a module is checked, `ModuleGraph.checkEmbeds` finds each file
+from the directory of the file that names it: a module's directory is
+its qualified name (`a.b` is `a/` for a file, `a/b/` for a directory
+module), and the path's `..` may not climb above the program's
+directory (`import_dir`), as a `use` cannot, and a module of the
+standard library embeds nothing. It opens the file and takes its size,
+never its bytes, so `rig check` of a 20 MB file costs a `stat`; a file
+of 2 GiB or more is rejected, as a source is. A found file is recorded
+with its place in the package, `__rig_embed/` and its path from the
+program's directory (`Facts.embeds`), which `--facts=sema` prints and
+emit writes as `@as([]const u8, @embedFile("__rig_embed/data/x.bin"))`.
+`emitPackage` reads each file once, when it writes the package, and
+holds its bytes as one of the package's files: the modules are at the
+package's top, so the place is under the root of every Zig module that
+reaches it, and since a package's files are what the build store's
+entry, a kept `rig build`, and a batch's places are hashed from, other
+bytes are another build. A batch places each one by its bytes and
+rewrites each `@embedFile` of it, as it does an `@import`
+(`placeBatchFiles`).
+
 **The prelude.** The built-in types written in Rig (`Map`, `Set`,
 `HashMap`, `HashSet`, their iterators and entries, and `Lanes`) are
 std/prelude.rig's, which no program imports. The Parser wrapper notes
@@ -1144,7 +1168,7 @@ ownership:
   `errdefer` needs the same: a body that can fail, or it would never
   run;
 - **the raw boundary**: builtins other than Rig's own (`$size`,
-  `$align`, `$type`, `$name`), and calls to `extern` functions,
+  `$align`, `$type`, `$name`, `$plain`, `$variants`, `$embed`), and calls to `extern` functions,
   must be inside a `raw` block. An `extern` function can only be
   called, so it cannot leave `raw` as a value.
 
@@ -1779,6 +1803,7 @@ emitter ask these, never a predicate built for another question:
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, `List.filled`, `resize`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or an object or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
+| `bytesRecord` | every bit pattern of its bytes is a value: an integer, a float, or an object or fixed array made only of these, with no padding in declaration order, no object that names its none (bytes could make it), and for another module's object every field the program's to set. The one fact of what `!xs.extend_from_bytes(s)` makes from bytes (`Needs.records`, the generic requirement `records`); it gives the record's size, or the field that keeps a type from being one |
 | `readByAddress` | moves (`moves` is not `no`): `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `resourceKind` | how a value that moves is held and dropped: a shared handle (`dropStrong`), a weak one (`dropWeak`), an optional, or a value `rig.drop` releases; null for one that copies. The storage plan records it for each binding and each value emit holds or discards (Storage facts) |
 | `holdsNoLoanButText` | copies and holds no view or function value (a `?String` aside): what a Cell and a Signal hold |
@@ -3659,6 +3684,7 @@ and each desugars into forms the checker already walks:
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
 | `List.filled(n, e)` | `k = n`, `t = e`, then `xs: List[T] = List(capacity: k)` and `!xs.push(t)` `k` times, a new List of `k` copies of one value, each carrying `t`'s loans, which is the call's result. Emit writes `rig.List(T).filled(k, t)`, which makes one allocation of exactly `k` slots and fills it with one `@memset` (`std.mem.Allocator` has no zeroed allocation, so a fill of zero is a `@memset` too) |
+| `!xs.extend_from_bytes(s)` | `xs` lent to write, `s` to read, and nothing of `s` kept: the method's origins keep no argument (`copiesArgs`), since it copies the bytes; elements that copy and own nothing are added |
 | `!xs.resize(n, e)` | `xs` lent to write first, as any `!@` self is, then `k = n`, `t = e`, then `!xs.keep(k)` when `k <= xs.len`, and otherwise `!xs.push(t)` until `xs.len == k`: a store into `xs` of copies carrying `t`'s loans. Emit writes `xs.resize(k, t)`, which grows the buffer once as `push` does and fills the new slots with one `@memset`, or keeps the first `k` as `keep` does. The element copies, so it needs no cleanup, and shrinking drops nothing but the length |
 | `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
 | `Cell.get`, `List.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
@@ -5411,7 +5437,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `swap`, `compare_swap`, and an Int Cell's `add` and `sub`, atomic in a program that makes tasks (`step`: where safety checks run, a compare-and-swap loop that panics at an overflow before it stores, as `+` does); for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, `listKeep`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `$name(T)` of a type that holds a type parameter. Emit writes such a `$name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which the case `type names` of `test/rig/types-misc-2.rig.test` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
-| `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `extend_from_bytes` grows once and copies the records in with one `@memcpy` when Zig lays `T` out as the record is (`recordFlat`: each field at its declaration-order offset, a packed word's only on a little-endian target), and otherwise builds each from its fields' bytes (`recordFromBytes`: a part laid out as its bytes by one `@memcpy`, an array of other elements by a loop that runs, so nothing unrolls by an array's length); `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `Table(T, n)`, `SlotOf(n)`, `slotOf` (`table.zig`) | `Table[T, n]` and `Slot[n]` ([Tables](#tables)): `init` reserves the slots (`MAP_NORESERVE`, never one of `alloc.zig`'s blocks: in a release build on Linux a range of whole huge pages from `alloc.zig`'s address space for Tables (`reserveTable`: regions of 256 GiB, each mapped and advised `MADV_NOHUGEPAGE` once, the smallest free range that fits, else the newest region's rest; a dropped Table's range gives its pages back with `MADV_DONTNEED` and goes to the next Table, which reads zeros), elsewhere and in a debug build its own mapping, so the leak checker and the sanitizer see each; on Linux the first 2 MiB keep small pages and the rest, from a 2 MiB boundary, `MADV_HUGEPAGE` while `hugeFree` holds) or makes them, by `fillsWithZeros`, the mirror of `sema.tableFill`; `at`, `slot`, and `constSlot` take a slot with no test (asserted in a debug build, as a proven test is), and `atInt`, `slotInt`, `constSlotInt` test an integer against `n`; `push` panics when all `n` are pushed; dropping a made table drops all `n` slots. Where the system gives no lazily zeroed pages, or under `RIG_TABLE_FALLBACK`, a reserved table is committed as it is written, and a read past what is held reads a zero `T` |
 | `InlineList(T, n)` | `List[T, inline: n]`: the same List (`ListOf(T, n)`, of which `List(T)` is `ListOf(T, 0)`), whose first `n` elements live in its own `inline_buf`, with `buf` empty, until a push past them moves them all to the heap. Every member reaches the elements through `mem` (`memConst` through a `*const`), so a List with no inline room compiles as it did; `items` through a `*const` gives `[]const T` for an inline List, since its elements are then in the value. The checker keeps `inline_len` in the instance type (`sema.ParamNominal`), a type of its own, and keeps the instance a call names as the type of the List it makes (`typecheck.inlineResult`) |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |

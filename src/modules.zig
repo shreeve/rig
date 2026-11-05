@@ -883,6 +883,8 @@ pub const ModuleGraph = struct {
             m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
         }
 
+        try self.checkEmbeds(id);
+
         // Ownership reads the types sema settled, so a module whose types
         // are wrong is not checked for ownership: its errors would follow
         // from the type errors, or be about code that means nothing yet.
@@ -912,6 +914,92 @@ pub const ModuleGraph = struct {
         const t1 = timing.start(self.timing);
         if (m.state == .checked) try proofs.check(m.sema, m.ir);
         timing.stop(self.timing, .proofs, t1);
+    }
+
+    /// Find the file each `$embed` of module `id` names
+    /// (`sema.EmbedSite`): its path, from the directory of the file that
+    /// names it, stays under the program's directory (`import_dir`), as a
+    /// `use` does, so a program is the files under that directory and
+    /// builds the same wherever it is copied. The file is opened, so it
+    /// can be read, and its size taken, never its bytes, which `rig
+    /// build` reads when it writes the package: checking a program with a
+    /// file of many megabytes reads none of them. Each found file is
+    /// recorded with its place in the package (`Facts.embeds`).
+    fn checkEmbeds(self: *ModuleGraph, id: ModuleId) Error!void {
+        const m = self.get(id);
+        const ctx = m.sema;
+        if (ctx.embed_sites.items.len == 0) return;
+        const a = ctx.arena.allocator();
+        // The module's directory, from the program's: a file of a
+        // directory module is in the directory named for it, and any
+        // other module's file in the directory its path names.
+        var dir: std.ArrayList([]const u8) = .empty;
+        if (!m.is_std) {
+            var names = std.mem.splitScalar(u8, m.name, '.');
+            while (names.next()) |n| try dir.append(a, n);
+            if (m.parts.len == 0) _ = dir.pop();
+        }
+        for (ctx.embed_sites.items) |*site| {
+            const at: parser.Span = .{ .start = site.start, .end = site.end };
+            const naming = if (m.parts.len > 0) m.parts[sema.fileIndex(m.parts, site.start)].path else m.display;
+            const shown = std.zig.fmtString(site.path);
+            if (m.is_std) {
+                try self.errorAt(id, at, "$embed: a module of the standard library embeds no file", .{});
+                continue;
+            }
+            if (site.path.len == 0) {
+                try self.errorAt(id, at, "$embed: the path is empty; name the file from the directory of {s}", .{naming});
+                continue;
+            }
+            if (site.path[0] == '/') {
+                try self.errorAt(id, at, "$embed: \"{f}\" is an absolute path; name the file from the directory of {s}", .{ shown, naming });
+                continue;
+            }
+            if (std.mem.findAny(u8, site.path, "\\\x00") != null) {
+                try self.errorAt(id, at, "$embed: \"{f}\" holds a backslash or a zero byte; write `/` between the names of a path", .{shown});
+                continue;
+            }
+            var comps: std.ArrayList([]const u8) = .empty;
+            try comps.appendSlice(a, dir.items);
+            var leaves = false;
+            var it = std.mem.tokenizeScalar(u8, site.path, '/');
+            while (it.next()) |c| {
+                if (std.mem.eql(u8, c, ".")) continue;
+                if (std.mem.eql(u8, c, "..")) {
+                    if (comps.pop() == null) leaves = true;
+                } else try comps.append(a, c);
+            }
+            if (leaves) {
+                try self.errorAt(id, at, "$embed: \"{f}\" leaves the program's directory, {s}; a program embeds only the files under the directory of its root, where its modules are", .{ shown, self.import_dir orelse "." });
+                continue;
+            }
+            const rel = try std.mem.join(a, "/", comps.items);
+            const file = if (self.import_dir) |d| try std.fs.path.join(a, &.{ d, rel }) else rel;
+            const size = self.embedSize(file) catch |err| {
+                if (err == error.OutOfMemory) return error.OutOfMemory;
+                try self.errorAt(id, at, "$embed: cannot read \"{f}\" ({s}), relative to {s}", .{ shown, fileError(err), naming });
+                continue;
+            };
+            if (size > max_source_bytes) {
+                try self.errorAt(id, at, "$embed: cannot read \"{f}\" ({s}), relative to {s}", .{ shown, fileError(error.StreamTooLong), naming });
+                continue;
+            }
+            for (ctx.embed_records.items) |r| if (r.node == site.node and size % r.size != 0) {
+                try self.errorAt(id, at, "`{s}` reads whole `{s}`s, {d} bytes each, and \"{f}\" holds {d} bytes", .{ r.method, r.shown, r.size, shown, size });
+            };
+            site.file = file;
+            site.place = try a.print("{s}/{s}", .{ sema.embed_dir, rel });
+            try ctx.facts.embeds.put(ctx.allocator, site.node, site.place);
+        }
+    }
+
+    /// The size of the file at `path`, opened to read.
+    fn embedSize(self: *ModuleGraph, path: []const u8) !u64 {
+        const f = try std.Io.Dir.cwd().openFile(self.io, path, .{});
+        defer f.close(self.io);
+        const st = try f.stat(self.io);
+        if (st.kind == .directory) return error.IsDir;
+        return st.size;
     }
 
     fn errorAt(self: *ModuleGraph, id: ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {

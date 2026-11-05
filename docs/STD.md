@@ -2043,6 +2043,16 @@ pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
 length saved earlier.
 
+`!v.extend_from_bytes(s)` appends the records the bytes of `s` hold, a
+`?String` or a `Static` such as an embedded file
+([SPEC, Builtins](../SPEC.md#builtins)), with one copy, the List growing
+once: the fast way to load a table a program writes ahead of time. `T`
+is an integer, a float, or an object or array of them with no padding
+and no named none ([SPEC, List](../SPEC.md#list)); each element is its fields' bytes in
+declaration order, in the machine's own byte order, so a file written
+on a machine of the other order reads differently. A length that is not
+a whole number of `$size(T)` panics.
+
 `xs.prefetch(i)` asks for element `i` of a List, an array, or a slice
 ahead of its read, and does nothing a program can see: an `i` out of
 range is no error ([SPEC](../SPEC.md#slices)). It pays where the core

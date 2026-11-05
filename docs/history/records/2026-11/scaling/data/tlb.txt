@@ -1,0 +1,53 @@
+== ts-pattern.trig.1
+2284 flushes
+  90.4%     2064  local mm shootdown (3)       write fault replacing a read-only page (zero page COW)
+   8.1%      185  local mm shootdown (3)       mremap
+   1.2%       28  local mm shootdown (3)       munmap
+   0.2%        4  local mm shootdown (3)       page fault (other)
+   0.1%        2  local mm shootdown (3)       flush_tlb_func, no sender found
+   0.0%        1  (5)                          received IPI
+== ts-pattern.trig.8
+35208 flushes
+  68.5%    24130  remote shootdown (1)         received IPI
+  14.5%     5107  (4)                          write fault replacing a read-only page (zero page COW)
+  13.9%     4882  local mm shootdown (3)       write fault replacing a read-only page (zero page COW)
+   1.3%      475  local mm shootdown (3)       mremap
+   1.3%      455  (4)                          mremap
+   0.2%       67  local mm shootdown (3)       munmap
+   0.2%       58  (4)                          munmap
+   0.1%       25  (5)                          received IPI
+   0.0%        3  remote shootdown (1)         other
+   0.0%        2  local mm shootdown (3)       flush_tlb_func, no sender found
+   0.0%        2  (4)                          page fault (other)
+   0.0%        2  local mm shootdown (3)       page fault (other)
+   other: 3 
+== page faults by mapping, ts-pattern.trig.1
+15891 faults
+  67.0%    10647  anon, NOHUGEPAGE (Table heads, region)
+  26.4%     4188  anon, other
+   4.3%      679  outside the snapshot
+   2.1%      335  file: trig
+   0.2%       38  anon, HUGEPAGE (Table tails, huge segments, large)
+   0.0%        2  file: [vdso]
+   0.0%        1  file: [stack]
+   0.0%        1  file: [vvar]
+== flush reasons, ts-pattern.trig.8 (5 runs)
+  64307 remote shootdown (1)
+  14221  (4)
+  13838 local mm shootdown (3)
+     21  (5)
+== flush reasons, ts-pattern.tsrsg.8 (5 runs)
+   1046 remote shootdown (1)
+    615 local mm shootdown (3)
+    451  (4)
+      9  (5)
+== flush reasons, zod3.trig.8 (5 runs)
+  57303 remote shootdown (1)
+  11202  (4)
+  10527 local mm shootdown (3)
+     58  (5)
+== flush reasons, zod3.tsrsg.8 (5 runs)
+    951 remote shootdown (1)
+    654 local mm shootdown (3)
+    487  (4)
+     54  (5)

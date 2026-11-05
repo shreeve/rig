@@ -1936,6 +1936,20 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
             };
         }
     }
+    // Each file the program embeds, once, at its place (`sema.EmbedSite`):
+    // the modules are at the package's top, and Zig embeds only a file
+    // under it. Its bytes are part of the package, so a build with other
+    // bytes is another build (`storeEntry`, `keptBuild`).
+    var embedded: std.StringHashMapUnmanaged(void) = .empty;
+    for (graph.modules.items) |*m| for (m.sema.embed_sites.items) |site| {
+        if (site.place.len == 0 or embedded.contains(site.place)) continue;
+        try embedded.put(allocator, site.place, {});
+        const bytes = std.Io.Dir.cwd().readFileAlloc(graph.io, site.file, allocator, .limited(modules.max_source_bytes + 1)) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => fatal("error: $embed: cannot read `{s}` ({s})", .{ site.file, modules.fileError(err) }),
+        };
+        try files.append(allocator, .{ .path = site.place, .contents = bytes });
+    };
     // The program's error glue (`emit.writeErrorGlue`).
     if (glue) {
         const mods = try allocator.alloc(emit.GlueModule, graph.modules.items.len);
@@ -2125,9 +2139,10 @@ fn hashPart(hash: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
 
 /// The path `rel` names from a file at `from` (both relative to the
 /// package, `/` between their parts), normalized; null when it leaves
-/// the package or names a module (`std`, `rig`).
-fn importedPath(allocator: std.mem.Allocator, from: []const u8, rel: []const u8) !?[]const u8 {
-    if (!std.mem.endsWith(u8, rel, ".zig") or std.fs.path.isAbsolutePosix(rel)) return null;
+/// the package or names a module (`std`, `rig`). A file any `embedded`
+/// names may be of any kind; any other is a Zig file.
+fn importedPath(allocator: std.mem.Allocator, from: []const u8, rel: []const u8, embedded: bool) !?[]const u8 {
+    if ((!embedded and !std.mem.endsWith(u8, rel, ".zig")) or std.fs.path.isAbsolutePosix(rel)) return null;
     var parts: std.ArrayList([]const u8) = .empty;
     var dir = std.mem.tokenizeAny(u8, std.fs.path.dirnamePosix(from) orelse "", "/\\");
     while (dir.next()) |p| try parts.append(allocator, p);
@@ -2179,21 +2194,29 @@ fn placeBatchFiles(allocator: std.mem.Allocator, sub: []const u8, root: []const 
     var index: std.StringHashMapUnmanaged(usize) = .empty;
     const paths = try allocator.alloc([]const u8, files.len);
     for (files, paths, 0..) |f, *p, i| {
-        p.* = (try importedPath(allocator, "", f.path)) orelse f.path;
+        p.* = (try importedPath(allocator, "", f.path, false)) orelse f.path;
         try index.put(allocator, p.*, i);
     }
     const imports = try allocator.alloc([]const Import, files.len);
     for (files, paths, imports) |f, from, *list| {
         var found: std.ArrayList(Import) = .empty;
-        const open = "@import(\"";
-        var at: usize = 0;
-        while (std.mem.indexOfPos(u8, f.contents, at, open)) |s| {
-            const start = s + open.len;
-            const end = std.mem.indexOfScalarPos(u8, f.contents, start, '"') orelse break;
-            at = end;
-            const target = (try importedPath(allocator, from, f.contents[start..end])) orelse continue;
-            if (index.get(target)) |j| try found.append(allocator, .{ .start = start, .end = end, .target = j });
+        // A module's `@import` of another file, and its `@embedFile` of a
+        // file the program embeds (`sema.EmbedSite`).
+        for ([_][]const u8{ "@import(\"", "@embedFile(\"" }) |open| {
+            var at: usize = 0;
+            while (std.mem.indexOfPos(u8, f.contents, at, open)) |s| {
+                const start = s + open.len;
+                const end = std.mem.indexOfScalarPos(u8, f.contents, start, '"') orelse break;
+                at = end;
+                const target = (try importedPath(allocator, from, f.contents[start..end], open[1] == 'e')) orelse continue;
+                if (index.get(target)) |j| try found.append(allocator, .{ .start = start, .end = end, .target = j });
+            }
         }
+        std.mem.sort(Import, found.items, {}, struct {
+            fn lessThan(_: void, x: Import, y: Import) bool {
+                return x.start < y.start;
+            }
+        }.lessThan);
         list.* = found.items;
     }
     const Mark = enum { new, open, done };

@@ -53,6 +53,28 @@ a bare number, and of `per:` of `task.supervise` and
   Duration`), and emit writes the nanoseconds through the runtime's
   `durationInt` and `durationFloat` (SPEC "Durations").
 
+- **`!xs.extend_from_bytes(s)`** appends to a `List[T]` the records the
+  bytes of `s` hold, a `?String` or a `Static` such as `$embed(path)`,
+  with one copy and one growth. `T` is an integer, a float, or an object
+  or array of them with no padding and no named none, so every bit
+  pattern is a value;
+  each record is its fields' bytes in declaration order, in the
+  machine's byte order. Any other `T` is rejected with the field that
+  disqualifies it (`field `on` of `Flag` is a `Bool`, which is only 0 or
+  1`), and so is a literal or an embedded file that is not a whole
+  number of records; another length panics (SPEC "List").
+- **`$embed(path)`** gives a file's bytes as a `Static`, read when the
+  program is compiled: `LIBS = $embed("libtrees.bin")`. The path is a
+  string literal, from the directory of the file that names it, and may
+  not be absolute or leave the program's directory. The bytes are taken
+  as they are, with no escaping and no literal for the compiler to read:
+  `rig check` opens the file and reads none of it, and the package
+  holds a copy beside the emitted Zig, so a build after the bytes
+  change builds again (through the cache, `RIG_BUILD_STORE`, a kept
+  `rig build`, a split build, and a batch). A missing file, a
+  directory, and a file of 2 GiB or more are rejected where the call is
+  written: `$embed: cannot read "libtrees.bin" (no such file),
+  relative to src/ast/prebuilt.rig` (SPEC "Builtins").
 - **A task's end as an arm of `task.select`:** `done: ?t.on_end()`
   completes once the task `t` has ended, before the select or while it
   waits, beside the receive, send, and deadline arms. The arm lends `t`

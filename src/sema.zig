@@ -1120,7 +1120,9 @@ pub const SelfMode = enum { none, read, write, value };
 /// requirement one on each instance, as a Rig-written generic's use does
 /// (`Requirement.copies`).
 pub const Needs = struct {
-    t: enum { copies },
+    /// A `T` that copies, or a `T` whose every bit pattern is a value
+    /// (`bytesRecord`), which the method makes from bytes.
+    t: enum { copies, records },
     /// What the method does with a `T`, as the note of a generic body
     /// whose instance fails says it.
     op: []const u8,
@@ -1137,6 +1139,9 @@ pub const Needs = struct {
         /// copies, and the loop, followed by `tail`, that makes each
         /// element with `+x` instead.
         into_elements: struct { what: []const u8, loop: []const u8, tail: []const u8 = "" },
+        /// The method makes each element from bytes
+        /// (`Checker.readsRecords` says why a `T` is not a record).
+        from_bytes,
     },
 };
 
@@ -1870,6 +1875,10 @@ pub const Facts = struct {
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
     generic_calls: FastMap(NodeKey, GenericCall) = .empty,
+    /// `$embed("path")` -> the file's place in the package,
+    /// `__rig_embed/` and its path from the program's directory, set by
+    /// the module graph once it found the file (`EmbedSite`).
+    embeds: FastMap(NodeKey, []const u8) = .empty,
     /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: FastMap(u32, void) = .empty,
@@ -2633,6 +2642,35 @@ pub const Use = enum {
 /// A method of a built-in type that emit lowers to an operation of the
 /// runtime's or of Zig's, as typecheck resolved it
 /// (`SemContext.builtinCallOf`).
+/// A `$embed("path")` of the module, as typecheck found it: the call, its
+/// path's span and the bytes the literal holds. The module graph finds
+/// the file (`ModuleGraph.checkEmbeds`) and fills in `file`, the path it
+/// opened, and `place`, where the package holds a copy
+/// (`Facts.embeds`), which `rig build` reads when it writes the package.
+pub const EmbedSite = struct {
+    node: NodeKey,
+    start: u32,
+    end: u32,
+    path: []const u8,
+    file: []const u8 = "",
+    place: []const u8 = "",
+};
+
+/// An embedded file a call makes records of `size` bytes from
+/// (`List.extend_from_bytes`), which must hold a whole number of them:
+/// checked once the file is found (`ModuleGraph.checkEmbeds`).
+pub const EmbedRecord = struct {
+    node: NodeKey = 0,
+    size: u64,
+    method: []const u8,
+    /// The record's type, as the call's module spells it.
+    shown: []const u8,
+};
+
+/// Where the package holds the files a program embeds, from the
+/// program's directory: `__rig_embed/data/x.bin` for `data/x.bin`.
+pub const embed_dir = "__rig_embed";
+
 pub const BuiltinCall = enum {
     /// `x.is_empty()` of a built-in length: `x.len == 0`.
     is_empty,
@@ -3410,6 +3448,10 @@ pub const Requirement = union(enum) {
     /// An integer or float type: the body reads or writes one in bytes
     /// (`b.read[T, .big](at)`).
     bytes,
+    /// A type whose every bit pattern is a value (`bytesRecord`): the
+    /// body makes values of the parameter from bytes
+    /// (`!xs.extend_from_bytes(s)`).
+    records,
     /// An integer: the body gives a value of the parameter's type a
     /// division of whole-number literals (`1 / 2`), which divides
     /// integers.
@@ -3468,6 +3510,7 @@ pub const Requirement = union(enum) {
             .slot_count => "a slot count",
             .sized => "a size or alignment",
             .bytes => "an integer or float in bytes",
+            .records => "a value made from bytes",
             .whole_division => "a division of whole numbers",
             .not_error => "a fallible return",
             .error_set => "an error set",
@@ -4438,6 +4481,10 @@ pub const SemContext = struct {
     /// (`rig.ByteLiteral`); a module with any is checked again on the
     /// rewritten tree, as for `iter_loops`.
     byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
+    /// Every `$embed` of the module (`EmbedSite`), recorded once each.
+    embed_sites: std.ArrayList(EmbedSite) = .empty,
+    /// The embedded files calls make records from (`EmbedRecord`).
+    embed_records: std.ArrayList(EmbedRecord) = .empty,
     /// The iterator chains typecheck found (`rig.Chain`), each to be
     /// rewritten into the loop it means; checked again, as for
     /// `iter_loops`.
@@ -4527,6 +4574,8 @@ pub const SemContext = struct {
         self.iter_loops.deinit(self.allocator);
         self.chains.deinit(self.allocator);
         self.byte_literals.deinit(self.allocator);
+        self.embed_sites.deinit(self.allocator);
+        self.embed_records.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
         self.const_order.deinit(self.allocator);
@@ -4993,6 +5042,26 @@ pub const SemContext = struct {
     pub fn recordByteLiteral(self: *SemContext, pos: u32, bytes: []const u8, array: bool) !void {
         for (self.byte_literals.items) |l| if (l.pos == pos) return;
         try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
+    }
+
+    /// A `$embed` whose path's literal at `arg` holds `path`; recorded
+    /// once.
+    pub fn recordEmbed(self: *SemContext, node: Sexp, arg: Sexp, path: []const u8) !void {
+        const id = recordKey(node);
+        for (self.embed_sites.items) |e| if (e.node == id) return;
+        const at = self.span(arg);
+        try self.embed_sites.append(self.allocator, .{ .node = id, .start = at.start, .end = at.end, .path = path });
+    }
+
+    /// The `$embed` call `node`, whose file a call makes records from;
+    /// recorded once for each size, as each instance of a generic body
+    /// may read records of its own.
+    pub fn recordEmbedRecord(self: *SemContext, node: Sexp, record: EmbedRecord) !void {
+        const id = recordKey(node);
+        for (self.embed_records.items) |r| if (r.node == id and r.size == record.size) return;
+        var r = record;
+        r.node = id;
+        try self.embed_records.append(self.allocator, r);
     }
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
@@ -11012,6 +11081,141 @@ pub fn wordBitsOfSym(dctx: *const SemContext, sym_id: SymbolId) ?u8 {
         8, 16, 32, 64 => @intCast(bits),
         else => null,
     };
+}
+
+/// A type whose every bit pattern is one of its values, laid out with
+/// no padding (`bytesRecord`): its size and alignment in bytes.
+pub const Record = struct { size: u64, alignment: u64 };
+
+/// Why a type is not a record (`bytesRecord`): the field that keeps it
+/// from being one, `field` of the object `owner` (both "" for the type
+/// itself), the type there, as its module spells it, and why.
+pub const NotRecord = struct {
+    field: []const u8 = "",
+    owner: []const u8 = "",
+    shown: []const u8 = "",
+    why: union(enum) {
+        /// A `Bool`, which is only 0 or 1.
+        boolean,
+        /// An enum, whose values are its variants'.
+        enumeration,
+        /// Any other type that is not an integer, a float, or an object
+        /// or array of them: a view, an owner, an optional, a vector.
+        other,
+        /// An object whose fields are none, or an array of no elements.
+        empty,
+        /// An object that is not plain data: unique, or with a `drop`.
+        not_plain,
+        /// An object that names its none (`none id == 0`): bytes could
+        /// make the value no object of it holds.
+        named_none: NamedNone,
+        /// An instance of a generic object.
+        generic,
+        /// A field of another module's object that its module sets: one
+        /// private or read-only there.
+        private: []const u8,
+        /// `field` starts at byte `at`, and its type at a multiple of
+        /// `alignment`.
+        padding_before: struct { at: u64, alignment: u64 },
+        /// `bytes` of padding follow `field`, the last, to a multiple of
+        /// `alignment`.
+        padding_after: struct { bytes: u64, alignment: u64 },
+    },
+};
+
+pub const RecordAnswer = union(enum) { record: Record, not: NotRecord };
+
+/// Whether the bytes of `ty` may be any bytes: an integer, a float, or
+/// an object or a fixed array made only of these, with no padding when
+/// its fields are laid out in declaration order, each at a multiple of
+/// its alignment (a number's is its size, an array's its element's, an
+/// object's its largest field's). Such a value is its fields' bytes in
+/// declaration order, so every bit pattern of `size` bytes is one, and
+/// the runtime makes one from bytes by copying them
+/// (`List.extend_from_bytes`). An object of another module is one only
+/// when every field is the program's to set, as a constructor's is
+/// (`Checker.checkConstructible`). The one classifier of what may be
+/// made from bytes; `ctx` is the module that makes it.
+pub fn bytesRecord(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!RecordAnswer {
+    return recordIn(ctx, ctx, ty);
+}
+
+/// Type `ty` of module `home`, as module `ctx` names it: another
+/// module's own type qualified by that module's name (`geo.Q`).
+fn shownFrom(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allocator.Error![]const u8 {
+    const a = ctx.arena.allocator();
+    const text = try formatTypeIn(home, a, ty);
+    if (home == ctx or home.types.get(ty) != .nominal) return text;
+    return a.print("{s}.{s}", .{ home.name, text });
+}
+
+fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allocator.Error!RecordAnswer {
+    const shown = try shownFrom(ctx, home, ty);
+    switch (home.types.get(ty)) {
+        .int => |i| {
+            const n: u64 = i.width() / 8;
+            return .{ .record = .{ .size = n, .alignment = n } };
+        },
+        .float => |f| {
+            const n: u64 = (if (f.bits == 0) 64 else f.bits) / 8;
+            return .{ .record = .{ .size = n, .alignment = n } };
+        },
+        .bool => return .{ .not = .{ .shown = shown, .why = .boolean } },
+        .array => |arr| {
+            const len = arrayLen(home, arr) orelse return .{ .not = .{ .shown = shown, .why = .other } };
+            const elem = switch (try recordIn(ctx, home, arr.elem)) {
+                .record => |r| r,
+                .not => |n| return .{ .not = n },
+            };
+            if (len == 0) return .{ .not = .{ .shown = shown, .why = .empty } };
+            return .{ .record = .{ .size = elem.size * len, .alignment = elem.alignment } };
+        },
+        .parameterized_nominal => |pn| return .{ .not = .{ .shown = shown, .why = switch (declaredKind(home, pn.sym)) {
+            .object => .generic,
+            .payload_enum => .enumeration,
+            .other => .other,
+        } } },
+        .nominal, .imported_nominal => {},
+        else => return .{ .not = .{ .shown = shown, .why = .other } },
+    }
+    var decl = nominalDecl(home, ty) orelse return .{ .not = .{ .shown = shown, .why = .other } };
+    var module = decl.module_id orelse if (home != ctx) home.module_id else null;
+    if (isProxy(decl.symbol())) {
+        module = decl.symbol().from.module_id;
+        decl = .{ .ctx = decl.ctx.foreign_semas.get(module.?) orelse return .{ .not = .{ .shown = shown, .why = .other } }, .sym = decl.symbol().from.sym, .module_id = module };
+    }
+    switch (declaredKind(decl.ctx, decl.sym)) {
+        .object => {},
+        .payload_enum => return .{ .not = .{ .shown = shown, .why = .enumeration } },
+        .other => return .{ .not = .{ .shown = shown, .why = if (isPlainEnum(home, ty)) .enumeration else .other } },
+    }
+    const sym = decl.symbol();
+    if (sym.type_params != null) return .{ .not = .{ .shown = shown, .why = .generic } };
+    // A value no object of it holds: `xs.get(i)`, `pop`, and a `T?` would
+    // read one made from bytes as `none`.
+    if (decl.ctx.named_nones.get(decl.sym)) |none| return .{ .not = .{ .shown = shown, .why = .{ .named_none = none } } };
+    if (!try isPlain(ctx, if (home == ctx) ty else try ctx.intern(.{ .imported_nominal = .{ .module_id = module.?, .sym_id = decl.sym } }))) return .{ .not = .{ .shown = shown, .why = .not_plain } };
+    // Another module's private fields are its own to set.
+    const foreign: ?*const SemContext = if (module) |m| (if (m == ctx.module_id) null else ctx.foreign_semas.get(m)) else null;
+    const sets_all = if (foreign) |f| f.is_std and ctx.is_std else true;
+    var at: u64 = 0;
+    var alignment: u64 = 1;
+    var last: []const u8 = "";
+    for (sym.fields orelse &.{}) |f| {
+        if (f.is_method or f.is_variant or f.is_drop_method) continue;
+        if (!sets_all and (!f.is_pub or f.read_only)) return .{ .not = .{ .field = f.name, .owner = shown, .why = .{ .private = foreign.?.name } } };
+        const r = switch (try recordIn(ctx, decl.ctx, f.ty)) {
+            .record => |r| r,
+            .not => |n| return .{ .not = if (n.field.len == 0) .{ .field = f.name, .owner = shown, .shown = n.shown, .why = n.why } else n },
+        };
+        if (at % r.alignment != 0) return .{ .not = .{ .field = f.name, .owner = shown, .shown = try shownFrom(ctx, decl.ctx, f.ty), .why = .{ .padding_before = .{ .at = at, .alignment = r.alignment } } } };
+        at += r.size;
+        alignment = @max(alignment, r.alignment);
+        last = f.name;
+    }
+    if (at == 0) return .{ .not = .{ .shown = shown, .why = .empty } };
+    if (at % alignment != 0) return .{ .not = .{ .field = last, .owner = shown, .why = .{ .padding_after = .{ .bytes = alignment - at % alignment, .alignment = alignment } } } };
+    return .{ .record = .{ .size = at, .alignment = alignment } };
 }
 
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,

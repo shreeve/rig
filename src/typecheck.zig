@@ -7896,7 +7896,7 @@ const Checker = struct {
     /// each instance (`Requirement.copies`). An instance the type itself
     /// rejects (`resolve.builtinElementError`) was reported where it is
     /// spelled or made. False after a diagnostic.
-    fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const TypeId, pos: u32) Error!bool {
+    fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const TypeId, pos: u32, values: []const Sexp) Error!bool {
         const needs = m.needs orelse return true;
         // Only a built-in generic's method declares needs, and every call
         // of one has the type's arguments: a call without them is
@@ -7909,6 +7909,7 @@ const Checker = struct {
         const param = args[0];
         switch (needs.t) {
             .copies => if (!try self.cannotCopy(param, pos, needs.op)) return true,
+            .records => return self.readsRecords(m.name, param, pos, if (values.len > 0 and !values[0].isKind(.kwarg)) values[0] else null),
         }
         if ((try resolve.builtinElementError(self.ctx, owner_sym, args)) != null) return true;
         const owner = self.ctx.symbols.items[owner_sym].name;
@@ -7917,8 +7918,76 @@ const Checker = struct {
             .element_out => |advice| try self.err(pos, "`{s}.{s}` would copy an element out of a `{s}` of `{s}`, which a copy cannot share; {s}", .{ owner, m.name, owner, shown, advice }),
             .value_out => |advice| try self.err(pos, "`{s}.{s}` returns a copy of the value, and {s} `{s}` {s}, so it can't be copied; {s}", .{ owner, m.name, article(shown), shown, if (sema.typeHasDropGlue(self.ctx, param)) "owns what it must release" else self.movesBecause(param), advice }),
             .into_elements => |d| try self.notDuplicated(pos, d.what, param, d.loop, d.tail),
+            .from_bytes => unreachable,
         }
         return false;
+    }
+
+    /// Whether `elem`, the element of a List that method `method` makes
+    /// from the bytes `bytes`, is a record (`sema.bytesRecord`); in a
+    /// generic body, a type parameter's instances must be
+    /// (`Requirement.records`). Bytes known where the call is written, a
+    /// string literal or an embedded file, must be a whole number of
+    /// records: the file's size is known once the module graph finds it
+    /// (`SemContext.recordEmbedRecord`). False after a diagnostic.
+    fn readsRecords(self: *Checker, method: []const u8, elem: TypeId, pos: u32, bytes: ?Sexp) Error!bool {
+        if (self.ctx.types.get(elem) == .type_var) {
+            try self.require(self.ctx.types.get(elem).type_var, .records, pos, method);
+            return true;
+        }
+        const shown = try self.tyName(elem);
+        var held: std.ArrayList(SymbolId) = .empty;
+        try sema.heldTypeVars(self.ctx, elem, &held, self.ctx.arena.allocator());
+        if (held.items.len > 0) {
+            try self.err(pos, "`{s}` makes each `{s}` from bytes, which takes a type known here or a type parameter, `List[T]`: whether every bit pattern of a `{s}` is one depends on its instance", .{ method, shown, shown });
+            return false;
+        }
+        const head = "`{s}` makes each `{s}` from bytes, so every bit pattern must be {s} `{s}`";
+        const a = self.ctx.arena.allocator();
+        const not = switch (try sema.bytesRecord(self.ctx, elem)) {
+            .record => |r| {
+                if (bytes) |b| try self.recordsIn(method, shown, r.size, b);
+                return true;
+            },
+            .not => |n| n,
+        };
+        const subject = if (not.field.len == 0) try a.print(", and {s} `{s}`", .{ article(not.shown), not.shown }) else try a.print("; field `{s}` of `{s}` is {s} `{s}`,", .{ not.field, not.owner, article(not.shown), not.shown });
+        const which = if (not.field.len == 0) "" else " which";
+        switch (not.why) {
+            .boolean => try self.err(pos, head ++ "{s}{s} is only 0 or 1", .{ method, shown, article(shown), shown, subject, which }),
+            .enumeration => if (not.field.len == 0)
+                try self.err(pos, head ++ ", and `{s}` is an enum, whose values are only its variants'", .{ method, shown, article(shown), shown, not.shown })
+            else
+                try self.err(pos, head ++ "; field `{s}` of `{s}` is an enum, whose values are only its variants'", .{ method, shown, article(shown), shown, not.field, not.owner }),
+            .other => try self.err(pos, head ++ "{s}{s} is not an integer, a float, or an object or array of them", .{ method, shown, article(shown), shown, subject, which }),
+            .not_plain => try self.err(pos, head ++ ", and `{s}` is not plain data: it does not copy, or has a `drop`", .{ method, shown, article(shown), shown, not.shown }),
+            .generic => try self.err(pos, head ++ ", and `{s}` is an instance of a generic object; declare an object of its field types", .{ method, shown, article(shown), shown, not.shown }),
+            .empty => try self.err(pos, head ++ ", and `{s}` holds no bytes", .{ method, shown, article(shown), shown, not.shown }),
+            .private => |module| try self.err(pos, head ++ "; field `{s}` of `{s}` is private to module `{s}`, which sets it", .{ method, shown, article(shown), shown, not.field, not.owner, module }),
+            .padding_before => |p| try self.err(pos, head ++ ", and `{s}` has padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; order the fields so that none needs padding", .{ method, shown, article(shown), shown, not.owner, not.field, p.at, article(not.shown), not.shown, p.alignment }),
+            .named_none => |none| {
+                const value = if (none.variant) |v| try a.print(".{s}", .{v}) else try a.print("{d}", .{none.value});
+                try self.err(pos, head ++ "{s}{s} names its none (`none {s} == {s}`), a value no `{s}` holds", .{ method, shown, article(shown), shown, subject, which, none.field, value, not.shown });
+            },
+            .padding_after => |p| try self.err(pos, head ++ ", and `{s}` has {d} {s} of padding after field `{s}`, to a multiple of {d}; add a field that fills them", .{ method, shown, article(shown), shown, not.owner, p.bytes, if (p.bytes == 1) "byte" else "bytes", not.field, p.alignment }),
+        }
+        return false;
+    }
+
+    /// The bytes `bytes` a call makes records of `size` bytes from, when
+    /// they are known where it is written: a string literal's, checked
+    /// here, and an embedded file's, checked once the file is found.
+    fn recordsIn(self: *Checker, method: []const u8, shown: []const u8, size: u64, bytes: Sexp) Error!void {
+        if (bytes == .src) {
+            const lit = self.text(bytes);
+            if (lit.len < 2 or (lit[0] != '"' and lit[0] != '\'')) return;
+            const held = textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return;
+            if (held.len % size != 0) try self.errAt(bytes, "`{s}` reads whole `{s}`s, {d} bytes each, and the literal holds {d} bytes", .{ method, shown, size, held.len });
+            return;
+        }
+        if (bytes.isKind(.builtin) and std.mem.eql(u8, self.text(ir.Builtin.name(bytes)), "embed")) {
+            try self.ctx.recordEmbedRecord(bytes, .{ .size = size, .method = method, .shown = shown });
+        }
     }
 
     /// A call of method `m` of a generic type (`owner`, declared in
@@ -13034,7 +13103,9 @@ const Checker = struct {
                     // `cap[8]`: a compile-time call, whose value the
                     // checker computed.
                     .ct_call => if (self.ctx.ctCallOf(e)) |c| c.result != null else false,
-                    .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants"),
+                    // `$variants(T)`, and `$embed("f")`, whose bytes Zig
+                    // reads when it compiles.
+                    .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants") or std.mem.eql(u8, self.text(ir.Builtin.name(e)), "embed"),
                     // `U8(65)`: a constant integer as an integer type;
                     // `target.has(.avx2)`: a fact of the target.
                     .call => self.constInt(e) != null or self.isTargetCall(e),
@@ -13702,7 +13773,7 @@ const Checker = struct {
         // reaches, through views, handles, and boxes, as the method was
         // found.
         try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module, self.selfArgs(sema.unwrapAccess(self.ctx, obj_ty)), sema.unwrapAccess(self.ctx, obj_ty), pos);
-        if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos)) return self.skipCall(args);
+        if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos, args)) return self.skipCall(args);
         if (!try self.meetsOwnerBounds(resolved.field, resolved.owner_sym, resolved.module, self.selfArgs(sema.unwrapAccess(self.ctx, obj_ty)).args, pos, false)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
@@ -16319,7 +16390,7 @@ const Checker = struct {
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.self_mode != .none, recv)) orelse return self.skipCall(args);
                 try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv, if (recv.args.len > 0) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = nt.id, .args = try self.ctx.dupeIds(recv.args) } }) else sema.type_invalid, pos);
-                if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
+                if (!try self.meetsNeeds(m, nt.id, recv.args, pos, if (m.self_mode != .none and args.len > 0) args[1..] else args)) return self.skipCall(args);
                 if (!try self.meetsOwnerBounds(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv.args, pos, m.self_mode != .none)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
@@ -19489,10 +19560,11 @@ const Checker = struct {
         fromBackingInt,
         variants,
         plain,
+        embed,
 
         fn isSafe(b: Builtin) bool {
             return switch (b) {
-                .size, .@"align", .name, .type, .variants, .plain => true,
+                .size, .@"align", .name, .type, .variants, .plain, .embed => true,
                 else => false,
             };
         }
@@ -19554,19 +19626,20 @@ const Checker = struct {
                 } else if (std.mem.eql(u8, name, "intFromFloat")) {
                     try self.err(pos, "builtin `$intFromFloat` is not supported; a float becomes an integer with `$trunc`", .{});
                 } else {
-                    try self.err(pos, "builtin `${s}` is not supported; the builtins are `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`, and, inside `raw`, `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`, `$floatFromInt`, `$fromBackingInt`", .{name});
+                    try self.err(pos, "builtin `${s}` is not supported; the builtins are `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`, `$embed`, and, inside `raw`, `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`, `$floatFromInt`, `$fromBackingInt`", .{name});
                 }
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             };
             if (builtin == .variants) break :blk try self.variantsOf(args, pos);
             if (builtin == .plain) break :blk try self.plainTest(node, args, pos);
+            if (builtin == .embed) break :blk try self.embedOf(node, args, pos);
             const query = builtin.query();
             if (self.raw_depth == 0 and !builtin.isSafe()) {
                 if (query) |q| {
                     try self.zigQueryName(node, name, @tagName(q));
                 } else {
-                    try self.err(pos, "builtin `${s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`", .{name});
+                    try self.err(pos, "builtin `${s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`, `$embed`", .{name});
                 }
             }
             if (query) |q| switch (q) {
@@ -19663,6 +19736,30 @@ const Checker = struct {
         return .{ .operands = ops.list.items, .end = self.ctx.span(cond).end, .guarded = spans };
     }
 
+    /// `$embed("path")`: the bytes of the file `path` names, from the
+    /// directory of the file that names it, as a `Static`. The path is a
+    /// string literal, so the file is known where the call is written;
+    /// the module graph finds it once the module is checked
+    /// (`ModuleGraph.checkEmbeds`).
+    fn embedOf(self: *Checker, node: Sexp, args: []const Sexp, pos: u32) Error!TypeId {
+        if (args.len != 1) {
+            try self.err(pos, "`$embed` takes one argument, the file's path as a string literal: `$embed(\"data.bin\")`", .{});
+            try self.synthArgs(args);
+            return self.t().invalid_id;
+        }
+        const arg = args[0];
+        const lit = if (arg == .src) self.text(arg) else "";
+        if (lit.len < 2 or (lit[0] != '"' and lit[0] != '\'')) {
+            _ = try self.synthExpr(arg);
+            try self.errAt(arg, "`$embed` takes the file's path as a string literal, so the file is known when the program is compiled: `$embed(\"data.bin\")`", .{});
+            return self.t().invalid_id;
+        }
+        _ = try self.synthExpr(arg);
+        const path = textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return self.t().invalid_id;
+        try self.ctx.recordEmbed(node, arg, path);
+        return self.t().static_id;
+    }
+
     /// `$variants(T)`: every variant of plain enum `T`, in declaration
     /// order, a `[N]T`.
     fn variantsOf(self: *Checker, args: []const Sexp, pos: u32) Error!TypeId {
@@ -19734,7 +19831,7 @@ const Checker = struct {
                 const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
                 if (fb != tb) return "both must have the same size";
             },
-            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants, .plain => {},
+            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants, .plain, .embed => {},
         }
         return null;
     }
@@ -21849,6 +21946,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 .slot_count => try ctx.err(at, cannot ++ "names `Slot[{s}]`, and a slot names one of `n` slots, `n` at least 1", .{ inst, pname, aname, pname }),
                 .sized => try ctx.err(at, cannot ++ "takes `${s}` of a type that holds a `{s}`, and `{s}` holds a vector, whose size and alignment differ from target to target", .{ inst, pname, aname, req.op, pname, aname }),
                 .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
+                .records => try ctx.err(at, cannot ++ "makes a `{s}` from bytes with `extend_from_bytes`, and not every bit pattern is {s} `{s}`: give `{s}` an integer, a float, or an object or array of them with no padding", .{ inst, pname, aname, pname, article(aname), aname, pname }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
@@ -22122,6 +22220,7 @@ fn apiOf(req: Requirement) ?sema.Api {
     return switch (req) {
         .numeric, .bytes => .Num,
         .integer, .whole_division => .Integer,
+        .records => null,
         .signed => .Signed,
         .ordered, .order => .Ord,
         .equatable => .Eq,
@@ -23083,6 +23182,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
         .numeric, .bytes => sema.isNumeric(ctx, ty),
+        .records => (try sema.bytesRecord(ctx, ty)) == .record,
         .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static or sema.isOrderedEnum(ctx, ty) or (try sema.lacks(ctx, ty, .Ord)) == null,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {
