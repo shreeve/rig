@@ -1512,6 +1512,18 @@ code "task a loop with a loop inside counts each turn", "while (__rig_i_5 < __ri
   t = grid(3)&
   print(>t)
 
+code "task a short constant range counts each turn", "while (__rig_i_5 < __rig_end_5) : ({ rig.turn(&"
+  # A range whose length is a constant of one block or less stays one
+  # loop, which Zig can unroll whole.
+  fun row(x: Int) -> Int
+    s = 0
+    for j in 0..16
+      s += x * j
+    s
+
+  t = row(3)&
+  print(>t)
+
 test "task split loops keep their jumps", seeds: 20, '''
   45 4 25 7 9 -1 15
 '''

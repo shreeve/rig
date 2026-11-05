@@ -340,8 +340,8 @@ fails, and yields only when other work waits.
   nothing: a probe of a `Map` that finds its key at once, or a scan
   that returns at its first element, pays no check. Zig's own `for`,
   which has no continue expression, counts as each turn's body starts.
-  A range `for i in a..b` whose body holds no loop runs in blocks
-  instead: each takes as many of the turns left as the count allows
+  A range `for i in a..b` whose body holds no loop, and whose length is
+  not a constant of at most 1,024, runs in blocks instead: each takes as many of the turns left as the count allows
   (`rig.turnStop`), runs them in a plain inner loop, and checks once at
   its end (`rig.turnEnd`). A jump that leaves a block gives back the
   turns it did not run (`rig.turnRefund`), so the count, and so every

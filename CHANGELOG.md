@@ -126,8 +126,9 @@ a bare number, and of `per:` of `task.supervise` and
 - Each name `as a, b` binds is a new name, checked as `as v`'s is: one
   that shadows a local, or a module-level declaration, is rejected.
 - In a program that makes tasks, a range `for i in a..b` whose body
-  holds no loop runs in blocks, with one yield check at each block's
-  end in place of one on every turn. The inner loop is the plain loop
+  holds no loop, and whose length is not a constant of at most 1,024,
+  runs in blocks, with one yield check at each block's end in place of
+  one on every turn. The inner loop is the plain loop
   Rust and Go compile: CPU work in bench/tasks takes about 20% fewer
   cycles, `fanout` is 16% faster, and `spin`'s loop matches Rust's. A
   jump out of a block gives back the turns it did not run, so a task

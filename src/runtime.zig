@@ -4520,14 +4520,15 @@ pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(
 // so the count is the one a check on every turn would keep, and a task
 // yields on the same turns.
 
-/// The turns a range has left at `i` before `end`, at most
-/// `maxInt(u64)`, for a range of any integer type.
+/// The turns a range has left at `i` before `end`, for `i <= end` (a
+/// block starts only inside the range, and a jump leaves one only from
+/// inside it), at most `maxInt(u64)`, for a range of any integer type:
+/// the difference of their bits as unsigned, which is exact there.
 pub inline fn turnsLeft(i: anytype, end: @TypeOf(i)) u64 {
-    const W = @Int(.signed, @bitSizeOf(@TypeOf(i)) + 1);
-    const d = @as(W, end) - @as(W, i);
-    if (d <= 0) return 0;
-    if (@bitSizeOf(W) > 64 and d > std.math.maxInt(u64)) return std.math.maxInt(u64);
-    return @intCast(d);
+    const U = @Int(.unsigned, @bitSizeOf(@TypeOf(i)));
+    const d = @as(U, @bitCast(end)) -% @as(U, @bitCast(i));
+    if (@bitSizeOf(U) > 64) return @intCast(@min(d, std.math.maxInt(u64)));
+    return d;
 }
 
 /// The turns of the next block of a range with `left` turns to go,
@@ -4541,12 +4542,13 @@ pub inline fn turnTake(n: *u32, left: u64) u64 {
 }
 
 /// Where the next block of a range at `i` before `end` stops, its turns
-/// taken from the count `n` (`turnTake`), computed one bit wider than
-/// the range's type, which may not hold the block's length.
+/// taken from the count `n` (`turnTake`). The sum, at most `end`, is
+/// added in the range's own bits, which wrap to it exactly.
 pub inline fn turnStop(n: *u32, i: anytype, end: @TypeOf(i)) @TypeOf(i) {
-    const W = @Int(.signed, @bitSizeOf(@TypeOf(i)) + 1);
-    const turns: W = @intCast(turnTake(n, turnsLeft(i, end)));
-    return @intCast(@as(W, i) + turns);
+    const T = @TypeOf(i);
+    const U = @Int(.unsigned, @bitSizeOf(T));
+    const turns: U = @intCast(turnTake(n, turnsLeft(i, end)));
+    return @bitCast(@as(U, @bitCast(i)) +% turns);
 }
 
 /// The end of a block: the yield check, when the block took the last

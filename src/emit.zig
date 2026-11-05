@@ -287,6 +287,9 @@ const JumpTarget = struct {
 
 const LoopPart = enum { cond, body, step };
 
+/// The turns between a task's yield checks: the runtime's `rig.tick_turns`.
+const tick_turns = 1024;
+
 /// A range loop written in blocks (`Emitter.emitRangeFor`): its index in
 /// `targets`, its count of turns, its counter, and its block's end.
 const SplitLoop = struct { index: usize, turns: []const u8, counter: []const u8, stop: []const u8 };
@@ -4480,7 +4483,14 @@ pub const Emitter = struct {
         // left before the next yield check: a plain inner loop, which
         // compiles as one with no check, then the check once
         // (docs/internals/INTERNALS.md, "Loops").
-        const split = lp.turns != null and more.len == 0 and
+        // A range whose length is a constant that fits one block stays one
+        // loop: it would be one block anyway, and a length known to Zig
+        // lets it unroll the loop whole.
+        const short = if (self.facts.constIntOf(ir.@"..".left(range))) |lo|
+            if (self.facts.constIntOf(ir.@"..".right(range))) |hi| hi - lo <= tick_turns else false
+        else
+            false;
+        const split = lp.turns != null and more.len == 0 and !short and
             !facts.syntax.contains(ir.For.body(sexp), &.{ .@"while", .@"for" });
         const stop = if (split) try self.fmt("__rig_stop_{d}", .{id}) else "";
         try self.startLoopLine(lp);
