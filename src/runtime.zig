@@ -8542,6 +8542,7 @@ inline fn panicking_here() *bool {
 /// to end with the first report.
 fn beginPanic() void {
     if (concurrent and !panicking_here().*) {
+        // A panic once, which ends the program: uncounted for preemption.
         if (panic_stage.cmpxchgStrong(0, 1, .seq_cst, .seq_cst) != null) awaitOtherPanic();
         panicking_here().* = true;
     } else {

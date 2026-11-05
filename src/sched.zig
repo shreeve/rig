@@ -5628,10 +5628,12 @@ test "every lock the runtime takes is counted for preemption" {
     // A lock taken in code the optimizer inlines into the program's own,
     // where a signal may stop the fiber holding it, must count itself
     // (`holdOff`, within the three lines before it), or say why it need
-    // not ("uncounted"). A spin on a flag and each `std.Io.Mutex` the
-    // runtime takes are what the scan finds.
-    const files = [_][]const u8{ @embedFile("runtime.zig"), @embedFile("sched.zig"), @embedFile("tasks.zig"), @embedFile("alloc.zig"), @embedFile("net.zig") };
-    const takes = [_][]const u8{ "cmpxchgWeak(false, true", "cmpxchgStrong(false, true", "lockUncancelable(", "_lock.tryLock()" };
+    // not ("uncounted"). A spin on a flag or a word (a compare-and-swap
+    // from false or 0, a swap to true) and each `std.Io.Mutex` the
+    // runtime takes, in every file the runtime is made of, are what the
+    // scan finds.
+    const files = [_][]const u8{ @embedFile("runtime.zig"), @embedFile("sched.zig"), @embedFile("tasks.zig"), @embedFile("alloc.zig"), @embedFile("net.zig"), @embedFile("ordered.zig"), @embedFile("unordered.zig"), @embedFile("table.zig"), @embedFile("split.zig") };
+    const takes = [_][]const u8{ "cmpxchgWeak(false, true", "cmpxchgStrong(false, true", "cmpxchgWeak(0, 1", "cmpxchgStrong(0, 1", ".swap(true", "lockUncancelable(", ".lock(io", "_lock.tryLock()" };
     for (files) |text| {
         var before: [3][]const u8 = .{ "", "", "" };
         var lines = std.mem.splitScalar(u8, text, '\n');

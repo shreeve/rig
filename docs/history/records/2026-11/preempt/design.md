@@ -467,3 +467,46 @@ Known limits, for the default-on round:
   its fiber is in a system call; `SA_RESTART` covers most, and `poll`,
   `epoll_wait`, and `nanosleep`, which return `EINTR`, are outside
   fibers or retried where Rig calls them.
+
+## Local tasks: the redesign question (2026-11-05)
+
+The recheck of cc74753f5 found a liveness hole, the second soundness
+fix in this area, so by RIG-MANTRAS the feature stops for redesign:
+`starve.rig` (the review's probe), a pinned task that spin-waits on a
+`*Cell` a local sibling sets, hangs with the option on and finishes in
+1.5 s off, since the monitor no longer stops a pinned fiber for its
+siblings.
+
+The design proposed in the recheck, a preempted pinned fiber queued
+FIFO behind its siblings, is not sound. concurrency.md, "Local tasks":
+local tasks share `*T` and `~T` counts that are not atomic, a `Cell`
+of more than one word, a `Signal`, and a function's captures, and
+"take turns at their waits and yield checks". Those are points where
+no count is half-changed and no `Cell` half-copied. A signal stops a
+fiber at any instruction: between the load and the store of a count's
+increment, or in the middle of a two-word copy. A sibling run then
+changes the count, and the stopped fiber's store undoes it (a use after
+free), or reads half of a new value. So a pinned fiber stopped at an
+arbitrary instruction may let only unpinned work run before it resumes
+(the hold), and its siblings may run only at its waiting points; with
+no yield checks there are none in a spin loop, and starve.rig hangs.
+Liveness and soundness for local tasks both need the safe points that
+the yield checks are.
+
+The design that keeps both: **preemption applies to a program that
+makes no local task.** A program whose sema records a local task
+(`Facts.local_tasks`, which `rig check --tasks` lists) is built with
+its yield checks, whatever `RIG_PREEMPT` says, and its local tasks take
+turns as they do today. A program with none has no pinned fiber at all
+(`pinHere` is the only thing that sets a home), so the hold, `held`,
+`popPinned`, `pinned_running`, and their monitor rules are deleted, and
+every preempted fiber goes to the global queue. Trig makes no local
+task (`rig check --tasks` on Trig's main lists none), so its measured
+gain stands. It takes one fact read in `bin/rig` (main.zig: the root
+flag and emit's section, from `local_tasks`), which is outside this
+branch's row.
+
+The lock-count scan now also finds a swap to true and a compare-and-
+swap from 0, and `Io.Mutex.lock(io)`, in ordered.zig, unordered.zig,
+table.zig, and split.zig too; it found no lock there, and three flags
+set once, now noted.

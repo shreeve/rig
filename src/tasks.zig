@@ -390,6 +390,7 @@ const Wakeup = struct {
     /// one sees the other; when both do, `listed` lists it once.
     fn watch(self: *Wakeup, control: *Control) void {
         control.wakeup.store(self, .seq_cst);
+        // A flag set once, not a lock: uncounted for preemption.
         if (self.collect and control.done.load(.seq_cst) and !control.listed.swap(true, .acq_rel)) self.list(control);
     }
 
@@ -408,6 +409,7 @@ const Wakeup = struct {
     noinline fn ended(self: *Wakeup, control: *Control) void {
         // The last touch of `control`: its owner may free it once it is
         // listed, by this or by the watch.
+        // A flag set once, not a lock: uncounted for preemption.
         if (self.collect and !control.listed.swap(true, .acq_rel)) self.list(control);
         self.tick();
     }
