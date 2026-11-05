@@ -909,13 +909,21 @@ pub fn beginWait(cancelable: bool) u32 {
 
 /// Sleep until the wait `epoch`, which `beginWait` gave, is woken, or
 /// `deadline` (the monotonic clock, in nanoseconds) passes.
-pub fn commitWait(epoch: u32, deadline: ?i96) void {
+pub const commitWait = if (preempt) commitWaitApart else commitWaitIn;
+
+/// `commitWait` in a program built to be preempted: never inlined into
+/// the program's own code, and one call in all (`mustNotBeInCode`).
+noinline fn commitWaitApart(epoch: u32, deadline: ?i96) void {
+    commitWaitIn(epoch, deadline);
+}
+
+fn commitWaitIn(epoch: u32, deadline: ?i96) void {
     const f = current().?;
     if (deadline) |d| {
         f.wait.deadline = d;
         f.wait.timer_epoch = epoch;
     }
-    park(.{ .run = fallAsleep, .ctx = if (deadline != null) @ptrFromInt(1) else null });
+    parkIn(.{ .run = fallAsleep, .ctx = if (deadline != null) @ptrFromInt(1) else null });
     // Awake: a timer still set for this wait is taken back, so none
     // touches this fiber once it goes on.
     if (deadline != null) if (f.wait.timers) |t| t.cancel(f);
@@ -935,7 +943,15 @@ fn fallAsleep(f: *Fiber, timed: ?*anyopaque) void {
 /// End the wait `epoch` of `f`, if it is still on, and give whether this
 /// call ended it. A cancel passes `cancel`, and ends only a wait that a
 /// cancel may end.
-pub fn interrupt(f: *Fiber, epoch: u32, cancel: bool) bool {
+pub const interrupt = if (preempt) interruptApart else interruptIn;
+
+/// `interrupt` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn interruptApart(f: *Fiber, epoch: u32, cancel: bool) bool {
+    return interruptIn(f, epoch, cancel);
+}
+
+fn interruptIn(f: *Fiber, epoch: u32, cancel: bool) bool {
     var w = f.wait.word.load(.seq_cst);
     while (true) {
         if (Wait.epochOf(w) != epoch) return false;
@@ -943,7 +959,7 @@ pub fn interrupt(f: *Fiber, epoch: u32, cancel: bool) bool {
         if (state == Wait.woken) return false;
         if (cancel and w & Wait.cancelable_bit == 0) return false;
         w = f.wait.word.cmpxchgWeak(w, (w & ~Wait.states) | Wait.woken, .seq_cst, .seq_cst) orelse {
-            if (state == Wait.asleep) wake(f);
+            if (state == Wait.asleep) wakeIn(f);
             return true;
         };
     }
@@ -961,8 +977,16 @@ fn claim(f: *Fiber, epoch: u32) bool {
 }
 
 /// A cancel of the task `f` runs: end its present wait, if a cancel may.
-pub fn interruptForCancel(f: *Fiber) void {
-    _ = interrupt(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true);
+pub const interruptForCancel = if (preempt) interruptForCancelApart else interruptForCancelIn;
+
+/// `interruptForCancel` in a program built to be preempted: never
+/// inlined into the program's own code (`mustNotBeInCode`).
+noinline fn interruptForCancelApart(f: *Fiber) void {
+    interruptForCancelIn(f);
+}
+
+fn interruptForCancelIn(f: *Fiber) void {
+    _ = interruptIn(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true);
 }
 
 /// The fibers waiting for one condition that another fiber or thread
@@ -996,18 +1020,34 @@ pub const Waiters = struct {
 
     /// Wake the fiber waiting longest, taking it off; whether there was
     /// one whose wait this ended.
-    pub fn wakeOne(ws: *Waiters) bool {
+    pub const wakeOne = if (preempt) wakeOneApart else wakeOneIn;
+
+    /// `wakeOne` in a program built to be preempted: never inlined into
+    /// the program's own code (`mustNotBeInCode`).
+    noinline fn wakeOneApart(ws: *Waiters) bool {
+        return wakeOneIn(ws);
+    }
+
+    fn wakeOneIn(ws: *Waiters) bool {
         while (ws.first) |n| {
             ws.remove(n);
-            if (interrupt(n.fiber, n.epoch, false)) return true;
+            if (interruptIn(n.fiber, n.epoch, false)) return true;
         }
         return false;
     }
 
     /// Wake every fiber listed; whether there was one.
-    pub fn wakeAll(ws: *Waiters) bool {
+    pub const wakeAll = if (preempt) wakeAllApart else wakeAllIn;
+
+    /// `wakeAll` in a program built to be preempted: never inlined into
+    /// the program's own code (`mustNotBeInCode`).
+    noinline fn wakeAllApart(ws: *Waiters) bool {
+        return wakeAllIn(ws);
+    }
+
+    fn wakeAllIn(ws: *Waiters) bool {
         var any = false;
-        while (ws.wakeOne()) any = true;
+        while (wakeOneIn(ws)) any = true;
         return any;
     }
 };
@@ -1016,7 +1056,15 @@ pub const Waiters = struct {
 /// when this returns, until a waker takes the running fiber off the list,
 /// `deadline` passes, or, when `cancelable`, its task is canceled:
 /// whether a waker took it off.
-pub fn sleepOn(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
+pub const sleepOn = if (preempt) sleepOnApart else sleepOnIn;
+
+/// `sleepOn` in a program built to be preempted: never inlined into the
+/// program's own code (`mustNotBeInCode`).
+noinline fn sleepOnApart(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
+    return sleepOnIn(ws, lock, deadline, cancelable);
+}
+
+fn sleepOnIn(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
     const f = current().?;
     var n: Waiters.Node = .{ .fiber = f, .epoch = beginWait(cancelable), .prev = ws.last };
     if (ws.last) |l| l.next = &n else ws.first = &n;
@@ -1024,7 +1072,7 @@ pub fn sleepOn(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) 
     lock.unlock();
     // A cancel that came before the wait began found no wait to end.
     const over = (cancelable and isCanceled(f)) or (if (deadline) |d| nowNs() >= d else false);
-    if (!over) commitWait(n.epoch, deadline);
+    if (!over) commitWaitIn(n.epoch, deadline);
     lock.lock();
     defer ws.remove(&n);
     return !n.listed;
@@ -3521,9 +3569,17 @@ pub const Done = struct {
     const ending = 2;
     const ended = 3;
 
-    pub fn finish(d: *Done) void {
+    pub const finish = if (preempt) finishApart else finishIn;
+
+    /// `finish` in a program built to be preempted: never inlined into
+    /// the program's own code (`mustNotBeInCode`).
+    noinline fn finishApart(d: *Done) void {
+        finishIn(d);
+    }
+
+    fn finishIn(d: *Done) void {
         if (d.status.swap(ending, .seq_cst) == waited) {
-            _ = interrupt(d.waiter.load(.seq_cst).?, d.epoch.load(.seq_cst), false);
+            _ = interruptIn(d.waiter.load(.seq_cst).?, d.epoch.load(.seq_cst), false);
         }
         d.status.store(ended, .seq_cst);
     }
@@ -3572,7 +3628,15 @@ pub const Done = struct {
 
     /// Wait for it to finish, or, when `cancel` is given, for that flag
     /// to be set first, or for `deadline` to pass, when this gives false.
-    pub inline fn wait(d: *Done, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+    pub const wait = if (preempt) waitApart else waitIn;
+
+    /// `wait` in a program built to be preempted: never inlined into the
+    /// program's own code (`mustNotBeInCode`).
+    noinline fn waitApart(d: *Done, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+        return waitIn(d, cancel, deadline);
+    }
+
+    inline fn waitIn(d: *Done, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
         while (!d.isDone()) {
             if (cancel) |c| if (c.load(.seq_cst)) return false;
             if (deadline) |t| if (nowNs() >= t) return false;
@@ -3583,7 +3647,7 @@ pub const Done = struct {
                 if (s != waited) continue;
             }
             if (cancel) |c| if (c.load(.seq_cst)) return false;
-            commitWait(e, deadline);
+            commitWaitIn(e, deadline);
         }
         return true;
     }
@@ -3628,7 +3692,7 @@ pub const Header = struct {
             // sleeps on its timer instead.
             if (deadline == null and w.lifo.load(.monotonic) == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel);
         }
-        return h.done.wait(cancel, deadline);
+        return Done.waitIn(&h.done, cancel, deadline);
     }
 };
 
@@ -3711,7 +3775,15 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
 /// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
 /// task's `Control` there), which `f` gets first. A `local` task, and the
 /// fiber making it, are pinned to this worker (`pinHere`).
-pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool) Spawned(T, Extra) {
+pub const spawn = if (preempt) spawnApart else spawnIn;
+
+/// `spawn` in a program built to be preempted: never inlined into the
+/// program's own code, and one call in all (`mustNotBeInCode`).
+noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool) Spawned(T, Extra) {
+    return spawnIn(T, Extra, f, args, extra, local);
+}
+
+fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool) Spawned(T, Extra) {
     const Args = @TypeOf(args);
     const Full = struct {
         job: Job(T),
@@ -3739,14 +3811,22 @@ pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: 
     // its task somewhere does so before the task can run (`made`).
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     if (@hasDecl(Extra, "made")) full.extra.made();
-    if (local) full.job.header.fiber.home = pinHere();
-    wake(&full.job.header.fiber);
+    if (local) full.job.header.fiber.home = pinHereIn();
+    wakeIn(&full.job.header.fiber);
     return .{ .job = &full.job, .extra = &full.extra };
 }
 
 /// Start `f(args...)` as a fiber no one waits for: its record frees
 /// itself once the fiber has ended (an actor's runner, `tasks.Actor`).
-pub fn spawnDetached(comptime f: anytype, args: anytype) void {
+pub const spawnDetached = if (preempt) spawnDetachedApart else spawnDetachedIn;
+
+/// `spawnDetached` in a program built to be preempted: never inlined
+/// into the program's own code (`mustNotBeInCode`).
+noinline fn spawnDetachedApart(comptime f: anytype, args: anytype) void {
+    return spawnDetachedIn(f, args);
+}
+
+fn spawnDetachedIn(comptime f: anytype, args: anytype) void {
     const Args = @TypeOf(args);
     const Full = struct {
         fiber: Fiber,
@@ -3765,7 +3845,7 @@ pub fn spawnDetached(comptime f: anytype, args: anytype) void {
     if (!started.*) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
     full.* = .{ .fiber = .{ .run = Full.start, .done = Full.end }, .args = args };
-    wake(&full.fiber);
+    wakeIn(&full.fiber);
 }
 
 /// What `spawn` gives: the task's record, and the `Extra` in it.

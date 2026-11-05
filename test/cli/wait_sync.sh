@@ -57,11 +57,14 @@ need "Wait.lean pack" "$(lbody "$lean" '^def pack ')" "e * 2 ^ epochShift" "if c
 need "sched.zig Wait.pack" "$(zbody "$zig" 'fn pack[(]')" "if (cancelable) cancelable_bit else 0" "| state"
 
 # Every Zig function that touches a wait's word, and the Lean step it is
-# ("-" for none of its own).
+# ("-" for none of its own). An entry other files call is a pair
+# (`interrupt` is `interruptApart`, never inlined, in a program built to
+# be preempted, and `interruptIn` otherwise): the body, `...In`, is the
+# step.
 zfns=$(awk '
     /^ *(pub )?(inline |noinline )?fn [a-zA-Z_]+\(/ { s = $0; sub(/^ *(pub )?(inline |noinline )?fn /, "", s); sub(/\(.*/, "", s); cur = s }
     /wait\.word/ { print cur }' "$zig" | sort -u | tr '\n' ' ')
-want="beginWait claim fallAsleep fiberMain interrupt interruptForCancel "
+want="beginWait claim fallAsleep fiberMain interruptForCancelIn interruptIn "
 expect_eq "$(tr ' ' '\n' <<<"$zfns" | sed '/^$/d' | sort | tr '\n' ' ')" "$want" \
     "the functions of src/sched.zig that touch a wait's word: each must be a step of Wait.lean, listed here"
 
@@ -89,12 +92,12 @@ need "Wait.lean W.interrupt" "$(lbody "$lean" '^def W.interrupt ')" \
     "e = w.epoch" "w.st ≠ .woken" "(cancel = false ∨ w.cancelable = true)" "st := .woken" \
     "if w.st = .asleep then 1 else 0"
 need "Wait.lean interrupt" "$(lbody "$lean" '^  [|] interrupt ')" "(w.interrupt e cancel)"
-need "sched.zig interrupt" "$(zbody "$zig" 'pub fn interrupt[(]')" \
+need "sched.zig interrupt" "$(zbody "$zig" 'fn interruptIn[(]')" \
     "if (Wait.epochOf(w) != epoch) return false;" "if (state == Wait.woken) return false;" \
     "if (cancel and w & Wait.cancelable_bit == 0) return false;" \
-    "& ~Wait.states) | Wait.woken, .seq_cst, .seq_cst)" "if (state == Wait.asleep) wake(f);"
-need "sched.zig interruptForCancel" "$(zbody "$zig" 'pub fn interruptForCancel[(]')" \
-    "interrupt(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true)"
+    "& ~Wait.states) | Wait.woken, .seq_cst, .seq_cst)" "if (state == Wait.asleep) wakeIn(f);"
+need "sched.zig interruptForCancel" "$(zbody "$zig" 'fn interruptForCancelIn[(]')" \
+    "interruptIn(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true)"
 
 # claim: a wait of its epoch, asleep, becomes woken, run at once.
 need "Wait.lean claim" "$(lbody "$lean" '^  [|] claim ')" "e = w.epoch ∧ w.st = .asleep" "st := .woken"
