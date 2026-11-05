@@ -531,3 +531,13 @@ and `ring.rig` (two local siblings and an unpinned task spin-waiting on
 each other in a ring, one worker) with the option and without,
 expecting the same output, the note, and an end within 60 s; and a
 program with no local task, which gets no note.
+
+Trig's numbers still hold without the hold. Trig (`9cf8bd8`) built with
+the option by the Rig at 17a33377b, against the same build by the Rig
+at 9d43c237f (the on arm Trig timed), user instructions on one checker,
+E-core 14, fewest of three runs: mitt 70.72M to 70.48M (0.34% fewer),
+neverthrow 91.26M to 90.94M (0.36%), tiny-invariant 719.4M to 716.4M
+(0.41%), superstruct 204.6M to 203.9M (0.32%), zod3 1,338.6M to
+1,334.3M (0.33%), ts-pattern 8,207M to 8,199M (0.09%). test/cli/
+preempt.sh fails with the Rig at 9d43c237f (hold.rig killed at 60 s)
+and passes with this one, on pup and on the Mac.
