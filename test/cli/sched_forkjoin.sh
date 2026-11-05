@@ -1,7 +1,7 @@
 # Fork-join runs in parallel: a task made, then its maker computing the
 # other half in nested loops, run at once, using about twice as much CPU
 # time as wall time. Every loop's turns count toward a yield check, not only an
-# outermost loop's, and a task left in a busy worker's run-next slot is
+# outermost loop's (the innermost range's by blocks), and a task left in a busy worker's run-next slot is
 # taken by an idle worker (docs/internals/scheduler.md).
 # timeout: 300
 source "$ROOT/test/cli/_lib.sh"
@@ -20,7 +20,10 @@ sub main()
   print(total)
 EOF
 zig=$(rig emit nest.rig) || fail "rig emit nest.rig"
-expect_eq "$(grep -o 'rig\.turn(&' <<<"$zig" | wc -l | tr -d ' ')" 3 "yield checks in three nested loops"
+# The two outer loops check on each turn; the innermost, a range with no
+# loop in it, runs in blocks, each ending in one check.
+expect_eq "$(grep -o 'rig\.turn(&' <<<"$zig" | wc -l | tr -d ' ')" 2 "yield checks on each turn in three nested loops"
+expect_eq "$(grep -o 'rig\.turnEnd(&' <<<"$zig" | wc -l | tr -d ' ')" 1 "yield checks by blocks in three nested loops"
 expect_eq "$(grep -o 'rig\.tick_turns' <<<"$zig" | wc -l | tr -d ' ')" 1 "counts of turns in three nested loops"
 
 cat >forkjoin.rig <<'EOF'
