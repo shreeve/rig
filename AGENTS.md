@@ -124,12 +124,12 @@ RIG_STD=$PWD/std bin/rig run f.rig # read std/ from disk, not the copy built in
 Tests run with Swarm (`swarm`, from Rip):
 
 ```bash
-swarm test/rig.rip                 # the core: every test file but the probes, doc examples,
+swarm test/rig.rip                 # the core: every test file (the probes too), doc examples,
                                    #   examples, torture input, unit tests, oracle, test/cli
 swarm test/rig.rip std-text        # one file: test/rig/std-text.rig.test
 swarm test/rig.rip doc-SPEC        # one doc's examples (doc: every doc's)
 swarm test/rig.rip cli.lsp         # one script of test/cli
-swarm test/rig.rip all             # core, the probes, and the matrix: the full suite, before a release
+swarm test/rig.rip all             # core and the matrix: the full suite, before a release
 swarm test/rig.rip proofs          # by hand, after a change to src/proofs.zig
 swarm test/rig.rip all -q          # -q, after the script, whenever the run is backgrounded or piped
 ```
