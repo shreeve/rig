@@ -942,19 +942,13 @@ fn fallAsleep(f: *Fiber, timed: ?*anyopaque) void {
     if (Wait.epochOf(w) == f.wait.epoch and w & Wait.states == Wait.about) {
         if (f.wait.word.cmpxchgStrong(w, (w & ~Wait.states) | Wait.asleep, .seq_cst, .seq_cst) == null) return;
     }
-    wakeIn(f);
+    wake(f);
 }
 
 /// End the wait `epoch` of `f`, if it is still on, and give whether this
 /// call ended it. A cancel passes `cancel`, and ends only a wait that a
 /// cancel may end.
-pub const interrupt = if (preempt) interruptApart else interruptIn;
-
-noinline fn interruptApart(f: *Fiber, epoch: u32, cancel: bool) bool {
-    return interruptIn(f, epoch, cancel);
-}
-
-fn interruptIn(f: *Fiber, epoch: u32, cancel: bool) bool {
+pub fn interrupt(f: *Fiber, epoch: u32, cancel: bool) bool {
     var w = f.wait.word.load(.seq_cst);
     while (true) {
         if (Wait.epochOf(w) != epoch) return false;
@@ -962,7 +956,7 @@ fn interruptIn(f: *Fiber, epoch: u32, cancel: bool) bool {
         if (state == Wait.woken) return false;
         if (cancel and w & Wait.cancelable_bit == 0) return false;
         w = f.wait.word.cmpxchgWeak(w, (w & ~Wait.states) | Wait.woken, .seq_cst, .seq_cst) orelse {
-            if (state == Wait.asleep) wakeIn(f);
+            if (state == Wait.asleep) wake(f);
             return true;
         };
     }
