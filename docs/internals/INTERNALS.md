@@ -918,6 +918,30 @@ iterator](#loops-over-an-iterator)), and only the second check's
 context is the module's. The CLI prints at most 100 errors for a
 program and counts the rest.
 
+**Embedded files.** Typecheck records each `$embed("path")` as an
+`EmbedSite`: the call, its literal's span, and the bytes the literal
+holds (`Checker.embedOf`), so the path is known where the call is
+written, and the call is a `Static` and a constant (`isComptimeKnown`).
+Once a module is checked, `ModuleGraph.checkEmbeds` finds each file
+from the directory of the file that names it: a module's directory is
+its qualified name (`a.b` is `a/` for a file, `a/b/` for a directory
+module), and the path's `..` may not climb above the program's
+directory (`import_dir`), as a `use` cannot, and a module of the
+standard library embeds nothing. It opens the file and takes its size,
+never its bytes, so `rig check` of a 20 MB file costs a `stat`; a file
+of 2 GiB or more is rejected, as a source is. A found file is recorded
+with its place in the package, `__rig_embed/` and its path from the
+program's directory (`Facts.embeds`), which `--facts=sema` prints and
+emit writes as `@as([]const u8, @embedFile("__rig_embed/data/x.bin"))`.
+`emitPackage` reads each file once, when it writes the package, and
+holds its bytes as one of the package's files: the modules are at the
+package's top, so the place is under the root of every Zig module that
+reaches it, and since a package's files are what the build store's
+entry, a kept `rig build`, and a batch's places are hashed from, other
+bytes are another build. A batch places each one by its bytes and
+rewrites each `@embedFile` of it, as it does an `@import`
+(`placeBatchFiles`).
+
 **The prelude.** The built-in types written in Rig (`Map`, `Set`,
 `HashMap`, `HashSet`, their iterators and entries, and `Lanes`) are
 std/prelude.rig's, which no program imports. The Parser wrapper notes
@@ -1144,7 +1168,7 @@ ownership:
   `errdefer` needs the same: a body that can fail, or it would never
   run;
 - **the raw boundary**: builtins other than Rig's own (`$size`,
-  `$align`, `$type`, `$name`), and calls to `extern` functions,
+  `$align`, `$type`, `$name`, `$plain`, `$variants`, `$embed`), and calls to `extern` functions,
   must be inside a `raw` block. An `extern` function can only be
   called, so it cannot leave `raw` as a value.
 

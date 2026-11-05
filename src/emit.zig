@@ -8126,6 +8126,12 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "variants")) return self.emitVariants(sexp);
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "name")) return self.emitNameQuery(sexp);
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "plain")) return self.emitPlainTest(sexp);
+        if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "embed")) {
+            // The file's copy in the package, which the module, a file at
+            // the package's top, reaches by its place (`Package`).
+            const place = self.facts.embedPlace(sexp) orelse return self.unsupported(sexp, "a `$embed` whose file was not found");
+            return self.w.print("@as([]const u8, @embedFile(\"{f}\"))", .{std.zig.fmtString(place)});
+        }
         const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");
         try self.w.print("@{s}(", .{name});

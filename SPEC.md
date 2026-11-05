@@ -458,6 +458,8 @@ slicing, `for`, `==` and `<`). Where a `Static` comes from is one list;
 nothing else has the type:
 
 - a string literal (`"hello"`, so a constant made of literals too);
+- `$embed(path)`, a file's bytes, read when the program is compiled
+  ([Builtins](#builtins));
 - a name, field, element, or call whose declared type is `Static` or
   holds one (`os.env`, `os.args`, [std.os](docs/STD.md));
 - a slice `k[a..b]` of a `Static`, which views the same bytes;
@@ -5943,6 +5945,50 @@ sub main()
 
 ```error
 `name[(?Int)?]` cannot use `T = (?Int)?`
+```
+
+`$embed(path)` gives a file's bytes as a `Static`, read when the
+program is compiled. The path is a string literal, named from the
+directory of the file that holds the call, with `/` between its names.
+It may not be absolute, and may not leave the program's directory, the
+one its root's imports are found in ([§1](#1-programs)), so a program
+is the files under that directory, wherever it is copied, as a Zig
+module is. The bytes are taken as they are: nothing in them is escaped
+or read as Rig, and Zig builds them into the program, so `rig check`
+reads none of them and a file of many megabytes costs a build about
+what copying it costs. A file that cannot be read, a directory, and a
+file of 2 GiB or more are rejected where the call is written. A build
+after the file's bytes change builds again. The call is a constant, so
+a module constant may be one, but a compile-time function, which holds
+no text, cannot make one.
+
+```rig file=greeting.txt
+hello
+```
+
+```rig
+GREETING = $embed("greeting.txt")
+
+fun first_line(s: Static) -> Static
+  for b, i in s
+    return s[0..i] if b == 10
+  s
+
+sub main()
+  print(GREETING.len, first_line(GREETING), first_line($embed("greeting.txt")) == "hello")
+```
+
+```output
+6 hello true
+```
+
+```rig reject
+sub main()
+  print($embed("../notes.txt"))
+```
+
+```error
+$embed: "../notes.txt" leaves the program's directory
 ```
 
 Every other builtin is Zig's, keeps its Zig name after Rig's `$`, and

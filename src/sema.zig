@@ -1870,6 +1870,10 @@ pub const Facts = struct {
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
     generic_calls: FastMap(NodeKey, GenericCall) = .empty,
+    /// `$embed("path")` -> the file's place in the package,
+    /// `__rig_embed/` and its path from the program's directory, set by
+    /// the module graph once it found the file (`EmbedSite`).
+    embeds: FastMap(NodeKey, []const u8) = .empty,
     /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: FastMap(u32, void) = .empty,
@@ -2633,6 +2637,24 @@ pub const Use = enum {
 /// A method of a built-in type that emit lowers to an operation of the
 /// runtime's or of Zig's, as typecheck resolved it
 /// (`SemContext.builtinCallOf`).
+/// A `$embed("path")` of the module, as typecheck found it: the call, its
+/// path's span and the bytes the literal holds. The module graph finds
+/// the file (`ModuleGraph.checkEmbeds`) and fills in `file`, the path it
+/// opened, and `place`, where the package holds a copy
+/// (`Facts.embeds`), which `rig build` reads when it writes the package.
+pub const EmbedSite = struct {
+    node: NodeKey,
+    start: u32,
+    end: u32,
+    path: []const u8,
+    file: []const u8 = "",
+    place: []const u8 = "",
+};
+
+/// Where the package holds the files a program embeds, from the
+/// program's directory: `__rig_embed/data/x.bin` for `data/x.bin`.
+pub const embed_dir = "__rig_embed";
+
 pub const BuiltinCall = enum {
     /// `x.is_empty()` of a built-in length: `x.len == 0`.
     is_empty,
@@ -4438,6 +4460,8 @@ pub const SemContext = struct {
     /// (`rig.ByteLiteral`); a module with any is checked again on the
     /// rewritten tree, as for `iter_loops`.
     byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
+    /// Every `$embed` of the module (`EmbedSite`), recorded once each.
+    embed_sites: std.ArrayList(EmbedSite) = .empty,
     /// The iterator chains typecheck found (`rig.Chain`), each to be
     /// rewritten into the loop it means; checked again, as for
     /// `iter_loops`.
@@ -4527,6 +4551,7 @@ pub const SemContext = struct {
         self.iter_loops.deinit(self.allocator);
         self.chains.deinit(self.allocator);
         self.byte_literals.deinit(self.allocator);
+        self.embed_sites.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
         self.const_order.deinit(self.allocator);
@@ -4993,6 +5018,15 @@ pub const SemContext = struct {
     pub fn recordByteLiteral(self: *SemContext, pos: u32, bytes: []const u8, array: bool) !void {
         for (self.byte_literals.items) |l| if (l.pos == pos) return;
         try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
+    }
+
+    /// A `$embed` whose path's literal at `arg` holds `path`; recorded
+    /// once.
+    pub fn recordEmbed(self: *SemContext, node: Sexp, arg: Sexp, path: []const u8) !void {
+        const id = recordKey(node);
+        for (self.embed_sites.items) |e| if (e.node == id) return;
+        const at = self.span(arg);
+        try self.embed_sites.append(self.allocator, .{ .node = id, .start = at.start, .end = at.end, .path = path });
     }
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
