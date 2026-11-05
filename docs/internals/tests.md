@@ -181,23 +181,23 @@ still runs, and is checked, every time. A run in which a job died lists
 each with its reason and exits 1.
 
 The checks come in tiers. `core`, which a run with no names checks, is
-every test file but the probes', the doc examples, the examples, the
-torture input, the unit tests, and the reference ownership checker, and
-takes seconds. The scripts of `test/cli` take minutes, since several
-build dozens of programs one by one, and run when named. `probes` is
-the cases of `test/rig/probes-*.rig.test`, the probes of past reviews:
-they would double the core's time, and what the core wants of them, the
-oracle's verdicts, its oracle job checks anyway. The core gates each
+every test file, the doc examples, the examples, the torture input,
+the unit tests, the reference ownership checker, the scripts of
+`test/cli`, which `cli` runs alone, and the cases of
+`test/rig/probes-*.rig.test`, the probes of past reviews, which
+`probes` runs alone. The scripts add under a minute to the core warm
+(none takes more than about 20 seconds) and the probes about 20
+seconds; both run beside the cases. The core gates each
 change; `all`, the full suite, runs before each major or minor Rig
 release, and optionally before a patch, never on a schedule. `proofs`,
 the differential run of the proven checks, builds each program three
 times, and runs only when named, by hand, after a change to the proofs:
 
 ```bash
-swarm test/rig.rip              # core
-swarm test/rig.rip cli          # the scripts of test/cli
-swarm test/rig.rip probes       # the probes of past reviews
-swarm test/rig.rip all          # core, cli, and probes: the full suite
+swarm test/rig.rip              # core, the scripts of test/cli among it
+swarm test/rig.rip cli          # the scripts of test/cli alone
+swarm test/rig.rip probes       # the probes of past reviews alone
+swarm test/rig.rip all          # core and matrix: the full suite
 swarm test/rig.rip std-text     # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc-SPEC     # SPEC.md's examples alone (doc: every doc's)
 swarm test/rig.rip tree         # only write the cases out as programs (below)
@@ -429,9 +429,10 @@ ran them as files of their own:
 | the same, nothing changed | 11 s | 63 s |
 
 With the docs' examples, the examples, the torture input, the unit
-tests, and the oracle, the core is about 4,100 jobs and takes about 15
-seconds when nothing changed; `all`, with the 65 scripts of `test/cli`
-and the probes, about 8,200 jobs and a minute. A script keeps only what
+tests, the oracle, and the 121 scripts of `test/cli`, the core is about
+7,300 jobs and takes about two and a half minutes warm on the Mac with
+other work running (the scripts about 45 seconds of it); `all`, with
+the probes and the matrix, more. A script keeps only what
 needs the command line and builds nothing it built before, so none takes
 more than about 20 seconds. After a change to the checkers alone, no
 pack compiles again; after a change to the runtime, every pack does,

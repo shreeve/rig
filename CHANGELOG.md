@@ -28,7 +28,12 @@ a bare number, and of `per:` of `task.supervise` and
   `t.add(3 * time.SECOND)`, rejected for `ms: 5`, `1`, `2`, `ms: 1`,
   and `3`; and `per: time.MINUTE`, for `per: 60`;
 - a duration more nanoseconds than an `Int` holds, as a constant:
-  `time.sleep(10_000_000_000)` (ten billion seconds).
+  `time.sleep(10_000_000_000)` (ten billion seconds);
+- a name of a several-result binding, `if f() as a, b`, that reuses a
+  visible local's name: "optional binding `a` shadows the local `a`",
+  as `if g() as a` already said. It holds in an `if`, an `else if`, a
+  `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
+  `a` two meanings). Rename the binding.
 
 ### Added
 
@@ -74,6 +79,22 @@ a bare number, and of `per:` of `task.supervise` and
   value it views in `x`, where emit wrote an exchange of two places
   that Zig rejected. A unit test fails on a `Facts` method that answers
   about a node with a classifier instead of a record.
+- Each name `as a, b` binds is a new name, checked as `as v`'s is: one
+  that shadows a local, or a module-level declaration, is rejected.
+
+### Tests
+
+- The reference ownership checker (`bin/rig-oracle`) agrees with the
+  compiler on a closure literal lent to a call, whose result carries the
+  loans of what the closure captured, and decides the flow of sets of
+  tasks: `!ts.add`, `>ts`, a closure holding a set or another value with
+  a `drop` body, and a generic instance at a task or a set. Its floors
+  rise by what it now decides (59 functions of the tests, 10 of the
+  docs).
+- The core suite, `swarm test/rig.rip`, runs the scripts of `test/cli`
+  and the probes of past reviews (`test/rig/probes-*.rig.test`) too, so
+  a change that breaks one fails its gate; `cli` and `probes` run them
+  alone.
 
 ## v0.3.0 (2026-11-04)
 

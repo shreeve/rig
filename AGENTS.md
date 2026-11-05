@@ -124,18 +124,19 @@ RIG_STD=$PWD/std bin/rig run f.rig # read std/ from disk, not the copy built in
 Tests run with Swarm (`swarm`, from Rip):
 
 ```bash
-swarm test/rig.rip                 # the core: every test file but the probes, doc examples,
-                                   #   examples, torture input, unit tests, oracle (seconds warm)
+swarm test/rig.rip                 # the core: every test file (the probes too), doc examples,
+                                   #   examples, torture input, unit tests, oracle, test/cli
 swarm test/rig.rip std-text        # one file: test/rig/std-text.rig.test
 swarm test/rig.rip doc-SPEC        # one doc's examples (doc: every doc's)
 swarm test/rig.rip cli.lsp         # one script of test/cli
-swarm test/rig.rip all             # core, test/cli, the probes, and the matrix: the full suite, before a release
+swarm test/rig.rip all             # core and the matrix: the full suite, before a release
 swarm test/rig.rip proofs          # by hand, after a change to src/proofs.zig
 swarm test/rig.rip all -q          # -q, after the script, whenever the run is backgrounded or piped
 ```
 
-The runner first rebuilds `bin/rig` with `-Dself-check=true`. `all` takes
-about a minute warm, a few after a compiler change rebuilds every pack.
+The runner first rebuilds `bin/rig` with `-Dself-check=true`. The core
+takes two to three minutes warm on the Mac, more after a compiler change
+rebuilds every pack.
 Failures land in `.swarm/died`, reasons in `.swarm/errors.log`.
 
 **A test file** (`test/rig/AREA.rig.test`) holds cases: a header at the
@@ -180,7 +181,8 @@ until its rule is built. docs/internals/tests.md has the rest.
    is true. Building a planned rule turns its `rig pending` example
    into an ordinary one and its *(planned)* into *(built)*. CHANGELOG gets
    the change, and HANDOFF the status.
-6. **The gates.** Rig's core suite, `swarm test/rig.rip`, green; the
+6. **The gates.** Rig's core suite, `swarm test/rig.rip`, the scripts
+   of `test/cli` among it, green; the
    full suite (`all`) runs before each major or minor Rig release
    (optional for a patch), not per change.
    A change to the compiler, the runtime, or std also passes Trig's
