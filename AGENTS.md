@@ -96,6 +96,7 @@ Which document answers which question:
 | Why is Rig this way? | docs/DESIGN.md, docs/design/mantras.md |
 | Which Zig 0.17 APIs does Rig use? | ZIG-0.17.md; docs/internals/INTERNALS.md, "Where Rig meets Zig 0.17" |
 | What is decided but not started? | docs/ROADMAP.md, docs/internals/backlog.md |
+| Which ideas are kept but not decided? | docs/IDEAS.md |
 | What problems have the docs found in the compiler? | the end of docs/internals/backlog.md |
 | Why was it decided so, and what was measured? | docs/history/records/INDEX.md, and its ledger |
 | What are APIs (`api Shape`), and which stage is built? | docs/design/apis.md |
