@@ -1,0 +1,27 @@
+== arm 0
+ok: status 0 out=[mode ok ] err=[]
+three: status 3 out=[mode three ] err=[]
+exit: status 5 out=[mode exit ] err=[]
+panic: status 134 out=[mode panic ] err=[panic: index out of bounds ]
+fail: status 1 out=[mode fail ] err=[error: FileError.is_directory ]
+mode stdin read hello  
+mode ok
+mode big
+pipe 0 0
+kill -TERM pid: 143
+== arm 1
+ok: status 0 out=[mode ok ] err=[]
+three: status 3 out=[mode three ] err=[]
+exit: status 5 out=[mode exit ] err=[]
+panic: status 134 out=[mode panic ] err=[panic: index out of bounds ]
+fail: status 1 out=[mode fail ] err=[error: FileError.is_directory ]
+mode stdin read hello  
+mode ok
+mode big
+pipe 0 0
+kill -TERM pid: 143
+child SIGKILL: 137
+linux-tests.sh: line 12: 3157678 Segmentation fault         ./modes1 sleep > /dev/null 2>&1
+child SIGSEGV: 139
+parent SIGKILL: 137
+child gone (PDEATHSIG)
