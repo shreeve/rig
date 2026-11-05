@@ -100,7 +100,7 @@ test "wait set", seeds: 20, '''
     x * x
 
   fun fetch(n: Int, ms: Int) -> Int!
-    time.sleep(ms * time.MS)!
+    time.sleep(ms: ms)!
     n * 10
 
   sub work()

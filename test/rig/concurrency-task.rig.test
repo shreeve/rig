@@ -567,6 +567,39 @@ fail "task returned keeps its owner", "cannot drop `xs` while it is lent", error
   <xs
   print(>t)
 
+test "task returned through a lent closure literal", seeds: 20, "3"
+  # The closure's capture `?xs` is the task's loan, which `t` keeps
+  # until it is waited for; the closure ends with its statement.
+  # oracle: call accept
+  # oracle: main accept
+  fun total(v: ?List[Int]) -> Int
+    n = 0
+    for x in v
+      n += x
+    n
+
+  fun call(f: ?fun() -> Task[Int]) -> Task[Int]
+    f()
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  !xs.push(2)
+  t = call(|?xs| total(?xs)&)
+  print(>t)
+
+fail "task returned through a lent closure literal keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun call(f: ?fun() -> Task[Int]) -> Task[Int]
+    f()
+
+  xs: List[Int] = List()
+  t = call(|?xs| total(?xs)&)
+  !xs.push(5)
+  print(>t)
+
 fail "task of a local returned", "cannot return a view of `v`, which this function was not lent", errors: 1
   # A task that reads a local of its function cannot outlive it.
   # oracle: start reject C5
@@ -1114,14 +1147,14 @@ fail "task in a shared object keeps its loan", "cannot lend `xs` to write while 
   print(xs.len)
 
 fail "task returned out of a deadline's closure keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
-  # The oracle abstains here (a generic instance at a view).
+  # oracle: main reject C4
   use std.time
 
   fun total(v: ?List[Int]) -> Int
     v.len
 
   xs: List[Int] = List()
-  t = time.within(time.MS * 100, |?xs| total(?xs)&) catch return
+  t = time.within(ms: 100, |?xs| total(?xs)&) catch return
   !xs.push(2)
   print(>t)
 

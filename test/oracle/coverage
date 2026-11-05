@@ -12,8 +12,10 @@
 # `catch |e|`, and a nameless catch empty, and `g: E =>` arms, and API
 # objects' views, boxes, and shared and weak handles, their erasures, the copies they view, and
 # calls through them, the built-in Map and Set, by their methods'
-# signatures, and values holding function values, which hold nothing, so each
-# floor is what it decides now. A value holding a Cell lives only
+# signatures, values holding function values, which hold nothing,
+# closure literals lent to a call, closures holding values with `drop`
+# bodies, sets of tasks and their waits, and generic instances at tasks
+# and sets of tasks, so each floor is what it decides now. A value holding a Cell lives only
 # behind `*`, and a write view is never stored inside a value, so the
 # programs that hold either by value stop in sema, before either
 # checker decides them. A header whose subject makes a temporary and
@@ -23,6 +25,6 @@
 # a generic body at an owner whose associated type may view what the
 # owner holds is decided by the body lowered again with that type's
 # values carrying their loans (`itemFinding`).
-tests 23073
-docs 1151
+tests 23132
+docs 1161
 matrix 71945

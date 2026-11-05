@@ -76,7 +76,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
-| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`, `drop-write-parens.py`, `migrate-select.py`, `migrate-patterns.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, the generators and their `--check`s (`gen-unicode.py`, `verify-unicode.py`, `x25519-table.zig`), the oracles the tests run (`terminal_ghostty.*`, `text_go.py`, `text_int_go.go`, `utf8_zig.zig`, `markers.py`, `map-trace.py`, `inline_budget.py`, `inline_grid.py`, `to-rig-test.py`, `zig-next.py`), `fetch-json-data.sh`, `basecheck` (HANDOFF's base check), `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); and `store-trim`, which keeps the build store under 40 GB |
+| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`, `drop-write-parens.py`, `migrate-select.py`, `migrate-patterns.py`, `migrate-durations.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, the generators and their `--check`s (`gen-unicode.py`, `verify-unicode.py`, `x25519-table.zig`), the oracles the tests run (`terminal_ghostty.*`, `text_go.py`, `text_int_go.go`, `utf8_zig.zig`, `markers.py`, `map-trace.py`, `inline_budget.py`, `inline_grid.py`, `to-rig-test.py`, `zig-next.py`), `fetch-json-data.sh`, `basecheck` (HANDOFF's base check), `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); and `store-trim`, which keeps the build store under 40 GB |
 | `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (where Rig meets Zig is INTERNALS, "Where Rig meets Zig 0.17") |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
@@ -124,18 +124,19 @@ RIG_STD=$PWD/std bin/rig run f.rig # read std/ from disk, not the copy built in
 Tests run with Swarm (`swarm`, from Rip):
 
 ```bash
-swarm test/rig.rip                 # the core: every test file but the probes, doc examples,
-                                   #   examples, torture input, unit tests, oracle (seconds warm)
+swarm test/rig.rip                 # the core: every test file (the probes too), doc examples,
+                                   #   examples, torture input, unit tests, oracle, test/cli
 swarm test/rig.rip std-text        # one file: test/rig/std-text.rig.test
 swarm test/rig.rip doc-SPEC        # one doc's examples (doc: every doc's)
 swarm test/rig.rip cli.lsp         # one script of test/cli
-swarm test/rig.rip all             # core, test/cli, the probes, and the matrix: the full suite, before a release
+swarm test/rig.rip all             # core and the matrix: the full suite, before a release
 swarm test/rig.rip proofs          # by hand, after a change to src/proofs.zig
 swarm test/rig.rip all -q          # -q, after the script, whenever the run is backgrounded or piped
 ```
 
-The runner first rebuilds `bin/rig` with `-Dself-check=true`. `all` takes
-about a minute warm, a few after a compiler change rebuilds every pack.
+The runner first rebuilds `bin/rig` with `-Dself-check=true`. The core
+takes two to three minutes warm on the Mac, more after a compiler change
+rebuilds every pack.
 Failures land in `.swarm/died`, reasons in `.swarm/errors.log`.
 
 **A test file** (`test/rig/AREA.rig.test`) holds cases: a header at the
@@ -180,7 +181,8 @@ until its rule is built. docs/internals/tests.md has the rest.
    is true. Building a planned rule turns its `rig pending` example
    into an ordinary one and its *(planned)* into *(built)*. CHANGELOG gets
    the change, and HANDOFF the status.
-6. **The gates.** Rig's core suite, `swarm test/rig.rip`, green; the
+6. **The gates.** Rig's core suite, `swarm test/rig.rip`, the scripts
+   of `test/cli` among it, green; the
    full suite (`all`) runs before each major or minor Rig release
    (optional for a patch), not per change.
    A change to the compiler, the runtime, or std also passes Trig's

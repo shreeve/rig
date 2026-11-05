@@ -327,7 +327,7 @@ not waited for cancels it, if it can fail, and waits for it. There are
 no detached tasks and no `'static` bounds. A task's failure arrives
 through `>t`, as any failure does: `>t!` passes it on, and `catch`
 handles it. For a task that can fail, a cancel (`<t.cancel()`) or a
-deadline (`time.within(ns, f)`) arrives as an error at its next waiting
+deadline (`time.within(d, f)`) arrives as an error at its next waiting
 point, with no token to pass down. Ctrl-C cancels a `main` that can
 fail in the same way: its `defer`s and drops run, the tasks it owns
 are canceled, and the program ends with status 130.

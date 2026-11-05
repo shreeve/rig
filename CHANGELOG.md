@@ -10,7 +10,48 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ## Unreleased
 
+### Upgrading from v0.3.0
+
+**A duration's bare number is seconds now, where 0.3.0 read
+nanoseconds:** `time.sleep(5)` sleeps five seconds, and 0.3.0's
+`time.sleep(5)` is `time.sleep(ns: 5)`. `tools/migrate-durations.py
+PATH` rewrites a 0.3.0 program's durations so that each means what it
+meant; run it once ([docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md),
+"From 0.3.0 to 0.3.1"). It changes the meaning of every `time.sleep`,
+`time.after`, `time.within`, `time.Instant.at`, and Instant `add` given
+a bare number, and of `per:` of `task.supervise` and
+`*Actor.supervised`. 0.3.1 rejects these, which 0.3.0 accepted:
+
+- a bare duration that names one of std.time's constants, which count
+  nanoseconds: `time.sleep(5 * time.MS)`, `time.sleep(time.SECOND)`,
+  `time.within(2 * time.SECOND, f)`, `late: time.after(time.MS)`,
+  `t.add(3 * time.SECOND)`, rejected for `ms: 5`, `1`, `2`, `ms: 1`,
+  and `3`; and `per: time.MINUTE`, for `per: 60`;
+- a duration more nanoseconds than an `Int` holds, as a constant:
+  `time.sleep(10_000_000_000)` (ten billion seconds);
+- a name of a several-result binding, `if f() as a, b`, that reuses a
+  visible local's name: "optional binding `a` shadows the local `a`",
+  as `if g() as a` already said. It holds in an `if`, an `else if`, a
+  `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
+  `a` two meanings). Rename the binding.
+
 ### Added
+
+- **Durations in four forms:** a call of std.time that takes a length
+  of time writes it bare in seconds, `time.sleep(2)`,
+  `time.sleep(0.5)`, or with one unit's keyword, `time.sleep(ms: 40)`,
+  `us: 40`, `ns: 40`; the value of each is an `Int` or a `Float`, a
+  `Float` rounded to the nearest whole nanosecond, a half away from
+  zero. `time.sleep`, the deadline arm `time.after`, `time.within`,
+  `time.Instant.at`, and an Instant's `add` take them; `per:` of
+  `task.supervise` and `*Actor.supervised` is in seconds, `per: 0.5`.
+  Two units, a keyword beside a bare number, `seconds:`, a non-number,
+  and a constant that is not finite or that no `Int` of nanoseconds
+  holds are rejected, each with its fix; at run time a NaN, an
+  infinity, or an overflow panics. Typecheck decides each argument's
+  unit once (`sema.duration`, the parameters std.time declares `ns:
+  Duration`), and emit writes the nanoseconds through the runtime's
+  `durationInt` and `durationFloat` (SPEC "Durations").
 
 - **A task's end as an arm of `task.select`:** `done: ?t.on_end()`
   completes once the task `t` has ended, before the select or while it
@@ -38,6 +79,22 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
   value it views in `x`, where emit wrote an exchange of two places
   that Zig rejected. A unit test fails on a `Facts` method that answers
   about a node with a classifier instead of a record.
+- Each name `as a, b` binds is a new name, checked as `as v`'s is: one
+  that shadows a local, or a module-level declaration, is rejected.
+
+### Tests
+
+- The reference ownership checker (`bin/rig-oracle`) agrees with the
+  compiler on a closure literal lent to a call, whose result carries the
+  loans of what the closure captured, and decides the flow of sets of
+  tasks: `!ts.add`, `>ts`, a closure holding a set or another value with
+  a `drop` body, and a generic instance at a task or a set. Its floors
+  rise by what it now decides (59 functions of the tests, 10 of the
+  docs).
+- The core suite, `swarm test/rig.rip`, runs the scripts of `test/cli`
+  and the probes of past reviews (`test/rig/probes-*.rig.test`) too, so
+  a change that breaks one fails its gate; `cli` and `probes` run them
+  alone.
 
 ### Runtime
 

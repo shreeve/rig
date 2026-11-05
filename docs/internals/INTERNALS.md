@@ -1559,6 +1559,7 @@ instead of re-deriving it by name:
 | `builtinCallOf(callee)` | for a call of a built-in type's method that emit lowers on its own (`sema.BuiltinCall`): `x.is_empty()` of a built-in length, a Cell-held List's `push`, `pop`, `clear`, `keep`, and `get`, a task set's `wait_first`, `get` of an array, a slice, or a `?String`, and a Cell's `set`, `swap`, `compare_swap`, `add`, and `sub`, recorded where typecheck resolves each, so emit matches no method name |
 | `swapCallOf(call)` | for a call of the built-in `swap`, not hidden by a declaration: whether it exchanges two places or puts a value in one (`sema.SwapCall`, by `sema.swapsTwoPlaces`), decided where typecheck checks the call and read by the ownership checker, the oracle, and emit |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
+| `durationOf(node)` | for an argument that fills a duration parameter (`sema.duration`: one std.time declares `ns: Duration`, the deadline arm, or `per:`): the nanoseconds in the unit it counts, and whether it is a `Float`; emit writes `rig.durationInt(x, unit)` or `rig.durationFloat(x, unit)`, the parameter's nanoseconds (SPEC "Durations") |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
@@ -5116,7 +5117,7 @@ and a query that decides more than that is a recorded fact.
   holds an arm's loans until the select returns. Sema records which
   expressions are lent this way (`SemContext.lendOf`, the `callable`
   row). A select of named arms (`task.select(got: !a.on_recv(), late:
-  time.after(ns))`, `Checker.taskSelectNamed`) holds no function: its
+  time.after(ms: 50))`, `Checker.taskSelectNamed`) holds no function: its
   value's type is an enum made once per list of names and payloads
   (`sema.selectType`, flagged `select_result`, named `select(got,
   late)`), which emit writes as `rig.Select(&.{ names }, &.{ payloads
@@ -6152,12 +6153,19 @@ dropped (an `errdefer` only where the function fails); reads what a
 handle holds through a loan on the handle, every handle carrying its
 contents' loans; makes a closure a value carrying its captures' loans
 and checks its body as a function whose captures hold the caller's
-loans; lets no value carrying a loan into a Cell, a Signal, or an owned
+loans, a closure literal lent to a call lending the call its captures
+and never itself (Core §7), and an environment holding a value with a
+`drop` body, a task's among them, keeping its loans until the closure
+is dropped; lets no value carrying a loan into a Cell, a Signal, or an owned
 closure (Core s9); and checks a generic body once, each type parameter
 owning and holding no view, with a copy of one left to each instance
 (SPEC "Generic bodies"), and a call of a generic function or type at
 type arguments of plain data, or of owners where the bodies it runs
-never copy a type parameter. Where a `$plain(T)` operand of a
+never copy a type parameter, a task or a set of tasks among them, whose
+loans the signature's types carry as a type parameter may hold anything.
+A set of tasks keeps its tasks' loans: `!ts.add(t)` stores the task's,
+and `>ts` takes the set and gives what its tasks gave, carrying those its
+type could hold. Where a `$plain(T)` operand of a
 condition's `and` chain has held, in the operands after it, the code
 the condition guards, and the closures made there, `T` is plain data
 (`Kinds.narrowed`), so a copy there asks nothing of an owner's instance
@@ -6215,9 +6223,9 @@ C5. A `g: E =>` arm binds the subject as a variant pattern binds a
 payload (an error matched as an enum of its sets): a view of `err` under
 `match err`, the error itself under `match <err`. In `kinds.Reach` a
 union of sets holds each of its sets, and `error` may own what any view
-points into, but views nothing itself. A wait on a task (`>t!`, `>t
-catch`) is a call of the task's `wait`, which the oracle does not
-model, nor what a task holds of its call's loans, so it abstains there.
+points into, but views nothing itself. A wait on a task or a set of tasks
+(`>t!`, `>ts catch`) is a call of its `wait`, which fails as any call
+does.
 
 Several results are hidden statement temporaries, one a result, each
 carrying the loans its own type could view (Core s7, per result); each

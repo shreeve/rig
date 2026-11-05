@@ -4963,6 +4963,26 @@ sub main()
 local `total` has the same name as the module-level declaration `total`
 ```
 
+The names a pattern, `catch`, and `as` bind are new in the same way,
+each of the several names `as a, b` binds included, in an `if`, a
+`while`, and a ternary alike:
+
+```rig reject
+fun pair(k: Int) -> (Int, Int)?
+  return none if k <= 0
+  return k, k + 1
+
+sub main()
+  a = 1
+  if pair(3) as a, b
+    print(a + b)
+  print(a)
+```
+
+```error
+optional binding `a` shadows the local `a`; use a different name
+```
+
 A binding cannot refer to itself in its own initializer. Parameters,
 loop bindings, and names bound by patterns and `as` are immutable,
 though one that holds a write view writes through it
@@ -13016,7 +13036,7 @@ a channel's send, receive, or select, a call of an actor's method that
 can fail, or a call of `std.net` or `std.file` that waits. There
 it fails with `Stop.canceled`, and its `defer`s and drops run as for any
 failure. The request stays: every waiting point the task reaches after
-it fails too, so `time.sleep(d) catch print("woken")` does not let the
+it fails too, so `time.sleep(1) catch print("woken")` does not let the
 task carry on. Everything else the task does, its output and its
 drops among them, finishes as it would.
 
@@ -13035,11 +13055,11 @@ use std.time
 
 fun nap() -> Int!
   defer print("nap stops")
-  time.sleep(10 * time.SECOND)!
+  time.sleep(10)!
   1
 
 fun stubborn() -> Int!
-  time.sleep(10 * time.SECOND) catch print("caught once")
+  time.sleep(10) catch print("caught once")
   task.check()!
   2
 
@@ -13102,7 +13122,7 @@ it holds.
   for tasks that can fail, since the rest must be stopped.
 - A wait with a deadline is written in `time.within`
   ([Deadlines](#deadlines)), which takes the set into its closure:
-  `time.within(ns, |<ts| >ts!)`. When the deadline passes, the tasks
+  `time.within(2, |<ts| >ts!)`. When the deadline passes, the tasks
   still running are canceled, and the wait fails with
   `task.Stop.timeout`.
 - Waiting on tasks that can fail is a waiting point: a canceled waiter
@@ -13123,7 +13143,7 @@ error Fetch
   missing
 
 fun fetch(n: Int, ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   return Fetch.missing if n == 3
   n * 10
 
@@ -13131,7 +13151,7 @@ fun first_two() -> List[Int]!
   ts = Tasks[Int!]()
   !ts.add(fetch(1, 20)&)
   !ts.add(fetch(2, 1)&)
-  time.within(5 * time.SECOND, |<ts| >ts!)!
+  time.within(5, |<ts| >ts!)!
 
 fun any_one() -> Int!
   ts = Tasks[Int!]()
@@ -13352,9 +13372,10 @@ so the call fails as `f` fails too; it always can fail.
 - Inside another isolate, the nearest one stops a panic. With none, a
   panic ends the program as before.
 
-`task.supervise(f, restarts: n, per: ns)` runs `f` isolated, and runs
-it again each time it fails or panics, at most `n` times within `ns`
-nanoseconds; past that, it fails as the last run failed. With no
+`task.supervise(f, restarts: n, per: s)` runs `f` isolated, and runs
+it again each time it fails or panics, at most `n` times within `s`
+seconds, a duration given by its name ([Durations](#durations)); past
+that, it fails as the last run failed. With no
 `restarts:` it starts again always, and with no `per:` the `n` count in
 all. A cancel or a deadline is no failure to start again from: the call
 fails with it at once. `f` follows `task.isolate`'s rules.
@@ -13379,10 +13400,68 @@ Stop.panicked
 -1
 ```
 
+### Durations
+
+A call of `std.time` that takes a length of time writes it in one of
+four forms: bare, a number of seconds, `time.sleep(2)` or
+`time.sleep(0.5)`; or with one unit's keyword, `time.sleep(ms: 40)`,
+`time.sleep(us: 40)`, or `time.sleep(ns: 40)`. The value is an `Int`
+or a `Float` in each. The parameter's body sees the nanoseconds, an
+`Int`: a `Float` is rounded to the nearest whole nanosecond, a half
+away from zero, and a NaN, an infinity, or more nanoseconds than an
+`Int` holds panics as a conversion does ([Numeric
+conversions](#numeric-conversions)), and is rejected when it is a
+constant. `time.sleep`, `time.after`, `time.within`, `Instant.at`, and
+an Instant's `add` take a duration so. An option that takes one by its
+own name, `per:` of `task.supervise` and `*Actor.supervised`, is in
+seconds, `per: 0.5`.
+
+A call takes one form: two units, a keyword with a bare number, and
+`seconds:` are rejected, each with its fix. What a clock gives back
+(`t.elapsed()`, `t.since(u)`) is an `Int` of nanoseconds, which
+std.time's constants `NS`, `US`, `MS`, `SECOND`, and `MINUTE` count; a
+bare duration is seconds, so it takes none of them: `time.sleep(5 *
+time.MS)` is rejected for `time.sleep(ms: 5)`, and `t.add(ns:
+t.since(u))` passes nanoseconds on.
+
+```rig
+use std.time
+
+sub main()!
+  z = time.Instant.at(0)
+  print(z.add(2).since(z), z.add(0.5).since(z), z.add(ms: 40).since(z))
+  print(z.add(us: 1.5).since(z), z.add(ns: 2.5).since(z))
+  start = time.now()
+  time.sleep(ms: 2)!
+  print(start.elapsed() >= 2 * time.MS)
+```
+
+```output
+2000000000 500000000 40000000
+1500 3
+true
+```
+
+```rig reject
+use std.time
+
+sub main()!
+  time.sleep(5 * time.MS)!
+  time.sleep(ms: 1, us: 500)!
+  time.sleep(seconds: 2)!
+```
+
+```error
+a bare duration is in seconds, and `time.MS` counts nanoseconds: write `time.sleep(ms: 5)`
+`time.sleep` takes one duration, in one unit: `ms: 1` or `us: 500`, not both
+a duration in seconds is written bare, with no keyword: `time.sleep(2)`
+```
+
 ### Deadlines
 
-`time.within(ns, f)` of `std.time` runs the closure `f` with a
-deadline `ns` nanoseconds from now, and gives what `f` gives. `f` may
+`time.within(d, f)` of `std.time` runs the closure `f` with a
+deadline `d` from now, a duration ([Durations](#durations)), and gives
+what `f` gives. `f` may
 propagate with `!`, so the call can fail. Every fallible waiting point
 `f` reaches after the deadline fails with `task.Stop.timeout`:
 `time.sleep`, which sleeps only until the deadline, `task.check`, and
@@ -13394,7 +13473,7 @@ write to a full one).
 
 - `within` calls `f` once (its parameter is written `f: once ?fun() ->
   R!`, [Closures called once](#closures-called-once)), so `f` may move in
-  a task started before it and wait for it: `time.within(d, |<t| >t!)`
+  a task started before it and wait for it: `time.within(2, |<t| >t!)`
   gives a deadline to one task, and `|<ts| >ts!` to a set.
 - The tasks `f` starts keep the deadline.
 - Inside another deadline, the earlier one holds, and the outer one is
@@ -13406,17 +13485,17 @@ write to a full one).
 use std.time
 
 fun slow(ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   ms
 
 sub main()
-  print(time.within(time.SECOND, || slow(1)!) catch -1)
-  print(time.within(5 * time.MS, || slow(60_000)!) catch -1)
+  print(time.within(1, || slow(1)!) catch -1)
+  print(time.within(ms: 5, || slow(60_000)!) catch -1)
   t = slow(60_000)&
-  print(time.within(5 * time.MS, |<t| >t!) catch -1)
-  n = time.within(time.SECOND, ||
+  print(time.within(ms: 5, |<t| >t!) catch -1)
+  n = time.within(1, ||
     a = slow(1)!
-    b = time.within(5 * time.MS, || slow(60_000)!) catch 0
+    b = time.within(ms: 5, || slow(60_000)!) catch 0
     a + b
   ) catch -1
   print(n)
@@ -13514,8 +13593,8 @@ for its first value, and calls it again for a new value each time a
 panic ends the old one, which is abandoned as a dead actor's is. The
 call that panicked still panics in its caller; the calls queued, and
 those after, run against the new value, which `make` makes just before
-the next method runs. `restarts: n, per: ns` allows at most `n` restarts
-within `ns` nanoseconds, or `n` in all without `per:`; past that, or at
+the next method runs. `restarts: n, per: s` allows at most `n` restarts
+within `s` seconds ([Durations](#durations)), or `n` in all without `per:`; past that, or at
 a panic in `make` itself, the actor dies for good. What `make` captures
 moves to the tasks that run the actor. `mailbox:` is as `*Actor(x)`
 takes it.
@@ -13577,8 +13656,9 @@ a `match` on the value runs the winner's body:
   `value` (`.got(v?)`, or `.got(value: v?)` by name).
 - `name: !ch.on_send(<v)` sends `v`; its variant carries nothing. A
   send arm that loses drops its value.
-- `name: time.after(ns)` is a deadline: it completes once `ns`
-  nanoseconds have passed since the select made it, and carries
+- `name: time.after(d)` is a deadline, `late: time.after(ms: 50)`: it
+  completes once the duration `d` ([Durations](#durations)) has passed
+  since the select made it, and carries
   nothing. When it falls with the task's own deadline (`time.within`),
   the task's comes first, and the select fails with
   `task.Stop.timeout`.
@@ -13636,7 +13716,7 @@ sub main()!
     match task.select(
       got:  !ch.on_recv(),
       quit: !quit.on_recv(),
-      late: time.after(time.SECOND)
+      late: time.after(1)
     )!
       .got(v?) => sum += v
       .got(none) => open = false
@@ -13659,7 +13739,7 @@ use std.task
 use std.time
 
 fun fetch(n: Int, ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   n * 10
 
 sub main()!
@@ -13668,7 +13748,7 @@ sub main()!
   match task.select(
     near: ?near.on_end(),
     far:  ?far.on_end(),
-    late: time.after(time.SECOND)
+    late: time.after(1)
   )!
     .near => print("near", >near!)
     .far => print("far", >far!)

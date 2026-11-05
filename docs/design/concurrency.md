@@ -633,9 +633,9 @@ outside the boundary that the dead code touched was only read.
 (built) makes an actor that starts again from the function when it
 dies; the function is an owned closure, since the actor keeps it.
 Calls that had not started wait for the new actor; the call that was
-running when it died panics in its caller. `restarts: n, per: ns`
+running when it died panics in its caller. `restarts: n, per: s` (seconds)
 limits the restarts in a window, past which the actor dies for good.
-`task.supervise(f, restarts: n, per: ns)` (built) does the same for a
+`task.supervise(f, restarts: n, per: s)` (built) does the same for a
 function: it runs `f` isolated, restarts it on an error or a panic, and
 gives up past a limit of restarts in a window.
 
@@ -669,7 +669,7 @@ restarted by a small parent) remains, as defence in depth.
   one word is (built);
 - `select` over channel operations, which commits exactly one arm
   atomically, CML-style, so a message is never taken by an arm that then
-  loses (built: `match task.select(got: !a.on_recv(), put: !b.on_send(<x), late: time.after(ns))!`,
+  loses (built: `match task.select(got: !a.on_recv(), put: !b.on_send(<x), late: time.after(ms: 50))!`,
   whose value's variant is the winner's name, its body run in the enclosing scope),
   and over a task's end, `done: ?t.on_end()`, which lends the task and
   leaves it to its holder, so a race of tasks is a select of their ends

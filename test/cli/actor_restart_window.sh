@@ -18,7 +18,7 @@ obj Slow
 
   fun hold(!@) -> Int!
     @n += 5
-    time.sleep(20 * time.MS)!
+    time.sleep(ms: 20)!
     @n
 
   fun boom(?@, i: Int) -> Int
@@ -31,18 +31,18 @@ fun holder(a: *Actor[Slow]) -> Int!
   (!a).hold()!
 
 fun behind(a: *Actor[Slow]) -> Int!
-  time.sleep(2 * time.MS)!
+  time.sleep(ms: 2)!
   a.get()
 
 sub main()!
   made = *Cell(0)
-  a = *Actor.supervised(*|+made| Slow(n: 100 * (!made).add(1)), restarts: 1, per: 10 * time.MS)
+  a = *Actor.supervised(*|+made| Slow(n: 100 * (!made).add(1)), restarts: 1, per: 0.01)
   t = holder(+a)&
-  time.sleep(5 * time.MS)!
+  time.sleep(ms: 5)!
   u = behind(+a)&
   n = task.isolate(|+a| a.boom(9)) catch -1
   print(n, >t!, >u!)
-  time.sleep(20 * time.MS)!
+  time.sleep(ms: 20)!
   _ = task.isolate(|+a| a.boom(9)) catch -1
   print(a.get(), made.get())
   _ = task.isolate(|+a| a.boom(9)) catch -1

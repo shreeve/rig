@@ -280,7 +280,7 @@ test "actor deadline and cancel", seeds: 20, '''
 
     fun nap(!@, started: *Cell[Bool]) -> Int!
       !started.set(true)
-      time.sleep(20 * time.MS)!
+      time.sleep(ms: 20)!
       @n += 1
       @n
 
@@ -296,8 +296,8 @@ test "actor deadline and cancel", seeds: 20, '''
   started = *Cell(false)
   t = (!a).nap(+started)&
   while not started.get()
-    time.sleep(time.MS) catch print("woke")
-  n = time.within(5 * time.MS, |+a| (!a).later()!) catch -1
+    time.sleep(ms: 1) catch print("woke")
+  n = time.within(ms: 5, |+a| (!a).later()!) catch -1
   print(n)
   u = (!a).later()&
   print(<u.cancel() catch -2)
@@ -318,7 +318,7 @@ test "actor idle call runs as the actor", seeds: 20, '''
     n: Int
 
     fun nap(!@) -> Int!
-      time.sleep(20 * time.MS)!
+      time.sleep(ms: 20)!
       @n += 1
       @n
 
@@ -329,9 +329,9 @@ test "actor idle call runs as the actor", seeds: 20, '''
 
   a = *Actor(Slow(n: 0))
   t = work(+a)&
-  time.sleep(5 * time.MS) catch print("woke")
+  time.sleep(ms: 5) catch print("woke")
   print(<t.cancel() catch -2)
-  n = time.within(5 * time.MS, |+a| (!a).nap()!) catch -1
+  n = time.within(ms: 5, |+a| (!a).nap()!) catch -1
   print(n)
 
 test "actor idle and busy", seeds: 20, "80 80"
@@ -349,7 +349,7 @@ test "actor idle and busy", seeds: 20, "80 80"
       @inside += 1
       if @inside > @most
         @most = @inside
-      time.sleep(time.US)!
+      time.sleep(us: 1)!
       @seen += 1
       @inside -= 1
 
@@ -508,7 +508,7 @@ test "actor dies on its own task", seeds: 20, '''
     n: Int
 
     fun hold(!@) -> Int!
-      time.sleep(20 * time.MS)!
+      time.sleep(ms: 20)!
       @n
 
     fun boom(?@, i: Int) -> Int
@@ -521,12 +521,12 @@ test "actor dies on its own task", seeds: 20, '''
     (!a).hold()!
 
   fun behind(a: *Actor[Slow]) -> Int!
-    time.sleep(2 * time.MS)!
+    time.sleep(ms: 2)!
     task.isolate(|+a| a.get()) catch -2
 
   a = *Actor(Slow(n: 1))
   t = holder(+a)&
-  time.sleep(5 * time.MS)!
+  time.sleep(ms: 5)!
   u = behind(+a)&
   n = task.isolate(|+a| a.boom(9)) catch |e|
     print("caught", e)
@@ -875,7 +875,7 @@ test "actor supervised gives back the mailbox slot of a call that panicked", see
       @hits
 
     fun slow(!@) -> Int!
-      time.sleep(50 * time.MS)!
+      time.sleep(ms: 50)!
       @hits
 
   fun hold(c: *Actor[Box]) -> Int!
@@ -888,7 +888,7 @@ test "actor supervised gives back the mailbox slot of a call that panicked", see
   c = *Actor.supervised(*|| Box(hits: 0), mailbox: 1)
   for n in [-1, -9]
     x = hold(+c)&
-    time.sleep(10 * time.MS)!
+    time.sleep(ms: 10)!
     r = task.isolate(|+c, +n| bump(+c, n)) catch -9
     print(r, >x!)
   t = (!c).add(-4)&
@@ -904,7 +904,7 @@ test "actor & calls wait for a mailbox slot asleep", seeds: 20, timeout: 10, "4"
     hits: Int
 
     fun add(!@, n: Int) -> Int!
-      time.sleep(10 * time.MS)!
+      time.sleep(ms: 10)!
       @hits += n
       @hits
 

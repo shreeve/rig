@@ -20,7 +20,7 @@ test "sets order added", seeds: 20, "[10, 20]"
   use std.time
 
   fun fetch(n: Int, ms: Int) -> Int!
-    time.sleep(ms * time.MS)!
+    time.sleep(ms: ms)!
     n * 10
 
   ts = Tasks[Int!]()
@@ -41,12 +41,12 @@ test "sets first error", seeds: 20, release: true, '''
     missing
 
   fun fail_soon() -> Int!
-    time.sleep(5 * time.MS)!
+    time.sleep(ms: 5)!
     return Fetch.missing
 
   fun slow(n: Int) -> Int!
     defer print("slow", n, "stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     n
 
   fun run() -> Int!
@@ -72,13 +72,13 @@ test "sets deadline", seeds: 20, '''
 
   fun slow() -> Int!
     defer print("slow stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   fun run() -> Int!
     ts = Tasks[Int!]()
     !ts.add(slow()&)
-    xs = time.within(20 * time.MS, |<ts| >ts!)!
+    xs = time.within(ms: 20, |<ts| >ts!)!
     xs.len
 
   run() catch |e| print(e, e == task.Stop.timeout)
@@ -94,13 +94,13 @@ test "sets wait first", seeds: 20, '''
     missing
 
   fun fetch(n: Int, ms: Int) -> Int!
-    time.sleep(ms * time.MS)!
+    time.sleep(ms: ms)!
     return Fetch.missing if n == 3
     n * 10
 
   fun slow() -> Int!
     defer print("slow stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   ts = Tasks[Int!]()
@@ -121,7 +121,7 @@ test "sets wait first all fail", seeds: 20, "Fetch.late"
     return Fetch.early
 
   fun late() -> Int!
-    time.sleep(20 * time.MS)!
+    time.sleep(ms: 20)!
     return Fetch.late
 
   fun run() -> Int!
@@ -141,7 +141,7 @@ test "sets drop cancels", seeds: 20, '''
 
   fun slow() -> Int!
     defer print("slow stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   fun run(early: Bool) -> Int!
@@ -163,11 +163,11 @@ test "sets void", seeds: 20, '''
   use std.time
 
   sub say(n: Int)
-    time.sleep(n * time.MS) catch print("woken")
+    time.sleep(ms: n) catch print("woken")
 
   ts = Tasks[Void]()
   !ts.add(say(0)&)
-  time.sleep(20 * time.MS)!
+  time.sleep(ms: 20)!
   !ts.add(say(30)&)
   print(ts.len)
   >ts
@@ -182,7 +182,7 @@ test "sets both", seeds: 20, '''
   use std.time
 
   fun user(id: Int) -> String!
-    time.sleep(5 * time.MS)!
+    time.sleep(ms: 5)!
     String("user", id)
 
   fun orders(id: Int) -> Int!
@@ -208,7 +208,7 @@ test "sets both fails", seeds: 20, '''
 
   fun slow() -> Int!
     defer print("slow stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   fun missing() -> Int!
@@ -256,7 +256,7 @@ test "sets wait first within", seeds: 20, '''
 
   fun slow() -> Int!
     defer print("slow stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   fun quick() -> Int!
@@ -265,16 +265,88 @@ test "sets wait first within", seeds: 20, '''
   ts = Tasks[Int!]()
   !ts.add(slow()&)
   !ts.add(quick()&)
-  print(time.within(time.SECOND, |<ts| <ts.wait_first()!) catch -1)
+  print(time.within(1, |<ts| <ts.wait_first()!) catch -1)
 
 fail "sets loans", "cannot lend `xs` to write while a read loan is live", errors: 1
   # A set keeps the loans of its tasks.
+  # oracle: main reject C4
   fun total(xs: ?List[Int]) -> Int
     xs.len
 
   xs: List[Int] = List()
   ts = Tasks[Int]()
   !ts.add(total(?xs)&)
+  !xs.push(1)
+  print(>ts)
+
+test "sets waited end their loans", seeds: 20, "[0] 1"
+  # `>ts` takes the set, and what it gives views nothing.
+  # oracle: main accept
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  !ts.add(total(?xs)&)
+  r = >ts
+  !xs.push(1)
+  print(r, xs.len)
+
+fail "sets waited give what their tasks view", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # What a set's tasks give may view what they were lent.
+  # oracle: main reject C4
+  fun first(v: ?List[String]) -> ?String
+    ?v[0]
+
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  ts = Tasks[?String]()
+  !ts.add(first(?xs)&)
+  r = >ts
+  !xs.push(String("b"))
+  print(r)
+
+fail "sets in a closure keep their loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # A closure that holds a set drops it where the closure's binding
+  # ends, which waits for its tasks.
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  !ts.add(total(?xs)&)
+  f = |<ts| ts.len
+  print(f())
+  !xs.push(1)
+  print(xs.len)
+
+fail "sets through a generic keep their loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  fun hand[T](x: T) -> T
+    x
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  !ts.add(total(?xs)&)
+  us = hand(<ts)
+  !xs.push(1)
+  print(>us)
+
+fail "sets stored by a generic keep their loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun total(v: ?List[Int]) -> Int
+    v.len
+
+  sub put[T](l: !Tasks[T], x: Task[T])
+    !l.add(<x)
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  put(!ts, total(?xs)&)
   !xs.push(1)
   print(>ts)
 

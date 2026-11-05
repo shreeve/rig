@@ -34,7 +34,7 @@ fun big(k: Int) -> Int
   b[k] + b[99999]
 
 fun nap() -> Int!
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   task.check()!
   1
 

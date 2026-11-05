@@ -9,10 +9,10 @@ test "within value", seeds: 20, '''
   use std.time
 
   k = 10
-  print(time.within(time.SECOND, |+k| k + 1) catch 0)
+  print(time.within(1, |+k| k + 1) catch 0)
   start = time.now()
-  time.within(5 * time.MS, ||
-    time.sleep(10 * time.SECOND)!
+  time.within(ms: 5, ||
+    time.sleep(10)!
     print("slept")
   ) catch |e| print(e, start.elapsed() < 5 * time.SECOND)
 
@@ -25,12 +25,12 @@ test "within nested", seeds: 20, '''
   use std.time
 
   fun slow(ms: Int) -> Int!
-    time.sleep(ms * time.MS)!
+    time.sleep(ms: ms)!
     ms
 
-  m = time.within(50 * time.MS, ||
-    a = time.within(time.SECOND, || slow(1)!)!
-    b = time.within(10 * time.SECOND, || slow(10_000)!) catch -1
+  m = time.within(ms: 50, ||
+    a = time.within(1, || slow(1)!)!
+    b = time.within(10, || slow(10_000)!) catch -1
     print(a, b)
     a + b
   ) catch -2
@@ -52,7 +52,7 @@ test "within tasks", seeds: 20, release: true, '''
   use std.time
 
   fun slow(ms: Int) -> Int!
-    time.sleep(ms * time.MS)!
+    time.sleep(ms: ms)!
     ms
 
   fun spin() -> Int!
@@ -60,27 +60,27 @@ test "within tasks", seeds: 20, release: true, '''
       task.check()!
 
   start = time.now()
-  r = time.within(10 * time.MS, ||
+  r = time.within(ms: 10, ||
     x = slow(10_000)&
     >x!
   ) catch -1
   print("inherited", r, start.elapsed() < 5 * time.SECOND)
-  s = time.within(10 * time.MS, ||
+  s = time.within(ms: 10, ||
     ts = Tasks[Int!]()
     !ts.add(slow(10_000)&)
     !ts.add(slow(1)&)
     (>ts!).len
   ) catch -2
   print("set", s)
-  print("check", time.within(10 * time.MS, || spin()!) catch -3)
-  b = time.within(10 * time.MS, ||
+  print("check", time.within(ms: 10, || spin()!) catch -3)
+  b = time.within(ms: 10, ||
     p, q = task.all(slow(1)&, slow(10_000)&)!
     p + q
   ) catch -4
   print("all", b)
   xs = List([1, 2, 3, 4])
-  print("par", time.within(10 * time.MS, |?xs| par.map(xs, |x| slow(x * 10_000)!)!.len) catch -5)
-  print("ok", time.within(time.SECOND, || slow(1)!) catch -6)
+  print("par", time.within(ms: 10, |?xs| par.map(xs, |x| slow(x * 10_000)!)!.len) catch -5)
+  print("ok", time.within(1, || slow(1)!) catch -6)
 
 test "within one task", seeds: 20, '''
   -1 true
@@ -92,15 +92,15 @@ test "within one task", seeds: 20, '''
   use std.time
 
   fun slow(ms: Int) -> Int!
-    time.sleep(ms * time.MS)!
+    time.sleep(ms: ms)!
     ms
 
   start = time.now()
   t = slow(60_000)&
-  r = time.within(5 * time.MS, |<t| >t!) catch -1
+  r = time.within(ms: 5, |<t| >t!) catch -1
   print(r, start.elapsed() < 5 * time.SECOND)
   u = slow(3)&
-  print(time.within(time.SECOND, |<u| >u!) catch -1)
+  print(time.within(1, |<u| >u!) catch -1)
 
 test "within moves its captures", seeds: 20, '''
   drop 1
@@ -133,19 +133,19 @@ test "within moves its captures", seeds: 20, '''
       return E.bad
 
   r1 = Res(id: 1)
-  print("a", time.within(time.SECOND, |<r1| r1.id + 1) catch -1)
+  print("a", time.within(1, |<r1| r1.id + 1) catch -1)
   r2 = Res(id: 2)
-  print("b", time.within(time.SECOND, |<r2| keep(<r2)) catch -1)
+  print("b", time.within(1, |<r2| keep(<r2)) catch -1)
   r3 = Res(id: 3)
   flip = false
-  print("c", time.within(time.SECOND, |<r3, +flip|
+  print("c", time.within(1, |<r3, +flip|
     if flip
       keep(<r3)
     else
       0
   ) catch -1)
   r4 = Res(id: 4)
-  print("d", time.within(time.SECOND, |<r4, +flip|
+  print("d", time.within(1, |<r4, +flip|
     boom(flip)!
     keep(<r4)
   ) catch -7)
@@ -161,7 +161,7 @@ fail "within moves a capture once", "use of `r` after move", errors: 1
     r.id
 
   r = Res(id: 1)
-  n = time.within(time.SECOND, |<r|
+  n = time.within(1, |<r|
     s = 0
     for 0..2
       s += keep(<r)
@@ -189,4 +189,4 @@ test "within inside the longest deadline", seeds: 20, timeout: 10, "5"
   # holds, and the outer one is back after.
   use std.time
 
-  print(time.within(Int.max, || time.within(time.SECOND, || 5)!) catch -1)
+  print(time.within(ns: Int.max, || time.within(1, || 5)!) catch -1)

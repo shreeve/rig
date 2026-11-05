@@ -24,7 +24,7 @@ extern fun getpid() -> I32
 sub main()!
   raw
     warn(getpid())
-  time.sleep(10 * time.SECOND)!
+  time.sleep(10)!
   print("survived")
 EOF2
 

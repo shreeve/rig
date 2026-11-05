@@ -87,6 +87,24 @@ fail "results kept lend names", "`pick(!x, t)` keeps `t` lent while `r` lives; w
   w[0] = 5
   print(r, x)
 
+fail "results binding shadows", "9:15: optional binding `a` shadows the local `a`; use a different name", "11:20: optional binding `a` shadows the local `a`; use a different name", "13:21: optional binding `b` shadows the local `b`; use a different name", "15:28: optional binding `a` shadows the local `a`; use a different name", errors: 4
+  # Each name `as a, b` binds is new, as `as a`'s is: an `if`, an
+  # `else if`, a `while`, and a ternary reject a shadow alike.
+  fun pair(k: Int) -> (Int, Int)?
+    return none if k <= 0
+    return k, k + 1
+
+  a = 1
+  b = 2
+  if pair(3) as a, c
+    print(a + c)
+  else if pair(4) as a, d
+    print(a + d)
+  while pair(0) as e, b
+    print(e + b)
+  x = a + f if pair(3) as f, a else a
+  print(x, b)
+
 fail "results one result", "`f` gives one result, of type `Int`; several are declared `-> (A, B)`"
   fun f() -> Int
     return 1, 2

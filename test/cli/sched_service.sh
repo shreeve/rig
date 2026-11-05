@@ -17,12 +17,12 @@ obj Node
 
 fun nap(n: ?*Node, ms: Int) -> Int!
   t = time.now()
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   t.elapsed() / 1000000
 
 fun napfree(ms: Int) -> Int!
   t = time.now()
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   t.elapsed() / 1000000
 
 fun one() -> Int
@@ -37,7 +37,7 @@ fun spin(n: Int) -> Int
 sub main()
   w = one()&
   _ = >w
-  time.sleep(20 * time.MS) catch print("x")
+  time.sleep(ms: 20) catch print("x")
   n = *Node(v: 1)
   t = nap(?n, 10)&
   s = time.now()

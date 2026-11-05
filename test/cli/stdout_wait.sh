@@ -20,14 +20,14 @@ use std.time
 
 sub main()!
   print("before the nap")
-  time.sleep(60 * time.SECOND)!
+  time.sleep(60)!
 EOF
 
 cat >tasknap.rig <<'EOF'
 use std.time
 
 fun nap() -> Int!
-  time.sleep(60 * time.SECOND)!
+  time.sleep(60)!
   1
 
 sub main()!

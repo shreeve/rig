@@ -218,7 +218,7 @@ pub fn selfOf(ctx: *const SemContext, call: Sexp) ?Sexp {
 /// actor's method, `h.m(...)`, which stands for its self, or the
 /// channel of an arm of `task.select`, `ch` of `!ch.on_recv()`, which
 /// the select evaluates in the arm's turn. A deadline arm,
-/// `time.after(ns)`, has none.
+/// `time.after(ms: 50)`, has none.
 pub fn heldSelf(ctx: *const SemContext, call: Sexp) ?Sexp {
     if (ctx.selectArmOf(call)) |arm| return if (arm == .after) null else ir.get(ir.Member.object(ctx.calleeOf(call)), .operand);
     if (ctx.isActorCall(call)) return ir.Member.object(ctx.calleeOf(call));

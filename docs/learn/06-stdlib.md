@@ -346,7 +346,7 @@ fun tally(qtys: ?List[Int]) -> Int
   counts.len
 
 fun slow_audit(ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   ms
 
 sub main()
@@ -355,8 +355,8 @@ sub main()
   kinds = tally(?qtys)
   took = start.elapsed()
   print(kinds, took >= 0, took < time.SECOND)
-  print(time.within(time.SECOND, || slow_audit(1)!) catch -1)
-  r = time.within(5 * time.MS, || slow_audit(60_000)!) catch |e|
+  print(time.within(1, || slow_audit(1)!) catch -1)
+  r = time.within(ms: 5, || slow_audit(60_000)!) catch |e|
     print(e)
     -1
   print(r)
@@ -375,7 +375,7 @@ two readings, so it cannot be mixed up with the wall clock. A timing
 differs on every run, so this program prints facts about it. A tool
 would print `took / time.MS`.
 
-`time.within(ns, f)` is the deadline of [chapter four](04-concurrency.md).
+`time.within(d, f)` is the deadline of [chapter four](04-concurrency.md).
 The audit that sleeps a minute is cut short at 5 ms and fails with
 `Stop.timeout`, and `catch` turns that into `-1`. `slow_audit` knows
 nothing about deadlines.
@@ -630,7 +630,7 @@ policy. **Words name the policy; sigils mark the mechanics.**
 | count by key | `(!m).ensure(k, 0) += 1` |
 | keep each key once | `(!s).add(k)` |
 | put in order | `sort.sort(!xs)`, `sort.sort_by(!xs, less)` |
-| time a step | `time.now()`, `t.elapsed()`, `time.within(ns, f)` |
+| time a step | `time.now()`, `t.elapsed()`, `time.within(d, f)` |
 | draw at random | `random.Random.seeded(n)`, `!r.shuffle(!xs)` |
 | count past 64 bits | `bigint.parse(s)!`, `a.add(b)`, `a < b` |
 | check color | `terminal.Terminal.new(c, r)`, `!t.feed(s)`, `t.dump()` |

@@ -4109,6 +4109,23 @@ pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
     return if (v < n) v else null;
 }
 
+/// A duration of `n` units of `unit` nanoseconds (`sema.Duration`):
+/// `time.sleep(2)`, `time.sleep(ms: 40)`. Checked, as a conversion is:
+/// more nanoseconds than an `Int` holds panics.
+pub inline fn durationInt(n: i64, comptime unit: i64) i64 {
+    if (comptime unit == 1) return n;
+    return std.math.mul(i64, n, unit) catch @panic("a duration is more nanoseconds than an Int holds");
+}
+
+/// A duration of `x` units of `unit` nanoseconds, rounded to the nearest
+/// whole nanosecond, a half away from zero: `time.sleep(0.5)`. A NaN, an
+/// infinity, or more nanoseconds than an `Int` holds panics.
+pub fn durationFloat(x: f64, comptime unit: i64) i64 {
+    const ns = @round(x * @as(f64, @floatFromInt(unit)));
+    if (!(ns >= -0x1p63 and ns < 0x1p63)) @panic("a duration is not a finite number of nanoseconds an Int holds");
+    return @intFromFloat(ns);
+}
+
 /// A float about to be converted to an integer type, panicking if it is
 /// NaN, which `@trunc`'s own range check does not catch.
 pub fn notNan(x: anytype) @TypeOf(x) {

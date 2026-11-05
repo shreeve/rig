@@ -87,15 +87,16 @@ A new session, human or agent, takes these steps in order:
   width instead, until Zig fixes it.
 - **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
   the test files, the doc examples, their pending examples the planned
-  Core rules, the examples, the unit tests, and the oracle floors in
-  `test/oracle/coverage`). A change to the compiler, the runtime, or std
+  Core rules, the examples, the unit tests, the oracle floors in
+  `test/oracle/coverage`, the scripts of test/cli, and the probes of past
+  reviews). A change to the compiler, the runtime, or std
   also passes Trig's light gate (`tools/light`, AGENTS.md step 6) before
   it merges: a debug trig on Trig's six cli projects, four ways each,
   byte-identical to tsc, in about a minute; and loco's (`rig/tools/light`
   in a loc checkout): loco built with that Rig, its output identical to
   the Rust loc's. The full suite (`swarm test/rig.rip all`, the core
-  with test/cli, the probes, and the matrix's programs whose own Zig
-  changed, built in packs), and Trig's full suite
+  with the matrix's programs whose own Zig changed,
+  built in packs), and Trig's full suite
   (`tools/full-main` on pup; the last result is in
   `/zfs/trig-pup/full/LATEST`) run before each major or minor release,
   optionally before a patch. Nothing runs on a schedule: there are no
@@ -161,13 +162,20 @@ A new session, human or agent, takes these steps in order:
     `Facts` to reading records.
 - **`select` as a value matched by `match`**, approved and built as
   a test case (records/2026-11/revamp-compiler/panel-select-*.md):
-  `match task.select(add: !a.on_recv(), late: time.after(ns))!` with
+  `match task.select(add: !a.on_recv(), late: time.after(ms: 50))!` with
   arms `.add(v?)`, `.add(none)`, `.late`. A compile-time function that
   builds types may later replace `sema.selectType` without changing
   what programs write. The closure arms are the old spelling for this
   release (`tools/migrate-select.py`). A task's end is an arm too,
   built: `done: ?t.on_end()` lends `t`, its variant carries nothing,
   and the body takes the result with `>t`; two task arms are a race.
+- **Durations** (owner, 2026-11-04; branch `durations`), built: a bare
+  number is seconds, an `Int` or a `Float`, and `ms:`, `us:`, `ns:`
+  name the other units, in `time.sleep`, `time.after`, `time.within`,
+  `Instant.at`, and `t.add`; `per:` is seconds. It changes what a
+  0.3.0 program means, so `tools/migrate-durations.py` rewrites one
+  (MIGRATING-0.3, "From 0.3.0 to 0.3.1"), and Trig and loco get its
+  note before it merges.
 - **A ternary's condition binds names** (owner, 2026-11-04), built:
   `v.id if r.decl as v else 0` and `r * r if s matches .circle(r) else
   0`, the names visible in the value before `if` only (SPEC, "Block
