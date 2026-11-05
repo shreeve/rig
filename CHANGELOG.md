@@ -63,6 +63,22 @@ a bare number, and of `per:` of `task.supervise` and
   disqualifies it (`field `on` of `Flag` is a `Bool`, which is only 0 or
   1`), and so is a literal or an embedded file that is not a whole
   number of records; another length panics (SPEC "List").
+- **An embedded file's records may hold `Bool`s and enums:**
+  `!nodes.extend_from_bytes($embed("nodes.bin"))` of an object with a
+  `kind: Kind` field. The compiler reads the file and checks every
+  record, each `Bool` 0 or 1 and each enum a variant's value, and names
+  the first that is not: `` `extend_from_bytes` reads whole `Node`s from
+  "nodes.bin": field `kind` of record 3 (byte 36) holds 900, and no
+  variant of `Kind` has that value ``. A `Bool` is one byte, an enum of
+  declared values four, any other plain enum the fewest of 1, 2, or 4
+  bytes that number its variants. Bytes known only at run time, a
+  `?String` or another `Static`, still make no such record (SPEC
+  "List").
+- **An embedded file is held at 16 bytes** in a build by LLVM (every
+  release, and a debug build on macOS): the assembler includes it
+  (`.incbin`) after a `.balign 16`, which costs a build no more time
+  and less memory than `@embedFile`, where an aligned Zig constant of an
+  8 MB file costs 1.5 s and 430 MB more (INTERNALS, "Embedded files").
 - **`$embed(path)`** gives a file's bytes as a `Static`, read when the
   program is compiled: `LIBS = $embed("libtrees.bin")`. The path is a
   string literal, from the directory of the file that names it, and may

@@ -3062,6 +3062,10 @@ pub const TypeResolver = struct {
         const plain_enum = head == .@"enum" and for (members) |m| {
             if (m.isKind(.variant) and ir.Variant.params(m).items().len > 0) break false;
         } else true;
+        if (head == .@"enum") for (members) |m| {
+            if (m.isKind(.valued)) self.ctx.symbols.items[sym_id].flags.enum_valued = true;
+            if (m.isKind(.variant)) self.ctx.symbols.items[sym_id].flags.enum_union = true;
+        };
         var values: EnumValues = .{};
         defer values.seen.deinit(self.ctx.allocator);
         var none_line: ?Sexp = null;

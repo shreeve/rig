@@ -1105,7 +1105,13 @@ pub const SymbolFlags = packed struct(u64) {
     /// The type of the value `task.select(name: arm, ...)` gives
     /// (`selectType`): an enum whose variants are the arms' names.
     select_result: bool = false,
-    _: u13 = 0,
+    /// A plain enum a variant of which declares its value (`ok = 200`):
+    /// emit holds it as a Zig `enum(u32)` (`enumBytes`).
+    enum_valued: bool = false,
+    /// An enum a variant of which is written with a payload, empty or not
+    /// (`a()`): emit holds it as a Zig `union(enum)`.
+    enum_union: bool = false,
+    _: u11 = 0,
     /// Room for flags to come.
     spare: u30 = 0,
 };
@@ -2654,6 +2660,10 @@ pub const EmbedSite = struct {
     path: []const u8,
     file: []const u8 = "",
     place: []const u8 = "",
+    /// The file's bytes, when the module graph read them to check the
+    /// values of the records a call makes of them (`EmbedRecord.checks`);
+    /// `rig build` writes these into the package rather than read it again.
+    bytes: ?[]const u8 = null,
 };
 
 /// An embedded file a call makes records of `size` bytes from
@@ -2665,6 +2675,9 @@ pub const EmbedRecord = struct {
     method: []const u8,
     /// The record's type, as the call's module spells it.
     shown: []const u8,
+    /// The parts whose bytes must hold one of their type's values
+    /// (`Record.checks`), checked once the file is read.
+    checks: []const RecordCheck = &.{},
 };
 
 /// Where the package holds the files a program embeds, from the
@@ -11083,9 +11096,36 @@ pub fn wordBitsOfSym(dctx: *const SemContext, sym_id: SymbolId) ?u8 {
     };
 }
 
-/// A type whose every bit pattern is one of its values, laid out with
-/// no padding (`bytesRecord`): its size and alignment in bytes.
-pub const Record = struct { size: u64, alignment: u64 };
+/// A type laid out with no padding whose bytes make its values
+/// (`bytesRecord`): its size and alignment in bytes, and the parts whose
+/// bytes must hold one of a few values (`checks`), a `Bool`'s or an
+/// enum's. With none, every bit pattern is a value.
+pub const Record = struct { size: u64, alignment: u64, checks: []const RecordCheck = &.{} };
+
+/// A part of a record whose bytes must hold one of its type's values: a
+/// `Bool` (0 or 1) or an enum (a variant's value), `count` of them
+/// `stride` bytes apart from byte `at`. Bytes known only at run time
+/// cannot make such a record; an embedded file's are checked once the
+/// file is read (`ModuleGraph.checkEmbeds`).
+pub const RecordCheck = struct {
+    at: u64,
+    size: u8,
+    count: u64 = 1,
+    stride: u64 = 0,
+    /// The part's place in the record, as the program writes it, `#` for
+    /// the counted index: `rows[#].on`; empty for the record itself.
+    path: []const u8,
+    values: union(enum) {
+        boolean,
+        /// An enum whose values are its variants' places: below `n`.
+        below: u64,
+        /// An enum whose variants declare their values.
+        set: []const u64,
+    },
+    /// The type of the part, as the call's module spells it, and why a
+    /// record of it is not one bytes known only at run time make.
+    not: NotRecord,
+};
 
 /// Why a type is not a record (`bytesRecord`): the field that keeps it
 /// from being one, `field` of the object `owner` (both "" for the type
@@ -11125,19 +11165,44 @@ pub const NotRecord = struct {
 
 pub const RecordAnswer = union(enum) { record: Record, not: NotRecord };
 
-/// Whether the bytes of `ty` may be any bytes: an integer, a float, or
-/// an object or a fixed array made only of these, with no padding when
-/// its fields are laid out in declaration order, each at a multiple of
-/// its alignment (a number's is its size, an array's its element's, an
-/// object's its largest field's). Such a value is its fields' bytes in
-/// declaration order, so every bit pattern of `size` bytes is one, and
-/// the runtime makes one from bytes by copying them
-/// (`List.extend_from_bytes`). An object of another module is one only
-/// when every field is the program's to set, as a constructor's is
+/// Whether bytes make values of `ty`: an integer, a float, a `Bool`, a
+/// plain enum Zig holds as an integer, or an object or a fixed array made
+/// only of these, with no padding when its fields are laid out in
+/// declaration order, each at a multiple of its alignment (a number's is
+/// its size, an array's its element's, an object's its largest field's).
+/// Such a value is its fields' bytes in declaration order, and the
+/// runtime makes one from bytes by copying them
+/// (`List.extend_from_bytes`). Every bit pattern of `size` bytes is one
+/// unless the record has `checks`, the `Bool`s and enums whose bytes must
+/// hold one of their values: only an embedded file, whose values the
+/// compiler checks, may make such a record. An object of another module
+/// is one only when every field is the program's to set, as a
+/// constructor's is
 /// (`Checker.checkConstructible`). The one classifier of what may be
 /// made from bytes; `ctx` is the module that makes it.
 pub fn bytesRecord(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!RecordAnswer {
     return recordIn(ctx, ctx, ty);
+}
+
+/// The bytes emit holds plain enum `sym` of module `home` in
+/// (`Emitter.emitEnum`): a Zig `enum(u32)` when a variant declares its
+/// value, else an `enum` whose tag Zig sizes to its variants' count;
+/// null for an enum held as a `union(enum)` (a variant written `a()`).
+pub fn enumBytes(home: *const SemContext, sym: SymbolId) ?u64 {
+    const symbol = home.symbols.items[sym];
+    if (symbol.flags.enum_union) return null;
+    if (symbol.flags.enum_valued) return 4;
+    var n: u64 = 0;
+    for (symbol.fields orelse &.{}) |f| n += @intFromBool(f.is_variant);
+    if (n <= 1) return 0;
+    const bits = std.math.log2_int_ceil(u64, n);
+    return if (bits <= 8) 1 else if (bits <= 16) 2 else if (bits <= 32) 4 else 8;
+}
+
+/// `name` and a part's place in it, as a program writes the part.
+fn placeIn(a: std.mem.Allocator, name: []const u8, path: []const u8) std.mem.Allocator.Error![]const u8 {
+    if (path.len == 0) return name;
+    return a.print("{s}{s}{s}", .{ name, if (path[0] == '[') "" else ".", path });
 }
 
 /// Type `ty` of module `home`, as module `ctx` names it: another
@@ -11150,6 +11215,7 @@ fn shownFrom(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allo
 }
 
 fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allocator.Error!RecordAnswer {
+    const a = ctx.arena.allocator();
     const shown = try shownFrom(ctx, home, ty);
     switch (home.types.get(ty)) {
         .int => |i| {
@@ -11160,7 +11226,7 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
             const n: u64 = (if (f.bits == 0) 64 else f.bits) / 8;
             return .{ .record = .{ .size = n, .alignment = n } };
         },
-        .bool => return .{ .not = .{ .shown = shown, .why = .boolean } },
+        .bool => return .{ .record = .{ .size = 1, .alignment = 1, .checks = try a.dupe(RecordCheck, &.{.{ .at = 0, .size = 1, .path = "", .values = .boolean, .not = .{ .shown = shown, .why = .boolean } }}) } },
         .array => |arr| {
             const len = arrayLen(home, arr) orelse return .{ .not = .{ .shown = shown, .why = .other } };
             const elem = switch (try recordIn(ctx, home, arr.elem)) {
@@ -11168,7 +11234,21 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
                 .not => |n| return .{ .not = n },
             };
             if (len == 0) return .{ .not = .{ .shown = shown, .why = .empty } };
-            return .{ .record = .{ .size = elem.size * len, .alignment = elem.alignment } };
+            // Each element's check counted across the elements, or, for
+            // a check already counted, repeated for each element.
+            var checks: std.ArrayList(RecordCheck) = .empty;
+            for (elem.checks) |c| {
+                const after = if (c.path.len == 0 or c.path[0] == '[') c.path else try a.print(".{s}", .{c.path});
+                if (std.mem.findScalar(u8, c.path, '#') == null) {
+                    try checks.append(a, .{ .at = c.at, .size = c.size, .count = len, .stride = elem.size, .path = try a.print("[#]{s}", .{after}), .values = c.values, .not = c.not });
+                } else for (0..len) |i| {
+                    var each = c;
+                    each.at = c.at + i * elem.size;
+                    each.path = try a.print("[{d}]{s}", .{ i, after });
+                    try checks.append(a, each);
+                }
+            }
+            return .{ .record = .{ .size = elem.size * len, .alignment = elem.alignment, .checks = checks.items } };
         },
         .parameterized_nominal => |pn| return .{ .not = .{ .shown = shown, .why = switch (declaredKind(home, pn.sym)) {
             .object => .generic,
@@ -11187,7 +11267,23 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
     switch (declaredKind(decl.ctx, decl.sym)) {
         .object => {},
         .payload_enum => return .{ .not = .{ .shown = shown, .why = .enumeration } },
-        .other => return .{ .not = .{ .shown = shown, .why = if (isPlainEnum(home, ty)) .enumeration else .other } },
+        .other => {
+            if (!isPlainEnum(home, ty)) return .{ .not = .{ .shown = shown, .why = .other } };
+            const not: NotRecord = .{ .shown = shown, .why = .enumeration };
+            const n = enumBytes(decl.ctx, decl.sym) orelse return .{ .not = not };
+            if (n == 0) return .{ .not = .{ .shown = shown, .why = .empty } };
+            const symbol = decl.symbol();
+            const values: @FieldType(RecordCheck, "values") = if (symbol.flags.enum_valued) blk: {
+                var set: std.ArrayList(u64) = .empty;
+                for (symbol.fields orelse &.{}) |f| if (f.is_variant) try set.append(a, @intCast(f.value orelse 0));
+                break :blk .{ .set = set.items };
+            } else blk: {
+                var count: u64 = 0;
+                for (symbol.fields orelse &.{}) |f| count += @intFromBool(f.is_variant);
+                break :blk .{ .below = count };
+            };
+            return .{ .record = .{ .size = n, .alignment = n, .checks = try a.dupe(RecordCheck, &.{.{ .at = 0, .size = @intCast(n), .path = "", .values = values, .not = not }}) } };
+        },
     }
     const sym = decl.symbol();
     if (sym.type_params != null) return .{ .not = .{ .shown = shown, .why = .generic } };
@@ -11201,6 +11297,7 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
     var at: u64 = 0;
     var alignment: u64 = 1;
     var last: []const u8 = "";
+    var checks: std.ArrayList(RecordCheck) = .empty;
     for (sym.fields orelse &.{}) |f| {
         if (f.is_method or f.is_variant or f.is_drop_method) continue;
         if (!sets_all and (!f.is_pub or f.read_only)) return .{ .not = .{ .field = f.name, .owner = shown, .why = .{ .private = foreign.?.name } } };
@@ -11209,13 +11306,20 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
             .not => |n| return .{ .not = if (n.field.len == 0) .{ .field = f.name, .owner = shown, .shown = n.shown, .why = n.why } else n },
         };
         if (at % r.alignment != 0) return .{ .not = .{ .field = f.name, .owner = shown, .shown = try shownFrom(ctx, decl.ctx, f.ty), .why = .{ .padding_before = .{ .at = at, .alignment = r.alignment } } } };
+        for (r.checks) |c| {
+            var moved = c;
+            moved.at = at + c.at;
+            moved.path = try placeIn(a, f.name, c.path);
+            if (c.not.field.len == 0) moved.not = .{ .field = f.name, .owner = shown, .shown = c.not.shown, .why = c.not.why };
+            try checks.append(a, moved);
+        }
         at += r.size;
         alignment = @max(alignment, r.alignment);
         last = f.name;
     }
     if (at == 0) return .{ .not = .{ .shown = shown, .why = .empty } };
     if (at % alignment != 0) return .{ .not = .{ .field = last, .owner = shown, .why = .{ .padding_after = .{ .bytes = alignment - at % alignment, .alignment = alignment } } } };
-    return .{ .record = .{ .size = at, .alignment = alignment } };
+    return .{ .record = .{ .size = at, .alignment = alignment, .checks = checks.items } };
 }
 
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
