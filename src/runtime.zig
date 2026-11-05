@@ -5983,7 +5983,15 @@ const only_task = split.cell(&only_task_var, "runtime.only_task");
 /// fiber's.
 pub inline fn task() *TaskState {
     if (scheduled) if (sched.current()) |f| return &f.state;
+    // Outside every fiber; in a program built to be preempted, out of the
+    // program's own code, which never reads a thread-local itself (a
+    // signal may stop it and resume it on another thread).
+    if (preempt) return @call(.never_inline, threadTask, .{});
     return if (concurrent) thread_task() else only_task;
+}
+
+fn threadTask() *TaskState {
+    return thread_task();
 }
 
 /// Held while a `print`, `warn`, or the final flush writes output, so the

@@ -187,6 +187,7 @@ inline fn me_slot() *?*Worker {
 /// switch, and a compiler may reuse a thread-local's address within a
 /// function, so every read goes through this call, which is never inlined.
 noinline fn me() ?*Worker {
+    if (preempt) mustNotBeInCode(@returnAddress());
     return me_slot().*;
 }
 
@@ -231,7 +232,12 @@ const Flag = extern struct {
 };
 
 /// The fiber running on this thread, or none outside every fiber.
-pub fn current() ?*Fiber {
+pub inline fn current() ?*Fiber {
+    if (preempt) return @call(.never_inline, currentOf, .{});
+    return currentOf();
+}
+
+fn currentOf() ?*Fiber {
     const w = me() orelse return null;
     return w.current;
 }
@@ -437,12 +443,13 @@ fn hasOwnWork(w: *Worker) bool {
 // the fiber on its worker, and returns to the instruction it stopped at
 // with all of them restored.
 //
-// A fiber stopped so resumes on its own worker, the next time that one
-// picks it (`Preempt.held`, `popPinned`), since its code may hold the
-// address of a thread-local in a register; from its next ordinary
-// waiting point on it moves as any fiber does. A pinned fiber's worker
-// runs no other pinned fiber while it is held: they share counts that are
-// not atomic.
+// A fiber stopped so goes back in line as one that yields does, and any
+// worker may take it: the program's own code keeps nothing of its thread
+// or worker in a register, since it reads no thread-local itself
+// (`rt.task`) and the scheduler's code that reads its worker is never
+// inlined into it (`current`, `mustNotBeInCode`). A pinned fiber's
+// worker runs no other pinned fiber while it is held (`Preempt.held`,
+// `popPinned`): they share counts that are not atomic.
 
 /// Whether this build has the preemption `RIG_PREEMPT=signal` asks for:
 /// a target whose signal context and trampoline are written here, and
@@ -673,28 +680,33 @@ fn preemptedC() callconv(.c) void {
 /// A fiber the monitor's signal stopped (`preemptEntry`): do what a loop's
 /// yield check does (`tick`), wake what its worker's timers and poller
 /// make ready, and if work waits, for this worker or for another busy
-/// one, hold this fiber on its worker and run that work first.
+/// one, go back in line behind it (a pinned fiber: be held).
 fn preempted() void {
     const w = me() orelse return;
     serviceBusy(w);
     if (!hasOwnWork(w)) {
         if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
     }
-    const f = w.current.?;
     preOf(w).preempts += 1;
-    const pinned = f.home != null;
-    // Its home for as long as it is held, so only this worker runs it.
-    if (!pinned) f.home = w;
-    stop(.{ .run = hold, .ctx = if (pinned) f else null });
-    if (!pinned) f.home = null;
+    stop(.{ .run = if (w.current.?.home != null) hold else requeue });
 }
 
-/// Hold the fiber `f` just preempted on its worker: a pinned one ahead of
-/// the other pinned fibers (`ctx` is set), which wait for it, and any
-/// other behind them.
-fn hold(f: *Fiber, ctx: ?*anyopaque) void {
-    const w = me().?;
-    if (ctx != null) preOf(w).held = f else w.pinned.push(f);
+/// Hold the pinned fiber `f` just preempted on its worker, ahead of the
+/// other pinned fibers, which wait for it (`popPinned`).
+fn hold(f: *Fiber, _: ?*anyopaque) void {
+    preOf(me().?).held = f;
+}
+
+/// What `me` does when it is called from the program's own code, which
+/// a signal may stop anywhere: such code could keep the worker it gave in
+/// a register, and after a stop resume on another worker with it. The
+/// scheduler's code that reads its worker is never inlined there
+/// (`current`); a call that is panics, the first time it runs.
+fn mustNotBeInCode(ret: usize) void {
+    if (ret >= @intFromPtr(code_start) and ret < @intFromPtr(code_end)) {
+        @branchHint(.cold);
+        @panic("rig: the scheduler's code was inlined into the program's, where a signal may stop it");
+    }
 }
 
 // The monitor: a thread of its own, started with the workers.
