@@ -430,7 +430,7 @@ pub const tick_turns: u32 = 1024;
 /// scheduler, the task yields if other work waits for its worker
 /// (`sched.tick`), so a long loop never keeps that work waiting.
 pub inline fn turn(n: *u32) void {
-    if (!scheduled or @inComptime()) return;
+    if (!scheduled or preempt or @inComptime()) return;
     n.* -%= 1;
     if (n.* == 0) {
         @branchHint(.unlikely);
@@ -445,7 +445,7 @@ pub inline fn turn(n: *u32) void {
 /// (`sched.waiting`), the first such call to see it yields to that work
 /// (`sched.tickCall`). Otherwise it is one load of a flag.
 pub inline fn tickCall() void {
-    if (!scheduled or @inComptime()) return;
+    if (!scheduled or preempt or @inComptime()) return;
     if (sched.waiting.load(.monotonic) != 0) {
         @branchHint(.unlikely);
         callKeeping(tickCallC);
@@ -5815,6 +5815,30 @@ const concurrent = builtin.is_test or makes_tasks;
 /// A program that makes tasks runs them on the scheduler (`sched.zig`).
 pub const scheduled = makes_tasks;
 
+/// Built with `RIG_PREEMPT=signal`, a program that makes tasks declares
+/// `__rig_preempt` in its root: where the system has the preemption it
+/// needs (`sched.preempt_built`), a task that runs a slice without
+/// waiting is stopped by a signal (`sched.zig`, "Preemption"), and its
+/// loops and recursive calls check nothing (`turn`, `tickCall`). Each
+/// function of the program's own code is in `preempt_section`, the only
+/// code a signal stops a task in.
+pub const preempt = scheduled and sched.preempt_built and @hasDecl(root, "__rig_preempt") and root.__rig_preempt;
+pub const preempt_section = sched.preempt_section;
+
+/// `f(args...)`, the program's own `main` or a task's function, called
+/// by the runtime: in a program built to be preempted, through a
+/// function in `preempt_section` that is never inlined into its caller,
+/// so `f`'s code, inlined into it or not, stays where a signal may stop
+/// it; in any other, as a plain call.
+pub inline fn callCode(comptime R: type, comptime f: anytype, args: anytype) R {
+    if (!preempt) return @call(.auto, f, args);
+    return @call(.never_inline, inCode, .{ R, f, args });
+}
+
+fn inCode(comptime R: type, comptime f: anytype, args: anytype) linksection(preempt_section) R {
+    return @call(.auto, f, args);
+}
+
 /// What the runtime keeps for the task that is running: the depth and
 /// queue of nested `*T` releases (`drainDropQueue`), how deep a `print`
 /// is inside the value it writes (`writeValue`), the guard below the
@@ -5867,11 +5891,13 @@ var alloc_lock_var: std.Io.Mutex = .init;
 const alloc_lock = split.cell(&alloc_lock_var, "runtime.alloc_lock");
 
 fn lockOutput() void {
+    if (preempt) sched.holdOff();
     if (concurrent) output_lock.lockUncancelable(io());
 }
 
 fn unlockOutput() void {
     if (concurrent) output_lock.unlock(io());
+    if (preempt) sched.holdOn();
 }
 
 var trace_allocator_var: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
@@ -7052,7 +7078,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 
         fn run(p: *anyopaque) callconv(.c) void {
             const call: *@This() = @ptrCast(@alignCast(p));
-            call.result = @call(.auto, f, call.args);
+            call.result = callCode(@TypeOf(call.result), f, call.args);
         }
     };
     var call: Call = .{ .args = args };

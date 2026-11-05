@@ -82,8 +82,8 @@ pub fn Task(comptime T: type) type {
                     defer control.finish();
                     // A call that may fail with fields writes them into
                     // the task's record.
-                    if (comptime takesSlot(@TypeOf(f))) return @call(.auto, f, a ++ .{rt.failSlot(&control.err)});
-                    return @call(.auto, f, a);
+                    if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
+                    return rt.callCode(T, f, a);
                 }
             };
             // The task's record holds its `Control`: one allocation for

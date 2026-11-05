@@ -310,6 +310,10 @@ const Env = struct {
         return env.flag("RIG_SANITIZE");
     }
 
+    fn preempt(env: Env) bool {
+        return std.mem.eql(u8, env.get("RIG_PREEMPT") orelse "", "signal");
+    }
+
     fn verifyProofs(env: Env) bool {
         return env.flag("RIG_VERIFY_PROOFS");
     }
@@ -345,6 +349,7 @@ const Env = struct {
         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
         if (env.mapTrace()) try w.writeAll("pub const __rig_map_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
+        if (env.preempt() and tasks != null) try w.writeAll("pub const __rig_preempt = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
@@ -1885,6 +1890,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
         em.yield_checks = tasks;
+        em.code_section = tasks and env.preempt();
         em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
         if (kind.units > 1) em.split_stem = m.out_basename[0 .. m.out_basename.len - ".zig".len];
