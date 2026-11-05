@@ -405,3 +405,65 @@ toward default-on, in order: the never-inlined boundary at tasks.zig's
 entry points (the per-operation costs), the latency of a woken task
 (hog), the macOS arm64 port, a static check of the section, and a
 quiet rerun at four checkers.
+
+## The soundness review (2026-11-05)
+
+An independent review (read-only, probes on pup in
+`/zfs/rig-work/review-952/`) found no memory corruption and these,
+fixed here:
+
+1. **A held pinned fiber could be overwritten and lost.** While a
+   pinned fiber P was held, the worker still ran unpinned fibers; one
+   that made a local task was pinned from then on, and its preemption
+   wrote over P, which never ran again: its waiter hung and its stack
+   leaked (the review's `hold.rig` with `main`'s two spawns swapped,
+   one worker: off it prints its sum, on it hung three times of
+   three). Now `preempted` stops a pinned fiber only while no other is
+   held, and only for work that is not pinned (its "run next" slot,
+   ring, or the global queue): its siblings wait behind it in any
+   case, so stopping it for them only cost (21k preemptions, 6.3 s
+   against 5.8 s). `hold` panics if one is held already. Each worker
+   says whether the fiber it runs is pinned (`pinned_running`, set by
+   `runFiber` and `pinHere`), and the monitor counts only work that is
+   not pinned for such a worker. test/cli/preempt.sh is the probe: it
+   failed with the Rig at 9d43c237f (killed at its 60 s timeout) and
+   passes with the fix.
+2. **The deadlock detector's lock was not counted**, and its take and
+   release were inlined into the program's code (bench/actors,
+   `contend`): a holder stopped there would leave `walkFrom` spinning.
+   `lockGraph` counts now, as do alloc.zig's spin locks
+   (`tables_lock` and the rest) and the profile, map trace, and leak
+   checker locks. A unit test (sched.zig, "every lock the runtime
+   takes is counted") fails on any spin on a flag or `std.Io.Mutex`
+   taken in runtime.zig, sched.zig, tasks.zig, alloc.zig, or net.zig
+   without the count within three lines, or a note saying why it needs
+   none (a fault's handler, a panic that ends the program, a flag set
+   once).
+3. **`flushBeforeWait` took the output lock uncounted and let it go
+   counted.** It takes it through `tryLockOutput`, counted, now.
+
+Known limits, for the default-on round:
+
+- Thread-locals do appear in the section: each `rt.task()` there
+  compiles to a call of `currentOf` and then `%fs`, since LLVM folded
+  the never-inlined `threadTask` (a thread-local's address is a
+  constant to it). The address is used only when `current()` is null,
+  outside every fiber, so no signal stops that code; but "no
+  thread-local in the section" does not hold, and `never_inline` is no
+  guard for one. `std.heap.SmpAllocator` (debug builds' allocator) is
+  inlined there too, with its `thread_index` and per-slot mutex; a
+  stopped holder makes others move to another slot. The static audit
+  lists every `%fs` site and allows only these.
+- The trampoline calls `preempted` with the interrupted x87 and MMX
+  state live, where the ABI wants the x87 stack empty: `fninit` and
+  `emms` after `xsave` (which `xrstor` undoes) before any target uses
+  f80.
+- The state saved is the compile-time target's: APX's r16-r31 and AMX
+  are not, which a future target needs.
+- With libc, `pthread_kill` may be sent to a worker that has exited
+  after the monitor read it, and code that reads `errno` after an
+  extern call could read another thread's after a migration.
+- While work waits, the monitor signals a worker every period even when
+  its fiber is in a system call; `SA_RESTART` covers most, and `poll`,
+  `epoll_wait`, and `nanosleep`, which return `EINTR`, are outside
+  fibers or retried where Rig calls them.

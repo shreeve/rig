@@ -901,6 +901,7 @@ const ParState = struct {
     /// Record `err`, with its fields in `data`, unless a failure came
     /// first, whose fields are kept and these dropped.
     fn fail(self: *ParState, err: anyerror, data: *rt.ErrData) void {
+        // A flag set once, not a lock: uncounted for preemption.
         if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
             self.failure = err;
             self.failure_data = data.*;
@@ -1094,6 +1095,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
                     // run keeps if it fails first.
                     var slot: rt.ErrData = undefined;
                     const v = c.f.call(rt.argsWithSlot(F, .{ s, x }, rt.failSlot(&slot))) catch |err| {
+                        // A flag set once, not a lock: uncounted for preemption.
                         if (c.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
                             c.failure = err;
                             c.failure_data = slot;

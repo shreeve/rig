@@ -343,6 +343,7 @@ fn pinHereIn() ?*Worker {
     if (deterministic.*) return null;
     const w = me() orelse return null;
     w.current.?.home = w;
+    if (preempt) preOf(w).pinned_running.store(true, .monotonic);
     return w;
 }
 
@@ -504,6 +505,8 @@ pub const preempt_built = builtin.os.tag == .linux and builtin.cpu.arch == .x86_
 pub const preempt_section = if (builtin.object_format == .macho) "__TEXT,__rig_text" else "rig_text";
 
 const preempt = rt.preempt;
+/// Whether the program is built to be preempted, for alloc.zig's locks.
+pub const preempting = preempt;
 
 /// The bounds of `preempt_section`, which the linker defines.
 /// Weak: a program all of whose code the optimizer inlined into the
@@ -531,6 +534,8 @@ const Preempt = struct {
     /// A pinned fiber it preempted, which it runs before any other pinned
     /// fiber (`popPinned`).
     held: ?*Fiber = null,
+    /// Whether the fiber it runs is pinned (`runFiber`, `pinHere`).
+    pinned_running: std.atomic.Value(bool) = .init(false),
     /// Fibers it preempted, and the signals the monitor sent it.
     preempts: u64 = 0,
     signals: std.atomic.Value(u64) = .init(0),
@@ -728,8 +733,19 @@ fn preempted() void {
     if (!hasOwnWork(w)) {
         if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
     }
+    // A pinned fiber is stopped only for work that is not pinned, which
+    // its siblings, waiting behind it, could not be; and only one is held
+    // at a time.
+    const pinned = w.current.?.home != null;
+    if (pinned and (preOf(w).held != null or !otherWork(w))) return;
     preOf(w).preempts += 1;
-    stopIn(.{ .run = if (w.current.?.home != null) hold else behind });
+    stopIn(.{ .run = if (pinned) hold else behind });
+}
+
+/// Whether work waits for `w` that is not its pinned fibers: in its "run
+/// next" slot, its ring, or the global queue.
+fn otherWork(w: *Worker) bool {
+    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or global.count.load(.monotonic) != 0;
 }
 
 /// Queue the fiber `f` just preempted in the global queue, as Go does:
@@ -744,7 +760,9 @@ fn behind(f: *Fiber, _: ?*anyopaque) void {
 /// Hold the pinned fiber `f` just preempted on its worker, ahead of the
 /// other pinned fibers, which wait for it (`popPinned`).
 fn hold(f: *Fiber, _: ?*anyopaque) void {
-    preOf(me().?).held = f;
+    const p = preOf(me().?);
+    if (p.held != null) @panic("rig: a second pinned fiber was held on one worker");
+    p.held = f;
 }
 
 /// What `me` does when it is called from the program's own code, which
@@ -805,7 +823,10 @@ fn watchSlices(slice: i96, wait: i96) void {
         for (workers.*, 0..) |*w, i| {
             const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
-            const work = queuedHere(w);
+            // A pinned fiber's siblings in the pinned queue wait for it
+            // in any case (`preempted`): only other work counts.
+            const pinned = preOf(w).pinned_running.load(.monotonic);
+            const work = if (pinned) w.lifo.load(.monotonic) != null or !w.ring.isEmpty() else queuedHere(w);
             queued = queued or work;
             defer had[i] = work;
             if (!running or runs != seen[i]) {
@@ -816,7 +837,8 @@ fn watchSlices(slice: i96, wait: i96) void {
             }
             busy = true;
             const waited = work and had[i];
-            if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
+            const waits = if (pinned) work or global.count.load(.monotonic) != 0 else workWaits(w);
+            if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !waits)) continue;
             // Again every period until it stops: a signal that finds the
             // fiber outside the program's code does nothing.
             _ = preOf(w).signals.fetchAdd(1, .monotonic);
@@ -2719,7 +2741,10 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
-    if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+    if (preempt) {
+        preOf(w).pinned_running.store(f.home != null, .monotonic);
+        preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+    }
     if (f.home != null) w.ran_pinned += 1;
     prepare(f);
     w.current = f;
@@ -3260,11 +3285,13 @@ var graph_var: std.atomic.Value(bool) = .init(false);
 const graph = split.cell(&graph_var, "sched.graph");
 
 fn lockGraph() void {
+    if (preempt) holdOff();
     while (graph.cmpxchgWeak(false, true, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
 }
 
 fn unlockGraph() void {
     graph.store(false, .seq_cst);
+    if (preempt) holdOn();
 }
 
 /// The running fiber blocks on `b` until `unblock`: publish it, and walk
@@ -5595,4 +5622,34 @@ test "a wait to write on a full buffer ends when the other end closes, and the w
     try std.testing.expectEqual(Readiness.ready, Run.got);
     try std.testing.expect(Run.took < std.time.ns_per_s);
     try std.testing.expect(Run.failed);
+}
+
+test "every lock the runtime takes is counted for preemption" {
+    // A lock taken in code the optimizer inlines into the program's own,
+    // where a signal may stop the fiber holding it, must count itself
+    // (`holdOff`, within the three lines before it), or say why it need
+    // not ("uncounted"). A spin on a flag and each `std.Io.Mutex` the
+    // runtime takes are what the scan finds.
+    const files = [_][]const u8{ @embedFile("runtime.zig"), @embedFile("sched.zig"), @embedFile("tasks.zig"), @embedFile("alloc.zig"), @embedFile("net.zig") };
+    const takes = [_][]const u8{ "cmpxchgWeak(false, true", "cmpxchgStrong(false, true", "lockUncancelable(", "_lock.tryLock()" };
+    for (files) |text| {
+        var before: [3][]const u8 = .{ "", "", "" };
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |line| {
+            defer before = .{ before[1], before[2], line };
+            const code = std.mem.trimStart(u8, line, " ");
+            if (std.mem.startsWith(u8, code, "//") or std.mem.indexOf(u8, line, "const takes") != null) continue;
+            const takes_one = for (takes) |t| {
+                if (std.mem.indexOf(u8, line, t) != null) break true;
+            } else false;
+            if (!takes_one) continue;
+            const counted = for (before ++ [1][]const u8{line}) |l| {
+                if (std.mem.indexOf(u8, l, "holdOff") != null or std.mem.indexOf(u8, l, "ncounted") != null) break true;
+            } else false;
+            if (!counted) {
+                std.debug.print("a lock taken without the count: {s}\n", .{code});
+                return error.Uncounted;
+            }
+        }
+    }
 }
