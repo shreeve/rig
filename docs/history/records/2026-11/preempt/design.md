@@ -184,7 +184,12 @@ Built: Linux x86-64 (pup). Planned in this order:
   the program counter and ends with `brk`, whose SIGTRAP handler takes
   the saved PC and stack pointer from the frame and returns into the
   interrupted code with every register as it was. Two signals per
-  preemption, at most one per slice. Darwin's red zone is 128 bytes; its
+  preemption, at most one per slice. Zig 0.17's Mach-O linker defines
+  no `section$start$__TEXT$__rig_text` (tried: undefined symbol), so
+  the bounds come from `getsectiondata` on the executable's header as
+  the monitor starts. A kqueue descriptor cannot be given to `poll(2)`,
+  so a busy worker with descriptors is signaled every period. Not
+  built in this round. Darwin's red zone is 128 bytes; its
   thread is signaled with `pthread_kill`.
 - **Linux aarch64:** the same as macOS arm64, with Linux's `ucontext`
   (no red zone).
@@ -248,6 +253,27 @@ release builds), off and on:
 | yield | 12.4 ms | 13.4 ms |
 | hog | 9.5 ms | 1,026 ms |
 | actors solo / contend / spread | 17.1 / 37.3 / 4.4 ms | 18.4 / 36.1 / 4.8 ms |
+
+Timed in a pup slot (`/tmp/open-slot.sh`, no cpuq holder, no Trig
+run), `--release=fast`, 2 workers on P-cores 6 and 8, 9 interleaved
+rounds, fastest of each:
+
+| Benchmark | Off | On | On against off |
+|---|---|---|---|
+| spawn | 5.83 ms | 6.59 ms | 13% slower |
+| chain | 0.86 ms | 0.87 ms | level |
+| fanout | 296.9 ms | 315.9 ms | 6.4% slower |
+| yield | 19.49 ms | 20.75 ms | 6.5% slower |
+| hog | 6.19 ms | 1,089.5 ms | 176 times slower |
+| actors solo | 11.32 ms | 11.73 ms | 3.6% slower |
+| actors contend | 10.58 ms | 11.83 ms | 12% slower |
+| actors spread | 5.82 ms | 6.14 ms | 5.5% slower |
+
+The task-heavy rows pay for the scheduler's entry points that are calls
+under preemption (`wake`, `stop`, `current`, and the rest) and the lock
+counts; fanout, which only spins, should not be slower, and the
+monitor thread shared the two cores under `taskset`, so that row wants
+a rerun with the monitor on a core of its own before it is believed.
 
 `hog` is the finding. With every core busy with 32 spinning tasks, the
 checks give the runnable fibers on a worker turns of about 1,024 loop
