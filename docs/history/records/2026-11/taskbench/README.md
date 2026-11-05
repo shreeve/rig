@@ -1,0 +1,26 @@
+# Tasks over cores, against Tokio, Rayon, and Go (2026-11-04)
+
+Step 1 of the concurrency plan the owner approved on 2026-11-04 (measure first). It adds `bench/tasks/bench-scale`, scaling benchmarks in all four runtimes, and a measurement of memory per task that counts page tables. The benchmarks and rules are in [bench/tasks/README.md](../../../../../bench/tasks/README.md) ("Scaling"), and the standing tables are in [bench/tasks/SCALING.md](../../../../../bench/tasks/SCALING.md).
+
+## Runs
+
+- [mac-2026-11-04.md](mac-2026-11-04.md): Apple M5, every worker count, with each row's counters.
+- [pup-2026-11-05.md](pup-2026-11-05.md): pup (x86), 1 to 16 workers on named cores, with syscalls, page faults, dTLB misses, and TLB shootdowns.
+- [slice-ceiling.md](slice-ceiling.md): whether a time slice of 20 to 100 µs would help: about 3% on 1,024 CPU tasks on one worker, at 6 to 20 times the wait behind a computation, so Rig keeps yielding at once.
+- [loop-disassembly.md](loop-disassembly.md): why Rig's CPU loop is slower: Rig's and Rust's arm64 code for the same loop, and the two extra adds on its dependency chain.
+
+## What they show
+
+On the Mac:
+- Rig spreads work over cores as well as Tokio, Rayon, and Go: 7.1 to 7.6 times at ten workers.
+- Rig's CPU loop is 25 to 32% slower at every worker count: fewer instructions than Go, but about 27% more cycles. The countdown itself is nearly free. Its branch splits the loop, and LLVM then puts two extra adds on the chain each turn waits on ([loop-disassembly.md](loop-disassembly.md)). The fix is the plan's strip-mining of counted loops (emit only).
+- A split of `tree` costs about 2 µs at one worker, against Rayon's 10 ns, because every split gets a stack of its own. This is the plan's free fork-join behind `&`.
+- Allocation is Rig's clear lead: twice the system allocator at one worker, and 4.4 times Tokio at ten workers, where macOS's malloc and Go's collector stop scaling.
+- A sleeping task holds 32.7 KiB, of which 16.1 KiB is page tables (macOS `footprint`). `bench-tasks`'s `memory` column (16.6 KiB) counts only the stack's page. Tokio holds 267 B and Go 2.9 KiB.
+
+On pup (x86): Rig scales 10.5 to 11.4 times at 16 workers (the others 11.6 to 12.0), its loop is 4 to 17% slower, a split costs about 1.3 µs, allocation is fastest at every count (37 ms against Tokio's 54 at 16), a set of tasks costs 900 to 3,400 TLB shootdowns where `par.map` costs 6 to 25, and a sleeping task holds 8.9 KiB, half of it page tables.
+
+## Not measured here
+
+- The live stack at a park. It needs a counter in the scheduler, so it comes with NEEDS 72, after #952 settles.
+- Syscalls on the Mac. `/usr/bin/time -l` gives none, and dtrace needs SIP off.
