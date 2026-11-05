@@ -5,12 +5,13 @@ Step 1 of the concurrency plan the owner approved on 2026-11-04 (measure first).
 ## Runs
 
 - [mac-2026-11-04.md](mac-2026-11-04.md): Apple M5, every worker count, with each row's counters.
+- [loop-disassembly.md](loop-disassembly.md): why Rig's CPU loop is slower: Rig's and Rust's arm64 code for the same loop, and the two extra adds on its dependency chain.
 
 ## What they show
 
 On the Mac:
 - Rig spreads work over cores as well as Tokio, Rayon, and Go: 7.1 to 7.6 times at ten workers.
-- Rig's CPU loop is 25 to 32% slower at every worker count: fewer instructions than Go, but about 27% more cycles. The yield check's countdown is on the loop's chain of dependent adds. The fix is the plan's strip-mining of counted loops (emit only).
+- Rig's CPU loop is 25 to 32% slower at every worker count: fewer instructions than Go, but about 27% more cycles. The countdown itself is nearly free. Its branch splits the loop, and LLVM then puts two extra adds on the chain each turn waits on ([loop-disassembly.md](loop-disassembly.md)). The fix is the plan's strip-mining of counted loops (emit only).
 - A split of `tree` costs about 2 µs at one worker, against Rayon's 10 ns, because every split gets a stack of its own. This is the plan's free fork-join behind `&`.
 - Allocation is Rig's clear lead: twice the system allocator at one worker, and 4.4 times Tokio at ten workers, where macOS's malloc and Go's collector stop scaling.
 - A sleeping task holds 32.7 KiB, of which 16.1 KiB is page tables (macOS `footprint`). `bench-tasks`'s `memory` column (16.6 KiB) counts only the stack's page. Tokio holds 267 B and Go 2.9 KiB.

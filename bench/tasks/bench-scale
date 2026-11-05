@@ -143,9 +143,12 @@ def run(exe, name, w, workers, cpus, events):
             if m and m.group(2).strip() in MAC_COUNTERS:
                 counters[MAC_COUNTERS[m.group(2).strip()]] = int(m.group(1))
         else:
+            # A hybrid CPU counts each event on each kind of core
+            # (cpu_core/cycles/, cpu_atom/cycles/): the process's is the sum.
             parts = line.split(",")
             if len(parts) >= 3 and parts[0].replace(".", "").isdigit():
-                counters[parts[2]] = int(float(parts[0]))
+                event = re.sub(r"^cpu_\w+/(.*)/$", r"\1", parts[2])
+                counters[event] = counters.get(event, 0) + int(float(parts[0]))
     if tlb is not None:
         counters["tlb-shootdowns"] = tlb
     return {"ns": int(ns), "wall": wall, "check": check, "counters": counters}

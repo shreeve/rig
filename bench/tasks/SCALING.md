@@ -47,8 +47,9 @@ What the arm64 numbers show:
 - **Rig's CPU work is 25 to 32% slower at every worker count**, in the
   loop itself: Rig runs fewer instructions than Go (975M against 1.10G
   for `even` at one worker) in about 27% more cycles (898M against
-  707M). The yield check's countdown sits on the chain of adds each turn
-  depends on.
+  707M). The yield check's branch splits the loop, and LLVM then puts
+  two extra adds on the chain each turn waits on
+  ([loop-disassembly.md](../../docs/history/records/2026-11/taskbench/loop-disassembly.md)).
 - **A split of the tree costs about 2 µs at one worker** (`empty` 2.0
   ms for 1,023 splits; Rayon's 0.01 ms): each split gets a stack of its
   own, and more splits wait at once than a worker keeps stacks for.
