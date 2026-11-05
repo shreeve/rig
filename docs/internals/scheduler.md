@@ -340,13 +340,15 @@ fails, and yields only when other work waits.
   nothing: a probe of a `Map` that finds its key at once, or a scan
   that returns at its first element, pays no check. Zig's own `for`,
   which has no continue expression, counts as each turn's body starts.
-  A range `for i in a..b` whose body holds no loop, and whose length is
-  not a constant of at most 1,024, runs in blocks instead: each takes as many of the turns left as the count allows
-  (`rig.turnStop`), runs them in a plain inner loop, and checks once at
-  its end (`rig.turnEnd`). A jump that leaves a block gives back the
-  turns it did not run (`rig.turnRefund`), so the count, and so every
+  A range `for i in a..b` that always runs to its end (its body holds no
+  loop and no `break`, `return`, or failure passed on), and whose length
+  is not a constant of at most 1,024, runs in blocks instead: each takes
+  as many of the turns left as the count allows (`rig.turnStop`), runs
+  them in a plain inner loop, and checks once at its end
+  (`rig.turnEnd`). A block always runs whole, so the count, and so every
   yield and every seeded schedule, is the one a check on each turn
-  keeps. The inner loop compiles as a loop with no check: a check on
+  keeps. A search, which may stop at its first turns, keeps its check
+  on each turn, which costs it least. The inner loop compiles as a loop with no check: a check on
   each turn sits on the loop's chain of dependent work, and costs
   `spin` in bench/tasks about 25% of its cycles
   ([docs/history/records/2026-11/taskbench/loop-disassembly.md](../history/records/2026-11/taskbench/loop-disassembly.md)).

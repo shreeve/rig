@@ -4520,13 +4520,13 @@ pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(
 // range `for i in a..b` whose body holds no loop runs in blocks: each
 // takes as many of the turns left as the count before the next yield
 // check (`turn`) allows, runs them in a plain inner loop, then checks
-// once. A jump that leaves a block gives back the turns it did not run,
-// so the count is the one a check on every turn would keep, and a task
-// yields on the same turns.
+// once. Only a range that always runs to its end is split, so the count
+// is the one a check on every turn would keep, and a task yields on the
+// same turns.
 
 /// The turns a range has left at `i` before `end`, for `i <= end` (a
-/// block starts only inside the range, and a jump leaves one only from
-/// inside it), at most `maxInt(u64)`, for a range of any integer type:
+/// block starts only inside the range), at most `maxInt(u64)`, for a
+/// range of any integer type:
 /// the difference of their bits as unsigned, which is exact there.
 pub inline fn turnsLeft(i: anytype, end: @TypeOf(i)) u64 {
     const U = @Int(.unsigned, @bitSizeOf(@TypeOf(i)));
@@ -4566,12 +4566,6 @@ pub inline fn turnEnd(n: *u32) void {
     }
 }
 
-/// A jump that leaves a block with `left` of its turns not run gives
-/// them back to the count.
-pub inline fn turnRefund(n: *u32, left: u64) void {
-    if (!scheduled or preempt or @inComptime()) return;
-    n.* += @intCast(left);
-}
 
 // Flags (docs/internals/INTERNALS.md, "Flags"). The compiler tests some
 // facts once, as a statement starts, into a flag (`okNonneg`, `okBelow`),

@@ -4106,19 +4106,19 @@ is entered, so a jump in it targets the loop around this one, as the
 checker walks it before `walkLoop`.
 
 **Blocks of a range.** In a program that makes tasks, a range
-`for i in a..b` whose body holds no loop (`syntax.contains`, outside
-closures) is two Zig loops (`emitRangeFor`): an outer `while (i < end)`
-that takes a block of the turns left before the next yield check
-(`rig.turnStop`), and an inner `while (i < stop) : (i += 1)` around the
-body's block, with no check in it; after the inner loop, one check
-(`rig.turnEnd`). The labels do not move: the Rig loop's label is on the
-outer `while`, so a `break` leaves both, and the body's block is the
-inner loop's, so a `continue` goes on to the next turn. A jump that
-leaves a block (a `break` of this loop or one around it, or a
-`continue` of one around it) is written `{ rig.turnRefund(...); jump }`,
-giving back the turns the block did not run (`writeRefund`), so the
+`for i in a..b` that always runs to its end is two Zig loops
+(`emitRangeFor`): an outer `while (i < end)` that takes a block of the
+turns left before the next yield check (`rig.turnStop`), and an inner
+`while (i < stop) : (i += 1)` around the body's block, with no check in
+it; after the inner loop, one check (`rig.turnEnd`). Its body holds no
+loop (`syntax.contains`) and nothing that leaves the loop early
+(`leavesEarly`: a `break`, a `return`, a failure passed on, or a labeled
+`continue`; outside closures), so a block always runs whole, and the
 count of turns, and every yield, is what a check on each turn keeps. A
-`..=` range, a range with a loop in its body, a range whose length is a
+`continue` leaves the body's block, the inner loop's, and goes on to the
+next turn. A range that may leave early, which is usually a search of a
+few turns that a block's start would cost more than it saves, a `..=`
+range, a range with a loop in its body, a range whose length is a
 constant of at most 1,024 (`constIntOf`, one block anyway, which Zig
 unrolls whole when it is one loop), and every other loop count each
 turn as above.

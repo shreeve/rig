@@ -1512,6 +1512,17 @@ code "task a loop with a loop inside counts each turn", "while (__rig_i_5 < __ri
   t = grid(3)&
   print(>t)
 
+code "task a range that may leave early counts each turn", "while (__rig_i_5 < __rig_end_5) : ({ rig.turn(&"
+  # A search, which may stop at its first turns, keeps a check on each
+  # turn: a block's start would cost it more than the checks save.
+  fun find(n: Int, k: Int) -> Int
+    for i in 0..n
+      return i if i * i == k
+    -1
+
+  t = find(10, 9)&
+  print(>t)
+
 code "task a short constant range counts each turn", "while (__rig_i_5 < __rig_end_5) : ({ rig.turn(&"
   # A range whose length is a constant of one block or less stays one
   # loop, which Zig can unroll whole.
@@ -1527,9 +1538,10 @@ code "task a short constant range counts each turn", "while (__rig_i_5 < __rig_e
 test "task split loops keep their jumps", seeds: 20, '''
   45 4 25 7 9 -1 15
 '''
-  # A block of a split loop changes no jump: `break` leaves the loop,
-  # with a value or not, `continue` goes on to the next turn, `return`
-  # leaves the function, and `else` runs when the loop ends unbroken.
+  # Jumps keep their meaning in ranges split and not: `break` leaves the
+  # loop, with a value or not, `continue` goes on to the next turn,
+  # `return` leaves the function, and `else` runs when the loop ends
+  # unbroken.
   fun count(n: Int) -> Int
     s = 0
     for i in 0..n
