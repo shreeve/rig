@@ -5,6 +5,7 @@ Step 1 of the concurrency plan the owner approved on 2026-11-04 (measure first).
 ## Runs
 
 - [mac-2026-11-04.md](mac-2026-11-04.md): Apple M5, every worker count, with each row's counters.
+- [slice-ceiling.md](slice-ceiling.md): whether a time slice of 20 to 100 µs would help: about 3% on 1,024 CPU tasks on one worker, at 6 to 20 times the wait behind a computation, so Rig keeps yielding at once.
 - [loop-disassembly.md](loop-disassembly.md): why Rig's CPU loop is slower: Rig's and Rust's arm64 code for the same loop, and the two extra adds on its dependency chain.
 
 ## What they show
