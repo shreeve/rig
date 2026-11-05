@@ -1,0 +1,8 @@
+exitwatch at-exit 43.23 reaped 43.79 rss-at-exit 5156 status 0
+exitwatch at-exit 1.39 reaped 1.65 rss-at-exit 5156 status 0
+exitwatch at-exit 1.36 reaped 1.63 rss-at-exit 5160 status 0
+exitwatch at-exit 1.27 reaped 1.51 rss-at-exit 5164 status 0
+exitwatch at-exit 1.32 reaped 1.56 rss-at-exit 5160 status 0
+exitwatch at-exit 1296.41 reaped 1309.70 rss-at-exit 206264 status 2
+exitwatch at-exit 1288.58 reaped 1300.31 rss-at-exit 206268 status 2
+exitwatch at-exit 1280.67 reaped 1292.62 rss-at-exit 206268 status 2

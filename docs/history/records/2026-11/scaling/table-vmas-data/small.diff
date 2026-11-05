@@ -1,0 +1,8 @@
+981c981
+<     const huge = len > huge_page and hugeFree();
+---
+>     const huge = false; // VARIANT small: one policy, small pages, for the whole region
+122c122
+<     if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
+---
+>     if (true) { // VARIANT small
