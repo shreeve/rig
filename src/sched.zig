@@ -52,6 +52,7 @@ comptime {
         workers_asked,
         graph,
     };
+    if (split.on and split.main and preempt) _ = preempt_states;
 }
 
 /// A fiber: a task's own stack, and the stack pointer it left when it
@@ -172,9 +173,6 @@ const Worker = struct {
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
     thread: ?std.Thread align(std.atomic.cache_line) = null,
-    /// What preemption keeps for it (`Preempt`), in a program built to
-    /// be preempted; nothing in any other.
-    pre: if (preempt) Preempt else void = if (preempt) .{} else {},
 };
 
 /// The workers, worker 0 first; set by `runMain`.
@@ -373,12 +371,29 @@ pub noinline fn tickCall() void {
 /// searching worker would.
 fn claimWaiting(w: *Worker) void {
     if (!takeWaiting(w)) return;
-    if (hasOwnWork(w) or stealWaiting(w)) return yield();
+    if (hasOwnWork(w)) return yield();
+    if (workers.*.len < 2) return;
+    for (workers.*) |*v| {
+        if (v == w) continue;
+        if (w.ring.stealFrom(&v.ring)) |f| {
+            w.stole += 1;
+            _ = w.ring.push(f);
+            return yield();
+        }
+    }
+    for (workers.*) |*v| {
+        if (v == w) continue;
+        if (takeNext(v)) |f| {
+            _ = w.ring.push(f);
+            return yield();
+        }
+    }
 }
 
-/// Take into `w`'s ring work that waits for another busy worker: half of
-/// another's ring, or the fiber in another's "run next" slot; whether
-/// any was taken.
+/// Take into `w`'s ring work that waits for another busy worker, as
+/// `claimWaiting` does: half of another's ring, or the fiber in another's
+/// "run next" slot; whether any was taken. A preempted fiber's
+/// (`preempted`), which then holds the fiber rather than yield.
 fn stealWaiting(w: *Worker) bool {
     if (workers.*.len < 2) return false;
     for (workers.*) |*v| {
@@ -400,7 +415,7 @@ fn stealWaiting(w: *Worker) bool {
 }
 
 fn hasOwnWork(w: *Worker) bool {
-    if (preempt and w.pre.held != null) return true;
+    if (preempt and preOf(w).held != null) return true;
     return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
 }
 
@@ -449,10 +464,20 @@ const preempt = rt.preempt;
 const code_start = if (preempt) @extern(?*const u8, .{ .name = "__start_rig_text", .linkage = .weak }) else {};
 const code_end = if (preempt) @extern(?*const u8, .{ .name = "__stop_rig_text", .linkage = .weak }) else {};
 
+/// What preemption keeps for each worker, beside its `Worker`, which
+/// stays as it is in a program not built to be preempted.
+var preempt_states_var: [max_workers]Preempt = @splat(.{});
+const preempt_states = split.cell(&preempt_states_var, "sched.preempt_states");
+
+inline fn preOf(w: *const Worker) *Preempt {
+    return &preempt_states[(@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker)];
+}
+
 /// What preemption keeps for a worker.
 const Preempt = struct {
-    /// Its thread, to signal (`rt.threadId`).
-    tid: usize = 0,
+    /// Its thread, to signal (`rt.threadId`). Each worker's begins a
+    /// cache line, as a `Worker` does.
+    tid: usize align(std.atomic.cache_line) = 0,
     /// How many fibers it has started running: the monitor sees it run
     /// one fiber for as long as this stays the same.
     runs: std.atomic.Value(u32) = .init(0),
@@ -480,20 +505,20 @@ const Preempt = struct {
 /// it is taken and let go on one thread.
 pub noinline fn holdOff() void {
     if (!preempt) return;
-    if (me()) |w| w.pre.no_preempt += 1;
+    if (me()) |w| preOf(w).no_preempt += 1;
 }
 
 /// A lock `holdOff` counted is let go.
 pub noinline fn holdOn() void {
     if (!preempt) return;
-    if (me()) |w| w.pre.no_preempt -|= 1;
+    if (me()) |w| preOf(w).no_preempt -|= 1;
 }
 
 /// The pinned fiber `w` runs next: the one it preempted, if it holds one,
 /// else the first in its queue of them.
 inline fn popPinned(w: *Worker) ?*Fiber {
-    if (preempt) if (w.pre.held) |f| {
-        w.pre.held = null;
+    if (preempt) if (preOf(w).held) |f| {
+        preOf(w).held = null;
         return f;
     };
     return w.pinned.pop();
@@ -536,11 +561,11 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     const pc = pc_at.*;
     const sp = sp_at.*;
     if (pc < @intFromPtr(code_start) or pc >= @intFromPtr(code_end)) {
-        w.pre.outside += 1;
+        preOf(w).outside += 1;
         return;
     }
-    if (w.pre.no_preempt != 0) {
-        w.pre.held_off += 1;
+    if (preOf(w).no_preempt != 0) {
+        preOf(w).held_off += 1;
         return;
     }
     // Room for the trampoline above the guard, and this handler on its
@@ -548,7 +573,7 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     const guard = f.state.stack_guard;
     const here = @frameAddress();
     if ((guard.hi != 0 and sp < guard.hi + preempt_room) or (here < sp and here > sp -| (8 << 20))) {
-        w.pre.cramped += 1;
+        preOf(w).cramped += 1;
         return;
     }
     const ret = sp - 128 - 8;
@@ -656,7 +681,7 @@ fn preempted() void {
         if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
     }
     const f = w.current.?;
-    w.pre.preempts += 1;
+    preOf(w).preempts += 1;
     const pinned = f.home != null;
     // Its home for as long as it is held, so only this worker runs it.
     if (!pinned) f.home = w;
@@ -669,7 +694,7 @@ fn preempted() void {
 /// other behind them.
 fn hold(f: *Fiber, ctx: ?*anyopaque) void {
     const w = me().?;
-    if (ctx != null) w.pre.held = f else w.pinned.push(f);
+    if (ctx != null) preOf(w).held = f else w.pinned.push(f);
 }
 
 // The monitor: a thread of its own, started with the workers.
@@ -705,7 +730,7 @@ fn watchSlices(slice: i96) void {
         const now = nowReal();
         var busy = false;
         for (workers.*, 0..) |*w, i| {
-            const runs = w.pre.runs.load(.monotonic);
+            const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
@@ -718,8 +743,8 @@ fn watchSlices(slice: i96) void {
             if (!due and (now - since[i] < slice or !workWaits(w))) continue;
             // Again every period until it stops: a signal that finds the
             // fiber outside the program's code does nothing.
-            _ = w.pre.signals.fetchAdd(1, .monotonic);
-            signalThread(w.pre.tid);
+            _ = preOf(w).signals.fetchAdd(1, .monotonic);
+            signalThread(preOf(w).tid);
         }
         period = if (busy) busy_period else @min(2 * period, 10 * std.time.ns_per_ms);
     }
@@ -2435,7 +2460,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot().* = &workers.*[0];
-    if (preempt) workers.*[0].pre.tid = rt.threadId();
+    if (preempt) preOf(&workers.*[0]).tid = rt.threadId();
     if (deterministic.*) wake(&m.fiber) else _ = workers.*[0].ring.push(&m.fiber);
     loop(&workers.*[0]);
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
@@ -2473,7 +2498,7 @@ fn printStats() void {
     var buf: [256]u8 = undefined;
     for (workers.*, 0..) |*w, i| {
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room)\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.pre.preempts, w.pre.signals.raw, w.pre.outside, w.pre.held_off, w.pre.cramped })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room)\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped })
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
@@ -2544,7 +2569,7 @@ fn workerMain(w: *Worker) void {
     const alt = rt.AltStack.attach();
     defer alt.detach();
     me_slot().* = w;
-    if (preempt) w.pre.tid = rt.threadId();
+    if (preempt) preOf(w).tid = rt.threadId();
     loop(w);
 }
 
@@ -2580,7 +2605,7 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
-    if (preempt) w.pre.runs.store(w.pre.runs.raw +% 1, .monotonic);
+    if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(f);
     w.current = f;
@@ -2632,12 +2657,14 @@ fn next(w: *Worker) ?*Fiber {
         service(w);
         if (global.pop()) |f| return f;
     }
+    // A pinned fiber in the "run next" slot waits with the others while
+    // one its worker preempted is held (`popPinned`). Only this worker
+    // fills its slot.
+    if (preempt and preOf(w).held != null) if (w.lifo.load(.monotonic)) |f| if (f.home != null) {
+        if (w.lifo.swap(null, .seq_cst)) |g| w.pinned.push(g);
+    };
     if (w.lifo.load(.monotonic) != null) if (w.lifo.swap(null, .seq_cst)) |f| {
-        if (preempt and f.home != null and w.pre.held != null) {
-            // A pinned fiber waits while one its worker preempted is held
-            // (`popPinned`).
-            w.pinned.push(f);
-        } else if (w.lifo_streak < lifo_limit) {
+        if (w.lifo_streak < lifo_limit) {
             w.lifo_streak += 1;
             return f;
         }
