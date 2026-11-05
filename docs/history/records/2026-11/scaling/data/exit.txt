@@ -1,0 +1,54 @@
+== exit.ts-pattern.trig.1.data
+exit to reaped, ms: 13.3 13.4 11.4 13.1 12.7  median 13.1
+TLB flushes per run, median: 1139 (in the exit: 0)
+== exit.ts-pattern.trig.4.data
+exit to reaped, ms: 28.3 27.0 15.7 31.1 29.6  median 28.3
+TLB flushes per run, median: 9959 (in the exit: 0)
+== exit.ts-pattern.trig.8.data
+exit to reaped, ms: 24.5 28.9 35.1 22.4 25.0  median 25.0
+TLB flushes per run, median: 19114 (in the exit: 0)
+== exit.ts-pattern.tsrs.1.data
+exit to reaped, ms: 7.1 6.6 6.8 6.5 7.2  median 6.8
+TLB flushes per run, median: 68 (in the exit: 0)
+== exit.ts-pattern.tsrs.4.data
+exit to reaped, ms: 10.0 7.3 6.3 10.2 10.2  median 10.0
+TLB flushes per run, median: 207 (in the exit: 0)
+== exit.ts-pattern.tsrs.8.data
+exit to reaped, ms: 14.1 9.9 14.4 11.9 11.2  median 11.9
+TLB flushes per run, median: 522 (in the exit: 0)
+== exit.ts-pattern.tsrsg.1.data
+exit to reaped, ms: 8.6 8.6 8.9 8.2 9.2  median 8.6
+TLB flushes per run, median: 55 (in the exit: 0)
+== exit.ts-pattern.tsrsg.4.data
+exit to reaped, ms: 12.9 13.8 9.8 11.0 11.9  median 11.9
+TLB flushes per run, median: 178 (in the exit: 0)
+== exit.ts-pattern.tsrsg.8.data
+exit to reaped, ms: 11.7 10.8 15.2 8.9 10.2  median 10.8
+TLB flushes per run, median: 416 (in the exit: 0)
+== exit.zod3.trig.1.data
+exit to reaped, ms: 5.2 3.5 3.5 5.9 6.0  median 5.2
+TLB flushes per run, median: 588 (in the exit: 0)
+== exit.zod3.trig.4.data
+exit to reaped, ms: 11.4 6.6 6.3 9.2 6.6  median 6.6
+TLB flushes per run, median: 6812 (in the exit: 0)
+== exit.zod3.trig.8.data
+exit to reaped, ms: 11.1 11.6 12.0 14.6 10.0  median 11.6
+TLB flushes per run, median: 15889 (in the exit: 0)
+== exit.zod3.tsrs.1.data
+exit to reaped, ms: 1.9 2.5 2.0 3.1 1.9  median 2.0
+TLB flushes per run, median: 46 (in the exit: 0)
+== exit.zod3.tsrs.4.data
+exit to reaped, ms: 3.1 3.4 3.0 3.3 2.9  median 3.1
+TLB flushes per run, median: 167 (in the exit: 0)
+== exit.zod3.tsrs.8.data
+exit to reaped, ms: 4.9 4.3 4.8 4.6 4.4  median 4.6
+TLB flushes per run, median: 569 (in the exit: 0)
+== exit.zod3.tsrsg.1.data
+exit to reaped, ms: 2.1 2.0 2.0 2.6 2.1  median 2.1
+TLB flushes per run, median: 42 (in the exit: 0)
+== exit.zod3.tsrsg.4.data
+exit to reaped, ms: 3.3 3.3 5.1 3.2 3.7  median 3.3
+TLB flushes per run, median: 188 (in the exit: 0)
+== exit.zod3.tsrsg.8.data
+exit to reaped, ms: 4.4 4.8 5.7 5.7 5.5  median 5.5
+TLB flushes per run, median: 426 (in the exit: 0)

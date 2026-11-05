@@ -1,0 +1,40 @@
+== ts-pattern.trig.1
+VMAs 173 (anon 164); anon Rss 150.4 MiB, of it huge 72.0 MiB
+  advised NOHUGEPAGE (nh): 52 VMAs, Rss 32.0 MiB
+  advised HUGEPAGE (hg): 53 VMAs, Rss 80.0 MiB, huge 72.0 MiB
+  VMAs of 2 MiB or less: 101, Rss 49.3 MiB
+== ts-pattern.trig.8
+VMAs 1304 (anon 1295); anon Rss 220.4 MiB, of it huge 46.0 MiB
+  advised NOHUGEPAGE (nh): 409 VMAs, Rss 94.9 MiB
+  advised HUGEPAGE (hg): 410 VMAs, Rss 46.0 MiB, huge 46.0 MiB
+  VMAs of 2 MiB or less: 603, Rss 133.0 MiB
+== ts-pattern.tsrsg.1
+VMAs 58 (anon 27); anon Rss 152.1 MiB, of it huge 100.0 MiB
+  advised NOHUGEPAGE (nh): 8 VMAs, Rss 0.2 MiB
+  advised HUGEPAGE (hg): 1 VMAs, Rss 100.0 MiB, huge 100.0 MiB
+  VMAs of 2 MiB or less: 17, Rss 2.1 MiB
+== ts-pattern.tsrsg.8
+VMAs 107 (anon 76); anon Rss 230.4 MiB, of it huge 138.0 MiB
+  advised NOHUGEPAGE (nh): 28 VMAs, Rss 0.6 MiB
+  advised HUGEPAGE (hg): 1 VMAs, Rss 144.9 MiB, huge 138.0 MiB
+  VMAs of 2 MiB or less: 45, Rss 0.2 MiB
+== zod3.trig.1
+VMAs 159 (anon 150); anon Rss 46.9 MiB, of it huge 16.0 MiB
+  advised NOHUGEPAGE (nh): 52 VMAs, Rss 11.9 MiB
+  advised HUGEPAGE (hg): 52 VMAs, Rss 16.0 MiB, huge 16.0 MiB
+  VMAs of 2 MiB or less: 91, Rss 19.8 MiB
+== zod3.trig.8
+VMAs 1207 (anon 1198); anon Rss 91.4 MiB, of it huge 10.0 MiB
+  advised NOHUGEPAGE (nh): 409 VMAs, Rss 41.4 MiB
+  advised HUGEPAGE (hg): 410 VMAs, Rss 10.0 MiB, huge 10.0 MiB
+  VMAs of 2 MiB or less: 513, Rss 57.6 MiB
+== zod3.tsrsg.1
+VMAs 58 (anon 27); anon Rss 37.3 MiB, of it huge 22.0 MiB
+  advised NOHUGEPAGE (nh): 8 VMAs, Rss 0.1 MiB
+  advised HUGEPAGE (hg): 1 VMAs, Rss 22.0 MiB, huge 22.0 MiB
+  VMAs of 2 MiB or less: 17, Rss 2.0 MiB
+== zod3.tsrsg.8
+VMAs 15 (anon 9); anon Rss 96.9 MiB, of it huge 46.0 MiB
+  advised NOHUGEPAGE (nh): 0 VMAs, Rss 0.0 MiB
+  advised HUGEPAGE (hg): 1 VMAs, Rss 53.0 MiB, huge 46.0 MiB
+  VMAs of 2 MiB or less: 3, Rss 0.0 MiB
