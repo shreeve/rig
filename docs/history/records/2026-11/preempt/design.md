@@ -510,3 +510,24 @@ The lock-count scan now also finds a swap to true and a compare-and-
 swap from 0, and `Io.Mutex.lock(io)`, in ordered.zig, unordered.zig,
 table.zig, and split.zig too; it found no lock there, and three flags
 set once, now noted.
+
+**Built (17a33377b), as the designer decided.** `bin/rig` reads
+`Facts.local_tasks` of every module the program loads, std modules
+among them, once in `emitPackage`. With `RIG_PREEMPT=signal` and a
+local task anywhere, it writes neither the root's `__rig_preempt` nor
+emit's section, and prints one line on stderr:
+`rig: RIG_PREEMPT=signal ignored: this program makes local tasks
+(FILE:LINE), which take turns at yield checks`. No std module makes a
+local task: a program that uses every std module (std/*.rig) emits no
+`spawnLocal`, so a server built on std.net or std.http is preempted.
+`rig test` writes its own root, without `__rig_preempt`, so its seeded
+runs keep their checks (question 3). The hold, `Preempt.held`,
+`popPinned`, `hold`, `pinned_running`, and the monitor's rules for
+pinned fibers are deleted; a preempted fiber always goes to the global
+queue, and `preempted` never stops a pinned fiber, should one exist.
+
+test/cli/preempt.sh runs, on any machine, `hold.rig`, `starve.rig`,
+and `ring.rig` (two local siblings and an unpinned task spin-waiting on
+each other in a ring, one worker) with the option and without,
+expecting the same output, the note, and an end within 60 s; and a
+program with no local task, which gets no note.
