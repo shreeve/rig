@@ -12,28 +12,28 @@ numbers are in [data/](data/); the perf files stay on pup in
 
 ## In short
 
-1. **Loading the libs is a third of a small project's run and under
+1. **Loading the libs is a third of a small project's run and about
    half a percent of a large one's.** Trig's decode of its pre-built
    libs (`ast.decode_bound_file`, with the page faults it takes) is
-   17-21M cycles a run wherever `lib.dom.d.ts` is loaded (7.95 MB of
-   its 9 MB of trees): 34% of mitt's cycles at one checker, 21% of
-   neverthrow's, 4.3% of tiny-invariant's, 2.5% of superstruct's (no
-   dom), 2.3% of zod3's, and 0.38% of ts-pattern's (table, §1). It runs
-   serially before checking starts.
+   about 17M cycles a run on a P-core wherever `lib.dom.d.ts` is loaded
+   (7.95 MB of its 9 MB of trees), 3.6 ms of mitt's 9.7: 37% of mitt's
+   cycles at one checker, 26% of neverthrow's, 6.2% of tiny-invariant's,
+   3.2% of superstruct's (no dom) and of zod3's, and 0.54% of
+   ts-pattern's (table, §1). It runs serially before checking starts.
 2. **Adopting `extend_from_bytes` leaves most of it.** The ceiling of
    that adoption (`decode-zig`: the record, u32 and node loops made
    tight) saves 28-30M instructions but only 3-4M cycles, since those
-   loops are bound by memory, not by instructions. What remains is 31%
-   of mitt, 19% of neverthrow, 3.5% of tiny-invariant, 2.2% of
-   superstruct, 1.8% of zod3, 0.32% of ts-pattern.
+   loops are bound by memory, not by instructions. What remains is 34%
+   of mitt, 22% of neverthrow, 5.2% of tiny-invariant, 2.8% of
+   superstruct, 2.7% of zod3, 0.45% of ts-pattern.
 3. **Zero copy could save about half of what remains, at most.** It
    removes the copy of the large arrays and the fresh heap pages they
    are copied into (374 of decode's 518 page faults on mitt), and leaves the rest: interning the libs' names,
    renaming their symbols, and rebuilding their Maps, about 40% of the
-   decode that remains, which no List design touches. Estimate: 13-17%
-   of mitt's cycles, 9-12% of neverthrow's, about 2% of
-   tiny-invariant's, under 1% of zod3's and superstruct's, 0.1-0.2% of
-   ts-pattern's. These are estimates from shares and fault counts; a
+   decode that remains, which no List design touches. Estimate: 14-19%
+   of mitt's cycles, 11-15% of neverthrow's, 2.6-3.4% of
+   tiny-invariant's, 1.1-1.5% of zod3's, under 1% of superstruct's,
+   about 0.2% of ts-pattern's. These are estimates from shares and fault counts; a
    Zig ceiling decides (§4).
 4. **Recommendation: no new type, no new name, no Core change.** Make
    `!xs.extend_from_bytes(s)` map the pages of a large embedded run
@@ -51,27 +51,36 @@ numbers are in [data/](data/); the perf files stay on pup in
 
 ## 1. The share today
 
-pup, one E-core (15), `--checkers 1`, fewest user cycles of 5 runs,
-Trig's two PGO builds in `/zfs/trig-pup/runs/` read-only: `dec-base`
-(Trig main's decode, field by field) and `dec-new` (the same built
-through `decode-zig`, the ceiling of adopting `extend_from_bytes`).
-Decode's user cycles come from LBR call stacks on each project's
-*empty twin*, its compiler options with `skipLibCheck` and one empty
-file, where decode is about half the run (100 runs a profile; the
-machine allows 1,000 samples a second). Decode's kernel cycles are its
-page faults (counted by address and the function that took them) times
-the twin's kernel cycles per fault, 14-18k, after start-up's 3.9M and
-110 faults. Cycles in millions; on these cores 1M cycles is 0.26 ms.
+pup, `--checkers 1`, fewest of 5 runs, Trig's two PGO builds in
+`/zfs/trig-pup/runs/` read-only: `dec-base` (Trig main's decode, field
+by field) and `dec-new` (the same built through `decode-zig`, the
+ceiling of adopting `extend_from_bytes`). Whole runs were counted on
+E-core 15 and timed on P-core 8 in a four-minute slot
+([ecore.txt](data/ecore.txt), [pcore.txt](data/pcore.txt)).
 
-| project | run | decode today (user + kernel) | share | run, new | decode, new | share | zero copy could save |
+Decode's user cycles are the share of user cycles inside it, from LBR
+call stacks on each project's *empty twin* (its compiler options with
+`skipLibCheck`, and one empty file, where decode is about half the
+run; 100 runs a profile, since the machine allows 1,000 samples a
+second), applied to that twin's user cycles. Decode's kernel cycles
+are its page faults (counted by address and by the function that took
+them) times the twin's kernel cycles per fault, 11-14k on the P-core,
+after start-up's 3.2M and 111 faults. P-core cycles in millions, user
+plus kernel:
+
+| project | run (ms) | decode today | share | run, new | decode, new | share | zero copy could save |
 |---|---|---|---|---|---|---|---|
-| mitt | 59.3 | 12.0 + 7.9 | 34% | 54.2 | 9.0 + 7.9 | 31% | 7-9 (13-17%) |
-| neverthrow | 78.9 | 9.7 + 7.2 | 21% | 74.7 | 6.8 + 7.2 | 19% | 7-9 (9-12%) |
-| tiny-invariant | 381.6 | 9.2 + 7.2 | 4.3% | 378.6 | 6.2 + 7.2 | 3.5% | 7-9 (about 2%) |
-| superstruct | 154.2 | 2.6 + 1.3 | 2.5% | 151.7 | 2.0 + 1.3 | 2.2% | 0.5-1 (under 1%) |
-| zod3 | 911.2 | 12.7 + 8.3 | 2.3% | 906.8 | 8.3 + 8.3 | 1.8% | 7-9 (under 1%) |
-| ts-pattern | 5648.9 | 13.4 + 7.9 | 0.38% | 5645 | 9.9 + 7.9 | 0.32% | 7-9 (0.1-0.2%) |
+| mitt | 46.3 (9.7) | 9.7 + 7.3 | 37% | 41.5 | 6.7 + 7.3 | 34% | 6-8 (14-19%) |
+| neverthrow | 56.2 (12.5) | 8.0 + 6.5 | 26% | 53.5 | 5.4 + 6.5 | 22% | 6-8 (11-15%) |
+| tiny-invariant | 235.7 (49.9) | 8.0 + 6.6 | 6.2% | 233.0 | 5.5 + 6.6 | 5.2% | 6-8 (2.6-3.4%) |
+| superstruct | 93.6 (19.8) | 2.2 + 0.8 | 3.2% | 93.2 | 1.8 + 0.8 | 2.8% | 0.5-0.8 (under 1%) |
+| zod3 | 545.7 (115.5) | 10.2 + 7.4 | 3.2% | 542.3 | 7.1 + 7.4 | 2.7% | 6-8 (1.1-1.5%) |
+| ts-pattern | 3343.6 (723) | 10.7 + 7.2 | 0.54% | 3323.8 | 7.7 + 7.2 | 0.45% | 6-8 (about 0.2%) |
 
+- "Could save" is the copy of the large arrays (about 40% of the
+  decode that remains, §2) and 60-72% of decode's kernel cycles (its
+  faults on fresh heap pages), less nothing for the pages the checker
+  later reads, which decode faults in today as well.
 - The decode of one lib set costs the same in every project that loads
   it, so the share falls as the project grows. tiny-invariant's run is
   large because it checks the libs themselves (no `skipLibCheck`).
@@ -80,10 +89,10 @@ the twin's kernel cycles per fault, 14-18k, after start-up's 3.9M and
   and 143 on the executable's read-only pages it reads the trees from.
   Rig's allocator also fills some memory ahead (`MADV_POPULATE_WRITE`),
   which costs kernel time and counts no fault, so the kernel column is
-  a floor-to-middle estimate, not a count.
+  an estimate, not a count.
 - Sampling makes each user figure good to about a tenth of itself; the
-  instruction counts are exact. Times on a P-core are §1a, if a slot
-  allowed them before this record landed.
+  instruction counts are exact. The E-core gives the same picture (34%
+  of mitt, 0.38% of ts-pattern; ecore.txt).
 
 ## 2. What the decode does
 
@@ -237,8 +246,8 @@ to emit it. Before any Rig code:
    projects: user and kernel cycles, faults, dTLB misses, peak RSS.
 
 It lands if it is more than 1.5% faster on the projects it targets
-(mitt, neverthrow, tiny-invariant by the estimate) and no slower than
-2% on zod3 and ts-pattern, where the TLB risk lives. Otherwise it is
+(mitt, neverthrow, tiny-invariant by the estimate; zod3 is at the
+bar) and no slower than 2% on any, ts-pattern above all, where the TLB risk lives. Otherwise it is
 recorded and dropped.
 
 ## 5. Decisions for the owner
