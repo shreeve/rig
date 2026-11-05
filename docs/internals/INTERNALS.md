@@ -962,6 +962,20 @@ them with the call (`EmbedRecord.checks`); `ModuleGraph.checkEmbeds`
 reads such a file, checks each record's values, and keeps its bytes for
 the package (`EmbedSite.bytes`), so `rig check` rejects a bad value and
 reads only the files whose records need it.
+
+**Records laid out in declaration order.** Zig orders an ordinary
+`struct`'s fields its own way, so a record's bytes would not be its
+value's in memory. After `decideWords`, `storage.decideRecords` marks
+every object its own module finds a record (`bytesRecord`) and that is
+not held as one word (`SemContext.record_layouts`); emit writes it as
+an `extern struct`, which keeps the declared order, and since a record
+has no padding by rule it costs no bytes. A word-held record stays a
+`packed struct`, already in declaration order on a little-endian
+machine. An `extern struct` holds no enum of an inferred tag, so each
+plain enum such a record holds, in a field or an array, in any module,
+is given its tag type, `enum(u8)`, `enum(u16)`, or `enum(u32)` by
+`sema.enumBytes` (`SemContext.record_enums`). `extend_from_bytes` then
+finds every record flat (`recordFlat`) and copies it with one `memcpy`.
 `emitPackage` reads each file once, when it writes the package, and
 holds its bytes as one of the package's files: the modules are at the
 package's top, so the place is under the root of every Zig module that

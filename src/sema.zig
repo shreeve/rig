@@ -4355,6 +4355,16 @@ pub const SemContext = struct {
     /// a Zig `packed struct`, decided for the whole program after every
     /// module is checked (`storage.decideWords`).
     word_held: FastMap(SymbolId, void) = .empty,
+    /// The objects declared here that are records (`bytesRecord`) and not
+    /// held as one word: emit lays each out in declaration order, a Zig
+    /// `extern struct`, so its bytes are its record's. Decided for the
+    /// whole program after every module is checked (`storage.decideRecords`).
+    record_layouts: FastMap(SymbolId, void) = .empty,
+    /// The plain enums declared here that a record laid out in
+    /// declaration order holds, with their tag's bytes (`enumBytes`):
+    /// emit gives each its tag type, `enum(u8)`, which a Zig `extern
+    /// struct` takes where it takes no inferred tag (`storage.decideRecords`).
+    record_enums: FastMap(SymbolId, u8) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: FastMap(ForeignRef, SymbolId) = .empty,
@@ -4616,6 +4626,8 @@ pub const SemContext = struct {
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
         self.word_held.deinit(self.allocator);
+        self.record_layouts.deinit(self.allocator);
+        self.record_enums.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
         self.generic_api_calls.deinit(self.allocator);
@@ -9060,7 +9072,7 @@ pub fn isCompound(ctx: *const SemContext, ty: TypeId) bool {
 /// What a type declared in Rig is: an object, an enum one of whose
 /// variants has a payload, or anything else (a plain enum, an error
 /// set, a built-in type).
-fn declaredKind(ctx: *const SemContext, sym_id: SymbolId) enum { object, payload_enum, other } {
+pub fn declaredKind(ctx: *const SemContext, sym_id: SymbolId) enum { object, payload_enum, other } {
     if (sym_id >= ctx.symbols.items.len) return .other;
     const sym = ctx.symbols.items[sym_id];
     if (isProxy(sym)) return declaredKind(ctx.foreign_semas.get(sym.from.module_id) orelse return .other, sym.from.sym);
@@ -11190,7 +11202,7 @@ pub fn bytesRecord(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!RecordA
 /// null for an enum held as a `union(enum)` (a variant written `a()`).
 pub fn enumBytes(home: *const SemContext, sym: SymbolId) ?u64 {
     const symbol = home.symbols.items[sym];
-    if (symbol.flags.enum_union) return null;
+    if (symbol.flags.enum_union or symbol.flags.error_set) return null;
     if (symbol.flags.enum_valued) return 4;
     var n: u64 = 0;
     for (symbol.fields orelse &.{}) |f| n += @intFromBool(f.is_variant);
@@ -11268,7 +11280,8 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
         .object => {},
         .payload_enum => return .{ .not = .{ .shown = shown, .why = .enumeration } },
         .other => {
-            if (!isPlainEnum(home, ty)) return .{ .not = .{ .shown = shown, .why = .other } };
+            // An error set's members are errors, not an enum's values.
+            if (!isPlainEnum(home, ty) or decl.symbol().flags.error_set) return .{ .not = .{ .shown = shown, .why = .other } };
             const not: NotRecord = .{ .shown = shown, .why = .enumeration };
             const n = enumBytes(decl.ctx, decl.sym) orelse return .{ .not = not };
             if (n == 0) return .{ .not = .{ .shown = shown, .why = .empty } };

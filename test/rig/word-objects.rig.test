@@ -50,7 +50,7 @@ code "word not a word", /pub const Odd = struct \{/, /pub const Flag = struct \{
   sub main()
     print(Odd().a, Flag().on, Wide().b)
 
-code "word field of a record", "p: P align(4) =", "pub const Rec = struct {"
+code "word field of a record", "p: P align(4) =", "pub const Rec = extern struct {"
   # A 64-bit word inside a plain object keeps the four-byte alignment its
   # halves had, so the record keeps its size.
   obj P
@@ -65,7 +65,7 @@ code "word field of a record", "p: P align(4) =", "pub const Rec = struct {"
     r = Rec(p: P(a: 1, b: 2), k: 3)
     print(Int(r.p.a) + Int(r.k))
 
-code "word field lent to write stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
+code "word field lent to write stays plain", /pub const P = extern struct \{\n    pub const __rig_word_sized = \{\};/
   # A write lend of a field takes its address, which a word's field does
   # not have: the object stays a plain object.
   obj P
@@ -254,7 +254,7 @@ code "word inside a word", "pub const N = packed struct(u32) {", "pub const R = 
     r.n.id += 1
     print(r.is_none(), r.n.id, r)
 
-code "word inside a word lent to write", /pub const N = struct \{/, /pub const R = struct \{/
+code "word inside a word lent to write", /pub const N = extern struct \{/, /pub const R = extern struct \{/
   # A write lend of the inner word's field keeps it plain, and so the
   # word around it.
   obj N
@@ -310,7 +310,7 @@ test "word optional in a record", '''
     if xs[1].p as p
       print(p.a, p.b, xs[1].k)
 
-code "word optional written stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
+code "word optional written stays plain", /pub const P = extern struct \{\n    pub const __rig_word_sized = \{\};/
   # A write lend of the word inside an optional would point at it where
   # it is held, at four-byte alignment: it stays a plain object.
   obj P
