@@ -129,6 +129,13 @@ a bare number, and of `per:` of `task.supervise` and
   AVX2. In code a `--pgo` profile finds cold its loads stay wide,
   where `std.mem.eql`'s array casts moved each byte through the stack
   (`bench/eql`).
+- A prototype, off by default: a program that makes tasks, built with
+  `RIG_PREEMPT=signal` for Linux x86-64 in an optimized build, has no
+  yield checks; a monitor thread stops a task that runs a slice while
+  other work waits by a signal, only in the program's own code and
+  while its worker holds no lock
+  ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
+  A build without it is the same code as before.
 
 ## v0.3.0 (2026-11-04)
 

@@ -106,6 +106,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Preemption by signal** (#952, draft): a prototype behind
+  `RIG_PREEMPT=signal`, off by default, for Linux x86-64
+  ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
+  Waits on Trig's timing, option on against off, against the checks'
+  ceiling (2.4% fewer cycles on ts-pattern); `bench/tasks` `hog` is
+  100 times slower with it (question 1 of the record).
+
 - **The revamp of the runtime and std**
   ([records/2026-11/revamp-runtime/](docs/history/records/2026-11/revamp-runtime/ledger.md))
   landed in three rounds, #902-#912:

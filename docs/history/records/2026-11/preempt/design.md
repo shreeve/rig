@@ -193,7 +193,7 @@ Built: Linux x86-64 (pup). Planned in this order:
 
 ## Test plan
 
-1. Fairness (`fair.rig`, test/rig/ under `release: true` when the
+1. Fairness ([fair.rig](fair.rig); in test/rig/ under `release: true` when the
    option can be set per case, question 5): on one worker, a spinner
    and a task that sleeps 5 ms twenty times; every sleep ends within
    3 ms. Results above.
@@ -226,3 +226,58 @@ This is the most preemption can gain; the monitor, the signals, the
 trampoline, and the lock counts come out of it. The bar (AGENTS.md) is
 more than 1.5% faster, or at least 1% fewer instructions on one checker.
 
+**The prototype's share of Trig.** Trig (`9cf8bd8`, the copy on pup)
+built with the option in `--release` checks ts-pattern with output
+byte-identical to a default build's. Sampled by `perf` at 10 kHz on one
+checker (1,371 samples): 88.0% of them lie in the section, where a
+signal stops it; 5.5% are in the kernel; the rest are the runtime's own
+code: the allocator (`alloc`, `free`, `allocSlow`: 1.9%), the out-of-line
+probes and rebuilds of `Map` (about 2%), `hashBytes`, `memcpy`. The
+callbacks the runtime inlines (sort's comparator, a Map's hash of a
+program's type) do not show: Trig's hot loops are in the section.
+
+**bench/tasks and bench/actors**, `--release=fast`, 4 workers on pup's
+E-cores 12-15, one run each, not a timing run (pup was busy with
+release builds), off and on:
+
+| Benchmark | Off | On (10 ms slice) |
+|---|---|---|
+| spawn | 7.0 ms | 6.9 ms |
+| chain | 1.23 ms | 1.35 ms |
+| fanout | 283 ms | 292 ms |
+| yield | 12.4 ms | 13.4 ms |
+| hog | 9.5 ms | 1,026 ms |
+| actors solo / contend / spread | 17.1 / 37.3 / 4.4 ms | 18.4 / 36.1 / 4.8 ms |
+
+`hog` is the finding. With every core busy with 32 spinning tasks, the
+checks give the runnable fibers on a worker turns of about 1,024 loop
+turns each, microseconds, so the chain's waits end at once; preemption
+gives them turns of a slice, so each of the chain's 100 waits is about
+a slice: 1,026 ms at 10 ms, 774 ms at 2 ms, 806 ms at 1 ms, 422 ms at
+250 µs (`RIG_PREEMPT_SLICE_US`). This is Go's behavior (scheduler.md
+"Yield checks": "Go stops a goroutine after 10 ms, by a signal"), and
+it costs nothing when cores are not oversubscribed, as in Trig's
+checker pool. The first prototype also held a preempted fiber on its
+worker, and fanout took 531 ms (TLS and the worker, above).
+
+## Questions the record does not settle
+
+1. Hog latency. Preemption trades the checks' microsecond turns under
+   oversubscription for slices. Default: keep the option off; a
+   default-on design adds a short slice for a fiber that was woken
+   (the "run next" slot's) and measures hog again before any default
+   changes.
+2. Local tasks under preemption yield to their siblings only at
+   waiting points. Default: accept, and say so in SPEC §18 if the
+   option becomes default.
+3. `rig test` with the option set runs seeded with no yield checks.
+   Default: `rig test` ignores `RIG_PREEMPT` once the option is kept.
+4. `raw` code is preempted like any Rig code. Default: yes; a `raw`
+   block that must not be stopped takes a lock.
+5. The option's form. Default: the environment variable while it is a
+   prototype; `rig build --preempt` if it is kept and not the default.
+6. Linux debug builds keep their checks (Zig's own backend). Default:
+   accept.
+7. The section audit (test plan 4) and the macOS arm64 port come before
+   any default-on. Default: yes, after Trig's numbers show the gain
+   clears the bar.
