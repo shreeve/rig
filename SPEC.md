@@ -9423,8 +9423,10 @@ make, and `get`, `pop`, and a `T?` would read as `none`. An optional,
 text, a box, a handle, a `Slot`, and a vector are not records: the
 message names the field that is not. A literal or an embedded file
 ([Builtins](#builtins)) that is not a whole number of records is
-rejected where the call is written. The List keeps no view of `s`: its
-bytes are copied.
+rejected where the call is written. A record object is held in memory
+as its record, its fields in declaration order with nothing between
+them, so the List copies the bytes whole. The List keeps no view of
+`s`: its bytes are copied.
 
 **An embedded file's records may hold `Bool`s and enums.** Not every
 bit pattern is a `Bool` or an enum, so bytes known only when the

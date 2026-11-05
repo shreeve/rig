@@ -1152,6 +1152,17 @@ pub const Facts = struct {
         if (!f.c().word_held.contains(sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
     }
+    /// Whether the object `sym` declares here is laid out in declaration
+    /// order, a Zig `extern struct`: a record (`storage.decideRecords`).
+    pub fn recordLayout(f: Facts, sym: SymbolId) bool {
+        return f.c().record_layouts.contains(sym);
+    }
+    /// The bytes of the tag type of the plain enum `sym` declares here,
+    /// when a record laid out in declaration order holds it
+    /// (`storage.decideRecords`).
+    pub fn recordEnumBytes(f: Facts, sym: SymbolId) ?u8 {
+        return f.c().record_enums.get(sym);
+    }
     /// Whether a field of type `ty` inside a plain object is held at
     /// four-byte alignment (`align(4)`): a 64-bit word-held object, which
     /// takes the place its two 32-bit fields would, so the object keeps

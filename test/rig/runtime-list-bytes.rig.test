@@ -240,9 +240,9 @@ fail "list of optional integers from bytes names its article", "every bit patter
   !xs.extend_from_bytes("")
 
 test "list of records with a large array from bytes", "2 3 4 1 255 2 240", release: true
-  # Zig orders `Glyph`'s fields its own way, so each record is read field
-  # by field, its array in one copy, and `Row`'s array of such objects by
-  # a loop: nothing is unrolled by an array's length.
+  # A record is laid out in declaration order, so its bytes, a large
+  # array's among them, are one copy: nothing is unrolled by an array's
+  # length.
   obj Glyph
     w: U8
     h: U8
@@ -1018,3 +1018,136 @@ fail "list of an enum of two bytes from an embedded file holding no variant's va
 
   file "big.bin", hex
     0101
+
+# A record is laid out in declaration order, a Zig `extern struct`, so
+# its bytes in memory are its record's and `extend_from_bytes` copies
+# them whole; an enum it holds names its tag type, which an `extern
+# struct` needs. An object held as one word stays a `packed struct`,
+# already in declaration order, and any other object as Zig lays it out.
+code "a record is laid out in declaration order", "pub const Node = extern struct {", "half: Half align(4),", whole: true
+  enum Kind
+    a
+    b
+
+  obj Half
+    x: U32
+    y: U32
+
+  obj Node
+    kind: Kind
+    keyword: Kind
+    pad: U16
+    flags: U32
+    half: Half
+    pos: I32
+
+  sub main()
+    print($size(Node))
+
+code "an enum a record holds names its tag type", "pub const Kind = enum(u8) {", whole: true
+  enum Kind
+    a
+    b
+
+  obj Node
+    kind: Kind
+    n: U8
+
+  sub main()
+    print($size(Node))
+
+code "an object held as one word stays packed", "pub const Half = packed struct(u64) {", whole: true
+  obj Half
+    x: U32
+    y: U32
+
+  sub main()
+    print($size(Half))
+
+code "an object that is no record keeps Zig's layout", "pub const Plain = struct {", whole: true
+  enum Kind
+    a
+    b
+
+  obj Plain
+    kind: Kind
+    n: U32
+
+  sub main()
+    print($size(Plain))
+
+code "an enum no record holds keeps its inferred tag", "pub const Kind = enum {", whole: true
+  enum Kind
+    a
+    b
+
+  obj Plain
+    kind: Kind
+    n: U32
+
+  sub main()
+    print($size(Plain))
+
+test "list of records Zig would reorder, from an embedded file", "2 .c .b 7 1 2 -3 20", release: true
+  # Zig's own layout would put `flags` first and the enums last.
+  enum Kind
+    a
+    b
+    c
+
+  obj Half
+    x: U32
+    y: U32
+
+  obj Node
+    kind: Kind
+    keyword: Kind
+    pad: U16
+    flags: U32
+    half: Half
+    pos: I32
+
+  xs: List[Node] = List()
+  !xs.extend_from_bytes($embed("nodes.bin"))
+  print(xs.len, xs[1].kind, xs[1].keyword, xs[1].flags, xs[1].half.x, xs[1].half.y, xs[1].pos, $size(Node))
+
+  file "nodes.bin", hex
+    0000 0000 00000000 00000000 00000000 00000000
+    0201 0000 07000000 01000000 02000000 fdffffff
+
+test "a record of another module's enum, laid out in declaration order", ".wide 9"
+  use geo
+
+  sub main()
+    xs: List[geo.Rec] = List()
+    !xs.extend_from_bytes($embed("recs.bin"))
+    print(xs[0].shape, xs[0].n)
+
+  file "geo.rig"
+    pub enum Shape
+      thin
+      wide
+
+    pub obj Rec
+      pub n: U16
+      pub shape: Shape
+      pub pad: U8
+
+  file "recs.bin", hex
+    0900 01 00
+
+fail "list of records with an error from an embedded file", "field `e` of `Rec` is a `Disk`, which is not an integer, a float, or an object or array of them"
+  # An error set's members are errors, not an enum's values.
+  error Disk
+    full
+    empty
+
+  obj Rec
+    e: Disk
+    n: U8
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes($embed("recs.bin"))
+
+  file "recs.bin", hex
+    00 00
