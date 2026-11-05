@@ -6,23 +6,38 @@
 //! How the slots are held is the element's (`sema.tableFill`, mirrored
 //! here by `fillsWithZeros`, as `needsDrop` mirrors `typeHasDropGlue`):
 //!
-//! - **Reserved.** `T` is plain data whose default is all zero bytes:
-//!   `n * @sizeOf(T)` bytes of private anonymous address space, mapped
-//!   with `MAP_NORESERVE`: in a release build on Linux a range of the
-//!   allocator's address space for tables (`alloc.zig`, `reserveTable`),
-//!   elsewhere a mapping of its own. On Linux its first 2 MiB keep small
-//!   pages and the rest asks for huge ones while the system has free
-//!   2 MiB blocks to spare (`reserve`). The system gives each page as
-//!   zeros when it is first touched, so a slot never written costs no
-//!   memory. It is never one of `alloc.zig`'s blocks, which are reused
-//!   unzeroed and faulted in ahead.
+//! - **Packed.** `T` is plain data whose default is all zero bytes, on a
+//!   target that gives lazily zeroed pages (`lazy_pages`): the slots
+//!   below `cap` are held, zeroed, in one of the heap's blocks, and a
+//!   slot at or past it reads as `T()` and is grown into only by a write,
+//!   at least doubling. Small tables of one thread so share the heap's
+//!   pages, huge ones where the heap asks for them, rather than each
+//!   taking pages and a mapping of its own. A table whose slots take more
+//!   than `pack_bytes` is packed only while it is written from its first
+//!   slot onward; the write that takes it past `pack_bytes`, or one that
+//!   jumps past what doubling would hold, moves it once into its reserved
+//!   range (`spill`), where it stays.
+//! - **Reserved.** `n * @sizeOf(T)` bytes of private anonymous address
+//!   space, mapped with `MAP_NORESERVE`: in a release build on Linux a
+//!   range of the allocator's address space for tables (`alloc.zig`,
+//!   `reserveTable`), elsewhere a mapping of its own. On Linux its first
+//!   2 MiB keep small pages and the rest asks for huge ones while the
+//!   system has free 2 MiB blocks to spare (`reserve`), and a table moved
+//!   there full, as dense as it was packed, asks for all of it. The
+//!   system gives each page as zeros when it is first touched, so a slot
+//!   never written costs no memory. It is never one of `alloc.zig`'s
+//!   blocks, which are reused unzeroed and faulted in ahead. It holds a
+//!   packed table that spilled, and a table of zero-sized slots.
 //! - **Made.** Any other `T`: `n` slots on the heap, each `T()`, dropped
 //!   all `n` when the table is, since `t[s] = x` may write past `len`.
-//! - **Committed.** A reserved table on a target with no lazily zeroed
-//!   pages (`lazy_pages`), or with `RIG_TABLE_FALLBACK` set when the
-//!   program is built: the slots below `cap` are held, zeroed, and a slot
-//!   at or past it reads as `T()` and is grown into only by a write. The
-//!   choice is made when the program is built, never as it runs.
+//! - **Committed.** A packed table on a target with no lazily zeroed
+//!   pages, or with `RIG_TABLE_FALLBACK` set when the program is built:
+//!   packed at every size, never moved into a reserved range. The choice
+//!   is made when the program is built, never as it runs.
+//!
+//! A packed or committed table moves when a write grows it, as a List
+//! does when it is pushed: no view of a slot outlives a write to the
+//! table, since a slot is a place of the table (docs/CORE.md, "Tables").
 //!
 //! A reservation the system refuses (`ulimit -v`, strict overcommit)
 //! panics as the table is made; a table is never smaller than `n`. In a
@@ -112,11 +127,13 @@ const huge: usize = 2 << 20;
 /// (`alloc.zig`'s `hugeFree`), tested once, here: a table grown after
 /// memory fragments faults in through the compactor, as every range that
 /// asks does (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
+/// A `dense` range, about to be filled from its start, asks for huge
+/// pages from its first byte.
 /// A release build on Linux takes the range from `reserveTable`, which
 /// asks the same way; a debug build, and any table it cannot place, maps
 /// its own.
-fn reserve(bytes: usize) [*]align(page) u8 {
-    if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes)) |p| return p;
+fn reserve(bytes: usize, dense: bool) [*]align(page) u8 {
+    if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes, dense)) |p| return p;
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
     const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
     if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
@@ -133,6 +150,10 @@ fn reserve(bytes: usize) [*]align(page) u8 {
     const end = lo + m.len;
     if (end > stop) std.posix.munmap(@as([*]align(page) u8, @ptrFromInt(stop))[0 .. end - stop]);
     const p: [*]align(page) u8 = @ptrFromInt(start);
+    if (dense) {
+        std.posix.madvise(p, bytes, std.posix.MADV.HUGEPAGE) catch {};
+        return p;
+    }
     std.posix.madvise(p, huge, std.posix.MADV.NOHUGEPAGE) catch {};
     std.posix.madvise(@ptrFromInt(start + huge), bytes - huge, std.posix.MADV.HUGEPAGE) catch {};
     return p;
@@ -150,26 +171,42 @@ fn unreserve(p: [*]align(page) u8, bytes: usize) void {
 /// `reserveTable`), with no system call for most.
 const leak_checked = builtin.optimize == .debug;
 
+/// The most bytes a packed table holds in a heap block; one that needs
+/// more moves into its reserved range. One huge page: a table moved
+/// there has filled it, so its range asks for huge pages from its first
+/// byte and wastes none of the first.
+const pack_bytes: usize = huge;
+
 /// `Table(T, n)`: `n` slots of `T`.
 pub fn Table(comptime T: type, comptime n: u64) type {
     if (n == 0) @compileError("rig.Table: a table has at least one slot");
     const zeros = fillsWithZeros(T);
-    const How = enum { reserved, made, committed };
-    const how: How = if (!zeros) .made else if (lazy_pages) .reserved else .committed;
+    const How = enum { reserved, made, committed, @"packed" };
+    const how: How = if (!zeros) .made else if (@sizeOf(T) == 0) .reserved else if (lazy_pages) .@"packed" else .committed;
+    const held = how == .committed or how == .@"packed";
     const bytes_wide: u128 = @as(u128, n) * @sizeOf(T);
-    if (how != .committed and bytes_wide > std.math.maxInt(usize)) @compileError("rig.Table: the table does not fit the address space");
+    // A packed table that may need more than `pack_bytes`, which it then
+    // holds in its reserved range.
+    const spills = how == .@"packed" and bytes_wide > pack_bytes;
+    if ((how == .reserved or spills) and bytes_wide > std.math.maxInt(usize)) @compileError("rig.Table: the table does not fit the address space");
     // The bytes the slots take, rounded up to whole pages for a mapping.
-    const bytes: usize = if (how == .committed) 0 else std.mem.alignForward(usize, @intCast(bytes_wide), page);
+    const bytes: usize = if (how == .reserved or spills) std.mem.alignForward(usize, @intCast(bytes_wide), page) else 0;
+    // The most slots a packed table holds in a heap block.
+    const pack_slots: usize = if (how == .@"packed") pack_bytes / @max(@sizeOf(T), 1) else 0;
+    // The slots of one page, which a write may reach past what doubling
+    // would hold and stay packed.
+    const page_slots: usize = @max(64, page / @max(@sizeOf(T), 1));
     return struct {
         /// Slot `s` is `slots[s]`. Never null: an optional of a table, or
         /// of an object that holds one, may keep `none` as a null here.
         slots: [*]T,
         /// The slots pushed: `0..len`.
         len: u64 = 0,
-        /// The slots held, below which a committed table reads its own.
-        cap: if (how == .committed) usize else void = if (how == .committed) 0 else {},
+        /// The slots held, below which a packed or committed table reads
+        /// its own; `n` once a packed table is in its reserved range.
+        cap: if (held) usize else void = if (held) 0 else {},
         /// The leak checker's record of the mapping (`token`).
-        token: if (how == .reserved and leak_checked) [*]u8 else void = undefined,
+        token: if ((how == .reserved or spills) and leak_checked) [*]u8 else void = undefined,
 
         const Self = @This();
         pub const __rig_args = .{ T, n };
@@ -183,7 +220,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             if (comptime @sizeOf(T) == 0) return .{ .slots = @ptrFromInt(@alignOf(T)) };
             switch (how) {
                 .reserved => {
-                    const p = reserve(bytes);
+                    const p = reserve(bytes, false);
                     var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
                     if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
                     return t;
@@ -194,7 +231,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
                     for (buf) |*slot_| slot_.* = if (comptime rt.needsDrop(T)) defaultOf(T) else d;
                     return .{ .slots = buf.ptr };
                 },
-                .committed => return .{ .slots = @ptrFromInt(@alignOf(T)) },
+                .committed, .@"packed" => return .{ .slots = @ptrFromInt(@alignOf(T)) },
             }
         }
 
@@ -229,14 +266,14 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `t[s]` as a place to read in place.
         pub inline fn constSlot(self: *const Self, s: Index) *const T {
             const i = offset(s);
-            if (comptime how == .committed) if (i >= self.cap) return &zero;
+            if (comptime held) if (i >= self.cap) return &zero;
             return &self.slots[i];
         }
 
         /// `t[s]` as a place to write.
         pub inline fn slot(self: *Self, s: Index) *T {
             const i = offset(s);
-            if (comptime how == .committed) if (i >= self.cap) self.grow(i);
+            if (comptime held) if (i >= self.cap) self.grow(i);
             return &self.slots[i];
         }
 
@@ -256,15 +293,20 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             return self.slot(index(i));
         }
 
-        /// What a committed table's slot past `cap` reads as.
-        const zero: T = if (how == .committed) std.mem.zeroes(T) else undefined;
+        /// What a packed or committed table's slot past `cap` reads as.
+        const zero: T = if (held) std.mem.zeroes(T) else undefined;
 
-        /// A committed table, written at `i`: the slots up to `i` held,
-        /// at least doubling, zeroed. A read never grows it.
+        /// `n`, or the most a `usize` counts.
+        const limit: usize = if (n > std.math.maxInt(usize)) std.math.maxInt(usize) else @intCast(n);
+
+        /// A packed or committed table, written at `i`: the slots up to
+        /// `i` held, at least doubling, zeroed; a packed table past
+        /// `pack_bytes`, or written past what doubling holds, moved into
+        /// its reserved range (`spill`). A read never grows it.
         noinline fn grow(self: *Self, i: usize) void {
             @branchHint(.cold);
-            const limit: usize = if (comptime n > std.math.maxInt(usize)) std.math.maxInt(usize) else @intCast(n);
             const want = @min(limit, @max(i +| 1, self.cap *| 2, 64));
+            if (comptime spills) if (want > pack_slots or i >= @max(self.cap *| 2, page_slots)) return self.spill();
             const old = self.slots[0..self.cap];
             const buf = rt.allocSlice(T, want);
             @memcpy(buf[0..self.cap], old);
@@ -272,6 +314,23 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             if (self.cap > 0) rt.freeSlice(T, old);
             self.slots = buf.ptr;
             self.cap = want;
+        }
+
+        /// A packed table moved into its reserved range, all `n` slots,
+        /// with the slots it held: for good, so `cap` is `n`. One that
+        /// filled its heap block asks for huge pages from its first byte.
+        noinline fn spill(self: *Self) void {
+            @branchHint(.cold);
+            const dense = self.cap *| 2 > pack_slots;
+            const p: [*]T = @ptrCast(@alignCast(reserve(bytes, dense)));
+            if (comptime leak_checked) self.token = (rt.allocSlice(u8, 1)).ptr;
+            if (self.cap > 0) {
+                const old = self.slots[0..self.cap];
+                @memcpy(p[0..self.cap], old);
+                rt.freeSlice(T, old);
+            }
+            self.slots = p;
+            self.cap = limit;
         }
 
         /// The pushed slots, `0..len`, which `for x in t` walks.
@@ -304,6 +363,10 @@ pub fn Table(comptime T: type, comptime n: u64) type {
                     rt.freeSlice(T, all);
                 },
                 .committed => if (self.cap > 0) rt.freeSlice(T, self.slots[0..self.cap]),
+                .@"packed" => if (spills and self.cap == limit) {
+                    unreserve(@ptrCast(@alignCast(self.slots)), bytes);
+                    if (comptime leak_checked) rt.freeSlice(u8, self.token[0..1]);
+                } else if (self.cap > 0) rt.freeSlice(T, self.slots[0..self.cap]),
             }
         }
     };

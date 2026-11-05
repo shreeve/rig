@@ -546,3 +546,98 @@ fail "table no literal is a slot of no slots", "1:13: a `Slot` names one of `n` 
     s == 0
 
   print(true)
+
+test "table a packed table grows past a huge page and keeps its slots", '''
+  400000 79999800000 0 399999
+'''
+  N = 1 << 22
+
+  sub main()
+    t: Table[Int, N] = Table()
+    sum = 0
+    for i in 0..400000
+      s = (!t).push(i)
+      sum += t[s]
+    far: Slot[N] = 4000000
+    last: Slot[N] = 399999
+    print(t.len, sum, t[far], t[last])
+
+test "table a packed table grows past a huge page in a release build", release: true, '''
+  400000 79999800000 0 399999
+'''
+  N = 1 << 22
+
+  sub main()
+    t: Table[Int, N] = Table()
+    sum = 0
+    for i in 0..400000
+      s = (!t).push(i)
+      sum += t[s]
+    far: Slot[N] = 4000000
+    last: Slot[N] = 399999
+    print(t.len, sum, t[far], t[last])
+
+test "table a write far past what a packed table holds keeps the slots below it", '''
+  3 0 7 0 3 2
+'''
+  N = 1 << 24
+
+  sub main()
+    t: Table[Int, N] = Table()
+    a = (!t).push(1)
+    b = (!t).push(2)
+    c = (!t).push(3)
+    far: Slot[N] = 9000000
+    mid: Slot[N] = 5000
+    print(t.len, t[far], t[a] + t[b] * 3, t[mid], t[c], t[b])
+    t[far] = 7
+    t[mid] = 0
+    if t[far] != 7 or t[a] != 1
+      print("lost")
+
+test "table a write far past what a packed table holds in a release build", release: true, '''
+  7 1 2 3 0
+'''
+  N = 1 << 24
+
+  sub main()
+    t: Table[Int, N] = Table()
+    a = (!t).push(1)
+    b = (!t).push(2)
+    c = (!t).push(3)
+    far: Slot[N] = 9000000
+    t[far] = 7
+    near: Slot[N] = 3
+    print(t[far], t[a], t[b], t[c], t[near])
+
+test "table a read past what a packed table holds grows nothing", '''
+  0 0 1
+'''
+  N = 1 << 20
+
+  sub main()
+    t: Table[Int, N] = Table()
+    _ = (!t).push(5)
+    far: Slot[N] = 1000000
+    v = ?t[far]
+    print(v, t[far], t.len)
+
+test "table many small packed tables, written and dropped, in a release build", release: true, '''
+  2000 4000
+'''
+  N = 1 << 20
+
+  sub main()
+    tables: List[Table[U32, N]] = List()
+    for _ in 0..2000
+      t: Table[U32, N] = Table()
+      _ = (!t).push(1)
+      s: Slot[N] = 100
+      t[s] = 1
+      !tables.push(<t)
+    total: U32 = 0
+    for t in tables
+      first: Slot[N] = 0
+      s: Slot[N] = 100
+      total += t[first] + t[s]
+    print(tables.len, total)

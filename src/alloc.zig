@@ -971,20 +971,22 @@ const tables_asked_huge = split.cell(&tables_asked_huge_var, "alloc.tables_asked
 /// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
 /// Table: zeros, none committed. Its first 2 MiB keep small pages, and
 /// the rest asks for huge pages while the system has free 2 MiB blocks
-/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes. Null
-/// where Tables are not taken from here: off Linux, a Table larger than
-/// a region, or no region to be had.
-pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
+/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes; a
+/// `dense` Table, one about to be filled from its first slot, asks for
+/// all of it. Null where Tables are not taken from here: off Linux, a
+/// Table larger than a region, or no region to be had.
+pub fn reserveTable(bytes: usize, dense: bool) ?[*]align(huge_page) u8 {
     if (builtin.os.tag != .linux) return null;
     const len = std.mem.alignForward(usize, bytes, huge_page);
     if (len > table_region_size) return null;
-    const huge = len > huge_page and hugeFree();
+    const head: usize = if (dense) 0 else huge_page;
+    const huge = len > head and hugeFree();
     tables_lock.lock();
     const p = takeTableRange(len);
     tables_lock.unlock();
     if (huge) if (p) |at| {
         tables_asked_huge.store(true, .monotonic);
-        std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+        std.posix.madvise(@ptrFromInt(at + head), bytes - head, std.os.linux.MADV.HUGEPAGE) catch {};
     };
     return @ptrFromInt(p orelse return null);
 }
@@ -1902,7 +1904,7 @@ test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with
     const next = table_next.*;
     var got: [43][*]u8 = undefined;
     for (&got, 0..) |*g, i| {
-        g.* = reserveTable((i + 1) * (3 << 20) + 4096).?;
+        g.* = reserveTable((i + 1) * (3 << 20) + 4096, false).?;
         try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % huge_page);
     }
     try std.testing.expectEqual(reads + 1, buddyinfo_reads.*);
@@ -1921,14 +1923,14 @@ test "on Linux a Table's range given back has its pages back with the system, an
     useBuddyinfoForTest(buddyinfo_fragmented);
     defer useBuddyinfoForTest(null);
     const mib: usize = 1 << 20;
-    const a = reserveTable(6 * mib).?;
-    const b = reserveTable(4 * mib).?;
+    const a = reserveTable(6 * mib, false).?;
+    const b = reserveTable(4 * mib, false).?;
     @memset(a[0 .. 6 * mib], 7);
     try std.testing.expectEqual(@as(usize, 6 * mib), try residentForTest(a, 6 * mib));
     // `a` is not at the region's rest, so its range is kept apart.
     try std.testing.expect(unreserveTable(a, 6 * mib));
     try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 6 * mib));
-    const c = reserveTable(5 * mib + 4096).?;
+    const c = reserveTable(5 * mib + 4096, false).?;
     try std.testing.expectEqual(a, c);
     for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
     try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
@@ -1944,15 +1946,15 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
     const mib: usize = 1 << 20;
-    const t = reserveTable(24 * mib).?;
+    const t = reserveTable(24 * mib, false).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
-    const small = reserveTable(2 * mib).?;
+    const small = reserveTable(2 * mib, false).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     useBuddyinfoForTest(buddyinfo_partly);
-    const u = reserveTable(24 * mib).?;
+    const u = reserveTable(24 * mib, false).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
     try std.testing.expect(unreserveTable(u, 24 * mib));
     try std.testing.expect(unreserveTable(small, 2 * mib));
