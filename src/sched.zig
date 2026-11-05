@@ -246,7 +246,9 @@ pub inline fn current() ?*Fiber {
 }
 
 fn currentOf() ?*Fiber {
-    const w = me() orelse return null;
+    // Under preemption its own read of the slot, with no check: this call
+    // is never inlined into the program's code.
+    const w = (if (preempt) me_slot().* else me()) orelse return null;
     return w.current;
 }
 

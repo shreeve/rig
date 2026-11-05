@@ -355,3 +355,36 @@ points of tasks.zig that emitted code calls, one call per operation, so
 the scheduler's code inlines into them again; and replaces the lock
 counts with a lock that is a call checked to come from outside the
 program's code. Both touch tasks.zig and the lock's callers.
+
+## The per-operation cost, second round
+
+The designer asked for one out-of-line call per operation at
+tasks.zig's entry points, with the scheduler inlined into them again,
+and for a lock call checked to come from outside the program's code in
+place of the lock counts. The checked lock was built and run first:
+it panicked at once in bench/tasks and bench/actors, both builds,
+because a lock *is* taken in code inlined into the program's. The
+output lock is taken by `print` (an inline function), by `finish`, by
+`printRendered`, `warn`, and `writeStandard`; the actors' mailbox lock
+by `Actor.send` (and `takeSlot`, `freeSlot`, `withdraw`, `kill`); the
+pool's by `wakeLeft` from `finish`. 51 sites take a lock in tasks.zig
+and runtime.zig. A checked lock needs each of their functions out of
+line from the program's code; the count needs nothing of them, so it
+stays. Under preemption `sched.current` now reads its slot without
+`me`'s check, a single call:
+
+| Benchmark (pup slot, 2 workers, 9 rounds) | Off | On |
+|---|---|---|
+| spawn | 5.92 ms | 9.8% slower |
+| chain | 0.86 ms | level |
+| fanout | 297.3 ms | 6.1% slower (the unrolled loop) |
+| yield | 19.68 ms | 2.3% slower |
+| hog | 6.19 ms | 13.5 ms, 2.2 times |
+| actors solo | 11.34 ms | 5.6% slower |
+| actors contend | 10.59 ms | 8.6% slower |
+| actors spread | 5.84 ms | 7.6% slower |
+
+Not done: moving the never-inlined boundary to tasks.zig's entry points.
+The measure-only build without the boundary (above) bounds what it can
+win: contend 2.3% slower, solo and spread level. The per-operation
+fix does not move hog, which the wait trigger sets.
