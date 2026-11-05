@@ -343,7 +343,6 @@ fn pinHereIn() ?*Worker {
     if (deterministic.*) return null;
     const w = me() orelse return null;
     w.current.?.home = w;
-    if (preempt) preOf(w).pinned_running.store(true, .monotonic);
     return w;
 }
 
@@ -462,7 +461,6 @@ fn stealWaiting(w: *Worker) bool {
 }
 
 fn hasOwnWork(w: *Worker) bool {
-    if (preempt and preOf(w).held != null) return true;
     return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
 }
 
@@ -480,17 +478,18 @@ fn hasOwnWork(w: *Worker) bool {
 // with room for the trampoline. It then makes the fiber return into
 // `preemptEntry`, as if called there: the trampoline saves every
 // register the interrupted code may hold, the flags, and the vector and
-// x87 state, calls `preempted`, which runs what `tick` would and holds
-// the fiber on its worker, and returns to the instruction it stopped at
-// with all of them restored.
+// x87 state, calls `preempted`, which runs what `tick` would and puts
+// the fiber in the global queue, and returns to the instruction it
+// stopped at with all of them restored.
 //
-// A fiber stopped so goes back in line as one that yields does, and any
-// worker may take it: the program's own code keeps nothing of its thread
-// or worker in a register, since it reads no thread-local itself
-// (`rt.task`) and the scheduler's code that reads its worker is never
-// inlined into it (`current`, `mustNotBeInCode`). A pinned fiber's
-// worker runs no other pinned fiber while it is held (`Preempt.held`,
-// `popPinned`): they share counts that are not atomic.
+// Any worker may take a fiber stopped so: the program's own code keeps
+// nothing of its worker in a register, since the scheduler's code that
+// reads its worker is never inlined into it (`current`,
+// `mustNotBeInCode`), and the thread-local it reads (`rt.task`'s) is used
+// only outside every fiber. A program that makes a local task is not
+// built to be preempted (`bin/rig` keeps its yield checks): local tasks
+// share counts that are not atomic and take turns at their waits and
+// yield checks, where none is half-changed.
 
 /// Whether this build has the preemption `RIG_PREEMPT=signal` asks for:
 /// a target whose signal context and trampoline are written here, and
@@ -531,11 +530,6 @@ const Preempt = struct {
     /// How many fibers it has started running: the monitor sees it run
     /// one fiber for as long as this stays the same.
     runs: std.atomic.Value(u32) = .init(0),
-    /// A pinned fiber it preempted, which it runs before any other pinned
-    /// fiber (`popPinned`).
-    held: ?*Fiber = null,
-    /// Whether the fiber it runs is pinned (`runFiber`, `pinHere`).
-    pinned_running: std.atomic.Value(bool) = .init(false),
     /// Fibers it preempted, and the signals the monitor sent it.
     preempts: u64 = 0,
     signals: std.atomic.Value(u64) = .init(0),
@@ -564,16 +558,6 @@ pub noinline fn holdOff() void {
 pub noinline fn holdOn() void {
     if (!preempt) return;
     if (me_slot().*) |w| preOf(w).no_preempt -|= 1;
-}
-
-/// The pinned fiber `w` runs next: the one it preempted, if it holds one,
-/// else the first in its queue of them.
-inline fn popPinned(w: *Worker) ?*Fiber {
-    if (preempt) if (preOf(w).held) |f| {
-        preOf(w).held = null;
-        return f;
-    };
-    return w.pinned.pop();
 }
 
 /// The signal the monitor stops a fiber by. SIGURG, as Go's: the system
@@ -725,27 +709,20 @@ fn preemptedC() callconv(.c) void {
 /// A fiber the monitor's signal stopped (`preemptEntry`): do what a loop's
 /// yield check does (`tick`), wake what its worker's timers and poller
 /// make ready, and if work waits, for this worker or for another busy
-/// one, go back in line behind it, in the global queue (a pinned fiber:
-/// be held).
+/// one, go back in line behind it, in the global queue.
 fn preempted() void {
     const w = me() orelse return;
     serviceBusy(w);
     if (!hasOwnWork(w)) {
         if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
     }
-    // A pinned fiber is stopped only for work that is not pinned, which
-    // its siblings, waiting behind it, could not be; and only one is held
-    // at a time.
-    const pinned = w.current.?.home != null;
-    if (pinned and (preOf(w).held != null or !otherWork(w))) return;
+    // A program built to be preempted makes no local task (`bin/rig`
+    // keeps the yield checks of one that does), so no fiber is pinned;
+    // one that were is never stopped, since its siblings share counts
+    // that are not atomic and may run only at its waiting points.
+    if (w.current.?.home != null) return;
     preOf(w).preempts += 1;
-    stopIn(.{ .run = if (pinned) hold else behind });
-}
-
-/// Whether work waits for `w` that is not its pinned fibers: in its "run
-/// next" slot, its ring, or the global queue.
-fn otherWork(w: *Worker) bool {
-    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or global.count.load(.monotonic) != 0;
+    stopIn(.{ .run = behind });
 }
 
 /// Queue the fiber `f` just preempted in the global queue, as Go does:
@@ -755,14 +732,6 @@ fn otherWork(w: *Worker) bool {
 fn behind(f: *Fiber, _: ?*anyopaque) void {
     global.push(f);
     notify();
-}
-
-/// Hold the pinned fiber `f` just preempted on its worker, ahead of the
-/// other pinned fibers, which wait for it (`popPinned`).
-fn hold(f: *Fiber, _: ?*anyopaque) void {
-    const p = preOf(me().?);
-    if (p.held != null) @panic("rig: a second pinned fiber was held on one worker");
-    p.held = f;
 }
 
 /// What `me` does when it is called from the program's own code, which
@@ -823,10 +792,7 @@ fn watchSlices(slice: i96, wait: i96) void {
         for (workers.*, 0..) |*w, i| {
             const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
-            // A pinned fiber's siblings in the pinned queue wait for it
-            // in any case (`preempted`): only other work counts.
-            const pinned = preOf(w).pinned_running.load(.monotonic);
-            const work = if (pinned) w.lifo.load(.monotonic) != null or !w.ring.isEmpty() else queuedHere(w);
+            const work = queuedHere(w);
             queued = queued or work;
             defer had[i] = work;
             if (!running or runs != seen[i]) {
@@ -837,8 +803,7 @@ fn watchSlices(slice: i96, wait: i96) void {
             }
             busy = true;
             const waited = work and had[i];
-            const waits = if (pinned) work or global.count.load(.monotonic) != 0 else workWaits(w);
-            if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !waits)) continue;
+            if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
             // Again every period until it stops: a signal that finds the
             // fiber outside the program's code does nothing.
             _ = preOf(w).signals.fetchAdd(1, .monotonic);
@@ -853,7 +818,7 @@ fn watchSlices(slice: i96, wait: i96) void {
 /// that were preempted wait in the global queue, which only the slice
 /// hurries (`preempted`).
 fn queuedHere(w: *Worker) bool {
-    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0 or preOf(w).held != null;
+    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0;
 }
 
 /// Whether work waits that a preempted fiber of the busy worker `w` would
@@ -2741,10 +2706,7 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
-    if (preempt) {
-        preOf(w).pinned_running.store(f.home != null, .monotonic);
-        preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
-    }
+    if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(f);
     w.current = f;
@@ -2796,12 +2758,6 @@ fn next(w: *Worker) ?*Fiber {
         service(w);
         if (global.pop()) |f| return f;
     }
-    // A pinned fiber in the "run next" slot waits with the others while
-    // one its worker preempted is held (`popPinned`). Only this worker
-    // fills its slot.
-    if (preempt and preOf(w).held != null) if (w.lifo.load(.monotonic)) |f| if (f.home != null) {
-        if (w.lifo.swap(null, .seq_cst)) |g| w.pinned.push(g);
-    };
     if (w.lifo.load(.monotonic) != null) if (w.lifo.swap(null, .seq_cst)) |f| {
         if (w.lifo_streak < lifo_limit) {
             w.lifo_streak += 1;
@@ -2814,9 +2770,9 @@ fn next(w: *Worker) ?*Fiber {
     w.lifo_streak = 0;
     // Pinned fibers and the ring take turns first, so neither keeps the
     // other waiting.
-    if (w.tick & 1 == 0) if (popPinned(w)) |f| return f;
+    if (w.tick & 1 == 0) if (w.pinned.pop()) |f| return f;
     if (w.ring.pop()) |f| return f;
-    if (popPinned(w)) |f| return f;
+    if (w.pinned.pop()) |f| return f;
     if (global.pop()) |f| return f;
     return search(w);
 }
