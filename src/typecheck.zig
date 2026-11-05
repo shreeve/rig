@@ -7932,7 +7932,7 @@ const Checker = struct {
     /// (`SemContext.recordEmbedRecord`). False after a diagnostic.
     fn readsRecords(self: *Checker, method: []const u8, elem: TypeId, pos: u32, bytes: ?Sexp) Error!bool {
         if (self.ctx.types.get(elem) == .type_var) {
-            try self.require(self.ctx.types.get(elem).type_var, .records, pos, "makes a `T` from bytes");
+            try self.require(self.ctx.types.get(elem).type_var, .records, pos, method);
             return true;
         }
         const shown = try self.tyName(elem);
@@ -7942,7 +7942,7 @@ const Checker = struct {
             try self.err(pos, "`{s}` makes each `{s}` from bytes, which takes a type known here or a type parameter, `List[T]`: whether every bit pattern of a `{s}` is one depends on its instance", .{ method, shown, shown });
             return false;
         }
-        const head = "`{s}` makes each `{s}` from bytes, so every bit pattern must be a `{s}`";
+        const head = "`{s}` makes each `{s}` from bytes, so every bit pattern must be {s} `{s}`";
         const a = self.ctx.arena.allocator();
         const not = switch (try sema.bytesRecord(self.ctx, elem)) {
             .record => |r| {
@@ -7954,18 +7954,22 @@ const Checker = struct {
         const subject = if (not.field.len == 0) try a.print(", and {s} `{s}`", .{ article(not.shown), not.shown }) else try a.print("; field `{s}` of `{s}` is {s} `{s}`,", .{ not.field, not.owner, article(not.shown), not.shown });
         const which = if (not.field.len == 0) "" else " which";
         switch (not.why) {
-            .boolean => try self.err(pos, head ++ "{s}{s} is only 0 or 1", .{ method, shown, shown, subject, which }),
+            .boolean => try self.err(pos, head ++ "{s}{s} is only 0 or 1", .{ method, shown, article(shown), shown, subject, which }),
             .enumeration => if (not.field.len == 0)
-                try self.err(pos, head ++ ", and `{s}` is an enum, whose values are only its variants'", .{ method, shown, shown, not.shown })
+                try self.err(pos, head ++ ", and `{s}` is an enum, whose values are only its variants'", .{ method, shown, article(shown), shown, not.shown })
             else
-                try self.err(pos, head ++ "; field `{s}` of `{s}` is an enum, whose values are only its variants'", .{ method, shown, shown, not.field, not.owner }),
-            .other => try self.err(pos, head ++ "{s}{s} is not an integer, a float, or an object or array of them", .{ method, shown, shown, subject, which }),
-            .not_plain => try self.err(pos, head ++ ", and `{s}` is not plain data: it does not copy, or has a `drop`", .{ method, shown, shown, not.shown }),
-            .generic => try self.err(pos, head ++ ", and `{s}` is an instance of a generic object; declare an object of its field types", .{ method, shown, shown, not.shown }),
-            .empty => try self.err(pos, head ++ ", and `{s}` holds no bytes", .{ method, shown, shown, not.shown }),
-            .private => |module| try self.err(pos, head ++ "; field `{s}` of `{s}` is private to module `{s}`, which sets it", .{ method, shown, shown, not.field, not.owner, module }),
-            .padding_before => |p| try self.err(pos, head ++ ", and `{s}` has padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; order the fields so that none needs padding", .{ method, shown, shown, not.owner, not.field, p.at, article(not.shown), not.shown, p.alignment }),
-            .padding_after => |p| try self.err(pos, head ++ ", and `{s}` has {d} bytes of padding after field `{s}`, to a multiple of {d}; add a field that fills them", .{ method, shown, shown, not.owner, p.bytes, not.field, p.alignment }),
+                try self.err(pos, head ++ "; field `{s}` of `{s}` is an enum, whose values are only its variants'", .{ method, shown, article(shown), shown, not.field, not.owner }),
+            .other => try self.err(pos, head ++ "{s}{s} is not an integer, a float, or an object or array of them", .{ method, shown, article(shown), shown, subject, which }),
+            .not_plain => try self.err(pos, head ++ ", and `{s}` is not plain data: it does not copy, or has a `drop`", .{ method, shown, article(shown), shown, not.shown }),
+            .generic => try self.err(pos, head ++ ", and `{s}` is an instance of a generic object; declare an object of its field types", .{ method, shown, article(shown), shown, not.shown }),
+            .empty => try self.err(pos, head ++ ", and `{s}` holds no bytes", .{ method, shown, article(shown), shown, not.shown }),
+            .private => |module| try self.err(pos, head ++ "; field `{s}` of `{s}` is private to module `{s}`, which sets it", .{ method, shown, article(shown), shown, not.field, not.owner, module }),
+            .padding_before => |p| try self.err(pos, head ++ ", and `{s}` has padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; order the fields so that none needs padding", .{ method, shown, article(shown), shown, not.owner, not.field, p.at, article(not.shown), not.shown, p.alignment }),
+            .named_none => |none| {
+                const value = if (none.variant) |v| try a.print(".{s}", .{v}) else try a.print("{d}", .{none.value});
+                try self.err(pos, head ++ "{s}{s} names its none (`none {s} == {s}`), a value no `{s}` holds", .{ method, shown, article(shown), shown, subject, which, none.field, value, not.shown });
+            },
+            .padding_after => |p| try self.err(pos, head ++ ", and `{s}` has {d} {s} of padding after field `{s}`, to a multiple of {d}; add a field that fills them", .{ method, shown, article(shown), shown, not.owner, p.bytes, if (p.bytes == 1) "byte" else "bytes", not.field, p.alignment }),
         }
         return false;
     }
@@ -21942,7 +21946,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 .slot_count => try ctx.err(at, cannot ++ "names `Slot[{s}]`, and a slot names one of `n` slots, `n` at least 1", .{ inst, pname, aname, pname }),
                 .sized => try ctx.err(at, cannot ++ "takes `${s}` of a type that holds a `{s}`, and `{s}` holds a vector, whose size and alignment differ from target to target", .{ inst, pname, aname, req.op, pname, aname }),
                 .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
-                .records => try ctx.err(at, cannot ++ "makes a `{s}` from bytes (`extend_from_bytes`), and not every bit pattern is {s} `{s}`: write `!xs.extend_from_bytes(s)` where the element type is an integer, a float, or an object or array of them", .{ inst, pname, aname, pname, article(aname), aname }),
+                .records => try ctx.err(at, cannot ++ "makes a `{s}` from bytes with `extend_from_bytes`, and not every bit pattern is {s} `{s}`: give `{s}` an integer, a float, or an object or array of them with no padding", .{ inst, pname, aname, pname, article(aname), aname, pname }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),

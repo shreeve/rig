@@ -5054,10 +5054,11 @@ pub const SemContext = struct {
     }
 
     /// The `$embed` call `node`, whose file a call makes records from;
-    /// recorded once.
+    /// recorded once for each size, as each instance of a generic body
+    /// may read records of its own.
     pub fn recordEmbedRecord(self: *SemContext, node: Sexp, record: EmbedRecord) !void {
         const id = recordKey(node);
-        for (self.embed_records.items) |r| if (r.node == id) return;
+        for (self.embed_records.items) |r| if (r.node == id and r.size == record.size) return;
         var r = record;
         r.node = id;
         try self.embed_records.append(self.allocator, r);
@@ -11105,6 +11106,9 @@ pub const NotRecord = struct {
         empty,
         /// An object that is not plain data: unique, or with a `drop`.
         not_plain,
+        /// An object that names its none (`none id == 0`): bytes could
+        /// make the value no object of it holds.
+        named_none: NamedNone,
         /// An instance of a generic object.
         generic,
         /// A field of another module's object that its module sets: one
@@ -11136,9 +11140,17 @@ pub fn bytesRecord(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!RecordA
     return recordIn(ctx, ctx, ty);
 }
 
-fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allocator.Error!RecordAnswer {
+/// Type `ty` of module `home`, as module `ctx` names it: another
+/// module's own type qualified by that module's name (`geo.Q`).
+fn shownFrom(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allocator.Error![]const u8 {
     const a = ctx.arena.allocator();
-    const shown = try formatTypeIn(home, a, ty);
+    const text = try formatTypeIn(home, a, ty);
+    if (home == ctx or home.types.get(ty) != .nominal) return text;
+    return a.print("{s}.{s}", .{ home.name, text });
+}
+
+fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allocator.Error!RecordAnswer {
+    const shown = try shownFrom(ctx, home, ty);
     switch (home.types.get(ty)) {
         .int => |i| {
             const n: u64 = i.width() / 8;
@@ -11179,6 +11191,9 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
     }
     const sym = decl.symbol();
     if (sym.type_params != null) return .{ .not = .{ .shown = shown, .why = .generic } };
+    // A value no object of it holds: `xs.get(i)`, `pop`, and a `T?` would
+    // read one made from bytes as `none`.
+    if (decl.ctx.named_nones.get(decl.sym)) |none| return .{ .not = .{ .shown = shown, .why = .{ .named_none = none } } };
     if (!try isPlain(ctx, if (home == ctx) ty else try ctx.intern(.{ .imported_nominal = .{ .module_id = module.?, .sym_id = decl.sym } }))) return .{ .not = .{ .shown = shown, .why = .not_plain } };
     // Another module's private fields are its own to set.
     const foreign: ?*const SemContext = if (module) |m| (if (m == ctx.module_id) null else ctx.foreign_semas.get(m)) else null;
@@ -11193,7 +11208,7 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
             .record => |r| r,
             .not => |n| return .{ .not = if (n.field.len == 0) .{ .field = f.name, .owner = shown, .shown = n.shown, .why = n.why } else n },
         };
-        if (at % r.alignment != 0) return .{ .not = .{ .field = f.name, .owner = shown, .shown = try formatTypeIn(decl.ctx, a, f.ty), .why = .{ .padding_before = .{ .at = at, .alignment = r.alignment } } } };
+        if (at % r.alignment != 0) return .{ .not = .{ .field = f.name, .owner = shown, .shown = try shownFrom(ctx, decl.ctx, f.ty), .why = .{ .padding_before = .{ .at = at, .alignment = r.alignment } } } };
         at += r.size;
         alignment = @max(alignment, r.alignment);
         last = f.name;

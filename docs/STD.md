@@ -2048,7 +2048,7 @@ length saved earlier.
 ([SPEC, Builtins](../SPEC.md#builtins)), with one copy, the List growing
 once: the fast way to load a table a program writes ahead of time. `T`
 is an integer, a float, or an object or array of them with no padding
-([SPEC, List](../SPEC.md#list)); each element is its fields' bytes in
+and no named none ([SPEC, List](../SPEC.md#list)); each element is its fields' bytes in
 declaration order, in the machine's own byte order, so a file written
 on a machine of the other order reads differently. A length that is not
 a whole number of `$size(T)` panics.

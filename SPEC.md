@@ -9416,7 +9416,9 @@ fields in that order would need padding (a field not at a multiple of
 its alignment, a number's being its size, or a size not a multiple of
 its largest field's) is rejected, and so is one with no fields, and
 another module's object with a field that module keeps to itself (a
-private or read-only one), as its constructor is. A `Bool`, an enum,
+private or read-only one), as its constructor is, and an object that
+names its none ([Optionals](#12-optionals)), whose none bytes could
+make, and `get`, `pop`, and a `T?` would read as `none`. A `Bool`, an enum,
 an optional, text, a box, a handle, a `Slot`, and a vector are not
 records: the message names the field that is not. A literal or an
 embedded file ([Builtins](#builtins)) that is not a whole number of

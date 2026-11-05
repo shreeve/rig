@@ -56,7 +56,8 @@ a bare number, and of `per:` of `task.supervise` and
 - **`!xs.extend_from_bytes(s)`** appends to a `List[T]` the records the
   bytes of `s` hold, a `?String` or a `Static` such as `$embed(path)`,
   with one copy and one growth. `T` is an integer, a float, or an object
-  or array of them with no padding, so every bit pattern is a value;
+  or array of them with no padding and no named none, so every bit
+  pattern is a value;
   each record is its fields' bytes in declaration order, in the
   machine's byte order. Any other `T` is rejected with the field that
   disqualifies it (`field `on` of `Flag` is a `Bool`, which is only 0 or

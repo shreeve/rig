@@ -3598,8 +3598,11 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 }
 
 /// The bytes of a record `T` (`List.extend_from_bytes`): a number's
-/// size, an array's elements', an object's fields'.
+/// size, an array's elements', an object's fields'. Each is computed
+/// once per type at compile time; the quota covers an object of many
+/// fields.
 fn recordSize(comptime T: type) usize {
+    @setEvalBranchQuota(100_000);
     return switch (@typeInfo(T)) {
         .int, .float => @sizeOf(T),
         .array => |a| a.len * recordSize(a.child),
@@ -3616,6 +3619,7 @@ fn recordSize(comptime T: type) usize {
 /// records copy into one with `@memcpy`: each field where the record has
 /// it, in an object Zig lays out in its own order or as one word.
 fn recordFlat(comptime T: type) bool {
+    @setEvalBranchQuota(100_000);
     return switch (@typeInfo(T)) {
         .int, .float => true,
         .array => |a| recordFlat(a.child),
@@ -3637,28 +3641,40 @@ fn recordFlat(comptime T: type) bool {
 
 /// The record `T` the bytes `b` hold: a number in the machine's byte
 /// order, an array's elements one after another, an object's fields in
-/// declaration order.
-inline fn recordFromBytes(comptime T: type, b: *const [recordSize(T)]u8) T {
+/// declaration order. A part laid out as its bytes (`recordFlat`) is one
+/// `@memcpy`, and an array of other elements a loop that runs, so no
+/// array is unrolled by its length.
+fn recordFromBytes(comptime T: type, b: *const [recordSize(T)]u8) T {
+    var out: T = undefined;
+    if (comptime recordFlat(T) and !isPacked(T)) {
+        @memcpy(std.mem.asBytes(&out), b);
+        return out;
+    }
     switch (@typeInfo(T)) {
         .int, .float => return @bitCast(b.*),
         .array => |a| {
             const each = comptime recordSize(a.child);
-            var out: T = undefined;
-            inline for (0..a.len) |i| out[i] = recordFromBytes(a.child, b[i * each ..][0..each]);
-            return out;
+            for (&out, 0..) |*e, i| e.* = recordFromBytes(a.child, b[i * each ..][0..each]);
         },
         .@"struct" => |st| {
-            var out: T = undefined;
             comptime var off: usize = 0;
             inline for (st.field_names, st.field_types) |name, F| {
                 const each = comptime recordSize(F);
                 @field(out, name) = recordFromBytes(F, b[off..][0..each]);
                 off += each;
             }
-            return out;
         },
         else => @compileError("extend_from_bytes: no record " ++ @typeName(T)),
     }
+    return out;
+}
+
+/// A packed struct, whose fields have no address of their own.
+fn isPacked(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |st| st.layout == .@"packed",
+        else => false,
+    };
 }
 
 // -----------------------------------------------------------------------------

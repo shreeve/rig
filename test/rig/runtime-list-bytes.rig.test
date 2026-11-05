@@ -200,3 +200,74 @@ test "list from bytes of another module's records and with inline room", "[1, 2]
     pub obj P
       pub x: U32
       pub y: U32
+
+fail "list of objects that name their none from bytes", "`Node` names its none (`none id == 0`), a value no `Node` holds"
+  # Bytes could make the value no `Node` holds, which `get`, `pop`, and a
+  # `Node?` read as `none`.
+  obj Node
+    id: U32
+    none id == 0
+
+  xs: List[Node] = List()
+  !xs.extend_from_bytes("\x05\x00\x00\x00\x00\x00\x00\x00")
+
+fail "list of records with a field that names its none from bytes", "field `n` of `Pair` is a `Node`, which names its none (`none id == 0`), a value no `Node` holds"
+  obj Node
+    id: U32
+    none id == 0
+
+  obj Pair
+    n: Node
+    k: U32
+
+  ps: List[Pair] = List()
+  !ps.extend_from_bytes("")
+
+fail "list from bytes in a generic body of an object that names its none", "the generic body makes a `T` from bytes with `extend_from_bytes`, and not every bit pattern is a `Node`"
+  obj Node
+    id: U32
+    none id == 0
+
+  sub load[T](xs: !List[T], s: ?String)
+    !xs.extend_from_bytes(s)
+
+  sub main()
+    a: List[Node] = List()
+    load(!a, "")
+
+fail "list of optional integers from bytes names its article", "every bit pattern must be an `Int?`, and an `Int?` is not"
+  xs: List[Int?] = List()
+  !xs.extend_from_bytes("")
+
+test "list of records with a large array from bytes", "2 3 4 1 255 2 240", release: true
+  # Zig orders `Glyph`'s fields its own way, so each record is read field
+  # by field, its array in one copy, and `Row`'s array of such objects by
+  # a loop: nothing is unrolled by an array's length.
+  obj Glyph
+    w: U8
+    h: U8
+    code: U16
+    bits: [4096]U8
+
+  obj E
+    x: U8
+    y: U8
+    z: U16
+    w: U32
+    v: U64
+
+  t = String()
+  for i in 0..2
+    !t.push(U8(2 + i))
+    !t.push(3)
+    !t.push[U16, .little](4)
+    for k in 0..4096
+      !t.push(U8(k % 256))
+  gs: List[Glyph] = List()
+  !gs.extend_from_bytes(?t)
+  u = String()
+  for i in 0..640 * 16 * 2
+    !u.push(U8(i % 256))
+  rows: List[[640]E] = List()
+  !rows.extend_from_bytes(?u)
+  print(gs.len, gs[1].w, gs[0].code, gs[1].bits[1], gs[0].bits[4095], rows.len, rows[1][639].x)
