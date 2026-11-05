@@ -1,0 +1,73 @@
+pup, E-core 15 (3.8 GHz), 2026-11-04 19:15-19:40, while other builders' builds ran
+on E-cores 12-19 (load 3-4) and no timing job ran. Trig's PGO builds, read-only:
+  base = /zfs/trig-pup/runs/dec-base/.zig-cache/trig-tests/packs/trig-pgo/bin
+         (pre-built libs, decoded field by field, as Trig main is)
+  new  = /zfs/trig-pup/runs/dec-new/...   (the same, with tools decode-zig: the u32
+         lists, node lists and node records decoded by tight loops; the ceiling
+         of adopting List.extend_from_bytes)
+Every run: -p tsconfig.trig.json --noEmit --checkers 1.
+"empty" is a twin of each project: its compiler options with skipLibCheck, and
+one empty file, so its run is start-up plus loading the libs.
+
+== stat.sh 15 5: fewest user cycles of 5 (instructions, cycles user/kernel, faults)
+mitt            full  base instr   79.8M ucyc   40.0M kcyc   19.3M faults   1257
+mitt            full  new  instr   49.6M ucyc   34.9M kcyc   19.3M faults   1252
+mitt            empty base instr   61.4M ucyc   22.8M kcyc   17.7M faults   1015
+mitt            empty new  instr   31.1M ucyc   18.4M kcyc   17.5M faults   1018
+neverthrow      full  base instr   95.1M ucyc   57.8M kcyc   21.1M faults   1376
+neverthrow      full  new  instr   67.3M ucyc   53.5M kcyc   21.2M faults   1373
+neverthrow      empty base instr   52.8M ucyc   17.2M kcyc   16.1M faults    965
+neverthrow      empty new  instr   24.9M ucyc   13.3M kcyc   16.6M faults    968
+tiny-invariant  full  base instr  619.6M ucyc  334.9M kcyc   46.7M faults   3604
+tiny-invariant  full  new  instr  592.3M ucyc  334.9M kcyc   46.9M faults   3600
+tiny-invariant  empty base instr   52.7M ucyc   16.3M kcyc   16.1M faults    962
+tiny-invariant  empty new  instr   24.9M ucyc   12.0M kcyc   16.2M faults    962
+superstruct     full  base instr  183.1M ucyc  134.0M kcyc   20.2M faults   1329
+superstruct     full  new  instr  176.3M ucyc  131.3M kcyc   20.4M faults   1321
+superstruct     empty base instr   19.7M ucyc   10.0M kcyc    9.1M faults    401
+superstruct     empty new  instr   12.9M ucyc    8.8M kcyc    9.3M faults    404
+zod3            full  base instr 1125.5M ucyc  826.0M kcyc   85.2M faults   6451
+zod3            full  new  instr 1094.7M ucyc  826.0M kcyc   84.2M faults   6449
+zod3            empty base instr   63.4M ucyc   23.4M kcyc   18.3M faults   1028
+zod3            empty new  instr   32.3M ucyc   17.0M kcyc   17.4M faults   1030
+ts-pattern      full  base instr 7156.5M ucyc 5306.1M kcyc  342.8M faults  31977
+ts-pattern      full  new  instr 7128.0M ucyc 5385.3M kcyc  347.5M faults  31806
+ts-pattern      empty base instr   63.8M ucyc   23.9M kcyc   17.7M faults   1034
+ts-pattern      empty new  instr   32.6M ucyc   19.8M kcyc   18.4M faults   1034
+start-up alone (--version): 1.06M instr, 1.1M ucyc, 3.9M kcyc, 110 faults
+
+== prof.sh: share of user cycles inside ast.decode_bound_file (inclusive, LBR
+   call stacks, 1000 samples a second, 100 runs of each empty twin)
+            base    new
+mitt        52.8%   48.7%
+neverthrow  56.1%   51.5%
+tiny-inv.   56.7%   52.0%
+superstruct 26.0%   23.1%
+zod3        54.3%   48.9%
+ts-pattern  56.2%   50.0%
+
+Within decode (new, empty mitt), by emitted line: the record loop 10.1% and the
+u32-list loop 9.1% of all samples (40% of decode); Reader.u32/i32 field reads,
+their bounds tests and push 10.6% (22%); interning, Map inserts, hashing about
+5-6% (11%); the rest allocation, memcpy and lines of no one loop.
+
+== pf.py: page faults by place and by the function that took them (one run of
+   each full project, base; the new arm takes the same)
+mitt           1257 decode/bin-ro=143 decode/heap=374 rest/bin-ro=42 rest/heap=495 rest/other=202
+neverthrow     1376 decode/bin-ro=133 decode/heap=368 rest/bin-ro=41 rest/heap=620 rest/other=213
+tiny-invariant 3603 decode/bin-ro=134 decode/heap=370 rest/bin-ro=78 rest/heap=2812 rest/other=208
+superstruct    1329 decode/bin-ro=35  decode/heap=36  rest/bin-ro=35 rest/heap=1013 rest/other=209
+zod3           6451 decode/bin-ro=147 decode/heap=381 rest/bin-ro=43 rest/heap=5608 rest/other=271
+ts-pattern    31809 decode/bin-ro=147 decode/heap=385 rest/bin-ro=43 rest/heap=30936 rest/other=297
+(bin-ro: the executable's read-only segment, where the lib trees are; heap:
+anonymous read-write memory. Rig's allocator also populates some memory ahead
+with MADV_POPULATE_WRITE, which costs kernel time and counts no fault.)
+
+== Pre-built lib trees in the binary (decoded literal lengths)
+116 libs, 13.52 MB in all; lib.dom.d.ts 7.95 MB, lib.webworker.d.ts 3.19 MB,
+lib.es5.d.ts 0.77 MB, every other under 0.21 MB.
+
+== Zig, Mac (M-series), 8 MB file: the cost of holding an embed aligned
+@embedFile alone                         4.98 s, 545 MB peak
+const [n]u8 align(16) = @embedFile().*   6.63 s, 976 MB peak
+var   [n]u8 align(16) = @embedFile().*   6.41 s, 980 MB peak (lands in __DATA)
