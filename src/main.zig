@@ -870,8 +870,6 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
                 t.* = m.ir;
             }
             try storage.decideWords(ctxs, trees);
-            // Which records are laid out in declaration order.
-            try storage.decideRecords(ctxs);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
