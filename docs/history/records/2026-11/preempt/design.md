@@ -367,7 +367,7 @@ because a lock *is* taken in code inlined into the program's. The
 output lock is taken by `print` (an inline function), by `finish`, by
 `printRendered`, `warn`, and `writeStandard`; the actors' mailbox lock
 by `Actor.send` (and `takeSlot`, `freeSlot`, `withdraw`, `kill`); the
-pool's by `wakeLeft` from `finish`. 51 sites take a lock in tasks.zig
+pool's by `wakeLeft` from `finish`. 51 lines take or let go of a lock in tasks.zig
 and runtime.zig. A checked lock needs each of their functions out of
 line from the program's code; the count needs nothing of them, so it
 stays. Under preemption `sched.current` now reads its slot without
