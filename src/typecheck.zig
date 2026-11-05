@@ -11293,7 +11293,7 @@ const Checker = struct {
         }
 
         fn isDuration(self: ParamInfo, i: usize) bool {
-            return i < @bitSizeOf(sema.ParamMask) and self.durations & sema.paramBit(i) != 0;
+            return self.durations != 0 and i < @bitSizeOf(sema.ParamMask) and self.durations & sema.paramBit(i) != 0;
         }
 
         /// The name of duration parameter `i` when it is an option, given
@@ -11306,6 +11306,7 @@ const Checker = struct {
         /// The duration parameter a unit's keyword fills, `ms:` of
         /// `time.sleep(ms: 40)`: the one named `ns`.
         fn unitParam(self: ParamInfo) ?usize {
+            if (self.durations == 0) return null;
             const names = self.names orelse return null;
             for (names, 0..) |n, i| if (self.isDuration(i) and std.mem.eql(u8, n, sema.duration.param)) return i;
             return null;
@@ -11413,7 +11414,8 @@ const Checker = struct {
         }
         if (repeated) return self.synthArgs(args);
         // A duration is written once, bare or with one unit's keyword.
-        if (info.unitParam()) |u| {
+        const unit_param = info.unitParam();
+        if (unit_param) |u| {
             var first: ?Sexp = if (u < positional.len) positional[u] else null;
             for (keyword) |kw| {
                 const kname = self.text(ir.Kwarg.name(kw));
@@ -11461,11 +11463,11 @@ const Checker = struct {
             const kname_node = ir.Kwarg.name(kw);
             const kname = self.text(kname_node);
             // A unit's keyword fills the duration parameter named `ns`.
-            const unit = if (info.unitParam() != null) sema.duration.unitNs(kname) else null;
-            const idx = (if (unit != null) info.unitParam() else null) orelse for (info.names.?, 0..) |n, i| {
+            const unit = if (unit_param != null) sema.duration.unitNs(kname) else null;
+            const idx = (if (unit != null) unit_param else null) orelse for (info.names.?, 0..) |n, i| {
                 if (std.mem.eql(u8, n, kname)) break i;
             } else {
-                if (info.unitParam() != null) {
+                if (unit_param != null) {
                     if (isSecondsName(kname)) {
                         try self.errAt(kname_node, "a duration in seconds is written bare, with no keyword: `{s}({s})`", .{ callee, try self.plainText(ir.Kwarg.value(kw)) });
                     } else try self.errAt(kname_node, "`{s}` has no parameter `{s}`; a duration is written bare in seconds, `{s}(2)`, or with one unit, `ms: 40`, `us: 40`, or `ns: 40`", .{ callee, kname, callee });
