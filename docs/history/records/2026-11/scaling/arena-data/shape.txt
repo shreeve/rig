@@ -1,0 +1,12 @@
+ts-pattern base 1: VmRSS: 207064 kB VmPTE: 816 kB  maps=75
+ts-pattern base 4: VmRSS: 233704 kB VmPTE: 1992 kB  maps=282
+ts-pattern base 8: VmRSS: 252204 kB VmPTE: 3464 kB  maps=480
+ts-pattern arena 1: VmRSS: 226008 kB VmPTE: 664 kB  maps=91
+ts-pattern arena 4: VmRSS: 280612 kB VmPTE: 1052 kB  maps=319
+ts-pattern arena 8: VmRSS: 311680 kB VmPTE: 1276 kB  maps=516
+zod3 base 1: VmRSS: 71092 kB VmPTE: 552 kB  maps=61
+zod3 base 4: VmRSS: 92060 kB VmPTE: 1804 kB  maps=235
+zod3 base 8: VmRSS: 116016 kB VmPTE: 3348 kB  maps=402
+zod3 arena 1: VmRSS: 78624 kB VmPTE: 280 kB  maps=68
+zod3 arena 4: VmRSS: 112452 kB VmPTE: 628 kB  maps=278
+zod3 arena 8: VmRSS: 134492 kB VmPTE: 840 kB  maps=436
