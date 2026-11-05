@@ -75,3 +75,43 @@ The countdown itself (`eb54`) is a chain of its own and costs almost nothing. Th
 Strip-mine counted loops (concurrency plan, step 3, after #952): an inner loop of up to 1,024 turns with no check in it, then one check, as HotSpot does. The inner loop is then the plain loop Rust and Go compile, and a task still yields every 1,024 turns.
 
 With `RIG_PREEMPT=signal` (#952) the checks are gone entirely, so strip-mining matters for default builds, and on the Mac until preemption is ported there. Measure both when it is built.
+
+## The ceiling, in hand-written Zig (2026-11-05)
+
+Per the Zig-ceiling-first rule, the fix was written by hand in the Zig Rig emits before any compiler change. The setup: `tasks.rig` built with `rig build --release=fast` (main 39e1ed89f), then its `__rig_main.zig` copied and only `spin`'s loop edited, each copy rebuilt with the same `zig build-exe -Ofast -fomit-frame-pointer -fno-stack-protector`.
+
+**The split loop:**
+
+```zig
+var __rig_i_5: i64 = 0;
+const __rig_end_5: i64 = n;
+while (__rig_i_5 < __rig_end_5) {
+    const __rig_block_5: i64 = if (__rig_end_5 - __rig_i_5 > rig.tick_turns) __rig_i_5 + rig.tick_turns else __rig_end_5;
+    while (__rig_i_5 < __rig_block_5) : (__rig_i_5 += 1) {
+        const i = __rig_i_5;
+        total = rig.rem(total + (i * 7), 1000003);
+    }
+    var __rig_turns_4: u32 = 1;
+    rig.turn(&__rig_turns_4);   // the same check, once per block of 1,024 turns
+}
+```
+
+Its inner loop compiles to Rust's six-step chain exactly (`add, smulh, add, asr, add, msub`). The emitted loop with its check deleted, and no split, still takes seven steps: the shape of the emitted `while` with its continue step alone costs one add. So the split, not the check's absence, is what fixes it.
+
+**Measured** with `RIG_WORKERS=1`, `even` (1,024 chunks), the whole process's cycles from `/usr/bin/time -l`, the fewest of 9 rounds. The Mac's load was 6 to 9 from other sessions, so cycles are the measure; times are given only for reference.
+
+| Arm | Cycles | Against Rust | Instructions | Time |
+|---|---|---|---|---|
+| Rig as emitted, tasks | 921M | 1.30x | 1061M | 266.4 ms |
+| Rig, split loop, tasks | 760M | 1.08x | 687M | 209.3 ms |
+| Rig, split loop with no check, tasks | 710M | 1.00x | 592M | 195.3 ms |
+| Rig, emitted loop with no check, tasks | 800M | 1.13x | 779M | 238.5 ms |
+| Rig as emitted, par.map | 862M | 1.22x | 976M | 246.4 ms |
+| Rig, split loop, par.map | 710M | 1.01x | 597M | 208.3 ms |
+| Rust (Rayon) | 706M | 1.00x | 586M | 203.7 ms |
+| Go | 709M | 1.00x | 1096M | 198.7 ms |
+
+What it shows:
+- **The split loop reaches Rust and Go** where nothing else waits (par.map at one worker runs its chunks in turn on the calling task): 1.01x.
+- **The remaining 8% in the tasks arm is the yield, not the loop.** With 1,024 tasks queued on one worker, every check finds other work waiting (`sched.tick`, `hasOwnWork`), so each task yields every 1,024 turns. That is a slice of about 13,000 cycles, or 3 µs, and about 61,000 switches in all, roughly 800 cycles each. Go and Tokio run each chunk to its end.
+- **A slice measured in time would remove it** and still keep `hog` far ahead: yield only after the task has run some tens of microseconds. Go's slice is 10 ms, and Rig's `hog` is 77 µs against Go's 3.2 ms. That is a scheduler policy (the Erlang review's "weight the countdown by work"), separate from step 3.
