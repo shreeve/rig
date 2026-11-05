@@ -73,6 +73,10 @@ comptime {
         owner_lost,
         spare_heaps,
         spare_lock,
+        mapped_lock,
+        mapped_spans,
+        mapped_count,
+        exe_file,
     };
 }
 
@@ -1358,6 +1362,125 @@ fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: us
     return largeSize(memory.len) == largeSize(new_len);
 }
 
+// -----------------------------------------------------------------------------
+// Runs of the executable mapped into a List
+// -----------------------------------------------------------------------------
+
+/// The fewest bytes of an embedded run `List.extend_from_bytes` maps
+/// rather than copies (`mapRun`): below it the copy costs less than the
+/// system call, and the free and grow tests below look only at blocks this
+/// large, so a smaller one never pays for them.
+pub const map_min: usize = 64 << 10;
+
+/// The mapped runs a program may hold at once; a run past them is copied.
+const map_spans_max = 256;
+
+var mapped_lock_var: SpinLock = .{};
+const mapped_lock = split.cell(&mapped_lock_var, "alloc.mapped_lock");
+/// The mappings `mapRun` made, each from its page to the run's end.
+var mapped_spans_var: [map_spans_max]Range = undefined;
+const mapped_spans = split.cell(&mapped_spans_var, "alloc.mapped_spans");
+var mapped_count_var: std.atomic.Value(usize) = .init(0);
+const mapped_count = split.cell(&mapped_count_var, "alloc.mapped_count");
+
+/// The executable's own file, opened once, read-only, and the program
+/// headers of its running image: `fd` is -2 before the first run and -1
+/// where it cannot be read.
+const ExeFile = struct {
+    fd: i32 = -2,
+    bias: usize = 0,
+    phdrs: []const Phdr = &.{},
+};
+const Phdr = extern struct { type: u32, flags: u32, offset: u64, vaddr: u64, paddr: u64, filesz: u64, memsz: u64, @"align": u64 };
+var exe_file_var: ExeFile = .{};
+const exe_file = split.cell(&exe_file_var, "alloc.exe_file");
+
+/// The pages of the executable's file that hold `bytes`, a run of a
+/// read-only part of the running image (an `$embed`, a literal), mapped
+/// privately (`MAP_PRIVATE`), so the kernel reads each page from the file
+/// as it is first touched, shares it with the page cache, and copies it
+/// for this mapping alone when it is first written: a List over them
+/// owns its elements as any List does, and no other value sees its
+/// writes. Its address within a page is the run's, so it keeps the run's
+/// alignment. Null, and the caller copies, off Linux, where the file
+/// cannot be opened (`/proc/self/exe`), for a run not in a read-only
+/// loaded segment, when `map_spans_max` runs are mapped, or when the
+/// system refuses. The mapping is given back by `free` or by growing
+/// the List past it, which copies (`releaseMapped`, `remap`).
+pub fn mapRun(bytes: []const u8) ?[*]u8 {
+    if (builtin.os.tag != .linux or bytes.len < map_min) return null;
+    const linux = std.os.linux;
+    mapped_lock.lock();
+    defer mapped_lock.unlock();
+    const exe = exe_file;
+    if (exe.fd == -2) openExe(exe);
+    if (exe.fd < 0 or mapped_count.load(.monotonic) == map_spans_max) return null;
+    const at = @intFromPtr(bytes.ptr) -% exe.bias;
+    for (exe.phdrs) |ph| {
+        // PT_LOAD, without PF_W: what the file holds is what the image does.
+        if (ph.type != 1 or ph.flags & 2 != 0) continue;
+        if (at < ph.vaddr or at + bytes.len > ph.vaddr + ph.filesz) continue;
+        const off = at - ph.vaddr + ph.offset;
+        const page = std.heap.pageSize();
+        const start = off - off % page;
+        const len = off - start + bytes.len;
+        const rc = linux.mmap(null, len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE }, exe.fd, @intCast(start));
+        if (linux.errno(rc) != .SUCCESS) return null;
+        const n = mapped_count.load(.monotonic);
+        mapped_spans[n] = .{ .start = rc, .len = len };
+        mapped_count.store(n + 1, .release);
+        return @ptrFromInt(rc + (off - start));
+    }
+    return null;
+}
+
+/// Open the executable's file and find the program headers of the
+/// running image, and how far the image is loaded from the addresses
+/// they give (`PT_PHDR`), once (`mapRun`, under its lock).
+fn openExe(exe: *ExeFile) void {
+    const linux = std.os.linux;
+    exe.fd = -1;
+    const ph: usize = linux.getauxval(std.elf.AT.PHDR);
+    const num: usize = linux.getauxval(std.elf.AT.PHNUM);
+    if (ph == 0 or num == 0) return;
+    exe.phdrs = @as([*]const Phdr, @ptrFromInt(ph))[0..num];
+    for (exe.phdrs) |p| if (p.type == 6) {
+        exe.bias = ph -% p.vaddr;
+    };
+    const rc = linux.open("/proc/self/exe", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    if (linux.errno(rc) != .SUCCESS) return;
+    exe.fd = @intCast(rc);
+}
+
+/// Whether `p` lies in a run `mapRun` mapped. Out of line, as `freeSlow`
+/// is, so no caller of the allocator that inlines it changes.
+noinline fn isMapped(p: [*]const u8) bool {
+    if (mapped_count.load(.acquire) == 0) return false;
+    mapped_lock.lock();
+    defer mapped_lock.unlock();
+    const x = @intFromPtr(p);
+    for (mapped_spans[0..mapped_count.load(.monotonic)]) |r| if (x >= r.start and x < r.start + r.len) return true;
+    return false;
+}
+
+/// Give back the mapping of the run `memory` begins in, when it is one
+/// (`mapRun`): true when it was.
+fn releaseMapped(memory: []u8) bool {
+    if (mapped_count.load(.acquire) == 0) return false;
+    mapped_lock.lock();
+    defer mapped_lock.unlock();
+    const x = @intFromPtr(memory.ptr);
+    const n = mapped_count.load(.monotonic);
+    for (mapped_spans[0..n], 0..) |r, i| {
+        if (x < r.start or x >= r.start + r.len) continue;
+        unmapLarge(r.start, r.len);
+        mapped_spans[i] = mapped_spans[n - 1];
+        mapped_count.store(n - 1, .release);
+        return true;
+    }
+    return false;
+}
+
 /// A large block grown to `new_len`: copied into a kept block that fits,
 /// which then keeps the old one in turn, since a kept block's pages are
 /// resident and copying into them costs less than faulting in fresh
@@ -1365,6 +1488,9 @@ fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: us
 /// (`mremap`). Anything else, or a block that shrinks, is left to the
 /// caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
+    // A mapped run is not this heap's: the caller copies it into a new
+    // block and frees it (`mapRun`).
+    if (memory.len >= map_min and isMapped(memory.ptr)) return null;
     if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
     if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
     if (new_len < memory.len) return null;
@@ -1401,6 +1527,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
 /// What `free`'s fast path leaves: a block of another thread's heap, a
 /// larger or more aligned one, or a thread with no heap yet.
 noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {
+    if (memory.len >= map_min and releaseMapped(memory)) return;
     const h = heap() orelse return;
     if (classOf(memory.len, alignment)) |c| {
         if (counts) h.count(-@as(isize, @intCast(classSize(c))), 0);
@@ -2020,6 +2147,43 @@ fn trimAllForTest(h: *Heap) void {
         const f = unkeep(k, j, 0).?;
         unmapLarge(@intFromPtr(f), f.len);
     };
+}
+
+/// A run of 80,000 bytes in the test binary's read-only image, each its
+/// index times 7.
+const mapped_blob: [80_000]u8 = blk: {
+    @setEvalBranchQuota(200_000);
+    var b: [80_000]u8 = undefined;
+    for (&b, 0..) |*x, i| x.* = @truncate(i *% 7);
+    break :blk b;
+};
+
+test "on Linux a run of the executable maps privately: it reads the run's bytes, its writes are its own, and freeing it unmaps it" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    // Zig's own backend (a debug build) places the constant in writable
+    // data, which `mapRun` copies, as it should; a debug build never maps.
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
+    const run: []const u8 = mapped_blob[13..];
+    const p = mapRun(run) orelse return error.TestUnexpectedResult;
+    // The run's address within its page, so its alignment, is kept.
+    try std.testing.expectEqual(@intFromPtr(run.ptr) % std.heap.pageSize(), @intFromPtr(p) % std.heap.pageSize());
+    try std.testing.expectEqualSlices(u8, run, p[0..run.len]);
+    try std.testing.expect(isMapped(p) and isMapped(p + run.len - 1));
+    // A second mapping of the same run is apart from the first.
+    const q = mapRun(run) orelse return error.TestUnexpectedResult;
+    p[100] = 0xee;
+    try std.testing.expectEqual(@as(u8, @truncate(113 *% 7)), q[100]);
+    try std.testing.expectEqual(@as(u8, @truncate(113 *% 7)), mapped_blob[113]);
+    // Growing it is the caller's copy; freeing it gives the pages back.
+    try std.testing.expect(remap(undefined, p[0..run.len], .@"1", run.len * 2, 0) == null);
+    free(undefined, p[0..run.len], .@"1", 0);
+    try std.testing.expect(!isMapped(p));
+    free(undefined, q[0..run.len], .@"1", 0);
+    try std.testing.expectEqual(@as(usize, 0), mapped_count.load(.monotonic));
+    // A run outside the image, or too short, is copied.
+    var heap_run: [map_min]u8 = undefined;
+    try std.testing.expect(mapRun(&heap_run) == null);
+    try std.testing.expect(mapRun(mapped_blob[0 .. map_min - 1]) == null);
 }
 
 test "every large size is its bucket's size" {

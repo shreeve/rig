@@ -1,0 +1,63 @@
+# Tasks whose range loops break, continue, and jump out at many points,
+# printing as they go: under RIG_SEED the output order is the schedule.
+
+fun steady(id: Int, n: Int) -> Int
+  s = 0
+  for i in 0..n
+    s = (s + i * 7) % 1000003
+    if i % 1500 == 0
+      print("steady", id, i)
+  s
+
+fun breaker(id: Int, n: Int) -> Int
+  total = 0
+  r = 0
+  while r < 6
+    for i in 0..n
+      break if i == 700 + r * 333
+      total += i % 13
+    print("breaker", id, r, total)
+    r += 1
+  total
+
+fun skipper(id: Int, n: Int) -> Int
+  s = 0
+  for i in 0..n
+    continue if i % 3 == 0
+    s += i % 11
+    if i % 2000 == 1
+      print("skipper", id, i)
+  s
+
+fun finder(id: Int, n: Int) -> Int
+  rounds = 0
+  found = 0
+  while rounds < 5
+    v = for i in 0..n
+      break i if i * 31 % 4093 == rounds + 1
+    else
+      -1
+    found += v
+    print("finder", id, rounds, v)
+    rounds += 1
+  found
+
+fun outer(id: Int, n: Int) -> Int
+  hits = 0
+  k = 0
+  $rows: while k < 8
+    k += 1
+    for i in 0..n
+      continue $rows if i == 400 * k
+      hits += 1
+  print("outer", id, hits)
+  hits
+
+sub main()
+  a = steady(1, 9000)&
+  b = breaker(2, 5000)&
+  c = skipper(3, 9000)&
+  d = finder(4, 5000)&
+  e = outer(5, 5000)&
+  f = steady(6, 7000)&
+  print(>a, >b, >c, >d, >e, >f)

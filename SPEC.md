@@ -9466,7 +9466,13 @@ box, a handle, a `Slot`, and a vector are not records: the message
 names the field that is not. A literal or an embedded file
 ([Builtins](#builtins)) that is not a whole number of records is
 rejected where the call is written. The List keeps no view of `s`: its
-bytes are copied.
+bytes are copied. A large run of the program's own bytes, 64 KiB or
+more of an embedded file or a literal, added to an empty List may be
+mapped rather than copied, in a Linux release build: its pages are read
+from the program's file when first touched and copied when first
+written, so a table the program only reads costs no copy and no memory
+it does not touch. The List owns its elements as any List does, and
+nothing else sees what it writes.
 
 **An embedded file's records may hold `Bool`s and enums.** Not every
 bit pattern is a `Bool` or an enum, so bytes known only when the

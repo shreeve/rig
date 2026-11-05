@@ -3577,6 +3577,18 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             if (bytes.len % size != 0) std.debug.panic("extend_from_bytes: {d} bytes are not a whole number of {d}-byte elements", .{ bytes.len, size });
             const n = bytes.len / size;
             if (n == 0) return;
+            // A large run of the program's own bytes into an empty List:
+            // its pages, mapped where they lie in the executable's file
+            // and copied by the kernel only where written (`alloc.mapRun`).
+            if (comptime maps_runs and inline_len == 0 and recordFlat(T)) {
+                if (self.len == 0 and self.buf.len == 0 and bytes.len >= fast_alloc.map_min and @intFromPtr(bytes.ptr) % @alignOf(T) == 0) {
+                    if (fast_alloc.mapRun(bytes)) |p| {
+                        self.buf = @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+                        self.len = n;
+                        return;
+                    }
+                }
+            }
             self.reserveTotal(self.len + n);
             const m = self.mem();
             invariant(self.len + n <= m.len);
@@ -6090,6 +6102,13 @@ fn ownAllocator() std.mem.Allocator {
 
 /// The allocator of release builds (`alloc.zig`).
 pub const fast_alloc = @import("alloc.zig");
+
+/// Whether `extend_from_bytes` maps a large run of the program's own
+/// bytes rather than copying it (`alloc.mapRun`): in a Linux build that
+/// takes `fast_alloc`, a release build with no heap profile. Debug and
+/// sanitized builds copy, so the leak checker and `RIG_SANITIZE` see heap
+/// buffers, and so does macOS.
+const maps_runs = builtin.os.tag == .linux and !leak_checked and !heap_profile and !fills;
 
 // Rig's own allocations skip the fill Zig's safe builds write over every
 // new, moved, and freed buffer (`std.mem.Allocator.alloc`, `realloc`,

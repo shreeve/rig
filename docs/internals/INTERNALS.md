@@ -966,6 +966,28 @@ gives each plain enum an `exact` object holds its tag type (`enum(u8)`,
 (`SemContext.exact_enums`). `bytesRecord` admits only `exact` objects,
 so every record is flat and copies with one `memcpy`.
 
+**Mapped runs.** In a Linux build that takes the release allocator
+(`runtime.maps_runs`: no leak checker, heap profile, or sanitizer),
+`List.extend_from_bytes` of 64 KiB or more (`alloc.map_min`) into an
+empty List with no buffer, of an `exact` record or a number, maps the
+run where it lies rather than copying it (`alloc.mapRun`): the address
+less the image's load bias (`PT_PHDR` in the auxiliary vector) falls in
+a loaded segment without `PF_W`, whose file bytes are the image's, and
+`mmap` of `/proc/self/exe` (opened once) with `MAP_PRIVATE` at that
+file offset gives pages the kernel reads on first touch and copies for
+this mapping on first write. The List's buffer is the mapped run, its
+capacity its length; everything else about the List is unchanged. The
+allocator's `freeSlow` gives such a buffer's mapping back, and its
+`remap` declines to grow one, so the List copies it into a heap block
+and frees it; both tests look at blocks of `map_min` or more only and
+are out of line, so no caller that inlines `freeSlice` or
+`reallocSlice` changes (a version in `freeSlice` took 1,991 of Trig's
+functions out of its PGO profile). A table of 256 mappings under a spin
+lock records them (`mapped_spans`); past it, or where anything fails, the
+run is copied. Measured on Trig (records/2026-11/zero-copy): mitt 17.3%
+fewer cycles, neverthrow 14.5%, the four larger 0.9-2.9%, none slower,
+anonymous memory lower on all six.
+
 **Records from embedded files.** `sema.bytesRecord` answers whether
 bytes make values of a type, and gives a record its `checks`: the
 `Bool`s and plain enums in it, each with its place, its byte, and the

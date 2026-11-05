@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""zcwrap: measuring only, the zero-copy design's Zig ceiling (decision 2).
+A ZIG wrapper for `rig build`: before Zig runs, patches the emitted Zig of
+Trig's adopted build (libs-embed, $embed + extend_from_bytes) by ZC_ARM:
+  0  nothing (the base, built the same way)
+  1  item 4 and the Trig-side bulk reads, copied: every embed held at 16
+     bytes (.incbin), NodeRec laid out as its record (extern, Kind
+     enum(u16)) and read by one extend_from_bytes, node lists by one
+     extend_from_bytes, no reserve before them
+  2  1, and option C: extend_from_bytes into an empty List from 64 KiB or
+     more of the executable's own bytes maps those pages MAP_PRIVATE from
+     /proc/self/exe; freeing such a buffer is skipped, growing it copies.
+  3  2 with the free and grow tests out of line, in alloc.zig's noinline
+     freeSlow and its remap, so no function that inlines freeSlice or
+     reallocSlice changes (arm 2 left 1,991 functions out of its profile).
+"""
+import os, re, sys
+
+ARM = os.environ.get("ZC_ARM", "0")
+
+EMBED_RX = re.compile(r'@as\(\[\]const u8, @embedFile\("([^"]+)"\)\)')
+
+EMBED_HELPER = '''
+fn __zc_embed(comptime k: u32, comptime size: usize, comptime path: []const u8) []const u8 {
+    const name = std.fmt.comptimePrint("__zc_embed_{d}", .{k});
+    const S = struct {
+        comptime {
+            asm (".pushsection .rodata." ++ name ++ ",\\"a\\",@progbits\\n.balign 16\\n.hidden " ++ name ++ "\\n.globl " ++ name ++ "\\n" ++ name ++ ":\\n.incbin \\"" ++ path ++ "\\"\\n.popsection\\n");
+        }
+        const bytes = @extern(*align(16) const [size]u8, .{ .name = name });
+    };
+    return S.bytes;
+}
+'''
+
+RECS_OLD = re.compile(r'''    tree\.recs\.reserve\(n\);
+    var words: rig\.List\(RawRec\) = rig\.List\(RawRec\)\.empty;
+    defer rig\.drop\(&words\);
+    words\.extend_from_bytes\(rig\.slice\(r\.cur, r\.at, r\.at \+ \(n \* @sizeOf\(RawRec\)\)\)\);
+    \{ const (__rig_new_\d+): i64 = n \* @sizeOf\(RawRec\); r\.at \+= \1; \}
+    \{
+        var __rig_turns_\d+: u32 = rig\.tick_turns;
+        for \(words\.items\(\)\) \|w\| \{
+            rig\.turn\(&__rig_turns_\d+\);
+            tree\.recs\.push\(NodeRec\{[^\n]*\}\);
+        \}
+    \}
+''')
+RECS_NEW = '''    tree.recs.extend_from_bytes(rig.slice(r.cur, r.at, r.at + (n * 24)));
+    r.at += n * 24;
+'''
+
+NODES_OLD = re.compile(r'''        out\.reserve\(n\);
+        const s: \[\]const u8 = self\.cur;
+        var at: i64 = self\.at;
+        \{
+            var __rig_turns_\d+: u32 = rig\.tick_turns;
+            var __rig_i_\d+: i64 = 0;
+            const __rig_end_\d+: i64 = n;
+            while \([^\n]*\) \{
+                out\.push\(Node\{ \.id = rig\.readInt\(u32, s, at, \.little\) \}\);
+                at \+= 4;
+            \}
+        \}
+        self\.at = at;
+''')
+NODES_NEW = '''        out.extend_from_bytes(rig.slice(self.cur, self.at, self.at + (n * 4)));
+        self.at += n * 4;
+'''
+
+EXT_OLD = '''            const n = bytes.len / size;
+            if (n == 0) return;
+            self.reserveTotal(self.len + n);'''
+EXT_NEW = '''            const n = bytes.len / size;
+            if (n == 0) return;
+            if (comptime inline_len == 0 and recordFlat(T)) {
+                if (self.len == 0 and self.buf.len == 0 and bytes.len >= 65536 and @intFromPtr(bytes.ptr) % @alignOf(T) == 0) {
+                    if (__zc.map(bytes)) |m| {
+                        self.buf = @as([*]T, @ptrCast(@alignCast(m.ptr)))[0..n];
+                        self.len = n;
+                        return;
+                    }
+                }
+            }
+            self.reserveTotal(self.len + n);'''
+
+FREE_OLD = '''pub fn freeSlice(comptime T: type, buf: []T) void {
+    if (fills) return defaultAllocator().free(buf);
+    const bytes = heldBytes(T, buf);
+    if (bytes.len == 0) return;'''
+FREE_NEW = '''pub fn freeSlice(comptime T: type, buf: []T) void {
+    if (fills) return defaultAllocator().free(buf);
+    const bytes = heldBytes(T, buf);
+    if (bytes.len == 0) return;
+    if (bytes.len >= 65536 and __zc.owns(bytes.ptr)) return;'''
+
+REALLOC_OLD = '''    if (old.len == 0) return allocSlice(T, n);'''
+REALLOC_NEW = '''    if (old.len == 0) return allocSlice(T, n);
+    if (@sizeOf(T) * old.len >= 65536 and __zc.owns(@ptrCast(old.ptr))) {
+        const fresh = allocSlice(T, n);
+        const kept = @min(n, old.len);
+        @memcpy(fresh[0..kept], old[0..kept]);
+        return fresh;
+    }'''
+
+ZC = '''
+/// The zero-copy ceiling's mapped buffers (zcwrap, arm 2).
+const __zc = struct {
+    const linux = std.os.linux;
+    const Phdr = extern struct { type: u32, flags: u32, offset: u64, vaddr: u64, paddr: u64, filesz: u64, memsz: u64, @"align": u64 };
+    var fd: i32 = -2;
+    var bias: usize = 0;
+    var phdrs: []const Phdr = &.{};
+    var spans: [256][2]usize = undefined;
+    var count: usize = 0;
+    fn init() void {
+        fd = -1;
+        const ph: usize = linux.getauxval(std.elf.AT.PHDR);
+        const num: usize = linux.getauxval(std.elf.AT.PHNUM);
+        if (ph == 0 or num == 0) return;
+        phdrs = @as([*]const Phdr, @ptrFromInt(ph))[0..num];
+        for (phdrs) |p| if (p.type == 6) {
+            bias = ph - p.vaddr;
+        };
+        const rc = linux.open("/proc/self/exe", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        if (linux.errno(rc) != .SUCCESS) return;
+        fd = @intCast(rc);
+    }
+    fn map(bytes: []const u8) ?[]u8 {
+        if (fd == -2) init();
+        if (fd < 0 or count == spans.len) return null;
+        const a = @intFromPtr(bytes.ptr) - bias;
+        for (phdrs) |p| {
+            if (p.type != 1 or a < p.vaddr or a + bytes.len > p.vaddr + p.filesz) continue;
+            const off = a - p.vaddr + p.offset;
+            const off0 = off & ~@as(usize, 4095);
+            const delta = off - off0;
+            const span = delta + bytes.len;
+            const rc = linux.mmap(null, span, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE }, fd, @intCast(off0));
+            if (linux.errno(rc) != .SUCCESS) return null;
+            spans[count] = .{ rc, rc + span };
+            count += 1;
+            return @as([*]u8, @ptrFromInt(rc + delta))[0..bytes.len];
+        }
+        return null;
+    }
+    fn owns(p: [*]const u8) bool {
+        const x = @intFromPtr(p);
+        for (spans[0..count]) |s| if (x >= s[0] and x < s[1]) return true;
+        return false;
+    }
+};
+'''
+
+def must(t, old, new, what):
+    if old not in t:
+        raise SystemExit("zcwrap: no %s" % what)
+    return t.replace(old, new, 1)
+
+def patch(out):
+    mark = os.path.join(out, "__zc_arm")
+    if os.path.exists(mark) or not os.path.exists(os.path.join(out, "checker.zig")):
+        return
+    notes = []
+    if ARM in ("1", "2", "3"):
+        p = os.path.join(out, "libtrees.zig")
+        t = open(p).read()
+        k = [0]
+        def rep(m):
+            k[0] += 1
+            path = os.path.join(out, m.group(1))
+            return '__zc_embed(%d, @embedFile("%s").len, "%s")' % (k[0], m.group(1), path)
+        t, n = EMBED_RX.subn(rep, t)
+        assert n > 200, n
+        t = t + EMBED_HELPER
+        if "const std = @import(\"std\");" not in t:
+            t = "const std = @import(\"std\");\n" + t
+        open(p, "w").write(t)
+        notes.append("embeds %d" % n)
+        p = os.path.join(out, "ast.zig")
+        t = open(p).read()
+        t = must(t, "pub const NodeRec = struct {", "pub const NodeRec = extern struct {", "NodeRec")
+        t = must(t, "pub const Kind = enum {", "pub const Kind = enum(u16) {", "Kind")
+        t, a = RECS_OLD.subn(lambda m: RECS_NEW, t)
+        t, b = NODES_OLD.subn(lambda m: NODES_NEW, t)
+        assert a == 1 and b == 1, (a, b)
+        open(p, "w").write(t)
+        notes.append("recs %d nodes %d" % (a, b))
+        # Item 4's runtime: a record may hold enums and Bools.
+        p = os.path.join(out, "rig", "runtime.zig")
+        t = open(p).read()
+        t = must(t, "        .int, .float => @sizeOf(T),", "        .int, .float, .bool, .@\"enum\" => @sizeOf(T),", "recordSize")
+        t = must(t, "        .int, .float => true,", "        .int, .float, .bool, .@\"enum\" => true,", "recordFlat")
+        open(p, "w").write(t)
+    if ARM == "2":
+        p = os.path.join(out, "rig", "runtime.zig")
+        t = open(p).read()
+        t = must(t, EXT_OLD, EXT_NEW, "extend_from_bytes")
+        t = must(t, FREE_OLD, FREE_NEW, "freeSlice")
+        t = must(t, REALLOC_OLD, REALLOC_NEW, "reallocSlice")
+        t = t + ZC
+        open(p, "w").write(t)
+        notes.append("runtime mapped")
+    if ARM == "3":
+        p = os.path.join(out, "rig", "runtime.zig")
+        t = open(p).read()
+        t = must(t, EXT_OLD, EXT_NEW.replace("__zc.map(", "fast_alloc.__zc.map("), "extend_from_bytes")
+        open(p, "w").write(t)
+        p = os.path.join(out, "rig", "alloc.zig")
+        t = open(p).read()
+        t = must(t, """noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {
+    const h = heap() orelse return;""", """noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {
+    if (memory.len >= 65536 and __zc.owns(memory.ptr)) return;
+    const h = heap() orelse return;""", "freeSlow")
+        t = must(t, """fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
+    if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;""", """fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
+    if (memory.len >= 65536 and __zc.ownsOut(memory.ptr)) return null;
+    if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;""", "remap")
+        zc = ZC.replace("const __zc = struct {", "pub const __zc = struct {").replace("    fn map(", "    pub fn map(").replace("""    fn owns(p: [*]const u8) bool {""", """    noinline fn ownsOut(p: [*]const u8) bool {
+        return owns(p);
+    }
+    fn owns(p: [*]const u8) bool {""")
+        t = t + zc
+        open(p, "w").write(t)
+        notes.append("mapped, tests in alloc.zig")
+    open(mark, "w").write("arm %s: %s\n" % (ARM, ", ".join(notes)))
+    print("zcwrap: arm %s: %s" % (ARM, ", ".join(notes)), file=sys.stderr)
+
+args = sys.argv[1:]
+for x in args:
+    if x.endswith(".zig") and os.path.isfile(x):
+        patch(os.path.dirname(os.path.abspath(x)))
+        break
+real = os.environ.get("REAL_ZIG", "zig")
+os.execvp(real, [real] + args)

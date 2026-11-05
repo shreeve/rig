@@ -203,9 +203,9 @@ A new session, human or agent, takes these steps in order:
   record is an `exact` object (`obj NodeRec exact`, owner 2026-11-05):
   its fields in declaration order with no padding, a Zig `extern
   struct`; every other object keeps Zig's layout. Zero copy itself
-  (decision 1, a large run mapped into an empty List) cleared its Zig
-  ceiling on Trig (mitt 17.3% fewer cycles, nothing slower) and is next,
-  on `zero-copy-map`
+  (decision 1) is built: a large run mapped into an empty List in a Linux
+  release build (`alloc.mapRun`; its Zig ceiling on Trig: mitt 17.3%
+  fewer cycles, nothing slower)
   ([records/2026-11/zero-copy/design.md](docs/history/records/2026-11/zero-copy/design.md)).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
