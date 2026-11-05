@@ -1,0 +1,148 @@
+# embed: `$embed(path)` gives a file's bytes as a `Static`, read when the
+# program is compiled.
+
+test "a file's bytes", '''
+  hello
+  6 104 10
+'''
+  fun chop(s: Static) -> Static
+    s[0..s.len - 1]
+
+  s = $embed("greeting.txt")
+  print(chop(s))
+  print(s.len, s[0], s[5])
+
+  file "greeting.txt"
+    hello
+
+test "the bytes as they are", '''
+  8 true
+'''
+  # No escape is read: the file's backslash and quote are bytes.
+  s = $embed("raw.txt")
+  print(s.len, s == "a\\n\"b\"\\\n")
+
+  file "raw.txt"
+    a\n"b"\
+
+test "a module constant, a function, and a field", '''
+  hello
+  hello
+  hello true
+'''
+  obj Tag
+    text: Static
+
+  fun chop(s: Static) -> Static
+    s[0..s.len - 1]
+
+  GREETING = $embed("greeting.txt")
+
+  fun greeting() -> Static
+    $embed("greeting.txt")
+
+  sub main()
+    t = Tag(text: GREETING)
+    print(chop(GREETING))
+    print(chop(greeting()))
+    print(chop(t.text), t.text == greeting())
+
+  file "greeting.txt"
+    hello
+
+test "relative to the file that names it", '''
+  inner
+  outer
+'''
+  use lib
+
+  fun chop(s: Static) -> Static
+    s[0..s.len - 1]
+
+  sub main()
+    print(chop(lib.inner()))
+    print(chop($embed("data/outer.txt")))
+
+  file "lib.rig"
+    pub fun inner() -> Static
+      $embed("data/inner.txt")
+
+  file "data/inner.txt"
+    inner
+
+  file "data/outer.txt"
+    outer
+
+test "a module in a directory names its files from its own", '''
+  deep
+'''
+  use geo
+
+  fun chop(s: Static) -> Static
+    s[0..s.len - 1]
+
+  sub main()
+    print(chop(geo.text()))
+
+  file "geo/shapes.rig"
+    pub fun text() -> Static
+      $embed("../data/deep.txt")
+
+  file "data/deep.txt"
+    deep
+
+test "a file of one newline", "1 10"
+  s = $embed("newline.txt")
+  print(s.len, s[0])
+
+  file "newline.txt"
+
+test "in a release build", "hello", release: true
+  fun chop(s: Static) -> Static
+    s[0..s.len - 1]
+
+  chop($embed("greeting.txt"))
+
+  file "greeting.txt"
+    hello
+
+fail "a missing file", "1:12: $embed: cannot read \"nothing.txt\" (no such file), relative to "
+  s = $embed("nothing.txt")
+  print(s)
+
+fail "a directory", "$embed: cannot read \"data\" (it is a directory), relative to "
+  print($embed("data"))
+
+  file "data/x.txt"
+    x
+
+fail "a path that is not a literal", "`$embed` takes the file's path as a string literal"
+  p = "greeting.txt"
+  print($embed(p))
+
+fail "no path", "`$embed` takes one argument, the file's path as a string literal"
+  print($embed())
+
+fail "an absolute path", "$embed: \"/etc/hosts\" is an absolute path; name the file from the directory of "
+  print($embed("/etc/hosts"))
+
+fail "a path above the program's directory", "$embed: \"../x.txt\" leaves the program's directory"
+  print($embed("../x.txt"))
+
+fail "an empty path", "$embed: the path is empty"
+  print($embed(""))
+
+fail "into a String", "expected `String`"
+  s: String = $embed("greeting.txt")
+  print(s)
+
+  file "greeting.txt"
+    hello
+
+fail "written through", "read-only"
+  s = $embed("greeting.txt")
+  s[0] = 65
+  print(s)
+
+  file "greeting.txt"
+    hello

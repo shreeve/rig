@@ -266,6 +266,11 @@ pub const Facts = struct {
     pub fn startOf(f: Facts, node: Sexp) u32 {
         return f.c().startOf(node);
     }
+    /// Where the package holds the file `$embed` call `call` reads
+    /// (`sema.EmbedSite`), once the module graph found it.
+    pub fn embedPlace(f: Facts, call: Sexp) ?[]const u8 {
+        return if (call == .list) f.c().facts.embeds.get(call.list.id) else null;
+    }
     /// Whether the function or method whose name leaf is `name` is
     /// emitted `inline` (`inlining.decide`).
     pub fn isInlined(f: Facts, name: Sexp) bool {

@@ -180,6 +180,14 @@ A new session, human or agent, takes these steps in order:
   `v.id if r.decl as v else 0` and `r * r if s matches .circle(r) else
   0`, the names visible in the value before `if` only (SPEC, "Block
   expressions"). A postfix guard still binds none.
+- **`$embed(path)`** (owner, 2026-11-04), built: a file's bytes as a
+  `Static`, read when the program is compiled, from the directory of the
+  file that names it and inside the program's directory (SPEC
+  "Builtins"). `rig check` opens the file and reads none of it; the
+  package holds a copy at `__rig_embed/PATH`, so other bytes are another
+  build (INTERNALS, "Embedded files"). Trig's pre-built libs (its NEEDS
+  item 70) can move from literals to files; `List[T].extend_from_bytes`
+  is next, to read their records with one copy.
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that
@@ -374,7 +382,8 @@ release notes.
   `rig.grammar`, `src/rig.zig`, and `src/diag.zig` are mirrored
   byte-for-byte in Nexus's `grammars/rig`, so a change to them needs a Nexus
   re-sync.
-- **Builtins:** a builtin call is `$name(...)`. Rig's raw builtins track
+- **Builtins:** a builtin call is `$name(...)`; Rig's own are `$size`,
+  `$align`, `$type`, `$name`, `$plain`, `$variants`, and `$embed`. Rig's raw builtins track
   Zig's names exactly (`$fromBackingInt`, `$trunc`). A raw builtin's old
   spelling is rejected with a hint.
 - **Speed work:** a speed feature lands when its gain on a real program,
