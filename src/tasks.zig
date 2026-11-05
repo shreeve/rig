@@ -82,8 +82,8 @@ pub fn Task(comptime T: type) type {
                     defer control.finish();
                     // A call that may fail with fields writes them into
                     // the task's record.
-                    if (comptime takesSlot(@TypeOf(f))) return @call(.auto, f, a ++ .{rt.failSlot(&control.err)});
-                    return @call(.auto, f, a);
+                    if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
+                    return rt.callCode(T, f, a);
                 }
             };
             // The task's record holds its `Control`: one allocation for
@@ -390,6 +390,7 @@ const Wakeup = struct {
     /// one sees the other; when both do, `listed` lists it once.
     fn watch(self: *Wakeup, control: *Control) void {
         control.wakeup.store(self, .seq_cst);
+        // A flag set once, not a lock: uncounted for preemption.
         if (self.collect and control.done.load(.seq_cst) and !control.listed.swap(true, .acq_rel)) self.list(control);
     }
 
@@ -408,6 +409,7 @@ const Wakeup = struct {
     noinline fn ended(self: *Wakeup, control: *Control) void {
         // The last touch of `control`: its owner may free it once it is
         // listed, by this or by the watch.
+        // A flag set once, not a lock: uncounted for preemption.
         if (self.collect and !control.listed.swap(true, .acq_rel)) self.list(control);
         self.tick();
     }
@@ -901,6 +903,7 @@ const ParState = struct {
     /// Record `err`, with its fields in `data`, unless a failure came
     /// first, whose fields are kept and these dropped.
     fn fail(self: *ParState, err: anyerror, data: *rt.ErrData) void {
+        // A flag set once, not a lock: uncounted for preemption.
         if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
             self.failure = err;
             self.failure_data = data.*;
@@ -1094,6 +1097,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
                     // run keeps if it fails first.
                     var slot: rt.ErrData = undefined;
                     const v = c.f.call(rt.argsWithSlot(F, .{ s, x }, rt.failSlot(&slot))) catch |err| {
+                        // A flag set once, not a lock: uncounted for preemption.
                         if (c.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
                             c.failure = err;
                             c.failure_data = slot;

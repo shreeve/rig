@@ -1,0 +1,31 @@
+# A task that spins without waiting does not starve one that ticks:
+# on one worker, the ticker's 5 ms sleeps end on time while the spinner
+# runs, by its yield checks or, built with RIG_PREEMPT=signal, by
+# preemption.
+use std.task
+use std.time
+
+fun spin(n: Int) -> Int
+  total = 0
+  for i in 0..n
+    total = (total + i * 7) % 1000003
+  total
+
+fun ticker(n: Int) -> Int!
+  worst = 0
+  for 0..n
+    t = time.now()
+    time.sleep(ms: 5)!
+    late = t.elapsed() - 5000000
+    if late > worst
+      worst = late
+  worst
+
+sub main()
+  task.workers(1)
+  s = spin(300000000)&
+  k = ticker(20)&
+  worst = >k catch -1
+  total = >s
+  print("ticks late by under 3 ms:", worst < 3000000, total > 0)
+  warn("worst late us", worst / 1000)

@@ -523,6 +523,11 @@ pub const Emitter = struct {
     /// check for work left waiting (`rig.tickCall`), so no task keeps
     /// the others waiting for long.
     yield_checks: bool = false,
+    /// The program is built to be preempted by a signal
+    /// (`RIG_PREEMPT=signal`), in place of its yield checks: every
+    /// function it writes for the program's own code is placed in the
+    /// section the runtime may stop a task in (`rig.preempt_section`).
+    code_section: bool = false,
     /// While a `T!E`'s error set is written: the Zig set of its codes,
     /// never the `rig.ErrorValue` a value of it is.
     error_codes: bool = false,
@@ -1984,6 +1989,7 @@ pub const Emitter = struct {
         }
         if (!is_main) if (self.facts.splitUnitOf(name_node)) |unit| try self.emitCut(name, unit, args.written());
         try self.w.writeAll(") ");
+        if (self.code_section and !inlined) try self.w.writeAll("linksection(rig.preempt_section) ");
         if (main_fails) {
             // `anyerror!void`, `anyerror!i64`: whether or not `-> Int!` says so.
             try self.w.writeAll("anyerror!");
@@ -10590,6 +10596,7 @@ pub const Emitter = struct {
             try self.w.print(", {s}: rig.ErrSlot", .{self.fun.out_name});
         }
         try self.w.writeAll(") ");
+        if (self.code_section) try self.w.writeAll("linksection(rig.preempt_section) ");
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
         const body = ir.Lambda.body(lambda);

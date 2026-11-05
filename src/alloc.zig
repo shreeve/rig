@@ -44,6 +44,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const root = @import("root");
 const split = @import("split.zig");
+const sched = @import("sched.zig");
 
 // Unit 0 of a split build defines every cell of this file
 // (`split.cell`).
@@ -868,12 +869,17 @@ const region_lock = split.cell(&region_lock_var, "alloc.region_lock");
 const SpinLock = struct {
     held: std.atomic.Value(bool) = .init(false),
 
+    /// Counted as the scheduler's are, in a program built to be
+    /// preempted (`sched.holdOff`): `reserveTable` and the rest may be
+    /// inlined into the program's own code.
     fn lock(self: *SpinLock) void {
+        if (sched.preempting) sched.holdOff();
         while (self.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
     }
 
     fn unlock(self: *SpinLock) void {
         self.held.store(false, .release);
+        if (sched.preempting) sched.holdOn();
     }
 };
 

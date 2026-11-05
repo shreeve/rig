@@ -1,0 +1,800 @@
+r=1 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 133.94 reaped 143.03 rss-at-exit 77328 status 2
+r=1 arm=today proj=zod3 c=4 how=stat maxrss 99864 351.24,msec,task-clock,351242137,100.00,, 139858467,,duration_time,1,100.00,, 1579069564,,cpu_atom/instructions/,351242137,100.00,, 1192883523,,cpu_atom/cycles/,351242137,100.00,, 
+r=1 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 24.89 reaped 27.45 rss-at-exit 27336 status 2
+r=1 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1201.17 reaped 1215.44 rss-at-exit 209460 status 2
+r=1 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 30.13 reaped 33.95 rss-at-exit 43272 status 2
+r=1 arm=drop proj=superstruct c=4 how=stat maxrss 31344 60.29,msec,task-clock,60289489,100.00,, 28740660,,duration_time,1,100.00,, 253396025,,cpu_atom/instructions/,60289489,100.00,, 200094065,,cpu_atom/cycles/,60289489,100.00,, 
+r=1 arm=drop proj=zod3 c=4 how=stat maxrss 86452 337.31,msec,task-clock,337306921,100.00,, 124993453,,duration_time,1,100.00,, 1608194718,,cpu_atom/instructions/,337306921,100.00,, 1214751789,,cpu_atom/cycles/,337306921,100.00,, 
+r=1 arm=today proj=superstruct c=4 how=stat maxrss 31200 59.41,msec,task-clock,59410489,100.00,, 28983213,,duration_time,1,100.00,, 248040521,,cpu_atom/instructions/,59226802,99.00,, 193856703,,cpu_atom/cycles/,59226802,99.00,, 
+r=1 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1200.58 reaped 1222.96 rss-at-exit 209532 status 2
+r=1 arm=drop proj=neverthrow c=4 how=stat maxrss 41356 42.14,msec,task-clock,42141797,100.00,, 29575312,,duration_time,1,100.00,, 160766239,,cpu_atom/instructions/,42141797,100.00,, 134274346,,cpu_atom/cycles/,42141797,100.00,, 
+r=1 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 415.38 reaped 452.27 rss-at-exit 254408 status 2
+r=1 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 102.13 reaped 112.45 rss-at-exit 116012 status 2
+r=1 arm=drop proj=ts-pattern c=8 how=stat maxrss 184160 1571.77,msec,task-clock,1571765747,100.00,, 436776010,,duration_time,1,100.00,, 8091158850,,cpu_atom/instructions/,1571765747,100.00,, 5426793957,,cpu_atom/cycles/,1571765747,100.00,, 
+r=1 arm=drop proj=zod3 c=1 how=stat maxrss 72968 202.13,msec,task-clock,202130592,100.00,, 207307568,,duration_time,1,100.00,, 1164129493,,cpu_atom/instructions/,202130592,100.00,, 738910365,,cpu_atom/cycles/,202130592,100.00,, 
+r=1 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 424.04 reaped 437.54 rss-at-exit 160500 status 2
+r=1 arm=drop proj=zod3 c=8 how=stat maxrss 99632 444.25,msec,task-clock,444250530,100.00,, 121008424,,duration_time,1,100.00,, 1902517097,,cpu_atom/instructions/,444250530,100.00,, 1464990581,,cpu_atom/cycles/,444250530,100.00,, 
+r=1 arm=today proj=ts-pattern c=8 how=stat maxrss 254576 1545.90,msec,task-clock,1545898866,100.00,, 463399098,,duration_time,1,100.00,, 7999129131,,cpu_atom/instructions/,1545898866,100.00,, 5284144749,,cpu_atom/cycles/,1545898866,100.00,, 
+r=1 arm=today proj=zod3 c=1 how=stat maxrss 72632 209.86,msec,task-clock,209863106,100.00,, 214559433,,duration_time,1,100.00,, 1159764562,,cpu_atom/instructions/,209863106,100.00,, 751818610,,cpu_atom/cycles/,209863106,100.00,, 
+r=1 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58648 121.78,msec,task-clock,121782093,100.00,, 110242784,,duration_time,1,100.00,, 692172413,,cpu_atom/instructions/,121782093,100.00,, 405772756,,cpu_atom/cycles/,121782093,100.00,, 
+r=1 arm=drop proj=ts-pattern c=4 how=stat maxrss 202780 1519.73,msec,task-clock,1519731171,100.00,, 522453479,,duration_time,1,100.00,, 7857098275,,cpu_atom/instructions/,1519731171,100.00,, 5312538659,,cpu_atom/cycles/,1519731171,100.00,, 
+r=1 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 86.27 reaped 92.21 rss-at-exit 57076 status 2
+r=1 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 22.95 reaped 26.24 rss-at-exit 40504 status 2
+r=1 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 482.89 reaped 498.90 rss-at-exit 159592 status 2
+r=1 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1220.76,msec,task-clock,1220762206,100.00,, 1243397783,,duration_time,1,100.00,, 7414874708,,cpu_atom/instructions/,1220299743,99.00,, 4509472914,,cpu_atom/cycles/,1220299743,99.00,, 
+r=1 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 90.94 reaped 100.08 rss-at-exit 60900 status 2
+r=1 arm=today proj=ts-pattern c=1 how=stat maxrss 209416 1193.30,msec,task-clock,1193295085,100.00,, 1215972528,,duration_time,1,100.00,, 7363084527,,cpu_atom/instructions/,1193295085,100.00,, 4441394584,,cpu_atom/cycles/,1193295085,100.00,, 
+r=1 arm=drop proj=mitt c=4 how=stat maxrss 40488 30.78,msec,task-clock,30775262,100.00,, 31176584,,duration_time,1,100.00,, 119853384,,cpu_atom/instructions/,30775262,100.00,, 96518238,,cpu_atom/cycles/,30775262,100.00,, 
+r=1 arm=today proj=ts-pattern c=4 how=stat maxrss 233500 1492.45,msec,task-clock,1492452401,100.00,, 530759044,,duration_time,1,100.00,, 7774240598,,cpu_atom/instructions/,1492452401,100.00,, 5209394810,,cpu_atom/cycles/,1492452401,100.00,, 
+r=1 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 20.16 reaped 22.79 rss-at-exit 32132 status 2
+r=1 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 102.90 reaped 109.18 rss-at-exit 73884 status 2
+r=1 arm=today proj=mitt c=4 how=watch exitwatch at-exit 18.47 reaped 22.46 rss-at-exit 41016 status 2
+r=1 arm=today proj=zod3 c=8 how=stat maxrss 114136 425.27,msec,task-clock,425269756,100.00,, 118866204,,duration_time,1,100.00,, 1864254026,,cpu_atom/instructions/,425269756,100.00,, 1418783289,,cpu_atom/cycles/,425269756,100.00,, 
+r=1 arm=today proj=neverthrow c=4 how=stat maxrss 40424 32.49,msec,task-clock,32494680,100.00,, 22565623,,duration_time,1,100.00,, 153014810,,cpu_atom/instructions/,32494680,100.00,, 106219326,,cpu_atom/cycles/,32494680,100.00,, 
+r=1 arm=today proj=tiny-invariant c=4 how=stat maxrss 59856 109.70,msec,task-clock,109698536,100.00,, 96979784,,duration_time,1,100.00,, 675972545,,cpu_atom/instructions/,109698536,100.00,, 382649866,,cpu_atom/cycles/,109698536,100.00,, 
+r=1 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 198.67 reaped 205.31 rss-at-exit 73012 status 2
+r=1 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 487.47 reaped 524.11 rss-at-exit 234992 status 2
+r=1 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 18.90 reaped 21.80 rss-at-exit 39100 status 2
+r=1 arm=today proj=mitt c=4 how=stat maxrss 40708 27.94,msec,task-clock,27936717,100.00,, 24277301,,duration_time,1,100.00,, 117694605,,cpu_atom/instructions/,27936717,100.00,, 90694988,,cpu_atom/cycles/,27936717,100.00,, 
+r=1 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 116.48 reaped 126.46 rss-at-exit 97384 status 2
+r=1 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 218.01 reaped 224.53 rss-at-exit 72784 status 2
+r=2 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 23.47 reaped 26.19 rss-at-exit 31984 status 2
+r=2 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 23.10 reaped 25.54 rss-at-exit 27352 status 2
+r=2 arm=today proj=ts-pattern c=4 how=stat maxrss 234384 1502.98,msec,task-clock,1502984222,100.00,, 538984684,,duration_time,1,100.00,, 7778556006,,cpu_atom/instructions/,1502984222,100.00,, 5236344843,,cpu_atom/cycles/,1502984222,100.00,, 
+r=2 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1198.98 reaped 1217.73 rss-at-exit 209532 status 2
+r=2 arm=today proj=zod3 c=8 how=stat maxrss 114140 431.47,msec,task-clock,431472845,100.00,, 124884092,,duration_time,1,100.00,, 1865146354,,cpu_atom/instructions/,431472845,100.00,, 1435526910,,cpu_atom/cycles/,431472845,100.00,, 
+r=2 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 407.12 reaped 444.71 rss-at-exit 254068 status 2
+r=2 arm=drop proj=zod3 c=1 how=stat maxrss 72968 203.88,msec,task-clock,203879491,100.00,, 211425141,,duration_time,1,100.00,, 1164251088,,cpu_atom/instructions/,203879491,100.00,, 752541998,,cpu_atom/cycles/,203879491,100.00,, 
+r=2 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 91.13 reaped 98.34 rss-at-exit 60500 status 2
+r=2 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 110.76 reaped 121.99 rss-at-exit 98384 status 2
+r=2 arm=today proj=ts-pattern c=8 how=stat maxrss 254604 1531.09,msec,task-clock,1531094375,100.00,, 456859429,,duration_time,1,100.00,, 7998320268,,cpu_atom/instructions/,1531094375,100.00,, 5297473764,,cpu_atom/cycles/,1531094375,100.00,, 
+r=2 arm=today proj=mitt c=4 how=stat maxrss 40384 24.31,msec,task-clock,24313651,100.00,, 21914731,,duration_time,1,100.00,, 117653567,,cpu_atom/instructions/,24313651,100.00,, 71679843,,cpu_atom/cycles/,24313651,100.00,, 
+r=2 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 105.55 reaped 114.65 rss-at-exit 74420 status 2
+r=2 arm=today proj=superstruct c=4 how=stat maxrss 31552 59.28,msec,task-clock,59280429,100.00,, 26263145,,duration_time,1,100.00,, 247449335,,cpu_atom/instructions/,59280429,100.00,, 194655478,,cpu_atom/cycles/,59280429,100.00,, 
+r=2 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 20.72 reaped 24.12 rss-at-exit 40360 status 2
+r=2 arm=drop proj=zod3 c=4 how=stat maxrss 86060 332.34,msec,task-clock,332340487,100.00,, 123331867,,duration_time,1,100.00,, 1607491900,,cpu_atom/instructions/,332340487,100.00,, 1198594155,,cpu_atom/cycles/,332340487,100.00,, 
+r=2 arm=drop proj=neverthrow c=4 how=stat maxrss 41528 34.19,msec,task-clock,34190491,100.00,, 22725025,,duration_time,1,100.00,, 160471122,,cpu_atom/instructions/,34190491,100.00,, 110144650,,cpu_atom/cycles/,34190491,100.00,, 
+r=2 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1203.74 reaped 1225.28 rss-at-exit 209464 status 2
+r=2 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 17.55 reaped 20.90 rss-at-exit 39300 status 2
+r=2 arm=today proj=mitt c=4 how=watch exitwatch at-exit 19.08 reaped 22.92 rss-at-exit 41096 status 2
+r=2 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1199.73,msec,task-clock,1199726737,100.00,, 1217384823,,duration_time,1,100.00,, 7368182022,,cpu_atom/instructions/,1199726737,100.00,, 4451927822,,cpu_atom/cycles/,1199726737,100.00,, 
+r=2 arm=drop proj=superstruct c=4 how=stat maxrss 30892 65.77,msec,task-clock,65773308,100.00,, 29779588,,duration_time,1,100.00,, 248824627,,cpu_atom/instructions/,65773308,100.00,, 215047235,,cpu_atom/cycles/,65773308,100.00,, 
+r=2 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 20.94 reaped 24.15 rss-at-exit 40588 status 2
+r=2 arm=drop proj=zod3 c=8 how=stat maxrss 100752 440.73,msec,task-clock,440730386,100.00,, 113448414,,duration_time,1,100.00,, 1901533846,,cpu_atom/instructions/,440730386,100.00,, 1453748238,,cpu_atom/cycles/,440730386,100.00,, 
+r=2 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 200.95 reaped 206.38 rss-at-exit 72784 status 2
+r=2 arm=drop proj=ts-pattern c=4 how=stat maxrss 200464 1447.91,msec,task-clock,1447909017,100.00,, 503997201,,duration_time,1,100.00,, 7852118617,,cpu_atom/instructions/,1447909017,100.00,, 5297823453,,cpu_atom/cycles/,1447909017,100.00,, 
+r=2 arm=today proj=neverthrow c=4 how=stat maxrss 39796 39.58,msec,task-clock,39581874,100.00,, 27258689,,duration_time,1,100.00,, 156440892,,cpu_atom/instructions/,39581874,100.00,, 127629215,,cpu_atom/cycles/,39581874,100.00,, 
+r=2 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 118.20 reaped 128.72 rss-at-exit 76136 status 2
+r=2 arm=today proj=zod3 c=1 how=stat maxrss 72512 198.94,msec,task-clock,198937893,100.00,, 206914602,,duration_time,1,100.00,, 1163786977,,cpu_atom/instructions/,198937893,100.00,, 730406818,,cpu_atom/cycles/,198937893,100.00,, 
+r=2 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 101.33 reaped 113.48 rss-at-exit 117112 status 2
+r=2 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 415.94 reaped 437.15 rss-at-exit 162200 status 2
+r=2 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 489.90 reaped 523.86 rss-at-exit 234940 status 2
+r=2 arm=drop proj=ts-pattern c=8 how=stat maxrss 184200 1560.82,msec,task-clock,1560819845,100.00,, 438886070,,duration_time,1,100.00,, 8086043311,,cpu_atom/instructions/,1560819845,100.00,, 5394694887,,cpu_atom/cycles/,1560819845,100.00,, 
+r=2 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 485.46 reaped 501.87 rss-at-exit 160196 status 2
+r=2 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 204.93 reaped 211.37 rss-at-exit 73004 status 2
+r=2 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 90.58 reaped 97.24 rss-at-exit 57092 status 2
+r=2 arm=today proj=tiny-invariant c=4 how=stat maxrss 60080 106.67,msec,task-clock,106673915,100.00,, 96670175,,duration_time,1,100.00,, 676018023,,cpu_atom/instructions/,106673915,100.00,, 357949854,,cpu_atom/cycles/,106673915,100.00,, 
+r=2 arm=drop proj=ts-pattern c=1 how=stat maxrss 209368 1203.75,msec,task-clock,1203753469,100.00,, 1225785597,,duration_time,1,100.00,, 7408672742,,cpu_atom/instructions/,1203753469,100.00,, 4484290767,,cpu_atom/cycles/,1203753469,100.00,, 
+r=2 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58936 115.13,msec,task-clock,115128334,100.00,, 101112943,,duration_time,1,100.00,, 691594983,,cpu_atom/instructions/,115128334,100.00,, 418485662,,cpu_atom/cycles/,115128334,100.00,, 
+r=2 arm=today proj=zod3 c=4 how=stat maxrss 97256 331.93,msec,task-clock,331934355,100.00,, 133556095,,duration_time,1,100.00,, 1586121510,,cpu_atom/instructions/,331934355,100.00,, 1211297418,,cpu_atom/cycles/,331934355,100.00,, 
+r=2 arm=drop proj=mitt c=4 how=stat maxrss 40516 29.41,msec,task-clock,29411858,100.00,, 24922935,,duration_time,1,100.00,, 119818771,,cpu_atom/instructions/,29411858,100.00,, 94986865,,cpu_atom/cycles/,29411858,100.00,, 
+r=3 arm=drop proj=zod3 c=4 how=stat maxrss 85000 336.84,msec,task-clock,336844917,100.00,, 125246588,,duration_time,1,100.00,, 1606905822,,cpu_atom/instructions/,336844917,100.00,, 1207733973,,cpu_atom/cycles/,336844917,100.00,, 
+r=3 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 91.64 reaped 98.93 rss-at-exit 57416 status 2
+r=3 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 24.33 reaped 26.98 rss-at-exit 27256 status 2
+r=3 arm=drop proj=mitt c=4 how=stat maxrss 40548 28.66,msec,task-clock,28660035,100.00,, 24398748,,duration_time,1,100.00,, 123963197,,cpu_atom/instructions/,28660035,100.00,, 91407941,,cpu_atom/cycles/,28660035,100.00,, 
+r=3 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1200.46,msec,task-clock,1200458996,100.00,, 1222821521,,duration_time,1,100.00,, 7369550772,,cpu_atom/instructions/,1200458996,100.00,, 4456927745,,cpu_atom/cycles/,1200458996,100.00,, 
+r=3 arm=drop proj=ts-pattern c=8 how=stat maxrss 181528 1566.46,msec,task-clock,1566457199,100.00,, 446286714,,duration_time,1,100.00,, 8086359237,,cpu_atom/instructions/,1566457199,100.00,, 5349295973,,cpu_atom/cycles/,1566457199,100.00,, 
+r=3 arm=today proj=neverthrow c=4 how=stat maxrss 39800 41.76,msec,task-clock,41761031,100.00,, 28761240,,duration_time,1,100.00,, 156647512,,cpu_atom/instructions/,41761031,100.00,, 131193486,,cpu_atom/cycles/,41761031,100.00,, 
+r=3 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 103.95 reaped 114.63 rss-at-exit 74056 status 2
+r=3 arm=today proj=zod3 c=8 how=stat maxrss 116848 423.81,msec,task-clock,423805462,100.00,, 118004843,,duration_time,1,100.00,, 1871565022,,cpu_atom/instructions/,423805462,100.00,, 1410805553,,cpu_atom/cycles/,423805462,100.00,, 
+r=3 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1213.55 reaped 1236.11 rss-at-exit 209532 status 2
+r=3 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 96.42 reaped 112.95 rss-at-exit 115996 status 2
+r=3 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 19.52 reaped 25.19 rss-at-exit 39432 status 2
+r=3 arm=today proj=zod3 c=4 how=stat maxrss 97840 323.24,msec,task-clock,323237943,100.00,, 126564107,,duration_time,1,100.00,, 1591569512,,cpu_atom/instructions/,323237943,100.00,, 1182975879,,cpu_atom/cycles/,323237943,100.00,, 
+r=3 arm=today proj=mitt c=4 how=watch exitwatch at-exit 17.57 reaped 20.06 rss-at-exit 41104 status 2
+r=3 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 19.00 reaped 22.47 rss-at-exit 39272 status 2
+r=3 arm=drop proj=ts-pattern c=4 how=stat maxrss 200188 1531.67,msec,task-clock,1531669614,100.00,, 525140251,,duration_time,1,100.00,, 7852951780,,cpu_atom/instructions/,1531669614,100.00,, 5139898835,,cpu_atom/cycles/,1531669614,100.00,, 
+r=3 arm=today proj=superstruct c=4 how=stat maxrss 31660 55.64,msec,task-clock,55638024,100.00,, 23972080,,duration_time,1,100.00,, 243396265,,cpu_atom/instructions/,55638024,100.00,, 182699054,,cpu_atom/cycles/,55638024,100.00,, 
+r=3 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 220.21 reaped 227.19 rss-at-exit 72784 status 2
+r=3 arm=drop proj=zod3 c=1 how=stat maxrss 72848 202.19,msec,task-clock,202191690,100.00,, 207861723,,duration_time,1,100.00,, 1168566720,,cpu_atom/instructions/,202191690,100.00,, 714463384,,cpu_atom/cycles/,202191690,100.00,, 
+r=3 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 186.14 reaped 190.40 rss-at-exit 73008 status 2
+r=3 arm=today proj=tiny-invariant c=4 how=stat maxrss 59760 109.46,msec,task-clock,109460516,100.00,, 98830907,,duration_time,1,100.00,, 681204530,,cpu_atom/instructions/,109460516,100.00,, 374768846,,cpu_atom/cycles/,109460516,100.00,, 
+r=3 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58144 109.64,msec,task-clock,109637443,100.00,, 95863147,,duration_time,1,100.00,, 694930434,,cpu_atom/instructions/,109637443,100.00,, 378488623,,cpu_atom/cycles/,109637443,100.00,, 
+r=3 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1237.57 reaped 1250.29 rss-at-exit 209460 status 2
+r=3 arm=drop proj=neverthrow c=4 how=stat maxrss 40744 33.56,msec,task-clock,33556245,100.00,, 23375511,,duration_time,1,100.00,, 155049570,,cpu_atom/instructions/,33556245,100.00,, 108775650,,cpu_atom/cycles/,33556245,100.00,, 
+r=3 arm=drop proj=superstruct c=4 how=stat maxrss 30288 56.68,msec,task-clock,56684427,100.00,, 30283113,,duration_time,1,100.00,, 252680004,,cpu_atom/instructions/,56684427,100.00,, 186163872,,cpu_atom/cycles/,56684427,100.00,, 
+r=3 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 107.77 reaped 115.64 rss-at-exit 98348 status 2
+r=3 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 412.92 reaped 438.83 rss-at-exit 161908 status 2
+r=3 arm=today proj=ts-pattern c=4 how=stat maxrss 234656 1437.11,msec,task-clock,1437111740,100.00,, 501334081,,duration_time,1,100.00,, 7783160159,,cpu_atom/instructions/,1437111740,100.00,, 4999290674,,cpu_atom/cycles/,1437111740,100.00,, 
+r=3 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 22.61 reaped 25.14 rss-at-exit 32184 status 2
+r=3 arm=drop proj=zod3 c=8 how=stat maxrss 99340 415.33,msec,task-clock,415334587,100.00,, 103427933,,duration_time,1,100.00,, 1900737284,,cpu_atom/instructions/,415334587,100.00,, 1361018660,,cpu_atom/cycles/,415334587,100.00,, 
+r=3 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 94.89 reaped 101.18 rss-at-exit 61592 status 2
+r=3 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 110.16 reaped 118.16 rss-at-exit 75112 status 2
+r=3 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 481.52 reaped 500.93 rss-at-exit 234196 status 2
+r=3 arm=today proj=mitt c=4 how=stat maxrss 40384 22.47,msec,task-clock,22465618,100.00,, 19795796,,duration_time,1,100.00,, 122191616,,cpu_atom/instructions/,22465618,100.00,, 73249405,,cpu_atom/cycles/,22465618,100.00,, 
+r=3 arm=drop proj=ts-pattern c=1 how=stat maxrss 210416 1181.01,msec,task-clock,1181005333,100.00,, 1195001904,,duration_time,1,100.00,, 7407294284,,cpu_atom/instructions/,1181005333,100.00,, 4344684255,,cpu_atom/cycles/,1181005333,100.00,, 
+r=3 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 18.76 reaped 21.37 rss-at-exit 42864 status 2
+r=3 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 473.18 reaped 485.71 rss-at-exit 159876 status 2
+r=3 arm=today proj=zod3 c=1 how=stat maxrss 72628 197.51,msec,task-clock,197512806,100.00,, 203113467,,duration_time,1,100.00,, 1159530890,,cpu_atom/instructions/,197418305,99.00,, 712068832,,cpu_atom/cycles/,197418305,99.00,, 
+r=3 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 390.70 reaped 414.54 rss-at-exit 253924 status 2
+r=3 arm=today proj=ts-pattern c=8 how=stat maxrss 254704 1530.06,msec,task-clock,1530060718,100.00,, 438035432,,duration_time,1,100.00,, 8000675339,,cpu_atom/instructions/,1530060718,100.00,, 5129215425,,cpu_atom/cycles/,1530060718,100.00,, 
+r=4 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 16.82 reaped 19.57 rss-at-exit 39272 status 2
+r=4 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 496.78 reaped 509.78 rss-at-exit 160132 status 2
+r=4 arm=drop proj=neverthrow c=4 how=stat maxrss 41524 35.66,msec,task-clock,35656915,100.00,, 24701907,,duration_time,1,100.00,, 160316206,,cpu_atom/instructions/,35656915,100.00,, 110736883,,cpu_atom/cycles/,35656915,100.00,, 
+r=4 arm=today proj=zod3 c=4 how=stat maxrss 98896 335.91,msec,task-clock,335907800,100.00,, 124642302,,duration_time,1,100.00,, 1591412832,,cpu_atom/instructions/,335907800,100.00,, 1097690105,,cpu_atom/cycles/,335907800,100.00,, 
+r=4 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 94.16 reaped 104.11 rss-at-exit 116004 status 2
+r=4 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 22.55 reaped 25.61 rss-at-exit 32064 status 2
+r=4 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 17.61 reaped 20.36 rss-at-exit 42276 status 2
+r=4 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 80.14 reaped 85.70 rss-at-exit 61804 status 2
+r=4 arm=drop proj=tiny-invariant c=4 how=stat maxrss 57176 101.81,msec,task-clock,101814647,100.00,, 86752025,,duration_time,1,100.00,, 694843384,,cpu_atom/instructions/,101814647,100.00,, 352124238,,cpu_atom/cycles/,101814647,100.00,, 
+r=4 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 18.51 reaped 21.34 rss-at-exit 39216 status 2
+r=4 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 191.37 reaped 195.56 rss-at-exit 72784 status 2
+r=4 arm=drop proj=ts-pattern c=8 how=stat maxrss 183144 1497.68,msec,task-clock,1497681158,100.00,, 419712622,,duration_time,1,100.00,, 8082819539,,cpu_atom/instructions/,1497681158,100.00,, 5106403609,,cpu_atom/cycles/,1497681158,100.00,, 
+r=4 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 416.89 reaped 429.71 rss-at-exit 161448 status 2
+r=4 arm=today proj=tiny-invariant c=4 how=stat maxrss 62140 98.85,msec,task-clock,98846333,100.00,, 85996728,,duration_time,1,100.00,, 678592738,,cpu_atom/instructions/,98846333,100.00,, 346868820,,cpu_atom/cycles/,98846333,100.00,, 
+r=4 arm=drop proj=superstruct c=4 how=stat maxrss 30976 58.56,msec,task-clock,58559469,100.00,, 25336945,,duration_time,1,100.00,, 253279510,,cpu_atom/instructions/,58559469,100.00,, 189745848,,cpu_atom/cycles/,58559469,100.00,, 
+r=4 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 192.22 reaped 196.47 rss-at-exit 73008 status 2
+r=4 arm=today proj=ts-pattern c=1 how=stat maxrss 209352 1164.61,msec,task-clock,1164612552,100.00,, 1178109355,,duration_time,1,100.00,, 7363347587,,cpu_atom/instructions/,1164612552,100.00,, 4290997584,,cpu_atom/cycles/,1164612552,100.00,, 
+r=4 arm=today proj=neverthrow c=4 how=stat maxrss 41392 35.65,msec,task-clock,35654589,100.00,, 24848481,,duration_time,1,100.00,, 157987729,,cpu_atom/instructions/,35654589,100.00,, 106102775,,cpu_atom/cycles/,35654589,100.00,, 
+r=4 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 81.42 reaped 87.59 rss-at-exit 58424 status 2
+r=4 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 107.23 reaped 112.16 rss-at-exit 76748 status 2
+r=4 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 451.12 reaped 468.59 rss-at-exit 235308 status 2
+r=4 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 105.42 reaped 112.19 rss-at-exit 98848 status 2
+r=4 arm=today proj=zod3 c=8 how=stat maxrss 115600 407.99,msec,task-clock,407986967,100.00,, 108467054,,duration_time,1,100.00,, 1869039714,,cpu_atom/instructions/,407986967,100.00,, 1352878428,,cpu_atom/cycles/,407986967,100.00,, 
+r=4 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 94.08 reaped 102.61 rss-at-exit 74260 status 2
+r=4 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 21.31 reaped 23.13 rss-at-exit 28068 status 2
+r=4 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1155.04 reaped 1166.54 rss-at-exit 210560 status 2
+r=4 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1214.02 reaped 1225.77 rss-at-exit 209460 status 2
+r=4 arm=drop proj=ts-pattern c=4 how=stat maxrss 205788 1379.14,msec,task-clock,1379141706,100.00,, 480082784,,duration_time,1,100.00,, 7838444881,,cpu_atom/instructions/,1379141706,100.00,, 5021218612,,cpu_atom/cycles/,1379141706,100.00,, 
+r=4 arm=today proj=mitt c=4 how=stat maxrss 42276 25.65,msec,task-clock,25648521,100.00,, 22814977,,duration_time,1,100.00,, 119372446,,cpu_atom/instructions/,25648521,100.00,, 75179362,,cpu_atom/cycles/,25648521,100.00,, 
+r=4 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 392.61 reaped 415.36 rss-at-exit 254460 status 2
+r=4 arm=drop proj=mitt c=4 how=stat maxrss 41704 25.22,msec,task-clock,25220959,100.00,, 21825127,,duration_time,1,100.00,, 118284702,,cpu_atom/instructions/,25220959,100.00,, 73062493,,cpu_atom/cycles/,25220959,100.00,, 
+r=4 arm=drop proj=zod3 c=4 how=stat maxrss 88000 307.64,msec,task-clock,307643415,100.00,, 110070587,,duration_time,1,100.00,, 1596235991,,cpu_atom/instructions/,307643415,100.00,, 1118385208,,cpu_atom/cycles/,307643415,100.00,, 
+r=4 arm=today proj=superstruct c=4 how=stat maxrss 31392 57.76,msec,task-clock,57758985,100.00,, 25671498,,duration_time,1,100.00,, 247353939,,cpu_atom/instructions/,57758985,100.00,, 186506446,,cpu_atom/cycles/,57758985,100.00,, 
+r=4 arm=today proj=ts-pattern c=4 how=stat maxrss 234304 1354.89,msec,task-clock,1354888917,100.00,, 479083862,,duration_time,1,100.00,, 7778387110,,cpu_atom/instructions/,1354888917,100.00,, 4974325560,,cpu_atom/cycles/,1354888917,100.00,, 
+r=4 arm=today proj=zod3 c=1 how=stat maxrss 72632 193.84,msec,task-clock,193844319,100.00,, 198772112,,duration_time,1,100.00,, 1158924882,,cpu_atom/instructions/,193844319,100.00,, 695229335,,cpu_atom/cycles/,193844319,100.00,, 
+r=4 arm=drop proj=zod3 c=1 how=stat maxrss 72964 190.83,msec,task-clock,190833493,100.00,, 195863597,,duration_time,1,100.00,, 1163929583,,cpu_atom/instructions/,190833493,100.00,, 709052051,,cpu_atom/cycles/,190833493,100.00,, 
+r=4 arm=drop proj=ts-pattern c=1 how=stat maxrss 209372 1180.93,msec,task-clock,1180927046,100.00,, 1194184552,,duration_time,1,100.00,, 7403635487,,cpu_atom/instructions/,1180927046,100.00,, 4394176287,,cpu_atom/cycles/,1180927046,100.00,, 
+r=4 arm=drop proj=zod3 c=8 how=stat maxrss 99436 408.81,msec,task-clock,408813704,100.00,, 103874934,,duration_time,1,100.00,, 1896854384,,cpu_atom/instructions/,408813704,100.00,, 1346170873,,cpu_atom/cycles/,408813704,100.00,, 
+r=4 arm=today proj=ts-pattern c=8 how=stat maxrss 253308 1507.23,msec,task-clock,1507232915,100.00,, 439697794,,duration_time,1,100.00,, 8003744791,,cpu_atom/instructions/,1507232915,100.00,, 5098432599,,cpu_atom/cycles/,1507232915,100.00,, 
+r=4 arm=today proj=mitt c=4 how=watch exitwatch at-exit 15.85 reaped 19.33 rss-at-exit 40896 status 2
+r=5 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.33 reaped 92.72 rss-at-exit 60488 status 2
+r=5 arm=today proj=zod3 c=4 how=stat maxrss 97680 338.15,msec,task-clock,338149292,100.00,, 122078753,,duration_time,1,100.00,, 1591950379,,cpu_atom/instructions/,338149292,100.00,, 1116871045,,cpu_atom/cycles/,338149292,100.00,, 
+r=5 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1234.70 reaped 1246.41 rss-at-exit 210556 status 2
+r=5 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 110.30 reaped 118.22 rss-at-exit 75068 status 2
+r=5 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 92.50 reaped 100.79 rss-at-exit 115844 status 2
+r=5 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 15.21 reaped 17.70 rss-at-exit 39136 status 2
+r=5 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 101.71 reaped 109.06 rss-at-exit 72196 status 2
+r=5 arm=today proj=mitt c=4 how=stat maxrss 40396 22.42,msec,task-clock,22422264,100.00,, 22269377,,duration_time,1,100.00,, 121781408,,cpu_atom/instructions/,22422264,100.00,, 73348758,,cpu_atom/cycles/,22422264,100.00,, 
+r=5 arm=drop proj=zod3 c=8 how=stat maxrss 101480 413.69,msec,task-clock,413693145,100.00,, 107308505,,duration_time,1,100.00,, 1901098832,,cpu_atom/instructions/,413693145,100.00,, 1353365688,,cpu_atom/cycles/,413693145,100.00,, 
+r=5 arm=drop proj=neverthrow c=4 how=stat maxrss 40128 34.00,msec,task-clock,33996820,100.00,, 22270458,,duration_time,1,100.00,, 158891169,,cpu_atom/instructions/,33996820,100.00,, 111126355,,cpu_atom/cycles/,33996820,100.00,, 
+r=5 arm=drop proj=ts-pattern c=1 how=stat maxrss 210420 1217.86,msec,task-clock,1217864440,100.00,, 1230907511,,duration_time,1,100.00,, 7404544952,,cpu_atom/instructions/,1217864440,100.00,, 4486168348,,cpu_atom/cycles/,1217864440,100.00,, 
+r=5 arm=today proj=zod3 c=8 how=stat maxrss 114316 401.08,msec,task-clock,401083904,100.00,, 108419956,,duration_time,1,100.00,, 1864819123,,cpu_atom/instructions/,401083904,100.00,, 1319831618,,cpu_atom/cycles/,401083904,100.00,, 
+r=5 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 21.39 reaped 23.45 rss-at-exit 27260 status 2
+r=5 arm=today proj=mitt c=4 how=watch exitwatch at-exit 15.03 reaped 17.83 rss-at-exit 40900 status 2
+r=5 arm=today proj=ts-pattern c=8 how=stat maxrss 253472 1469.55,msec,task-clock,1469551478,100.00,, 419975626,,duration_time,1,100.00,, 8000527165,,cpu_atom/instructions/,1469551478,100.00,, 4981557089,,cpu_atom/cycles/,1469551478,100.00,, 
+r=5 arm=drop proj=superstruct c=4 how=stat maxrss 31232 59.37,msec,task-clock,59365701,100.00,, 25147874,,duration_time,1,100.00,, 252916429,,cpu_atom/instructions/,59365701,100.00,, 194749914,,cpu_atom/cycles/,59365701,100.00,, 
+r=5 arm=drop proj=mitt c=4 how=stat maxrss 40804 23.45,msec,task-clock,23451087,100.00,, 19583906,,duration_time,1,100.00,, 123800704,,cpu_atom/instructions/,23451087,100.00,, 76611290,,cpu_atom/cycles/,23451087,100.00,, 
+r=5 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 20.53 reaped 23.47 rss-at-exit 32132 status 2
+r=5 arm=today proj=ts-pattern c=4 how=stat maxrss 233584 1435.00,msec,task-clock,1434998145,100.00,, 495389164,,duration_time,1,100.00,, 7781894601,,cpu_atom/instructions/,1434998145,100.00,, 5131930179,,cpu_atom/cycles/,1434998145,100.00,, 
+r=5 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 469.18 reaped 485.85 rss-at-exit 235064 status 2
+r=5 arm=today proj=neverthrow c=4 how=stat maxrss 41196 33.96,msec,task-clock,33957594,100.00,, 23158987,,duration_time,1,100.00,, 158055429,,cpu_atom/instructions/,33957594,100.00,, 109339335,,cpu_atom/cycles/,33957594,100.00,, 
+r=5 arm=today proj=superstruct c=4 how=stat maxrss 31196 59.26,msec,task-clock,59256849,100.00,, 25694024,,duration_time,1,100.00,, 248020298,,cpu_atom/instructions/,59256849,100.00,, 192565166,,cpu_atom/cycles/,59256849,100.00,, 
+r=5 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 83.61 reaped 89.61 rss-at-exit 58212 status 2
+r=5 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 410.37 reaped 429.72 rss-at-exit 255060 status 2
+r=5 arm=today proj=ts-pattern c=1 how=stat maxrss 209420 1207.83,msec,task-clock,1207825014,100.00,, 1220649109,,duration_time,1,100.00,, 7364208966,,cpu_atom/instructions/,1207825014,100.00,, 4478133863,,cpu_atom/cycles/,1207825014,100.00,, 
+r=5 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 107.55 reaped 114.60 rss-at-exit 100148 status 2
+r=5 arm=drop proj=ts-pattern c=8 how=stat maxrss 182008 1515.86,msec,task-clock,1515857058,100.00,, 426757941,,duration_time,1,100.00,, 8087134395,,cpu_atom/instructions/,1515857058,100.00,, 5147601784,,cpu_atom/cycles/,1515857058,100.00,, 
+r=5 arm=today proj=zod3 c=1 how=stat maxrss 72512 199.30,msec,task-clock,199297976,100.00,, 204759572,,duration_time,1,100.00,, 1163735932,,cpu_atom/instructions/,199297976,100.00,, 713426763,,cpu_atom/cycles/,199297976,100.00,, 
+r=5 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 18.59 reaped 21.37 rss-at-exit 40372 status 2
+r=5 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 18.20 reaped 21.36 rss-at-exit 39484 status 2
+r=5 arm=drop proj=ts-pattern c=4 how=stat maxrss 202400 1432.50,msec,task-clock,1432497409,100.00,, 490761230,,duration_time,1,100.00,, 7852072109,,cpu_atom/instructions/,1432497409,100.00,, 5043913004,,cpu_atom/cycles/,1432497409,100.00,, 
+r=5 arm=today proj=tiny-invariant c=4 how=stat maxrss 60928 100.11,msec,task-clock,100109686,100.00,, 87763982,,duration_time,1,100.00,, 681234195,,cpu_atom/instructions/,100109686,100.00,, 344720921,,cpu_atom/cycles/,100109686,100.00,, 
+r=5 arm=drop proj=zod3 c=4 how=stat maxrss 88228 319.68,msec,task-clock,319680588,100.00,, 116048114,,duration_time,1,100.00,, 1609343101,,cpu_atom/instructions/,319680588,100.00,, 1112388842,,cpu_atom/cycles/,319680588,100.00,, 
+r=5 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 469.19 reaped 480.79 rss-at-exit 161124 status 2
+r=5 arm=drop proj=tiny-invariant c=4 how=stat maxrss 56816 101.51,msec,task-clock,101508904,100.00,, 88836776,,duration_time,1,100.00,, 693573611,,cpu_atom/instructions/,101508904,100.00,, 353304463,,cpu_atom/cycles/,101508904,100.00,, 
+r=5 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 197.90 reaped 202.06 rss-at-exit 73008 status 2
+r=5 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 404.33 reaped 419.19 rss-at-exit 162200 status 2
+r=5 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 196.27 reaped 200.27 rss-at-exit 72784 status 2
+r=5 arm=drop proj=zod3 c=1 how=stat maxrss 72964 203.22,msec,task-clock,203218640,100.00,, 208511513,,duration_time,1,100.00,, 1163950901,,cpu_atom/instructions/,203218640,100.00,, 720955937,,cpu_atom/cycles/,203218640,100.00,, 
+r=5 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1268.49 reaped 1280.56 rss-at-exit 209456 status 2
+r=6 arm=drop proj=tiny-invariant c=4 how=stat maxrss 56644 105.97,msec,task-clock,105970071,100.00,, 91733776,,duration_time,1,100.00,, 688877638,,cpu_atom/instructions/,105970071,100.00,, 360276784,,cpu_atom/cycles/,105970071,100.00,, 
+r=6 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 81.78 reaped 86.38 rss-at-exit 59204 status 2
+r=6 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 98.72 reaped 105.94 rss-at-exit 72392 status 2
+r=6 arm=drop proj=zod3 c=8 how=stat maxrss 99532 418.50,msec,task-clock,418496923,100.00,, 106080012,,duration_time,1,100.00,, 1900211748,,cpu_atom/instructions/,418496923,100.00,, 1376582864,,cpu_atom/cycles/,418496923,100.00,, 
+r=6 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 203.64 reaped 208.11 rss-at-exit 72784 status 2
+r=6 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 122.23 reaped 128.29 rss-at-exit 74144 status 2
+r=6 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 21.07 reaped 23.77 rss-at-exit 31800 status 2
+r=6 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 80.87 reaped 86.56 rss-at-exit 60884 status 2
+r=6 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 14.96 reaped 17.66 rss-at-exit 39100 status 2
+r=6 arm=drop proj=superstruct c=4 how=stat maxrss 31168 58.04,msec,task-clock,58044576,100.00,, 25009332,,duration_time,1,100.00,, 252887405,,cpu_atom/instructions/,58044576,100.00,, 195747330,,cpu_atom/cycles/,58044576,100.00,, 
+r=6 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1262.68 reaped 1279.26 rss-at-exit 209532 status 2
+r=6 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 494.38 reaped 517.93 rss-at-exit 160832 status 2
+r=6 arm=today proj=ts-pattern c=8 how=stat maxrss 252324 1499.58,msec,task-clock,1499577435,100.00,, 427471218,,duration_time,1,100.00,, 7994881190,,cpu_atom/instructions/,1499577435,100.00,, 5216387038,,cpu_atom/cycles/,1499577435,100.00,, 
+r=6 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 416.19 reaped 439.31 rss-at-exit 160996 status 2
+r=6 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 484.20 reaped 514.74 rss-at-exit 234268 status 2
+r=6 arm=drop proj=zod3 c=1 how=stat maxrss 72848 213.98,msec,task-clock,213983766,100.00,, 221516854,,duration_time,1,100.00,, 1168915713,,cpu_atom/instructions/,213983766,100.00,, 754010114,,cpu_atom/cycles/,213983766,100.00,, 
+r=6 arm=drop proj=mitt c=4 how=stat maxrss 40728 30.53,msec,task-clock,30528177,100.00,, 26021452,,duration_time,1,100.00,, 124289991,,cpu_atom/instructions/,30528177,100.00,, 97984802,,cpu_atom/cycles/,30528177,100.00,, 
+r=6 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 198.18 reaped 205.25 rss-at-exit 73004 status 2
+r=6 arm=today proj=zod3 c=4 how=stat maxrss 97376 359.56,msec,task-clock,359558525,100.00,, 138284484,,duration_time,1,100.00,, 1591066577,,cpu_atom/instructions/,359558525,100.00,, 1201974682,,cpu_atom/cycles/,359558525,100.00,, 
+r=6 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1196.36 reaped 1214.48 rss-at-exit 209464 status 2
+r=6 arm=today proj=zod3 c=8 how=stat maxrss 115424 431.88,msec,task-clock,431879833,100.00,, 122012340,,duration_time,1,100.00,, 1872934368,,cpu_atom/instructions/,431879833,100.00,, 1432161158,,cpu_atom/cycles/,431879833,100.00,, 
+r=6 arm=today proj=zod3 c=1 how=stat maxrss 72512 205.33,msec,task-clock,205326736,100.00,, 210352989,,duration_time,1,100.00,, 1163961805,,cpu_atom/instructions/,205326736,100.00,, 744062279,,cpu_atom/cycles/,205326736,100.00,, 
+r=6 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 22.22 reaped 27.01 rss-at-exit 41924 status 2
+r=6 arm=today proj=superstruct c=4 how=stat maxrss 31376 64.53,msec,task-clock,64525786,100.00,, 28550015,,duration_time,1,100.00,, 247628692,,cpu_atom/instructions/,64525786,100.00,, 212441408,,cpu_atom/cycles/,64525786,100.00,, 
+r=6 arm=today proj=tiny-invariant c=4 how=stat maxrss 59056 109.32,msec,task-clock,109319129,100.00,, 95919225,,duration_time,1,100.00,, 679981982,,cpu_atom/instructions/,109319129,100.00,, 373490740,,cpu_atom/cycles/,109319129,100.00,, 
+r=6 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 26.42 reaped 29.21 rss-at-exit 27304 status 2
+r=6 arm=today proj=neverthrow c=4 how=stat maxrss 41576 39.46,msec,task-clock,39456091,100.00,, 27140967,,duration_time,1,100.00,, 158105130,,cpu_atom/instructions/,39456091,100.00,, 126426479,,cpu_atom/cycles/,39456091,100.00,, 
+r=6 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1196.43,msec,task-clock,1196429927,100.00,, 1219323876,,duration_time,1,100.00,, 7370157196,,cpu_atom/instructions/,1196429927,100.00,, 4446119950,,cpu_atom/cycles/,1196429927,100.00,, 
+r=6 arm=today proj=mitt c=4 how=stat maxrss 40520 29.51,msec,task-clock,29508075,100.00,, 25633128,,duration_time,1,100.00,, 117933334,,cpu_atom/instructions/,29508075,100.00,, 91729189,,cpu_atom/cycles/,29508075,100.00,, 
+r=6 arm=drop proj=neverthrow c=4 how=stat maxrss 42328 39.39,msec,task-clock,39393819,100.00,, 26113096,,duration_time,1,100.00,, 157053360,,cpu_atom/instructions/,39393819,100.00,, 127307833,,cpu_atom/cycles/,39393819,100.00,, 
+r=6 arm=drop proj=zod3 c=4 how=stat maxrss 88600 337.75,msec,task-clock,337745157,100.00,, 128363236,,duration_time,1,100.00,, 1608937147,,cpu_atom/instructions/,337745157,100.00,, 1231854688,,cpu_atom/cycles/,337745157,100.00,, 
+r=6 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1198.35,msec,task-clock,1198351229,100.00,, 1215065501,,duration_time,1,100.00,, 7410222955,,cpu_atom/instructions/,1198351229,100.00,, 4469532249,,cpu_atom/cycles/,1198351229,100.00,, 
+r=6 arm=today proj=mitt c=4 how=watch exitwatch at-exit 17.34 reaped 20.69 rss-at-exit 40852 status 2
+r=6 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 412.02 reaped 447.24 rss-at-exit 255648 status 2
+r=6 arm=drop proj=ts-pattern c=4 how=stat maxrss 204404 1463.82,msec,task-clock,1463823944,100.00,, 505652237,,duration_time,1,100.00,, 7855777295,,cpu_atom/instructions/,1463823944,100.00,, 5318438428,,cpu_atom/cycles/,1463823944,100.00,, 
+r=6 arm=drop proj=ts-pattern c=8 how=stat maxrss 184864 1584.92,msec,task-clock,1584918013,100.00,, 446947656,,duration_time,1,100.00,, 8083153667,,cpu_atom/instructions/,1584918013,100.00,, 5403333138,,cpu_atom/cycles/,1584918013,100.00,, 
+r=6 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 20.20 reaped 23.59 rss-at-exit 39312 status 2
+r=6 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 103.93 reaped 121.23 rss-at-exit 116036 status 2
+r=6 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 115.68 reaped 123.56 rss-at-exit 98120 status 2
+r=6 arm=today proj=ts-pattern c=4 how=stat maxrss 234920 1460.41,msec,task-clock,1460412113,100.00,, 527265681,,duration_time,1,100.00,, 7779554417,,cpu_atom/instructions/,1460412113,100.00,, 5313902203,,cpu_atom/cycles/,1460412113,100.00,, 
+r=7 arm=drop proj=zod3 c=1 how=stat maxrss 72972 200.68,msec,task-clock,200682543,100.00,, 208061452,,duration_time,1,100.00,, 1166135884,,cpu_atom/instructions/,200682543,100.00,, 731928319,,cpu_atom/cycles/,200682543,100.00,, 
+r=7 arm=today proj=ts-pattern c=8 how=stat maxrss 252508 1557.39,msec,task-clock,1557386778,100.00,, 459614305,,duration_time,1,100.00,, 7997042620,,cpu_atom/instructions/,1557386778,100.00,, 5348819308,,cpu_atom/cycles/,1557386778,100.00,, 
+r=7 arm=today proj=zod3 c=1 how=stat maxrss 72512 205.86,msec,task-clock,205859490,100.00,, 213680500,,duration_time,1,100.00,, 1165228616,,cpu_atom/instructions/,205859490,100.00,, 741323674,,cpu_atom/cycles/,205859490,100.00,, 
+r=7 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 23.87 reaped 27.00 rss-at-exit 32024 status 2
+r=7 arm=drop proj=superstruct c=4 how=stat maxrss 30976 61.90,msec,task-clock,61901185,100.00,, 27596135,,duration_time,1,100.00,, 253151402,,cpu_atom/instructions/,61901185,100.00,, 201347087,,cpu_atom/cycles/,61901185,100.00,, 
+r=7 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1222.98,msec,task-clock,1222975390,100.00,, 1245495589,,duration_time,1,100.00,, 7413306689,,cpu_atom/instructions/,1222975390,100.00,, 4506841234,,cpu_atom/cycles/,1222975390,100.00,, 
+r=7 arm=drop proj=zod3 c=4 how=stat maxrss 86928 358.51,msec,task-clock,358510016,100.00,, 136642242,,duration_time,1,100.00,, 1609340563,,cpu_atom/instructions/,358510016,100.00,, 1218872069,,cpu_atom/cycles/,358510016,100.00,, 
+r=7 arm=today proj=ts-pattern c=1 how=stat maxrss 209440 1202.05,msec,task-clock,1202049017,100.00,, 1222457590,,duration_time,1,100.00,, 7365780158,,cpu_atom/instructions/,1202049017,100.00,, 4449958981,,cpu_atom/cycles/,1202049017,100.00,, 
+r=7 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 22.25 reaped 26.00 rss-at-exit 43240 status 2
+r=7 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 22.81 reaped 26.56 rss-at-exit 39492 status 2
+r=7 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 487.72 reaped 504.93 rss-at-exit 160228 status 2
+r=7 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 17.86 reaped 21.12 rss-at-exit 39092 status 2
+r=7 arm=drop proj=neverthrow c=4 how=stat maxrss 41692 41.61,msec,task-clock,41608321,100.00,, 29040978,,duration_time,1,100.00,, 160510225,,cpu_atom/instructions/,41608321,100.00,, 130653725,,cpu_atom/cycles/,41608321,100.00,, 
+r=7 arm=today proj=zod3 c=8 how=stat maxrss 114520 428.42,msec,task-clock,428420007,100.00,, 120578897,,duration_time,1,100.00,, 1871518878,,cpu_atom/instructions/,428420007,100.00,, 1430737413,,cpu_atom/cycles/,428420007,100.00,, 
+r=7 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 93.06 reaped 101.54 rss-at-exit 57100 status 2
+r=7 arm=today proj=ts-pattern c=4 how=stat maxrss 233600 1466.00,msec,task-clock,1466000636,100.00,, 522293275,,duration_time,1,100.00,, 7781795539,,cpu_atom/instructions/,1466000636,100.00,, 5258133984,,cpu_atom/cycles/,1466000636,100.00,, 
+r=7 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 208.80 reaped 215.86 rss-at-exit 73008 status 2
+r=7 arm=today proj=neverthrow c=4 how=stat maxrss 41556 41.31,msec,task-clock,41308804,100.00,, 30196180,,duration_time,1,100.00,, 157933129,,cpu_atom/instructions/,41308804,100.00,, 132822850,,cpu_atom/cycles/,41308804,100.00,, 
+r=7 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 425.21 reaped 447.14 rss-at-exit 159488 status 2
+r=7 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1197.76 reaped 1218.09 rss-at-exit 210488 status 2
+r=7 arm=today proj=superstruct c=4 how=stat maxrss 31644 58.11,msec,task-clock,58109170,100.00,, 26200574,,duration_time,1,100.00,, 243156911,,cpu_atom/instructions/,58109170,100.00,, 184917246,,cpu_atom/cycles/,58109170,100.00,, 
+r=7 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 101.10 reaped 108.52 rss-at-exit 76020 status 2
+r=7 arm=drop proj=ts-pattern c=8 how=stat maxrss 182964 1574.32,msec,task-clock,1574317661,100.00,, 451173054,,duration_time,1,100.00,, 8082954210,,cpu_atom/instructions/,1574317661,100.00,, 5444747436,,cpu_atom/cycles/,1574317661,100.00,, 
+r=7 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58192 115.65,msec,task-clock,115651220,100.00,, 98405555,,duration_time,1,100.00,, 695410731,,cpu_atom/instructions/,115651220,100.00,, 394365756,,cpu_atom/cycles/,115651220,100.00,, 
+r=7 arm=today proj=tiny-invariant c=4 how=stat maxrss 61232 119.52,msec,task-clock,119520074,100.00,, 104826231,,duration_time,1,100.00,, 681673741,,cpu_atom/instructions/,119520074,100.00,, 400160754,,cpu_atom/cycles/,119520074,100.00,, 
+r=7 arm=today proj=zod3 c=4 how=stat maxrss 96848 339.65,msec,task-clock,339647210,100.00,, 130798330,,duration_time,1,100.00,, 1590008206,,cpu_atom/instructions/,339647210,100.00,, 1207254320,,cpu_atom/cycles/,339647210,100.00,, 
+r=7 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 398.12 reaped 425.73 rss-at-exit 255060 status 2
+r=7 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 117.33 reaped 132.93 rss-at-exit 98724 status 2
+r=7 arm=drop proj=mitt c=4 how=stat maxrss 40540 22.94,msec,task-clock,22942541,100.00,, 20309100,,duration_time,1,100.00,, 123768821,,cpu_atom/instructions/,22942541,100.00,, 77065154,,cpu_atom/cycles/,22942541,100.00,, 
+r=7 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 203.25 reaped 210.20 rss-at-exit 72784 status 2
+r=7 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 118.69 reaped 126.88 rss-at-exit 76708 status 2
+r=7 arm=today proj=mitt c=4 how=watch exitwatch at-exit 18.83 reaped 22.46 rss-at-exit 40920 status 2
+r=7 arm=today proj=mitt c=4 how=stat maxrss 40744 26.68,msec,task-clock,26682669,100.00,, 22512264,,duration_time,1,100.00,, 122189063,,cpu_atom/instructions/,26682669,100.00,, 87347208,,cpu_atom/cycles/,26682669,100.00,, 
+r=7 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 503.97 reaped 532.94 rss-at-exit 235100 status 2
+r=7 arm=drop proj=ts-pattern c=4 how=stat maxrss 202592 1475.63,msec,task-clock,1475630619,100.00,, 502294240,,duration_time,1,100.00,, 7855651842,,cpu_atom/instructions/,1475630619,100.00,, 5299235733,,cpu_atom/cycles/,1475630619,100.00,, 
+r=7 arm=drop proj=zod3 c=8 how=stat maxrss 99820 441.62,msec,task-clock,441617476,100.00,, 117252511,,duration_time,1,100.00,, 1903592598,,cpu_atom/instructions/,441617476,100.00,, 1453720079,,cpu_atom/cycles/,441617476,100.00,, 
+r=7 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1197.90 reaped 1217.26 rss-at-exit 209532 status 2
+r=7 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 24.39 reaped 27.36 rss-at-exit 27232 status 2
+r=7 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 101.84 reaped 115.19 rss-at-exit 116760 status 2
+r=7 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 85.77 reaped 92.52 rss-at-exit 61588 status 2
+r=8 arm=today proj=neverthrow c=4 how=stat maxrss 39452 34.45,msec,task-clock,34446835,100.00,, 23535522,,duration_time,1,100.00,, 156290893,,cpu_atom/instructions/,34446835,100.00,, 110895125,,cpu_atom/cycles/,34446835,100.00,, 
+r=8 arm=today proj=zod3 c=4 how=stat maxrss 97312 335.18,msec,task-clock,335175893,100.00,, 129247948,,duration_time,1,100.00,, 1590466215,,cpu_atom/instructions/,335175893,100.00,, 1167774053,,cpu_atom/cycles/,335175893,100.00,, 
+r=8 arm=today proj=ts-pattern c=8 how=stat maxrss 254172 1542.09,msec,task-clock,1542086974,100.00,, 445144158,,duration_time,1,100.00,, 8002883665,,cpu_atom/instructions/,1542086974,100.00,, 5318654778,,cpu_atom/cycles/,1542086974,100.00,, 
+r=8 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 207.28 reaped 214.32 rss-at-exit 73004 status 2
+r=8 arm=today proj=tiny-invariant c=4 how=stat maxrss 60288 103.93,msec,task-clock,103925496,100.00,, 92862594,,duration_time,1,100.00,, 680977584,,cpu_atom/instructions/,103925496,100.00,, 372295043,,cpu_atom/cycles/,103925496,100.00,, 
+r=8 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 120.41 reaped 132.90 rss-at-exit 97544 status 2
+r=8 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.69 reaped 96.49 rss-at-exit 61616 status 2
+r=8 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 22.17 reaped 25.86 rss-at-exit 39196 status 2
+r=8 arm=today proj=zod3 c=1 how=stat maxrss 72512 201.79,msec,task-clock,201787228,100.00,, 209347380,,duration_time,1,100.00,, 1164142857,,cpu_atom/instructions/,201787228,100.00,, 735131938,,cpu_atom/cycles/,201787228,100.00,, 
+r=8 arm=drop proj=ts-pattern c=4 how=stat maxrss 201360 1503.36,msec,task-clock,1503363780,100.00,, 540433895,,duration_time,1,100.00,, 7856997467,,cpu_atom/instructions/,1503363780,100.00,, 5351706313,,cpu_atom/cycles/,1503363780,100.00,, 
+r=8 arm=today proj=ts-pattern c=1 how=stat maxrss 210472 1196.38,msec,task-clock,1196382297,100.00,, 1212556003,,duration_time,1,100.00,, 7368135446,,cpu_atom/instructions/,1196382297,100.00,, 4462538916,,cpu_atom/cycles/,1196382297,100.00,, 
+r=8 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 422.12 reaped 457.11 rss-at-exit 255468 status 2
+r=8 arm=drop proj=ts-pattern c=8 how=stat maxrss 181656 1561.52,msec,task-clock,1561519265,100.00,, 429718756,,duration_time,1,100.00,, 8082505110,,cpu_atom/instructions/,1561519265,100.00,, 5408068629,,cpu_atom/cycles/,1561519265,100.00,, 
+r=8 arm=drop proj=tiny-invariant c=4 how=stat maxrss 55796 113.02,msec,task-clock,113015768,100.00,, 95526592,,duration_time,1,100.00,, 694339514,,cpu_atom/instructions/,113015768,100.00,, 391969995,,cpu_atom/cycles/,113015768,100.00,, 
+r=8 arm=today proj=mitt c=4 how=stat maxrss 40732 28.15,msec,task-clock,28146649,100.00,, 24586239,,duration_time,1,100.00,, 122193936,,cpu_atom/instructions/,28146649,100.00,, 92705492,,cpu_atom/cycles/,28146649,100.00,, 
+r=8 arm=drop proj=ts-pattern c=1 how=stat maxrss 209324 1221.95,msec,task-clock,1221949320,100.00,, 1243896712,,duration_time,1,100.00,, 7408130243,,cpu_atom/instructions/,1221949320,100.00,, 4505332718,,cpu_atom/cycles/,1221949320,100.00,, 
+r=8 arm=today proj=superstruct c=4 how=stat maxrss 31664 56.65,msec,task-clock,56646028,100.00,, 25908256,,duration_time,1,100.00,, 243154931,,cpu_atom/instructions/,56646028,100.00,, 184536595,,cpu_atom/cycles/,56646028,100.00,, 
+r=8 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 119.60 reaped 128.85 rss-at-exit 74188 status 2
+r=8 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 19.00 reaped 21.82 rss-at-exit 39104 status 2
+r=8 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 99.22 reaped 116.66 rss-at-exit 115880 status 2
+r=8 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 493.47 reaped 507.90 rss-at-exit 160112 status 2
+r=8 arm=today proj=zod3 c=8 how=stat maxrss 114748 427.99,msec,task-clock,427986156,100.00,, 119710412,,duration_time,1,100.00,, 1871142727,,cpu_atom/instructions/,427986156,100.00,, 1434214087,,cpu_atom/cycles/,427986156,100.00,, 
+r=8 arm=today proj=ts-pattern c=4 how=stat maxrss 234832 1475.41,msec,task-clock,1475405438,100.00,, 532289085,,duration_time,1,100.00,, 7783362610,,cpu_atom/instructions/,1475405438,100.00,, 5241442624,,cpu_atom/cycles/,1475405438,100.00,, 
+r=8 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 17.79 reaped 21.92 rss-at-exit 40388 status 2
+r=8 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1210.80 reaped 1229.70 rss-at-exit 209456 status 2
+r=8 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 20.53 reaped 24.01 rss-at-exit 32208 status 2
+r=8 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 21.21 reaped 23.56 rss-at-exit 27380 status 2
+r=8 arm=drop proj=mitt c=4 how=stat maxrss 40484 26.35,msec,task-clock,26347481,100.00,, 21434521,,duration_time,1,100.00,, 119723264,,cpu_atom/instructions/,26347481,100.00,, 85713593,,cpu_atom/cycles/,26347481,100.00,, 
+r=8 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 205.17 reaped 213.62 rss-at-exit 72784 status 2
+r=8 arm=drop proj=neverthrow c=4 how=stat maxrss 42684 41.56,msec,task-clock,41558185,100.00,, 29248304,,duration_time,1,100.00,, 157325419,,cpu_atom/instructions/,41558185,100.00,, 133045429,,cpu_atom/cycles/,41558185,100.00,, 
+r=8 arm=drop proj=zod3 c=4 how=stat maxrss 85752 365.67,msec,task-clock,365672491,100.00,, 133410942,,duration_time,1,100.00,, 1609190411,,cpu_atom/instructions/,365672491,100.00,, 1224809018,,cpu_atom/cycles/,365672491,100.00,, 
+r=8 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 100.01 reaped 110.72 rss-at-exit 73712 status 2
+r=8 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 485.95 reaped 508.33 rss-at-exit 233004 status 2
+r=8 arm=drop proj=superstruct c=4 how=stat maxrss 30976 68.73,msec,task-clock,68726592,100.00,, 31406781,,duration_time,1,100.00,, 252964306,,cpu_atom/instructions/,68726592,100.00,, 216210576,,cpu_atom/cycles/,68726592,100.00,, 
+r=8 arm=drop proj=zod3 c=1 how=stat maxrss 73000 206.25,msec,task-clock,206246885,100.00,, 211023520,,duration_time,1,100.00,, 1164610498,,cpu_atom/instructions/,206246885,100.00,, 747452609,,cpu_atom/cycles/,206246885,100.00,, 
+r=8 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 85.29 reaped 90.35 rss-at-exit 56208 status 2
+r=8 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1205.18 reaped 1226.03 rss-at-exit 209532 status 2
+r=8 arm=today proj=mitt c=4 how=watch exitwatch at-exit 20.56 reaped 24.37 rss-at-exit 41020 status 2
+r=8 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 426.27 reaped 451.06 rss-at-exit 162356 status 2
+r=8 arm=drop proj=zod3 c=8 how=stat maxrss 101176 444.77,msec,task-clock,444774403,100.00,, 117930614,,duration_time,1,100.00,, 1903178670,,cpu_atom/instructions/,444774403,100.00,, 1467540626,,cpu_atom/cycles/,444774403,100.00,, 
+r=9 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 484.45 reaped 514.71 rss-at-exit 235344 status 2
+r=9 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 19.27 reaped 21.66 rss-at-exit 41920 status 2
+r=9 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 17.25 reaped 19.72 rss-at-exit 39132 status 2
+r=9 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 103.45 reaped 115.29 rss-at-exit 72632 status 2
+r=9 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 102.48 reaped 116.37 rss-at-exit 115816 status 2
+r=9 arm=today proj=zod3 c=1 how=stat maxrss 72632 203.01,msec,task-clock,203008990,100.00,, 210496385,,duration_time,1,100.00,, 1159786750,,cpu_atom/instructions/,203008990,100.00,, 752628498,,cpu_atom/cycles/,203008990,100.00,, 
+r=9 arm=today proj=mitt c=4 how=stat maxrss 40504 24.47,msec,task-clock,24467185,100.00,, 20172103,,duration_time,1,100.00,, 118060911,,cpu_atom/instructions/,24467185,100.00,, 79005339,,cpu_atom/cycles/,24467185,100.00,, 
+r=9 arm=today proj=ts-pattern c=1 how=stat maxrss 209420 1191.11,msec,task-clock,1191113971,100.00,, 1211566040,,duration_time,1,100.00,, 7369515728,,cpu_atom/instructions/,1191113971,100.00,, 4432843772,,cpu_atom/cycles/,1191113971,100.00,, 
+r=9 arm=drop proj=ts-pattern c=1 how=stat maxrss 209372 1202.70,msec,task-clock,1202695377,100.00,, 1218628460,,duration_time,1,100.00,, 7404667158,,cpu_atom/instructions/,1202695377,100.00,, 4470333595,,cpu_atom/cycles/,1202695377,100.00,, 
+r=9 arm=drop proj=zod3 c=8 how=stat maxrss 99408 440.23,msec,task-clock,440234906,100.00,, 115250754,,duration_time,1,100.00,, 1897437104,,cpu_atom/instructions/,440234906,100.00,, 1448011589,,cpu_atom/cycles/,440234906,100.00,, 
+r=9 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 85.61 reaped 92.29 rss-at-exit 57068 status 2
+r=9 arm=drop proj=neverthrow c=4 how=stat maxrss 42324 39.90,msec,task-clock,39899523,100.00,, 27076365,,duration_time,1,100.00,, 156840478,,cpu_atom/instructions/,39899523,100.00,, 132451689,,cpu_atom/cycles/,39899523,100.00,, 
+r=9 arm=today proj=zod3 c=4 how=stat maxrss 98308 358.84,msec,task-clock,358839677,100.00,, 136784821,,duration_time,1,100.00,, 1586413430,,cpu_atom/instructions/,358839677,100.00,, 1183065175,,cpu_atom/cycles/,358839677,100.00,, 
+r=9 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 115.62 reaped 128.34 rss-at-exit 98268 status 2
+r=9 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 208.19 reaped 215.03 rss-at-exit 72784 status 2
+r=9 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 89.46 reaped 98.97 rss-at-exit 60880 status 2
+r=9 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 497.00 reaped 518.63 rss-at-exit 160888 status 2
+r=9 arm=today proj=mitt c=4 how=watch exitwatch at-exit 14.62 reaped 17.48 rss-at-exit 40848 status 2
+r=9 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 429.70 reaped 455.01 rss-at-exit 162452 status 2
+r=9 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 202.90 reaped 209.81 rss-at-exit 73004 status 2
+r=9 arm=today proj=tiny-invariant c=4 how=stat maxrss 60288 105.60,msec,task-clock,105601937,100.00,, 95097492,,duration_time,1,100.00,, 680768023,,cpu_atom/instructions/,105601937,100.00,, 370367060,,cpu_atom/cycles/,105601937,100.00,, 
+r=9 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 416.34 reaped 455.60 rss-at-exit 255508 status 2
+r=9 arm=today proj=ts-pattern c=4 how=stat maxrss 233424 1464.89,msec,task-clock,1464890479,100.00,, 525431125,,duration_time,1,100.00,, 7783440015,,cpu_atom/instructions/,1464890479,100.00,, 5284596653,,cpu_atom/cycles/,1464890479,100.00,, 
+r=9 arm=drop proj=tiny-invariant c=4 how=stat maxrss 56812 114.76,msec,task-clock,114759092,100.00,, 97977510,,duration_time,1,100.00,, 690089614,,cpu_atom/instructions/,114759092,100.00,, 390303004,,cpu_atom/cycles/,114759092,100.00,, 
+r=9 arm=today proj=ts-pattern c=8 how=stat maxrss 252552 1543.44,msec,task-clock,1543440583,100.00,, 458562287,,duration_time,1,100.00,, 8005600357,,cpu_atom/instructions/,1543440583,100.00,, 5346109605,,cpu_atom/cycles/,1543440583,100.00,, 
+r=9 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 24.65 reaped 28.11 rss-at-exit 27272 status 2
+r=9 arm=drop proj=superstruct c=4 how=stat maxrss 31152 66.01,msec,task-clock,66008278,100.00,, 29218563,,duration_time,1,100.00,, 253197906,,cpu_atom/instructions/,66008278,100.00,, 215157950,,cpu_atom/cycles/,66008278,100.00,, 
+r=9 arm=today proj=neverthrow c=4 how=stat maxrss 41200 41.14,msec,task-clock,41139327,100.00,, 29335284,,duration_time,1,100.00,, 159506463,,cpu_atom/instructions/,40731942,99.00,, 133575614,,cpu_atom/cycles/,40731942,99.00,, 
+r=9 arm=drop proj=ts-pattern c=8 how=stat maxrss 181220 1563.49,msec,task-clock,1563486118,100.00,, 440257322,,duration_time,1,100.00,, 8089970344,,cpu_atom/instructions/,1563486118,100.00,, 5391772577,,cpu_atom/cycles/,1563486118,100.00,, 
+r=9 arm=today proj=superstruct c=4 how=stat maxrss 31376 65.17,msec,task-clock,65172667,100.00,, 31071399,,duration_time,1,100.00,, 247503904,,cpu_atom/instructions/,65172667,100.00,, 212992628,,cpu_atom/cycles/,65172667,100.00,, 
+r=9 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1210.95 reaped 1230.42 rss-at-exit 210560 status 2
+r=9 arm=today proj=zod3 c=8 how=stat maxrss 114720 425.38,msec,task-clock,425376397,100.00,, 124778939,,duration_time,1,100.00,, 1869504944,,cpu_atom/instructions/,425376397,100.00,, 1423082305,,cpu_atom/cycles/,425376397,100.00,, 
+r=9 arm=drop proj=zod3 c=1 how=stat maxrss 72848 207.08,msec,task-clock,207079044,100.00,, 214997174,,duration_time,1,100.00,, 1168851774,,cpu_atom/instructions/,207079044,100.00,, 747277374,,cpu_atom/cycles/,207079044,100.00,, 
+r=9 arm=drop proj=ts-pattern c=4 how=stat maxrss 200392 1533.46,msec,task-clock,1533459585,100.00,, 535065000,,duration_time,1,100.00,, 7852548770,,cpu_atom/instructions/,1533459585,100.00,, 5354393278,,cpu_atom/cycles/,1533459585,100.00,, 
+r=9 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 119.20 reaped 126.41 rss-at-exit 74328 status 2
+r=9 arm=drop proj=zod3 c=4 how=stat maxrss 90476 331.76,msec,task-clock,331755683,100.00,, 121050863,,duration_time,1,100.00,, 1610442399,,cpu_atom/instructions/,331755683,100.00,, 1208079389,,cpu_atom/cycles/,331755683,100.00,, 
+r=9 arm=drop proj=mitt c=4 how=stat maxrss 40620 28.70,msec,task-clock,28695079,100.00,, 22996700,,duration_time,1,100.00,, 124072734,,cpu_atom/instructions/,28695079,100.00,, 94005812,,cpu_atom/cycles/,28695079,100.00,, 
+r=9 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 21.14 reaped 24.37 rss-at-exit 31912 status 2
+r=9 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 21.93 reaped 25.36 rss-at-exit 39492 status 2
+r=9 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1199.81 reaped 1220.86 rss-at-exit 210484 status 2
+r=10 arm=drop proj=ts-pattern c=1 how=stat maxrss 209372 1200.30,msec,task-clock,1200304808,100.00,, 1218497508,,duration_time,1,100.00,, 7404811402,,cpu_atom/instructions/,1200304808,100.00,, 4468367683,,cpu_atom/cycles/,1200304808,100.00,, 
+r=10 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 90.87 reaped 98.41 rss-at-exit 60480 status 2
+r=10 arm=today proj=mitt c=4 how=watch exitwatch at-exit 18.61 reaped 22.25 rss-at-exit 41620 status 2
+r=10 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 121.30 reaped 127.37 rss-at-exit 75300 status 2
+r=10 arm=today proj=zod3 c=4 how=stat maxrss 96432 336.39,msec,task-clock,336390285,100.00,, 126886083,,duration_time,1,100.00,, 1589375929,,cpu_atom/instructions/,336390285,100.00,, 1169437976,,cpu_atom/cycles/,336390285,100.00,, 
+r=10 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1205.72,msec,task-clock,1205719712,100.00,, 1227118532,,duration_time,1,100.00,, 7373637254,,cpu_atom/instructions/,1205134878,99.00,, 4457223076,,cpu_atom/cycles/,1205134878,99.00,, 
+r=10 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 24.42 reaped 29.04 rss-at-exit 39200 status 2
+r=10 arm=drop proj=neverthrow c=4 how=stat maxrss 42124 35.04,msec,task-clock,35038273,100.00,, 24098881,,duration_time,1,100.00,, 156688179,,cpu_atom/instructions/,35038273,100.00,, 114752222,,cpu_atom/cycles/,35038273,100.00,, 
+r=10 arm=today proj=zod3 c=8 how=stat maxrss 115256 431.77,msec,task-clock,431766993,100.00,, 124211655,,duration_time,1,100.00,, 1870712185,,cpu_atom/instructions/,431766993,100.00,, 1438228514,,cpu_atom/cycles/,431766993,100.00,, 
+r=10 arm=today proj=neverthrow c=4 how=stat maxrss 41620 37.46,msec,task-clock,37459684,100.00,, 25167059,,duration_time,1,100.00,, 158588074,,cpu_atom/instructions/,37459684,100.00,, 122951793,,cpu_atom/cycles/,37459684,100.00,, 
+r=10 arm=drop proj=ts-pattern c=8 how=stat maxrss 181504 1583.50,msec,task-clock,1583496695,100.00,, 456760137,,duration_time,1,100.00,, 8086725775,,cpu_atom/instructions/,1583496695,100.00,, 5390898248,,cpu_atom/cycles/,1583496695,100.00,, 
+r=10 arm=drop proj=zod3 c=1 how=stat maxrss 72848 206.71,msec,task-clock,206706911,100.00,, 214517137,,duration_time,1,100.00,, 1168972685,,cpu_atom/instructions/,206706911,100.00,, 740563211,,cpu_atom/cycles/,206706911,100.00,, 
+r=10 arm=drop proj=zod3 c=4 how=stat maxrss 86416 332.75,msec,task-clock,332746847,100.00,, 119292537,,duration_time,1,100.00,, 1607818145,,cpu_atom/instructions/,332746847,100.00,, 1218217853,,cpu_atom/cycles/,332746847,100.00,, 
+r=10 arm=drop proj=zod3 c=8 how=stat maxrss 100412 448.72,msec,task-clock,448717052,100.00,, 117935106,,duration_time,1,100.00,, 1901785444,,cpu_atom/instructions/,448717052,100.00,, 1467320024,,cpu_atom/cycles/,448717052,100.00,, 
+r=10 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 202.63 reaped 209.50 rss-at-exit 72784 status 2
+r=10 arm=drop proj=mitt c=4 how=stat maxrss 40792 30.49,msec,task-clock,30490618,100.00,, 26216109,,duration_time,1,100.00,, 124106154,,cpu_atom/instructions/,30490618,100.00,, 99336632,,cpu_atom/cycles/,30490618,100.00,, 
+r=10 arm=today proj=zod3 c=1 how=stat maxrss 72512 215.37,msec,task-clock,215366374,100.00,, 223247582,,duration_time,1,100.00,, 1164296832,,cpu_atom/instructions/,215366374,100.00,, 766236666,,cpu_atom/cycles/,215366374,100.00,, 
+r=10 arm=drop proj=tiny-invariant c=4 how=stat maxrss 57260 117.86,msec,task-clock,117855541,100.00,, 101021185,,duration_time,1,100.00,, 694228362,,cpu_atom/instructions/,117855541,100.00,, 399310073,,cpu_atom/cycles/,117855541,100.00,, 
+r=10 arm=drop proj=superstruct c=4 how=stat maxrss 31344 67.99,msec,task-clock,67991585,100.00,, 29844244,,duration_time,1,100.00,, 252931036,,cpu_atom/instructions/,67991585,100.00,, 219290510,,cpu_atom/cycles/,67991585,100.00,, 
+r=10 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 482.07 reaped 504.61 rss-at-exit 160600 status 2
+r=10 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 484.21 reaped 511.97 rss-at-exit 235228 status 2
+r=10 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1209.84 reaped 1230.67 rss-at-exit 210480 status 2
+r=10 arm=drop proj=ts-pattern c=4 how=stat maxrss 201088 1458.75,msec,task-clock,1458745213,100.00,, 514850626,,duration_time,1,100.00,, 7851926990,,cpu_atom/instructions/,1458745213,100.00,, 5275485981,,cpu_atom/cycles/,1458745213,100.00,, 
+r=10 arm=today proj=ts-pattern c=4 how=stat maxrss 233776 1454.99,msec,task-clock,1454994076,100.00,, 516276186,,duration_time,1,100.00,, 7782115586,,cpu_atom/instructions/,1454994076,100.00,, 5235359630,,cpu_atom/cycles/,1454994076,100.00,, 
+r=10 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 25.10 reaped 27.94 rss-at-exit 27332 status 2
+r=10 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 105.17 reaped 117.20 rss-at-exit 74444 status 2
+r=10 arm=today proj=tiny-invariant c=4 how=stat maxrss 62576 116.87,msec,task-clock,116866158,100.00,, 105929093,,duration_time,1,100.00,, 683309318,,cpu_atom/instructions/,116866158,100.00,, 405737154,,cpu_atom/cycles/,116866158,100.00,, 
+r=10 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 410.09 reaped 438.84 rss-at-exit 254296 status 2
+r=10 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 20.35 reaped 23.42 rss-at-exit 39088 status 2
+r=10 arm=today proj=superstruct c=4 how=stat maxrss 31744 65.56,msec,task-clock,65558847,100.00,, 29876281,,duration_time,1,100.00,, 247860033,,cpu_atom/instructions/,65558847,100.00,, 211371241,,cpu_atom/cycles/,65558847,100.00,, 
+r=10 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 21.80 reaped 26.00 rss-at-exit 31948 status 2
+r=10 arm=today proj=mitt c=4 how=stat maxrss 40600 28.05,msec,task-clock,28045198,100.00,, 24172281,,duration_time,1,100.00,, 122471137,,cpu_atom/instructions/,28045198,100.00,, 91737515,,cpu_atom/cycles/,28045198,100.00,, 
+r=10 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 103.90 reaped 118.08 rss-at-exit 115756 status 2
+r=10 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 428.88 reaped 446.16 rss-at-exit 160624 status 2
+r=10 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 22.06 reaped 26.95 rss-at-exit 42244 status 2
+r=10 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 90.22 reaped 97.27 rss-at-exit 58172 status 2
+r=10 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1191.97 reaped 1213.63 rss-at-exit 209536 status 2
+r=10 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 115.87 reaped 125.63 rss-at-exit 98684 status 2
+r=10 arm=today proj=ts-pattern c=8 how=stat maxrss 253104 1543.10,msec,task-clock,1543104049,100.00,, 464323686,,duration_time,1,100.00,, 8003086145,,cpu_atom/instructions/,1543104049,100.00,, 5345678311,,cpu_atom/cycles/,1543104049,100.00,, 
+r=10 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 207.06 reaped 213.96 rss-at-exit 73012 status 2
+r=11 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 419.98 reaped 432.91 rss-at-exit 159976 status 2
+r=11 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 119.96 reaped 128.10 rss-at-exit 77176 status 2
+r=11 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 213.07 reaped 219.89 rss-at-exit 73008 status 2
+r=11 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1195.86,msec,task-clock,1195860669,100.00,, 1217234811,,duration_time,1,100.00,, 7414204670,,cpu_atom/instructions/,1195860669,100.00,, 4438496285,,cpu_atom/cycles/,1195860669,100.00,, 
+r=11 arm=drop proj=tiny-invariant c=4 how=stat maxrss 57172 116.45,msec,task-clock,116447197,100.00,, 101300866,,duration_time,1,100.00,, 689709065,,cpu_atom/instructions/,116447197,100.00,, 395831723,,cpu_atom/cycles/,116447197,100.00,, 
+r=11 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 90.77 reaped 98.04 rss-at-exit 60848 status 2
+r=11 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.58 reaped 94.79 rss-at-exit 57060 status 2
+r=11 arm=drop proj=mitt c=4 how=stat maxrss 40892 28.98,msec,task-clock,28979353,100.00,, 24207081,,duration_time,1,100.00,, 124215156,,cpu_atom/instructions/,28979353,100.00,, 94616098,,cpu_atom/cycles/,28979353,100.00,, 
+r=11 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 21.53 reaped 24.05 rss-at-exit 27136 status 2
+r=11 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 501.58 reaped 525.29 rss-at-exit 161076 status 2
+r=11 arm=today proj=superstruct c=4 how=stat maxrss 31376 65.49,msec,task-clock,65493014,100.00,, 30635061,,duration_time,1,100.00,, 247664682,,cpu_atom/instructions/,65493014,100.00,, 211782387,,cpu_atom/cycles/,65493014,100.00,, 
+r=11 arm=today proj=zod3 c=1 how=stat maxrss 72512 207.49,msec,task-clock,207493903,100.00,, 215286699,,duration_time,1,100.00,, 1164047028,,cpu_atom/instructions/,207493903,100.00,, 751050388,,cpu_atom/cycles/,207493903,100.00,, 
+r=11 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1216.23 reaped 1236.85 rss-at-exit 209532 status 2
+r=11 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 25.47 reaped 29.12 rss-at-exit 32908 status 2
+r=11 arm=today proj=mitt c=4 how=stat maxrss 40564 27.77,msec,task-clock,27768446,100.00,, 23896330,,duration_time,1,100.00,, 122339780,,cpu_atom/instructions/,27768446,100.00,, 86972455,,cpu_atom/cycles/,27768446,100.00,, 
+r=11 arm=drop proj=zod3 c=8 how=stat maxrss 99912 431.85,msec,task-clock,431850781,100.00,, 111825003,,duration_time,1,100.00,, 1901113199,,cpu_atom/instructions/,431850781,100.00,, 1424093341,,cpu_atom/cycles/,431850781,100.00,, 
+r=11 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 409.41 reaped 450.91 rss-at-exit 254580 status 2
+r=11 arm=today proj=ts-pattern c=4 how=stat maxrss 234832 1469.64,msec,task-clock,1469641157,100.00,, 527914468,,duration_time,1,100.00,, 7784151199,,cpu_atom/instructions/,1469641157,100.00,, 5279534544,,cpu_atom/cycles/,1469641157,100.00,, 
+r=11 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 22.72 reaped 27.80 rss-at-exit 42244 status 2
+r=11 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 22.69 reaped 25.98 rss-at-exit 39268 status 2
+r=11 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 120.72 reaped 131.14 rss-at-exit 97228 status 2
+r=11 arm=drop proj=ts-pattern c=4 how=stat maxrss 202224 1517.91,msec,task-clock,1517910200,100.00,, 523767748,,duration_time,1,100.00,, 7854057698,,cpu_atom/instructions/,1517910200,100.00,, 5340670591,,cpu_atom/cycles/,1517910200,100.00,, 
+r=11 arm=drop proj=superstruct c=4 how=stat maxrss 31168 68.56,msec,task-clock,68560265,100.00,, 31187029,,duration_time,1,100.00,, 253025769,,cpu_atom/instructions/,68560265,100.00,, 221265130,,cpu_atom/cycles/,68560265,100.00,, 
+r=11 arm=drop proj=neverthrow c=4 how=stat maxrss 41528 39.77,msec,task-clock,39771563,100.00,, 26137579,,duration_time,1,100.00,, 160539934,,cpu_atom/instructions/,39771563,100.00,, 130325546,,cpu_atom/cycles/,39771563,100.00,, 
+r=11 arm=today proj=tiny-invariant c=4 how=stat maxrss 60640 113.02,msec,task-clock,113017036,100.00,, 100718442,,duration_time,1,100.00,, 681319669,,cpu_atom/instructions/,113017036,100.00,, 386307367,,cpu_atom/cycles/,113017036,100.00,, 
+r=11 arm=drop proj=zod3 c=4 how=stat maxrss 88428 341.38,msec,task-clock,341381186,100.00,, 126556977,,duration_time,1,100.00,, 1610650999,,cpu_atom/instructions/,341381186,100.00,, 1237337116,,cpu_atom/cycles/,341381186,100.00,, 
+r=11 arm=drop proj=ts-pattern c=8 how=stat maxrss 181604 1578.79,msec,task-clock,1578788028,100.00,, 452440962,,duration_time,1,100.00,, 8088397143,,cpu_atom/instructions/,1578788028,100.00,, 5442749385,,cpu_atom/cycles/,1578788028,100.00,, 
+r=11 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 18.17 reaped 22.05 rss-at-exit 39176 status 2
+r=11 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 103.98 reaped 112.34 rss-at-exit 73088 status 2
+r=11 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 96.85 reaped 109.74 rss-at-exit 115292 status 2
+r=11 arm=today proj=ts-pattern c=8 how=stat maxrss 252788 1538.93,msec,task-clock,1538933510,100.00,, 459122926,,duration_time,1,100.00,, 8002113200,,cpu_atom/instructions/,1538933510,100.00,, 5303671689,,cpu_atom/cycles/,1538933510,100.00,, 
+r=11 arm=today proj=zod3 c=4 how=stat maxrss 96800 347.89,msec,task-clock,347888351,100.00,, 133310886,,duration_time,1,100.00,, 1590410010,,cpu_atom/instructions/,347888351,100.00,, 1202101570,,cpu_atom/cycles/,347888351,100.00,, 
+r=11 arm=today proj=zod3 c=8 how=stat maxrss 114384 427.22,msec,task-clock,427221807,100.00,, 118802194,,duration_time,1,100.00,, 1869354733,,cpu_atom/instructions/,427221807,100.00,, 1424603478,,cpu_atom/cycles/,427221807,100.00,, 
+r=11 arm=today proj=neverthrow c=4 how=stat maxrss 41560 36.15,msec,task-clock,36146762,100.00,, 24943304,,duration_time,1,100.00,, 158151507,,cpu_atom/instructions/,36146762,100.00,, 118465095,,cpu_atom/cycles/,36146762,100.00,, 
+r=11 arm=today proj=mitt c=4 how=watch exitwatch at-exit 17.40 reaped 20.54 rss-at-exit 40904 status 2
+r=11 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 200.77 reaped 207.20 rss-at-exit 72784 status 2
+r=11 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1204.51,msec,task-clock,1204511610,100.00,, 1218300864,,duration_time,1,100.00,, 7372169541,,cpu_atom/instructions/,1204511610,100.00,, 4469434667,,cpu_atom/cycles/,1204511610,100.00,, 
+r=11 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 485.73 reaped 506.05 rss-at-exit 236416 status 2
+r=11 arm=drop proj=zod3 c=1 how=stat maxrss 72968 206.42,msec,task-clock,206424201,100.00,, 213816407,,duration_time,1,100.00,, 1164177944,,cpu_atom/instructions/,206424201,100.00,, 733414622,,cpu_atom/cycles/,206424201,100.00,, 
+r=11 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1198.91 reaped 1218.80 rss-at-exit 209456 status 2
+r=12 arm=drop proj=neverthrow c=4 how=stat maxrss 40200 33.69,msec,task-clock,33687947,100.00,, 22483086,,duration_time,1,100.00,, 154873827,,cpu_atom/instructions/,33687947,100.00,, 110276641,,cpu_atom/cycles/,33687947,100.00,, 
+r=12 arm=drop proj=ts-pattern c=4 how=stat maxrss 201976 1451.13,msec,task-clock,1451134334,100.00,, 508849201,,duration_time,1,100.00,, 7852289839,,cpu_atom/instructions/,1451134334,100.00,, 5292086820,,cpu_atom/cycles/,1451134334,100.00,, 
+r=12 arm=today proj=zod3 c=1 how=stat maxrss 72636 203.72,msec,task-clock,203724792,100.00,, 211474770,,duration_time,1,100.00,, 1159446849,,cpu_atom/instructions/,203724792,100.00,, 741431172,,cpu_atom/cycles/,203724792,100.00,, 
+r=12 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 120.72 reaped 130.51 rss-at-exit 97904 status 2
+r=12 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 103.83 reaped 113.94 rss-at-exit 73816 status 2
+r=12 arm=today proj=mitt c=4 how=stat maxrss 40512 28.60,msec,task-clock,28603349,100.00,, 25065588,,duration_time,1,100.00,, 117859715,,cpu_atom/instructions/,28603349,100.00,, 91954480,,cpu_atom/cycles/,28603349,100.00,, 
+r=12 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 500.39 reaped 531.64 rss-at-exit 235356 status 2
+r=12 arm=drop proj=superstruct c=4 how=stat maxrss 31260 66.82,msec,task-clock,66816193,100.00,, 29792102,,duration_time,1,100.00,, 248588161,,cpu_atom/instructions/,66816193,100.00,, 212855682,,cpu_atom/cycles/,66816193,100.00,, 
+r=12 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 83.82 reaped 89.44 rss-at-exit 60472 status 2
+r=12 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 15.00 reaped 18.91 rss-at-exit 39108 status 2
+r=12 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 423.76 reaped 442.44 rss-at-exit 161592 status 2
+r=12 arm=today proj=mitt c=4 how=watch exitwatch at-exit 20.05 reaped 25.08 rss-at-exit 40900 status 2
+r=12 arm=drop proj=zod3 c=8 how=stat maxrss 99412 441.76,msec,task-clock,441763908,100.00,, 114687381,,duration_time,1,100.00,, 1897188244,,cpu_atom/instructions/,441763908,100.00,, 1450682901,,cpu_atom/cycles/,441763908,100.00,, 
+r=12 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1198.43 reaped 1215.93 rss-at-exit 209464 status 2
+r=12 arm=today proj=superstruct c=4 how=stat maxrss 32176 64.90,msec,task-clock,64903721,100.00,, 29467660,,duration_time,1,100.00,, 244322179,,cpu_atom/instructions/,64903721,100.00,, 212692955,,cpu_atom/cycles/,64903721,100.00,, 
+r=12 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 18.52 reaped 21.00 rss-at-exit 43060 status 2
+r=12 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.93 reaped 95.26 rss-at-exit 59224 status 2
+r=12 arm=today proj=zod3 c=8 how=stat maxrss 113796 421.96,msec,task-clock,421959598,100.00,, 118764136,,duration_time,1,100.00,, 1863325424,,cpu_atom/instructions/,421959598,100.00,, 1403966247,,cpu_atom/cycles/,421959598,100.00,, 
+r=12 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1211.05 reaped 1226.19 rss-at-exit 209532 status 2
+r=12 arm=today proj=neverthrow c=4 how=stat maxrss 41392 40.67,msec,task-clock,40666850,100.00,, 31941933,,duration_time,1,100.00,, 158167558,,cpu_atom/instructions/,40666850,100.00,, 125896664,,cpu_atom/cycles/,40666850,100.00,, 
+r=12 arm=drop proj=ts-pattern c=8 how=stat maxrss 181892 1589.14,msec,task-clock,1589144240,100.00,, 460085534,,duration_time,1,100.00,, 8085103640,,cpu_atom/instructions/,1589144240,100.00,, 5393456373,,cpu_atom/cycles/,1589144240,100.00,, 
+r=12 arm=today proj=zod3 c=4 how=stat maxrss 97856 354.16,msec,task-clock,354156986,100.00,, 138022761,,duration_time,1,100.00,, 1591215796,,cpu_atom/instructions/,354156986,100.00,, 1199171304,,cpu_atom/cycles/,354156986,100.00,, 
+r=12 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 25.56 reaped 28.36 rss-at-exit 27236 status 2
+r=12 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 204.14 reaped 211.22 rss-at-exit 72784 status 2
+r=12 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 99.67 reaped 113.91 rss-at-exit 115960 status 2
+r=12 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 496.26 reaped 515.44 rss-at-exit 159808 status 2
+r=12 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 201.15 reaped 207.63 rss-at-exit 73008 status 2
+r=12 arm=today proj=ts-pattern c=8 how=stat maxrss 254100 1541.78,msec,task-clock,1541780376,100.00,, 459522896,,duration_time,1,100.00,, 8001604508,,cpu_atom/instructions/,1541780376,100.00,, 5354415593,,cpu_atom/cycles/,1541780376,100.00,, 
+r=12 arm=drop proj=ts-pattern c=1 how=stat maxrss 209368 1206.77,msec,task-clock,1206771092,100.00,, 1228226366,,duration_time,1,100.00,, 7408834962,,cpu_atom/instructions/,1206771092,100.00,, 4462470030,,cpu_atom/cycles/,1206771092,100.00,, 
+r=12 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 24.91 reaped 28.69 rss-at-exit 32232 status 2
+r=12 arm=today proj=tiny-invariant c=4 how=stat maxrss 60028 110.23,msec,task-clock,110226818,100.00,, 99110308,,duration_time,1,100.00,, 676383476,,cpu_atom/instructions/,110226818,100.00,, 385392819,,cpu_atom/cycles/,110226818,100.00,, 
+r=12 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 412.65 reaped 452.05 rss-at-exit 251948 status 2
+r=12 arm=today proj=ts-pattern c=1 how=stat maxrss 209416 1206.48,msec,task-clock,1206484721,100.00,, 1220878583,,duration_time,1,100.00,, 7366807099,,cpu_atom/instructions/,1206484721,100.00,, 4443197909,,cpu_atom/cycles/,1206484721,100.00,, 
+r=12 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 116.37 reaped 124.16 rss-at-exit 76716 status 2
+r=12 arm=drop proj=zod3 c=1 how=stat maxrss 72848 207.64,msec,task-clock,207642140,100.00,, 215337022,,duration_time,1,100.00,, 1168847865,,cpu_atom/instructions/,207642140,100.00,, 757455488,,cpu_atom/cycles/,207642140,100.00,, 
+r=12 arm=today proj=ts-pattern c=4 how=stat maxrss 234352 1458.79,msec,task-clock,1458792902,100.00,, 512033591,,duration_time,1,100.00,, 7782721716,,cpu_atom/instructions/,1458792902,100.00,, 5268833600,,cpu_atom/cycles/,1458792902,100.00,, 
+r=12 arm=drop proj=mitt c=4 how=stat maxrss 40544 29.70,msec,task-clock,29704033,100.00,, 24711418,,duration_time,1,100.00,, 124037089,,cpu_atom/instructions/,29704033,100.00,, 97171554,,cpu_atom/cycles/,29704033,100.00,, 
+r=12 arm=drop proj=zod3 c=4 how=stat maxrss 87272 345.94,msec,task-clock,345938955,100.00,, 126874800,,duration_time,1,100.00,, 1610787977,,cpu_atom/instructions/,345938955,100.00,, 1216534853,,cpu_atom/cycles/,345938955,100.00,, 
+r=12 arm=drop proj=tiny-invariant c=4 how=stat maxrss 56612 118.39,msec,task-clock,118385070,100.00,, 101814298,,duration_time,1,100.00,, 693611743,,cpu_atom/instructions/,118385070,100.00,, 397892777,,cpu_atom/cycles/,118385070,100.00,, 
+r=12 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 20.91 reaped 23.19 rss-at-exit 39344 status 2
+r=13 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 24.16 reaped 27.31 rss-at-exit 32112 status 2
+r=13 arm=today proj=superstruct c=4 how=stat maxrss 31552 57.77,msec,task-clock,57769619,100.00,, 27421990,,duration_time,1,100.00,, 247677381,,cpu_atom/instructions/,57769619,100.00,, 188010729,,cpu_atom/cycles/,57769619,100.00,, 
+r=13 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 115.58 reaped 126.68 rss-at-exit 98644 status 2
+r=13 arm=today proj=zod3 c=4 how=stat maxrss 96256 332.81,msec,task-clock,332813166,100.00,, 128764755,,duration_time,1,100.00,, 1588643134,,cpu_atom/instructions/,332813166,100.00,, 1190137737,,cpu_atom/cycles/,332813166,100.00,, 
+r=13 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 100.24 reaped 115.73 rss-at-exit 116380 status 2
+r=13 arm=today proj=ts-pattern c=4 how=stat maxrss 234304 1468.04,msec,task-clock,1468037562,100.00,, 520868465,,duration_time,1,100.00,, 7781349418,,cpu_atom/instructions/,1468037562,100.00,, 5285297543,,cpu_atom/cycles/,1468037562,100.00,, 
+r=13 arm=today proj=ts-pattern c=8 how=stat maxrss 252920 1536.94,msec,task-clock,1536939524,100.00,, 449264437,,duration_time,1,100.00,, 8004842182,,cpu_atom/instructions/,1536939524,100.00,, 5275601727,,cpu_atom/cycles/,1536939524,100.00,, 
+r=13 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 20.56 reaped 24.05 rss-at-exit 42896 status 2
+r=13 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 406.48 reaped 437.34 rss-at-exit 254628 status 2
+r=13 arm=today proj=mitt c=4 how=stat maxrss 40708 28.06,msec,task-clock,28061686,100.00,, 24140724,,duration_time,1,100.00,, 117862887,,cpu_atom/instructions/,28061686,100.00,, 90728357,,cpu_atom/cycles/,28061686,100.00,, 
+r=13 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 486.24 reaped 512.14 rss-at-exit 160960 status 2
+r=13 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.40 reaped 95.19 rss-at-exit 58860 status 2
+r=13 arm=today proj=neverthrow c=4 how=stat maxrss 39808 32.28,msec,task-clock,32275910,100.00,, 21501843,,duration_time,1,100.00,, 157987374,,cpu_atom/instructions/,31727819,98.00,, 105794338,,cpu_atom/cycles/,31727819,98.00,, 
+r=13 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1212.14,msec,task-clock,1212139330,100.00,, 1234593892,,duration_time,1,100.00,, 7411430448,,cpu_atom/instructions/,1212139330,100.00,, 4497492228,,cpu_atom/cycles/,1212139330,100.00,, 
+r=13 arm=today proj=zod3 c=8 how=stat maxrss 114384 423.69,msec,task-clock,423686626,100.00,, 117054118,,duration_time,1,100.00,, 1869767143,,cpu_atom/instructions/,423686626,100.00,, 1401586238,,cpu_atom/cycles/,423686626,100.00,, 
+r=13 arm=drop proj=superstruct c=4 how=stat maxrss 30800 67.34,msec,task-clock,67343670,100.00,, 29793747,,duration_time,1,100.00,, 252799953,,cpu_atom/instructions/,67343670,100.00,, 220844842,,cpu_atom/cycles/,67343670,100.00,, 
+r=13 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 87.86 reaped 93.71 rss-at-exit 61840 status 2
+r=13 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58160 111.29,msec,task-clock,111293998,100.00,, 97361128,,duration_time,1,100.00,, 694719726,,cpu_atom/instructions/,111293998,100.00,, 378098341,,cpu_atom/cycles/,111293998,100.00,, 
+r=13 arm=drop proj=ts-pattern c=4 how=stat maxrss 201116 1474.67,msec,task-clock,1474673375,100.00,, 517823073,,duration_time,1,100.00,, 7844662602,,cpu_atom/instructions/,1474673375,100.00,, 5296727592,,cpu_atom/cycles/,1474673375,100.00,, 
+r=13 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 201.50 reaped 207.98 rss-at-exit 73004 status 2
+r=13 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1196.57 reaped 1216.90 rss-at-exit 209456 status 2
+r=13 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 116.34 reaped 124.23 rss-at-exit 74360 status 2
+r=13 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 23.07 reaped 25.76 rss-at-exit 27344 status 2
+r=13 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 17.74 reaped 20.74 rss-at-exit 39276 status 2
+r=13 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 423.68 reaped 448.57 rss-at-exit 160840 status 2
+r=13 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1203.70,msec,task-clock,1203697895,100.00,, 1217509108,,duration_time,1,100.00,, 7371082030,,cpu_atom/instructions/,1203697895,100.00,, 4464366673,,cpu_atom/cycles/,1203697895,100.00,, 
+r=13 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 19.21 reaped 22.77 rss-at-exit 40452 status 2
+r=13 arm=drop proj=ts-pattern c=8 how=stat maxrss 181556 1559.26,msec,task-clock,1559262309,100.00,, 449548729,,duration_time,1,100.00,, 8087000349,,cpu_atom/instructions/,1559262309,100.00,, 5348005282,,cpu_atom/cycles/,1559262309,100.00,, 
+r=13 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 204.62 reaped 211.76 rss-at-exit 72780 status 2
+r=13 arm=drop proj=zod3 c=4 how=stat maxrss 85736 366.51,msec,task-clock,366514813,100.00,, 135298815,,duration_time,1,100.00,, 1609880160,,cpu_atom/instructions/,366514813,100.00,, 1215246012,,cpu_atom/cycles/,366514813,100.00,, 
+r=13 arm=drop proj=mitt c=4 how=stat maxrss 40548 29.60,msec,task-clock,29597481,100.00,, 24320979,,duration_time,1,100.00,, 124531440,,cpu_atom/instructions/,29597481,100.00,, 96962548,,cpu_atom/cycles/,29597481,100.00,, 
+r=13 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 100.11 reaped 108.97 rss-at-exit 71544 status 2
+r=13 arm=drop proj=neverthrow c=4 how=stat maxrss 41536 40.52,msec,task-clock,40520412,100.00,, 27407301,,duration_time,1,100.00,, 160445471,,cpu_atom/instructions/,40520412,100.00,, 130503275,,cpu_atom/cycles/,40520412,100.00,, 
+r=13 arm=today proj=zod3 c=1 how=stat maxrss 72512 205.36,msec,task-clock,205357036,100.00,, 214267835,,duration_time,1,100.00,, 1164124821,,cpu_atom/instructions/,205357036,100.00,, 755075103,,cpu_atom/cycles/,205357036,100.00,, 
+r=13 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1216.95 reaped 1236.97 rss-at-exit 209532 status 2
+r=13 arm=today proj=mitt c=4 how=watch exitwatch at-exit 19.14 reaped 22.83 rss-at-exit 41544 status 2
+r=13 arm=today proj=tiny-invariant c=4 how=stat maxrss 61168 104.44,msec,task-clock,104440373,100.00,, 94528408,,duration_time,1,100.00,, 681768650,,cpu_atom/instructions/,104440373,100.00,, 366583007,,cpu_atom/cycles/,104440373,100.00,, 
+r=13 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 481.49 reaped 511.71 rss-at-exit 235040 status 2
+r=13 arm=drop proj=zod3 c=1 how=stat maxrss 72848 205.87,msec,task-clock,205873737,100.00,, 213806689,,duration_time,1,100.00,, 1168892263,,cpu_atom/instructions/,205873737,100.00,, 757175519,,cpu_atom/cycles/,205873737,100.00,, 
+r=13 arm=drop proj=zod3 c=8 how=stat maxrss 101380 450.93,msec,task-clock,450931090,100.00,, 117559232,,duration_time,1,100.00,, 1904191993,,cpu_atom/instructions/,450931090,100.00,, 1486131917,,cpu_atom/cycles/,450931090,100.00,, 
+r=14 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 483.65 reaped 510.45 rss-at-exit 234192 status 2
+r=14 arm=today proj=zod3 c=4 how=stat maxrss 100076 331.43,msec,task-clock,331429719,100.00,, 131291467,,duration_time,1,100.00,, 1588190323,,cpu_atom/instructions/,331429719,100.00,, 1215844442,,cpu_atom/cycles/,331429719,100.00,, 
+r=14 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 24.46 reaped 26.87 rss-at-exit 28104 status 2
+r=14 arm=drop proj=zod3 c=1 how=stat maxrss 72848 211.00,msec,task-clock,211002753,100.00,, 218629343,,duration_time,1,100.00,, 1169850969,,cpu_atom/instructions/,211002753,100.00,, 761926810,,cpu_atom/cycles/,211002753,100.00,, 
+r=14 arm=drop proj=superstruct c=4 how=stat maxrss 30800 66.63,msec,task-clock,66629181,100.00,, 30344908,,duration_time,1,100.00,, 253012886,,cpu_atom/instructions/,66629181,100.00,, 221122874,,cpu_atom/cycles/,66629181,100.00,, 
+r=14 arm=drop proj=ts-pattern c=4 how=stat maxrss 202416 1474.52,msec,task-clock,1474524441,100.00,, 510809184,,duration_time,1,100.00,, 7855619157,,cpu_atom/instructions/,1474524441,100.00,, 5320300571,,cpu_atom/cycles/,1474524441,100.00,, 
+r=14 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1212.76 reaped 1233.40 rss-at-exit 209460 status 2
+r=14 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 87.02 reaped 94.79 rss-at-exit 61716 status 2
+r=14 arm=drop proj=mitt c=4 how=stat maxrss 40920 29.00,msec,task-clock,28997618,100.00,, 23919423,,duration_time,1,100.00,, 123970996,,cpu_atom/instructions/,28997618,100.00,, 88766166,,cpu_atom/cycles/,28997618,100.00,, 
+r=14 arm=today proj=tiny-invariant c=4 how=stat maxrss 60992 110.08,msec,task-clock,110081935,100.00,, 100813070,,duration_time,1,100.00,, 681754847,,cpu_atom/instructions/,110081935,100.00,, 374052026,,cpu_atom/cycles/,110081935,100.00,, 
+r=14 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 22.49 reaped 26.23 rss-at-exit 39300 status 2
+r=14 arm=today proj=ts-pattern c=4 how=stat maxrss 234656 1465.41,msec,task-clock,1465411422,100.00,, 521060116,,duration_time,1,100.00,, 7781329181,,cpu_atom/instructions/,1465411422,100.00,, 5201886026,,cpu_atom/cycles/,1465411422,100.00,, 
+r=14 arm=today proj=mitt c=4 how=watch exitwatch at-exit 19.86 reaped 23.27 rss-at-exit 41056 status 2
+r=14 arm=drop proj=zod3 c=8 how=stat maxrss 100964 442.33,msec,task-clock,442326651,100.00,, 120077874,,duration_time,1,100.00,, 1897232210,,cpu_atom/instructions/,442326651,100.00,, 1454312811,,cpu_atom/cycles/,442326651,100.00,, 
+r=14 arm=today proj=mitt c=4 how=stat maxrss 40232 29.22,msec,task-clock,29215996,100.00,, 25687986,,duration_time,1,100.00,, 122366100,,cpu_atom/instructions/,29215996,100.00,, 94845207,,cpu_atom/cycles/,29215996,100.00,, 
+r=14 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58204 119.62,msec,task-clock,119620207,100.00,, 102254628,,duration_time,1,100.00,, 695037431,,cpu_atom/instructions/,119620207,100.00,, 411099073,,cpu_atom/cycles/,119620207,100.00,, 
+r=14 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 415.13 reaped 447.64 rss-at-exit 254448 status 2
+r=14 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 22.30 reaped 26.18 rss-at-exit 42244 status 2
+r=14 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1200.73 reaped 1222.62 rss-at-exit 209528 status 2
+r=14 arm=today proj=superstruct c=4 how=stat maxrss 31216 64.21,msec,task-clock,64211735,100.00,, 28947480,,duration_time,1,100.00,, 247762728,,cpu_atom/instructions/,64211735,100.00,, 215230336,,cpu_atom/cycles/,64211735,100.00,, 
+r=14 arm=today proj=zod3 c=8 how=stat maxrss 115084 418.74,msec,task-clock,418744609,100.00,, 116631532,,duration_time,1,100.00,, 1870396202,,cpu_atom/instructions/,418744609,100.00,, 1381693139,,cpu_atom/cycles/,418744609,100.00,, 
+r=14 arm=drop proj=neverthrow c=4 how=stat maxrss 41700 41.52,msec,task-clock,41524525,100.00,, 27887241,,duration_time,1,100.00,, 160609204,,cpu_atom/instructions/,41524525,100.00,, 132175053,,cpu_atom/cycles/,41524525,100.00,, 
+r=14 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 119.24 reaped 127.07 rss-at-exit 74092 status 2
+r=14 arm=today proj=ts-pattern c=8 how=stat maxrss 254000 1529.93,msec,task-clock,1529931662,100.00,, 450640867,,duration_time,1,100.00,, 8000459315,,cpu_atom/instructions/,1529931662,100.00,, 5303638627,,cpu_atom/cycles/,1529931662,100.00,, 
+r=14 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 485.03 reaped 500.34 rss-at-exit 159880 status 2
+r=14 arm=drop proj=ts-pattern c=8 how=stat maxrss 183872 1562.47,msec,task-clock,1562467448,100.00,, 436450669,,duration_time,1,100.00,, 8088224228,,cpu_atom/instructions/,1562467448,100.00,, 5367526644,,cpu_atom/cycles/,1562467448,100.00,, 
+r=14 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 200.71 reaped 207.51 rss-at-exit 72780 status 2
+r=14 arm=drop proj=zod3 c=4 how=stat maxrss 86056 358.94,msec,task-clock,358944849,100.00,, 134787937,,duration_time,1,100.00,, 1605012450,,cpu_atom/instructions/,358944849,100.00,, 1189336720,,cpu_atom/cycles/,358944849,100.00,, 
+r=14 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 101.16 reaped 107.24 rss-at-exit 74100 status 2
+r=14 arm=today proj=neverthrow c=4 how=stat maxrss 42404 38.37,msec,task-clock,38367850,100.00,, 27015292,,duration_time,1,100.00,, 154808202,,cpu_atom/instructions/,38367850,100.00,, 125723271,,cpu_atom/cycles/,38367850,100.00,, 
+r=14 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 117.58 reaped 130.50 rss-at-exit 98800 status 2
+r=14 arm=drop proj=ts-pattern c=1 how=stat maxrss 209376 1203.65,msec,task-clock,1203649003,100.00,, 1225068257,,duration_time,1,100.00,, 7408115733,,cpu_atom/instructions/,1203649003,100.00,, 4468515178,,cpu_atom/cycles/,1203649003,100.00,, 
+r=14 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 100.86 reaped 114.82 rss-at-exit 115444 status 2
+r=14 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 435.92 reaped 459.02 rss-at-exit 159828 status 2
+r=14 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 204.11 reaped 210.94 rss-at-exit 73008 status 2
+r=14 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 87.94 reaped 95.14 rss-at-exit 57504 status 2
+r=14 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 14.76 reaped 18.02 rss-at-exit 39384 status 2
+r=14 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 23.35 reaped 26.66 rss-at-exit 32084 status 2
+r=14 arm=today proj=zod3 c=1 how=stat maxrss 72512 209.94,msec,task-clock,209942332,100.00,, 217906756,,duration_time,1,100.00,, 1164511041,,cpu_atom/instructions/,209942332,100.00,, 753962608,,cpu_atom/cycles/,209942332,100.00,, 
+r=14 arm=today proj=ts-pattern c=1 how=stat maxrss 209352 1211.03,msec,task-clock,1211033866,100.00,, 1230635966,,duration_time,1,100.00,, 7369271751,,cpu_atom/instructions/,1211033866,100.00,, 4518242698,,cpu_atom/cycles/,1211033866,100.00,, 
+r=15 arm=drop proj=ts-pattern c=8 how=stat maxrss 182612 1612.02,msec,task-clock,1612019176,100.00,, 452691121,,duration_time,1,100.00,, 8082818546,,cpu_atom/instructions/,1612019176,100.00,, 5485618266,,cpu_atom/cycles/,1612019176,100.00,, 
+r=15 arm=today proj=superstruct c=4 how=stat maxrss 31532 61.98,msec,task-clock,61980587,100.00,, 26770975,,duration_time,1,100.00,, 243406941,,cpu_atom/instructions/,61980587,100.00,, 203640171,,cpu_atom/cycles/,61980587,100.00,, 
+r=15 arm=today proj=tiny-invariant c=4 how=stat maxrss 60204 109.81,msec,task-clock,109810164,100.00,, 97299843,,duration_time,1,100.00,, 676814822,,cpu_atom/instructions/,109810164,100.00,, 373602796,,cpu_atom/cycles/,109810164,100.00,, 
+r=15 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58024 115.81,msec,task-clock,115806883,100.00,, 100500461,,duration_time,1,100.00,, 695218827,,cpu_atom/instructions/,115806883,100.00,, 402499189,,cpu_atom/cycles/,115806883,100.00,, 
+r=15 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 23.31 reaped 27.82 rss-at-exit 39472 status 2
+r=15 arm=drop proj=zod3 c=4 how=stat maxrss 87240 337.87,msec,task-clock,337871957,100.00,, 127787719,,duration_time,1,100.00,, 1609646305,,cpu_atom/instructions/,337871957,100.00,, 1231794259,,cpu_atom/cycles/,337871957,100.00,, 
+r=15 arm=today proj=zod3 c=1 how=stat maxrss 72512 207.22,msec,task-clock,207222576,100.00,, 215340899,,duration_time,1,100.00,, 1164445182,,cpu_atom/instructions/,207222576,100.00,, 747365688,,cpu_atom/cycles/,207222576,100.00,, 
+r=15 arm=today proj=ts-pattern c=8 how=stat maxrss 252940 1543.83,msec,task-clock,1543825011,100.00,, 449572496,,duration_time,1,100.00,, 8004708026,,cpu_atom/instructions/,1543825011,100.00,, 5283621521,,cpu_atom/cycles/,1543825011,100.00,, 
+r=15 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 24.43 reaped 28.89 rss-at-exit 31988 status 2
+r=15 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 492.35 reaped 524.59 rss-at-exit 234100 status 2
+r=15 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 103.02 reaped 115.62 rss-at-exit 116724 status 2
+r=15 arm=today proj=mitt c=4 how=stat maxrss 40568 27.76,msec,task-clock,27761384,100.00,, 24528808,,duration_time,1,100.00,, 122493007,,cpu_atom/instructions/,27761384,100.00,, 88293447,,cpu_atom/cycles/,27761384,100.00,, 
+r=15 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 20.86 reaped 24.23 rss-at-exit 42244 status 2
+r=15 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1199.65,msec,task-clock,1199649832,100.00,, 1221567863,,duration_time,1,100.00,, 7414386661,,cpu_atom/instructions/,1199649832,100.00,, 4464466800,,cpu_atom/cycles/,1199649832,100.00,, 
+r=15 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1189.94 reaped 1211.33 rss-at-exit 209456 status 2
+r=15 arm=today proj=neverthrow c=4 how=stat maxrss 40604 39.76,msec,task-clock,39759837,100.00,, 29500291,,duration_time,1,100.00,, 153211921,,cpu_atom/instructions/,39759837,100.00,, 126070213,,cpu_atom/cycles/,39759837,100.00,, 
+r=15 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 91.25 reaped 96.82 rss-at-exit 58820 status 2
+r=15 arm=today proj=mitt c=4 how=watch exitwatch at-exit 19.51 reaped 23.34 rss-at-exit 41044 status 2
+r=15 arm=today proj=zod3 c=4 how=stat maxrss 97664 356.82,msec,task-clock,356821979,100.00,, 138109707,,duration_time,1,100.00,, 1590948384,,cpu_atom/instructions/,356821979,100.00,, 1196133129,,cpu_atom/cycles/,356821979,100.00,, 
+r=15 arm=drop proj=superstruct c=4 how=stat maxrss 30976 67.25,msec,task-clock,67251983,100.00,, 29271511,,duration_time,1,100.00,, 252799488,,cpu_atom/instructions/,67251983,100.00,, 219477198,,cpu_atom/cycles/,67251983,100.00,, 
+r=15 arm=drop proj=mitt c=4 how=stat maxrss 40732 29.29,msec,task-clock,29294173,100.00,, 24403119,,duration_time,1,100.00,, 124427737,,cpu_atom/instructions/,29294173,100.00,, 95893687,,cpu_atom/cycles/,29294173,100.00,, 
+r=15 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 118.30 reaped 131.73 rss-at-exit 98356 status 2
+r=15 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 104.65 reaped 115.86 rss-at-exit 72476 status 2
+r=15 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1210.33 reaped 1230.77 rss-at-exit 209532 status 2
+r=15 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 414.70 reaped 455.25 rss-at-exit 254492 status 2
+r=15 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 91.27 reaped 98.50 rss-at-exit 61800 status 2
+r=15 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 496.88 reaped 514.87 rss-at-exit 160744 status 2
+r=15 arm=today proj=zod3 c=8 how=stat maxrss 115780 430.19,msec,task-clock,430190878,100.00,, 126810792,,duration_time,1,100.00,, 1867103184,,cpu_atom/instructions/,430190878,100.00,, 1433189163,,cpu_atom/cycles/,430190878,100.00,, 
+r=15 arm=today proj=ts-pattern c=4 how=stat maxrss 233228 1466.31,msec,task-clock,1466314318,100.00,, 523332759,,duration_time,1,100.00,, 7784043225,,cpu_atom/instructions/,1466314318,100.00,, 5284552620,,cpu_atom/cycles/,1466314318,100.00,, 
+r=15 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 421.78 reaped 440.55 rss-at-exit 161012 status 2
+r=15 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 210.60 reaped 217.48 rss-at-exit 72784 status 2
+r=15 arm=drop proj=neverthrow c=4 how=stat maxrss 41888 39.47,msec,task-clock,39466256,100.00,, 26249048,,duration_time,1,100.00,, 160796594,,cpu_atom/instructions/,39466256,100.00,, 127255151,,cpu_atom/cycles/,39466256,100.00,, 
+r=15 arm=drop proj=ts-pattern c=4 how=stat maxrss 202400 1461.97,msec,task-clock,1461965047,100.00,, 502275899,,duration_time,1,100.00,, 7855902636,,cpu_atom/instructions/,1461965047,100.00,, 5319823614,,cpu_atom/cycles/,1461965047,100.00,, 
+r=15 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 201.98 reaped 208.41 rss-at-exit 73004 status 2
+r=15 arm=drop proj=zod3 c=1 how=stat maxrss 72964 210.38,msec,task-clock,210382105,100.00,, 218551686,,duration_time,1,100.00,, 1164302448,,cpu_atom/instructions/,210382105,100.00,, 763346687,,cpu_atom/cycles/,210382105,100.00,, 
+r=15 arm=today proj=ts-pattern c=1 how=stat maxrss 209420 1183.41,msec,task-clock,1183413644,100.00,, 1205989441,,duration_time,1,100.00,, 7366563968,,cpu_atom/instructions/,1183413644,100.00,, 4412188543,,cpu_atom/cycles/,1183413644,100.00,, 
+r=15 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 21.92 reaped 26.00 rss-at-exit 40816 status 2
+r=15 arm=drop proj=zod3 c=8 how=stat maxrss 99548 440.45,msec,task-clock,440451214,100.00,, 107505980,,duration_time,1,100.00,, 1901042117,,cpu_atom/instructions/,440451214,100.00,, 1446064647,,cpu_atom/cycles/,440451214,100.00,, 
+r=15 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 120.05 reaped 130.79 rss-at-exit 77284 status 2
+r=15 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 24.35 reaped 26.86 rss-at-exit 27024 status 2
+r=16 arm=today proj=ts-pattern c=8 how=stat maxrss 254160 1509.14,msec,task-clock,1509140797,100.00,, 442400494,,duration_time,1,100.00,, 8002233202,,cpu_atom/instructions/,1509140797,100.00,, 5242819983,,cpu_atom/cycles/,1509140797,100.00,, 
+r=16 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 204.94 reaped 211.84 rss-at-exit 73008 status 2
+r=16 arm=today proj=mitt c=4 how=watch exitwatch at-exit 20.34 reaped 24.06 rss-at-exit 40856 status 2
+r=16 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 98.19 reaped 112.98 rss-at-exit 115404 status 2
+r=16 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 117.15 reaped 127.49 rss-at-exit 98356 status 2
+r=16 arm=drop proj=tiny-invariant c=4 how=stat maxrss 55984 119.19,msec,task-clock,119190193,100.00,, 103102567,,duration_time,1,100.00,, 693074544,,cpu_atom/instructions/,119190193,100.00,, 399502080,,cpu_atom/cycles/,119190193,100.00,, 
+r=16 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 202.94 reaped 209.79 rss-at-exit 72780 status 2
+r=16 arm=today proj=ts-pattern c=4 how=stat maxrss 234640 1448.13,msec,task-clock,1448134775,100.00,, 514750567,,duration_time,1,100.00,, 7782973026,,cpu_atom/instructions/,1448134775,100.00,, 5233976423,,cpu_atom/cycles/,1448134775,100.00,, 
+r=16 arm=today proj=neverthrow c=4 how=stat maxrss 41200 38.20,msec,task-clock,38200148,100.00,, 25307434,,duration_time,1,100.00,, 158798465,,cpu_atom/instructions/,38200148,100.00,, 123601502,,cpu_atom/cycles/,38200148,100.00,, 
+r=16 arm=today proj=zod3 c=4 how=stat maxrss 99208 354.57,msec,task-clock,354572098,100.00,, 133028988,,duration_time,1,100.00,, 1588107945,,cpu_atom/instructions/,354572098,100.00,, 1178479448,,cpu_atom/cycles/,354572098,100.00,, 
+r=16 arm=drop proj=superstruct c=4 how=stat maxrss 31260 65.92,msec,task-clock,65920966,100.00,, 28934135,,duration_time,1,100.00,, 248751905,,cpu_atom/instructions/,65920966,100.00,, 213302631,,cpu_atom/cycles/,65920966,100.00,, 
+r=16 arm=today proj=mitt c=4 how=stat maxrss 40248 29.53,msec,task-clock,29526475,100.00,, 25383904,,duration_time,1,100.00,, 124253140,,cpu_atom/instructions/,28858588,97.00,, 97113463,,cpu_atom/cycles/,28858588,97.00,, 
+r=16 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 20.63 reaped 23.92 rss-at-exit 42344 status 2
+r=16 arm=drop proj=ts-pattern c=4 how=stat maxrss 203520 1537.08,msec,task-clock,1537080035,100.00,, 524589883,,duration_time,1,100.00,, 7852719365,,cpu_atom/instructions/,1537080035,100.00,, 5260954508,,cpu_atom/cycles/,1537080035,100.00,, 
+r=16 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 19.04 reaped 23.91 rss-at-exit 39096 status 2
+r=16 arm=drop proj=zod3 c=1 how=stat maxrss 72848 205.56,msec,task-clock,205560932,100.00,, 213159007,,duration_time,1,100.00,, 1168593325,,cpu_atom/instructions/,205560932,100.00,, 750104948,,cpu_atom/cycles/,205560932,100.00,, 
+r=16 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 22.70 reaped 26.36 rss-at-exit 39292 status 2
+r=16 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1203.87,msec,task-clock,1203870088,100.00,, 1217360534,,duration_time,1,100.00,, 7411242268,,cpu_atom/instructions/,1203870088,100.00,, 4467772687,,cpu_atom/cycles/,1203870088,100.00,, 
+r=16 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 125.40 reaped 133.20 rss-at-exit 75264 status 2
+r=16 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 397.46 reaped 429.88 rss-at-exit 253924 status 2
+r=16 arm=today proj=tiny-invariant c=4 how=stat maxrss 60096 105.69,msec,task-clock,105694733,100.00,, 95121133,,duration_time,1,100.00,, 681019205,,cpu_atom/instructions/,105694733,100.00,, 360445772,,cpu_atom/cycles/,105694733,100.00,, 
+r=16 arm=drop proj=zod3 c=8 how=stat maxrss 100496 442.20,msec,task-clock,442203534,100.00,, 116130582,,duration_time,1,100.00,, 1902266361,,cpu_atom/instructions/,442203534,100.00,, 1457672092,,cpu_atom/cycles/,442203534,100.00,, 
+r=16 arm=drop proj=neverthrow c=4 how=stat maxrss 41364 41.24,msec,task-clock,41243362,100.00,, 27696806,,duration_time,1,100.00,, 160187868,,cpu_atom/instructions/,41243362,100.00,, 132900153,,cpu_atom/cycles/,41243362,100.00,, 
+r=16 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 24.57 reaped 27.76 rss-at-exit 31920 status 2
+r=16 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 86.82 reaped 93.73 rss-at-exit 57076 status 2
+r=16 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 484.42 reaped 504.31 rss-at-exit 160760 status 2
+r=16 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1187.03,msec,task-clock,1187032336,100.00,, 1211117290,,duration_time,1,100.00,, 7366996035,,cpu_atom/instructions/,1187032336,100.00,, 4439603445,,cpu_atom/cycles/,1187032336,100.00,, 
+r=16 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 102.83 reaped 110.73 rss-at-exit 72784 status 2
+r=16 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 22.71 reaped 25.29 rss-at-exit 27268 status 2
+r=16 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 431.10 reaped 445.18 rss-at-exit 160192 status 2
+r=16 arm=drop proj=zod3 c=4 how=stat maxrss 88752 339.53,msec,task-clock,339532327,100.00,, 125873910,,duration_time,1,100.00,, 1608181232,,cpu_atom/instructions/,339532327,100.00,, 1215549738,,cpu_atom/cycles/,339532327,100.00,, 
+r=16 arm=today proj=zod3 c=8 how=stat maxrss 114016 422.31,msec,task-clock,422305227,100.00,, 118177381,,duration_time,1,100.00,, 1869963480,,cpu_atom/instructions/,422305227,100.00,, 1413371667,,cpu_atom/cycles/,422305227,100.00,, 
+r=16 arm=drop proj=mitt c=4 how=stat maxrss 40912 30.13,msec,task-clock,30133374,100.00,, 25899425,,duration_time,1,100.00,, 124236616,,cpu_atom/instructions/,30133374,100.00,, 97649106,,cpu_atom/cycles/,30133374,100.00,, 
+r=16 arm=drop proj=ts-pattern c=8 how=stat maxrss 179448 1568.78,msec,task-clock,1568782433,100.00,, 447696865,,duration_time,1,100.00,, 8089948342,,cpu_atom/instructions/,1568782433,100.00,, 5398598065,,cpu_atom/cycles/,1568782433,100.00,, 
+r=16 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 90.57 reaped 98.14 rss-at-exit 60464 status 2
+r=16 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 491.52 reaped 520.11 rss-at-exit 234248 status 2
+r=16 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1206.03 reaped 1225.30 rss-at-exit 209536 status 2
+r=16 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1183.88 reaped 1203.50 rss-at-exit 209464 status 2
+r=16 arm=today proj=zod3 c=1 how=stat maxrss 72636 201.56,msec,task-clock,201560838,100.00,, 208068645,,duration_time,1,100.00,, 1159183197,,cpu_atom/instructions/,201560838,100.00,, 729708036,,cpu_atom/cycles/,201560838,100.00,, 
+r=16 arm=today proj=superstruct c=4 how=stat maxrss 32364 63.60,msec,task-clock,63599734,100.00,, 29090988,,duration_time,1,100.00,, 244142388,,cpu_atom/instructions/,63599734,100.00,, 209236685,,cpu_atom/cycles/,63599734,100.00,, 
+r=17 arm=drop proj=superstruct c=4 how=stat maxrss 30976 60.23,msec,task-clock,60227672,100.00,, 27013744,,duration_time,1,100.00,, 252989142,,cpu_atom/instructions/,60227672,100.00,, 198188206,,cpu_atom/cycles/,60227672,100.00,, 
+r=17 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 20.17 reaped 23.70 rss-at-exit 40428 status 2
+r=17 arm=drop proj=mitt c=4 how=stat maxrss 40368 29.56,msec,task-clock,29563869,100.00,, 24951120,,duration_time,1,100.00,, 123787478,,cpu_atom/instructions/,29563869,100.00,, 96880534,,cpu_atom/cycles/,29563869,100.00,, 
+r=17 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 485.85 reaped 509.93 rss-at-exit 160060 status 2
+r=17 arm=today proj=zod3 c=4 how=stat maxrss 96624 335.03,msec,task-clock,335025577,100.00,, 127600820,,duration_time,1,100.00,, 1588499544,,cpu_atom/instructions/,335025577,100.00,, 1201584088,,cpu_atom/cycles/,335025577,100.00,, 
+r=17 arm=today proj=ts-pattern c=1 how=stat maxrss 209328 1205.98,msec,task-clock,1205984383,100.00,, 1224477925,,duration_time,1,100.00,, 7369721244,,cpu_atom/instructions/,1205984383,100.00,, 4444209322,,cpu_atom/cycles/,1205984383,100.00,, 
+r=17 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 119.18 reaped 132.83 rss-at-exit 97408 status 2
+r=17 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 22.31 reaped 25.59 rss-at-exit 31976 status 2
+r=17 arm=drop proj=zod3 c=4 how=stat maxrss 89872 357.12,msec,task-clock,357120609,100.00,, 137014103,,duration_time,1,100.00,, 1605935843,,cpu_atom/instructions/,357120609,100.00,, 1185877211,,cpu_atom/cycles/,357120609,100.00,, 
+r=17 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 119.11 reaped 126.93 rss-at-exit 76620 status 2
+r=17 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 18.60 reaped 23.17 rss-at-exit 39148 status 2
+r=17 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 203.08 reaped 210.06 rss-at-exit 72784 status 2
+r=17 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 205.22 reaped 211.98 rss-at-exit 73008 status 2
+r=17 arm=today proj=superstruct c=4 how=stat maxrss 31024 59.24,msec,task-clock,59236141,100.00,, 26824286,,duration_time,1,100.00,, 247154077,,cpu_atom/instructions/,59236141,100.00,, 192856212,,cpu_atom/cycles/,59236141,100.00,, 
+r=17 arm=today proj=zod3 c=1 how=stat maxrss 72512 203.23,msec,task-clock,203233887,100.00,, 208554777,,duration_time,1,100.00,, 1163767945,,cpu_atom/instructions/,203233887,100.00,, 740583749,,cpu_atom/cycles/,203233887,100.00,, 
+r=17 arm=today proj=tiny-invariant c=4 how=stat maxrss 60220 113.78,msec,task-clock,113776353,100.00,, 100203696,,duration_time,1,100.00,, 675998680,,cpu_atom/instructions/,113776353,100.00,, 386474410,,cpu_atom/cycles/,113776353,100.00,, 
+r=17 arm=drop proj=zod3 c=8 how=stat maxrss 99568 440.67,msec,task-clock,440671229,100.00,, 116469942,,duration_time,1,100.00,, 1897109110,,cpu_atom/instructions/,440671229,100.00,, 1458950662,,cpu_atom/cycles/,440671229,100.00,, 
+r=17 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1203.25 reaped 1224.45 rss-at-exit 209460 status 2
+r=17 arm=drop proj=zod3 c=1 how=stat maxrss 72848 205.81,msec,task-clock,205807117,100.00,, 214230925,,duration_time,1,100.00,, 1168472985,,cpu_atom/instructions/,205807117,100.00,, 746447721,,cpu_atom/cycles/,205807117,100.00,, 
+r=17 arm=today proj=ts-pattern c=4 how=stat maxrss 233936 1456.21,msec,task-clock,1456205477,100.00,, 522644540,,duration_time,1,100.00,, 7781422514,,cpu_atom/instructions/,1456205477,100.00,, 5272092645,,cpu_atom/cycles/,1456205477,100.00,, 
+r=17 arm=today proj=mitt c=4 how=watch exitwatch at-exit 14.78 reaped 17.60 rss-at-exit 41104 status 2
+r=17 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1199.00 reaped 1219.88 rss-at-exit 210552 status 2
+r=17 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 483.87 reaped 515.50 rss-at-exit 234144 status 2
+r=17 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58612 116.33,msec,task-clock,116330548,100.00,, 99501119,,duration_time,1,100.00,, 695822859,,cpu_atom/instructions/,116330548,100.00,, 393019960,,cpu_atom/cycles/,116330548,100.00,, 
+r=17 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 427.17 reaped 452.55 rss-at-exit 162616 status 2
+r=17 arm=drop proj=neverthrow c=4 how=stat maxrss 41344 40.82,msec,task-clock,40818640,100.00,, 27621977,,duration_time,1,100.00,, 160134410,,cpu_atom/instructions/,40818640,100.00,, 133353554,,cpu_atom/cycles/,40818640,100.00,, 
+r=17 arm=drop proj=ts-pattern c=8 how=stat maxrss 182828 1548.77,msec,task-clock,1548768162,100.00,, 432416210,,duration_time,1,100.00,, 8085913660,,cpu_atom/instructions/,1548768162,100.00,, 5335414968,,cpu_atom/cycles/,1548768162,100.00,, 
+r=17 arm=today proj=mitt c=4 how=stat maxrss 40212 29.40,msec,task-clock,29399445,100.00,, 25519628,,duration_time,1,100.00,, 122064637,,cpu_atom/instructions/,29399445,100.00,, 94158716,,cpu_atom/cycles/,29399445,100.00,, 
+r=17 arm=drop proj=ts-pattern c=1 how=stat maxrss 210416 1208.18,msec,task-clock,1208178906,100.00,, 1230346181,,duration_time,1,100.00,, 7406394512,,cpu_atom/instructions/,1208178906,100.00,, 4462578328,,cpu_atom/cycles/,1208178906,100.00,, 
+r=17 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 25.31 reaped 27.70 rss-at-exit 27284 status 2
+r=17 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 103.03 reaped 111.78 rss-at-exit 74168 status 2
+r=17 arm=today proj=neverthrow c=4 how=stat maxrss 41548 40.56,msec,task-clock,40558515,100.00,, 29068362,,duration_time,1,100.00,, 158125483,,cpu_atom/instructions/,40558515,100.00,, 131332745,,cpu_atom/cycles/,40558515,100.00,, 
+r=17 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 18.87 reaped 22.23 rss-at-exit 39096 status 2
+r=17 arm=drop proj=ts-pattern c=4 how=stat maxrss 202400 1467.22,msec,task-clock,1467222618,100.00,, 510855009,,duration_time,1,100.00,, 7852914351,,cpu_atom/instructions/,1467222618,100.00,, 5301485645,,cpu_atom/cycles/,1467222618,100.00,, 
+r=17 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 424.51 reaped 464.28 rss-at-exit 257464 status 2
+r=17 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 89.13 reaped 96.08 rss-at-exit 57484 status 2
+r=17 arm=today proj=zod3 c=8 how=stat maxrss 113660 417.83,msec,task-clock,417826897,100.00,, 118495415,,duration_time,1,100.00,, 1869161639,,cpu_atom/instructions/,417826897,100.00,, 1383009547,,cpu_atom/cycles/,417826897,100.00,, 
+r=17 arm=today proj=ts-pattern c=8 how=stat maxrss 252684 1557.88,msec,task-clock,1557879268,100.00,, 459785600,,duration_time,1,100.00,, 7998721190,,cpu_atom/instructions/,1557879268,100.00,, 5359433715,,cpu_atom/cycles/,1557879268,100.00,, 
+r=17 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 92.70 reaped 98.96 rss-at-exit 61888 status 2
+r=17 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 101.93 reaped 115.66 rss-at-exit 115968 status 2
+r=18 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 103.06 reaped 112.27 rss-at-exit 71640 status 2
+r=18 arm=drop proj=ts-pattern c=8 how=stat maxrss 182520 1566.85,msec,task-clock,1566850075,100.00,, 439178921,,duration_time,1,100.00,, 8081373900,,cpu_atom/instructions/,1566850075,100.00,, 5380078800,,cpu_atom/cycles/,1566850075,100.00,, 
+r=18 arm=today proj=neverthrow c=4 how=stat maxrss 41196 42.68,msec,task-clock,42676592,100.00,, 29424047,,duration_time,1,100.00,, 158552313,,cpu_atom/instructions/,42676592,100.00,, 133340638,,cpu_atom/cycles/,42676592,100.00,, 
+r=18 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1195.22 reaped 1210.14 rss-at-exit 209464 status 2
+r=18 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 411.49 reaped 442.28 rss-at-exit 254408 status 2
+r=18 arm=drop proj=zod3 c=1 how=stat maxrss 72848 205.73,msec,task-clock,205729415,100.00,, 210868134,,duration_time,1,100.00,, 1168453915,,cpu_atom/instructions/,205729415,100.00,, 749247346,,cpu_atom/cycles/,205729415,100.00,, 
+r=18 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58652 117.99,msec,task-clock,117986189,100.00,, 101041317,,duration_time,1,100.00,, 691302234,,cpu_atom/instructions/,117986189,100.00,, 398419771,,cpu_atom/cycles/,117986189,100.00,, 
+r=18 arm=today proj=zod3 c=8 how=stat maxrss 114392 427.21,msec,task-clock,427205088,100.00,, 119837428,,duration_time,1,100.00,, 1865173277,,cpu_atom/instructions/,427205088,100.00,, 1431885888,,cpu_atom/cycles/,427205088,100.00,, 
+r=18 arm=today proj=tiny-invariant c=4 how=stat maxrss 61776 107.61,msec,task-clock,107613985,100.00,, 96864705,,duration_time,1,100.00,, 677792549,,cpu_atom/instructions/,107613985,100.00,, 373971490,,cpu_atom/cycles/,107613985,100.00,, 
+r=18 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 100.66 reaped 114.37 rss-at-exit 115132 status 2
+r=18 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 18.77 reaped 23.07 rss-at-exit 39128 status 2
+r=18 arm=drop proj=neverthrow c=4 how=stat maxrss 41360 41.01,msec,task-clock,41012195,100.00,, 29289910,,duration_time,1,100.00,, 160248476,,cpu_atom/instructions/,41012195,100.00,, 129612835,,cpu_atom/cycles/,41012195,100.00,, 
+r=18 arm=today proj=superstruct c=4 how=stat maxrss 31552 57.82,msec,task-clock,57821804,100.00,, 27137234,,duration_time,1,100.00,, 247626891,,cpu_atom/instructions/,57821804,100.00,, 191332119,,cpu_atom/cycles/,57821804,100.00,, 
+r=18 arm=today proj=mitt c=4 how=stat maxrss 40384 28.67,msec,task-clock,28668247,100.00,, 23845004,,duration_time,1,100.00,, 123123999,,cpu_atom/instructions/,28668247,100.00,, 92398728,,cpu_atom/cycles/,28668247,100.00,, 
+r=18 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.84 reaped 96.34 rss-at-exit 61840 status 2
+r=18 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 204.27 reaped 210.39 rss-at-exit 72784 status 2
+r=18 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 485.43 reaped 518.31 rss-at-exit 235304 status 2
+r=18 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 417.91 reaped 440.28 rss-at-exit 161876 status 2
+r=18 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1195.12 reaped 1215.29 rss-at-exit 209532 status 2
+r=18 arm=today proj=mitt c=4 how=watch exitwatch at-exit 15.42 reaped 19.16 rss-at-exit 41052 status 2
+r=18 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 21.64 reaped 25.06 rss-at-exit 40524 status 2
+r=18 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.41 reaped 95.27 rss-at-exit 57068 status 2
+r=18 arm=drop proj=zod3 c=4 how=stat maxrss 86068 329.55,msec,task-clock,329552133,100.00,, 121704393,,duration_time,1,100.00,, 1607664031,,cpu_atom/instructions/,329552133,100.00,, 1217063371,,cpu_atom/cycles/,329552133,100.00,, 
+r=18 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 115.85 reaped 128.47 rss-at-exit 98176 status 2
+r=18 arm=drop proj=ts-pattern c=1 how=stat maxrss 209280 1217.45,msec,task-clock,1217451141,100.00,, 1239369596,,duration_time,1,100.00,, 7409347258,,cpu_atom/instructions/,1217451141,100.00,, 4488678980,,cpu_atom/cycles/,1217451141,100.00,, 
+r=18 arm=drop proj=superstruct c=4 how=stat maxrss 30816 67.41,msec,task-clock,67413539,100.00,, 30710223,,duration_time,1,100.00,, 252957228,,cpu_atom/instructions/,67413539,100.00,, 220549219,,cpu_atom/cycles/,67413539,100.00,, 
+r=18 arm=today proj=ts-pattern c=1 how=stat maxrss 210472 1205.25,msec,task-clock,1205249541,100.00,, 1227507517,,duration_time,1,100.00,, 7364734832,,cpu_atom/instructions/,1205249541,100.00,, 4446794675,,cpu_atom/cycles/,1205249541,100.00,, 
+r=18 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 506.50 reaped 529.93 rss-at-exit 160756 status 2
+r=18 arm=drop proj=mitt c=4 how=stat maxrss 40900 25.15,msec,task-clock,25150088,100.00,, 22278942,,duration_time,1,100.00,, 124000765,,cpu_atom/instructions/,25150088,100.00,, 78397573,,cpu_atom/cycles/,25150088,100.00,, 
+r=18 arm=today proj=ts-pattern c=8 how=stat maxrss 254352 1537.00,msec,task-clock,1537004061,100.00,, 453100080,,duration_time,1,100.00,, 8008617100,,cpu_atom/instructions/,1537004061,100.00,, 5339284646,,cpu_atom/cycles/,1537004061,100.00,, 
+r=18 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 22.31 reaped 26.24 rss-at-exit 42072 status 2
+r=18 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 202.76 reaped 210.15 rss-at-exit 73008 status 2
+r=18 arm=drop proj=ts-pattern c=4 how=stat maxrss 203296 1466.02,msec,task-clock,1466016455,100.00,, 515174645,,duration_time,1,100.00,, 7853917676,,cpu_atom/instructions/,1466016455,100.00,, 5331346689,,cpu_atom/cycles/,1466016455,100.00,, 
+r=18 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 24.89 reaped 27.59 rss-at-exit 27264 status 2
+r=18 arm=today proj=zod3 c=4 how=stat maxrss 97872 331.67,msec,task-clock,331672877,100.00,, 126472248,,duration_time,1,100.00,, 1590891649,,cpu_atom/instructions/,331672877,100.00,, 1161645296,,cpu_atom/cycles/,331672877,100.00,, 
+r=18 arm=today proj=ts-pattern c=4 how=stat maxrss 233424 1522.45,msec,task-clock,1522449246,100.00,, 526318307,,duration_time,1,100.00,, 7783606770,,cpu_atom/instructions/,1521781980,99.00,, 5226868082,,cpu_atom/cycles/,1521781980,99.00,, 
+r=18 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 23.99 reaped 27.51 rss-at-exit 31928 status 2
+r=18 arm=drop proj=zod3 c=8 how=stat maxrss 100340 443.98,msec,task-clock,443976185,100.00,, 116286347,,duration_time,1,100.00,, 1899917082,,cpu_atom/instructions/,443976185,100.00,, 1467264529,,cpu_atom/cycles/,443976185,100.00,, 
+r=18 arm=today proj=zod3 c=1 how=stat maxrss 72512 209.09,msec,task-clock,209088830,100.00,, 232646742,,duration_time,1,100.00,, 1165513016,,cpu_atom/instructions/,209088830,100.00,, 759731305,,cpu_atom/cycles/,209088830,100.00,, 
+r=18 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 117.85 reaped 127.48 rss-at-exit 74028 status 2
+r=19 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 21.39 reaped 23.89 rss-at-exit 39428 status 2
+r=19 arm=drop proj=superstruct c=4 how=stat maxrss 31408 65.33,msec,task-clock,65334419,100.00,, 28887423,,duration_time,1,100.00,, 253016161,,cpu_atom/instructions/,65334419,100.00,, 214525924,,cpu_atom/cycles/,65334419,100.00,, 
+r=19 arm=today proj=ts-pattern c=1 how=stat maxrss 209356 1202.41,msec,task-clock,1202413294,100.00,, 1223098276,,duration_time,1,100.00,, 7368225758,,cpu_atom/instructions/,1202413294,100.00,, 4461040722,,cpu_atom/cycles/,1202413294,100.00,, 
+r=19 arm=drop proj=neverthrow c=4 how=stat maxrss 42192 38.44,msec,task-clock,38442287,100.00,, 25590071,,duration_time,1,100.00,, 157007717,,cpu_atom/instructions/,38442287,100.00,, 112800256,,cpu_atom/cycles/,38442287,100.00,, 
+r=19 arm=drop proj=ts-pattern c=4 how=stat maxrss 202928 1470.00,msec,task-clock,1470000304,100.00,, 503996716,,duration_time,1,100.00,, 7857375551,,cpu_atom/instructions/,1470000304,100.00,, 5336524391,,cpu_atom/cycles/,1470000304,100.00,, 
+r=19 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 97.14 reaped 116.43 rss-at-exit 116388 status 2
+r=19 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 24.17 reaped 27.44 rss-at-exit 32168 status 2
+r=19 arm=drop proj=zod3 c=8 how=stat maxrss 101264 449.56,msec,task-clock,449558893,100.00,, 123298489,,duration_time,1,100.00,, 1902177079,,cpu_atom/instructions/,449558893,100.00,, 1483588463,,cpu_atom/cycles/,449558893,100.00,, 
+r=19 arm=today proj=ts-pattern c=4 how=stat maxrss 234200 1441.93,msec,task-clock,1441930371,100.00,, 521394100,,duration_time,1,100.00,, 7779753073,,cpu_atom/instructions/,1441930371,100.00,, 5249435439,,cpu_atom/cycles/,1441930371,100.00,, 
+r=19 arm=drop proj=mitt c=4 how=stat maxrss 40936 29.99,msec,task-clock,29992732,100.00,, 25528554,,duration_time,1,100.00,, 124236259,,cpu_atom/instructions/,29992732,100.00,, 93164780,,cpu_atom/cycles/,29992732,100.00,, 
+r=19 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 117.48 reaped 125.98 rss-at-exit 77148 status 2
+r=19 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 200.75 reaped 205.19 rss-at-exit 73004 status 2
+r=19 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1204.13 reaped 1221.43 rss-at-exit 209460 status 2
+r=19 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 406.73 reaped 436.64 rss-at-exit 256120 status 2
+r=19 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 104.16 reaped 117.10 rss-at-exit 74784 status 2
+r=19 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 25.04 reaped 27.68 rss-at-exit 27112 status 2
+r=19 arm=today proj=neverthrow c=4 how=stat maxrss 39984 35.28,msec,task-clock,35275964,100.00,, 24527740,,duration_time,1,100.00,, 156555961,,cpu_atom/instructions/,35275964,100.00,, 114315686,,cpu_atom/cycles/,35275964,100.00,, 
+r=19 arm=drop proj=zod3 c=4 how=stat maxrss 85812 361.50,msec,task-clock,361503728,100.00,, 135176454,,duration_time,1,100.00,, 1608184314,,cpu_atom/instructions/,361503728,100.00,, 1192900981,,cpu_atom/cycles/,361503728,100.00,, 
+r=19 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1202.17 reaped 1216.77 rss-at-exit 209532 status 2
+r=19 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 16.79 reaped 22.04 rss-at-exit 39096 status 2
+r=19 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 492.07 reaped 515.93 rss-at-exit 162196 status 2
+r=19 arm=today proj=zod3 c=4 how=stat maxrss 96432 331.40,msec,task-clock,331399639,100.00,, 125686566,,duration_time,1,100.00,, 1589781252,,cpu_atom/instructions/,331399639,100.00,, 1204532542,,cpu_atom/cycles/,331399639,100.00,, 
+r=19 arm=drop proj=zod3 c=1 how=stat maxrss 72848 205.75,msec,task-clock,205750554,100.00,, 213490186,,duration_time,1,100.00,, 1168685391,,cpu_atom/instructions/,205750554,100.00,, 741375807,,cpu_atom/cycles/,205750554,100.00,, 
+r=19 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 82.92 reaped 90.77 rss-at-exit 61828 status 2
+r=19 arm=today proj=ts-pattern c=8 how=stat maxrss 252092 1536.47,msec,task-clock,1536465153,100.00,, 448752266,,duration_time,1,100.00,, 7999786733,,cpu_atom/instructions/,1536465153,100.00,, 5316919648,,cpu_atom/cycles/,1536465153,100.00,, 
+r=19 arm=today proj=zod3 c=8 how=stat maxrss 115264 426.41,msec,task-clock,426410063,100.00,, 114515253,,duration_time,1,100.00,, 1873547491,,cpu_atom/instructions/,426410063,100.00,, 1428743322,,cpu_atom/cycles/,426410063,100.00,, 
+r=19 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 17.78 reaped 20.23 rss-at-exit 42248 status 2
+r=19 arm=today proj=superstruct c=4 how=stat maxrss 31568 62.95,msec,task-clock,62950842,100.00,, 27721682,,duration_time,1,100.00,, 247733136,,cpu_atom/instructions/,62950842,100.00,, 206737020,,cpu_atom/cycles/,62950842,100.00,, 
+r=19 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 94.23 reaped 101.10 rss-at-exit 58272 status 2
+r=19 arm=drop proj=ts-pattern c=8 how=stat maxrss 184476 1569.08,msec,task-clock,1569076443,100.00,, 439824668,,duration_time,1,100.00,, 8087423474,,cpu_atom/instructions/,1569076443,100.00,, 5367029566,,cpu_atom/cycles/,1569076443,100.00,, 
+r=19 arm=drop proj=ts-pattern c=1 how=stat maxrss 209372 1204.47,msec,task-clock,1204474455,100.00,, 1224676862,,duration_time,1,100.00,, 7410640105,,cpu_atom/instructions/,1204474455,100.00,, 4444874168,,cpu_atom/cycles/,1204474455,100.00,, 
+r=19 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 115.18 reaped 128.07 rss-at-exit 98308 status 2
+r=19 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 416.06 reaped 440.66 rss-at-exit 160848 status 2
+r=19 arm=today proj=mitt c=4 how=stat maxrss 40540 28.75,msec,task-clock,28748958,100.00,, 24183157,,duration_time,1,100.00,, 122874259,,cpu_atom/instructions/,28748958,100.00,, 93661182,,cpu_atom/cycles/,28748958,100.00,, 
+r=19 arm=drop proj=tiny-invariant c=4 how=stat maxrss 57884 117.24,msec,task-clock,117239537,100.00,, 100637517,,duration_time,1,100.00,, 694792270,,cpu_atom/instructions/,117239537,100.00,, 403264291,,cpu_atom/cycles/,117239537,100.00,, 
+r=19 arm=today proj=zod3 c=1 how=stat maxrss 72512 204.35,msec,task-clock,204353187,100.00,, 212334500,,duration_time,1,100.00,, 1163850970,,cpu_atom/instructions/,204353187,100.00,, 745097132,,cpu_atom/cycles/,204353187,100.00,, 
+r=19 arm=today proj=mitt c=4 how=watch exitwatch at-exit 18.33 reaped 22.18 rss-at-exit 40816 status 2
+r=19 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 492.57 reaped 524.53 rss-at-exit 234272 status 2
+r=19 arm=today proj=tiny-invariant c=4 how=stat maxrss 60464 108.50,msec,task-clock,108501972,100.00,, 94899357,,duration_time,1,100.00,, 681714184,,cpu_atom/instructions/,108501972,100.00,, 388200711,,cpu_atom/cycles/,108501972,100.00,, 
+r=19 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 203.80 reaped 210.53 rss-at-exit 72784 status 2
+r=20 arm=drop proj=neverthrow c=4 how=watch exitwatch at-exit 20.79 reaped 25.77 rss-at-exit 37572 status 2
+r=20 arm=today proj=tiny-invariant c=4 how=watch exitwatch at-exit 88.49 reaped 94.80 rss-at-exit 61812 status 2
+r=20 arm=today proj=zod3 c=8 how=stat maxrss 115804 435.49,msec,task-clock,435491487,100.00,, 118242281,,duration_time,1,100.00,, 1871213044,,cpu_atom/instructions/,435491487,100.00,, 1426609308,,cpu_atom/cycles/,435491487,100.00,, 
+r=20 arm=today proj=tiny-invariant c=4 how=stat maxrss 59056 108.92,msec,task-clock,108921334,100.00,, 94575714,,duration_time,1,100.00,, 680034549,,cpu_atom/instructions/,108921334,100.00,, 374682279,,cpu_atom/cycles/,108921334,100.00,, 
+r=20 arm=drop proj=ts-pattern c=4 how=watch exitwatch at-exit 487.81 reaped 508.10 rss-at-exit 160688 status 2
+r=20 arm=today proj=zod3 c=8 how=watch exitwatch at-exit 99.94 reaped 118.64 rss-at-exit 116576 status 2
+r=20 arm=today proj=superstruct c=4 how=stat maxrss 31568 58.32,msec,task-clock,58321393,100.00,, 26156738,,duration_time,1,100.00,, 247449249,,cpu_atom/instructions/,58321393,100.00,, 190671109,,cpu_atom/cycles/,58321393,100.00,, 
+r=20 arm=today proj=zod3 c=1 how=watch exitwatch at-exit 202.30 reaped 208.80 rss-at-exit 72788 status 2
+r=20 arm=today proj=neverthrow c=4 how=stat maxrss 41372 39.31,msec,task-clock,39309615,100.00,, 28333040,,duration_time,1,100.00,, 158461067,,cpu_atom/instructions/,39309615,100.00,, 133494733,,cpu_atom/cycles/,39309615,100.00,, 
+r=20 arm=today proj=ts-pattern c=1 how=stat maxrss 209356 1187.35,msec,task-clock,1187354437,100.00,, 1208615611,,duration_time,1,100.00,, 7368395285,,cpu_atom/instructions/,1187354437,100.00,, 4426245370,,cpu_atom/cycles/,1187354437,100.00,, 
+r=20 arm=today proj=ts-pattern c=8 how=stat maxrss 253964 1526.92,msec,task-clock,1526923446,100.00,, 444553445,,duration_time,1,100.00,, 7996976369,,cpu_atom/instructions/,1526923446,100.00,, 5266628786,,cpu_atom/cycles/,1526923446,100.00,, 
+r=20 arm=today proj=ts-pattern c=1 how=watch exitwatch at-exit 1210.77 reaped 1231.41 rss-at-exit 209456 status 2
+r=20 arm=drop proj=zod3 c=4 how=stat maxrss 86840 337.10,msec,task-clock,337097596,100.00,, 127560633,,duration_time,1,100.00,, 1609912619,,cpu_atom/instructions/,337097596,100.00,, 1242803018,,cpu_atom/cycles/,337097596,100.00,, 
+r=20 arm=today proj=mitt c=4 how=stat maxrss 40576 28.96,msec,task-clock,28955253,100.00,, 25071461,,duration_time,1,100.00,, 122393768,,cpu_atom/instructions/,28955253,100.00,, 94860886,,cpu_atom/cycles/,28955253,100.00,, 
+r=20 arm=drop proj=mitt c=4 how=watch exitwatch at-exit 16.02 reaped 19.65 rss-at-exit 39096 status 2
+r=20 arm=today proj=ts-pattern c=4 how=stat maxrss 234112 1446.41,msec,task-clock,1446414007,100.00,, 512811406,,duration_time,1,100.00,, 7782284796,,cpu_atom/instructions/,1446414007,100.00,, 5261136621,,cpu_atom/cycles/,1446414007,100.00,, 
+r=20 arm=drop proj=ts-pattern c=1 how=stat maxrss 210420 1225.06,msec,task-clock,1225064239,100.00,, 1247683644,,duration_time,1,100.00,, 7409087462,,cpu_atom/instructions/,1225064239,100.00,, 4507875849,,cpu_atom/cycles/,1225064239,100.00,, 
+r=20 arm=drop proj=zod3 c=8 how=watch exitwatch at-exit 103.28 reaped 113.62 rss-at-exit 72464 status 2
+r=20 arm=drop proj=ts-pattern c=8 how=watch exitwatch at-exit 412.77 reaped 440.10 rss-at-exit 160008 status 2
+r=20 arm=today proj=neverthrow c=4 how=watch exitwatch at-exit 22.68 reaped 26.15 rss-at-exit 43236 status 2
+r=20 arm=today proj=superstruct c=4 how=watch exitwatch at-exit 20.43 reaped 23.33 rss-at-exit 32120 status 2
+r=20 arm=today proj=zod3 c=4 how=watch exitwatch at-exit 115.07 reaped 125.22 rss-at-exit 97084 status 2
+r=20 arm=today proj=zod3 c=4 how=stat maxrss 99264 328.84,msec,task-clock,328843737,100.00,, 128065126,,duration_time,1,100.00,, 1591984108,,cpu_atom/instructions/,328843737,100.00,, 1215633701,,cpu_atom/cycles/,328843737,100.00,, 
+r=20 arm=drop proj=neverthrow c=4 how=stat maxrss 41164 42.21,msec,task-clock,42206188,100.00,, 30703141,,duration_time,1,100.00,, 161432625,,cpu_atom/instructions/,41904155,99.00,, 136337460,,cpu_atom/cycles/,41904155,99.00,, 
+r=20 arm=today proj=ts-pattern c=4 how=watch exitwatch at-exit 494.13 reaped 522.84 rss-at-exit 234676 status 2
+r=20 arm=drop proj=zod3 c=1 how=stat maxrss 72848 206.54,msec,task-clock,206543513,100.00,, 213932546,,duration_time,1,100.00,, 1170459760,,cpu_atom/instructions/,206543513,100.00,, 759930272,,cpu_atom/cycles/,206543513,100.00,, 
+r=20 arm=drop proj=superstruct c=4 how=stat maxrss 30976 68.12,msec,task-clock,68116913,100.00,, 31867983,,duration_time,1,100.00,, 252972765,,cpu_atom/instructions/,68116913,100.00,, 212614843,,cpu_atom/cycles/,68116913,100.00,, 
+r=20 arm=drop proj=zod3 c=4 how=watch exitwatch at-exit 120.52 reaped 128.64 rss-at-exit 74400 status 2
+r=20 arm=drop proj=tiny-invariant c=4 how=stat maxrss 58060 119.03,msec,task-clock,119028112,100.00,, 102233600,,duration_time,1,100.00,, 695278842,,cpu_atom/instructions/,119028112,100.00,, 405184617,,cpu_atom/cycles/,119028112,100.00,, 
+r=20 arm=today proj=ts-pattern c=8 how=watch exitwatch at-exit 421.85 reaped 454.20 rss-at-exit 254316 status 2
+r=20 arm=drop proj=ts-pattern c=4 how=stat maxrss 201008 1475.74,msec,task-clock,1475737885,100.00,, 510093267,,duration_time,1,100.00,, 7857859234,,cpu_atom/instructions/,1475737885,100.00,, 5364090689,,cpu_atom/cycles/,1475737885,100.00,, 
+r=20 arm=drop proj=tiny-invariant c=4 how=watch exitwatch at-exit 91.77 reaped 100.89 rss-at-exit 56228 status 2
+r=20 arm=drop proj=ts-pattern c=8 how=stat maxrss 183204 1560.25,msec,task-clock,1560253161,100.00,, 435334855,,duration_time,1,100.00,, 8088083784,,cpu_atom/instructions/,1560253161,100.00,, 5384657032,,cpu_atom/cycles/,1560253161,100.00,, 
+r=20 arm=drop proj=ts-pattern c=1 how=watch exitwatch at-exit 1196.46 reaped 1215.85 rss-at-exit 209532 status 2
+r=20 arm=drop proj=zod3 c=1 how=watch exitwatch at-exit 198.23 reaped 202.14 rss-at-exit 73008 status 2
+r=20 arm=drop proj=zod3 c=8 how=stat maxrss 100744 439.62,msec,task-clock,439616387,100.00,, 117878851,,duration_time,1,100.00,, 1897684373,,cpu_atom/instructions/,439616387,100.00,, 1442436464,,cpu_atom/cycles/,439616387,100.00,, 
+r=20 arm=today proj=mitt c=4 how=watch exitwatch at-exit 19.30 reaped 23.19 rss-at-exit 40816 status 2
+r=20 arm=drop proj=superstruct c=4 how=watch exitwatch at-exit 23.82 reaped 27.00 rss-at-exit 27292 status 2
+r=20 arm=drop proj=mitt c=4 how=stat maxrss 40904 27.77,msec,task-clock,27768905,100.00,, 24063422,,duration_time,1,100.00,, 124013091,,cpu_atom/instructions/,27768905,100.00,, 90892520,,cpu_atom/cycles/,27768905,100.00,, 
+r=20 arm=today proj=zod3 c=1 how=stat maxrss 72512 203.96,msec,task-clock,203960747,100.00,, 212013194,,duration_time,1,100.00,, 1163935665,,cpu_atom/instructions/,203960747,100.00,, 743135560,,cpu_atom/cycles/,203960747,100.00,, 
