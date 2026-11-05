@@ -306,7 +306,7 @@ noinline fn wakeLastApart(f: *Fiber) void {
 }
 
 fn wakeLastIn(f: *Fiber) void {
-    if (deterministic.*) return wake(f);
+    if (deterministic.*) return wakeIn(f);
     if (f.home) |home| return wakeHome(f, home);
     const w = me() orelse {
         global.push(f);
@@ -345,12 +345,18 @@ fn pinHereIn() ?*Worker {
 }
 
 /// Let other fibers run, then go on.
-pub fn yield() void {
-    stop(.{ .run = requeue });
+pub const yield = if (preempt) yieldApart else yieldIn;
+
+noinline fn yieldApart() void {
+    yieldIn();
+}
+
+fn yieldIn() void {
+    stopIn(.{ .run = requeue });
 }
 
 fn requeue(f: *Fiber, _: ?*anyopaque) void {
-    wakeLast(f);
+    wakeLastIn(f);
 }
 
 /// A yield check of a loop (`rt.turn`): yield when other work waits
@@ -544,13 +550,13 @@ const Preempt = struct {
 /// it is taken and let go on one thread.
 pub noinline fn holdOff() void {
     if (!preempt) return;
-    if (me()) |w| preOf(w).no_preempt += 1;
+    if (me_slot().*) |w| preOf(w).no_preempt += 1;
 }
 
 /// A lock `holdOff` counted is let go.
 pub noinline fn holdOn() void {
     if (!preempt) return;
-    if (me()) |w| preOf(w).no_preempt -|= 1;
+    if (me_slot().*) |w| preOf(w).no_preempt -|= 1;
 }
 
 /// The pinned fiber `w` runs next: the one it preempted, if it holds one,
@@ -712,7 +718,8 @@ fn preemptedC() callconv(.c) void {
 /// A fiber the monitor's signal stopped (`preemptEntry`): do what a loop's
 /// yield check does (`tick`), wake what its worker's timers and poller
 /// make ready, and if work waits, for this worker or for another busy
-/// one, go back in line behind it (a pinned fiber: be held).
+/// one, go back in line behind it, in the global queue (a pinned fiber:
+/// be held).
 fn preempted() void {
     const w = me() orelse return;
     serviceBusy(w);
@@ -720,7 +727,16 @@ fn preempted() void {
         if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
     }
     preOf(w).preempts += 1;
-    stop(.{ .run = if (w.current.?.home != null) hold else requeue });
+    stopIn(.{ .run = if (w.current.?.home != null) hold else behind });
+}
+
+/// Queue the fiber `f` just preempted in the global queue, as Go does:
+/// behind the fibers made or woken on any worker, which each worker runs
+/// first, and the other preempted ones; a worker looks there every 61
+/// turns and when its own queues are empty.
+fn behind(f: *Fiber, _: ?*anyopaque) void {
+    global.push(f);
+    notify();
 }
 
 /// Hold the pinned fiber `f` just preempted on its worker, ahead of the
@@ -746,36 +762,50 @@ fn mustNotBeInCode(ret: usize) void {
 /// The slice a fiber runs while other work waits before it is
 /// preempted: 10 ms, as Go's, or `RIG_PREEMPT_SLICE_US` microseconds.
 fn sliceNs() i96 {
-    if (rt.process.*) |p| if (p.environ.getPosix("RIG_PREEMPT_SLICE_US")) |v| {
+    return envUs("RIG_PREEMPT_SLICE_US", 10_000);
+}
+
+/// The microseconds the environment variable `name` gives, else `default`,
+/// in nanoseconds: the prototype's knobs.
+fn envUs(comptime name: []const u8, default: u32) i96 {
+    if (rt.process.*) |p| if (p.environ.getPosix(name)) |v| {
         const n = std.fmt.parseInt(u32, v, 10) catch 0;
         if (n > 0) return @as(i96, n) * std.time.ns_per_us;
     };
-    return 10 * std.time.ns_per_ms;
+    return @as(i96, default) * std.time.ns_per_us;
 }
 
 fn startMonitor() void {
     installPreempt();
-    const t = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{sliceNs()}) catch return;
+    const t = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
     t.detach();
 }
 
-/// Every period, at most 1 ms and a quarter of the slice, while any
-/// worker runs, and twice as long each period every worker spends
-/// without, up to 10 ms: signal each worker that has run one fiber for
-/// a slice while work waits, or for a period while its timers are due or
-/// its poller holds events.
-fn watchSlices(slice: i96) void {
+/// Every period: signal each worker that has run one fiber since the
+/// last look while work waited for it all that time, work it had then
+/// and has still, having started none since (so the work waits no more
+/// than about two periods, as a yield check's turns let it); or that has
+/// run one for a slice while any work waits (`workWaits`); or whose
+/// timers are due or whose poller holds events. The period is the wait
+/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting, 1
+/// ms while any runs a fiber, and twice as long each period every worker
+/// spends without, up to 10 ms.
+fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
-    const busy_period: i96 = @max(50 * std.time.ns_per_us, @min(std.time.ns_per_ms, @divTrunc(slice, 4)));
-    var period = busy_period;
+    var had: [max_workers]bool = @splat(false);
+    var period: i96 = std.time.ns_per_ms;
     while (!stopping.load(.acquire)) {
         sleepNs(period);
         const now = nowReal();
         var busy = false;
+        var queued = false;
         for (workers.*, 0..) |*w, i| {
             const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
+            const work = queuedHere(w);
+            queued = queued or work;
+            defer had[i] = work;
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
                 since[i] = now;
@@ -783,15 +813,23 @@ fn watchSlices(slice: i96) void {
                 continue;
             }
             busy = true;
-            const due = serviceDue(w, now);
-            if (!due and (now - since[i] < slice or !workWaits(w))) continue;
+            const waited = work and had[i];
+            if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
             // Again every period until it stops: a signal that finds the
             // fiber outside the program's code does nothing.
             _ = preOf(w).signals.fetchAdd(1, .monotonic);
             signalThread(preOf(w).tid);
         }
-        period = if (busy) busy_period else @min(2 * period, 10 * std.time.ns_per_ms);
+        period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
+}
+
+/// Whether work waits in `w`'s own queues: its "run next" slot, its
+/// ring, and its pinned fibers, where fibers made or woken wait. Fibers
+/// that were preempted wait in the global queue, which only the slice
+/// hurries (`preempted`).
+fn queuedHere(w: *Worker) bool {
+    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0 or preOf(w).held != null;
 }
 
 /// Whether work waits that a preempted fiber of the busy worker `w` would
@@ -902,13 +940,19 @@ fn fallAsleep(f: *Fiber, timed: ?*anyopaque) void {
     if (Wait.epochOf(w) == f.wait.epoch and w & Wait.states == Wait.about) {
         if (f.wait.word.cmpxchgStrong(w, (w & ~Wait.states) | Wait.asleep, .seq_cst, .seq_cst) == null) return;
     }
-    wake(f);
+    wakeIn(f);
 }
 
 /// End the wait `epoch` of `f`, if it is still on, and give whether this
 /// call ended it. A cancel passes `cancel`, and ends only a wait that a
 /// cancel may end.
-pub fn interrupt(f: *Fiber, epoch: u32, cancel: bool) bool {
+pub const interrupt = if (preempt) interruptApart else interruptIn;
+
+noinline fn interruptApart(f: *Fiber, epoch: u32, cancel: bool) bool {
+    return interruptIn(f, epoch, cancel);
+}
+
+fn interruptIn(f: *Fiber, epoch: u32, cancel: bool) bool {
     var w = f.wait.word.load(.seq_cst);
     while (true) {
         if (Wait.epochOf(w) != epoch) return false;
@@ -916,7 +960,7 @@ pub fn interrupt(f: *Fiber, epoch: u32, cancel: bool) bool {
         if (state == Wait.woken) return false;
         if (cancel and w & Wait.cancelable_bit == 0) return false;
         w = f.wait.word.cmpxchgWeak(w, (w & ~Wait.states) | Wait.woken, .seq_cst, .seq_cst) orelse {
-            if (state == Wait.asleep) wake(f);
+            if (state == Wait.asleep) wakeIn(f);
             return true;
         };
     }
@@ -2450,8 +2494,14 @@ fn leavable(comptime T: type) bool {
 /// runs on the worker once this fiber has switched away: it records the
 /// fiber where the waker will find it, or queues it again when what it
 /// waits for has already happened.
-pub fn park(after: After) void {
-    stop(after);
+pub const park = if (preempt) parkApart else parkIn;
+
+noinline fn parkApart(after: After) void {
+    parkIn(after);
+}
+
+fn parkIn(after: After) void {
+    stopIn(after);
 }
 
 const stop = if (preempt) stopApart else stopIn;
