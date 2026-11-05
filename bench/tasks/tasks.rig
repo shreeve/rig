@@ -4,10 +4,11 @@
 # and a chain while CPU-bound tasks keep every core busy (hog). Run as
 # `tasks many`, it holds many sleeping tasks at once (many), and as
 # `tasks idle`, none, sleeping as long: the driver reads the memory each
-# takes. Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
+# takes (`long` sleeps 1 s). Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
 # the checks must agree with tokio.rs's and main.go's.
 
 use std.os
+use std.par
 use std.task
 use std.time
 
@@ -24,6 +25,11 @@ HOG_CHAIN = 50
 HOG_SLICE = 1000000
 MANY = 10000
 MANY_NAP_MS = 200
+LONG_NAP_MS = 1000
+CHUNKS = 1024
+EVEN_WORK = 61000
+SKEW_BASE = 1200
+ALLOC_ROUNDS = 4400
 
 fun leaf(i: Int) -> Int
   i
@@ -103,33 +109,131 @@ called sub hog()
     sum += y
   print("hog", ns, sum)
 
-fun nap() -> Int!
-  time.sleep(ms: MANY_NAP_MS)!
+fun nap(ms: Int) -> Int!
+  time.sleep(ms: ms)!
   1
 
-called sub many()
+called sub many(ms: Int)
   t = time.now()
   ts = Tasks[Int!]()
   for 0..MANY
-    !ts.add(nap()&)
+    !ts.add(nap(ms)&)
   xs = >ts catch List[Int]()
   sum = 0
   for x in xs
     sum += x
   print("many", t.elapsed(), sum)
 
-called sub idle()
+called sub idle(ms: Int)
   t = time.now()
-  n = nap() catch 0
+  n = nap(ms) catch 0
   print("idle", t.elapsed(), n)
+
+# The scaling benchmarks (bench/tasks/bench-scale), each run alone as
+# `tasks scale NAME W`, with W 1 for the work and 0 for none (the
+# benchmark's fixed cost): CHUNKS equal chunks of CPU work (even), CHUNKS
+# chunks whose costs vary up to 100 times (skew), a divide-and-conquer
+# tree of the same leaves, each split started as a task (tree), and
+# CHUNKS chunks that build and drop short Lists and Strings (alloc).
+# `-par` runs the chunks through `par.map`, `-tasks` as a set of tasks.
+
+fun cost(i: Int) -> Int
+  SKEW_BASE * (1 + i * 7919 % 100)
+
+fun even_chunk(i: Int, w: Int) -> Int
+  spin(w * (EVEN_WORK + i))
+
+fun skew_chunk(i: Int, w: Int) -> Int
+  spin(w * cost(i))
+
+fun churn(i: Int, rounds: Int) -> Int
+  total = 0
+  for k in 0..rounds
+    xs = List[Int]()
+    for j in 0..16
+      !xs.push(i + j + k)
+    s = String("item ", k)
+    for x in xs
+      total = (total + x) % 1000003
+    total = (total + s.len) % 1000003
+  total
+
+fun alloc_chunk(i: Int, w: Int) -> Int
+  churn(i, w * ALLOC_ROUNDS)
+
+fun tree(lo: Int, hi: Int, w: Int) -> Int
+  if hi - lo == 1
+    return skew_chunk(lo, w)
+  mid = (lo + hi) / 2
+  a = tree(lo, mid, w)&
+  b = tree(mid, hi, w)
+  (b + >a) % 1000003
+
+fun total_of(xs: ?List[Int]) -> Int
+  total = 0
+  for x in xs
+    total = (total + x) % 1000003
+  total
+
+fun by_par(kind: Int, w: Int) -> Int
+  idx = List[Int]()
+  for i in 0..CHUNKS
+    !idx.push(i)
+  ys = List[Int]()
+  if kind == 0
+    ys = par.map(?idx, |+w, i| even_chunk(i, w))
+  else if kind == 1
+    ys = par.map(?idx, |+w, i| skew_chunk(i, w))
+  else
+    ys = par.map(?idx, |+w, i| alloc_chunk(i, w))
+  total_of(?ys)
+
+fun by_tasks(kind: Int, w: Int) -> Int
+  ts = Tasks[Int]()
+  for i in 0..CHUNKS
+    if kind == 0
+      !ts.add(even_chunk(i, w)&)
+    else if kind == 1
+      !ts.add(skew_chunk(i, w)&)
+    else
+      !ts.add(alloc_chunk(i, w)&)
+  xs = >ts
+  total_of(?xs)
+
+called sub scale(name: ?String, w: Int)
+  t = time.now()
+  check = 0
+  if name == "tree"
+    check = tree(0, CHUNKS, w)
+  else if name == "even-par"
+    check = by_par(0, w)
+  else if name == "skew-par"
+    check = by_par(1, w)
+  else if name == "alloc-par"
+    check = by_par(2, w)
+  else if name == "even-tasks"
+    check = by_tasks(0, w)
+  else if name == "skew-tasks"
+    check = by_tasks(1, w)
+  else
+    check = by_tasks(2, w)
+  print(name, t.elapsed(), check)
 
 sub main()
   args = os.args()
+  if args.len > 3 and args[1] == "scale"
+    scale(args[2], 0 if args[3] == "0" else 1)
+    return
   if args.len > 1
+    # `long` sleeps 1 s, long enough for bench-scale to read the
+    # memory of the tasks from outside while they sleep.
+    ms = MANY_NAP_MS
+    if args.len > 2 and args[2] == "long"
+      ms = LONG_NAP_MS
     if args[1] == "many"
-      many()
+      many(ms)
     else
-      idle()
+      idle(ms)
     return
   spawn()
   chain()

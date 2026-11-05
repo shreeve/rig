@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -26,6 +27,10 @@ const (
 	hogSlice   = 1000000
 	many       = 10000
 	manyNap    = 200 * time.Millisecond
+	chunks     = 1024
+	evenWork   = 61000
+	skewBase   = 1200
+	allocRound = 4400
 )
 
 //go:noinline
@@ -40,13 +45,13 @@ func spin(n int64) int64 {
 	return total
 }
 
-func manyTasks() {
+func manyTasks(nap time.Duration) {
 	t := time.Now()
 	results := make([]int64, many)
 	var wg sync.WaitGroup
 	for i := 0; i < many; i++ {
 		wg.Add(1)
-		go func(i int) { time.Sleep(manyNap); results[i] = 1; wg.Done() }(i)
+		go func(i int) { time.Sleep(nap); results[i] = 1; wg.Done() }(i)
 	}
 	wg.Wait()
 	var sum int64
@@ -56,13 +61,101 @@ func manyTasks() {
 	fmt.Println("many", time.Since(t).Nanoseconds(), sum)
 }
 
+// The scaling benchmarks (bench/tasks/bench-scale), each run alone as
+// `tasks-go scale NAME W`, as tasks.rig runs them: W is 1 for the work and
+// 0 for none. Each chunk, and each split of the tree, is a goroutine.
+
+func cost(i int64) int64 { return skewBase * (1 + i*7919%100) }
+
+// Each chunk's Lists and Strings go to a slot of its own, so they reach
+// the heap as Rig's and Rust's do, and no two goroutines write one slot.
+var keepLists [chunks][]int64
+var keepStrings [chunks]string
+
+func churn(i int64, rounds int64) int64 {
+	var total int64
+	for k := int64(0); k < rounds; k++ {
+		xs := make([]int64, 0)
+		for j := int64(0); j < 16; j++ {
+			xs = append(xs, i+j+k)
+		}
+		s := "item " + strconv.FormatInt(k, 10)
+		keepLists[i] = xs
+		keepStrings[i] = s
+		for _, x := range xs {
+			total = (total + x) % 1000003
+		}
+		total = (total + int64(len(s))) % 1000003
+	}
+	return total
+}
+
+func chunk(name string, i, w int64) int64 {
+	switch name {
+	case "even":
+		return spin(w * (evenWork + i))
+	case "skew":
+		return spin(w * cost(i))
+	default:
+		return churn(i, w*allocRound)
+	}
+}
+
+func tree(lo, hi, w int64) int64 {
+	if hi-lo == 1 {
+		return spin(w * cost(lo))
+	}
+	mid := (lo + hi) / 2
+	var a int64
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { a = tree(lo, mid, w); wg.Done() }()
+	b := tree(mid, hi, w)
+	wg.Wait()
+	return (b + a) % 1000003
+}
+
+func scale(name string, w int64) {
+	t := time.Now()
+	var check int64
+	if name == "tree" {
+		check = tree(0, chunks, w)
+	} else {
+		results := make([]int64, chunks)
+		var wg sync.WaitGroup
+		for i := int64(0); i < chunks; i++ {
+			wg.Add(1)
+			go func(i int64) { results[i] = chunk(name, i, w); wg.Done() }(i)
+		}
+		wg.Wait()
+		for _, x := range results {
+			check = (check + x) % 1000003
+		}
+	}
+	fmt.Println(name, time.Since(t).Nanoseconds(), check)
+}
+
 func main() {
+	if len(os.Args) > 3 && os.Args[1] == "scale" {
+		w := int64(1)
+		if os.Args[3] == "0" {
+			w = 0
+		}
+		scale(os.Args[2], w)
+		return
+	}
 	if len(os.Args) > 1 {
+		// `long` sleeps 1 s, long enough for bench-scale to read the
+		// memory of the goroutines from outside while they sleep.
+		nap := manyNap
+		if len(os.Args) > 2 && os.Args[2] == "long" {
+			nap = time.Second
+		}
 		if os.Args[1] == "many" {
-			manyTasks()
+			manyTasks(nap)
 		} else {
 			t := time.Now()
-			time.Sleep(manyNap)
+			time.Sleep(nap)
 			fmt.Println("idle", time.Since(t).Nanoseconds(), 1)
 		}
 		return

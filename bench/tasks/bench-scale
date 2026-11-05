@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""Time how Rig's tasks scale over cores against Tokio, Rayon, and Go, and
+measure the memory a sleeping task takes in the kernel's own count
+(bench/tasks/README.md, "Scaling").
+
+usage: bench/tasks/bench-scale [options]
+
+  --variants a,b  what to build and time (default: rig-fast,tokio,rayon,go)
+  --workers LIST  worker counts, comma-separated (default: 1,2,4 and
+                  every CPU on macOS; 1,2,4,8,16 elsewhere)
+  --cpus LIST     for each worker count, the cores to run on, as
+                  `taskset -c` takes them, separated by `/` (Linux; say,
+                  `6/6,8/0,6,8,10/...`); the report names them
+  --benches LIST  even,skew,tree,alloc (default: all)
+  --reps N        runs of each, interleaved; the fastest counts (default 3)
+  --events LIST   the `perf stat` events of each run on Linux (default:
+                  cycles,instructions,page-faults, and for alloc also
+                  dTLB-load-misses)
+  --out DIR       keep the builds in DIR and reuse them
+  --tokio DIR     the Tokio source to build against (default: the
+                  repository's misc/tokio clone, as bench-tasks)
+  --rayon DIR     the Rayon source (default: the repository's misc/rayon
+                  clone, if it has one; else the crates.io release)
+  --build-only    build into --out and stop
+  --no-memory     skip the memory measurement
+  --no-scale      skip the scaling benchmarks
+
+Each benchmark runs as its own process, `PROGRAM scale NAME W`, at each
+worker count (RIG_WORKERS, TOKIO_WORKER_THREADS, RAYON_NUM_THREADS,
+GOMAXPROCS), once with the work (W 1) and once without (W 0, the
+benchmark's fixed cost: starting and waiting for its tasks). `time` is
+the fastest the program's own clock reads for the benchmark, `speedup`
+its time at one worker over its time here, and `outside` the shortest
+rest of the process's life: starting the runtime and exiting. The counters are the
+whole process's, from `/usr/bin/time -l` on macOS (instructions and
+cycles; no syscall count) and `perf stat` on Linux, of the fastest run.
+On Linux, `syscalls` comes from `strace -f -c` in an untimed run of its
+own (perf's syscall tracepoint needs root), and `TLB shootdowns` is the
+growth of /proc/interrupts' TLB row over the run: every CPU's, so it is
+meaningful only on a quiet machine.
+
+`memory` runs `PROGRAM many long` (10,000 tasks asleep for 1 s) and
+`PROGRAM idle long` (none), and reads each from outside while it
+sleeps: `footprint` on macOS, whose total counts the page tables the
+kernel keeps for the process, and VmRSS plus VmPTE on Linux. Per task is
+the difference over 10,000. Rayon has no sleeping tasks, so it has no
+memory row.
+"""
+import argparse, importlib.machinery, importlib.util, os, re, subprocess, sys, tempfile, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+_spec = importlib.util.spec_from_loader("bench_tasks", importlib.machinery.SourceFileLoader("bench_tasks", os.path.join(HERE, "bench-tasks")))
+bt = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(bt)
+
+MAC = sys.platform == "darwin"
+BENCHES = ["even", "skew", "tree", "alloc"]
+MANY = 10000
+WORKER_VARS = ["RIG_WORKERS", "TOKIO_WORKER_THREADS", "RAYON_NUM_THREADS", "GOMAXPROCS"]
+BASE_EVENTS = "cycles,instructions,page-faults"
+ALLOC_EVENTS = "dTLB-load-misses"
+
+
+def tlb_shootdowns():
+    """The TLB shootdowns every CPU has taken (Linux's /proc/interrupts
+    TLB row), for the shootdowns of a run on a quiet machine."""
+    with open("/proc/interrupts") as f:
+        for line in f:
+            parts = line.split()
+            if parts and parts[0] == "TLB:":
+                return sum(int(x) for x in parts[1:] if x.isdigit())
+    return 0
+
+
+def syscalls(exe, name, workers, cpus):
+    """The system calls `exe scale name 1` makes, counted by strace in a
+    run of its own, untimed (perf's syscall tracepoint needs root)."""
+    env = dict(os.environ)
+    for k in WORKER_VARS:
+        env[k] = str(workers)
+    out = tempfile.mktemp(prefix="bench-scale-strace-")
+    cmd = ["strace", "-f", "-qq", "-c", "-o", out, exe, "scale", name, "1"]
+    if cpus:
+        cmd = ["taskset", "-c", cpus] + cmd
+    subprocess.run(cmd, capture_output=True, text=True, env=env, check=True)
+    calls = None
+    with open(out) as f:
+        for line in f:
+            parts = line.split()
+            if parts and parts[-1] == "total":
+                calls = int(parts[3])
+    os.unlink(out)
+    return calls
+
+
+def ways(v, bench):
+    """The programs' names for `bench`: Rig runs the chunks two ways."""
+    if v.startswith("rig-") and bench != "tree":
+        return [bench + "-par", bench + "-tasks"]
+    return [bench]
+
+
+def label(v, name):
+    if v.startswith("rig-"):
+        return {"par": "rig par.map", "tasks": "rig tasks"}.get(name.rsplit("-", 1)[-1], "rig tasks")
+    return v
+
+
+MAC_COUNTERS = {
+    "instructions retired": "instructions",
+    "cycles elapsed": "cycles",
+    "page reclaims": "minor-faults",
+    "page faults": "major-faults",
+    "involuntary context switches": "involuntary-switches",
+    "voluntary context switches": "voluntary-switches",
+}
+
+
+def run(exe, name, w, workers, cpus, events):
+    env = dict(os.environ)
+    for k in WORKER_VARS:
+        env[k] = str(workers)
+    cmd = [exe, "scale", name, str(w)]
+    if cpus:
+        cmd = ["taskset", "-c", cpus] + cmd
+    if MAC:
+        cmd = ["/usr/bin/time", "-l"] + cmd
+    elif events:
+        cmd = ["perf", "stat", "-x", ",", "-e", events, "--"] + cmd
+    tlb = None if MAC else tlb_shootdowns()
+    t = time.perf_counter_ns()
+    p = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    wall = time.perf_counter_ns() - t
+    if tlb is not None:
+        tlb = tlb_shootdowns() - tlb
+    if p.returncode != 0:
+        sys.exit("bench-scale: `%s` exited %d:\n%s" % (" ".join(cmd), p.returncode, p.stderr))
+    got, ns, check = p.stdout.split()
+    counters = {}
+    for line in p.stderr.splitlines():
+        if MAC:
+            m = re.match(r"\s*(\d+)\s+(.*)$", line)
+            if m and m.group(2).strip() in MAC_COUNTERS:
+                counters[MAC_COUNTERS[m.group(2).strip()]] = int(m.group(1))
+        else:
+            parts = line.split(",")
+            if len(parts) >= 3 and parts[0].replace(".", "").isdigit():
+                counters[parts[2]] = int(float(parts[0]))
+    if tlb is not None:
+        counters["tlb-shootdowns"] = tlb
+    return {"ns": int(ns), "wall": wall, "check": check, "counters": counters}
+
+
+def sample(pid):
+    """The process's memory as the kernel counts it, in bytes."""
+    if MAC:
+        p = subprocess.run(["footprint", "-p", str(pid), "-f", "bytes"], capture_output=True, text=True)
+        total = tables = 0
+        for line in p.stdout.splitlines():
+            m = re.match(r"\s*(\d+) B\s+\d+ B\s+\d+ B\s+\d+\s+(.*)$", line)
+            if m and m.group(2).strip() == "TOTAL":
+                total = int(m.group(1))
+            elif m and m.group(2).strip() == "page table":
+                tables = int(m.group(1))
+        return total, tables
+    rss = pte = 0
+    with open("/proc/%d/status" % pid) as f:
+        for line in f:
+            if line.startswith("VmRSS:"):
+                rss = int(line.split()[1]) * 1024
+            elif line.startswith("VmPTE:"):
+                pte = int(line.split()[1]) * 1024
+    return rss + pte, pte
+
+
+def held(exe, mode):
+    """The most memory `exe mode long` holds while its tasks sleep."""
+    p = subprocess.Popen([exe, mode, "long"], stdout=subprocess.PIPE, text=True)
+    best = (0, 0)
+    start = time.monotonic()
+    # The tasks are made within the first 0.3 s; read the plateau after.
+    for at in (0.4, 0.55, 0.7, 0.85):
+        delay = start + at - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        try:
+            got = sample(p.pid)
+        except OSError:
+            break
+        best = max(best, got)
+    p.stdout.read()
+    p.wait()
+    if p.returncode != 0:
+        sys.exit("bench-scale: `%s %s long` exited %d" % (exe, mode, p.returncode))
+    return best
+
+
+def memory(exe, reps):
+    best = None
+    for _ in range(reps):
+        many, many_tables = held(exe, "many")
+        idle, idle_tables = held(exe, "idle")
+        got = ((many - idle) / MANY, (many_tables - idle_tables) / MANY)
+        best = got if best is None or got[0] < best[0] else best
+    return best
+
+
+def ms(ns):
+    return "%.1f ms" % (ns / 1e6) if ns >= 1e5 else "%.2f ms" % (ns / 1e6)
+
+
+def big(n):
+    if n is None:
+        return "-"
+    for unit, size in (("G", 1e9), ("M", 1e6), ("K", 1e3)):
+        if n >= size:
+            return "%.2f%s" % (n / size, unit)
+    return str(n)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--variants", default="rig-fast,tokio,rayon,go")
+    ap.add_argument("--workers")
+    ap.add_argument("--cpus")
+    ap.add_argument("--benches", default=",".join(BENCHES))
+    ap.add_argument("--reps", type=int, default=3)
+    ap.add_argument("--events")
+    ap.add_argument("--out")
+    ap.add_argument("--tokio")
+    ap.add_argument("--rayon")
+    ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--no-memory", action="store_true")
+    ap.add_argument("--no-scale", action="store_true")
+    a = ap.parse_args()
+    variants = a.variants.split(",")
+    workers = [int(w) for w in a.workers.split(",")] if a.workers else ([1, 2, 4, os.cpu_count()] if MAC else [1, 2, 4, 8, 16])
+    cpus = a.cpus.split("/") if a.cpus else [None] * len(workers)
+    if len(cpus) != len(workers):
+        sys.exit("bench-scale: --cpus names %d sets for %d worker counts" % (len(cpus), len(workers)))
+    benches = a.benches.split(",")
+    out = a.out or tempfile.mkdtemp(prefix="bench-scale-")
+    os.makedirs(out, exist_ok=True)
+    tokio = bt.tokio_source(a.tokio) if "tokio" in variants else None
+    bt.RAYON = a.rayon
+    exes = {v: bt.build(v, out, tokio) for v in variants}
+    if a.build_only:
+        return
+
+    if not a.no_scale:
+        best, empty, outside, calls, checks = {}, {}, {}, {}, {}
+        for _ in range(a.reps):
+            for wi, n in enumerate(workers):
+                for bench in benches:
+                    events = None if MAC else (a.events or BASE_EVENTS + ("," + ALLOC_EVENTS if bench == "alloc" else ""))
+                    for v in variants:
+                        for name in ways(v, bench):
+                            key = (bench, label(v, name), n)
+                            r = run(exes[v], name, 1, n, cpus[wi], events)
+                            if checks.setdefault(bench, r["check"]) != r["check"]:
+                                sys.exit("bench-scale: %s's %s check is %s, not %s" % (v, name, r["check"], checks[bench]))
+                            if key not in best or r["ns"] < best[key]["ns"]:
+                                best[key] = r
+                            outside[key] = min(outside.get(key, r["wall"] - r["ns"]), r["wall"] - r["ns"])
+                            if not MAC and key not in calls:
+                                calls[key] = syscalls(exes[v], name, n, cpus[wi])
+                            e = run(exes[v], name, 0, n, cpus[wi], None)
+                            if key not in empty or e["ns"] < empty[key]["ns"]:
+                                empty[key] = e
+        names = sorted({k[1] for k in best}, key=lambda s: (not s.startswith("rig"), s))
+        for bench in benches:
+            alloc = bench == "alloc" and not MAC
+            print("\n### %s\n" % bench)
+            head = ["runtime", "workers", "cores", "time", "speedup", "empty", "outside", "instructions", "cycles"]
+            head += ["switches"] if MAC else ["syscalls", "page faults"]
+            if alloc:
+                head += ["dTLB misses", "TLB shootdowns"]
+            print("| " + " | ".join(head) + " |")
+            print("|" + "---|" * len(head))
+            for name in names:
+                for wi, n in enumerate(workers):
+                    key = (bench, name, n)
+                    if key not in best:
+                        continue
+                    r, e = best[key], empty[key]
+                    one = best[(bench, name, workers[0])]["ns"]
+                    c = r["counters"]
+                    row = [name, str(n), cpus[wi] or "any", ms(r["ns"]), "%.2fx" % (one / r["ns"]), ms(e["ns"]), ms(outside[key]),
+                           big(c.get("instructions") or c.get("instructions:u")), big(c.get("cycles") or c.get("cycles:u"))]
+                    if MAC:
+                        row += [big(c.get("involuntary-switches"))]
+                    else:
+                        row += [big(calls.get(key)), big(c.get("page-faults"))]
+                    if alloc:
+                        row += [big(c.get("dTLB-load-misses")), big(c.get("tlb-shootdowns"))]
+                    print("| " + " | ".join(row) + " |")
+
+    if not a.no_memory:
+        print("\n### memory per sleeping task\n")
+        print("| runtime | total | of it, page tables |")
+        print("|---|---|---|")
+        for v in variants:
+            if v == "rayon":
+                continue
+            total, tables = memory(exes[v], a.reps)
+            print("| %s | %s | %s |" % (v, bt.size(total), bt.size(tables)))
+    if not a.out:
+        import shutil
+        shutil.rmtree(out, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()

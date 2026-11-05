@@ -19,6 +19,10 @@ const HOG_CHAIN: i64 = 50;
 const HOG_SLICE: i64 = 1_000_000;
 const MANY: i64 = 10000;
 const MANY_NAP: Duration = Duration::from_millis(200);
+const CHUNKS: i64 = 1024;
+const EVEN_WORK: i64 = 61000;
+const SKEW_BASE: i64 = 1200;
+const ALLOC_ROUNDS: i64 = 4400;
 
 fn leaf(i: i64) -> i64 {
     black_box(i)
@@ -36,27 +40,100 @@ fn spin(n: i64) -> i64 {
 // The benchmarks run in a task, as Go's run in the main goroutine and
 // Rig's tasks start from `main`: `#[tokio::main]`'s own future runs
 // outside the worker threads, where every wait would cross threads.
+// The scaling benchmarks (bench/tasks/bench-scale), each run alone as
+// `tasks-tokio scale NAME W`, as tasks.rig runs them: W is 1 for the work
+// and 0 for none. Each chunk, and each split of the tree, is a task.
+
+fn cost(i: i64) -> i64 {
+    SKEW_BASE * (1 + i * 7919 % 100)
+}
+
+fn churn(i: i64, rounds: i64) -> i64 {
+    let mut total = 0i64;
+    for k in 0..black_box(rounds) {
+        let mut xs = Vec::new();
+        for j in 0..16 {
+            xs.push(i + j + k);
+        }
+        let s = format!("item {}", k);
+        let xs = black_box(xs);
+        let s = black_box(s);
+        for x in &xs {
+            total = (total + x) % 1000003;
+        }
+        total = (total + s.len() as i64) % 1000003;
+    }
+    total
+}
+
+fn chunk(name: &str, i: i64, w: i64) -> i64 {
+    match name {
+        "even" => spin(w * (EVEN_WORK + i)),
+        "skew" => spin(w * cost(i)),
+        _ => churn(i, w * ALLOC_ROUNDS),
+    }
+}
+
+fn tree(lo: i64, hi: i64, w: i64) -> std::pin::Pin<Box<dyn std::future::Future<Output = i64> + Send>> {
+    Box::pin(async move {
+        if hi - lo == 1 {
+            return spin(w * cost(lo));
+        }
+        let mid = (lo + hi) / 2;
+        let a = tokio::spawn(tree(lo, mid, w));
+        let b = tree(mid, hi, w).await;
+        (b + a.await.unwrap()) % 1000003
+    })
+}
+
+async fn scale(name: String, w: i64) {
+    let t = Instant::now();
+    let mut check = 0i64;
+    if name == "tree" {
+        check = tree(0, CHUNKS, w).await;
+    } else {
+        let name: &'static str = Box::leak(name.clone().into_boxed_str());
+        let mut hs = Vec::with_capacity(CHUNKS as usize);
+        for i in 0..CHUNKS {
+            hs.push(tokio::spawn(async move { chunk(name, i, w) }));
+        }
+        for h in hs {
+            check = (check + h.await.unwrap()) % 1000003;
+        }
+    }
+    println!("{} {} {}", name, t.elapsed().as_nanos(), check);
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 3 && args[1] == "scale" {
+        let w = if args[3] == "0" { 0 } else { 1 };
+        tokio::spawn(scale(args[2].clone(), w)).await.unwrap();
+        return;
+    }
+    // `long` sleeps 1 s, long enough for bench-scale to read the memory
+    // of the tasks from outside while they sleep.
+    let nap = if args.len() > 2 && args[2] == "long" { Duration::from_secs(1) } else { MANY_NAP };
     match std::env::args().nth(1).as_deref() {
-        Some("many") => tokio::spawn(many()).await.unwrap(),
-        Some(_) => tokio::spawn(idle()).await.unwrap(),
+        Some("many") => tokio::spawn(many(nap)).await.unwrap(),
+        Some(_) => tokio::spawn(idle(nap)).await.unwrap(),
         None => tokio::spawn(run()).await.unwrap(),
     }
 }
 
-async fn idle() {
+async fn idle(nap: Duration) {
     let t = Instant::now();
-    tokio::time::sleep(MANY_NAP).await;
+    tokio::time::sleep(nap).await;
     println!("idle {} {}", t.elapsed().as_nanos(), 1);
 }
 
-async fn many() {
+async fn many(nap: Duration) {
     let t = Instant::now();
     let mut hs = Vec::with_capacity(MANY as usize);
     for _ in 0..MANY {
-        hs.push(tokio::spawn(async {
-            tokio::time::sleep(MANY_NAP).await;
+        hs.push(tokio::spawn(async move {
+            tokio::time::sleep(nap).await;
             1i64
         }));
     }
