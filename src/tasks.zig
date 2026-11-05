@@ -2298,19 +2298,49 @@ pub fn Actor(comptime T: type) type {
         }
 
         /// Put `m` in the mailbox, and start a runner when none drains it;
-        /// false, with nothing sent, once the actor has died.
-        fn send(self: *Self, box: *rt.Shared(Self), m: *Message) bool {
-            self.lock.lock();
+        /// false, with nothing sent, once the actor has died. In a
+        /// program built to be preempted, one call never inlined into the
+        /// caller's code, which takes the actor's lock uncounted.
+        const send = if (rt.preempt) sendApart else sendIn;
+
+        noinline fn sendApart(self: *Self, box: *rt.Shared(Self), m: *Message) bool {
+            return self.sendIn(box, m);
+        }
+
+        fn sendIn(self: *Self, box: *rt.Shared(Self), m: *Message) bool {
+            self.lock.lockApart();
             if (self.state.load(.acquire) & dead != 0) {
-                self.lock.unlock();
+                self.lock.unlockApart();
                 return false;
             }
             if (self.last) |l| l.next = m else self.first = m;
             self.last = m;
             const start = self.state.fetchOr(busy | mail, .acq_rel) == 0;
-            self.lock.unlock();
+            self.lock.unlockApart();
             if (start) rt.sched.spawnDetached(runner, .{box.cloneStrong()});
             return true;
+        }
+
+        /// The runner's next call, taken out of the mailbox and marked
+        /// started; null, with the actor idle, once it is empty. Called as
+        /// `send` is.
+        const take = if (rt.preempt) takeApart else takeIn;
+
+        noinline fn takeApart(self: *Self) ?*Message {
+            return self.takeIn();
+        }
+
+        fn takeIn(self: *Self) ?*Message {
+            self.lock.lockApart();
+            defer self.lock.unlockApart();
+            const m = self.first orelse {
+                self.state.store(0, .release);
+                return null;
+            };
+            self.first = m.next;
+            if (self.first == null) self.last = null;
+            m.started = true;
+            return m;
         }
 
         /// Take the actor for a call run inline: when it is idle, which
@@ -2375,17 +2405,7 @@ pub fn Actor(comptime T: type) type {
                 f.held = held.next;
                 f.state.runner = false;
             }
-            while (true) {
-                self.lock.lock();
-                const m = self.first orelse {
-                    self.state.store(0, .release);
-                    self.lock.unlock();
-                    break;
-                };
-                self.first = m.next;
-                if (self.first == null) self.last = null;
-                m.started = true;
-                self.lock.unlock();
+            while (self.take()) |m| {
                 held.doing = m.label;
                 // Running before the value is made again, so a panic in
                 // making it answers `m` (`kill`).
