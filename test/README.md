@@ -4,16 +4,16 @@
 ([docs/internals/tests.md](../docs/internals/tests.md) is its spec): the cases of
 `test/rig/*.rig.test` (every behavior and rejection test), every
 ```` ```rig ```` block of the docs, `examples/`, `test/torture/`, the
-unit tests, and the reference ownership checker's sets in its core; the
-scripts of `test/cli/` as `cli`; and the probes of past reviews,
-`test/rig/probes-*.rig.test`, as `probes`. Run it from the Rig directory:
+unit tests, the reference ownership checker's sets, and the scripts of
+`test/cli/` in its core (the scripts alone as `cli`); and the probes of
+past reviews, `test/rig/probes-*.rig.test`, as `probes`. Run it from the Rig directory:
 
 ```bash
 swarm test/rig.rip                 # the core
-swarm test/rig.rip cli             # the scripts of test/cli
+swarm test/rig.rip cli             # the scripts of test/cli alone
 swarm test/rig.rip probes          # the probes of past reviews
 swarm test/rig.rip matrix          # the matrix's programs whose own Zig changed, built and run
-swarm test/rig.rip all             # the core, cli, probes, and matrix: the full suite, before a release
+swarm test/rig.rip all             # the core, probes, and matrix: the full suite, before a release
 swarm test/rig.rip std-text        # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's)
 swarm test/rig.rip cli.lsp         # one script of test/cli, by its name
@@ -131,7 +131,8 @@ change to how emit or the runtime handles optionals.
 
 ## CLI tests
 
-Each `test/cli/<name>.sh`, which `swarm test/rig.rip cli` runs, runs in
+Each `test/cli/<name>.sh`, which the core runs (`swarm test/rig.rip cli`
+alone), runs in
 an empty directory with `RIG` (the compiler), `ROOT` (the checkout),
 `RIG_OUT_DIR`, and `RIG_TESTS` set: the behavior and rejection tests,
 as the runner writes them out (`behavior/<area>/<name>.rig` and

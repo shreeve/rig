@@ -1158,6 +1158,11 @@ const SymbolResolver = struct {
         if (p.isKind(.as_results)) {
             try self.walk(ir.AsResults.value(p));
             _ = try self.enter(p, .block);
+            // Each name is new, as `as v`'s is (`bindFresh`); a name bound
+            // twice here is the binding's own error.
+            for (ir.AsResults.names(p).items()) |n| {
+                if (n.isKind(.set)) try self.checkShadowing(ir.Set.target(n), "optional binding");
+            }
             for (ir.AsResults.names(p).items()) |n| {
                 try self.walk(n);
                 if (!n.isKind(.set)) continue;

@@ -4963,6 +4963,26 @@ sub main()
 local `total` has the same name as the module-level declaration `total`
 ```
 
+The names a pattern, `catch`, and `as` bind are new in the same way,
+each of the several names `as a, b` binds included, in an `if`, a
+`while`, and a ternary alike:
+
+```rig reject
+fun pair(k: Int) -> (Int, Int)?
+  return none if k <= 0
+  return k, k + 1
+
+sub main()
+  a = 1
+  if pair(3) as a, b
+    print(a + b)
+  print(a)
+```
+
+```error
+optional binding `a` shadows the local `a`; use a different name
+```
+
 A binding cannot refer to itself in its own initializer. Parameters,
 loop bindings, and names bound by patterns and `as` are immutable,
 though one that holds a write view writes through it

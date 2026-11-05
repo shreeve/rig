@@ -982,7 +982,11 @@ const Lowerer = struct {
                 const lambda = rhs.isKind(.lambda);
                 const v = if (lambda) try self.closure(rhs, false) else try self.eval(rhs, .take, sym.ty);
                 const x = try self.bind(target, 1);
-                if (lambda) try self.closure_bindings.put(self.a, x, {});
+                if (lambda) {
+                    try self.closure_bindings.put(self.a, x, {});
+                    // The binding holds the environment, and drops it.
+                    self.f.vars.items[x].drop_reads = self.f.vars.items[v.?].drop_reads;
+                }
                 try self.store(x, v, pos);
                 return;
             }
@@ -2351,8 +2355,7 @@ const Lowerer = struct {
     /// write, the lend its `!` or `catch` marks, but an error holds no
     /// loan, so the call keeps nothing there and its result views none
     /// of it: the lend ends with the call and adds no loan. A wait on a
-    /// task (`>t!`, `>t catch`) is a call of the task's `wait`, which the
-    /// oracle does not model yet, so the function abstains there.
+    /// task or a set (`>t!`, `>ts catch`) is a call of its `wait`.
     fn errorSlot(self: *Lowerer, value: Sexp, pos: u32) Error!VarId {
         const err_set = switch (self.ctx.types.get(try self.typeOf(value))) {
             .fallible => |f| f.set,
@@ -3046,6 +3049,9 @@ const Lowerer = struct {
     fn closure(self: *Lowerer, e: Sexp, owned: bool) Error!VarId {
         const pos = self.posOf(e);
         var parts: std.ArrayList(VarId) = .empty;
+        // Whether a capture's drop runs a `drop` body (a task's wait among
+        // them), which reads what it views: the environment's drop does.
+        var drops = false;
         for (sema.captureList(ir.Lambda.captures(e))) |cap| {
             const leaf = sema.captureNameNode(cap) orelse return abstain("an unusual capture");
             const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
@@ -3055,7 +3061,7 @@ const Lowerer = struct {
             const value = sema.captureValue(cap);
             if (value != .nil) {
                 const v = try self.eval(value, .take, null) orelse return abstain("a capture of a constant");
-                if (self.f.vars.items[v].drop_reads) return abstain("a closure holding a value with a `drop` body");
+                if (self.f.vars.items[v].drop_reads) drops = true;
                 try parts.append(self.a, v);
                 continue;
             }
@@ -3075,8 +3081,7 @@ const Lowerer = struct {
                     break :blk t;
                 },
             };
-            // Dropping the environment would run a `drop` body.
-            if (self.f.vars.items[v].drop_reads) return abstain("a closure holding a value with a `drop` body");
+            if (self.f.vars.items[v].drop_reads) drops = true;
             try parts.append(self.a, v);
         }
         var inner: Lowerer = .{
@@ -3103,7 +3108,14 @@ const Lowerer = struct {
             if (self.f.early == null) self.f.early = f;
             return error.Found;
         }
+        // An owned closure's environment is dropped by its last count,
+        // wherever that goes.
+        if (drops and owned) return abstain("an owned closure holding a value with a `drop` body");
         const t = try self.temp(try self.typeOf(e), pos);
+        // A stack closure's environment is dropped where the closure is
+        // (Core §7: its life ends at its last use, and its drop then runs
+        // its captures' drops), so it keeps their loans until then.
+        self.f.vars.items[t].drop_reads = drops;
         try self.emit(.{ .pos = pos, .what = .make, .moves = parts.items, .def = t, .no_loans = owned });
         // Its calls may store what it captured through what it captured
         // to write, as a call's write arguments may (SPEC §11 "Captures";
@@ -3878,7 +3890,12 @@ const Lowerer = struct {
             // statement, lent to the call (Core s1, §3): the result's view
             // of it ends with the statement.
             const made_plain = self.f.vars.items[v].kind == .plain and !self.isPlaceSyntax(val) and val.kind() != null;
-            if (arg_how == .view and self.f.vars.items[v].hidden and (self.f.vars.items[v].kind == .owning or made_plain)) {
+            // A closure literal lent to a call lends its captures for that
+            // call (Core §7), and is stored nowhere: a result that cannot
+            // hold a closure carries the loans of what it captured, never
+            // a loan of the closure itself.
+            const lent_closure = val.isKind(.lambda) and !self.holdsCallable(try self.typeOf(e));
+            if (arg_how == .view and !lent_closure and self.f.vars.items[v].hidden and (self.f.vars.items[v].kind == .owning or made_plain)) {
                 const vv = self.f.vars.items[v];
                 v = try self.lend(.{ .root = v, .path = &.{}, .ty = vv.ty }, .read, val, vv.ty);
             }
@@ -4332,7 +4349,11 @@ const Lowerer = struct {
             }
             const info = try self.kinds.of(t);
             if (info.kind == .plain) continue;
-            if (info.kind != .owning or info.holds_views or info.unsupported != null or self.holdsCallable(t)) return abstain("a generic instance at a view");
+            // A task, or a set of them, is an owner whose loans its type
+            // does not show; the signature's types, read at a type
+            // parameter as able to hold anything, carry them (Core s7).
+            const task = sema.holdsCallLoans(self.ctx, t);
+            if (info.kind != .owning or (info.holds_views and !task) or info.unsupported != null or self.holdsCallable(t)) return abstain("a generic instance at a view");
             owners = true;
         }
         if (!owners and !own_params) return;
@@ -4620,6 +4641,13 @@ const Lowerer = struct {
             return .{ mode, .{ .ctx = self.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .type_param = true } };
         }
         try self.plainInstance(recv_ty);
+        // `>ts` takes a set of tasks, as `>t` takes a task, and gives what
+        // its tasks gave (SPEC "Sets of tasks"): a built-in's result,
+        // carrying what the set held that its type could hold.
+        if (sema.isTaskSet(self.ctx, sema.unwrapViews(self.ctx, recv_ty)) and std.mem.eql(u8, mname, "wait")) {
+            const full: sema.FunctionType = .{ .params = try self.a.dupe(TypeId, &.{recv_ty}), .returns = try self.typeOf(call_node), .is_sub = false };
+            return .{ .value, .{ .ctx = self.ctx, .params = &.{}, .full = full } };
+        }
         // A method of what a handle holds reads it through the handle
         // (Core s8).
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {

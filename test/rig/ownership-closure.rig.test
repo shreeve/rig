@@ -408,6 +408,32 @@ fail "closure returns local view", "an owned closure cannot capture `r`, which h
   cb = mk()
   cb()
 
+test "closure literal lent returns a view of its capture", "3"
+  # A closure literal lent to a call lends its captures for that call
+  # (Core §7): the result views what the closure captured, `xs`, and
+  # never the closure, which no value holds.
+  # oracle: call accept
+  # oracle: main accept
+  fun call(f: ?fun() -> ?List[Int]) -> ?List[Int]
+    f()
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  !xs.push(2)
+  !xs.push(3)
+  v = call(|?xs| xs)
+  print(v.len)
+
+fail "closure literal lent returns a view that keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
+  fun call(f: ?fun() -> ?List[Int]) -> ?List[Int]
+    f()
+
+  xs: List[Int] = List()
+  v = call(|?xs| xs)
+  !xs.push(5)
+  print(v.len)
+
 fail "closure tail moves capture", "9:10: `x` is captured by the closure, which keeps it for every call, so a return value can't take it; write `+x` for a clone"
   # A closure may run again, so its value cannot move out a captured
   # owning value, even as the last expression of its body.
