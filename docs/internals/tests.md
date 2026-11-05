@@ -181,14 +181,13 @@ still runs, and is checked, every time. A run in which a job died lists
 each with its reason and exits 1.
 
 The checks come in tiers. `core`, which a run with no names checks, is
-every test file but the probes', the doc examples, the examples, the
-torture input, the unit tests, the reference ownership checker, and the
-scripts of `test/cli`, which `cli` runs alone. The scripts add under a
-minute to the core warm: none takes more than about 20 seconds, and
-they run beside the cases. `probes` is
-the cases of `test/rig/probes-*.rig.test`, the probes of past reviews:
-they would double the core's time, and what the core wants of them, the
-oracle's verdicts, its oracle job checks anyway. The core gates each
+every test file, the doc examples, the examples, the torture input,
+the unit tests, the reference ownership checker, the scripts of
+`test/cli`, which `cli` runs alone, and the cases of
+`test/rig/probes-*.rig.test`, the probes of past reviews, which
+`probes` runs alone. The scripts add under a minute to the core warm
+(none takes more than about 20 seconds) and the probes about 20
+seconds; both run beside the cases. The core gates each
 change; `all`, the full suite, runs before each major or minor Rig
 release, and optionally before a patch, never on a schedule. `proofs`,
 the differential run of the proven checks, builds each program three
@@ -197,8 +196,8 @@ times, and runs only when named, by hand, after a change to the proofs:
 ```bash
 swarm test/rig.rip              # core, the scripts of test/cli among it
 swarm test/rig.rip cli          # the scripts of test/cli alone
-swarm test/rig.rip probes       # the probes of past reviews
-swarm test/rig.rip all          # core, probes, and matrix: the full suite
+swarm test/rig.rip probes       # the probes of past reviews alone
+swarm test/rig.rip all          # core and matrix: the full suite
 swarm test/rig.rip std-text     # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc-SPEC     # SPEC.md's examples alone (doc: every doc's)
 swarm test/rig.rip tree         # only write the cases out as programs (below)

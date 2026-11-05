@@ -61,7 +61,8 @@ Each form below was accepted by `v0.3.0` and is rejected now.
   rise by what it now decides (59 functions of the tests, 10 of the
   docs).
 - The core suite, `swarm test/rig.rip`, runs the scripts of `test/cli`
-  too, so a change that breaks one fails its gate; `cli` runs them
+  and the probes of past reviews (`test/rig/probes-*.rig.test`) too, so
+  a change that breaks one fails its gate; `cli` and `probes` run them
   alone.
 
 ## v0.3.0 (2026-11-04)
