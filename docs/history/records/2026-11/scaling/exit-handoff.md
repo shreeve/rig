@@ -1,5 +1,16 @@
 # The exit handoff: a parent that exits while its child tears down (2026-11-04)
 
+**Decision (the owner, 2026-11-04).** Not built. The handoff hides the
+teardown from the caller's stopwatch rather than removing it, and every
+later measurement would need a build without it. The honest form of the
+same gain is measured instead: Trig drops each checker in its own task
+when its work is done, so its Tables are unmapped on that core while
+the others still run, and exit tears down only the last. The prototype
+stays here, in `exit-handoff-data/`, and so does the fix it needed: a signal
+the terminal sends to the whole group reached the program twice, once
+directly and once from the parent, so the parent must pass on only the
+signals sent to its own pid.
+
 **Question.** Fix 2 of [investigation.md](investigation.md): Trig's
 exit is the kernel tearing down its memory, 25-28 ms at four and eight
 checkers on ts-pattern, 13-18 ms more than tsrs's. The owner approved a

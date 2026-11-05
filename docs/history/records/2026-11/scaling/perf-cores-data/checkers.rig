@@ -1,0 +1,40 @@
+# N checkers of equal work, each a long task of map and list work; prints
+# each checker's span and the wall, in ms.
+use std.os
+use std.task
+use std.time
+use std.text
+
+fun check(i: Int, n: Int) -> Int
+  t = time.now()
+  m = Map[Int, Int]()
+  xs = List[Int]()
+  sum = 0
+  for r in 0..n
+    k = (r * 2654435761 + i) % 1000003
+    !m.put(k, r)
+    !xs.push(k)
+  for r in 0..n
+    if m.get(xs[(r * 7919) % xs.len]) as v
+      sum += v
+  for r in 0..(n * 60)
+    sum = (sum * 31 + r) % 1000000007
+  ms = t.elapsed() / 1000000
+  print("span", i, ms)
+  sum
+
+sub main()
+  args = os.args()
+  c = 6
+  n = 1000000
+  if args.len > 1
+    c = text.parse_int(args[1]) catch 6
+  t = time.now()
+  ts = Tasks[Int]()
+  for i in 0..c
+    !ts.add(check(i, n)&)
+  xs = >ts
+  sum = 0
+  for x in xs
+    sum += x
+  print("wall", t.elapsed() / 1000000, sum % 10)
