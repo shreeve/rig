@@ -12,6 +12,15 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ### Upgrading from v0.3.0
 
+**`extend_from_bytes` reads only `exact` objects** (a change to main
+since 0.3.0, which had no `extend_from_bytes`): an object it makes from
+bytes is declared `obj Name exact`, which holds its fields in
+declaration order with no padding, so its bytes are the record's. Any
+other object is rejected with the fix: "`Span` is not `exact`, so Zig
+may lay out its fields in an order of its own: add `exact` to `obj
+Span`". `tools/migrate-exact.py PATH` adds the word where `rig check`
+asks for it.
+
 **A duration's bare number is seconds now, where 0.3.0 read
 nanoseconds:** `time.sleep(5)` sleeps five seconds, and 0.3.0's
 `time.sleep(5)` is `time.sleep(ns: 5)`. `tools/migrate-durations.py
@@ -36,6 +45,15 @@ a bare number, and of `per:` of `task.supervise` and
   `a` two meanings). Rename the binding.
 
 ### Added
+
+- **`obj Name exact`** holds an object's fields in declaration order
+  with no padding, a Zig `extern struct`, so its bytes are its fields'
+  one after another, as a file of records lays them out. Each field is
+  a number, a `Bool`, a plain enum, an `exact` object, or a fixed array
+  of them; padding is written as a field (`_pad: [3]U8`), and a
+  declaration that needs hidden padding is rejected, naming the field
+  and the bytes. `exact` is a word only after an `obj` header's name
+  (SPEC "Objects").
 
 - **Durations in four forms:** a call of std.time that takes a length
   of time writes it bare in seconds, `time.sleep(2)`,

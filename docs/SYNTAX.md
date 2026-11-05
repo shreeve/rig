@@ -273,7 +273,8 @@ at the start of a declaration at the module's margin, before the name
 ordinary. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
 (`[n of x]`). `unique` is a keyword only after an `obj`'s name or type
-parameters (`obj Random unique`). `from` is a keyword only after a
+parameters (`obj Random unique`), and `exact` only after an `obj`'s
+name (`obj NodeRec exact`). `from` is a keyword only after a
 function's result type (`-> ?Item from a`), and `static` only right
 after that `from`; `keeps` only at the end of a function's header
 (`sub watch(!@, s: ?String) keeps s`); a parameter or a local may be
@@ -889,6 +890,25 @@ sub main()
 
 ```output
 7
+```
+
+`exact` after the name declares an object held as declared: its fields
+in declaration order with no padding between them, so its bytes are
+its fields' bytes, as a file of records lays them out
+([SPEC](../SPEC.md#objects)). Padding is written as a field:
+
+```rig
+obj Entry exact
+  key: U32
+  tag: U8
+  _pad: [3]U8 = [3 of 0]
+
+sub main()
+  print($size(Entry), Entry(key: 1, tag: 2).tag)
+```
+
+```output
+8 2
 ```
 
 ### Enums
@@ -1981,6 +2001,7 @@ tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time v
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "@"
 obj       = "obj" name [tparams] ["unique"] [":" apis] INDENT member* DEDENT
+          | "obj" name "exact" [":" apis] INDENT member* DEDENT
 apis      = name ("+" name)*                       # APIs, built-in or the program's own
 api       = "api" name [":" apis] [INDENT (fun | sub | zfun)* DEDENT]   # at the module's margin
 add       = "add" type ":" apis [INDENT (fun | sub)* DEDENT]            # at the module's margin

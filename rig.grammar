@@ -316,7 +316,7 @@ tokens
 
 # Reserved words: a keyword rule ties with the identifier rule on its own
 # text and wins by coming first; a longer word (`iffy`) is a name. `new`,
-# `obj` and the contextual words (`of`, `unique`, `from`, `static`) lex
+# `obj` and the contextual words (`of`, `unique`, `exact`, `from`, `static`) lex
 # as names, and the rewriter or the parser classifies them.
 "true"                                      → true
 "false"                                     → false
@@ -393,7 +393,7 @@ tokens
     fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group? outside:tag(outside)? once:group?
     sub                         name:leaf tparams:group? params:group? fails? keeps:group? body:block? owner? owner_params:group? mark:inline|called? bounds:group? owner_bounds:group? outside:tag(outside)? once:group?
     lambda                      captures:captures? params:group? body:block
-    struct                      name:leaf unique:tag(unique)? apis:group? pubs:group? read_only:group? ...members
+    struct                      name:leaf unique:tag(unique)? exact:tag(exact)? apis:group? pubs:group? read_only:group? ...members
     enum                        name:leaf apis:group? pubs:group? read_only:group? ...members
     errors                      name:leaf pubs:group? read_only:group? ...members
     error_join                  name:leaf parts:group ...members
@@ -527,7 +527,7 @@ tokens
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
-    OF: "`of`", OBJ: "`obj`", API: "`api`", ADD: "`add`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`", ONCE: "`once`"
+    OF: "`of`", OBJ: "`obj`", API: "`api`", ADD: "`add`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", EXACT: "`exact`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`", ONCE: "`once`"
     MATCHES: "`matches`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", TASK_AMP: "`&`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL: "`$`", LABEL_COLON: "`:`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`", CATCH_JUMP: "`catch`", CATCH_BLOCK: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
@@ -593,6 +593,7 @@ tokens
     keyword             ("from" | "keeps") before ' ' after ' ' [A-Za-z_@]
     keyword             "once" before ': ' after ' ' [?*A-Za-z_(]
     keyword             "unique" before [A-Za-z0-9_\]] ' ' not after [ \t]* [^ \t#]
+    keyword             "exact" before [A-Za-z0-9_] ' ' not after [ \t]* [^ \t#:]
     keyword.control     ("break" | "continue") [ \t]+ label:('$' [A-Za-z_] [A-Za-z0-9_]*)
     label               '$' [A-Za-z_] [A-Za-z0-9_]* ':'
     function.builtin    '$' [A-Za-z_]+ after '('
@@ -628,15 +629,16 @@ tokens
                         "&=" "|=" "^=" "<<=" "<<%=" ">>=" "+%=" "-%=" "*%=" "+|=" "-|=" "->" "=>"
     punctuation         "(" ")" "[" "]" "{" "}" "," ":" "." ".." "..="
 
-# `unique`, `from`, `static` and `keeps` lex as names, and the parser
-# reads one as a keyword where its state takes the keyword: `unique` after
-# an obj header's name or type parameters (`obj Random unique`), `from`
+# `unique`, `exact`, `from`, `static` and `keeps` lex as names, and the
+# parser reads one as a keyword where its state takes the keyword: `unique`
+# after an obj header's name or type parameters (`obj Random unique`),
+# `exact` after an obj header's name (`obj NodeRec exact`), `from`
 # after a function's result type (`-> ?Item from a`), `static` right after
 # that `from`, and `keeps` at the end of a function's header (`sub
 # watch(!@, s: ?String) keeps s`), and `once` before a parameter's type
 # (`f: once ?fun() -> Int`). Everywhere else each is a name.
 @keywords
-    ctx  unique from static keeps once
+    ctx  unique exact from static keeps once
 
 @as IDENT = [ctx!]
 
@@ -846,6 +848,10 @@ struct   = OBJ name:name INDENT members:members OUTDENT   → (struct)
                                                     → (struct unique:unique)
          | OBJ name:name UNIQUE ":" apis:apis INDENT members:members OUTDENT
                                                     → (struct unique:unique)
+         | OBJ name:name EXACT INDENT members:members OUTDENT
+                                                    → (struct exact:exact)
+         | OBJ name:name EXACT ":" apis:apis INDENT members:members OUTDENT
+                                                    → (struct exact:exact)
          | OBJ name:name tparams:tparams INDENT members:members OUTDENT
                                                     → (generic_struct)
          | OBJ name:name tparams:tparams ":" apis:apis INDENT members:members OUTDENT

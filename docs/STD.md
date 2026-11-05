@@ -2047,10 +2047,11 @@ length saved earlier.
 `?String` or a `Static` such as an embedded file
 ([SPEC, Builtins](../SPEC.md#builtins)), with one copy, the List growing
 once: the fast way to load a table a program writes ahead of time. `T`
-is an integer, a float, or an object or array of them with no padding
-and no named none ([SPEC, List](../SPEC.md#list)); each element is its fields' bytes in
-declaration order, in the machine's own byte order, so a file written
-on a machine of the other order reads differently. A length that is not
+is an integer, a float, or an `exact` object (`obj Span exact`) or
+array of them with no named none ([SPEC, List](../SPEC.md#list)); each
+element is its fields' bytes in declaration order, in the machine's own
+byte order, so a file written on a machine of the other order reads
+differently, and the bytes are copied whole. A length that is not
 a whole number of `$size(T)` panics. Bytes written `$embed(path)` at
 the call may also make `Bool`s and plain enums, since the compiler
 reads the file and checks each record's values, rejecting the program

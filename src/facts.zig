@@ -1152,6 +1152,16 @@ pub const Facts = struct {
         if (!f.c().word_held.contains(sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
     }
+    /// Whether the object `sym` declares here is `exact`, laid out in
+    /// declaration order: a Zig `extern struct`.
+    pub fn isExact(f: Facts, sym: SymbolId) bool {
+        return f.c().symbols.items[sym].flags.exact;
+    }
+    /// The bytes of the tag type of the plain enum `sym` declares here,
+    /// when an `exact` object holds it (`storage.decideExactEnums`).
+    pub fn exactEnumBytes(f: Facts, sym: SymbolId) ?u8 {
+        return f.c().exact_enums.get(sym);
+    }
     /// Whether a field of type `ty` inside a plain object is held at
     /// four-byte alignment (`align(4)`): a 64-bit word-held object, which
     /// takes the place its two 32-bit fields would, so the object keeps

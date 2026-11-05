@@ -1111,7 +1111,11 @@ pub const SymbolFlags = packed struct(u64) {
     /// An enum a variant of which is written with a payload, empty or not
     /// (`a()`): emit holds it as a Zig `union(enum)`.
     enum_union: bool = false,
-    _: u11 = 0,
+    /// An object declared `exact` (`obj NodeRec exact`): its fields in
+    /// declaration order with no padding, a Zig `extern struct`, so its
+    /// bytes are its fields' (`fieldsLayout`).
+    exact: bool = false,
+    _: u10 = 0,
     /// Room for flags to come.
     spare: u30 = 0,
 };
@@ -4355,6 +4359,12 @@ pub const SemContext = struct {
     /// a Zig `packed struct`, decided for the whole program after every
     /// module is checked (`storage.decideWords`).
     word_held: FastMap(SymbolId, void) = .empty,
+    /// The plain enums declared here that an `exact` object holds, with
+    /// their tag's bytes (`enumBytes`): emit gives each its tag type,
+    /// `enum(u8)`, which a Zig `extern struct` needs where it takes no
+    /// inferred tag. Decided for the whole program after every module is
+    /// checked (`storage.decideExactEnums`).
+    exact_enums: FastMap(SymbolId, u8) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: FastMap(ForeignRef, SymbolId) = .empty,
@@ -4616,6 +4626,7 @@ pub const SemContext = struct {
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
         self.word_held.deinit(self.allocator);
+        self.exact_enums.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
         self.generic_api_calls.deinit(self.allocator);
@@ -11073,6 +11084,8 @@ pub fn wordBitsOfSym(dctx: *const SemContext, sym_id: SymbolId) ?u8 {
     const sym = dctx.symbols.items[sym_id];
     if (isProxy(sym) or sym.kind != .nominal_type or sym.decl_pos == builtin_decl_pos or sym.flags.error_set) return null;
     if (declaredKind(dctx, sym_id) != .object) return null;
+    // An `exact` object is laid out as declared, never packed into a word.
+    if (sym.flags.exact) return null;
     if (dctx.named_nones.contains(sym_id)) return null;
     if (sym.user_apis.len != 0) return null;
     inline for (.{ .Eq, .Ord, .Print, .Hash }) |api| if (ownApiMethod(sym, api) != null) return null;
@@ -11151,6 +11164,9 @@ pub const NotRecord = struct {
         named_none: NamedNone,
         /// An instance of a generic object.
         generic,
+        /// An object not declared `exact`, its name: Zig orders its fields
+        /// its own way, so its bytes are not its fields' in order.
+        not_exact: []const u8,
         /// A field of another module's object that its module sets: one
         /// private or read-only there.
         private: []const u8,
@@ -11182,6 +11198,19 @@ pub const RecordAnswer = union(enum) { record: Record, not: NotRecord };
 /// made from bytes; `ctx` is the module that makes it.
 pub fn bytesRecord(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!RecordAnswer {
     return recordIn(ctx, ctx, ty);
+}
+
+/// Whether the `exact` object `sym` of this module lays out as declared:
+/// its fields' bytes in declaration order with no padding, each field an
+/// integer, a float, a `Bool`, a plain enum, an `exact` object, or a
+/// fixed array of them (`fieldsLayout`). Null when it does; else why
+/// not, for its declaration's diagnostic.
+pub fn exactLayout(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.Error!?NotRecord {
+    const sym = ctx.symbols.items[sym_id];
+    return switch (try fieldsLayout(ctx, ctx, sym, sym.name, null)) {
+        .record => null,
+        .not => |n| n,
+    };
 }
 
 /// The bytes emit holds plain enum `sym` of module `home` in
@@ -11288,6 +11317,8 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
     }
     const sym = decl.symbol();
     if (sym.type_params != null) return .{ .not = .{ .shown = shown, .why = .generic } };
+    // Zig orders the fields of any other object its own way.
+    if (!sym.flags.exact) return .{ .not = .{ .shown = shown, .why = .{ .not_exact = sym.name } } };
     // A value no object of it holds: `xs.get(i)`, `pop`, and a `T?` would
     // read one made from bytes as `none`.
     if (decl.ctx.named_nones.get(decl.sym)) |none| return .{ .not = .{ .shown = shown, .why = .{ .named_none = none } } };
@@ -11295,18 +11326,31 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
     // Another module's private fields are its own to set.
     const foreign: ?*const SemContext = if (module) |m| (if (m == ctx.module_id) null else ctx.foreign_semas.get(m)) else null;
     const sets_all = if (foreign) |f| f.is_std and ctx.is_std else true;
+    return fieldsLayout(ctx, decl.ctx, sym, shown, if (sets_all) null else foreign.?.name);
+}
+
+/// The layout of the fields of `sym`, an `exact` object of module `home`
+/// as module `ctx` names it (`shown`), in declaration order: each at a
+/// multiple of its alignment with nothing between them, so its bytes are
+/// a record's (`recordIn`), or the field that keeps it from being one.
+/// With `private_to`, another module's name, a field that module keeps to
+/// itself is one. The one layout of an `exact` object, which its
+/// declaration is checked by (`exactLayout`) and emit lays out as written.
+fn fieldsLayout(ctx: *SemContext, home: *const SemContext, sym: Symbol, shown: []const u8, private_to: ?[]const u8) std.mem.Allocator.Error!RecordAnswer {
+    const a = ctx.arena.allocator();
+    const decl_ctx = home;
     var at: u64 = 0;
     var alignment: u64 = 1;
     var last: []const u8 = "";
     var checks: std.ArrayList(RecordCheck) = .empty;
     for (sym.fields orelse &.{}) |f| {
         if (f.is_method or f.is_variant or f.is_drop_method) continue;
-        if (!sets_all and (!f.is_pub or f.read_only)) return .{ .not = .{ .field = f.name, .owner = shown, .why = .{ .private = foreign.?.name } } };
-        const r = switch (try recordIn(ctx, decl.ctx, f.ty)) {
+        if (private_to) |m| if (!f.is_pub or f.read_only) return .{ .not = .{ .field = f.name, .owner = shown, .why = .{ .private = m } } };
+        const r = switch (try recordIn(ctx, decl_ctx, f.ty)) {
             .record => |r| r,
             .not => |n| return .{ .not = if (n.field.len == 0) .{ .field = f.name, .owner = shown, .shown = n.shown, .why = n.why } else n },
         };
-        if (at % r.alignment != 0) return .{ .not = .{ .field = f.name, .owner = shown, .shown = try shownFrom(ctx, decl.ctx, f.ty), .why = .{ .padding_before = .{ .at = at, .alignment = r.alignment } } } };
+        if (at % r.alignment != 0) return .{ .not = .{ .field = f.name, .owner = shown, .shown = try shownFrom(ctx, decl_ctx, f.ty), .why = .{ .padding_before = .{ .at = at, .alignment = r.alignment } } } };
         for (r.checks) |c| {
             var moved = c;
             moved.at = at + c.at;
@@ -15627,7 +15671,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // A function's marker.
         .outside => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .fixed, .task, .inclusive => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .exact, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,
         .read, .write => .lend,
         .member, .index => .path,

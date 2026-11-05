@@ -952,6 +952,20 @@ Zig's own backends (an x86-64 debug build), which assemble no global
 assembly, and formats other than ELF and Mach-O take `@embedFile`'s
 bytes (`rig.embeds_aligned`).
 
+**Exact objects.** `obj Name exact` sets the symbol's `exact` flag
+(resolve). Typecheck checks the declaration once (`sema.exactLayout`,
+the same `fieldsLayout` a record's bytes are read by): each field a
+number, a `Bool`, a plain enum, an `exact` object, or a fixed array of
+them, in declaration order with no padding, the diagnostic naming the
+field and the bytes a padding field would take. Emit writes an `extern
+struct`, which keeps the declared order; an `exact` object is never held
+as one word (`wordBitsOfSym`). An `extern struct` holds no enum of an
+inferred tag, so `storage.decideExactEnums`, for the whole program,
+gives each plain enum an `exact` object holds its tag type (`enum(u8)`,
+`u16`, or `u32`, by `sema.enumBytes`), recorded on the enum's module
+(`SemContext.exact_enums`). `bytesRecord` admits only `exact` objects,
+so every record is flat and copies with one `memcpy`.
+
 **Records from embedded files.** `sema.bytesRecord` answers whether
 bytes make values of a type, and gives a record its `checks`: the
 `Bool`s and plain enums in it, each with its place, its byte, and the
@@ -1835,7 +1849,7 @@ emitter ask these, never a predicate built for another question:
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, `List.filled`, `resize`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or an object or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
-| `bytesRecord` | every bit pattern of its bytes is a value: an integer, a float, or an object or fixed array made only of these, with no padding in declaration order, no object that names its none (bytes could make it), and for another module's object every field the program's to set. The one fact of what `!xs.extend_from_bytes(s)` makes from bytes (`Needs.records`, the generic requirement `records`); it gives the record's size, or the field that keeps a type from being one |
+| `bytesRecord` | every bit pattern of its bytes is a value: an integer, a float, or an `exact` object or fixed array made only of these (an `exact` object's layout is `fieldsLayout`'s, which its declaration is checked by, `exactLayout`), no object that names its none (bytes could make it), and for another module's object every field the program's to set. The one fact of what `!xs.extend_from_bytes(s)` makes from bytes (`Needs.records`, the generic requirement `records`); it gives the record's size, or the field that keeps a type from being one |
 | `readByAddress` | moves (`moves` is not `no`): `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `resourceKind` | how a value that moves is held and dropped: a shared handle (`dropStrong`), a weak one (`dropWeak`), an optional, or a value `rig.drop` releases; null for one that copies. The storage plan records it for each binding and each value emit holds or discards (Storage facts) |
 | `holdsNoLoanButText` | copies and holds no view or function value (a `?String` aside): what a Cell and a Signal hold |

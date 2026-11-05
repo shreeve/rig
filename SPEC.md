@@ -2000,6 +2000,48 @@ sub main()
 3 anon 5 1 0 2
 ```
 
+**An `exact` object is held as declared.** `obj Name exact` holds its
+fields in declaration order, each at a multiple of its alignment with
+nothing between them, so its bytes are its fields' bytes one after
+another, as a file of records lays them out; any other object's fields
+go where Zig places them. Each field is an integer, a float, a `Bool`,
+a plain enum, an `exact` object, or a fixed array of them, and padding
+is written as a field (`_pad: [3]U8`): a declaration that needs hidden
+padding is rejected, naming the field and the bytes. A `Bool` is one
+byte, a plain enum whose variants declare values four, and any other
+plain enum the fewest of 1, 2, or 4 bytes that number its variants. In
+everything else an `exact` object is an ordinary object.
+`extend_from_bytes` makes only `exact` objects from bytes
+([List](#list)). `exact` is a word only after an `obj` header's name;
+anywhere else it is a name.
+
+```rig
+obj Header exact
+  magic: U32
+  version: U16
+  flags: U8
+  _pad: U8 = 0
+
+sub main()
+  h = Header(magic: 0x52494721, version: 1, flags: 3)
+  print($size(Header), h.version)
+```
+
+```output
+8 1
+```
+
+```rig reject
+obj Header exact
+  magic: U32
+  flags: U8
+  version: U16
+```
+
+```error
+`exact` object `Header` has 1 byte of padding before field `version`: it starts at byte 5, and a `U16` starts at a multiple of 2; write the padding as a field before it, `_pad: [1]U8`, or order the fields so that none needs it
+```
+
 A method whose first parameter is `@` is an instance method;
 without one it is an associated function, called through the type
 (`Point.origin()`). `Self` names the enclosing type. How a method takes
@@ -9409,19 +9451,19 @@ undo open
 ```
 
 **`extend_from_bytes` makes elements from bytes,** so every bit pattern
-of `$size(T)` bytes must be a `T`: an integer, a float, or an object or
-a fixed array made only of these, laid out with no padding. Each such
-value is its fields' bytes in declaration order, each field's in the
-machine's own byte order, with nothing between them; an object whose
-fields in that order would need padding (a field not at a multiple of
-its alignment, a number's being its size, or a size not a multiple of
-its largest field's) is rejected, and so is one with no fields, and
-another module's object with a field that module keeps to itself (a
-private or read-only one), as its constructor is, and an object that
-names its none ([Optionals](#12-optionals)), whose none bytes could
-make, and `get`, `pop`, and a `T?` would read as `none`. An optional,
-text, a box, a handle, a `Slot`, and a vector are not records: the
-message names the field that is not. A literal or an embedded file
+of `$size(T)` bytes must be a `T`: an integer, a float, or an `exact`
+object ([Objects](#objects)) or a fixed array made only of these. Each
+such value is its fields' bytes in declaration order, each field's in
+the machine's own byte order, with nothing between them, which is how
+an `exact` object is held, so the bytes are copied whole. Any other
+object is rejected with the fix, "add `exact` to `obj Span`", since
+Zig lays out its fields in an order of its own; so is another module's
+object with a field that module keeps to itself (a private or
+read-only one), as its constructor is, and an object that names its
+none ([Optionals](#12-optionals)), whose none bytes could make, and
+`get`, `pop`, and a `T?` would read as `none`. An optional, text, a
+box, a handle, a `Slot`, and a vector are not records: the message
+names the field that is not. A literal or an embedded file
 ([Builtins](#builtins)) that is not a whole number of records is
 rejected where the call is written. The List keeps no view of `s`: its
 bytes are copied.
@@ -9439,7 +9481,7 @@ that hold every place. An enum of one variant holds no bytes, and an
 enum with a variant written `a()` is not a record.
 
 ```rig
-obj Span
+obj Span exact
   start: U32
   len: U16
   kind: U16
@@ -9457,7 +9499,7 @@ sub main()
 ```
 
 ```rig reject
-obj Flag
+obj Flag exact
   on: Bool
   n: U8
 
@@ -9475,7 +9517,7 @@ on
 ```
 
 ```rig reject
-obj Flag
+obj Flag exact
   on: Bool
 
 sub main()

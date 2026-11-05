@@ -737,6 +737,7 @@ const Checker = struct {
         defer self.nominal = prev;
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
         if (node.isKind(.errors)) try self.checkErrorFields(sym_id, fields);
+        if (self.ctx.symbols.items[sym_id].flags.exact) try self.checkExact(node, sym_id);
         for (ir.rest(node, .members)) |m| {
             const h = m.kind() orelse continue;
             switch (h) {
@@ -773,6 +774,36 @@ const Checker = struct {
                 },
                 else => {},
             }
+        }
+    }
+
+    /// An `exact` object lays out as declared (`sema.exactLayout`): its
+    /// fields in declaration order with no padding, each a number, a
+    /// `Bool`, a plain enum, an `exact` object, or a fixed array of them.
+    /// Padding is written as a field (`_pad: [3]U8`).
+    fn checkExact(self: *Checker, node: Sexp, sym_id: SymbolId) Error!void {
+        const not = (try sema.exactLayout(self.ctx, sym_id)) orelse return;
+        const name = self.ctx.symbols.items[sym_id].name;
+        // A field's own `exact` object that does not lay out as declared
+        // is reported where that object is declared.
+        if (not.field.len > 0 and !std.mem.eql(u8, not.owner, name)) return;
+        var pos = ir.get(node, .name).src.pos;
+        for (self.ctx.symbols.items[sym_id].fields orelse &.{}) |f| {
+            if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, not.field)) pos = f.decl_pos;
+        }
+        const head = "`exact` object `{s}` ";
+        switch (not.why) {
+            .padding_before => |p| {
+                const bytes = p.alignment - p.at % p.alignment;
+                try self.err(pos, head ++ "has {d} {s} of padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; write the padding as a field before it, `_pad: [{d}]U8`, or order the fields so that none needs it", .{ name, bytes, if (bytes == 1) "byte" else "bytes", not.field, p.at, article(not.shown), not.shown, p.alignment, bytes });
+            },
+            .padding_after => |p| try self.err(pos, head ++ "has {d} {s} of padding after field `{s}`, to a multiple of {d}; write the padding as a field after it, `_pad: [{d}]U8`", .{ name, p.bytes, if (p.bytes == 1) "byte" else "bytes", not.field, p.alignment, p.bytes }),
+            .empty => if (not.field.len == 0)
+                try self.err(pos, head ++ "holds no bytes: give it a field", .{name})
+            else
+                try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`, which holds no bytes", .{ name, not.field, article(not.shown), not.shown }),
+            .not_exact => |inner| try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`, which is not `exact`: add `exact` to `obj {s}`", .{ name, not.field, article(not.shown), not.shown, inner }),
+            else => try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`; an `exact` object holds integers, floats, `Bool`s, plain enums, `exact` objects, and fixed arrays of them", .{ name, not.field, article(not.shown), not.shown }),
         }
     }
 
@@ -7971,6 +8002,10 @@ const Checker = struct {
             .other => try self.err(pos, head ++ "{s}{s} is not an integer, a float, or an object or array of them", .{ method, shown, article(shown), shown, subject, which }),
             .not_plain => try self.err(pos, head ++ ", and `{s}` is not plain data: it does not copy, or has a `drop`", .{ method, shown, article(shown), shown, not.shown }),
             .generic => try self.err(pos, head ++ ", and `{s}` is an instance of a generic object; declare an object of its field types", .{ method, shown, article(shown), shown, not.shown }),
+            .not_exact => |obj| if (not.field.len == 0)
+                try self.err(pos, head ++ ", and `{s}` is not `exact`, so Zig may lay out its fields in an order of its own: add `exact` to `obj {s}`", .{ method, shown, article(shown), shown, not.shown, obj })
+            else
+                try self.err(pos, head ++ "; field `{s}` of `{s}` is {s} `{s}`, which is not `exact`: add `exact` to `obj {s}`", .{ method, shown, article(shown), shown, not.field, not.owner, article(not.shown), not.shown, obj }),
             .empty => try self.err(pos, head ++ ", and `{s}` holds no bytes", .{ method, shown, article(shown), shown, not.shown }),
             .private => |module| try self.err(pos, head ++ "; field `{s}` of `{s}` is private to module `{s}`, which sets it", .{ method, shown, article(shown), shown, not.field, not.owner, module }),
             .padding_before => |p| try self.err(pos, head ++ ", and `{s}` has padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; order the fields so that none needs padding", .{ method, shown, article(shown), shown, not.owner, not.field, p.at, article(not.shown), not.shown, p.alignment }),

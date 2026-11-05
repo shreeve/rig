@@ -918,6 +918,9 @@ pub const Emitter = struct {
         if (self.facts.wordHeldBitsOfSym(sym)) |bits| {
             self.nominal.?.word = true;
             try self.w.print("pub const {f} = packed struct(u{d}) {{\n", .{ ident(name), bits });
+        } else if (self.facts.isExact(sym)) {
+            // `exact`: its fields in declaration order, its bytes theirs.
+            try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
         if (self.facts.wordBitsOfSym(sym) != null) try self.w.writeAll("    pub const __rig_word_sized = {};\n");
         try self.emitFields(1);
@@ -991,7 +994,13 @@ pub const Emitter = struct {
             try self.w.print("pub const {f} = union(enum) {{\n", .{ident(name)});
             try self.emitUnionVariants(1);
         } else {
-            try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
+            // An enum an `exact` object holds names its tag type, which a
+            // Zig `extern struct` needs.
+            if (has_values) {
+                try self.w.print("pub const {f} = enum(u32) {{\n", .{ident(name)});
+            } else if (self.facts.exactEnumBytes(self.nominal.?.sym)) |bytes| {
+                try self.w.print("pub const {f} = enum(u{d}) {{\n", .{ ident(name), 8 * @as(u32, bytes) });
+            } else try self.w.print("pub const {f} = enum {{\n", .{ident(name)});
             for (self.nominalFields()) |f| {
                 if (!f.is_variant) continue;
                 try self.w.print("    {f}", .{ident(f.name)});

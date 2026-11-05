@@ -870,6 +870,8 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
                 t.* = m.ir;
             }
             try storage.decideWords(ctxs, trees);
+            // The tag type of each enum an `exact` object holds.
+            try storage.decideExactEnums(ctxs);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
