@@ -7944,21 +7944,30 @@ const Checker = struct {
         }
         const head = "`{s}` makes each `{s}` from bytes, so every bit pattern must be {s} `{s}`";
         const a = self.ctx.arena.allocator();
+        // A record of `Bool`s or enums is made only from an embedded
+        // file's bytes, whose values the module graph checks.
+        var checked = false;
         const not = switch (try sema.bytesRecord(self.ctx, elem)) {
-            .record => |r| {
-                if (bytes) |b| try self.recordsIn(method, shown, r.size, b);
+            .record => |r| not: {
+                const embedded = if (bytes) |b| isEmbedCall(self, b) else false;
+                if (r.checks.len > 0 and !embedded) {
+                    checked = true;
+                    break :not r.checks[0].not;
+                }
+                if (bytes) |b| try self.recordsIn(method, shown, r, b);
                 return true;
             },
             .not => |n| n,
         };
         const subject = if (not.field.len == 0) try a.print(", and {s} `{s}`", .{ article(not.shown), not.shown }) else try a.print("; field `{s}` of `{s}` is {s} `{s}`,", .{ not.field, not.owner, article(not.shown), not.shown });
         const which = if (not.field.len == 0) "" else " which";
+        const embed_hint: []const u8 = if (checked) "; an `$embed(path)`'s bytes may make one, since the compiler checks their values" else "";
         switch (not.why) {
-            .boolean => try self.err(pos, head ++ "{s}{s} is only 0 or 1", .{ method, shown, article(shown), shown, subject, which }),
+            .boolean => try self.err(pos, head ++ "{s}{s} is only 0 or 1{s}", .{ method, shown, article(shown), shown, subject, which, embed_hint }),
             .enumeration => if (not.field.len == 0)
-                try self.err(pos, head ++ ", and `{s}` is an enum, whose values are only its variants'", .{ method, shown, article(shown), shown, not.shown })
+                try self.err(pos, head ++ ", and `{s}` is an enum, whose values are only its variants'{s}", .{ method, shown, article(shown), shown, not.shown, embed_hint })
             else
-                try self.err(pos, head ++ "; field `{s}` of `{s}` is an enum, whose values are only its variants'", .{ method, shown, article(shown), shown, not.field, not.owner }),
+                try self.err(pos, head ++ "; field `{s}` of `{s}` is an enum, whose values are only its variants'{s}", .{ method, shown, article(shown), shown, not.field, not.owner, embed_hint }),
             .other => try self.err(pos, head ++ "{s}{s} is not an integer, a float, or an object or array of them", .{ method, shown, article(shown), shown, subject, which }),
             .not_plain => try self.err(pos, head ++ ", and `{s}` is not plain data: it does not copy, or has a `drop`", .{ method, shown, article(shown), shown, not.shown }),
             .generic => try self.err(pos, head ++ ", and `{s}` is an instance of a generic object; declare an object of its field types", .{ method, shown, article(shown), shown, not.shown }),
@@ -7977,7 +7986,8 @@ const Checker = struct {
     /// The bytes `bytes` a call makes records of `size` bytes from, when
     /// they are known where it is written: a string literal's, checked
     /// here, and an embedded file's, checked once the file is found.
-    fn recordsIn(self: *Checker, method: []const u8, shown: []const u8, size: u64, bytes: Sexp) Error!void {
+    fn recordsIn(self: *Checker, method: []const u8, shown: []const u8, record: sema.Record, bytes: Sexp) Error!void {
+        const size = record.size;
         if (bytes == .src) {
             const lit = self.text(bytes);
             if (lit.len < 2 or (lit[0] != '"' and lit[0] != '\'')) return;
@@ -7985,9 +7995,15 @@ const Checker = struct {
             if (held.len % size != 0) try self.errAt(bytes, "`{s}` reads whole `{s}`s, {d} bytes each, and the literal holds {d} bytes", .{ method, shown, size, held.len });
             return;
         }
-        if (bytes.isKind(.builtin) and std.mem.eql(u8, self.text(ir.Builtin.name(bytes)), "embed")) {
-            try self.ctx.recordEmbedRecord(bytes, .{ .size = size, .method = method, .shown = shown });
+        if (isEmbedCall(self, bytes)) {
+            try self.ctx.recordEmbedRecord(bytes, .{ .size = size, .method = method, .shown = shown, .checks = record.checks });
         }
+    }
+
+    /// Whether `bytes` is written `$embed(path)`: an embedded file's
+    /// bytes, whole, known where the call is written.
+    fn isEmbedCall(self: *Checker, bytes: Sexp) bool {
+        return bytes.isKind(.builtin) and std.mem.eql(u8, self.text(ir.Builtin.name(bytes)), "embed");
     }
 
     /// A call of method `m` of a generic type (`owner`, declared in
@@ -23182,7 +23198,12 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
         .numeric, .bytes => sema.isNumeric(ctx, ty),
-        .records => (try sema.bytesRecord(ctx, ty)) == .record,
+        .records => switch (try sema.bytesRecord(ctx, ty)) {
+            // A generic body's bytes are not an embedded file's, known
+            // where the call is written, so every bit pattern is a value.
+            .record => |r| r.checks.len == 0,
+            .not => false,
+        },
         .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static or sema.isOrderedEnum(ctx, ty) or (try sema.lacks(ctx, ty, .Ord)) == null,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {

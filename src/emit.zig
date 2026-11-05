@@ -47,6 +47,14 @@ const ir = parser.ir;
 pub const runtime_filename = "rig/runtime.zig";
 pub const runtime_module = "rig";
 pub const runtime_source = @embedFile("runtime.zig");
+
+/// What an emitted `$embed` writes, inside a string literal, before the
+/// file's place, for the absolute path of the directory of the module
+/// that holds it: `rig` writes that path in its stead as it writes the
+/// package (`writePackage`), so the package's text, which its build is
+/// keyed by, does not depend on where it is written. Zig reads the text
+/// as two zero bytes about a word, which no path holds.
+pub const embed_dir_mark = "\\u{0}rig-package\\u{0}/";
 /// The runtime's tasks (`src/tasks.zig`), written beside it.
 pub const tasks_filename = "rig/tasks.zig";
 pub const tasks_source = @embedFile("tasks.zig");
@@ -915,6 +923,10 @@ pub const Emitter = struct {
         if (self.facts.wordHeldBitsOfSym(sym)) |bits| {
             self.nominal.?.word = true;
             try self.w.print("pub const {f} = packed struct(u{d}) {{\n", .{ ident(name), bits });
+        } else if (self.facts.recordLayout(sym)) {
+            // A record, laid out in declaration order: its bytes are its
+            // record's (`storage.decideRecords`).
+            try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
         if (self.facts.wordBitsOfSym(sym) != null) try self.w.writeAll("    pub const __rig_word_sized = {};\n");
         try self.emitFields(1);
@@ -980,17 +992,21 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.Enum.name(node), false, members);
         defer self.nominal = prev;
 
-        var has_values = false;
-        var has_payloads = false;
-        for (members) |m| {
-            if (m.isKind(.valued)) has_values = true;
-            if (m.isKind(.variant)) has_payloads = true;
-        }
-        if (has_payloads) {
+        // How the enum is held, as resolve recorded it: `sema.enumBytes`
+        // reads the same flags for its size.
+        const flags = self.facts.symbols.items[self.nominal.?.sym].flags;
+        const has_values = flags.enum_valued;
+        if (flags.enum_union) {
             try self.w.print("pub const {f} = union(enum) {{\n", .{ident(name)});
             try self.emitUnionVariants(1);
         } else {
-            try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
+            // An enum a record laid out in declaration order holds names
+            // its tag type, which a Zig `extern struct` needs.
+            if (has_values) {
+                try self.w.print("pub const {f} = enum(u32) {{\n", .{ident(name)});
+            } else if (self.facts.recordEnumBytes(self.nominal.?.sym)) |bytes| {
+                try self.w.print("pub const {f} = enum(u{d}) {{\n", .{ ident(name), 8 * @as(u32, bytes) });
+            } else try self.w.print("pub const {f} = enum {{\n", .{ident(name)});
             for (self.nominalFields()) |f| {
                 if (!f.is_variant) continue;
                 try self.w.print("    {f}", .{ident(f.name)});
@@ -8134,9 +8150,15 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "plain")) return self.emitPlainTest(sexp);
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "embed")) {
             // The file's copy in the package, which the module, a file at
-            // the package's top, reaches by its place (`Package`).
+            // the package's top, reaches by its place (`Package`), held at
+            // 16 bytes where the runtime can (`rig.Embed`): the assembler
+            // reads it by its absolute path, `rig` writing the package's
+            // directory for `embed_dir_mark`.
             const place = self.facts.embedPlace(sexp) orelse return self.unsupported(sexp, "a `$embed` whose file was not found");
-            return self.w.print("@as([]const u8, @embedFile(\"{f}\"))", .{std.zig.fmtString(place)});
+            const p = std.zig.fmtString(place);
+            try self.w.print("@as([]const u8, if (rig.embeds_aligned) rig.Embed(@This(), @embedFile(\"{f}\").len, \"", .{p});
+            try self.w.writeAll(embed_dir_mark);
+            return self.w.print("{f}\").bytes else @embedFile(\"{f}\"))", .{ p, p });
         }
         const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");

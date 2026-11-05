@@ -1,0 +1,28 @@
+pup, P-core 8 (sibling 9 idle), in a slot opened 19:45 for 4 minutes (/tmp/open-slot.sh 31 4;
+1 free 2 MiB block after compaction), other builds on E-cores. stat.sh 8 5: fewest of 5.
+start-up alone (--version): 0.80M ucyc, 3.24M kcyc, 111 faults, 0.85 ms
+
+mitt            full  base instr   79.8M ucyc   28.7M kcyc   17.6M faults   1257 task    9.7ms
+mitt            full  new  instr   49.6M ucyc   24.6M kcyc   16.9M faults   1251 task    8.7ms
+mitt            empty base instr   61.4M ucyc   18.3M kcyc   15.9M faults   1015 task    7.2ms
+mitt            empty new  instr   31.1M ucyc   13.8M kcyc   15.3M faults   1017 task    6.5ms
+neverthrow      full  base instr   95.1M ucyc   38.6M kcyc   17.6M faults   1376 task   12.5ms
+neverthrow      full  new  instr   67.3M ucyc   34.7M kcyc   18.8M faults   1374 task   11.9ms
+neverthrow      empty base instr   52.8M ucyc   14.2M kcyc   14.2M faults    966 task    5.9ms
+neverthrow      empty new  instr   24.9M ucyc   10.4M kcyc   14.0M faults    968 task    5.1ms
+tiny-invariant  full  base instr  619.6M ucyc  198.6M kcyc   37.1M faults   3602 task   49.9ms
+tiny-invariant  full  new  instr  592.3M ucyc  195.3M kcyc   37.7M faults   3601 task   49.5ms
+tiny-invariant  empty base instr   52.7M ucyc   14.2M kcyc   14.3M faults    962 task    6.0ms
+tiny-invariant  empty new  instr   24.9M ucyc   10.6M kcyc   14.8M faults    962 task    5.3ms
+superstruct     full  base instr  183.1M ucyc   78.4M kcyc   15.2M faults   1329 task   19.8ms
+superstruct     full  new  instr  176.3M ucyc   78.2M kcyc   15.0M faults   1321 task   20.4ms
+superstruct     empty base instr   19.7M ucyc    8.6M kcyc    6.3M faults    401 task    3.1ms
+superstruct     empty new  instr   12.9M ucyc    7.6M kcyc    7.5M faults    403 task    3.4ms
+zod3            full  base instr 1125.5M ucyc  482.5M kcyc   63.2M faults   6451 task  115.5ms
+zod3            full  new  instr 1094.7M ucyc  479.5M kcyc   62.8M faults   6448 task  116.3ms
+zod3            empty base instr   63.4M ucyc   18.7M kcyc   15.9M faults   1027 task    7.7ms
+zod3            empty new  instr   32.3M ucyc   14.6M kcyc   15.6M faults   1029 task    6.7ms
+ts-pattern      full  base instr 7156.5M ucyc 3108.2M kcyc  235.4M faults  31808 task  723.0ms
+ts-pattern      full  new  instr 7128.0M ucyc 3081.4M kcyc  242.4M faults  31807 task  714.1ms
+ts-pattern      empty base instr   63.8M ucyc   19.1M kcyc   15.7M faults   1034 task    7.4ms
+ts-pattern      empty new  instr   32.6M ucyc   15.3M kcyc   17.3M faults   1034 task    6.8ms

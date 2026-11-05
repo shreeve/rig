@@ -875,6 +875,8 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
                 t.* = m.ir;
             }
             try storage.decideWords(ctxs, trees);
+            // Which records are laid out in declaration order.
+            try storage.decideRecords(ctxs);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
@@ -1944,7 +1946,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     for (graph.modules.items) |*m| for (m.sema.embed_sites.items) |site| {
         if (site.place.len == 0 or embedded.contains(site.place)) continue;
         try embedded.put(allocator, site.place, {});
-        const bytes = std.Io.Dir.cwd().readFileAlloc(graph.io, site.file, allocator, .limited(modules.max_source_bytes + 1)) catch |err| switch (err) {
+        const bytes = site.bytes orelse std.Io.Dir.cwd().readFileAlloc(graph.io, site.file, allocator, .limited(modules.max_source_bytes + 1)) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => fatal("error: $embed: cannot read `{s}` ({s})", .{ site.file, modules.fileError(err) }),
         };
@@ -2080,12 +2082,25 @@ fn zigErrorNames(allocator: std.mem.Allocator, io: std.Io, env: Env, names: *std
 /// Write each file of a package into `dir`, leaving a file that already
 /// holds the same contents untouched, so Zig's cache sees it unchanged.
 fn writePackage(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, files: []const PackageFile) !void {
+    var absolute: ?[]const u8 = null;
     for (files) |f| {
         const path = try std.fs.path.join(allocator, &.{ dir, f.path });
-        if (std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(f.contents.len + 1))) |old| {
-            if (std.mem.eql(u8, old, f.contents)) continue;
+        // An embedded file's absolute path (`emit.embed_dir_mark`), in a
+        // module that holds one.
+        var contents = f.contents;
+        if (std.mem.endsWith(u8, f.path, ".zig") and std.mem.find(u8, contents, emit.embed_dir_mark) != null) {
+            const root = absolute orelse blk: {
+                const abs = if (std.fs.path.isAbsolute(dir)) dir else try std.fs.path.join(allocator, &.{ try std.process.currentPathAlloc(io, allocator), dir });
+                absolute = abs;
+                break :blk abs;
+            };
+            const here = try std.fs.path.join(allocator, &.{ root, std.fs.path.dirname(f.path) orelse "" });
+            contents = try std.mem.replaceOwned(u8, allocator, contents, emit.embed_dir_mark, try allocator.print("{f}/", .{std.zig.fmtString(here)}));
+        }
+        if (std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(contents.len + 1))) |old| {
+            if (std.mem.eql(u8, old, contents)) continue;
         } else |_| {}
-        try writeFile(io, path, f.contents);
+        try writeFile(io, path, contents);
     }
 }
 
@@ -2201,14 +2216,15 @@ fn placeBatchFiles(allocator: std.mem.Allocator, sub: []const u8, root: []const 
     for (files, paths, imports) |f, from, *list| {
         var found: std.ArrayList(Import) = .empty;
         // A module's `@import` of another file, and its `@embedFile` of a
-        // file the program embeds (`sema.EmbedSite`).
-        for ([_][]const u8{ "@import(\"", "@embedFile(\"" }) |open| {
+        // file the program embeds (`sema.EmbedSite`), which it also names
+        // for the assembler (`emit.embed_dir_mark`).
+        for ([_][]const u8{ "@import(\"", "@embedFile(\"", emit.embed_dir_mark }) |open| {
             var at: usize = 0;
             while (std.mem.indexOfPos(u8, f.contents, at, open)) |s| {
                 const start = s + open.len;
                 const end = std.mem.indexOfScalarPos(u8, f.contents, start, '"') orelse break;
                 at = end;
-                const target = (try importedPath(allocator, from, f.contents[start..end], open[1] == 'e')) orelse continue;
+                const target = (try importedPath(allocator, from, f.contents[start..end], open[0] != '@' or open[1] == 'e')) orelse continue;
                 if (index.get(target)) |j| try found.append(allocator, .{ .start = start, .end = end, .target = j });
             }
         }

@@ -182,20 +182,26 @@ cases = (file) ->
   out.push(cur) if cur
   for c in out
     # `file "PATH"` at the body's margin starts another file of the case's
-    # program, its lines two spaces in; the files end the body.
+    # program, its lines two spaces in; the files end the body. A file
+    # marked `hex` is the bytes its lines spell, two hex digits each, with
+    # spaces between them as the case likes: an embedded file of records.
     c.files = []
-    at = c.body.findIndex((l) -> /^file "[^"]+"\s*$/.test(l))
+    at = c.body.findIndex((l) -> /^file "[^"]+"(, hex)?\s*$/.test(l))
     if at >= 0
       for l in c.body.slice(at)
-        m = l.match(/^file "([^"]+)"\s*$/)
+        m = l.match(/^file "([^"]+)"(, hex)?\s*$/)
         if m
-          c.files.push({ path: m[1], lines: [] })
+          c.files.push({ path: m[1], hex: m[2]?, lines: [] })
         else
           c.files[c.files.length - 1].lines.push(l.replace(/^  /, ''))
       c.body = c.body.slice(0, at)
       for f in c.files
         f.lines.pop() while f.lines.length > 0 and f.lines[f.lines.length - 1].trim() is ''
         f.text = f.lines.join('\n') + '\n'
+        if f.hex
+          digits = f.lines.join('').replace(/\s+/g, '')
+          throw new Error("#{basename(file)}: file \"#{f.path}\" is marked hex and holds more than hex digits") unless /^([0-9a-fA-F]{2})*$/.test(digits)
+          f.text = Buffer.from(digits, 'hex')
     c.body.pop() while c.body.length > 0 and c.body[c.body.length - 1].trim() is ''
     c.shared = shared
     program(c)
@@ -211,7 +217,7 @@ refers = (c, u) ->
   m = u.match(/^use\s+([\w.]+)(?:\s+as\s+(\w+))?/)
   return true unless m
   name = m[2] ?? m[1].split('.').pop()
-  lines = [...c.body, ...c.files.flatMap((f) -> f.text.split('\n'))]
+  lines = [...c.body, ...c.files.flatMap((f) -> if f.hex then [] else f.text.split('\n'))]
   return false unless lines.some((l) -> new RegExp("\\b#{name}\\.").test(l))
   binds = [
     "^\\s*(pub )?(inline )?(fun|sub)\\b[^(]*\\(.*\\b#{name}\\s*:"
@@ -620,7 +626,7 @@ setup = ->
   queued = []
   for p in packs
     h = new Bun.CryptoHasher('sha256')
-    h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
+    h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, if f.hex then f.text.toString('hex') else f.text])])]
     p.key = h.digest('hex')
     keyPath = join(p.dir, 'key')
     continue if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))

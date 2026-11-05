@@ -7,7 +7,8 @@ rejects today as not supported yet are listed, with their diagnostics,
 in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms). Where the
 work stands is in [HANDOFF](../HANDOFF.md), and the decided engineering
 items, with their probe cases, are in
-[internals/backlog](internals/backlog.md).
+[internals/backlog](internals/backlog.md). Ideas the owner has not
+decided are kept in [IDEAS](IDEAS.md) until he approves or rejects them.
 
 ## Language
 
@@ -49,6 +50,15 @@ The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.
 
 - **Files and I/O**: a file layer with one `read`/`write` shape for files, sockets, and HTTP bodies; DNS; then TLS and an HTTP client.
 - **Checking the runtime**: the next slices of the model's proofs ([design/concurrency](design/concurrency.md), "Proof obligations"), and model checking (TLA+, GenMC) before more hand proofs.
+- **Tasks as small and as cheap as the best runtimes'** (the owner, 2026-11-04, for v0.3.1; [concurrency-review](history/records/2026-11/concurrency-review/SYNTHESIS.md)), in this order:
+  - measure first: the stack a parked task has live, the page tables `ru_maxrss` does not count, and bench/tasks against Tokio, Rayon, Go, and Swift, scaling over cores too;
+  - the cheap fixes: the deadlock walk's frame off task stacks, and the dead pages of free stacks released;
+  - counted loops strip-mined, with one yield check for each block of turns, for `fanout`;
+  - small stacks from a slab, sized by a bound proven on the linked executable, growing by segments that never move;
+  - Rayon's fork-join at no cost behind the same `&`: the task record in its maker's frame, and an unstarted task run on its waiter's stack;
+  - connections shaped as actors in `std.net` and `std.http`, so an idle connection holds no stack.
+
+  The memory goal is under Go's 2.9 KiB a sleeping task on the Mac. Small stacks and the fork-join each take a design round first.
 - **Later**: thread-sanitizer annotations for fibers, freeing a long-sleeping task's stack, and io_uring.
 
 ## Kernels and freestanding code

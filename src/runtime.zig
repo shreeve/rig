@@ -3597,14 +3597,53 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
     };
 }
 
-/// The bytes of a record `T` (`List.extend_from_bytes`): a number's
-/// size, an array's elements', an object's fields'. Each is computed
-/// once per type at compile time; the quota covers an object of many
-/// fields.
+/// Whether `Embed` places an embedded file's bytes itself, at 16 bytes:
+/// with LLVM, which assembles a module's global assembly, for ELF and
+/// Mach-O. Zig's own backends (an x86-64 debug build) and other formats
+/// take the bytes as `@embedFile` places them.
+pub const embeds_aligned = builtin.zig_backend == .stage2_llvm and (builtin.object_format == .elf or builtin.object_format == .macho);
+
+/// `$embed(path)`'s bytes at 16 bytes, so a List of records of any
+/// alignment may hold them where they lie: the file `path`, `size` bytes,
+/// which the assembler includes (`.incbin`) after a `.balign 16`, where
+/// `@embedFile` would place it at 1. The emitted call names the file by
+/// its absolute path, which `rig` writes as it writes the package, and
+/// takes `size` from `@embedFile(path).len`, so Zig builds again when the
+/// bytes change. The symbol is named for the container that holds the
+/// call and for the path, so no two in a program meet, and is weak and
+/// hidden in a section of its own, so the units of a split build that
+/// each hold it link to one copy.
+pub fn Embed(comptime Owner: type, comptime size: usize, comptime path: []const u8) type {
+    @setEvalBranchQuota(100_000);
+    const macho = builtin.object_format == .macho;
+    const name = std.fmt.comptimePrint("__rig_embed_{x:0>16}", .{std.hash.Wyhash.hash(0, @typeName(Owner) ++ "\x00" ++ path)});
+    const symbol = (if (macho) "_" else "") ++ name;
+    const text = comptime blk: {
+        var quoted: []const u8 = "";
+        for (path) |c| quoted = quoted ++ (if (c == '"' or c == '\\') "\\" ++ [1]u8{c} else [1]u8{c});
+        break :blk (if (macho) ".pushsection __TEXT,__const\n" else ".pushsection .rodata." ++ name ++ ",\"aG\",@progbits," ++ name ++ ",comdat\n") ++
+            ".balign 16\n" ++
+            (if (macho) ".private_extern " ++ symbol ++ "\n.weak_definition " ++ symbol ++ "\n" else ".hidden " ++ symbol ++ "\n.weak " ++ symbol ++ "\n") ++
+            symbol ++ ":\n" ++
+            ".incbin \"" ++ quoted ++ "\"\n" ++
+            ".popsection\n";
+    };
+    return struct {
+        comptime {
+            asm (text);
+        }
+        pub const bytes: *align(16) const [size]u8 = @extern(*align(16) const [size]u8, .{ .name = name });
+    };
+}
+
+/// The bytes of a record `T` (`List.extend_from_bytes`): a number's,
+/// a `Bool`'s, or an enum's size, an array's elements', an object's
+/// fields'. Each is computed once per type at compile time; the quota
+/// covers an object of many fields.
 fn recordSize(comptime T: type) usize {
     @setEvalBranchQuota(100_000);
     return switch (@typeInfo(T)) {
-        .int, .float => @sizeOf(T),
+        .int, .float, .bool, .@"enum" => @sizeOf(T),
         .array => |a| a.len * recordSize(a.child),
         .@"struct" => |st| blk: {
             var n: usize = 0;
@@ -3621,7 +3660,7 @@ fn recordSize(comptime T: type) usize {
 fn recordFlat(comptime T: type) bool {
     @setEvalBranchQuota(100_000);
     return switch (@typeInfo(T)) {
-        .int, .float => true,
+        .int, .float, .bool, .@"enum" => true,
         .array => |a| recordFlat(a.child),
         .@"struct" => |st| blk: {
             var off: usize = 0;
@@ -3643,7 +3682,9 @@ fn recordFlat(comptime T: type) bool {
 /// order, an array's elements one after another, an object's fields in
 /// declaration order. A part laid out as its bytes (`recordFlat`) is one
 /// `@memcpy`, and an array of other elements a loop that runs, so no
-/// array is unrolled by its length.
+/// array is unrolled by its length. A `Bool`'s or an enum's bytes hold
+/// one of its values: sema admits such a record only from an embedded
+/// file, whose values the compiler checked (`sema.RecordCheck`).
 fn recordFromBytes(comptime T: type, b: *const [recordSize(T)]u8) T {
     var out: T = undefined;
     if (comptime recordFlat(T) and !isPacked(T)) {
@@ -3652,6 +3693,8 @@ fn recordFromBytes(comptime T: type, b: *const [recordSize(T)]u8) T {
     }
     switch (@typeInfo(T)) {
         .int, .float => return @bitCast(b.*),
+        .bool => return b[0] != 0,
+        .@"enum" => |e| return @enumFromInt(@as(e.tag_type, @intCast(@as(std.meta.Int(.unsigned, 8 * @sizeOf(T)), @bitCast(b.*))))),
         .array => |a| {
             const each = comptime recordSize(a.child);
             for (&out, 0..) |*e, i| e.* = recordFromBytes(a.child, b[i * each ..][0..each]);

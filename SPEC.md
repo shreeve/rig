@@ -5955,8 +5955,9 @@ one its root's imports are found in ([§1](#1-programs)), so a program
 is the files under that directory, wherever it is copied, as a Zig
 module is. The bytes are taken as they are: nothing in them is escaped
 or read as Rig, and Zig builds them into the program, so `rig check`
-reads none of them and a file of many megabytes costs a build about
-what copying it costs. A file that cannot be read, a directory, and a
+reads none of them, but for the records of `Bool`s and enums a call
+makes of them, whose values it checks ([List](#list)), and a file of
+many megabytes costs a build about what copying it costs. A file that cannot be read, a directory, and a
 file of 2 GiB or more are rejected where the call is written. A build
 after the file's bytes change builds again. The call is a constant, so
 a module constant may be one, but a compile-time function, which holds
@@ -9329,7 +9330,7 @@ owns one), and read views.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.swap_remove(i)` | remove the element at `i` and hand it over, moving the last element into its place: one element moves, not the rest, and the order of what is left changes; panics out of range |
 | `!v.clear()` | drop every element |
-| `!v.extend_from_bytes(s)` | append the records the bytes of `s`, a `?String` (or a `Static`), hold, in one copy, growing once; `T` is a type whose every bit pattern is a value (below); panics unless `s.len` is a whole number of `$size(T)` |
+| `!v.extend_from_bytes(s)` | append the records the bytes of `s`, a `?String` (or a `Static`), hold, in one copy, growing once; `T` is a type whose every bit pattern is a value, or with `Bool`s and enums when `s` is written `$embed(path)` (below); panics unless `s.len` is a whole number of `$size(T)` |
 
 **Inline room.** `List[T, inline: n]` keeps its first `n` elements
 inside the List value itself, and allocates only once it holds more,
@@ -9418,12 +9419,26 @@ its largest field's) is rejected, and so is one with no fields, and
 another module's object with a field that module keeps to itself (a
 private or read-only one), as its constructor is, and an object that
 names its none ([Optionals](#12-optionals)), whose none bytes could
-make, and `get`, `pop`, and a `T?` would read as `none`. A `Bool`, an enum,
-an optional, text, a box, a handle, a `Slot`, and a vector are not
-records: the message names the field that is not. A literal or an
-embedded file ([Builtins](#builtins)) that is not a whole number of
-records is rejected where the call is written. The List keeps no view
-of `s`: its bytes are copied.
+make, and `get`, `pop`, and a `T?` would read as `none`. An optional,
+text, a box, a handle, a `Slot`, and a vector are not records: the
+message names the field that is not. A literal or an embedded file
+([Builtins](#builtins)) that is not a whole number of records is
+rejected where the call is written. A record object is held in memory
+as its record, its fields in declaration order with nothing between
+them, so the List copies the bytes whole. The List keeps no view of
+`s`: its bytes are copied.
+
+**An embedded file's records may hold `Bool`s and enums.** Not every
+bit pattern is a `Bool` or an enum, so bytes known only when the
+program runs, a `?String` or any other `Static`, cannot make them; but
+when `s` is written `$embed(path)` at the call, the compiler reads the
+file and checks every record, each `Bool` 0 or 1 and each enum a
+variant's value, and rejects the program at the first that is not,
+naming the record, its field, and the byte. A `Bool` is one byte; a
+plain enum whose variants declare values is four, its value; any other
+plain enum is its variant's place in the fewest of 1, 2, or 4 bytes
+that hold every place. An enum of one variant holds no bytes, and an
+enum with a variant written `a()` is not a record.
 
 ```rig
 obj Span
@@ -9454,7 +9469,24 @@ sub main()
 ```
 
 ```error
-field `on` of `Flag` is a `Bool`, which is only 0 or 1
+field `on` of `Flag` is a `Bool`, which is only 0 or 1; an `$embed(path)`'s bytes may make one, since the compiler checks their values
+```
+
+```rig file=flags.txt
+on
+```
+
+```rig reject
+obj Flag
+  on: Bool
+
+sub main()
+  flags: List[Flag] = List()
+  !flags.extend_from_bytes($embed("flags.txt"))
+```
+
+```error
+`extend_from_bytes` reads whole `Flag`s from "flags.txt": field `on` of record 0 (byte 0) holds 111, and a `Bool` is only 0 or 1
 ```
 
 **`List.filled` and `resize` copy one value into many elements,** as
