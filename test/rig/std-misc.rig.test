@@ -2689,12 +2689,12 @@ test "time", '''
     start.elapsed()
 
   start = time.now()
-  time.sleep(3 * time.MS)!
+  time.sleep(ms: 3)!
   later = time.now()
   took = later.since(start)
   print(took >= 3 * time.MS, took < 10 * time.SECOND, start.since(later) == -took)
   time.sleep(0)!
-  time.sleep(-1)!
+  time.sleep(ns: -1)!
   print(waited(start) >= took, start.elapsed() >= took)
   print(time.unix_ns() > 1_700_000_000 * time.SECOND)
   print(time.NS, time.US, time.MS, time.SECOND, time.MINUTE)
@@ -2704,19 +2704,88 @@ test "time instant at add order", '''
   3000000000 -6 Instant(ns: 5)
   2 true
 '''
-  # `Instant.at(ns)` names an instant, for code handed the time; `add`
+  # `Instant.at(ns: 5)` names an instant, for code handed the time; `add`
   # moves one by a duration, and instants order by time, so `<`,
   # `math.max`, and a Map's keys take them.
-  a = time.Instant.at(5)
-  b = a.add(3 * time.SECOND)
-  print(a < b, b <= a, a == time.Instant.at(5), math.max(a, b) == b)
-  print(b.since(a), a.add(-6).since(a), a)
+  a = time.Instant.at(ns: 5)
+  b = a.add(3)
+  print(a < b, b <= a, a == time.Instant.at(ns: 5), math.max(a, b) == b)
+  print(b.since(a), a.add(ns: -6).since(a), a)
   m = Map[time.Instant, Int]()
   !m.put(a, 1)
   !m.put(b, 2)
-  !m.put(time.Instant.at(5), 3)
+  !m.put(time.Instant.at(ns: 5), 3)
   start = time.now()
   print(m.len, time.now() >= start)
+
+test "durations in their four forms", '''
+  2000000000 500000000 40000000 40000 40
+  1500000 3 -3 0 1000
+  true
+'''
+  # A bare number is seconds, an `Int` or a `Float`; `ms:`, `us:`, and
+  # `ns:` count the other units, a `Float` rounded to the nearest whole
+  # nanosecond, a half away from zero.
+  z = time.Instant.at(0)
+  print(z.add(2).since(z), z.add(0.5).since(z), z.add(ms: 40).since(z), z.add(us: 40).since(z), z.add(ns: 40).since(z))
+  n = 1
+  print(z.add(ms: 1.5).since(z), z.add(ns: 2.5).since(z), z.add(ns: -2.5).since(z), z.add(1e-10).since(z), z.add(us: n).since(z))
+  start = time.now()
+  time.sleep(0.001)!
+  time.sleep(ms: 1)!
+  time.sleep(us: 1)!
+  time.sleep(ns: 1)!
+  time.sleep(0)!
+  print(start.elapsed() >= 2 * time.MS)
+
+test "durations of select, within, and supervise", "-1 7 3", seeds: 20
+  # The deadline arm, `within`, and `per:` take durations the same way;
+  # `per:` is in seconds, by its own name.
+  use std.task
+
+  ch = *Chan[Int](1)
+  v = match task.select(got: !ch.on_recv(), late: time.after(ms: 1))!
+    .got(x) => x ?? 0
+    .late => -1
+  r = time.within(0.5, || 7)!
+  s = task.supervise(|| 3, restarts: 1, per: 0.5) catch 0
+  print(v, r, s)
+
+bomb "duration of a NaN", "a duration is not a finite number of nanoseconds an Int holds"
+  fun nan() -> Float
+    Float.nan()
+
+  _ = time.Instant.at(0).add(ms: nan())
+
+bomb "duration past an Int", "a duration is more nanoseconds than an Int holds"
+  fun big() -> Int
+    10_000_000_000
+
+  _ = time.Instant.at(0).add(big())
+
+fail "durations written outside their four forms", "8:19: `time.sleep` takes one duration, in one unit: `ms: 1` or `ns: 2`, not both", "9:15: `time.sleep` takes one duration, in one unit: `2` or `ms: 3`, not both", "10:12: a duration in seconds is written bare, with no keyword: `time.sleep(2)`", "11:12: a bare duration is in seconds, and `time.MS` counts nanoseconds: write `time.sleep(ms: 5)`", "12:12: a bare duration is in seconds, and `time.SECOND` counts nanoseconds: write `time.sleep(1)`", "13:12: a bare duration is in seconds, and `time.MINUTE` counts nanoseconds: write `time.sleep(60 * n)`", "14:12: a bare duration is in seconds, and `time.US` counts nanoseconds: write `time.sleep(ns: n + time.US)`", "15:12: a duration is an `Int` or a `Float`, and `\"x\"` is a `Static`", "16:12: a duration is an `Int` or a `Float`, and `U8(3)` is a `U8`: write `Int(U8(3))`", "17:16: a duration is a finite number, and `Float.inf()` is not", "18:12: `10_000_000_000` seconds is more nanoseconds than an `Int` holds", "19:16: `1e13` ms is more nanoseconds than an `Int` holds", "20:12: `time.sleep` has no parameter `timeout`; a duration is written bare in seconds, `time.sleep(2)`, or with one unit, `ms: 40`, `us: 40`, or `ns: 40`", "21:44: `per:` is in seconds, and `time.MINUTE` counts nanoseconds: write the seconds, `per: 60`", "22:61: `time.after` takes one duration, in one unit: `ms: 1` or `us: 2`, not both", errors: 15
+  # Each form outside bare seconds and `ms:`, `us:`, or `ns:` is
+  # rejected with its fix; a bare duration is seconds, so a constant of
+  # std.time, which counts nanoseconds, does not stand in one.
+  use std.task
+
+  n = 2
+  ch = *Chan[Int](1)
+  time.sleep(ms: 1, ns: 2)!
+  time.sleep(2, ms: 3)!
+  time.sleep(seconds: 2)!
+  time.sleep(5 * time.MS)!
+  time.sleep(time.SECOND)!
+  time.sleep(n * time.MINUTE)!
+  time.sleep(n + time.US)!
+  time.sleep("x")!
+  time.sleep(U8(3))!
+  time.sleep(ns: Float.inf())!
+  time.sleep(10_000_000_000)!
+  time.sleep(ms: 1e13)!
+  time.sleep(timeout: 3)!
+  _ = task.supervise(|| 3, restarts: 1, per: time.MINUTE) catch 0
+  _ = task.select(got: !ch.on_recv(), late: time.after(ms: 1, us: 2))!
 
 test "os memory", "true true true true true", seeds: 3
   # `os.memory()`: live bytes rise by what a List holds and fall back when
@@ -2769,7 +2838,7 @@ test "time since start", "true true true", seeds: 3
 
   read: fun() -> Int = clock
   a = read()
-  time.sleep(2 * time.MS)!
+  time.sleep(ms: 2)!
   b = time.since_start()
   print(a >= 0, b - a >= 2 * time.MS, b < 10 * time.SECOND)
 

@@ -144,7 +144,7 @@ error Mirror
   down
 
 fun fetch(mirror: Int, ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   return Mirror.down if mirror == 1
   mirror * 100
 
@@ -410,7 +410,7 @@ panic: Seats.book: the actor died from a panic in Seats.seat
 ```
 
 `*Actor.supervised(make)` starts a fresh value instead, and
-`restarts: n, per: ns` limits how often.
+`restarts: n, per: s` limits how often, `s` in seconds.
 
 
 ## Stopping a task
@@ -426,11 +426,11 @@ use std.time
 
 fun nap() -> Int!
   defer print("nap stops")
-  time.sleep(10 * time.SECOND)!
+  time.sleep(10)!
   1
 
 fun stubborn() -> Int!
-  time.sleep(10 * time.SECOND) catch print("caught once")
+  time.sleep(10) catch print("caught once")
   task.check()!
   2
 
@@ -470,9 +470,11 @@ sub main()
 
 ## Deadlines
 
-`time.within(ns, f)` runs `f` with a deadline. Every waiting point
-reached past the deadline fails with `task.Stop.timeout`, in `f` and in
-every task `f` starts:
+`time.within(d, f)` runs `f` with a deadline. A duration, here and in
+`time.sleep`, is a bare number of seconds, `2` or `0.5`, or a count of
+one unit, `ms: 50`, `us: 50`, or `ns: 50`. Every waiting point reached
+past the deadline fails with `task.Stop.timeout`, in `f` and in every
+task `f` starts:
 
 ```rig
 use std.time
@@ -481,7 +483,7 @@ error Mirror
   down
 
 fun fetch(mirror: Int, ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   return Mirror.down if mirror == 1
   mirror * 100
 
@@ -492,8 +494,8 @@ fun both(slow: Int) -> List[Int]!
   >ts!
 
 sub main()
-  print(time.within(time.SECOND, || both(1)!) catch List[Int]())
-  r = time.within(50 * time.MS, || both(60_000)!) catch |e|
+  print(time.within(1, || both(1)!) catch List[Int]())
+  r = time.within(ms: 50, || both(60_000)!) catch |e|
     print(e)
     List[Int]()
   print(r)
@@ -713,7 +715,7 @@ sub main()
 | pass values along | `*Chan[T](n)`, `!ch.send(<v)!`, `(!ch).recv()!`, `task.select` |
 | stop a bug at a boundary | `task.isolate(f)`, `*Actor.supervised(make)` |
 | stop a task | `<t.cancel()` |
-| give work a deadline | `time.within(ns, f)` |
+| give work a deadline | `time.within(d, f)` |
 | end cleanly on Ctrl-C | `sub main()!`, with `defer` |
 | hand a task a function | a `fun(A) -> R` value, never a closure |
 | hand a task an object | `^{Job + Sends}`, or `*{Shape + Syncs}` to many |

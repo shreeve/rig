@@ -1,6 +1,14 @@
-# std.time: clocks and sleeping. A duration is an `Int` of nanoseconds.
+# std.time: clocks and sleeping. A call writes a duration bare in
+# seconds, an `Int` or a `Float`, `sleep(2)`, `sleep(0.5)`, or with one
+# unit, `sleep(ms: 40)`, `us: 40`, `ns: 40`; what it gives back, as
+# `elapsed` does, is an `Int` of nanoseconds, which the constants below
+# count.
 
 use std.task
+
+# A parameter `ns: Duration` takes a duration in any of its forms, and
+# its body sees the nanoseconds (SPEC §18, "Durations").
+type Duration = Int
 
 pub NS = 1
 pub US = 1_000
@@ -15,15 +23,15 @@ pub MINUTE = 60_000_000_000
 pub obj Instant: Ord
   ns: Int
 
-  # The instant `ns` nanoseconds on the monotonic clock, for a test or
-  # code that is handed the time rather than reading it:
-  # `Instant.at(0).add(SECOND)`.
-  pub fun at(ns: Int) -> Instant
+  # The instant a duration after the monotonic clock's zero, for a test
+  # or code that is handed the time rather than reading it:
+  # `Instant.at(0).add(1)`.
+  pub fun at(ns: Duration) -> Instant
     Instant(ns: ns)
 
-  # The instant `ns` nanoseconds after this one; before it when `ns` is
-  # negative.
-  pub fun add(?@, ns: Int) -> Instant
+  # The instant a duration after this one; before it when the duration
+  # is negative.
+  pub fun add(?@, ns: Duration) -> Instant
     Instant(ns: @ns + ns)
 
   # Nanoseconds from `earlier` to this reading; negative when `earlier`
@@ -39,7 +47,7 @@ pub obj Instant: Ord
 pub fun now() -> Instant
   Instant(ns: monotonic())
 
-# Run `f` with a deadline `ns` nanoseconds from now, and give what it
+# Run `f` with a deadline a duration from now, and give what it
 # gives. Every fallible waiting point `f` reaches after the deadline
 # fails with `task.Stop.timeout`: `sleep`, `task.check`, and a wait on a
 # task or a set that can fail, whose tasks are canceled first. The tasks
@@ -47,9 +55,9 @@ pub fun now() -> Instant
 # one holds, and the outer one is back once `f` returns.
 #
 # `within` calls `f` once, `f: once`, so a closure written in the call
-# may move out what it moved in, `time.within(d, |<t| >t!)`, and drops
-# what it keeps.
-pub fun within[R](ns: Int, f: once ?fun() -> R!) -> R!
+# may move out what it moved in, `time.within(ms: 50, |<t| >t!)`, and
+# drops what it keeps.
+pub fun within[R](ns: Duration, f: once ?fun() -> R!) -> R!
   outer = enter_deadline(ns)
   defer restore_deadline(outer)
   f()!
@@ -67,11 +75,11 @@ extern zig "time.zig"
   # be set, so it may jump.
   pub fun unix_ns() -> Int
 
-  # Wait at least `ns` nanoseconds; not at all when `ns` is not
-  # positive. A fallible waiting point: in a canceled task it fails with
+  # Wait at least a duration; not at all when it is not positive. A
+  # fallible waiting point: in a canceled task it fails with
   # `task.Stop.canceled` (std.task), and past a deadline (`within`) with
   # `task.Stop.timeout`, sleeping only until the deadline.
-  pub sub sleep(ns: Int)!task.Stop
+  pub sub sleep(ns: Duration)!task.Stop
 
   # The running task's deadline becomes `ns` from now, unless it has an
   # earlier one; gives the one it had, for `restore_deadline`.

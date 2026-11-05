@@ -195,7 +195,7 @@ down with it.
 Only a task that can fail can be canceled, because cancellation arrives
 as an error, `task.Stop.canceled`, at the task's next waiting point. It
 stays, so a `catch` cannot swallow it and carry on. Deadlines work the
-same way: `time.within(ns, f)` makes every wait past the deadline fail
+same way: `time.within(d, f)` makes every wait past the deadline fail
 with `task.Stop.timeout`, in `f` and in the tasks it starts. There is
 no context object to pass down, and no token to check by hand.
 

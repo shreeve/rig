@@ -58,7 +58,7 @@ test "par fails", seeds: 20, release: true, '''
 
   fun slow(n: Int) -> Int!
     return Bad.odd if n == 500
-    time.sleep(20 * time.MS)!
+    time.sleep(ms: 20)!
     n
 
   xs: List[Int] = List(capacity: 1000)
@@ -105,7 +105,7 @@ test "par limit", seeds: 20, release: true, "true true"
     while now > seen
       break if (!most).compare_swap(seen, now)
       seen = most.get()
-    time.sleep(100 * time.US) catch print("stopped")
+    time.sleep(us: 100) catch print("stopped")
     _ = (!active).sub(1)
 
   xs: List[Int] = List(capacity: 1000)
@@ -388,7 +388,7 @@ test "par workers heavy first", seeds: 20, '''
   states = List([Load(), Load(), Load(), Load()])
   got = par.workers(!states, ?weights, |s, w|
     for _ in 0..w
-      time.sleep(time.MS)!
+      time.sleep(ms: 1)!
     s.work += w
     w
   ) catch List[Int]()

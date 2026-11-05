@@ -14,7 +14,7 @@ test "cancel check", seeds: 20, '''
       task.check()!
 
   t = count()&
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   r = <t.cancel() catch |e|
     print(e, e == task.Stop.canceled)
     -1
@@ -30,7 +30,7 @@ test "cancel sleep", seeds: 20, release: true, '''
 
   fun nap() -> Int!
     defer print("nap stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   start = time.now()
@@ -47,7 +47,7 @@ test "cancel sticky", seeds: 20, '''
   use std.time
 
   fun stubborn() -> Int!
-    time.sleep(10 * time.SECOND) catch print("caught once")
+    time.sleep(10) catch print("caught once")
     task.check()!
     2
 
@@ -63,7 +63,7 @@ test "cancel through wait", seeds: 20, '''
 
   fun inner() -> Int!
     defer print("inner stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   fun outer() -> Int!
@@ -72,7 +72,7 @@ test "cancel through wait", seeds: 20, '''
     x + 1
 
   o = outer()&
-  time.sleep(10 * time.MS)!
+  time.sleep(ms: 10)!
   print(<o.cancel() catch -1)
 
 test "cancel infallible wait", seeds: 20, '''
@@ -90,14 +90,14 @@ test "cancel infallible wait", seeds: 20, '''
 
   fun patient() -> Int!
     q = quick()&
-    time.sleep(10 * time.SECOND) catch print("sleep canceled")
+    time.sleep(10) catch print("sleep canceled")
     n = >q
     print("waited", n)
     task.check()!
     n
 
   p = patient()&
-  time.sleep(10 * time.MS)!
+  time.sleep(ms: 10)!
   print(<p.cancel() catch -1)
 
 test "cancel on drop", seeds: 20, '''
@@ -111,7 +111,7 @@ test "cancel on drop", seeds: 20, '''
 
   fun nap() -> Int!
     defer print("nap stops")
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     1
 
   fun first(early: Bool) -> Int!
@@ -132,16 +132,16 @@ test "cancel passes to owned", seeds: 20, '''
   use std.time
 
   sub quiet()
-    time.sleep(10 * time.SECOND) catch print("quiet woken")
+    time.sleep(10) catch print("quiet woken")
 
   fun owner() -> Int!
     q = quiet()&
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     >q
     1
 
   o = owner()&
-  time.sleep(10 * time.MS)!
+  time.sleep(ms: 10)!
   print(<o.cancel() catch -1)
 
 test "cancel finished", seeds: 20, "4"
@@ -161,7 +161,7 @@ test "cancel write loan", seeds: 20, '''
   use std.time
 
   fun fill(xs: !List[Int]) -> Int!
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     !xs.push(1)
     xs.len
 
@@ -181,7 +181,7 @@ fail "cancel sleep unhandled", "fallible call to `time.sleep` must be wrapped wi
   use std.time
 
   sub nap()
-    time.sleep(time.MS)
+    time.sleep(ms: 1)
 
 test "cancel storm", seeds: 20, "true"
   # Cancels that race with waits ending: a chain of waits canceled as its
@@ -190,7 +190,7 @@ test "cancel storm", seeds: 20, "true"
   use std.time
 
   fun nap(us: Int) -> Int!
-    time.sleep(us * time.US)!
+    time.sleep(us: us)!
     us
 
   fun inner(us: Int) -> Int!
@@ -210,12 +210,12 @@ test "cancel storm", seeds: 20, "true"
   fun round(i: Int) -> Int
     got = 0
     o = outer(i % 50)&
-    time.sleep((i % 7) * time.US) catch print("never")
+    time.sleep(us: i % 7) catch print("never")
     got += <o.cancel() catch 0
     ts = Tasks[Int!]()
     for k in 0..8
       !ts.add(nap((i + k) % 40)&)
-    xs = time.within((i % 30) * time.US, |<ts| >ts!) catch List[Int]()
+    xs = time.within(us: i % 30, |<ts| >ts!) catch List[Int]()
     got += xs.len
     got += early(i) catch 0
     got
@@ -243,14 +243,14 @@ test "cancel par failure", seeds: 20, '''
 
   fun slow(n: Int) -> Int!
     return Bad.odd if n == 50
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     n
 
   sub bump(x: !Int)!
     x += slow(x)!
 
   fun three() -> Int!
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     3
 
   sub run()!
@@ -261,7 +261,7 @@ test "cancel par failure", seeds: 20, '''
       print("map", e)
       List[Int]()
     par.each(!xs, bump, limit: 8) catch |e| print("each", e)
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     print("slept")
     t = three()&
     print(>t!)
@@ -274,7 +274,7 @@ test "cancel par failure", seeds: 20, '''
 
   c = checked()&
   >c
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   print("task ok")
 
 test "cancel par canceled", seeds: 20, '''
@@ -287,7 +287,7 @@ test "cancel par canceled", seeds: 20, '''
   use std.time
 
   fun nap(n: Int) -> Int!
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     n
 
   fun run() -> Int!
@@ -295,12 +295,12 @@ test "cancel par canceled", seeds: 20, '''
     _ = par.map(?xs, |x| nap(x)!, limit: 4) catch |e|
       print("map", e)
       List[Int]()
-    time.sleep(time.MS) catch |e| print("still", e)
-    time.sleep(time.MS)!
+    time.sleep(ms: 1) catch |e| print("still", e)
+    time.sleep(ms: 1)!
     0
 
   t = run()&
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   print(<t.cancel() catch -1)
 
 test "cancel leaves the caller", seeds: 20, '''
@@ -321,22 +321,22 @@ test "cancel leaves the caller", seeds: 20, '''
     odd
 
   fun nap(n: Int) -> Int!
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     n
 
   fun quick(n: Int) -> Int!
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     n
 
   fun bad(n: Int) -> Int!
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     return Bad.odd
 
   fun pick(xs: [3]Int, i: Int) -> Int
     xs[i]
 
   fun boom(n: Int) -> Int!
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     pick([1, 2, 3], n)
 
   fun under() -> Int!
@@ -354,28 +354,28 @@ test "cancel leaves the caller", seeds: 20, '''
   !ts.add(nap(1)&)
   !ts.add(quick(2)&)
   print(<ts.wait_first()!)
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   us = Tasks[Int!]()
   !us.add(nap(1)&)
   !us.add(bad(2)&)
   _ = >us catch |e|
     print("set", e)
     List[Int]()
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   both() catch |e| print("all", e)
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   print("isolate", task.isolate(|| under()!) catch -1)
-  time.sleep(time.MS)!
-  print("within", time.within(5 * time.MS, || nap(1)!) catch -1)
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
+  print("within", time.within(ms: 5, || nap(1)!) catch -1)
+  time.sleep(ms: 1)!
   vs = Tasks[Int!]()
   !vs.add(nap(1)&)
   <vs
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   t = nap(1)&
   print(<t.cancel() catch -1)
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   u = nap(1)&
   <u
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   print("ok")

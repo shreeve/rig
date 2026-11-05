@@ -1559,6 +1559,7 @@ instead of re-deriving it by name:
 | `builtinCallOf(callee)` | for a call of a built-in type's method that emit lowers on its own (`sema.BuiltinCall`): `x.is_empty()` of a built-in length, a Cell-held List's `push`, `pop`, `clear`, `keep`, and `get`, a task set's `wait_first`, `get` of an array, a slice, or a `?String`, and a Cell's `set`, `swap`, `compare_swap`, `add`, and `sub`, recorded where typecheck resolves each, so emit matches no method name |
 | `swapCallOf(call)` | for a call of the built-in `swap`, not hidden by a declaration: whether it exchanges two places or puts a value in one (`sema.SwapCall`, by `sema.swapsTwoPlaces`), decided where typecheck checks the call and read by the ownership checker, the oracle, and emit |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
+| `durationOf(node)` | for an argument that fills a duration parameter (`sema.duration`: one std.time declares `ns: Duration`, the deadline arm, or `per:`): the nanoseconds in the unit it counts, and whether it is a `Float`; emit writes `rig.durationInt(x, unit)` or `rig.durationFloat(x, unit)`, the parameter's nanoseconds (SPEC "Durations") |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
@@ -5116,7 +5117,7 @@ and a query that decides more than that is a recorded fact.
   holds an arm's loans until the select returns. Sema records which
   expressions are lent this way (`SemContext.lendOf`, the `callable`
   row). A select of named arms (`task.select(got: !a.on_recv(), late:
-  time.after(ns))`, `Checker.taskSelectNamed`) holds no function: its
+  time.after(ms: 50))`, `Checker.taskSelectNamed`) holds no function: its
   value's type is an enum made once per list of names and payloads
   (`sema.selectType`, flagged `select_result`, named `select(got,
   late)`), which emit writes as `rig.Select(&.{ names }, &.{ payloads

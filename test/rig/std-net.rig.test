@@ -99,7 +99,7 @@ test "net errors", seeds: 20, '''
     1
 
   fun wait_accept(l: ?net.Listener) -> Int
-    c = time.within(20 * time.MS, |?l| l.accept()!) catch |e|
+    c = time.within(ms: 20, |?l| l.accept()!) catch |e|
       print(e)
       return -1
     1
@@ -327,12 +327,12 @@ test "net tasks share a listener", seeds: 20, timeout: 10, "8"
   ts = Tasks[Int!]()
   for 0..8
     !ts.add(take(?l)&)
-  time.sleep(20 * time.MS)!
+  time.sleep(ms: 20)!
   cs = List[net.Stream]()
   for 0..8
     !cs.push(net.connect(String("127.0.0.1:", port))!)
   n = 0
-  for x in time.within(5 * time.SECOND, |<ts| >ts!)!
+  for x in time.within(5, |<ts| >ts!)!
     n += x
   print(n)
 

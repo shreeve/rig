@@ -44,11 +44,11 @@ test "isolate tasks", seeds: 20, '''
     xs[i]
 
   fun nap(n: Int) -> Int!
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
     n
 
   fun bad(n: Int) -> Int!
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     pick([1, 2, 3], n)
 
   fun owner() -> Int!
@@ -100,7 +100,7 @@ bomb "isolate none", "index out of bounds", prints: "before"
     xs[i]
 
   fun bad(n: Int) -> Int!
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     pick([1, 2, 3], n)
 
   print("before")
@@ -268,7 +268,7 @@ test "isolate waits asleep for a task in a wait no cancel ends", seeds: 20, time
     n: Int
 
     fun nap(!@) -> Int!
-      time.sleep(50 * time.MS)!
+      time.sleep(ms: 50)!
       @n
 
     fun get(?@) -> Int
@@ -283,7 +283,7 @@ test "isolate waits asleep for a task in a wait no cancel ends", seeds: 20, time
   c = *Actor(Slow(n: 1))
   r = task.isolate(|+c|
     a = ask(+c)&
-    time.sleep(5 * time.MS)!
+    time.sleep(ms: 5)!
     x = pick([1, 2, 3], 9)
     x + >a!
   ) catch -9
@@ -360,7 +360,7 @@ test "isolate a panic in a task waiting in task.all", seeds: 20, timeout: 20, ''
     s
 
   fun bad(n: Int) -> Int!
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     pick([1, 2, 3], n)
 
   fun inner() -> Int!

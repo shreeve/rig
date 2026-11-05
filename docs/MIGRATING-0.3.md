@@ -5,8 +5,9 @@ forms 0.2.9 accepted. This page takes a program written for `v0.2.9` to
 0.3.0, in order: the scripts first, then the spellings no script
 rewrites, then the forms the compiler now asks you to write another
 way. [CHANGELOG](../CHANGELOG.md) ("Upgrading from v0.2.9") lists every
-form 0.2.9 accepted that 0.3.0 rejects; the last section here covers
-programs written against `main` between the two releases.
+form 0.2.9 accepted that 0.3.0 rejects; a later section covers
+programs written against `main` between the two releases, and the last
+takes a 0.3.0 program to [0.3.1](#from-030-to-031).
 
 Commit first: each script rewrites text in place. Run them from the
 checkout of Rig whose `bin/rig` you will use, and run `rig check` on
@@ -642,13 +643,13 @@ true
 ### `time.sleep` can fail
 
 It fails with `task.Stop` when its task is canceled: write
-`time.sleep(ns)!` in a function that can fail, or catch it.
+`time.sleep(d)!` in a function that can fail, or catch it.
 
 ```rig
 use std.time
 
 sub main()!
-  time.sleep(1)!
+  time.sleep(ns: 1)!
   print("slept")
 ```
 
@@ -769,7 +770,7 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | `[T: Moves]`, `[T: Shares]`, `api Job: Moves` | `Sends`, `Syncs` | `tools/rename-task-bounds.py PATH` |
 | `for x in it` over an iterator held in a place | `for x in !it` | by hand, as the compiler says |
 | `b'A'`, `b"\n"` | `'A'`, `"\n"` where a `U8` or a `[N]U8` goes | by hand |
-| `within:` on a set's wait, `wait_all`, `task.both` | `time.within(ns, \|\| ...)`, `>ts`, `task.all` | by hand, as the compiler says |
+| `within:` on a set's wait, `wait_all`, `task.both` | `time.within(d, \|\| ...)`, `>ts`, `task.all` | by hand, as the compiler says |
 | a public generic that nests itself through a call through an API on ever deeper instances | reported where it is declared, though nothing calls it (#647) | by hand |
 | `.got(_) =>`, or a `_ =>` that covers nothing else, after `.got(v?)` and `.got(none)` of an enum | remove it: the two arms cover `.got` | by hand, as the compiler says |
 | `task.select((!a).on_recv(\|v\| f(v)), (!b).on_send(<x, \|\| 0))!`, arms of closures | still accepted; `match task.select(a: !a.on_recv(), b: !b.on_send(<x))!` with arms `.a(v) => f(v)` and `.b => 0`, which goes in the next release | `tools/migrate-select.py PATH` (`MANUAL` for a closure over several lines, a copy captured in (`\|+k, v\|`) that another arm names, a `catch` after the select, a select in an expression) |
@@ -808,3 +809,63 @@ sub main()
 ```output
 3 2
 ```
+
+## From 0.3.0 to 0.3.1
+
+0.3.1 changes what a duration means: a bare number is seconds, where
+0.3.0 read nanoseconds, so `time.sleep(5)` sleeps five seconds. Any
+other unit is written with its keyword, and the value of each form may
+be an `Int` or a `Float` ([SPEC "Durations"](../SPEC.md#durations)):
+
+```rig
+use std.time
+
+sub main()!
+  time.sleep(0.001)!       # a millisecond, in seconds
+  time.sleep(ms: 1)!
+  time.sleep(us: 40)!
+  time.sleep(ns: 40)!
+  print("slept")
+```
+
+```output
+slept
+```
+
+`tools/migrate-durations.py` rewrites every duration a 0.3.0 program
+writes so that it means what it meant. Run it once, on 0.3.0 sources:
+a bare number it wrote cannot be told from one written for 0.3.1.
+
+```sh
+python3 tools/migrate-durations.py --dry-run src/   # what would change
+python3 tools/migrate-durations.py src/             # rewrite in place
+```
+
+| 0.3.0 | 0.3.1 |
+|---|---|
+| `time.sleep(40 * time.MS)`, `time.sleep(time.MS)` | `time.sleep(ms: 40)`, `time.sleep(ms: 1)` |
+| `time.sleep(5 * time.US)` | `time.sleep(us: 5)` |
+| `time.sleep(2 * time.SECOND)`, `3 * time.MINUTE` | `time.sleep(2)`, `180` |
+| `time.sleep(1_000_000)`, a literal | `time.sleep(ms: 1)`, the largest unit that counts it whole |
+| `time.sleep(d)`, any other value | `time.sleep(ns: d)` |
+| `time.within(d, work)` | `time.within(ns: d, f: work)`: an argument after a keyword is named |
+| `late: time.after(50 * time.MS)` | `late: time.after(ms: 50)` |
+| `time.Instant.at(5)`, `t.add(3 * time.SECOND)` | `time.Instant.at(ns: 5)`, `t.add(3)` |
+| `task.supervise(f, per: time.MINUTE)`, `per: 1000` | `per: 60`, `per: 0.000001`: `per:` is seconds |
+
+It rewrites `.rig` and `.rig.test` files and the ```` ```rig ```` blocks
+of Markdown, and prints each rewrite. Two it cannot settle it prints
+for you to look at: `MANUAL` for a `per:` whose seconds it cannot count
+as written (`per: n`: write `per: Float(n) / 1e9`, or better, keep the
+seconds in `n`), and `CHECK` for an `.add(...)` it took for an
+Instant's because its argument names a constant of std.time. An
+Instant's `add` of a value with no constant in it, `t.add(n)`, it does
+not find: write `t.add(ns: n)` by hand.
+
+The compiler rejects the forms that would change meaning silently: a
+bare duration that names one of std.time's constants, which count
+nanoseconds (`time.sleep(5 * time.MS)`, rejected for `ms: 5`), and
+`per: time.MINUTE`. What a clock gives back is still an `Int` of
+nanoseconds, so `t.elapsed() < 5 * time.MS` stays as it was, and a
+duration taken from one is passed on with `ns:`, `t.add(ns:
+t.since(u))`.

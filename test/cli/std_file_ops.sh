@@ -100,13 +100,13 @@ use std.task
 use std.time
 
 fun late() -> Int!
-  time.sleep(10 * time.MS) catch |e|
+  time.sleep(ms: 10) catch |e|
     print("sleep", e)
   _ = file.read("f.txt")!
   0
 
 fun waits() -> Int!
-  time.sleep(time.SECOND)!
+  time.sleep(1)!
   file.write("never.txt", "x")!
   0
 
@@ -122,21 +122,21 @@ fun reads() -> String!
   got
 
 fun slow_within() -> Int!
-  time.within(50 * time.MS, slow)!
+  time.within(ms: 50, f: slow)!
 
 sub main()!
   file.write("f.txt", "x")!
   file.write("h.txt", "hello world")!
   h = reads()&
   print(>h!)
-  print(time.within(time.MS, late) catch |e| -1)
+  print(time.within(ms: 1, f: late) catch |e| -1)
   t = waits()&
   print(<t.cancel() catch |e| -2)
   print(file.read("never.txt")! == none)
   t0 = time.now()
   print(slow_within() catch |e| -3)
   r = slow()&
-  time.sleep(50 * time.MS)!
+  time.sleep(ms: 50)!
   print(<r.cancel() catch |e| -4)
   print(t0.elapsed() < 5 * time.SECOND)
 EOF2
@@ -157,7 +157,7 @@ fun opens() -> Int!
   0
 
 fun opens_within() -> Int!
-  time.within(100 * time.MS, opens)!
+  time.within(ms: 100, f: opens)!
 
 sub main()!
   f = file.open("p", wait: false)! ?? return
@@ -165,7 +165,7 @@ sub main()!
   print((!f).read(!buf, 10)!)
   file.write("opened", "")!
   while not file.exists("ready")!
-    time.sleep(10 * time.MS)!
+    time.sleep(ms: 10)!
   print((!f).read(!buf, 10)!, buf)
   print((!f).read(!buf, 10)!)
   # From a task, so the scheduler runs the open on its pool.
@@ -174,7 +174,7 @@ sub main()!
     print(e)
     -1
   file.append("p", "x")!
-  time.sleep(300 * time.MS)!
+  time.sleep(ms: 300)!
 EOF2
 
 # FIFOs whose writers wait in their opens before the program reads them,
@@ -250,7 +250,7 @@ fun count() -> Int!
 
 # Sleep a second: false when canceled first.
 fun napped() -> Bool
-  time.sleep(time.SECOND) catch return false
+  time.sleep(1) catch return false
   true
 
 # A read whose task is canceled first: the stop comes before the call on
@@ -276,14 +276,14 @@ fun many() -> Int!
 sub stress(n: Int)!
   for _ in 0..n
     t = first()&
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     _ = <t.cancel() catch |e| -2
   for i in 0..n
     t = many()&
-    time.sleep((i % 3) * 100 * time.US)!
+    time.sleep(us: (i % 3) * 100)!
     _ = <t.cancel() catch |e| -2
   # Calls the canceled tasks left running finish, and close what they hold.
-  time.sleep(200 * time.MS)!
+  time.sleep(ms: 200)!
 
 sub main()!
   file.write("h.txt", "hello world")!

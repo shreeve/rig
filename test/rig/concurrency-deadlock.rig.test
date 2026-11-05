@@ -51,14 +51,14 @@ bomb "deadlock two tasks", seeds: 20, "Ledger.audit -> Bank.balance", prints: "b
     n: Int
 
     fun audit(!@, bank: *Actor[Bank]) -> Int!
-      time.sleep(10 * time.MS)!
+      time.sleep(ms: 10)!
       @n + bank.balance()
 
   obj Bank
     money: Int
 
     fun pay(!@, ledger: *Actor[Ledger], bank: *Actor[Bank]) -> Int!
-      time.sleep(10 * time.MS)!
+      time.sleep(ms: 10)!
       (!ledger).audit(<bank)!
 
     fun balance(?@) -> Int

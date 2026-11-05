@@ -104,7 +104,7 @@ called sub hog()
   print("hog", ns, sum)
 
 fun nap() -> Int!
-  time.sleep(MANY_NAP_MS * time.MS)!
+  time.sleep(ms: MANY_NAP_MS)!
   1
 
 called sub many()

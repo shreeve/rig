@@ -291,10 +291,10 @@ test "chan deadline and cancel", seeds: 20, '''
     (!ch).recv()! ?? -1
 
   a = *Chan[Int](1)
-  n = time.within(5 * time.MS, |+a| (!a).recv()! ?? -1) catch -9
+  n = time.within(ms: 5, |+a| (!a).recv()! ?? -1) catch -9
   print(n)
   t = wait_for(+a)&
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   r = <t.cancel() catch |e|
     print(e)
     -1
@@ -383,7 +383,7 @@ test "chan close with a sender waiting panics in the sender", seeds: 20, timeout
   !ch.send(1)!
   r = task.isolate(|+ch|
     t = fill(+ch)&
-    time.sleep(5 * time.MS)!
+    time.sleep(ms: 5)!
     !ch.close()
     >t!
   ) catch -9
@@ -414,7 +414,7 @@ test "chan select named", seeds: 20, timeout: 10, "4"
     match task.select(
       add:  !a.on_recv(),
       sub:  !b.on_recv(),
-      late: time.after(time.SECOND)
+      late: time.after(1)
     )!
       .add(v?) => n += v
       .add(none) => a_open = false
@@ -447,13 +447,13 @@ test "chan select named value", seeds: 20, timeout: 10, '''
   use std.time
 
   a = *Chan[String](1)
-  r = task.select(got: !a.on_recv(), late: time.after(time.MS))!
+  r = task.select(got: !a.on_recv(), late: time.after(ms: 1))!
   print(r matches .late)
   if r matches .late
     print("late")
   !a.send(String("kept"))!
   kept = List[String]()
-  r2 = task.select(got: !a.on_recv(), late: time.after(time.SECOND))!
+  r2 = task.select(got: !a.on_recv(), late: time.after(1))!
   match <r2
     .got(s?) => !kept.push(<s)
     .got(none) => print("closed")
@@ -466,7 +466,7 @@ test "chan select named fails at a deadline", seeds: 20, timeout: 10, "Stop.time
   use std.time
 
   q = *Chan[Int](1)
-  r = time.within(time.MS, |!q| task.select(got: !q.on_recv())!) catch |e|
+  r = time.within(ms: 1, |!q| task.select(got: !q.on_recv())!) catch |e|
     print(e)
     return
   _ = r
@@ -495,7 +495,7 @@ fail "chan select named arms", "6:35: each arm of `task.select` has a name, the 
   _ = task.select(x: !a.on_recv(), !b.on_recv())!
   _ = task.select(x: !a.on_recv(), x: !b.on_recv())!
   _ = task.select(x: (!a).on_recv(|v| v))!
-  _ = time.after(5)
+  _ = time.after(ns: 5)
 
 fail "chan select named match", "6:7: `match` is not exhaustive: it misses `.got(none)`, `.late`", "10:4: variant `put` has no payload to destructure", "11:10: type mismatch: expected `Int`, got `select(got, put)`"
   use std.task
@@ -503,7 +503,7 @@ fail "chan select named match", "6:7: `match` is not exhaustive: it misses `.got
 
   a = *Chan[Int](1)
   b = *Chan[Int](1)
-  match task.select(got: !a.on_recv(), late: time.after(5))!
+  match task.select(got: !a.on_recv(), late: time.after(ns: 5))!
     .got(v?) => print(v)
   match task.select(got: !a.on_recv(), put: !b.on_send(<1))!
     .got(v) => print(v ?? 0)
@@ -525,14 +525,14 @@ fail "chan select named in a block a view escapes", "11:7: `s` does not live lon
   r: ?String = "outer"
   if true
     s = String("inner")
-    match task.select(got: !a.on_recv(), late: time.after(1))!
+    match task.select(got: !a.on_recv(), late: time.after(ns: 1))!
       .got => pass
       .late => pass
     r = ?s
   if true
     t = String("inner")
     r = ?t
-    match task.select(got: !a.on_recv(), late: time.after(1))!
+    match task.select(got: !a.on_recv(), late: time.after(ns: 1))!
       .got => pass
       .late => pass
   print(r)
@@ -545,14 +545,14 @@ test "chan select tested in a ternary", seeds: 20, "7 -1 hi none"
   use std.time
   ch = *Chan[Int](4)
   !ch.send(7)!
-  x = v if task.select(add: !ch.on_recv(), late: time.after(time.SECOND))! matches .add(v?) else 0
+  x = v if task.select(add: !ch.on_recv(), late: time.after(1))! matches .add(v?) else 0
   !ch.close()
-  y = v if task.select(add: !ch.on_recv(), late: time.after(time.SECOND))! matches .add(v?) else -1
+  y = v if task.select(add: !ch.on_recv(), late: time.after(1))! matches .add(v?) else -1
   words = *Chan[String](1)
   !words.send(String("hi"))!
-  a = <w if task.select(got: !words.on_recv(), late: time.after(time.SECOND))! matches .got(w?) else String("none")
+  a = <w if task.select(got: !words.on_recv(), late: time.after(1))! matches .got(w?) else String("none")
   !words.close()
-  b = <w if task.select(got: !words.on_recv(), late: time.after(time.SECOND))! matches .got(w?) else String("none")
+  b = <w if task.select(got: !words.on_recv(), late: time.after(1))! matches .got(w?) else String("none")
   print(x, y, a, b)
 
 test "chan select end before and after", seeds: 20, timeout: 10, "25 7"
@@ -567,18 +567,18 @@ test "chan select end before and after", seeds: 20, timeout: 10, "25 7"
     x * x
 
   fun later(ms: Int) -> Int!
-    time.sleep(ms * time.MS)!
+    time.sleep(ms: ms)!
     7
 
   t = sq(5)&
-  time.sleep(5 * time.MS)!
+  time.sleep(ms: 5)!
   a = 0
-  match task.select(done: ?t.on_end(), late: time.after(time.SECOND))!
+  match task.select(done: ?t.on_end(), late: time.after(1))!
     .done => a = >t
     .late => print("late")
   u = later(2)&
   b = 0
-  match task.select(done: ?u.on_end(), late: time.after(10 * time.SECOND))!
+  match task.select(done: ?u.on_end(), late: time.after(10))!
     .done => b = >u!
     .late => print("late")
   print(a, b)
@@ -594,7 +594,7 @@ test "chan select end never", seeds: 20, timeout: 10, "late -1"
 
   g = *Chan[Int](1)
   t = stuck(+g)&
-  match task.select(done: ?t.on_end(), late: time.after(time.MS))!
+  match task.select(done: ?t.on_end(), late: time.after(ms: 1))!
     .done => print(>t!)
     .late => print("late", <t.cancel() catch -1)
 
@@ -618,7 +618,7 @@ test "chan select end of a failing task", seeds: 20, timeout: 10, '''
 
   fun pick(x: Int) -> Int!
     t = half(x)&
-    match task.select(done: ?t.on_end(), late: time.after(time.SECOND))!
+    match task.select(done: ?t.on_end(), late: time.after(1))!
       .done => >t!
       .late => -2
 
@@ -732,7 +732,7 @@ test "chan select end lost, then waited elsewhere", seeds: 20, timeout: 10, '''
   w = watch(<t, +ch)&
   t2 = >w!
   !g.send(1)!
-  time.sleep(5 * time.MS)!
+  time.sleep(ms: 5)!
   f = finish(<t2)&
   print(>f!)
 
@@ -749,7 +749,7 @@ test "chan select end of the same task twice", seeds: 20, timeout: 10, "a 4"
     .a => print("a", >t)
     .b => print("a", >t)
 
-fail "chan select end lends the task", "11:61: cannot move `t` while a read loan is live", errors: 1
+fail "chan select end lends the task", "11:65: cannot move `t` while a read loan is live", errors: 1
   use std.task
   use std.time
 
@@ -760,7 +760,7 @@ fail "chan select end lends the task", "11:61: cannot move `t` while a read loan
     >t
 
   t = sq(2)&
-  match task.select(done: ?t.on_end(), late: time.after(take(<t)))!
+  match task.select(done: ?t.on_end(), late: time.after(ns: take(<t)))!
     .done => pass
     .late => pass
 
