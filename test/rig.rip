@@ -348,7 +348,8 @@ docs = (file) ->
     for w in lines[i].slice(6).split(/[ \t]+/) when w isnt ''
       if w in ['reject', 'fragment', 'facts'] then mode = w
       else if w is 'pending' then pend = true
-      else if /^file=([A-Za-z_]\w*\/)*[A-Za-z_]\w*\.rig$/.test(w) then fname = w.slice(5)
+      # A module's file, or any other file of the program (`$embed`).
+      else if /^file=([A-Za-z_]\w*\/)*[A-Za-z_]\w*\.\w+$/.test(w) then fname = w.slice(5)
       else flaw("unknown word `#{w}` after ```rig")
     [body, closed] = fenced()
     flaw('unterminated ```rig block') unless closed

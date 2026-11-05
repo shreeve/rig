@@ -221,7 +221,7 @@ opening fence, and the block that follows, give the contract:
 | ```` ```rig reject ```` and an ```` ```error ```` block | a `fail`: each line of the error block is in a diagnostic, `L:C: text` pinning its place in the block |
 | ```` ```rig fragment ```` | it parses |
 | ```` ```rig facts ```` and a ```` ```facts ```` block | `rig check --facts` prints exactly the facts |
-| ```` ```rig file=m.rig ```` | module `m.rig` of the next example's program; `file=dir/m.rig` is a file of the directory module `dir` |
+| ```` ```rig file=m.rig ```` | module `m.rig` of the next example's program; `file=dir/m.rig` is a file of the directory module `dir`, and `file=data.txt`, of any other kind, a file the program embeds (`$embed`) |
 | ```` ```rig pending ```` | a rule decided but not built (below) |
 
 A block's program is named `main.rig`. Its `test` cases go into the

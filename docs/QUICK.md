@@ -175,7 +175,8 @@ back, across from `prev`.
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
 read parameter (`print(w[1..3])`);
 `String(a, b)` builds text the same way; `$size(T)`, `$align(T)`, and
-`$name(T)` describe a type.
+`$name(T)` describe a type, and `$embed("data.bin")` is a file's bytes,
+read when the program is compiled.
 
 ```rig
 obj Account

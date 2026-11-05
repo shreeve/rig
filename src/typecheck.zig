@@ -13034,7 +13034,9 @@ const Checker = struct {
                     // `cap[8]`: a compile-time call, whose value the
                     // checker computed.
                     .ct_call => if (self.ctx.ctCallOf(e)) |c| c.result != null else false,
-                    .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants"),
+                    // `$variants(T)`, and `$embed("f")`, whose bytes Zig
+                    // reads when it compiles.
+                    .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants") or std.mem.eql(u8, self.text(ir.Builtin.name(e)), "embed"),
                     // `U8(65)`: a constant integer as an integer type;
                     // `target.has(.avx2)`: a fact of the target.
                     .call => self.constInt(e) != null or self.isTargetCall(e),
@@ -19489,10 +19491,11 @@ const Checker = struct {
         fromBackingInt,
         variants,
         plain,
+        embed,
 
         fn isSafe(b: Builtin) bool {
             return switch (b) {
-                .size, .@"align", .name, .type, .variants, .plain => true,
+                .size, .@"align", .name, .type, .variants, .plain, .embed => true,
                 else => false,
             };
         }
@@ -19554,19 +19557,20 @@ const Checker = struct {
                 } else if (std.mem.eql(u8, name, "intFromFloat")) {
                     try self.err(pos, "builtin `$intFromFloat` is not supported; a float becomes an integer with `$trunc`", .{});
                 } else {
-                    try self.err(pos, "builtin `${s}` is not supported; the builtins are `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`, and, inside `raw`, `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`, `$floatFromInt`, `$fromBackingInt`", .{name});
+                    try self.err(pos, "builtin `${s}` is not supported; the builtins are `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`, `$embed`, and, inside `raw`, `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`, `$floatFromInt`, `$fromBackingInt`", .{name});
                 }
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             };
             if (builtin == .variants) break :blk try self.variantsOf(args, pos);
             if (builtin == .plain) break :blk try self.plainTest(node, args, pos);
+            if (builtin == .embed) break :blk try self.embedOf(node, args, pos);
             const query = builtin.query();
             if (self.raw_depth == 0 and !builtin.isSafe()) {
                 if (query) |q| {
                     try self.zigQueryName(node, name, @tagName(q));
                 } else {
-                    try self.err(pos, "builtin `${s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`", .{name});
+                    try self.err(pos, "builtin `${s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `$size`, `$align`, `$type`, `$name`, `$plain`, `$variants`, `$embed`", .{name});
                 }
             }
             if (query) |q| switch (q) {
@@ -19663,6 +19667,30 @@ const Checker = struct {
         return .{ .operands = ops.list.items, .end = self.ctx.span(cond).end, .guarded = spans };
     }
 
+    /// `$embed("path")`: the bytes of the file `path` names, from the
+    /// directory of the file that names it, as a `Static`. The path is a
+    /// string literal, so the file is known where the call is written;
+    /// the module graph finds it once the module is checked
+    /// (`ModuleGraph.checkEmbeds`).
+    fn embedOf(self: *Checker, node: Sexp, args: []const Sexp, pos: u32) Error!TypeId {
+        if (args.len != 1) {
+            try self.err(pos, "`$embed` takes one argument, the file's path as a string literal: `$embed(\"data.bin\")`", .{});
+            try self.synthArgs(args);
+            return self.t().invalid_id;
+        }
+        const arg = args[0];
+        const lit = if (arg == .src) self.text(arg) else "";
+        if (lit.len < 2 or (lit[0] != '"' and lit[0] != '\'')) {
+            _ = try self.synthExpr(arg);
+            try self.errAt(arg, "`$embed` takes the file's path as a string literal, so the file is known when the program is compiled: `$embed(\"data.bin\")`", .{});
+            return self.t().invalid_id;
+        }
+        _ = try self.synthExpr(arg);
+        const path = textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return self.t().invalid_id;
+        try self.ctx.recordEmbed(node, arg, path);
+        return self.t().static_id;
+    }
+
     /// `$variants(T)`: every variant of plain enum `T`, in declaration
     /// order, a `[N]T`.
     fn variantsOf(self: *Checker, args: []const Sexp, pos: u32) Error!TypeId {
@@ -19734,7 +19762,7 @@ const Checker = struct {
                 const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
                 if (fb != tb) return "both must have the same size";
             },
-            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants, .plain => {},
+            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants, .plain, .embed => {},
         }
         return null;
     }

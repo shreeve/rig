@@ -183,11 +183,10 @@ references' published designs where marked. In order of expected gain:
    each push reloads them; a `List` write window (reserve n, write
    through a cursor) would keep them in registers (docs/history/records/2026-10/json/rig-notes.md,
    entry 8).
-5. **Embedding a file** (build). `$embed("file.json")` as a `Static`.
-   A string literal may be of any length, so the benchmark and
-   the tests write each input as one literal, but a program is at most
-   16 MiB of source, so the tests spread their inputs over several
-   programs.
+5. **Embedding a file** (build, built). `$embed("file.json")` gives
+   the file's bytes as a `Static`, read when the program is compiled
+   (SPEC "Builtins"). The benchmark and the tests still write each
+   input as one string literal.
 6. **A byte literal beside a vector** (clarity). A byte literal takes
    the type `U8` beside a `U8` (SPEC, "Byte literals"), but not beside
    a `Simd[U8, 16]`, so the vector compares name `QUOTE` and
