@@ -932,7 +932,36 @@ never its bytes, so `rig check` of a 20 MB file costs a `stat`; a file
 of 2 GiB or more is rejected, as a source is. A found file is recorded
 with its place in the package, `__rig_embed/` and its path from the
 program's directory (`Facts.embeds`), which `--facts=sema` prints and
-emit writes as `@as([]const u8, @embedFile("__rig_embed/data/x.bin"))`.
+emit writes through the runtime's `rig.Embed`, which holds the bytes at
+16 bytes, so a List of records of any alignment could hold them where
+they lie. `@embedFile` places a file at 1, and an aligned Zig constant
+of its bytes costs a build 1.5 s and 430 MB more per 8 MB, so `Embed`
+has the assembler include the file (`.incbin` after `.balign 16`, a
+global assembly block) under a weak, hidden symbol in a section of its
+own, named for the container and the path, so the units of a split
+build that each hold it link to one copy. The assembler reads the file
+by its absolute path: emit writes `emit.embed_dir_mark` where the
+module's directory goes, and `writePackage` writes the package's
+directory in its place, so the package's text, which its build is
+keyed by, is the same wherever it is written. The length comes from
+`@embedFile(place).len`, so Zig builds again when the bytes change.
+Zig's own backends (an x86-64 debug build), which assemble no global
+assembly, and formats other than ELF and Mach-O take `@embedFile`'s
+bytes (`rig.embeds_aligned`).
+
+**Records from embedded files.** `sema.bytesRecord` answers whether
+bytes make values of a type, and gives a record its `checks`: the
+`Bool`s and plain enums in it, each with its place, its byte, and the
+values it may hold, an array's counted rather than repeated. An enum's
+bytes are emit's: resolve records whether a variant declares a value
+(`enum_valued`, a Zig `enum(u32)`) or is written with a payload
+(`enum_union`, a `union(enum)`, not a record), and `sema.enumBytes`
+sizes any other as Zig sizes its tag. Typecheck admits a record with
+checks only from bytes written `$embed(path)` at the call, and records
+them with the call (`EmbedRecord.checks`); `ModuleGraph.checkEmbeds`
+reads such a file, checks each record's values, and keeps its bytes for
+the package (`EmbedSite.bytes`), so `rig check` rejects a bad value and
+reads only the files whose records need it.
 `emitPackage` reads each file once, when it writes the package, and
 holds its bytes as one of the package's files: the modules are at the
 package's top, so the place is under the root of every Zig module that

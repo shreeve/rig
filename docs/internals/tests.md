@@ -68,7 +68,10 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
   module and binds its name.
 - **A program of several files** gives the others after its body, each
   `file "PATH"` at the body's margin with its lines two spaces in. A
-  position in one of them counts from that file's first line.
+  position in one of them counts from that file's first line. A file
+  marked `file "PATH", hex` is the bytes its lines spell, two hex digits
+  a byte, spaces between them as the case likes: an embedded file of
+  records (`$embed`).
 - **The item after the name is the case's result:**
   - `test`: a Rig value, `true`, `42`, `"ab"`, `none`, `[1, 2]`. The case
     passes when what it prints is what `print` of that value prints. A

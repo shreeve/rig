@@ -188,7 +188,14 @@ A new session, human or agent, takes these steps in order:
   build (INTERNALS, "Embedded files"). Trig's pre-built libs (its NEEDS
   item 70) can move from literals to files, and `!xs.extend_from_bytes(s)`
   (built) reads their records with one copy, for a `T` whose every bit
-  pattern is a value (`sema.bytesRecord`, SPEC "List").
+  pattern is a value (`sema.bytesRecord`, SPEC "List"). An embed is held
+  at 16 bytes (`rig.Embed`, an assembler `.incbin`; Zig's own backends
+  place it as `@embedFile` does), and its records may hold `Bool`s and
+  enums, whose values the compiler checks when it reads the file
+  (owner, 2026-11-04, the zero-copy design's decisions 4 and 6). Zero
+  copy itself (decision 1, a large run mapped into an empty List) waits
+  on a Zig ceiling on Trig (decision 2;
+  [records/2026-11/zero-copy/design.md](docs/history/records/2026-11/zero-copy/design.md)).
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that
