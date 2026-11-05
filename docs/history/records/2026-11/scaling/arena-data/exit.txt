@@ -1,0 +1,36 @@
+== exit.ts-pattern.arena.1.data
+exit to reaped, ms: 22.3 22.1 21.5 15.9 22.1  median 22.1
+TLB flushes per run, median: 1006 (in the exit: 0)
+== exit.ts-pattern.arena.4.data
+exit to reaped, ms: 35.1 30.8 30.5 38.8 31.7  median 31.7
+TLB flushes per run, median: 7917 (in the exit: 0)
+== exit.ts-pattern.arena.8.data
+exit to reaped, ms: 42.4 26.6 39.4 37.0 38.1  median 38.1
+TLB flushes per run, median: 15710 (in the exit: 0)
+== exit.ts-pattern.base.1.data
+exit to reaped, ms: 12.9 19.0 19.4 19.7 13.3  median 19.0
+TLB flushes per run, median: 1523 (in the exit: 0)
+== exit.ts-pattern.base.4.data
+exit to reaped, ms: 21.9 24.6 28.1 30.1 30.5  median 28.1
+TLB flushes per run, median: 10755 (in the exit: 0)
+== exit.ts-pattern.base.8.data
+exit to reaped, ms: 30.8 24.6 34.5 31.2 22.3  median 30.8
+TLB flushes per run, median: 19470 (in the exit: 0)
+== exit.zod3.arena.1.data
+exit to reaped, ms: 7.2 7.4 7.3 7.3 7.3  median 7.3
+TLB flushes per run, median: 497 (in the exit: 0)
+== exit.zod3.arena.4.data
+exit to reaped, ms: 15.8 11.5 11.8 12.3 9.8  median 11.8
+TLB flushes per run, median: 6211 (in the exit: 0)
+== exit.zod3.arena.8.data
+exit to reaped, ms: 15.6 14.0 21.9 21.5 19.8  median 19.8
+TLB flushes per run, median: 14735 (in the exit: 0)
+== exit.zod3.base.1.data
+exit to reaped, ms: 7.1 7.3 7.1 7.1 4.3  median 7.1
+TLB flushes per run, median: 589 (in the exit: 0)
+== exit.zod3.base.4.data
+exit to reaped, ms: 10.6 11.5 15.0 10.6 7.0  median 10.6
+TLB flushes per run, median: 6821 (in the exit: 0)
+== exit.zod3.base.8.data
+exit to reaped, ms: 14.3 13.7 8.6 14.4 17.7  median 14.3
+TLB flushes per run, median: 15768 (in the exit: 0)

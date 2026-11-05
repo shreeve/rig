@@ -1,0 +1,26 @@
+== base (left) and arena (right), instructions:u by symbol, ts-pattern, one checker
+    22.03%  [.] checker.Checker.instantiate_type_with_alias|    21.16%  [.] checker.Checker.instantiate_type_with_alias
+     8.41%  [.] checker.Checker.mapper_map|     9.21%  [.] checker.Checker.mapper_map
+     4.52%  [.] checker.Checker.is_related_to_ex|     4.32%  [.] checker.Checker.is_related_to_ex
+     3.75%  [.] checker.Checker.get_conditional_type_worker|     3.62%  [.] checker.Checker.get_conditional_type_worker
+     3.68%  [.] checker.Checker.get_conditional_flow_type_of_type|     3.18%  [.] checker.Checker.get_conditional_flow_type_of_type
+     2.64%  [.] checker.Checker.structured_type_related_to|     3.05%  [.] checker.Checker.resolve_structured_type_members_worker
+     2.57%  [.] checker.Checker.infer_from_types|     2.80%  [.] checker.Checker.structured_type_related_to
+     2.29%  [.] checker.Checker.create_union_or_intersection_property|     1.84%  [.] checker.Checker.get_member_of_unresolved_structured_type
+     1.95%  [.] checker.Checker.resolve_structured_type_members_worker|     1.78%  [.] checker.Checker.create_union_or_intersection_property
+     1.88%  [.] checker.Checker.get_member_of_unresolved_structured_type|     1.59%  [.] checker.Checker.get_normalized_type
+     1.81%  [.] checker.Checker.get_unmatched_property|     1.52%  [.] checker.Checker.compare_types
+     1.67%  [.] checker.Checker.compare_types|     1.52%  [.] checker.Checker.infer_from_object_types
+     1.53%  [.] ast.decode_bound_file|     1.46%  [.] ast.decode_bound_file
+     1.46%  [.] rig.alloc.alloc|     1.40%  [.] checker.Checker.get_type_of_symbol
+     1.32%  [.] checker.Checker.get_normalized_type|     1.33%  [.] checker.Checker.get_type_from_type_node_worker
+     1.32%  [.] checker.Checker.get_type_from_type_node_worker|     1.33%  [.] checker.Checker.set_structured_type_members
+     1.25%  [.] rig.alloc.free|     1.27%  [.] checker.Checker.get_ready_lazy_member_table_worker
+     1.04%  [.] checker.Checker.get_intersection_type_ex|     1.21%  [.] checker.Checker.infer_from_types
+     0.97%  [.] checker.Checker.set_structured_type_members|     1.14%  [.] checker.Checker.has_matching_recursion_identity
+     0.90%  [.] checker.Checker.compare_signatures_related_with|     1.02%  [.] checker.Checker.get_generic_object_flags_worker
+     0.90%  [.] checker.Checker.for_each_mapped_type_property_key_type_and_index_signature_key_type|     1.02%  [.] checker.Checker.get_resolved_base_constraint
+     0.90%  [.] checker.Checker.get_ready_lazy_member_table_worker|     1.02%  [.] rig.alloc.alloc
+     0.83%  [.] checker.Checker.get_reduced_type_worker|     1.02%  [.] rig.alloc.free
+     0.83%  [.] checker.Checker.is_type_related_to|     0.89%  [.] checker.Checker.get_reduced_type_worker
+     0.83%  [.] checker.Checker.keep_contexts_of|     0.89%  [.] checker.Checker.get_tail_recursion_root
