@@ -1,0 +1,56 @@
+# One program, several endings, chosen by its first argument.
+use std.os
+use std.task
+use std.time
+use std.text
+use std.file
+
+fun fill(n: Int) -> Int
+  xs = List[Int]()
+  for i in 0..n
+    !xs.push(i)
+  m = Map[Int, Int]()
+  for i in 0..(n / 4)
+    !m.put(i, i)
+  xs.len + m.len
+
+fun quit() -> Int
+  os.exit(5)
+  0
+
+fun main() -> Int!
+  args = os.args()
+  mode = "ok"
+  if args.len > 1
+    mode = args[1]
+  print("mode", mode)
+  if mode == "ok"
+    return 0
+  if mode == "three"
+    return 3
+  if mode == "exit"
+    t = quit()&
+    >t
+    return 0
+  if mode == "panic"
+    xs = List[Int]()
+    print(xs[3])
+  if mode == "fail"
+    gone = file.read("/")!
+    print(gone)
+  if mode == "sleep"
+    time.sleep(30)!
+  if mode == "stdin"
+    line = file.read("/dev/stdin")! ?? String("none")
+    print("read", line)
+  if mode == "big"
+    n = 50000000
+    if args.len > 2
+      n = text.parse_int(args[2]) catch n
+    ts = Tasks[Int]()
+    for 0..4
+      !ts.add(fill(n)&)
+    xs = >ts
+    print("filled", xs.len)
+    os.exit(0)
+  0
