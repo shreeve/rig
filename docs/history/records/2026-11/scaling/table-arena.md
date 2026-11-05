@@ -98,13 +98,15 @@ higher. It is not taken.
   table whose reads need no test has to keep every slot it may read at a
   fixed address, which is a reservation of all `n`; packing many tables'
   slots onto shared pages means a read past what is held must be caught,
-  and on Trig that test costs about five times what the page walks do.
+  and on Trig that test costs several times what the page walks do
+  (10-11% more cycles against 3-3.5 points of page walks saved).
   The variants considered and set aside for that reason: a packed head
   with a reserved tail (a test on each read), and moving only on writes
   while reads stay untested (unsound: a read past the block).
-- **Denser Tables are Trig's to choose:** fewer Tables a checker, or a
-  `List` where a table is filled in order, each takes the page walks and
-  page tables away with no test Trig does not already make.
+- **Denser Tables are Trig's to choose:** fewer, larger Tables a checker,
+  or ids numbered so each checker writes its Tables from the front, would
+  touch fewer pages and page tables with no change to how a Table is
+  read.
 - **The exit (investigation, fix 2)** has no cost on any access and a
   ceiling of 13-18 ms on ts-pattern at four and eight checkers; it is the
   next Rig-side candidate, after the owner's call.
