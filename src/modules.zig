@@ -38,6 +38,7 @@
 //! errors are reported.
 
 const std = @import("std");
+const native_endian = @import("builtin").cpu.arch.endian();
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
@@ -984,13 +985,66 @@ pub const ModuleGraph = struct {
                 try self.errorAt(id, at, "$embed: cannot read \"{f}\" ({s}), relative to {s}", .{ shown, fileError(error.StreamTooLong), naming });
                 continue;
             }
-            for (ctx.embed_records.items) |r| if (r.node == site.node and size % r.size != 0) {
-                try self.errorAt(id, at, "`{s}` reads whole `{s}`s, {d} bytes each, and \"{f}\" holds {d} bytes", .{ r.method, r.shown, r.size, shown, size });
+            for (ctx.embed_records.items) |r| if (r.node == site.node) {
+                if (size % r.size != 0) {
+                    try self.errorAt(id, at, "`{s}` reads whole `{s}`s, {d} bytes each, and \"{f}\" holds {d} bytes", .{ r.method, r.shown, r.size, shown, size });
+                    continue;
+                }
+                if (r.checks.len == 0) continue;
+                const bytes = site.bytes orelse std.Io.Dir.cwd().readFileAlloc(self.io, file, a, .limited(max_source_bytes + 1)) catch |err| {
+                    if (err == error.OutOfMemory) return error.OutOfMemory;
+                    try self.errorAt(id, at, "$embed: cannot read \"{f}\" ({s}), relative to {s}", .{ shown, fileError(err), naming });
+                    continue;
+                };
+                site.bytes = bytes;
+                if (badRecordValue(bytes, r)) |bad| {
+                    const c = r.checks[bad.check];
+                    const part = if (c.path.len == 0)
+                        try a.print("record {d}", .{bad.record})
+                    else blk: {
+                        const place = try std.mem.replaceOwned(u8, a, c.path, "#", try a.print("{d}", .{bad.index}));
+                        break :blk try a.print("{s} `{s}` of record {d}", .{ if (place[0] == '[') "element" else "field", place, bad.record });
+                    };
+                    const why = switch (c.values) {
+                        .boolean => try a.print("a `{s}` is only 0 or 1", .{c.not.shown}),
+                        .below, .set => try a.print("no variant of `{s}` has that value", .{c.not.shown}),
+                    };
+                    try self.errorAt(id, at, "`{s}` reads whole `{s}`s from \"{f}\": {s} (byte {d}) holds {d}, and {s}", .{ r.method, r.shown, shown, part, bad.at, bad.value, why });
+                }
             };
             site.file = file;
             site.place = try a.print("{s}/{s}", .{ sema.embed_dir, rel });
             try ctx.facts.embeds.put(ctx.allocator, site.node, site.place);
         }
+    }
+
+    /// The first value in `bytes`, records of `r.size` bytes each, that
+    /// no `Bool` or variant of a part `r.checks` names holds: which check,
+    /// record, and element of the check's count, at which byte, and the
+    /// value, read in the machine's byte order as the runtime reads it.
+    fn badRecordValue(bytes: []const u8, r: sema.EmbedRecord) ?struct { check: usize, record: u64, index: u64, at: u64, value: u64 } {
+        var record: u64 = 0;
+        var base: u64 = 0;
+        while (base < bytes.len) : ({
+            base += r.size;
+            record += 1;
+        }) for (r.checks, 0..) |c, k| for (0..c.count) |i| {
+            const at = base + c.at + i * c.stride;
+            const b = bytes[at..][0..c.size];
+            const v: u64 = switch (c.size) {
+                1 => b[0],
+                2 => std.mem.readInt(u16, b[0..2], native_endian),
+                4 => std.mem.readInt(u32, b[0..4], native_endian),
+                else => std.mem.readInt(u64, b[0..8], native_endian),
+            };
+            const ok = switch (c.values) {
+                .boolean => v <= 1,
+                .below => |n| v < n,
+                .set => |set| std.mem.findScalar(u64, set, v) != null,
+            };
+            if (!ok) return .{ .check = k, .record = record, .index = i, .at = at, .value = v };
+        };
+        return null;
     }
 
     /// The size of the file at `path`, opened to read.

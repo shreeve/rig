@@ -271,3 +271,750 @@ test "list of records with a large array from bytes", "2 3 4 1 255 2 240", relea
   rows: List[[640]E] = List()
   !rows.extend_from_bytes(?u)
   print(gs.len, gs[1].w, gs[0].code, gs[1].bits[1], gs[0].bits[4095], rows.len, rows[1][639].x)
+
+# The bytes of an `$embed` may make a `Bool` or an enum: the compiler
+# reads the file and checks each record's values, so none holds a value
+# no `Bool` or variant has.
+test "list of records with enums and a Bool from an embedded file", "2 .missing .blue true 5 .ok .red false 7"
+  enum Color
+    red
+    green
+    blue
+
+  enum Code
+    ok = 200
+    missing = 404
+
+  obj Rec
+    code: Code
+    color: Color
+    on: Bool
+    n: U16
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes($embed("recs.bin"))
+  print(xs.len, xs[0].code, xs[0].color, xs[0].on, xs[0].n, xs[1].code, xs[1].color, xs[1].on, xs[1].n)
+
+  file "recs.bin", hex
+    94010000 02 01 0500
+    c8000000 00 00 0700
+
+test "list of records with enums and a Bool from an embedded file, in a release build", "2 .missing .blue true 5 .ok .red false 7", release: true
+  enum Color
+    red
+    green
+    blue
+
+  enum Code
+    ok = 200
+    missing = 404
+
+  obj Rec
+    code: Code
+    color: Color
+    on: Bool
+    n: U16
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes($embed("recs.bin"))
+  print(xs.len, xs[0].code, xs[0].color, xs[0].on, xs[0].n, xs[1].code, xs[1].color, xs[1].on, xs[1].n)
+
+  file "recs.bin", hex
+    94010000 02 01 0500
+    c8000000 00 00 0700
+
+test "list of Bools, enums, and arrays of them from an embedded file", "[true, false, true] [.c, .a] .b true false", release: true
+  # An enum of more than 256 variants is two bytes.
+  enum Abc
+    a
+    b
+    c
+
+  obj Grid
+    cells: [2]Abc
+    marks: [2]Bool
+
+  bs: List[Bool] = List()
+  !bs.extend_from_bytes($embed("bools.bin"))
+  es: List[Abc] = List()
+  !es.extend_from_bytes($embed("abc.bin"))
+  gs: List[Grid] = List()
+  !gs.extend_from_bytes($embed("grid.bin"))
+  print(bs, es, gs[0].cells[1], gs[0].marks[0], gs[0].marks[1])
+
+  file "bools.bin", hex
+    01 00 01
+
+  file "abc.bin", hex
+    02 00
+
+  file "grid.bin", hex
+    00 01 01 00
+
+fail "list of records with an enum from an embedded file holding no variant's value", "`extend_from_bytes` reads whole `Rec`s from \"recs.bin\": field `color` of record 1 (byte 12) holds 3, and no variant of `Color` has that value"
+  enum Color
+    red
+    green
+    blue
+
+  obj Rec
+    code: U32
+    color: Color
+    on: Bool
+    n: U16
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes($embed("recs.bin"))
+
+  file "recs.bin", hex
+    94010000 02 01 0500
+    c8000000 03 00 0700
+
+fail "list of records with a Bool from an embedded file holding 2", "`extend_from_bytes` reads whole `Rec`s from \"recs.bin\": field `on` of record 0 (byte 5) holds 2, and a `Bool` is only 0 or 1"
+  obj Rec
+    code: U32
+    color: U8
+    on: Bool
+    n: U16
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes($embed("recs.bin"))
+
+  file "recs.bin", hex
+    94010000 02 02 0500
+
+fail "list of an enum of values from an embedded file holding another", "`extend_from_bytes` reads whole `Code`s from \"codes.bin\": record 1 (byte 4) holds 201, and no variant of `Code` has that value"
+  enum Code
+    ok = 200
+    missing = 404
+
+  xs: List[Code] = List()
+  !xs.extend_from_bytes($embed("codes.bin"))
+
+  file "codes.bin", hex
+    c8000000 c9000000
+
+fail "list of objects with arrays of Bools from an embedded file holding 7", "`extend_from_bytes` reads whole `Grid`s from \"grid.bin\": field `rows[1].marks[0]` of record 0 (byte 2) holds 7, and a `Bool` is only 0 or 1"
+  obj Row
+    marks: [1]Bool
+
+  obj Grid
+    pad: U8
+    rows: [2]Row
+
+  xs: List[Grid] = List()
+  !xs.extend_from_bytes($embed("grid.bin"))
+
+  file "grid.bin", hex
+    00 01 07
+
+fail "list of records with a Bool from the bytes of a String", "field `on` of `Rec` is a `Bool`, which is only 0 or 1; an `$embed(path)`'s bytes may make one, since the compiler checks their values"
+  obj Rec
+    n: U8
+    on: Bool
+
+  t = String("\x01\x01")
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes(?t)
+
+fail "list of records with an enum from a module constant", "field `kind` of `Rec` is an enum, whose values are only its variants'"
+  # Only bytes written `$embed(path)` at the call are known to be the
+  # file's records; a constant could be a slice or any other `Static`.
+  enum Kind
+    a
+    b
+
+  obj Rec
+    kind: Kind
+
+  RECS = $embed("recs.bin")
+
+  sub main()
+    xs: List[Rec] = List()
+    !xs.extend_from_bytes(RECS)
+
+  file "recs.bin", hex
+    00 01
+
+fail "list of an enum of one variant from an embedded file", "`One` holds no bytes"
+  enum One
+    only
+
+  xs: List[One] = List()
+  !xs.extend_from_bytes($embed("one.bin"))
+
+  file "one.bin", hex
+    00
+
+fail "list of an enum with a variant written as a call from an embedded file", "`Abc` is an enum, whose values are only its variants'"
+  enum Abc
+    a()
+    b
+
+  xs: List[Abc] = List()
+  !xs.extend_from_bytes($embed("abc.bin"))
+
+  file "abc.bin", hex
+    00
+
+test "list of records with two Bools, another module's enum, and an enum of two bytes from an embedded file", ".v256 .v1 true false .wide true", release: true
+  # 257 variants take a two-byte tag; an object of two Bools may be held
+  # as one word.
+  use geo
+
+  enum Big
+    v0
+    v1
+    v2
+    v3
+    v4
+    v5
+    v6
+    v7
+    v8
+    v9
+    v10
+    v11
+    v12
+    v13
+    v14
+    v15
+    v16
+    v17
+    v18
+    v19
+    v20
+    v21
+    v22
+    v23
+    v24
+    v25
+    v26
+    v27
+    v28
+    v29
+    v30
+    v31
+    v32
+    v33
+    v34
+    v35
+    v36
+    v37
+    v38
+    v39
+    v40
+    v41
+    v42
+    v43
+    v44
+    v45
+    v46
+    v47
+    v48
+    v49
+    v50
+    v51
+    v52
+    v53
+    v54
+    v55
+    v56
+    v57
+    v58
+    v59
+    v60
+    v61
+    v62
+    v63
+    v64
+    v65
+    v66
+    v67
+    v68
+    v69
+    v70
+    v71
+    v72
+    v73
+    v74
+    v75
+    v76
+    v77
+    v78
+    v79
+    v80
+    v81
+    v82
+    v83
+    v84
+    v85
+    v86
+    v87
+    v88
+    v89
+    v90
+    v91
+    v92
+    v93
+    v94
+    v95
+    v96
+    v97
+    v98
+    v99
+    v100
+    v101
+    v102
+    v103
+    v104
+    v105
+    v106
+    v107
+    v108
+    v109
+    v110
+    v111
+    v112
+    v113
+    v114
+    v115
+    v116
+    v117
+    v118
+    v119
+    v120
+    v121
+    v122
+    v123
+    v124
+    v125
+    v126
+    v127
+    v128
+    v129
+    v130
+    v131
+    v132
+    v133
+    v134
+    v135
+    v136
+    v137
+    v138
+    v139
+    v140
+    v141
+    v142
+    v143
+    v144
+    v145
+    v146
+    v147
+    v148
+    v149
+    v150
+    v151
+    v152
+    v153
+    v154
+    v155
+    v156
+    v157
+    v158
+    v159
+    v160
+    v161
+    v162
+    v163
+    v164
+    v165
+    v166
+    v167
+    v168
+    v169
+    v170
+    v171
+    v172
+    v173
+    v174
+    v175
+    v176
+    v177
+    v178
+    v179
+    v180
+    v181
+    v182
+    v183
+    v184
+    v185
+    v186
+    v187
+    v188
+    v189
+    v190
+    v191
+    v192
+    v193
+    v194
+    v195
+    v196
+    v197
+    v198
+    v199
+    v200
+    v201
+    v202
+    v203
+    v204
+    v205
+    v206
+    v207
+    v208
+    v209
+    v210
+    v211
+    v212
+    v213
+    v214
+    v215
+    v216
+    v217
+    v218
+    v219
+    v220
+    v221
+    v222
+    v223
+    v224
+    v225
+    v226
+    v227
+    v228
+    v229
+    v230
+    v231
+    v232
+    v233
+    v234
+    v235
+    v236
+    v237
+    v238
+    v239
+    v240
+    v241
+    v242
+    v243
+    v244
+    v245
+    v246
+    v247
+    v248
+    v249
+    v250
+    v251
+    v252
+    v253
+    v254
+    v255
+    v256
+
+  obj Flags
+    a: Bool
+    b: Bool
+
+  obj Rec
+    big: Big
+    shape: geo.Shape
+    on: Bool
+
+  sub main()
+    bs: List[Big] = List()
+    !bs.extend_from_bytes($embed("big.bin"))
+    fs: List[Flags] = List()
+    !fs.extend_from_bytes($embed("flags.bin"))
+    rs: List[Rec] = List()
+    !rs.extend_from_bytes($embed("recs.bin"))
+    print(bs[0], bs[1], fs[0].a, fs[0].b, rs[0].shape, rs[0].on)
+
+  file "geo.rig"
+    pub enum Shape
+      thin
+      wide
+
+  file "big.bin", hex
+    0001 0100
+
+  file "flags.bin", hex
+    01 00
+
+  file "recs.bin", hex
+    0001 01 01
+
+fail "list of an enum of two bytes from an embedded file holding no variant's value", "`extend_from_bytes` reads whole `Big`s from \"big.bin\": record 0 (byte 0) holds 257, and no variant of `Big` has that value"
+  enum Big
+    v0
+    v1
+    v2
+    v3
+    v4
+    v5
+    v6
+    v7
+    v8
+    v9
+    v10
+    v11
+    v12
+    v13
+    v14
+    v15
+    v16
+    v17
+    v18
+    v19
+    v20
+    v21
+    v22
+    v23
+    v24
+    v25
+    v26
+    v27
+    v28
+    v29
+    v30
+    v31
+    v32
+    v33
+    v34
+    v35
+    v36
+    v37
+    v38
+    v39
+    v40
+    v41
+    v42
+    v43
+    v44
+    v45
+    v46
+    v47
+    v48
+    v49
+    v50
+    v51
+    v52
+    v53
+    v54
+    v55
+    v56
+    v57
+    v58
+    v59
+    v60
+    v61
+    v62
+    v63
+    v64
+    v65
+    v66
+    v67
+    v68
+    v69
+    v70
+    v71
+    v72
+    v73
+    v74
+    v75
+    v76
+    v77
+    v78
+    v79
+    v80
+    v81
+    v82
+    v83
+    v84
+    v85
+    v86
+    v87
+    v88
+    v89
+    v90
+    v91
+    v92
+    v93
+    v94
+    v95
+    v96
+    v97
+    v98
+    v99
+    v100
+    v101
+    v102
+    v103
+    v104
+    v105
+    v106
+    v107
+    v108
+    v109
+    v110
+    v111
+    v112
+    v113
+    v114
+    v115
+    v116
+    v117
+    v118
+    v119
+    v120
+    v121
+    v122
+    v123
+    v124
+    v125
+    v126
+    v127
+    v128
+    v129
+    v130
+    v131
+    v132
+    v133
+    v134
+    v135
+    v136
+    v137
+    v138
+    v139
+    v140
+    v141
+    v142
+    v143
+    v144
+    v145
+    v146
+    v147
+    v148
+    v149
+    v150
+    v151
+    v152
+    v153
+    v154
+    v155
+    v156
+    v157
+    v158
+    v159
+    v160
+    v161
+    v162
+    v163
+    v164
+    v165
+    v166
+    v167
+    v168
+    v169
+    v170
+    v171
+    v172
+    v173
+    v174
+    v175
+    v176
+    v177
+    v178
+    v179
+    v180
+    v181
+    v182
+    v183
+    v184
+    v185
+    v186
+    v187
+    v188
+    v189
+    v190
+    v191
+    v192
+    v193
+    v194
+    v195
+    v196
+    v197
+    v198
+    v199
+    v200
+    v201
+    v202
+    v203
+    v204
+    v205
+    v206
+    v207
+    v208
+    v209
+    v210
+    v211
+    v212
+    v213
+    v214
+    v215
+    v216
+    v217
+    v218
+    v219
+    v220
+    v221
+    v222
+    v223
+    v224
+    v225
+    v226
+    v227
+    v228
+    v229
+    v230
+    v231
+    v232
+    v233
+    v234
+    v235
+    v236
+    v237
+    v238
+    v239
+    v240
+    v241
+    v242
+    v243
+    v244
+    v245
+    v246
+    v247
+    v248
+    v249
+    v250
+    v251
+    v252
+    v253
+    v254
+    v255
+    v256
+
+  xs: List[Big] = List()
+  !xs.extend_from_bytes($embed("big.bin"))
+
+  file "big.bin", hex
+    0101
