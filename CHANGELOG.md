@@ -45,10 +45,11 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
   String `==` and `!=`, a string pattern, the text keys of `Map`,
   `Set`, `HashMap`, and `HashSet`, `E.from_text`, and `==` on slices of
   integers. It tests lengths, then overlapping words and 16-byte
-  vectors, each one unaligned load, and is 10-35% faster than
-  `std.mem.eql` from 4 to 128 bytes on the Mac and 20-70% on x86-64
-  (AVX2). `std.mem.eql`'s array casts stay byte by byte in code a
-  `--pgo` profile finds cold; its loads stay wide (`bench/eql`).
+  vectors, each one unaligned load: 3-50% faster than `std.mem.eql`
+  at every length to 128 bytes on the Mac, and 8-73% on x86-64 with
+  AVX2. In code a `--pgo` profile finds cold its loads stay wide,
+  where `std.mem.eql`'s array casts moved each byte through the stack
+  (`bench/eql`).
 
 ## v0.3.0 (2026-11-04)
 
