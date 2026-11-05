@@ -300,7 +300,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
         // whose `paren` is dropped: each before any pass reads a statement.
@@ -1613,7 +1613,7 @@ pub const Lexer = struct {
         var end = self.last_pos;
         while (end < src.len and (std.ascii.isAlphanumeric(src[end]) or src[end] == '_')) end += 1;
         const last = src[self.last_pos..end];
-        for ([_][]const u8{ "from", "keeps", "static", "once", "unique" }) |w| if (std.mem.eql(u8, last, w)) return false;
+        for ([_][]const u8{ "from", "keeps", "static", "once", "unique", "exact" }) |w| if (std.mem.eql(u8, last, w)) return false;
         return true;
     }
 
@@ -5856,6 +5856,26 @@ test "`unique` is a keyword only after an obj header's name or type parameters" 
     try testing.expectError(error.ParseError, parses("enum E unique\n  a\n"));
     try parses("unique = x.unique\n");
     try expectCats("f(unique: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
+}
+
+/// Whether `source` declares an `exact` object first.
+fn structExact(source: []const u8) !bool {
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    return ir.get(try firstDecl(&p), .exact) != .nil;
+}
+
+test "`exact` is a keyword only after an obj header's name" {
+    try testing.expect(keyword("exact") == null);
+    try expectCats("obj R exact", &.{ .obj, .ident, .ident });
+    try testing.expect(try structExact("obj R exact\n  x: U32\n"));
+    try testing.expect(try structExact("pub obj R exact # note\n  x: U32\n"));
+    try testing.expect(try structExact("obj R exact: Eq\n  x: U32\n"));
+    try testing.expect(!try structExact("obj exact\n  x: Int\n"));
+    try testing.expect(!try structExact("obj R\n  exact: Bool\n"));
+    try testing.expectError(error.ParseError, parses("enum E exact\n  a\n"));
+    try parses("exact = x.exact\n");
+    try expectCats("f(exact: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
 }
 
 test "`from` and `static` are keywords only after a function's result type" {

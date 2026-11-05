@@ -21,16 +21,16 @@ test "list of records from bytes", '''
 '''
   # An object of integers is its fields in declaration order; one held
   # as one word (`W`), and one with an array, read the same way.
-  obj Rec
+  obj Rec exact
     a: U16
     b: U16
     c: U32
 
-  obj W
+  obj W exact
     x: U16
     y: U16
 
-  obj Pair
+  obj Pair exact
     w: W
     tag: [4]U8
 
@@ -94,7 +94,7 @@ fail "list of Bool from bytes", "every bit pattern must be a `Bool`, and a `Bool
   !xs.extend_from_bytes("\x01")
 
 fail "list of records with a Bool from bytes", "field `ok` of `Rec` is a `Bool`, which is only 0 or 1"
-  obj Rec
+  obj Rec exact
     n: U8
     ok: Bool
 
@@ -106,14 +106,14 @@ fail "list of records with an enum from bytes", "field `kind` of `Rec` is an enu
     a
     b
 
-  obj Rec
+  obj Rec exact
     kind: Kind
 
   xs: List[Rec] = List()
   !xs.extend_from_bytes("\x01")
 
 fail "list of records with text from bytes", "field `name` of `Rec` is a `Static`, which is not an integer, a float, or an object or array of them"
-  obj Rec
+  obj Rec exact
     name: Static
 
   xs: List[Rec] = List()
@@ -128,7 +128,7 @@ fail "list of optionals from bytes", "and a `U8?` is not an integer, a float, or
   !xs.extend_from_bytes("")
 
 fail "list of records with padding inside from bytes", "`Rec` has padding before field `b`: it starts at byte 1, and a `U32` starts at a multiple of 4"
-  obj Rec
+  obj Rec exact
     a: U8
     b: U32
 
@@ -136,7 +136,7 @@ fail "list of records with padding inside from bytes", "`Rec` has padding before
   !xs.extend_from_bytes("")
 
 fail "list of records with padding after from bytes", "`Rec` has 3 bytes of padding after field `b`, to a multiple of 4"
-  obj Rec
+  obj Rec exact
     a: U32
     b: U8
 
@@ -144,7 +144,7 @@ fail "list of records with padding after from bytes", "`Rec` has 3 bytes of padd
   !xs.extend_from_bytes("")
 
 fail "list of records with a wide integer after a word from bytes", "`Rec` has padding before field `b`: it starts at byte 8, and an `I128` starts at a multiple of 16"
-  obj Rec
+  obj Rec exact
     a: U64
     b: I128
 
@@ -152,7 +152,7 @@ fail "list of records with a wide integer after a word from bytes", "`Rec` has p
   !xs.extend_from_bytes("")
 
 fail "list of records with no fields from bytes", "`Rec` holds no bytes"
-  obj Rec
+  obj Rec exact
     sub hi(?@)
       print("hi")
 
@@ -167,7 +167,7 @@ fail "list of records with a private field from bytes", "field `y` of `geo.P` is
     !xs.extend_from_bytes("")
 
   file "geo.rig"
-    pub obj P
+    pub obj P exact
       pub x: U32
       y: U32
 
@@ -197,14 +197,14 @@ test "list from bytes of another module's records and with inline room", "[1, 2]
     print(xs, ps[0].x, ps[0].y, ys)
 
   file "geo.rig"
-    pub obj P
+    pub obj P exact
       pub x: U32
       pub y: U32
 
 fail "list of objects that name their none from bytes", "`Node` names its none (`none id == 0`), a value no `Node` holds"
   # Bytes could make the value no `Node` holds, which `get`, `pop`, and a
   # `Node?` read as `none`.
-  obj Node
+  obj Node exact
     id: U32
     none id == 0
 
@@ -212,11 +212,11 @@ fail "list of objects that name their none from bytes", "`Node` names its none (
   !xs.extend_from_bytes("\x05\x00\x00\x00\x00\x00\x00\x00")
 
 fail "list of records with a field that names its none from bytes", "field `n` of `Pair` is a `Node`, which names its none (`none id == 0`), a value no `Node` holds"
-  obj Node
+  obj Node exact
     id: U32
     none id == 0
 
-  obj Pair
+  obj Pair exact
     n: Node
     k: U32
 
@@ -224,7 +224,7 @@ fail "list of records with a field that names its none from bytes", "field `n` o
   !ps.extend_from_bytes("")
 
 fail "list from bytes in a generic body of an object that names its none", "the generic body makes a `T` from bytes with `extend_from_bytes`, and not every bit pattern is a `Node`"
-  obj Node
+  obj Node exact
     id: U32
     none id == 0
 
@@ -243,13 +243,13 @@ test "list of records with a large array from bytes", "2 3 4 1 255 2 240", relea
   # Zig orders `Glyph`'s fields its own way, so each record is read field
   # by field, its array in one copy, and `Row`'s array of such objects by
   # a loop: nothing is unrolled by an array's length.
-  obj Glyph
+  obj Glyph exact
     w: U8
     h: U8
     code: U16
     bits: [4096]U8
 
-  obj E
+  obj E exact
     x: U8
     y: U8
     z: U16
@@ -285,7 +285,7 @@ test "list of records with enums and a Bool from an embedded file", "2 .missing 
     ok = 200
     missing = 404
 
-  obj Rec
+  obj Rec exact
     code: Code
     color: Color
     on: Bool
@@ -309,7 +309,7 @@ test "list of records with enums and a Bool from an embedded file, in a release 
     ok = 200
     missing = 404
 
-  obj Rec
+  obj Rec exact
     code: Code
     color: Color
     on: Bool
@@ -330,7 +330,7 @@ test "list of Bools, enums, and arrays of them from an embedded file", "[true, f
     b
     c
 
-  obj Grid
+  obj Grid exact
     cells: [2]Abc
     marks: [2]Bool
 
@@ -357,7 +357,7 @@ fail "list of records with an enum from an embedded file holding no variant's va
     green
     blue
 
-  obj Rec
+  obj Rec exact
     code: U32
     color: Color
     on: Bool
@@ -371,7 +371,7 @@ fail "list of records with an enum from an embedded file holding no variant's va
     c8000000 03 00 0700
 
 fail "list of records with a Bool from an embedded file holding 2", "`extend_from_bytes` reads whole `Rec`s from \"recs.bin\": field `on` of record 0 (byte 5) holds 2, and a `Bool` is only 0 or 1"
-  obj Rec
+  obj Rec exact
     code: U32
     color: U8
     on: Bool
@@ -395,10 +395,10 @@ fail "list of an enum of values from an embedded file holding another", "`extend
     c8000000 c9000000
 
 fail "list of objects with arrays of Bools from an embedded file holding 7", "`extend_from_bytes` reads whole `Grid`s from \"grid.bin\": field `rows[1].marks[0]` of record 0 (byte 2) holds 7, and a `Bool` is only 0 or 1"
-  obj Row
+  obj Row exact
     marks: [1]Bool
 
-  obj Grid
+  obj Grid exact
     pad: U8
     rows: [2]Row
 
@@ -409,7 +409,7 @@ fail "list of objects with arrays of Bools from an embedded file holding 7", "`e
     00 01 07
 
 fail "list of records with a Bool from the bytes of a String", "field `on` of `Rec` is a `Bool`, which is only 0 or 1; an `$embed(path)`'s bytes may make one, since the compiler checks their values"
-  obj Rec
+  obj Rec exact
     n: U8
     on: Bool
 
@@ -424,7 +424,7 @@ fail "list of records with an enum from a module constant", "field `kind` of `Re
     a
     b
 
-  obj Rec
+  obj Rec exact
     kind: Kind
 
   RECS = $embed("recs.bin")
@@ -721,11 +721,11 @@ test "list of records with two Bools, another module's enum, and an enum of two 
     v255
     v256
 
-  obj Flags
+  obj Flags exact
     a: Bool
     b: Bool
 
-  obj Rec
+  obj Rec exact
     big: Big
     shape: geo.Shape
     on: Bool
@@ -1025,7 +1025,7 @@ fail "list of records with an error from an embedded file", "field `e` of `Rec` 
     full
     empty
 
-  obj Rec
+  obj Rec exact
     e: Disk
     n: U8
 
@@ -1043,11 +1043,11 @@ test "list of records Zig lays out its own way, from an embedded file", "2 .c .b
     b
     c
 
-  obj Half
+  obj Half exact
     x: U32
     y: U32
 
-  obj Node
+  obj Node exact
     kind: Kind
     keyword: Kind
     pad: U16
@@ -1076,10 +1076,43 @@ test "a record of another module's enum, from an embedded file", ".wide 9"
       thin
       wide
 
-    pub obj Rec
+    pub obj Rec exact
       pub n: U16
       pub shape: Shape
       pub pad: U8
 
   file "recs.bin", hex
     0900 01 00
+
+# Records are `exact` objects: their fields in declaration order with no
+# padding, so their bytes are the record's. Any other object Zig lays out
+# its own way, and `extend_from_bytes` rejects it with the fix.
+fail "list of records of an object not exact", "`Rec` is not `exact`, so Zig may lay out its fields in an order of its own: add `exact` to `obj Rec`"
+  obj Rec
+    a: U16
+    b: U16
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("\x01\x00\x02\x00")
+
+fail "list of records holding an object not exact", "field `p` of `Rec` is a `P`, which is not `exact`: add `exact` to `obj P`"
+  obj P
+    x: U16
+
+  obj Rec exact
+    p: P
+    n: U16
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of records of another module's object not exact", "add `exact` to `obj P`"
+  use geo
+
+  sub main()
+    xs: List[geo.P] = List()
+    !xs.extend_from_bytes("")
+
+  file "geo.rig"
+    pub obj P
+      pub x: U32

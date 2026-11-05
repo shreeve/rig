@@ -126,7 +126,7 @@ const SymbolResolver = struct {
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
             .generic_struct, .generic_enum => try self.walkGenericType(sexp),
-            .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
+            .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil, .exact = ir.Struct.exact(sexp) != .nil }),
             .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .api => try self.walkApi(sexp),

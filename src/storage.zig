@@ -2493,6 +2493,38 @@ pub fn decideWords(mods: []const *SemContext, trees: []const Sexp) !void {
     }
 }
 
+/// Give each plain enum an `exact` object holds, in a field or a fixed
+/// array, in any module, its tag type (`SemContext.exact_enums`): a Zig
+/// `extern struct` holds no enum of an inferred tag, and the tag's bytes
+/// are the enum's in the object's layout (`sema.enumBytes`). For the
+/// whole program at once, since the enum may be another module's.
+pub fn decideExactEnums(mods: []const *SemContext) !void {
+    for (mods) |ctx| ctx.exact_enums.clearRetainingCapacity();
+    for (mods) |ctx| for (ctx.symbols.items) |sym| {
+        if (sema.isProxy(sym) or sym.kind != .nominal_type or !sym.flags.exact) continue;
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_method or f.is_variant or f.is_drop_method) continue;
+            try exactEnum(ctx, f.ty);
+        }
+    };
+}
+
+fn exactEnum(ctx: *SemContext, ty: TypeId) !void {
+    switch (ctx.types.get(ty)) {
+        .array => |arr| return exactEnum(ctx, arr.elem),
+        .nominal, .imported_nominal => {},
+        else => return,
+    }
+    if (!sema.isPlainEnum(ctx, ty)) return;
+    const d = sema.nominalDecl(ctx, ty) orelse return;
+    if (d.symbol().flags.enum_valued or d.symbol().flags.error_set) return;
+    const bytes = sema.enumBytes(d.ctx, d.sym) orelse return;
+    if (bytes == 0) return;
+    // The declaring module's context, which emit reads for the enum.
+    const home: *SemContext = @constCast(d.ctx);
+    try home.exact_enums.put(home.allocator, d.sym, @intCast(bytes));
+}
+
 fn optionalWord(a: std.mem.Allocator, ctx: *const SemContext, t: TypeId, plain: anytype) !void {
     var ty = sema.unwrapViews(ctx, t);
     var opt = false;

@@ -1,0 +1,114 @@
+# types: `obj Name exact` lays an object out as declared: its fields in
+# declaration order with no padding, a Zig `extern struct`, so its bytes
+# are its fields'. Padding is written as a field. `exact` is a word only
+# after an obj header's name.
+
+test "an exact object is an ordinary object", '''
+  P(x: 1, y: 2, on: true, _pad: [0, 0, 0]) 3 8
+'''
+  obj P exact
+    x: U16
+    y: U16
+    on: Bool
+    _pad: [3]U8 = [3 of 0]
+
+    fun sum(?@) -> Int
+      Int(@x) + Int(@y)
+
+  sub main()
+    p = P(x: 1, y: 2, on: true)
+    print(p, p.sum(), $size(P))
+
+test "an exact object with an API in its header", "Q(n: 5)"
+  obj Q exact: Eq
+    n: U32
+
+    fun eq(?@, other: ?Q) -> Bool
+      @n == other.n
+
+  sub main()
+    a = Q(n: 5)
+    print(a) if a == Q(n: 5)
+
+test "`exact` is a name everywhere else", "1 true"
+  obj Opts
+    exact: Bool
+
+  sub main()
+    exact = 1
+    o = Opts(exact: true)
+    print(exact, o.exact)
+
+code "an exact object is an extern struct", "pub const Node = extern struct {", whole: true
+  enum Kind
+    a
+    b
+
+  obj Node exact
+    kind: Kind
+    keyword: Kind
+    pad: U16
+    flags: U32
+
+  sub main()
+    print($size(Node))
+
+code "an enum an exact object holds names its tag type", "pub const Kind = enum(u8) {", whole: true
+  enum Kind
+    a
+    b
+
+  obj Node exact
+    kind: Kind
+    n: U8
+
+  sub main()
+    print($size(Node))
+
+code "a word-sized exact object is not packed", "pub const W = extern struct {", whole: true
+  obj W exact
+    x: U32
+    y: U32
+
+  sub main()
+    w = W(x: 1, y: 2)
+    print(w.x)
+
+code "an object not exact keeps Zig's layout", "pub const P = struct {", "pub const Kind = enum {", whole: true
+  enum Kind
+    a
+    b
+
+  obj P
+    kind: Kind
+    n: U32
+
+  sub main()
+    print($size(P))
+
+fail "an exact object with padding inside", "`exact` object `Rec` has 3 bytes of padding before field `b`: it starts at byte 1, and a `U32` starts at a multiple of 4; write the padding as a field before it, `_pad: [3]U8`"
+  obj Rec exact
+    a: U8
+    b: U32
+
+fail "an exact object with padding after", "`exact` object `Rec` has 3 bytes of padding after field `b`, to a multiple of 4; write the padding as a field after it, `_pad: [3]U8`"
+  obj Rec exact
+    a: U32
+    b: U8
+
+fail "an exact object holding text", "`exact` object `Rec` holds field `name`, a `String`; an `exact` object holds integers, floats, `Bool`s, plain enums, `exact` objects, and fixed arrays of them"
+  obj Rec exact
+    n: U32
+    name: String
+
+fail "an exact object holding an object not exact", "`exact` object `Rec` holds field `p`, a `P`, which is not `exact`: add `exact` to `obj P`"
+  obj P
+    x: U32
+
+  obj Rec exact
+    p: P
+
+fail "an exact object with no fields", "`exact` object `Rec` holds no bytes: give it a field"
+  obj Rec exact
+    sub hi(?@)
+      print("hi")
