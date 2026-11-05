@@ -309,3 +309,49 @@ worker, and fanout took 531 ms (TLS and the worker, above).
 7. The section audit (test plan 4) and the macOS arm64 port come before
    any default-on. Default: yes, after Trig's numbers show the gain
    clears the bar.
+
+## The wait trigger (after the first review)
+
+The designer asked that the monitor signal when work has waited, not
+when a fiber has run 10 ms, so a woken fiber still gets its core within
+microseconds. Built (299a8364a): every period the monitor signals a
+worker that has started no fiber since its last look and had work in
+its own queues ("run next" slot, ring, pinned) then and now; the period
+is `RIG_PREEMPT_WAIT_US` (default 50 µs) while any worker has such work
+queued, 1 ms while any runs a fiber. A preempted fiber goes to the
+global queue, behind the fibers made or woken, as Go puts it; only the
+10 ms slice hurries those. Inside sched.zig its functions call each
+other directly; only the entry points other files call (`wake`,
+`park`, `yield`, `interrupt`, `pinHere`, `register`, and the rest) are
+calls never inlined. On E-cores, 4 workers: hog 14.6 ms with a 50 µs
+wait, 42 ms with 100, 34 ms with 200 (off 6.5 ms).
+
+Timed in a pup slot, 2 workers on cores 6 and 8, 9 interleaved rounds,
+fastest, against off:
+
+| Benchmark | Off | On, 50 µs | On, 100 µs |
+|---|---|---|---|
+| spawn | 5.76 ms | 8.5% slower | 9.0% slower |
+| chain | 0.85 ms | 1.7% slower | 1.6% slower |
+| fanout | 297.1 ms | 6.1% slower | 6.1% slower |
+| yield | 20.28 ms | 3.6% slower | level |
+| hog | 6.18 ms | 13.5 ms, 2.2 times | 20.3 ms, 3.3 times |
+| actors solo | 11.31 ms | 3.5% slower | 3.7% slower |
+| actors contend | 10.70 ms | 12% slower | 12% slower |
+| actors spread | 5.83 ms | 5.8% slower | 5.5% slower |
+
+Where the per-operation cost comes from, from two builds made only to
+measure (same slot, monitor quiet): without the lock counts, spawn is
+6.7% slower than off (13.4% with them); without the never-inlined
+entry points and `me`'s check, contend is 2.3% slower, solo and spread
+level, yield 1.5% faster. So most of it is the calls that are no
+longer inlined. Fanout is 6% slower in every build with the option,
+quiet ones too: with no check its loop is unrolled eight times, and the
+unrolled loop runs slower, a code-layout effect of the spin loop and
+not a cost of preemption.
+
+The fix in view moves the never-inlined boundary out to the entry
+points of tasks.zig that emitted code calls, one call per operation, so
+the scheduler's code inlines into them again; and replaces the lock
+counts with a lock that is a call checked to come from outside the
+program's code. Both touch tasks.zig and the lock's callers.
