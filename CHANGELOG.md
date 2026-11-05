@@ -12,9 +12,10 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ### Upgrading from v0.3.0
 
-**`extend_from_bytes` reads only `exact` objects** (a change to main
-since 0.3.0, which had no `extend_from_bytes`): an object it makes from
-bytes is declared `obj Name exact`, which holds its fields in
+**`extend_from_bytes` and `$embed` records read only `exact` objects**
+(a change to main since 0.3.0, which had neither): an object made from
+bytes, a literal's, a `?String`'s, or an embedded file's, is declared
+`obj Name exact`, which holds its fields in
 declaration order with no padding, so its bytes are the record's. Any
 other object is rejected with the fix: "`Span` is not `exact`, so Zig
 may lay out its fields in an order of its own: add `exact` to `obj
