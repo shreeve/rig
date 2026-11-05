@@ -47,6 +47,14 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Added
 
+- **A large embedded table loads without a copy** in a Linux release
+  build: `!xs.extend_from_bytes($embed(path))` of 64 KiB or more into an
+  empty List maps the file's pages from the program itself
+  (`MAP_PRIVATE` of `/proc/self/exe`), read when first touched and
+  copied when first written; growing the List copies it as growth does.
+  On Trig, whose lib trees load this way, mitt runs 17.3% fewer cycles
+  and neverthrow 14.5%, with less memory (SPEC "List").
+
 - **`obj Name exact`** holds an object's fields in declaration order
   with no padding, a Zig `extern struct`, so its bytes are its fields'
   one after another, as a file of records lays them out. Each field is
