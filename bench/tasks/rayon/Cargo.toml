@@ -1,0 +1,12 @@
+[package]
+name = "tasks-rayon"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rayon = "1.11"
+
+[profile.release]
+codegen-units = 1
+lto = true

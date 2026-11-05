@@ -77,6 +77,38 @@ So the numbers compare like with like:
 - **Where to time.** Time arm64 on the Mac and x86 on pup, on a quiet
   machine; never on burst, a shared VM.
 
+## Scaling
+
+`bench/tasks/bench-scale` times how the same work spreads over 1, 2, 4,
+and every core (1, 2, 4, 8, and 16 on pup), in Rig, Tokio, Rayon, and
+Go, and measures the memory a sleeping task takes as the kernel counts
+it. `bench-scale --help` gives the options; the results are in
+[SCALING.md](SCALING.md).
+
+```sh
+bench/tasks/bench-scale --out $D --reps 5
+bench/tasks/bench-scale --out $D --workers 1,2,4,8,16 --cpus 6/6,8/0,6,8,10/0,1,6,8,10,12,13,14/0,1,2,5,6,7,8,9,10,11,12,13,14,15,16,17
+```
+
+| Name | What it does |
+|---|---|
+| `even` | 1,024 equal chunks of CPU work, about 200 ms in all at one worker |
+| `skew` | 1,024 chunks whose costs vary up to 100 times, in a fixed order |
+| `tree` | the same 1,024 leaves as `skew`, reached by splitting the range in half recursively, each half started as a task (Rayon's `join`): stealing, not the queue's order, spreads it |
+| `alloc` | 1,024 chunks that each build and drop 4,400 short Lists and Strings: the allocator under every core at once |
+| `memory` | 10,000 tasks asleep for 1 s, read from outside while they sleep: `footprint` on macOS, VmRSS plus VmPTE on Linux, so the page tables the kernel keeps for each task's stack count |
+
+Each benchmark runs as its own process at each worker count, with the
+work and without it (its fixed cost, `empty`), and with the counters of
+the whole process: instructions and cycles from `/usr/bin/time -l` on
+macOS, and `perf stat` on Linux. Rig runs `even`, `skew`, and `alloc`
+both through `par.map` and as a set of tasks; Tokio and Go start a task
+or goroutine for each chunk and each split, and Rayon uses
+`into_par_iter` and `join`. Rayon has no sleeping tasks, so it has no
+memory row. Go's chunks keep each List and String in a slot of their
+own, and Rust's pass through `black_box`, so each allocation reaches the
+heap, as Rig's do.
+
 ## Where it stands
 
 The latest rows are in [PROGRESS.md](PROGRESS.md), which `--record`

@@ -58,6 +58,21 @@ def tokio_source(given):
     return clone if os.path.isfile(os.path.join(clone, "Cargo.toml")) else None
 
 
+RAYON = None
+
+
+def rayon_source():
+    """The Rayon source to build against: RAYON when bench-scale sets it
+    (its --rayon), else the repository's misc/rayon clone, if it has one."""
+    if RAYON:
+        return RAYON
+    r = subprocess.run([os.path.join(HERE, "..", "..", "tools", "gitdir")], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    clone = os.path.join(os.path.dirname(r.stdout.strip()), "misc", "rayon")
+    return clone if os.path.isfile(os.path.join(clone, "Cargo.toml")) else None
+
+
 def build(v, out, tokio):
     exe = os.path.join(out, v)
     if os.path.exists(exe):
@@ -75,6 +90,16 @@ def build(v, out, tokio):
             print("tokio: built from %s" % tokio, file=sys.stderr)
         subprocess.run(cmd, check=True, cwd=os.path.join(HERE, "tokio"))
         shutil.copy(os.path.join(target, "release", "tasks-tokio"), tmp)
+    elif v == "rayon":
+        target = os.path.join(out, "cargo")
+        cmd = ["cargo", "build", "--release", "-q", "--target-dir", target]
+        clone = rayon_source()
+        if clone:
+            cmd += ["--config", 'patch.crates-io.rayon.path="%s"' % clone,
+                    "--config", 'patch.crates-io.rayon-core.path="%s"' % os.path.join(clone, "rayon-core")]
+            print("rayon: built from %s" % clone, file=sys.stderr)
+        subprocess.run(cmd, check=True, cwd=os.path.join(HERE, "rayon"))
+        shutil.copy(os.path.join(target, "release", "tasks-rayon"), tmp)
     elif v == "go":
         subprocess.run(["go", "build", "-o", tmp, "."], check=True, cwd=os.path.join(HERE, "go"))
     else:
