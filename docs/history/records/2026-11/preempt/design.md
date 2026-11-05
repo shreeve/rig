@@ -388,3 +388,20 @@ Not done: moving the never-inlined boundary to tasks.zig's entry points.
 The measure-only build without the boundary (above) bounds what it can
 win: contend 2.3% slower, solo and spread level. The per-operation
 fix does not move hog, which the wait trigger sets.
+
+## Trig, on against off (9d43c237f)
+
+Timed by Trig's session on pup, one checker, Trig built by the Rig at
+9d43c237f with and without `RIG_PREEMPT=signal`: 2.2 to 8% fewer
+cycles (superstruct 8%, mitt 3.6%, ts-pattern 2.3%), 4.3 to 10% fewer
+instructions, 1.5 to 4.1% faster in wall time on four of the six
+projects, peak memory level, output identical. Four checkers were
+noisy, level to better. That clears the bar (more than 1.5% faster, or
+at least 1% fewer instructions on one checker).
+
+The owner approved merging the prototype with the option off by
+default, after an independent soundness review, and a later round
+toward default-on, in order: the never-inlined boundary at tasks.zig's
+entry points (the per-operation costs), the latency of a woken task
+(hog), the macOS arm64 port, a static check of the section, and a
+quiet rerun at four checkers.
