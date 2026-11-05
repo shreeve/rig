@@ -50,21 +50,42 @@ the design, each hazard and what settles it, and the prototype on branch
 6. **`preempted`** does what `tick` did: `serviceBusy` (due timers, the
    poller), then, if work waits for this worker or (`waiting`) for a
    busy one, which it steals as `claimWaiting` does (`stealWaiting`), it
-   holds the fiber on its worker and switches.
+   puts the fiber back in line as `yield` does and switches; a pinned
+   fiber is held instead (below).
 
 ## Hazards and their answers
 
-**TLS.** Compiled code may keep a thread-local's address in a register.
-A fiber stopped mid-function resumes on its own worker: `preempted`
-gives an unpinned fiber that worker as its home while it is held and
-queues it with the worker's pinned fibers, which no other worker takes;
-it clears the home when it resumes. From its next ordinary waiting
-point it moves as any fiber does, which is safe for the reason it is
-today: no Rig code keeps a thread-local's address across a call that
-may switch (`sched.me` and `alloc.threadToken` are never inlined).
-Evidence: the section of the fairness case's ReleaseSafe build holds 11
-reads of `%fs`, all the fallback of `rt.task()` that runs outside every
-fiber (runtime.zig, `thread_task()`); on a fiber none runs.
+**TLS and the worker.** Compiled code may keep a thread-local's
+address, or the worker the scheduler's `me` gave, in a register; a
+fiber stopped there and resumed on another thread would use the first
+thread's. The first prototype held a preempted fiber on its worker
+until it ran again, and `bench/tasks` `fanout` (10 spinning tasks on 4
+workers) took 2.1 times as long: the held fibers could not be stolen,
+and at the end one worker ran two or three in turn while the others had
+nothing. So the program's own code is kept free of both, and a
+preempted fiber goes back in line as one that yields, where any worker
+may steal it:
+
+- No thread-local: the only one the section read (11 reads of `%fs` in
+  the fairness case) was `rt.task()`'s fallback outside every fiber,
+  which under preemption is a call (`threadTask`). `alloc`'s heap and
+  token, and `sched.me`, were calls already.
+- No worker: `sched.me` panics when its return address is in the
+  section (`mustNotBeInCode`), so scheduler code that reads its worker
+  and is inlined into the program's panics the first time it runs,
+  before a signal could stop it holding the worker. The check found
+  `stop` (through `task.check`'s `yield`) inlined into `bench/tasks`
+  in `--release=fast`. So under preemption the scheduler's entry
+  points that read their worker are calls never inlined: `current`,
+  `stop`, `wake`, `wakeLast`, `pinHere`, `giveStack`, `takeBlock`,
+  `giveBlock`, `register`, `spendBudget`, `runApart`, and
+  `Header.waitEnd`, each a compile-time alias (`wake = if (preempt)
+  wakeApart else wakeIn`), so without preemption the code is as before.
+  The rest of the 37 calls of `me` are inside these or the worker's
+  own loop, or in the actors' mailbox (`first`, `local`, `send`,
+  `receive`, `hop`), reached through calls; the run-time check covers
+  the paths a program takes, and the section audit (test plan 4) would
+  cover every path.
 
 **Local tasks.** A pinned (local) fiber shares counts that are not
 atomic with the other pinned fibers of its worker. A preempted pinned
@@ -138,15 +159,17 @@ than 32 KiB above the guard, and the monitor signals again next period.
 ## What stays, what is emitted differently
 
 - Without the option: nothing. Emit writes the same Zig for every
-  program (tools/emit-diff below); the runtime's new code is behind the
-  compile-time `rt.preempt`, its fields `void`. Two changes reach the
-  default build's source: `claimWaiting` calls a new `stealWaiting`
-  (the same loops), and `Task.start` calls `rt.callCode`, a plain
-  `@call(.auto)` when preemption is off.
+  program (tools/emit-diff below). The runtime's new code is behind the
+  compile-time `rt.preempt`; a worker's preemption state is an array
+  beside the workers, so `Worker` is unchanged; `Task.start` calls
+  `rt.callCode`, a plain `@call(.auto)` when preemption is off. The
+  release builds of bench/tasks and bench/actors are the same machine
+  code as main's (`otool -t`, identical, on the Mac).
 - With it: `linksection(rig.preempt_section)` on each non-inline
   function and closure, `__rig_preempt` in the root, the checks
-  compiled out, the monitor thread, SIGURG's handler, and each spin lock
-  and the output lock a call longer on each side.
+  compiled out, the monitor thread, SIGURG's handler, each spin lock
+  and the output lock a call longer on each side, `sched.current` a
+  call, and `sched.me` two compares longer.
 - Debug builds for Linux x86-64 use Zig's own backend, whose assembler
   takes neither `xsave` nor `ret $n`, so they keep their checks.
 
@@ -185,4 +208,21 @@ Built: Linux x86-64 (pup). Planned in this order:
 
 ## Measurements
 
-(Filled in below as they were taken.)
+**The ceiling** (Trig, measured by Trig's session; main with prebuilt
+libs, PGO, Rig 7e78f3acf; `yl-new` has `turn` and `tickCall` return at
+once and keeps every other check; pup core 3, 20 interleaved runs,
+fastest). Base to no checks, cycles and instructions:
+
+| Project | Cycles | Instructions |
+|---|---|---|
+| mitt | 34M to 32M, 5.9% fewer | 91M to 81M, 11% fewer |
+| neverthrow | 44M to 43M, 2.3% | 105M to 97M, 7.6% |
+| tiny-invariant | 213M to 205M, 3.8% | 640M to 607M, 5.2% |
+| superstruct | 88M to 84M, 4.5% | 195M to 182M, 6.7% |
+| zod3 | 497M to 488M, 1.8% | 1,130M to 1,099M, 2.7% |
+| ts-pattern | 3,148M to 3,071M, 2.4% | 7,171M to 6,854M, 4.4% |
+
+This is the most preemption can gain; the monitor, the signals, the
+trampoline, and the lock counts come out of it. The bar (AGENTS.md) is
+more than 1.5% faster, or at least 1% fewer instructions on one checker.
+

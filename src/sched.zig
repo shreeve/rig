@@ -94,7 +94,15 @@ pub const Fiber = struct {
 
 /// Give back a stack a task that panicked left to its boundary
 /// (`abandon`, `tasks.Isolate`), to the running worker.
-pub fn giveStack(s: Stack) void {
+pub const giveStack = if (preempt) giveStackApart else giveStackIn;
+
+/// `giveStack` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn giveStackApart(s: Stack) void {
+    return giveStackIn(s);
+}
+
+fn giveStackIn(s: Stack) void {
     releaseStack(me().?, s);
 }
 
@@ -256,7 +264,15 @@ fn currentOf() ?*Fiber {
 /// `g`'s first yield check, loop or recursive (`waiting`). A worker that
 /// searches also takes a fiber left in a busy worker's slot a while
 /// (`stealNext`). Outside the workers, `f` goes to the global queue.
-pub fn wake(f: *Fiber) void {
+pub const wake = if (preempt) wakeApart else wakeIn;
+
+/// `wake` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn wakeApart(f: *Fiber) void {
+    return wakeIn(f);
+}
+
+fn wakeIn(f: *Fiber) void {
     if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     const here = me();
     if (f.home) |home| if (home != here) return wakeHome(f, home);
@@ -281,7 +297,15 @@ pub fn wake(f: *Fiber) void {
 /// waking a sleeping worker only when other work waits here, ahead of
 /// `f`, which one could take meanwhile: a fiber alone, as a lone task's
 /// `task.check()` yields, runs again next.
-fn wakeLast(f: *Fiber) void {
+const wakeLast = if (preempt) wakeLastApart else wakeLastIn;
+
+/// `wakeLast` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn wakeLastApart(f: *Fiber) void {
+    return wakeLastIn(f);
+}
+
+fn wakeLastIn(f: *Fiber) void {
     if (deterministic.*) return wake(f);
     if (f.home) |home| return wakeHome(f, home);
     const w = me() orelse {
@@ -305,7 +329,15 @@ fn wakeHome(f: *Fiber, home: *Worker) void {
 /// task it makes to (`spawn`): what makes a task local. A local task
 /// shares handles whose counts are not atomic with the task that made it,
 /// so both stay on one thread from then on.
-pub fn pinHere() ?*Worker {
+pub const pinHere = if (preempt) pinHereApart else pinHereIn;
+
+/// `pinHere` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn pinHereApart() ?*Worker {
+    return pinHereIn();
+}
+
+fn pinHereIn() ?*Worker {
     if (deterministic.*) return null;
     const w = me() orelse return null;
     w.current.?.home = w;
@@ -1591,7 +1623,15 @@ pub const Registration = struct {
 
 /// Watch `fd`, which must not block, with the running worker's poller
 /// (worker 0's outside the workers); null when the kernel refuses it.
-pub fn register(fd: i32) ?*Registration {
+pub const register = if (preempt) registerApart else registerIn;
+
+/// `register` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn registerApart(fd: i32) ?*Registration {
+    return registerIn(fd);
+}
+
+fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
     const w = me() orelse &workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
@@ -1699,7 +1739,15 @@ const budget_size = 128;
 
 /// A wait ended at once: spend from the running fiber's budget, and yield
 /// once it is spent, so other work on its worker runs.
-pub fn spendBudget() void {
+pub const spendBudget = if (preempt) spendBudgetApart else spendBudgetIn;
+
+/// `spendBudget` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn spendBudgetApart() void {
+    return spendBudgetIn();
+}
+
+fn spendBudgetIn() void {
     const f = current() orelse return;
     f.budget -%= 1;
     if (f.budget != 0) return;
@@ -2406,7 +2454,15 @@ pub fn park(after: After) void {
     stop(after);
 }
 
-fn stop(after: After) void {
+const stop = if (preempt) stopApart else stopIn;
+
+/// `stop` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn stopApart(after: After) void {
+    return stopIn(after);
+}
+
+fn stopIn(after: After) void {
     const w = me().?;
     const f = w.current.?;
     // A fiber that stops goes back to its worker, so whoever handed it
@@ -3524,7 +3580,13 @@ pub const Header = struct {
     /// Wait for the task to end, or, when `cancel` is given, for that
     /// flag to be set first, or for `deadline` to pass, when this gives
     /// false.
-    fn waitEnd(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+    const waitEnd = if (preempt) waitEndApart else waitEndIn;
+
+    noinline fn waitEndApart(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+        return waitEndIn(h, cancel, deadline);
+    }
+
+    fn waitEndIn(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
         if (h.done.isDone()) return true;
         const b: Blocked = .{ .task = h };
         block(&b);
@@ -3711,7 +3773,15 @@ const FreeBlock = struct { next: ?*FreeBlock };
 
 /// A block of `block_size` bytes: one this worker kept, or a new one from
 /// the system.
-pub fn takeBlock() *[block_size]u8 {
+pub const takeBlock = if (preempt) takeBlockApart else takeBlockIn;
+
+/// `takeBlock` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn takeBlockApart() *[block_size]u8 {
+    return takeBlockIn();
+}
+
+fn takeBlockIn() *[block_size]u8 {
     if (me()) |w| if (w.blocks) |b| {
         w.blocks = b.next;
         w.block_count -= 1;
@@ -3722,7 +3792,15 @@ pub fn takeBlock() *[block_size]u8 {
 
 /// Give back a block `takeBlock` gave: this worker keeps it, or the
 /// system has it back.
-pub fn giveBlock(given: *[block_size]u8) void {
+pub const giveBlock = if (preempt) giveBlockApart else giveBlockIn;
+
+/// `giveBlock` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn giveBlockApart(given: *[block_size]u8) void {
+    return giveBlockIn(given);
+}
+
+fn giveBlockIn(given: *[block_size]u8) void {
     if (me()) |w| if (w.block_count < keep_blocks) {
         const b: *FreeBlock = @ptrCast(@alignCast(given));
         b.next = w.blocks;
@@ -3994,7 +4072,15 @@ fn frameCalling(arg: usize, entry: usize, top: usize) usize {
 /// work or after a panic, and the fiber goes on here on its own stack,
 /// whose frames the stack apart could not reach. The stack apart is then
 /// kept for the next.
-pub fn runApart(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
+pub const runApart = if (preempt) runApartApart else runApartIn;
+
+/// `runApart` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn runApartApart(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
+    return runApartIn(home, arg, entry);
+}
+
+fn runApartIn(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
     const s = takeStack();
     const state = rt.task();
     const guard = state.stack_guard;
