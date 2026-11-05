@@ -78,3 +78,14 @@ expect_has "$out" 'prog/lib/words.rig:2:10: error: $embed: cannot read "../data/
 printf 'pub fun words() -> Static\n  $embed("../../x.txt")\n' >prog/lib/words.rig
 out=$("$RIG" check prog/main.rig 2>&1); expect_rc $? 1 "a path above the program"
 expect_has "$out" '$embed: "../../x.txt" leaves the program'"'"'s directory, prog;' "a path above the program"
+
+# On macOS an embed's symbol is local, never a weak definition: one weak
+# definition makes the executable bind weak symbols, which dyld resolves
+# at every launch (9 million instructions a run for Trig's embeds).
+if [[ $(uname) == Darwin ]] && command -v otool >/dev/null; then
+    printf 'sub main()\n  s = $embed("data/words.txt")\n  print(s.len, s[0..s.len - 1])\n' >prog/one.rig
+    (cd prog && rig build --release -o ../rel one.rig) || fail "a release build"
+    expect_eq "$(./rel)" "11 eight nine" "a release build's bytes"
+    flags=$(otool -hv rel | tail -1)
+    [[ $flags != *WEAK* ]] || fail "the release build binds weak symbols: $flags"
+fi

@@ -3610,9 +3610,13 @@ pub const embeds_aligned = builtin.zig_backend == .stage2_llvm and (builtin.obje
 /// its absolute path, which `rig` writes as it writes the package, and
 /// takes `size` from `@embedFile(path).len`, so Zig builds again when the
 /// bytes change. The symbol is named for the container that holds the
-/// call and for the path, so no two in a program meet, and is weak and
-/// hidden in a section of its own, so the units of a split build that
-/// each hold it link to one copy.
+/// call and for the path, so no two in a program meet. On ELF it is weak
+/// and hidden in a section of its own, so the units of a split build that
+/// each hold it link to one copy. On Mach-O it is local to its object: a
+/// weak definition marks the executable as binding weak symbols, which
+/// dyld then resolves at every launch, about 9 million instructions for
+/// Trig's 238 embeds (10% of a small project's run); each unit of a split
+/// build, a debug build, holds its own copy.
 pub fn Embed(comptime Owner: type, comptime size: usize, comptime path: []const u8) type {
     @setEvalBranchQuota(100_000);
     const macho = builtin.object_format == .macho;
@@ -3623,7 +3627,7 @@ pub fn Embed(comptime Owner: type, comptime size: usize, comptime path: []const 
         for (path) |c| quoted = quoted ++ (if (c == '"' or c == '\\') "\\" ++ [1]u8{c} else [1]u8{c});
         break :blk (if (macho) ".pushsection __TEXT,__const\n" else ".pushsection .rodata." ++ name ++ ",\"aG\",@progbits," ++ name ++ ",comdat\n") ++
             ".balign 16\n" ++
-            (if (macho) ".private_extern " ++ symbol ++ "\n.weak_definition " ++ symbol ++ "\n" else ".hidden " ++ symbol ++ "\n.weak " ++ symbol ++ "\n") ++
+            (if (macho) "" else ".hidden " ++ symbol ++ "\n.weak " ++ symbol ++ "\n") ++
             symbol ++ ":\n" ++
             ".incbin \"" ++ quoted ++ "\"\n" ++
             ".popsection\n";
