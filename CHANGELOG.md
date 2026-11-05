@@ -10,7 +10,43 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ## Unreleased
 
+### Upgrading from v0.3.0
+
+**A duration's bare number is seconds now, where 0.3.0 read
+nanoseconds:** `time.sleep(5)` sleeps five seconds, and 0.3.0's
+`time.sleep(5)` is `time.sleep(ns: 5)`. `tools/migrate-durations.py
+PATH` rewrites a 0.3.0 program's durations so that each means what it
+meant; run it once ([docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md),
+"From 0.3.0 to 0.3.1"). It changes the meaning of every `time.sleep`,
+`time.after`, `time.within`, `time.Instant.at`, and Instant `add` given
+a bare number, and of `per:` of `task.supervise` and
+`*Actor.supervised`. 0.3.1 rejects these, which 0.3.0 accepted:
+
+- a bare duration that names one of std.time's constants, which count
+  nanoseconds: `time.sleep(5 * time.MS)`, `time.sleep(time.SECOND)`,
+  `time.within(2 * time.SECOND, f)`, `late: time.after(time.MS)`,
+  `t.add(3 * time.SECOND)`, rejected for `ms: 5`, `1`, `2`, `ms: 1`,
+  and `3`; and `per: time.MINUTE`, for `per: 60`;
+- a duration more nanoseconds than an `Int` holds, as a constant:
+  `time.sleep(10_000_000_000)` (ten billion seconds).
+
 ### Added
+
+- **Durations in four forms:** a call of std.time that takes a length
+  of time writes it bare in seconds, `time.sleep(2)`,
+  `time.sleep(0.5)`, or with one unit's keyword, `time.sleep(ms: 40)`,
+  `us: 40`, `ns: 40`; the value of each is an `Int` or a `Float`, a
+  `Float` rounded to the nearest whole nanosecond, a half away from
+  zero. `time.sleep`, the deadline arm `time.after`, `time.within`,
+  `time.Instant.at`, and an Instant's `add` take them; `per:` of
+  `task.supervise` and `*Actor.supervised` is in seconds, `per: 0.5`.
+  Two units, a keyword beside a bare number, `seconds:`, a non-number,
+  and a constant that is not finite or that no `Int` of nanoseconds
+  holds are rejected, each with its fix; at run time a NaN, an
+  infinity, or an overflow panics. Typecheck decides each argument's
+  unit once (`sema.duration`, the parameters std.time declares `ns:
+  Duration`), and emit writes the nanoseconds through the runtime's
+  `durationInt` and `durationFloat` (SPEC "Durations").
 
 - **A task's end as an arm of `task.select`:** `done: ?t.on_end()`
   completes once the task `t` has ended, before the select or while it

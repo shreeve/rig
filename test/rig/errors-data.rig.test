@@ -773,7 +773,7 @@ test "a function without fields lent where one with them goes", '''
 
   sub main()
     print(twice(m) catch -1)
-    r = time.within(1000000000, once) catch |e|
+    r = time.within(1, once) catch |e|
       print(e)
       -2
     print(r)

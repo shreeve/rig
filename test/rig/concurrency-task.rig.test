@@ -1121,7 +1121,7 @@ fail "task returned out of a deadline's closure keeps its loan", "cannot lend `x
     v.len
 
   xs: List[Int] = List()
-  t = time.within(time.MS * 100, |?xs| total(?xs)&) catch return
+  t = time.within(ms: 100, |?xs| total(?xs)&) catch return
   !xs.push(2)
   print(>t)
 

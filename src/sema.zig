@@ -1160,6 +1160,8 @@ pub const Field = struct {
     param_names: ?[]const []const u8 = null,
     /// Default values of a method's parameters (null where none).
     param_defaults: ?[]const ?Sexp = null,
+    /// A method's parameters that take a duration (`duration`).
+    param_durations: ParamMask = 0,
     /// A method: which arguments a call passes loans on from.
     origins: Origins = .{},
     /// A built-in method: what it needs of its type's parameter `T`.
@@ -1230,6 +1232,8 @@ pub const Symbol = struct {
     param_names: ?[]const []const u8 = null,
     /// Default values of a function's parameters (null where none).
     param_defaults: ?[]const ?Sexp = null,
+    /// A function's parameters that take a duration (`duration`).
+    param_durations: ParamMask = 0,
     /// A function: which arguments a call passes loans on from.
     origins: Origins = .{},
     /// A capture: the enclosing binding it captures.
@@ -2033,6 +2037,9 @@ pub const Facts = struct {
     /// -> the vector type they stand for, every lane theirs
     /// (`SemContext.recordSplat`).
     splats: FastMap(u64, TypeId) = .empty,
+    /// Arguments that fill a duration parameter (`exprKey`) -> the unit
+    /// they count and whether they are floats (`SemContext.recordDuration`).
+    durations: FastMap(u64, Duration) = .empty,
 
     /// A member access `x.f` whose field another module declared `pub
     /// ?f: T`: read-only here (`Checker.placeOf` blocks every write
@@ -3251,6 +3258,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
         StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall => try w.print(" {s}", .{@tagName(v)}),
+        Duration => try w.print(" {d}ns {s}", .{ v.unit_ns, if (v.float) "Float" else "Int" }),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
@@ -5407,6 +5415,18 @@ pub const SemContext = struct {
     /// splatted, `@as(V, @splat(x))`.
     pub fn recordSplat(self: *SemContext, node: Sexp, ty: TypeId) !void {
         try self.facts.splats.put(self.allocator, recordExprKey(node) orelse return, ty);
+    }
+
+    /// `node`, an argument filling a duration parameter, counts `d`'s
+    /// unit: emit writes the nanoseconds it is (`rig.durationInt`,
+    /// `rig.durationFloat`).
+    pub fn recordDuration(self: *SemContext, node: Sexp, d: Duration) !void {
+        try self.facts.durations.put(self.allocator, recordExprKey(node) orelse return, d);
+    }
+
+    /// The unit a duration argument counts (`recordDuration`).
+    pub fn durationOf(self: *const SemContext, node: Sexp) ?Duration {
+        return self.facts.durations.get(exprKey(node) orelse return null);
     }
 
     /// The vector type a scalar operand stands for (`recordSplat`).
@@ -11276,7 +11296,7 @@ pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
 
 /// An arm of `task.select`: a receive, `!ch.on_recv()` (or the old
 /// `(!ch).on_recv(f)`), a send, `!ch.on_send(<v)` (or `(!ch).on_send(<v,
-/// f)`), a deadline, `time.after(ns)`, or a task's end, `?t.on_end()`.
+/// f)`), a deadline, `time.after(ms: 50)`, or a task's end, `?t.on_end()`.
 pub const SelectArm = enum { recv, send, after, end };
 
 /// The type of the value `task.select(name: arm, ...)` gives: an enum
@@ -11324,11 +11344,40 @@ pub fn selectType(ctx: *SemContext, names: []const []const u8, payloads: []const
     return ctx.intern(.{ .nominal = id });
 }
 
-/// The deadline arm of `task.select`, `time.after(ns)`: the name of its
-/// one parameter and the nanoseconds in each of its units. The one place
-/// its spelling is decided: `.{ .param = "ms", .unit_ns = 1_000_000 }`
-/// would make it `time.after(ms: 50)`.
-pub const after_arm = .{ .param = "ns", .unit_ns = 1 };
+/// How a call writes a length of time (SPEC §18, "Durations"): bare, an
+/// `Int` or a `Float` of seconds, `time.sleep(2)`, `time.sleep(0.5)`; or
+/// with one unit's keyword, `time.sleep(ms: 40)`, `us: 40`, `ns: 40`. A
+/// parameter takes one when std.time declares it `ns: Duration`
+/// (`TypeResolver.paramDurations`), as `sleep`, `within`, `Instant.at`,
+/// `t.add`, and the deadline arm `time.after` do; an option of a call
+/// the checker types, `per:` of `task.supervise` and
+/// `*Actor.supervised`, takes seconds by its own name. The body sees
+/// nanoseconds, an `Int`. The one place the spelling is decided.
+pub const duration = struct {
+    /// The nanoseconds in a second, the unit of a bare duration.
+    pub const second_ns: i64 = 1_000_000_000;
+    /// The name of a parameter that takes a duration by its units.
+    pub const param = "ns";
+    /// The units' keywords and the nanoseconds in each.
+    pub const units = [_]struct { []const u8, i64 }{ .{ "ms", 1_000_000 }, .{ "us", 1_000 }, .{ "ns", 1 } };
+    /// The constants of std.time that count nanoseconds, which a bare
+    /// duration, in seconds, does not take.
+    pub const constants = [_][]const u8{ "NS", "US", "MS", "SECOND", "MINUTE" };
+
+    /// The nanoseconds in the unit `name` names, if it names one.
+    pub fn unitNs(name: []const u8) ?i64 {
+        for (units) |u| if (std.mem.eql(u8, u[0], name)) return u[1];
+        return null;
+    }
+};
+
+/// An argument filling a duration parameter: the nanoseconds in each of
+/// the units it counts, and whether it is a `Float`, which emit rounds
+/// to whole nanoseconds.
+pub const Duration = struct {
+    unit_ns: i64,
+    float: bool,
+};
 
 /// Whether `sym` is the type of a `task.select`'s value (`selectType`).
 pub fn isSelectType(ctx: *const SemContext, sym: SymbolId) bool {

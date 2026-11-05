@@ -19,7 +19,7 @@ sub main()!
   defer print("defer ran")
   warn("started")
   while true
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
 EOF2
 
 cat >tasks.rig <<'EOF2'
@@ -28,7 +28,7 @@ use std.time
 sub work()!
   defer print("task defer ran")
   while true
-    time.sleep(10 * time.SECOND)!
+    time.sleep(10)!
 
 sub main()!
   defer print("main defer ran")
@@ -53,7 +53,7 @@ use std.time
 
 sub main()!
   warn("started")
-  time.sleep(10 * time.SECOND) catch print("caught the cancel")
+  time.sleep(10) catch print("caught the cancel")
   print("returns")
 EOF2
 
@@ -63,7 +63,7 @@ use std.time
 sub main()
   defer print("defer ran")
   warn("started")
-  time.sleep(10 * time.SECOND) catch print("woke")
+  time.sleep(10) catch print("woke")
 EOF2
 
 cat >reads.rig <<'EOF2'

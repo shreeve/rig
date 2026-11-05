@@ -1694,10 +1694,10 @@ fn endRewatch(arms: anytype, e: u32) void {
     inline for (0..n) |k| if (comptime @TypeOf(arms[k]) == EndArm) arms[k].done.rewatch(e);
 }
 
-/// `rig.afterArm(n, unit_ns)`: the arm of `time.after(n)`, whose time
-/// is `n` units of `unit_ns` nanoseconds from now (`sema.after_arm`).
-pub fn afterArm(n: Int, unit_ns: Int) AfterArm {
-    return .{ .at = nowNs() + @as(i96, @max(n, 0)) * unit_ns };
+/// `rig.afterArm(ns)`: the arm of `time.after(...)`, whose time is `ns`
+/// nanoseconds from now.
+pub fn afterArm(ns: Int) AfterArm {
+    return .{ .at = nowNs() + @max(ns, 0) };
 }
 
 /// The earliest time of `arms`' deadline arms, if any.

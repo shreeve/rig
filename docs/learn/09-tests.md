@@ -389,20 +389,20 @@ sleep ends at once, however long it asks for:
 use std.time
 
 fun slow(ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
+  time.sleep(ms: ms)!
   ms
 
 test "a deadline stops a slow call"
-  r = time.within(5 * time.MS, || slow(60_000)!) catch -1
+  r = time.within(ms: 5, || slow(60_000)!) catch -1
   r == -1
 
 test "a call inside its deadline answers"
-  r = time.within(50 * time.MS, || slow(20)!) catch -1
+  r = time.within(ms: 50, || slow(20)!) catch -1
   r == 20
 
 test "a minute of sleep is a minute of virtual time"
   start = time.now()
-  time.sleep(time.MINUTE)!
+  time.sleep(60)!
   print(start.elapsed() / time.SECOND)
   start.elapsed() >= time.MINUTE
 ```
@@ -417,7 +417,7 @@ ok    test "a minute of sleep is a minute of virtual time"
 seed 1: `rig test --seed=1` runs these tests the same way again
 ```
 
-`time.within(ns, f)` gives the closure `f` a deadline. The call that
+`time.within(d, f)` gives the closure `f` a deadline. The call that
 sleeps sixty seconds stops at five milliseconds, with a timeout that
 `catch` turns into `-1`. The third test sleeps a whole minute, and the
 clock reads sixty seconds afterward. The file reports in a fraction of a

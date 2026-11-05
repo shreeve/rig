@@ -441,6 +441,8 @@ pub const Emitter = struct {
     widening: Sexp = .nil,
     /// The scalar operand being written splatted (`sema.splatOf`).
     splatting: Sexp = .nil,
+    /// The duration argument being written in nanoseconds (`sema.durationOf`).
+    durationing: Sexp = .nil,
     /// The box being erased to a box of an API object (`emitValue`).
     erasing_box: Sexp = .nil,
     /// Arguments and selves of the calls being emitted that were
@@ -5917,6 +5919,16 @@ pub const Emitter = struct {
             try self.emitBare(sexp);
             return self.w.writeAll(")))");
         };
+        // An argument filling a duration parameter counts its unit; the
+        // parameter takes nanoseconds (`sema.Duration`).
+        if (self.facts.durationOf(sexp)) |d| if (!sameNode(sexp, self.durationing)) {
+            const saved = self.durationing;
+            defer self.durationing = saved;
+            self.durationing = sexp;
+            try self.w.writeAll(if (d.float) "rig.durationFloat(" else "rig.durationInt(");
+            try self.emitBare(sexp);
+            return self.w.print(", {d})", .{d.unit_ns});
+        };
         // A box moved into a box of an API object keeps its allocation,
         // its value's type erased (`sema.Erasure`): `rig.ApiBox(T).of(Square,
         // b, __rig_table_Shape_of(Square, W, .box))`, allocating nothing; a
@@ -9279,7 +9291,7 @@ pub const Emitter = struct {
             if (kind == .after) {
                 try self.w.writeAll("rig.afterArm(");
                 try self.emitArgs(sexp);
-                return self.w.print(", {d})", .{facts.after_arm.unit_ns});
+                return self.w.writeAll(")");
             }
             const handle = ir.get(ir.Member.object(callee), .operand);
             try self.w.writeAll(switch (kind) {

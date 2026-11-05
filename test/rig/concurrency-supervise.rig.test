@@ -36,7 +36,7 @@ test "supervise restarts", seeds: 20, '''
   t3 = *Cell(0)
   print(task.supervise(|+t3| boom(+t3), restarts: 5) catch -3, t3.get())
   t4 = *Cell(0)
-  print(task.supervise(|+t4| boom(+t4), restarts: 1, per: time.SECOND) catch -4, t4.get())
+  print(task.supervise(|+t4| boom(+t4), restarts: 1, per: 1) catch -4, t4.get())
 
 test "supervise stops", seeds: 20, "Stop.timeout 1"
   # A deadline is no failure to start again from.
@@ -44,14 +44,14 @@ test "supervise stops", seeds: 20, "Stop.timeout 1"
 
   fun slow(tries: *Cell[Int]) -> Int!
     !tries.add(1)
-    time.sleep(time.SECOND)!
+    time.sleep(1)!
     1
 
   fun guarded(tries: *Cell[Int]) -> Int!
     task.supervise(|+tries| slow(+tries)!)!
 
   tries = *Cell(0)
-  r = time.within[Int](5 * time.MS, |+tries| guarded(+tries)!) catch |e|
+  r = time.within[Int](ms: 5, |+tries| guarded(+tries)!) catch |e|
     print(e, tries.get())
     -1
   _ = r
@@ -121,19 +121,19 @@ test "supervise a remake that panics answers the call it took", seeds: 20, timeo
     made = *Cell(0)
     r = *Actor.supervised(*|+made| make(+made))
     a = hold(+r)&
-    time.sleep(5 * time.MS)!
+    time.sleep(ms: 5)!
     b = bad(+r)&
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     c = good(+r)&
     print(>b)
     print(>c)
     print(>a > 0)
 
-fail "supervise option given twice", "7:48: parameter `restarts` of `task.supervise` is given twice", errors: 1
+fail "supervise option given twice", "7:52: parameter `restarts` of `task.supervise` is given twice", errors: 1
   use std.task
 
   sub work()
     print(1)
 
   sub main()
-    task.supervise(work, restarts: 2, per: 1000, restarts: 3) catch |e| print(e)
+    task.supervise(work, restarts: 2, per: 0.000001, restarts: 3) catch |e| print(e)

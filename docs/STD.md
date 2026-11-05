@@ -748,23 +748,33 @@ fun send_file(l: ?net.Listener, path: ?String) -> Int!
 
 ## std.time
 
-The monotonic clock, the wall clock, and sleeping. A duration is an
-`Int` of nanoseconds, with the constants `NS`, `US`, `MS`, `SECOND`,
-and `MINUTE` to write one: `250 * time.MS`. A reading of the monotonic
-clock is an `Instant`, which only gives the time between readings, so
-it cannot be mixed up with the wall clock's nanoseconds; only
-`Instant.at` names a number as one.
+The monotonic clock, the wall clock, and sleeping. A call writes a
+duration in one of four forms ([SPEC §18](../SPEC.md#durations)): bare,
+an `Int` or a `Float` of seconds, `time.sleep(2)`, `time.sleep(0.5)`;
+or with one unit's keyword, `time.sleep(ms: 40)`, `time.sleep(us: 40)`,
+`time.sleep(ns: 40)`, whose value is an `Int` or a `Float` too. A
+`Float` is rounded to the nearest whole nanosecond, a half away from
+zero (`ns: 2.5` is 3 nanoseconds); a NaN, an infinity, or more
+nanoseconds than an `Int` holds panics, and is rejected when it is a
+constant. Every parameter below that takes a duration, written
+*duration*, takes it so. What a clock gives back, `t.since`,
+`t.elapsed`, and `since_start`, is an `Int` of nanoseconds, which the
+constants `NS`, `US`, `MS`, `SECOND`, and `MINUTE` count:
+`t.elapsed() < 250 * time.MS`. A reading of the monotonic clock is an
+`Instant`, which only gives the time between readings, so it cannot be
+mixed up with the wall clock's nanoseconds; only `Instant.at` names a
+number as one.
 
 | Member | Result |
 |---|---|
 | `now() -> Instant` | the monotonic clock now: it never goes back |
-| `Instant.at(ns: Int) -> Instant` | the instant `ns` nanoseconds on the monotonic clock, for a test or code handed the time rather than reading it |
-| `t.add(ns: Int) -> Instant` | the instant `ns` nanoseconds after `t`; before it when `ns` is negative |
+| `Instant.at(`*duration*`) -> Instant` | the instant a duration after the monotonic clock's zero, for a test or code handed the time rather than reading it: `Instant.at(0)` |
+| `t.add(`*duration*`) -> Instant` | the instant a duration after `t`, `t.add(ms: 40)`; before it when the duration is negative, `t.add(ns: t.since(u))` |
 | `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
-| `sleep(ns: Int)!task.Stop` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
-| `after(ns: Int)` | a deadline arm of `task.select`, `late: time.after(ns)`, which completes once `ns` nanoseconds have passed since the select made it; it stands only in a select ([SPEC §18](../SPEC.md#channels)) |
-| `within[R](ns: Int, f: once ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(d, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
+| `sleep(`*duration*`)!task.Stop` | wait at least a duration, `time.sleep(ms: 40)`; not at all when it is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
+| `after(`*duration*`)` | a deadline arm of `task.select`, `late: time.after(ms: 50)`, which completes once the duration has passed since the select made it; it stands only in a select ([SPEC §18](../SPEC.md#channels)) |
+| `within[R](`*duration*`, f: once ?fun() -> R!) -> R!` | run `f` with a deadline a duration from now, `time.within(ms: 50, \|\| work()!)`, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(2, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
 | `since_start() -> Int` | the nanoseconds on the monotonic clock since the program started: a duration, which a function value can read with no `Instant` to hold. Only a program that names it reads the clock as it starts |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
@@ -773,7 +783,7 @@ use std.time
 
 sub main()!
   start = time.now()
-  time.sleep(5 * time.MS)!
+  time.sleep(ms: 5)!
   print(start.elapsed() >= 5 * time.MS)
   print(time.now().since(start) > 0)
   print(time.since_start() >= 5 * time.MS)
@@ -797,9 +807,9 @@ use std.time
 
 sub main()
   start = time.Instant.at(0)
-  rekey = start.add(120 * time.SECOND)
-  reject = start.add(180 * time.SECOND)
-  now = start.add(150 * time.SECOND)
+  rekey = start.add(120)
+  reject = start.add(180)
+  now = start.add(150)
   print(now >= rekey, now >= reject, math.max(rekey, reject) == reject)
   print(reject.since(now) / time.SECOND)
 ```
@@ -828,8 +838,8 @@ same waiting points fail with `Stop.timeout`.
 | `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. It takes effect only before the program makes its first task, which starts the workers, and gives whether it did; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
-| `supervise(f, restarts: n, per: ns)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `ns` nanoseconds; past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
-| `select(name: arm, ...)` | wait until one arm, `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ns)`, can complete, commit it alone, and give a value whose variant is the winner's name, matched by `match`: a receive's carries the value as `T?`, none once the channel is closed and empty; a task's end carries nothing, and the body takes the task's result with `>t`, at once ([SPEC §18](../SPEC.md#channels)) |
+| `supervise(f, restarts: n, per: s)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `s` seconds, an `Int` or a `Float` (`per: 0.5`); past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
+| `select(name: arm, ...)` | wait until one arm, `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ms: 50)`, can complete, commit it alone, and give a value whose variant is the winner's name, matched by `match`: a receive's carries the value as `T?`, none once the channel is closed and empty; a task's end carries nothing, and the body takes the task's result with `>t`, at once ([SPEC §18](../SPEC.md#channels)) |
 
 A long computation calls `task.check()!` where stopping is safe:
 
@@ -846,7 +856,7 @@ fun count() -> Int!
 
 sub main()!
   t = count()&
-  time.sleep(time.MS)!
+  time.sleep(ms: 1)!
   n = <t.cancel() catch |e|
     print(e)
     -1

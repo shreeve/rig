@@ -48,7 +48,7 @@ fun opened() -> Bool!
   return false
 
 sub main()!
-  ok = time.within(100 * time.MS, || opened()!) catch |e|
+  ok = time.within(ms: 100, || opened()!) catch |e|
     print("stopped:", e)
     false
   print("opened:", ok)
@@ -64,7 +64,7 @@ fun opened() -> Bool!
   return false
 
 fun work() -> Bool!
-  return time.within(100 * time.MS, || opened()!) catch |e|
+  return time.within(ms: 100, || opened()!) catch |e|
     print("stopped:", e)
     false
 
@@ -84,7 +84,7 @@ fun got() -> Int!
   return -1
 
 sub main()!
-  n = time.within(100 * time.MS, || got()!) catch |e|
+  n = time.within(ms: 100, || got()!) catch |e|
     print("stopped:", e)
     -2
   print("read:", n)
@@ -101,7 +101,7 @@ fun got() -> Int!
   return -1
 
 fun work() -> Int!
-  return time.within(100 * time.MS, || got()!) catch |e|
+  return time.within(ms: 100, || got()!) catch |e|
     print("stopped:", e)
     -2
 
@@ -122,7 +122,7 @@ fun big() -> String
 
 sub main()!
   data = big()
-  time.within(100 * time.MS, |?data| file.write("fifo", data)!) catch |e|
+  time.within(ms: 100, |?data| file.write("fifo", data)!) catch |e|
     print("stopped:", e)
   print("wrote")
 EOF2
@@ -139,7 +139,7 @@ fun big() -> String
 
 sub work()!
   data = big()
-  time.within(100 * time.MS, |?data| file.write("fifo", data)!) catch |e|
+  time.within(ms: 100, |?data| file.write("fifo", data)!) catch |e|
     print("stopped:", e)
   print("wrote")
 
@@ -160,7 +160,7 @@ fun copied() -> Int!
   return -1
 
 sub work()!
-  n = time.within(100 * time.MS, || copied()!) catch |e|
+  n = time.within(ms: 100, || copied()!) catch |e|
     print("stopped:", e)
     -2
   print("copied:", n)
@@ -186,7 +186,7 @@ sub put(data: ?String)!
 
 sub work()!
   data = big()
-  time.within(100 * time.MS, |?data| put(data)!) catch |e|
+  time.within(ms: 100, |?data| put(data)!) catch |e|
     print("stopped:", e)
   print("wrote")
 
@@ -213,15 +213,15 @@ sub put(f: !file.File)!
 
 sub writer()!
   f = file.create("kept")!
-  time.sleep(150 * time.MS)!
-  time.within(20 * time.MS, |!f| put(!f)!) catch |e|
+  time.sleep(ms: 150)!
+  time.within(ms: 20, |!f| put(!f)!) catch |e|
     print("stopped:", e)
   <f
   print("closed")
 
 sub main()!
   w = writer()&
-  time.sleep(50 * time.MS)!
+  time.sleep(ms: 50)!
   o = occupy()&
   >w!
   >o!
@@ -238,7 +238,7 @@ fun held() -> Int!
   return -1
 
 sub occupy()!
-  _ = time.within(500 * time.MS, || held()!) catch |e|
+  _ = time.within(ms: 500, || held()!) catch |e|
     -1
 
 fun rd(f: !file.File, s: !String) -> Int!
@@ -246,16 +246,16 @@ fun rd(f: !file.File, s: !String) -> Int!
 
 sub reader()!
   if file.open("reg")! as f
-    time.sleep(100 * time.MS)!
+    time.sleep(ms: 100)!
     s = String()
     !s.add("twelve bytes")
-    time.within(20 * time.MS, |!f, !s| rd(!f, !s)!) catch |e|
+    time.within(ms: 20, |!f, !s| rd(!f, !s)!) catch |e|
       print("stopped:", e)
     print("kept:", s)
 
 sub main()!
   r = reader()&
-  time.sleep(30 * time.MS)!
+  time.sleep(ms: 30)!
   o = occupy()&
   >r!
   >o!
@@ -271,7 +271,7 @@ fun waits() -> Bool!
   return true
 
 sub main()!
-  ok = time.within(100 * time.MS, || waits()!) catch |e|
+  ok = time.within(ms: 100, || waits()!) catch |e|
     print("stopped:", e)
     false
   print("accepted:", ok)

@@ -143,11 +143,11 @@ test "`isolate`, `time.within`, and `supervise` pass the fields on", ''', seeds:
       print("iso", e)
       -1
     print(b)
-    c = time.within(1000000000, || g(3)!) catch |e|
+    c = time.within(1, || g(3)!) catch |e|
       print("within", e)
       -1
     print(c)
-    d = task.supervise(|| g(4)!, restarts: 2, per: 1000000000) catch |e|
+    d = task.supervise(|| g(4)!, restarts: 2, per: 1) catch |e|
       print("sup", e)
       -1
     print(d)

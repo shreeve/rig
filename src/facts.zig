@@ -54,7 +54,6 @@ pub const Symbol = sema.Symbol;
 pub const Field = sema.Field;
 pub const FunctionType = sema.FunctionType;
 pub const ParamNominal = sema.ParamNominal;
-pub const after_arm = sema.after_arm;
 pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
@@ -376,6 +375,10 @@ pub const Facts = struct {
     }
     pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().splatOf(node);
+    }
+    /// The unit an argument filling a duration parameter counts.
+    pub fn durationOf(f: Facts, node: Sexp) ?sema.Duration {
+        return f.c().durationOf(node);
     }
     /// The root of the innermost unit holding `node` (`rig.eachUnit`),
     /// which emit asserts it writes the node inside.

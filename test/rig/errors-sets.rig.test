@@ -141,7 +141,7 @@ test "a task's set holds `task.Stop`", '''
   error JobOrStop = Job | task.Stop
 
   fun work(n: Int) -> Int!JobOrStop
-    time.sleep(time.MS)!
+    time.sleep(ms: 1)!
     return Job.bad if n < 0
     n
 
