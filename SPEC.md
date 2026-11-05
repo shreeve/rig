@@ -9329,6 +9329,7 @@ owns one), and read views.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.swap_remove(i)` | remove the element at `i` and hand it over, moving the last element into its place: one element moves, not the rest, and the order of what is left changes; panics out of range |
 | `!v.clear()` | drop every element |
+| `!v.extend_from_bytes(s)` | append the records the bytes of `s`, a `?String` (or a `Static`), hold, in one copy, growing once; `T` is a type whose every bit pattern is a value (below); panics unless `s.len` is a whole number of `$size(T)` |
 
 **Inline room.** `List[T, inline: n]` keeps its first `n` elements
 inside the List value itself, and allocates only once it holds more,
@@ -9404,6 +9405,56 @@ undo read
 1 open
 [1, 2]
 undo open
+```
+
+**`extend_from_bytes` makes elements from bytes,** so every bit pattern
+of `$size(T)` bytes must be a `T`: an integer, a float, or an object or
+a fixed array made only of these, laid out with no padding. Each such
+value is its fields' bytes in declaration order, each field's in the
+machine's own byte order, with nothing between them; an object whose
+fields in that order would need padding (a field not at a multiple of
+its alignment, a number's being its size, or a size not a multiple of
+its largest field's) is rejected, and so is one with no fields, and
+another module's object with a field that module keeps to itself (a
+private or read-only one), as its constructor is, and an object that
+names its none ([Optionals](#12-optionals)), whose none bytes could
+make, and `get`, `pop`, and a `T?` would read as `none`. A `Bool`, an enum,
+an optional, text, a box, a handle, a `Slot`, and a vector are not
+records: the message names the field that is not. A literal or an
+embedded file ([Builtins](#builtins)) that is not a whole number of
+records is rejected where the call is written. The List keeps no view
+of `s`: its bytes are copied.
+
+```rig
+obj Span
+  start: U32
+  len: U16
+  kind: U16
+
+sub main()
+  spans: List[Span] = List()
+  !spans.extend_from_bytes("\x05\x00\x00\x00\x03\x00\x01\x00\x09\x00\x00\x00\x02\x00\x02\x00")
+  words: List[U16] = List()
+  !words.extend_from_bytes("\x01\x00\x02\x01")
+  print(spans.len, spans[1].start, spans[1].kind, words)
+```
+
+```output
+2 9 2 [1, 258]
+```
+
+```rig reject
+obj Flag
+  on: Bool
+  n: U8
+
+sub main()
+  flags: List[Flag] = List()
+  !flags.extend_from_bytes("\x01\x02")
+```
+
+```error
+field `on` of `Flag` is a `Bool`, which is only 0 or 1
 ```
 
 **`List.filled` and `resize` copy one value into many elements,** as

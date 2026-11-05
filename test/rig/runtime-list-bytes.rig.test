@@ -1,0 +1,273 @@
+# runtime: `!xs.extend_from_bytes(s)` appends the plain records the bytes
+# of `s` hold, in one copy, the List growing once. The bytes are in the
+# machine's own order; these cases run on little-endian machines.
+
+test "list of integers from bytes", "[9, 1, 2, 258]", release: true
+  xs: List[U32] = List()
+  !xs.push(9)
+  !xs.extend_from_bytes("\x01\x00\x00\x00\x02\x00\x00\x00\x02\x01\x00\x00")
+  xs
+
+test "list of signed integers and floats from bytes", "[-1, 2] [1.0, -2.0]"
+  xs: List[I16] = List()
+  !xs.extend_from_bytes("\xff\xff\x02\x00")
+  fs: List[F32] = List()
+  !fs.extend_from_bytes("\x00\x00\x80\x3f\x00\x00\x00\xc0")
+  print(xs, fs)
+
+test "list of records from bytes", '''
+  2 1 2 3 4 5 6
+  2 7 1
+'''
+  # An object of integers is its fields in declaration order; one held
+  # as one word (`W`), and one with an array, read the same way.
+  obj Rec
+    a: U16
+    b: U16
+    c: U32
+
+  obj W
+    x: U16
+    y: U16
+
+  obj Pair
+    w: W
+    tag: [4]U8
+
+  rs: List[Rec] = List()
+  !rs.extend_from_bytes("\x01\x00\x02\x00\x03\x00\x00\x00\x04\x00\x05\x00\x06\x00\x00\x00")
+  print(rs.len, rs[0].a, rs[0].b, rs[0].c, rs[1].a, rs[1].b, rs[1].c)
+  ps: List[Pair] = List()
+  !ps.extend_from_bytes("\x07\x00\x08\x00\x01\x02\x03\x04\x09\x00\x0a\x00\x05\x06\x07\x08")
+  print(ps.len, ps[0].w.x, ps[0].tag[0])
+
+test "list from the bytes of a String and of an embedded file", "[1, 2] [25185, 2659] 4"
+  t = String("\x01\x00\x02\x00")
+  xs: List[U16] = List()
+  !xs.extend_from_bytes(?t)
+  ys: List[U16] = List()
+  !ys.extend_from_bytes($embed("two.bin"))
+  zs: List[U8] = List()
+  !zs.extend_from_bytes($embed("two.bin"))
+  print(xs, ys, zs.len)
+
+  file "two.bin"
+    abc
+
+test "list from no bytes", 0
+  xs: List[U64] = List()
+  !xs.extend_from_bytes("")
+  t = String()
+  !xs.extend_from_bytes(?t)
+  xs.len
+
+test "list from bytes in a generic body", "[513] [1, 2]"
+  sub load[T](xs: !List[T], s: ?String)
+    !xs.extend_from_bytes(s)
+
+  sub main()
+    a: List[U16] = List()
+    load(!a, "\x01\x02")
+    b: List[U8] = List()
+    load(!b, "\x01\x02")
+    print(a, b)
+
+bomb "list from bytes that are not a whole number of elements", "extend_from_bytes: 6 bytes are not a whole number of 4-byte elements"
+  t = String("abcdef")
+  xs: List[U32] = List()
+  !xs.extend_from_bytes(?t)
+  print(xs)
+
+fail "list from a literal that is not a whole number of elements", "`extend_from_bytes` reads whole `U32`s, 4 bytes each, and the literal holds 3 bytes"
+  xs: List[U32] = List()
+  !xs.extend_from_bytes("abc")
+
+fail "list from an embedded file that is not a whole number of elements", "`extend_from_bytes` reads whole `U32`s, 4 bytes each, and \"three.bin\" holds 3 bytes"
+  xs: List[U32] = List()
+  !xs.extend_from_bytes($embed("three.bin"))
+
+  file "three.bin"
+    ab
+
+fail "list of Bool from bytes", "every bit pattern must be a `Bool`, and a `Bool` is only 0 or 1"
+  xs: List[Bool] = List()
+  !xs.extend_from_bytes("\x01")
+
+fail "list of records with a Bool from bytes", "field `ok` of `Rec` is a `Bool`, which is only 0 or 1"
+  obj Rec
+    n: U8
+    ok: Bool
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("\x01\x01")
+
+fail "list of records with an enum from bytes", "field `kind` of `Rec` is an enum, whose values are only its variants'"
+  enum Kind
+    a
+    b
+
+  obj Rec
+    kind: Kind
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("\x01")
+
+fail "list of records with text from bytes", "field `name` of `Rec` is a `Static`, which is not an integer, a float, or an object or array of them"
+  obj Rec
+    name: Static
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of Strings from bytes", "and a `String` is not an integer, a float, or an object or array of them"
+  xs: List[String] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of optionals from bytes", "and a `U8?` is not an integer, a float, or an object or array of them"
+  xs: List[U8?] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of records with padding inside from bytes", "`Rec` has padding before field `b`: it starts at byte 1, and a `U32` starts at a multiple of 4"
+  obj Rec
+    a: U8
+    b: U32
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of records with padding after from bytes", "`Rec` has 3 bytes of padding after field `b`, to a multiple of 4"
+  obj Rec
+    a: U32
+    b: U8
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of records with a wide integer after a word from bytes", "`Rec` has padding before field `b`: it starts at byte 8, and an `I128` starts at a multiple of 16"
+  obj Rec
+    a: U64
+    b: I128
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of records with no fields from bytes", "`Rec` holds no bytes"
+  obj Rec
+    sub hi(?@)
+      print("hi")
+
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes("")
+
+fail "list of records with a private field from bytes", "field `y` of `geo.P` is private to module `geo`"
+  use geo
+
+  sub main()
+    xs: List[geo.P] = List()
+    !xs.extend_from_bytes("")
+
+  file "geo.rig"
+    pub obj P
+      pub x: U32
+      y: U32
+
+fail "list from bytes in a generic body of a Bool", "the generic body makes a `T` from bytes"
+  sub load[T](xs: !List[T], s: Static)
+    !xs.extend_from_bytes(s)
+
+  sub main()
+    a: List[Bool] = List()
+    load(!a, "\x01")
+
+test "list from bytes of another module's records and with inline room", "[1, 2] 3 4 [5, 6]"
+  use geo
+
+  sub main()
+    ps: List[geo.P] = List()
+    !ps.extend_from_bytes("\x03\x00\x00\x00\x04\x00\x00\x00")
+    xs = List[U8, inline: 4]()
+    !xs.push(1)
+    !xs.push(2)
+    !xs.extend_from_bytes("")
+    ys = List[U16, inline: 1]()
+    !ys.extend_from_bytes("\x05\x00")
+    zs: List[U16] = List()
+    List.extend_from_bytes(!zs, "\x06\x00")
+    !ys.push(zs[0])
+    print(xs, ps[0].x, ps[0].y, ys)
+
+  file "geo.rig"
+    pub obj P
+      pub x: U32
+      pub y: U32
+
+fail "list of objects that name their none from bytes", "`Node` names its none (`none id == 0`), a value no `Node` holds"
+  # Bytes could make the value no `Node` holds, which `get`, `pop`, and a
+  # `Node?` read as `none`.
+  obj Node
+    id: U32
+    none id == 0
+
+  xs: List[Node] = List()
+  !xs.extend_from_bytes("\x05\x00\x00\x00\x00\x00\x00\x00")
+
+fail "list of records with a field that names its none from bytes", "field `n` of `Pair` is a `Node`, which names its none (`none id == 0`), a value no `Node` holds"
+  obj Node
+    id: U32
+    none id == 0
+
+  obj Pair
+    n: Node
+    k: U32
+
+  ps: List[Pair] = List()
+  !ps.extend_from_bytes("")
+
+fail "list from bytes in a generic body of an object that names its none", "the generic body makes a `T` from bytes with `extend_from_bytes`, and not every bit pattern is a `Node`"
+  obj Node
+    id: U32
+    none id == 0
+
+  sub load[T](xs: !List[T], s: ?String)
+    !xs.extend_from_bytes(s)
+
+  sub main()
+    a: List[Node] = List()
+    load(!a, "")
+
+fail "list of optional integers from bytes names its article", "every bit pattern must be an `Int?`, and an `Int?` is not"
+  xs: List[Int?] = List()
+  !xs.extend_from_bytes("")
+
+test "list of records with a large array from bytes", "2 3 4 1 255 2 240", release: true
+  # Zig orders `Glyph`'s fields its own way, so each record is read field
+  # by field, its array in one copy, and `Row`'s array of such objects by
+  # a loop: nothing is unrolled by an array's length.
+  obj Glyph
+    w: U8
+    h: U8
+    code: U16
+    bits: [4096]U8
+
+  obj E
+    x: U8
+    y: U8
+    z: U16
+    w: U32
+    v: U64
+
+  t = String()
+  for i in 0..2
+    !t.push(U8(2 + i))
+    !t.push(3)
+    !t.push[U16, .little](4)
+    for k in 0..4096
+      !t.push(U8(k % 256))
+  gs: List[Glyph] = List()
+  !gs.extend_from_bytes(?t)
+  u = String()
+  for i in 0..640 * 16 * 2
+    !u.push(U8(i % 256))
+  rows: List[[640]E] = List()
+  !rows.extend_from_bytes(?u)
+  print(gs.len, gs[1].w, gs[0].code, gs[1].bits[1], gs[0].bits[4095], rows.len, rows[1][639].x)
