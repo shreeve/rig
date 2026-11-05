@@ -195,6 +195,11 @@ A new session, human or agent, takes these steps in order:
   proven form in emit; and std's Map using a write view returned `from
   @` (`find` handing back the entry, with `edit` and `ensure` on top), a
   1.3-1.9% ceiling on ts-pattern, timed on Trig on its own.
+- **Byte equality** (`bytes-eq`, `bench/eql`): text `==`, string
+  patterns, and the tables' text keys compare by the runtime's
+  `bytesEql`, whose loads stay wide in code a `--pgo` profile finds
+  cold, where `std.mem.eql`'s ran byte by byte (2.5% of Trig's cycles
+  on zod3). It lands on Trig's zod3 timing under `--pgo`.
 
 ## Next, in order
 

@@ -2001,7 +2001,7 @@ fn bytesEqlLong(p: [*]const u8, q: [*]const u8, n: usize) bool {
     if (anyByte(V16, loadUnaligned(V16, p) ^ loadUnaligned(V16, q))) return false;
     if (n <= 64) return !anyByte(V16, (loadUnaligned(V16, p + 16) ^ loadUnaligned(V16, q + 16)) | diff32(p + n - 32, q + n - 32));
     var i: usize = 16;
-    while (i + 32 < n) : (i += 32) {
+    while (i < n - 32) : (i += 32) {
         if (anyByte(V16, diff32(p + i, q + i))) return false;
     }
     return !anyByte(V16, diff32(p + n - 32, q + n - 32));

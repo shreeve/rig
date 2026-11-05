@@ -39,6 +39,17 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
   that Zig rejected. A unit test fails on a `Facts` method that answers
   about a node with a classifier instead of a record.
 
+### Runtime
+
+- Text compares by one byte equality of the runtime's, `bytesEql`:
+  String `==` and `!=`, a string pattern, the text keys of `Map`,
+  `Set`, `HashMap`, and `HashSet`, `E.from_text`, and `==` on slices of
+  integers. It tests lengths, then overlapping words and 16-byte
+  vectors, each one unaligned load, and is 10-35% faster than
+  `std.mem.eql` from 4 to 128 bytes on the Mac and 20-70% on x86-64
+  (AVX2). `std.mem.eql`'s array casts stay byte by byte in code a
+  `--pgo` profile finds cold; its loads stay wide (`bench/eql`).
+
 ## v0.3.0 (2026-11-04)
 
 `v0.3.0` follows `v0.2.9` (Zig 0.17.0, Nexus 2.0.0) and changes the
