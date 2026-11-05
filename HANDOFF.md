@@ -186,8 +186,9 @@ A new session, human or agent, takes these steps in order:
   "Builtins"). `rig check` opens the file and reads none of it; the
   package holds a copy at `__rig_embed/PATH`, so other bytes are another
   build (INTERNALS, "Embedded files"). Trig's pre-built libs (its NEEDS
-  item 70) can move from literals to files; `List[T].extend_from_bytes`
-  is next, to read their records with one copy.
+  item 70) can move from literals to files, and `!xs.extend_from_bytes(s)`
+  (built) reads their records with one copy, for a `T` whose every bit
+  pattern is a value (`sema.bytesRecord`, SPEC "List").
 - **The `for` header (t05)**, approved and not started: a use in a
   `for` header belongs to the loop's entry, not its body, where the
   header copies its source out, so `for x in a.arr` with a body that

@@ -984,6 +984,9 @@ pub const ModuleGraph = struct {
                 try self.errorAt(id, at, "$embed: cannot read \"{f}\" ({s}), relative to {s}", .{ shown, fileError(error.StreamTooLong), naming });
                 continue;
             }
+            for (ctx.embed_records.items) |r| if (r.node == site.node and size % r.size != 0) {
+                try self.errorAt(id, at, "`{s}` reads whole `{s}`s, {d} bytes each, and \"{f}\" holds {d} bytes", .{ r.method, r.shown, r.size, shown, size });
+            };
             site.file = file;
             site.place = try a.print("{s}/{s}", .{ sema.embed_dir, rel });
             try ctx.facts.embeds.put(ctx.allocator, site.node, site.place);

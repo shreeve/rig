@@ -5020,6 +5020,9 @@ const list_resize: sema.Needs = .{ .t = .copies, .op = "copies into every elemen
     .into_elements = .{ .what = "`resize` copies its value into every element it adds", .loop = "`for xs.len..n` with `!xs.push(+x)`", .tail = "; `!xs.keep(n)` shrinks any List" },
 } };
 
+/// `!xs.extend_from_bytes(s)` makes each element it adds from bytes.
+const list_bytes: sema.Needs = .{ .t = .records, .op = "makes a `T` from bytes", .says = .from_bytes };
+
 /// `s.get()` hands out a copy of the Signal's value, which every
 /// `Signal[T]` holds as plain data (`builtinElementError`).
 const signal_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Signal.get` a value", .says = .{
@@ -5103,6 +5106,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t, null),
             try method(ctx, "swap_remove", .write, &.{ write_self, ctx.types.int_id }, t, null),
             try method(ctx, "resize", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, &list_resize),
+            // It copies the bytes, so the List keeps no view of them.
+            copiesArgs(try method(ctx, "extend_from_bytes", .write, &.{ write_self, ctx.types.string_view_id }, ctx.types.void_id, &list_bytes)),
             // `List.filled(n, x)`: called through the type.
             try method(ctx, "filled", .none, &.{ ctx.types.int_id, t }, g.self_ty, &list_filled),
         });
@@ -5431,6 +5436,14 @@ fn addGeneric(ctx: *SemContext, named_in: ?ScopeId, module_scope: ScopeId, name:
 /// A built-in method, with what it needs of its type's parameter `T`
 /// (`sema.Needs`), or null when it needs nothing: every method that
 /// copies a `T`, out of what it keeps or into elements it makes, says so.
+/// Method `m`, which keeps nothing it is given: its result and self
+/// hold no view of an argument.
+fn copiesArgs(m: Field) Field {
+    var out = m;
+    out.origins = .{ .result = 0, .stores = 0 };
+    return out;
+}
+
 fn method(ctx: *SemContext, name: []const u8, self_mode: SelfMode, params: []const TypeId, returns: TypeId, needs: ?*const sema.Needs) Error!Field {
     const ty = try ctx.intern(.{ .function = .{
         .params = try ctx.dupeIds(params),
@@ -5641,7 +5654,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.list_sym_id, list);
-    try std.testing.expectEqual(@as(usize, 11), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 12), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 
@@ -5658,8 +5671,9 @@ test "builtins: a method that declares needs is a generic type's, with a T" {
         try std.testing.expect(sym.type_params != null and sym.type_params.?.len >= 1);
         declared += 1;
     };
-    // `Cell.get`, `List.get`, `List.filled`, `List.resize`, `Signal.get`.
-    try std.testing.expectEqual(@as(usize, 5), declared);
+    // `Cell.get`, `List.get`, `List.filled`, `List.resize`,
+    // `List.extend_from_bytes`, `Signal.get`.
+    try std.testing.expectEqual(@as(usize, 6), declared);
 }
 
 /// A type a compile-time argument can have: one written as a literal,

@@ -53,6 +53,15 @@ a bare number, and of `per:` of `task.supervise` and
   Duration`), and emit writes the nanoseconds through the runtime's
   `durationInt` and `durationFloat` (SPEC "Durations").
 
+- **`!xs.extend_from_bytes(s)`** appends to a `List[T]` the records the
+  bytes of `s` hold, a `?String` or a `Static` such as `$embed(path)`,
+  with one copy and one growth. `T` is an integer, a float, or an object
+  or array of them with no padding, so every bit pattern is a value;
+  each record is its fields' bytes in declaration order, in the
+  machine's byte order. Any other `T` is rejected with the field that
+  disqualifies it (`field `on` of `Flag` is a `Bool`, which is only 0 or
+  1`), and so is a literal or an embedded file that is not a whole
+  number of records; another length panics (SPEC "List").
 - **`$embed(path)`** gives a file's bytes as a `Static`, read when the
   program is compiled: `LIBS = $embed("libtrees.bin")`. The path is a
   string literal, from the directory of the file that names it, and may
