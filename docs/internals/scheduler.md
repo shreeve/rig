@@ -110,6 +110,17 @@ a program that makes none starts no workers.
   times, then yields its thread (`sched.poolCall`): on one core the wake
   can preempt the call's thread, and a waiter that only spun would hold
   it off until the kernel took the core back, about 0.6 ms a call.
+- **Which cores.** Workers ask for no thread class and no cores. On
+  macOS a thread Rig starts runs at the default class, and `main`'s at
+  the class its process started with; asking for user-initiated or
+  user-interactive measured the same as the default, since macOS moves
+  equal threads between its performance and efficiency cores so they
+  progress alike. On hybrid x86 Linux the kernel already puts a busy
+  thread on the highest-ranked idle core, and a mask would override the
+  user's `taskset`
+  ([perf-cores.md](../history/records/2026-11/scaling/perf-cores.md)).
+  A program that wants a class or given cores sets them for the
+  process: `taskpolicy` on macOS, `taskset` on Linux.
 - **Where work ran.** With `RIG_SCHED_STATS=1` set, a program prints, as
   `main` ends, what each worker did, to stderr:
 
