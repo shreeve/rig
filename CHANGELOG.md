@@ -74,12 +74,6 @@ a bare number, and of `per:` of `task.supervise` and
   bytes that number its variants. Bytes known only at run time, a
   `?String` or another `Static`, still make no such record (SPEC
   "List").
-- **A record object is held in declaration order:** an object whose
-  every bit pattern makes a value (or an embedded file's checked
-  records) is a Zig `extern struct`, so `extend_from_bytes` copies its
-  records whole, where Zig's own order of the fields sent it field by
-  field; an enum it holds names its tag type. A record held as one word
-  stays packed (INTERNALS, "Records laid out in declaration order").
 - **An embedded file is held at 16 bytes** in a build by LLVM (every
   release, and a debug build on macOS): the assembler includes it
   (`.incbin`) after a `.balign 16`, which costs a build no more time

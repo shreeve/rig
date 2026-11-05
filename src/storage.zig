@@ -2493,59 +2493,6 @@ pub fn decideWords(mods: []const *SemContext, trees: []const Sexp) !void {
     }
 }
 
-// =============================================================================
-// Records laid out in declaration order
-// =============================================================================
-
-/// Decide which objects emit lays out in declaration order, a Zig `extern
-/// struct`, for the whole program at once: every object its own module
-/// finds a record (`sema.bytesRecord`) that is not held as one word,
-/// whose `packed struct` is already its fields in declaration order on a
-/// little-endian machine. A record has no padding by rule, so the layout
-/// costs no bytes, and a record's bytes are then its value's in memory:
-/// `extend_from_bytes` copies them whole. Each plain enum such a record
-/// holds, in a field or an array, gets its tag type (`enum(u8)`), since
-/// an `extern struct` holds no enum of an inferred tag; the enum may be
-/// another module's. Runs after `decideWords`.
-/// Recorded on the declaring module's context (`SemContext.record_layouts`,
-/// `SemContext.record_enums`).
-pub fn decideRecords(mods: []const *SemContext) !void {
-    for (mods) |ctx| {
-        ctx.record_layouts.clearRetainingCapacity();
-        ctx.record_enums.clearRetainingCapacity();
-    }
-    for (mods) |ctx| for (ctx.symbols.items, 0..) |sym, i| {
-        const id: SymbolId = @intCast(i);
-        if (sema.isProxy(sym) or sym.kind != .nominal_type or sym.decl_pos == sema.builtin_decl_pos or sym.type_params != null) continue;
-        if (ctx.word_held.contains(id) or sym.fields == null) continue;
-        const ty = ctx.types.find(.{ .nominal = id }) orelse continue;
-        if (sema.declaredKind(ctx, id) != .object) continue;
-        if (try sema.bytesRecord(ctx, ty) != .record) continue;
-        try ctx.record_layouts.put(ctx.allocator, id, {});
-        for (sym.fields.?) |f| {
-            if (f.is_method or f.is_variant or f.is_drop_method) continue;
-            try recordEnums(ctx, f.ty);
-        }
-    };
-}
-
-/// Give each plain enum a record's field holds directly or in an array
-/// its tag type (`decideRecords`).
-fn recordEnums(ctx: *SemContext, ty: TypeId) !void {
-    switch (ctx.types.get(ty)) {
-        .array => |arr| return recordEnums(ctx, arr.elem),
-        .nominal, .imported_nominal => {},
-        else => return,
-    }
-    if (!sema.isPlainEnum(ctx, ty)) return;
-    const d = sema.nominalDecl(ctx, ty) orelse return;
-    const bytes = sema.enumBytes(d.ctx, d.sym) orelse return;
-    if (d.ctx.symbols.items[d.sym].flags.enum_valued) return;
-    // The declaring module's context, which emit reads for the enum.
-    const home: *SemContext = @constCast(d.ctx);
-    try home.record_enums.put(home.allocator, d.sym, @intCast(bytes));
-}
-
 fn optionalWord(a: std.mem.Allocator, ctx: *const SemContext, t: TypeId, plain: anytype) !void {
     var ty = sema.unwrapViews(ctx, t);
     var opt = false;
