@@ -6,7 +6,8 @@ is written, so Trig loads its pre-built lib trees
 (`src/ast/prebuilt.rig`) without decoding them? The checker only reads
 them, so it would rarely copy. The share was measured before any
 design, because no design is worth more than the time it can save.
-Design only: no compiler or runtime code changed. Scripts and raw
+Design only: no compiler or runtime code changed; the Zig ceiling of
+§4 and what was built are in [ceiling.md](ceiling.md). Scripts and raw
 numbers are in [data/](data/); the perf files stay on pup in
 `/zfs/rig-work/zero-copy/`.
 
