@@ -29,8 +29,9 @@
 //! and asks for huge pages for each new segment, and a new large block
 //! of 16 MiB or more asks for huge pages (`huge_large`), each while the
 //! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`).
-//! Reserved Tables (`table.zig`) take ranges of an address space of
-//! their own, which none of this touches (`reserveTable`).
+//! A Table of zeros (`table.zig`) is packed in a heap block until it
+//! outgrows a huge page, and then takes a range of an address space of
+//! its own, which none of this touches (`reserveTable`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -925,10 +926,11 @@ fn mapOwnSegment() ?*Segment {
 /// makes no system call while memory has no free 2 MiB blocks to spare,
 /// and one `madvise` while it does; a Table dropped gives its pages back
 /// to the system with `MADV_DONTNEED`, which leaves the range reading as
-/// zeros, and its range to the next Table (`unreserveTable`). Trig's
-/// checkers reserve 43 Tables each, 24 MiB to 4 GiB, 53 GiB in all, and
-/// a mapping, its advice, and its unmapping for each cost about 8
-/// microseconds of system calls. Only release builds take Tables from
+/// zeros, and its range to the next Table (`unreserveTable`). A Table
+/// of zeros takes one only once it outgrows the heap block it is packed
+/// in (`table.zig`'s `spill`); Trig's checkers make 43 Tables each, of
+/// 24 MiB to 4 GiB, and a mapping, its advice, and its unmapping for each
+/// would cost about 8 microseconds of system calls. Only release builds take Tables from
 /// here: a debug build maps each on its own, so a Table used after it is
 /// dropped faults and the leak checker sees each.
 const table_region_size: usize = 256 << 30;
