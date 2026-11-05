@@ -405,3 +405,139 @@ toward default-on, in order: the never-inlined boundary at tasks.zig's
 entry points (the per-operation costs), the latency of a woken task
 (hog), the macOS arm64 port, a static check of the section, and a
 quiet rerun at four checkers.
+
+## The soundness review (2026-11-05)
+
+An independent review (read-only, probes on pup in
+`/zfs/rig-work/review-952/`) found no memory corruption and these,
+fixed here:
+
+1. **A held pinned fiber could be overwritten and lost.** While a
+   pinned fiber P was held, the worker still ran unpinned fibers; one
+   that made a local task was pinned from then on, and its preemption
+   wrote over P, which never ran again: its waiter hung and its stack
+   leaked (the review's `hold.rig` with `main`'s two spawns swapped,
+   one worker: off it prints its sum, on it hung three times of
+   three). Now `preempted` stops a pinned fiber only while no other is
+   held, and only for work that is not pinned (its "run next" slot,
+   ring, or the global queue): its siblings wait behind it in any
+   case, so stopping it for them only cost (21k preemptions, 6.3 s
+   against 5.8 s). `hold` panics if one is held already. Each worker
+   says whether the fiber it runs is pinned (`pinned_running`, set by
+   `runFiber` and `pinHere`), and the monitor counts only work that is
+   not pinned for such a worker. test/cli/preempt.sh is the probe: it
+   failed with the Rig at 9d43c237f (killed at its 60 s timeout) and
+   passes with the fix.
+2. **The deadlock detector's lock was not counted**, and its take and
+   release were inlined into the program's code (bench/actors,
+   `contend`): a holder stopped there would leave `walkFrom` spinning.
+   `lockGraph` counts now, as do alloc.zig's spin locks
+   (`tables_lock` and the rest) and the profile, map trace, and leak
+   checker locks. A unit test (sched.zig, "every lock the runtime
+   takes is counted") fails on any spin on a flag or `std.Io.Mutex`
+   taken in runtime.zig, sched.zig, tasks.zig, alloc.zig, or net.zig
+   without the count within three lines, or a note saying why it needs
+   none (a fault's handler, a panic that ends the program, a flag set
+   once).
+3. **`flushBeforeWait` took the output lock uncounted and let it go
+   counted.** It takes it through `tryLockOutput`, counted, now.
+
+Known limits, for the default-on round:
+
+- Thread-locals do appear in the section: each `rt.task()` there
+  compiles to a call of `currentOf` and then `%fs`, since LLVM folded
+  the never-inlined `threadTask` (a thread-local's address is a
+  constant to it). The address is used only when `current()` is null,
+  outside every fiber, so no signal stops that code; but "no
+  thread-local in the section" does not hold, and `never_inline` is no
+  guard for one. `std.heap.SmpAllocator` (debug builds' allocator) is
+  inlined there too, with its `thread_index` and per-slot mutex; a
+  stopped holder makes others move to another slot. The static audit
+  lists every `%fs` site and allows only these.
+- The trampoline calls `preempted` with the interrupted x87 and MMX
+  state live, where the ABI wants the x87 stack empty: `fninit` and
+  `emms` after `xsave` (which `xrstor` undoes) before any target uses
+  f80.
+- The state saved is the compile-time target's: APX's r16-r31 and AMX
+  are not, which a future target needs.
+- With libc, `pthread_kill` may be sent to a worker that has exited
+  after the monitor read it, and code that reads `errno` after an
+  extern call could read another thread's after a migration.
+- While work waits, the monitor signals a worker every period even when
+  its fiber is in a system call; `SA_RESTART` covers most, and `poll`,
+  `epoll_wait`, and `nanosleep`, which return `EINTR`, are outside
+  fibers or retried where Rig calls them.
+
+## Local tasks: the redesign question (2026-11-05)
+
+The recheck of cc74753f5 found a liveness hole, the second soundness
+fix in this area, so by RIG-MANTRAS the feature stops for redesign:
+`starve.rig` (the review's probe), a pinned task that spin-waits on a
+`*Cell` a local sibling sets, hangs with the option on and finishes in
+1.5 s off, since the monitor no longer stops a pinned fiber for its
+siblings.
+
+The design proposed in the recheck, a preempted pinned fiber queued
+FIFO behind its siblings, is not sound. concurrency.md, "Local tasks":
+local tasks share `*T` and `~T` counts that are not atomic, a `Cell`
+of more than one word, a `Signal`, and a function's captures, and
+"take turns at their waits and yield checks". Those are points where
+no count is half-changed and no `Cell` half-copied. A signal stops a
+fiber at any instruction: between the load and the store of a count's
+increment, or in the middle of a two-word copy. A sibling run then
+changes the count, and the stopped fiber's store undoes it (a use after
+free), or reads half of a new value. So a pinned fiber stopped at an
+arbitrary instruction may let only unpinned work run before it resumes
+(the hold), and its siblings may run only at its waiting points; with
+no yield checks there are none in a spin loop, and starve.rig hangs.
+Liveness and soundness for local tasks both need the safe points that
+the yield checks are.
+
+The design that keeps both: **preemption applies to a program that
+makes no local task.** A program whose sema records a local task
+(`Facts.local_tasks`, which `rig check --tasks` lists) is built with
+its yield checks, whatever `RIG_PREEMPT` says, and its local tasks take
+turns as they do today. A program with none has no pinned fiber at all
+(`pinHere` is the only thing that sets a home), so the hold, `held`,
+`popPinned`, `pinned_running`, and their monitor rules are deleted, and
+every preempted fiber goes to the global queue. Trig makes no local
+task (`rig check --tasks` on Trig's main lists none), so its measured
+gain stands. It takes one fact read in `bin/rig` (main.zig: the root
+flag and emit's section, from `local_tasks`), which is outside this
+branch's row.
+
+The lock-count scan now also finds a swap to true and a compare-and-
+swap from 0, and `Io.Mutex.lock(io)`, in ordered.zig, unordered.zig,
+table.zig, and split.zig too; it found no lock there, and three flags
+set once, now noted.
+
+**Built (17a33377b), as the designer decided.** `bin/rig` reads
+`Facts.local_tasks` of every module the program loads, std modules
+among them, once in `emitPackage`. With `RIG_PREEMPT=signal` and a
+local task anywhere, it writes neither the root's `__rig_preempt` nor
+emit's section, and prints one line on stderr:
+`rig: RIG_PREEMPT=signal ignored: this program makes local tasks
+(FILE:LINE), which take turns at yield checks`. No std module makes a
+local task: a program that uses every std module (std/*.rig) emits no
+`spawnLocal`, so a server built on std.net or std.http is preempted.
+`rig test` writes its own root, without `__rig_preempt`, so its seeded
+runs keep their checks (question 3). The hold, `Preempt.held`,
+`popPinned`, `hold`, `pinned_running`, and the monitor's rules for
+pinned fibers are deleted; a preempted fiber always goes to the global
+queue, and `preempted` never stops a pinned fiber, should one exist.
+
+test/cli/preempt.sh runs, on any machine, `hold.rig`, `starve.rig`,
+and `ring.rig` (two local siblings and an unpinned task spin-waiting on
+each other in a ring, one worker) with the option and without,
+expecting the same output, the note, and an end within 60 s; and a
+program with no local task, which gets no note.
+
+Trig's numbers still hold without the hold. Trig (`9cf8bd8`) built with
+the option by the Rig at 17a33377b, against the same build by the Rig
+at 9d43c237f (the on arm Trig timed), user instructions on one checker,
+E-core 14, fewest of three runs: mitt 70.72M to 70.48M (0.34% fewer),
+neverthrow 91.26M to 90.94M (0.36%), tiny-invariant 719.4M to 716.4M
+(0.41%), superstruct 204.6M to 203.9M (0.32%), zod3 1,338.6M to
+1,334.3M (0.33%), ts-pattern 8,207M to 8,199M (0.09%). test/cli/
+preempt.sh fails with the Rig at 9d43c237f (hold.rig killed at 60 s)
+and passes with this one, on pup and on the Mac.

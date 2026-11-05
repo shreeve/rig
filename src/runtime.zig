@@ -3610,9 +3610,13 @@ pub const embeds_aligned = builtin.zig_backend == .stage2_llvm and (builtin.obje
 /// its absolute path, which `rig` writes as it writes the package, and
 /// takes `size` from `@embedFile(path).len`, so Zig builds again when the
 /// bytes change. The symbol is named for the container that holds the
-/// call and for the path, so no two in a program meet, and is weak and
-/// hidden in a section of its own, so the units of a split build that
-/// each hold it link to one copy.
+/// call and for the path, so no two in a program meet. On ELF it is weak
+/// and hidden in a section of its own, so the units of a split build that
+/// each hold it link to one copy. On Mach-O it is local to its object: a
+/// weak definition marks the executable as binding weak symbols, which
+/// dyld then resolves at every launch, about 9 million instructions for
+/// Trig's 238 embeds (10% of a small project's run); each unit of a split
+/// build, a debug build, holds its own copy.
 pub fn Embed(comptime Owner: type, comptime size: usize, comptime path: []const u8) type {
     @setEvalBranchQuota(100_000);
     const macho = builtin.object_format == .macho;
@@ -3623,7 +3627,7 @@ pub fn Embed(comptime Owner: type, comptime size: usize, comptime path: []const 
         for (path) |c| quoted = quoted ++ (if (c == '"' or c == '\\') "\\" ++ [1]u8{c} else [1]u8{c});
         break :blk (if (macho) ".pushsection __TEXT,__const\n" else ".pushsection .rodata." ++ name ++ ",\"aG\",@progbits," ++ name ++ ",comdat\n") ++
             ".balign 16\n" ++
-            (if (macho) ".private_extern " ++ symbol ++ "\n.weak_definition " ++ symbol ++ "\n" else ".hidden " ++ symbol ++ "\n.weak " ++ symbol ++ "\n") ++
+            (if (macho) "" else ".hidden " ++ symbol ++ "\n.weak " ++ symbol ++ "\n") ++
             symbol ++ ":\n" ++
             ".incbin \"" ++ quoted ++ "\"\n" ++
             ".popsection\n";
@@ -6107,6 +6111,14 @@ fn lockOutput() void {
     if (concurrent) output_lock.lockUncancelable(io());
 }
 
+/// Take the output lock if it is free, counted as `lockOutput` counts it.
+fn tryLockOutput() bool {
+    if (preempt) sched.holdOff();
+    const took = output_lock.tryLock();
+    if (preempt and !took) sched.holdOn();
+    return took;
+}
+
 fn unlockOutput() void {
     if (concurrent) output_lock.unlock(io());
     if (preempt) sched.holdOn();
@@ -6292,11 +6304,13 @@ const HeapProfile = struct {
     }
 
     fn lock() void {
+        if (preempt) sched.holdOff();
         if (concurrent) profile_lock.lockUncancelable(io());
     }
 
     fn unlock() void {
         if (concurrent) profile_lock.unlock(io());
+        if (preempt) sched.holdOn();
     }
 
     fn taken() *Owner {
@@ -6624,11 +6638,13 @@ const MapTracer = struct {
     }
 
     fn lock(_: *MapTracer) void {
+        if (preempt) sched.holdOff();
         if (concurrent) map_trace_lock.lockUncancelable(io());
     }
 
     fn unlock(_: *MapTracer) void {
         if (concurrent) map_trace_lock.unlock(io());
+        if (preempt) sched.holdOn();
     }
 
     /// Create the record file and its `.types` beside it, as the
@@ -6815,11 +6831,13 @@ const LeakChecker = struct {
     }
 
     fn lock() void {
+        if (preempt) sched.holdOff();
         if (concurrent) alloc_lock.lockUncancelable(io());
     }
 
     fn unlock() void {
         if (concurrent) alloc_lock.unlock(io());
+        if (preempt) sched.holdOn();
     }
 
     fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
@@ -7078,7 +7096,8 @@ const Sanitizer = struct {
         flushQuietly();
         var buf: [256]u8 = undefined;
         // The live blocks are named only while no other thread changes
-        // them: the handler cannot wait for the lock.
+        // them: the handler cannot wait for the lock. Uncounted for
+        // preemption: a fault's handler never runs on in a fiber.
         const locked = !concurrent or alloc_lock.tryLock();
         defer if (concurrent and locked) alloc_lock.unlock(io());
         const msg = if (!locked)
@@ -8150,7 +8169,7 @@ fn flush() void {
 /// waits in turn. A write that fails is left for the next flush, which
 /// reports it.
 pub fn flushBeforeWait() void {
-    if (concurrent and !output_lock.tryLock()) return;
+    if (concurrent and !tryLockOutput()) return;
     defer unlockOutput();
     if (stdout_writer.*) |*w| if (w.interface.end != 0) w.interface.flush() catch {};
 }
@@ -8584,6 +8603,7 @@ inline fn panicking_here() *bool {
 /// to end with the first report.
 fn beginPanic() void {
     if (concurrent and !panicking_here().*) {
+        // A panic once, which ends the program: uncounted for preemption.
         if (panic_stage.cmpxchgStrong(0, 1, .seq_cst, .seq_cst) != null) awaitOtherPanic();
         panicking_here().* = true;
     } else {
@@ -8596,7 +8616,7 @@ fn beginPanic() void {
         panic_stage.store(1, .seq_cst);
     }
     // Output another task is writing now is left unwritten, rather than
-    // wait on it from a panic.
+    // wait on it from a panic. Uncounted for preemption: the program ends.
     if (concurrent and !output_lock.tryLock()) return;
     if (current_test.*) |t| {
         stdout().print("FAIL  {f}: panicked\n", .{t}) catch {};
@@ -8626,6 +8646,7 @@ fn panicBoundary() ?*tasks.Isolate {
 /// Write what `print` has buffered before a panic's report, as a panic
 /// that ends the program does.
 fn flushForPanic() void {
+    // Uncounted for preemption: a panic that ends the program.
     if (concurrent and !output_lock.tryLock()) return;
     flushQuietly();
     if (concurrent) output_lock.unlock(io());

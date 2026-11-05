@@ -349,7 +349,6 @@ const Env = struct {
         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
         if (env.mapTrace()) try w.writeAll("pub const __rig_map_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
-        if (env.preempt() and tasks != null) try w.writeAll("pub const __rig_preempt = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
@@ -875,8 +874,6 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
                 t.* = m.ir;
             }
             try storage.decideWords(ctxs, trees);
-            // Which records are laid out in declaration order.
-            try storage.decideRecords(ctxs);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
@@ -1800,6 +1797,21 @@ fn taskGuardOf(graph: *const modules.ModuleGraph) ?u64 {
     return sema.taskGuard(largestFrame(graph));
 }
 
+/// Where the program, or a std module it uses, first makes a local task
+/// (`sema.Facts.local_tasks`): the root's first, then each module's.
+fn firstLocalTask(graph: *modules.ModuleGraph) ?struct { path: []const u8, line: usize } {
+    for (graph.modules.items) |*m| {
+        var first: ?u32 = null;
+        var it = m.sema.facts.local_tasks.valueIterator();
+        while (it.next()) |t| first = @min(first orelse t.pos, t.pos);
+        const pos = first orelse continue;
+        const file: diag.File = .{ .source = m.source, .path = m.display, .parts = m.parts };
+        const at = file.locate(pos);
+        return .{ .path = at.path, .line = diag.lineCol(at.text, pos - at.start).line };
+    }
+    return null;
+}
+
 fn makesTasks(graph: *const modules.ModuleGraph) bool {
     for (graph.modules.items) |*m| if (m.sema.makes_tasks) return true;
     return false;
@@ -1884,6 +1896,11 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     const task_guard = taskGuardOf(graph);
     const reads = readsOf(graph);
     const glue = declaresErrorFields(graph);
+    // `RIG_PREEMPT=signal`: preemption for a program that makes tasks and
+    // no local task, whose turns are taken at its yield checks.
+    const local = if (tasks and env.preempt()) firstLocalTask(graph) else null;
+    const preempting = tasks and env.preempt() and local == null;
+    if (local) |at| std.debug.print("rig: RIG_PREEMPT=signal ignored: this program makes local tasks ({s}:{d}), which take turns at yield checks\n", .{ at.path, at.line });
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));
@@ -1892,7 +1909,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
         em.yield_checks = tasks;
-        em.code_section = tasks and env.preempt();
+        em.code_section = preempting;
         em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
         if (kind.units > 1) em.split_stem = m.out_basename[0 .. m.out_basename.len - ".zig".len];
@@ -1915,6 +1932,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or kind.pgo or tasks or reads.any())) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph), reads);
+            if (preempting) try file_buffer.writer.writeAll("pub const __rig_preempt = true;\n");
             if (kind.pgo) try file_buffer.writer.writeAll("pub const __rig_pgo = true;\n");
         }
         // A program with error fields reads them through its glue.

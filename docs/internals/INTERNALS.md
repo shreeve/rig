@@ -937,9 +937,12 @@ emit writes through the runtime's `rig.Embed`, which holds the bytes at
 they lie. `@embedFile` places a file at 1, and an aligned Zig constant
 of its bytes costs a build 1.5 s and 430 MB more per 8 MB, so `Embed`
 has the assembler include the file (`.incbin` after `.balign 16`, a
-global assembly block) under a weak, hidden symbol in a section of its
-own, named for the container and the path, so the units of a split
-build that each hold it link to one copy. The assembler reads the file
+global assembly block) under a symbol named for the container and the
+path. On ELF the symbol is weak and hidden in a section of its own, so
+the units of a split build that each hold it link to one copy; on
+Mach-O it is local to its object, since a weak definition makes dyld
+bind weak symbols at every launch (about 9 million instructions for
+Trig's 238 embeds), and each unit of a split build holds its own copy. The assembler reads the file
 by its absolute path: emit writes `emit.embed_dir_mark` where the
 module's directory goes, and `writePackage` writes the package's
 directory in its place, so the package's text, which its build is
@@ -962,20 +965,6 @@ them with the call (`EmbedRecord.checks`); `ModuleGraph.checkEmbeds`
 reads such a file, checks each record's values, and keeps its bytes for
 the package (`EmbedSite.bytes`), so `rig check` rejects a bad value and
 reads only the files whose records need it.
-
-**Records laid out in declaration order.** Zig orders an ordinary
-`struct`'s fields its own way, so a record's bytes would not be its
-value's in memory. After `decideWords`, `storage.decideRecords` marks
-every object its own module finds a record (`bytesRecord`) and that is
-not held as one word (`SemContext.record_layouts`); emit writes it as
-an `extern struct`, which keeps the declared order, and since a record
-has no padding by rule it costs no bytes. A word-held record stays a
-`packed struct`, already in declaration order on a little-endian
-machine. An `extern struct` holds no enum of an inferred tag, so each
-plain enum such a record holds, in a field or an array, in any module,
-is given its tag type, `enum(u8)`, `enum(u16)`, or `enum(u32)` by
-`sema.enumBytes` (`SemContext.record_enums`). `extend_from_bytes` then
-finds every record flat (`recordFlat`) and copies it with one `memcpy`.
 `emitPackage` reads each file once, when it writes the package, and
 holds its bytes as one of the package's files: the modules are at the
 package's top, so the place is under the root of every Zig module that
