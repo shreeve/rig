@@ -1,0 +1,149 @@
+== ts-pattern.trig.1
+ 91.96%  user: program
+  3.97%  kernel: page fault
+  1.80%  user: rig.alloc
+  1.59%  kernel: madvise
+  0.15%  kernel: file I/O
+  0.12%  kernel: mremap
+  0.12%  kernel: other
+  0.07%  kernel: mmap
+  0.04%  kernel: munmap
+  0.03%  kernel: thread start
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>notifier_call_chain)
+  0.01%  kernel: exec
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>read_tsc)
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>enqueue_hrtimer)
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>__cgroup_account_cputime_field)
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>rcu_pending)
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>irq_work_tick)
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>ntp_tick_length)
+  0.01%  kernel: other (asm_sysvec_apic_timer_interrupt>rb_next)
+  0.01%  kernel: exit teardown
+6727 samples
+== ts-pattern.trig.8
+ 86.59%  user: program
+  7.86%  kernel: page fault
+  2.18%  user: rig.alloc
+  1.97%  kernel: madvise
+  0.43%  kernel: TLB shootdown IPI
+  0.32%  kernel: mremap
+  0.18%  kernel: other
+  0.16%  kernel: mmap
+  0.14%  kernel: file I/O
+  0.06%  kernel: munmap
+  0.03%  kernel: thread start
+  0.02%  kernel: exec
+  0.02%  kernel: other (entry_SYSCALL_64_after_hwframe>x64_sys_call)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>__sched_balance_update_blocked_averages)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>tick_program_event)
+6234 samples
+== ts-pattern.tsrsg.1
+ 94.76%  user: program
+  4.66%  kernel: page fault
+  0.18%  kernel: file I/O
+  0.16%  kernel: other
+  0.03%  kernel: futex
+  0.03%  kernel: other (asm_sysvec_apic_timer_interrupt>ktime_get_update_offsets_now)
+  0.03%  kernel: thread start
+  0.02%  kernel: exit teardown
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>read_tsc)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>reweight_entity)
+  0.02%  kernel: other (entry_SYSCALL_64_after_hwframe>vfs_fstat)
+  0.02%  kernel: other (entry_SYSCALL_64_after_hwframe>mas_wr_store_type)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>native_apic_msr_eoi)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>__raw_spin_lock_irqsave)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>tick_program_event)
+  0.02%  kernel: mmap
+6218 samples
+== ts-pattern.tsrsg.8
+ 93.43%  user: program
+  5.07%  kernel: page fault
+  0.23%  kernel: other
+  0.21%  kernel: scheduler
+  0.17%  kernel: file I/O
+  0.15%  kernel: thread start
+  0.10%  kernel: futex
+  0.06%  kernel: mmap
+  0.04%  kernel: other (asm_sysvec_apic_timer_interrupt>kmem_cache_free)
+  0.04%  kernel: madvise
+  0.04%  kernel: other (asm_sysvec_apic_timer_interrupt>rcu_cblist_dequeue)
+  0.04%  kernel: munmap
+  0.04%  kernel: exec
+  0.02%  kernel: exit teardown
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>__free_frozen_pages)
+  0.02%  kernel: other (entry_SYSCALL_64_after_hwframe>do_sys_openat2)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>try_release_thread_stack_to_cache)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>__rcu_free_sheaf_prepare)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>tlb_remove_table_rcu)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>perf_event_delayed_put)
+  0.02%  kernel: other (entry_SYSCALL_64_after_hwframe>mas_next_range)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>native_read_msr)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>sched_clock_noinstr)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>account_user_time)
+  0.02%  kernel: other (asm_sysvec_apic_timer_interrupt>perf_event_task_tick)
+4812 samples
+== zod3.trig.1
+ 86.16%  user: program
+  7.36%  kernel: page fault
+  2.63%  kernel: madvise
+  1.84%  user: rig.alloc
+  1.23%  kernel: file I/O
+  0.35%  kernel: other
+  0.26%  kernel: mmap
+  0.09%  kernel: other (entry_SYSCALL_64_after_hwframe>file_close_fd)
+  0.09%  kernel: mremap
+1142 samples
+== zod3.trig.8
+ 78.58%  user: program
+ 11.33%  kernel: page fault
+  4.98%  kernel: madvise
+  1.55%  user: rig.alloc
+  0.97%  kernel: TLB shootdown IPI
+  0.78%  kernel: other
+  0.45%  kernel: file I/O
+  0.39%  kernel: mremap
+  0.39%  kernel: mmap
+  0.26%  kernel: thread start
+  0.06%  kernel: other (entry_SYSCALL_64_after_hwframe>fpregs_assert_state_consistent)
+  0.06%  kernel: other (entry_SYSCALL_64_after_hwframe>wait_consider_task)
+  0.06%  kernel: other (entry_SYSCALL_64_after_hwframe>arch_exit_to_user_mode_prepare.isra.0)
+  0.06%  user: rig.sched
+  0.06%  kernel: munmap
+1545 samples
+== zod3.tsrsg.1
+ 89.87%  user: program
+  7.57%  kernel: page fault
+  0.49%  kernel: file I/O
+  0.39%  kernel: other
+  0.20%  kernel: thread start
+  0.20%  kernel: mmap
+  0.20%  kernel: exec
+  0.20%  kernel: exit teardown
+  0.10%  kernel: other (entry_SYSCALL_64_after_hwframe>change_pte_range)
+  0.10%  kernel: other (asm_sysvec_apic_timer_interrupt>account_user_time)
+  0.10%  kernel: other (asm_sysvec_apic_timer_interrupt>update_fast_timekeeper)
+  0.10%  kernel: other (entry_SYSCALL_64_after_hwframe>inode_permission)
+  0.10%  kernel: other (asm_sysvec_apic_timer_interrupt>kmem_cache_free)
+  0.10%  kernel: other (asm_sysvec_apic_timer_interrupt>reweight_entity)
+  0.10%  kernel: other (asm_sysvec_apic_timer_interrupt>update_process_times)
+  0.10%  kernel: other (entry_SYSCALL_64_after_hwframe>vma_interval_tree_insert)
+  0.10%  kernel: other (asm_sysvec_apic_timer_interrupt>tmigr_requires_handle_remote)
+1017 samples
+== zod3.tsrsg.8
+ 86.70%  user: program
+  8.58%  kernel: page fault
+  1.02%  kernel: file I/O
+  0.94%  kernel: scheduler
+  0.71%  kernel: thread start
+  0.39%  kernel: exit teardown
+  0.39%  kernel: futex
+  0.31%  kernel: other
+  0.24%  kernel: madvise
+  0.16%  kernel: munmap
+  0.16%  kernel: exec
+  0.08%  kernel: other (asm_sysvec_apic_timer_interrupt>arch_scale_freq_tick)
+  0.08%  kernel: mmap
+  0.08%  kernel: other (asm_sysvec_apic_timer_interrupt>kfree)
+  0.08%  kernel: other (asm_sysvec_apic_timer_interrupt>put_pid.part.0)
+  0.08%  kernel: other (asm_sysvec_apic_timer_interrupt>place_entity)
+1271 samples

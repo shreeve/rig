@@ -1,0 +1,12 @@
+ts-pattern trig 1: VmRSS:	 216308 kB VmPTE:	 808 kB  maps=177
+ts-pattern trig 4: VmRSS:	 253636 kB VmPTE:	 2008 kB  maps=701
+ts-pattern trig 8: VmRSS:	 264436 kB VmPTE:	 3516 kB  maps=1305
+ts-pattern tsrsg 1: VmRSS:	 207780 kB VmPTE:	 616 kB  maps=58
+ts-pattern tsrsg 4: VmRSS:	 231044 kB VmPTE:	 872 kB  maps=82
+ts-pattern tsrsg 8: VmRSS:	 243664 kB VmPTE:	 1012 kB  maps=0
+zod3 trig 1: VmRSS:	 70856 kB VmPTE:	 548 kB  maps=160
+zod3 trig 4: VmRSS:	 91624 kB VmPTE:	 1768 kB  maps=638
+zod3 trig 8: VmRSS:	 112032 kB VmPTE:	 3288 kB  maps=0
+zod3 tsrsg 1: VmRSS:	 53768 kB VmPTE:	 288 kB  maps=58
+zod3 tsrsg 4: VmRSS:	 85612 kB VmPTE:	 524 kB  maps=81
+zod3 tsrsg 8: VmRSS:	 109404 kB VmPTE:	 692 kB  maps=109
