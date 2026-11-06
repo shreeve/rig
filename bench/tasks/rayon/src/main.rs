@@ -2,9 +2,11 @@
 //! bench/tasks/tasks.rig runs them: each run alone as
 //! `tasks-rayon scale NAME W`, with W 1 for the work and 0 for none.
 //! The chunks go through `into_par_iter`, and the tree splits through
-//! `rayon::join`. Rayon's model has no sleeping tasks, yields, or
-//! waiting behind a computation, so it runs only these. Prints
-//! `NAME NS CHECK`.
+//! `rayon::join`. Run with no arguments, it runs bench/tasks' `produce`
+//! alone: a `rayon::scope` whose body, on a worker of the pool, spawns
+//! each task with `s.spawn` and does its own work between spawns. Rayon's
+//! model has no sleeping tasks, yields, or waiting behind a computation,
+//! so it runs only these. Prints `NAME NS CHECK`.
 
 use rayon::prelude::*;
 use std::hint::black_box;
@@ -14,6 +16,8 @@ const CHUNKS: i64 = 1024;
 const EVEN_WORK: i64 = 61000;
 const SKEW_BASE: i64 = 1200;
 const ALLOC_ROUNDS: i64 = 4400;
+const PRODUCE: i64 = 200;
+const PRODUCE_WORK: i64 = 10000;
 
 fn spin(n: i64) -> i64 {
     let n = black_box(n);
@@ -63,10 +67,32 @@ fn tree(lo: i64, hi: i64, w: i64) -> i64 {
     (b + a) % 1000003
 }
 
+fn produce() {
+    use std::sync::atomic::{AtomicI64, Ordering::Relaxed};
+    rayon::broadcast(|_| ());
+    let results: Vec<AtomicI64> = (0..PRODUCE).map(|_| AtomicI64::new(0)).collect();
+    let mut mine = 0i64;
+    let mut ns = 0u128;
+    let t = Instant::now();
+    rayon::scope(|s| {
+        for i in 0..PRODUCE {
+            let r = &results[i as usize];
+            s.spawn(move |_| r.store(spin(PRODUCE_WORK + i), Relaxed));
+            mine = (mine + spin(PRODUCE_WORK)) % 1000003;
+        }
+        ns = t.elapsed().as_nanos();
+    });
+    let sum = results.iter().fold(mine, |c, x| (c + x.load(Relaxed)) % 1000003);
+    println!("produce {} {}", ns, sum);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.len() == 1 {
+        return produce();
+    }
     if args.len() < 4 || args[1] != "scale" {
-        eprintln!("usage: tasks-rayon scale NAME W");
+        eprintln!("usage: tasks-rayon [scale NAME W]");
         std::process::exit(2);
     }
     let name = args[2].as_str();

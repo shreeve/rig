@@ -257,13 +257,15 @@ fn currentOf() ?*Fiber {
 /// so a worker asleep is woken for that one when none is looking
 /// (`notifyNew`). Filling the slot wakes no worker: this one runs `f`
 /// next when it woke `f` itself, from its poller or a timer as it looks
-/// for work, at a task's end, or at a yield check, which then yields to
-/// it (`servicing`); and a fiber that woke `f` and goes on running
-/// either stops soon, as one that sends and then waits for the answer
-/// does, or reaches a yield check, which hands `f` on, so a worker woken
-/// for it would mostly find it gone. So two tasks that answer each other
-/// stay on one worker, and fork-join (`t = f()&; g(); >t`) spreads at
-/// `g`'s first yield check, loop or recursive (`waiting`). A worker that
+/// for work, at a task's end, or at a yield check, which yields to it
+/// when no idle worker could take it (`servicing`, `leftToIdle`); and a
+/// fiber that woke `f` and goes on running either stops soon, as one that
+/// sends and then waits for the answer does, or reaches a yield check,
+/// which hands `f` on, so a worker woken for it at once would mostly find
+/// it gone. So two tasks that answer each other stay on one worker, and
+/// fork-join (`t = f()&; g(); >t`) spreads at `g`'s first yield check,
+/// loop or recursive (`waiting`), which wakes an idle worker for `f` and
+/// lets `g` run on. A worker that
 /// searches also takes a fiber left in a busy worker's slot a while
 /// (`stealNext`). Outside the workers, `f` goes to the global queue.
 pub const wake = if (preempt) wakeApart else wakeIn;
@@ -377,8 +379,32 @@ pub noinline fn tick() void {
         return;
     }
     serviceBusy(w);
-    if (hasOwnWork(w)) return yield();
+    if (hasOwnWork(w)) {
+        if (leftToIdle(w)) return;
+        return yield();
+    }
     if (waiting.load(.monotonic) != 0) claimWaiting(w);
+}
+
+/// Whether work that waits on the busy worker `w`, or for any busy one
+/// (`claimWaiting`), is left to a worker with nothing to do, which is woken for it, rather
+/// than displacing the fiber running here: so a task that makes tasks
+/// goes on running while idle workers take them, as Go's `go` leaves its
+/// maker running and wakes an idle processor. Only while they keep up,
+/// with no more than the fiber in `w`'s "run next" slot waiting here: a
+/// burst of tasks that fills its ring runs here, where its maker waits
+/// for it, cheaper than spread over cores. Not when every worker is busy,
+/// nor for pinned work, which only `w` may run. A worker woken or looking
+/// may miss a fiber in a "run next" slot, which no sleeper looks in
+/// (`takeWaiting`): a loop's next check sees it still there, and a check
+/// that took `waiting`'s notice to leave it sets the notice again, so the
+/// next check wakes one again or yields to it.
+fn leftToIdle(w: *Worker) bool {
+    if (w.pinned.count.load(.seq_cst) != 0 or !w.ring.isEmpty()) return false;
+    if (searching.load(.seq_cst) != 0) return true;
+    if (sleepers.count.load(.seq_cst) == 0) return false;
+    notify();
+    return true;
 }
 
 /// How often at most a busy worker's yield checks look at its poller: a
@@ -417,6 +443,13 @@ pub noinline fn tickCall() void {
 /// searching worker would.
 fn claimWaiting(w: *Worker) void {
     if (!takeWaiting(w)) return;
+    // Left to an idle worker, the notice stands: the fiber waits in a
+    // slot no sleeper looks in, and only `waiting` keeps it in sight
+    // (`takeWaiting`) until a worker takes it. A notice of work already
+    // gone, as a task made and handed its worker at once leaves, ends
+    // here.
+    if (!hasOwnWork(w) and !othersWait(w)) return;
+    if (leftToIdle(w)) return waiting.store(1, .monotonic);
     if (hasOwnWork(w)) return yield();
     if (workers.*.len < 2) return;
     for (workers.*) |*v| {
@@ -456,6 +489,15 @@ fn stealWaiting(w: *Worker) bool {
             _ = w.ring.push(f);
             return true;
         }
+    }
+    return false;
+}
+
+/// Whether work waits in a busy worker's queues other than `w`'s: its
+/// "run next" slot or its ring.
+fn othersWait(w: *Worker) bool {
+    for (workers.*) |*v| {
+        if (v != w and (v.lifo.load(.monotonic) != null or !v.ring.isEmpty())) return true;
     }
     return false;
 }
@@ -883,8 +925,10 @@ fn preempted() void {
     if (preempt_trace and !preempt_traced.swap(true, .monotonic)) std.debug.dumpCurrentStackTrace(.{ .allow_unsafe_unwind = true });
     serviceBusy(w);
     if (!hasOwnWork(w)) {
-        if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
-    }
+        if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !othersWait(w)) return;
+        if (leftToIdle(w)) return waiting.store(1, .monotonic);
+        if (!stealWaiting(w)) return;
+    } else if (leftToIdle(w)) return;
     // A program built to be preempted makes no local task (`bin/rig`
     // keeps the yield checks of one that does), so no fiber is pinned;
     // one that were is never stopped, since its siblings share counts
@@ -5029,6 +5073,118 @@ test "a task made while its maker computes runs beside it, from the maker's next
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.in_time);
+}
+
+test "a task's maker that computes keeps its worker while an idle worker runs what it made" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var child_on = std.atomic.Value(?*Worker).init(null);
+        var moved = false;
+        var ok = false;
+        const Unit = struct {};
+        fn child(_: *Unit) u8 {
+            child_on.store(me(), .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            // Let the other worker go to sleep.
+            testNap(20 * std.time.ns_per_ms);
+            const home = me();
+            const j = spawn(u8, Unit, child, .{}, .{}, false).job;
+            // The child waits in this worker's run-next slot while this
+            // one computes, checking each turn: the check leaves it to the
+            // idle worker, which it wakes, and never yields.
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (child_on.load(.seq_cst) == null and nowNs() < until) {
+                tick();
+                if (me() != home) moved = true;
+            }
+            ok = child_on.load(.seq_cst) != null and child_on.load(.seq_cst) != home;
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.ok);
+    try std.testing.expect(!Run.moved);
+}
+
+test "a task's maker that computes yields to what it made when every other worker is busy" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var holding = std.atomic.Value(bool).init(false);
+        var release = std.atomic.Value(bool).init(false);
+        var child_on = std.atomic.Value(?*Worker).init(null);
+        var ok = false;
+        const Unit = struct {};
+        /// Holds the other worker, with no yield check.
+        fn hold(_: *Unit) u8 {
+            holding.store(true, .seq_cst);
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!release.load(.seq_cst) and nowNs() < until) std.atomic.spinLoopHint();
+            return 0;
+        }
+        fn child(_: *Unit) u8 {
+            child_on.store(me(), .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            const h = spawn(u8, Unit, hold, .{}, .{}, false).job;
+            // Hand the holder to the other worker: yield until it runs there.
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!holding.load(.seq_cst) and nowNs() < until) yield();
+            const home = me();
+            const j = spawn(u8, Unit, child, .{}, .{}, false).job;
+            while (child_on.load(.seq_cst) == null and nowNs() < until) tick();
+            ok = child_on.load(.seq_cst) == home;
+            release.store(true, .seq_cst);
+            _ = j.join();
+            j.free();
+            _ = h.join();
+            h.free();
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.ok);
+}
+
+test "a task's maker that computes yields to a local task it made, though a worker is idle" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var ran = std.atomic.Value(bool).init(false);
+        var ok = false;
+        const Unit = struct {};
+        fn child(_: *Unit) u8 {
+            ran.store(true, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            testNap(20 * std.time.ns_per_ms);
+            const j = spawn(u8, Unit, child, .{}, .{}, true).job;
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!ran.load(.seq_cst) and nowNs() < until) tick();
+            ok = ran.load(.seq_cst);
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.ok);
 }
 
 test "two tasks that answer each other over a socket stay on one worker" {

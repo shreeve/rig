@@ -6,13 +6,14 @@ a column to see how a benchmark moves. The reference rows are Tokio's
 and Go's at the baseline; the Rig rows below them are added as the
 scheduler grows (`bench-tasks --record "#PR: what changed"`, which
 appends to the end of the file, so a Mac row moves up into its table).
-`hog` came with #355 and `memory` with #356: the rows before them have
-none, and Tokio's and Go's are from then. Until #356 the scheduler was
+`hog` came with #355, `memory` with #356 and `produce` with the change
+that leaves a task's maker running while idle workers take what it
+makes: the rows before them have none, and Tokio's and Go's are from then. Until #356 the scheduler was
 the `rig-sched` variant, and `rig-fast` ran on Zig's `Threaded`
 backend; from #356 on, `rig-fast` runs on the scheduler.
 
-| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) |
-|---|---|---|---|---|---|---|---|---|
+| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) | produce (per run) |
+|---|---|---|---|---|---|---|---|---|---|
 | 2026-10-19 | reference | tokio | 171 ns | 167 ns | 69.0 ms | 40 ns | 2.9 ms | 270 B |
 | 2026-10-19 | reference | go | 232 ns | 223 ns | 69.6 ms | 233 ns | 3.2 ms | 2.9 KiB |
 | 2026-10-19 | #347: baseline, Zig's `Threaded` backend | rig-fast | 12.28 us | 10.29 us | 82.7 ms | 412 ns |
@@ -61,8 +62,8 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 The same benchmarks on pup: Linux, x86-64, 22 cores. Tokio builds from
 the crates.io release (pup has no `misc/tokio` clone).
 
-| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) |
-|---|---|---|---|---|---|---|---|---|
+| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) | produce (per run) |
+|---|---|---|---|---|---|---|---|---|---|
 | 2026-10-19 | reference | tokio | 252 ns | 252 ns | 101.2 ms | 44 ns | 2.3 ms | 372 B |
 | 2026-10-19 | reference | go | 272 ns | 265 ns | 84.9 ms | 474 ns | 1.9 ms | 2.9 KiB |
 | 2026-10-19 | #352: Zig's `Threaded` backend | rig-fast | 20.37 us | 19.94 us | 109.3 ms | 98 ns |

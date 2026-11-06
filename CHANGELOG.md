@@ -163,6 +163,14 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- A task that makes tasks keeps its worker while idle workers take what
+  it makes, as Go's `go` leaves its maker running: a yield check leaves
+  work another worker could take to an idle one, which it wakes, and
+  yields only when every worker is busy, its ring holds work, or the
+  work is a local task's. A producer that makes 200 tasks between its own
+  work runs 8.7% faster in bench/tasks' new `produce` row, and 25% faster
+  at 9 µs a task; the other rows are level
+  ([records/2026-11/spawn/](docs/history/records/2026-11/spawn/README.md)).
 - Text compares by one byte equality of the runtime's, `bytesEql`:
   String `==` and `!=`, a string pattern, the text keys of `Map`,
   `Set`, `HashMap`, and `HashSet`, `E.from_text`, and `==` on slices of

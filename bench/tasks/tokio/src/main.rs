@@ -1,5 +1,5 @@
 //! Tokio's tasks timed as bench/tasks/tasks.rig times Rig's: spawn,
-//! chain, fanout, yield, hog. Run as `tasks-tokio many`, it holds many
+//! chain, fanout, yield, hog, produce. Run as `tasks-tokio many`, it holds many
 //! sleeping tasks at once (many), and as `tasks-tokio idle`, none,
 //! sleeping as long. Prints `NAME NS CHECK` per benchmark.
 
@@ -17,6 +17,8 @@ const HOG_TASKS: i64 = 32;
 const HOG_WORK: i64 = 20_000_000;
 const HOG_CHAIN: i64 = 50;
 const HOG_SLICE: i64 = 1_000_000;
+const PRODUCE: i64 = 200;
+const PRODUCE_WORK: i64 = 10000;
 const MANY: i64 = 10000;
 const MANY_NAP: Duration = Duration::from_millis(200);
 const CHUNKS: i64 = 1024;
@@ -214,4 +216,18 @@ async fn run() {
         sum += h.await.unwrap();
     }
     println!("hog {} {}", ns, sum);
+
+    let t = Instant::now();
+    let mut hs = Vec::new();
+    let mut mine = 0i64;
+    for i in 0..PRODUCE {
+        hs.push(tokio::spawn(async move { spin(PRODUCE_WORK + i) }));
+        mine = (mine + spin(PRODUCE_WORK)) % 1000003;
+    }
+    let ns = t.elapsed().as_nanos();
+    let mut sum = mine;
+    for h in hs {
+        sum = (sum + h.await.unwrap()) % 1000003;
+    }
+    println!("produce {} {}", ns, sum);
 }

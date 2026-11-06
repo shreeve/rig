@@ -14,7 +14,8 @@ bench/tasks/bench-tasks --out $D --time-only --reps 9
 
 It needs `bin/rig` built first, Cargo, and Go. `bench/tasks/bench-tasks
 --help` lists the variants (`rig-fast`, `tokio` and `go` by default;
-`rig-safe` on request) and the options. The Rig programs run on the
+`rig-safe` and `rayon` on request; Rayon, which tsrs runs on, has only
+`produce`) and the options. The Rig programs run on the
 scheduler with one worker per core, or `RIG_WORKERS` when set.
 `--record "#PR: what changed"` adds the Rig rows to
 [PROGRESS.md](PROGRESS.md), which tracks each benchmark as the
@@ -45,6 +46,7 @@ one's times.
 | `fanout` | 10 tasks of CPU work (a 20-million-step loop each) at once | run |
 | `yield` | 100 tasks, each yielding 10,000 times | yield |
 | `hog` | 32 tasks of CPU work (a 20-million-step loop each) keep every core busy; meanwhile, 50 times: queue a task of CPU work (a 1-million-step loop), then start two tasks and wait for both | step |
+| `produce` | 200 times: start a task of CPU work (a 10,000-step loop), then do the same work itself; timed until its own last step, before it waits | run |
 | `memory` | resident memory per task, with 10,000 tasks asleep (above) | task |
 
 `spawn` and `chain` measure what a task costs to start, schedule, finish
@@ -54,7 +56,10 @@ measures a switch between tasks that do no work. `hog` measures how
 long a task waits behind one that computes without waiting: the first
 of each step's two tasks is queued behind that step's loop on the
 waiter's worker, while the 32 loops keep the other workers busy, so it
-waits until that loop yields or ends.
+waits until that loop yields or ends. `produce` measures how long a
+task that makes tasks between its own work runs: the time to its own last
+step is its own work's alone when idle workers take what it makes,
+and more when each task it makes displaces it.
 
 ## The rules
 
