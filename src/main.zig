@@ -1085,6 +1085,7 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     };
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, try std.fs.path.join(allocator, &.{ dir, "__rig_entry.zig" }) }, linked, libc });
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, link, pkg.files.items);
+    defer if (pkg.keepsCodeApart()) writeDsym(allocator, io, exe);
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return;
 
     Ending.watch();
@@ -1138,6 +1139,7 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     const compile = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", zig_cache, root_zig, try allocator.print("-femit-bin={s}", .{object}) }, libc });
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, apart }, libc });
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, try std.mem.concat(allocator, []const u8, &.{ compile, link }), pkg.files.items);
+    defer writeDsym(allocator, io, exe);
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return;
     for ([_][]const []const u8{ compile, link }, 0..) |argv, step| {
         if (step == 1) try keepCodeApart(allocator, io, object, apart);
@@ -1148,6 +1150,25 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
         }
     }
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
+}
+
+/// Write `exe.dSYM` beside an executable whose program section was kept
+/// apart (`keepCodeApart`). Zig's linker gives each function there a data
+/// symbol's stab, not a function's, so Zig's stack traces, which read the
+/// stabs, find no line for the program's own frames; `dsymutil`, from
+/// Apple's command-line tools, writes debug information that holds them,
+/// and the traces read a `.dSYM` beside the executable first. Without the
+/// tools a note says so once, and traces show those frames without lines.
+fn writeDsym(allocator: std.mem.Allocator, io: std.Io, exe: []const u8) void {
+    const r = std.process.run(allocator, io, .{
+        .argv = &.{ "dsymutil", exe },
+        .stdout_limit = .limited(1 << 16),
+        .stderr_limit = .limited(1 << 16),
+    }) catch |err| {
+        if (err == error.FileNotFound) std.debug.print("note: no dsymutil (Apple's command-line tools): a panic's trace shows no line for the program's own code\n", .{});
+        return;
+    };
+    if (!r.term.success()) std.debug.print("note: dsymutil failed on `{s}`: a panic's trace may show no line for the program's own code\n{s}", .{ exe, r.stderr });
 }
 
 /// Copy the Mach-O object `object` to `apart` with its program section

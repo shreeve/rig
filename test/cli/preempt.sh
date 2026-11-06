@@ -179,3 +179,29 @@ if [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]]; then
     [[ $n == 1 ]] || fail "spin.rig: the trace walks the trampoline $n times: $(head -20 trace.txt)"
     grep -q ' in fiberMain ' trace.txt || fail "spin.rig: the trace stops at the trampoline: $(cat trace.txt)"
 fi
+
+# On arm64 macOS a program built to be preempted has its program section
+# kept apart, whose functions Zig's own traces place only through the
+# `.dSYM` that `dsymutil` writes after the link: a panic in the program's
+# code shows its source line. Without Apple's command-line tools the
+# build says so in a note, and the case is skipped.
+if [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]] && command -v dsymutil >/dev/null; then
+    cat > boom.rig <<'RIG'
+use std.task
+
+fun deep(xs: ?List[Int], i: Int) -> Int
+  xs[i] + 1
+
+fun work(n: Int) -> Int
+  xs = List[Int]()
+  for i in 0..n
+    !xs.push(i)
+  deep(?xs, n + 3)
+
+sub main()
+  t = work(10)&
+  print(>t)
+RIG
+    RIG_PREEMPT=signal RIG_NO_CRASH_REPORT=1 "$TIMEOUT_CMD" 120 "$RIG" run boom.rig >boom.out 2>&1 && fail "boom.rig did not panic: $(cat boom.out)"
+    grep -qE '__rig_main\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in deep ' boom.out || fail "boom.rig: the trace has no line for deep: $(head -30 boom.out)"
+fi
