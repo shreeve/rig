@@ -245,7 +245,7 @@ pub obj Doc
         if c == ','
           i = skip_indent(src, i + 1)
           if in_object
-            i = (!@).key(src, i)
+            i = (!@).key_at(src, i)
             return -1 if i < 0
           break
         closing: U8 = '}' if in_object else ']'
@@ -283,7 +283,12 @@ pub obj Doc
     outer
 
   # Parses `"key"` and the `:` after it; returns where the value starts.
-  inline fun key(!@, src: ?String, at: Int) -> Int
+  # An object's first key, after its `{`: `key_at` out of line, which
+  # is inlined after a `,`, where most keys are.
+  fun key(!@, src: ?String, at: Int) -> Int
+    (!@).key_at(src, at)
+
+  inline fun key_at(!@, src: ?String, at: Int) -> Int
     return (!@).fail(.eof(at: at)) if at >= src.len
     return (!@).fail(.unexpected(at: at)) if src[at] != '"'
     end = (!@).scan_string(src, at)
