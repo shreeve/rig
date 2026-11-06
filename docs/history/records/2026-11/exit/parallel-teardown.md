@@ -46,7 +46,7 @@ test for an honest gain (os.md §3, runtime.md §4).
 ### Fix 3: one Tables region on the Mac
 
 `alloc.reserveTable` hands release builds on the Mac a range of the
-Tables' regions, as on Linux: regions of 256 GiB, each mapped once, a
+Tables' regions, as on Linux: regions each mapped once, a
 Table taking the smallest free range that fits, else the newest region's
 rest. The Mac's regions are 32 GiB, not Linux's 256 GiB: the Mac's kernel
 walks a mapping's whole range as the process ends, touched or not, at
@@ -127,7 +127,7 @@ release build ends by `os.exit`, which is the path that counts.
 Linux keeps its behavior. The same gate would apply there, but the
 panel's Linux question (whether parallel `MADV_DONTNEED` or `munmap`
 scales under the lruvec and zone locks) is still unmeasured, so the
-teardown is Mac-only (`tearDown` is compiled only for Darwin).
+teardown is Mac-only (`tearDown` is compiled everywhere and returns at once off Darwin).
 
 Left to the kernel, as before: stacks of fibers that are parked, the
 caller's own stack, `main`'s stack, the heaps' large blocks (mapped one by
