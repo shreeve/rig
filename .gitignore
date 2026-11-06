@@ -24,3 +24,4 @@ bench/json/cbench/*.o
 *.rig.release/
 bench/hash/upstream/
 bench/hash/rust/target/
+bench/text/rust/target/

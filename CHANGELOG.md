@@ -175,6 +175,16 @@ a bare number, and of `per:` of `task.supervise` and
   the teardown unmaps; Linux, debug builds, and a return from `main`
   end as before
   ([records/2026-11/exit/](docs/history/records/2026-11/exit/parallel-teardown.md)).
+- std.text's search leaves out of optimized builds the bounds and
+  overflow checks its own tests prove (`rig.proven_checks`): built with
+  `--release`, `find`, `count`, and the functions on them are 12-44%
+  faster on needles of 3 to 40 bytes on the Mac, and 26% for one byte
+  over a long text, as fast as `--release=fast`, whose code is the same
+  as before. `bench/text` times std.text against the memchr crate and
+  Go's `bytes.Index` (`bench-text --rivals`): 17-30% faster than memchr
+  over a whole text, and about twice as slow for one byte in 16 B to
+  4 KiB
+  ([records/2026-11/text/](docs/history/records/2026-11/text/memchr-2026-11-06.md)).
 - `task.worker_count()` gives the number of workers tasks run on (one
   per core, `RIG_WORKERS`, or what `task.workers(n)` set), before the
   first task starts them or after; 1 in a deterministic run.

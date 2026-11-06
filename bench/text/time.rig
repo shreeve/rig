@@ -3,8 +3,9 @@
 # window of FILE (the whole of it, or a short one from its middle) for a
 # needle cut from it at 1/16 of the way (an early hit) or 15/16 (a late
 # one), or for that late needle with a middle byte made 0x01 (a miss,
-# whose first and last bytes still meet candidates). bench/text/bench-text
-# runs it built by two rigs, in turns.
+# whose first and last bytes still meet candidates), and where it found
+# the needle (-1: nowhere). bench/text/bench-text runs it built by two
+# rigs, in turns, or against its twins in rust/ and find.go.
 
 use std.file
 use std.hint
@@ -44,8 +45,9 @@ sub main()
           pat = String()
           for j in 0..k
             !pat.push(1 if kind == "miss" and j == k / 2 else s[at + j])
-          work = (text.find(s, pat) ?? s.len) + 64
+          found = text.find(s, pat) ?? -1
+          work = (s.len if found < 0 else found) + 64
           reps = 100000000 / work
           reps = 16 if reps < 16 else reps
           ns = case_ns(s, pat, reps)
-          print(size, k, kind, Float(ns) / Float(reps))
+          print(size, k, kind, Float(ns) / Float(reps), found)
