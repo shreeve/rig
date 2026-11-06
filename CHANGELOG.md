@@ -163,6 +163,9 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- std.json tests a string's first 8 bytes inline before scanning the
+  rest: 1.8-3.5% faster on the Mac on five files, canada level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/head-2026-11-06.md)).
 - std.json takes a key's `: ` at once when the value's first byte follows
   it: 0.5-4.7% faster on the Mac on five files (citm_catalog 4.7%,
   twitter 2.3%), canada level

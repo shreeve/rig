@@ -1,0 +1,10 @@
+| file | bytes | rig-safe@src=m4 | rig-safe@src=m4A | rig-safe@src=head8 |
+|---|---:|---:|---:|---:|
+| twitter | 631514 | 4269 | 4269 | 4420 |
+| twitterescaped | 562408 | 3318 | 3314 | 3433 |
+| canada | 2251051 | 2213 | 2202 | 2199 |
+| citm_catalog | 1727204 | 5585 | 5542 | 5686 |
+| gsoc-2018 | 3327831 | 7871 | 7885 | 8012 |
+| github_events | 65132 | 4917 | 4908 | 5047 |
+
+MB/s, fastest of 20 interleaved runs of about 400 ms
