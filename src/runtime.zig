@@ -6049,8 +6049,16 @@ pub inline fn task() *TaskState {
     return if (concurrent) thread_task() else only_task;
 }
 
-fn threadTask() *TaskState {
-    return thread_task();
+/// The thread-local's address, read here alone: LLVM takes a
+/// thread-local's address for a constant, which it would carry into the
+/// caller, a call never inlined though it is, without the `asm` that
+/// hides it.
+noinline fn threadTask() *TaskState {
+    var state = thread_task();
+    asm volatile (""
+        : [state] "+r" (state),
+    );
+    return state;
 }
 
 /// Held while a `print`, `warn`, or the final flush writes output, so the

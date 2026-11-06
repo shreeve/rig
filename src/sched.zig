@@ -537,6 +537,10 @@ const Preempt = struct {
     /// or too little stack for the trampoline.
     outside: u64 = 0,
     cramped: u64 = 0,
+    /// Held while the monitor signals its thread, and as the thread
+    /// leaves, which clears `tid` (`leavePreempt`): a thread is never
+    /// signaled once it has ended.
+    signaling: SpinLock = .{},
     /// Locks it holds (`holdOff`): while any is held, no signal stops
     /// the fiber holding it.
     no_preempt: u32 = 0,
@@ -807,7 +811,10 @@ fn watchSlices(slice: i96, wait: i96) void {
             // Again every period until it stops: a signal that finds the
             // fiber outside the program's code does nothing.
             _ = preOf(w).signals.fetchAdd(1, .monotonic);
-            signalThread(preOf(w).tid);
+            const pre = preOf(w);
+            pre.signaling.lockApart();
+            signalThread(pre.tid);
+            pre.signaling.unlockApart();
         }
         period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
@@ -839,6 +846,16 @@ fn serviceDue(w: *Worker, now: i96) bool {
 fn sleepNs(ns: i96) void {
     const req: std.os.linux.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@mod(ns, std.time.ns_per_s)) };
     _ = std.os.linux.nanosleep(&req, null);
+}
+
+/// This thread, a worker, ends: once this returns the monitor no longer
+/// signals it (`Preempt.signaling`).
+fn leavePreempt(w: *Worker) void {
+    if (!preempt) return;
+    const pre = preOf(w);
+    pre.signaling.lockApart();
+    pre.tid = 0;
+    pre.signaling.unlockApart();
 }
 
 fn signalThread(id: usize) void {
@@ -1239,6 +1256,7 @@ fn fireDue() void {
 /// takes its timer back (`cancel`) knows no worker is done with it. In a
 /// deterministic run one set serves the virtual clock (`timers`).
 const Timers = struct {
+    /// Taken uncounted (`lockApart`), as `Global`'s.
     lock: SpinLock = .{},
     heap: std.ArrayList(*Fiber) = .empty,
     /// Its earliest deadline, which workers read without the lock, or
@@ -1246,8 +1264,8 @@ const Timers = struct {
     due: std.atomic.Value(i64) = .init(no_due),
 
     fn add(t: *Timers, f: *Fiber) void {
-        t.lock.lock();
-        defer t.lock.unlock();
+        t.lock.lockApart();
+        defer t.lock.unlockApart();
         t.heap.append(std.heap.smp_allocator, f) catch rt.oom();
         f.wait.heap_index = t.heap.items.len - 1;
         f.wait.timers = t;
@@ -1258,8 +1276,8 @@ const Timers = struct {
     }
 
     fn cancel(t: *Timers, f: *Fiber) void {
-        t.lock.lock();
-        defer t.lock.unlock();
+        t.lock.lockApart();
+        defer t.lock.unlockApart();
         if (f.wait.heap_index != Wait.no_index) t.removeAt(f.wait.heap_index);
         f.wait.timers = null;
         t.publish();
@@ -1268,8 +1286,8 @@ const Timers = struct {
     /// Wake each fiber whose deadline `now` has reached; whether any.
     fn fire(t: *Timers, now: i96) bool {
         if (t.due.load(.acquire) > now) return false;
-        t.lock.lock();
-        defer t.lock.unlock();
+        t.lock.lockApart();
+        defer t.lock.unlockApart();
         var any = false;
         while (t.heap.items.len > 0 and t.heap.items[0].wait.deadline <= now) {
             const f = t.heap.items[0];
@@ -2719,6 +2737,7 @@ fn workerMain(w: *Worker) void {
     defer alt.detach();
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
+    defer leavePreempt(w);
     loop(w);
 }
 
@@ -3108,6 +3127,8 @@ const Ring = struct {
 /// of full rings. A spin lock guards it; `count` lets a worker see it is
 /// empty without taking the lock.
 const Global = struct {
+    /// Taken uncounted (`lockApart`): the queue is reached only from the
+    /// scheduler's entries, its workers, and its monitor.
     lock: SpinLock = .{},
     head: ?*Fiber = null,
     tail: ?*Fiber = null,
@@ -3122,8 +3143,8 @@ const Global = struct {
     fn pushList(g: *Global, list: *Fiber, n: u32) void {
         var last = list;
         while (last.next) |x| last = x;
-        g.lock.lock();
-        defer g.lock.unlock();
+        g.lock.lockApart();
+        defer g.lock.unlockApart();
         if (g.tail) |t| t.next = list else g.head = list;
         g.tail = last;
         _ = g.count.fetchAdd(n, .seq_cst);
@@ -3131,8 +3152,8 @@ const Global = struct {
 
     fn pop(g: *Global) ?*Fiber {
         if (g.count.load(.acquire) == 0) return null;
-        g.lock.lock();
-        defer g.lock.unlock();
+        g.lock.lockApart();
+        defer g.lock.unlockApart();
         const f = g.head orelse return null;
         g.head = f.next;
         if (g.head == null) g.tail = null;
@@ -3143,21 +3164,22 @@ const Global = struct {
 
 /// The workers asleep, a stack a spin lock guards.
 const Sleepers = struct {
+    /// Taken uncounted (`lockApart`), as `Global`'s.
     lock: SpinLock = .{},
     top: ?*Worker = null,
     count: std.atomic.Value(u32) = .init(0),
 
     fn push(s: *Sleepers, w: *Worker) void {
-        s.lock.lock();
-        defer s.lock.unlock();
+        s.lock.lockApart();
+        defer s.lock.unlockApart();
         w.next_sleeper = s.top;
         s.top = w;
         _ = s.count.fetchAdd(1, .seq_cst);
     }
 
     fn pop(s: *Sleepers) ?*Worker {
-        s.lock.lock();
-        defer s.lock.unlock();
+        s.lock.lockApart();
+        defer s.lock.unlockApart();
         const w = s.top orelse return null;
         s.top = w.next_sleeper;
         _ = s.count.fetchSub(1, .seq_cst);
@@ -3166,8 +3188,8 @@ const Sleepers = struct {
 
     /// Take `w` off the list; false when a waker took it first.
     fn remove(s: *Sleepers, w: *Worker) bool {
-        s.lock.lock();
-        defer s.lock.unlock();
+        s.lock.lockApart();
+        defer s.lock.unlockApart();
         var at = &s.top;
         while (at.*) |x| : (at = &x.next_sleeper) {
             if (x == w) {
@@ -3207,7 +3229,36 @@ pub const SpinLock = struct {
         if (preempt and !took) holdOn();
         return took;
     }
+
+    /// Take the lock in code apart from the program's, uncounted: a
+    /// signal that comes while it is held finds the program counter
+    /// outside `preempt_section` and stops nothing, so long as no code
+    /// in the section runs before `unlockApart`. Only the scheduler's
+    /// own lists and the bodies of entries reached through a call never
+    /// inlined (`XApart`) take a lock so; test/cli/preempt_section.sh
+    /// checks that none lies in the section, and a safe build checks
+    /// where each runs (`mustNotBeInCode`).
+    pub inline fn lockApart(l: *SpinLock) void {
+        if (preempt and std.debug.runtime_safety) mustNotBeInCode(programCounter());
+        // Uncounted: apart from the program's code.
+        while (l.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) {
+            while (l.held.load(.monotonic)) std.atomic.spinLoopHint();
+        }
+    }
+
+    /// Let go a lock `lockApart` took.
+    pub inline fn unlockApart(l: *SpinLock) void {
+        l.held.store(false, .release);
+    }
 };
+
+/// The address of the instruction it is inlined at: in a program built
+/// to be preempted, which is built for x86-64 alone.
+inline fn programCounter() usize {
+    return asm volatile ("leaq (%%rip), %[at]"
+        : [at] "=r" (-> usize),
+    );
+}
 
 // -----------------------------------------------------------------------------
 // Deadlocks
@@ -3802,10 +3853,17 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
             const full: *@This() = @fieldParentPtr("job", j);
             std.heap.smp_allocator.destroy(full);
         }
+
+        /// `destroy` in a program built to be preempted: never inlined
+        /// into a task's waiter (`Job.free`), in the program's own code,
+        /// since Zig's allocator takes a lock of its own, uncounted.
+        noinline fn destroyApart(h: *Header) void {
+            destroy(h);
+        }
     };
     if (!started.*) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
-    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = Full.destroy } }, .extra = extra, .args = args };
+    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
     // An `Extra` that names its task's fiber is given it, for a cancel to
     // reach the fiber's wait (`interruptForCancel`), and one that records
     // its task somewhere does so before the task can run (`made`).

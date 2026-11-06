@@ -106,9 +106,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Preemption by signal** (#952, draft): a prototype behind
+- **Preemption by signal** (#952): a prototype behind
   `RIG_PREEMPT=signal`, off by default, for Linux x86-64
   ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
+  Its default-on round: each scheduler entry one call (#970, landed);
+  locks taken apart from the program's code go uncounted (step (c'),
+  [locks-2026-11-05.md](docs/history/records/2026-11/preempt/locks-2026-11-05.md)),
+  waiting on pup to measure.
   Waits on Trig's timing, option on against off, against the checks'
   ceiling (2.4% fewer cycles on ts-pattern); `bench/tasks` `hog` is
   100 times slower with it (question 1 of the record).
