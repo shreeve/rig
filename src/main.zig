@@ -941,7 +941,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const zig = env.zig();
     const verb = if (opts.command == .build) "build-exe" else "run";
     const flag = opts.mode.zigFlag();
-    const release = opts.mode.releaseFlags(env);
+    const release = try pkg.zigFlags(allocator, opts.mode, env);
     const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
     // The package's directory, and Zig's cache for building it, which
     // keeps each package's builds apart from every other package's.
@@ -975,9 +975,12 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     // A split build is linked from its units' objects, and `rig run`
     // runs the executable it writes beside the package.
     var run_argv: ?[]const []const u8 = null;
-    if (pkg.units > 1) {
+    if (pkg.units > 1 or pkg.keepsCodeApart()) {
         const exe = if (opts.command == .build) out else try std.fs.path.join(allocator, &.{ dir, "__rig_split" });
-        try buildSplit(allocator, io, env, opts.mode, dir, zig_cache, &pkg, exe);
+        if (pkg.units > 1)
+            try buildSplit(allocator, io, env, opts.mode, dir, zig_cache, &pkg, exe)
+        else
+            try buildApart(allocator, io, env, opts.mode, dir, zig_cache, &pkg, root_zig, exe);
         if (home) |h| recordSize(allocator, io, h, dir);
         if (opts.command == .build) {
             if (opts.mode != .debug) warnFrames(allocator, io, &graph, out);
@@ -1070,11 +1073,17 @@ fn splitCount(opts: Options, graph: *const modules.ModuleGraph) u16 {
 fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, dir: []const u8, zig_cache: []const u8, pkg: *const Package, exe: []const u8) !void {
     const zig = env.zig();
     const flag = mode.zigFlag();
-    const release = mode.releaseFlags(env);
+    const release = try pkg.zigFlags(allocator, mode, env);
     const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
     const objects = try allocator.alloc([]const u8, pkg.units);
     for (objects, 0..) |*o, k| o.* = try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.o", .{k}) });
-    const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, try std.fs.path.join(allocator, &.{ dir, "__rig_entry.zig" }) }, objects, libc });
+    // A program built to be preempted on arm64 macOS links its objects
+    // with their program sections kept apart (`keepCodeApart`).
+    const linked = if (!pkg.keepsCodeApart()) objects else try allocator.alloc([]const u8, pkg.units);
+    if (pkg.keepsCodeApart()) for (linked, 0..) |*o, k| {
+        o.* = try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}-apart.o", .{k}) });
+    };
+    const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, try std.fs.path.join(allocator, &.{ dir, "__rig_entry.zig" }) }, linked, libc });
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, link, pkg.files.items);
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return;
 
@@ -1105,12 +1114,78 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
         std.debug.print("{s}note: unit {d} of a split build failed; the emitted Zig is in {s}\n", .{ text, k, dir });
         std.process.exit(1);
     }
+    if (pkg.keepsCodeApart()) for (objects, linked) |object, apart| try keepCodeApart(allocator, io, object, apart);
     const code = try runZig(io, try std.mem.concat(allocator, []const u8, &.{ link, &.{try allocator.print("-femit-bin={s}", .{exe})} }));
     if (code != 0) {
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
         std.process.exit(code);
     }
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
+}
+
+/// Build a package built to be preempted on arm64 macOS into the
+/// executable `exe`: its root `root_zig` compiled to one object by `zig
+/// build-obj`, the object's program section kept apart
+/// (`keepCodeApart`), and the copy linked. An executable kept from the
+/// same package is copied instead (`keptBuild`).
+fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, dir: []const u8, zig_cache: []const u8, pkg: *const Package, root_zig: []const u8, exe: []const u8) !void {
+    const zig = env.zig();
+    const flag = mode.zigFlag();
+    const release = try pkg.zigFlags(allocator, mode, env);
+    const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
+    const object = try std.fs.path.join(allocator, &.{ dir, "__rig_program.o" });
+    const apart = try std.fs.path.join(allocator, &.{ dir, "__rig_program-apart.o" });
+    const compile = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", zig_cache, root_zig, try allocator.print("-femit-bin={s}", .{object}) }, libc });
+    const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, apart }, libc });
+    const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, try std.mem.concat(allocator, []const u8, &.{ compile, link }), pkg.files.items);
+    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return;
+    for ([_][]const []const u8{ compile, link }, 0..) |argv, step| {
+        if (step == 1) try keepCodeApart(allocator, io, object, apart);
+        const code = try runZig(io, if (step == 0) argv else try std.mem.concat(allocator, []const u8, &.{ argv, &.{try allocator.print("-femit-bin={s}", .{exe})} }));
+        if (code != 0) {
+            std.debug.print("note: emitted Zig is in {s}\n", .{dir});
+            std.process.exit(code);
+        }
+    }
+    if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
+}
+
+/// Copy the Mach-O object `object` to `apart` with its program section
+/// (`__TEXT,__rig_text`, `rig.preempt_section`) marked as holding no
+/// instructions. Zig's linker puts every section of instructions in
+/// `__TEXT,__text`, and one marked so in a section of its own, still in
+/// the segment of code: where the runtime finds the code a signal may
+/// stop a task in (`sched.findCode`). An object with no such section
+/// is copied as it is.
+fn keepCodeApart(allocator: std.mem.Allocator, io: std.Io, object: []const u8, apart: []const u8) !void {
+    const macho = std.macho;
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, object, allocator, .unlimited) catch |err|
+        fatal("error: cannot read `{s}`: {s}", .{ object, @errorName(err) });
+    const bad = "error: `{s}` is not a 64-bit Mach-O object";
+    if (bytes.len < @sizeOf(macho.mach_header_64)) fatal(bad, .{object});
+    const header = std.mem.bytesToValue(macho.mach_header_64, bytes[0..@sizeOf(macho.mach_header_64)]);
+    if (header.magic != macho.MH_MAGIC_64) fatal(bad, .{object});
+    var at: usize = @sizeOf(macho.mach_header_64);
+    for (0..header.ncmds) |_| {
+        if (at + @sizeOf(macho.load_command) > bytes.len) fatal(bad, .{object});
+        const lc = std.mem.bytesToValue(macho.load_command, bytes[at..][0..@sizeOf(macho.load_command)]);
+        if (lc.cmd == .SEGMENT_64) {
+            const seg = std.mem.bytesToValue(macho.segment_command_64, bytes[at..][0..@sizeOf(macho.segment_command_64)]);
+            var s = at + @sizeOf(macho.segment_command_64);
+            for (0..seg.nsects) |_| {
+                if (s + @sizeOf(macho.section_64) > bytes.len) fatal(bad, .{object});
+                const raw = bytes[s..][0..@sizeOf(macho.section_64)];
+                var sect = std.mem.bytesToValue(macho.section_64, raw);
+                if (eql(sect.segName(), "__TEXT") and eql(sect.sectName(), "__rig_text")) {
+                    sect.flags = macho.S_REGULAR;
+                    @memcpy(raw, std.mem.asBytes(&sect));
+                }
+                s += @sizeOf(macho.section_64);
+            }
+        }
+        at += lc.cmdsize;
+    }
+    try writeFile(io, apart, bytes);
 }
 
 /// Run the program `rig run` or `rig test` built, by `argv`, with
@@ -1758,6 +1833,24 @@ const Package = struct {
     links_libc: bool,
     /// How many units it is built as (`PackageKind.units`).
     units: u16 = 1,
+    /// It is built to be preempted (`RIG_PREEMPT=signal`).
+    preempting: bool = false,
+
+    /// The flags after the mode's for this package (`Mode.releaseFlags`),
+    /// and on arm64 macOS, for a package built to be preempted, x15
+    /// reserved: the register the preemption trampoline returns by
+    /// (`sched.preempt_built`).
+    fn zigFlags(pkg: *const Package, allocator: std.mem.Allocator, mode: Mode, env: Env) ![]const []const u8 {
+        if (!pkg.keepsCodeApart()) return mode.releaseFlags(env);
+        return std.mem.concat(allocator, []const u8, &.{ mode.releaseFlags(env), &.{"-mcpu=native+reserve_x15"} });
+    }
+
+    /// Whether it is built to be preempted on arm64 macOS: compiled to
+    /// objects whose program section `bin/rig` keeps apart before Zig
+    /// links them (`keepCodeApart`).
+    fn keepsCodeApart(pkg: *const Package) bool {
+        return pkg.preempting and builtin.os.tag == .macos and builtin.cpu.arch == .aarch64;
+    }
 };
 
 const PackageFile = struct { path: []const u8, contents: []const u8 };
@@ -1988,7 +2081,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try symbols.write(allocator, &out.writer, try symbols.collect(allocator, sources), runtime_import);
         try files.append(allocator, .{ .path = emit.symbols_filename, .contents = out.written() });
     }
-    return .{ .files = files, .root_source = root_source, .links_libc = links_libc, .units = kind.units };
+    return .{ .files = files, .root_source = root_source, .links_libc = links_libc, .units = kind.units, .preempting = preempting };
 }
 
 /// The root of each unit of a split build, `__rig_unit_K.zig`, the

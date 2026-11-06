@@ -107,6 +107,27 @@ sub main()
   print(>a + >b + >c, c4.get())
 RIG
 
+cat > spin.rig <<'RIG'
+use std.task
+
+fun setter(c: *Cell[Int]) -> Int
+  !c.add(1)
+  1
+
+fun waiter(c: *Cell[Int]) -> Int
+  spins = 0
+  while c.get() == 0
+    spins += 1
+  spins % 1
+
+sub main()
+  task.workers(1)
+  c = *Cell(0)
+  p = setter(+c)&
+  q = waiter(+c)&
+  print(>q, >p)
+RIG
+
 cat > plain.rig <<'RIG'
 use std.task
 
@@ -131,3 +152,16 @@ off=$("$RIG" run --release=fast plain.rig 2>&1) || fail "plain.rig without the o
 out=$(RIG_PREEMPT=signal "$RIG" run --release=fast plain.rig 2>err-plain.txt) || fail "plain.rig with the option: $out"
 expect_eq "$out" "$off" "plain.rig with RIG_PREEMPT=signal"
 ! grep -q "RIG_PREEMPT" err-plain.txt || fail "plain.rig makes no local task, but: $(cat err-plain.txt)"
+
+# A task that spins on the only worker, waiting for one queued behind it,
+# with no local task: where preemption is built (Linux x86-64, arm64
+# macOS), a signal stops it and the other runs, and the scheduler's
+# counts show a task preempted; elsewhere the yield checks hand over.
+off=$("$RIG" run --release=fast spin.rig 2>&1) || fail "spin.rig without the option: $off"
+expect_eq "$off" "0 1" "spin.rig without the option"
+on=$(RIG_PREEMPT=signal RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release=fast spin.rig 2>err-spin.txt) || fail "spin.rig with the option (timeout 60 s): $on $(cat err-spin.txt)"
+expect_eq "$on" "0 1" "spin.rig with RIG_PREEMPT=signal"
+case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64 | Darwin/arm64)
+        grep -q 'preempted [1-9]' err-spin.txt || fail "spin.rig: no task preempted: $(cat err-spin.txt)" ;;
+esac
