@@ -178,12 +178,16 @@ a bare number, and of `per:` of `task.supervise` and
   github_events 7.4%, twitter 6.5%), with minified input level
   ([records/2026-11/json/](docs/history/records/2026-11/json/indent-2026-11-05.md)).
 - A prototype, off by default: a program that makes tasks, built with
-  `RIG_PREEMPT=signal` for Linux x86-64 in an optimized build, has no
+  `RIG_PREEMPT=signal` for Linux x86-64 or arm64 macOS in an optimized
+  build, has no
   yield checks; a monitor thread stops a task that runs a slice while
   other work waits by a signal, only in the program's own code and
   while its worker holds no lock
   ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
-  A build without it is the same code as before.
+  A build without it is the same code as before. On the Mac, x15 is
+  reserved in such a build, and its frames in a panic's trace show no
+  source line
+  ([mac-port-2026-11-05.md](docs/history/records/2026-11/preempt/mac-port-2026-11-05.md)).
 
 ## v0.3.0 (2026-11-04)
 

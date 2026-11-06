@@ -495,9 +495,15 @@ fn hasOwnWork(w: *Worker) bool {
 /// a target whose signal context and trampoline are written here, and
 /// LLVM's backend, whose assembler takes the trampoline (Zig's own x86_64
 /// backend, which a debug build for Linux uses, takes neither `xsave`
-/// nor `ret $n`). Elsewhere a program built so keeps its yield checks.
-pub const preempt_built = builtin.os.tag == .linux and builtin.cpu.arch == .x86_64 and
-    builtin.zig_backend == .stage2_llvm;
+/// nor `ret $n`): Linux on x86-64, and macOS on arm64 with x15 reserved
+/// (`+reserve_x15`, which `bin/rig` passes), the register the trampoline
+/// returns by, since no arm64 instruction branches to an address in
+/// memory. Elsewhere a program built so keeps its yield checks.
+pub const preempt_built = builtin.zig_backend == .stage2_llvm and switch (builtin.cpu.arch) {
+    .x86_64 => builtin.os.tag == .linux,
+    .aarch64 => builtin.os.tag == .macos and std.Target.aarch64.featureSetHas(builtin.cpu.features, .reserve_x15),
+    else => false,
+};
 
 /// The section of the program's own code, the only code a signal stops a
 /// task in.
@@ -507,11 +513,35 @@ const preempt = rt.preempt;
 /// Whether the program is built to be preempted, for alloc.zig's locks.
 pub const preempting = preempt;
 
-/// The bounds of `preempt_section`, which the linker defines.
-/// Weak: a program all of whose code the optimizer inlined into the
-/// runtime's has no such section, and is never stopped.
-const code_start = if (preempt) @extern(?*const u8, .{ .name = "__start_rig_text", .linkage = .weak }) else {};
-const code_end = if (preempt) @extern(?*const u8, .{ .name = "__stop_rig_text", .linkage = .weak }) else {};
+/// The bounds of `preempt_section`: on ELF, the symbols the linker
+/// defines, weak, since a program all of whose code the optimizer inlined
+/// into the runtime's has no such section, and is never stopped; on
+/// Mach-O, whose linker defines none, the section's place in the loaded
+/// image, which `findCode` reads before any fiber runs.
+const code_start = if (preempt and !macho) @extern(?*const u8, .{ .name = "__start_rig_text", .linkage = .weak }) else {};
+const code_end = if (preempt and !macho) @extern(?*const u8, .{ .name = "__stop_rig_text", .linkage = .weak }) else {};
+const macho = builtin.object_format == .macho;
+var code_lo: usize = 0;
+var code_hi: usize = 0;
+
+inline fn inCode(pc: usize) bool {
+    if (macho) return pc >= code_lo and pc < code_hi;
+    return pc >= @intFromPtr(code_start) and pc < @intFromPtr(code_end);
+}
+
+extern "c" fn getsectiondata(header: *const anyopaque, segment: [*:0]const u8, section: [*:0]const u8, size: *c_ulong) ?[*]const u8;
+extern "c" fn _dyld_get_image_header(image: u32) ?*const anyopaque;
+
+/// Read where the loaded image holds `preempt_section`, on Mach-O: in
+/// the executable, dyld's first image.
+fn findCode() void {
+    if (!macho) return;
+    const header = _dyld_get_image_header(0) orelse return;
+    var size: c_ulong = 0;
+    const at = getsectiondata(header, "__TEXT", "__rig_text", &size) orelse return;
+    code_lo = @intFromPtr(at);
+    code_hi = code_lo + size;
+}
 
 /// What preemption keeps for each worker, beside its `Worker`, which
 /// stays as it is in a program not built to be preempted.
@@ -574,6 +604,7 @@ const preempt_signal: std.posix.SIG = .URG;
 const preempt_room = 32 << 10;
 
 fn installPreempt() void {
+    findCode();
     const act: std.posix.Sigaction = .{
         .handler = .{ .sigaction = onPreempt },
         .mask = std.posix.sigemptyset(),
@@ -588,6 +619,20 @@ fn installPreempt() void {
 const linux_rsp = 40 + 15 * 8;
 const linux_rip = 40 + 16 * 8;
 
+/// macOS arm64's `ucontext_t`: a pointer to its machine context at byte
+/// 48, whose registers x0-x28, fp, lr and sp start at byte 16 and whose
+/// pc follows them, at 272 (<sys/_types/_ucontext.h>,
+/// <mach/arm/_structs.h>). The target is arm64, not arm64e: the pc and
+/// sp there are plain addresses, unsigned.
+const darwin_mcontext = 48;
+const darwin_fp = 16 + 29 * 8;
+const darwin_sp = 16 + 31 * 8;
+const darwin_pc = 16 + 32 * 8;
+
+/// The red zone below the stack pointer, which the code a signal stops
+/// may use and the trampoline steps over: 128 bytes on both targets.
+const red_zone = 128;
+
 /// SIGURG: stop the running fiber where it is, if it is safe to, by
 /// making it call `preemptEntry`. Async-signal-safe: it reads this
 /// thread's worker and the fiber's stack bounds, and writes one word on
@@ -596,11 +641,12 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     const uc: [*]u8 = @ptrCast(ctx orelse return);
     const w = me_slot().* orelse return;
     const f = w.current orelse return;
-    const pc_at: *usize = @ptrCast(@alignCast(uc + linux_rip));
-    const sp_at: *usize = @ptrCast(@alignCast(uc + linux_rsp));
+    const regs: [*]u8 = if (macho) @as(*const [*]u8, @ptrCast(@alignCast(uc + darwin_mcontext))).* else uc;
+    const pc_at: *usize = @ptrCast(@alignCast(regs + if (macho) darwin_pc else linux_rip));
+    const sp_at: *usize = @ptrCast(@alignCast(regs + if (macho) darwin_sp else linux_rsp));
     const pc = pc_at.*;
     const sp = sp_at.*;
-    if (pc < @intFromPtr(code_start) or pc >= @intFromPtr(code_end)) {
+    if (!inCode(pc)) {
         preOf(w).outside += 1;
         return;
     }
@@ -616,8 +662,18 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
         preOf(w).cramped += 1;
         return;
     }
-    const ret = sp - 128 - 8;
-    @as(*usize, @ptrFromInt(ret)).* = pc;
+    // The stopped instruction's address below the red zone, as a call
+    // would leave it. On arm64, a frame record just below the stack
+    // pointer, the stopped frame pointer then the stopped pc, as if the
+    // stopped instruction had called the trampoline; the 16 bytes of the
+    // red zone it covers are kept in a slot below the red zone, which the
+    // trampoline puts back as it returns (`preemptEntryArm`).
+    const ret = sp - red_zone - if (builtin.cpu.arch == .aarch64) 16 else 8;
+    if (builtin.cpu.arch == .aarch64) {
+        const record: *[2]usize = @ptrFromInt(sp - 16);
+        @as(*[2]usize, @ptrFromInt(ret)).* = record.*;
+        record.* = .{ @as(*const usize, @ptrCast(@alignCast(regs + darwin_fp))).*, pc };
+    } else @as(*usize, @ptrFromInt(ret)).* = pc;
     sp_at.* = ret;
     pc_at.* = @intFromPtr(&preemptEntry);
 }
@@ -648,6 +704,14 @@ const vector_state: struct { size: usize, mask: u32, save: []const u8, restore: 
 /// boundary (its header zeroed, as `xrstor` needs), calls `preempted`,
 /// restores all of it, and returns past the red zone.
 fn preemptEntry() callconv(.naked) void {
+    switch (builtin.cpu.arch) {
+        .x86_64 => preemptEntryX86(),
+        .aarch64 => preemptEntryArm(),
+        else => comptime unreachable,
+    }
+}
+
+inline fn preemptEntryX86() void {
     const size = comptime std.mem.alignForward(usize, vector_state.size, 64);
     const header = if (vector_state.mask == 0) "" else std.fmt.comptimePrint(
         \\ movq $0, {0d}(%%rsp)
@@ -706,6 +770,105 @@ fn preemptEntry() callconv(.naked) void {
     );
 }
 
+/// The arm64 trampoline, entered with the stack pointer 144 bytes below
+/// where it was stopped, at the 16 bytes of the red zone the handler
+/// moved there, which a frame record replaced (`onPreempt`): the stopped
+/// frame pointer, then the stopped instruction's address. It saves the
+/// registers a call may change (x0-x17 but x15, x18 being Darwin's), the
+/// frame pointer and link register, the flags, the floating-point status
+/// and control, and all of q0-q31, points the frame pointer at the
+/// record, calls `preempted`, restores them and the red zone, and returns
+/// by x15, which code built to be preempted never uses (`+reserve_x15`).
+/// A walk of frame pointers, and one by its unwind information, goes on
+/// from it into the stopped code: its frame's canonical address is the
+/// stopped stack pointer, and its return address is the record's, in
+/// x15's column, so the stopped code's own link register stays its own.
+inline fn preemptEntryArm() void {
+    asm volatile (
+        \\ .cfi_def_cfa sp, 144
+        \\ .cfi_return_column x15
+        \\ .cfi_offset x15, -8
+        \\ .cfi_offset x29, -16
+        \\ sub sp, sp, #720
+        \\ .cfi_def_cfa_offset 864
+        \\ stp x0, x1, [sp, #0]
+        \\ stp x2, x3, [sp, #16]
+        \\ stp x4, x5, [sp, #32]
+        \\ stp x6, x7, [sp, #48]
+        \\ stp x8, x9, [sp, #64]
+        \\ stp x10, x11, [sp, #80]
+        \\ stp x12, x13, [sp, #96]
+        \\ stp x14, x16, [sp, #112]
+        \\ stp x17, x29, [sp, #128]
+        \\ str x30, [sp, #144]
+        \\ .cfi_offset x30, -720
+        \\ mrs x0, nzcv
+        \\ mrs x1, fpsr
+        \\ stp x0, x1, [sp, #152]
+        \\ mrs x0, fpcr
+        \\ str x0, [sp, #168]
+        \\ stp q0, q1, [sp, #176]
+        \\ stp q2, q3, [sp, #208]
+        \\ stp q4, q5, [sp, #240]
+        \\ stp q6, q7, [sp, #272]
+        \\ stp q8, q9, [sp, #304]
+        \\ stp q10, q11, [sp, #336]
+        \\ stp q12, q13, [sp, #368]
+        \\ stp q14, q15, [sp, #400]
+        \\ stp q16, q17, [sp, #432]
+        \\ stp q18, q19, [sp, #464]
+        \\ stp q20, q21, [sp, #496]
+        \\ stp q22, q23, [sp, #528]
+        \\ stp q24, q25, [sp, #560]
+        \\ stp q26, q27, [sp, #592]
+        \\ stp q28, q29, [sp, #624]
+        \\ stp q30, q31, [sp, #656]
+        \\ add x29, sp, #848
+        \\ bl %[f]
+        \\ ldp q0, q1, [sp, #176]
+        \\ ldp q2, q3, [sp, #208]
+        \\ ldp q4, q5, [sp, #240]
+        \\ ldp q6, q7, [sp, #272]
+        \\ ldp q8, q9, [sp, #304]
+        \\ ldp q10, q11, [sp, #336]
+        \\ ldp q12, q13, [sp, #368]
+        \\ ldp q14, q15, [sp, #400]
+        \\ ldp q16, q17, [sp, #432]
+        \\ ldp q18, q19, [sp, #464]
+        \\ ldp q20, q21, [sp, #496]
+        \\ ldp q22, q23, [sp, #528]
+        \\ ldp q24, q25, [sp, #560]
+        \\ ldp q26, q27, [sp, #592]
+        \\ ldp q28, q29, [sp, #624]
+        \\ ldp q30, q31, [sp, #656]
+        \\ ldr x0, [sp, #168]
+        \\ msr fpcr, x0
+        \\ ldp x0, x1, [sp, #152]
+        \\ msr nzcv, x0
+        \\ msr fpsr, x1
+        \\ ldr x30, [sp, #144]
+        \\ ldp x17, x29, [sp, #128]
+        \\ ldp x14, x16, [sp, #112]
+        \\ ldp x12, x13, [sp, #96]
+        \\ ldp x10, x11, [sp, #80]
+        \\ ldp x8, x9, [sp, #64]
+        \\ ldp x6, x7, [sp, #48]
+        \\ ldp x4, x5, [sp, #32]
+        \\ ldp x2, x3, [sp, #16]
+        \\ ldr x15, [sp, #856]
+        \\ ldr x0, [sp, #720]
+        \\ ldr x1, [sp, #728]
+        \\ str x0, [sp, #848]
+        \\ str x1, [sp, #856]
+        \\ ldp x0, x1, [sp, #0]
+        \\ add sp, sp, #864
+        \\ .cfi_def_cfa_offset 0
+        \\ br x15
+        :
+        : [f] "X" (&preemptedC),
+    );
+}
+
 fn preemptedC() callconv(.c) void {
     preempted();
 }
@@ -716,6 +879,8 @@ fn preemptedC() callconv(.c) void {
 /// one, go back in line behind it, in the global queue.
 fn preempted() void {
     const w = me() orelse return;
+    // A flag set once, not a lock: uncounted for preemption.
+    if (preempt_trace and !preempt_traced.swap(true, .monotonic)) std.debug.dumpCurrentStackTrace(.{ .allow_unsafe_unwind = true });
     serviceBusy(w);
     if (!hasOwnWork(w)) {
         if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
@@ -744,7 +909,7 @@ fn behind(f: *Fiber, _: ?*anyopaque) void {
 /// scheduler's code that reads its worker is never inlined there
 /// (`current`); a call that is panics, the first time it runs.
 fn mustNotBeInCode(ret: usize) void {
-    if (ret >= @intFromPtr(code_start) and ret < @intFromPtr(code_end)) {
+    if (inCode(ret)) {
         @branchHint(.cold);
         @panic("rig: the scheduler's code was inlined into the program's, where a signal may stop it");
     }
@@ -768,7 +933,13 @@ fn envUs(comptime name: []const u8, default: u32) i96 {
     return @as(i96, default) * std.time.ns_per_us;
 }
 
+/// `RIG_PREEMPT_TRACE=1`: the first fiber preempted prints the stack it
+/// was stopped on, from `preempted` through the trampoline.
+var preempt_trace = false;
+var preempt_traced: std.atomic.Value(bool) = .init(false);
+
 fn startMonitor() void {
+    if (rt.process.*) |p| preempt_trace = if (p.environ.getPosix("RIG_PREEMPT_TRACE")) |v| std.mem.eql(u8, v, "1") else false;
     installPreempt();
     const t = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
     t.detach();
@@ -844,8 +1015,13 @@ fn serviceDue(w: *Worker, now: i96) bool {
 }
 
 fn sleepNs(ns: i96) void {
-    const req: std.os.linux.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@mod(ns, std.time.ns_per_s)) };
-    _ = std.os.linux.nanosleep(&req, null);
+    if (builtin.os.tag == .linux) {
+        const req: std.os.linux.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@mod(ns, std.time.ns_per_s)) };
+        _ = std.os.linux.nanosleep(&req, null);
+    } else {
+        const req: std.c.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@mod(ns, std.time.ns_per_s)) };
+        _ = std.c.nanosleep(&req, null);
+    }
 }
 
 /// This thread, a worker, ends: once this returns the monitor no longer
@@ -3252,12 +3428,18 @@ pub const SpinLock = struct {
     }
 };
 
-/// The address of the instruction it is inlined at: in a program built
-/// to be preempted, which is built for x86-64 alone.
+/// The address of the instruction it is inlined at, in a program built
+/// to be preempted (x86-64 or arm64).
 inline fn programCounter() usize {
-    return asm volatile ("leaq (%%rip), %[at]"
-        : [at] "=r" (-> usize),
-    );
+    return switch (builtin.cpu.arch) {
+        .x86_64 => asm volatile ("leaq (%%rip), %[at]"
+            : [at] "=r" (-> usize),
+        ),
+        .aarch64 => asm volatile ("adr %[at], ."
+            : [at] "=r" (-> usize),
+        ),
+        else => 0,
+    };
 }
 
 // -----------------------------------------------------------------------------
