@@ -52,6 +52,7 @@ comptime {
         workers_asked,
         graph,
         preempt_states,
+        exit_state,
     };
 }
 
@@ -1649,6 +1650,10 @@ const Poller = struct {
     /// in the poller again while one waits, so the lock it lets go of
     /// when kicked goes to the remover.
     removers: std.atomic.Value(u32) = .init(0),
+    /// On the Mac in a release build: whether its worker waits in it,
+    /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
+    /// stops as it wakes, before it reads a single event (`tearDown`).
+    parked: std.atomic.Value(ExitClaim) = .init(.awake),
 
     const darwin = builtin.os.tag.isDarwin();
     const linux = builtin.os.tag == .linux;
@@ -1776,7 +1781,11 @@ const Poller = struct {
                 ts = .{ .sec = @intCast(@divTrunc(t, std.time.ns_per_s)), .nsec = @intCast(@mod(t, std.time.ns_per_s)) };
                 break :blk &ts;
             } else null;
+            // A wait, not a look: `os.exit` may claim this worker while it
+            // waits, and it then stops before it reads what woke it.
+            if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
             const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
+            if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
                 if (ev.udata == 0) {
@@ -2234,6 +2243,14 @@ const Pool = struct {
             _ = p.word.fetchAdd(1, .seq_cst);
             rt.io().futexWake(u32, &p.word.raw, 1);
         }
+    }
+
+    /// Whether no call is queued, running, or on its way back, and none a
+    /// waiter left is still out: every thread waits for a call. Under the
+    /// lock.
+    fn isIdle(p: *Pool) bool {
+        return p.head == null and p.queued == 0 and p.reserved == 0 and p.idle == p.threads and
+            p.finishing.load(.seq_cst) == 0 and p.left_calls.load(.seq_cst) == 0;
     }
 
     /// The next call, for a thread that waited for it when `waited`: it
@@ -2984,6 +3001,7 @@ fn workerMain(w: *Worker) void {
 /// is none, until `main` ends.
 fn loop(w: *Worker) void {
     while (!stopping.load(.acquire)) {
+        if (tears_down and exit_state.phase.load(.acquire) != .idle) stopForExit(w, false);
         if (deterministic.*) {
             const f = next(w) orelse {
                 advanceClock();
@@ -3202,7 +3220,7 @@ fn sleep(w: *Worker) void {
     w.idle.store(1, .seq_cst);
     defer w.idle.store(0, .seq_cst);
     sleepers.push(w);
-    if (stopping.load(.seq_cst)) {
+    if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
@@ -3287,6 +3305,242 @@ fn freeStacks(w: *Worker) void {
         std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(w.fresh_next))[0 .. span * w.fresh_left]);
     }
     w.fresh_left = 0;
+}
+
+// -----------------------------------------------------------------------------
+// The teardown at `os.exit`
+// -----------------------------------------------------------------------------
+//
+// On the Mac a process's exit is the kernel freeing its page-table pages,
+// about 13 µs each (one for each Table, each fiber stack touched, and
+// each 32 MiB of segments), and its resident pages, on one core. When
+// `os.exit` is called while every other worker can be stopped,
+// `tearDown` has them all unmap the program's memory in parallel first,
+// so the kernel is left little, and the process then ends as before.
+// The work stays in the process: its time, its CPU time, and its peak
+// are counted as before. The design and why it is sound:
+// docs/history/records/2026-11/exit/parallel-teardown.md.
+
+/// Whether `os.exit` tears down in parallel: release builds on the Mac.
+/// Linux's parallel unmapping is unmeasured, so it ends as before.
+const tears_down = builtin.os.tag.isDarwin() and builtin.optimize != .debug;
+
+const ExitPhase = enum(u32) { idle, gathering, go, plain };
+
+/// A worker's state in its poller (`Poller.parked`): awake, waiting in
+/// the system's call, or claimed there by `os.exit`. Whichever of the
+/// worker's swap as it wakes and `os.exit`'s compare-and-swap comes
+/// first decides: a worker claimed never handles what woke it.
+const ExitClaim = enum(u32) { awake, waiting, claimed };
+
+/// The teardown's state, on lines of its own: every worker's loop reads
+/// `phase` before it takes a fiber.
+const Exit = struct {
+    phase: std.atomic.Value(ExitPhase) align(std.atomic.cache_line) = .init(.idle),
+    /// Workers stopped for it: claimed in their pollers, or stopped at the
+    /// top of their loops (`stopForExit`).
+    stopped: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
+    /// The next piece to unmap, of `total`, and the pieces unmapped.
+    next: std.atomic.Value(u32) = .init(0),
+    finished: std.atomic.Value(u32) = .init(0),
+    total: u32 = 0,
+    /// Workers that take pieces, the caller first, up to `helpers`; when
+    /// the workers stopped (for `RIG_SCHED_STATS`).
+    helping: std.atomic.Value(u32) = .init(1),
+    helpers: u32 = 1,
+    stopped_at: i96 = 0,
+    /// The ranges, the bytes of each piece of each, and the first piece
+    /// of each.
+    ranges: [rt.fast_alloc.exit_ranges_max]rt.fast_alloc.ExitRange = undefined,
+    piece: [rt.fast_alloc.exit_ranges_max]usize = undefined,
+    first: [rt.fast_alloc.exit_ranges_max + 1]u32 = undefined,
+    count: usize = 0,
+};
+var exit_var: Exit = .{};
+const exit_state = split.cell(&exit_var, "sched.exit");
+
+/// How many threads unmap, the caller among them: on the Mac's kernel
+/// more than two gain little (Trig at 8 checkers: 4.6 ms on one, 3.2 on
+/// two, 3.3 on four, 3.1 on ten), and each more only spins on its locks.
+const exit_helpers = 4;
+
+/// Below this much kernel time to save, `os.exit` does not stop the
+/// workers: waking them costs tens of microseconds.
+const teardown_min_us = 400;
+
+/// How long `os.exit` waits for the other workers to stop before it ends
+/// the process as before.
+const exit_stop_wait: i96 = 2 * std.time.ns_per_ms;
+
+/// The address space one page-table page maps: 32 MiB with the Mac's
+/// 16 KiB pages (2048 entries of 8 bytes), 2 MiB with 4 KiB ones. Pieces
+/// unmapped apart are cut on its boundaries, so no two threads free the
+/// same page-table page.
+fn tableSpan() usize {
+    const page = std.heap.pageSize();
+    return page * (page / @sizeOf(usize));
+}
+
+/// Unmap `len` bytes at `start`, a range Rig mapped and never gave back,
+/// ignoring the result: a call that fails leaves the kernel the work.
+fn unmapForExit(start: usize, len: usize) void {
+    _ = std.c.munmap(@ptrFromInt(start), len);
+}
+
+/// `os.exit`, after it has flushed the output: on the Mac in a release
+/// build, unmap the program's segments, its Tables' regions and its free
+/// fiber stacks on every worker before the process ends, when every other
+/// worker can be stopped first; otherwise return at once. With
+/// `RIG_SCHED_STATS=1` set it says which it did.
+pub noinline fn tearDown() void {
+    if (!tears_down) return;
+    const stats = statsWanted();
+    const began = nowReal();
+    const why = tearDownAll();
+    if (!stats) return;
+    var buf: [128]u8 = undefined;
+    const line = (if (why) |reason|
+        std.fmt.bufPrint(&buf, "rig: exit: plain, {s}\n", .{reason})
+    else
+        std.fmt.bufPrint(&buf, "rig: exit: torn down on {d} of {d} workers, {d} pieces, in {d} us ({d} us to stop them)\n", .{ exit_state.helpers, workers.*.len, exit_state.total, @divTrunc(nowReal() - began, std.time.ns_per_us), @divTrunc(exit_state.stopped_at - began, std.time.ns_per_us) })) catch return;
+    _ = std.posix.system.write(2, line.ptr, line.len);
+}
+
+fn statsWanted() bool {
+    const p = rt.process.* orelse return false;
+    const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return false;
+    return std.mem.eql(u8, v, "1");
+}
+
+/// The teardown, or why not. Every range it unmaps is unmapped only once
+/// every other worker has stopped, never to run a fiber again, and the
+/// blocking pool is idle and held, so nothing but the kernel touches it
+/// again.
+fn tearDownAll() ?[]const u8 {
+    if (!started.* or deterministic.*) return "no workers";
+    const ws = workers.*;
+    if (ws.len < 2) return "one worker";
+    if (stopping.load(.seq_cst)) return "main has returned";
+    const w = me() orelse return "not on a worker";
+    const span = tableSpan();
+    const work = rt.fast_alloc.exitWork(span);
+    var stacks: usize = 0;
+    for (ws) |*v| stacks += @atomicLoad(u32, &v.free_count, .monotonic);
+    // About 13 µs a page-table page, and 8 µs a MiB of segments.
+    if (13 * (work.page_tables + stacks) + 8 * work.segment_mib < teardown_min_us) return "little to free";
+    if (othersRun(w, ws)) return "a task runs";
+    const ex = exit_state;
+    // No signal switches this fiber away from here on.
+    holdOff();
+    if (ex.phase.cmpxchgStrong(.idle, .gathering, .seq_cst, .seq_cst) != null) return "another exit";
+    // A worker waiting in its poller is claimed there and stops as it
+    // wakes; one awake stops at the top of its loop. Each is kicked, so
+    // it wakes to help.
+    var claimed: u32 = 0;
+    for (ws) |*v| if (v != w) {
+        if (v.poller.parked.cmpxchgStrong(.waiting, .claimed, .seq_cst, .seq_cst) == null) claimed += 1;
+        wakeWorker(v);
+    };
+    _ = ex.stopped.fetchAdd(claimed, .seq_cst);
+    const until = nowReal() + exit_stop_wait;
+    while (ex.stopped.load(.seq_cst) < ws.len - 1) {
+        if (othersRun(w, ws)) return giveUp("a task runs");
+        if (nowReal() > until) return giveUp("the workers did not stop");
+        std.atomic.spinLoopHint();
+    }
+    // No fiber can run now, so none can make a call: held for good, the
+    // pool's lock keeps its threads from taking one, or ending.
+    pool.lock.lock();
+    if (!pool.isIdle()) return giveUp("the pool is busy");
+    ex.stopped_at = nowReal();
+    ex.helpers = @intCast(@min(ws.len, exit_helpers));
+    plan(ex, span, ex.helpers);
+    ex.phase.store(.go, .seq_cst);
+    unmapShare(w, ex);
+    // The pieces others took. A worker past `helpers`, or claimed and not
+    // yet awake, takes none, and leaves its free stacks to the kernel.
+    while (ex.finished.load(.seq_cst) < ex.total) std.atomic.spinLoopHint();
+    return null;
+}
+
+/// Whether a worker other than `w` runs a fiber.
+fn othersRun(w: *Worker, ws: []Worker) bool {
+    for (ws) |*v| if (v != w and @atomicLoad(?*Fiber, &v.current, .seq_cst) != null) return true;
+    return false;
+}
+
+/// The workers that stopped sleep until the process ends.
+fn giveUp(why: []const u8) []const u8 {
+    exit_state.phase.store(.plain, .seq_cst);
+    return why;
+}
+
+/// A worker sees `os.exit` tearing down at the top of its loop, before
+/// it takes a fiber, or wakes in its poller claimed by it (`claimed`,
+/// counted stopped already): it stops, never to run a fiber again, does
+/// its share once told to, and sleeps until the process ends.
+noinline fn stopForExit(w: *Worker, claimed: bool) noreturn {
+    const ex = exit_state;
+    if (!claimed) _ = ex.stopped.fetchAdd(1, .seq_cst);
+    while (true) switch (ex.phase.load(.seq_cst)) {
+        .go => break,
+        .plain => sleepForever(),
+        else => std.atomic.spinLoopHint(),
+    };
+    // Past `helpers` more threads only contend for the kernel's locks.
+    if (ex.helping.fetchAdd(1, .monotonic) < ex.helpers) unmapShare(w, ex);
+    sleepForever();
+}
+
+fn sleepForever() noreturn {
+    while (true) sleepNs(std.time.ns_per_s);
+}
+
+/// Cut the ranges into pieces on page-table boundaries: the segments
+/// written, densely, a page-table page's span each; the rest, sparse,
+/// into about four pieces a worker in all.
+fn plan(ex: *Exit, span: usize, helpers: usize) void {
+    const got = rt.fast_alloc.exitRanges(&ex.ranges);
+    var sparse: usize = 0;
+    for (got.ranges[got.dense..]) |r| sparse += r.len;
+    const sparse_piece = @max(span, std.mem.alignForward(usize, sparse / (4 * helpers), span));
+    var total: u32 = 0;
+    for (got.ranges, 0..) |r, i| {
+        const piece = if (i < got.dense) span else sparse_piece;
+        ex.piece[i] = piece;
+        ex.first[i] = total;
+        // A multiple of the span, not always a power of two.
+        const lo = r.start - r.start % piece;
+        total += @intCast(std.math.divCeil(usize, r.start + r.len - lo, piece) catch unreachable);
+    }
+    ex.count = got.ranges.len;
+    ex.first[ex.count] = total;
+    ex.total = total;
+}
+
+/// A worker's share: the free stacks on its own list, whose links live in
+/// the stacks themselves, then pieces, as many as it takes before none
+/// are left.
+fn unmapShare(w: *Worker, ex: *Exit) void {
+    const stack_span = rt.task_guard + rt.task_stack_size + std.heap.pageSize();
+    while (w.free) |n| {
+        w.free = n.next;
+        unmapForExit(n.stack.base, stack_span);
+    }
+    w.free_count = 0;
+    while (true) {
+        const k = ex.next.fetchAdd(1, .monotonic);
+        if (k >= ex.total) return;
+        var i: usize = 0;
+        while (ex.first[i + 1] <= k) i += 1;
+        const r = ex.ranges[i];
+        const piece = ex.piece[i];
+        const at = r.start - r.start % piece + (k - ex.first[i]) * piece;
+        const lo = @max(at, r.start);
+        const hi = @min(at + piece, r.start + r.len);
+        unmapForExit(lo, hi - lo);
+        _ = ex.finished.fetchAdd(1, .seq_cst);
+    }
 }
 
 // -----------------------------------------------------------------------------
