@@ -1,0 +1,15 @@
+c=1 start->ctor 55.49 ms  ctor->exit 598.58 ms  exit->reaped 4.52 ms  total 658.58 ms  minflt 14501
+c=1 start->ctor 2.99 ms  ctor->exit 581.11 ms  exit->reaped 3.85 ms  total 587.95 ms  minflt 14503
+c=1 start->ctor 2.66 ms  ctor->exit 576.22 ms  exit->reaped 3.76 ms  total 582.65 ms  minflt 14503
+c=1 start->ctor 3.64 ms  ctor->exit 582.28 ms  exit->reaped 3.37 ms  total 589.28 ms  minflt 14503
+c=1 start->ctor 2.64 ms  ctor->exit 667.00 ms  exit->reaped 3.75 ms  total 673.39 ms  minflt 14503
+c=4 start->ctor 3.59 ms  ctor->exit 248.52 ms  exit->reaped 4.06 ms  total 256.17 ms  minflt 15998
+c=4 start->ctor 2.68 ms  ctor->exit 255.39 ms  exit->reaped 4.09 ms  total 262.16 ms  minflt 15912
+c=4 start->ctor 3.12 ms  ctor->exit 240.45 ms  exit->reaped 4.72 ms  total 248.29 ms  minflt 16030
+c=4 start->ctor 3.21 ms  ctor->exit 267.28 ms  exit->reaped 3.93 ms  total 274.43 ms  minflt 16022
+c=4 start->ctor 3.18 ms  ctor->exit 270.87 ms  exit->reaped 3.72 ms  total 277.77 ms  minflt 15939
+c=8 start->ctor 3.69 ms  ctor->exit 225.52 ms  exit->reaped 4.68 ms  total 233.88 ms  minflt 17248
+c=8 start->ctor 3.02 ms  ctor->exit 205.75 ms  exit->reaped 5.04 ms  total 213.81 ms  minflt 17306
+c=8 start->ctor 3.27 ms  ctor->exit 208.42 ms  exit->reaped 4.51 ms  total 216.20 ms  minflt 17299
+c=8 start->ctor 2.37 ms  ctor->exit 200.88 ms  exit->reaped 4.35 ms  total 207.61 ms  minflt 17290
+c=8 start->ctor 3.01 ms  ctor->exit 197.93 ms  exit->reaped 4.49 ms  total 205.44 ms  minflt 17261
