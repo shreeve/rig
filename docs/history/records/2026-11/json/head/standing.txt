@@ -1,0 +1,10 @@
+| file | bytes | rig-safe | rig-fast | yyjson | simdjson-dom |
+|---|---:|---:|---:|---:|---:|
+| twitter | 631514 | 4212 | 4131 | 5204 | 4458 |
+| twitterescaped | 562408 | 3277 | 3315 | 4044 | 1731 |
+| canada | 2251051 | 2179 | 2224 | 2123 | 1735 |
+| citm_catalog | 1727204 | 5493 | 5680 | 5520 | 5227 |
+| gsoc-2018 | 3327831 | 7776 | 7634 | 4691 | 5415 |
+| github_events | 65132 | 4856 | 4625 | 5383 | 4785 |
+
+MB/s, fastest of 20 interleaved runs of about 400 ms

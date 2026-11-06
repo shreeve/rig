@@ -175,6 +175,21 @@ a bare number, and of `per:` of `task.supervise` and
   the teardown unmaps; Linux, debug builds, and a return from `main`
   end as before
   ([records/2026-11/exit/](docs/history/records/2026-11/exit/parallel-teardown.md)).
+- `task.worker_count()` gives the number of workers tasks run on (one
+  per core, `RIG_WORKERS`, or what `task.workers(n)` set), before the
+  first task starts them or after; 1 in a deterministic run.
+- On the Mac a program built with `RIG_PREEMPT=signal` has `dsymutil`
+  write its `.dSYM` after the link, so a panic's trace shows the source
+  lines of the program's own frames; without Apple's command-line tools
+  a note says the lines are missing
+  ([mac-port-2026-11-05.md](docs/history/records/2026-11/preempt/mac-port-2026-11-05.md)).
+- std.json tests a string's first 8 bytes inline before scanning the
+  rest: 1.8-3.5% faster on the Mac on five files, canada level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/head-2026-11-06.md)).
+- std.json takes a key's `: ` at once when the value's first byte follows
+  it: 0.5-4.7% faster on the Mac on five files (citm_catalog 4.7%,
+  twitter 2.3%), canada level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/colon-2026-11-06.md)).
 - std.json parses a key after a comma inline, returns at once when a
   key's colon is followed by its value, and puts an integer of up to 18
   digits with no fraction or exponent on the tape as soon as its digits

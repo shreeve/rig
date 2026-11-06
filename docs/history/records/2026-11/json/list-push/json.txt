@@ -1,0 +1,10 @@
+| file | bytes | main | mainA | lp |
+|---|---:|---:|---:|---:|
+| twitter | 631514 | 4141 | 4157 | 4222 |
+| twitterescaped | 562408 | 3305 | 3310 | 3335 |
+| canada | 2251051 | 2212 | 2210 | 2198 |
+| citm_catalog | 1727204 | 5317 | 5287 | 5434 |
+| gsoc-2018 | 3327831 | 7771 | 7767 | 7541 |
+| github_events | 65132 | 4801 | 4801 | 4777 |
+
+MB/s, fastest of 20 interleaved runs of about 400 ms

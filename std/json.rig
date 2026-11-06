@@ -296,6 +296,7 @@ pub obj Doc
     # Most keys end at `:`, then the value's first byte, or `: ` and it.
     if end + 1 < src.len and src[end] == ':'
       return end + 1 if src[end + 1] > ' '
+      return end + 2 if src[end + 1] == ' ' and end + 2 < src.len and src[end + 2] > ' '
       return skip_space(src, end + 1)
     i = skip_space(src, end)
     return (!@).fail(.eof(at: i)) if i >= src.len
@@ -328,7 +329,7 @@ pub obj Doc
   # Parses the string whose opening quote is at `at`.
   fun scan_string(!@, src: ?String, at: Int) -> Int
     start = at + 1
-    i = skip_plain_ascii(src, start)
+    i = scan_head(src, start)
     # Most strings are plain ASCII and end at a quote: one read decides.
     if i >= 0 and i < src.len and src[i] == '"'
       return -1 if (!@).add_string(T_STR, start, i - start, at) < 0
@@ -759,6 +760,15 @@ ONES64: U64 = 0x0101010101010101
 # a backslash, a control byte, or a byte of 0x80 or more.
 fun special(v: Simd[U8, 16]) -> Simd[Bool, 16]
   (v == QUOTE) | (v == BACKSLASH) | (v < 0x20) | (v >= 0x80)
+
+# `skip_plain_ascii` with its first 8 bytes inline, where most strings
+# end: one U64's test, then the call only past them.
+inline fun scan_head(s: ?String, at: Int) -> Int
+  if at >= 0 and at + 8 <= s.len
+    m = special64(s.read[U64, .little](at))
+    return at + first_marked64(m) if m != 0
+    return skip_plain_ascii(s, at + 8)
+  skip_plain_ascii(s, at)
 
 # The index of the first byte from `at` on that is a quote, a
 # backslash, a control byte, or 0x80 or more, or `s.len`: the first

@@ -1672,6 +1672,27 @@ test "task.workers takes effect only before the first task", seeds: 20, '''
   print(task.workers(0))
   print(>t)
 
+test "task.worker_count gives what task.workers set, before and after the first task", "3 3"
+  use std.task
+  fun one() -> Int
+    1
+  _ = task.workers(3)
+  before = task.worker_count()
+  t = one()&
+  _ = >t
+  print(before, task.worker_count())
+
+test "task.worker_count is at least one, deterministic runs among them", seeds: 20, "true true"
+  # A deterministic run counts its one thread, so the number itself
+  # differs between the runs `seeds` compares.
+  use std.task
+  fun one() -> Int
+    1
+  before = task.worker_count()
+  t = one()&
+  _ = >t
+  print(before >= 1, task.worker_count() >= 1)
+
 test "task function value given", seeds: 20, "42 9 4"
   # A function value is a named function's address and holds nothing, so
   # it goes to a task on any core, alone or inside what is given or lent.
