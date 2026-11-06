@@ -204,4 +204,14 @@ sub main()
 RIG
     RIG_PREEMPT=signal RIG_NO_CRASH_REPORT=1 "$TIMEOUT_CMD" 120 "$RIG" run boom.rig >boom.out 2>&1 && fail "boom.rig did not panic: $(cat boom.out)"
     grep -qE '__rig_main\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in deep ' boom.out || fail "boom.rig: the trace has no line for deep: $(head -30 boom.out)"
+    # `dsymutil` runs once a link: the same build again copies the kept
+    # executable, whose `.dSYM` is still its own.
+    mkdir -p fake
+    printf '#!/bin/sh\necho "$@" >> %s/dsymutil.log\nexec %s "$@"\n' "$PWD" "$(command -v dsymutil)" > fake/dsymutil
+    chmod +x fake/dsymutil
+    for k in 1 2; do
+        PATH="$PWD/fake:$PATH" RIG_PREEMPT=signal "$RIG" build -o boom-bin boom.rig >/dev/null 2>&1 || fail "build $k of boom.rig"
+    done
+    expect_eq "$(wc -l < dsymutil.log | tr -d ' ')" "1" "dsymutil runs for two builds of one package"
+    [[ -d boom-bin.dSYM ]] || fail "boom-bin has no .dSYM"
 fi

@@ -1085,8 +1085,7 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     };
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, try std.fs.path.join(allocator, &.{ dir, "__rig_entry.zig" }) }, linked, libc });
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, link, pkg.files.items);
-    defer if (pkg.keepsCodeApart()) writeDsym(allocator, io, exe);
-    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return;
+    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.keepsCodeApart()) keepDsym(allocator, io, exe);
 
     Ending.watch();
     const children = try allocator.alloc(std.process.Child, pkg.units);
@@ -1121,6 +1120,7 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
         std.process.exit(code);
     }
+    if (pkg.keepsCodeApart()) writeDsym(allocator, io, exe);
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
 }
 
@@ -1139,8 +1139,7 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     const compile = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", zig_cache, root_zig, try allocator.print("-femit-bin={s}", .{object}) }, libc });
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, apart }, libc });
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, try std.mem.concat(allocator, []const u8, &.{ compile, link }), pkg.files.items);
-    defer writeDsym(allocator, io, exe);
-    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return;
+    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return keepDsym(allocator, io, exe);
     for ([_][]const []const u8{ compile, link }, 0..) |argv, step| {
         if (step == 1) try keepCodeApart(allocator, io, object, apart);
         const code = try runZig(io, if (step == 0) argv else try std.mem.concat(allocator, []const u8, &.{ argv, &.{try allocator.print("-femit-bin={s}", .{exe})} }));
@@ -1149,6 +1148,7 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
             std.process.exit(code);
         }
     }
+    writeDsym(allocator, io, exe);
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
 }
 
@@ -1159,6 +1159,34 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
 /// Apple's command-line tools, writes debug information that holds them,
 /// and the traces read a `.dSYM` beside the executable first. Without the
 /// tools a note says so once, and traces show those frames without lines.
+/// `writeDsym` for an executable copied from a kept build (`reuseBuild`):
+/// only when no `.dSYM` beside it is for the same image, by the Mach-O
+/// UUID the linker gave it, which the copy keeps.
+fn keepDsym(allocator: std.mem.Allocator, io: std.Io, exe: []const u8) void {
+    const dwarf = std.fmt.allocPrint(allocator, "{s}.dSYM/Contents/Resources/DWARF/{s}", .{ exe, std.fs.path.basename(exe) }) catch return writeDsym(allocator, io, exe);
+    const have = machoUuid(allocator, io, dwarf) orelse return writeDsym(allocator, io, exe);
+    const want = machoUuid(allocator, io, exe) orelse return writeDsym(allocator, io, exe);
+    if (!std.mem.eql(u8, &have, &want)) writeDsym(allocator, io, exe);
+}
+
+/// The UUID of the Mach-O file at `path` (`LC_UUID`), or null.
+fn machoUuid(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ?[16]u8 {
+    const macho = std.macho;
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1 << 32)) catch return null;
+    if (bytes.len < @sizeOf(macho.mach_header_64)) return null;
+    const header = std.mem.bytesToValue(macho.mach_header_64, bytes[0..@sizeOf(macho.mach_header_64)]);
+    if (header.magic != macho.MH_MAGIC_64) return null;
+    var at: usize = @sizeOf(macho.mach_header_64);
+    for (0..header.ncmds) |_| {
+        if (at + @sizeOf(macho.load_command) > bytes.len) return null;
+        const lc = std.mem.bytesToValue(macho.load_command, bytes[at..][0..@sizeOf(macho.load_command)]);
+        if (lc.cmd == .UUID and at + @sizeOf(macho.uuid_command) <= bytes.len)
+            return std.mem.bytesToValue(macho.uuid_command, bytes[at..][0..@sizeOf(macho.uuid_command)]).uuid;
+        at += lc.cmdsize;
+    }
+    return null;
+}
+
 fn writeDsym(allocator: std.mem.Allocator, io: std.Io, exe: []const u8) void {
     const r = std.process.run(allocator, io, .{
         .argv = &.{ "dsymutil", exe },
