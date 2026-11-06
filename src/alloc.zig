@@ -79,6 +79,9 @@ comptime {
         tables_asked_huge,
         thp_mode,
         node_for_test,
+        table_holes,
+        table_hole_count,
+        table_remap_fails_for_test,
         total_live,
         total_peak,
         total_allocs,
@@ -584,9 +587,10 @@ const Want = enum { huge, huge_again, small };
 /// `hugeFree`), or small pages.
 const Advice = enum { nothing, huge, huge_if_free, small };
 
-/// How Linux gives transparent huge pages, by
-/// /sys/kernel/mm/transparent_hugepage/`enabled` and `defrag`
-/// (`thpModeOf`), read once (`thpMode`).
+/// How Linux gives transparent huge pages of 2 MiB, by
+/// /sys/kernel/mm/transparent_hugepage/`enabled`,
+/// `hugepages-2048kB/enabled`, and `defrag` (`thpModeOf`), read once
+/// (`thpMode`).
 const Thp = packed struct(u8) {
     /// `enabled` is `never`: no range gets huge pages.
     off: bool = false,
@@ -629,11 +633,14 @@ fn adviceFor(mode: Thp, want: Want) Advice {
     };
 }
 
-/// The mode of the files `enabled` and `defrag` say, each the word in
-/// brackets among those it lists (`always [madvise] never`). A file that
-/// names none is taken as `madvise`.
-fn thpModeOf(enabled: []const u8, defrag: []const u8) Thp {
-    const e = chosenWord(enabled);
+/// The mode of the files `enabled`, `hugepages-2048kB/enabled`, and
+/// `defrag` say, each the word in brackets among those it lists
+/// (`always [madvise] never`). The second, where Linux has it (6.8 and
+/// later), is the mode of 2 MiB pages, unless it is `inherit`, the first's.
+/// A file that names none is taken as `madvise`.
+fn thpModeOf(enabled: []const u8, enabled_2m: []const u8, defrag: []const u8) Thp {
+    const own = chosenWord(enabled_2m);
+    const e = if (own.len == 0 or std.mem.eql(u8, own, "inherit")) chosenWord(enabled) else own;
     const d = chosenWord(defrag);
     return .{
         .off = std.mem.eql(u8, e, "never"),
@@ -665,9 +672,11 @@ fn thpMode() Thp {
 noinline fn readThpMode() Thp {
     @branchHint(.cold);
     var enabled: [128]u8 = undefined;
+    var enabled_2m: [128]u8 = undefined;
     var defrag: [128]u8 = undefined;
     const mode = thpModeOf(
         readSmallFile("/sys/kernel/mm/transparent_hugepage/enabled", &enabled),
+        readSmallFile("/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/enabled", &enabled_2m),
         readSmallFile("/sys/kernel/mm/transparent_hugepage/defrag", &defrag),
     );
     thp_mode.store(@bitCast(mode), .monotonic);
@@ -676,7 +685,7 @@ noinline fn readThpMode() Thp {
 
 /// Under the mode of `enabled` and `defrag` from now (a test's).
 fn useThpForTest(enabled: []const u8, defrag: []const u8) void {
-    thp_mode.store(@bitCast(thpModeOf(enabled, defrag)), .monotonic);
+    thp_mode.store(@bitCast(thpModeOf(enabled, "", defrag)), .monotonic);
 }
 
 /// What a file of /proc or /sys reads, as much as fits `buf`; "" if it
@@ -779,8 +788,10 @@ const reading_life_ns: u64 = 4 * std.time.ns_per_ms;
 /// 2^16 ns (about 65 microseconds) in the top 40 bits, which wrap every
 /// 2^56 ns, two years, so an age is taken in 40 bits (`time_mask`); the
 /// node whose blocks it counted, or `every_node`, in the next 8; its free
-/// blocks, at most `count_max`, in the low 16; or 0, none. One word, so a
-/// thread never pairs one reading's time with another's count.
+/// blocks, at most `count_max` (65,535, 128 GiB of them, far past every
+/// test, which a reading taken now answers uncapped), in the low 16; or
+/// 0, none. One word, so a thread never pairs one reading's time with
+/// another's count.
 var kept_reading_var: std.atomic.Value(u64) = .init(0);
 const kept_reading = split.cell(&kept_reading_var, "alloc.kept_reading");
 const count_bits = 16;
@@ -847,7 +858,9 @@ noinline fn freeHugeNow() Reading {
     @branchHint(.cold);
     if (builtin.os.tag != .linux) return .{ .blocks = 0, .node = every_node };
     // A line per zone of each node, about 100 bytes: a host of 10 nodes
-    // fits. A reading cut short counts fewer blocks, never more.
+    // fits. A reading cut short counts fewer blocks, never more: one that
+    // fills the buffer may have lost the asking node's lines, which then
+    // count none (`freeHugeBlocks`).
     var buf: [4096]u8 = undefined;
     const text = text: {
         if (comptime builtin.is_test) {
@@ -858,7 +871,7 @@ noinline fn freeHugeNow() Reading {
     };
     const node: ?usize = if (oneNode(text)) null else thisNode();
     const tag: u64 = if (node) |n| (if (n < every_node) n else every_node + 1) else every_node;
-    return .{ .blocks = freeHugeBlocks(text, node), .node = tag };
+    return .{ .blocks = freeHugeBlocks(text, node, text.len < buf.len), .node = tag };
 }
 
 /// The NUMA node of the CPU the thread runs on (`getcpu`), or null if
@@ -866,12 +879,13 @@ noinline fn freeHugeNow() Reading {
 fn thisNode() ?usize {
     if (comptime builtin.is_test) if (node_for_test.*) |n| return n;
     if (builtin.os.tag != .linux) return null;
-    var cpu: usize = 0;
-    var node: usize = 0;
-    const rc: isize = @bitCast(std.os.linux.getcpu(&cpu, &node));
+    // Linux writes an `unsigned int` for each, where Zig's `getcpu`
+    // names a `usize`.
+    var cpu: u32 = 0;
+    var node: u32 = 0;
+    const rc: isize = @bitCast(std.os.linux.syscall2(.getcpu, @intFromPtr(&cpu), @intFromPtr(&node)));
     if (rc < 0) return null;
-    // Linux writes an `unsigned int`.
-    return @as(u32, @truncate(node));
+    return node;
 }
 
 /// What a test reads in place of /proc/buddyinfo, the readings it has
@@ -903,9 +917,10 @@ fn useBuddyinfoForTest(text: ?[]const u8) void {
 /// from it. Only the lines of `node` count, as a fault takes its huge
 /// page from the node of the thread that faults, and compacts there
 /// before it looks at another; every node's count where `node` is null,
-/// or has no lines, a node with no memory of its own, whose faults take
-/// another's.
-fn freeHugeBlocks(text: []const u8, node: ?usize) usize {
+/// or has no lines in a `whole` reading, a node with no memory of its
+/// own, whose faults take another's. A reading that may have been cut
+/// short with no line of `node` counts none.
+fn freeHugeBlocks(text: []const u8, node: ?usize, whole: bool) usize {
     var all: usize = 0;
     var mine: usize = 0;
     var seen = false;
@@ -925,7 +940,7 @@ fn freeHugeBlocks(text: []const u8, node: ?usize) usize {
             if (ours) mine +|= blocks;
         }
     }
-    return if (seen) mine else all;
+    return if (seen) mine else if (node == null or whole) all else 0;
 }
 
 /// The node a line of /proc/buddyinfo is of (`Node N, zone ...`).
@@ -1191,6 +1206,18 @@ var table_free_var: [table_free_max]Range = undefined;
 const table_free = split.cell(&table_free_var, "alloc.table_free");
 var table_free_count_var: usize = 0;
 const table_free_count = split.cell(&table_free_count_var, "alloc.table_free_count");
+/// The ranges of dropped Tables that could be neither mapped afresh nor
+/// filled (`loseTableRange`): addresses inside a region that are not the
+/// Tables'.
+const table_holes_max = 16;
+var table_holes_var: [table_holes_max]Range = undefined;
+const table_holes = split.cell(&table_holes_var, "alloc.table_holes");
+var table_hole_count_var: usize = 0;
+const table_hole_count = split.cell(&table_hole_count_var, "alloc.table_hole_count");
+/// How a test makes mapping a range afresh fail: not, leaving a hole
+/// that can be filled, or leaving one that cannot.
+var table_remap_fails_for_test_var: enum { no, remap, and_plug } = .no;
+const table_remap_fails_for_test = split.cell(&table_remap_fails_for_test_var, "alloc.table_remap_fails_for_test");
 /// Whether any range has asked for huge pages, so a range given back is
 /// advised for small pages again before the next Table takes it.
 var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
@@ -1235,14 +1262,15 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     tables_lock.lock();
     var mine = false;
     for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
+    for (table_holes[0..table_hole_count.*]) |r| mine = mine and !(r.start <= at and at < r.start + r.len);
     tables_lock.unlock();
     if (!mine) return false;
     const range: [*]align(huge_page) u8 = @alignCast(p);
     if (adviceFor(thpMode(), .small) == .small) {
-        _ = std.posix.mmap(range, len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true, .FIXED = true }, -1, 0) catch {
-            std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
+        if (!mapTableRangeAfresh(range, len)) {
+            loseTableRange(range, len);
             return true;
-        };
+        }
     } else {
         std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
         if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
@@ -1251,6 +1279,51 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     giveTableRange(at, len);
     tables_lock.unlock();
     return true;
+}
+
+/// Map the `len` bytes at `range` afresh (`MAP_FIXED`), which gives its
+/// pages back and leaves it asking for nothing. False if Linux could
+/// not; one before 6.12 may then have unmapped the range and mapped
+/// nothing in its place.
+fn mapTableRangeAfresh(range: [*]align(huge_page) u8, len: usize) bool {
+    if (comptime builtin.is_test) if (table_remap_fails_for_test.* != .no) {
+        // As such a Linux may fail: the old mapping gone, no new one.
+        std.posix.munmap(range[0..len]);
+        return false;
+    };
+    _ = std.posix.mmap(range, len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true, .FIXED = true }, -1, 0) catch return false;
+    return true;
+}
+
+/// Set aside the range of a Table that could not be mapped afresh: its
+/// pages go back to the system, and it is never handed out again. So
+/// that nothing the system maps later lands inside a region, where a
+/// Table given back would be taken for one of the region's, a hole it
+/// may have left is filled by a mapping no access may touch
+/// (`PROT_NONE`, `MAP_FIXED_NOREPLACE`, which fails where anything is
+/// mapped). A range that cannot be filled so is kept as a hole
+/// (`table_holes`), which `unreserveTable` takes for no Table's; past
+/// `table_holes_max` of them the program panics rather than risk it.
+fn loseTableRange(range: [*]align(huge_page) u8, len: usize) void {
+    @branchHint(.cold);
+    std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
+    if (plugTableRange(range, len)) return;
+    tables_lock.lock();
+    defer tables_lock.unlock();
+    if (table_hole_count.* == table_holes_max) @panic("rig: the system could not take back the ranges of dropped tables");
+    table_holes[table_hole_count.*] = .{ .start = @intFromPtr(range), .len = len };
+    table_hole_count.* += 1;
+}
+
+/// Fill the `len` bytes at `range` with a mapping no access may touch.
+/// False if any of it is mapped already, or Linux could not.
+fn plugTableRange(range: [*]align(huge_page) u8, len: usize) bool {
+    if (comptime builtin.is_test) if (table_remap_fails_for_test.* == .and_plug) return false;
+    const got = std.posix.mmap(range, len, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true, .FIXED_NOREPLACE = true }, -1, 0) catch return false;
+    if (@intFromPtr(got.ptr) == @intFromPtr(range)) return true;
+    // A Linux before 4.17 takes the address as a hint and maps elsewhere.
+    std.posix.munmap(got);
+    return false;
 }
 
 /// `len` bytes of the Tables' address space: the smallest free range
@@ -1751,9 +1824,10 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     // A block that grows to `huge_large` asks for huge pages, as one
     // taken afresh does, and one that grows to `huge_page` for small ones.
     // The range keeps the advice of the block it grew from, so one that
-    // grows from `huge_page` asks again (`huge_again`).
+    // grows from a block that asked for small pages asks again
+    // (`huge_again`).
     if (to != 0) {
-        ask(rc, new_size, if (old_size >= huge_page) .huge_again else .huge);
+        ask(rc, new_size, if (old_size >= huge_page and old_size < huge_large) .huge_again else .huge);
     } else if (new_size >= huge_page and old_size < huge_page) {
         ask(rc, new_size, .small);
     }
@@ -2130,9 +2204,9 @@ const buddyinfo_fragmented =
 ;
 
 test "free 2 MiB blocks are counted from orders 9 and up, an order-10 block as two, outside the DMA zone" {
-    try std.testing.expectEqual(@as(usize, 3 + 300 + 16), freeHugeBlocks(buddyinfo_plenty, null));
-    try std.testing.expectEqual(@as(usize, 2), freeHugeBlocks(buddyinfo_fragmented, null));
-    try std.testing.expectEqual(@as(usize, 0), freeHugeBlocks("", null));
+    try std.testing.expectEqual(@as(usize, 3 + 300 + 16), freeHugeBlocks(buddyinfo_plenty, null, true));
+    try std.testing.expectEqual(@as(usize, 2), freeHugeBlocks(buddyinfo_fragmented, null, true));
+    try std.testing.expectEqual(@as(usize, 0), freeHugeBlocks("", null, true));
 }
 
 /// Readings of /proc/buddyinfo for the tests: a quiet host's idle level
@@ -2152,8 +2226,8 @@ const buddyinfo_partly =
 
 test "on Linux a Table asks for huge pages with 100 free 2 MiB blocks, a quiet host's idle level, and not with 55, memory partly fragmented" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 100), freeHugeBlocks(buddyinfo_idle, null));
-    try std.testing.expectEqual(@as(usize, 55), freeHugeBlocks(buddyinfo_partly, null));
+    try std.testing.expectEqual(@as(usize, 100), freeHugeBlocks(buddyinfo_idle, null, true));
+    try std.testing.expectEqual(@as(usize, 55), freeHugeBlocks(buddyinfo_partly, null, true));
     defer useBuddyinfoForTest(null);
     useBuddyinfoForTest(buddyinfo_idle);
     try std.testing.expect(hugeFree());
@@ -2172,7 +2246,7 @@ const buddyinfo_low =
 
 test "on Linux a new segment or large block asks for huge pages while free 2 MiB blocks number its own and 8 more, where a Table asks for none" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 17), freeHugeBlocks(buddyinfo_low, null));
+    try std.testing.expectEqual(@as(usize, 17), freeHugeBlocks(buddyinfo_low, null, true));
     useBuddyinfoForTest(buddyinfo_low);
     defer useBuddyinfoForTest(null);
     try std.testing.expect(!hugeFree());
@@ -2351,51 +2425,58 @@ fn thpDefragForTest(comptime mode: []const u8) []const u8 {
 }
 
 test "the mode for huge pages is the word in brackets of `enabled` and `defrag`, and files that name none read as `madvise`" {
-    const pup = thpModeOf(thp_enabled_madvise, thpDefragForTest("madvise"));
+    const pup = thpModeOf(thp_enabled_madvise, "", thpDefragForTest("madvise"));
     try std.testing.expect(!pup.off and !pup.by_default and pup.advice_stalls);
-    const always = thpModeOf(thp_enabled_always, thpDefragForTest("madvise"));
+    const always = thpModeOf(thp_enabled_always, "", thpDefragForTest("madvise"));
     try std.testing.expect(!always.off and always.by_default and always.advice_stalls);
-    try std.testing.expect(thpModeOf(thp_enabled_never, thpDefragForTest("madvise")).off);
-    inline for ([_][]const u8{ "always", "madvise", "defer+madvise" }) |d| try std.testing.expect(thpModeOf(thp_enabled_madvise, thpDefragForTest(d)).advice_stalls);
-    try std.testing.expect(!thpModeOf(thp_enabled_madvise, thpDefragForTest("defer")).advice_stalls);
-    try std.testing.expect(!thpModeOf(thp_enabled_madvise, thpDefragForTest("never")).advice_stalls);
+    try std.testing.expect(thpModeOf(thp_enabled_never, "", thpDefragForTest("madvise")).off);
+    inline for ([_][]const u8{ "always", "madvise", "defer+madvise" }) |d| try std.testing.expect(thpModeOf(thp_enabled_madvise, "", thpDefragForTest(d)).advice_stalls);
+    try std.testing.expect(!thpModeOf(thp_enabled_madvise, "", thpDefragForTest("defer")).advice_stalls);
+    try std.testing.expect(!thpModeOf(thp_enabled_madvise, "", thpDefragForTest("never")).advice_stalls);
     // A host with no transparent huge pages, or that hides /sys, has no
     // files to read.
-    try std.testing.expectEqual(pup, thpModeOf("", ""));
-    try std.testing.expectEqual(pup, thpModeOf("[madvise", "madvise]"));
+    try std.testing.expectEqual(pup, thpModeOf("", "", ""));
+    try std.testing.expectEqual(pup, thpModeOf("[madvise", "", "madvise]"));
+    // The mode of 2 MiB pages, where Linux has its file, is its own
+    // unless it is `inherit`.
+    const inherit = "always [inherit] madvise never\n";
+    try std.testing.expectEqual(pup, thpModeOf(thp_enabled_madvise, inherit, thpDefragForTest("madvise")));
+    try std.testing.expect(thpModeOf(thp_enabled_madvise, "always inherit madvise [never]\n", thpDefragForTest("madvise")).off);
+    try std.testing.expect(thpModeOf(thp_enabled_never, "[always] inherit madvise never\n", thpDefragForTest("madvise")).by_default);
+    try std.testing.expectEqual(always, thpModeOf(thp_enabled_always, inherit, thpDefragForTest("madvise")));
     // A mode is never 0, which `thp_mode` keeps for unread.
-    try std.testing.expect(@as(u8, @bitCast(thpModeOf(thp_enabled_never, thpDefragForTest("never")))) != 0);
+    try std.testing.expect(@as(u8, @bitCast(thpModeOf(thp_enabled_never, "", thpDefragForTest("never")))) != 0);
 }
 
 test "a range asks for huge pages under `madvise`, with the test only where a fault would compact; asks for small ones only under `always`; and asks for nothing under `never`" {
     const huge, const again, const small = .{ Want.huge, Want.huge_again, Want.small };
     // pup's mode: as before the mode was read.
     inline for ([_][]const u8{ "madvise", "defer+madvise", "always" }) |d| {
-        const m = thpModeOf(thp_enabled_madvise, thpDefragForTest(d));
+        const m = thpModeOf(thp_enabled_madvise, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.huge_if_free, adviceFor(m, huge));
         try std.testing.expectEqual(Advice.huge_if_free, adviceFor(m, again));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "defer", "never" }) |d| {
-        const m = thpModeOf(thp_enabled_madvise, thpDefragForTest(d));
+        const m = thpModeOf(thp_enabled_madvise, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.huge, adviceFor(m, huge));
         try std.testing.expectEqual(Advice.huge, adviceFor(m, again));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "madvise", "defer+madvise", "always" }) |d| {
-        const m = thpModeOf(thp_enabled_always, thpDefragForTest(d));
+        const m = thpModeOf(thp_enabled_always, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, huge));
         try std.testing.expectEqual(Advice.huge_if_free, adviceFor(m, again));
         try std.testing.expectEqual(Advice.small, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "defer", "never" }) |d| {
-        const m = thpModeOf(thp_enabled_always, thpDefragForTest(d));
+        const m = thpModeOf(thp_enabled_always, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, huge));
         try std.testing.expectEqual(Advice.huge, adviceFor(m, again));
         try std.testing.expectEqual(Advice.small, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "always", "defer", "defer+madvise", "madvise", "never" }) |d| {
-        const m = thpModeOf(thp_enabled_never, thpDefragForTest(d));
+        const m = thpModeOf(thp_enabled_never, "", thpDefragForTest(d));
         for ([_]Want{ huge, again, small }) |w| try std.testing.expectEqual(Advice.nothing, adviceFor(m, w));
     }
 }
@@ -2412,13 +2493,19 @@ const buddyinfo_two_nodes =
 ;
 
 test "free 2 MiB blocks are counted on the asking thread's node only, and on every node where the node is not known or has no memory" {
-    try std.testing.expectEqual(@as(usize, 10), freeHugeBlocks(buddyinfo_two_nodes, 0));
-    try std.testing.expectEqual(@as(usize, 300), freeHugeBlocks(buddyinfo_two_nodes, 1));
-    try std.testing.expectEqual(@as(usize, 310), freeHugeBlocks(buddyinfo_two_nodes, null));
-    try std.testing.expectEqual(@as(usize, 310), freeHugeBlocks(buddyinfo_two_nodes, 2));
+    try std.testing.expectEqual(@as(usize, 10), freeHugeBlocks(buddyinfo_two_nodes, 0, true));
+    try std.testing.expectEqual(@as(usize, 300), freeHugeBlocks(buddyinfo_two_nodes, 1, true));
+    try std.testing.expectEqual(@as(usize, 310), freeHugeBlocks(buddyinfo_two_nodes, null, true));
+    try std.testing.expectEqual(@as(usize, 310), freeHugeBlocks(buddyinfo_two_nodes, 2, true));
     // A host of one node counts the same, whichever node is asked.
-    try std.testing.expectEqual(@as(usize, 319), freeHugeBlocks(buddyinfo_plenty, 0));
-    try std.testing.expectEqual(@as(usize, 319), freeHugeBlocks(buddyinfo_plenty, 1));
+    try std.testing.expectEqual(@as(usize, 319), freeHugeBlocks(buddyinfo_plenty, 0, true));
+    try std.testing.expectEqual(@as(usize, 319), freeHugeBlocks(buddyinfo_plenty, 1, true));
+    // A reading that may be cut short, with no line of the node asked,
+    // counts none, not the other nodes'.
+    const cut = buddyinfo_two_nodes[0..std.mem.indexOf(u8, buddyinfo_two_nodes, "Node 1").?];
+    try std.testing.expectEqual(@as(usize, 0), freeHugeBlocks(cut, 1, false));
+    try std.testing.expectEqual(@as(usize, 10), freeHugeBlocks(cut, 0, false));
+    try std.testing.expectEqual(@as(usize, 0), freeHugeBlocks(buddyinfo_two_nodes, 2, false));
     try std.testing.expect(!oneNode(buddyinfo_two_nodes));
     try std.testing.expect(oneNode(buddyinfo_plenty));
     try std.testing.expect(oneNode(""));
@@ -2542,23 +2629,24 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     trimAllForTest(&h);
     try std.testing.expectEqual(before, buddyinfo_reads.*);
     // A Table's first 2 MiB ask for small pages. Given back, its range is
-    // mapped afresh, asks for nothing, and reads zeros for the next.
+    // mapped afresh: it asks for nothing, and its pages are back with
+    // the system, so it reads zeros.
     const t = reserveTable(24 * mib).?;
-    const u = reserveTable(4 * mib).?;
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(t)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     @memset(t[0 .. 24 * mib], 7);
     try std.testing.expect(unreserveTable(t, 24 * mib));
-    try std.testing.expect(!try advisedSmallForTest(@intFromPtr(t)));
     try std.testing.expectEqual(@as(usize, 0), try residentForTest(t, 8 * mib));
+    for ([_]usize{ 0, 2 * mib, 23 * mib }) |off| {
+        try std.testing.expect(!try advisedSmallForTest(@intFromPtr(t) + off));
+        try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + off));
+    }
+    for (t[0 .. 24 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    // The next Table, wherever it is placed, asks the same.
     const v = reserveTable(24 * mib).?;
-    try std.testing.expectEqual(t, v);
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(v)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(v) + 2 * mib));
-    try std.testing.expect(!try advisedSmallForTest(@intFromPtr(v) + 2 * mib));
-    for (v[0 .. 24 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
     try std.testing.expect(unreserveTable(v, 24 * mib));
-    try std.testing.expect(unreserveTable(u, 4 * mib));
     try std.testing.expectEqual(before, buddyinfo_reads.*);
     // A block of 8 MiB grown to 32 MiB asks again for huge pages, while
     // free blocks are there for them, as only asking undoes its advice.
@@ -2569,6 +2657,43 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(g.ptr)));
     try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
     allocator.free(g);
+}
+
+test "on Linux under `always` a Table's range that cannot be mapped afresh is filled with a mapping no access touches, or kept as a hole no Table is taken from, and is never handed out again" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    useThpForTest(thp_enabled_always, thpDefragForTest("madvise"));
+    defer table_remap_fails_for_test.* = .no;
+    const mib: usize = 1 << 20;
+    // The mapping afresh fails and leaves a hole, which is filled.
+    table_remap_fails_for_test.* = .remap;
+    const t = reserveTable(4 * mib).?;
+    @memset(t[0 .. 4 * mib], 7);
+    const holes = table_hole_count.*;
+    try std.testing.expect(unreserveTable(t, 4 * mib));
+    try std.testing.expect(!try vmFlagForTest(@intFromPtr(t), "rd"));
+    try std.testing.expect(!try vmFlagForTest(@intFromPtr(t) + 4 * mib - 1, "wr"));
+    try std.testing.expectEqual(holes, table_hole_count.*);
+    // Neither filling it can: the hole is kept, and a mapping the system
+    // later puts there is not taken for a Table's.
+    table_remap_fails_for_test.* = .and_plug;
+    const u = reserveTable(4 * mib).?;
+    try std.testing.expect(u != t);
+    try std.testing.expect(unreserveTable(u, 4 * mib));
+    try std.testing.expectEqual(holes + 1, table_hole_count.*);
+    // The hole is empty: a mapping that may not replace another fits.
+    const other = try std.posix.mmap(u, 4096, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED_NOREPLACE = true }, -1, 0);
+    defer std.posix.munmap(other);
+    try std.testing.expect(!unreserveTable(other.ptr, other.len));
+    // Neither range is handed out again.
+    table_remap_fails_for_test.* = .no;
+    var got: [4][*]u8 = undefined;
+    for (&got) |*g| {
+        g.* = reserveTable(4 * mib).?;
+        try std.testing.expect(g.* != t and g.* != u);
+    }
+    for (got) |g| try std.testing.expect(unreserveTable(g, 4 * mib));
 }
 
 /// The bytes of the `len` at `p` resident in memory (`mincore`).

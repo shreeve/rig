@@ -173,7 +173,8 @@ a bare number, and of `per:` of `task.supervise` and
   16 MiB, a Table's first 2 MiB) asks for small ones; under `never` it
   asks for nothing and reads nothing. The test counts only the free
   2 MiB blocks of the asking thread's NUMA node, so a host of two
-  sockets no longer asks on another node's blocks. A host of one node
+  sockets no longer asks on another node's blocks, and a reading cut
+  short before that node's lines counts none. A host of one node
   under `madvise`, as pup, behaves as before
   ([records/2026-11/huge-pages/gate-modes.md](docs/history/records/2026-11/huge-pages/gate-modes.md)).
 - A task that makes tasks keeps its worker while idle workers take what

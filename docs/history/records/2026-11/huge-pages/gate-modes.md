@@ -21,7 +21,9 @@ finds no free 2 MiB block compacts in the fault. By `defrag`:
 | `never` | takes a free block or none | takes a free block or none |
 
 Whether a range that did not ask gets huge pages at all is `enabled`:
-`always` yes, `madvise` no, `never` no range does.
+`always` yes, `madvise` no, `never` no range does. From Linux 6.8,
+`hugepages-2048kB/enabled` sets it for 2 MiB pages alone, unless it says
+`inherit`, its default; the allocator reads it where it exists.
 
 So the test in front of every request (`hugeFree`, `hugeFreeFor`) is
 needed only where asking turns a fault into a compacting one, and asking
@@ -42,10 +44,12 @@ request by one table (`adviceFor`):
 | huge, a range that may have said small | nothing | ask behind the test | ask, no test | ask behind the test | ask, no test |
 | small | nothing | nothing (as before) | nothing | `MADV_NOHUGEPAGE` | `MADV_NOHUGEPAGE` |
 
-"Ask again" is for a large block that `mremap` grows to 16 MiB from
-2 MiB or more: the range keeps the advice of the block it grew from, and
-madvise has no advice that clears `MADV_NOHUGEPAGE`, so only asking for
-huge pages undoes it. A file that cannot be read, or names no mode, is
+"Ask again" is for a large block that `mremap` grows to 16 MiB from a
+block of 2 to 16 MiB, which asked for small pages: the range keeps the
+advice of the block it grew from, and madvise has no advice that clears
+`MADV_NOHUGEPAGE`, so only asking for huge pages undoes it. A block of
+16 MiB or more asked for nothing, and grown asks for nothing again, so
+its faults do not compact. A file that cannot be read, or names no mode, is
 taken as `madvise`/`madvise`, today's behavior.
 
 Where the decision is applied:
@@ -58,9 +62,15 @@ Where the decision is applied:
 - a reserved Table: under `always` its region is left unadvised, its
   first 2 MiB ask for small pages, and a dropped Table's range is
   mapped afresh with `MAP_FIXED`, which gives its pages back and leaves
-  it unadvised; a range that cannot be mapped afresh has its pages
-  given back and is not used again (`reserveTable`, `unreserveTable`,
-  `newTableRegion`). Under `madvise` and `never` the region keeps its
+  it unadvised (`reserveTable`, `unreserveTable`, `newTableRegion`).
+  Before Linux 6.12 a `MAP_FIXED` that fails may leave the range
+  unmapped, a hole inside the region's bounds where the system could
+  later put any mapping, which `unreserveTable` would then take for a
+  Table's. So a range that cannot be mapped afresh is never handed out
+  again: it is filled with a `PROT_NONE` mapping by
+  `MAP_FIXED_NOREPLACE`, and if that fails too it is kept in a list of
+  16 holes that `unreserveTable` takes for no Table's; past 16 the
+  program panics (`loseTableRange`). Under `madvise` and `never` the region keeps its
   one `MADV_NOHUGEPAGE`, as before, so ranges given back merge with it;
 - `table.zig`'s own mapping (a debug build's, or a Table the region
   cannot place) asks by `hugeFree`, which holds under `madvise` alone;
@@ -80,9 +90,12 @@ test while every fault compacted locally. The count is now of the lines
 of the node `getcpu` names; every node's where the reading has one node
 (no `getcpu` call, so a one-node host behaves as before), where `getcpu`
 fails, or where the node has no lines (a node with no memory, whose
-faults take another's). The kept reading, which answers the test for
-4 ms, carries the node it counted in 8 bits taken from its count (now
-at most 65,535 blocks, 128 GiB, far past every threshold); a kept
+faults take another's). A reading that fills its 4 KiB buffer, about 30
+nodes or more, may have lost the node's lines: then it counts none,
+never the other nodes'. The kept reading, which answers the test for
+4 ms, carries the node it counted in 8 bits taken from its count, so
+the kept count caps at 65,535 blocks (128 GiB, far past every
+threshold, and a reading taken now answers uncapped); a kept
 reading of one node answers only a thread on it. A node past 254 keeps
 no reading.
 
@@ -90,12 +103,14 @@ no reading.
 
 On every host (`zig build test` on the Mac):
 
-- `thpModeOf` on each `enabled` and `defrag`, and on files that name no
-  mode;
+- `thpModeOf` on each `enabled` and `defrag`, with
+  `hugepages-2048kB/enabled` absent, `inherit`, and its own mode, and on
+  files that name no mode;
 - `adviceFor` for every pair of `enabled` × `defrag` and each want;
 - `freeHugeBlocks` on a two-node reading for node 0 (10), node 1 (300),
   a node with no lines and no node (310), and on a one-node reading for
-  either node; `oneNode`, `nodeOf`.
+  either node; a reading cut short before node 1's lines counts none
+  for node 1; `oneNode`, `nodeOf`.
 
 On Linux (run natively on pup after the merge):
 
@@ -107,7 +122,12 @@ On Linux (run natively on pup after the merge):
 - under `always` a leading heap's segment and a 16 MiB block ask for
   nothing, a lone heap's segment, an 8 MiB block, and a Table's first
   2 MiB ask for small pages, a Table given back is unadvised and reads
-  zeros, and an 8 MiB block grown to 32 MiB asks again behind the test.
+  zeros, and an 8 MiB block grown to 32 MiB asks again behind the test;
+- under `always`, with the mapping afresh made to fail (unmapping the
+  range, as Linux before 6.12 may): the range is filled `PROT_NONE`; with
+  the fill made to fail too, it is kept as a hole, a mapping later put
+  there is not taken for a Table's, and neither range is handed out
+  again.
 
 The existing Linux tests run under `madvise`/`madvise` as before
 (`useBuddyinfoForTest` sets it).
