@@ -107,8 +107,12 @@ A new session, human or agent, takes these steps in order:
 ## In flight
 
 - **Preemption by signal** (#952): a prototype behind
-  `RIG_PREEMPT=signal`, off by default, for Linux x86-64
-  ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
+  `RIG_PREEMPT=signal`, off by default, for Linux x86-64 and arm64
+  macOS ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md);
+  the Mac port, [mac-port-2026-11-05.md](docs/history/records/2026-11/preempt/mac-port-2026-11-05.md):
+  Trig 1.9-4.2% fewer instructions and up to 2.8% faster at one
+  checker; a panic's trace loses the program's own lines until
+  `dsymutil` runs after the link, a condition of Mac default-on).
   Its default-on round: each scheduler entry one call (#970, landed);
   locks taken apart from the program's code go uncounted (step (c'),
   [locks-2026-11-05.md](docs/history/records/2026-11/preempt/locks-2026-11-05.md)),
