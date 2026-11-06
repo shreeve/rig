@@ -15,7 +15,10 @@ The owner asked for three panels of three experts each. Each panel revisited one
 - **Preemption replaces it** (preemption.md).
   - Under `RIG_PREEMPT=signal` there are no loop checks at all. Trig and loco make no local tasks, so with preemption on by default on Linux x86-64 release builds, no real program keeps a check.
   - The Mac port is feasible and honest: signals as on Linux, one reserved register for the trampoline (Go does the same with R27), no PAC issue. About 250-400 lines.
-  - First step: a Mac ceiling of Trig with three arms (main, split, checks compiled out).
+  - The Mac ceiling (measure.md, "No yield checks"): Trig with every yield check compiled out, against base and an A/A copy.
+    - At one checker over 60 rounds: 2.2-4.2% fewer instructions on every project; 1.5-2.4% fewer cycles after the A/A drift; tiny-invariant 2.5%, zod3 1.8% and ts-pattern 1.8% faster; peak memory level.
+    - At all checkers over 20 rounds: 2.5-4.3% fewer instructions, and ts-pattern 3.9% faster.
+    - It clears the bar. A port keeps only part of it, since the signal path and the functions it keeps from inlining cost something.
 - **The archived split decides in emit** (`leavesEarly`), which breaks North Star 4.
 
 ## Exit handoff: DROP the handoff; MEASURE FIRST one probe

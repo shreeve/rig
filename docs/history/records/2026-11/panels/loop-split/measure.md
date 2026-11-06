@@ -130,3 +130,64 @@ The raw data is in the panel's scratch folder (not kept)
 | `raw/*.load` | the load averages |
 | scripts | `build-trig.sh`, `time-trig.py`, `time-tasks.py`, `summ.py`, `paired.py`, `summ-tasks.py` |
 | builds | `trig-base`, `trig-split`, `tasks/tasks-{base,split}`, `split/bin/rig` |
+
+## Follow-up: the ceiling of no yield checks on the Mac (owner-approved, 2026-11-05 evening)
+
+This section asks whether porting signal preemption to the Mac would pay. It measures the ceiling: Trig with every yield check compiled out.
+
+### The arm
+
+- **nocheck:** Rig `506a291a9` exported to scratch (`nocheck/`), with one edit in `src/runtime.zig`:
+  - `turn` (the per-loop check, line 433) and `tickCall` (the check at each function entry where a call cycle is cut, line 448) start with `if (true) return;`.
+  - Every other check is kept: bounds, overflow and the rest.
+  - In the built binary, `tickC` and `tickCallC` are gone: `nm` finds none, against four in base.
+- **Trig:** `4aaedab`, the release pack built as before.
+  - The binary is 29,877,152 B, 1.5% smaller than base's 30,338,288 B.
+  - It contains 3,447 `rig.turn` sites and 392 `rig.tickCall` sites; the edit turns all of them into no-ops.
+- **Other arms:** the base and A/A binaries are the same files as above.
+
+### Machine state
+
+- **The build:** the Mac slept (lid closed, battery at 2%) from 13:52 to 20:15, during the build.
+- **The timing:** it ran 20:22-20:24, on AC power with Low Power Mode off and the battery charging.
+- **Load:** 3.7-6.4.
+- **Output:** every run printed identical output in all three arms; the digests match the earlier runs too.
+
+### One checker (60 shuffled rounds; paired is the median of per-round ratios to base)
+
+| project | nocheck: instructions | nocheck: paired cycles | A/A: paired cycles | nocheck: paired wall | A/A: paired wall | nocheck: pooled fastest wall | peak footprint |
+|---|---|---|---|---|---|---|---|
+| mitt | 2.17% fewer | 2.10% fewer | 0.56% fewer | 0.67% faster | 0.48% faster | 1.71% faster | level |
+| neverthrow | 2.58% fewer | 2.45% fewer | 0.70% fewer | 0.74% faster | 0.54% faster | 2.12% faster | level (0.08%, as A/A) |
+| tiny-invariant | 3.98% fewer | 2.64% fewer | 0.23% fewer | 2.50% faster | 0.31% faster | 0.41% faster | level |
+| superstruct | 3.09% fewer | 1.92% fewer | 0.17% fewer | 1.08% faster | 0.38% faster | 0.63% faster | level |
+| zod3 | 3.75% fewer | 2.07% fewer | 0.35% fewer | 1.78% faster | 0.29% faster | 1.11% faster | level |
+| ts-pattern | 4.24% fewer | 2.43% fewer | 0.41% fewer | 1.77% faster | 0.39% faster | 2.23% faster | level |
+
+- **Reading against the A/A arm:** the A/A arm drifts about 0.2-0.7% low in cycles. Measured against it, nocheck takes 1.5-2.4% fewer cycles.
+- **Base's absolute values at one checker:**
+
+| project | fastest wall | min cycles | instructions |
+|---|---|---|---|
+| ts-pattern | 422 ms | 1,793M | 8,125M |
+| zod3 | 77.4 ms | 316M | 1,333M |
+
+### All checkers (default 4, 20 rounds)
+
+- **Instructions:** 2.5-4.3% fewer.
+- **Paired cycles:** from 0.9% more (mitt) to 2.8% fewer (ts-pattern).
+- **Paired wall:** ts-pattern 3.9% faster, the others 0.5-1.8% faster. The A/A arm's paired wall spans 0.9% faster to 2.2% slower.
+- **Peak footprint:** level or lower (zod3 2.9% lower, ts-pattern 1.0% lower).
+
+Raw data: `raw/nc1a.csv`, `raw/nc1b.csv`, `raw/ncN.csv` and `raw/nc-paired.md`.
+
+### Against the bar
+
+**The no-checks ceiling clears Trig's bar on arm64:**
+- **Instructions:** at one checker, every project takes 2.2-4.2% fewer, against the 1% required.
+- **Peak memory** is level.
+- **Wall time:** taken alone, more than 1.5% faster holds only on ts-pattern, zod3 and tiny-invariant. Paired, those are 1.8%, 1.8% and 2.5% faster, over 60 interleaved rounds. The three small projects come in at 0.7-1.1% paired.
+
+The size of the gain is close to what was recorded for pup (yield checks off, 0.6-3.6% faster).
+
+This is a ceiling. Signal preemption keeps its own costs: the signal path, and `preempt_section`'s calls that are never inlined. So a port would bank only part of the ceiling's 1.5-2.5% in cycles. The pup preemption build, where it exists, measures what remains. The Mac port's worth is that share, and it needs that build ported before it can be measured.
