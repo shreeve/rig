@@ -132,26 +132,30 @@ On Linux (run natively on pup after the merge):
 The existing Linux tests run under `madvise`/`madvise` as before
 (`useBuddyinfoForTest` sets it).
 
-## Gates (Mac, 2026-11-06)
+## Gates (Mac, 2026-11-06, after the review's fixes)
 
-- `zig build test`: 304 passed, 18 skipped (the Linux cases among
-  them); the test binary for x86_64-linux compiles.
+- `zig build test`: 305 passed, 18 skipped (the Linux cases among
+  them); the test binaries for x86_64-linux and aarch64-linux compile.
 - The core suite (`swarm test/rig.rip -w 6`): 11,529 jobs, none died.
 - `tools/emit-diff 4573e9f4f`: only `rig/alloc.zig` differs, in the 32
-  programs that carry it (+570 -79); no program's own Zig changes.
+  programs that carry it; no program's own Zig changes.
 - A release program with a Table and a 40 MB List, emitted and built
-  for x86_64-linux and aarch64-linux, ReleaseSafe and ReleaseFast.
+  for x86_64-linux and aarch64-linux, ReleaseSafe and ReleaseFast
+  (before the fixes).
 - `bench/json/guard.py`: all six files within 0.1% of `guard.txt`.
 - `bench/hash/guard.py`: every row within 0.1% or fewer instructions
-  (the text rows 2.6-20.5% fewer, from main's `bytesEql`, not this
+  (the text rows 2.4-20.3% fewer, from main's `bytesEql`, not this
   change).
 - `bench/text/guard.py`: every row 0.1-0.6% fewer instructions.
+- loco's light gate: GREEN (7 unit tests, 51 checks, 122 runs
+  byte-identical to the Rust loc).
+- Trig's light gate on the Mac (Trig 9802432): GREEN, 27 jobs, none
+  died.
 
 The guards run on the Mac, where none of this code is compiled in (each
 path is behind `builtin.os.tag == .linux`), so they show only that
-nothing else moved. Loco's and Trig's light gates are not needed: no
-program's emitted Zig changes, only the runtime's allocator, whose
-behavior on pup (one node, `madvise`) is the same.
+nothing else moved. The light gates run on the Mac too, so they check
+the runtime builds and runs with every program, not the Linux paths.
 
 ## Left for pup, after the merge
 
