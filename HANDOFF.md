@@ -106,6 +106,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The huge-page test follows the system's mode** (panel item 6): the
+  allocator reads Linux's THP mode once and counts only the asking
+  thread's node
+  ([records/2026-11/huge-pages/gate-modes.md](docs/history/records/2026-11/huge-pages/gate-modes.md));
+  no speed claim. Its unit tests run natively on pup after the merge.
 - **A task's maker keeps its worker** (research 29 #6): a yield check
   leaves work to an idle worker it wakes, and yields only when every
   worker is busy
