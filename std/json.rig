@@ -293,6 +293,10 @@ pub obj Doc
     return (!@).fail(.unexpected(at: at)) if src[at] != '"'
     end = (!@).scan_string(src, at)
     return -1 if end < 0
+    # Most keys end at `:`, then the value's first byte, or `: ` and it.
+    if end + 1 < src.len and src[end] == ':'
+      return end + 1 if src[end + 1] > ' '
+      return skip_space(src, end + 1)
     i = skip_space(src, end)
     return (!@).fail(.eof(at: i)) if i >= src.len
     return (!@).fail(.unexpected(at: i)) if src[i] != ':'
