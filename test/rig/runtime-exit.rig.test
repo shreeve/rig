@@ -75,6 +75,94 @@ test "exit while other tasks run", "exiting", exit: 0, seeds: 20
     print("exiting")
     os.exit(0)
 
+test "exit with tasks parked", "exiting 64", exit: 4, release: true
+  # On the Mac a release build stops the parked workers and unmaps the
+  # program's Tables, segments and free stacks on all of them before the
+  # process ends (`sched.tearDown`); the status and the output are the
+  # same either way, and so in a debug build, which ends as before.
+  use std.os
+  use std.time
+
+  obj Big
+    t: Table[Int, 4000000]
+
+  fun nap(ms: Int) -> Int!
+    xs: List[Int] = List()
+    time.sleep(ms: ms)!
+    for i in 0..1000
+      !xs.push(i)
+    xs.len
+
+  sub main()!
+    keep: List[Big] = List()
+    for i in 0..64
+      b = Big(t: Table())
+      !b.t.push(i)
+      !keep.push(<b)
+    ts = Tasks[Int!]()
+    for i in 0..16
+      !ts.add(nap(100000 + i)&)
+    time.sleep(ms: 2)!
+    print("exiting", keep.len)
+    os.exit(4)
+    _ = >ts!
+
+test "exit with timers due during the teardown", "exiting 64", exit: 5, release: true
+  # Tasks whose sleeps end as `os.exit` stops the workers are woken, but
+  # never run: one that ran would write to memory being unmapped.
+  use std.os
+  use std.time
+
+  obj Big
+    t: Table[Int, 4000000]
+
+  fun make(i: Int) -> Big
+    b = Big(t: Table())
+    !b.t.push(i)
+    b
+
+  fun nap(ms: Int, t: ?*Big) -> Int!
+    time.sleep(ms: ms)!
+    xs: List[Int] = List()
+    for i in 0..1000
+      !xs.push(i + Int(t.t.len))
+    xs.len
+
+  sub main()!
+    keep: List[*Big] = List()
+    for i in 0..64
+      !keep.push(*make(i))
+    ts = Tasks[Int!]()
+    for i in 0..48
+      !ts.add(nap(i % 6, ?keep[i])&)
+    time.sleep(ms: 3)!
+    print("exiting", keep.len)
+    os.exit(5)
+    _ = >ts!
+
+test "exit while a task runs, with much to free", "exiting 64", exit: 6, release: true
+  # A worker running a task cannot be stopped: the process ends as
+  # before, the task where it is.
+  use std.os
+
+  obj Big
+    t: Table[Int, 4000000]
+
+  sub spin()
+    n = 0
+    while n >= 0
+      n = (n + 1) % 1000
+
+  sub main()
+    keep: List[Big] = List()
+    for i in 0..64
+      b = Big(t: Table())
+      !b.t.push(i)
+      !keep.push(<b)
+    a = spin()&
+    print("exiting", keep.len)
+    os.exit(6)
+
 bomb "exit status out of range", "exit status 256 is not in 0..255"
   use std.os
 

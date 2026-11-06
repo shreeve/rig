@@ -30,7 +30,10 @@
 //! of 16 MiB or more asks for huge pages (`huge_large`), each while the
 //! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`).
 //! Reserved Tables (`table.zig`) take ranges of an address space of
-//! their own, which none of this touches (`reserveTable`).
+//! their own, which none of this touches (`reserveTable`). On the Mac,
+//! `os.exit` may unmap the segments' region and the Tables' regions on
+//! several workers before the process ends (`exitRanges`,
+//! `sched.tearDown`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -67,6 +70,7 @@ comptime {
         table_free,
         table_free_count,
         tables_asked_huge,
+        table_live,
         total_live,
         total_peak,
         total_allocs,
@@ -928,23 +932,31 @@ fn mapOwnSegment() ?*Segment {
 // Tables' address space
 // -----------------------------------------------------------------------------
 
-/// The address space reserved Tables (`table.zig`) are handed on Linux:
-/// regions of `table_region_size`, each mapped once, with no memory
-/// committed (`MAP_NORESERVE`), and advised for small pages once. A Table
-/// takes a range of whole huge pages from one (`reserveTable`), which
-/// makes no system call while memory has no free 2 MiB blocks to spare,
-/// and one `madvise` while it does; a Table dropped gives its pages back
-/// to the system with `MADV_DONTNEED`, which leaves the range reading as
-/// zeros, and its range to the next Table (`unreserveTable`). Trig's
+/// The address space reserved Tables (`table.zig`) are handed on Linux
+/// and the Mac: regions of `table_region_size`, each mapped once, with no
+/// memory committed (`MAP_NORESERVE`), and on Linux advised for small
+/// pages once. A Table takes a range of whole 2 MiB blocks from one
+/// (`reserveTable`), which makes no system call while memory has no free
+/// 2 MiB blocks to spare, and on Linux one `madvise` while it does; a
+/// Table dropped gives its pages back to the system, with
+/// `MADV_DONTNEED` on Linux and by mapping its range again in place on
+/// the Mac, which leaves the range reading as zeros, and its range to the
+/// next Table (`unreserveTable`). A region is never unmapped while the
+/// program runs, so its addresses are never another mapping's, and
+/// `os.exit` may unmap it whole (`exitRanges`). Trig's
 /// checkers reserve 43 Tables each, 24 MiB to 4 GiB, 53 GiB in all, and
 /// a mapping, its advice, and its unmapping for each cost about 8
 /// microseconds of system calls. Only release builds take Tables from
 /// here: a debug build maps each on its own, so a Table used after it is
-/// dropped faults and the leak checker sees each.
-const table_region_size: usize = 256 << 30;
-/// The regions there may be, 8 TiB in all; a Table that finds none with
-/// room, or is larger than a region, is mapped on its own.
-const table_regions_max = 32;
+/// dropped faults and the leak checker sees each. On the Mac the kernel
+/// walks a mapping's whole range as the process ends, touched or not,
+/// about 2.4 µs a GiB (0.6 ms for 256 GiB), so its regions are 32 GiB,
+/// little more than a Table's largest.
+const table_region_size: usize = if (builtin.os.tag.isDarwin()) 32 << 30 else 256 << 30;
+/// The regions there may be, 8 TiB in all on Linux and 2 TiB on the Mac;
+/// a Table that finds none with room, or is larger than a region, is
+/// mapped on its own.
+const table_regions_max = if (builtin.os.tag.isDarwin()) 64 else 32;
 /// The free ranges kept between Tables. A range that would be one more
 /// is given up: its pages are back with the system, and only its
 /// addresses go unused.
@@ -977,22 +989,33 @@ const table_free_count = split.cell(&table_free_count_var, "alloc.table_free_cou
 /// advised for small pages again before the next Table takes it.
 var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
 const tables_asked_huge = split.cell(&tables_asked_huge_var, "alloc.tables_asked_huge");
+/// The Tables handed out and not given back: each holds at least one
+/// page-table page once written, which the exit's teardown counts
+/// (`exitWork`).
+var table_live_var: std.atomic.Value(usize) = .init(0);
+const table_live = split.cell(&table_live_var, "alloc.table_live");
+
+/// Whether Tables take their ranges from the regions here: on Linux and
+/// the Mac.
+const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
 
 /// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
 /// Table: zeros, none committed. Its first 2 MiB keep small pages, and
 /// the rest asks for huge pages while the system has free 2 MiB blocks
-/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes. Null
-/// where Tables are not taken from here: off Linux, a Table larger than
-/// a region, or no region to be had.
+/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes (on
+/// Linux; the Mac has no huge pages to ask for). Null where Tables are
+/// not taken from here: off Linux and the Mac, a Table larger than a
+/// region, or no region to be had.
 pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
-    if (builtin.os.tag != .linux) return null;
+    if (!tables_here) return null;
     const len = std.mem.alignForward(usize, bytes, huge_page);
     if (len > table_region_size) return null;
-    const huge = len > huge_page and hugeFree();
+    const huge = builtin.os.tag == .linux and len > huge_page and hugeFree();
     tables_lock.lock();
     const p = takeTableRange(len);
     tables_lock.unlock();
-    if (huge) if (p) |at| {
+    if (p != null) _ = table_live.fetchAdd(1, .monotonic);
+    if (builtin.os.tag == .linux and huge) if (p) |at| {
         tables_asked_huge.store(true, .monotonic);
         std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
     };
@@ -1001,9 +1024,9 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
 /// `reserveTable` handed out: its pages to the system, and the range,
-/// advised for small pages again, to the next Table.
+/// advised for small pages again on Linux, to the next Table.
 pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
-    if (builtin.os.tag != .linux) return false;
+    if (!tables_here) return false;
     const at = @intFromPtr(p);
     const len = std.mem.alignForward(usize, bytes, huge_page);
     tables_lock.lock();
@@ -1011,9 +1034,17 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
     tables_lock.unlock();
     if (!mine) return false;
+    _ = table_live.fetchSub(1, .monotonic);
     const range: [*]align(huge_page) u8 = @alignCast(p);
-    std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
-    if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+    if (builtin.os.tag == .linux) {
+        std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
+        if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+    } else {
+        // Mapped again in place: fresh zero pages, the old ones freed. A
+        // range the system will not map again is kept from the next
+        // Table, its pages and all, and stays the region's.
+        _ = std.posix.mmap(range, len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED = true, .NORESERVE = true }, -1, 0) catch return true;
+    }
     tables_lock.lock();
     giveTableRange(at, len);
     tables_lock.unlock();
@@ -1054,7 +1085,7 @@ fn newTableRegion() bool {
         tables_unmapped.* = true;
         return false;
     };
-    std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+    if (builtin.os.tag == .linux) std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
     const start = std.mem.alignForward(usize, @intFromPtr(raw.ptr), huge_page);
     if (table_end.* > table_next.*) giveTableRange(table_next.*, table_end.* - table_next.*);
     table_regions[table_region_count.*] = .{ .start = start, .len = table_region_size };
@@ -1098,6 +1129,58 @@ fn giveTableRange(p: usize, len: usize) void {
         table_free[i] = .{ .start = p, .len = len };
         table_free_count.* += 1;
     }
+}
+
+// -----------------------------------------------------------------------------
+// What `os.exit` may unmap
+// -----------------------------------------------------------------------------
+
+/// A range of address space the exit's teardown unmaps (`sched.tearDown`).
+pub const ExitRange = Range;
+
+/// The most ranges `exitRanges` gives: the segments' region in two, and
+/// every Tables region.
+pub const exit_ranges_max = 2 + table_regions_max;
+
+/// The address space of this file that holds the program's memory, for
+/// `os.exit` to unmap before the process ends: the segments' region up
+/// to its next segment, densely written, as `dense` of the ranges (0 or
+/// 1), then its rest and each Tables region, whole, which are sparse:
+/// the kernel walks even a range never touched as the process ends.
+/// Each was mapped once and is never unmapped while the program runs, so
+/// no other mapping holds any of its addresses. Read once every thread
+/// that could take a segment or a Table has stopped.
+pub fn exitRanges(out: *[exit_ranges_max]Range) struct { ranges: []Range, dense: usize } {
+    var n: usize = 0;
+    var dense: usize = 0;
+    const next = region_next.load(.acquire);
+    if (region_end.* != 0 and next > 1) {
+        const start = region_end.* - region_size;
+        if (next > start) {
+            out[n] = .{ .start = start, .len = next - start };
+            n += 1;
+            dense = 1;
+        }
+        if (region_end.* > next) {
+            out[n] = .{ .start = next, .len = region_end.* - next };
+            n += 1;
+        }
+    }
+    for (table_regions[0..table_region_count.*]) |r| {
+        out[n] = r;
+        n += 1;
+    }
+    return .{ .ranges = out[0..n], .dense = dense };
+}
+
+/// About how many page-table pages the program's segments and Tables
+/// hold, and how many MiB of segments: what `os.exit`'s teardown would
+/// save, read without a lock (an estimate, to decide whether to try).
+pub fn exitWork(span: usize) struct { page_tables: usize, segment_mib: usize } {
+    const next = region_next.load(.monotonic);
+    const end = @atomicLoad(usize, region_end, .monotonic);
+    const used = if (end != 0 and next > end - region_size) next - (end - region_size) else 0;
+    return .{ .page_tables = table_live.load(.monotonic) + used / span, .segment_mib = used >> 20 };
 }
 
 // -----------------------------------------------------------------------------
@@ -2090,6 +2173,39 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     try std.testing.expect(unreserveTable(u, 24 * mib));
     try std.testing.expect(unreserveTable(small, 2 * mib));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
+}
+
+test "on the Mac Tables take ranges of one region, and a range given back reads zeros for the next Table" {
+    if (!builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    const mib: usize = 1 << 20;
+    const live = table_live.load(.monotonic);
+    const a = reserveTable(6 * mib).?;
+    const b = reserveTable(24 * mib).?;
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(a) % huge_page);
+    try std.testing.expect(table_region_count.* >= 1);
+    try std.testing.expectEqual(live + 2, table_live.load(.monotonic));
+    @memset(a[0 .. 6 * mib], 7);
+    b[24 * mib - 1] = 9;
+    // `a` is not at the region's rest, so its range is kept apart, and
+    // the next Table that fits takes it, as zeros.
+    try std.testing.expect(unreserveTable(a, 6 * mib));
+    const c = reserveTable(5 * mib + 4096).?;
+    try std.testing.expectEqual(a, c);
+    for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    // Both lie within what `os.exit` would unmap.
+    var buf: [exit_ranges_max]Range = undefined;
+    const got = exitRanges(&buf);
+    var covered: usize = 0;
+    for (got.ranges[got.dense..]) |r| {
+        if (r.start <= @intFromPtr(c) and @intFromPtr(c) + 6 * mib <= r.start + r.len) covered += 1;
+        if (r.start <= @intFromPtr(b) and @intFromPtr(b) + 24 * mib <= r.start + r.len) covered += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), covered);
+    try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
+    try std.testing.expect(unreserveTable(b, 24 * mib));
+    try std.testing.expectEqual(live, table_live.load(.monotonic));
+    var own: [4096]u8 align(4096) = undefined;
+    try std.testing.expect(!unreserveTable(&own, own.len));
 }
 
 /// The bytes of the `len` at `p` resident in memory (`mincore`).
