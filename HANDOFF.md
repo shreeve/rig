@@ -109,8 +109,9 @@ A new session, human or agent, takes these steps in order:
 - **Parallel teardown at `os.exit` on the Mac** (draft PR, branch
   `exit-teardown`): a release build's `os.exit` stops the workers and
   unmaps Tables, segments and free stacks on four of them before
-  `_exit`; Mac Tables take ranges of 32 GiB regions. Trig 4-16% faster
-  at four and eight checkers on the four small projects, level elsewhere
+  `_exit`; Mac Tables take ranges of 32 GiB regions. Trig 9-18% faster
+  at four and eight checkers on mitt, neverthrow and superstruct, 4-7% on
+  tiny-invariant, level on zod3, ts-pattern and at one checker
   ([records/2026-11/exit/](docs/history/records/2026-11/exit/parallel-teardown.md)).
   Linux keeps its exit until parallel unmapping is measured on pup.
 - **A task's maker keeps its worker** (research 29 #6): a yield check

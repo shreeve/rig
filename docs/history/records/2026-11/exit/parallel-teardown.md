@@ -232,6 +232,67 @@ the same.
 `RIG_SCHED_STATS=1` prints which path `os.exit` took, so the CLI test
 can see it.
 
+## Measured
+
+Trig `origin/main` 9802432, release build (`rig build --release`, Zig's
+safe mode, no PGO), `-p tsconfig.trig.json --noEmit --checkers N` in each
+of misc/projects, on the Mac (arm64, 10 cores, load 4-6). Three arms:
+main (Rig 14a0e754b, this branch's base), the branch, and an A/A copy of
+main's binary; every arm, project and checker count shuffled within each
+of 20 rounds; wall from launch to reaping, and cycles, instructions and
+peak RSS from `/usr/bin/time -l`. Output is identical to main's on all
+1080 runs. Medians of 20, ms:
+
+| project | c | main | A/A | branch | branch against main |
+|---|---|---:|---:|---:|---|
+| mitt | 1 | 10.4 | 10.3 | 10.5 | level |
+| mitt | 4 | 12.3 | 12.1 | 11.2 | 9% faster |
+| mitt | 8 | 15.7 | 15.6 | 12.8 | 18% faster |
+| neverthrow | 1 | 11.8 | 11.9 | 12.0 | level |
+| neverthrow | 4 | 12.9 | 13.2 | 11.6 | 10% faster |
+| neverthrow | 8 | 16.3 | 16.5 | 13.3 | 18% faster |
+| superstruct | 1 | 18.6 | 18.5 | 18.5 | level |
+| superstruct | 4 | 15.1 | 15.0 | 13.7 | 9% faster |
+| superstruct | 8 | 17.8 | 17.8 | 14.7 | 17% faster |
+| tiny-invariant | 1 | 38.1 | 37.4 | 37.6 | level |
+| tiny-invariant | 4 | 37.4 | 37.7 | 36.0 | 3.7% faster |
+| tiny-invariant | 8 | 41.3 | 41.4 | 38.5 | 6.8% faster |
+| zod3 | 1 | 77.5 | 77.4 | 77.5 | level |
+| zod3 | 4 | 43.2 | 43.1 | 42.8 | level (1%) |
+| zod3 | 8 | 44.2 | 43.2 | 42.9 | level (3%, A/A 2.3%) |
+| ts-pattern | 1 | 417.9 | 418.2 | 416.4 | level |
+| ts-pattern | 4 | 172.9 | 172.5 | 175.0 | level (1.2% slower) |
+| ts-pattern | 8 | 154.9 | 156.0 | 157.7 | level (1.8% slower) |
+
+- **One checker** takes the plain path (Trig makes no tasks there), so it
+  measures fix 3 alone: level.
+- **ts-pattern and zod3** are within the noise in every run: two earlier
+  runs of 20 rounds put ts-pattern at 8 checkers 2.2% and 0.8% faster,
+  and at 4 0.5% slower. Their exits are mostly resident pages in large
+  blocks, which the teardown leaves to the kernel, and the dropped
+  checkers have already given their Tables back.
+- **Peak RSS** is level: medians within 1.5 MiB of main's on every row,
+  as the A/A's are, and maxima within the A/A's spread.
+- **Cycles and instructions rise** at four and eight checkers (for
+  example superstruct at 8, 317 to 402 M instructions): the kernel's
+  unmapping, which main's exit does after the process's accounting ends,
+  now runs inside it, on its threads. That is the honesty the panel
+  asked for, and it means the instruction half of the bar is not met; the
+  time half is, on four of the six projects.
+- **In-process cost**, from `RIG_SCHED_STATS=1`: stopping the workers
+  takes 8-20 µs; the teardown 1.6-1.9 ms at four checkers and about 3 ms
+  at eight.
+- **Two findings on the way.** The first build used Linux's 256 GiB
+  regions and made every one-checker run about 1 ms slower: the Mac's
+  kernel walks a mapping's whole range at exit (the C probe above), so
+  the Mac's regions are 32 GiB and the teardown unmaps them whole. A
+  dropped Table's range mapped again in place (`MAP_FIXED`) frees its
+  page tables as `munmap` does (C probe: 400 such drops 4.3 ms against
+  4.2, and the exit after them the same).
+
+Data and scripts (not kept): `ab.py` and `sum.py`, the harness and its
+summary, and the C probes `reg.c`, `sz.c` and `drop.c`.
+
 ## Fix 2
 
 Reusing fiber stacks from one shared free list (so fewer distinct stacks
