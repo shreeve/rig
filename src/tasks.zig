@@ -2647,6 +2647,7 @@ fn cancelFlag() ?*const std.atomic.Value(bool) {
 /// stopped waiting for it (`rt.sched.Waker`). Every retry loop of a
 /// blocking call in the runtime and std asks here.
 pub fn checkStop() Stop!void {
+    if (rt.preempt) rt.sched.atWaitingPoint();
     if (canceledHere()) return canceled_error;
     if (pastDeadline()) return timeout_error;
 }
