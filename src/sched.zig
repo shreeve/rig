@@ -741,10 +741,14 @@ const vector_state: struct { size: usize, mask: u32, save: []const u8, restore: 
 
 /// Where a preempted fiber resumes, entered with the program counter it
 /// stopped at on top of its stack, 128 bytes (the red zone) below where
-/// its stack pointer was. It saves the flags and the registers a call may
-/// change, clears the direction flag, saves the vector state on a 64-byte
-/// boundary (its header zeroed, as `xrstor` needs), calls `preempted`,
-/// restores all of it, and returns past the red zone.
+/// its stack pointer was. On x86-64 it pushes the frame pointer onto it,
+/// making the frame record a call would leave, saves the flags and the
+/// registers a call may change, clears the direction flag, saves the
+/// vector state on a 64-byte boundary (its header zeroed, as `xrstor`
+/// needs), calls `preempted`, restores all of it, and returns past the
+/// red zone. A walk of frame pointers, and one by its unwind information,
+/// goes on from it into the stopped code: its frame's canonical address
+/// is the stopped stack pointer, and its return address the stopped pc.
 fn preemptEntry() callconv(.naked) void {
     switch (builtin.cpu.arch) {
         .x86_64 => preemptEntryX86(),
@@ -774,9 +778,14 @@ inline fn preemptEntryX86() void {
         \\
     , .{vector_state.mask});
     asm volatile (std.fmt.comptimePrint(
-            \\ pushfq
+            \\ .cfi_def_cfa %%rsp, 136
+            \\ .cfi_offset %%rip, -136
             \\ pushq %%rbp
+            \\ .cfi_def_cfa_offset 144
+            \\ .cfi_offset %%rbp, -144
             \\ movq %%rsp, %%rbp
+            \\ .cfi_def_cfa_register %%rbp
+            \\ pushfq
             \\ pushq %%rax
             \\ pushq %%rcx
             \\ pushq %%rdx
@@ -794,7 +803,7 @@ inline fn preemptEntryX86() void {
             \\ callq %[f:P]
             \\
         ++ mask ++ vector_state.restore ++ "\n" ++
-            \\ leaq -72(%%rbp), %%rsp
+            \\ leaq -80(%%rbp), %%rsp
             \\ popq %%r11
             \\ popq %%r10
             \\ popq %%r9
@@ -804,8 +813,9 @@ inline fn preemptEntryX86() void {
             \\ popq %%rdx
             \\ popq %%rcx
             \\ popq %%rax
-            \\ popq %%rbp
             \\ popfq
+            \\ popq %%rbp
+            \\ .cfi_def_cfa %%rsp, 136
             \\ retq $128
         :
         : [f] "X" (&preemptedC),
