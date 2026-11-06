@@ -165,3 +165,17 @@ case "$(uname -s)/$(uname -m)" in
     Linux/x86_64 | Darwin/arm64)
         grep -q 'preempted [1-9]' err-spin.txt || fail "spin.rig: no task preempted: $(cat err-spin.txt)" ;;
 esac
+
+# The trampoline is a frame like a call's: a trace taken where a fiber
+# is preempted (`RIG_PREEMPT_TRACE=1`, the first preemption's) walks
+# through it into the stopped code and on to the fiber's base. A debug
+# build is preempted on arm64 macOS alone (Linux x86-64's debug builds
+# use Zig's own backend, which takes no trampoline).
+if [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]]; then
+    out=$(RIG_PREEMPT=signal RIG_PREEMPT_TRACE=1 "$TIMEOUT_CMD" 120 "$RIG" run spin.rig 2>trace.txt) || fail "spin.rig, debug, with the trace: $out $(cat trace.txt)"
+    expect_eq "$out" "0 1" "spin.rig, debug, with the trace"
+    grep -q ' in preemptEntryArm ' trace.txt || fail "spin.rig: the trace has no trampoline: $(cat trace.txt)"
+    n=$(grep -c ' in preemptEntryArm ' trace.txt)
+    [[ $n == 1 ]] || fail "spin.rig: the trace walks the trampoline $n times: $(head -20 trace.txt)"
+    grep -q ' in fiberMain ' trace.txt || fail "spin.rig: the trace stops at the trampoline: $(cat trace.txt)"
+fi

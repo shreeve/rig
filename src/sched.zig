@@ -625,6 +625,7 @@ const linux_rip = 40 + 16 * 8;
 /// <mach/arm/_structs.h>). The target is arm64, not arm64e: the pc and
 /// sp there are plain addresses, unsigned.
 const darwin_mcontext = 48;
+const darwin_fp = 16 + 29 * 8;
 const darwin_sp = 16 + 31 * 8;
 const darwin_pc = 16 + 32 * 8;
 
@@ -662,10 +663,17 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
         return;
     }
     // The stopped instruction's address below the red zone, as a call
-    // would leave it; on arm64 in a 16-byte slot, which keeps the stack
-    // pointer aligned.
+    // would leave it. On arm64, a frame record just below the stack
+    // pointer, the stopped frame pointer then the stopped pc, as if the
+    // stopped instruction had called the trampoline; the 16 bytes of the
+    // red zone it covers are kept in a slot below the red zone, which the
+    // trampoline puts back as it returns (`preemptEntryArm`).
     const ret = sp - red_zone - if (builtin.cpu.arch == .aarch64) 16 else 8;
-    @as(*usize, @ptrFromInt(ret)).* = pc;
+    if (builtin.cpu.arch == .aarch64) {
+        const record: *[2]usize = @ptrFromInt(sp - 16);
+        @as(*[2]usize, @ptrFromInt(ret)).* = record.*;
+        record.* = .{ @as(*const usize, @ptrCast(@alignCast(regs + darwin_fp))).*, pc };
+    } else @as(*usize, @ptrFromInt(ret)).* = pc;
     sp_at.* = ret;
     pc_at.* = @intFromPtr(&preemptEntry);
 }
@@ -762,17 +770,27 @@ inline fn preemptEntryX86() void {
     );
 }
 
-/// The arm64 trampoline, entered with the stopped instruction's address
-/// at the stack pointer, in a 16-byte slot 128 bytes (the red zone) below
-/// where the stack pointer was. It saves the registers a call may change
-/// (x0-x17 but x15, x18 being Darwin's), the frame pointer and link
-/// register, the flags, the floating-point status and control, and all
-/// of q0-q31, calls `preempted`, restores them, and returns past the red
-/// zone by x15, which code built to be preempted never uses
-/// (`+reserve_x15`).
+/// The arm64 trampoline, entered with the stack pointer 144 bytes below
+/// where it was stopped, at the 16 bytes of the red zone the handler
+/// moved there, which a frame record replaced (`onPreempt`): the stopped
+/// frame pointer, then the stopped instruction's address. It saves the
+/// registers a call may change (x0-x17 but x15, x18 being Darwin's), the
+/// frame pointer and link register, the flags, the floating-point status
+/// and control, and all of q0-q31, points the frame pointer at the
+/// record, calls `preempted`, restores them and the red zone, and returns
+/// by x15, which code built to be preempted never uses (`+reserve_x15`).
+/// A walk of frame pointers, and one by its unwind information, goes on
+/// from it into the stopped code: its frame's canonical address is the
+/// stopped stack pointer, and its return address is the record's, in
+/// x15's column, so the stopped code's own link register stays its own.
 inline fn preemptEntryArm() void {
     asm volatile (
+        \\ .cfi_def_cfa sp, 144
+        \\ .cfi_return_column x15
+        \\ .cfi_offset x15, -8
+        \\ .cfi_offset x29, -16
         \\ sub sp, sp, #720
+        \\ .cfi_def_cfa_offset 864
         \\ stp x0, x1, [sp, #0]
         \\ stp x2, x3, [sp, #16]
         \\ stp x4, x5, [sp, #32]
@@ -783,6 +801,7 @@ inline fn preemptEntryArm() void {
         \\ stp x14, x16, [sp, #112]
         \\ stp x17, x29, [sp, #128]
         \\ str x30, [sp, #144]
+        \\ .cfi_offset x30, -720
         \\ mrs x0, nzcv
         \\ mrs x1, fpsr
         \\ stp x0, x1, [sp, #152]
@@ -804,7 +823,7 @@ inline fn preemptEntryArm() void {
         \\ stp q26, q27, [sp, #592]
         \\ stp q28, q29, [sp, #624]
         \\ stp q30, q31, [sp, #656]
-        \\ add x29, sp, #128
+        \\ add x29, sp, #848
         \\ bl %[f]
         \\ ldp q0, q1, [sp, #176]
         \\ ldp q2, q3, [sp, #208]
@@ -836,10 +855,14 @@ inline fn preemptEntryArm() void {
         \\ ldp x6, x7, [sp, #48]
         \\ ldp x4, x5, [sp, #32]
         \\ ldp x2, x3, [sp, #16]
+        \\ ldr x15, [sp, #856]
+        \\ ldr x0, [sp, #720]
+        \\ ldr x1, [sp, #728]
+        \\ str x0, [sp, #848]
+        \\ str x1, [sp, #856]
         \\ ldp x0, x1, [sp, #0]
-        \\ add sp, sp, #720
-        \\ ldr x15, [sp]
-        \\ add sp, sp, #144
+        \\ add sp, sp, #864
+        \\ .cfi_def_cfa_offset 0
         \\ br x15
         :
         : [f] "X" (&preemptedC),
@@ -856,6 +879,7 @@ fn preemptedC() callconv(.c) void {
 /// one, go back in line behind it, in the global queue.
 fn preempted() void {
     const w = me() orelse return;
+    if (preempt_trace and !preempt_traced.swap(true, .monotonic)) std.debug.dumpCurrentStackTrace(.{ .allow_unsafe_unwind = true });
     serviceBusy(w);
     if (!hasOwnWork(w)) {
         if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !stealWaiting(w)) return;
@@ -908,7 +932,13 @@ fn envUs(comptime name: []const u8, default: u32) i96 {
     return @as(i96, default) * std.time.ns_per_us;
 }
 
+/// `RIG_PREEMPT_TRACE=1`: the first fiber preempted prints the stack it
+/// was stopped on, from `preempted` through the trampoline.
+var preempt_trace = false;
+var preempt_traced: std.atomic.Value(bool) = .init(false);
+
 fn startMonitor() void {
+    if (rt.process.*) |p| preempt_trace = if (p.environ.getPosix("RIG_PREEMPT_TRACE")) |v| std.mem.eql(u8, v, "1") else false;
     installPreempt();
     const t = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
     t.detach();
