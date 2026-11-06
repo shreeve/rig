@@ -63,7 +63,17 @@ Waking at the push wakes a worker for every task made, the 10,000 that `chain` m
 
 ## Trig
 
-PENDING
+Trig (origin/main 49ffa44, the release pack) built by main's Rig and by the branch's, against an A/A copy of main's; the six projects at one checker and at four, 20 interleaved rounds each (`data/tr1.csv`, `data/tr4.csv`). Spotlight's indexer held about three cores through it (load average 8 to 14), which the A/A arm shows.
+
+- **Instructions:** within 0.4% of main on every project at both counts (the A/A arm's within 0.3%).
+- **Paired cycles:** 1.6% fewer to 1.4% more against main, the A/A arm 0.3% fewer to 1.7% more. Paired wall time the same: within the A/A arm's spread.
+- **Output:** one digest per project across the three arms in all 720 runs; peak memory level.
+
+Level, as the panel expected: Trig's checker makes its few tasks at once and waits for them, never between work of its own. The rule is for the shape Trig's parse in waves (research 29 #4) will have.
+
+## Gates (the Mac)
+
+Core suite 11,529 jobs green; emit-diff, only `rig/sched.zig` differs (in the 32 programs that make tasks); loco's light gate GREEN (47 s); Trig's light gate GREEN (Trig c040e92, 0 died); guards: json 0.0-0.2% more instructions, hash and text level or fewer, check 0.3% over its baseline.
 
 ## Tests
 
@@ -72,4 +82,4 @@ PENDING
 
 ## Data
 
-`data/`: `producer.rig`, `producer.go` (the producer, W = 30,000 steps; the others were made from them), `spawnrow.rig` (the spawn row alone), `time-rows.py` (alternating runs), `five6.csv` (the 40 rounds), `ww.csv` (check against push, 30 rounds; arms base, check, push).
+`data/`: `producer.rig`, `producer.go` (the producer, W = 30,000 steps; the others were made from them), `spawnrow.rig` (the spawn row alone), `time-rows.py` (alternating runs), `five6.csv` (the 40 rounds), `ww.csv` (check against push, 30 rounds; arms base, check, push), `tr1.csv` and `tr4.csv` (Trig; arms base, baseA, spawn).
