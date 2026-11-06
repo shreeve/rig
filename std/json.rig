@@ -214,7 +214,7 @@ pub obj Doc
         return (!@).fail(.depth(at: i)) if depth >= MAX_DEPTH
         depth += 1
         top = (!@).open(c, top)
-        i = skip_space(src, i + 1)
+        i = skip_indent(src, i + 1)
         # `}` is `{` + 2, and `]` is `[` + 2.
         if i < n and src[i] == c + 2
           top = (!@).close(top)
@@ -239,7 +239,7 @@ pub obj Doc
         c = src[i]
         in_object = top & 1 == 1
         if c == ','
-          i = skip_space(src, i + 1)
+          i = skip_indent(src, i + 1)
           if in_object
             i = (!@).key(src, i)
             return -1 if i < 0
@@ -637,6 +637,24 @@ ESCAPES: [256]U8 = [
 ]
 
 SPACES: U64 = 0x2020202020202020
+PAIR: U16 = 0x2020
+
+# The index of the first byte from `at` on that is not whitespace, after
+# a `,` or an opening bracket, where a pretty-printer puts a line break
+# and the next line's indentation: the break, then 8 spaces at a time,
+# then 2 at a time, each a test the processor predicts, and the rest by
+# `skip_space`. Minified input has none, and goes on at once.
+fun skip_indent(s: ?String, at: Int) -> Int
+  return at if at < 0
+  i = at
+  return i if i < s.len and s[i] > ' '
+  if i < s.len and s[i] == "\n"
+    i += 1
+    while i + 8 <= s.len and s.read[U64, .little](i) == SPACES
+      i += 8
+    while i + 2 <= s.len and s.read[U16, .little](i) == PAIR
+      i += 2
+  skip_space(s, i)
 
 # The index of the first byte from `at` on that is not whitespace. Runs
 # of spaces, as in indentation, go 8 at a time.

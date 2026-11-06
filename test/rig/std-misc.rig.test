@@ -1103,6 +1103,51 @@ test "json space blocks", "cases 31488 ok 1722 checksum 2873757600852398656"
           cases += 1
     print("cases", cases, "ok", ok, "checksum", sum)
 
+test "json indent blocks", "cases 64512 ok 2016 checksum 13438710349813566102"
+  # std.json's indentation step (`skip_indent`): after `[` and after `,`,
+  # no line break, `\n`, or `\r\n`, then 0 to 41 bytes of indentation,
+  # spaces with a tab every eleventh, then every byte, so a run ends at
+  # every offset of the 8- and 2-space steps and in the input's last
+  # bytes. The checksum is the one std.json gave before the step.
+  # The reason a load of `src` fails with and its offset, as
+  # `JsonError.eof(at: 5)` prints them; `ok` and -1 when it loads.
+  fun outcome(src: ?String) -> (String, Int)
+    shown = String()
+    _ = json.parse(src) catch |e|
+      (!shown).add(String(e))
+      json.Doc()
+    if shown.len == 0
+      return String("ok"), -1
+    open = text.find(?shown, "(") ?? 0
+    close = text.find(?shown, ")") ?? 0
+    return String(shown[10..open]), text.parse_int(shown[open + 5..close]) catch 0
+
+  sub main()
+    cases = 0
+    ok = 0
+    sum: U64 = 0
+    for after in [0x5B, 0x2C]
+      for brk in [0, 1, 2]
+        for p in 0..42
+          for b in 0..256
+            s = String()
+            !s.push(0x5B)
+            if after == 0x2C
+              !s.push(0x31)
+              !s.push(0x2C)
+            !s.push(0x0D) if brk == 2
+            !s.push(0x0A) if brk > 0
+            for k in 0..p
+              !s.push(0x20 if k % 11 != 10 else 0x09)
+            !s.push(U8(b))
+            !s.push(0x5D) if b % 3 != 0
+            name, at = outcome(?s)
+            ok += 1 if at < 0
+            at = 0 if at < 0
+            sum = sum *% 1000003 +% U64(at) *% 31 +% U64(name.len) *% 7 +% U64((?name[..])[0])
+            cases += 1
+    print("cases", cases, "ok", ok, "checksum", sum)
+
 test "json utf8 blocks", "checked 864 mismatches 0"
   # std.json checks a string's non-ASCII text 16 bytes at a time: each
   # UTF-8 sequence, valid and not, at every offset around a block's edges,
