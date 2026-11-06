@@ -163,6 +163,11 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- std.json parses a key after a comma inline, returns at once when a
+  key's colon is followed by its value, and puts an integer of up to 18
+  digits with no fraction or exponent on the tape as soon as its digits
+  end: 0.5-3.4% faster on the Mac on five files, twitterescaped level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/key-int-2026-11-06.md)).
 - std.json makes its tape entries with wrapping arithmetic, which the
   2^32-byte input cap keeps from wrapping, so no overflow check runs:
   0.5-4.4% faster on the Mac (citm_catalog 4.4%, canada 2.7%), every

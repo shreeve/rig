@@ -245,7 +245,7 @@ pub obj Doc
         if c == ','
           i = skip_indent(src, i + 1)
           if in_object
-            i = (!@).key(src, i)
+            i = (!@).key_at(src, i)
             return -1 if i < 0
           break
         closing: U8 = '}' if in_object else ']'
@@ -283,11 +283,20 @@ pub obj Doc
     outer
 
   # Parses `"key"` and the `:` after it; returns where the value starts.
+  # An object's first key, after its `{`: `key_at` out of line, which
+  # is inlined after a `,`, where most keys are.
   fun key(!@, src: ?String, at: Int) -> Int
+    (!@).key_at(src, at)
+
+  inline fun key_at(!@, src: ?String, at: Int) -> Int
     return (!@).fail(.eof(at: at)) if at >= src.len
     return (!@).fail(.unexpected(at: at)) if src[at] != '"'
     end = (!@).scan_string(src, at)
     return -1 if end < 0
+    # Most keys end at `:`, then the value's first byte, or `: ` and it.
+    if end + 1 < src.len and src[end] == ':'
+      return end + 1 if src[end + 1] > ' '
+      return skip_space(src, end + 1)
     i = skip_space(src, end)
     return (!@).fail(.eof(at: i)) if i >= src.len
     return (!@).fail(.unexpected(at: i)) if src[i] != ':'
@@ -521,6 +530,13 @@ pub obj Doc
       i, m = take_digits(src, i, m)
       frac_digits = i - dot
       return (!@).fail(.number(at: i)) if frac_digits == 0
+    else if int_digits <= 18 and peek(src, i) | 0x20 != 'e' and not (negative and m == 0)
+      # Most numbers are integers of a few digits: with no exponent after
+      # them, and at most 18 digits, which always fit, the value goes on
+      # the tape at once.
+      v = Int(m)
+      !@add_int(-v if negative else v)
+      return i
     exp = 0
     if peek(src, i) | 0x20 == 'e'
       is_float = true
