@@ -11,7 +11,9 @@
 # (`wakeIn`, `commitWaitIn`, and the rest) may appear, nor a lock taken
 # uncounted (`lockApart`, `unlockApart`), nor a line of tasks.zig's
 # mailbox entries, whose locks go uncounted (docs/history/records/
-# 2026-11/preempt/locks-2026-11-05.md).
+# 2026-11/preempt/locks-2026-11-05.md), nor any read of a thread-local
+# (`%fs:`), whose address a fiber resumed on another worker would still
+# hold.
 #
 # Preemption is built for Linux x86-64. There the benches are built as
 # `rig build` builds them; elsewhere `rig emit` writes their package and
@@ -54,6 +56,7 @@ for p in tasks actors; do
     fi
     objdump -h "$p" | grep -q ' rig_text ' || fail "bench/$p has no rig_text section"
     objdump -d -l --section=rig_text "$p" >"$p.dis"
+    ! grep -q '%fs:' "$p.dis" || fail "bench/$p: the program's section reads a thread-local: $(grep -m1 '%fs:' "$p.dis")"
     lines=$(grep -oE '/sched\.zig:[0-9]+' "$p.dis" | sed 's/.*://' | sort -un)
     for f in $(functions "$ROOT/src/sched.zig" "$lines"); do
         case " $allowed " in
