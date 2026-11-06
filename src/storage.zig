@@ -502,7 +502,7 @@ pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
 }
 
 fn decideReachesLeaf(ctx: *const SemContext, e: Sexp) bool {
-    if (sema.handsOver(ctx, e).kind != .branches) return false;
+    if (handsKind(ctx, e) != .branches) return false;
     if (ctx.useOf(e)) |use| if (use == .take) return false;
     const ty = typeOf(ctx, e) orelse return false;
     if (!sema.readByAddress(ctx, ty)) return false;
