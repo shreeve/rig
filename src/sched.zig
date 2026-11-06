@@ -879,6 +879,7 @@ fn preemptedC() callconv(.c) void {
 /// one, go back in line behind it, in the global queue.
 fn preempted() void {
     const w = me() orelse return;
+    // A flag set once, not a lock: uncounted for preemption.
     if (preempt_trace and !preempt_traced.swap(true, .monotonic)) std.debug.dumpCurrentStackTrace(.{ .allow_unsafe_unwind = true });
     serviceBusy(w);
     if (!hasOwnWork(w)) {
