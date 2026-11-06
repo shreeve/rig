@@ -172,6 +172,11 @@ a bare number, and of `per:` of `task.supervise` and
   AVX2. In code a `--pgo` profile finds cold its loads stay wide,
   where `std.mem.eql`'s array casts moved each byte through the stack
   (`bench/eql`).
+- std.json takes a pretty-printer's line break and indentation after a
+  `,` or an opening bracket as fixed steps the processor predicts:
+  4.6-12.7% faster on indented input on the Mac (citm_catalog 12.7%,
+  github_events 7.4%, twitter 6.5%), with minified input level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/indent-2026-11-05.md)).
 - A prototype, off by default: a program that makes tasks, built with
   `RIG_PREEMPT=signal` for Linux x86-64 in an optimized build, has no
   yield checks; a monitor thread stops a task that runs a slice while
