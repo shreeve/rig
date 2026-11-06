@@ -166,6 +166,54 @@ case "$(uname -s)/$(uname -m)" in
         grep -q 'preempted [1-9]' err-spin.txt || fail "spin.rig: no task preempted: $(cat err-spin.txt)" ;;
 esac
 
+# Tasks that loop on `file.read`, which reads a regular file in the task
+# and spends its time in system calls, outside the program's code where
+# a signal stops nothing, hand over their workers at each read's waiting
+# point when a signal has asked them to (`sched.atWaitingPoint`): a task
+# sleeping 20 ms beside eight of them on four workers wakes in time,
+# where it waited for seconds in about half the runs.
+printf 'some bytes to read\n' > small.txt
+cat > reads.rig <<'RIG'
+use std.file
+use std.task
+use std.time
+
+fun reader(k: Int, stop: *Cell[Int]) -> Int!
+  n = 0
+  while stop.get() == 0
+    s = file.read("small.txt")! ?? String()
+    n += s.len
+    time.sleep(ms: k % 2)!
+  n
+
+fun sleeper() -> Int!
+  t = time.now()
+  time.sleep(ms: 20)!
+  t.elapsed() / 1000000
+
+sub main()!
+  task.workers(4)
+  stop = *Cell(0)
+  r0 = reader(0, +stop)&
+  r1 = reader(1, +stop)&
+  r2 = reader(2, +stop)&
+  r3 = reader(3, +stop)&
+  r4 = reader(4, +stop)&
+  r5 = reader(5, +stop)&
+  r6 = reader(6, +stop)&
+  r7 = reader(7, +stop)&
+  q = sleeper()&
+  ms = >q!
+  !stop.add(1)
+  total = >r0! + >r1! + >r2! + >r3! + >r4! + >r5! + >r6! + >r7!
+  print("woke", ms < 2000, total > 0)
+RIG
+RIG_PREEMPT=signal "$RIG" build --release=fast -o reads reads.rig >build-reads.txt 2>&1 || fail "build reads.rig: $(cat build-reads.txt)"
+for i in 1 2 3 4 5; do
+    out=$("$TIMEOUT_CMD" 60 ./reads 2>&1) || fail "reads.rig run $i (timeout 60 s): $out"
+    expect_eq "$out" "woke true true" "reads.rig run $i: the sleeper woke within 2 s"
+done
+
 # The trampoline is a frame like a call's: a trace taken where a fiber
 # is preempted (`RIG_PREEMPT_TRACE=1`, the first preemption's) walks
 # through it into the stopped code and on to the fiber's base. A debug

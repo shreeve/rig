@@ -432,6 +432,23 @@ fn serviceBusy(w: *Worker) void {
     }
 }
 
+/// A waiting point of the running fiber (`rt.checkStop`), in a build with
+/// signal preemption: if a signal found the fiber outside the program's
+/// code or under a lock since its last one (`Pre.owed`), run the yield
+/// check that signal asked for. A task that spends its time in system
+/// calls and the runtime, as a loop of `file.read` does, is rarely
+/// stopped in its own code, and without this held its worker, and the
+/// timers due on it, for seconds. Every call that reaches the file
+/// system or a socket begins at a waiting point.
+pub noinline fn atWaitingPoint() void {
+    if (!preempt) return;
+    const w = me() orelse return;
+    const p = preOf(w);
+    if (!p.owed.load(.monotonic) or p.no_preempt != 0) return;
+    p.owed.store(false, .monotonic);
+    tick();
+}
+
 /// A recursive call that saw `waiting` set (`rt.tickCall`).
 pub noinline fn tickCall() void {
     @branchHint(.cold);
@@ -618,6 +635,11 @@ const Preempt = struct {
     /// the fiber holding it.
     no_preempt: u32 = 0,
     held_off: u64 = 0,
+    /// A signal found the fiber outside the program's code or under a
+    /// lock, so the yield check it asked for is owed: the fiber's next
+    /// waiting point runs it (`atWaitingPoint`). Set and cleared on the
+    /// worker's own thread, by the handler and by the fiber.
+    owed: std.atomic.Value(bool) = .init(false),
 };
 
 /// A lock is taken on this thread: no signal stops its fiber until it is
@@ -691,10 +713,12 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     const sp = sp_at.*;
     if (!inCode(pc)) {
         preOf(w).outside += 1;
+        preOf(w).owed.store(true, .monotonic);
         return;
     }
     if (preOf(w).no_preempt != 0) {
         preOf(w).held_off += 1;
+        preOf(w).owed.store(true, .monotonic);
         return;
     }
     // Room for the trampoline above the guard, and this handler on its

@@ -232,6 +232,14 @@ a bare number, and of `per:` of `task.supervise` and
   4.6-12.7% faster on indented input on the Mac (citm_catalog 12.7%,
   github_events 7.4%, twitter 6.5%), with minified input level
   ([records/2026-11/json/](docs/history/records/2026-11/json/indent-2026-11-05.md)).
+- In a build with `RIG_PREEMPT=signal`, a signal that finds a task in
+  a system call or the runtime, outside the program's code, leaves the
+  yield check it asked for owed, and the task's next waiting point (any
+  call that reaches the file system or a socket) runs it: eight tasks
+  looping on `file.read` held four workers, and a 20 ms timer due on
+  them, for up to 4.8 s on the Mac and 17.6 s on x86-64 Linux, and now
+  it fires at 21 ms
+  ([owed-2026-11-06.md](docs/history/records/2026-11/preempt/owed-2026-11-06.md)).
 - A prototype, off by default: a program that makes tasks, built with
   `RIG_PREEMPT=signal` for Linux x86-64 or arm64 macOS in an optimized
   build, has no
