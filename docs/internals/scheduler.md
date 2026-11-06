@@ -144,16 +144,17 @@ a program that makes none starts no workers.
   Filling the slot wakes no worker (`sched.wake`); the task it pushes
   out to the ring does, when none is looking. A worker runs the task
   next when it woke the task itself: from its poller or a timer as it
-  looks for work, at a task's end, or at a yield check, which then
-  yields to it. A task that wakes another and goes on running either
-  stops soon, as one that sends and waits for the answer does, or
-  reaches a yield check, loop or recursive, which hands the woken task
-  on (`sched.waiting`). So two tasks that answer each other, over a
-  socket or a channel, stay on one worker with no system call to wake
-  another; a chain of tasks each made and waited for at once runs by
-  handoff on its maker's worker; and fork-join (`t = f()&; g(); >t`)
-  spreads at `g`'s first yield check, where `g` yields to `f` and a
-  worker woken for `g` takes it. A worker with nothing else to steal
+  looks for work, at a task's end, or at a yield check, which yields
+  to it when no other worker could take it (below). A task that wakes
+  another and goes on running either stops soon, as one that sends and
+  waits for the answer does, or reaches a yield check, loop or
+  recursive, which hands the woken task on (`sched.waiting`). So two
+  tasks that answer each other, over a socket or a channel, stay on one
+  worker with no system call to wake another; a chain of tasks each made
+  and waited for at once runs by handoff on its maker's worker; and
+  fork-join (`t = f()&; g(); >t`) spreads at `g`'s first yield check,
+  which wakes an idle worker for `f` and lets `g` run on, as Go's `go`
+  leaves its maker running. A worker with nothing else to steal
   also takes a task left in another's slot 3 µs (`sched.stealNext`), as
   Go takes a `runnext`. A global queue takes overflow and work from
   outside the workers.
@@ -341,7 +342,18 @@ fails, and yields only when other work waits.
   that returns at its first element, pays no check. Zig's own `for`,
   which has no continue expression, counts as each turn's body starts. The task yields when work waits for its worker (in its "run
   next" slot, its ring, or the global queue) or for another busy one
-  (the flag below).
+  (the flag below), unless a worker with nothing to do could take it:
+  while one is asleep or looking, its ring is empty and no pinned task
+  waits, the work is left to that worker, woken for it, and the task
+  runs on (`sched.leftToIdle`). So a task that makes tasks between its
+  own work, as a serial loader starting a parse for each file it finds
+  does, keeps its worker while idle workers take what it makes, as
+  idle processors take a Go program's goroutines; a burst of tasks that
+  fills its ring, which its maker then waits for, runs where it was
+  made, cheaper than spread over cores; and a task waits behind a
+  computing one only while every worker is busy. A woken worker that
+  finds the work gone sleeps again; the next check wakes one again or
+  yields.
 - **Recursion.** Every cycle of calls passes through a function that
   starts by reading one flag, `sched.waiting`, on a cache line of its
   own. The compiler picks those functions once, as a feedback vertex
@@ -365,7 +377,9 @@ fails, and yields only when other work waits.
   one of them did. Work woken or made while every worker is busy sets it, and so
   does a fiber that fills its worker's "run next" slot and runs on. The
   first check to see it clears it and yields to that work: its own
-  worker's, or half of another busy worker's ring, stolen. A worker
+  worker's, or half of another busy worker's ring, stolen; or, when a
+  worker with nothing to do could take it, wakes that worker and sets
+  the flag again, so the notice stands until a worker takes the work. A worker
   that finds no work and sleeps clears it too. The flag is one bit for
   many notices, and a fiber in a slot is seen by no sleeper and by its
   maker's recursive checks only through it, so whoever clears it, a

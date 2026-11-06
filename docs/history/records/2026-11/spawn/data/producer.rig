@@ -1,0 +1,46 @@
+# A producer spawns N tasks of WORK steps, doing WORK steps of its own
+# between spawns, then waits for them: its own finish time (produce),
+# against the whole (all). Fastest of REPEATS.
+use std.task
+use std.time
+
+N = 200
+WORK = 30000
+REPEATS = 20
+
+fun spin(n: Int) -> Int
+  total = 0
+  for i in 0..n
+    total = (total + i * 7) % 1000003
+  total
+
+fun round() -> [3]Int
+  t = time.now()
+  ts = Tasks[Int]()
+  mine = 0
+  for i in 0..N
+    !ts.add(spin(WORK + i)&)
+    mine = (mine + spin(WORK)) % 1000003
+  produced = t.elapsed()
+  xs = >ts
+  all = t.elapsed()
+  sum = mine
+  for x in xs
+    sum = (sum + x) % 1000003
+  [produced, all, sum]
+
+sub main()
+  t = time.now()
+  one = spin(WORK)
+  print("one", t.elapsed(), one % 2)
+  best_p = 0
+  best_a = 0
+  check = 0
+  for r in 0..REPEATS
+    got = round()
+    if r == 0 or got[0] < best_p
+      best_p = got[0]
+    if r == 0 or got[1] < best_a
+      best_a = got[1]
+    check = got[2]
+  print("produce", best_p, "all", best_a, "check", check)

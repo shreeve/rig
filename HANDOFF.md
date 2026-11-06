@@ -106,6 +106,12 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A task's maker keeps its worker** (research 29 #6): a yield check
+  leaves work to an idle worker it wakes, and yields only when every
+  worker is busy
+  ([records/2026-11/spawn/](docs/history/records/2026-11/spawn/README.md));
+  Trig's parse in waves (research 29 #4) builds on it. Its x86 timing on
+  pup waits with the rest.
 - **Preemption by signal** (#952): a prototype behind
   `RIG_PREEMPT=signal`, off by default, for Linux x86-64 and arm64
   macOS ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md);

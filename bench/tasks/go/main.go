@@ -1,5 +1,5 @@
 // Go's goroutines timed as bench/tasks/tasks.rig times Rig's tasks:
-// spawn, chain, fanout, yield, hog. Run as `tasks-go many`, it holds
+// spawn, chain, fanout, yield, hog, produce. Run as `tasks-go many`, it holds
 // many sleeping goroutines at once (many), and as `tasks-go idle`, none,
 // sleeping as long. Prints `NAME NS CHECK` per benchmark.
 package main
@@ -25,6 +25,8 @@ const (
 	hogWork    = 20000000
 	hogChain   = 50
 	hogSlice   = 1000000
+	produceN   = 200
+	produceWk  = 10000
 	many       = 10000
 	manyNap    = 200 * time.Millisecond
 	chunks     = 1024
@@ -245,4 +247,21 @@ func main() {
 		sum += x
 	}
 	fmt.Println("hog", ns, sum)
+
+	t = time.Now()
+	ps := make([]int64, produceN)
+	var pwg sync.WaitGroup
+	var mine int64
+	for i := int64(0); i < produceN; i++ {
+		pwg.Add(1)
+		go func(i int64) { ps[i] = spin(produceWk + i); pwg.Done() }(i)
+		mine = (mine + spin(produceWk)) % 1000003
+	}
+	ns = time.Since(t).Nanoseconds()
+	pwg.Wait()
+	sum = mine
+	for _, x := range ps {
+		sum = (sum + x) % 1000003
+	}
+	fmt.Println("produce", ns, sum)
 }

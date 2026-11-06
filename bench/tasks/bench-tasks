@@ -44,7 +44,12 @@ OPS = {
     "fanout": ("run", 1),
     "yield": ("yield", 100 * 10000),
     "hog": ("step", 50),
+    "produce": ("run", 1),
 }
+
+# The columns of a PROGRESS.md row after the variant: produce came after
+# memory, so a row before it has one cell fewer.
+COLUMNS = [n for n in OPS if n != "produce"] + ["memory", "produce"]
 
 
 def tokio_source(given):
@@ -191,7 +196,7 @@ def record(note, variants, best):
     with open(path, "a") as f:
         for v in variants:
             if v.startswith("rig-"):
-                cells = [cell(n, best[v][n]) for n in OPS] + [size(best[v]["memory"])]
+                cells = [size(best[v][n]) if n == "memory" else cell(n, best[v][n]) for n in COLUMNS]
                 f.write("| %s | %s | %s | %s |\n" % (day, note, v, " | ".join(cells)))
     print("bench-tasks: recorded in %s" % path, file=sys.stderr)
 
@@ -208,11 +213,11 @@ def recorded():
         if line.startswith("## x86-64"):
             section = "x86"
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if section == ("x86" if x86 else "arm64") and len(cells) == 9 and cells[2] == "rig-fast":
+        if section == ("x86" if x86 else "arm64") and len(cells) in (9, 10) and cells[2] == "rig-fast":
             row = cells
     if row is None:
         return None
-    names = list(OPS) + ["memory"]
+    names = COLUMNS[: len(row) - 3]
     out = {}
     for name, c in zip(names, row[3:]):
         n, unit = c.split()
@@ -226,7 +231,7 @@ def gate(best):
     if last is None:
         sys.exit("bench-tasks: --gate found no rig-fast row for this machine in PROGRESS.md")
     slow = []
-    for name in list(OPS) + ["memory"]:
+    for name in last:
         now = best["rig-fast"][name] / (OPS[name][1] if name in OPS else 1)
         if now > 1.5 * last[name]:
             slow.append("%s %.1fx the recorded row" % (name, now / last[name]))
@@ -274,18 +279,21 @@ def main():
     # and frees never slow the next one's times.
     for _ in range(a.reps):
         for v in variants:
+            if v == "rayon":
+                continue
             per_task, check = memory(exes[v])
             if checks.setdefault("many", check) != check:
                 sys.exit("bench-tasks: %s's many check is %s, not %s" % (v, check, checks["many"]))
             best[v]["memory"] = min(per_task, best[v].get("memory", per_task))
     base = "tokio" if "tokio" in variants else variants[0]
     print("%-8s" % "" + "".join("%-18s" % v for v in variants) + "vs %s" % base)
+    # Rayon runs `produce` alone, and holds no sleeping tasks.
     for name in OPS:
-        cells = "".join("%-18s" % per_op(name, best[v][name]) for v in variants)
-        ratios = ", ".join("%s %s" % (v, compare(best[v][name], best[base][name])) for v in variants if v != base)
+        cells = "".join("%-18s" % (per_op(name, best[v][name]) if name in best[v] else "-") for v in variants)
+        ratios = ", ".join("%s %s" % (v, compare(best[v][name], best[base][name])) for v in variants if v != base and name in best[v])
         print("%-8s%s%s" % (name, cells, ratios))
-    cells = "".join("%-18s" % (size(best[v]["memory"]) + "/task") for v in variants)
-    ratios = ", ".join("%s %s" % (v, compare(best[v]["memory"], best[base]["memory"]).replace("slower", "more").replace("faster", "less")) for v in variants if v != base)
+    cells = "".join("%-18s" % (size(best[v]["memory"]) + "/task" if "memory" in best[v] else "-") for v in variants)
+    ratios = ", ".join("%s %s" % (v, compare(best[v]["memory"], best[base]["memory"]).replace("slower", "more").replace("faster", "less")) for v in variants if v != base and "memory" in best[v])
     print("%-8s%s%s" % ("memory", cells, ratios))
     if a.record:
         record(a.record, variants, best)

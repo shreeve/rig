@@ -1,0 +1,21 @@
+use std.task
+use std.time
+
+WAVES = 100
+SIZE = 1000
+
+fun leaf(i: Int) -> Int
+  i
+
+sub main()
+  for 0..5
+    t = time.now()
+    sum = 0
+    for 0..WAVES
+      ts = Tasks[Int]()
+      for i in 0..SIZE
+        !ts.add(leaf(i)&)
+      xs = >ts
+      for x in xs
+        sum += x
+    print("spawn", t.elapsed(), sum)

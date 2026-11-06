@@ -1,7 +1,8 @@
 # Rig's tasks timed five ways (bench/tasks/README.md): starting and
 # waiting for many tiny tasks in waves (spawn), one at a time (chain),
 # CPU work split across tasks (fanout), tasks that only yield (yield),
-# and a chain while CPU-bound tasks keep every core busy (hog). Run as
+# a chain while CPU-bound tasks keep every core busy (hog), and a task
+# that makes tasks between its own work (produce). Run as
 # `tasks many`, it holds many sleeping tasks at once (many), and as
 # `tasks idle`, none, sleeping as long: the driver reads the memory each
 # takes (`long` sleeps 1 s). Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
@@ -23,6 +24,8 @@ HOG_TASKS = 32
 HOG_WORK = 20000000
 HOG_CHAIN = 50
 HOG_SLICE = 1000000
+PRODUCE = 200
+PRODUCE_WORK = 10000
 MANY = 10000
 MANY_NAP_MS = 200
 LONG_NAP_MS = 1000
@@ -108,6 +111,23 @@ called sub hog()
   for y in ys
     sum += y
   print("hog", ns, sum)
+
+# A task that makes tasks and computes between them, as a serial loader
+# that starts a parse for each file it finds does: its own finish time,
+# which idle workers taking what it makes leave at its own work's.
+called sub produce()
+  t = time.now()
+  ts = Tasks[Int]()
+  mine = 0
+  for i in 0..PRODUCE
+    !ts.add(spin(PRODUCE_WORK + i)&)
+    mine = (mine + spin(PRODUCE_WORK)) % 1000003
+  ns = t.elapsed()
+  xs = >ts
+  sum = mine
+  for x in xs
+    sum = (sum + x) % 1000003
+  print("produce", ns, sum)
 
 fun nap(ms: Int) -> Int!
   time.sleep(ms: ms)!
@@ -240,3 +260,4 @@ sub main()
   fanout()
   yields()
   hog()
+  produce()
