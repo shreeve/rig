@@ -39,5 +39,6 @@ Each byte's test is a predicted branch, against a bit set of the four whitespace
 
 - **On Apple's cores, main's byte loop is already the fast shape.** Its tests are branches the processor predicts and runs ahead of: `c > ' '`, then 8 spaces at once when they are spaces.
 - **A computed advance is slower.** Taking the run's length from a vector mask or a count of trailing zeros puts a load-to-load dependency on every step: each next position waits for the last read. The processor can no longer run ahead, so IPC falls further than the instructions saved.
-- **yyjson's loop has the same shape:** one table test and one branch per byte. It needs no bounds test, since its input ends in padding. So the whitespace is not where yyjson's lead is. The 40% more instructions are spread through the parser's work per token, which is the next lead.
+- **yyjson's loop has the same shape:** one table test and one branch per byte. It needs no bounds test, since its input ends in padding.
+- **But the whitespace is much of yyjson's lead, by instructions:** 61% of twitter's gap, 39% of citm_catalog's, and all of github_events'. yyjson does not skip it faster byte by byte. It guesses it from the separator before it (`,\n`, `: `, a newline after a bracket), each a two-byte compare, then takes the indentation a fixed amount at a time, so every step is still a predicted branch ([panel/SYNTHESIS.md](panel/SYNTHESIS.md)).
 - **x86 may differ,** where a vector compare's mask reaches a general register cheaply (`TIER`). Try 1 is to be timed on pup when it is reachable.
