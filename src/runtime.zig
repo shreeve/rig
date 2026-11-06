@@ -453,6 +453,21 @@ pub inline fn tickCall() void {
     }
 }
 
+/// The entry of a std function that loops over its input in Zig, out of
+/// the program's code, in a build with signal preemption: a signal finds
+/// a loop of such calls in the program's code for a few instructions a
+/// call, so it leaves the yield check it asked for owed (`sched.owe`),
+/// and the next call pays it here, at a call's boundary, where the
+/// program's code may yield (`sched.atWaitingPoint`). One load in such a
+/// build, nothing in one without.
+pub inline fn owedAtEntry() void {
+    if (!preempt or @inComptime()) return;
+    if (sched.anyOwed()) {
+        @branchHint(.unlikely);
+        sched.atWaitingPoint();
+    }
+}
+
 fn tickC() callconv(.c) void {
     sched.tick();
 }

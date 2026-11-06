@@ -12,16 +12,19 @@ const ParseError = error{
 };
 
 pub fn find(s: []const u8, pat: []const u8) ?i64 {
+    rig.owedAtEntry();
     return @intCast(search(s, pat) orelse return null);
 }
 
 pub fn find_last(s: []const u8, pat: []const u8) ?i64 {
+    rig.owedAtEntry();
     if (pat.len == 0) return @intCast(s.len);
     const at = if (pat.len == 1) searchLast(s, pat, true) else searchLast(s, pat, false);
     return @intCast(found(at) orelse return null);
 }
 
 pub fn count(s: []const u8, pat: []const u8) i64 {
+    rig.owedAtEntry();
     if (pat.len == 0) return @intCast(s.len + 1);
     var n: i64 = 0;
     var i: usize = 0;

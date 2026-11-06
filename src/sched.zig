@@ -444,9 +444,16 @@ pub noinline fn atWaitingPoint() void {
     if (!preempt) return;
     const w = me() orelse return;
     const p = preOf(w);
-    if (!p.owed.load(.monotonic) or p.no_preempt != 0) return;
-    p.owed.store(false, .monotonic);
+    if (p.no_preempt != 0 or !p.owed.swap(false, .monotonic)) return;
+    _ = owing.fetchSub(1, .monotonic);
     tick();
+}
+
+/// Whether any worker owes a yield check: std's functions that loop over
+/// their input in Zig, out of the program's code, ask at their entry and
+/// pay it there (`rt.owedAtEntry`).
+pub inline fn anyOwed() bool {
+    return preempt and owing.load(.monotonic) != 0;
 }
 
 /// A recursive call that saw `waiting` set (`rt.tickCall`).
@@ -608,6 +615,17 @@ fn findCode() void {
 var preempt_states_var: [max_workers]Preempt = @splat(.{});
 const preempt_states = split.cell(&preempt_states_var, "sched.preempt_states");
 
+/// How many workers owe a yield check (`Preempt.owed`): what std's
+/// functions read at their entry (`rt.owedAtEntry`), one load of a word
+/// no worker writes until a signal leaves a check owed.
+var owing_var: std.atomic.Value(u32) = .init(0);
+const owing = split.cell(&owing_var, "sched.owing");
+
+/// A signal left the yield check it asked for owed on `w`.
+fn owe(w: *Worker) void {
+    if (!preOf(w).owed.swap(true, .monotonic)) _ = owing.fetchAdd(1, .monotonic);
+}
+
 inline fn preOf(w: *const Worker) *Preempt {
     return &preempt_states[(@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker)];
 }
@@ -713,12 +731,12 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     const sp = sp_at.*;
     if (!inCode(pc)) {
         preOf(w).outside += 1;
-        preOf(w).owed.store(true, .monotonic);
+        owe(w);
         return;
     }
     if (preOf(w).no_preempt != 0) {
         preOf(w).held_off += 1;
-        preOf(w).owed.store(true, .monotonic);
+        owe(w);
         return;
     }
     // Room for the trampoline above the guard, and this handler on its

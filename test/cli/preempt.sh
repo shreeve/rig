@@ -214,14 +214,12 @@ for i in 1 2 3 4 5; do
     expect_eq "$out" "woke true true" "reads.rig run $i: the sleeper woke within 2 s"
 done
 
-# A known limit (docs/history/records/2026-11/preempt/owed-2026-11-06.md):
-# a loop that spends its time in std's or the runtime's Zig code with no
-# waiting point, as `text.find` over a long text does, is stopped only
-# where a signal finds it in the program's own code, and owes the yield
-# check to a waiting point it never reaches. So a task sleeping 20 ms
-# beside four such loops on two workers wakes late: in 45 ms to 2.1 s
-# on the Mac. Like a test's `known:`, this passes while some run of five
-# wakes past 40 ms, and fails the day none does, to have the mark taken off.
+# A loop that spends its time in std's Zig code, as `text.find` over a
+# long text does, passes through the program's own code for a few
+# instructions a call, so a signal leaves its yield check owed; the next
+# search pays it at its entry (`rig.owedAtEntry`). A task sleeping 20 ms
+# beside two such loops on one worker wakes in time, where it woke in
+# 30 ms to 1.05 s (docs/history/records/2026-11/preempt/owed-2026-11-06.md).
 case "$(uname -s)/$(uname -m)" in
     Linux/x86_64 | Darwin/arm64)
         cat > finds.rig <<'RIG'
@@ -244,26 +242,22 @@ fun sleeper() -> Int!
   t.elapsed() / 1000000
 
 sub main()!
-  task.workers(2)
+  task.workers(1)
   stop = *Cell(0)
   s0 = searcher(0, +stop)&
   s1 = searcher(1, +stop)&
-  s2 = searcher(2, +stop)&
-  s3 = searcher(3, +stop)&
   q = sleeper()&
   ms = >q!
   !stop.add(1)
-  total = >s0! + >s1! + >s2! + >s3!
+  total = >s0! + >s1!
   print(ms, total > 0)
 RIG
         RIG_PREEMPT=signal "$RIG" build --release=fast -o finds finds.rig >build-finds.txt 2>&1 || fail "build finds.rig: $(cat build-finds.txt)"
-        late=0
         for i in 1 2 3 4 5; do
             out=$("$TIMEOUT_CMD" 60 ./finds 2>&1) || fail "finds.rig run $i (timeout 60 s): $out"
             [[ ${out#* } == true ]] || fail "finds.rig run $i: $out"
-            (( ${out%% *} > 40 )) && late=$((late + 1))
-        done
-        (( late > 0 )) || fail "finds.rig: the known limit is gone, every run woke within 40 ms: take the mark off (owed-2026-11-06.md)" ;;
+            (( ${out%% *} <= 100 )) || fail "finds.rig run $i: the sleeper woke after ${out%% *} ms, past 100 ms"
+        done ;;
 esac
 
 # The trampoline is a frame like a call's: a trace taken where a fiber
