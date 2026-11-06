@@ -7844,11 +7844,15 @@ fn endProcess(status: u8) noreturn {
 /// `os.exit(code)`: write out what `print` has buffered, then end the
 /// process with status `code` at once, from any task. No drop, `defer`,
 /// or leak check runs, and the program's other tasks end with it. A
-/// `code` outside 0..255 panics, as `fun main() -> Int`'s does.
+/// `code` outside 0..255 panics, as `fun main() -> Int`'s does. On the
+/// Mac a release build may first stop the other workers and unmap the
+/// program's memory on all of them, which the kernel would otherwise
+/// free on one core as the process ends (`sched.tearDown`).
 pub fn exitNow(code: Int) noreturn {
     const status = exitStatus(code);
     lockOutput();
     flush();
+    if (scheduled and !pgo) sched.tearDown();
     endProcess(status);
 }
 

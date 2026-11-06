@@ -163,6 +163,18 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- On the Mac a release build's `os.exit` stops the other workers, when
+  none runs a task and the blocking pool is idle, and unmaps the
+  program's Tables, segments and free fiber stacks on four of them
+  before the process ends, where the kernel would free their page
+  tables on one core: Trig at four and eight checkers is 9-18% faster
+  on mitt, neverthrow and superstruct and 4-7% on tiny-invariant, and
+  level on zod3 and ts-pattern and at one checker, peak memory level. The work stays in the
+  process, so its time and CPU time count it. Tables take their ranges
+  from 32 GiB regions on the Mac, as from Linux's 256 GiB ones, which
+  the teardown unmaps; Linux, debug builds, and a return from `main`
+  end as before
+  ([records/2026-11/exit/](docs/history/records/2026-11/exit/parallel-teardown.md)).
 - `task.worker_count()` gives the number of workers tasks run on (one
   per core, `RIG_WORKERS`, or what `task.workers(n)` set), before the
   first task starts them or after; 1 in a deterministic run.
