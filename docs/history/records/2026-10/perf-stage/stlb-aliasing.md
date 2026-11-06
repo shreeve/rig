@@ -303,3 +303,7 @@ something else. The next measurement, in a later P-core slot: `pstat.sh`'s
 counters for main and color on core 6, with
 `cpu_core/dtlb_load_misses.walk_completed/` and `walk_active`, and the
 STLB-miss attribution with `cpu_core/mem_inst_retired.stlb_miss_loads/pp`.
+
+## Verdict
+
+Not taken (2026-11-02): level on P-cores, the race's cores, so under the speed bar. The aliasing is an E-core effect. The panels of 2026-11-05 checked it again and agree ([panels/table-arena/critic.md](../../2026-11/panels/table-arena/critic.md)). The diff is kept as `table-color.diff` beside this record.
