@@ -528,6 +528,13 @@ pub obj Doc
       i, m = take_digits(src, i, m)
       frac_digits = i - dot
       return (!@).fail(.number(at: i)) if frac_digits == 0
+    else if int_digits <= 18 and peek(src, i) | 0x20 != 'e' and not (negative and m == 0)
+      # Most numbers are integers of a few digits: with no exponent after
+      # them, and at most 18 digits, which always fit, the value goes on
+      # the tape at once.
+      v = Int(m)
+      !@add_int(-v if negative else v)
+      return i
     exp = 0
     if peek(src, i) | 0x20 == 'e'
       is_float = true
