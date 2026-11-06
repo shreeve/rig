@@ -163,6 +163,9 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- `task.worker_count()` gives the number of workers tasks run on (one
+  per core, `RIG_WORKERS`, or what `task.workers(n)` set), before the
+  first task starts them or after; 1 in a deterministic run.
 - std.json tests a string's first 8 bytes inline before scanning the
   rest: 1.8-3.5% faster on the Mac on five files, canada level
   ([records/2026-11/json/](docs/history/records/2026-11/json/head-2026-11-06.md)).

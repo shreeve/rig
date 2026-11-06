@@ -2660,6 +2660,13 @@ pub fn setWorkers(n: Int) bool {
     return rt.sched.askWorkers(@intCast(n));
 }
 
+/// `task.worker_count()`: how many workers tasks run on, before the first
+/// task starts them or after; one in a program that makes none.
+pub fn workerCount() Int {
+    if (!rt.scheduled) return 1;
+    return @intCast(rt.sched.workerTotal());
+}
+
 /// `task.check()`: a waiting point that waits for nothing. It fails
 /// when the running task is canceled or its deadline has passed, and
 /// otherwise lets other tasks run (`rt.sched.yield`); a task alone on

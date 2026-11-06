@@ -2945,6 +2945,15 @@ pub fn askWorkers(n: usize) bool {
     return true;
 }
 
+/// How many workers run tasks, or will once the program makes its first
+/// task, without starting them (`startWorkers`): one in a deterministic
+/// run.
+pub fn workerTotal() usize {
+    if (started.*) return workers.*.len;
+    if (deterministic.*) return 1;
+    return @min(workerCount(), all_workers.*.len);
+}
+
 /// How many workers run tasks, starting them first if they have not.
 pub fn workersRunning() usize {
     if (!started.*) startWorkers();
