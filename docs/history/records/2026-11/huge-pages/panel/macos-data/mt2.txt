@@ -1,0 +1,36 @@
+threads 4, 32 MiB each, a mapping per thread: slowest 3.31 ms, mean 1522 ns/fault
+threads 4, 32 MiB each, a mapping per thread: slowest 3.49 ms, mean 1566 ns/fault
+threads 4, 32 MiB each, a mapping per thread: slowest 3.56 ms, mean 1574 ns/fault
+threads 4, 32 MiB each, a mapping per thread: slowest 3.57 ms, mean 1582 ns/fault
+threads 4, 32 MiB each, a mapping per thread: slowest 3.58 ms, mean 1512 ns/fault
+threads 4, 32 MiB each, a mapping per thread: slowest 3.61 ms, mean 1591 ns/fault
+threads 4, 32 MiB each, one shared mapping: slowest 6.03 ms, mean 2926 ns/fault
+threads 4, 32 MiB each, one shared mapping: slowest 7.65 ms, mean 3678 ns/fault
+threads 4, 32 MiB each, one shared mapping: slowest 7.67 ms, mean 3732 ns/fault
+threads 4, 32 MiB each, one shared mapping: slowest 7.68 ms, mean 3722 ns/fault
+threads 4, 32 MiB each, one shared mapping: slowest 7.80 ms, mean 3785 ns/fault
+threads 4, 32 MiB each, one shared mapping: slowest 7.90 ms, mean 3847 ns/fault
+threads 4, 32 MiB each, per thread + WILLNEED: slowest 3.86 ms, mean 1637 ns/fault
+threads 4, 32 MiB each, per thread + WILLNEED: slowest 4.05 ms, mean 1769 ns/fault
+threads 4, 32 MiB each, per thread + WILLNEED: slowest 4.08 ms, mean 1700 ns/fault
+threads 4, 32 MiB each, per thread + WILLNEED: slowest 4.14 ms, mean 1850 ns/fault
+threads 4, 32 MiB each, per thread + WILLNEED: slowest 4.15 ms, mean 1713 ns/fault
+threads 4, 32 MiB each, per thread + WILLNEED: slowest 4.35 ms, mean 1889 ns/fault
+threads 8, 32 MiB each, a mapping per thread: slowest 5.01 ms, mean 2271 ns/fault
+threads 8, 32 MiB each, a mapping per thread: slowest 5.05 ms, mean 2180 ns/fault
+threads 8, 32 MiB each, a mapping per thread: slowest 5.06 ms, mean 2238 ns/fault
+threads 8, 32 MiB each, a mapping per thread: slowest 5.26 ms, mean 2265 ns/fault
+threads 8, 32 MiB each, a mapping per thread: slowest 5.46 ms, mean 2213 ns/fault
+threads 8, 32 MiB each, a mapping per thread: slowest 6.05 ms, mean 2437 ns/fault
+threads 8, 32 MiB each, one shared mapping: slowest 8.91 ms, mean 4248 ns/fault
+threads 8, 32 MiB each, one shared mapping: slowest 8.98 ms, mean 4226 ns/fault
+threads 8, 32 MiB each, one shared mapping: slowest 9.02 ms, mean 4247 ns/fault
+threads 8, 32 MiB each, one shared mapping: slowest 9.06 ms, mean 4363 ns/fault
+threads 8, 32 MiB each, one shared mapping: slowest 9.13 ms, mean 4259 ns/fault
+threads 8, 32 MiB each, one shared mapping: slowest 9.72 ms, mean 4450 ns/fault
+threads 8, 32 MiB each, per thread + WILLNEED: slowest 5.84 ms, mean 2521 ns/fault
+threads 8, 32 MiB each, per thread + WILLNEED: slowest 5.93 ms, mean 2541 ns/fault
+threads 8, 32 MiB each, per thread + WILLNEED: slowest 6.04 ms, mean 2619 ns/fault
+threads 8, 32 MiB each, per thread + WILLNEED: slowest 6.18 ms, mean 2728 ns/fault
+threads 8, 32 MiB each, per thread + WILLNEED: slowest 6.41 ms, mean 2665 ns/fault
+threads 8, 32 MiB each, per thread + WILLNEED: slowest 6.51 ms, mean 2554 ns/fault

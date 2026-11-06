@@ -1,0 +1,61 @@
+size 256 MiB, page 16384
+-- round 0
+lazy touch (1 write/page)            11.717 ms    0.046 ms/MiB  faults   16384     715 ns/fault
+  resident touch                      1.856 ms    0.007 ms/MiB  faults       0       0 ns/fault
+  munmap resident                     2.305 ms    0.009 ms/MiB  faults       0       0 ns/fault
+lazy memset all                      14.973 ms    0.058 ms/MiB  faults   16384     914 ns/fault
+  resident memset all                 5.480 ms    0.021 ms/MiB  faults       0       0 ns/fault
+WILLNEED call                         9.954 ms    0.039 ms/MiB  faults       0       0 ns/fault
+  then touch                          2.030 ms    0.008 ms/MiB  faults       0       0 ns/fault
+mlock (populate)                     11.071 ms    0.043 ms/MiB  faults   16384     676 ns/fault
+  munlock                             4.097 ms    0.016 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.129 ms    0.001 ms/MiB  faults       0       0 ns/fault
+FREE_REUSABLE resident                1.519 ms    0.006 ms/MiB  faults       0       0 ns/fault
+  FREE_REUSE                          5.425 ms    0.021 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.117 ms    0.000 ms/MiB  faults       0       0 ns/fault
+MADV_FREE resident                    1.286 ms    0.005 ms/MiB  faults       0       0 ns/fault
+  then touch                         11.779 ms    0.046 ms/MiB  faults       0       0 ns/fault
+mach_vm_allocate SUPERPAGE_2MB: kr=4 ((os/kern) invalid argument)
+mach_vm_allocate SUPERPAGE_ANY: kr=4 ((os/kern) invalid argument)
+exit teardown (resident N)            2.818 ms    0.011 ms/MiB  faults       0       0 ns/fault
+exit teardown (empty child)           0.157 ms    0.001 ms/MiB  faults       0       0 ns/fault
+-- round 1
+lazy touch (1 write/page)            10.680 ms    0.042 ms/MiB  faults   16384     652 ns/fault
+  resident touch                      0.125 ms    0.000 ms/MiB  faults       0       0 ns/fault
+  munmap resident                     2.337 ms    0.009 ms/MiB  faults       0       0 ns/fault
+lazy memset all                      14.619 ms    0.057 ms/MiB  faults   16384     892 ns/fault
+  resident memset all                 3.839 ms    0.015 ms/MiB  faults       0       0 ns/fault
+WILLNEED call                         9.197 ms    0.036 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.149 ms    0.001 ms/MiB  faults       0       0 ns/fault
+mlock (populate)                      9.864 ms    0.039 ms/MiB  faults   16384     602 ns/fault
+  munlock                             3.263 ms    0.013 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.119 ms    0.000 ms/MiB  faults       0       0 ns/fault
+FREE_REUSABLE resident                1.539 ms    0.006 ms/MiB  faults       0       0 ns/fault
+  FREE_REUSE                          5.779 ms    0.023 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.127 ms    0.000 ms/MiB  faults       0       0 ns/fault
+MADV_FREE resident                    1.494 ms    0.006 ms/MiB  faults       0       0 ns/fault
+  then touch                         10.156 ms    0.040 ms/MiB  faults       0       0 ns/fault
+mach_vm_allocate SUPERPAGE_2MB: kr=4 ((os/kern) invalid argument)
+mach_vm_allocate SUPERPAGE_ANY: kr=4 ((os/kern) invalid argument)
+exit teardown (resident N)            2.976 ms    0.012 ms/MiB  faults       0       0 ns/fault
+exit teardown (empty child)           0.197 ms    0.001 ms/MiB  faults       0       0 ns/fault
+-- round 2
+lazy touch (1 write/page)            11.397 ms    0.045 ms/MiB  faults   16384     696 ns/fault
+  resident touch                      0.135 ms    0.001 ms/MiB  faults       0       0 ns/fault
+  munmap resident                     2.541 ms    0.010 ms/MiB  faults       0       0 ns/fault
+lazy memset all                      15.461 ms    0.060 ms/MiB  faults   16384     944 ns/fault
+  resident memset all                 3.969 ms    0.016 ms/MiB  faults       0       0 ns/fault
+WILLNEED call                         9.231 ms    0.036 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.147 ms    0.001 ms/MiB  faults       0       0 ns/fault
+mlock (populate)                      9.581 ms    0.037 ms/MiB  faults   16384     585 ns/fault
+  munlock                             3.441 ms    0.013 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.122 ms    0.000 ms/MiB  faults       0       0 ns/fault
+FREE_REUSABLE resident                1.711 ms    0.007 ms/MiB  faults       0       0 ns/fault
+  FREE_REUSE                          5.549 ms    0.022 ms/MiB  faults       0       0 ns/fault
+  then touch                          0.121 ms    0.000 ms/MiB  faults       0       0 ns/fault
+MADV_FREE resident                    1.520 ms    0.006 ms/MiB  faults       0       0 ns/fault
+  then touch                         10.185 ms    0.040 ms/MiB  faults       0       0 ns/fault
+mach_vm_allocate SUPERPAGE_2MB: kr=4 ((os/kern) invalid argument)
+mach_vm_allocate SUPERPAGE_ANY: kr=4 ((os/kern) invalid argument)
+exit teardown (resident N)            2.560 ms    0.010 ms/MiB  faults       0       0 ns/fault
+exit teardown (empty child)           0.166 ms    0.001 ms/MiB  faults       0       0 ns/fault

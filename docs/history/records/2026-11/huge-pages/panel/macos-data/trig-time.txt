@@ -1,0 +1,192 @@
+== ts-pattern --singleThreaded 1
+        0.93 real         0.60 user         0.05 sys
+           220774400  maximum resident set size
+               14468  page reclaims
+                   0  page faults
+                2637  involuntary context switches
+          8186744471  instructions retired
+          2670230173  cycles elapsed
+           203179664  peak memory footprint
+== ts-pattern --singleThreaded 2
+        0.56 real         0.52 user         0.02 sys
+           220774400  maximum resident set size
+               14470  page reclaims
+                   0  page faults
+                 874  involuntary context switches
+          8109478364  instructions retired
+          2322154640  cycles elapsed
+           203196072  peak memory footprint
+== ts-pattern --singleThreaded 3
+        0.65 real         0.57 user         0.03 sys
+           220774400  maximum resident set size
+               14469  page reclaims
+                   0  page faults
+                3011  involuntary context switches
+          8140555848  instructions retired
+          2460397907  cycles elapsed
+           203196072  peak memory footprint
+== ts-pattern --checkers 4 1
+        0.00 real         0.00 user         0.00 sys
+             4259840  maximum resident set size
+                 454  page reclaims
+                   0  page faults
+                  41  involuntary context switches
+            25373510  instructions retired
+            11811189  cycles elapsed
+             2589128  peak memory footprint
+== ts-pattern --checkers 4 2
+        0.00 real         0.00 user         0.00 sys
+             4259840  maximum resident set size
+                 454  page reclaims
+                   0  page faults
+                  22  involuntary context switches
+            26402593  instructions retired
+            12702836  cycles elapsed
+             2589128  peak memory footprint
+== ts-pattern --checkers 4 3
+        0.00 real         0.00 user         0.00 sys
+             4259840  maximum resident set size
+                 452  page reclaims
+                   0  page faults
+                  29  involuntary context switches
+            25702140  instructions retired
+            10864435  cycles elapsed
+             2589128  peak memory footprint
+== zod3 --singleThreaded 1
+        0.12 real         0.09 user         0.01 sys
+            73285632  maximum resident set size
+                4699  page reclaims
+                   0  page faults
+                 348  involuntary context switches
+          1339168766  instructions retired
+           444786402  cycles elapsed
+            55953016  peak memory footprint
+== zod3 --singleThreaded 2
+        0.10 real         0.09 user         0.01 sys
+            73285632  maximum resident set size
+                4699  page reclaims
+                   0  page faults
+                 310  involuntary context switches
+          1330148325  instructions retired
+           424335371  cycles elapsed
+            55969424  peak memory footprint
+== zod3 --singleThreaded 3
+        0.10 real         0.09 user         0.01 sys
+            73285632  maximum resident set size
+                4697  page reclaims
+                   0  page faults
+                 442  involuntary context switches
+          1320427780  instructions retired
+           433442614  cycles elapsed
+            55953016  peak memory footprint
+== zod3 --checkers 4 1
+        0.00 real         0.00 user         0.00 sys
+             4259840  maximum resident set size
+                 452  page reclaims
+                   0  page faults
+                  18  involuntary context switches
+            24622823  instructions retired
+             9915514  cycles elapsed
+             2589128  peak memory footprint
+== zod3 --checkers 4 2
+        0.00 real         0.00 user         0.00 sys
+             4259840  maximum resident set size
+                 454  page reclaims
+                   0  page faults
+                  15  involuntary context switches
+            26408806  instructions retired
+            13114425  cycles elapsed
+             2589128  peak memory footprint
+== zod3 --checkers 4 3
+        0.00 real         0.00 user         0.00 sys
+             4259840  maximum resident set size
+                 455  page reclaims
+                   0  page faults
+                  14  involuntary context switches
+            25197938  instructions retired
+            11105572  cycles elapsed
+             2589128  peak memory footprint
+== ts-pattern checkers 4 1
+        0.43 real         0.81 user         0.11 sys
+           217628672  maximum resident set size
+               15062  page reclaims
+          8854932425  instructions retired
+          3293480003  cycles elapsed
+           203774840  peak memory footprint
+== ts-pattern checkers 4 2
+        0.58 real         0.86 user         0.09 sys
+           219168768  maximum resident set size
+               15849  page reclaims
+          8775000054  instructions retired
+          3315862446  cycles elapsed
+           204478128  peak memory footprint
+== ts-pattern checkers 4 3
+        0.53 real         0.99 user         0.11 sys
+           213188608  maximum resident set size
+               15883  page reclaims
+          8810869218  instructions retired
+          3735996125  cycles elapsed
+           198645640  peak memory footprint
+== ts-pattern checkers 8 1
+        0.41 real         1.00 user         0.10 sys
+           201572352  maximum resident set size
+               17209  page reclaims
+          9035675108  instructions retired
+          3759994541  cycles elapsed
+           186438744  peak memory footprint
+== ts-pattern checkers 8 2
+        0.38 real         0.96 user         0.11 sys
+           203767808  maximum resident set size
+               17310  page reclaims
+          9037863093  instructions retired
+          3644855121  cycles elapsed
+           189159256  peak memory footprint
+== ts-pattern checkers 8 3
+        0.36 real         0.89 user         0.10 sys
+           202571776  maximum resident set size
+               17223  page reclaims
+          9025845643  instructions retired
+          3444664314  cycles elapsed
+           187503800  peak memory footprint
+== zod3 checkers 4 1
+        0.08 real         0.17 user         0.03 sys
+            97435648  maximum resident set size
+                6877  page reclaims
+          1879376932  instructions retired
+           737377339  cycles elapsed
+            82925112  peak memory footprint
+== zod3 checkers 4 2
+        0.10 real         0.21 user         0.03 sys
+            95371264  maximum resident set size
+                6770  page reclaims
+          1867878513  instructions retired
+           814927252  cycles elapsed
+            78713416  peak memory footprint
+== zod3 checkers 4 3
+        0.10 real         0.18 user         0.03 sys
+            96731136  maximum resident set size
+                6920  page reclaims
+          1870846336  instructions retired
+           757711081  cycles elapsed
+            80778832  peak memory footprint
+== zod3 checkers 8 1
+        0.09 real         0.23 user         0.04 sys
+           120209408  maximum resident set size
+                8412  page reclaims
+          2218614469  instructions retired
+           933084877  cycles elapsed
+           109784560  peak memory footprint
+== zod3 checkers 8 2
+        0.07 real         0.23 user         0.04 sys
+           116719616  maximum resident set size
+                8319  page reclaims
+          2206611482  instructions retired
+           907199627  cycles elapsed
+           105966344  peak memory footprint
+== zod3 checkers 8 3
+        0.09 real         0.22 user         0.04 sys
+           113049600  maximum resident set size
+                8323  page reclaims
+          2210255893  instructions retired
+           922254261  cycles elapsed
+           100608536  peak memory footprint
