@@ -537,6 +537,10 @@ const Preempt = struct {
     /// or too little stack for the trampoline.
     outside: u64 = 0,
     cramped: u64 = 0,
+    /// Held while the monitor signals its thread, and as the thread
+    /// leaves, which clears `tid` (`leavePreempt`): a thread is never
+    /// signaled once it has ended.
+    signaling: SpinLock = .{},
     /// Locks it holds (`holdOff`): while any is held, no signal stops
     /// the fiber holding it.
     no_preempt: u32 = 0,
@@ -807,7 +811,10 @@ fn watchSlices(slice: i96, wait: i96) void {
             // Again every period until it stops: a signal that finds the
             // fiber outside the program's code does nothing.
             _ = preOf(w).signals.fetchAdd(1, .monotonic);
-            signalThread(preOf(w).tid);
+            const pre = preOf(w);
+            pre.signaling.lockApart();
+            signalThread(pre.tid);
+            pre.signaling.unlockApart();
         }
         period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
@@ -839,6 +846,16 @@ fn serviceDue(w: *Worker, now: i96) bool {
 fn sleepNs(ns: i96) void {
     const req: std.os.linux.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@mod(ns, std.time.ns_per_s)) };
     _ = std.os.linux.nanosleep(&req, null);
+}
+
+/// This thread, a worker, ends: once this returns the monitor no longer
+/// signals it (`Preempt.signaling`).
+fn leavePreempt(w: *Worker) void {
+    if (!preempt) return;
+    const pre = preOf(w);
+    pre.signaling.lockApart();
+    pre.tid = 0;
+    pre.signaling.unlockApart();
 }
 
 fn signalThread(id: usize) void {
@@ -2720,6 +2737,7 @@ fn workerMain(w: *Worker) void {
     defer alt.detach();
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
+    defer leavePreempt(w);
     loop(w);
 }
 
@@ -3835,10 +3853,17 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
             const full: *@This() = @fieldParentPtr("job", j);
             std.heap.smp_allocator.destroy(full);
         }
+
+        /// `destroy` in a program built to be preempted: never inlined
+        /// into a task's waiter (`Job.free`), in the program's own code,
+        /// since Zig's allocator takes a lock of its own, uncounted.
+        noinline fn destroyApart(h: *Header) void {
+            destroy(h);
+        }
     };
     if (!started.*) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
-    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = Full.destroy } }, .extra = extra, .args = args };
+    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
     // An `Extra` that names its task's fiber is given it, for a cancel to
     // reach the fiber's wait (`interruptForCancel`), and one that records
     // its task somewhere does so before the task can run (`made`).

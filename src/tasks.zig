@@ -375,13 +375,28 @@ const Wakeup = struct {
     waiter: std.atomic.Value(?*anyopaque) = .init(null),
     waiter_epoch: std.atomic.Value(u32) = .init(0),
 
-    fn create() *Wakeup {
+    /// In a program built to be preempted, `create` and `destroy` are
+    /// calls never inlined into the program's own code: Zig's allocator
+    /// takes a lock of its own, uncounted, which a task must not hold
+    /// where a signal may stop it.
+    const create = if (rt.preempt) createApart else createIn;
+    const destroy = if (rt.preempt) destroyApart else destroyIn;
+
+    noinline fn createApart() *Wakeup {
+        return createIn();
+    }
+
+    fn createIn() *Wakeup {
         const w = std.heap.smp_allocator.create(Wakeup) catch oom();
         w.* = .{};
         return w;
     }
 
-    fn destroy(self: *Wakeup) void {
+    noinline fn destroyApart(self: *Wakeup) void {
+        destroyIn(self);
+    }
+
+    fn destroyIn(self: *Wakeup) void {
         std.heap.smp_allocator.destroy(self);
     }
 
