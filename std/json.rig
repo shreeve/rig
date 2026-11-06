@@ -296,6 +296,7 @@ pub obj Doc
     # Most keys end at `:`, then the value's first byte, or `: ` and it.
     if end + 1 < src.len and src[end] == ':'
       return end + 1 if src[end + 1] > ' '
+      return end + 2 if src[end + 1] == ' ' and end + 2 < src.len and src[end + 2] > ' '
       return skip_space(src, end + 1)
     i = skip_space(src, end)
     return (!@).fail(.eof(at: i)) if i >= src.len
