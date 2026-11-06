@@ -283,11 +283,18 @@ pub obj Doc
     outer
 
   # Parses `"key"` and the `:` after it; returns where the value starts.
-  fun key(!@, src: ?String, at: Int) -> Int
+  inline fun key(!@, src: ?String, at: Int) -> Int
     return (!@).fail(.eof(at: at)) if at >= src.len
     return (!@).fail(.unexpected(at: at)) if src[at] != '"'
     end = (!@).scan_string(src, at)
     return -1 if end < 0
+    # Most keys end at `:` or `: `, then the value's first byte.
+    if end < src.len and src[end] == ':'
+      i = end + 1
+      if i < src.len and src[i] == ' '
+        i += 1
+      return i if i < src.len and src[i] > ' '
+      return skip_space(src, i)
     i = skip_space(src, end)
     return (!@).fail(.eof(at: i)) if i >= src.len
     return (!@).fail(.unexpected(at: i)) if src[i] != ':'
