@@ -1,7 +1,7 @@
 # instructions retired per byte, rig-safe; bench/json/guard.py --update writes it
-twitter 7.9344
-twitterescaped 9.4241
-canada 16.1583
-citm_catalog 8.0698
-gsoc-2018 3.4624
-github_events 7.0534
+twitter 7.1106
+twitterescaped 9.2200
+canada 15.9998
+citm_catalog 6.6287
+gsoc-2018 3.0807
+github_events 6.0664

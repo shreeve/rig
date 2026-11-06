@@ -88,6 +88,12 @@ Each binary takes `FILE N`, like the Rig programs.
   their buffers between runs, and are called from a separate translation
   unit, so neither is inlined into the benchmark's loop.
 
+- `gobench/`: Go's `encoding/json/v2` (and v1, for reference),
+  `gobench/build.sh` (Go 1.27 or later). `prog-go MODE FILE N`: `any`
+  unmarshals into an `any`, `tokens` reads every token through
+  `jsontext.Decoder` and builds no tree, and `v1` is `encoding/json`.
+  The timers name them `go-v2`, `go-v2-tokens` and `go-v1`.
+
 ## Timers
 
 These time `bench-json --out` builds and the competitors together:
@@ -99,6 +105,7 @@ These time `bench-json --out` builds and the competitors together:
 | `timers/cyc.py DIR FILES VARIANTS` | wall time, cycles, and instructions of builds in `DIR`, from `/usr/bin/time -l` (macOS) |
 | `timers/ins.py DIR FILES VARIANTS` | instructions retired per byte, exact under load: (instructions of N parses minus those of one) over (N - 1) and the file's size |
 | `timers/ipc.py NAME=COMMAND ...` | instructions and cycles per byte, and IPC, for any parsers that take `[FILE] N`, std.json's builds and the competitors alike |
+| `timers/lines.py [--top N] [--module FILE.zig] PROG ARGS` | where a program spends its time by line: Instruments' Time Profiler samples, charged to the innermost line and to the line of the module's Zig (`json.zig` by default) through the inlined frames; the program needs its debug information, its build's objects or a `.dSYM` (macOS) |
 | `timers/nibble.py`, `timers/zigpatch.sh` | patch the emitted Zig to try a lowering (`RIG ZIG=timers/zigpatch.sh`, with `NIB_MODE`) before Rig ships it |
 
 The instruction and cycle counters (`cyc.py`, `ins.py`, `ipc.py`) read
