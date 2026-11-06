@@ -83,6 +83,7 @@ pub const Tasks = tasks.Tasks;
 pub const waitTasksInto = tasks.waitTasksInto;
 pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
+pub const taskWorkerCount = tasks.workerCount;
 pub const taskSleep = tasks.sleep;
 pub const parMapInto = tasks.parMapInto;
 pub const Actor = tasks.Actor;

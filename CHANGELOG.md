@@ -163,6 +163,9 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- `task.worker_count()` gives the number of workers tasks run on (one
+  per core, `RIG_WORKERS`, or what `task.workers(n)` set), before the
+  first task starts them or after; 1 in a deterministic run.
 - On the Mac a program built with `RIG_PREEMPT=signal` has `dsymutil`
   write its `.dSYM` after the link, so a panic's trace shows the source
   lines of the program's own frames; without Apple's command-line tools
