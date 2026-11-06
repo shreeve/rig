@@ -229,8 +229,11 @@ const Mode = enum {
     /// guards only `raw` code and the runtime's Zig, and checking one in
     /// each function that keeps an array on its stack costs a hot path
     /// a load, a compare and a branch. `RIG_STACK_PROTECTOR=1` keeps them.
+    /// A debug build on x86_64 asks for LLVM, which Zig uses for one
+    /// everywhere else: Zig's own x86_64 backend lets an atomic overwrite
+    /// a compare's result in the flags (ZIG-0.17.md §24).
     fn releaseFlags(mode: Mode, env: Env) []const []const u8 {
-        if (mode == .debug) return &.{};
+        if (mode == .debug) return if (builtin.cpu.arch == .x86_64) &.{"-fllvm"} else &.{};
         const frame = env.flag("RIG_FRAME_POINTERS");
         const canary = env.flag("RIG_STACK_PROTECTOR");
         if (frame and canary) return &.{};
@@ -1054,14 +1057,12 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
 }
 
 /// How many units to build the program as: `--units=N` as given, else
-/// one unless Zig builds it with LLVM (`units.count`). Zig builds a
-/// release with LLVM on one core, but a split release runs slower, its
-/// calls between units not inlined; and an x86-64 debug build with its
-/// own backend, already on every core and linked slower from units.
+/// one unless it is a debug build (`units.count`), which Zig builds with
+/// LLVM on one core (`Mode.releaseFlags`). A split release runs slower,
+/// its calls between units not inlined.
 fn splitCount(opts: Options, graph: *const modules.ModuleGraph) u16 {
     if (opts.units) |n| return n;
     if (opts.mode != .debug or opts.command == .check) return 1;
-    if (builtin.cpu.arch == .x86_64) return 1;
     return units.count(graph, std.Thread.getCpuCount() catch 1);
 }
 

@@ -132,6 +132,13 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Compiler
 
+- A debug build on x86-64 is built by LLVM (`-fllvm`), as on arm64. Zig
+  0.17's own x86-64 backend, its default there, overwrote a compare's
+  result with an atomic's flags, so a function that returned a compare
+  and dropped a counted handle answered wrong in debug builds
+  (`docs/learn/04-concurrency.md`'s `*Frozen` example printed all
+  `true`). A debug panic's trace names the program's line on x86-64 too.
+
 - Emit decides nothing the checkers did not walk: whether a `match` arm
   takes every value, whether a `match` picks its arm first, whether a
   loop or `as` binds a String's bytes, whether `return a, b` makes its
