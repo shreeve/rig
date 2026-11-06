@@ -1,0 +1,12 @@
+ 3:13  up 2 days, 21:27, 4 users, load averages: 3.63 6.86 7.66
+| file | bytes | rig-safe@src=m2 | rig-safe@src=m2A | rig-safe@src=keyC | rig-safe@src=intC |
+|---|---:|---:|---:|---:|---:|
+| twitter | 631514 | 4166 | 4162 | 4197 | 4254 |
+| twitterescaped | 562408 | 3360 | 3342 | 3353 | 3309 |
+| canada | 2251051 | 2195 | 2191 | 2192 | 2209 |
+| citm_catalog | 1727204 | 5266 | 5211 | 5201 | 5227 |
+| gsoc-2018 | 3327831 | 7920 | 7951 | 7947 | 7870 |
+| github_events | 65132 | 4819 | 4742 | 4761 | 4828 |
+
+MB/s, fastest of 20 interleaved runs of about 400 ms
+ 3:15  up 2 days, 21:30, 4 users, load averages: 1.63 4.62 6.59

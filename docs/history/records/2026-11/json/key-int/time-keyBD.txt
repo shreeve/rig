@@ -1,0 +1,11 @@
+| file | bytes | rig-safe@src=m2 | rig-safe@src=m2A | rig-safe@src=keyB | rig-safe@src=keyD | rig-safe@src=intD |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 631514 | 4088 | 4081 | 4331 | 4161 | 4225 |
+| twitterescaped | 562408 | 3338 | 3322 | 3275 | 3327 | 3337 |
+| canada | 2251051 | 2172 | 2182 | 2199 | 2173 | 2215 |
+| citm_catalog | 1727204 | 5210 | 5200 | 5604 | 5343 | 5362 |
+| gsoc-2018 | 3327831 | 7845 | 7857 | 8038 | 7921 | 7887 |
+| github_events | 65132 | 4757 | 4814 | 4968 | 4897 | 4906 |
+
+MB/s, fastest of 20 interleaved runs of about 400 ms
+load at end: { 3.33 5.03 6.28 }
