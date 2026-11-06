@@ -163,6 +163,11 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- std.json makes its tape entries with wrapping arithmetic, which the
+  2^32-byte input cap keeps from wrapping, so no overflow check runs:
+  0.5-4.4% faster on the Mac (citm_catalog 4.4%, canada 2.7%), every
+  file faster
+  ([records/2026-11/json/](docs/history/records/2026-11/json/tape-wrap-2026-11-06.md)).
 - A task that makes tasks keeps its worker while idle workers take what
   it makes, as Go's `go` leaves its maker running: a yield check leaves
   work another worker could take to an idle one, which it wakes, and
