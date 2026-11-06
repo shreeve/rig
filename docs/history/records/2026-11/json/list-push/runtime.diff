@@ -1,0 +1,49 @@
+diff --git c/src/runtime.zig w/src/runtime.zig
+index 722753a69..e406b9f48 100644
+--- c/src/runtime.zig
++++ w/src/runtime.zig
+@@ -3351,13 +3351,17 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
+ 
+         /// `len <= buf.len` always holds. When the buffer is full, `growTo`
+         /// leaves `len < buf.len`, so the slot at `len` exists, `len + 1`
+-        /// cannot overflow, and the store needs no bounds check.
+-        pub fn push(self: *Self, value: T) void {
+-            if (self.len == self.mem().len) self.growTo(self.len +% 1);
++        /// cannot overflow, and the store needs no bounds check. Inline,
++        /// with the length read once: the element's store may alias the
++        /// List to LLVM (Zig gives it no type-based alias information),
++        /// and a length read again after it is a load at every push.
++        pub inline fn push(self: *Self, value: T) void {
++            const n = self.len;
++            if (n == self.mem().len) self.growTo(n +% 1);
+             const m = self.mem();
+-            invariant(self.len < m.len);
+-            m.ptr[self.len] = value;
+-            self.len +%= 1;
++            invariant(n < m.len);
++            m.ptr[n] = value;
++            self.len = n +% 1;
+         }
+ 
+         /// The element at `i`, or null when out of range. Plain-data `T` only.
+@@ -3816,13 +3820,15 @@ pub const String = struct {
+     // capacity by construction, and the new length cannot overflow
+     // because it is at most the capacity. Debug builds check both (`invariant`).
+ 
+-    /// `!t.push(b)`: append one byte.
++    /// `!t.push(b)`: append one byte, with the length read once, as
++    /// `List.push`.
+     pub fn push(self: *String, b: u8) void {
+         const l = &self.list;
+-        if (l.items.len == l.capacity) growList(l, 1);
+-        invariant(l.items.len < l.capacity);
+-        l.items.ptr[l.items.len] = b;
+-        l.items.len +%= 1;
++        const n = l.items.len;
++        if (n == l.capacity) growList(l, 1);
++        invariant(n < l.capacity);
++        l.items.ptr[n] = b;
++        l.items.len = n +% 1;
+     }
+ 
+     /// `!t.reserve(n)`: room for `n` more bytes; the length is unchanged.

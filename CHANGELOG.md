@@ -163,6 +163,10 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Runtime
 
+- std.json takes a key's `: ` at once when the value's first byte follows
+  it: 0.5-4.7% faster on the Mac on five files (citm_catalog 4.7%,
+  twitter 2.3%), canada level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/colon-2026-11-06.md)).
 - std.json parses a key after a comma inline, returns at once when a
   key's colon is followed by its value, and puts an integer of up to 18
   digits with no fraction or exponent on the tape as soon as its digits
