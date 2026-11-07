@@ -190,6 +190,16 @@ const Worker = struct {
     /// (`watchWanted`).
     ran: u64 = 0,
     ran_pinned: u64 = 0,
+    /// The shortest turn a fiber runs before a yield check hands this
+    /// worker to other work (`sliceDone`), and the turn it timed last:
+    /// the `ran` it began at and when.
+    min_slice: i96 = default_min_slice,
+    slice_ran: u64 = 0,
+    slice_start: i96 = 0,
+    /// Whether a check of this turn took `waiting`'s notice before the
+    /// slice was run: this worker's next loop check claims the work
+    /// (`tick`).
+    claim_pending: bool = false,
     stole: u64 = 0,
     slept: std.atomic.Value(u64) = .init(0),
     /// Its `slept` as the watcher began its last watch.
@@ -398,9 +408,41 @@ pub noinline fn tick() void {
     serviceBusy(w);
     if (hasOwnWork(w)) {
         if (leftToIdle(w)) return;
+        // Before the slice is run the fiber runs on; a worker with
+        // nothing to do is woken to steal what waits in the ring, which
+        // it takes at once (a fiber in a slot it would spin for).
+        if (!sliceDone(w)) {
+            if (!w.ring.isEmpty()) notify();
+            return;
+        }
         return yield();
     }
+    if (w.claim_pending) {
+        w.claim_pending = false;
+        if (w.slice_ran == w.ran) return claimNoticed(w);
+    }
     if (waiting.load(.monotonic) != 0) claimWaiting(w);
+}
+
+/// The shortest turn a fiber runs before a yield check hands its worker
+/// to other work. A check that finds work waiting earlier lets the fiber
+/// run on: so a task that makes tasks and computes, as a fork-join does,
+/// finishes its piece before starting the next, depth first, instead of
+/// switching to each new task as it comes; while a task that computes
+/// for long still hands over within about this long.
+const default_min_slice: i96 = 100 * std.time.ns_per_us;
+
+/// Whether the fiber running on `w` has run its minimum slice: the clock
+/// is read here, only when work waits. A check in a turn not timed yet
+/// starts timing it and lets the fiber run on.
+fn sliceDone(w: *Worker) bool {
+    const now = nowNs();
+    if (w.slice_ran != w.ran) {
+        w.slice_ran = w.ran;
+        w.slice_start = now;
+        return w.min_slice <= std.time.ns_per_us;
+    }
+    return now - w.slice_start >= w.min_slice;
 }
 
 /// Whether work that waits on the busy worker `w`, or for any busy one
@@ -489,6 +531,11 @@ pub noinline fn tickCall() void {
 /// searching worker would.
 fn claimWaiting(w: *Worker) void {
     if (!takeWaiting(w)) return;
+    claimNoticed(w);
+}
+
+/// Yield to the work `waiting` told of, its notice taken.
+fn claimNoticed(w: *Worker) void {
     // Left to an idle worker, the notice stands: the fiber waits in a
     // slot no sleeper looks in, and only `waiting` keeps it in sight
     // (`takeWaiting`) until a worker takes it. A notice of work already
@@ -496,6 +543,13 @@ fn claimWaiting(w: *Worker) void {
     // here.
     if (!hasOwnWork(w) and !othersWait(w)) return;
     if (leftToIdle(w)) return waiting.store(1, .monotonic);
+    // Before the slice is run, this worker keeps the notice: its own
+    // next loop check claims the work, and the calls' checks, which read
+    // the flag, stay cheap meanwhile.
+    if (!sliceDone(w)) {
+        w.claim_pending = true;
+        return;
+    }
     if (hasOwnWork(w)) return yield();
     if (workers.*.len < 2) return;
     for (workers.*) |*v| {
@@ -3052,6 +3106,8 @@ fn startWorkers() void {
     started.* = true;
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     workers.* = all_workers.*[0..n];
+    const slice = envUs("RIG_MIN_SLICE_US", @intCast(@divTrunc(default_min_slice, std.time.ns_per_us)));
+    for (workers.*) |*w| w.min_slice = slice;
     for (workers.*[1..]) |*w| w.poller.open();
     for (workers.*[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
     if (preempt and !deterministic.*) startMonitor();
