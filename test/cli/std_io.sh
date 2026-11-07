@@ -75,7 +75,7 @@ fun main() -> Int!
   buf = String()
   total = 0
   sum = 0
-  while true
+  loop
     !buf.clear()
     n = (!input).read(!buf, 4096)!
     break if n == 0

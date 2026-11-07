@@ -1429,11 +1429,11 @@ fail "habit let", "3:1: Rig has no `let`; bind a name with `x = 5`, or `x =! 5` 
   let mut x = 5
   print(x)
 
-fail "habit loop", "4:1: Rig has no `loop`; write `while true`"
-  # An endless loop is `while true`; `loop` is named at the word, not
-  # at the block below it.
+fail "habit forever", "4:1: Rig has no `forever`; write `loop`"
+  # An endless loop is `loop`; `forever` is named at the word, not at
+  # the block below it.
 
-  loop
+  forever
     print(1)
 
 fail "habit new const", "5:5: Rig has no `const`; write `x =! e` for a binding that never changes"
@@ -2059,7 +2059,7 @@ fail "label touch", "7:19: a jump's label ends at its name: put a space before t
 fail "label twice", "3:1: a loop, `match`, `raw` block, or block takes one label; `$c` labels a statement already labeled `$d`", errors: 1
   # A loop, `match`, `raw` block, or block takes one label.
 
-  $c: $d: while true
+  $c: $d: loop
     break $c
 
 fail "label value detached prefix", "7:20: a prefix `-` touches its operand"
@@ -2111,9 +2111,9 @@ test "labeled jump fallback", '''
       w = check(v) catch break $outer
       print(w)
   i = 0
-  $loop: while i < 5 : i += 1
+  $scan: while i < 5 : i += 1
     loop
-      n = get(i, i) ?? break $loop
+      n = get(i, i) ?? break $scan
       print(n)
       break
 

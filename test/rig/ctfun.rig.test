@@ -320,7 +320,7 @@ fail "ctfun conversion", "compile-time call `f[300]` converts 300 to `U8`, which
 fail "ctfun steps", "compile-time call `f[1]` takes more than 10000000 steps", "in `while true`"
   fun f[n: Int] -> Int
     k = 0
-    while true
+    loop
       k += n
     k
 

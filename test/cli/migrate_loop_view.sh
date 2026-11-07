@@ -75,9 +75,9 @@ sub main()
     break val(!n)
   print(a, t, k, v)
 EOF
-for f in tree/hit/hit.rig tree/used/main.rig tree/miss/miss.rig; do
-    (cd "$(dirname "$f")" && "$RIG" check "$(basename "$f")") >err.txt 2>&1 || fail "$f: $(cat err.txt)"
-done
+# The fixtures are 0.3.0 programs, which 0.3.1's loop rules reject
+# (`while true` is `loop`, and only a `loop` gives a value), so they are
+# not checked here: the scan reads their text.
 cp -R tree before
 
 python3 "$ROOT/tools/migrate-0.3.py" scan tree >out.txt 2>&1 || fail "scan: $(cat out.txt)"

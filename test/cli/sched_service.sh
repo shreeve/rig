@@ -57,7 +57,7 @@ fun echo(l: net.Listener) -> Int!
   c = l.accept()!
   buf = String()
   total = 0
-  while true
+  loop
     n = (!c).read(!buf, 4096)!
     if n == 0
       break

@@ -146,7 +146,7 @@ marked "$facts" '`arm`' 16000 "a match arm"
     pile '    '
     echo '    s'
     echo
-    echo 'fun loop(i: Int) -> Int'
+    echo 'fun walk(i: Int) -> Int'
     echo '  c = Count(n: i)'
     echo '  s = 0'
     echo '  for x in !c'
@@ -154,11 +154,11 @@ marked "$facts" '`arm`' 16000 "a match arm"
     echo '  s'
     echo
     echo 'sub main()'
-    echo '  print(loop(0))'
+    echo '  print(walk(0))'
 } >iterpile.rig
 runs iterpile.rig "$want" "an inline iterator's next"
 facts=$(accounts iterpile.rig)
-marked "$facts" '`loop`' 16000 "an iterator's next, called by the loop"
+marked "$facts" '`walk`' 16000 "an iterator's next, called by the loop"
 
 # `main`, and a closure in a closure.
 {

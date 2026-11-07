@@ -66,7 +66,11 @@ l=self-syntax-review-symmetry-p_kw_self_local
 cmp -s "tree/$l/$l.rig" "before/$l/$l.rig" || fail "a local named self changed: $(cat "tree/$l/$l.rig")"
 (( $(grep -c MANUAL out.txt) == 1 )) || fail "MANUAL: $(cat out.txt)"
 
-for d in tree/*/; do
+# A 0.2.9 program then takes 0.3.1's `loop` for `while true`
+# (tools/migrate-loops.py), on a copy, before it checks.
+cp -R tree loops
+python3 "$ROOT/tools/migrate-loops.py" --quiet loops >out.txt 2>&1 || fail "migrate-loops: $(cat out.txt)"
+for d in loops/*/; do
     b=$(basename "$d")
     (cd "$d" && "$RIG" check "$b.rig") >err.txt 2>&1 || fail "$b: $(cat err.txt)"
 done
@@ -81,6 +85,7 @@ expect_has "$doc" "    break \$outer if i == 1" "a jump"
 expect_has "$doc" 'print(p.get(), $size(Int), "self.x")' "a builtin, and a string"
 expect_has "$doc" "  const a = 1" "the reject block"
 awk '/^```rig$/{p=1; next} /^```$/{p=0} p' tree/doc.md >block.rig
+python3 "$ROOT/tools/migrate-loops.py" --quiet block.rig >/dev/null 2>&1
 "$RIG" check block.rig >err.txt 2>&1 || fail "the doc's block: $(cat err.txt)"
 expect_has "$(cat tree/cases.rig.test)" "      @n += 1" "a test case"
 expect_has "$(cat tree/cases.rig.test)" "  \$outer: while true" "a test case's label"
