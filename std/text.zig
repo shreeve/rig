@@ -11,17 +11,49 @@ const ParseError = error{
     @"std.text.ParseError.overflow",
 };
 
-pub fn find(s: []const u8, pat: []const u8) ?i64 {
+// `find`, `find_last`, and `count` are, in a build with signal
+// preemption, in the program's code section, as the searches they call
+// are (`byteRest`): `count`'s loop and a 1-byte search's first 4 KiB run
+// in their own bodies.
+pub const find = if (rig.preempt) findApart else findPlain;
+pub const find_last = if (rig.preempt) findLastApart else findLastPlain;
+pub const count = if (rig.preempt) countApart else countPlain;
+
+fn findPlain(s: []const u8, pat: []const u8) ?i64 {
+    return findIn(s, pat);
+}
+
+fn findApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) ?i64 {
+    return findIn(s, pat);
+}
+
+inline fn findIn(s: []const u8, pat: []const u8) ?i64 {
     return @intCast(search(s, pat) orelse return null);
 }
 
-pub fn find_last(s: []const u8, pat: []const u8) ?i64 {
+fn findLastPlain(s: []const u8, pat: []const u8) ?i64 {
+    return findLastIn(s, pat);
+}
+
+fn findLastApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) ?i64 {
+    return findLastIn(s, pat);
+}
+
+inline fn findLastIn(s: []const u8, pat: []const u8) ?i64 {
     if (pat.len == 0) return @intCast(s.len);
     const at = if (pat.len == 1) searchLast(s, pat, true) else searchLast(s, pat, false);
     return @intCast(found(at) orelse return null);
 }
 
-pub fn count(s: []const u8, pat: []const u8) i64 {
+fn countPlain(s: []const u8, pat: []const u8) i64 {
+    return countIn(s, pat);
+}
+
+fn countApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) i64 {
+    return countIn(s, pat);
+}
+
+inline fn countIn(s: []const u8, pat: []const u8) i64 {
     if (pat.len == 0) return @intCast(s.len + 1);
     var n: i64 = 0;
     var i: usize = 0;
