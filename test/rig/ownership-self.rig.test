@@ -485,7 +485,7 @@ test "self view of branch lends leaves", '''
   print(x, u)
   print(first(maybe(true)) ?? 0)
 
-fail "self view of temporary leaves tail", "21:3: cannot return a view of `mk(42)`, which this function was not lent", "24:10: cannot return a view of `mk(43)`, which this function was not lent", "27:3: cannot return a view of `mk(44)`, which this function was not lent", "31:5: a view of the temporary `mk(45)` outlives its statement", "33:3: a view of the temporary `mk(46)` outlives its statement", "35:3: a view of the temporary `mk(47)` outlives its statement", "37:8: a view of the temporary `mk(48)` outlives its statement", "38:8: a view of the temporary `mk(49)` outlives its statement", "40:9: a view of the temporary `mk(50)` outlives its statement", "42:3: a view of the temporary `mk(51)` outlives its statement", "46:10: cannot return a view of `mk(y)`, which this function was not lent", errors: 11
+fail "self view of temporary leaves tail", "21:3: cannot return a view of `mk(42)`, which this function was not lent", "24:10: cannot return a view of `mk(43)`, which this function was not lent", "27:3: cannot return a view of `mk(44)`, which this function was not lent", "31:5: a view of the temporary `mk(45)` outlives its statement", "33:3: a view of the temporary `mk(46)` outlives its statement", "35:3: a view of the temporary `mk(47)` outlives its statement", "37:8: a view of the temporary `mk(48)` outlives its statement", "38:8: a view of the temporary `mk(49)` outlives its statement", "40:9: a view of the temporary `mk(50)` outlives its statement", "41:9: a view of the temporary `mk(51)` outlives its statement", "45:10: cannot return a view of `mk(y)`, which this function was not lent", errors: 11
   # A view a method returns of a temporary self lives only until its
   # statement ends, also where the call is a function's or closure's tail,
   # `return`'s value, an `if` or `match` arm's value, or a `break` value:
@@ -524,10 +524,9 @@ fail "self view of temporary leaves tail", "21:3: cannot return a view of `mk(42
   m = match z
     0 => mk(48).me()
     _ => mk(49).me()
-  b = for k in [1, 2]
-    break mk(50).me() if k > 0
-  else
-    mk(51).me()
+  b = loop
+    break mk(50).me() if c
+    break mk(51).me()
   y = 1
   w = S(n: 2, m: 0)
   v = S(n: 3, m: 0)
