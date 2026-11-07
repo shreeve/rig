@@ -6244,7 +6244,9 @@ source sigils change that:
 - `for x in !xs` views each element of a `List` or array for writing:
   assigning `x` (or a field of it) writes the element in place, and a
   resource element that is replaced is dropped. `xs` must be a binding
-  or a field of one.
+  or a field of one, which no read view stands on: a binding that holds
+  a read view (`out = ?a`) is written through no more than `!out` lends
+  it to write.
 - `for x in <v` consumes the List: each element is handed to `x`, which
   owns it for one iteration and may move it on. Elements a `break` or
   `return` leaves behind are dropped with the buffer, and `v` is moved.

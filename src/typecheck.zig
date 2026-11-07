@@ -2188,6 +2188,10 @@ const Checker = struct {
         view: ?struct { ty: TypeId, pos: u32 } = null,
         /// The path crosses a shared handle (`sema.accessThroughShared`).
         crossed: bool = false,
+        /// Where the place itself holds a read view (`out` of `out = ?a`):
+        /// assigned whole, it points elsewhere; written through, it
+        /// writes what it views, which nothing does through a read view.
+        holds_view: ?u32 = null,
 
         /// A name, or a field or element of one: storage with an owner.
         fn named(p: Place) bool {
@@ -2279,6 +2283,9 @@ const Checker = struct {
         }
         place.base = p;
         place.pos = self.startOf(p);
+        if (self.ctx.typeOf(e)) |ty| if (self.ctx.types.get(ty) == .read_view) {
+            place.holds_view = self.startOf(e);
+        };
         if (self.lendOf(p)) |lend| place.marked = lend.isKind(.write);
         if (p == .src) {
             place.sym = self.ctx.symbolOf(p);
@@ -2352,8 +2359,16 @@ const Checker = struct {
     /// without a view or handle on the way, the binding the path starts
     /// from must be one that may change (`requireBinding`). A diagnostic
     /// with no better position is at `at`. False after a diagnostic.
-    fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
-        if (!self.trial_take) try self.recordTableWrites(place.node);
+    fn requireAccess(self: *Checker, place_in: Place, access: Access, at: Sexp) Error!bool {
+        if (!self.trial_take) try self.recordTableWrites(place_in.node);
+        // A place that holds a read view is lent to write or
+        // write-iterated through it, as a step across one is.
+        var place = place_in;
+        if (access == .lend_write or access == .write_iterate) if (place.holds_view) |pos| {
+            place.block(.read_view, pos);
+            place.leaf_blocked = true;
+            place.view_blocked = true;
+        };
         const verb = access.verb();
         // Nothing is lent to write through a read view, a Cell or a
         // Signal behind a handle it views or reaches included (SPEC §10,
@@ -17087,8 +17102,10 @@ const Checker = struct {
                 .lend, .branches, .jump, .none => return false,
             }
             // A slice held its own temporary, as `?xs[a..b]` does; a code
-            // lends a constant, which no temporary holds.
-            if (!sliced and !lend.has(.code)) try self.lendsToRead(e);
+            // lends a constant, which no temporary holds, unless a handle
+            // or a box made here holds the code (`*X.one`): its statement
+            // holds that, and drops it.
+            if (!sliced and !lend.codeAlone()) try self.lendsToRead(e);
             if (lend.has(.erase) and !try self.erase(e, actual, from, lend)) return true;
             lend.implicit = true;
             try self.ctx.recordImplicitLend(e);

@@ -665,6 +665,33 @@ test "sets a member without fields lent where a union with fields goes", "0 0 0 
   v = thru(?B.y)
   print(code(B.y), code(b), code(?b), code(v), any(b))
 
+test "sets a code a handle or a box made here holds, lent where a view of a wider set goes, is dropped", "1 0 1 0 2 1"
+  # The view is of the code's error value, a constant, but the handle
+  # or box made to hold the code is a temporary its statement drops.
+  error X
+    one
+
+  error A
+    x(n: Int)
+
+  error B
+    z
+
+  error L = A | B
+
+  fun look(x: ?error) -> Int
+    1
+
+  fun f(k: ?L) -> Int
+    match k
+      A.x(n) => n
+      B.z => 0
+
+  m: Map[L, Int] = Map()
+  !m.put(B.z, 2)
+  k = X.one
+  print(look(*X.one), f(*B.z), look(^X.one), f(^B.z), m.get(*B.z) ?? -1, look(*k))
+
 test "sets a code lent as a key and into an optional view of a union with fields", "2 -1 true\n1 0 1"
   # A Map of a union with fields finds a code by its error value, and a
   # `(?L)?` takes a code, `none`, or a view of one.
