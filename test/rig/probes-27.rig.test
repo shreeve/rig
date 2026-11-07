@@ -932,15 +932,18 @@ test "review-sc3-fb", '''
   fun get(k: Int) -> Int?
     k if k != 2 else none
 
+  fun first_gap(xs: List[^Res], keep: Res) -> Res
+    $l: loop
+      for b in <xs
+        n = get(b.id) ?? break $l <keep
+        print("n", n)
+      break $l Res(id: -1)
+
   xs: List[^Res] = List()
   for i in 1..5
     !xs.push(^Res(id: i))
   keep = Res(id: 99)
-  out = for b in <xs
-    n = get(b.id) ?? break <keep
-    print("n", n)
-  else
-    Res(id: -1)
+  out = first_gap(<xs, <keep)
   print("out", out.id)
 
 test "review-sc3-j10", '''
@@ -1119,6 +1122,14 @@ test "review-sc3-j6", '''
     return E.bad if i == 3
     Res(id: i)
 
+  fun first_bad(ys: ?List[*Res]) -> Int
+    $l: loop
+      for y in ?ys
+        tmp = Res(id: 100)
+        r = mk(y.id - 10) catch break $l tmp.id
+        print("r", r.id)
+      break $l 0
+
   xs: List[^Res] = List()
   for i in 1..5
     !xs.push(^Res(id: i))
@@ -1130,12 +1141,7 @@ test "review-sc3-j6", '''
   ys: List[*Res] = List()
   for i in 1..5
     !ys.push(*Res(id: 10 + i))
-  got = for y in ?ys
-    tmp = Res(id: 100)
-    r = mk(y.id - 10) catch break tmp.id
-    print("r", r.id)
-  else
-    0
+  got = first_bad(?ys)
   print("got", got)
   v = loop
     q = mk(3) catch |e| break (1 if e == E.bad else 2)
