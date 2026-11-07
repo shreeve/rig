@@ -10437,7 +10437,9 @@ const Checker = struct {
             }
             // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
-            switch (self.ctx.types.get(ty)) {
+            // `?none` views a bare `none`.
+            const shown_ty = if (sema.unwrapViews(self.ctx, ty) == self.t().none_id) self.t().none_id else ty;
+            switch (self.ctx.types.get(shown_ty)) {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 .noreturn => try self.errAt(a, "{s} needs a value; this expression never produces one", .{who}),
@@ -18183,9 +18185,10 @@ const Checker = struct {
         var from = actual;
         while (!meets(self.ctx, from, into)) from = sema.copiedThrough(self.ctx, from) orelse return self.ctx.recordLift(e, null);
         switch (ts.get(from)) {
-            // `?none` copies out the `none` it views, which becomes the
+            // `?none` copies out the `none` it views, and `<none` and
+            // `+none` are the `none` they move or clone: each becomes the
             // optional as `none` does.
-            .none_literal => return self.ctx.recordLift(e, if (from != actual) .{ .into = into, .from = self.t().none_id } else null),
+            .none_literal => return self.ctx.recordLift(e, if (from != actual or e.isKind(.move) or e.isKind(.clone)) .{ .into = into, .from = self.t().none_id } else null),
             .noreturn, .invalid, .unknown => return self.ctx.recordLift(e, null),
             else => {},
         }
