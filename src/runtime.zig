@@ -6136,11 +6136,11 @@ fn ownAllocator() std.mem.Allocator {
 pub const fast_alloc = @import("alloc.zig");
 
 /// Whether `extend_from_bytes` maps a large run of the program's own
-/// bytes rather than copying it (`alloc.mapRun`): in a Linux build that
-/// takes `fast_alloc`, a release build with no heap profile. Debug and
-/// sanitized builds copy, so the leak checker and `RIG_SANITIZE` see heap
-/// buffers, and so does macOS.
-const maps_runs = builtin.os.tag == .linux and !leak_checked and !heap_profile and !fills;
+/// bytes rather than copying it (`alloc.mapRun`): in a Linux or macOS
+/// build that takes `fast_alloc`, a release build with no heap profile.
+/// Debug and sanitized builds copy, so the leak checker and `RIG_SANITIZE`
+/// see heap buffers.
+const maps_runs = fast_alloc.maps_files and !leak_checked and !heap_profile and !fills;
 
 // Rig's own allocations skip the fill Zig's safe builds write over every
 // new, moved, and freed buffer (`std.mem.Allocator.alloc`, `realloc`,
