@@ -15,22 +15,28 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 **`loop` is a keyword, and the one loop that gives a value**:
 `loop` repeats its block until a `break` leaves it, and
 `r = loop` ... `break v` gives `v`. `tools/migrate-loops.py PATH`
-rewrites `while true` to `loop`, and flags each of the others below
+rewrites `while true` and `while (true)` to `loop`, and flags each of
+the others below, and each name `loop`,
 with a suggested rewrite (it changes no other code). These are rejected
 now, each with the Rig spelling in the message:
 
-- `while true`: "write `loop`: `while` takes a condition that can end
-  it". Only the literal `true`; `while cond` is unchanged;
+- `while true` or `while (true)`: "write `loop`: `while` takes a
+  condition that can end it". Only the literal `true`; `while cond` is
+  unchanged;
 - an `else` on any loop: "a loop has no `else`; to act when nothing
   matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d`";
 - a `for` or `while` used as a value, and `break v` in one: "a `for` or
   `while` loop gives no value; use `loop` with `break v`, a chain such
   as `xs.find(f) ?? d`, or `return` from a function";
 - `loop` as a name, and `file.FileError.loop`, which is
-  `file.FileError.link_loop`.
+  `file.FileError.link_loop`. A keyword written as a name says so:
+  "`loop` is a keyword; choose another name".
 
 Trig has no loop `else`, no loop used as a value, and no `break v`; its
-`while true` lines are what the script rewrites. loco has one.
+`while true` lines are what the script rewrites. loco has one `while
+true`. A labeled `loop` may be a binding's or `return`'s value,
+`r = $found: loop`, left from an inner `for` by `break $found v`: the
+search that a `for` ... `else` wrote.
 `List.index_of(x)` gives the index of the first element equal to `x`,
 or `none`, as `slices.index_of` does. A block after `??`, a list
 comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an

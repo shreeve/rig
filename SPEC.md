@@ -6620,8 +6620,9 @@ found
 
 A label is `$` and a name, which the `$` touches. Where it is declared
 the `:` touches the name too (`$outer:`), and it stands before a
-statement that starts a line (or another label), or alone on a line
-over the block it names; the statement after `=>`, `defer`, or
+statement that starts a line (or another label), alone on a line over
+the block it names, or before the `loop` a binding or `return` takes
+(`r = $found: loop`); the statement after `=>`, `defer`, or
 `errdefer` takes none. After `break` or `continue` it is written with
 no `:` (`break $outer`). `$name(...)`, with the `(` touching the name,
 is a builtin call ([Builtins](#builtins)) instead, after a jump too:
@@ -6654,6 +6655,10 @@ from outside the loop is moved with `<x`, and a view may not outlive
 what it views. The value must be used; a `loop` used as a statement
 takes plain `break`s.
 
+A labeled `loop` is a value too, where a binding or `return` takes it:
+`r = $found: loop`, which a `break $found v` from an inner `for` leaves,
+is the search a loop's value is for.
+
 A `for` or `while` only repeats: it gives no value, and a `break` in one
 carries none. A search that gives a value is a chain
 (`xs.find(f) ?? d`, [Chains](#chains)), `xs.index_of(x)` ([List](#list)), a function
@@ -6676,11 +6681,16 @@ sub main()
     if xs[i] % 2 == 1
       break xs[i]
     i += 1
-  print(first_odd, make(3).len)
+  ys = List[Int]([2, 9, 4])
+  big = $found: loop
+    for y in ys
+      break $found y if y > 5
+    break $found -1
+  print(first_odd, make(3).len, big)
 ```
 
 ```output
-7 3
+7 3 9
 ```
 
 ```rig reject

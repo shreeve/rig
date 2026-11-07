@@ -1444,7 +1444,8 @@ done
 ### Loops as values
 
 `loop` is the one loop that gives a value: `r = loop` ... `break v`,
-and every `break` that leaves it carries one. A `for` or `while` gives
+and every `break` that leaves it carries one. Labeled, `r = $found:
+loop`, it is left from an inner `for` by `break $found v`. A `for` or `while` gives
 none, and a `break` in one carries none: a search is a chain
 (`xs.find(f) ?? d`), `xs.index_of(x)` on a List, or a function that
 returns from its loop.
