@@ -1536,8 +1536,9 @@ test "value tails leave", '''
 '''
   # Every value that leaves where a name at its tail is moved out: a
   # function's last value (a name, a branch, a block, a `match`, a `raw`
-  # block), `return`, a closure's result, a `break` value, a loop's
-  # `else`, and a binding's `if`, `match`, or `if … as` value.
+  # block), `return`, a closure's result, a `break` value (`break <d`, or
+  # `break e` of a name the loop declares), and a binding's `if`,
+  # `match`, or `if … as` value.
 
   obj D
     id: Int
@@ -1600,11 +1601,9 @@ test "value tails leave", '''
   v = loop
     d = mk(17)
     break <d
-  w = for _ in 0..1
-    break mk(18)
-  else
-    e = mk(19)
-    e
+  w = loop
+    e = mk(18)
+    break e
   print(v.id, w.id)
   y = if c
     d = mk(20)
