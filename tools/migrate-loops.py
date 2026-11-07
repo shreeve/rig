@@ -26,7 +26,7 @@ import os, re, sys
 
 FENCE = re.compile(r"^(\s*)```")
 HEADER = re.compile(
-    r"^(?P<label>\$[A-Za-z_]\w*:\s*)?"
+    r"^(?P<label>(?:\$[A-Za-z_]\w*:\s*)+)?"
     r"(?:(?P<lhs>(?:new\s+)?[A-Za-z_@][\w.@]*(?:\s*:\s*[^=]+?)?)\s*(?P<op>=!?)\s+|(?P<ret>return)\s+)?"
     r"(?P<kw>for|while)\b(?P<rest>.*)$"
 )
@@ -84,7 +84,7 @@ def code_lines(path, text):
                 if line.startswith("'''"):
                     in_result = False
                 continue
-            if not line[:1].isspace() and line.rstrip().endswith("'''") and line.count("'''") == 1:
+            if line[:1] not in ("", " ", "\t", "'") and line.count("'''") == 1:
                 in_result = True
                 continue
             keep.append(i)
@@ -129,7 +129,7 @@ def analyze(path, text):
         m = HEADER.match(s)
         if m and (m.group("kw") == "for" or m.group("kw") == "while"):
             label = m.group("label")
-            label = label.strip()[1:-1].strip() if label else None
+            label = re.findall(r"\$(\w+):", label)[-1] if label else None
             value_site = bool(m.group("op") or m.group("ret"))
             lp = Loop(i, ind, m.group("kw"), m.group("rest"), label, value_site)
             loops.append(lp)
@@ -216,7 +216,7 @@ def main(argv):
     total_rw, total_flags, changed = 0, 0, 0
     kinds = {}
     for path in files(paths):
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8", newline="") as f:
             text = f.read()
         lines, flags, rewrites = analyze(path, text)
         for ln, what, fix in flags:
@@ -233,7 +233,7 @@ def main(argv):
             if not quiet:
                 print(f"{path}: {len(rewrites)} `while true` -> `loop`")
             if not dry:
-                with open(path, "w", encoding="utf-8") as f:
+                with open(path, "w", encoding="utf-8", newline="") as f:
                     f.write("\n".join(lines))
     verb = "would rewrite" if dry else "rewrote"
     print(f"{verb} {total_rw} `while true` in {changed} files; {total_flags} flagged")
