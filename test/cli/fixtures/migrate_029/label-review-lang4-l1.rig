@@ -1,9 +1,11 @@
 fun find(xs: []Int, t: Int) -> Int
+  r = -1
   :outer for i in 0..xs.len
     for j in 0..2
-      break :outer i if xs[i] == t + j
-  else
-    -1
+      if xs[i] == t + j
+        r = i
+        break :outer
+  r
 
 sub kind(n: Int)
   :m match n

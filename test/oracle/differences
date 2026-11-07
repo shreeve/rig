@@ -80,7 +80,6 @@ test/reject/probes/review-take-p54.rig main prod-rejects prod-strict deferred `<
 # Defer). The oracle does not keep the `break` value's loans in force
 # there, nor after the loop while the value lives.
 test/reject/ownership/defer_runs_after_its_block's_value.rig Tab.broke prod-rejects ref-gap `defer !@xs.clear()` in a loop body whose `break !@xs[0]` value is returned
-test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.broke prod-rejects ref-gap `defer s = Slot(...)` in a loop body whose `break !s.items[0]` value is returned
 
 # A `for k in ?v` element over a List of handles is a read view of the
 # slot (Core §4); storing it in a binding declared before the loop keeps
