@@ -133,28 +133,17 @@ A new session, human or agent, takes these steps in order:
   ([records/2026-11/spawn/](docs/history/records/2026-11/spawn/README.md));
   Trig's parse in waves (research 29 #4) builds on it. Its x86 timing on
   pup waits with the rest.
-- **Preemption by signal** (#952): a prototype behind
-  `RIG_PREEMPT=signal`, off by default, for Linux x86-64 and arm64
-  macOS ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md);
-  the Mac port, [mac-port-2026-11-05.md](docs/history/records/2026-11/preempt/mac-port-2026-11-05.md):
-  Trig 1.9-4.2% fewer instructions and up to 2.8% faster at one
-  checker; a panic's trace loses the program's own lines until
-  `dsymutil` runs after the link, a condition of Mac default-on).
-  Its default-on round: each scheduler entry one call (#970, landed);
-  locks taken apart from the program's code go uncounted (step (c'),
-  [locks-2026-11-05.md](docs/history/records/2026-11/preempt/locks-2026-11-05.md)),
-  waiting on pup to measure.
-  Waits on Trig's timing, option on against off, against the checks'
-  ceiling (2.4% fewer cycles on ts-pattern). `bench/tasks` `hog` was
-  100 times slower with it: an awaited task that had not started waited
-  behind the one newest-first slot; #1001 (four run-next slots, kept as a
-  circle) takes it from 8.3 ms to 0.01 ms. On pup (2026-11-07), signal
-  against the yield checks on Trig: 1.3-3.3% faster and 3.8-4.6% fewer
-  instructions at one checker on all seven projects, 4.0-6.4% fewer
-  instructions at many. Default-on waits on #1001, a monitor that stops
-  signalling a worker whose handler declined, and the coverage case
-  (`test/cli/preempt_cover.sh`: a sleeper wakes within 25 ms while each kind
-  of code runs a loop), then the owner.
+- **Preemption by signal** (#952), the default on x86-64 Linux and
+  arm64 macOS in this change, for a program that makes tasks and no
+  local task (docs/internals/scheduler.md, "Preemption"). Yield checks
+  stay on other targets, in Linux debug builds, for local tasks, in
+  `rig test`, and in the test runner's batch packs; a pack mode that
+  preempts packs with no seeded case comes before v0.3.1. The coverage
+  gate is `test/cli/preempt_cover.sh`. On pup, signal against the
+  yield checks on Trig is 1.3-3.3% faster with 3.8-4.6% fewer
+  instructions at one checker, 4.0-6.4% fewer at many; fork-join's psum
+  is 5 times faster on the Mac, near Rayon's
+  ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
 
 - **The revamp of the runtime and std**
   ([records/2026-11/revamp-runtime/](docs/history/records/2026-11/revamp-runtime/ledger.md))

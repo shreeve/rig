@@ -358,13 +358,46 @@ signal, or a failure out of `main` with the cancel it sent, ends the
 process by the signal itself, its default put back (`rt.endBy`), so a
 shell sees it end as by the signal.
 
-## Yield checks
+## Preemption
 
 A fiber yields only at a waiting point, so a task that computes without
 waiting would hold its worker, and the work queued behind it would wait
-until it ends. In a program that makes tasks, the compiler adds yield
-checks where a computation can run long without waiting. A check never
-fails, and yields only when other work waits.
+until it ends. On x86-64 Linux and arm64 macOS, a program that makes
+tasks and no local task is preempted by signal, in every build Zig
+compiles with LLVM: all of them on the Mac, the optimized ones on Linux
+(`sched.preempt_built`, `rt.preempt`):
+
+- **The monitor**, a thread of its own, looks at each worker every
+  millisecond, or every 50 µs while work waits (`watchSlices`). A
+  worker whose fiber has run a slice, 10 ms, while other work waits, or
+  whose own queue held work at two looks in a row, or whose timer or
+  poller is due, gets SIGURG.
+- **The handler** stops the fiber only where its program counter is in
+  the program's own code, the section `rig_text` (`__TEXT,__rig_text` on
+  the Mac), and its worker holds no lock: there the fiber is at a point
+  the compiler could have put a check, and the handler switches it out.
+  Elsewhere, in a system call, the runtime, or a lock's span, it leaves
+  the yield check owed, which the fiber's next waiting point pays
+  (`atWaitingPoint`), as do the allocator's slow path and a List's growth
+  as they return (`settleAt`).
+- **The emitted code** carries the yield checks of the next section, but
+  `rig.turn` and `rig.tickCall` compile to nothing, so loops run with no
+  check, and the program's functions are placed in `rig_text`.
+
+Everywhere else the yield checks run: on other targets, in a debug
+build for Linux (Zig's own backend, which preemption does not support),
+in a program that makes local tasks (`firstLocalTask`), whose tasks take
+turns on one thread at the checks, in `rig test`'s seeded runs, and in
+the test runner's batch packs, whose root declares no `__rig_preempt`,
+so a seed chooses among the same yields as `rig test` does. How the
+design was measured, and what it costs on Trig, is in
+[records/2026-11/preempt/](../history/records/2026-11/preempt/design.md).
+
+## Yield checks
+
+Where a program is not preempted by signal (above), the compiler adds
+yield checks where a computation can run long without waiting. A check
+never fails, and yields only when other work waits.
 
 - **Loops.** Each outermost loop keeps a count of turns, a local of its
   own, which it and every loop inside it count down, and every 1,024

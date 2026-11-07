@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# RIG_PREEMPT=signal and local tasks. A program that makes a local task
-# keeps its yield checks whatever the option says, since local tasks
-# share counts that are not atomic and take turns at their waits and
-# yield checks; `bin/rig` says so in one line on stderr. Each program
-# here prints what it prints without the option and ends: tasks that
-# spin-wait on each other, local ones among them, on one worker. A
-# program with no local task gets no such line.
+# Preemption by signal, the default where it is built, and local tasks.
+# A program that makes a local task keeps its yield checks, since local
+# tasks share counts that are not atomic and take turns at their waits
+# and yield checks: its functions are not placed in the program's
+# section, and it ends: tasks that spin-wait on each other, local ones
+# among them, on one worker. A program with no local task is placed
+# there where preemption is built.
 source "$ROOT/test/cli/_lib.sh"
 
 cat > hold.rig <<'RIG'
@@ -143,24 +143,25 @@ sub main()
 RIG
 
 for p in hold starve ring; do
-    off=$("$TIMEOUT_CMD" 60 "$RIG" run --release=fast $p.rig 2>&1) || fail "$p.rig without the option: $off"
-    on=$(RIG_PREEMPT=signal "$TIMEOUT_CMD" 60 "$RIG" run --release=fast $p.rig 2>err-$p.txt) || fail "$p.rig with the option (timeout 60 s): $on $(cat err-$p.txt)"
-    expect_eq "$on" "$off" "$p.rig with RIG_PREEMPT=signal"
-    grep -q "^rig: RIG_PREEMPT=signal ignored: this program makes local tasks ($p.rig:[0-9]*), which take turns at yield checks$" err-$p.txt || fail "$p.rig: no note that the option was ignored: $(cat err-$p.txt)"
+    out=$("$TIMEOUT_CMD" 60 "$RIG" run --release=fast $p.rig 2>err-$p.txt) || fail "$p.rig (timeout 60 s): $out $(cat err-$p.txt)"
+    [ ! -s err-$p.txt ] || fail "$p.rig wrote to stderr: $(cat err-$p.txt)"
+    "$RIG" emit $p.rig > $p.zig 2>&1 || fail "emit $p.rig: $(cat $p.zig)"
+    ! grep -q "linksection(rig.preempt_section)" $p.zig || fail "$p.rig makes local tasks, but its functions are placed for preemption"
 done
-off=$("$RIG" run --release=fast plain.rig 2>&1) || fail "plain.rig without the option: $off"
-out=$(RIG_PREEMPT=signal "$RIG" run --release=fast plain.rig 2>err-plain.txt) || fail "plain.rig with the option: $out"
-expect_eq "$out" "$off" "plain.rig with RIG_PREEMPT=signal"
-! grep -q "RIG_PREEMPT" err-plain.txt || fail "plain.rig makes no local task, but: $(cat err-plain.txt)"
+out=$("$RIG" run --release=fast plain.rig 2>&1) || fail "plain.rig: $out"
+expect_eq "$out" "498497" "plain.rig"
+"$RIG" emit plain.rig > plain.zig 2>&1 || fail "emit plain.rig: $(cat plain.zig)"
+case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64 | Darwin/arm64)
+        grep -q "linksection(rig.preempt_section)" plain.zig || fail "plain.rig makes no local task, but its functions are not placed for preemption" ;;
+esac
 
 # A task that spins on the only worker, waiting for one queued behind it,
 # with no local task: where preemption is built (Linux x86-64, arm64
 # macOS), a signal stops it and the other runs, and the scheduler's
 # counts show a task preempted; elsewhere the yield checks hand over.
-off=$("$RIG" run --release=fast spin.rig 2>&1) || fail "spin.rig without the option: $off"
-expect_eq "$off" "0 1" "spin.rig without the option"
-on=$(RIG_PREEMPT=signal RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release=fast spin.rig 2>err-spin.txt) || fail "spin.rig with the option (timeout 60 s): $on $(cat err-spin.txt)"
-expect_eq "$on" "0 1" "spin.rig with RIG_PREEMPT=signal"
+on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release=fast spin.rig 2>err-spin.txt) || fail "spin.rig (timeout 60 s): $on $(cat err-spin.txt)"
+expect_eq "$on" "0 1" "spin.rig"
 case "$(uname -s)/$(uname -m)" in
     Linux/x86_64 | Darwin/arm64)
         grep -q 'preempted [1-9]' err-spin.txt || fail "spin.rig: no task preempted: $(cat err-spin.txt)" ;;
@@ -208,7 +209,7 @@ sub main()!
   total = >r0! + >r1! + >r2! + >r3! + >r4! + >r5! + >r6! + >r7!
   print("woke", ms < 2000, total > 0)
 RIG
-RIG_PREEMPT=signal "$RIG" build --release=fast -o reads reads.rig >build-reads.txt 2>&1 || fail "build reads.rig: $(cat build-reads.txt)"
+"$RIG" build --release=fast -o reads reads.rig >build-reads.txt 2>&1 || fail "build reads.rig: $(cat build-reads.txt)"
 for i in 1 2 3 4 5; do
     out=$("$TIMEOUT_CMD" 60 ./reads 2>&1) || fail "reads.rig run $i (timeout 60 s): $out"
     expect_eq "$out" "woke true true" "reads.rig run $i: the sleeper woke within 2 s"
@@ -216,7 +217,7 @@ done
 
 # A loop that spends its time in std.text's searches, Zig code, is
 # stopped by a signal there as in the program's own code: in a build
-# with the option the searches are in the program's code section
+# preempted, the searches are in the program's code section
 # (std/text.zig, `rig.preempt_section`). A task sleeping 20 ms beside two
 # such loops on one worker wakes in time, where it woke in 30 ms to
 # 15.8 s (docs/history/records/2026-11/preempt/default-on-2026-11-06.md).
@@ -252,7 +253,7 @@ sub main()!
   total = >s0! + >s1!
   print(ms, total > 0)
 RIG
-        RIG_PREEMPT=signal "$RIG" build --release=fast -o finds finds.rig >build-finds.txt 2>&1 || fail "build finds.rig: $(cat build-finds.txt)"
+        "$RIG" build --release=fast -o finds finds.rig >build-finds.txt 2>&1 || fail "build finds.rig: $(cat build-finds.txt)"
         for i in 1 2 3 4 5; do
             out=$("$TIMEOUT_CMD" 60 ./finds 2>&1) || fail "finds.rig run $i (timeout 60 s): $out"
             [[ ${out#* } == true ]] || fail "finds.rig run $i: $out"
@@ -266,7 +267,7 @@ esac
 # build is preempted on arm64 macOS alone (Linux x86-64's debug builds
 # use Zig's own backend, which takes no trampoline).
 if [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]]; then
-    out=$(RIG_PREEMPT=signal RIG_PREEMPT_TRACE=1 "$TIMEOUT_CMD" 120 "$RIG" run spin.rig 2>trace.txt) || fail "spin.rig, debug, with the trace: $out $(cat trace.txt)"
+    out=$(RIG_PREEMPT_TRACE=1 "$TIMEOUT_CMD" 120 "$RIG" run spin.rig 2>trace.txt) || fail "spin.rig, debug, with the trace: $out $(cat trace.txt)"
     expect_eq "$out" "0 1" "spin.rig, debug, with the trace"
     grep -q ' in preemptEntryArm ' trace.txt || fail "spin.rig: the trace has no trampoline: $(cat trace.txt)"
     n=$(grep -c ' in preemptEntryArm ' trace.txt)
@@ -296,7 +297,7 @@ sub main()
   t = work(10)&
   print(>t)
 RIG
-    RIG_PREEMPT=signal RIG_NO_CRASH_REPORT=1 "$TIMEOUT_CMD" 120 "$RIG" run boom.rig >boom.out 2>&1 && fail "boom.rig did not panic: $(cat boom.out)"
+    RIG_NO_CRASH_REPORT=1 "$TIMEOUT_CMD" 120 "$RIG" run boom.rig >boom.out 2>&1 && fail "boom.rig did not panic: $(cat boom.out)"
     grep -qE '__rig_main\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in deep ' boom.out || fail "boom.rig: the trace has no line for deep: $(head -30 boom.out)"
     # `dsymutil` runs once a link: the same build again copies the kept
     # executable, whose `.dSYM` is still its own.
@@ -304,7 +305,7 @@ RIG
     printf '#!/bin/sh\necho "$@" >> %s/dsymutil.log\nexec %s "$@"\n' "$PWD" "$(command -v dsymutil)" > fake/dsymutil
     chmod +x fake/dsymutil
     for k in 1 2; do
-        PATH="$PWD/fake:$PATH" RIG_PREEMPT=signal "$RIG" build -o boom-bin boom.rig >/dev/null 2>&1 || fail "build $k of boom.rig"
+        PATH="$PWD/fake:$PATH" "$RIG" build -o boom-bin boom.rig >/dev/null 2>&1 || fail "build $k of boom.rig"
     done
     expect_eq "$(wc -l < dsymutil.log | tr -d ' ')" "1" "dsymutil runs for two builds of one package"
     [[ -d boom-bin.dSYM ]] || fail "boom-bin has no .dSYM"

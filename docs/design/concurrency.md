@@ -83,11 +83,12 @@ aim to match it in the rest.
   it saves the few registers a call keeps, and resuming restores them. A
   Tokio task is a state machine: each pause returns up through every
   future it is nested in, and each resume calls back down through them.
-- **A long computation never holds up the rest.** The compiler puts a
-  yield check in every loop and on every cycle of recursive calls of a
-  program that makes tasks, so a task waiting behind one waits for a
-  slice of it, not all of it. Tokio never stops a running task, and Go
-  stops one after 10 ms.
+- **A long computation never holds up the rest.** On x86-64 Linux and
+  arm64 macOS a signal stops a task that has run 10 ms while other work
+  waits, as Go's does, with no check in its loops; elsewhere the
+  compiler puts a yield check in every loop and on every cycle of
+  recursive calls. Either way a task waiting behind a computation waits
+  for a slice of it, not all of it. Tokio never stops a running task.
 - **Errors stay the call's own.** `Task[Page!]` gives back the error
   the call failed with, from the call's own error set; a canceled task
   fails with `Stop.canceled`, an ordinary member of that set. A Tokio
@@ -695,17 +696,18 @@ the numbers against Tokio and Go are in
 [docs/launch/benchmarks.md](../launch/benchmarks.md).
 
 **How a long computation is stopped.** Each target has one way, and
-the compiler chooses it; a program never does. Built: yield checks in
-every loop and on every cycle of recursive calls, and, as a prototype
-behind `RIG_PREEMPT=signal` on Linux x86-64 and arm64 macOS, a signal
-from a monitor thread in their place, so loops run with no checks
+the compiler chooses it; a program never does. On x86-64 Linux and
+arm64 macOS, a signal from a monitor thread stops a task that has run a
+slice while other work waits, so loops run with no checks
 ([records/2026-11/preempt/](../history/records/2026-11/preempt/design.md)).
+Elsewhere the compiler puts yield checks in every loop and on every
+cycle of recursive calls. Seeded test runs and a program that makes
+local tasks keep the checks everywhere, since a seed's interleavings
+must not depend on time and local tasks take turns at the checks.
 *Planned:* the signal on every target that can interrupt a thread
 (Linux arm64, Windows by suspending the thread), and the checks only
-where none can, as in WebAssembly and freestanding code. Seeded test
-runs and a program that makes local tasks keep the checks everywhere,
-since a seed's interleavings must not depend on time and local tasks
-take turns at the checks ([ROADMAP](../ROADMAP.md), "Concurrency").
+where none can, as in WebAssembly and freestanding code
+([ROADMAP](../ROADMAP.md), "Concurrency").
 
 **One `&` for every kind of task.** A connection handler, an actor's
 method, a pipeline's stage, and a divide-and-conquer split are all
