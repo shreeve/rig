@@ -10664,6 +10664,12 @@ const Checker = struct {
             _ = try self.badCall(args, args[0], "`push` with `keep:` takes a vector of bytes, a `Simd[U8, n]`, or an integer with its byte order, `push[U64, .little](word, keep: k)`; got `{s}`", .{try self.tyName(ty)});
             return false;
         }
+        // The vector is read as a value: a write lend written here is
+        // reported, and a held write view read through.
+        if (self.ctx.types.get(ty) == .write_view) {
+            if (try self.writeLendRead(args[0], ty, .{ .value = vec })) return false;
+            try self.ctx.recordRead(args[0]);
+        }
         try self.checkKeep(ir.Kwarg.value(keep), bytes.?);
         try self.ctx.recordStringNum(callee, vec);
         return true;
@@ -19610,6 +19616,12 @@ const Checker = struct {
             try self.errAt(arg, "type mismatch: expected `[]{s}`, got `{s}`", .{ try self.tyName(w), try self.tyName(ty) });
             return self.t().invalid_id;
         };
+        // A view of an array is read as the array it views (`List(?a)`):
+        // a write lend written here is reported, as it only reads.
+        switch (self.ctx.types.get(ty)) {
+            .read_view, .write_view => if (self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .array) try self.readOf(arg, ty, .{ .value = sema.unwrapViews(self.ctx, ty) }),
+            else => {},
+        }
         if (!sema.holdsNoLoanButText(self.ctx, elem) or sema.mayHoldView(self.ctx, elem)) {
             // The form that works: an empty List, then a push of each
             // element, made in the call where the literal makes them.
