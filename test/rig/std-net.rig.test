@@ -13,7 +13,7 @@ test "net echo", seeds: 20, '''
     c = l.accept()!
     buf = String()
     total = 0
-    while true
+    loop
       n = (!c).read(!buf, 4096)!
       if n == 0
         break
@@ -41,7 +41,7 @@ test "net many connections", seeds: 20, "20000 20000"
     new s = <c
     total = 0
     buf = String()
-    while true
+    loop
       n = (!s).read(!buf, 4096)!
       if n == 0
         break
@@ -160,7 +160,7 @@ test "net read of more than a block", seeds: 20, "100000 true"
   t = send(l.port())&
   s = l.accept()!
   got = String()
-  while true
+  loop
     n = (!s).read(!got, 65536)!
     if n == 0
       break
@@ -210,7 +210,7 @@ test "net split: one task reads while another writes", seeds: 20, "20000 20000"
     s = l.accept()!
     total = 0
     buf = String()
-    while true
+    loop
       n = (!s).read(!buf, 4096)!
       if n == 0
         break
@@ -229,7 +229,7 @@ test "net split: one task reads while another writes", seeds: 20, "20000 20000"
   fun take(r: net.Reader) -> Int!
     new r = <r
     got = String()
-    while true
+    loop
       n = (!r).read(!got, 4096)!
       if n == 0
         break
@@ -259,14 +259,14 @@ test "net split: the writer's close half-closes", seeds: 20, '''
   (!w).write("ping")!
   <w.close()
   got = String()
-  while true
+  loop
     if (!s).read(!got, 16)! == 0
       break
   print(got)
   (!s).write("pong")!
   <s
   back = String()
-  while true
+  loop
     if (!r).read(!back, 16)! == 0
       break
   print(back)
@@ -365,7 +365,7 @@ test "net writes go on after the other end half-closes", seeds: 20, "200000 2000
     r, w = <s.split()
     <w.close()
     got = String()
-    while true
+    loop
       n = (!r).read(!got, 65536)!
       if n == 0
         break

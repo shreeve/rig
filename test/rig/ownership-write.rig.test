@@ -243,7 +243,7 @@ test "write lend kept", release: true, '''
   h: !Int = !m
   h += 5
   print(m)
-  l = while true
+  l = loop
     break !m
   l += 10
   k = for i in 0..3
@@ -2341,7 +2341,7 @@ test "write view result binding holds view", '''
   print(n)
   b = slot(!n) if n > 100 else slot(!m)
   b = 0
-  l = while true
+  l = loop
     break slot(!n)
   l = 1
   print(n, m)
@@ -2355,7 +2355,7 @@ fail "write view held by a loop value is lent while it lives", "12:7: use of `n`
     a
 
   n = 12
-  l = while true
+  l = loop
     break slot(!n)
   l = 1
   print(n, l)
@@ -2693,7 +2693,7 @@ test "write view lent through a binding is returned", '''
       none
 
     fun ensure(!@, j: Int) -> !Int from @
-      while true
+      loop
         if !@slots[j] as s
           return !s.value
         @slots[j] = Slot(key: j, value: 7)

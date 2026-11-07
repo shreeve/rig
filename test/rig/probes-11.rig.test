@@ -469,7 +469,7 @@ test "purity-principles-p21 retmove", '''
 
   fun loopy() -> Res
     a = Res(n: 5)
-    r = while true
+    r = loop
       break <a
     r
 
@@ -1345,7 +1345,7 @@ fail "r3-or-break-planned", "`r` owns a `Bag`, which can't be copied out by `bre
     v: List[Int]
 
   sub loop_local()
-    x = while true
+    x = loop
       b = Bag(v: List())
       break b
     print(x.v.len)
@@ -1361,7 +1361,7 @@ fail "r3-or-break-planned", "`r` owns a `Bag`, which can't be copied out by `bre
 
   sub outer_name()
     r = Bag(v: List())
-    x = while true
+    x = loop
       break r
     print(x.v.len)
 

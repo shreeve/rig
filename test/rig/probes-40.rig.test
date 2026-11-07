@@ -859,7 +859,7 @@ test "syntax-review-ux-c2", "0 0 0"
   words = 0
   bytes = 0
   in_word = false
-  while true
+  loop
     c = next_byte()
     break if c < 0
     bytes += 1
@@ -1037,7 +1037,7 @@ test "syntax-review-ux-py9", "count 0 sum 0 max 0"
 
   fun read_line(buf: !List[U8]) -> Bool
     !buf.clear()
-    while true
+    loop
       c: I32 = 0
       raw
         c = getchar()

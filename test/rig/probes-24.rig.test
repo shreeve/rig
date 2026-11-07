@@ -1269,7 +1269,7 @@ fail "review-payload-loan-3-f02 write binding break out", "bare use of write vie
 
   e = E.a(String("hello"))
   d = String("dflt")
-  r = while true
+  r = loop
     match !e
       .a(t) => break t
       .b => break !d
@@ -1285,7 +1285,7 @@ fail "review-payload-loan-3-f02b write binding break move", "cannot move out of 
 
   e = E.a(String("hello"))
   d = String("dflt")
-  r = while true
+  r = loop
     match !e
       .a(t) => break <t
       .b => break !d
@@ -1509,7 +1509,7 @@ fail "review-payload-loan-3-o03 labeled break value binding", "cannot reassign `
     z
 
   e = E.a(String("hello"))
-  s = while true
+  s = loop
     match !e
       .a(t)
         r = ?t[1..]

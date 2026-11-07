@@ -810,7 +810,7 @@ fail "review-b4b-2-p05 break out of loop", "cannot reassign `e` while it is lent
   e = E.a(r: Res(n: 1, t: String("one")))
   k = Res(n: 0, t: String("k"))
   saved = ?k
-  while true
+  loop
     match e
       .a(r)
         saved = ?r

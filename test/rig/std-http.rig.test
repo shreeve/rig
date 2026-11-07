@@ -34,7 +34,7 @@ test "http serve", seeds: 20, '''
     c = net.connect(String("127.0.0.1:", port))!
     (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
     got = String()
-    while true
+    loop
       n = (!c).read(!got, 4096)!
       if n == 0
         break

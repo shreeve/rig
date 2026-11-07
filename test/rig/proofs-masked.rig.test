@@ -75,7 +75,7 @@ code "mask probe emit", "rig.atProven(ts, i, .both)"
     if ts.len > 0
       mask = ts.len -% 1
       i = Int.wrap(h) & mask
-      while true
+      loop
         return i if ts[i] == t
         i = (i + 1) & mask
     -1

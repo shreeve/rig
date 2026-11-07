@@ -426,8 +426,8 @@ test "loop label shadow value", '''
   # leaves the outer loop.
 
   fun first(n: Int) -> Int
-    $a: while true
-      $a: while true
+    $a: loop
+      $a: loop
         break $a
       if n > 0
         return n
@@ -436,9 +436,9 @@ test "loop label shadow value", '''
   m = 2
   c = n > 0
   k = if c
-    $a: while true
+    $a: loop
       j = if c
-        $a: while true
+        $a: loop
           break $a 5
       else
         6
@@ -448,9 +448,9 @@ test "loop label shadow value", '''
     !m
   k += 10
   print(n, m)
-  $a: while true
+  $a: loop
     j = if c
-      $a: while true
+      $a: loop
         break $a 7
     else
       8

@@ -1065,7 +1065,7 @@ test "review258-p54 value return", '''
     !v[i]
 
   fun go(v: !List[String], src: !List[String]) -> Int
-    while true
+    loop
       slot(!v, 0) = (!src).pop() ?? return v.len
     0
 

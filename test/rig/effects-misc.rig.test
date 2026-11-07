@@ -728,7 +728,7 @@ test "jump as fallback", '''
   print("seen", seen)
 
   j = 2
-  while true
+  loop
     held = Noisy(id: 100 + j)
     i = find(?xs, j) ?? break
     print("step", i, held.id)

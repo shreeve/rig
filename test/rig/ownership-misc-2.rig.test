@@ -209,7 +209,7 @@ test "take then exit", '''
   print(s)
   i = 0
   s.a = R(n: 3)
-  while true
+  loop
     t = <s.a
     i += 1
     break if i > 1
@@ -762,7 +762,7 @@ test "temporary views in statement", '''
   if text.cut(?kv_text, "=") as kv
     print(kv.before, kv.after)
   j = 0
-  while true
+  loop
     pass_text = String("pass=", j)
     kw = text.cut(?pass_text, "=") ?? break
     print(kw.after)
@@ -1597,7 +1597,7 @@ test "value tails leave", '''
     _ => mk(10)
   t: fun(D) -> D = |x| x
   print(g(mk(11)).id, h(mk(12), true).id, h(mk(13), false).id, k(mk(14), 1).id, t(mk(15)).id, apply(?g, mk(16)).id)
-  v = while true
+  v = loop
     d = mk(17)
     break <d
   w = for _ in 0..1
@@ -2596,7 +2596,7 @@ test "while true break move", '''
 
   rc = *Wrap(payload: 7)
   i = 0
-  while true
+  loop
     i += 1
     if i == 3
       eat(<rc)

@@ -738,7 +738,7 @@ fail "task write loan broken out of a loop", "`t` is a task lent to write, which
     v.len
 
   xs: List[Int] = List()
-  r = while true
+  r = loop
     t = fill(!xs)&
     break t
   print(>r)

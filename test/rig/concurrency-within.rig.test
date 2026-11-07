@@ -56,7 +56,7 @@ test "within tasks", seeds: 20, release: true, '''
     ms
 
   fun spin() -> Int!
-    while true
+    loop
       task.check()!
 
   start = time.now()

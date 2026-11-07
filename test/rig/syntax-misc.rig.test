@@ -1956,7 +1956,7 @@ test "label break value", '''
       else
         0
     else
-      $first: while true
+      $first: loop
         break $first (b)
 
   print(pick(2, 3), pick(-1, 7))
@@ -2112,7 +2112,7 @@ test "labeled jump fallback", '''
       print(w)
   i = 0
   $loop: while i < 5 : i += 1
-    while true
+    loop
       n = get(i, i) ?? break $loop
       print(n)
       break
@@ -2255,7 +2255,8 @@ test "logical not", '''
 fail "lone carriage return", "3:11: carriage return without a line feed"
   # Lines end with LF or CRLF; a carriage return alone is an error.
 
-  sub main()  print(1)
+  sub main()
+  print(1)
 
 fail "loop else continue own label", "`continue $a` names no enclosing loop or block"
   # A loop's `else` runs after the loop, so a jump there cannot name it.
@@ -2322,7 +2323,7 @@ test "loop value", '''
   fun collatz(start: Int) -> Int
     n = start
     steps = 0
-    while true
+    loop
       break steps if n == 1
       n = n / 2 if n % 2 == 0 else 3 * n + 1
       steps += 1
@@ -3101,7 +3102,7 @@ test "negation in loop value", "-3 0 -3 20 -5"
   # line of a loop's `else` block, is negation.
 
   fun first(y: Int) -> Int
-    x = while true
+    x = loop
       break match y
         3 => -y
         _ => 0
@@ -5194,7 +5195,7 @@ fail "unreachable after jump", "unreachable code: this statement follows a `retu
   for i in 0..3
     break
     print(i)
-  while true
+  loop
     continue
     print("x")
   print(f())
@@ -5256,7 +5257,7 @@ test "while header jump label", '''
     n > 0 if n < 9 else none
 
   n = 3
-  $outer: while true
+  $outer: loop
     while more(n) ?? break $outer
       n -= 1
     print(n)
@@ -5375,13 +5376,13 @@ fail "else of while true", "8:3: unreachable code: this statement follows a `ret
   # The `else` of `while true` never runs, and it is checked as any
   # block is, as if the condition failed at the loop's head.
   n = 0
-  while true
+  loop
     break if n > 2
   else
     return
     print(1)
   xs: List[Int] = List()
-  last = while true
+  last = loop
     break 1
   else
     e = xs

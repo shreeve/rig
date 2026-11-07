@@ -268,7 +268,7 @@ test "audit-frontend-a7", "6"
 
 test "audit-frontend-b1", "-3"
   y = 3
-  x = while true
+  x = loop
     break match y
       3 => -y
       _ => 0
@@ -3926,7 +3926,7 @@ test "audit-fuzz-c-mut-c1a5565a76", '''
   print(index_of(?xs, 4), index_of(?xs, 9))
   n = 27
   steps = 0
-  last = while true
+  last = loop
     break steps if n == 1
     n = n / 2 if n % 2 == 0 else 3 * n + 1
     steps = 1

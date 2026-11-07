@@ -264,8 +264,8 @@ test "review-labels-1-c17b break label bang lend", "2"
     n += 1
 
   n = 1
-  $outer: while true
-    while true
+  $outer: loop
+    loop
       bump(!n)
       break $outer
   print(n)
@@ -1079,7 +1079,7 @@ test "review-lang4-l1", '''
 
   xs = [1, 5, 9]
   print(find(?xs[..], 5), find(?xs[..], 100))
-  $w: while true
+  $w: loop
     break $w
   $r: raw
     break $r

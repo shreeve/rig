@@ -1564,7 +1564,7 @@ test "audit-fuzz-pf2-accepted-b300870132", '''
   print("seen", seen)
 
   j = 2
-  while true
+  loop
     held = Noisy(id: 100 + j)
     i = find(?xs, j) ?? break
     print("step", i, held.id)
@@ -3515,7 +3515,7 @@ test "audit-ownership-h05 break value moves local", '''
     false
 
   i = 0
-  r = while true
+  r = loop
     t = *Tok(n: i)
     i += 1
     break <t if i == 2

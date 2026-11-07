@@ -793,12 +793,12 @@ test "review-loop-lowering-d02-while-true-else", "6 6"
   #
   # oracle: main accept
   n = 0
-  while true
+  loop
     n += 1
     break if n > 2
   else
     print("never")
-  x = while true
+  x = loop
     n += 1
     break n if n > 5
   else

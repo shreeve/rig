@@ -918,7 +918,7 @@ fail "review-payload-loan-5-a08 loop value bare param", "bare use of write view 
     x
 
   sub f(a: !E)
-    x = while true
+    x = loop
       break a
     match x
       .a(r0)

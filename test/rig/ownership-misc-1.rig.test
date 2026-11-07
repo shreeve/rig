@@ -1830,7 +1830,7 @@ fail "bare name moves only from its block", "11:11: `v` owns a `List[Int]`, whic
 
   fun f() -> List[Int]
     v: List[Int] = List()
-    r = while true
+    r = loop
       !v.push(1)
       break v
     r
@@ -2609,7 +2609,7 @@ test "break moves loop local", release: true, '''
   else
     List[Int]()
   print(z)
-  w = while true
+  w = loop
     q = R(n: 20)
     break <q
   print(w.n)
@@ -2636,7 +2636,7 @@ fail "break outer name", "14:9: `r0` owns an `R`, which can't be copied out by `
       print("drop", @n)
 
   r0 = R(n: 5)
-  a = while true
+  a = loop
     break r0
   x = for _ in 0..2
     r = R(n: 10)
@@ -2676,13 +2676,13 @@ fail "break value branch leaves", "20:9: `a` owns a `String`, which can't be cop
   h = H(f: String("h"))
   o: String? = String("o")
   c = true
-  x = while true
+  x = loop
     break a if c else b
-  y = while true
+  y = loop
     break h.f if c else b
-  z = while true
+  z = loop
     break o ?? b
-  w = while true
+  w = loop
     break fail(c) catch b
   print(x, y, z, w)
 
@@ -3441,7 +3441,7 @@ fail "coalesce jump checks rest", "14:8: use of `a` after move", "21:3: cannot r
 
   sub brk()
     a: List[Int] = List()
-    while true
+    loop
       n = make(1) ?? break
       eat(<a)
       print(n)
@@ -4296,7 +4296,7 @@ fail "copy write view duplicated", "8:13: bare use of write view `w2` in binding
   sub bind(w2: !Int)
     new w = w2
     v: !Int = w2
-    u: !Int = while true
+    u: !Int = loop
       break w2
     w2 += 1
     w += 1
@@ -4329,7 +4329,7 @@ test "copy write view read or moved", '''
     new z = w3
     p = P(x: w2)
     p.x = w3 if c else w2
-    u = while true
+    u = loop
       break w2
     v = for _ in 0..3
       break w3 if c
@@ -5480,7 +5480,7 @@ fail "ignored write lend", "42:3: `!x` here is read, not held: an `Int` goes her
     1 => !n
     _ => 0
   b5: Int = !mk().x
-  b6 = while true
+  b6 = loop
     break !n if c
     break 0
   print(e1, e2, e3, e4, e5, s1.r, s2.r, s3.x, s4.r, g1, g2, g3, g4, g5, g6, a1, a2, b1, b2, b3, b4, b5, b6, ret(!n))
@@ -5504,11 +5504,11 @@ fail "ignored write lend leaves", "15:7: `!n` here is read, not held: only its `
   k = (!n if c else !m) + 1
   w = !p.x
   a = w if c else !m
-  b = while true
+  b = loop
     break w if c
     break !m
   d = if c
-    while true
+    loop
       break !n
   else
     m
@@ -5625,7 +5625,7 @@ fail "ignored write lend shadowed label", "19:16: `!n` here is read, not held", 
   k = if c
     $a: for i in 0..3
       j = if c
-        $a: while true
+        $a: loop
           break $a i
       else
         0
@@ -6061,7 +6061,7 @@ fail "jump outside loop", "`break` is not inside a loop (a closure body cannot l
       for j in 0..3
         continue $outer
     g()
-  while true
+  loop
     break $nowhere
 
   sub stray()
@@ -6224,7 +6224,7 @@ fail "kept self view leaves tail", "35:3: cannot return a view of `mk(42)`, whic
     mkh(43).q.me(k: g(1), j: g(2))
   else
     ?d.q
-  t = while true
+  t = loop
     break mkh(44).q.me(k: g(1), j: g(2))
   else
     ?d.q
@@ -6316,8 +6316,8 @@ fail "labeled break carries move", "use of `rc` after move"
     print(b.payload)
 
   rc = *Wrap(payload: 1)
-  $outer: while true
-    while true
+  $outer: loop
+    loop
       eat(<rc)
       break $outer
   print(rc.payload)
@@ -8047,7 +8047,7 @@ fail "nll escapes by break", "`b` does not live long enough"
 
   a = Wrap(n: 1)
   r = ?a
-  while true
+  loop
     b = Wrap(n: 2)
     r = ?b
     break

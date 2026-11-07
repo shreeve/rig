@@ -4118,7 +4118,7 @@ fail "audit-emit-i3", "`a` owns an `R`, which can't be copied out by `break`: wr
       print("drop R", @n)
 
   a = R(n: 1)
-  r = while true
+  r = loop
     break a
   print(r.n)
 
@@ -4186,7 +4186,7 @@ test "audit-emit-j1", '''
   limit = 3
 
   fun f(n: Int) -> Int
-    while true
+    loop
       return n if n > 0
     0
 
@@ -4210,14 +4210,14 @@ test "audit-emit-j2", '''
   4
 '''
   sub loop()
-    while true
+    loop
       print("x")
       break
     print("after")
 
   fun spin() -> Int
     n = 0
-    while true
+    loop
       n += 1
       return n if n > 3
 

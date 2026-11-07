@@ -256,7 +256,7 @@ fail "view escapes by break", "`b` does not live long enough"
 
   a = Wrap(payload: 1)
   r = ?a
-  while true
+  loop
     b = Wrap(payload: 2)
     r = ?b
     break

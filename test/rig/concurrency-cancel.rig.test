@@ -10,7 +10,7 @@ test "cancel check", seeds: 20, '''
   use std.time
 
   fun count() -> Int!
-    while true
+    loop
       task.check()!
 
   t = count()&

@@ -1137,7 +1137,7 @@ test "review-sc3-j6", '''
   else
     0
   print("got", got)
-  v = while true
+  v = loop
     q = mk(3) catch |e| break (1 if e == E.bad else 2)
     print(q.id)
   print("v", v)
@@ -1241,7 +1241,7 @@ test "review-sc3-ng12", "-3"
       print("drop", @id)
 
   x = 3
-  v = while true
+  v = loop
     break -x
   print(v)
 

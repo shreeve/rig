@@ -135,7 +135,7 @@ fail "origin from body forms", "17:5: `get` returns a view of `other`, but its s
       _ => b
 
   fun loop(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
-    r = while true
+    r = loop
       break b
     else
       a

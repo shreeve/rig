@@ -1474,7 +1474,7 @@ test "view result values", '''
       wr(!y)
     _
       0
-  l: Int = while true
+  l: Int = loop
     break wr(!y)
   print(t, m, l)
   print(ordered() catch 0)
