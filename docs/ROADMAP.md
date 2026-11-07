@@ -41,12 +41,13 @@ decided are kept in [IDEAS](IDEAS.md) until he approves or rejects them.
 - **Zig 0.18**: LLVM's loop vectorizer, which Zig 0.17 turns off
   (the Zig 0.17 workarounds in [INTERNALS](internals/INTERNALS.md)), is back; measure plain loops again,
   and move std/terminal.zig's `widen` back into std/terminal.rig.
+- **An LLVM backend** (planned for December 2026; the owner, 2026-11-04): a lowered IR first, private to Rig, with a text form a Nexus grammar parses back for round-trip tests and yield points as explicit operations; then LLVM behind a flag, beside the Zig backend.
 - **Checker-proved check elimination** through handles into stores (`@store.lists[Int(list.start) + k]`), which no local fact bounds; locals, Lists, field paths, `for` ranges, and flags are built ([internals/INTERNALS](internals/INTERNALS.md), "Proven checks").
 - **Bounds proofs from a guard's false edge** (`return 0 if i >= s.len` before `s[i]`) and constant indexes after a length test (`xs[0]` inside `if xs.len >= 2`): measured on Trig at about 0.1% (121 constant indexes after a test, beside 437 proven; `RIG_NO_PROOFS=1` costs ts-pattern 0.5% and zod3 0.7%), so they wait for a program they pay for.
 
 ## Concurrency
 
-The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.md#18-tasks)): tasks (`f(x)&`, `>t`) owned by their scope, cancellation and deadlines, sets of tasks, `par`, channels and `select`, actors with their idle path, deadlock detection, failure and supervision, `task.isolate`, seeded deterministic tests, and `std.net` and `std.http` on a poller per worker. What comes next is the concurrency panel's ([concurrency/panel](history/records/2026-10/concurrency-panel/README.md)):
+The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.md#18-tasks)): tasks (`f(x)&`, `>t`) owned by their scope, cancellation and deadlines, sets of tasks, `par`, channels and `select`, actors with their idle path, deadlock detection, failure and supervision, `task.isolate`, seeded deterministic tests, and `std.net` and `std.http` on a poller per worker. What comes next is the concurrency panel's ([concurrency/panel](history/records/2026-10/concurrency-panel/README.md)), in the owner's order (2026-11-07): preemption by signal on by default; tasks as small as the best runtimes'; a mixed-workload benchmark; then files and I/O:
 
 - **Files and I/O**: a file layer with one `read`/`write` shape for files, sockets, and HTTP bodies; DNS; then TLS and an HTTP client.
 - **Checking the runtime**: the next slices of the model's proofs ([design/concurrency](design/concurrency.md), "Proof obligations"), and model checking (TLA+, GenMC) before more hand proofs.
@@ -62,7 +63,8 @@ The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.
     - **only half of Rayon's speed:** the rest is loops with no yield checks (preemption by signal) and `par` splitting its work by what is left, as `par_iter` does, so idle workers take large pieces and busy ones split no further. `par` gets that splitting in the same round;
   - connections shaped as actors in `std.net` and `std.http`, so an idle connection holds no stack.
 
-  The memory goal is under Go's 2.9 KiB a sleeping task on the Mac. Small stacks and the fork-join each take a design round first.
+  The memory goal is under Go's 2.9 KiB a sleeping task on the Mac. Small stacks and the fork-join each take a design round first. Small stacks meet preemption first: the signal handler needs 32 KiB free below the stack pointer (`preempt_room` in src/sched.zig), so a task on a small stack could never be stopped until the interrupted state lives elsewhere, such as in the task's record.
+- **A mixed-workload benchmark**, before any claim against Tokio or Go: open-loop load (bench/http's generator is closed-loop and understates p99), mostly plain requests with a share that compute for about 1 ms, thousands of idle connections held, cancellation and deadlines, on pup; Rig plain and with preemption by signal against Go and hyper, reporting throughput, p50 and p99, and memory.
 - **Preemption by signal on every target it can run on**, with no option to choose it (the owner, 2026-11-07; turning it on by default waits for his yes). Each target stops a long computation one way, which the compiler chooses: a signal on Linux x86-64 and arm64 macOS (built, behind `RIG_PREEMPT=signal`), then Linux arm64, and Windows by suspending the thread, as Go does there. Where nothing can interrupt a thread, as in WebAssembly and freestanding code, the yield checks stay. Two cases keep the checks on every target: seeded test runs, whose interleavings must not depend on time, and a program that makes local tasks, which take turns at yield checks ([records/2026-11/preempt/](history/records/2026-11/preempt/design.md)).
 - **Later**: thread-sanitizer annotations for fibers, freeing a long-sleeping task's stack, and io_uring.
 
@@ -80,6 +82,8 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 
 - **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`obj File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
   Settled so far: containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
+- **Packages**: depending on another person's Rig code by name and version; today `use` finds modules by path only (SPEC §14). A design round after v0.3.1.
+- **std.json's writer**: std.json reads; it does not yet write.
 - **The rest of std.terminal** ([design/terminal.md](design/terminal.md), "What is not built"): a reading API for a renderer (cells, styles, the cursor, and which rows changed); then OSC (titles, palette and color queries, hyperlinks, the clipboard), then mouse and focus reporting; resize and reflow; and `std.tty` (raw mode, size, PTYs) last. The order is the owner's to choose.
 - **Durations in std.time** as keyword units, `ms: 50`, `ns: 500`, or a plain Int or Float of seconds, in place of `n * time.MS` (the owner, 2026-11-04: to decide later).
 - **String building in std.text**: functions that build new text into a `String`, such as an upper-case copy, a replacement, and a join.
