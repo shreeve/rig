@@ -31,7 +31,29 @@ HEADER = re.compile(
     r"(?P<kw>for|while)\b(?P<rest>.*)$"
 )
 LABEL_BLOCK = re.compile(r"^\$(?P<name>[A-Za-z_]\w*):")
-BREAK = re.compile(r"(?<![\w$])break\b(?P<label>\s+\$[A-Za-z_]\w*)?(?P<value>.*)$")
+BREAK = re.compile(r"(?<![\w$])break\b(?P<label>\s*\$[A-Za-z_]\w*)?(?P<value>.*)$")
+LOOP_HEADER = re.compile(r"^(?P<label>(?:\$[A-Za-z_]\w*:\s*)+)?(?:[^=]*=!?\s+|return\s+)?loop$")
+
+
+def break_value(rest):
+    """The value a `break` carries, from the text after it (and its
+    label): up to a postfix `if`, a `while` step's `:`, or a bracket the
+    `break` stands inside (`(n ?? break)`); empty for none."""
+    depth, out, i = 0, [], 0
+    while i < len(rest):
+        c = rest[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and (rest.startswith(" if ", i) or rest[i:].rstrip() == " if" or rest.startswith(" : ", i) or c == ","):
+            break
+        out.append(c)
+        i += 1
+    value = "".join(out).strip()
+    return "" if value.startswith(":") else value
 WHILE_TRUE = re.compile(r"\bwhile\s+true\b")
 
 
@@ -120,6 +142,23 @@ def analyze(path, text):
         return ("a `for` or `while` loop gives no value: write `r = xs.find(f) ?? d` for a search, "
                 "`r = loop` with the iteration written in its body, or `return` from a function")
 
+    def scan_breaks(i, matches):
+        for bm in matches:
+            label = bm.group("label")
+            label = label.strip()[1:] if label else None
+            value = break_value(" " + bm.group("value"))
+            target = None
+            for _, fr in reversed(stack):
+                if isinstance(fr, Loop):
+                    if label is None or fr.label == label:
+                        target = fr
+                        break
+                elif label is not None and fr[1] == label:
+                    target = None
+                    break
+            if value and target is not None and target.kw != "loop":
+                target.value_breaks.append((i, value))
+
     loops = []
     for n, i in enumerate(rows):
         c = code[i]
@@ -127,7 +166,17 @@ def analyze(path, text):
         close(ind)
         s = c.strip()
         m = HEADER.match(s)
-        if m and (m.group("kw") == "for" or m.group("kw") == "while"):
+        header_breaks = []
+        if m and m.group("kw") == "for":
+            # A `for` source runs before its loop: a jump there leaves
+            # the loop around it.
+            header_breaks = list(BREAK.finditer(c))
+            scan_breaks(i, header_breaks)
+        lm = LOOP_HEADER.match(s)
+        if lm:
+            label = re.findall(r"\$(\w+):", lm.group("label") or "")
+            stack.append((ind, Loop(i, ind, "loop", "", label[-1] if label else None, False)))
+        elif m and (m.group("kw") == "for" or m.group("kw") == "while"):
             label = m.group("label")
             label = re.findall(r"\$(\w+):", label)[-1] if label else None
             value_site = bool(m.group("op") or m.group("ret"))
@@ -147,24 +196,7 @@ def analyze(path, text):
             b = LABEL_BLOCK.match(s)
             if b and s.endswith(":"):
                 stack.append((ind, ("block", b.group("name"))))
-        for bm in BREAK.finditer(c):
-            label = bm.group("label")
-            label = label.strip()[1:] if label else None
-            value = bm.group("value").strip()
-            value = re.split(r"\s+if\s|\s+if$", " " + value)[0].strip()
-            if value.startswith(":") or value == "if":
-                value = ""
-            target = None
-            for _, fr in reversed(stack):
-                if isinstance(fr, Loop):
-                    if label is None or fr.label == label:
-                        target = fr
-                        break
-                elif label is not None and fr[1] == label:
-                    target = None
-                    break
-            if value and target is not None:
-                target.value_breaks.append((i, value))
+        scan_breaks(i, [bm for bm in BREAK.finditer(c) if bm.start() not in {h.start() for h in header_breaks}])
 
     for lp in loops:
         ln = lp.idx + 1
