@@ -1064,11 +1064,11 @@ test "review-lang4-l1", '''
   9
 '''
   fun find(xs: []Int, t: Int) -> Int
-    $outer: for i in 0..xs.len
-      for j in 0..2
-        break $outer i if xs[i] == t + j
-    else
-      -1
+    $outer: loop
+      for i in 0..xs.len
+        for j in 0..2
+          break $outer i if xs[i] == t + j
+      break $outer -1
 
   sub kind(n: Int)
     $m: match n

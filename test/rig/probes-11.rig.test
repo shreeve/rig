@@ -1350,13 +1350,16 @@ fail "r3-or-break-planned", "`r` owns a `Bag`, which can't be copied out by `bre
       break b
     print(x.v.len)
 
+  fun first_empty(v: List[Bag]) -> Bag
+    $l: loop
+      for e in <v
+        break $l e if e.v.len == 0
+      break $l Bag(v: List())
+
   sub for_element()
     v: List[Bag] = List()
     !v.push(Bag(v: List()))
-    y = for e in <v
-      break e if e.v.len == 0
-    else
-      Bag(v: List())
+    y = first_empty(<v)
     print(y.v.len)
 
   sub outer_name()
@@ -1366,31 +1369,26 @@ fail "r3-or-break-planned", "`r` owns a `Bag`, which can't be copied out by `bre
     print(x.v.len)
 
   sub outer_loop()
-    x = for _ in 0..2
+    x = loop
       r = Bag(v: List())
-      y = for _ in 0..2
+      y = loop
         break r
-      else
-        Bag(v: List())
       break y
-    else
-      Bag(v: List())
     print(x.v.len)
 
   sub deferred_read()
     i = 0
-    z = while i < 3
+    z = loop
       q = Bag(v: List())
       defer print(q.v.len)
       i += 1
       break q if i == 2
-    else
-      Bag(v: List())
     print(z.v.len)
 
   loop_local()
 
   # oracle: loop_local accept
+  # oracle: first_empty accept
   # oracle: for_element accept
   # oracle: outer_name reject C2
   # oracle: outer_loop reject C2

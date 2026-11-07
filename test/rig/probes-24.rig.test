@@ -1273,8 +1273,6 @@ fail "review-payload-loan-3-f02 write binding break out", "bare use of write vie
     match !e
       .a(t) => break t
       .b => break !d
-  else
-    !d
   e = E.b
   print(r)
 
@@ -1289,8 +1287,6 @@ fail "review-payload-loan-3-f02b write binding break move", "cannot move out of 
     match !e
       .a(t) => break <t
       .b => break !d
-  else
-    !d
   e = E.b
   print(r)
 
@@ -1308,10 +1304,12 @@ fail "review-payload-loan-3-f04 for write moved out", "bare use of write view `t
   v: List[String] = List()
   !v.push(String("hello"))
   d = String("dflt")
-  r = for t in !v
+  i = 0
+  r = loop
+    if i == v.len
+      break !d
+    t = !v[i]
     break t
-  else
-    !d
   !v.clear()
   print(r)
 
@@ -1319,10 +1317,12 @@ fail "review-payload-loan-3-f04b for write break move", "use of `v` while a writ
   v: List[String] = List()
   !v.push(String("hello"))
   d = String("dflt")
-  r = for t in !v
+  i = 0
+  r = loop
+    if i == v.len
+      break !d
+    t = !v[i]
     break <t
-  else
-    !d
   !v.clear()
   print(r)
 
@@ -1515,8 +1515,6 @@ fail "review-payload-loan-3-o03 labeled break value binding", "cannot reassign `
         r = ?t[1..]
         break r
       .z => break "z"
-  else
-    "none"
   e = E.z
   print(s)
 

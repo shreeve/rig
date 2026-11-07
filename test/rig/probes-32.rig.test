@@ -554,10 +554,10 @@ test "review-step45-k13 break take elem", '''
   !v.push(String("a"))
   !v.push(String("b"))
   i = 0
-  r = while i < v.len : i += 1
+  r = loop
+    break none if i == v.len
     break <v[i] if i == 1
-  else
-    none
+    i += 1
   print(r, v)
 
 test "review-step45-k14 break loop body owner", "x"

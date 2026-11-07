@@ -802,8 +802,7 @@ test "syntax-review-symmetry-p while as else", '''
   !v.push(1)
   while (!v).pop() as x
     print(x)
-  else
-    print("done")
+  print("done")
 
 test "syntax-review-symmetry-p wlocal moved capture", "5"
   n = 1
@@ -1283,11 +1282,11 @@ fail "t-b", "`p` is assigned but never read; use it, or discard the value with `
     n: Int
 
   q = P(n: 0)
-  x = for i in 0..3
+  i = 0
+  x = loop
     p = P(n: i)
     break ?q if i == 2
-  else
-    ?q
+    i += 1
   print(x.n)
 
 test "t-c", "7"

@@ -364,11 +364,13 @@ test "review-loop-lowering-a03-cond-continue-in-value-loop", "9 6"
     i if i < 6 else none
 
   fun first(i: Int) -> Int
-    w = for t in 0..3
+    t = -1
+    w = loop
+      t += 1
+      if t == 3
+        break 0
       continue if t == 0
       break t + i
-    else
-      0
     w
 
   steps = 0
@@ -397,8 +399,8 @@ test "review-loop-lowering-b01-value-loop-break-in-step", '''
   drop 13
   b 203 3
 '''
-  # Control: a `break v` in a step (and `-1` as a statement-loop else) is
-  # rejected by both main and the branch.
+  # A `break v` from a `??` that ends the iteration, the `while` step's
+  # place, after the body's `defer` and owned local have run.
   obj D
     n: Int
     drop(!@)
@@ -411,18 +413,26 @@ test "review-loop-lowering-b01-value-loop-break-in-step", '''
     i if i < 9 else none
 
   i = 0
-  a = while i < 10: i = nxt(i) ?? break 100 + i
+  first = true
+  a = loop
+    if not first
+      i = nxt(i) ?? break 100 + i
+    first = false
+    if i >= 10
+      break -1
     d = D(n: i)
     defer print("defer", i)
-  else
-    -1
   print("a", a, i)
   j = 0
-  b = while some(j) as h: j = nxt(h) ?? break 200 + h
+  first = true
+  h = 0
+  b = loop
+    if not first
+      j = nxt(h) ?? break 200 + h
+    first = false
+    h = some(j) ?? break -1
     d = D(n: 10 + j)
     defer print("defer", j)
-  else
-    -1
   print("b", b, j)
 
 test "review-loop-lowering-b02-return-in-step-and-cond", '''
@@ -684,9 +694,9 @@ test "review-loop-lowering-b04-step-moves-repoints", '''
   drop 14
 '''
   # Steps that move an owned value and re-point a view, which the body's
-  # `defer` reads, with `continue` from the body, from an inner loop's
-  # `else`, and from a labeled inner loop; a joined condition whose binding
-  # the step reads.
+  # `defer` reads, with `continue` from the body, after an inner loop,
+  # and from a labeled inner loop; a joined condition whose binding the
+  # step reads.
   #
   # oracle: D.drop accept
   # oracle: mv accept
@@ -715,8 +725,7 @@ test "review-loop-lowering-b04-step-moves-repoints", '''
     continue if c == 1
     for t in 0..2
       continue $outer if c == 3 and t == 1
-    else
-      continue if c == 2
+    continue if c == 2
     print("tail", c)
   print("o", o.n)
   a: List[Int] = List()
@@ -732,8 +741,7 @@ test "review-loop-lowering-b04-step-moves-repoints", '''
     k += s[0]
     for t in 0..1
       print("t", t)
-    else
-      continue if i == 2
+    continue if i == 2
   print("k", k)
 
 test "review-loop-lowering-c02-step-closure-reads-binding", '''
@@ -782,42 +790,10 @@ test "review-loop-lowering-d01-constant-conditions", "3"
       n += 1000
     while not true
       n += 7
-    while (true)
+    loop
       n += 1
       break if n > 2
     print(n)
-
-test "review-loop-lowering-d02-while-true-else", "6 6"
-  # `while true` with an `else`, which never runs: every `break` leaves the
-  # loop's result block, so nothing leaves the Zig `while (true)` itself.
-  #
-  # oracle: main accept
-  n = 0
-  loop
-    n += 1
-    break if n > 2
-  else
-    print("never")
-  x = loop
-    n += 1
-    break n if n > 5
-  else
-    0
-  print(n, x)
-
-test "review-loop-lowering-d03-while-true-step-else", "3 2"
-  # `while true: step` with an `else` and a `continue`.
-  #
-  # oracle: main accept
-  n = 0
-  k = 0
-  while true: k += 1
-    n += 1
-    continue if n == 1
-    break if n > 2
-  else
-    print("never")
-  print(n, k)
 
 test "review-loop-lowering-d04-loops-in-defer-and-closure", '''
   defer 0 1
@@ -899,8 +875,8 @@ test "review-loop-lowering-e01-jump-in-for-source", '''
   11
 '''
   # A jump in a `for` source targets the loop around the `for`, for a range,
-  # a List in place, a consumed List a call makes, and an array a call makes;
-  # the inner `for` has an `else` and an owned local in its body.
+  # a List in place, a consumed List a call makes, and an array a call makes,
+  # with code after the inner `for` and an owned local in the outer body.
   #
   # oracle: D.drop accept
   # oracle: opt accept
@@ -931,22 +907,19 @@ test "review-loop-lowering-e01-jump-in-for-source", '''
     y = D(n: 100 + i)
     for j in (opt(i) ?? continue)..3
       n += j
-    else
-      print("else range", i)
+    print("else range", i)
     print("after range", i)
   for i in 0..3
     y = D(n: 200 + i)
     for x in (vec(i) ?? continue)
       n += x
-    else
-      print("else vec", i)
+    print("else vec", i)
     print("after vec", i)
   for i in 0..3
     y = D(n: 300 + i)
     for d in (arr(i) ?? break)
       print("d", d.n)
-    else
-      print("else arr", i)
+    print("else arr", i)
     print("after arr", i)
   print(n)
 
@@ -977,13 +950,16 @@ test "review-loop-lowering-e02-value-loop-owned-break", '''
   drop 1
 '''
   # Loops used as values that hand out an owned value: a consumed List's
-  # element, an element of an array the source makes, and a while binding;
-  # the remaining elements drop when the loop is left.
+  # element and an element of an array the source makes, each from a `for`
+  # inside a labeled `loop`, and a name the loop declares; the remaining
+  # elements drop when the loop is left.
   #
   # oracle: D.drop accept
   # oracle: mkvec accept
   # oracle: arr accept
   # oracle: mk accept
+  # oracle: take accept
+  # oracle: pick accept
   # oracle: main accept
   obj D
     n: Int
@@ -1002,31 +978,37 @@ test "review-loop-lowering-e02-value-loop-owned-break", '''
   fun mk(i: Int) -> D?
     D(n: 20 + i) if i < 4 else none
 
+  fun take(q: List[D]) -> D
+    $l: loop
+      for e, i in <q
+        y = D(n: 100 + i)
+        continue if i == 0
+        break $l <e if i == 1
+      break $l D(n: 99)
+
+  fun pick() -> D
+    $l: loop
+      for e in arr()
+        break $l <e if e.n == 11
+      break $l D(n: 98)
+
   q = mkvec(4)
-  a = for e, i in <q
-    y = D(n: 100 + i)
-    continue if i == 0
-    break <e if i == 1
-  else
-    D(n: 99)
+  a = take(<q)
   print("a", a.n)
-  b = for e in arr()
-    break <e if e.n == 11
-  else
-    D(n: 98)
+  b = pick()
   print("b", b.n)
   i = 0
-  c = while mk(i) as h: i += 1
+  c = loop
+    h = mk(i) ?? break D(n: 97)
     y = D(n: 200 + i)
-    break <h if i == 2
-  else
-    D(n: 97)
+    break h if i == 2
+    i += 1
   print("c", c.n)
   i = 0
-  d = while mk(i) as h: i += 1
-    break <h if i == 9
-  else
-    D(n: 96)
+  d = loop
+    h = mk(i) ?? break D(n: 96)
+    break h if i == 9
+    i += 1
   print("d", d.n)
 
 test "review-loop-lowering-gen5-s11-0001", '''
@@ -1229,8 +1211,7 @@ test "review-loop-lowering-gen5-s11-0001", '''
                 _ = ch2
                 print("b2", c0, c1, c2)
                 print("t2", c0, c1, c2)
-              else
-                print("e2", c0, c1)
+              print("e2", c0, c1)
               print("w1", c0, c1)
           print("t1", c0, c1)
         print("w0", c0)
@@ -1333,7 +1314,9 @@ test "review-loop-lowering-gen5-s11-0186", '''
     _ = p0
     print("b0", c0)
     p1 = 0
-    r1 = for c1 in 0..2
+    r1 = 0
+    left1 = false
+    for c1 in 0..2
       guard += 1
       if guard > 300
         print("cap")
@@ -1343,13 +1326,16 @@ test "review-loop-lowering-gen5-s11-0186", '''
       y1 = D(n: 100 + c1)
       defer print("d1", c1)
       print("b1", c0, c1)
-      break 77 if c1 == 99
+      if c1 == 99
+        r1 = 77
+        left1 = true
+        break
       return if c0 == 1 and c1 == 1
       print("t1", c0, c1)
-    else
+    if not left1
       print("e1", c0)
       return if c0 == 1
-      -1
+      r1 = -1
     print("r1", r1)
     return if c0 == 1
     print("t0", c0)
@@ -1626,8 +1612,7 @@ test "review-loop-lowering-gen5-s11-0582", '''
         print("b2", c0, c1, c2, h2)
         print("t2", c0, c1, c2)
       print("t1", c0, c1)
-    else
-      print("e1", c0)
+    print("e1", c0)
     print("t0", c0)
   print("end")
 
@@ -1753,7 +1738,9 @@ test "review-loop-lowering-gen5-s11-1103", '''
       _
         c1 = 0
         p1 = 0
-        r1 = while lim(c1, 2) as h1: c1 = adv(1, c1, c0 == 1 and p1 == 2) ?? return
+        r1 = 0
+        left1 = false
+        while lim(c1, 2) as h1: c1 = adv(1, c1, c0 == 1 and p1 == 2) ?? return
           guard += 1
           if guard > 300
             print("cap")
@@ -1761,7 +1748,10 @@ test "review-loop-lowering-gen5-s11-1103", '''
           p1 += 1
           _ = p1
           print("b1", c0, c1, h1)
-          break 77 if c1 == 99
+          if c1 == 99
+            r1 = 77
+            left1 = true
+            break
           z2 = "ab"
           p2 = 0
           $a: for ch2, c2 in z2
@@ -1774,12 +1764,11 @@ test "review-loop-lowering-gen5-s11-1103", '''
             _ = ch2
             print("b2", c0, c1, c2)
             print("t2", c0, c1, c2)
-          else
-            print("e2", c0, c1)
+          print("e2", c0, c1)
           print("t1", c0, c1)
-        else
+        if not left1
           print("e1", c0)
-          -1
+          r1 = -1
         print("r1", r1)
         print("w0", c0)
     print("t0", c0)
@@ -1961,8 +1950,7 @@ test "review-loop-lowering-gen5-s11-1162", '''
         y2 = D(n: 200 + c2)
         print("b2", c0, c1, c2, h2)
         print("t2", c0, c1, c2)
-      else
-        print("e2", c0, c1)
+      print("e2", c0, c1)
       print("t1", c0, c1)
     print("t0", c0)
   print("end")
@@ -2124,13 +2112,11 @@ test "review-loop-lowering-gen5-s23-d3-0000", '''
                 _ = p2
                 print("b2", c0, c1, c2)
                 print("t2", c0, c1, c2)
-              else
-                print("e2", c0, c1)
+              print("e2", c0, c1)
               print("w1", c0, c1)
           print("t1", c0, c1)
-        else
-          print("e1", c0)
-          continue if c0 == 1
+        print("e1", c0)
+        continue if c0 == 1
         print("w0", c0)
     print("t0", c0)
   print("end")
@@ -3223,11 +3209,8 @@ fail "review-move-done-p50 carriers branch owner", "cannot move out of `(a if c 
       print(x)
 
   sub r7(a: S, b: S, c: Bool)
-    i = 0
-    w = while i < 1 : i += 1
+    w = loop
       break <(a if c else b).v
-    else
-      List[Int]()
     print(w.len)
 
   sub r8(a: S, b: S, c: Bool)
@@ -3529,11 +3512,8 @@ test "review-move-done-p73 advice works", '''
     1 => print("one")
     _ => print("other")
   q = S(n: s.n, p: s.p, arr: [s.n, 0])
-  i = 0
-  j = while i < 2 : i += 1
+  j = loop
     break s.n
-  else
-    0
   for x in s.arr
     print(x)
   h = *S(n: 5, p: P(x: 6), arr: [0, 0])
