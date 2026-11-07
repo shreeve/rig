@@ -3072,7 +3072,9 @@ pub const Parser = struct {
             return .{ .severity = .@"error", .pos = tok.pos, .end = self.base.tokenEnd(tok), .message = "Rig has no list comprehension; write a chain, `xs.map(|x| x * 2).collect()`, or a `for` loop that pushes to a List" };
         }
         // `x => x * 2`, `(a, b) => a + b`.
-        if (tok.cat == .fat_arrow and (prev == .ident or prev == .rparen)) {
+        // A `=>` that touches the name before it is a wait, `x=>t`
+        // (`waitHint`).
+        if (tok.cat == .fat_arrow and (prev == .ident or prev == .rparen) and tok.pos > 0 and src[tok.pos - 1] == ' ') {
             return .{ .severity = .@"error", .pos = tok.pos, .end = self.base.tokenEnd(tok), .message = "a closure is `|x| ...`: write `|x| x * 2`" };
         }
         // `lambda x: x * 2`.
