@@ -3783,7 +3783,7 @@ pub const SpinLock = struct {
 
 /// The address of the instruction it is inlined at, in a program built
 /// to be preempted (x86-64 or arm64).
-pub inline fn programCounter() usize {
+inline fn programCounter() usize {
     return switch (builtin.cpu.arch) {
         .x86_64 => asm volatile ("leaq (%%rip), %[at]"
             : [at] "=r" (-> usize),

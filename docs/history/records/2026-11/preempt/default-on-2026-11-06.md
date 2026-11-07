@@ -64,7 +64,7 @@ This is what branch preempt-std built: the handler counts the workers that owe (
 
 ## Uncovered, either way
 - **The allocator and List growth, settled (built after B):**
-  - After `allocSlow` returns, with its heap whole again, the allocator calls `sched.settleAt(@returnAddress())`. A List's `push` calls `settleAt(programCounter())` after it grows.
+  - After `allocSlow` returns, with its heap whole again, the allocator calls `sched.settleAt(@returnAddress())`. A List's growth, out of line (`growBy`, `growInline`), calls `settleAt(@returnAddress())` before it returns, so the inlined `push` holds no more code.
   - `settleAt` runs the owed yield check only when that address is in the program's code section, where a signal may stop the fiber at any instruction. So it is safe exactly where a signal already is. Elsewhere the caller may hold the worker's state, and nothing runs.
   - These are rare paths.
   - **Measured** (Mac, a 20 ms sleeper beside Lists of 2,000 Strings): 20-21 ms in every run, where main woke in 20-70 ms with four loops on two workers and 21-46 ms with two on one.

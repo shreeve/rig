@@ -32,9 +32,7 @@ command -v objdump >/dev/null || exit 0
 objdump --version 2>/dev/null | grep -q LLVM || [[ $(uname -s) == Linux ]] || exit 0
 
 # The functions of sched.zig whose code may sit in the program's section.
-# `programCounter` reads the address of its own instruction, nothing
-# else, where a List's `push` asks `settleAt` whether it is in the section.
-allowed="current nowNs seed computed lock unlock lockGraph unlockGraph block unblock leadsOn taken free join waitEnd settleLeftCalls wakeLeft programCounter"
+allowed="current nowNs seed computed lock unlock lockGraph unlockGraph block unblock leadsOn taken free join waitEnd settleLeftCalls wakeLeft"
 # The functions of tasks.zig whose code may not: the mailbox entries'
 # bodies, which take the actor's lock uncounted.
 apart="sendIn takeIn"
