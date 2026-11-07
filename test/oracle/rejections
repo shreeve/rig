@@ -3170,6 +3170,7 @@ test/reject/ownership/block_tail_defer_discard.rig main
 test/reject/ownership/block_tail_defer_field.rig main
 test/reject/ownership/block_tail_defer_fun_result.rig mk
 test/reject/ownership/block_tail_defer_if_branch.rig main
+test/reject/ownership/block_tail_defer_labeled_break.rig mk
 test/reject/ownership/block_tail_defer_loop_break.rig main
 test/reject/ownership/block_tail_defer_match_arm.rig main
 test/reject/ownership/block_tail_defer_nested_if.rig main

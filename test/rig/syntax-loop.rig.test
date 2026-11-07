@@ -204,3 +204,41 @@ fail "while let is while as", "Rig has no `while let`; write `while !xs.pop() as
 fail "forever is loop", "Rig has no `forever`; write `loop`"
   forever
     break
+
+test "a binding takes a labeled loop", "9 -1 abcd"
+  # `r = $found: loop` is the search a `for` ... `else` wrote: the inner
+  # `for` leaves the loop with `break $found v`, and the loop's own
+  # `break` gives the value when nothing matched.
+  fun long(xs: ?List[String]) -> String
+    return $o: loop
+      for x in xs
+        break $o +x if x.len > 3
+      break $o String("none")
+
+  xs = [3, 8, 9]
+  r = $found: loop
+    for x in xs
+      break $found x if x > 8
+    break $found -1
+  t: Int = $none: loop
+    for x in xs
+      break $none x if x > 50
+    break $none -1
+  ss = List[String]()
+  !ss.push(String("ab"))
+  !ss.push(String("abcd"))
+  print(r, t, long(?ss))
+
+fail "a label before a binding's value names only a loop", "2:5: `$name` is a builtin call"
+  x = 1
+  r = $l: x
+
+fail "while (true) is written loop", "1:1: write `loop`: `while` takes a condition that can end it"
+  while (true)
+    break
+
+fail "a keyword is no name", "1:1: `loop` is a keyword; choose another name"
+  loop = 3
+
+fail "a keyword is no argument", "1:7: `match` is a keyword; choose another name"
+  print(match)
