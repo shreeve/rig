@@ -1880,11 +1880,12 @@ test "review-step3-a09 temp positions", '''
     n
 
   print(ret(), tail())
-  x = for i in 0..3
+  i = 0
+  x = loop
+    break 0 if i == 3
     if i == 1
       break size(mk(3))
-  else
-    0
+    i += 1
   print(x)
   c = true
   y = if c
@@ -2019,12 +2020,15 @@ test "review-step3-f02 held vec int", '''
     !v.push(n)
     Bag(v: <v, w: List())
 
+  fun first(n: Int) -> Int
+    $l: loop
+      for y in mk(n).v
+        break $l y
+      break $l 0
+
   for x in mk(10).v
     print("x", x)
-  x = for y in mk(3).v
-    break y
-  else
-    0
+  x = first(3)
   print(x)
 
 test "review-step3-f03 text forms", '''
