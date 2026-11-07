@@ -970,11 +970,13 @@ test "seams-probes-p04", "1"
 
   v: List[Int] = List()
   !v.push(1)
-  n = for x in ?v
+  i = 0
+  n = loop
+    break 0 if i == v.len
+    x = v[i]
     if size(?String("abc")) == 3
       break x
-  else
-    0
+    i += 1
   print(n)
 
 test "seams-probes-p05", "guard"
