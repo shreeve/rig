@@ -3066,3 +3066,117 @@ test "write view written from a read view", "1 2 3"
   three = 3
   h(!z, ?three)
   print(x, y, z)
+
+test "write lend inside a read argument", '''
+  1 0
+  1
+  0
+  3
+  1
+  0
+  0
+  0
+  0
+  5 6
+'''
+  # A place lent to write is reached to write wherever the value its
+  # call makes goes: `swap(!wholes[f], List())` passed to a `?` parameter
+  # writes the element, and the read the parameter makes of the result
+  # does not reach the place `!` lends.
+
+  sub check(whole: ?List[Int])
+    print(whole.len)
+
+  sub check2(a: ?List[Int], whole: ?List[Int])
+    print(a.len, whole.len)
+
+  fun mk(xs: List[Int]) -> List[Int]!
+    xs
+
+  obj Box
+    items: List[List[Int]]
+
+    sub go(!@, i: Int)
+      check(swap(!@items[i], List()))
+
+  obj Pair
+    a: List[Int]
+    b: List[Int]
+
+  obj Shower
+    n: Int
+
+    sub show(?@, whole: ?List[Int])
+      print(@n + whole.len)
+
+  wholes: List[List[Int]] = List()
+  !wholes.push(List())
+  by_file: List[List[Int]] = List()
+  !by_file.push(List([1]))
+  f = 0
+  check2(?by_file[f], swap(!wholes[f], List()))
+  check(swap(!by_file[f], List()))
+  b = Box(items: List())
+  !b.items.push(List())
+  !b.go(0)
+  ps: List[Pair] = List()
+  !ps.push(Pair(a: List([1, 2, 3]), b: List()))
+  check(swap(!ps[f].a, List()))
+  s = Shower(n: 1)
+  s.show(swap(!wholes[f], List()))
+  opts: List[List[Int]?] = List()
+  !opts.push(List())
+  check(?(swap(!opts[f], none) ?? List()))
+  check(?(mk(swap(!wholes[f], List())) catch List()))
+  idx: List[Int] = List()
+  !idx.push(0)
+  check(?wholes[swap(!idx[0], 0)])
+  check(wholes[swap(!idx[0], 0)])
+  xs: List[Int] = List()
+  !xs.push(5)
+  print(swap(!xs[0], 6), xs[0])
+
+test "write self inside a read argument", '''
+  1
+  3
+  2
+  0
+'''
+  # A method that writes its self, called on an element, reaches the
+  # element to write, wherever its result goes.
+
+  sub check(whole: ?List[Int])
+    print(whole.len)
+
+  obj Bag
+    xs: List[Int]
+
+    fun take(!@) -> List[Int]
+      swap(!@xs, List())
+
+    fun maybe(!@) -> List[Int]?
+      swap(!@xs, List())
+
+  obj Shelf
+    bags: List[Bag]
+
+    sub go(!@, i: Int)
+      check(!@bags[i].take())
+      check(?(!@bags[i].maybe() ?? List()))
+
+  obj Shower
+    n: Int
+
+    sub show(?@, whole: ?List[Int])
+      print(@n + whole.len)
+
+  bags: List[Bag] = List()
+  !bags.push(Bag(xs: List([1])))
+  f = 0
+  check(!bags[f].take())
+  !bags[f].xs.push(1)
+  s = Shower(n: 2)
+  s.show(!bags[f].take())
+  sh = Shelf(bags: List())
+  !sh.bags.push(Bag(xs: List([1, 2])))
+  !sh.go(0)
