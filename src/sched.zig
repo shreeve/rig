@@ -52,6 +52,7 @@ comptime {
         workers_asked,
         graph,
         preempt_states,
+        owing,
         exit_state,
     };
 }
@@ -444,9 +445,21 @@ pub noinline fn atWaitingPoint() void {
     if (!preempt) return;
     const w = me() orelse return;
     const p = preOf(w);
-    if (!p.owed.load(.monotonic) or p.no_preempt != 0) return;
-    p.owed.store(false, .monotonic);
+    if (p.no_preempt != 0 or !p.owed.swap(false, .monotonic)) return;
+    _ = owing.fetchSub(1, .monotonic);
     tick();
+}
+
+/// A slow path of the runtime's, the allocator's or a List's growth, about
+/// to return to `at`, in a build with signal preemption: if `at` is in
+/// the program's code, where a signal may stop the fiber at any
+/// instruction, run the yield check a signal left owed there
+/// (`atWaitingPoint`). A loop that allocates spends its time in the
+/// runtime, where signals stop nothing. Anywhere else the caller may hold
+/// the worker's state, so nothing runs. Called only on those rare paths.
+pub noinline fn settleAt(at: usize) void {
+    if (!preempt or owing.load(.monotonic) == 0 or !inCode(at)) return;
+    atWaitingPoint();
 }
 
 /// A recursive call that saw `waiting` set (`rt.tickCall`).
@@ -608,6 +621,19 @@ fn findCode() void {
 var preempt_states_var: [max_workers]Preempt = @splat(.{});
 const preempt_states = split.cell(&preempt_states_var, "sched.preempt_states");
 
+/// How many workers owe a yield check (`Preempt.owed`): what `settleAt`
+/// reads first, one load of a word no worker writes until a signal leaves
+/// a check owed, so a slow path that finds none owed pays nothing more.
+var owing_var: std.atomic.Value(u32) = .init(0);
+const owing = split.cell(&owing_var, "sched.owing");
+
+/// A signal left the yield check it asked for owed on `w`.
+fn owe(w: *Worker) void {
+    // A flag the worker's own thread sets and clears, not a lock:
+    // uncounted for preemption.
+    if (!preOf(w).owed.swap(true, .monotonic)) _ = owing.fetchAdd(1, .monotonic);
+}
+
 inline fn preOf(w: *const Worker) *Preempt {
     return &preempt_states[(@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker)];
 }
@@ -713,12 +739,12 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     const sp = sp_at.*;
     if (!inCode(pc)) {
         preOf(w).outside += 1;
-        preOf(w).owed.store(true, .monotonic);
+        owe(w);
         return;
     }
     if (preOf(w).no_preempt != 0) {
         preOf(w).held_off += 1;
-        preOf(w).owed.store(true, .monotonic);
+        owe(w);
         return;
     }
     // Room for the trampoline above the guard, and this handler on its

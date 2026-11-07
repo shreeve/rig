@@ -1685,7 +1685,11 @@ noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: us
         if (counts) h.count(@intCast(classSize(c)), 1);
         return @ptrCast(b);
     };
-    return allocSlow(len, alignment);
+    const p = allocSlow(len, alignment);
+    // Its heap's state is whole again: a caller in the program's code
+    // may yield here (`sched.settleAt`).
+    if (sched.preempting) sched.settleAt(@returnAddress());
+    return p;
 }
 
 /// Give back `memory`, a block `alloc` made with `alignment`.

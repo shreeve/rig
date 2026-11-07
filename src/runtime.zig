@@ -3335,7 +3335,13 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 if (want > max_len) lenPanic();
                 return buf.ptr[0..comptime @min(max_len, std.math.maxInt(usize))];
             }
-            return reallocSlice(T, buf, @max(want, 4, buf.len *| 2));
+            const grown = reallocSlice(T, buf, @max(want, 4, buf.len *| 2));
+            // Grown: a caller in the program's code, as `push` is where it
+            // is inlined there, may run a yield check a signal left owed
+            // (`sched.settleAt`); here, out of line, so `push` holds no
+            // more code.
+            if (preempt) sched.settleAt(@returnAddress());
+            return grown;
         }
 
         /// `growTo` for a List with inline room: past it, all of it to
@@ -3345,9 +3351,10 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 const buf = allocSlice(T, @max(want, 2 * inline_len));
                 @memcpy(buf[0..self.len], self.inline_buf[0..self.len]);
                 self.buf = buf;
-                return;
-            }
-            self.buf = growBy(self.buf, want);
+            } else self.buf = growBy(self.buf, want);
+            // As `growBy`'s: `growBy` called from here settles nothing, as
+            // this is its caller.
+            if (preempt) sched.settleAt(@returnAddress());
         }
 
         /// `len <= buf.len` always holds. When the buffer is full, `growTo`
