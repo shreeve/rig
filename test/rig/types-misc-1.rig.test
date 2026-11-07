@@ -5707,13 +5707,14 @@ fail "loop copy write hint", "13:3: cannot assign to `c`: it is a copy of an ele
     x.n = 5
   print(cs.len)
 
-fail "loop value mismatch", "6:3: incompatible types `Static` and `Int`", "8:9: type mismatch: expected `Int`, got `Static`"
-  # The `break` values and the `else` value of a loop meet in one type.
+fail "loop value mismatch", "6:9: incompatible types `Static` and `Int`", "9:9: type mismatch: expected `Int`, got `Static`"
+  # The `break` values of a loop meet in one type.
 
-  x = for i in 0..3
+  i = 0
+  x = loop
     break "two" if i == 2
-  else
-    0
+    break 0 if i == 3
+    i += 1
   y: Int = loop
     break "one"
   print(x, y)
