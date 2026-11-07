@@ -911,3 +911,17 @@ fail "sets returned error of another set", "8:10: `e` is an `AB` error, which `O
     return e
 
   print(f(AB.a) catch 0)
+
+test "a read lend of a code where an error with fields goes", "true 1 true"
+  # `?B.y` copies out `B.y`, which widens as `B.y` does.
+  error A
+    x(n: Int)
+  error B
+    y
+  error L = A | B
+
+  m: Map[L, Int] = Map()
+  !m.put(?B.y, 2)
+  e: L = ?B.y
+  q: L? = ?B.y
+  print(e == B.y, m.len, q != none)

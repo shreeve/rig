@@ -618,3 +618,10 @@ fail "a compile-time query as a statement", "2:3: this expression does nothing a
     true
 
   print(pl[Int]())
+
+test "a compile-time query discarded", "true"
+  fun pl[T]() -> Bool
+    _ = $plain(T)
+    $plain(T)
+
+  print(pl[Int]())

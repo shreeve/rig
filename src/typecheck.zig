@@ -18113,7 +18113,10 @@ const Checker = struct {
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         try self.recordAdaptedType(e, actual, expected);
         try self.recordLift(e, self.ctx.typeOf(e) orelse actual, expected);
-        try self.recordCodeWidening(e, actual, expected);
+        // A view copied out adapts as the value it copies: `?B.y` where
+        // an error with fields goes widens as `B.y` does.
+        const value = if (copiedOut(self.ctx, actual, expected)) sema.copiedThrough(self.ctx, actual) orelse actual else actual;
+        try self.recordCodeWidening(e, value, expected);
     }
 
     /// An error whose set has no fields, where an error that may carry
@@ -18143,7 +18146,10 @@ const Checker = struct {
         var from = actual;
         while (!meets(self.ctx, from, into)) from = sema.copiedThrough(self.ctx, from) orelse return self.ctx.recordLift(e, null);
         switch (ts.get(from)) {
-            .none_literal, .noreturn, .invalid, .unknown => return self.ctx.recordLift(e, null),
+            // `?none` copies out the `none` it views, which becomes the
+            // optional as `none` does.
+            .none_literal => return self.ctx.recordLift(e, if (from != actual) .{ .into = into, .from = self.t().none_id } else null),
+            .noreturn, .invalid, .unknown => return self.ctx.recordLift(e, null),
             else => {},
         }
         if (optionalDepth(self.ctx, from) >= optionalDepth(self.ctx, into)) return self.ctx.recordLift(e, null);

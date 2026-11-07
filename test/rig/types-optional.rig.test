@@ -799,3 +799,15 @@ fail "a postfix guard ends an element before a ternary", "7:8: a postfix `if` gu
 
   x = [a if get(1) as a, b if true else 0]
   print(x)
+
+test "a read lend of none where an optional goes", "true true true"
+  # `?none` copies out the `none` it views, which becomes the optional as
+  # `none` does, one held as a niche too.
+  obj E
+    b: Int
+
+  m: Map[String, E] = Map()
+  o: Item[?String, ?E]? = ?none
+  p: E? = ?none
+  i: Int? = ?none
+  print(o == none, p == none, i == none)

@@ -1389,17 +1389,19 @@ pub const Emitter = struct {
     }
 
     /// What `$plain` gives where the bits come from the generic's own:
-    /// `true`, `false`, or each leaf's bit joined by `and`.
+    /// `true`, `false`, or each leaf's bit joined by `and`. A lone bit is
+    /// `@as(bool, b)`, a value: `_ = b` of the bare parameter, which the
+    /// body reads too, is one Zig rejects as a pointless discard.
     fn writePlainBit(self: *Emitter, bit: facts.PlainBit) Error!void {
         switch (bit) {
             .known => |k| try self.w.writeAll(if (k) "true" else "false"),
             .leaves => |ls| {
-                if (ls.len > 1) try self.w.writeAll("(");
+                try self.w.writeAll(if (ls.len > 1) "(" else "@as(bool, ");
                 for (ls, 0..) |l, i| {
                     if (i > 0) try self.w.writeAll(" and ");
                     try self.writePlainBitName(l);
                 }
-                if (ls.len > 1) try self.w.writeAll(")");
+                try self.w.writeAll(")");
             },
         }
     }
@@ -6846,9 +6848,14 @@ pub const Emitter = struct {
                 if (self.typeOf(sexp)) |t| if (self.facts.callableFn(t) != null) return self.emitFnRef(ir.Read.operand(sexp), self.facts.callableFnTy(t).?);
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (self.isPtrViewExpr(sexp)) return self.emitLendAddress(sexp);
+                // A read view held by value of a write view a call gives
+                // (`?wr(!x)`) is the value it reaches; a name, field, or
+                // element holding one reads through it already.
+                const operand = ir.Read.operand(sexp);
+                if (operand != .src and !operand.isKind(.member) and !operand.isKind(.index) and self.isPtrViewExpr(operand)) return self.emitDeref(operand);
                 // A view never moves its operand, even in tail position.
                 self.bare = bare;
-                try self.emitValue(ir.Read.operand(sexp), false);
+                try self.emitValue(operand, false);
             } else if (self.isWriteSliceExpr(sexp))
                 // `!x` as a value (an argument, a self) is the place's
                 // address; a `![]T` is the slice.
@@ -11702,9 +11709,10 @@ fn isPlainIdent(name: []const u8) bool {
 /// Whether Zig could evaluate `e` at compile time. A positive list: a
 /// literal, a name of a constant (a module-level binding, a compile-time
 /// parameter, a function or a type), a constructor or variant, and an
-/// operator, index, field, propagation, `??`, `catch`, ternary, or `match`
-/// whose parts all are. Any other form (a call, a lend, a move, a clone,
-/// a closure, an extern variable, a form added later) is not.
+/// operator, index, field, propagation, `??`, `catch`, ternary, `match`,
+/// or clone whose parts all are, and a read lend of one copied out.
+/// Any other form (a call, a write lend, a move, a closure, an extern
+/// variable, a form added later) is not.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;
     switch (e) {
@@ -11726,6 +11734,9 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
         .list => {
             const h = e.kind() orelse return false;
             switch (h) {
+                // `?v` copied out where a value goes is `v` (a binding of
+                // the view itself holds a view).
+                .read => return em.facts.readsThrough(e) and isZigComptimeIn(em, ir.Read.operand(e), depth + 1),
                 .call => {
                     // A constructor or variant of constant arguments is
                     // constant; a function call is not. A member callee
@@ -11739,6 +11750,8 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
+                // `+v` of a value that copies is `v` in Zig.
+                .clone,
                 .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block,
                 .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or",
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^",
