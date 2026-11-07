@@ -3042,3 +3042,27 @@ test "write views of many values stored in one List", "66 1"
   !l.push(?g64)
   !l.push(?g65)
   print(l.len, l[65].items[0])
+
+test "write view written from a read view", "1 2 3"
+  # A value written through a write view of a value that copies is read
+  # out of the view that gives it (Core sentence 1): `x = ?a` and `x = a`
+  # of an `a: ?Int` write an Int, which views nothing.
+  # oracle: g accept
+  # oracle: h accept
+  # oracle: main accept
+
+  sub g(x: !Int, a: Int)
+    x = ?a
+
+  sub h(x: !Int, a: ?Int)
+    x = a
+
+  x = 0
+  f = |!x, a: Int| x = ?a
+  f(1)
+  y = 0
+  g(!y, 2)
+  z = 0
+  three = 3
+  h(!z, ?three)
+  print(x, y, z)
