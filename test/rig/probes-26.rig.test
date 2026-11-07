@@ -1222,12 +1222,12 @@ test "review-revamp-checkers-p-k1", '''
     print(v.len)
 
   fun find(k: Int) -> Int
-    $lp: for i in 0..5
-      for j in 0..2
-        x = get(i + k) ?? break $lp i * 100 + j
-        print(x)
-    else
-      -1
+    $lp: loop
+      for i in 0..5
+        for j in 0..2
+          x = get(i + k) ?? break $lp i * 100 + j
+          print(x)
+      break $lp -1
 
   $outer: for i in 0..3
     a: List[Int] = List()
