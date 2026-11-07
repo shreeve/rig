@@ -1094,7 +1094,7 @@ const Checker = struct {
     fn checkStmt(self: *Checker, stmt: Sexp) Error!void {
         const head = stmt.kind() orelse return self.checkExprStmt(stmt);
         if (self.isValueLoop(stmt)) {
-            try self.errAt(stmt, "the value of this loop is not used; bind it (`x = for ...`) or `break` without a value", .{});
+            try self.errAt(stmt, "the value of this loop is not used; bind it (`x = loop` ...) or `break` without a value", .{});
             _ = try self.checkLoopValue(stmt, null, false);
             return;
         }
@@ -3021,16 +3021,6 @@ const Checker = struct {
         self.body.loops = frame;
     }
 
-    /// A loop's `else`, after the loop: a `break` there leaves the loop
-    /// around it. In a loop used as a value, it is the value when no
-    /// `break` gives one.
-    fn checkLoopElse(self: *Checker, frame: *LoopFrame, else_: Sexp) Error!void {
-        self.body.loops = frame.parent;
-        if (else_ == .nil) return;
-        if (frame.value) |lv| return self.loopValue(lv, else_);
-        try self.checkStmt(else_);
-    }
-
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
         var frame: LoopFrame = undefined;
         try self.enterLoop(&frame, node);
@@ -3069,12 +3059,7 @@ const Checker = struct {
         frame.part = .body;
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
-        const binds = rig.bindsInCondition(cond);
-        if (binds) try self.else_conds.append(self.ctx.allocator, cond);
-        defer if (binds) {
-            _ = self.else_conds.pop();
-        };
-        try self.checkLoopElse(&frame, ir.While.@"else"(node));
+        self.body.loops = frame.parent;
     }
 
     fn checkFor(self: *Checker, node: Sexp) Error!void {
@@ -3230,7 +3215,7 @@ const Checker = struct {
             frame.part = .body;
             try self.checkStmt(ir.For.body(node));
         }
-        try self.checkLoopElse(&frame, ir.For.@"else"(node));
+        self.body.loops = frame.parent;
     }
 
     /// Whether a `for` source of type `ty` is an iterator, as the one
@@ -3357,9 +3342,26 @@ const Checker = struct {
         return self.ctx.arena.allocator().print("; `{s}` is the index here: Rig writes the element first, `for {s}, {s} in {s}`", .{ index, index, elem, self.sourceText(pair.source) });
     }
 
-    /// A loop with a `break` that carries a value: its value is used.
+    /// A `loop` with a `break` that carries a value: its value is used.
+    /// No other loop gives one (`checkBreak`, `noLoopValue`).
     fn isValueLoop(self: *Checker, e: Sexp) bool {
-        return sema.hasValueBreaks(self.ctx.source, e);
+        return sema.isLoop(self.ctx.source, e) and sema.hasValueBreaks(self.ctx.source, e);
+    }
+
+    /// A loop where a value is needed whose `break`s carry none: a `for`
+    /// or a `while`, which gives no value, or a `loop` some plain `break`
+    /// leaves, each of which is reported (`checkBreak`). Null for
+    /// anything else, a `loop` no `break` leaves among them.
+    fn noLoopValue(self: *Checker, e: Sexp, expected: ?TypeId) Error!?TypeId {
+        if (sema.isLoop(self.ctx.source, e)) {
+            if (!sema.breaksOut(self.ctx.source, e, false)) return null;
+            return try self.checkLoopValue(e, expected, true);
+        }
+        const loop = if (e.isKind(.labeled)) ir.Labeled.stmt(e) else e;
+        if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return null;
+        try self.errAt(loop, "a `for` or `while` loop gives no value; use `loop` with `break v`, a chain such as `xs.find(f) ?? d`, or `return` from a function", .{});
+        try self.checkStmt(e);
+        return self.t().invalid_id;
     }
 
     /// A statement that yields no value: a binding, a jump, a loop other
@@ -3372,21 +3374,16 @@ const Checker = struct {
         };
     }
 
-    /// A loop used as a value: its `break` values and its `else` value
-    /// meet in one type (`expected`, when the context gives one). Without
-    /// an `else` the loop has no value when its condition fails, so only
-    /// `while true` may omit it.
+    /// A `loop` used as a value: its `break` values meet in one type
+    /// (`expected`, when the context gives one). It ends only by a jump,
+    /// so every `break` that leaves it gives its value.
     fn checkLoopValue(self: *Checker, node: Sexp, expected: ?TypeId, used: bool) Error!TypeId {
         const loop = if (node.isKind(.labeled)) ir.Labeled.stmt(node) else node;
         var lv: LoopValue = .{ .expected = expected };
         defer lv.values.deinit(self.ctx.allocator);
-        const else_ = ir.get(loop, .@"else");
-        if (used and else_ == .nil and !isWhileTrue(self.ctx.source, loop)) {
-            try self.errAt(loop, "a loop used as a value needs an `else` giving its value when no `break` does", .{});
-        }
         if (node.isKind(.labeled)) self.loop_label = self.text(ir.Labeled.label(node));
         self.loop_value = &lv;
-        if (loop.isKind(.@"while")) try self.checkWhile(loop) else try self.checkFor(loop);
+        try self.checkWhile(loop);
         const ty = if (expected) |e| e else self.canonical(lv.ty orelse self.t().invalid_id);
         if (expected == null) for (lv.values.items) |v| try self.adaptLiteral(v.node, v.ty, ty);
         if (used and ty == self.t().void_id) try self.errAt(node, "a loop used as a value cannot yield `Void`", .{});
@@ -3394,10 +3391,9 @@ const Checker = struct {
         return ty;
     }
 
-    /// A `break` value or an `else` value of a loop used as a value.
+    /// A `break` value of a loop used as a value.
     fn loopValue(self: *Checker, lv: *LoopValue, value: Sexp) Error!void {
-        // A `break` value, or a loop's `else`, leaves the loop: its tail
-        // is taken.
+        // A `break` value leaves the loop: its tail is taken.
         try self.recordUse(value, .take);
         try self.recordUse(sema.tailOf(value), .take);
         if (lv.expected) |e| return self.checkExpr(value, e);
@@ -3406,8 +3402,9 @@ const Checker = struct {
         lv.ty = if (lv.ty) |cur| (try self.unify(cur, ty, self.startOf(value))) orelse self.t().invalid_id else ty;
     }
 
-    /// `(break value? label?)`: a loop used as a value takes a value from
-    /// every `break` that leaves it, and no other `break` carries one.
+    /// `(break value? label?)`: a `loop` used as a value takes a value
+    /// from every `break` that leaves it, and no other `break` carries
+    /// one.
     fn checkBreak(self: *Checker, node: Sexp) Error!void {
         const value = ir.Break.value(node);
         const target = try self.resolveJump(node);
@@ -3420,7 +3417,7 @@ const Checker = struct {
         _ = try self.synthExpr(value);
         if (target) |f| {
             if (f.is_loop) {
-                try self.errAt(value, "`break` with a value needs a loop whose value is used (`x = for ...`)", .{});
+                try self.errAt(value, "`break` in a `for` or `while` loop carries no value; give the value with `loop` and `break v`, or assign it to a name declared before the loop and `break`", .{});
             } else try self.errAt(value, "a labeled block has no value; `break ${s}` cannot carry one", .{f.label});
         }
     }
@@ -5526,6 +5523,8 @@ const Checker = struct {
             .{ "println", "; Rig prints a line with `print(...)`" },
             .{ "puts", "; Rig prints a line with `print(...)`" },
             .{ "printf", "; Rig prints a line with `print(...)`" },
+            .{ "range", "; Rig writes a range `0..3`, or `a..b` for `range(a, b)`" },
+            .{ "enumerate", "; write `for x, i in xs`: the element first, then its index" },
         };
         for (others) |o| if (std.mem.eql(u8, name, o[0])) return o[1];
         for (self.else_conds.items) |c| if (try self.conditionBinds(c, name)) {
@@ -5631,7 +5630,7 @@ const Checker = struct {
                 try self.errAt(e, "a range `a..b` can only be used as a `for` loop source", .{});
                 break :blk self.t().invalid_id;
             },
-            .@"while", .@"for", .labeled, .set, .destructure, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
+            .@"while", .@"for", .labeled, .set, .destructure, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else if (try self.noLoopValue(e, null)) |ty| ty else blk: {
                 try self.checkStmt(e);
                 break :blk self.t().void_id;
             },
@@ -7962,6 +7961,16 @@ const Checker = struct {
         switch (needs.t) {
             .copies => if (!try self.cannotCopy(param, pos, needs.op)) return true,
             .records => return self.readsRecords(m.name, param, pos, if (values.len > 0 and !values[0].isKind(.kwarg)) values[0] else null),
+            .equatable => {
+                var params: std.ArrayList(SymbolId) = .empty;
+                defer params.deinit(self.ctx.allocator);
+                const n = (try sema.notEquatable(self.ctx, param, &params)) orelse {
+                    for (params.items) |tv| try self.require(tv, .equatable, pos, needs.op);
+                    return true;
+                };
+                try self.err(pos, "`{s}.{s}` compares elements with `==`, which is not defined for `{s}`: {s}", .{ self.ctx.symbols.items[owner_sym].name, m.name, try self.tyName(param), try notEquatableReason(self.ctx, n) });
+                return false;
+            },
         }
         if ((try resolve.builtinElementError(self.ctx, owner_sym, args)) != null) return true;
         const owner = self.ctx.symbols.items[owner_sym].name;
@@ -7970,7 +7979,7 @@ const Checker = struct {
             .element_out => |advice| try self.err(pos, "`{s}.{s}` would copy an element out of a `{s}` of `{s}`, which a copy cannot share; {s}", .{ owner, m.name, owner, shown, advice }),
             .value_out => |advice| try self.err(pos, "`{s}.{s}` returns a copy of the value, and {s} `{s}` {s}, so it can't be copied; {s}", .{ owner, m.name, article(shown), shown, if (sema.typeHasDropGlue(self.ctx, param)) "owns what it must release" else self.movesBecause(param), advice }),
             .into_elements => |d| try self.notDuplicated(pos, d.what, param, d.loop, d.tail),
-            .from_bytes => unreachable,
+            .from_bytes, .compares => unreachable,
         }
         return false;
     }
@@ -17674,6 +17683,10 @@ const Checker = struct {
     }
 
     fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
+        // `o or 0` for an optional `o`: a fallback, which `??` writes.
+        if (std.mem.eql(u8, self.logic_op, "or") and sameSite(e, self.logic_operands[0]) and expected == self.t().bool_id and self.ctx.types.get(actual) == .optional) {
+            return self.errAt(e, "`or` joins Bools; an optional's fallback is `{s} ?? {s}`", .{ self.sourceText(e), self.sourceText(self.logic_operands[1]) });
+        }
         // `!c` of a handle that may not be written here lends what it holds
         // (`synthLend`), which a `!*T` parameter cannot take.
         if (e.isKind(.write)) if (self.ctx.types.get(expected) == .write_view and self.ctx.types.get(actual) == .write_view) {
@@ -18059,7 +18072,7 @@ const Checker = struct {
             .@"if" => _ = try self.checkIfValue(e, expected, .value),
             .match => _ = try self.checkMatch(e, .value, expected),
             .@"while", .@"for", .labeled => {
-                if (!self.isValueLoop(e)) return null;
+                if (!self.isValueLoop(e)) return try self.noLoopValue(e, expected);
                 _ = try self.checkLoopValue(e, expected, true);
             },
             .block => _ = try self.synthBlock(e, expected),
@@ -20897,15 +20910,10 @@ fn holdsInt(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
     };
 }
 
-/// `while true` with no `break` out of it: the loop only ends by
+/// `loop` with no `break` out of it: the loop only ends by
 /// `return`, so a function may end with it.
 fn loopsForever(source: []const u8, s: Sexp) bool {
-    const loop = if (s.isKind(.labeled)) ir.Labeled.stmt(s) else s;
-    return isWhileTrue(source, loop) and !sema.breaksOut(source, s, false);
-}
-
-fn isWhileTrue(source: []const u8, loop: Sexp) bool {
-    return loop.isKind(.@"while") and std.mem.eql(u8, identAt(source, ir.While.cond(loop)) orelse "", "true");
+    return sema.isLoop(source, s) and !sema.breaksOut(source, s, false);
 }
 
 /// `return`, `break`, `continue`, or `panic`: a fallback that leaves.

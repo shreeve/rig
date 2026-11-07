@@ -1191,8 +1191,8 @@ const Pass = struct {
             },
             .block => |b| try p.walkBlock(b, st, true),
             .@"if" => |x| try p.walkIf(stmt, x.cond, x.then, x.@"else", st),
-            .@"while" => |x| try p.walkWhile(stmt, x.cond, x.body, x.step, x.@"else", st),
-            .@"for" => |x| try p.walkFor(stmt, x.source, x.body, x.@"else", st),
+            .@"while" => |x| try p.walkWhile(stmt, x.cond, x.body, x.step, st),
+            .@"for" => |x| try p.walkFor(stmt, x.source, x.body, st),
             .match => |m| try p.walkMatch(m, st),
             .labeled => |inner| if (inner.isKind(.block)) try p.walkLabeledBlock(inner, st) else try p.walkStmt(inner, st),
             // A `defer` body runs at its block's exits, from facts this
@@ -1376,7 +1376,7 @@ const Pass = struct {
     /// (`0 <= i` kept when every write of `i` adds a constant); the step
     /// from the facts at the body's end met with what each `continue` to
     /// it carries.
-    fn walkWhile(p: *Pass, node: Sexp, cond: Sexp, body: Sexp, step: Sexp, else_b: Sexp, st: *State) Error!void {
+    fn walkWhile(p: *Pass, node: Sexp, cond: Sexp, body: Sexp, step: Sexp, st: *State) Error!void {
         const kills = try p.killsOf(node);
         var head = try st.clone(p.a);
         applyKills(&head, &kills);
@@ -1391,11 +1391,6 @@ const Pass = struct {
             try p.walkUnit(step, .step, &s);
         }
         p.loops.shrinkRetainingCapacity(frame);
-        if (else_b != .nil) {
-            var e = try head.clone(p.a);
-            applyKills(&e, &(try p.killsOf(cond)));
-            try p.walkBranch(else_b, &e);
-        }
         applyKills(st, &kills);
         st.dead = false;
     }
@@ -1432,7 +1427,7 @@ const Pass = struct {
 
     /// `for`: its source unit once, then the body each iteration from `L`.
     /// A `for` binding gets no facts.
-    fn walkFor(p: *Pass, node: Sexp, source_node: Sexp, body: Sexp, else_b: Sexp, st: *State) Error!void {
+    fn walkFor(p: *Pass, node: Sexp, source_node: Sexp, body: Sexp, st: *State) Error!void {
         const kills = try p.killsOf(node);
         var head = try st.clone(p.a);
         try p.walkUnit(source_node, .source, &head);
@@ -1442,10 +1437,6 @@ const Pass = struct {
         var b = try head.clone(p.a);
         try p.rangeFacts(node, source_node, &head, &kills, &b);
         try p.walkBranch(body, &b);
-        if (else_b != .nil) {
-            var e = try head.clone(p.a);
-            try p.walkBranch(else_b, &e);
-        }
         applyKills(st, &kills);
         st.dead = false;
     }

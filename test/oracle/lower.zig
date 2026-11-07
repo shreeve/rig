@@ -1933,9 +1933,7 @@ const Lowerer = struct {
         // A jump in the condition (`?? break`) leaves the loop too.
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
         try self.header(cond);
-        const els = ir.While.@"else"(s);
-        const e = if (els == .nil) x else try self.newBlock();
-        if (forever) try self.goto(b) else try self.branch(b, e);
+        if (forever) try self.goto(b) else try self.branch(b, x);
         const step = ir.While.step(s);
         // One iteration's region holds the body's and the step's
         // temporaries; `continue` goes to the step inside it.
@@ -1951,11 +1949,6 @@ const Lowerer = struct {
         try self.popRegion(self.posOf(s));
         try self.goto(h);
         _ = self.loops.pop();
-        if (els != .nil) {
-            self.cur = e;
-            if (loop_value) |lv| try self.valueInto(els, .take, lv) else try self.blockStmts(els);
-            try self.goto(x);
-        }
         self.cur = x;
     }
 
@@ -1971,11 +1964,9 @@ const Lowerer = struct {
         const x = try self.newBlock();
         const st = try self.newBlock();
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
-        const els = ir.While.@"else"(s);
-        const e = if (els == .nil) x else try self.newBlock();
         const base = self.regions.items.len;
         const mark = self.kinds.narrowed.items.len;
-        const pushed = try self.condChain(ir.While.cond(s), e, true);
+        const pushed = try self.condChain(ir.While.cond(s), x, true);
         // A step that reads a binding of the condition runs in its scope,
         // after the body; any other runs once the bindings have ended,
         // where `continue` goes too (SPEC "Joined bindings").
@@ -1991,11 +1982,6 @@ const Lowerer = struct {
         if (inside) for (0..pushed) |_| try self.popRegion(self.posOf(s));
         try self.goto(h);
         _ = self.loops.pop();
-        if (els != .nil) {
-            self.cur = e;
-            if (loop_value) |lv| try self.valueInto(els, .take, lv) else try self.blockStmts(els);
-            try self.goto(x);
-        }
         self.cur = x;
     }
 
@@ -2095,9 +2081,7 @@ const Lowerer = struct {
         try self.emit(.{ .pos = pos, .what = .use, .uses = try self.one(src_var) });
         const b = try self.newBlock();
         const x = try self.newBlock();
-        const els = ir.For.@"else"(s);
-        const e = if (els == .nil) x else try self.newBlock();
-        try self.branch(b, e);
+        try self.branch(b, x);
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = h, .depth = self.regions.items.len, .value = loop_value });
         self.cur = b;
         try self.pushRegion();
@@ -2118,11 +2102,6 @@ const Lowerer = struct {
         try self.popRegion(pos);
         try self.goto(h);
         _ = self.loops.pop();
-        if (els != .nil) {
-            self.cur = e;
-            if (loop_value) |lv| try self.valueInto(els, .take, lv) else try self.blockStmts(els);
-            try self.goto(x);
-        }
         self.cur = x;
         try self.popRegion(pos);
     }

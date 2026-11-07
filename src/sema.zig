@@ -1130,9 +1130,10 @@ pub const SelfMode = enum { none, read, write, value };
 /// requirement one on each instance, as a Rig-written generic's use does
 /// (`Requirement.copies`).
 pub const Needs = struct {
-    /// A `T` that copies, or a `T` whose every bit pattern is a value
-    /// (`bytesRecord`), which the method makes from bytes.
-    t: enum { copies, records },
+    /// A `T` that copies, a `T` whose every bit pattern is a value
+    /// (`bytesRecord`), which the method makes from bytes, or a `T`
+    /// that `==` compares.
+    t: enum { copies, records, equatable },
     /// What the method does with a `T`, as the note of a generic body
     /// whose instance fails says it.
     op: []const u8,
@@ -1152,6 +1153,9 @@ pub const Needs = struct {
         /// The method makes each element from bytes
         /// (`Checker.readsRecords` says why a `T` is not a record).
         from_bytes,
+        /// The method compares elements with `==` (`Checker.meetsNeeds`
+        /// says why a `T` has none).
+        compares,
     },
 };
 
@@ -14624,9 +14628,8 @@ fn jumpsIn(source: []const u8, e: Sexp, label: []const u8, nested: bool, visitor
                 loop = stmt;
                 shadowed = true;
             }
-            // A nested loop: its `for` source and its `else` are outside
-            // it, and inside it only a labeled jump can name a construct
-            // around it.
+            // A nested loop: its `for` source is outside it, and inside it
+            // only a labeled jump can name a construct around it.
             const is_while = loop.isKind(.@"while");
             if (!is_while) try jumpsIn(source, ir.For.source(loop), label, nested, visitor);
             const inside = if (is_while)
@@ -14634,7 +14637,7 @@ fn jumpsIn(source: []const u8, e: Sexp, label: []const u8, nested: bool, visitor
             else
                 [3]Sexp{ ir.For.body(loop), .nil, .nil };
             if (!shadowed and label.len > 0) for (inside) |part| try jumpsIn(source, part, label, true, visitor);
-            return jumpsIn(source, ir.get(loop, .@"else"), label, nested, visitor);
+            return;
         },
         else => {},
     }
@@ -14652,6 +14655,15 @@ fn loopOf(source: []const u8, e: Sexp) ?struct { loop: Sexp, label: []const u8 }
     }
     if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return null;
     return .{ .loop = loop, .label = label };
+}
+
+/// Whether `e`, labeled or not, is a `loop`: a `while` whose condition
+/// is the literal `true`, which only `loop` writes (`Parser.loopBlock`;
+/// the source writes no `while true`), as a chain's value does. The one
+/// loop that ends only by a jump, and the one that gives a value.
+pub fn isLoop(source: []const u8, e: Sexp) bool {
+    const l = loopOf(source, e) orelse return false;
+    return l.loop.isKind(.@"while") and std.mem.eql(u8, identAt(source, ir.While.cond(l.loop)) orelse "", "true");
 }
 
 /// Whether a `break` (with a value, when `valued`) leaves loop `e`,
@@ -14673,9 +14685,9 @@ pub fn breaksOut(source: []const u8, e: Sexp, valued: bool) bool {
 /// Call `f(context, part)` for each part of `e` that yields its value:
 /// a block's last statement, a `raw` block's body, both branches of an
 /// `if`, each arm of a `match`, the right of `??`, a `catch` handler,
-/// and a loop's `else`. A bare name reached through these where the
-/// value leaves (a binding, an argument, a result) leaves its binding:
-/// emit takes it, and the ownership checker moves
+/// and a labeled statement's statement. A bare name reached through
+/// these where the value leaves (a binding, an argument, a result)
+/// leaves its binding: emit takes it, and the ownership checker moves
 /// it at that point, before the scopes the value leaves run their
 /// defers. Nothing else yields a value through its parts.
 pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
@@ -14692,7 +14704,6 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
         .match => for (ir.Match.arms(e)) |arm| try f(context, ir.Arm.body(arm)),
         .@"??" => try f(context, ir.@"??".right(e)),
         .@"catch" => try f(context, ir.Catch.handler(e)),
-        .@"while", .@"for" => if (ir.get(e, .@"else") != .nil) try f(context, ir.get(e, .@"else")),
         .labeled => try f(context, ir.Labeled.stmt(e)),
         else => {},
     }
@@ -15682,9 +15693,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .item_type, .item_value, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
-        // `>t`, `f: once T`, `a..=b`, and `(e)`'s `paren`, which the Parser
-        // wrapper rewrites or drops first.
-        .wait, .once, .@"..=", .paren => .none,
+        // `>t`, `f: once T`, `a..=b`, `(e)`'s `paren`, and `loop`, which
+        // the Parser wrapper rewrites or drops first.
+        .wait, .once, .@"..=", .paren, .loop => .none,
         // A function's marker.
         .outside => .none,
         // Types.
@@ -15857,8 +15868,8 @@ pub fn yieldsThroughParts(e: Sexp) bool {
     };
 }
 
-/// The values a loop used as a value gives, appended to `out`: the value
-/// of each `break` that leaves it (`eachJumpTo`), and its `else`'s tail.
+/// The values a `loop` used as a value gives, appended to `out`: the
+/// value of each `break` that leaves it (`eachJumpTo`).
 pub fn loopValues(a: std.mem.Allocator, source: []const u8, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
     const l = loopOf(source, e) orelse return;
     const Values = struct {
@@ -15870,11 +15881,6 @@ pub fn loopValues(a: std.mem.Allocator, source: []const u8, e: Sexp, out: *std.A
     };
     var values: Values = .{ .a = a, .out = out };
     try eachJumpTo(source, l.loop, l.label, &values);
-    const else_ = ir.get(l.loop, .@"else");
-    if (else_ != .nil) {
-        const tail = tailOf(else_);
-        if (tail != .nil) try out.append(a, tail);
-    }
 }
 
 /// The leaves of the value `node` gives, appended to `out`, through
@@ -18081,17 +18087,14 @@ test "hands over: value parts, leaves, and value statements" {
     try std.testing.expect(!yieldsValue(r.source, .nil));
 }
 
-test "a jump in a nested `for` source or `else` names the loop around it" {
+test "a jump in a nested `for` source names the loop around it" {
     const source =
         \\sub main()
-        \\  x = for i in 0..3
-        \\    for j in 0..(some(i) ?? break 5)
+        \\  x = loop
+        \\    for j in 0..(some(n) ?? break 5)
         \\      continue
-        \\    else
-        \\      break 6
-        \\  else
-        \\    0
-        \\  $a: while true
+        \\    break 6
+        \\  $a: loop
         \\    $a: for k in 0..(n ?? break)
         \\      break $a
         \\    defer
@@ -18104,8 +18107,8 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
     defer p.deinit();
     const tree = try p.parseProgram();
     var n: usize = 0;
-    const outer = nthNode(tree, .@"for", &n).?;
-    n = 1;
+    const outer = nthNode(tree, .@"while", &n).?;
+    n = 0;
     const inner = nthNode(tree, .@"for", &n).?;
     const Jumps = struct {
         list: [8]Sexp = undefined,
@@ -18115,22 +18118,24 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
             j.len += 1;
         }
     };
-    // The outer loop: the `break 5` in the source, the `break 6` in the
-    // inner loop's `else`.
+    // The outer loop: the `break 5` in the inner loop's source, and the
+    // `break 6` after it.
     var jumps: Jumps = .{};
     try eachJumpTo(source, outer, "", &jumps);
     try std.testing.expectEqual(2, jumps.len);
     try std.testing.expect(hasValueBreaks(source, outer));
+    try std.testing.expect(isLoop(source, outer));
     // The inner loop: only the `continue` in its body.
     jumps = .{};
     try eachJumpTo(source, inner, "", &jumps);
     try std.testing.expectEqual(1, jumps.len);
     try std.testing.expect(jumps.list[0].isKind(.@"continue"));
     try std.testing.expect(!hasValueBreaks(source, inner));
-    // `$a: while`: the `break` in the source of the inner `$a: for`,
-    // not the one in its body, which names it; nothing in a `defer` or a
+    try std.testing.expect(!isLoop(source, inner));
+    // `$a: loop`: the `break` in the source of the inner `$a: for`, not
+    // the one in its body, which names it; nothing in a `defer` or a
     // closure.
-    n = 0;
+    n = 1;
     const labeled = nthNode(tree, .@"while", &n).?;
     jumps = .{};
     try eachJumpTo(source, labeled, "a", &jumps);

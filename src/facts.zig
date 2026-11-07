@@ -1545,7 +1545,7 @@ test "Facts reads where each step runs and where each jump goes" {
         \\      continue $outer if b == a
         \\      break $outer
         \\  m = 0
-        \\  while true: m += some(m) ?? continue
+        \\  while m >= 0 : m += some(m) ?? continue
         \\    break
         \\  $blk: match i
         \\    0 => break $blk
