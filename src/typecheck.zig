@@ -10689,8 +10689,8 @@ const Checker = struct {
         // The vector is read as a value: a write lend written here is
         // reported, and a held write view read through.
         if (self.ctx.types.get(ty) == .write_view) {
-            if (try self.writeLendRead(args[0], ty, .{ .value = vec })) return false;
-            try self.ctx.recordRead(args[0]);
+            try self.readOf(args[0], ty, .{ .value = vec });
+            if (self.isPoison(self.ctx.typeOf(args[0]) orelse ty)) return false;
         }
         try self.checkKeep(ir.Kwarg.value(keep), bytes.?);
         try self.ctx.recordStringNum(callee, vec);
