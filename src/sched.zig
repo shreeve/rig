@@ -52,6 +52,7 @@ comptime {
         workers_asked,
         graph,
         preempt_states,
+        owing,
         exit_state,
     };
 }
@@ -623,6 +624,8 @@ const owing = split.cell(&owing_var, "sched.owing");
 
 /// A signal left the yield check it asked for owed on `w`.
 fn owe(w: *Worker) void {
+    // A flag the worker's own thread sets and clears, not a lock:
+    // uncounted for preemption.
     if (!preOf(w).owed.swap(true, .monotonic)) _ = owing.fetchAdd(1, .monotonic);
 }
 
