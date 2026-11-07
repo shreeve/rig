@@ -1488,10 +1488,11 @@ test "syntax-review-complete-r2", '''
   print(w)
 
 test "syntax-review-complete-r3", "2"
-  x = for i in 0..3
+  i = 0
+  x = loop
+    break -1 if i == 3
     break i if i == 2
-  else
-    -1
+    i += 1
   print(x)
 
 test "syntax-review-complete-ra4", '''
