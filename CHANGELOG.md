@@ -64,6 +64,30 @@ accepted:
   statement runs at scope exit and cannot declare `z`"), where `rig
   check` crashed.
 
+**Programs `rig check` accepted and Zig then rejected** are rejected
+now, each with a Rig diagnostic; but for a builtin alone as a statement,
+none of these ever built:
+
+- `&` on a constructor typed by where it goes, `v: List[Int] =
+  List()&`, `m: Map[K, V] = Map()&`, `p: P[Int] = P(x: 1)&`, `e: E =
+  .v(x: 1)&`: "a task runs a call of a function or a method", as
+  `List[Int]()&` already said. Drop the `&`.
+- `defer defer s`, `errdefer defer s`: "a deferred statement cannot
+  itself be a `defer` or an `errdefer`". Write one.
+- a builtin alone as a statement, `$plain(T)` (which Zig rejected) or
+  `$size(T)` (which built and did nothing): "this expression does
+  nothing as a statement". Remove it, or use its value. Neither Trig
+  nor loco has one.
+- code in the `else` of `while true` that no other block may hold:
+  a statement after a `return`, a bare copy of an owned value. The
+  block never runs, and is checked as any block is.
+- a box where a type parameter bounded by `Iter` goes, `show(!w)` of a
+  `w: ^Words`: name the iterator's type, `show[Words](!w)`.
+- a closure literal with an untyped parameter where a generic
+  parameter that is no function goes, `app(|x| x)` for `xs: ?List[T]`:
+  "closure parameter `x` needs a type", or "cannot infer `T`", where
+  `rig build` reported an internal error.
+
 ### Added
 
 - **A large embedded table loads without a copy** in a Linux release
@@ -181,6 +205,16 @@ accepted:
   replaces an object by deleting it first, one build's link no longer
   finds another's object gone (`failed to open object
   __rig_unit_0.o: FileNotFound`).
+- A read lend copied out where a value goes adapts as the value it
+  copies: `o: Item[K, V]? = ?none` of an optional held as a niche
+  becomes its `none`, and `?B.y` where an error with fields goes widens
+  as `B.y` does. `?wr(!x)` of a call giving a write view `!Int` reads
+  the `Int` through it. Each built, where Zig rejected the emitted code.
+- `e = +E.v(x: 9223372036854775807)`, a clone of a constant, and
+  `P(a: ?n)`, a constant copied out of a read lend, are run-time values,
+  as the value without `+` or `?` is: `x + 1` on one panics with an
+  overflow when it runs, where Zig failed the build. `_ = $plain(T)` in
+  a generic body builds.
 
 ### Tests
 
@@ -203,6 +237,20 @@ accepted:
 
 ### Runtime
 
+- The release allocator follows Linux's mode for transparent huge pages,
+  read once from /sys/kernel/mm/transparent_hugepage/: under `madvise`
+  it asks as before, and with no test of /proc/buddyinfo where `defrag`
+  is `defer` or `never`, as no fault compacts there; under `always`,
+  where every range gets huge pages unasked and asking only makes faults
+  compact, it asks for none, and what should keep small pages (a
+  segment of a heap that does not fault in ahead, a large block under
+  16 MiB, a Table's first 2 MiB) asks for small ones; under `never` it
+  asks for nothing and reads nothing. The test counts only the free
+  2 MiB blocks of the asking thread's NUMA node, so a host of two
+  sockets no longer asks on another node's blocks, and a reading cut
+  short before that node's lines counts none. A host of one node
+  under `madvise`, as pup, behaves as before
+  ([records/2026-11/huge-pages/gate-modes.md](docs/history/records/2026-11/huge-pages/gate-modes.md)).
 - On the Mac a release build's `os.exit` stops the other workers, when
   none runs a task and the blocking pool is idle, and unmaps the
   program's Tables, segments and free fiber stacks on four of them

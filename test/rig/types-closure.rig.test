@@ -348,3 +348,15 @@ fail "owned closure as a temporary callee", "this `*fun(Int) -> Int` is a tempor
   # Calling a clone of an owned closure in place is planned (CORE §3).
   h = H(f: *|x| x + 1)
   print((+h.f)(2))
+
+fail "closure where a generic non-function goes", "cannot infer `T` for `app`", "closure parameter `x` needs a type", errors: 3
+  # A closure literal binds no type where no function goes: it is
+  # reported, as it is where no type parameter is.
+  sub app[T](xs: ?List[T])
+    pass
+
+  sub two[T](a: T, xs: ?List[T])
+    pass
+
+  app(|x| x)
+  two(1, |x| x)

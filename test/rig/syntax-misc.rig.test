@@ -5370,3 +5370,20 @@ fail "zig block reserved", "unexpected keyword `zig`", "inline Zig is reserved"
   # `raw` blocks and `extern` declarations are the escape hatches.
 
   zig "const x = 42; std.debug.print(\"{any}\\n\", .{x});"
+
+fail "else of while true", "8:3: unreachable code: this statement follows a `return`", "13:7: `xs` owns a `List[Int]`, which can't be copied by `=`", errors: 2
+  # The `else` of `while true` never runs, and it is checked as any
+  # block is, as if the condition failed at the loop's head.
+  n = 0
+  while true
+    break if n > 2
+  else
+    return
+    print(1)
+  xs: List[Int] = List()
+  last = while true
+    break 1
+  else
+    e = xs
+    e.len
+  print(last)

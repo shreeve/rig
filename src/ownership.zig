@@ -7825,6 +7825,12 @@ pub const Checker = struct {
         self.loop = ctx.parent;
         var value = ctx.value;
         const e = ir.get(spec.node, .@"else");
+        // The `else` of `while true` never runs, but it is code, checked as
+        // if the condition failed at the loop's head; what it does is
+        // then undone, since nothing after the loop follows it.
+        const never = e != .nil and spec.cond_always_true;
+        const after = if (never) try self.here() else undefined;
+        if (never) try self.apply(head);
         if (e != .nil) {
             if (sema.hasValueBreaks(self.source, spec.node)) {
                 self.value_reads = ctx.reads;
@@ -7832,6 +7838,7 @@ pub const Checker = struct {
                 self.value_reads = false;
             } else try self.walkStmt(e);
         }
+        if (never) try self.rewind(after);
         try self.joinAt(ctx.point, ctx.breaks.items, self.resumeAt(.nil, spec.node));
         return value;
     }
