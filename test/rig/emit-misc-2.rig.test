@@ -1757,3 +1757,40 @@ bomb "a constant copied out of a read lend is a run-time value", "integer overfl
   p = P(a: ?9223372036854775807)
   x: Int = ?9223372036854775807
   print(p.a + x)
+
+bomb "a value loop's constant is a run-time value", "integer overflow"
+  # Zig would fold a loop that breaks with a constant, and fail the
+  # build where Rig panics when it runs.
+  x = loop
+    break 9223372036854775807
+  print(x + 1)
+
+bomb "a labeled value loop's constant is a run-time value", "integer overflow"
+  x = $l: loop
+    for i in 0..3
+      break $l 9223372036854775807 if i == 1
+  print(x + 1)
+
+bomb "a value loop's constant divides at run time", "division by zero"
+  x = loop
+    break 10
+  print(100 / (x - 10))
+
+bomb "a value loop's constant byte is a run-time value", "integer overflow"
+  x: U8 = loop
+    break 255
+  print(x + 1)
+
+bomb "a read view of a module constant's row is read at run time", "integer overflow"
+  grid = [[1, 2], [9223372036854775807, 0]]
+
+  sub main()
+    row = ?grid[1]
+    print(row[0] + 1)
+
+bomb "a read view of a module constant is read at run time", "integer overflow"
+  top = [9223372036854775807, 0]
+
+  sub main()
+    p = ?top
+    print(p[0] + 1)

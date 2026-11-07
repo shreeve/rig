@@ -3018,8 +3018,12 @@ pub const Emitter = struct {
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
+        // So would the address of a constant's part, which Zig reads
+        // through at compile time (`row = ?grid[1]` of a module constant):
+        // the view is held in a `var`, a run-time pointer.
         const is_var = rebound or (!holds_ptr and (s.flags.written or needs_ptr_self or
-            (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.facts.isConstInt(sym)))));
+            (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.facts.isConstInt(sym))))) or
+            (is_lend and expr.isKind(.read) and isZigComptimeIn(self, ir.Read.operand(expr), 0));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -11716,8 +11720,10 @@ fn isPlainIdent(name: []const u8) bool {
 /// parameter, a function or a type), a constructor or variant, and an
 /// operator, index, field, propagation, `??`, `catch`, ternary, `match`,
 /// or clone whose parts all are, and a read lend of one copied out.
-/// Any other form (a call, a write lend, a move, a closure, an extern
-/// variable, a form added later) is not.
+/// A loop used as a value is taken as one too: Zig folds the loop when
+/// what it breaks with is constant, and a `var` costs nothing when it
+/// is not. Any other form (a call, a write lend, a move, a closure, an
+/// extern variable, a form added later) is not.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;
     switch (e) {
@@ -11755,6 +11761,8 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
+                // A value loop (`x = loop` ... `break v`), labeled or not.
+                .@"while", .labeled => return true,
                 // `+v` of a value that copies is `v` in Zig.
                 .clone,
                 .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block,
