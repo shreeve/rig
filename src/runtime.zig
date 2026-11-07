@@ -4244,8 +4244,15 @@ pub fn index(i: anytype, count: usize) usize {
 }
 
 /// `index` against a compile-time `n`, as an array's length or a
-/// table's is: one compare.
-pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
+/// table's is: one compare. A debug build calls it, so a panic's trace
+/// names the program's line, which an inline function's would not.
+pub const indexBelow = if (builtin.mode == .debug) indexBelowCalled else indexBelowInline;
+
+fn indexBelowCalled(i: anytype, comptime n: u64) usize {
+    return indexBelowInline(i, n);
+}
+
+inline fn indexBelowInline(i: anytype, comptime n: u64) usize {
     if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
     const info = @typeInfo(@TypeOf(i));
     if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {

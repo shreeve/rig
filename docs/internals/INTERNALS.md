@@ -5402,11 +5402,13 @@ One `zig build-exe` compiles a program as one LLVM module, on one
 core, and LLVM's cost grows faster than the module. A split build
 compiles it as N units instead, each a `zig build-obj` on its own core
 with a Zig cache of its own, and links their objects with the entry
-(`main.buildSplit`). Trig's debug build on the Mac takes 291 s as one
+(`main.buildSplit`). Two builds of one package write the same objects,
+which Zig on Linux replaces by deleting the old one first, so a split
+build holds `rig-objects.lock` in its Zig cache, exclusively, from its
+check for a kept executable to its link (`main.lockObjects`); the build
+that waited copies the first one's executable. Trig's debug build on the Mac takes 291 s as one
 unit and 30 s of Zig as ten. `rig build`, `run`, and `test` split a
-debug build when Zig builds it with LLVM (every target but x86-64, whose
-own backend compiles a debug build on every core already, and links
-units slower than it compiles them) and the program's own modules hold
+debug build, which Zig builds with LLVM on every target, when the program's own modules hold
 at least two chunks of `units.chunk_lines` lines: one unit a chunk, up
 to the cores at hand (`units.count`). `--units=N` sets the count, and
 `--units=1` never splits. A release build is one unit unless `--units`
@@ -5889,10 +5891,17 @@ switch needs no libc, which a program on Linux links only for an
 no optimizer inlines its body: it pushes a frame record that links the
 new stack's frames to the old one's, with the unwind rules to match, so
 a debug build's stack trace runs from the Rig frame down to the system's
-`start`. Zig's own x86_64 backend, which builds debug programs there,
-assembles no unwind rule but the one its `_start` uses, so there a trace
-ends at the switch. On other targets the body runs on the thread's own
-stack.
+`start`. On other targets the body runs on the thread's own stack.
+
+**Debug builds use LLVM.** Zig builds an x86_64 debug program with its
+own backend unless told otherwise, and that backend leaves a compare's
+result in the flags across an atomic read-modify-write, which overwrites
+them (ZIG-0.17.md §24): a function that returns `n <= s.limit` and then
+drops a counted handle answers wrong. So `rig` passes `-fllvm` for a
+debug build on x86_64 (`Mode.releaseFlags`), as Zig already does on
+aarch64, and every debug program is built by LLVM. `rig.indexBelow` is
+a call in a debug build and inline otherwise, so a debug panic's trace
+names the program's line.
 
 **What it catches, and what is measured.** Zig's code reserves a frame
 by moving the stack pointer down by its whole size and then writes its
