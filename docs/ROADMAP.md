@@ -56,9 +56,14 @@ The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.
   - counted loops strip-mined, with one yield check for each block of turns, for `fanout`;
   - small stacks from a slab, sized by a bound proven on the linked executable, growing by segments that never move;
   - Rayon's fork-join at no cost behind the same `&`: the task record in its maker's frame, and an unstarted task run on its waiter's stack;
+    - **one syntax:** the program writes `f()&` and `>t` as now. The runtime takes the free path when the task has not started, its maker waits for it, the wait has no deadline, and the task's frames fit. Otherwise the task runs as a fiber, as one a thief takes does;
+    - **why Rig can:** tasks are owned by their scope, so a record in the maker's frame cannot outlive it, and `sched.handoff` already runs an unstarted task the moment it is awaited, on the task's own stack;
+    - **to design:** a panic in a task run inline ends only that task and reaches its waiter at `>t`; recursive tasks, whose stack use no bound proves, run on stacks growing by segments;
+    - **only half of Rayon's speed:** the rest is loops with no yield checks (preemption by signal) and `par` splitting its work by what is left, as `par_iter` does, so idle workers take large pieces and busy ones split no further. `par` gets that splitting in the same round;
   - connections shaped as actors in `std.net` and `std.http`, so an idle connection holds no stack.
 
   The memory goal is under Go's 2.9 KiB a sleeping task on the Mac. Small stacks and the fork-join each take a design round first.
+- **Preemption by signal on every target it can run on**, with no option to choose it (the owner, 2026-11-07; turning it on by default waits for his yes). Each target stops a long computation one way, which the compiler chooses: a signal on Linux x86-64 and arm64 macOS (built, behind `RIG_PREEMPT=signal`), then Linux arm64, and Windows by suspending the thread, as Go does there. Where nothing can interrupt a thread, as in WebAssembly and freestanding code, the yield checks stay. Two cases keep the checks on every target: seeded test runs, whose interleavings must not depend on time, and a program that makes local tasks, which take turns at yield checks ([records/2026-11/preempt/](history/records/2026-11/preempt/design.md)).
 - **Later**: thread-sanitizer annotations for fibers, freeing a long-sleeping task's stack, and io_uring.
 
 ## Kernels and freestanding code
