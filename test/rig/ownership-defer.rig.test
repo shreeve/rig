@@ -314,6 +314,29 @@ fail "defer moves outer", "a `defer` body cannot move or drop `rc`"
   defer eat(<rc)
   print(1)
 
+fail "defer moves and assigns again", "15:7: a `defer` body cannot move or drop `head`", "16:7: a `defer` body cannot move a field out of `p`", "18:3: a `defer` body cannot move or drop `s`", errors: 3
+  # A deferred body moves no outer binding, even one it assigns again
+  # before it ends: `head = ^Node(next: <head)` moves `head`.
+
+  obj Node
+    v: Int
+    next: ^Node?
+
+  obj P
+    a: String
+    b: Int
+
+  head: ^Node? = none
+  p = P(a: String("x"), b: 1)
+  s = String("s")
+  defer head = ^Node(v: 1, next: <head)
+  defer p = P(a: <p.a, b: 2)
+  defer
+    t = <s
+    s = String("y")
+    print(t, s)
+  print(p.b)
+
 fail "defer reads moved", "10:13: use of `rc` after move"
   # A deferred body runs at scope exit, after the move that follows it.
 

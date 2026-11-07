@@ -3242,6 +3242,7 @@ test/reject/ownership/defer_ends_loan_at_propagate.rig f
 test/reject/ownership/defer_fallthrough_stores.rig main
 test/reject/ownership/defer_in_loop_keeps_lent.rig advanced
 test/reject/ownership/defer_in_loop_keeps_lent.rig cond
+test/reject/ownership/defer_moves_and_assigns_again.rig main
 test/reject/ownership/defer_moves_outer.rig main
 test/reject/ownership/defer_reads_moved.rig main
 test/reject/ownership/defer_reads_view_of_later_local.rig main
