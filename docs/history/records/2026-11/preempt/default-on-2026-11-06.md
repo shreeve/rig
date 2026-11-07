@@ -63,7 +63,7 @@ This is what branch preempt-std built: the handler counts the workers that owe (
 - **In short:** A costs 2-3 instructions per call; B costs none.
 
 ## Uncovered, either way
-- **The allocator and List growth, settled (built after B):**
+- **The allocator and List growth, settled (#995):**
   - After `allocSlow` returns, with its heap whole again, the allocator calls `sched.settleAt(@returnAddress())`. A List's growth, out of line (`growBy`, `growInline`), calls `settleAt(@returnAddress())` before it returns, so the inlined `push` holds no more code.
   - `settleAt` runs the owed yield check only when that address is in the program's code section, where a signal may stop the fiber at any instruction. So it is safe exactly where a signal already is. Elsewhere the caller may hold the worker's state, and nothing runs.
   - These are rare paths.
@@ -77,7 +77,36 @@ This is what branch preempt-std built: the handler counts the workers that owe (
 - **The other runtime loops** (Map growth, the String builders called out of line) still stop only where a signal lands in the program's code around them: late by a monitor period, never starved.
 - **A single long call** in an ineligible function holds its worker for that call's length: one `file.read` of a huge file, which the pool takes, or one parse of a huge input.
 
+## Where default-on stands (2026-11-07, main c154796da: #989, #994, #995 in)
+
+Built: waiting points pay what a signal owes (#989), std.text's searches are in the program's section (#994), and the allocator's slow path and a List's growth settle on their way back to the program's code (#995).
+
+**Checked, with `RIG_PREEMPT=signal` on Trig main 9b48dbe:**
+
+| check | where | result |
+|---|---|---|
+| Trig's light gate, debug (the Mac preempts debug builds) | Mac | rc 0, 33 jobs; the build has `__rig_text` |
+| Trig's light gate, release (an x86 debug build is not preempted) | x86-64, burst | GREEN, 33 jobs, 0 died; the build has `rig_text` |
+| Trig's instructions, exact mode, fewest of 20 | Mac | 3.3-3.8% fewer at 1, 4 and 8 checkers (ts-pattern 7,727 M against 7,435 M at 1); an A/A arm agrees to 0.03% |
+| Trig's wall time, fastest of 20, interleaved, with an A/A arm | Mac, slot held (load 2.8, rising to 6 during the run) | level to 2.8% faster than the A/A arm; read as level until a quiet rerun |
+| Trig's peak RSS | Mac | level (within 2.2%) |
+| `cli.preempt` (incl. the trace cases) and `cli.preempt_section` | Mac and x86 | green |
+
+**Still open:**
+1. **hog's first step on the Mac.** bench/tasks' hog, 10 runs each:
+   - With the option, the first step takes 10.6-96.8 ms, and a whole run 23-125 ms.
+   - With yield checks, the first step takes 0.24-0.31 ms (4 ms in two runs), and a run 4.3-16.3 ms.
+   - The cause is `hog-mac`'s: macOS stretches the monitor's 50 µs sleep to 2-3 ms, and a task made behind the hogs waits for each to be stopped.
+   - Linux's sleep is precise, so pup's earlier record has 13.5 ms against 6.2 ms.
+   - The record's option 1 (run the newest never-started task first) is the candidate. It changes the order of every program's tasks and needs the runtime benches.
+2. **pup:**
+   - bench/tasks, actors, net and http, with and without the option.
+   - Trig's x86 speed A/B.
+   - Linux hog.
+   - Timing waits for pup; burst does correctness only.
+3. **The owner's decision.** The default stays off until then.
+
 ## What the owner decides
-1. Take B for std.text now (its PR), and add twins when a loop of a function is shown to hold its worker; or twin every eligible shim at once.
-2. Keep A unbuilt, or take it for code that cannot be placed.
-3. Default-on once B, the allocator's and List's settling, and pup's runs are in.
+1. Whether hog's first step on the Mac is to be fixed before default-on (open item 1), or accepted: preempted Rig is still ahead of Go and Tokio there.
+2. Default-on after pup's runs (open item 2).
+3. Keep A as the archived fallback (`archive/preempt-std`) for code that cannot be placed in the section.
