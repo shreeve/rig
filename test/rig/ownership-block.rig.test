@@ -70,17 +70,14 @@ fail "block tail defer field", "13:8: use of `v` after move", errors: 1
   !h.v.push(3)
   print(h.v.len)
 
-fail "block tail defer for else", "9:10: use of `v` after move", errors: 1
-  # A `for ... else` value's block-local tail leaves the `else` block
+fail "block tail defer loop break", "6:10: use of `v` after move", errors: 1
+  # A `loop` value's block-local `break` value leaves the loop's body
   # before its defer runs.
-  xs = [1, 2]
-  x = for k in xs
-    break List[Int]() if k > 5
-  else
+  x = loop
     v: List[Int] = List()
     !v.push(1)
     defer !v.push(2)
-    v
+    break v
   !x.push(3)
   print(x.len, x[0])
 
@@ -190,19 +187,19 @@ fail "block tail defer struct realloc", "12:8: use of `r` after move", errors: 1
   !x.v.push(3)
   print(x.v.len, x.v[0])
 
-fail "block tail defer while else", "11:8: use of `v` after move", errors: 1
-  # A `while ... else` value's block-local tail leaves the `else` block
-  # before its defer runs.
-  i = 0
-  x = while i < 0 : i += 1
-    break List[Int]() if i > 5
-  else
-    v: List[Int] = List()
-    !v.push(1)
-    defer
-      for k in 0..100
+fail "block tail defer labeled break", "10:12: use of `v` after move", errors: 1
+  # A block-local `break $l` value leaves the `loop` it names before the
+  # defer of the inner loop's body runs.
+  fun mk() -> List[Int]
+    $l: loop
+      for k in 0..3
+        v: List[Int] = List()
         !v.push(k)
-    v
+        defer
+          for i in 0..100
+            !v.push(i)
+        break $l v
+  x = mk()
   !x.push(3)
   print(x.len, x[0])
 
@@ -276,16 +273,13 @@ test "block tail moves out", '''
     r = R(n: 3)
     r
   i = 0
-  e = while i < 0 : i += 1
-    break R(n: 0)
-  else
+  e = loop
     r = R(n: 4)
-    r
-  f = for x in [1, 2]
-    break R(n: 0) if x > 5
-  else
+    break r
+  f = loop
+    break R(n: 0) if i > 5
     r = R(n: 7)
-    r
+    break <r
   g = if c
     r = R(n: 8)
     if not c

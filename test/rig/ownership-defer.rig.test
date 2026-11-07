@@ -552,8 +552,6 @@ fail "defer runs after its block's value", "15:14: use of `@xs` while a write lo
       r = loop
         defer !@xs.clear()
         break !@xs[0]
-      else
-        !@xs[1]
       r
 
   t = Tab(xs: List(), n: 0)
