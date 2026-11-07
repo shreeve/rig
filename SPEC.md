@@ -3982,8 +3982,9 @@ built-in APIs; it does what those bounds name, and each instance checks
 them at the type its argument gives it. `Iter` is built in: a type that
 declares `next(!@) -> T?`, the iterator a `for` loop walks, provides it
 with `Item` its `T`, and an API may build on it, `api Stream: Iter`.
-A bound by `Iter` takes the iterator itself, never a view of it, whose
-`next` the module may call. A value of an associated type that a call
+A bound by `Iter` takes the iterator itself, never a view of it or a
+box that holds it (`show[Words](!w)` lends a `^Words`'s iterator),
+whose `next` the module may call. A value of an associated type that a call
 on its base gives (`a = (!s).take()` of an `S.Item`, an item of
 `next`) views that base only at an instance whose associated type may
 view memory the base owns (`next(!@) -> (?String)? from @` over the
@@ -5926,7 +5927,9 @@ call, a move, a write lend, a clone, a box or handle, a propagation, a
 `catch`, or a `panic` in it is rejected. `$variants(T)` is the variants of a
 plain enum ([§3](#enums)). A type argument is written as one is
 in an expression (`List[Int]`, `?P`, `Int?`; a slice, array, or function
-type through a `type` alias).
+type through a `type` alias). A builtin computes a value and runs
+nothing of its own, so one alone as a statement does nothing, and is
+rejected.
 
 ```rig
 obj P
@@ -6093,7 +6096,8 @@ tests again (so a step that reads a binding of the condition cannot be
 paired with one, which would leave the binding unbound), and `continue`
 in the step ends the step. An `else` block runs when the loop
 ends without `break`, after the loop: a `break` or `continue` in it
-leaves the loop around this one. A loop can also yield a value
+leaves the loop around this one. The `else` of `while true` never
+runs, and is checked as any block is. A loop can also yield a value
 ([Loops as values](#loops-as-values)).
 
 The step runs after the body, so a view it reads, whether the
@@ -7080,7 +7084,8 @@ fail, or inside deferred code, it is rejected: write `defer`. A deferred body ma
 outer bindings, or propagate with `!`. It runs after the values declared
 after it are dropped, so it may not read one through a view. A
 one-line `defer` or `errdefer` cannot declare a name; a deferred block
-can.
+can. Nor is its statement a `defer` or an `errdefer` itself: it runs at
+the exit already.
 
 ```rig reject
 sub main()

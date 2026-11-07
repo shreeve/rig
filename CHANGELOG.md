@@ -45,6 +45,30 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
+**Programs `rig check` accepted and Zig then rejected** are rejected
+now, each with a Rig diagnostic; but for a builtin alone as a statement,
+none of these ever built:
+
+- `&` on a constructor typed by where it goes, `v: List[Int] =
+  List()&`, `m: Map[K, V] = Map()&`, `p: P[Int] = P(x: 1)&`, `e: E =
+  .v(x: 1)&`: "a task runs a call of a function or a method", as
+  `List[Int]()&` already said. Drop the `&`.
+- `defer defer s`, `errdefer defer s`: "a deferred statement cannot
+  itself be a `defer` or an `errdefer`". Write one.
+- a builtin alone as a statement, `$plain(T)` (which Zig rejected) or
+  `$size(T)` (which built and did nothing): "this expression does
+  nothing as a statement". Remove it, or use its value. Neither Trig
+  nor loco has one.
+- code in the `else` of `while true` that no other block may hold:
+  a statement after a `return`, a bare copy of an owned value. The
+  block never runs, and is checked as any block is.
+- a box where a type parameter bounded by `Iter` goes, `show(!w)` of a
+  `w: ^Words`: name the iterator's type, `show[Words](!w)`.
+- a closure literal with an untyped parameter where a generic
+  parameter that is no function goes, `app(|x| x)` for `xs: ?List[T]`:
+  "closure parameter `x` needs a type", or "cannot infer `T`", where
+  `rig build` reported an internal error.
+
 ### Added
 
 - **A large embedded table loads without a copy** in a Linux release
@@ -146,6 +170,16 @@ a bare number, and of `per:` of `task.supervise` and
   about a node with a classifier instead of a record.
 - Each name `as a, b` binds is a new name, checked as `as v`'s is: one
   that shadows a local, or a module-level declaration, is rejected.
+- A read lend copied out where a value goes adapts as the value it
+  copies: `o: Item[K, V]? = ?none` of an optional held as a niche
+  becomes its `none`, and `?B.y` where an error with fields goes widens
+  as `B.y` does. `?wr(!x)` of a call giving a write view `!Int` reads
+  the `Int` through it. Each built, where Zig rejected the emitted code.
+- `e = +E.v(x: 9223372036854775807)`, a clone of a constant, and
+  `P(a: ?n)`, a constant copied out of a read lend, are run-time values,
+  as the value without `+` or `?` is: `x + 1` on one panics with an
+  overflow when it runs, where Zig failed the build. `_ = $plain(T)` in
+  a generic body builds.
 
 ### Tests
 
