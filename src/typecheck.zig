@@ -8558,11 +8558,16 @@ const Checker = struct {
     fn namedType(self: *Checker, obj: Sexp) Error!?NamedType {
         if (rig.isBracketList(obj)) {
             const target = (try self.instTarget(ir.get(obj, .object))) orelse return null;
-            if (target != .generic or target.generic.id == self.ctx.simd_sym_id) return null;
+            // `Simd[T, n]` and `Slot[n]` are built-in types, not nominal
+            // ones (`builtinTypeNamed`).
+            if (target != .generic or target.generic.id == self.ctx.simd_sym_id or target.generic.id == self.ctx.slot_sym_id) return null;
             var nt = target.generic;
             const ty = try self.typeInstance(obj, nt);
             const arity = if (nt.sym.type_params) |tps| tps.len else 0;
-            nt.args = if (self.isPoison(ty)) try self.poisonArgs(arity) else self.ctx.types.get(ty).parameterized_nominal.args;
+            nt.args = if (self.isPoison(ty)) try self.poisonArgs(arity) else switch (self.ctx.types.get(ty)) {
+                .parameterized_nominal => |pn| pn.args,
+                else => return null,
+            };
             return nt;
         }
         if (obj == .src) {
@@ -13620,7 +13625,10 @@ const Checker = struct {
         var misreached: ?Sexp = null;
         if (self.isSelfSigil(obj)) {
             const place = ir.get(obj, .operand);
-            if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
+            if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null or
+                (try self.builtinTypeNamed(place, self.ctx.simd_sym_id, .simd)) != null or
+                (try self.builtinTypeNamed(place, self.ctx.slot_sym_id, .slot)) != null)
+            {
                 if (obj.isKind(.read)) {
                     try self.errAt(obj, "`{s}` is called through its type or module and has no `self`; to lend the call's result, write `?({s})`", .{ method, try self.callWith(obj, self.sourceText(place), method) });
                     try self.synthArgs(args);
