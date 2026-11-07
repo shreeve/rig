@@ -1009,8 +1009,11 @@ const Lowerer = struct {
                 return;
             }
             if (ref) {
-                // A write view's value is written through (SPEC §7).
-                const v = try self.eval(rhs, .take, try self.innerOf(xv.ty));
+                // A write view's value is written through (SPEC §7): a
+                // `?T` or `!T` of a `T` that copies is read there, as
+                // into a field (`readWanted`), so `w = ?a` writes an Int.
+                const want = try self.innerOf(xv.ty);
+                const v = try self.readWanted(try self.eval(rhs, .take, want), want, pos);
                 try self.emit(.{ .pos = pos, .what = .assign, .reads = try self.list(v), .uses = try self.one(x), .weak = x, .through = try self.one(x), .access = .{ .root = x, .deref = true, .kind = .write } });
                 return;
             }
@@ -3146,6 +3149,33 @@ const Lowerer = struct {
         return sema.changesByMark(self.ctx, ty);
     }
 
+    /// Whether a method `mname` that takes its self, called on a value
+    /// of `recv_ty`, would take an owner out through a view (§5): a
+    /// view of it, or a box that holds a read view of it, which
+    /// reaches its value through that view. A box's own method takes
+    /// the box. A value that copies is copied out instead (Core s1).
+    fn takesThroughView(self: *Lowerer, recv_ty: TypeId, mname: []const u8) Error!bool {
+        var ty = recv_ty;
+        var through = false;
+        while (true) {
+            switch (self.ctx.types.get(ty)) {
+                .read_view, .write_view => |inner| {
+                    through = true;
+                    ty = inner;
+                    continue;
+                },
+                .type_var => return false,
+                else => {},
+            }
+            const inner = sema.boxedType(self.ctx, ty) orelse break;
+            if (sema.nominalDecl(self.ctx, ty)) |d| if (try self.methodOf(d, mname) != null) break;
+            ty = inner;
+        }
+        if (!through) return false;
+        const k = try self.kinds.of(ty);
+        return !k.kind.copies() and !k.generic_copy;
+    }
+
     fn isHandle(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .shared, .weak => true,
@@ -3795,6 +3825,7 @@ const Lowerer = struct {
                     },
                     .value => {
                         if (self.isHandle(try self.typeOf(obj))) return abstain("a by-value receiver through a handle");
+                        if (try self.takesThroughView(recv_ty, leafText(ir.Member.name(callee), self.src))) return self.found(.C7, pos, "a method that consumes its self moves nothing out through a view", .{});
                         const r = try self.eval(obj, .take, null);
                         if (r) |rv| {
                             try moves.append(self.a, rv);
