@@ -139,10 +139,12 @@ a program that makes none starts no workers.
   task is one allocation, and a shared count is ticked only by tasks of
   sets that can fail.
 - **Queues.** Each worker owns a ring of 256 ready tasks, pushed with
-  one store; other workers steal half with one compare-and-swap. A "run
-  next" slot keeps a just-woken task in cache, at most 3 in a row.
-  Filling the slot wakes no worker (`sched.wake`); the task it pushes
-  out to the ring does, when none is looking. A worker runs the task
+  one store; other workers steal half with one compare-and-swap. Four
+  "run next" slots keep the tasks just woken or made in cache, newest
+  first: a new one takes the first slot and moves the others down, and
+  one pushed past the last goes to the ring. The worker runs the newest,
+  at most 3 in a row. Filling a slot wakes no worker (`sched.wake`); the
+  task pushed out to the ring does, when none is looking. A worker runs the task
   next when it woke the task itself: from its poller or a timer as it
   looks for work, at a task's end, or at a yield check, which yields
   to it when no other worker could take it (below). A task that wakes
@@ -155,15 +157,15 @@ a program that makes none starts no workers.
   fork-join (`t = f()&; g(); >t`) spreads at `g`'s first yield check,
   which wakes an idle worker for `f` and lets `g` run on, as Go's `go`
   leaves its maker running. A worker with nothing else to steal
-  also takes a task left in another's slot 3 µs (`sched.stealNext`), as
-  Go takes a `runnext`. A global queue takes overflow and work from
+  also takes the oldest task left in another's slots 3 µs
+  (`sched.stealNext`), as Go takes a `runnext`. A global queue takes overflow and work from
   outside the workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each
   writes at every switch never slow another's (`sched.Worker`).
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
-  is next on its worker hands the worker straight to it, on the task's
+  is still in one of its worker's slots hands the worker straight to it, on the task's
   own stack, and the task switches straight back when it ends, past the
   queues (`sched.handoff`). Running the task on the waiter's own stack
   would be faster still, but is safe only for a task whose stack use is
@@ -409,7 +411,7 @@ fails, and yields only when other work waits.
   function. In Trig's checker 387 of the 2,812 functions on cycles
   check, and they take under a third of the calls a check in every
   one of them did. Work woken or made while every worker is busy sets it, and so
-  does a fiber that fills its worker's "run next" slot and runs on. The
+  does a fiber that fills one of its worker's "run next" slots and runs on. The
   first check to see it clears it and yields to that work: its own
   worker's, or half of another busy worker's ring, stolen; or, when a
   worker with nothing to do could take it, wakes that worker and sets
@@ -420,7 +422,7 @@ fails, and yields only when other work waits.
   check or a sleeper, sets it again while any other worker's slot holds
   a fiber (`sched.takeWaiting`). Four accesses make that handshake, all
   sequentially consistent: the clearer's swap of the flag to 0 and its
-  reads of the slots after it, and the maker's swap into its slot and
+  reads of the slots after it, and the maker's swap into its first slot and
   its read of the flag after that. So the clearer sees the fiber, or
   the maker sees the flag clear and sets it (the stores that set it
   need no stronger order). A task that yields only puts itself back in
