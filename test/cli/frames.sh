@@ -120,7 +120,7 @@ rig emit iv.rig >/dev/null 2>&1 || fail "emit iv"
 pkg=$RIG_OUT_DIR/programs/iv
 for mode in Debug ReleaseSafe; do
     (cd "$pkg" && zig_once "$PWD/../iv-$mode.s" -- . -- "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../iv-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode asm iv: $(cat build.log)"
-    python3 check.py iv-accounts.txt "$pkg/../iv-$mode.s" -- 300000 '`chain`=chain' '`generic`=generic' '`values`=values' '`method`=method' '`loop`=loop' '`byvalue`=byvalue' || fail "$mode"
+    python3 check.py iv-accounts.txt "$pkg/../iv-$mode.s" -- 300000 '`chain`=chain' '`generic`=generic' '`values`=values' '`method`=method' '`walk`=walk' '`byvalue`=byvalue' || fail "$mode"
     # `wrapped` and `piled` check what the rule leaves out of line, which
     # holds the marked functions: in debug Zig inlines only an `inline
     # fn`, while in --release LLVM inlines unmarked functions of its own

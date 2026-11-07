@@ -1,0 +1,244 @@
+# `loop`, the one loop that gives a value, and the forms other
+# languages write where Rig has its own (SPEC "loop", "Loops as
+# values").
+
+test "loop runs until a break", "4"
+  i = 0
+  loop
+    i += 1
+    if i > 3
+      break
+  print(i)
+
+test "loop gives the value of its break", "3 7"
+  i = 0
+  r = loop
+    i += 1
+    if i == 3
+      break i
+  xs = [4, 7, 9]
+  j = 0
+  first_odd = loop
+    if j == xs.len
+      break -1
+    if xs[j] % 2 == 1
+      break xs[j]
+    j += 1
+  print(r, first_odd)
+
+test "loop moves the owner its break names", "1 2"
+  fun make(n: Int) -> List[Int]
+    loop
+      v: List[Int] = List()
+      for i in 0..n
+        !v.push(i)
+      break v
+
+  a = make(1)
+  b = make(2)
+  print(a.len, b.len)
+
+test "labeled loop broken out of from an inner for", "6"
+  xs = [1, 2, 3, 4]
+  n = 0
+  $outer: loop
+    for x in xs
+      n += x
+      if n > 5
+        break $outer
+  print(n)
+
+test "a labeled loop gives the value of a break naming it", "9"
+  fun first_over(xs: ?[4]Int, k: Int) -> Int
+    $found: loop
+      for x in xs
+        if x > k
+          break $found x
+      break $found -1
+
+  print(first_over(?[1, 5, 9, 2], 6))
+
+test "a function may end with a loop no break leaves", "3"
+  fun count_to(n: Int) -> Int
+    i = 0
+    loop
+      i += 1
+      if i == n
+        return i
+
+  print(count_to(3))
+
+test "loop with a fallback that breaks", "6 0"
+  xs = List[Int]([1, 2, 3])
+  total = 0
+  loop
+    x = !xs.pop() ?? break
+    total += x
+  print(total, xs.len)
+
+fail "while true is written loop", "1:1: write `loop`: `while` takes a condition that can end it"
+  while true
+    break
+
+fail "while true with a step is written loop", "write `loop`: `while` takes a condition that can end it"
+  i = 0
+  while true : i += 1
+    break if i > 2
+
+code "loop is a Zig while (true)", "while (true) {"
+  i = 0
+  loop
+    i += 1
+    break if i > 2
+  print(i)
+
+fail "loop else on for", "5:1: a loop has no `else`; to act when nothing matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d`"
+  xs = [1, 2]
+  for x in xs
+    if x > 5
+      break
+  else
+    print("none")
+
+fail "loop else on while", "a loop has no `else`; to act when nothing matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d`"
+  i = 0
+  while i < 3
+    i += 1
+  else
+    print(i)
+
+fail "loop else on loop", "3:1: a loop has no `else`; to act when nothing matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d`"
+  loop
+    break
+  else
+    print(0)
+
+fail "for used as a value", "2:5: a `for` or `while` loop gives no value; use `loop` with `break v`, a chain such as `xs.find(f) ?? d`, or `return` from a function", "4:11: `break` in a `for` or `while` loop carries no value; give the value with `loop` and `break v`, or assign it to a name declared before the loop and `break`"
+  xs = [1, 2]
+  r = for x in xs
+    if x > 1
+      break x
+  print(r)
+
+fail "while used as a value", "a `for` or `while` loop gives no value; use `loop` with `break v`, a chain such as `xs.find(f) ?? d`, or `return` from a function"
+  i = 0
+  r: Int = while i < 3
+    i += 1
+  print(r)
+
+fail "break value in a for", "4:11: `break` in a `for` or `while` loop carries no value; give the value with `loop` and `break v`, or assign it to a name declared before the loop and `break`"
+  xs = [1, 2]
+  for x in xs
+    if x > 1
+      break x
+
+fail "break value in a while", "`break` in a `for` or `while` loop carries no value"
+  i = 0
+  while i < 3
+    i += 1
+    break i if i == 2
+
+fail "loop used as a value takes a value from every break", "5:5: this `break` leaves a loop used as a value; give it the value (`break value`)"
+  i = 0
+  r = loop
+    i += 1
+    if i > 3
+      break
+    if i == 2
+      break 2
+  print(r)
+
+fail "loop as a statement takes plain breaks", "1:1: the value of this loop is not used; bind it (`x = loop` ...) or `break` without a value"
+  loop
+    break 3
+
+fail "a block after ??", "2:7: after `??` comes one value or a jump (`?? 0`, `?? return`); for several lines write `if o as x ... else ...`"
+  o: Int? = none
+  x = o ??
+    print(1)
+    0
+  print(x)
+
+fail "nothing after ??", "2:7: after `??` comes one value or a jump"
+  o: Int? = none
+  x = o ??
+  print(x)
+
+fail "no list comprehension", "2:13: Rig has no list comprehension; write a chain, `xs.map(|x| x * 2).collect()`, or a `for` loop that pushes to a List"
+  xs = [1, 2]
+  ys = [x * 2 for x in xs]
+
+test "the chain the comprehension message names", "[2, 4]"
+  xs = List[Int]([1, 2])
+  print(xs.map(|x| x * 2).collect())
+
+fail "range is written as a range", "1:10: use of unbound name `range`; Rig writes a range `0..3`, or `a..b` for `range(a, b)`"
+  for i in range(3)
+    print(i)
+
+fail "enumerate is written in the for", "2:13: use of unbound name `enumerate`; write `for x, i in xs`: the element first, then its index"
+  xs = [1]
+  for i, x in enumerate(xs)
+    print(i)
+
+fail "an arrow function is a closure", "1:7: a closure is `|x| ...`: write `|x| x * 2`"
+  f = x => x * 2
+
+fail "a lambda is a closure", "1:5: Rig has no `lambda`; a closure is `|x| ...`: write `|x| x * 2`"
+  f = lambda x: x * 2
+
+fail "or is no fallback", "2:7: `or` joins Bools; an optional's fallback is `o ?? 0`"
+  o: Int? = none
+  print(o or 0)
+
+fail "if let is if as", "2:4: Rig has no `if let`; write `if o as x`"
+  o: Int? = none
+  if let x = o
+    print(x)
+
+fail "while let is while as", "Rig has no `while let`; write `while !xs.pop() as x`"
+  xs = List[Int]([1])
+  while let x = !xs.pop()
+    print(x)
+
+fail "forever is loop", "Rig has no `forever`; write `loop`"
+  forever
+    break
+
+test "a binding takes a labeled loop", "9 -1 abcd"
+  # `r = $found: loop` is the search a `for` ... `else` wrote: the inner
+  # `for` leaves the loop with `break $found v`, and the loop's own
+  # `break` gives the value when nothing matched.
+  fun long(xs: ?List[String]) -> String
+    return $o: loop
+      for x in xs
+        break $o +x if x.len > 3
+      break $o String("none")
+
+  xs = [3, 8, 9]
+  r = $found: loop
+    for x in xs
+      break $found x if x > 8
+    break $found -1
+  t: Int = $none: loop
+    for x in xs
+      break $none x if x > 50
+    break $none -1
+  ss = List[String]()
+  !ss.push(String("ab"))
+  !ss.push(String("abcd"))
+  print(r, t, long(?ss))
+
+fail "a label before a binding's value names only a loop", "2:5: `$name` is a builtin call"
+  x = 1
+  r = $l: x
+
+fail "while (true) is written loop", "1:1: write `loop`: `while` takes a condition that can end it"
+  while (true)
+    break
+
+fail "a keyword is no name", "1:1: `loop` is a keyword; choose another name"
+  loop = 3
+
+fail "a keyword is no argument", "1:7: `match` is a keyword; choose another name"
+  print(match)

@@ -210,7 +210,7 @@ pub obj Doc
     # `depth` counts the open ones.
     top = -1
     depth = 0
-    while true
+    loop
       # A value starts at `i`.
       return (!@).fail(.eof(at: i)) if i >= n
       c = src[i]
@@ -234,7 +234,7 @@ pub obj Doc
         i = (!@).scalar(src, i, c)
         return -1 if i < 0
       # A value ended before `i`: a comma or a close comes next.
-      while true
+      loop
         i = skip_space(src, i)
         if top < 0
           return 0 if i == n
@@ -398,7 +398,7 @@ pub obj Doc
           start = i - k
           break
     i = start
-    while true
+    loop
       while i < n and src[i] >= 0x80
         j = utf8_end(src, i)
         return (!@).fail(.utf8(at: i)) if j < 0
@@ -421,7 +421,7 @@ pub obj Doc
     offset = @text.len
     !@text.add(src[start..at])
     i = at
-    while true
+    loop
       c = src[i]
       if c == '"'
         return -1 if (!@).add_string(T_ESC_STR, offset, @text.len - offset, start - 1) < 0

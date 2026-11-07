@@ -659,7 +659,7 @@ fail "move part of made value", "44:3: cannot move a part out of the temporary `
   print(through_handle(~h))
   print(made_leaf_value(true).len, made_optional())
 
-fail "move part that copies", "41:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "42:8: cannot move out of `s.p`: it copies", "43:8: cannot move out of `s.p.x`: it copies", "44:8: cannot move out of `s.r`: it copies", "45:8: cannot move out of `s.name`: it copies", "55:8: cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "56:8: cannot move out of `ps[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "57:8: cannot move out of `ps[0].x`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "58:8: cannot move out of `arr[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "59:8: cannot move out of `sl[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "63:4: cannot move out of `s.n`: it copies", "66:4: cannot move out of `s.p.x`: it copies", "71:8: cannot move out of `rv(?s).n`: it copies", "72:8: cannot move out of `wv(!s).n`: it copies", "78:8: cannot move out of `h.n`: it copies", "82:11: cannot move out of `s.n`: it copies", "87:9: cannot move out of `s.n`: it copies", "88:10: cannot move out of `s.n`: it copies", "91:13: cannot move out of `s.n`: it copies", "91:22: cannot move out of `s.p`: it copies", "91:52: cannot move out of `s.n`: it copies", "94:12: cannot move out of `s.n`: it copies", "97:10: cannot move out of `s.p`: it copies", "102:13: cannot move out of `s.arr`: it copies", errors: 24
+fail "move part that copies", "41:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "42:8: cannot move out of `s.p`: it copies", "43:8: cannot move out of `s.p.x`: it copies", "44:8: cannot move out of `s.r`: it copies", "45:8: cannot move out of `s.name`: it copies", "55:8: cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "56:8: cannot move out of `ps[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "57:8: cannot move out of `ps[0].x`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "58:8: cannot move out of `arr[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "59:8: cannot move out of `sl[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "63:4: cannot move out of `s.n`: it copies", "66:4: cannot move out of `s.p.x`: it copies", "71:8: cannot move out of `rv(?s).n`: it copies", "72:8: cannot move out of `wv(!s).n`: it copies", "78:8: cannot move out of `h.n`: it copies", "82:11: cannot move out of `s.n`: it copies", "87:9: cannot move out of `s.n`: it copies", "88:10: cannot move out of `s.n`: it copies", "91:13: cannot move out of `s.n`: it copies", "91:22: cannot move out of `s.p`: it copies", "91:52: cannot move out of `s.n`: it copies", "93:12: cannot move out of `s.n`: it copies", "94:10: cannot move out of `s.p`: it copies", "99:13: cannot move out of `s.arr`: it copies", errors: 24
   # `<` always leaves its source done: a name is ended, an optional field
   # or element is emptied to `none`, and any other place is rejected. A
   # field or element whose value copies can be neither, so `<` on it is
@@ -751,11 +751,8 @@ fail "move part that copies", "41:8: cannot move out of `s.n`: it copies, so `<`
       1 => print("one")
       _ => print("other")
     q = S(n: <s.n, p: <s.p, r: ?k, name: "q", arr: [<s.n, 0])
-    i = 0
-    j = while i < 2 : i += 1
+    j = loop
       break <s.n
-    else
-      0
     print(<s.p.into(), q.n, j, ret(<s))
 
   sub for_part()

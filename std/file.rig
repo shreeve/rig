@@ -34,7 +34,7 @@ pub error FileError
   not_empty
   # Symbolic links on the path name one another, or too many of them
   # (ELOOP).
-  loop
+  link_loop
   # The path, or a name in it, is longer than the system takes
   # (ENAMETOOLONG).
   name_too_long
@@ -151,7 +151,7 @@ pub fun reason(e: FileError) -> Static
     .not_directory => reason_text(5)
     .is_directory => reason_text(6)
     .not_empty => reason_text(7)
-    .loop => reason_text(8)
+    .link_loop => reason_text(8)
     .name_too_long => reason_text(9)
     .busy => reason_text(10)
     .cross_device => reason_text(11)

@@ -5068,7 +5068,7 @@ reaches and writes it through `w`. A new local holds a write view the
 same way, with or without a type: `w = slot(!n)`, a call returning a
 `!Int`, holds the view, as `w: !Int = slot(!n)` does, so `w = 5`
 writes `n`, and so does a branching value or a loop used as a value
-each of whose values hands one over (`l = while true` with `break
+each of whose values hands one over (`l = loop` with `break
 slot(!n)`); a bare name, or a value that branches among them, binds
 the value it reaches. A parameter is never re-pointed:
 `w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
@@ -5833,7 +5833,7 @@ optional field or element and drop it, leaving `none`, and `<mk()`
 drops the value `mk()` makes. Where a value is expected, `<e` moves it
 there: in an operand, an argument, a binding's value, a `return` or
 `break` value, and on the last line of a `fun` or a closure (its value)
-or of a branch, arm, or loop `else` block whose value is used. A
+or of a branch or arm whose value is used. A
 closure whose type returns nothing (from the parameter it is passed to,
 or a typed binding) treats its last line as a statement, as a `sub`
 does, so `<x` drops there and a value on it does nothing, which is
@@ -6094,11 +6094,9 @@ while the optional `e` has a value. A jump in the condition or the step
 loop: `break` leaves it, `continue` in the condition runs the step and
 tests again (so a step that reads a binding of the condition cannot be
 paired with one, which would leave the binding unbound), and `continue`
-in the step ends the step. An `else` block runs when the loop
-ends without `break`, after the loop: a `break` or `continue` in it
-leaves the loop around this one. The `else` of `while true` never
-runs, and is checked as any block is. A loop can also yield a value
-([Loops as values](#loops-as-values)).
+in the step ends the step. A `while` gives no value, and its condition
+is one that can end it: `while true` is rejected, with "write `loop`"
+([loop](#loop)).
 
 The step runs after the body, so a view it reads, whether the
 condition binds it or a name declared before the loop holds it, is in
@@ -6124,6 +6122,38 @@ sub main()
 cannot lend `v` to write while a read loan is live
 ```
 
+### loop
+
+`loop` repeats its block until a jump leaves it: a `break`, a `return`,
+or a jump after `??` or `catch`. It has no condition, so it is the loop
+that ends only where its body says, and the one loop that gives a value
+([Loops as values](#loops-as-values)). A function may end with a `loop`
+no `break` leaves, since it ends only by `return`.
+
+```rig
+fun first_power(n: Int, over: Int) -> Int
+  p = 1
+  loop
+    p *= n
+    if p > over
+      return p
+
+sub main()
+  i = 0
+  loop
+    i += 1
+    break if i == 3
+  r = loop
+    i += 1
+    if i % 5 == 0
+      break i
+  print(i, r, first_power(2, 100))
+```
+
+```output
+5 5 128
+```
+
 ### for
 
 `for x in source` walks an array, a slice, a `?String` (bytes), a
@@ -6133,7 +6163,9 @@ type's largest value (`for b in 0..=U8.max` runs 256 times); the
 bounds have one integer type, the element's, and are evaluated once. `for x, i in xs` also binds the index (not for
 ranges); the element comes first, the reverse of Python's
 `enumerate`, and where a loop written index first gives a binding the
-other's type, the error says so. An `else` block runs when the loop ends without `break`. A
+other's type, the error says so. A `for` gives no value, and no loop
+has an `else`: to act when nothing matched, test first (`if not
+xs.any(f)`), or take a chain's result (`xs.find(f) ?? d`). A
 source that is a place is walked where it stands: `for x in v` is
 `for x in ?v`, which lends `v` to read for the whole loop ([§10](#list)),
 so an element of plain data is a copy and any other element a view of
@@ -6187,9 +6219,8 @@ sub find(xs: ?[4]Int, target: Int)
   for x, i in xs
     if x == target
       print("found at", i)
-      break
-  else
-    print("not found")
+      return
+  print("not found")
 
 sub main()
   total = 0
@@ -6328,8 +6359,8 @@ a loop over a List of `String` walks a List that a name holds, or a field or ele
 An iterator is a value whose type declares `next(!@) -> T?`. A
 `for` over one is the loop `while (!it).next() as x`, so each `x` is
 what `as` binds over the `T?` the call gives, the loop ends when `next`
-gives `none`, and `else`, `break` values, labels, and loop values
-([Loops as values](#loops-as-values)) work as they do for a `while`.
+gives `none`, and `break`, `continue`, and labels work as they do for a
+`while`.
 The loop advances the iterator where it stands, so the iterator must be
 writable, and one a `break` leaves is there to resume. How the source is
 written decides what the loop does with it:
@@ -6373,10 +6404,10 @@ sub main()
     break if n == 1
   for n in !c
     print("then", n)
-  first = for w in text.words("a bb ccc")
+  ws = text.words("a bb ccc")
+  first = loop
+    w = (!ws).next() ?? break "none"
     break w if w.len > 1
-  else
-    "none"
   print(first)
   for n in upto(2)
     print("made", n)
@@ -6561,10 +6592,9 @@ takes two. A jump after `??` or `catch`
 may name a label too ([§12](#the-fallback-of-)), also in a `while`
 header (`while more() ?? break $outer : i += 1`). A label may repeat an
 enclosing one's name; the innermost is meant. A `for` source is
-evaluated before its loop is entered, as a loop's `else` runs after it
-ends, so a jump in either (`for j in 0..(n ?? break v)`) leaves or
-continues the loop around that `for`, and a `break` value there is that
-loop's value.
+evaluated before its loop is entered, so a jump in it (`for j in
+0..(n ?? break v)`) leaves or continues the loop around that `for`, and
+a `break` value there is that loop's value.
 
 ```rig
 sub main()
@@ -6590,8 +6620,9 @@ found
 
 A label is `$` and a name, which the `$` touches. Where it is declared
 the `:` touches the name too (`$outer:`), and it stands before a
-statement that starts a line (or another label), or alone on a line
-over the block it names; the statement after `=>`, `defer`, or
+statement that starts a line (or another label), alone on a line over
+the block it names, or before the `loop` a binding or `return` takes
+(`r = $found: loop`); the statement after `=>`, `defer`, or
 `errdefer` takes none. After `break` or `continue` it is written with
 no `:` (`break $outer`). `$name(...)`, with the `(` touching the name,
 is a builtin call ([Builtins](#builtins)) instead, after a jump too:
@@ -6613,17 +6644,66 @@ a label names a loop, `match`, or `raw` block that `break` or `continue` can lea
 
 ### Loops as values
 
-A loop that `break` leaves with a value (`break v`, or `break $name v`
-from an inner loop) is an expression. Its value is the value of the
-`break` that leaves it, or, when the loop ends without one, the value
-of its `else` block, which it therefore needs (only `while true` can do
-without). Every `break` leaving it carries a value, and they and the
-`else` value meet in one type. A `break` value is consumed like a
-returned value: a name the loop declares moves out bare (`break x`),
-since its scope ends with the move, an owning name from outside the
-loop is moved with `<x`, and a view may not outlive what it views. The
-value must be used; a `break` cannot carry a value out of a loop whose
-value is not.
+`loop` is the one loop that gives a value. A `loop` that `break` leaves
+with a value (`break v`, or `break $name v` from an inner loop) is an
+expression, whose value is the value of the `break` that leaves it: it
+ends only by a jump, so its value is always defined. Every `break`
+leaving it carries a value, and they meet in one type. A `break` value
+is consumed like a returned value: a name the loop declares moves out
+bare (`break x`), since its scope ends with the move, an owning name
+from outside the loop is moved with `<x`, and a view may not outlive
+what it views. The value must be used; a `loop` used as a statement
+takes plain `break`s.
+
+A labeled `loop` is a value too, where a binding or `return` takes it:
+`r = $found: loop`, which a `break $found v` from an inner `for` leaves,
+is the search a loop's value is for.
+
+A `for` or `while` only repeats: it gives no value, and a `break` in one
+carries none. A search that gives a value is a chain
+(`xs.find(f) ?? d`, [Chains](#chains)), `xs.index_of(x)` ([List](#list)), a function
+that returns from its loop, or a `loop`.
+
+```rig
+fun make(n: Int) -> List[Int]
+  loop
+    v: List[Int] = List()
+    for k in 0..n
+      !v.push(k)
+    break v
+
+sub main()
+  xs = [4, 7, 9]
+  i = 0
+  first_odd = loop
+    if i == xs.len
+      break -1
+    if xs[i] % 2 == 1
+      break xs[i]
+    i += 1
+  ys = List[Int]([2, 9, 4])
+  big = $found: loop
+    for y in ys
+      break $found y if y > 5
+    break $found -1
+  print(first_odd, make(3).len, big)
+```
+
+```output
+7 3 9
+```
+
+```rig reject
+sub main()
+  xs = [1, 2]
+  r = for x in xs
+    print(x)
+  print(r)
+```
+
+```error
+a `for` or `while` loop gives no value; use `loop` with `break v`, a chain such as `xs.find(f) ?? d`, or `return` from a function
+```
 
 ### match
 
@@ -9370,6 +9450,7 @@ owns one), and read views.
 | `v.is_empty()` | `v.len == 0`; it only reads, so `!v.is_empty()` is rejected (negate with `not`) |
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
+| `v.index_of(x)` | the index of the first element equal to `x` (`==`, a type's own `eq` included), as `Int?`, `none` when no element is; `T` is a type `==` compares, checked for each instance in a generic body |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
 | `!v.keep(n)` | keep the first `n` elements and drop the rest, last first; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
 | `!v.resize(n, x)` | grow to `n` elements with copies of `x`, or shrink to `n` as `keep` does; `n == v.len` changes nothing; `x` must copy (below); panics when `n` is negative |
@@ -13884,7 +13965,7 @@ sub main()!
   ch = *Chan[Int](4)
   p = produce(+ch, 5)&
   sum = 0
-  while true
+  loop
     v = (!ch).recv()! ?? -1
     if v < 0
       break
@@ -14143,6 +14224,12 @@ not parse, and their words and sigils stay reserved:
 | `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
 | `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
 | `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
+| `while true` | `` write `loop`: `while` takes a condition that can end it `` |
+| an `else` after a loop | `` a loop has no `else`; to act when nothing matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d` `` |
+| a block after `??` | `` after `??` comes one value or a jump (`?? 0`, `?? return`); for several lines write `if o as x ... else ...` `` |
+| `[x * 2 for x in xs]` | `` Rig has no list comprehension; write a chain, `xs.map(\|x\| x * 2).collect()`, or a `for` loop that pushes to a List `` |
+| `x => x * 2`, `lambda x: x * 2` | `` a closure is `\|x\| ...`: write `\|x\| x * 2` `` |
+| `if let x = o` | `` Rig has no `if let`; write `if o as x` `` |
 | `async fun f()`, `await t` | `` Rig has no `async`; any function runs as a task with `&`: `t = f(x)&` starts one, and `>t` waits for its result ``, and `await`'s toward `>t` |
 | `trait Shape`, `impl Shape for Square` | `` Rig has no `trait`; write `api`: `api Shape` declares the methods a type provides ``, and `impl`'s toward `add` ([APIs](#apis)) |
 | float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
@@ -14163,6 +14250,10 @@ The rest parse, and the checker rejects them as not supported yet
 | a compile-time function called with an enclosing generic's parameter, `[cap[n]]T` | `` compile-time argument 1 of `cap` is the compile-time parameter `n`; a compile-time function is called with values known where the call is written `` |
 | arithmetic on a compile-time parameter in a type, `[n * 2]T` | `` an array length `n * 2` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant `` |
 | a compile-time function over text, a float, or an optional | `` compile-time function `h` cannot take a `Static`: its parameters are integers, `Bool`, and plain enums `` |
+| a `for` or `while` used as a value | `` a `for` or `while` loop gives no value; use `loop` with `break v`, a chain such as `xs.find(f) ?? d`, or `return` from a function `` |
+| `break v` in a `for` or `while` | `` `break` in a `for` or `while` loop carries no value; give the value with `loop` and `break v`, or assign it to a name declared before the loop and `break` `` |
+| `o or 0` for an optional `o` | `` `or` joins Bools; an optional's fallback is `o ?? 0` `` |
+| `range(3)`, `enumerate(xs)` | `` use of unbound name `range`; Rig writes a range `0..3`, or `a..b` for `range(a, b)` ``, and `enumerate`'s toward `for x, i in xs` |
 | an owned closure called as a temporary, `(+h.f)(x)` | `` this `*fun(Int) -> Int` is a temporary that owns a resource, and nothing would drop it; bind it to a name first `` |
 
 ```rig reject

@@ -630,12 +630,12 @@ test "header made cell holder owned", '''
     H(o: *Counter(hits: Cell(10)), arr: two())
 
   sub loops()
-    x = for k in two()
+    x = 0
+    for k in two()
       !k.hit()
       if k.hits.get() > 3
-        break k.hits.get()
-    else
-      0
+        x = k.hits.get()
+        break
     print(x)
     keep: (*Counter)? = none
     for k in [*Counter(hits: Cell(7)), *Counter(hits: Cell(8))]
@@ -1399,7 +1399,7 @@ test "header temporaries end with header", '''
     print("body", k)
     i += 1
   j = 0
-  while true
+  loop
     k = opt(?mk(55 + j)) ?? break
     print("never", k)
   match mke(?mk(5))

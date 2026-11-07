@@ -738,7 +738,7 @@ fail "task write loan broken out of a loop", "`t` is a task lent to write, which
     v.len
 
   xs: List[Int] = List()
-  r = while true
+  r = loop
     t = fill(!xs)&
     break t
   print(>r)
@@ -1490,8 +1490,8 @@ code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
 
 test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
   # Loops over a List and a Table lent to several tasks at once, long
-  # enough to pass many yield checks, with `continue`, `return`, a loop
-  # value's `break` and `else`, a nested loop, and small and negative
+  # enough to pass many yield checks, with `continue`, `return`, a
+  # `loop`'s `break` values, a nested loop, and small and negative
   # bounds.
   fun make(n: Int) -> List[Int]
     xs: List[Int] = List()
@@ -1518,10 +1518,11 @@ test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 114
     -1
 
   fun first(xs: ?List[Int], k: Int) -> Int
-    at = for i in 1000..xs.len
+    i = 1000
+    at = loop
+      break -1 if i >= xs.len
       break i if xs[i] == k
-    else
-      -1
+      i += 1
     at
 
   fun nested(n: Int) -> Int

@@ -27,7 +27,7 @@ test "file read reuses its buffer", "true 0"
   buf = String()
   total = 0
   allocs = 0
-  while true
+  loop
     !buf.clear()
     before = os.memory().allocs
     n = (!f).read(!buf, 4096)!
@@ -63,7 +63,7 @@ test "file reason is the system's text", '''
   Input/output error
   Unknown error
 '''
-  es = [file.FileError.not_found, file.FileError.exists, file.FileError.denied, file.FileError.not_permitted, file.FileError.read_only, file.FileError.not_directory, file.FileError.is_directory, file.FileError.not_empty, file.FileError.loop, file.FileError.name_too_long]
+  es = [file.FileError.not_found, file.FileError.exists, file.FileError.denied, file.FileError.not_permitted, file.FileError.read_only, file.FileError.not_directory, file.FileError.is_directory, file.FileError.not_empty, file.FileError.link_loop, file.FileError.name_too_long]
   for e in es
     print(file.reason(e))
   # The two whose words differ between macOS and glibc.

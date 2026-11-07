@@ -455,7 +455,7 @@ reports a file it may not read.
 | `not_directory` | the path given `read_dir` or `rmdir` names a file, or a file stands where a call needs a directory on the way | Not a directory |
 | `is_directory` | the path names a directory, where a file is wanted | Is a directory |
 | `not_empty` | `remove` or `rmdir` of a directory that holds entries | Directory not empty |
-| `loop` | symbolic links on the path name one another, or too many of them | Too many levels of symbolic links |
+| `link_loop` | symbolic links on the path name one another, or too many of them | Too many levels of symbolic links |
 | `name_too_long` | the path, or a name in it, is longer than the system takes | File name too long |
 | `busy` | what the call needs is in use: a mount point | Resource busy (macOS), Device or resource busy (glibc) |
 | `cross_device` | `rename` across file systems | Cross-device link (macOS), Invalid cross-device link (glibc) |
@@ -850,7 +850,7 @@ use std.time
 
 fun count() -> Int!
   n = 0
-  while true
+  loop
     task.check()!
     n += 1
   n
@@ -1065,7 +1065,7 @@ fun echo(l: net.Listener) -> Int!
   c = l.accept()!
   buf = String()
   total = 0
-  while true
+  loop
     n = (!c).read(!buf, 4096)!
     if n == 0
       break
@@ -1102,7 +1102,7 @@ use std.net
 fun answer(l: net.Listener) -> Int!
   s = l.accept()!
   got = String()
-  while true
+  loop
     if (!s).read(!got, 64)! == 0
       break
   (!s).write(String("got ", got.len))!
@@ -1122,7 +1122,7 @@ sub main()!
   r, w = <c.split()
   s = send(<w)&
   back = String()
-  while true
+  loop
     if (!r).read(!back, 64)! == 0
       break
   print(back, >s!, >t!)
@@ -1177,7 +1177,7 @@ sub main()!
   c = net.connect(String("127.0.0.1:", port))!
   (!c).write("GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
   got = String()
-  while true
+  loop
     n = (!c).read(!got, 4096)!
     if n == 0
       break
@@ -2068,6 +2068,21 @@ ahead of its read, and does nothing a program can see: an `i` out of
 range is no error ([SPEC](../SPEC.md#slices)). It pays where the core
 cannot overlap the misses on its own, as when each lookup ends in a
 branch on what it read: bench/prefetch measures it.
+
+`xs.index_of(x)` is the index of the first element equal to `x`, or
+`none`, as `slices.index_of(xs, x)` is for a slice: `==` compares them,
+a type's own `eq` included, so `T` is a type `==` takes. A search by a
+test is a chain, `xs.find(|x| x > 3)`, which gives the element.
+
+```rig
+sub main()
+  xs = List[Int]([3, 8, 1, 8])
+  print(xs.index_of(8) ?? -1, xs.index_of(7) ?? -1, xs.find(|x| x > 5) ?? -1)
+```
+
+```output
+1 -1 8
+```
 
 `List.filled(n, x)` makes a List of `n` copies of `x`, and
 `!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or

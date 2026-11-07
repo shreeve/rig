@@ -5323,8 +5323,8 @@ fail "labeled loop broken out of", "a function returning `Int` must end with a v
 
   fun f(n: Int) -> Int
     i = 0
-    $a: while true
-      while true
+    $a: loop
+      loop
         i += 1
         if i > n
           break $a
@@ -5334,7 +5334,7 @@ fail "labeled loop broken out of", "a function returning `Int` must end with a v
 fail "labeled loop checked", "type mismatch: expected `Int`, got `Static`"
   # The body of a labeled loop is type-checked like any other.
 
-  $outer: while true
+  $outer: loop
     x: Int = "s"
     break $outer
 
@@ -5342,8 +5342,8 @@ test "labeled loop ends function", "4"
   # A function may end with a labeled `while true` that no `break` leaves.
 
   fun f(n: Int) -> Int
-    $a: while true
-      while true
+    $a: loop
+      loop
         break
       return n
 
@@ -5707,14 +5707,15 @@ fail "loop copy write hint", "13:3: cannot assign to `c`: it is a copy of an ele
     x.n = 5
   print(cs.len)
 
-fail "loop value mismatch", "6:3: incompatible types `Static` and `Int`", "8:9: type mismatch: expected `Int`, got `Static`"
-  # The `break` values and the `else` value of a loop meet in one type.
+fail "loop value mismatch", "6:9: incompatible types `Static` and `Int`", "9:9: type mismatch: expected `Int`, got `Static`"
+  # The `break` values of a loop meet in one type.
 
-  x = for i in 0..3
+  i = 0
+  x = loop
     break "two" if i == 2
-  else
-    0
-  y: Int = while true
+    break 0 if i == 3
+    i += 1
+  y: Int = loop
     break "one"
   print(x, y)
 

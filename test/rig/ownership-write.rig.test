@@ -243,13 +243,12 @@ test "write lend kept", release: true, '''
   h: !Int = !m
   h += 5
   print(m)
-  l = while true
+  l = loop
     break !m
   l += 10
-  k = for i in 0..3
-    break !n if i == 1
-  else
-    !m
+  k = loop
+    break !n if c
+    break !m
   k += 1
   print(n, m)
 
@@ -426,7 +425,7 @@ fail "write lend read result is rejected", "43:3: cannot lend `v` to write while
   # oracle: field reject C4
   # oracle: element reject C4
   # oracle: generic reject C4
-  # oracle: loop reject C4
+  # oracle: looped reject C4
   # oracle: deferred reject C4
   # oracle: closure reject C4
 
@@ -503,7 +502,7 @@ fail "write lend read result is rejected", "43:3: cannot lend `v` to write while
     !v.push(Item(n: 2))
     print(r.n)
 
-  sub loop()
+  sub looped()
     v = items()
     r = first(!v)
     for i in 0..2
@@ -2341,7 +2340,7 @@ test "write view result binding holds view", '''
   print(n)
   b = slot(!n) if n > 100 else slot(!m)
   b = 0
-  l = while true
+  l = loop
     break slot(!n)
   l = 1
   print(n, m)
@@ -2355,7 +2354,7 @@ fail "write view held by a loop value is lent while it lives", "12:7: use of `n`
     a
 
   n = 12
-  l = while true
+  l = loop
     break slot(!n)
   l = 1
   print(n, l)
@@ -2693,7 +2692,7 @@ test "write view lent through a binding is returned", '''
       none
 
     fun ensure(!@, j: Int) -> !Int from @
-      while true
+      loop
         if !@slots[j] as s
           return !s.value
         @slots[j] = Slot(key: j, value: 7)
@@ -2763,7 +2762,7 @@ test "write view lent through a binding is returned", '''
     .full(s) => print(s.value)
     .empty => pass
 
-fail "write view lent through a binding stays lent", "24:7: cannot assign to `@slots[j]` while `@slots` is lent", "31:7: cannot reassign `s` while `s.items` is lent", "37:14: `other` returns a view of `@p`, but its signature says it views only `@o`", "42:13: cannot reassign `s` while `s.items` is lent", "50:15: cannot lend `s.items` to write while a write loan on `s` is live", "56:15: cannot lend `s.items` to write while a write loan on `s` is live", "61:13: cannot reassign `s` while `s.items` is lent", "68:13: cannot reassign `s` while `s.items` is lent", "79:12: `s` does not live long enough", "84:11: cannot reassign `s` while `s.items` is lent", "90:13: cannot reassign `s` while `s.items` is lent", "98:8: cannot return a view of `x`, which this function was not lent", "103:9: cannot return a view of `xs`, which this function was not lent", errors: 13
+fail "write view lent through a binding stays lent", "24:7: cannot assign to `@slots[j]` while `@slots` is lent", "31:7: cannot reassign `s` while `s.items` is lent", "37:14: `other` returns a view of `@p`, but its signature says it views only `@o`", "42:13: cannot reassign `s` while `s.items` is lent", "50:15: cannot lend `s.items` to write while a write loan on `s` is live", "56:15: cannot lend `s.items` to write while a write loan on `s` is live", "61:13: cannot reassign `s` while `s.items` is lent", "69:15: cannot reassign `s` while `s.items` is lent", "79:12: `s` does not live long enough", "84:11: cannot reassign `s` while `s.items` is lent", "90:13: cannot reassign `s` while `s.items` is lent", "98:8: cannot return a view of `x`, which this function was not lent", "103:9: cannot return a view of `xs`, which this function was not lent", errors: 13
   # What a returned view sees stays lent while it lives, and the binding
   # it was lent through is not used while it lives, by a defer, a
   # closure a defer calls, or a task, at a `return`, a block's value, or
@@ -2830,11 +2829,11 @@ fail "write view lent through a binding stays lent", "24:7: cannot assign to `@s
         none
 
     fun broke(!@) -> !Int from @
-      r = for s in !@xs
-        defer s = Slot(key: 0, items: List())
-        break !s.items[0]
-      else
-        !@xs[0].items[0]
+      r = $l: loop
+        for s in !@xs
+          defer s = Slot(key: 0, items: List())
+          break $l !s.items[0]
+        break !@xs[0].items[0]
       r
 
     fun earlier(!@, j: Int) -> (!Int)? from @

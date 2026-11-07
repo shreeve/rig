@@ -1972,19 +1972,6 @@ test "float default leading dot", "0.25"
   p = P()
   print(p.x + f())
 
-test "for else block", '''
-  1
-  done
-'''
-  # The `else` block of a `for` runs when the loop ends without `break`.
-
-  v: List[Int] = List()
-  !v.push(1)
-  for n in ?v
-    print(n)
-  else
-    print("done")
-
 test "for index counter", '''
   one 7 0
   tail 30 0
@@ -3291,8 +3278,8 @@ test "labeled loop break", "1"
   # `break $outer` inside a nested loop exits the loop labeled `$outer`,
   # so the `print(99)` after the inner loop never runs.
 
-  $outer: while true
-    while true
+  $outer: loop
+    loop
       break $outer
     print(99)
   print(1)
@@ -3304,7 +3291,7 @@ test "labeled loop continue", "3"
   i = 0
   $outer: while i < 3 : i += 1
     j = 0
-    while true
+    loop
       j += 1
       continue $outer if j > i
     print(99)
@@ -3323,7 +3310,7 @@ test "labels nested and generated", '''
   # `match` or `raw` statement, which `break` then leaves.
 
   fun f(c: Bool) -> Int
-    $rig_blk_1: while true
+    $rig_blk_1: loop
       x = if c
         y = 3
         y + 1

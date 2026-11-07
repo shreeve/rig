@@ -19,7 +19,7 @@ fun echo(c: net.Stream) -> Int!
   new s = <c
   total = 0
   buf = String()
-  while true
+  loop
     n = (!s).read(!buf, 4096)!
     if n == 0
       break

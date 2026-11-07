@@ -110,7 +110,7 @@ test "ctfun loops and arrays", '''
     for x, i in squares[n]
       s += x + i - i
     k = 0
-    while true
+    loop
       k += 1
       if k == 3
         continue
@@ -317,10 +317,10 @@ fail "ctfun conversion", "compile-time call `f[300]` converts 300 to `U8`, which
 
   print(f[300])
 
-fail "ctfun steps", "compile-time call `f[1]` takes more than 10000000 steps", "in `while true`"
+fail "ctfun steps", "compile-time call `f[1]` takes more than 10000000 steps", "in `loop`"
   fun f[n: Int] -> Int
     k = 0
-    while true
+    loop
       k += n
     k
 
@@ -1062,7 +1062,7 @@ test "ctfun arrays are values in blocks and loops", "1 [1, 2] 1", whole: true
 
   fun w[n: Int] -> Int
     b = [1, 2]
-    a = while true
+    a = loop
       break b
     a[0] = 9
     b[0]

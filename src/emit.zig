@@ -3996,8 +3996,8 @@ pub const Emitter = struct {
 
     /// A loop being emitted (`emitLoop`).
     const Loop = struct {
-        /// The block around the loop, which holds what its header holds
-        /// and its `else`, and gives a loop used as a value its value.
+        /// The block around the loop, which holds what its header holds,
+        /// and gives a `loop` used as a value its value.
         res: *ZigLabel,
         /// That block, once opened.
         outer: ?Labeled = null,
@@ -4023,28 +4023,26 @@ pub const Emitter = struct {
 
     /// `while` and every form of `for` (docs/internals/INTERNALS.md, "Loops"):
     ///
-    ///     __rig_loop_N: {                  // when there is an `else`, a value, or a held header
+    ///     __rig_loop_N: {                  // when there is a value, or a held header
     ///         <the values the header holds>
     ///         L: while (true) : (step) {   // or Zig's own `for`, `while (it.next())`
     ///             <one `if` per condition part, each `else break`>
     ///             __rig_body_N: { body }   // `continue` is `break :__rig_body_N`
     ///             <a step that reads a binding of the condition>
     ///         }
-    ///         <else>
     ///     }
     ///
-    /// A `break` leaves the outer block when there is one, so it skips the
-    /// `else`, and otherwise the loop. A label is written only where a
-    /// jump goes to it (`openLabeled`).
+    /// A `break` leaves the outer block when there is a value, and
+    /// otherwise the loop. A label is written only where a jump goes to
+    /// it (`openLabeled`).
     fn emitLoop(self: *Emitter, loop: Sexp, rig_label: []const u8, value: ?TypeId) Error!void {
-        const else_ = ir.get(loop, .@"else");
         var lp: Loop = .{
             .res = try self.newLabel("loop"),
             .loop = if (rig_label.len > 0) try self.rigLabel(rig_label, "label") else try self.newLabel(if (loop.isKind(.@"while")) "while" else "for"),
             .body = try self.newLabel("body"),
             .target = undefined,
         };
-        const has_res = else_ != .nil or value != null;
+        const has_res = value != null;
         lp.target = .{ .node = loop, .rig_label = rig_label, .brk = if (has_res) lp.res else lp.loop, .loop = lp.loop, .body = lp.body, .value_ty = value };
         if (has_res) try self.openLoopBlock(&lp);
         // Every loop counts its turns: an outermost loop keeps the count,
@@ -4068,18 +4066,8 @@ pub const Emitter = struct {
         if (loop.isKind(.@"for")) lp.source_unit = try self.enterUnit(ir.For.source(loop));
         if (loop.isKind(.@"while")) try self.emitWhile(loop, &lp) else try self.emitFor(loop, &lp);
         self.leaveUnit(lp.source_unit);
-        // The loop has ended: a jump in its `else` targets the loop around it.
         std.debug.assert(self.targets.items.len == depth + 1);
         _ = self.targets.pop();
-        if (else_ != .nil) {
-            try self.w.writeAll("\n");
-            try self.writeIndent(self.indent);
-            if (value) |ty| {
-                try self.w.print("break :{s} ", .{jumpTo(lp.res)});
-                try self.emitValueBlock(else_, .{}, ty);
-                try self.w.writeAll(";");
-            } else try self.emitBranchStmt(else_);
-        }
         if (lp.outer) |o| {
             try self.w.writeAll("\n");
             try self.closeBrace();
@@ -4171,7 +4159,7 @@ pub const Emitter = struct {
             try self.w.writeAll(") ");
         } else try self.writeStep(lp, "");
         try self.openBrace();
-        // `while true` has no condition to fail.
+        // `loop` has no condition to fail.
         const always = cond == .src and std.mem.eql(u8, self.srcText(cond), "true");
         const parts: []const Sexp = if (always) &.{} else try self.conditionParts(cond);
         // A part `s matches .circle(r)` nests the rest in its `match`, and a

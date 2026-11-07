@@ -106,6 +106,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **`loop`, and loops that give no value** (draft PR, branch
+  `loop-keyword`, owner-approved 2026-11-06): `loop` is a keyword and
+  the one loop that gives a value; `while true`, a loop `else`, a `for`
+  or `while` used as a value, and `break v` in one are rejected;
+  `List.index_of`; messages for other languages' forms. It rejects
+  Trig's 109 `while true` lines and loco's one, so Trig and loco run
+  `tools/migrate-loops.py` before it merges.
 - **The huge-page test follows the system's mode** (panel item 6): the
   allocator reads Linux's THP mode once and counts only the asking
   thread's node

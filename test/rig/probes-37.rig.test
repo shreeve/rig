@@ -1,7 +1,8 @@
 # Probes from past reviews and audits, 37 of 41: review-while-step-w38-value-loop-step to sb-adv2.
 
 test "review-while-step-w38-value-loop-step", "7 209 4"
-  # A loop used as a value whose step reads the condition's binding.
+  # A loop used as a value whose body reads a name it binds to a view of
+  # `v` before a `continue` and at its end, where a `while` writes its step.
   #
   # oracle: mk accept
   # oracle: main accept
@@ -17,13 +18,15 @@ test "review-while-step-w38-value-loop-step", "7 209 4"
   !v.push(3)
   k = 0
   i = 0
-  x = while mk(?v, i) as h: k += h.s[0]
+  x = loop
+    h = mk(?v, i) ?? break 9
     i += 1
     break 7 if i == 4
-    continue if i == 2
+    if i == 2
+      k += h.s[0]
+      continue
     k += 100
-  else
-    9
+    k += h.s[0]
   print(x, k, i)
 
   # expect: 7 209 4
@@ -1065,7 +1068,7 @@ test "review258-p54 value return", '''
     !v[i]
 
   fun go(v: !List[String], src: !List[String]) -> Int
-    while true
+    loop
       slot(!v, 0) = (!src).pop() ?? return v.len
     0
 

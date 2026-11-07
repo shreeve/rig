@@ -1222,12 +1222,12 @@ test "review-revamp-checkers-p-k1", '''
     print(v.len)
 
   fun find(k: Int) -> Int
-    $lp: for i in 0..5
-      for j in 0..2
-        x = get(i + k) ?? break $lp i * 100 + j
-        print(x)
-    else
-      -1
+    $lp: loop
+      for i in 0..5
+        for j in 0..2
+          x = get(i + k) ?? break $lp i * 100 + j
+          print(x)
+      break $lp -1
 
   $outer: for i in 0..3
     a: List[Int] = List()
@@ -1740,13 +1740,13 @@ fail "review-revamp-rest-p1-a29", "`i` is bound but never read; name it `_` to i
   print(9)
 
 fail "review-revamp-rest-p1-a30", "`y` is assigned but never read; use it, or discard the value with `_ = ...`"
-  $l: while true
+  $l: loop
     x: Int? = none
     y = x ?? break $l
   print(9)
 
 test "review-revamp-rest-p1-a31", "9"
-  $l: while true
+  $l: loop
     break $l
   print(9)
 

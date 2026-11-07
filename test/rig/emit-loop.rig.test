@@ -1,8 +1,8 @@
 # emit: tests whose names start `loop`.
 
-test "loop else continue joined inner", "21 5"
-  # A `continue` in the `else` of a nested joined loop targets the loop
-  # around it.
+test "loop continue after joined inner", "21 5"
+  # A `continue` after a nested joined loop targets the loop around it,
+  # and goes through that loop's step, which refills `a`.
   obj S
     s: []Int
 
@@ -30,14 +30,13 @@ test "loop else continue joined inner", "21 5"
     j = 0
     while mk(?v, j) as g and j >= 0: j += g.s[0]
       k += 0
-    else
-      continue
+    continue if i > 0
     k += 100
   print(k, i)
 
-test "loop else continue labeled", "21 5"
-  # A `continue $outer` in a nested loop's `else` goes through the outer
-  # loop's step.
+test "loop continue after inner labeled", "21 5"
+  # A `continue $outer` after a nested loop goes through the outer loop's
+  # step.
   obj S
     s: []Int
 
@@ -65,14 +64,13 @@ test "loop else continue labeled", "21 5"
     j = 0
     while j < 2: j += 1
       k += 0
-    else
-      continue $outer
+    continue $outer if i > 0
     k += 100
   print(k, i)
 
-test "loop else continue nested for", "21 5"
-  # A `continue` in a nested `for`'s `else` targets the loop around it, and
-  # goes through that loop's step.
+test "loop continue after nested for", "21 5"
+  # A `continue` after a nested `for` targets the loop around it, and goes
+  # through that loop's step.
   obj S
     s: []Int
 
@@ -99,14 +97,13 @@ test "loop else continue nested for", "21 5"
     k += take(<a)
     for _ in 0..2
       k += 0
-    else
-      continue
+    continue if i > 0
     k += 100
   print(k, i)
 
-test "loop else continue nested while", "21 5"
-  # A `continue` in a nested `while`'s `else` targets the loop around it,
-  # and goes through that loop's step, which refills `a`.
+test "loop continue after nested while", "21 5"
+  # A `continue` after a nested `while` with a step targets the loop around
+  # it, and goes through that loop's step, which refills `a`.
   obj S
     s: []Int
 
@@ -134,13 +131,12 @@ test "loop else continue nested while", "21 5"
     j = 0
     while j < 2: j += 1
       k += 0
-    else
-      continue
+    continue if i > 0
     k += 100
   print(k, i)
 
-test "loop else continue plain outer", "21 5"
-  # A `continue` in a nested loop's `else` goes through the step of a plain
+test "loop continue after inner plain outer", "21 5"
+  # A `continue` after a nested loop goes through the step of a plain
   # `while … as` around it.
   obj S
     s: []Int
@@ -169,12 +165,11 @@ test "loop else continue plain outer", "21 5"
     j = 0
     while j < 2: j += 1
       k += 0
-    else
-      continue
+    continue if i > 0
     k += 100
   print(k, i)
 
-test "loop else continue runs step", '''
+test "loop continue after inner runs step", '''
   in 0 0
   in 0 1
   tail 0
@@ -185,8 +180,8 @@ test "loop else continue runs step", '''
   tail 2
   end 3
 '''
-  # A `continue` in an inner loop's `else` targets the loop around it and
-  # goes through its step, here the only thing that moves the loop on:
+  # A `continue` after an inner loop targets the loop around it and goes
+  # through its step, here the only thing that moves the loop on:
   # a lowering that skipped the step would never end (the guard stops it).
   fun lim(i: Int, n: Int) -> Int?
     i if i < n else none
@@ -200,14 +195,13 @@ test "loop else continue runs step", '''
       return
     for j in 0..2
       print("in", i, j)
-    else
-      continue if i == 1
+    continue if i == 1
     print("tail", i)
   print("end", i)
 
-test "loop else continue shadowed label", "21 5"
-  # A `continue $a` in the `else` of an inner loop also labeled `$a` names
-  # the outer `$a`, since the inner loop has ended.
+test "loop continue after shadowed label", "21 5"
+  # A `continue $a` after an inner loop also labeled `$a` names the outer
+  # `$a`, since the inner loop has ended.
   obj S
     s: []Int
 
@@ -236,14 +230,13 @@ test "loop else continue shadowed label", "21 5"
     $a: while j < 2: j += 1
       continue $a if j == 7
       k += 0
-    else
-      continue $a
+    continue $a if i > 0
     k += 100
   print(k, i)
 
-test "loop else continue value loop", "21 5"
-  # A `continue` in the `else` of a nested loop used as a value targets the
-  # loop around it.
+test "loop continue out of value loop", "21 5"
+  # A `continue $o` inside a nested `loop` used as a value leaves it for
+  # the loop around it, and goes through that loop's step.
   obj S
     s: []Int
 
@@ -265,20 +258,21 @@ test "loop else continue value loop", "21 5"
   a = fresh(1)
   k = 0
   i = 0
-  while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+  $o: while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
     i += 1
     k += take(<a)
-    w = for t in 0..2
+    t = 0
+    w = loop
       break t if t == 9
-    else
-      continue
+      continue $o if t == 2
+      t += 1
     k += w
     k += 100
   print(k, i)
 
-test "loop else loop then continue", "21 5"
-  # A `continue` after a loop inside a nested loop's `else` targets the loop
-  # around the nested one.
+test "loop continue after two loops", "21 5"
+  # A `continue` after two nested loops in a row targets the loop around
+  # them.
   obj S
     s: []Int
 
@@ -306,10 +300,9 @@ test "loop else loop then continue", "21 5"
     j = 0
     while j < 2: j += 1
       k += 0
-    else
-      for _ in 0..1
-        k += 0
-      continue
+    for _ in 0..1
+      k += 0
+    continue if i > 0
     k += 100
   print(k, i)
 
@@ -422,12 +415,11 @@ test "loop label shadow value", '''
   # A label repeated inside a loop of the same name means the innermost:
   # its `break $a 5` gives the inner loop's value, not the outer one's,
   # and the outer loop is used as a value only by the `break`s that leave
-  # it. An inner loop's `else` runs after that loop, so its `break $a`
-  # leaves the outer loop.
+  # it. After the inner loop ends, `break $a` names the outer loop.
 
   fun first(n: Int) -> Int
-    $a: while true
-      $a: while true
+    $a: loop
+      $a: loop
         break $a
       if n > 0
         return n
@@ -436,9 +428,9 @@ test "loop label shadow value", '''
   m = 2
   c = n > 0
   k = if c
-    $a: while true
+    $a: loop
       j = if c
-        $a: while true
+        $a: loop
           break $a 5
       else
         6
@@ -448,23 +440,22 @@ test "loop label shadow value", '''
     !m
   k += 10
   print(n, m)
-  $a: while true
+  $a: loop
     j = if c
-      $a: while true
+      $a: loop
         break $a 7
     else
       8
     print(j)
     break $a
   l = if c
-    $a: for i in 0..3
-      $a: for x in 0..2
-        if x > 5
-          break $a
-      else
+    $a: loop
+      for i in 0..3
+        $a: for x in 0..2
+          if x > 5
+            break $a
         break $a i + 20
-    else
-      0
+      break $a 0
   else
     1
   print(l, first(3))

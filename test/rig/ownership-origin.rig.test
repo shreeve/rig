@@ -110,7 +110,7 @@ fail "origin from body exceeds", "5:3: `tail` returns a view of `b`, but its sig
 
   pass
 
-fail "origin from body forms", "17:5: `get` returns a view of `other`, but its signature says it views only `@`", "20:3: `arm` returns a view of `b`", "29:3: `loop` returns a view of `b`", "33:12: `unwrap` returns a view of `b`", "38:3: `field` returns a view of `b`", "41:3: `payload` returns a view of `b`", errors: 6
+fail "origin from body forms", "17:5: `get` returns a view of `other`, but its signature says it views only `@`", "20:3: `arm` returns a view of `b`", "27:3: `looped` returns a view of `b`", "31:12: `unwrap` returns a view of `b`", "36:3: `field` returns a view of `b`", "39:3: `payload` returns a view of `b`", errors: 6
   # More forms a body returns a view through, each checked against its
   # `from` clause: a match arm, a loop's `break` value, `if … as`, a field
   # of a local object, a payload of a parameter, and a method's argument.
@@ -134,11 +134,9 @@ fail "origin from body forms", "17:5: `get` returns a view of `other`, but its s
       0 => a
       _ => b
 
-  fun loop(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
-    r = while true
+  fun looped(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
+    r = loop
       break b
-    else
-      a
     r
 
   fun unwrap(a: ?List[Int], b: (?List[Int])?) -> ?List[Int] from a

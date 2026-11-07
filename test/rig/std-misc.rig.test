@@ -910,10 +910,10 @@ test "for over iterators", release: true, '''
     break
   for p in !more
     print(p)
-  n = for w in text.words("one two three")
+  ws = text.words("one two three")
+  n = loop
+    w = (!ws).next() ?? break "none"
     break w if w.len == 5
-  else
-    "none"
   print(n)
 
 fail "instant is not int", "6:24: operator `-` requires numeric operands", "7:13: only the standard library's module `std.time` can construct `std.time.Instant`", errors: 2

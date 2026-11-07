@@ -827,3 +827,83 @@ bomb "list filled of zero-size elements past the longest length", "length out of
 
   xs = List.filled(1 << 62, Z())
   print("made")
+
+test "index_of finds the first equal element", "1 -1 -1"
+  xs = List[Int]([3, 8, 1, 8])
+  e = List[Int]()
+  print(xs.index_of(8) ?? -1, xs.index_of(7) ?? -1, e.index_of(0) ?? -1)
+
+test "index_of compares text by its bytes", "1 -1"
+  ss = List[String]()
+  !ss.push(String("a"))
+  !ss.push(String("b"))
+  print(ss.index_of("b") ?? -1, ss.index_of(String("c")) ?? -1)
+
+test "index_of uses a type's own eq", "1"
+  # `P` names `Eq`, and its `eq` compares only the name.
+  obj P: Eq
+    name: String
+    age: Int
+
+    fun eq(?@, other: ?P) -> Bool
+      @name == other.name
+
+  ps = List[P]()
+  !ps.push(P(name: String("ann"), age: 3))
+  !ps.push(P(name: String("bo"), age: 4))
+  print(ps.index_of(P(name: String("bo"), age: 99)) ?? -1)
+
+test "index_of compares objects field by field", "0 -1"
+  obj Pt
+    x: Int
+    y: Int
+
+  ps = List[Pt]()
+  !ps.push(Pt(x: 1, y: 2))
+  print(ps.index_of(Pt(x: 1, y: 2)) ?? -1, ps.index_of(Pt(x: 2, y: 1)) ?? -1)
+
+test "index_of in a generic function bounded by Eq", "2 0"
+  fun find_in[T: Eq](xs: ?List[T], x: ?T) -> Int
+    xs.index_of(x) ?? -1
+
+  xs = List[Int]([3, 8, 1])
+  ss = List[String]()
+  !ss.push(String("a"))
+  print(find_in(?xs, 1), find_in(?ss, "a"))
+
+fail "index_of needs elements == compares", "`List.index_of` compares elements with `==`, which is not defined for `F`: field `f` is a function value"
+  obj F
+    f: fun(Int) -> Int
+
+  fun id(x: Int) -> Int
+    x
+
+  fs = List[F]()
+  !fs.push(F(f: id))
+  print(fs.index_of(F(f: id)) ?? -1)
+
+fail "index_of in a generic body is checked per instance", "`bad[F]` cannot use `T = F`: the generic body applies `==` to `T`, which `F` does not support: field `f` is a function value"
+  obj F
+    f: fun(Int) -> Int
+
+  fun id(x: Int) -> Int
+    x
+
+  fun bad[T](xs: ?List[T], x: ?T) -> Int
+    xs.index_of(x) ?? -1
+
+  fs = List[F]()
+  !fs.push(F(f: id))
+  print(bad(?fs, F(f: id)))
+
+test "index_of takes a name, an owner, and an element as they stand", "1 0 1 1 1"
+  # It compares and keeps nothing, so its argument is read where it
+  # stands, as `slices.index_of`'s is, and nothing stays lent after it.
+  xs = List[Int]([1, 3])
+  n = 3
+  ss = List[String]()
+  !ss.push(String("ab"))
+  s = String("ab")
+  k = xs.index_of(xs[1]) ?? -1
+  !xs.push(9)
+  print(xs.index_of(n) ?? -1, ss.index_of(s) ?? -1, k, ss.len, s.len / 2)

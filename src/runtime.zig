@@ -3374,6 +3374,13 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
         }
 
+        /// `v.index_of(x)`: the index of the first element equal to `x`
+        /// (`eql`, as `==` compares them), or null.
+        pub fn index_of(self: *const Self, x: anytype) Opt(Int) {
+            for (self.memConst()[0..self.len], 0..) |*e, i| if (eql(e, x)) return pack(Opt(Int), @as(Int, @intCast(i)));
+            return pack(Opt(Int), null);
+        }
+
         /// `v[i]`: the element at `i`; panics when out of range. One test,
         /// against `len`: the slot is inside the buffer by `len <=
         /// buf.len`, so it is read through the buffer's pointer, which

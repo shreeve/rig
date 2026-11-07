@@ -728,17 +728,19 @@ test "jump as fallback", '''
   print("seen", seen)
 
   j = 2
-  while true
+  loop
     held = Noisy(id: 100 + j)
     i = find(?xs, j) ?? break
     print("step", i, held.id)
     j += 2
 
-  first = for w in words
+  at = 0
+  first = loop
+    break 0 if at == words.len
+    w = words[at]
+    at += 1
     n = parse(w) catch continue
     break n if n > 1
-  else
-    0
   print("first", first)
 
 fail "jump fallback checked", "11:24: expected `Int`, got `Static`", "15:17: `return` needs a value of type `Int`", "19:17: `E.missing` is an error, and `??` needs a fallback of type `Int`; to fail with it, return it: `?? return E.missing`", "23:24: a `sub` returns no value"

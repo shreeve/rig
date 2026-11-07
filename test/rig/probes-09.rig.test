@@ -2271,13 +2271,12 @@ test "h1-p", '''
   1 2
 '''
   sub f(w2: !Int, w3: !Int, c: Bool)
-    x = while true
+    x = loop
       break w2
-    y = for _ in 0..3
+    y = loop
       break w3 if c
-    else
-      w2
-    z: Int = while true
+      break w2
+    z: Int = loop
       break w3
     x += 1
     y += 1

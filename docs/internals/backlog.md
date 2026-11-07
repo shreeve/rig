@@ -180,7 +180,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   take. Source: Rig (fork)'s errors-track handoff.
 - An unwrap of an optional that traps when it is `none`. The built-in Map's
   `Map.ensure` reaches its value, which is never `none` there, with a
-  `while true` whose only exit is a `return`; the unwrap would replace it.
+  `loop` whose only exit is a `return`; the unwrap would replace it.
 - `Map.ensure`, `Map.put_new`, and `Set.add` taking a `?K` and cloning
   the key only when it is stored (owner approved), since `+k` of a
   `?K: Clone` clones in a generic body; the three take an owned `K` today.

@@ -65,7 +65,7 @@ fun chan_part(c: Checker, queue: *Chan[Int], weights: ?List[Int]) -> Part
   new queue = <queue
   items: List[Int] = List()
   values: List[Int] = List()
-  while true
+  loop
     taken = (!queue).recv() catch none
     i = taken ?? break
     !items.push(i)

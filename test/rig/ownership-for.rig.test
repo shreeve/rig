@@ -41,7 +41,6 @@ test "for consuming iteration", '''
   drop 7
   drop 8
   7
-  all
   7
   1
   drop 9
@@ -87,8 +86,6 @@ test "for consuming iteration", '''
   total = 0
   for x in <nums
     total += x
-  else
-    print("all")
   print(total)
 
   src: List[*B] = List()
@@ -341,11 +338,12 @@ test "for iterator hidden name", release: true, '''
       print(" ", n, m)
   print(__rig_iter0)
 
-fail "for iterator kept view", "26:5: `for iterator` does not live long enough", "34:5: `for iterator` does not live long enough", "44:5: `for iterator` does not live long enough", "53:9: `for iterator` does not live long enough", "62:5: `for iterator` does not live long enough", errors: 5
+fail "for iterator kept view", "27:5: `for iterator` does not live long enough", "36:7: `for iterator` does not live long enough", "45:5: `for iterator` does not live long enough", "54:9: `for iterator` does not live long enough", "63:5: `for iterator` does not live long enough", errors: 5
   # A view a loop variable holds of the iterator's own state cannot outlive
   # an iterator the loop holds: `for iterator` ends with the loop, whether
-  # the loop runs out, breaks, has an `else`, or is labeled, as the
-  # `h = …; while (!h).next() as it` it is written as does.
+  # the loop runs out, breaks, is labeled, or is inside a `loop` it does
+  # not end with, as the `h = …; while (!h).next() as it` it is written as
+  # does.
 
   obj Item
     name: ?String
@@ -373,13 +371,13 @@ fail "for iterator kept view", "26:5: `for iterator` does not live long enough",
     if keep as k
       print(k.name)
 
-  sub by_else()
+  sub by_loop()
     keep: (?Item)? = none
-    for it in mkbuf()
-      keep = it
+    loop
+      for it in mkbuf()
+        keep = it
+        break
       break
-    else
-      print("none")
     if keep as k
       print(k.name)
 
@@ -557,8 +555,8 @@ test "for iterator views", release: true, '''
   4
   11
   10
-  done 1
   drop 1
+  done 1
   24
   23
   drop 2
@@ -572,7 +570,8 @@ test "for iterator views", release: true, '''
   # An iterator whose `next` gives views of what it walks: each loop
   # variable is the view `as` binds over `(?Item)?`, and the loan on the
   # walked List lasts as long as a view of it is alive. A source the loop
-  # holds is dropped when the loop ends, by `break` too, after the `else`.
+  # holds is dropped when the loop ends, by `break` too, and by a
+  # `break $l` that leaves a `loop` around it.
 
   obj Item
     name: ?String
@@ -606,6 +605,12 @@ test "for iterator views", release: true, '''
   fun tracked(id: Int, n: Int) -> Tracked
     Tracked(id: id, left: n)
 
+  fun find(want: Int) -> Int
+    $l: loop
+      for n in tracked(4, 3)
+        break $l n if n == want
+      break -1
+
   fun longest(items: ?List[Item]) -> Int
     best = 0
     for it in walk(items)
@@ -630,8 +635,7 @@ test "for iterator views", release: true, '''
 
   for n in tracked(1, 2)
     print(n)
-  else
-    print("done 1")
+  print("done 1")
   for n in tracked(2, 5)
     print(n)
     break if n == 23
@@ -640,10 +644,7 @@ test "for iterator views", release: true, '''
   for n in <t
     print(n)
   print("after 3")
-  found = for n in tracked(4, 3)
-    break n if n == 41
-  else
-    -1
+  found = find(41)
   print(found)
 
 fail "for lent branch path", "18:12: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).v`", "24:12: cannot lend `ys if c else zs`: it may be `ys`, a value a name holds", errors: 2

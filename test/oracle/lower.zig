@@ -555,7 +555,7 @@ const Lowerer = struct {
         const stmts = ir.Block.stmts(b);
         try self.regions.append(self.a, .{});
         for (stmts, 0..) |s, i| {
-            if (returns and i + 1 == stmts.len and isValue(s)) {
+            if (returns and i + 1 == stmts.len and self.isValue(s)) {
                 try self.reachable();
                 try self.retValue(s);
             } else try self.stmt(s);
@@ -665,14 +665,26 @@ const Lowerer = struct {
     }
 
     /// The last statement of a `fun` is its value unless it is a
-    /// statement form or a jump.
-    fn isValue(s: Sexp) bool {
+    /// statement form or a jump. A loop, labeled or not, is a value when
+    /// a `break` leaves it with one (SPEC "Loops as values"): the type
+    /// the checker gave it, which a loop that gives none has not.
+    fn isValue(self: *const Lowerer, s: Sexp) bool {
         const k = s.kind() orelse return true;
         return switch (k) {
-            .set, .destructure, .drop, .pass, .rarely, .@"while", .@"for", .@"return", .@"break", .@"continue", .panic, .@"defer", .@"errdefer", .labeled => false,
+            .@"while" => self.loopValueType(s) != null,
+            .labeled => self.loopValueType(ir.Labeled.stmt(s)) != null,
+            .set, .destructure, .drop, .pass, .rarely, .@"for", .@"return", .@"break", .@"continue", .panic, .@"defer", .@"errdefer" => false,
             .@"if" => ir.If.@"else"(s) != .nil,
             else => true,
         };
+    }
+
+    /// The type of the value loop `s` gives, or null for a loop that
+    /// gives none (or no loop).
+    fn loopValueType(self: *const Lowerer, s: Sexp) ?TypeId {
+        if (!s.isKind(.@"while") and !s.isKind(.@"for")) return null;
+        const ty = self.ctx.typeOf(s) orelse return null;
+        return if (ty == self.ctx.types.void_id) null else ty;
     }
 
     // ---- blocks and vars ------------------------------------------------
@@ -1933,9 +1945,7 @@ const Lowerer = struct {
         // A jump in the condition (`?? break`) leaves the loop too.
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
         try self.header(cond);
-        const els = ir.While.@"else"(s);
-        const e = if (els == .nil) x else try self.newBlock();
-        if (forever) try self.goto(b) else try self.branch(b, e);
+        if (forever) try self.goto(b) else try self.branch(b, x);
         const step = ir.While.step(s);
         // One iteration's region holds the body's and the step's
         // temporaries; `continue` goes to the step inside it.
@@ -1951,11 +1961,6 @@ const Lowerer = struct {
         try self.popRegion(self.posOf(s));
         try self.goto(h);
         _ = self.loops.pop();
-        if (els != .nil) {
-            self.cur = e;
-            if (loop_value) |lv| try self.valueInto(els, .take, lv) else try self.blockStmts(els);
-            try self.goto(x);
-        }
         self.cur = x;
     }
 
@@ -1971,11 +1976,9 @@ const Lowerer = struct {
         const x = try self.newBlock();
         const st = try self.newBlock();
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
-        const els = ir.While.@"else"(s);
-        const e = if (els == .nil) x else try self.newBlock();
         const base = self.regions.items.len;
         const mark = self.kinds.narrowed.items.len;
-        const pushed = try self.condChain(ir.While.cond(s), e, true);
+        const pushed = try self.condChain(ir.While.cond(s), x, true);
         // A step that reads a binding of the condition runs in its scope,
         // after the body; any other runs once the bindings have ended,
         // where `continue` goes too (SPEC "Joined bindings").
@@ -1991,11 +1994,6 @@ const Lowerer = struct {
         if (inside) for (0..pushed) |_| try self.popRegion(self.posOf(s));
         try self.goto(h);
         _ = self.loops.pop();
-        if (els != .nil) {
-            self.cur = e;
-            if (loop_value) |lv| try self.valueInto(els, .take, lv) else try self.blockStmts(els);
-            try self.goto(x);
-        }
         self.cur = x;
     }
 
@@ -2095,9 +2093,7 @@ const Lowerer = struct {
         try self.emit(.{ .pos = pos, .what = .use, .uses = try self.one(src_var) });
         const b = try self.newBlock();
         const x = try self.newBlock();
-        const els = ir.For.@"else"(s);
-        const e = if (els == .nil) x else try self.newBlock();
-        try self.branch(b, e);
+        try self.branch(b, x);
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = h, .depth = self.regions.items.len, .value = loop_value });
         self.cur = b;
         try self.pushRegion();
@@ -2118,11 +2114,6 @@ const Lowerer = struct {
         try self.popRegion(pos);
         try self.goto(h);
         _ = self.loops.pop();
-        if (els != .nil) {
-            self.cur = e;
-            if (loop_value) |lv| try self.valueInto(els, .take, lv) else try self.blockStmts(els);
-            try self.goto(x);
-        }
         self.cur = x;
         try self.popRegion(pos);
     }
@@ -2305,7 +2296,7 @@ const Lowerer = struct {
                 try self.pushRegion();
                 for (stmts[0 .. stmts.len - 1]) |s| try self.stmt(s);
                 const last = stmts[stmts.len - 1];
-                if (isValue(last)) {
+                if (self.isValue(last)) {
                     try self.reachable();
                     const saved = self.tail_floor;
                     self.tail_floor = self.tail_floor orelse self.regions.items.len - 1;
@@ -2655,6 +2646,18 @@ const Lowerer = struct {
                 if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
                 const t = try self.temp(ty, pos);
                 if (k == .@"while") try self.whileStmt(e, t) else try self.forStmt(e, t);
+                return t;
+            },
+            // `$found: loop` as a value: the loop, with its label, which
+            // a `break $found v` from an inner loop names.
+            .labeled => {
+                const inner = ir.Labeled.stmt(e);
+                if (!inner.isKind(.@"while") and !inner.isKind(.@"for")) return abstain("a labeled value that is no loop");
+                var ty = try self.typeOf(inner);
+                if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
+                const t = try self.temp(ty, pos);
+                self.label = leafText(ir.Labeled.label(e), self.src);
+                if (inner.isKind(.@"while")) try self.whileStmt(inner, t) else try self.forStmt(inner, t);
                 return t;
             },
             else => return abstain(switch (k) {
@@ -3225,7 +3228,7 @@ const Lowerer = struct {
             .propagate, .propagate_none => self.madeEverywhere(ir.get(e, .value)),
             .block => blk: {
                 const stmts = ir.Block.stmts(e);
-                break :blk stmts.len > 0 and isValue(stmts[stmts.len - 1]) and self.madeEverywhere(stmts[stmts.len - 1]);
+                break :blk stmts.len > 0 and self.isValue(stmts[stmts.len - 1]) and self.madeEverywhere(stmts[stmts.len - 1]);
             },
             else => true,
         };

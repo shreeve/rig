@@ -18,7 +18,7 @@ use std.time
 sub main()!
   defer print("defer ran")
   warn("started")
-  while true
+  loop
     time.sleep(10)!
 EOF2
 
@@ -27,7 +27,7 @@ use std.time
 
 sub work()!
   defer print("task defer ran")
-  while true
+  loop
     time.sleep(10)!
 
 sub main()!

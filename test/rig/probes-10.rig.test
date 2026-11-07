@@ -505,10 +505,8 @@ fail "optwrite-review-h04-break-value", "cannot store a view of `d` in `x.s`: `x
   sub set(w: (!H)?)
     d = String("local")
     o = <w
-    x = while true
+    x = loop
       break <o ?? return
-    else
-      return
     x.s = ?d
 
   t = String("outer")

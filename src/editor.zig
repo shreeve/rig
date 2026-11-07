@@ -269,7 +269,7 @@ fn colourOf(cat: TokenCat) Colour {
         .err => .{ .class = .{ .kind = .invalid } },
         .kwarg_name => .{ .class = .{ .kind = .parameter } },
         .true, .false => .uncoloured,
-        .@"if", .@"else", .@"while", .@"for", .in, .match, .@"return", .@"break", .@"continue", .panic, .pass, .@"defer", .@"errdefer", .@"catch", .catch_jump, .catch_block, .@"try", .await, .yield, .post_if, .ternary_if, .task_amp => .{ .class = control },
+        .@"if", .@"else", .@"while", .loop, .@"for", .in, .match, .@"return", .@"break", .@"continue", .panic, .pass, .@"defer", .@"errdefer", .@"catch", .catch_jump, .catch_block, .@"try", .await, .yield, .post_if, .ternary_if, .task_amp => .{ .class = control },
         .as, .drop, .@"enum", .@"error", .@"extern", .fun, .new, .obj, .api, .add, .rarely, .called, .@"inline", .@"pub", .raw, .sub, .@"test", .type, .use, .zig, .async, .@"const", .impl, .trait, .when, .where, .of => .{ .class = keyword },
         .@"and", .@"or", .not, .matches => .{ .class = operator },
         .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap, .plus_sat, .minus_sat, .power => .{ .class = operator },
@@ -804,14 +804,14 @@ test "tokens: labels, builtins, suffix sigils, and a rejected token" {
     defer arena.deinit();
     const got = try renderTokens(arena.allocator(),
         \\sub f()!
-        \\  $outer: while true
+        \\  $outer: loop
         \\    break $outer
         \\  n = $sizeOf(Int)
         \\  x = g()?
         \\  y = 1 && 2
         \\
     );
-    for ([_][]const u8{ "f:function.declaration !:modifier ", "$:label outer:label ::label while:keyword.control ", "break:keyword.control $:label outer:label ", "$:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
+    for ([_][]const u8{ "f:function.declaration !:modifier ", "$:label outer:label ::label loop:keyword.control ", "break:keyword.control $:label outer:label ", "$:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
         if (std.mem.find(u8, got, want) == null) {
             std.debug.print("missing `{s}` in: {s}\n", .{ want, got });
             return error.TestExpectedEqual;

@@ -11,7 +11,7 @@ test "chan producer and consumer", seeds: 20, "499500"
 
   fun consume(ch: *Chan[Int]) -> Int!
     sum = 0
-    while true
+    loop
       v = (!ch).recv()! ?? -1
       if v < 0
         break

@@ -175,7 +175,7 @@ const SymbolResolver = struct {
                 try self.markWritten(sexp, ir.Write.operand(sexp), .lend_write);
                 try self.walk(ir.Write.operand(sexp));
             },
-            .@"while" => try self.walkConditional(ir.While.cond(sexp), &.{ ir.While.step(sexp), ir.While.body(sexp) }, ir.While.@"else"(sexp)),
+            .@"while" => try self.walkConditional(ir.While.cond(sexp), &.{ ir.While.step(sexp), ir.While.body(sexp) }, .nil),
             .match => {
                 // A `matches`: a name in its pattern matches every value
                 // and is rejected (`typecheck.testCatchAll`), binding none.
@@ -1127,7 +1127,6 @@ const SymbolResolver = struct {
             _ = try self.bindFresh(ir.For.index(node), "`for` binding");
             try self.walk(ir.For.body(node));
         }
-        try self.walk(ir.For.@"else"(node));
     }
 
     /// An `if` / `while`. Each `(as expr name)` in the condition opens a
@@ -5013,6 +5012,9 @@ const list_get: sema.Needs = .{ .t = .copies, .op = "copies an element out of a 
     .element_out = "read it in place with `v[i]`, or lend it with `?v[i]`",
 } };
 
+/// `xs.index_of(x)` compares each element with `x`.
+const list_index_of: sema.Needs = .{ .t = .equatable, .op = "==", .says = .{ .compares = {} } };
+
 /// `List.filled(n, x)` writes a copy of `x` into every element.
 const list_filled: sema.Needs = .{ .t = .copies, .op = "copies into every element of `List.filled` a value", .says = .{
     .into_elements = .{ .what = "`List.filled` copies its value into every element", .loop = "`for 0..n` with `!xs.push(+x)`" },
@@ -5105,6 +5107,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
             try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t, &list_get),
+            // It compares, so it keeps nothing it is given.
+            copiesArgs(try method(ctx, "index_of", .read, &.{ read_self, try ctx.intern(.{ .read_view = t }) }, try ctx.intern(.{ .optional = ctx.types.int_id }), &list_index_of)),
             try method(ctx, "pop", .write, &.{write_self}, opt_t, null),
             try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, null),
             try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t, null),
@@ -5658,7 +5662,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.list_sym_id, list);
-    try std.testing.expectEqual(@as(usize, 12), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 13), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 
@@ -5675,9 +5679,9 @@ test "builtins: a method that declares needs is a generic type's, with a T" {
         try std.testing.expect(sym.type_params != null and sym.type_params.?.len >= 1);
         declared += 1;
     };
-    // `Cell.get`, `List.get`, `List.filled`, `List.resize`,
-    // `List.extend_from_bytes`, `Signal.get`.
-    try std.testing.expectEqual(@as(usize, 6), declared);
+    // `Cell.get`, `List.get`, `List.index_of`, `List.filled`,
+    // `List.resize`, `List.extend_from_bytes`, `Signal.get`.
+    try std.testing.expectEqual(@as(usize, 7), declared);
 }
 
 /// A type a compile-time argument can have: one written as a literal,

@@ -228,7 +228,7 @@ accounts deferexits.rig >/dev/null
     echo '      s'
     echo '    _ => 1'
     echo
-    echo 'fun loop(i: Int) -> Int'
+    echo 'fun walk(i: Int) -> Int'
     echo '  c = Count(n: 0)'
     echo '  s = 0'
     echo '  for x in !c'
@@ -240,7 +240,7 @@ accounts deferexits.rig >/dev/null
     echo '  c = Count(n: 0)'
     echo '  for x in !c'
     echo '    print(x)'
-    echo '  print(arm(0), loop(0))'
+    echo '  print(arm(0), walk(0))'
 } >armpile.rig
 runs armpile.rig "$want"$'\n'"$want $((2 * want))" "a pile in a match arm, a loop, and an iterator's next"
 accounts armpile.rig >/dev/null

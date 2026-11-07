@@ -7819,28 +7819,10 @@ pub const Checker = struct {
             try self.rewind(entry);
         }
         try self.apply(try self.joinAll(it.exit));
-        // The `else` runs after the loop: a jump in it leaves the loop
-        // around this one. A loop used as a value yields the `else` value
-        // or a `break` value.
+        // A `loop` used as a value yields a `break` value.
         self.loop = ctx.parent;
-        var value = ctx.value;
-        const e = ir.get(spec.node, .@"else");
-        // The `else` of `while true` never runs, but it is code, checked as
-        // if the condition failed at the loop's head; what it does is
-        // then undone, since nothing after the loop follows it.
-        const never = e != .nil and spec.cond_always_true;
-        const after = if (never) try self.here() else undefined;
-        if (never) try self.apply(head);
-        if (e != .nil) {
-            if (sema.hasValueBreaks(self.source, spec.node)) {
-                self.value_reads = ctx.reads;
-                value = try self.valueUnion(value, try self.walkStmtValue(e, .brk));
-                self.value_reads = false;
-            } else try self.walkStmt(e);
-        }
-        if (never) try self.rewind(after);
         try self.joinAt(ctx.point, ctx.breaks.items, self.resumeAt(.nil, spec.node));
-        return value;
+        return ctx.value;
     }
 
     /// One walk of a loop: the states at the back edge and where the
@@ -7856,8 +7838,8 @@ pub const Checker = struct {
         const depth = self.scopes.items.len;
         // The loop ends when its condition fails: for a binding
         // condition, when a part fails, with the bindings before it gone.
-        // A failing part leaves the loop for its `else`, or past it.
-        const fail: ExitTo = .{ .to = ctx.point, .resume_at = self.resumeAt(ir.get(spec.node, .@"else"), spec.node) };
+        // A failing part leaves the loop.
+        const fail: ExitTo = .{ .to = ctx.point, .resume_at = self.resumeAt(.nil, spec.node) };
         var exit: []const State = &.{};
         if (spec.cond_binds) {
             exit = try self.walkConditionParts(spec.cond.?, spec.body, fail, ctx.parent);
@@ -7865,7 +7847,7 @@ pub const Checker = struct {
             if (spec.cond) |c| try self.walkStmt(c);
             if (!spec.cond_always_true) exit = try self.arena().dupe(State, &.{try self.exitTo(fail)});
         }
-        // The loop is `while true { x = a or break; body: { body }; step }`
+        // The loop is `loop { x = a or break; body: { body }; step }`
         // (docs/internals/INTERNALS.md, "Loops"): a `continue` in the body leaves
         // the body's block for the step. A step that runs after the body
         // (`storage.StepPoint`) runs in the bindings' scope, after the

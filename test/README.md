@@ -223,8 +223,7 @@ or a nested field, as an argument or
 bound bare, stands while the owner is changed or replaced, or after its
 last use. It also puts a
 block-local binding at the tail of each kind of value block (an `if`
-branch, a `match` arm, a `catch` handler, a loop's `else`, a nested
-`if`), with and without a `defer` that uses it, for a binding, a field
+branch, a `match` arm, a `catch` handler, a nested `if`), with and without a `defer` that uses it, for a binding, a field
 store, and a result. And it uses a view of a read `match` payload in
 its arm, or returns or stores it, for each kind of type reached through
 each kind of subject, runs other code on the stack before reading it,

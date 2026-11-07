@@ -472,7 +472,7 @@ fail "review-step45-k05 break with elem view", "cannot lend `v` to write while a
   v: List[String] = List()
   !v.push(String("a"))
   !v.push(String("b"))
-  r = while true
+  r = loop
     break ?v[1]
   !v.push(String("c"))
   print(r)
@@ -554,15 +554,15 @@ test "review-step45-k13 break take elem", '''
   !v.push(String("a"))
   !v.push(String("b"))
   i = 0
-  r = while i < v.len : i += 1
+  r = loop
+    break none if i == v.len
     break <v[i] if i == 1
-  else
-    none
+    i += 1
   print(r, v)
 
 test "review-step45-k14 break loop body owner", "x"
   # break with an owner local to the loop body (5.4 bare move?)
-  r = while true
+  r = loop
     t = String("x")
     break <t
   print(r)

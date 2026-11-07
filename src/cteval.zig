@@ -458,7 +458,6 @@ const Pure = struct {
                 var ok = try self.expr(ir.While.cond(s));
                 if (ir.While.step(s) != .nil and !try self.stmt(ir.While.step(s))) ok = false;
                 if (!try self.stmt(ir.While.body(s))) ok = false;
-                if (ir.While.@"else"(s) != .nil and !try self.stmt(ir.While.@"else"(s))) ok = false;
                 return ok;
             },
             .@"for" => {
@@ -469,7 +468,6 @@ const Pure = struct {
                     break :blk (try self.expr(ir.get(source, .left))) and (try self.expr(ir.get(source, .right)));
                 } else try self.expr(source);
                 if (!try self.stmt(ir.For.body(s))) ok = false;
-                if (ir.For.@"else"(s) != .nil and !try self.stmt(ir.For.@"else"(s))) ok = false;
                 return ok;
             },
             .labeled => {
@@ -1779,7 +1777,7 @@ pub const Eval = struct {
         return .{ .elem = .{ .arr = arr, .i = @intCast(i) } };
     }
 
-    /// `while c : step` with its `else`: the loop's value, owned, when a
+    /// `while c : step`, and `loop`: the loop's value, owned, when a
     /// `break` gives one.
     fn loopWhile(self: *Eval, s: Sexp) EvalError!?CtVal {
         const id = s.list.id;
@@ -1795,7 +1793,6 @@ pub const Eval = struct {
             };
             if (ir.While.step(s) != .nil) try self.exec(ir.While.step(s));
         }
-        if (ir.While.@"else"(s) != .nil) try self.exec(ir.While.@"else"(s));
         return null;
     }
 
@@ -1819,7 +1816,7 @@ pub const Eval = struct {
         return e;
     }
 
-    /// `for x in a..b`, `for x in t`, `for x, i in t`, with its `else`.
+    /// `for x in a..b`, `for x in t`, `for x, i in t`.
     /// The loop walks a value of its own, which its body cannot change.
     fn loopFor(self: *Eval, s: Sexp) EvalError!?CtVal {
         const id = s.list.id;
@@ -1870,7 +1867,6 @@ pub const Eval = struct {
                 };
             }
         }
-        if (ir.For.@"else"(s) != .nil) try self.exec(ir.For.@"else"(s));
         return null;
     }
 

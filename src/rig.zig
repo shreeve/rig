@@ -303,8 +303,9 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
-        // whose `paren` is dropped: each before any pass reads a statement.
-        .wait, .once, .@"..=", .paren => .none,
+        // whose `paren` is dropped; `loop`, rewritten to a `while`: each
+        // before any pass reads a statement.
+        .wait, .once, .@"..=", .paren, .loop => .none,
         // A function's marker, never a statement.
         .outside => .none,
     };
@@ -319,8 +320,8 @@ pub const Skeleton = union(enum) {
     /// A block: its statements in order.
     block: Sexp,
     @"if": struct { cond: Sexp, then: Sexp, @"else": Sexp },
-    @"while": struct { cond: Sexp, body: Sexp, step: Sexp, @"else": Sexp },
-    @"for": struct { source: Sexp, body: Sexp, @"else": Sexp },
+    @"while": struct { cond: Sexp, body: Sexp, step: Sexp },
+    @"for": struct { source: Sexp, body: Sexp },
     /// A statement `match`: its selection unit, then each arm's body.
     match: Sexp,
     /// A labeled statement: the statement.
@@ -339,8 +340,8 @@ pub fn skeletonOf(stmt: Sexp) Skeleton {
         .structured => switch (tag) {
             .block => .{ .block = stmt },
             .@"if" => .{ .@"if" = .{ .cond = ir.If.cond(stmt), .then = ir.If.then(stmt), .@"else" = ir.If.@"else"(stmt) } },
-            .@"while" => .{ .@"while" = .{ .cond = ir.While.cond(stmt), .body = ir.While.body(stmt), .step = ir.While.step(stmt), .@"else" = ir.While.@"else"(stmt) } },
-            .@"for" => .{ .@"for" = .{ .source = ir.For.source(stmt), .body = ir.For.body(stmt), .@"else" = ir.For.@"else"(stmt) } },
+            .@"while" => .{ .@"while" = .{ .cond = ir.While.cond(stmt), .body = ir.While.body(stmt), .step = ir.While.step(stmt) } },
+            .@"for" => .{ .@"for" = .{ .source = ir.For.source(stmt), .body = ir.For.body(stmt) } },
             .match => .{ .match = stmt },
             .labeled => .{ .labeled = ir.Labeled.stmt(stmt) },
             .@"defer", .@"errdefer" => .{ .@"defer" = ir.get(stmt, .body) },
@@ -395,12 +396,10 @@ fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
             try unitsOfCond(x.cond, visitor);
             try unitsOfBranch(x.body, visitor);
             if (x.step != .nil) try unitOf(x.step, .step, visitor);
-            try unitsOfBranch(x.@"else", visitor);
         },
         .@"for" => |x| {
             try unitOf(x.source, .source, visitor);
             try unitsOfBranch(x.body, visitor);
-            try unitsOfBranch(x.@"else", visitor);
         },
         .match => |m| {
             try unitOf(m, .selection, visitor);
@@ -1447,7 +1446,7 @@ pub const Lexer = struct {
             else => {},
         }
         switch (out.cat) {
-            .fun, .sub, .@"enum", .@"error", .@"if", .@"else", .@"while", .@"for", .match, .@"test", .raw, .@"extern", .drop, .obj, .api, .add => self.line_opens = true,
+            .fun, .sub, .@"enum", .@"error", .@"if", .@"else", .@"while", .loop, .@"for", .match, .@"test", .raw, .@"extern", .drop, .obj, .api, .add => self.line_opens = true,
             else => {},
         }
         if (out.cat == .match) self.line_match = true;
@@ -1754,7 +1753,13 @@ pub const Lexer = struct {
         const touches = after.pos == endOf(&probe, name);
         if (after.cat == .lparen and touches) return .{ .cat = .dollar };
         const jump = isLabelJump(self.last_cat);
-        if (!jump and !self.labelStart()) return .{ .err = .dollar_stray };
+        // A `loop` a binding or `return` takes may be labeled:
+        // `r = $found: loop`.
+        const value_loop = switch (self.last_cat) {
+            .assign, .fixed_assign, .@"return" => after.cat == .colon and touches and probe.next().cat == .loop,
+            else => false,
+        };
+        if (!jump and !value_loop and !self.labelStart()) return .{ .err = .dollar_stray };
         if (name.cat != .ident) return .{ .err = .label_keyword };
         if (!jump and (after.cat != .colon or !touches)) return .{ .err = .label_decl };
         return .{ .cat = .label };
@@ -2929,6 +2934,7 @@ pub const Parser = struct {
         var pos = tok.pos;
         var end = failure.span.end;
         if (self.openRange(tok)) |d| return d;
+        if (self.foreignForm(tok)) |d| return d;
         if (self.foreignWord(tok)) |d| return d;
         if (self.headerColon(tok)) |d| return d;
         if (self.bareResults(tok)) |d| return d;
@@ -3049,6 +3055,98 @@ pub const Parser = struct {
         return .{ .severity = .@"error", .pos = start, .end = end, .message = self.format("Rig has no `{s}`; {s}", .{ word, f.fix }) };
     }
 
+    /// A form other languages write where Rig has its own: a block after
+    /// `??`, a list comprehension, an arrow function or a `lambda`, and
+    /// `if let`. Reported where it starts, with Rig's spelling.
+    fn foreignForm(self: *Parser, tok: Token) ?diag.Diagnostic {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        const prev = if (tok.len > 0) lexer.before_cat else lexer.prev_cat;
+        const prev_pos = if (tok.len > 0) lexer.before_pos else lexer.prev_pos;
+        const prev_text = wordAt(src, prev_pos);
+        // A keyword written as a name: `loop = 3`, `print(match)`. A
+        // keyword that ends an operand or a jump is no name.
+        if (prev_pos < src.len and keyword(prev_text) != null and prev_text.len > 0 and !std.mem.eql(u8, prev_text, "new")) {
+            const names_it = switch (tok.cat) {
+                .assign, .fixed_assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign => lexer.head_pos == prev_pos,
+                .rparen, .comma => true,
+                else => false,
+            };
+            const ends_operand = for ([_][]const u8{ "true", "false", "break", "continue", "return", "pass", "panic" }) |w| {
+                if (std.mem.eql(u8, prev_text, w)) break true;
+            } else false;
+            if (names_it and !ends_operand) {
+                return .{ .severity = .@"error", .pos = prev_pos, .end = prev_pos + @as(u32, @intCast(prev_text.len)), .message = self.format("`{s}` is a keyword; choose another name", .{prev_text}) };
+            }
+        }
+        // `x = o ??` with a block below, or nothing after it.
+        if ((tok.cat == .indent or tok.cat == .newline) and prev == .nullish) {
+            return .{ .severity = .@"error", .pos = prev_pos, .end = prev_pos + 2, .message = "after `??` comes one value or a jump (`?? 0`, `?? return`); for several lines write `if o as x ... else ...`" };
+        }
+        // `loop` and its block, then `else`: the header at the `else`'s
+        // column above it opens a `loop`.
+        if (tok.cat == .@"else" and loopAbove(src, tok.pos)) {
+            return .{ .severity = .@"error", .pos = tok.pos, .end = tok.pos + 4, .message = "a loop has no `else`; to act when nothing matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d`" };
+        }
+        // `[x * 2 for x in xs]`.
+        if (tok.cat == .@"for" and lexer.nesting > 0 and src[lexer.brackets[lexer.nesting - 1]] == '[') {
+            return .{ .severity = .@"error", .pos = tok.pos, .end = self.base.tokenEnd(tok), .message = "Rig has no list comprehension; write a chain, `xs.map(|x| x * 2).collect()`, or a `for` loop that pushes to a List" };
+        }
+        // `x => x * 2`, `(a, b) => a + b`.
+        // A `=>` that touches the name before it is a wait, `x=>t`
+        // (`waitHint`).
+        if (tok.cat == .fat_arrow and (prev == .ident or prev == .rparen) and tok.pos > 0 and src[tok.pos - 1] == ' ') {
+            return .{ .severity = .@"error", .pos = tok.pos, .end = self.base.tokenEnd(tok), .message = "a closure is `|x| ...`: write `|x| x * 2`" };
+        }
+        // `lambda x: x * 2`.
+        if (prev == .ident and std.mem.eql(u8, prev_text, "lambda")) {
+            return .{ .severity = .@"error", .pos = prev_pos, .end = prev_pos + 6, .message = "Rig has no `lambda`; a closure is `|x| ...`: write `|x| x * 2`" };
+        }
+        // `if let x = o`, `while let x = o`.
+        if (prev == .ident and std.mem.eql(u8, prev_text, "let") and (lexer.line_head == .@"if" or lexer.line_head == .@"while")) {
+            const kw = if (lexer.line_head == .@"if") "if" else "while";
+            const name = wordAt(src, tok.pos);
+            // The value after the `=`, to the end of the line.
+            var value: []const u8 = "o";
+            if (std.mem.findScalarPos(u8, src, tok.pos, '=')) |eq_at| {
+                var e = eq_at + 1;
+                while (e < src.len and src[e] != '\n' and src[e] != '#') e += 1;
+                const v = std.mem.trim(u8, src[eq_at + 1 .. e], " \t\r");
+                if (v.len > 0 and std.mem.findScalar(u8, src[tok.pos..eq_at], '\n') == null) value = v;
+            }
+            return .{ .severity = .@"error", .pos = prev_pos, .end = prev_pos + 3, .message = self.format("Rig has no `{s} let`; write `{s} {s} as {s}`", .{ kw, kw, value, if (name.len > 0) name else "x" }) };
+        }
+        return null;
+    }
+
+    /// Whether the nearest line above the one at `at` that starts at its
+    /// column opens a `loop`: `loop`, `$l: loop`, or `x = loop`.
+    fn loopAbove(src: []const u8, at: u32) bool {
+        const line = if (std.mem.findScalarLast(u8, src[0..at], '\n')) |nl| nl + 1 else 0;
+        const col = at - line;
+        var end = line;
+        while (end > 0) {
+            const start = if (std.mem.findScalarLast(u8, src[0 .. end - 1], '\n')) |nl| nl + 1 else 0;
+            const text = src[start .. end - 1];
+            end = start;
+            var c: usize = 0;
+            while (c < text.len and text[c] == ' ') c += 1;
+            if (c == text.len or text[c] == '#' or c > col) continue;
+            if (c < col) return false;
+            var rest = std.mem.trimEnd(u8, text[c..], " \t\r");
+            if (std.mem.findScalar(u8, rest, '#')) |h| rest = std.mem.trimEnd(u8, rest[0..h], " \t");
+            return std.mem.endsWith(u8, rest, "loop") and (rest.len == 4 or !isIdentCont(rest[rest.len - 5]));
+        }
+        return false;
+    }
+
+    /// The name that starts at `at`, or "".
+    fn wordAt(src: []const u8, at: u32) []const u8 {
+        var end = at;
+        while (end < src.len and isIdentCont(src[end])) end += 1;
+        return src[at..end];
+    }
+
     const Foreign = struct {
         fix: []const u8,
         /// Named even where the parse fails on the word itself, not only
@@ -3092,8 +3190,7 @@ pub const Parser = struct {
         .{ "import", Foreign{ .fix = "use a module with `use name`" } },
         .{ "require", Foreign{ .fix = "use a module with `use name`" } },
         .{ "include", Foreign{ .fix = "use a module with `use name`" } },
-        .{ "loop", Foreign{ .fix = "write `while true`" } },
-        .{ "forever", Foreign{ .fix = "write `while true`" } },
+        .{ "forever", Foreign{ .fix = "write `loop`" } },
         .{ "do", Foreign{ .fix = "a block is the indented lines below the line that opens it", .alone = true } },
         .{ "begin", Foreign{ .fix = "a block is the indented lines below the line that opens it", .alone = true } },
         .{ "then", Foreign{ .fix = "a block is the indented lines below the line that opens it", .alone = true } },
@@ -3611,9 +3708,43 @@ pub const Parser = struct {
             .@"return" => try self.valueTail(&walked[ir.slot(.@"return", .value)]),
             // A loop's value is always used.
             .@"break" => try self.valueTail(&walked[ir.slot(.@"break", .value)]),
+            .@"while" => {
+                self.whileTrue(out);
+                self.loopElse(out);
+            },
+            .@"for" => self.loopElse(out),
+            .loop => return self.loopBlock(out),
             else => {},
         }
         return out;
+    }
+
+    /// `while true` in the source: the loop that runs until a `break` is
+    /// `loop`, and a `while` takes a condition that can end it. Only the
+    /// literal `true`; a `loop` is a `while` whose `true` is hidden
+    /// (`loopBlock`).
+    fn whileTrue(self: *Parser, node: Sexp) void {
+        const cond = ir.While.cond(node);
+        if (self.failure != null or cond != .src or isHiddenLeaf(cond)) return;
+        if (!std.mem.eql(u8, leafText(self.base.source, cond.src), "true")) return;
+        self.failure = .{ .severity = .@"error", .pos = self.span(node).start, .end = self.span(cond).end, .message = "write `loop`: `while` takes a condition that can end it" };
+    }
+
+    /// A loop's `else`, which no loop has: reported at the `else`.
+    fn loopElse(self: *Parser, node: Sexp) void {
+        const else_ = ir.get(node, .@"else");
+        if (self.failure != null or else_ == .nil) return;
+        const start = self.span(else_).start;
+        const kw: u32 = if (std.mem.findLast(u8, self.base.source[0..start], "else")) |k| @intCast(k) else start;
+        self.failure = .{ .severity = .@"error", .pos = kw, .end = kw + 4, .message = "a loop has no `else`; to act when nothing matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d`" };
+    }
+
+    /// `loop` and its block: a `while` whose condition is a `true` no
+    /// source holds, at the keyword. Every pass reads it as the one loop
+    /// that ends only by a jump, and the one that gives a value.
+    fn loopBlock(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const at = self.span(node);
+        return self.base.newNode(.@"while", &.{ hiddenLeaf(at.start, .true_value), .nil, ir.Loop.body(node), .nil }, at);
     }
 
     /// The slot of a node of `kind` whose parentheses, a `paren` the
@@ -4845,8 +4976,6 @@ pub const Parser = struct {
             },
             .match => for (ir.Match.arms(slot.*)) |arm| try self.valueTail(&@constCast(arm.items())[ir.slot(.arm, .body)]),
             .@"catch" => try self.valueTail(&items[ir.slot(.@"catch", .handler)]),
-            .@"while" => try self.valueTail(&items[ir.slot(.@"while", .@"else")]),
-            .@"for" => try self.valueTail(&items[ir.slot(.@"for", .@"else")]),
             .labeled => try self.valueTail(&items[ir.slot(.labeled, .stmt)]),
             .raw_block => try self.valueTail(&items[ir.slot(.raw_block, .body)]),
             else => {},
@@ -4891,8 +5020,6 @@ pub const Parser = struct {
                 try self.dropTailOf(&items[ir.slot(.@"if", .@"else")]);
             },
             .match => for (ir.Match.arms(slot.*)) |arm| try self.dropTailOf(&@constCast(arm.items())[ir.slot(.arm, .body)]),
-            .@"while" => try self.dropTailOf(&items[ir.slot(.@"while", .@"else")]),
-            .@"for" => try self.dropTailOf(&items[ir.slot(.@"for", .@"else")]),
             .labeled => try self.dropTailOf(&items[ir.slot(.labeled, .stmt)]),
             .raw_block => try self.dropTailOf(&items[ir.slot(.raw_block, .body)]),
             else => {},
@@ -4957,7 +5084,7 @@ pub const Parser = struct {
     /// Rewrite each `for` of `loops` in `tree` into the `while` it means.
     /// Every other node keeps its position and id.
     /// Each chain of `chains` in `tree` as the loop it means
-    /// (docs/design/iterators.md): a value that is a `while true` run
+    /// (docs/design/iterators.md): a value that is a `loop` run
     /// once, which holds the source and binds each stage's function, then
     /// walks the source and gives the consumer's result with `break`; a
     /// `for` over a chain is a block of the same holds around its loop.
@@ -5083,11 +5210,9 @@ pub const Parser = struct {
             return l.node(.@"break", &.{ value, .nil });
         }
 
-        /// How a stage ends the chain's walk: `break`, or `break none`
-        /// from a loop that is a value (the first item of a `min`, the
-        /// index of a `find`).
-        fn stop(l: *const ChainLowering, valued: bool) std.mem.Allocator.Error!Sexp {
-            return l.brk(if (valued) try l.leaf(.none_value) else .nil);
+        /// How a stage ends the chain's walk: a `break`.
+        fn stop(l: *const ChainLowering) std.mem.Allocator.Error!Sexp {
+            return l.brk(.nil);
         }
 
         fn skip(l: *const ChainLowering) std.mem.Allocator.Error!Sexp {
@@ -5101,9 +5226,8 @@ pub const Parser = struct {
 
         /// The statements each stage runs on an item, in order, into
         /// `body`: a filter skips it, a map binds the item again, a count
-        /// stops or skips. Written once per loop of the chain; `valued`
-        /// when the loop is a value (`stop`).
-        fn stages(l: *const ChainLowering, body: *std.ArrayList(Sexp), valued: bool) std.mem.Allocator.Error!void {
+        /// stops or skips. Written once per loop of the chain.
+        fn stages(l: *const ChainLowering, body: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
             const a = l.p.allocator();
             for (l.steps, 0..) |st, i| {
                 const n = i + 1;
@@ -5115,7 +5239,7 @@ pub const Parser = struct {
                 } else if (eq(st.name, "take")) {
                     // An iterator or a range stops before its next item
                     // instead (`headWith`).
-                    if (l.source == .elements) try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{try l.stop(valued)}));
+                    if (l.source == .elements) try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{try l.stop()}));
                     try body.append(a, try l.addTo(countName(n), try l.leaf(.one_value)));
                 } else if (eq(st.name, "skip")) {
                     try body.append(a, try l.when(try l.node(.@"<", &.{ try l.leaf(countName(n)), try l.leaf(limitName(n)) }), &.{ try l.addTo(countName(n), try l.leaf(.one_value)), try l.skip() }));
@@ -5130,11 +5254,11 @@ pub const Parser = struct {
                     // the item is bound only when it is read.
                     if (l.zip == .iterator) {
                         const next = try l.node(.member, &.{ try l.node(.write, &.{try l.leaf(stageName(n))}), try l.leaf(.next) });
-                        const value = try l.node(.@"??", &.{ try l.node(.call, &.{ .nil, next }), try l.stop(valued) });
+                        const value = try l.node(.@"??", &.{ try l.node(.call, &.{ .nil, next }), try l.stop() });
                         try body.append(a, if (l.pair_read[n]) try l.bind(limitName(n), .nil, value) else try l.assign(.discard, value));
                     } else {
                         const len = try l.node(.member, &.{ try l.leaf(stageName(n)), try l.leaf(.len_name) });
-                        try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), len }), &.{try l.stop(valued)}));
+                        try body.append(a, try l.when(try l.node(.@">=", &.{ try l.leaf(countName(n)), len }), &.{try l.stop()}));
                         if (l.pair_read[n]) {
                             const e = try l.node(.index, &.{ try l.leaf(stageName(n)), try l.leaf(countName(n)) });
                             try body.append(a, try l.bind(limitName(n), .nil, if (l.zip_copies) e else try l.node(.read, &.{e})));
@@ -5223,13 +5347,13 @@ pub const Parser = struct {
             return out;
         }
 
-        fn loop(l: *const ChainLowering, h: Head, body: Sexp, otherwise: Sexp) std.mem.Allocator.Error!Sexp {
-            if (l.source == .elements) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, h.index, h.src, body, otherwise, .nil });
-            if (h.pre[1] == .nil) return l.node(.@"while", &.{ h.cond, .nil, body, otherwise });
+        fn loop(l: *const ChainLowering, h: Head, body: Sexp) std.mem.Allocator.Error!Sexp {
+            if (l.source == .elements) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, h.index, h.src, body, .nil, .nil });
+            if (h.pre[1] == .nil) return l.node(.@"while", &.{ h.cond, .nil, body, .nil });
             var stmts: std.ArrayList(Sexp) = .empty;
             for (h.pre) |s| if (s != .nil) try stmts.append(l.p.allocator(), s);
             try stmts.appendSlice(l.p.allocator(), ir.rest(body, .stmts));
-            return l.node(.@"while", &.{ h.cond, .nil, try l.block(stmts.items), otherwise });
+            return l.node(.@"while", &.{ h.cond, .nil, try l.block(stmts.items), .nil });
         }
     };
 
@@ -5430,7 +5554,7 @@ pub const Parser = struct {
         const a = self.allocator();
         const h = try l.head();
         var body: std.ArrayList(Sexp) = .empty;
-        try l.stages(&body, false);
+        try l.stages(&body);
         const last = l.steps.len;
         const made = last > 0 and eq(l.steps[last - 1].name, "map");
         // A List's element the loop lends is lent on, `?item`; a value a
@@ -5445,11 +5569,11 @@ pub const Parser = struct {
             try self.loop_names.put(a, ir.For.index(node).src.pos, {});
         };
         for (ir.rest(ir.For.body(node), .stmts)) |s| try body.append(a, s);
-        try pre.append(a, try l.loop(h, try l.block(body.items), ir.For.@"else"(node)));
+        try pre.append(a, try l.loop(h, try l.block(body.items)));
         return l.block(pre.items);
     }
 
-    /// A chain ended by its consumer: a `while true` value. The state
+    /// A chain ended by its consumer: a `loop` value. The state
     /// first, then the loop's head, its stages, and what the consumer does
     /// with each item, then the result: each name stands before its uses.
     fn lowerConsumer(self: *Parser, l: *ChainLowering, c: ChainStep, pre: *std.ArrayList(Sexp)) std.mem.Allocator.Error!Sexp {
@@ -5489,7 +5613,7 @@ pub const Parser = struct {
         // The loop.
         const h = try l.head();
         var body: std.ArrayList(Sexp) = .empty;
-        try l.stages(&body, false);
+        try l.stages(&body);
         if (eq(c.name, "count")) {
             try body.append(a, try l.addTo(.chain_value, try l.leaf(.one_value)));
         } else if (eq(c.name, "sum")) {
@@ -5508,7 +5632,7 @@ pub const Parser = struct {
             const item = try l.leaf(.chain_item);
             try body.append(a, try l.node(.call, &.{ .nil, push, if (made) try l.node(.move, &.{item}) else item }));
         }
-        try pre.append(a, try l.loop(h, try l.block(body.items), .nil));
+        try pre.append(a, try l.loop(h, try l.block(body.items)));
         try pre.append(a, try l.brk(try l.leaf(.chain_value)));
         return self.onceValue(l, pre.items);
     }
@@ -5522,9 +5646,10 @@ pub const Parser = struct {
         const int_opt = try l.node(.optional, &.{try l.leaf(.int_type)});
         const h = try l.headWith(true, true);
         var body: std.ArrayList(Sexp) = .empty;
-        try l.stages(&body, true);
-        try body.append(a, try l.when(try l.call(.chain_key, try l.passed(last)), &.{try l.brk(try l.leaf(.chain_index))}));
-        try pre.append(a, try l.bind(.chain_first, int_opt, try l.loop(h, try l.block(body.items), try l.block(&.{try l.leaf(.none_value)}))));
+        try l.stages(&body);
+        try body.append(a, try l.when(try l.call(.chain_key, try l.passed(last)), &.{ try l.assign(.chain_first, try l.leaf(.chain_index)), try l.brk(.nil) }));
+        try pre.append(a, try l.bind(.chain_first, int_opt, try l.leaf(.none_value)));
+        try pre.append(a, try l.loop(h, try l.block(body.items)));
         return self.indexResult(l, pre);
     }
 
@@ -5551,15 +5676,17 @@ pub const Parser = struct {
         const int_opt = try l.node(.optional, &.{try l.leaf(.int_type)});
         const fh = try l.headWith(true, l.stagesRead());
         var fb: std.ArrayList(Sexp) = .empty;
-        try l.stages(&fb, true);
-        try fb.append(a, try l.brk(try l.leaf(.chain_index)));
-        try pre.append(a, try l.bind(.chain_first, int_opt, try l.loop(fh, try l.block(fb.items), try l.block(&.{try l.leaf(.none_value)}))));
+        try l.stages(&fb);
+        try fb.append(a, try l.assign(.chain_first, try l.leaf(.chain_index)));
+        try fb.append(a, try l.brk(.nil));
+        try pre.append(a, try l.bind(.chain_first, int_opt, try l.leaf(.none_value)));
+        try pre.append(a, try l.loop(fh, try l.block(fb.items)));
         try pre.append(a, try l.bind(.chain_best, .nil, try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
         if (by) try pre.append(a, try l.bind(.chain_value, .nil, try l.callOn(.chain_key, try l.elem(.chain_best))));
         const rh = try l.headWith(true, true);
         var rb: std.ArrayList(Sexp) = .empty;
         try rb.append(a, try l.when(try l.node(.@"<=", &.{ try l.leaf(.chain_index), try l.leaf(.chain_best) }), &.{try l.skip()}));
-        try l.stages(&rb, false);
+        try l.stages(&rb);
         const better: parser.Tag = if (is_min) .@"<" else .@">=";
         if (by) {
             try rb.append(a, try l.bind(.chain_next, .nil, try l.call(.chain_key, &.{.chain_item})));
@@ -5570,12 +5697,12 @@ pub const Parser = struct {
         } else {
             try rb.append(a, try l.when(try l.node(better, &.{ try l.leaf(.chain_item), try l.elem(.chain_best) }), &.{try l.assign(.chain_best, try l.leaf(.chain_index))}));
         }
-        try pre.append(a, try l.loop(rh, try l.block(rb.items), .nil));
+        try pre.append(a, try l.loop(rh, try l.block(rb.items)));
         try pre.append(a, try l.assign(.chain_first, try l.leaf(.chain_best)));
         return self.indexResult(l, pre);
     }
 
-    /// `while true` around `stmts`, which end in its `break`: a value.
+    /// `loop` around `stmts`, which end in its `break`: a value.
     fn onceValue(self: *Parser, l: *const ChainLowering, stmts: []const Sexp) std.mem.Allocator.Error!Sexp {
         _ = self;
         return l.node(.@"while", &.{ try l.leaf(.true_value), .nil, try l.block(stmts), .nil });
@@ -5601,10 +5728,12 @@ pub const Parser = struct {
         const opt_ty = try l.node(.optional, &.{try l.itemType(item_ty)});
         const fh = try l.headWith(indexed, l.readFrom(0));
         var fb: std.ArrayList(Sexp) = .empty;
-        try l.stages(&fb, true);
+        try l.stages(&fb);
         if (indexed) try fb.append(a, try l.assign(.chain_at, try l.leaf(.chain_index)));
-        try fb.append(a, try l.brk(try l.leaf(.chain_item)));
-        try pre.append(a, try l.bind(.chain_first, opt_ty, try l.loop(fh, try l.block(fb.items), try l.block(&.{try l.leaf(.none_value)}))));
+        try fb.append(a, try l.assign(.chain_first, try l.leaf(.chain_item)));
+        try fb.append(a, try l.brk(.nil));
+        try pre.append(a, try l.bind(.chain_first, opt_ty, try l.leaf(.none_value)));
+        try pre.append(a, try l.loop(fh, try l.block(fb.items)));
         // Typed, so a view stays a view rather than reading out the
         // number it views (SPEC "The fallback of `??`").
         try pre.append(a, try l.bind(.chain_best, try l.itemType(item_ty), try l.node(.@"??", &.{ try l.leaf(.chain_first), try l.brk(try l.leaf(.none_value)) })));
@@ -5613,7 +5742,7 @@ pub const Parser = struct {
         const rh = try l.headWith(indexed, l.readFrom(0));
         var rb: std.ArrayList(Sexp) = .empty;
         if (indexed) try rb.append(a, try l.when(try l.node(.@"<=", &.{ try l.leaf(.chain_index), try l.leaf(.chain_at) }), &.{try l.skip()}));
-        try l.stages(&rb, false);
+        try l.stages(&rb);
         const better: parser.Tag = if (is_min) .@"<" else .@">=";
         if (by) {
             try rb.append(a, try l.bind(.chain_next, .nil, try l.call(.chain_key, &.{.chain_item})));
@@ -5624,7 +5753,7 @@ pub const Parser = struct {
         } else {
             try rb.append(a, try l.when(try l.node(better, &.{ try l.leaf(.chain_item), try l.leaf(.chain_best) }), &.{try l.assign(.chain_best, try l.leaf(.chain_item))}));
         }
-        try pre.append(a, try l.loop(rh, try l.block(rb.items), .nil));
+        try pre.append(a, try l.loop(rh, try l.block(rb.items)));
         try pre.append(a, try l.assign(.chain_first, try l.leaf(.chain_best)));
         try pre.append(a, try l.brk(try l.leaf(.chain_first)));
         return self.onceValue(l, pre.items);
@@ -5691,7 +5820,7 @@ pub const Parser = struct {
         out[ir.slot(.@"while", .cond)] = bound;
         out[ir.slot(.@"while", .step)] = .nil;
         out[ir.slot(.@"while", .body)] = ir.For.body(loop);
-        out[ir.slot(.@"while", .@"else")] = ir.For.@"else"(loop);
+        out[ir.slot(.@"while", .@"else")] = .nil;
         return .{ .loop = .{ .list = parser.List.withId(out, loop.list.id) }, .hold = hold };
     }
 
@@ -6486,12 +6615,10 @@ test "parser: every form parses" {
         \\    x += 1
         \\  while m as v
         \\    continue
-        \\  else
+        \\  loop
         \\    break
         \\  for a, i in ?xs
         \\    print(a[i])
-        \\  else
-        \\    print(0)
         \\  match s
         \\    .circle(r) => print(r)
         \\    1..3 => print(-1)

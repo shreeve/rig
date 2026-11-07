@@ -83,14 +83,14 @@ test "as chain", '''
   seen = 0
   while (!xs).pop() as x and x > 3
     seen += x
-  else
-    print("stopped")
+  print("stopped")
   print(seen, xs.len)
 
-  first = while (!xs).pop() as x and x > 0
-    break x if x == 2
-  else
-    0
+  first = loop
+    if (!xs).pop() as x and x > 0
+      break x if x == 2
+    else
+      break 0
   print(first, xs.len)
 
 fail "as chain scope", "17:4: use of unbound name `y`", "22:9: use of unbound name `x`", "24:40: the loop step cannot use `r`"
@@ -787,7 +787,7 @@ test "for bare", release: true, '''
   nested 12
   jumps 5
   label 9
-  else 11
+  after 11
   12
   taken 3
   var 0
@@ -799,8 +799,8 @@ test "for bare", release: true, '''
 '''
   # `for xs` with no variable is `for _ in xs`: it runs the body once per
   # item and binds nothing, over any source `for x in xs` takes. `it` is
-  # an ordinary name. `break`, `continue`, labels, `else` and loop values
-  # work as they do with a variable.
+  # an ordinary name. `break`, `continue` and labels work as they do with
+  # a variable.
 
   obj Count
     lo: Int
@@ -871,20 +871,12 @@ test "for bare", release: true, '''
 
   for upto(2)
     hits += 1
-  else
-    print("else", hits)
+  print("after", hits)
 
-  for 0..9
-    break
-  else
-    print("never")
-
-  r = for 0..4
+  for 0..4
     hits += 1
-    break hits if hits > 10
-  else
-    -1
-  print(r)
+    break if hits > 10
+  print(hits)
 
   e = upto(3)
   hits = 0
@@ -920,8 +912,8 @@ test "for iterator", release: true, '''
   # `while (!it).next() as x`: the loop advances `it` where it stands, so
   # an iterator a `break` leaves is still there to resume. A source made
   # there (`upto(3)`), or a place the loop takes (`<it`), is held in a
-  # hidden binding for the loop. `else`, `break` values, labels and loop
-  # values work as they do for `while … as`.
+  # hidden binding for the loop. `return`, labels, and `break $l v` to a
+  # `loop` around it work as they do for `while … as`.
 
   obj Count
     lo: Int
@@ -937,9 +929,14 @@ test "for iterator", release: true, '''
 
   fun first_over(k: Int) -> Int
     for n in upto(10)
-      break n if n > k
-    else
-      -1
+      return n if n > k
+    -1
+
+  fun tenfold_at(m: Int) -> Int
+    $l: loop
+      for n in upto(5)
+        break $l n * 10 if n == m
+      break $l -1
 
   fun drain(it: !Count) -> Int
     total = 0
@@ -953,8 +950,7 @@ test "for iterator", release: true, '''
   print("resumed at", (!c).next() ?? -1)
   for n in !c
     print("rest", n)
-  else
-    print("ran out")
+  print("ran out")
   print(first_over(4), first_over(20))
 
   $outer: for a in upto(3)
@@ -962,11 +958,7 @@ test "for iterator", release: true, '''
       continue $outer if b > a
       print(a, b)
 
-  r = for n in upto(5)
-    break n * 10 if n == 3
-  else
-    -1
-  print(r)
+  print(tenfold_at(3))
   d = upto(5)
   print(drain(!d), (!d).next() ?? -1)
 
@@ -1168,14 +1160,14 @@ fail "for ptr binding reserved", "`for *x in` is reserved"
     print(x)
 
 test "fun ends with endless loop", "8"
-  # A function may end with a `while true` loop that it leaves only by
-  # `return`.
+  # A function may end with a `loop` that it leaves only by `return`.
 
   fun first_over(limit: Int) -> Int
     x = 0
-    while true : x += 1
+    loop
       if x * x > limit
         return x
+      x += 1
 
   print(first_over(50))
 
@@ -1429,11 +1421,11 @@ fail "habit let", "3:1: Rig has no `let`; bind a name with `x = 5`, or `x =! 5` 
   let mut x = 5
   print(x)
 
-fail "habit loop", "4:1: Rig has no `loop`; write `while true`"
-  # An endless loop is `while true`; `loop` is named at the word, not
-  # at the block below it.
+fail "habit forever", "4:1: Rig has no `forever`; write `loop`"
+  # An endless loop is `loop`; `forever` is named at the word, not at
+  # the block below it.
 
-  loop
+  forever
     print(1)
 
 fail "habit new const", "5:5: Rig has no `const`; write `x =! e` for a binding that never changes"
@@ -1950,13 +1942,13 @@ test "label break value", '''
 
   fun pick(a: Int, b: Int) -> Int
     if a > 0
-      $outer: for i in 0..4
-        for j in 0..4
-          break $outer (a + b) * i if j == 1 and i == 2
-      else
-        0
+      $outer: loop
+        for i in 0..4
+          for j in 0..4
+            break $outer (a + b) * i if j == 1 and i == 2
+        break $outer 0
     else
-      $first: while true
+      $first: loop
         break $first (b)
 
   print(pick(2, 3), pick(-1, 7))
@@ -2042,16 +2034,16 @@ fail "label on simple statement", "3:1: a label names a loop, `match`, or `raw` 
   $d: n += 1
   print(n)
 
-fail "label touch", "7:19: a jump's label ends at its name: put a space before the value, `break $outer -1`"
+fail "label touch", "8:21: a jump's label ends at its name: put a space before the value, `break $outer -1`"
   # A jump's label ends at its name: a value after it stands apart, so
   # `break $outer-1` does not pass for a subtraction.
 
   x = if true
-    $outer: for i in 0..3
-      for j in 0..3
-        break $outer-1 if j == i
-    else
-      0
+    $outer: loop
+      for i in 0..3
+        for j in 0..3
+          break $outer-1 if j == i
+      break $outer 0
   else
     1
   print(x)
@@ -2059,19 +2051,19 @@ fail "label touch", "7:19: a jump's label ends at its name: put a space before t
 fail "label twice", "3:1: a loop, `match`, `raw` block, or block takes one label; `$c` labels a statement already labeled `$d`", errors: 1
   # A loop, `match`, `raw` block, or block takes one label.
 
-  $c: $d: while true
+  $c: $d: loop
     break $c
 
-fail "label value detached prefix", "7:20: a prefix `-` touches its operand"
+fail "label value detached prefix", "8:22: a prefix `-` touches its operand"
   # After a jump's label, the value starts an operand: a prefix sigil
   # touches its operand there as anywhere.
 
   x = if true
-    $outer: for i in 0..3
-      for j in 0..3
-        break $outer - 1 if j == i
-    else
-      0
+    $outer: loop
+      for i in 0..3
+        for j in 0..3
+          break $outer - 1 if j == i
+      break $outer 0
   else
     1
   print(x)
@@ -2111,9 +2103,9 @@ test "labeled jump fallback", '''
       w = check(v) catch break $outer
       print(w)
   i = 0
-  $loop: while i < 5 : i += 1
-    while true
-      n = get(i, i) ?? break $loop
+  $scan: while i < 5 : i += 1
+    loop
+      n = get(i, i) ?? break $scan
       print(n)
       break
 
@@ -2257,30 +2249,6 @@ fail "lone carriage return", "3:11: carriage return without a line feed"
 
   sub main()  print(1)
 
-fail "loop else continue own label", "`continue $a` names no enclosing loop or block"
-  # A loop's `else` runs after the loop, so a jump there cannot name it.
-  obj S
-    s: []Int
-
-  fun mk(v: ?List[Int], i: Int) -> S?
-    if i < 3
-      return S(s: ?v[..])
-    none
-
-  v: List[Int] = List()
-  !v.push(1)
-  k = 0
-  n = 0
-  for _ in 0..2
-    i = 0
-    $a: while mk(?v, i) as h and i >= 0: k += h.s[0]
-      i += 1
-    else
-      n += 1
-      continue $a
-    k += 100
-  print("end", k, n)
-
 test "loop value", '''
   2 -1
   300
@@ -2292,37 +2260,38 @@ test "loop value", '''
   1
   7
 '''
-  # A loop whose `break` carries a value is an expression: its value is
-  # the value of the `break` that leaves it, or its `else` value when
-  # none does. `while true` needs no `else`.
+  # A `loop` whose `break` carries a value is an expression: its value is
+  # the value of the `break` that leaves it. A labeled `loop` takes the
+  # value of a `break` from a loop inside it.
 
   obj Grid
     rows: [3]Int
     cols: [3]Int
 
   fun find(xs: ?[4]Int, t: Int) -> Int
-    for x, i in xs
-      break i if x == t
-    else
-      -1
+    $l: loop
+      for x, i in xs
+        break $l i if x == t
+      break $l -1
 
   fun first_over(limit: Int) -> Int
-    for i in 0..10
+    i = 0
+    loop
+      break -1 if i == 10
       break i if i * i > limit
-    else
-      -1
+      i += 1
 
   fun pair(g: ?Grid, t: Int) -> Int
-    $outer: for r in g.rows
-      for c in g.cols
-        break $outer r * 10 + c if r + c == t
-    else
-      -1
+    $outer: loop
+      for r in g.rows
+        for c in g.cols
+          break $outer r * 10 + c if r + c == t
+      break $outer -1
 
   fun collatz(start: Int) -> Int
     n = start
     steps = 0
-    while true
+    loop
       break steps if n == 1
       n = n / 2 if n % 2 == 0 else 3 * n + 1
       steps += 1
@@ -2330,31 +2299,27 @@ test "loop value", '''
   a = [5, 6, 7, 8]
   print(find(?a, 7), find(?a, 9))
   n = 0
-  y = while n < 10
+  y = loop
+    break 0 if n == 10
     n += 1
     break n * 100 if n == 3
-  else
-    0
   print(y)
   print(first_over(10), first_over(1000))
   g = Grid(rows: [1, 2, 3], cols: [4, 5, 6])
   print(pair(?g, 8), pair(?g, 20))
   print(collatz(6))
   word = if first_over(3) > 1
-    for s in ["a", "bb", "ccc"]
-      break s if s.len == 2
-    else
-      "none"
+    $w: loop
+      for s in ["a", "bb", "ccc"]
+        break $w s if s.len == 2
+      break $w "none"
   else
     "small"
   print(word)
-  x = for i in 0..3
+  x = loop
     for j in 0..2
       print(j)
-    else
-      break 7 + i
-  else
-    0
+    break 7
   print(x)
 
 test "loop value break in nested source", release: true, '''
@@ -2365,9 +2330,8 @@ test "loop value break in nested source", release: true, '''
   30
 '''
   # A `for` source runs before its loop is entered, so a `break` there
-  # leaves the loop around that `for`, with its value. It counts as that
+  # leaves the `loop` around that `for`, with its value. It counts as that
   # loop's value even when it is the only `break` that gives one.
-  #
 
   fun some(i: Int) -> Int?
     i if i != 1 else none
@@ -2378,65 +2342,51 @@ test "loop value break in nested source", release: true, '''
     !l.push(i + 1)
     l
 
-  n = for i in 0..3
+  i = 0
+  n = loop
     for j in 0..(some(i) ?? break 5)
       print("n", i, j)
-  else
-    0
+    i += 1
   print(n)
 
-  f = for i in 0..3
+  i = 0
+  f = loop
+    break 1.5 if i == 3
     for j in 0..(some(i) ?? break 2.5)
       print("f", i, j)
     break 0.5 if i == 2
-  else
-    1.5
+    i += 1
   print(f)
 
-  s = for i in 0..3
+  i = 0
+  s = loop
+    break String("from the end") if i == 3
     for j in 0..(some(i) ?? break String("from the source"))
       print("s", i, j)
     break String("from the body") if i == 2
-  else
-    String("from the else")
+    i += 1
   print(s)
 
   a: List[Int] = List()
   !a.push(7)
-  l = for i in 0..3
+  i = 0
+  l = loop
+    break +a if i == 3
     for j in 0..(some(i) ?? break mk(9))
       print("l", i, j)
     break +a if i == 2
-  else
-    +a
+    i += 1
   print(l.len, l[0], l[1], a.len)
 
   # Without the nested source's `break`, the body's leaves the loop.
-  m = for i in 2..5
+  i = 2
+  m = loop
+    break -1 if i == 5
     for _ in 0..(some(i) ?? break 99)
       pass
     break i * 10 if i == 3
-  else
-    -1
+    i += 1
   print(m)
-
-fail "loop value break without value", "5:3: this `break` leaves a loop used as a value; give it the value (`break value`)"
-  # Every `break` that leaves a loop used as a value gives it a value.
-
-  x = for i in 0..3
-    break i if i == 2
-    break if i == 1
-  else
-    0
-  print(x)
-
-fail "loop value needs else", "4:5: a loop used as a value needs an `else` giving its value when no `break` does"
-  # A loop used as a value has no value when its condition fails, so it
-  # needs an `else`; only `while true` can do without one.
-
-  x = for i in 0..3
-    break i if i == 2
-  print(x)
 
 test "loop value positions", '''
   4 -1
@@ -2454,20 +2404,24 @@ test "loop value positions", '''
     n: Int
 
   fun first_even(xs: ?[4]Int) -> Int
-    return for x in xs
-      break x if x % 2 == 0
-    else
-      return -1
+    i = 0
+    return loop
+      if i == 4
+        return -1
+      break xs[i] if xs[i] % 2 == 0
+      i += 1
 
   fun nested(limit: Int) -> Int
-    x = for i in 1..10
-      j = for k in 1..10
+    i = 1
+    x = loop
+      break 0 if i == 10
+      k = 1
+      j = loop
+        break 0 if k == 10
         break k if k * i > limit
-      else
-        0
+        k += 1
       break i * 100 + j if j > 0 and j < 3
-    else
-      0
+      i += 1
     x
 
   fun kind(n: Int) -> ?String
@@ -2475,49 +2429,42 @@ test "loop value positions", '''
       0 => "zero"
       _
         i = 0
-        while i < n : i += 1
+        loop
+          break "small" if i >= n
           break "big" if i > 5
-        else
-          "small"
+          i += 1
 
   print(first_even(?[1, 3, 4, 5]), first_even(?[1, 3, 5, 7]))
   print(nested(10))
   print(kind(0), kind(3), kind(9))
-  f: fun(Int) -> Int = |n| for i in 0..n
-    break i if i * 3 > n
-  else
-    n
+  f: fun(Int) -> Int = |n|
+    i = 0
+    loop
+      break n if i == n
+      break i if i * 3 > n
+      i += 1
   print(f(10), f(0))
-  g = |n: Int| for i in 0..n
-    break i * 2 if i == 2
-  else
-    -1
+  g = |n: Int|
+    i = 0
+    loop
+      break -1 if i == n
+      break i * 2 if i == 2
+      i += 1
   print(g(5), g(1))
   a = P(n: 1)
   b = P(n: 2)
-  r = for i in 0..2
+  i = 0
+  r = loop
+    break ?b if i == 2
     break ?a if i == 1
-  else
-    ?b
+    i += 1
   print(r.n)
-  u8v: U8 = for i in 0..3
+  i = 0
+  u8v: U8 = loop
+    break 7 if i == 3
     break 200 if i == 1
-  else
-    7
+    i += 1
   print(u8v)
-
-fail "loop value unused", "3:1: the value of this loop is not used", "10:3: the value of this loop is not used"
-  # A `break` value needs a loop whose value is used.
-
-  for i in 0..3
-    break i if i == 2
-  else
-    0
-  n = 0
-  while n < 3
-    n += 1
-    for j in 0..2
-      break 5 if j == 1
 
 fail "marker before pub", "3:1: `pub` comes before a function's marker: write `pub inline fun`", errors: 1
   # `pub` comes first, then a function's marker.
@@ -3097,29 +3044,28 @@ test "negation in catch handler", "-4"
   print(x)
 
 test "negation in loop value", "-3 0 -3 20 -5"
-  # A loop's value is used, so `-y` as a `break` value, or as the last
-  # line of a loop's `else` block, is negation.
+  # A `loop`'s value is used, so `-y` as a `break` value is negation.
 
   fun first(y: Int) -> Int
-    x = while true
+    x = loop
       break match y
         3 => -y
         _ => 0
     x
 
   fun found(xs: [3]Int, y: Int) -> Int
-    x = for v in xs
-      break v if v > 10
-    else
-      -y
+    i = 0
+    x = loop
+      break -y if i == 3
+      break xs[i] if xs[i] > 10
+      i += 1
     x
 
   fun counted(y: Int) -> Int
     n = 0
-    x = while n < 2 : n += 1
-      break -y if n > 5
-    else
-      -y
+    x = loop
+      break -y if n >= 2
+      n += 1
     x
 
   print(first(3), first(4), found([1, 2, 3], 3), found([1, 20, 3], 3), counted(5))
@@ -3637,8 +3583,8 @@ test "range inclusive for", '''
   0 empty
 '''
   # `a..=b` includes its end, which may be its type's largest value: the
-  # counter never steps past it, so `continue` and `else` work as in any
-  # range.
+  # counter never steps past it, so `continue` and the code after the
+  # loop work as in any range.
 
   n = 0
   for i in 0..=3
@@ -3653,13 +3599,11 @@ test "range inclusive for", '''
   top = 0
   for Int.max - 1..=Int.max
     top += 1
-  else
-    print(top, "done")
+  print(top, "done")
   none_run = 0
   for 5..=4
     none_run += 1
-  else
-    print(none_run, "empty")
+  print(none_run, "empty")
 
 test "range for every integer type at its ends", '''
   U8 14
@@ -5194,7 +5138,7 @@ fail "unreachable after jump", "unreachable code: this statement follows a `retu
   for i in 0..3
     break
     print(i)
-  while true
+  loop
     continue
     print("x")
   print(f())
@@ -5256,7 +5200,7 @@ test "while header jump label", '''
     n > 0 if n < 9 else none
 
   n = 3
-  $outer: while true
+  $outer: loop
     while more(n) ?? break $outer
       n -= 1
     print(n)
@@ -5370,20 +5314,3 @@ fail "zig block reserved", "unexpected keyword `zig`", "inline Zig is reserved"
   # `raw` blocks and `extern` declarations are the escape hatches.
 
   zig "const x = 42; std.debug.print(\"{any}\\n\", .{x});"
-
-fail "else of while true", "8:3: unreachable code: this statement follows a `return`", "13:7: `xs` owns a `List[Int]`, which can't be copied by `=`", errors: 2
-  # The `else` of `while true` never runs, and it is checked as any
-  # block is, as if the condition failed at the loop's head.
-  n = 0
-  while true
-    break if n > 2
-  else
-    return
-    print(1)
-  xs: List[Int] = List()
-  last = while true
-    break 1
-  else
-    e = xs
-    e.len
-  print(last)
