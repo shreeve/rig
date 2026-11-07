@@ -7865,6 +7865,11 @@ pub const Emitter = struct {
     /// auto-dereference.
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
         const o = lentPlace(obj);
+        // A place lent to write is reached to write, whatever reads the
+        // call's result: its own `!` decides, as `emitLendAddress`'s does.
+        const saved_read = self.read_place;
+        defer self.read_place = saved_read;
+        if (obj.isKind(.write)) self.read_place = false;
         // The type of the value reached, which a lend of it (`!mk()`, a
         // view of the value it lends) is not.
         const o_ty = if (sameNode(o, obj)) obj_ty else self.typeOf(o);
@@ -8610,6 +8615,11 @@ pub const Emitter = struct {
     fn emitSwapCall(self: *Emitter, args: []const Sexp, swap: facts.SwapCall) Error!void {
         const two = args.len == 2 and swap == .places;
         try self.w.writeAll(if (two) "rig.swapPlaces(" else "rig.swapValue(");
+        // A place a swap writes is reached to write, whatever reads the
+        // swap's result: its own `!` decides, as `emitLendAddress`'s does.
+        const saved_read = self.read_place;
+        defer self.read_place = saved_read;
+        self.read_place = false;
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
             if (i == 0 or two) {
