@@ -610,3 +610,11 @@ code "generic plain tests the bit the generic takes", "pub inline fn fill(compti
   !v.push(1)
   fill(!v)
   print(v.len)
+
+fail "a compile-time query as a statement", "2:3: this expression does nothing as a statement", "3:3: this expression does nothing as a statement", errors: 2
+  fun pl[T]() -> Bool
+    $plain(T)
+    $size(T)
+    true
+
+  print(pl[Int]())

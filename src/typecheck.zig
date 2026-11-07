@@ -1154,6 +1154,11 @@ const Checker = struct {
                 self.body.fail_to = .deferred;
                 self.body.loops = null;
                 const body = ir.get(stmt, .body);
+                // A deferred statement runs at scope exit already: one
+                // deferred again there means nothing more.
+                if (body.isKind(.@"defer") or body.isKind(.@"errdefer")) {
+                    return self.errAt(body, "a deferred statement cannot itself be a `defer` or an `errdefer`: write one", .{});
+                }
                 try self.checkStmt(body);
                 // The statement runs at scope exit: a name it declared
                 // would be visible to code that runs before it.
@@ -1303,14 +1308,14 @@ const Checker = struct {
     }
 
     /// The first part of `e` whose evaluation runs code or leaves: a
-    /// call, a builtin, a propagation, or a `catch`, and with `sigils`
-    /// also a move, a write lend, a clone, a box, a shared or weak
-    /// handle, or a `panic`. A closure literal inside `e` runs
-    /// nothing until it is called.
+    /// call, a propagation, or a `catch`, and with `sigils` also a move,
+    /// a write lend, a clone, a box, a shared or weak handle, or a
+    /// `panic`. A builtin only computes a value from its arguments, and a
+    /// closure literal inside `e` runs nothing until it is called.
     fn effectIn(e: Sexp, sigils: bool) ?Sexp {
         const kind = e.kind() orelse return null;
         switch (kind) {
-            .call, .builtin, .propagate, .propagate_none, .@"catch" => return e,
+            .call, .propagate, .propagate_none, .@"catch" => return e,
             .move, .write, .clone, .box, .share, .weak, .panic => if (sigils) return e,
             .lambda => return null,
             else => {},
@@ -1322,7 +1327,7 @@ const Checker = struct {
     /// What `effectIn` found, as a diagnostic names it.
     fn effectName(e: Sexp) []const u8 {
         return switch (e.kind().?) {
-            .call, .builtin => "the call",
+            .call => "the call",
             .propagate, .propagate_none => "the propagation",
             .@"catch" => "the `catch`",
             .move => "the move",
@@ -12378,10 +12383,13 @@ const Checker = struct {
             const pat = pattern orelse continue;
             if (sema.containsPoison(self.ctx, pat)) inf.poisoned = true;
             if (!sema.containsTypeVar(self.ctx, pat)) continue;
-            if (value.isKind(.lambda)) if (lambdaPattern(self.ctx, pat)) |fn_pat| {
+            if (value.isKind(.lambda)) {
+                // A closure literal where no function goes binds nothing:
+                // checked against the parameter, it is reported there.
+                const fn_pat = lambdaPattern(self.ctx, pat) orelse continue;
                 try lambdas.append(self.ctx.arena.allocator(), .{ .pattern = fn_pat, .lambda = value, .arg = @intCast(number) });
                 continue;
-            };
+            }
             const actual = try self.argType(value);
             if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
             try self.bindArg(&inf, pat, actual, @intCast(number), 0);
@@ -17875,6 +17883,34 @@ const Checker = struct {
         return ty;
     }
 
+    /// A constructor call `C(...)` or `.v(...)` typed by the type its
+    /// context gives it (`checkContextual`); null for any other call.
+    fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId) Error!?TypeId {
+        const callee = ir.Call.callee(e);
+        if (callee.isKind(.enum_lit)) return try self.checkShortForm(e, expected, target);
+        // `Wrap(...)` where a `Wrap[Int]` is expected.
+        const tt = self.ctx.types.get(target);
+        if (callee != .src or tt != .parameterized_nominal) return null;
+        const id = self.lookupQuiet(callee) orelse return null;
+        if (id != tt.parameterized_nominal.sym) return null;
+        // `Frozen(x)` and `Actor(x)` take their types from `x`
+        // (`frozenMake`, `actorMake`).
+        if (id == self.ctx.frozen_sym_id or id == self.ctx.actor_sym_id) return null;
+        _ = try self.useName(callee);
+        if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
+            try self.errAt(callee, stack_signal, .{});
+            try self.synthArgs(ir.Call.args(e));
+        } else if (id == self.ctx.list_sym_id) {
+            try self.checkListConstruction(e, target);
+        } else if (id == self.ctx.table_sym_id) {
+            try self.checkTableConstruction(e);
+        } else {
+            const sym = self.ctx.symbols.items[id];
+            _ = try self.construct(id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
+        }
+        return target;
+    }
+
     /// A form whose type comes from context: its type, or null when `e`
     /// is not one.
     fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
@@ -17925,29 +17961,10 @@ const Checker = struct {
             },
             .enum_lit => return try self.checkShortForm(e, expected, target),
             .call => {
-                const callee = ir.Call.callee(e);
-                if (callee.isKind(.enum_lit)) return try self.checkShortForm(e, expected, target);
-                // `Wrap(...)` where a `Wrap[Int]` is expected.
-                const tt = self.ctx.types.get(target);
-                if (callee != .src or tt != .parameterized_nominal) return null;
-                const id = self.lookupQuiet(callee) orelse return null;
-                if (id != tt.parameterized_nominal.sym) return null;
-                // `Frozen(x)` and `Actor(x)` take their types from `x`
-                // (`frozenMake`, `actorMake`).
-                if (id == self.ctx.frozen_sym_id or id == self.ctx.actor_sym_id) return null;
-                _ = try self.useName(callee);
-                if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
-                    try self.errAt(callee, stack_signal, .{});
-                    try self.synthArgs(ir.Call.args(e));
-                } else if (id == self.ctx.list_sym_id) {
-                    try self.checkListConstruction(e, target);
-                } else if (id == self.ctx.table_sym_id) {
-                    try self.checkTableConstruction(e);
-                } else {
-                    const sym = self.ctx.symbols.items[id];
-                    _ = try self.construct(id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
-                }
-                return target;
+                // A call marked `&` gives a task of what the call gives,
+                // which `taskOf` types and checks, whatever the context.
+                const made = try self.contextualCall(e, expected, target) orelse return null;
+                return if (ir.Call.task(e) != .nil) try self.taskOf(e, made) else made;
             },
             .builtin => {
                 const ty = try self.synthBuiltin(e, target);

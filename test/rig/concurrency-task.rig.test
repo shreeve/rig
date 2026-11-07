@@ -221,6 +221,20 @@ fail "task targets", "a task runs a call of a function or a method: `f(x)&`, `(!
   u = f(2)&
   v = Node(v: 3)&
 
+fail "task targets where the type is known", "a task runs a call of a function or a method", errors: 4
+  # A constructor typed by where it goes is no task's target either.
+  obj P[T]
+    x: T
+
+  enum E
+    v(x: Int)
+
+  v: List[Int] = List()&
+  m: Map[Int, Int] = Map()&
+  p: P[Int] = P(x: 1)&
+  e: E = .v(x: 1)&
+  print(v.len, m.len, p.x, e)
+
 test "task local", seeds: 20, '''
   1
   1
