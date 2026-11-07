@@ -14767,6 +14767,13 @@ pub const Lend = struct {
         return std.mem.findScalar(LendStep, self.rows[0..self.len], step) != null;
     }
 
+    /// The lend reaches a code through no handle or box: the code is
+    /// the value lent, a constant (`rig.codeView`) that no temporary
+    /// holds.
+    pub fn codeAlone(self: Lend) bool {
+        return self.has(.code) and !self.has(.handle) and !self.has(.unbox);
+    }
+
     /// The function type a callable is lent as; null for any other lend.
     pub fn callable(self: Lend) ?TypeId {
         return if (self.has(.callable)) self.fn_ty else null;

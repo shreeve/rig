@@ -885,7 +885,7 @@ fail "for temporary source loans", "26:2: cannot drop `t` while it is lent", "34
   <v
   print(sl)
 
-fail "for write iteration conflicts", "cannot write-iterate parameter `xs`", "cannot write-iterate a `Static`", "`xs` must be a binding, or a field or element of one"
+fail "for write iteration conflicts", "cannot write-iterate through a read view (`?T`)", "cannot write-iterate a `Static`", "`xs` must be a binding, or a field or element of one"
   # `for x in !xs` needs a place it may write.
 
   fun make() -> List[Int]
