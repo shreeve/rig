@@ -365,3 +365,76 @@ test "word map values written", '''
     bump(!h.ensure(4, P()))
     w = h.get(4) ?? P()
     print(w.a, w.b)
+
+test "a one-word field of an object partly moved out", "0\n1"
+  # A field holding a one-word object is held at four bytes, and the drop
+  # of what is left after a move reaches it there.
+  obj Q
+    n: Int
+
+  obj P
+    v: List[Int]
+    q: Q
+
+  sub take(v: List[Int])
+    print(v.len)
+
+  sub main()
+    p = P(v: List(), q: Q(n: 1))
+    take(<p.v)
+    print(p.q.n)
+
+test "a write view of a one-word object rebound", "7 5 102"
+  # A rebound write view is a `var` whose pointer type is spelled out: at
+  # the four bytes a one-word object is held at, as a call gives it.
+  obj P
+    x: Int
+
+  fun first[T](r: !T, ok: Bool) -> (!T)!
+    r
+
+  fun pick(c: !P) -> !P
+    c
+
+  sub main()
+    a = P(x: 1)
+    b = P(x: 2)
+    v = first(!a, true) catch !b
+    v.x = 7
+    u = first(!b, false) catch !a
+    u = first(!b, false) catch !a
+    u.x += 100
+    c = P(x: 2)
+    r = pick(!c)
+    r = pick(!c)
+    r.x = 5
+    print(a.x, c.x, b.x)
+
+test "a boxed or shared one-word object lent into an optional view", "shown\ntrue true"
+  # The view of a one-word object is a copy, whose optional is held
+  # beside a flag: the view a box or handle lends is packed into it.
+  obj P
+    x: Int
+
+  sub show[T](x: ?T)
+    print("shown")
+
+  sub main()
+    a = ^P(x: 1)
+    o: (?P)? = ?a
+    n = *<P(x: 3)
+    b: (?P)? = ?n
+    show(b)
+    print(o != none, b != none)
+
+test "a one-word object's optional view with a fallback", "1 2"
+  # `o ?? b` copies the object out of the view the optional holds.
+  obj T
+    x: Int
+
+  fun retv(o: (?T)?, b: T) -> T
+    o ?? b
+
+  sub main()
+    a = T(x: 1)
+    print(retv(?a, T(x: 2)).x, retv(none, T(x: 2)).x)

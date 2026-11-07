@@ -6211,6 +6211,31 @@ pub const Emitter = struct {
     /// `from`, where a `view` is expected (`emitLend`), for the lend
     /// `node`.
     fn lendChain(self: *Emitter, node: Sexp, start: LendAt, start_from: TypeId, rows: []const facts.LendStep, start_view: TypeId, as_ptr: bool) Error![]const u8 {
+        // Each `.lift` row makes the view an optional's payload, which Zig
+        // lifts into a `?T` on its own; one that goes through the helpers
+        // (a view of a one-word object, `rig.WordOpt`) is packed into it.
+        // The rows past an `.optional` one are its payload's own.
+        var packs: std.ArrayList(TypeId) = .empty;
+        var view = start_view;
+        for (rows) |row| switch (row) {
+            .lift => {
+                const inner = self.facts.types.get(view).optional;
+                if (self.routesPayload(inner)) try packs.append(self.arena.allocator(), view);
+                view = inner;
+            },
+            .optional => break,
+            else => {},
+        };
+        var text = try self.lendChainRows(node, start, start_from, rows, start_view, as_ptr);
+        var i = packs.items.len;
+        while (i > 0) {
+            i -= 1;
+            text = try self.fmt("rig.pack({s}, {s})", .{ try self.typeText(packs.items[i]), text });
+        }
+        return text;
+    }
+
+    fn lendChainRows(self: *Emitter, node: Sexp, start: LendAt, start_from: TypeId, rows: []const facts.LendStep, start_view: TypeId, as_ptr: bool) Error![]const u8 {
         const types = self.facts.types;
         var at = start;
         var from = start_from;
@@ -6783,7 +6808,9 @@ pub const Emitter = struct {
     /// The pointer a view of `inner` held by address is: a write view's
     /// is mutable, `*T`; a read view's is `*const T`.
     fn emitViewPtrTy(self: *Emitter, inner: TypeId, view: enum { read, write }) Error!void {
-        try self.w.writeAll(if (view == .write) "*" else "*const ");
+        // A write view of a one-word object points at the four-byte
+        // alignment containers hold it at, as `emitTypeTy` writes it.
+        try self.w.writeAll(if (view == .read) "*const " else if (self.facts.wordAlignedField(inner)) "*align(4) " else "*");
         try self.emitTypeTy(inner);
     }
 
@@ -7072,7 +7099,9 @@ pub const Emitter = struct {
                     try self.w.writeAll(", ");
                 }
                 try self.w.writeAll("(");
-                const some = try self.openSome(left);
+                // A payload copied out is copied from the Zig `?T` the
+                // helpers give (`emitFallbackHolder`).
+                const some = !self.facts.copiesPayload(sexp) and try self.openSome(left);
                 try self.emitFallbackHolder(sexp, left);
                 try self.closeSome(some);
                 try self.w.writeAll(" orelse ");
@@ -8118,7 +8147,11 @@ pub const Emitter = struct {
         try self.w.writeAll("rig.copiedOut(");
         try self.emitTypeTy(viewed);
         try self.w.writeAll(", ");
+        // An optional that goes through the helpers (`rig.WordOpt`) is
+        // read as the Zig `?T` `rig.some` gives.
+        const some = try self.openSome(holder);
         try self.emitExpr(holder);
+        try self.closeSome(some);
         try self.w.writeAll(")");
     }
 

@@ -1759,7 +1759,9 @@ pub fn dropParts(ptr: anytype, comptime paths: []const []const u8, held: []const
     dropPartsAt(@TypeOf(ptr.*), ptr, "", paths, held);
 }
 
-fn dropPartsAt(comptime T: type, ptr: *T, comptime here: []const u8, comptime paths: []const []const u8, held: []const bool) void {
+/// `ptr` is a `*T`, or a `*align(4) T` for a one-word object a field
+/// holds at four bytes (`wordAlign`).
+fn dropPartsAt(comptime T: type, ptr: anytype, comptime here: []const u8, comptime paths: []const []const u8, held: []const bool) void {
     const below = comptime blk: {
         for (paths) |p| {
             if (here.len == 0 and p.len > 0) break :blk true;
