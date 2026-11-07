@@ -145,8 +145,11 @@ A new session, human or agent, takes these steps in order:
   [locks-2026-11-05.md](docs/history/records/2026-11/preempt/locks-2026-11-05.md)),
   waiting on pup to measure.
   Waits on Trig's timing, option on against off, against the checks'
-  ceiling (2.4% fewer cycles on ts-pattern); `bench/tasks` `hog` is
-  100 times slower with it (question 1 of the record).
+  ceiling (2.4% fewer cycles on ts-pattern). `bench/tasks`' `hog`, 100
+  times slower with it (question 1 of the record), waits no longer
+  behind preempted tasks on its first step: a worker keeps four tasks to
+  run next
+  ([run-next-2026-11-07.md](docs/history/records/2026-11/preempt/run-next-2026-11-07.md)).
 
 - **The revamp of the runtime and std**
   ([records/2026-11/revamp-runtime/](docs/history/records/2026-11/revamp-runtime/ledger.md))

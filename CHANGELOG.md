@@ -271,6 +271,16 @@ none of these ever built:
 
 ### Runtime
 
+- A worker keeps four tasks to run next, newest first, where it kept
+  one. A task made and then waited for runs at once while it is still
+  in a slot, ahead of older tasks in the ring. A thief takes the oldest.
+  `bench/tasks`' `hog` waited 19-134 ms on its first step on the Mac
+  with `RIG_PREEMPT=signal`, behind tasks that ran until the monitor
+  stopped them, and now waits 0.1-0.7 ms. Its whole run is 0.01-0.26 ms,
+  where it was 4.2-9 ms with yield checks. `bench/actors`' `contend` is
+  48% faster, `spawn` 4-10% and `yield` 6-7%. No row is slower beyond
+  noise, and Trig's instructions are level
+  ([run-next-2026-11-07.md](docs/history/records/2026-11/preempt/run-next-2026-11-07.md)).
 - The release allocator follows Linux's mode for transparent huge pages,
   read once from /sys/kernel/mm/transparent_hugepage/: under `madvise`
   it asks as before, and with no test of /proc/buddyinfo where `defrag`
