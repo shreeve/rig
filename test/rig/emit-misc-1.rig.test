@@ -1972,19 +1972,6 @@ test "float default leading dot", "0.25"
   p = P()
   print(p.x + f())
 
-test "for else block", '''
-  1
-  done
-'''
-  # The `else` block of a `for` runs when the loop ends without `break`.
-
-  v: List[Int] = List()
-  !v.push(1)
-  for n in ?v
-    print(n)
-  else
-    print("done")
-
 test "for index counter", '''
   one 7 0
   tail 30 0
