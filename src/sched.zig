@@ -127,18 +127,23 @@ const Worker = struct {
     current: ?*Fiber = null,
     after: ?After = null,
     ring: Ring = .{},
-    /// The fibers to run next, newest first: the ones this worker's
-    /// fibers last made ready, still in cache. A fiber made ready goes in
-    /// the first slot and moves the others down to the first empty one;
-    /// the oldest, past the last slot, goes to the ring. This worker takes
-    /// the newest, at most `lifo_limit` times in a row; a worker with
-    /// nothing else to steal takes the oldest once it has waited there a
-    /// while (`stealNext`), as Go's `runnext`. A task made and waited for
-    /// runs at once while it is still in a slot (`handoff`), so a fiber
-    /// that makes several and waits for each in turn waits behind none of
-    /// the ring's. Whoever moves a slot from a fiber to null by one atomic
-    /// step owns that fiber, as with one slot.
+    /// The fibers to run next: the ones this worker's fibers last made
+    /// ready, still in cache, in a circle whose newest is at `lifo_head`.
+    /// A fiber made ready takes the slot after the newest, which holds
+    /// the oldest or nothing, by one swap; the oldest it displaces goes to
+    /// the ring. This worker takes the newest, at most `lifo_limit` times
+    /// in a row; a worker with nothing else to steal takes the oldest
+    /// once it has waited there a while (`stealNext`), as Go's `runnext`.
+    /// A task made and waited for runs at once while it is still in a
+    /// slot (`handoff`), so a fiber that makes several and waits for each
+    /// in turn waits behind none of the ring's. Whoever moves a slot from
+    /// a fiber to null by one atomic step owns that fiber, as with one
+    /// slot.
     lifo: [run_next_slots]std.atomic.Value(?*Fiber) = @splat(.init(null)),
+    /// The slot of the newest fiber in `lifo`. Only this worker writes
+    /// it; another reads it only to find the oldest, which its
+    /// compare-and-swap on the slot then confirms.
+    lifo_head: std.atomic.Value(u8) = .init(0),
     lifo_streak: u8 = 0,
     free: ?*FreeStack = null,
     free_count: u32 = 0,
@@ -293,14 +298,11 @@ fn wakeIn(f: *Fiber) void {
         global.push(f);
         return notifyNew();
     };
-    // Into the first slot, each fiber there down one, as far as an
-    // empty slot; one past the last goes to the ring.
-    var carry: ?*Fiber = f;
-    for (&w.lifo) |*slot| {
-        carry = slot.swap(carry.?, .seq_cst);
-        if (carry == null) break;
-    }
-    if (carry) |b| {
+    // Into the slot after the newest, which holds the oldest or nothing:
+    // the oldest goes to the ring.
+    const i = (w.lifo_head.raw +% 1) % run_next_slots;
+    w.lifo_head.store(i, .monotonic);
+    if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
             _ = w.ring.push(b);
             return notifyNew();
@@ -1177,17 +1179,31 @@ inline fn nextHeld(w: *Worker, comptime order: std.builtin.AtomicOrder) bool {
     return false;
 }
 
-/// Whether `f` is in one of `w`'s "run next" slots.
-fn nextHolds(w: *Worker, f: *Fiber) bool {
-    for (&w.lifo) |*slot| if (slot.load(.monotonic) == f) return true;
-    return false;
+/// The slot of `w`'s "run next" circle that holds `f`, looked for by
+/// plain loads from the newest back, where a task just made sits.
+fn nextSlotOf(w: *Worker, f: *Fiber) ?u8 {
+    const head = w.lifo_head.load(.monotonic);
+    var k: u8 = 0;
+    while (k < run_next_slots) : (k += 1) {
+        const i = (head +% run_next_slots -% k) % run_next_slots;
+        if (w.lifo[i].load(.monotonic) == f) return i;
+    }
+    return null;
 }
 
-/// Take `f` from whichever of `w`'s slots holds it, by one atomic step:
-/// whether this took it.
+/// Whether `f` is in one of `w`'s "run next" slots.
+fn nextHolds(w: *Worker, f: *Fiber) bool {
+    return nextSlotOf(w, f) != null;
+}
+
+/// Take `f` from the slot of `w`'s that holds it, by one atomic step:
+/// whether this took it. Called by `w`'s own fiber: when `f` was the
+/// newest, the next made takes the slot it leaves.
 fn takeFromNext(w: *Worker, f: *Fiber) bool {
-    for (&w.lifo) |*slot| if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) == null) return true;
-    return false;
+    const i = nextSlotOf(w, f) orelse return false;
+    if (w.lifo[i].cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return false;
+    if (w.lifo_head.raw == i) w.lifo_head.store((i +% run_next_slots -% 1) % run_next_slots, .monotonic);
+    return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -3169,8 +3185,14 @@ fn next(w: *Worker) ?*Fiber {
         service(w);
         if (global.pop()) |f| return f;
     }
-    // The newest first.
-    for (&w.lifo) |*slot| if (slot.load(.monotonic) != null) if (slot.swap(null, .seq_cst)) |f| {
+    // The newest first; the next made takes the slot it leaves.
+    var k: u8 = 0;
+    while (k < run_next_slots) : (k += 1) {
+        const i = (w.lifo_head.raw +% run_next_slots -% k) % run_next_slots;
+        const slot = &w.lifo[i];
+        if (slot.load(.monotonic) == null) continue;
+        const f = slot.swap(null, .seq_cst) orelse continue;
+        w.lifo_head.store((i +% run_next_slots -% 1) % run_next_slots, .monotonic);
         if (w.lifo_streak < lifo_limit) {
             w.lifo_streak += 1;
             return f;
@@ -3179,7 +3201,7 @@ fn next(w: *Worker) ?*Fiber {
         // stolen meanwhile.
         if (f.home != null) w.pinned.push(f) else _ = w.ring.push(f);
         break;
-    };
+    }
     w.lifo_streak = 0;
     // Pinned fibers and the ring take turns first, so neither keeps the
     // other waiting.
@@ -3246,12 +3268,13 @@ fn stealNext(v: *Worker) ?*Fiber {
     return unlessPinned(f);
 }
 
-/// The last of `v`'s "run next" slots that holds a fiber: the oldest,
-/// which a worker from outside takes.
+/// The oldest of `v`'s "run next" slots that holds a fiber, which a
+/// worker from outside takes: the first after the newest, going round.
 fn oldestNext(v: *Worker) ?*std.atomic.Value(?*Fiber) {
-    var i: usize = run_next_slots;
-    while (i > 0) {
-        i -= 1;
+    const head = v.lifo_head.load(.monotonic);
+    var k: u8 = 1;
+    while (k <= run_next_slots) : (k += 1) {
+        const i = (head +% k) % run_next_slots;
         if (v.lifo[i].load(.seq_cst) != null) return &v.lifo[i];
     }
     return null;
@@ -4385,7 +4408,7 @@ pub fn Job(comptime T: type) type {
 }
 
 /// Hand this worker to the task of `h`, which has not started and is
-/// next on it (its "run next" slot, which only this worker takes): switch
+/// next on it (in one of its "run next" slots): switch
 /// straight to it, on its own stack, and straight back when it ends,
 /// past the queues. The fiber waiting sleeps as it hands its worker over,
 /// recorded as the task's waiter, so a task that stops on the way ends

@@ -140,9 +140,10 @@ a program that makes none starts no workers.
   sets that can fail.
 - **Queues.** Each worker owns a ring of 256 ready tasks, pushed with
   one store; other workers steal half with one compare-and-swap. Four
-  "run next" slots keep the tasks just woken or made in cache, newest
-  first: a new one takes the first slot and moves the others down, and
-  one pushed past the last goes to the ring. The worker runs the newest,
+  "run next" slots keep the tasks just woken or made in cache, in a
+  circle: a new one takes the slot after the newest, which holds the
+  oldest or nothing, by one swap, and the oldest it displaces goes to
+  the ring. The worker runs the newest,
   at most 3 in a row. Filling a slot wakes no worker (`sched.wake`); the
   task pushed out to the ring does, when none is looking. A worker runs the task
   next when it woke the task itself: from its poller or a timer as it
@@ -422,7 +423,7 @@ fails, and yields only when other work waits.
   check or a sleeper, sets it again while any other worker's slot holds
   a fiber (`sched.takeWaiting`). Four accesses make that handshake, all
   sequentially consistent: the clearer's swap of the flag to 0 and its
-  reads of the slots after it, and the maker's swap into its first slot and
+  reads of the slots after it, and the maker's swap into its slot and
   its read of the flag after that. So the clearer sees the fiber, or
   the maker sees the flag clear and sets it (the stores that set it
   need no stronger order). A task that yields only puts itself back in
