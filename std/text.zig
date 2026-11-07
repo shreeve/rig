@@ -11,17 +11,49 @@ const ParseError = error{
     @"std.text.ParseError.overflow",
 };
 
-pub fn find(s: []const u8, pat: []const u8) ?i64 {
+// `find`, `find_last`, and `count` are, in a build with signal
+// preemption, in the program's code section, as the searches they call
+// are (`byteRest`): `count`'s loop and a 1-byte search's first 4 KiB run
+// in their own bodies.
+pub const find = if (rig.preempt) findApart else findPlain;
+pub const find_last = if (rig.preempt) findLastApart else findLastPlain;
+pub const count = if (rig.preempt) countApart else countPlain;
+
+fn findPlain(s: []const u8, pat: []const u8) ?i64 {
+    return findIn(s, pat);
+}
+
+fn findApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) ?i64 {
+    return findIn(s, pat);
+}
+
+inline fn findIn(s: []const u8, pat: []const u8) ?i64 {
     return @intCast(search(s, pat) orelse return null);
 }
 
-pub fn find_last(s: []const u8, pat: []const u8) ?i64 {
+fn findLastPlain(s: []const u8, pat: []const u8) ?i64 {
+    return findLastIn(s, pat);
+}
+
+fn findLastApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) ?i64 {
+    return findLastIn(s, pat);
+}
+
+inline fn findLastIn(s: []const u8, pat: []const u8) ?i64 {
     if (pat.len == 0) return @intCast(s.len);
     const at = if (pat.len == 1) searchLast(s, pat, true) else searchLast(s, pat, false);
     return @intCast(found(at) orelse return null);
 }
 
-pub fn count(s: []const u8, pat: []const u8) i64 {
+fn countPlain(s: []const u8, pat: []const u8) i64 {
+    return countIn(s, pat);
+}
+
+fn countApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) i64 {
+    return countIn(s, pat);
+}
+
+inline fn countIn(s: []const u8, pat: []const u8) i64 {
     if (pat.len == 0) return @intCast(s.len + 1);
     var n: i64 = 0;
     var i: usize = 0;
@@ -114,7 +146,20 @@ inline fn found(at: usize) ?usize {
     return if (at == missing) null else at;
 }
 
-noinline fn byteRest(h: []const u8, b: u8, start: usize) usize {
+/// In a build with signal preemption, the searches out of line are in
+/// the program's code section (`rig.preempt_section`), where a signal
+/// stops a task as it stops the program's own code: a loop of searches
+/// over a long text spends its time in them. They take no lock, read no
+/// thread-local, and call neither the scheduler nor the allocator, so a
+/// task may be stopped anywhere in them (test/cli/preempt_section.sh).
+/// In a build without it they are where they always were.
+const byteRest = if (rig.preempt) byteRestApart else byteRestPlain;
+
+noinline fn byteRestPlain(h: []const u8, b: u8, start: usize) usize {
+    return byteFrom(h, b, start) orelse missing;
+}
+
+noinline fn byteRestApart(h: []const u8, b: u8, start: usize) linksection(rig.preempt_section) usize {
     return byteFrom(h, b, start) orelse missing;
 }
 
@@ -148,7 +193,13 @@ inline fn byteFrom(h: []const u8, b: u8, start: usize) ?usize {
     return lowest(i, c);
 }
 
-noinline fn searchMany(h: []const u8, n: []const u8) usize {
+const searchMany = if (rig.preempt) searchManyApart else searchManyPlain;
+
+noinline fn searchManyPlain(h: []const u8, n: []const u8) usize {
+    return many(h, n) orelse missing;
+}
+
+noinline fn searchManyApart(h: []const u8, n: []const u8) linksection(rig.preempt_section) usize {
     return many(h, n) orelse missing;
 }
 
@@ -187,7 +238,13 @@ const near_places = 256;
 /// bytes worth its cost.
 const rare_from = 1 << 16;
 
-noinline fn far(h: []const u8, n: []const u8, start: usize) usize {
+const far = if (rig.preempt) farApart else farPlain;
+
+noinline fn farPlain(h: []const u8, n: []const u8, start: usize) usize {
+    return farFrom(h, n, start) orelse missing;
+}
+
+noinline fn farApart(h: []const u8, n: []const u8, start: usize) linksection(rig.preempt_section) usize {
     return farFrom(h, n, start) orelse missing;
 }
 
@@ -308,7 +365,17 @@ inline fn short(h: []const u8, n: []const u8) ?usize {
 // left at the start are the first 16 places again, without those
 // tested. Fewer than 16 places in all are walked one at a time.
 
-noinline fn searchLast(h: []const u8, n: []const u8, comptime one: bool) usize {
+const searchLast = if (rig.preempt) searchLastApart else searchLastPlain;
+
+noinline fn searchLastPlain(h: []const u8, n: []const u8, comptime one: bool) usize {
+    return lastIn(h, n, one);
+}
+
+noinline fn searchLastApart(h: []const u8, n: []const u8, comptime one: bool) linksection(rig.preempt_section) usize {
+    return lastIn(h, n, one);
+}
+
+inline fn lastIn(h: []const u8, n: []const u8, comptime one: bool) usize {
     // As `many`, from the end: each step's places are places.
     @setRuntimeSafety(rig.proven_checks);
     if (n.len > h.len) return missing;

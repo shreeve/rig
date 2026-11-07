@@ -272,6 +272,14 @@ accepted:
   4.6-12.7% faster on indented input on the Mac (citm_catalog 12.7%,
   github_events 7.4%, twitter 6.5%), with minified input level
   ([records/2026-11/json/](docs/history/records/2026-11/json/indent-2026-11-05.md)).
+- In a build with `RIG_PREEMPT=signal`, std.text's searches (`find`,
+  `find_last`, `count`, and the code they call) are in the program's code
+  section, where a signal stops a task as in the program's own code: a
+  loop of searches over a long text held its worker and a 20 ms timer due
+  on it for up to 15.8 s on x86-64 and 2.1 s on the Mac, and now the timer
+  fires at 20 ms. No search costs an instruction more, and a build
+  without the option is the same code as before
+  ([default-on-2026-11-06.md](docs/history/records/2026-11/preempt/default-on-2026-11-06.md)).
 - In a build with `RIG_PREEMPT=signal`, a signal that finds a task in
   a system call or the runtime, outside the program's code, leaves the
   yield check it asked for owed, and the task's next waiting point (any
