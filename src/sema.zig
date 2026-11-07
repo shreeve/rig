@@ -9978,13 +9978,16 @@ pub fn iterItem(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!IterShape 
 
 /// Why a type argument `ty` does not provide `Iter`, as the end of an
 /// error says it, or null when it does: what `iterItem` decides, and
-/// two facts a bound adds to the loop's. A view is no iterator, since
+/// three facts a bound adds to the loop's. A view is no iterator, since
 /// `next(!@)` advances the iterator itself (the loop says the same of
-/// `for x in ?it`); and a `next` private to another module is not called
+/// `for x in ?it`); a box is none either, since a generic body calls
+/// `next` on the box, not on what it holds; and a `next` private to another module is not called
 /// from this one, as a call by name or a loop would not call it.
 pub fn iterLack(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]const u8 {
     const a = ctx.arena.allocator();
     if (unwrapViews(ctx, ty) != ty) return "a view only reads an iterator, and `next(!@)` advances it; pass the iterator itself, `!it`";
+    // A box is not its value: a generic body calls `next` on the box.
+    if (boxedType(ctx, ty)) |inner| return try a.print("a box holds an iterator but is none itself; name the iterator's type in brackets, `[{s}]`, and the box is lent as it", .{try formatType(ctx, inner)});
     switch (try iterItem(ctx, ty)) {
         .item => {},
         .malformed => |why| return try a.print("its `next` {s}", .{why}),

@@ -1750,3 +1750,21 @@ test "shared list length is an Int", "0 1 7 true"
     t += i
   e = *List[Int]()
   print(t, h.len, last(?h), e.is_empty())
+
+bomb "a cloned constant is a run-time value", "integer overflow"
+  # `+v` of a value that copies is `v`, held as `v` is: Zig never knows
+  # it when it compiles, and the overflow is a run-time panic.
+  enum E
+    v(x: Int)
+
+  e = +E.v(x: 9223372036854775807)
+  match e
+    .v(x) => print(x + 1)
+
+bomb "a constant copied out of a read lend is a run-time value", "integer overflow"
+  obj P
+    a: Int
+
+  p = P(a: ?9223372036854775807)
+  x: Int = ?9223372036854775807
+  print(p.a + x)

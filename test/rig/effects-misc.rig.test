@@ -1570,3 +1570,8 @@ fail "zig builtin name outside raw", "10:7: write `$size(I64)`: Rig's builtin is
   x = 5
   print($sizeOf(I64), $alignOf(P), $typeName(Int))
   print($size($TypeOf(x)), $sizeOf($TypeOf(x)))
+
+fail "defer of a defer", "1:7: a deferred statement cannot itself be a `defer` or an `errdefer`: write one", "2:10: a deferred statement cannot itself be a `defer` or an `errdefer`: write one", errors: 2
+  defer defer print(1)
+  errdefer defer print(2)
+  print(0)
