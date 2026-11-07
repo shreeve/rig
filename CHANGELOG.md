@@ -216,6 +216,12 @@ none of these ever built:
   value it views in `x`, where emit wrote an exchange of two places
   that Zig rejected. A unit test fails on a `Facts` method that answers
   about a node with a classifier instead of a record.
+- A List element lent to write inside a call whose result is read,
+  `check(swap(!wholes[f], List()))` with `check` taking a `?` parameter,
+  or `check(!bags[f].take())` with `take` writing its self, is reached
+  through its writable slot: its own `!` decides, where emit read the
+  element through the read slot of the read around it, and Zig rejected
+  the write.
 - Each name `as a, b` binds is a new name, checked as `as v`'s is: one
   that shadows a local, or a module-level declaration, is rejected.
 - A one-line `defer` that assigns several results to names declared
