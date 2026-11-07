@@ -356,7 +356,7 @@ pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
   else
     digits = UPPER_DIGITS if upper else LOWER_DIGITS
     b = U64(base)
-    while true
+    loop
       q = rest / b
       i -= 1
       buf[i] = digits[Int(rest - q * b)]

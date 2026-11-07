@@ -55,7 +55,7 @@ fn failure(err: anyerror) FileError {
         error.NotDir => error.@"std.file.FileError.not_directory",
         error.IsDir => error.@"std.file.FileError.is_directory",
         error.DirNotEmpty => error.@"std.file.FileError.not_empty",
-        error.SymLinkLoop => error.@"std.file.FileError.loop",
+        error.SymLinkLoop => error.@"std.file.FileError.link_loop",
         error.NameTooLong => error.@"std.file.FileError.name_too_long",
         error.DeviceBusy => error.@"std.file.FileError.busy",
         error.CrossDevice => error.@"std.file.FileError.cross_device",
