@@ -272,6 +272,13 @@ accepted:
   4.6-12.7% faster on indented input on the Mac (citm_catalog 12.7%,
   github_events 7.4%, twitter 6.5%), with minified input level
   ([records/2026-11/json/](docs/history/records/2026-11/json/indent-2026-11-05.md)).
+- In a build with `RIG_PREEMPT=signal`, the allocator's slow path and a
+  List's growth run a yield check a signal left owed when they return to
+  the program's own code: a loop that allocates, which spends its time in
+  the runtime where a signal stops nothing, let a 20 ms timer due on its
+  worker fire after up to 70 ms on the Mac, and now it fires at 20-21 ms.
+  A build without the option is the same code as before
+  ([default-on-2026-11-06.md](docs/history/records/2026-11/preempt/default-on-2026-11-06.md)).
 - In a build with `RIG_PREEMPT=signal`, std.text's searches (`find`,
   `find_last`, `count`, and the code they call) are in the program's code
   section, where a signal stops a task as in the program's own code: a
