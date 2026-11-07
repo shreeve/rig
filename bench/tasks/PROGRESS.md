@@ -135,3 +135,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-03 | #910: a task's end and an actor's answer are one completion (pup core 6, against main d63367d42: 78/86/34 ns) | rig-fast | 79 ns | 86 ns | 593.7 ms | 34 ns | 176.50 us | 4.5 KiB |
 | 2026-11-03 | #911: a wait on a socket waits for an edge after its own call (pup core 6, against main d63367d42) | rig-fast | 79 ns | 85 ns | - | 34 ns | - | - |
 | 2026-11-03 | #912: emit calls each wait's slot-taking form (pup core 6, against main 2189f6bd9: 78/85/35 ns) | rig-fast | 79 ns | 86 ns | 593.7 ms | 34 ns | - | - |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (pup core 3) | rig-fast | 74 ns | 81 ns | 559.3 ms | 33 ns | 166.09 us | 4.5 KiB | 11.6 ms |
+| 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 73 ns | 82 ns | 559.2 ms | 32 ns | 192 ns | 4.5 KiB | 11.6 ms |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 180 ns | 44 ns | 88.9 ms | 5 ns | 73.44 us | 16.6 KiB | 6.7 ms |
+| 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 163 ns | 47 ns | 89.0 ms | 5 ns | 157 ns | 16.6 KiB | 6.6 ms |
