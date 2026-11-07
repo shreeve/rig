@@ -13587,7 +13587,9 @@ sub main()
 ```
 
 **The value.** A task is not copied, cloned, or compared, and it is not
-printed or formatted: what is meant is what it gives, `>t`. `Task[T]` holds a call's result, so its `T` may
+printed or formatted: what is meant is what it gives, `>t`. A task, or
+a set of them, is not boxed: `^f()&` is rejected, since a task is a
+handle to work the runtime holds already. `Task[T]` holds a call's result, so its `T` may
 be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs them on Rig's scheduler:

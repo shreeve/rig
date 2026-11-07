@@ -792,3 +792,17 @@ test "loop step reads binding through capture", '''
     i += 1
     print("body", i, h)
   print(steps, i)
+
+test "write-iterate a List of views", "1 3\n2 5"
+  # Each element is a write view of a read view: its members are reached
+  # through both.
+  a: List[Int] = List()
+  !a.push(3)
+  b: List[Int] = List()
+  !b.push(5)
+  !b.push(6)
+  vv: List[?List[Int]] = List()
+  !vv.push(?a)
+  !vv.push(?b)
+  for x in !vv
+    print(x.len, x[0])

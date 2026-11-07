@@ -625,3 +625,13 @@ test "a compile-time query discarded", "true"
     $plain(T)
 
   print(pl[Int]())
+
+test "a compile-time query of a type that is never plain", "false false"
+  # `$plain(~T)` and `$plain(*T)` are false for every `T`, and still name it.
+  fun pl[T]() -> Bool
+    $plain(~T)
+
+  fun p2[T]() -> Bool
+    $plain(*T)
+
+  print(pl[Int](), p2[Int]())

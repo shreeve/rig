@@ -3018,8 +3018,12 @@ pub const Emitter = struct {
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
+        // So would the address of a constant's part, which Zig reads
+        // through at compile time (`row = ?grid[1]` of a module constant):
+        // the view is held in a `var`, a run-time pointer.
         const is_var = rebound or (!holds_ptr and (s.flags.written or needs_ptr_self or
-            (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.facts.isConstInt(sym)))));
+            (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.facts.isConstInt(sym))))) or
+            (is_lend and expr.isKind(.read) and isZigComptimeIn(self, ir.Read.operand(expr), 0));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -6038,8 +6042,13 @@ pub const Emitter = struct {
         }
         if (!sameNode(sexp, self.lending)) if (self.facts.lendOf(sexp)) |lend| {
             if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail, lend.implicit and want_ptr);
-            // A `!{Shape}` lent on to read: the read view it lends.
-            if (self.facts.objectView(lend.view) != null) {
+            // A `!{Shape}` lent on to read: the read view it lends, also
+            // where an optional of one goes, which Zig lifts it into.
+            var view = lend.view;
+            for (lend.steps()) |row| if (row == .lift) {
+                view = self.facts.types.get(view).optional;
+            };
+            if (self.facts.objectView(view) != null) {
                 const saved = self.lending;
                 defer self.lending = saved;
                 self.lending = sexp;
@@ -6207,6 +6216,31 @@ pub const Emitter = struct {
     /// `from`, where a `view` is expected (`emitLend`), for the lend
     /// `node`.
     fn lendChain(self: *Emitter, node: Sexp, start: LendAt, start_from: TypeId, rows: []const facts.LendStep, start_view: TypeId, as_ptr: bool) Error![]const u8 {
+        // Each `.lift` row makes the view an optional's payload, which Zig
+        // lifts into a `?T` on its own; one that goes through the helpers
+        // (a view of a one-word object, `rig.WordOpt`) is packed into it.
+        // The rows past an `.optional` one are its payload's own.
+        var packs: std.ArrayList(TypeId) = .empty;
+        var view = start_view;
+        for (rows) |row| switch (row) {
+            .lift => {
+                const inner = self.facts.types.get(view).optional;
+                if (self.routesPayload(inner)) try packs.append(self.arena.allocator(), view);
+                view = inner;
+            },
+            .optional => break,
+            else => {},
+        };
+        var text = try self.lendChainRows(node, start, start_from, rows, start_view, as_ptr);
+        var i = packs.items.len;
+        while (i > 0) {
+            i -= 1;
+            text = try self.fmt("rig.pack({s}, {s})", .{ try self.typeText(packs.items[i]), text });
+        }
+        return text;
+    }
+
+    fn lendChainRows(self: *Emitter, node: Sexp, start: LendAt, start_from: TypeId, rows: []const facts.LendStep, start_view: TypeId, as_ptr: bool) Error![]const u8 {
         const types = self.facts.types;
         var at = start;
         var from = start_from;
@@ -6779,7 +6813,9 @@ pub const Emitter = struct {
     /// The pointer a view of `inner` held by address is: a write view's
     /// is mutable, `*T`; a read view's is `*const T`.
     fn emitViewPtrTy(self: *Emitter, inner: TypeId, view: enum { read, write }) Error!void {
-        try self.w.writeAll(if (view == .write) "*" else "*const ");
+        // A write view of a one-word object points at the four-byte
+        // alignment containers hold it at, as `emitTypeTy` writes it.
+        try self.w.writeAll(if (view == .read) "*const " else if (self.facts.wordAlignedField(inner)) "*align(4) " else "*");
         try self.emitTypeTy(inner);
     }
 
@@ -7068,7 +7104,9 @@ pub const Emitter = struct {
                     try self.w.writeAll(", ");
                 }
                 try self.w.writeAll("(");
-                const some = try self.openSome(left);
+                // A payload copied out is copied from the Zig `?T` the
+                // helpers give (`emitFallbackHolder`).
+                const some = !self.facts.copiesPayload(sexp) and try self.openSome(left);
                 try self.emitFallbackHolder(sexp, left);
                 try self.closeSome(some);
                 try self.w.writeAll(" orelse ");
@@ -7770,6 +7808,8 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
             try self.w.writeAll("rig.lenOf(");
             try self.emitMemberBase(obj, obj_ty);
+            // A view of a view (`!?List[Int]`) is reached to the last.
+            try self.writeReach(obj_ty.?);
             return self.w.writeAll(")");
         }
         // The length of an array or List behind a shared handle or a box.
@@ -7811,9 +7851,16 @@ pub const Emitter = struct {
         var ptr = false;
         while (true) switch (self.facts.types.get(t)) {
             .read_view, .write_view => |inner| {
-                // A view held in a box is a pointer, which the box's
-                // pointer reaches; it points at the viewed value.
+                // A view held in a box, or viewed itself (an element of a
+                // `List[?T]` written in place, a `!?T`), is a pointer,
+                // which the pointer before it reaches; it points at the
+                // viewed value, and Zig follows only the last pointer.
                 if (ptr and self.isPtrViewTy(t)) try self.w.writeAll(".*");
+                const viewed_view = switch (self.facts.types.get(inner)) {
+                    .read_view, .write_view => true,
+                    else => false,
+                };
+                ptr = ptr or (viewed_view and self.isPtrViewTy(t));
                 t = inner;
             },
             .shared => |inner| {
@@ -7904,7 +7951,11 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
             return self.derefToHandle(t);
         };
-        const needs_parens = movesCompound(o) or if (o.kind()) |h| switch (h) {
+        // A moved or cloned temporary is written as the value it moves
+        // (`(<User(age: 5)).age`), a struct literal Zig reads a field of
+        // only in parentheses.
+        const shown = if (o.isKind(.move)) ir.Move.operand(o) else if (o.isKind(.clone)) ir.get(o, .operand) else o;
+        const needs_parens = movesCompound(o) or if (shown.kind()) |h| switch (h) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;
@@ -8114,7 +8165,11 @@ pub const Emitter = struct {
         try self.w.writeAll("rig.copiedOut(");
         try self.emitTypeTy(viewed);
         try self.w.writeAll(", ");
+        // An optional that goes through the helpers (`rig.WordOpt`) is
+        // read as the Zig `?T` `rig.some` gives.
+        const some = try self.openSome(holder);
         try self.emitExpr(holder);
+        try self.closeSome(some);
         try self.w.writeAll(")");
     }
 
@@ -8220,6 +8275,15 @@ pub const Emitter = struct {
             try self.w.writeAll(") == @TypeOf(");
             try self.emitBare(of);
             try self.w.writeAll(") and ");
+            try self.writePlainBit(bit);
+            return self.w.writeAll(")");
+        }
+        // A type of a type parameter answered for every instance alike
+        // (`$plain(~T)`, never plain) still names the parameter, which
+        // the generic may read nowhere else.
+        if (bit == .known and self.facts.containsTypeVar(ty)) {
+            const text = try self.typeText(ty);
+            try self.w.print("({s} == {s} and ", .{ text, text });
             try self.writePlainBit(bit);
             return self.w.writeAll(")");
         }
@@ -11716,8 +11780,10 @@ fn isPlainIdent(name: []const u8) bool {
 /// parameter, a function or a type), a constructor or variant, and an
 /// operator, index, field, propagation, `??`, `catch`, ternary, `match`,
 /// or clone whose parts all are, and a read lend of one copied out.
-/// Any other form (a call, a write lend, a move, a closure, an extern
-/// variable, a form added later) is not.
+/// A loop used as a value is taken as one too: Zig folds the loop when
+/// what it breaks with is constant, and a `var` costs nothing when it
+/// is not. Any other form (a call, a write lend, a move, a closure, an
+/// extern variable, a form added later) is not.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;
     switch (e) {
@@ -11755,6 +11821,8 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
+                // A value loop (`x = loop` ... `break v`), labeled or not.
+                .@"while", .labeled => return true,
                 // `+v` of a value that copies is `v` in Zig.
                 .clone,
                 .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block,

@@ -1056,3 +1056,29 @@ test "a read lend of a call that gives a write view", '''
   y = ?wr(!x)
   print(y + 1)
   print(?wr(!x) << 1, r(?wr(!x)), v[0])
+
+test "a view of an array copied into a List", "[1, 2] [1, 2] 26"
+  # `List(?a)` copies the elements of the array the view reaches, and so
+  # does a held view of one; `push(v, keep: k)` reads the vector a held
+  # write view reaches.
+  fun copy(r: ?[2]Int, w: !Simd[U8, 16]) -> List[Int]
+    t = String()
+    !t.push(w, keep: 0)
+    List(r)
+
+  sub main()
+    a = [1, 2]
+    block = Simd[U8, 16].splat(97)
+    ys = List(?a)
+    t = String()
+    !t.push(?block, keep: 16)
+    !t.push(block, keep: 10)
+    print(ys, copy(?a, !block), t.len)
+
+fail "a write lend of an array or vector only read", "2:11: `!a` here is read, not held: only its `[2]Int` is read here. Write `a`", "5:9: `!block` here is read, not held: only its `Simd[U8, 16]` is read here. Write `block`"
+  a = [1, 2]
+  ys = List(!a)
+  block = Simd[U8, 16].splat(1)
+  t = String()
+  !t.push(!block, keep: 0)
+  print(ys, t.len)

@@ -7758,6 +7758,13 @@ const Checker = struct {
             try self.errAt(operand, "this value is already `{s}`; `^` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
+        // A task, or a set of them, is a handle to work the runtime holds,
+        // waited or canceled where it is held, never through a box.
+        const held = sema.unwrapOptionals(self.ctx, inner);
+        if (sema.isTask(self.ctx, held) or sema.isTaskSet(self.ctx, held)) {
+            try self.errAt(operand, "`^` boxes a value, and a `{s}` is a handle to work the runtime holds already: hold it as it is", .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
         var r = self.resolver();
         return r.boxOf(inner, self.startOf(e));
     }
@@ -8573,11 +8580,16 @@ const Checker = struct {
     fn namedType(self: *Checker, obj: Sexp) Error!?NamedType {
         if (rig.isBracketList(obj)) {
             const target = (try self.instTarget(ir.get(obj, .object))) orelse return null;
-            if (target != .generic or target.generic.id == self.ctx.simd_sym_id) return null;
+            // `Simd[T, n]` and `Slot[n]` are built-in types, not nominal
+            // ones (`builtinTypeNamed`).
+            if (target != .generic or target.generic.id == self.ctx.simd_sym_id or target.generic.id == self.ctx.slot_sym_id) return null;
             var nt = target.generic;
             const ty = try self.typeInstance(obj, nt);
             const arity = if (nt.sym.type_params) |tps| tps.len else 0;
-            nt.args = if (self.isPoison(ty)) try self.poisonArgs(arity) else self.ctx.types.get(ty).parameterized_nominal.args;
+            nt.args = if (self.isPoison(ty)) try self.poisonArgs(arity) else switch (self.ctx.types.get(ty)) {
+                .parameterized_nominal => |pn| pn.args,
+                else => return null,
+            };
             return nt;
         }
         if (obj == .src) {
@@ -10447,7 +10459,9 @@ const Checker = struct {
             }
             // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
-            switch (self.ctx.types.get(ty)) {
+            // `?none` views a bare `none`.
+            const shown_ty = if (sema.unwrapViews(self.ctx, ty) == self.t().none_id) self.t().none_id else ty;
+            switch (self.ctx.types.get(shown_ty)) {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 .noreturn => try self.errAt(a, "{s} needs a value; this expression never produces one", .{who}),
@@ -10671,6 +10685,12 @@ const Checker = struct {
         if (bytes == null) {
             _ = try self.badCall(args, args[0], "`push` with `keep:` takes a vector of bytes, a `Simd[U8, n]`, or an integer with its byte order, `push[U64, .little](word, keep: k)`; got `{s}`", .{try self.tyName(ty)});
             return false;
+        }
+        // The vector is read as a value: a write lend written here is
+        // reported, and a held write view read through.
+        if (self.ctx.types.get(ty) == .write_view) {
+            try self.readOf(args[0], ty, .{ .value = vec });
+            if (self.isPoison(self.ctx.typeOf(args[0]) orelse ty)) return false;
         }
         try self.checkKeep(ir.Kwarg.value(keep), bytes.?);
         try self.ctx.recordStringNum(callee, vec);
@@ -13635,7 +13655,10 @@ const Checker = struct {
         var misreached: ?Sexp = null;
         if (self.isSelfSigil(obj)) {
             const place = ir.get(obj, .operand);
-            if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
+            if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null or
+                (try self.builtinTypeNamed(place, self.ctx.simd_sym_id, .simd)) != null or
+                (try self.builtinTypeNamed(place, self.ctx.slot_sym_id, .slot)) != null)
+            {
                 if (obj.isKind(.read)) {
                     try self.errAt(obj, "`{s}` is called through its type or module and has no `self`; to lend the call's result, write `?({s})`", .{ method, try self.callWith(obj, self.sourceText(place), method) });
                     try self.synthArgs(args);
@@ -18192,9 +18215,10 @@ const Checker = struct {
         var from = actual;
         while (!meets(self.ctx, from, into)) from = sema.copiedThrough(self.ctx, from) orelse return self.ctx.recordLift(e, null);
         switch (ts.get(from)) {
-            // `?none` copies out the `none` it views, which becomes the
+            // `?none` copies out the `none` it views, and `<none` and
+            // `+none` are the `none` they move or clone: each becomes the
             // optional as `none` does.
-            .none_literal => return self.ctx.recordLift(e, if (from != actual) .{ .into = into, .from = self.t().none_id } else null),
+            .none_literal => return self.ctx.recordLift(e, if (from != actual or e.isKind(.move) or e.isKind(.clone)) .{ .into = into, .from = self.t().none_id } else null),
             .noreturn, .invalid, .unknown => return self.ctx.recordLift(e, null),
             else => {},
         }
@@ -19616,6 +19640,12 @@ const Checker = struct {
             try self.errAt(arg, "type mismatch: expected `[]{s}`, got `{s}`", .{ try self.tyName(w), try self.tyName(ty) });
             return self.t().invalid_id;
         };
+        // A view of an array is read as the array it views (`List(?a)`):
+        // a write lend written here is reported, as it only reads.
+        switch (self.ctx.types.get(ty)) {
+            .read_view, .write_view => if (self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .array) try self.readOf(arg, ty, .{ .value = sema.unwrapViews(self.ctx, ty) }),
+            else => {},
+        }
         if (!sema.holdsNoLoanButText(self.ctx, elem) or sema.mayHoldView(self.ctx, elem)) {
             // The form that works: an empty List, then a push of each
             // element, made in the call where the literal makes them.

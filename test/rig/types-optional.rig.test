@@ -811,3 +811,30 @@ test "a read lend of none where an optional goes", "true true true"
   p: E? = ?none
   i: Int? = ?none
   print(o == none, p == none, i == none)
+
+test "a moved or cloned none where an optional goes", "true true true true true 2 true"
+  # `<none` and `+none` are the `none` they move or clone, which becomes
+  # the optional as `none` does, one held as a niche or beside a flag
+  # too: a binding, an argument, a push, and a return.
+  obj T
+    k: Int
+
+  obj Cheese
+    name: String
+
+  fun two(p: T?) -> Bool
+    p == none
+
+  fun nothing() -> ^T?
+    return <none
+
+  d: ^T? = <none
+  prev: ^T? = +none
+  prev = <none
+  xs: List[Cheese?] = List()
+  !xs.push(<none)
+  !xs.push(+none)
+  print(d == none, prev == none, two(<none), two(+none), nothing() == none, xs.len, xs[0] == none)
+
+fail "a read lend of none printed", "1:7: cannot print a bare `none`"
+  print(?none)

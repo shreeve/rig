@@ -262,6 +262,35 @@ none of these ever built:
   `look(*X.one)` with `look` taking `?error`, or `f(*B.z)` with `f`
   taking `?L` of `error L = A | B`, has its handle or box dropped at
   the end of its statement, where it leaked.
+- `rig check` no longer crashes on a sigil before a call through
+  `Slot[n]`, `!Slot[4].of(1)`: a `!`, `?`, or `<` there reaches the
+  type, and is reported as it is before a call through an object's type.
+- A value loop that breaks with a constant, `x = loop` ... `break MAX`,
+  and a read view of a module constant's part, `row = ?grid[1]`, are
+  run-time values: `x + 1` past the maximum, or a division by zero,
+  panics when it runs, where Zig failed the build.
+- `<none` and `+none` become the optional they go into as `none` does,
+  one held as a niche or beside a flag too: a binding, an argument, a
+  push, and a return built. `print(?none)` is a bare `none`, reported.
+- A `return`, `break`, `continue`, or `panic` followed by a statement
+  after a `loop` that nothing breaks out of is reported as unreachable
+  code, as it is anywhere else, where Zig rejected it.
+- A one-word object, which a field holds at four bytes, builds where
+  Zig wanted its natural alignment: the drop of an object partly moved
+  out (`take(<p.v)` beside a one-word field), a rebound write view of
+  one, a box's or handle's view of one lent into `(?P)?`, and `o ?? b`
+  of a `(?T)?`.
+- `List(?a)` of an array copies the array the view reaches, and
+  `!t.push(v, keep: k)` reads the vector a held write view reaches;
+  `List(!a)` and `!t.push(!b, keep: k)` are rejected as write lends only
+  read. A `!{Shape}` returned where a `(?{Shape})?` goes is the read
+  view it lends. Write-iterating a `List[?List[Int]]` reaches each
+  element's members through both views. `(<User(age: 5)).age` reads the
+  field of the moved temporary. `$plain(~T)` in a generic whose `T` is
+  named nowhere else builds.
+- `^` of a task or a set of tasks, `^four()&`, is rejected: a task is a
+  handle to work the runtime holds, held as it is. Each program these
+  fixes reject failed to build before.
 
 ### Tests
 
