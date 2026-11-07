@@ -2532,26 +2532,6 @@ fail "branch write views narrowed to read", "18:10: cannot lend `a if c else b`:
   z = W(v: <x)
   _ = g(!z)
 
-fail "break in loop else leaves outer loop", "18:7: use of `b` after move"
-  # A loop's `else` runs after the loop, so a `break` there leaves the
-  # loop around it: `b` is moved when the outer loop ends.
-
-  obj B
-    n: Int
-
-  sub eat(b: *B)
-    print(b.n)
-
-  b = *B(n: 1)
-  for i in 0..1
-    for j in 0..2
-      print(j)
-    else
-      eat(<b)
-      break
-    b = *B(n: 2)
-  print(b.n)
-
 test "break moves loop local", release: true, '''
   drop 0
   drop 7
@@ -2570,8 +2550,9 @@ test "break moves loop local", release: true, '''
 '''
   # `break x` of a name declared in the loop it leaves moves it out, as
   # `return x` moves a local out of its function: the move happens before
-  # the jump runs the drops and defers of the scopes it leaves. `break <x`
-  # says the same.
+  # the jump runs the drops and defers of the scopes it leaves, an inner
+  # `for` among them when `break $l x` leaves the `loop` around it.
+  # `break <x` says the same.
 
   obj R
     n: Int
@@ -2583,31 +2564,42 @@ test "break moves loop local", release: true, '''
     a(r: R)
     b
 
+  fun first_ten(v: List[R]) -> R
+    $l: loop
+      for e in <v
+        break $l e if e.n == 10
+      break R(n: 0)
+
+  fun first_dug(es: List[E]) -> R
+    $l: loop
+      for e in <es
+        match <e
+          .a(p) => break $l p
+          .b => pass
+      break R(n: 0)
+
   i = 0
-  x = while i < 3
+  x = loop
+    break R(n: 99) if i == 3
     r = R(n: i)
     i += 1
     if i == 2
       s = R(n: 7)
       break r
-  else
-    R(n: 99)
   print(x.n)
   v: List[R] = List()
   !v.push(R(n: 10))
   !v.push(R(n: 11))
-  y = for e in <v
-    break e if e.n == 10
-  else
-    R(n: 0)
+  y = first_ten(<v)
   print(y.n)
-  z = for k in 0..3
+  k = 0
+  z = loop
+    j = k
+    k += 1
     t: List[Int] = List()
-    !t.push(k)
-    defer print("defer", k)
-    break t if k == 1
-  else
-    List[Int]()
+    !t.push(j)
+    defer print("defer", j)
+    break t if j == 1
   print(z)
   w = loop
     q = R(n: 20)
@@ -2615,12 +2607,7 @@ test "break moves loop local", release: true, '''
   print(w.n)
   es: List[E] = List()
   !es.push(E.a(r: R(n: 30)))
-  u = for e in <es
-    match <e
-      .a(p) => break p
-      .b => pass
-  else
-    R(n: 0)
+  u = first_dug(<es)
   print(u.n)
 
 fail "break outer name", "14:9: `r0` owns an `R`, which can't be copied out by `break`: write `<r0` to move it", "18:11: `r` owns an `R`, which can't be copied out by `break`: write `<r` to move it", "use of `q` after move", errors: 3
@@ -2638,23 +2625,17 @@ fail "break outer name", "14:9: `r0` owns an `R`, which can't be copied out by `
   r0 = R(n: 5)
   a = loop
     break r0
-  x = for _ in 0..2
+  x = loop
     r = R(n: 10)
-    y = for _ in 0..2
+    y = loop
       break r
-    else
-      R(n: 0)
     break y
-  else
-    R(n: 1)
   i = 0
-  z = while i < 3
+  z = loop
     q = R(n: i)
     defer print("defer", q.n)
     i += 1
     break q if i == 2
-  else
-    R(n: 99)
   print(a.n, x.n, z.n)
 
 fail "break value branch leaves", "20:9: `a` owns a `String`, which can't be copied out by `break`: write `<a` to move it or `+a` to clone it", "20:21: `b` owns a `String`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it", "22:9: `h.f` owns a `String`, which can't be copied out by `break`: write `+h.f` to clone it", "22:23: `b` owns a `String`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it", "24:9: `o` owns a `String?`, which can't be copied out by `break`: write `<o` to move it or `+o` to clone it", "24:14: `b` owns a `String`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it", "26:23: `b` owns a `String`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it", errors: 7
@@ -4331,10 +4312,9 @@ test "copy write view read or moved", '''
     p.x = w3 if c else w2
     u = loop
       break w2
-    v = for _ in 0..3
+    v = loop
       break w3 if c
-    else
-      w2
+      break w2
     x += 1
     y += 10
     z += 100
@@ -5614,28 +5594,25 @@ fail "ignored write lend read view", "30:10: `!n` here is read, not held: `rd` o
   print(len(!t))
   print((!p).get(), h, g.r)
 
-fail "ignored write lend shadowed label", "19:16: `!n` here is read, not held", errors: 1
+fail "ignored write lend shadowed label", "18:14: `!n` here is read, not held", errors: 1
   # A loop used as a value is read at each `break` that leaves it. An
-  # inner loop of the same label keeps its own `break $a`, but its `else`
-  # runs after it, so a `break $a !n` there leaves the outer loop, and its
-  # `!` would be ignored where the value is only read.
+  # inner loop of the same label keeps its own `break $a`, so a
+  # `break $a !n` after it leaves the outer loop, and its `!` would be
+  # ignored where the value is only read.
 
   n = 1
   c = n > 0
   k = if c
-    $a: for i in 0..3
+    $a: loop
       j = if c
         $a: loop
-          break $a i
+          break $a 1
       else
         0
       $a: for x in 0..2
         if x > j + 5
           break $a
-      else
-        break $a !n
-    else
-      0
+      break $a !n
   else
     1
   print(k)
@@ -6031,11 +6008,12 @@ test "jump fallback moves", '''
     <v
 
   fun total(xs: ?List[Int?]) -> Int
-    sum = for x in xs
-      n = x ?? break -1
+    i = 0
+    sum = loop
+      break 0 if i == xs.len
+      n = xs[i] ?? break -1
+      i += 1
       print(n)
-    else
-      0
     sum
 
   p1 = pick(none)
@@ -6226,8 +6204,6 @@ fail "kept self view leaves tail", "35:3: cannot return a view of `mk(42)`, whic
     ?d.q
   t = loop
     break mkh(44).q.me(k: g(1), j: g(2))
-  else
-    ?d.q
   print(r.n, s.n, t.n)
 
 fail "kept self view outlives statement", "38:5: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "41:7: a view of the temporary `mkh()` outlives its statement", errors: 2
@@ -7610,13 +7586,11 @@ test "loop move then return", '''
 fail "loop value break in closure", "5:5: `break` is not inside a loop (a closure body cannot leave a loop around it)"
   # A closure body cannot leave a loop around it, with or without a value.
 
-  x = for i in 0..3
+  x = loop
     f = ||
       break 1
     f()
-    break i if i == 2
-  else
-    0
+    break 2
   print(x)
 
 test "loop value moves out", '''
@@ -7633,10 +7607,10 @@ test "loop value moves out", '''
     n: Int
 
   fun pick(boxes: List[*Wrap], want: Int) -> *Wrap?
-    for b in <boxes
-      break <b if b.n == want
-    else
-      none
+    $l: loop
+      for b in <boxes
+        break $l <b if b.n == want
+      break none
 
   v: List[*Wrap] = List()
   !v.push(*Wrap(n: 1))
@@ -7651,16 +7625,18 @@ test "loop value moves out", '''
   !u.push(*Wrap(n: 4))
   !u.push(*Wrap(n: 5))
   fallback = *Wrap(n: 0)
-  r = for b in ?u
-    break ?b if b.n == 5
-  else
-    ?fallback
+  j = 0
+  r = loop
+    break ?fallback if j == u.len
+    break ?u[j] if u[j].n == 5
+    j += 1
   print(r.n)
   held = *Wrap(n: 6)
-  moved = for i in 0..3
+  i = 0
+  moved = loop
+    break *Wrap(n: 7) if i == 3
     break <held if i == 1
-  else
-    *Wrap(n: 7)
+    i += 1
   print(moved.n)
 
 fail "loop value owning without move", "8:9: `b` is a `*Wrap` handle, which can't be copied out by `break`: write `<b` to move it or `+b` for another handle"
@@ -7670,10 +7646,8 @@ fail "loop value owning without move", "8:9: `b` is a `*Wrap` handle, which can'
     n: Int
 
   b = *Wrap(n: 1)
-  x = for i in 0..3
-    break b if i == 2
-  else
-    *Wrap(n: 0)
+  x = loop
+    break b
   print(x.n)
 
 fail "loop value views loop local", "10:10: `p` does not live long enough"
@@ -7683,12 +7657,11 @@ fail "loop value views loop local", "10:10: `p` does not live long enough"
   obj P
     n: Int
 
-  q = P(n: 0)
-  x = for i in 0..3
+  i = 0
+  x = loop
     p = P(n: i)
     break ?p if i == 2
-  else
-    ?q
+    i += 1
   print(x.n)
 
 test "loop view call arg", '''
