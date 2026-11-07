@@ -4104,11 +4104,12 @@ fail "audit-emit-i1", "`a` owns an `R`, which can't be copied out by `break`: wr
       print("drop R", @n)
 
   a = R(n: 1)
-  r = for i in 0..3
+  i = 0
+  r = loop
+    break R(n: 9) if i == 3
     if i == 1
       break a
-  else
-    R(n: 9)
+    i += 1
   print(r.n)
 
 fail "audit-emit-i3", "`a` owns an `R`, which can't be copied out by `break`: write `<a` to move it"
@@ -4209,7 +4210,7 @@ test "audit-emit-j2", '''
   after
   4
 '''
-  sub loop()
+  sub once()
     loop
       print("x")
       break
@@ -4221,7 +4222,7 @@ test "audit-emit-j2", '''
       n += 1
       return n if n > 3
 
-  loop()
+  once()
   print(spin())
 
 test "audit-emit-k1", '''
