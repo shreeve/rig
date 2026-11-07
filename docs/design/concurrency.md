@@ -694,6 +694,30 @@ what it measures are in [docs/internals/scheduler.md](../internals/scheduler.md)
 the numbers against Tokio and Go are in
 [docs/launch/benchmarks.md](../launch/benchmarks.md).
 
+**How a long computation is stopped.** Each target has one way, and
+the compiler chooses it; a program never does. Built: yield checks in
+every loop and on every cycle of recursive calls, and, as a prototype
+behind `RIG_PREEMPT=signal` on Linux x86-64 and arm64 macOS, a signal
+from a monitor thread in their place, so loops run with no checks
+([records/2026-11/preempt/](../history/records/2026-11/preempt/design.md)).
+*Planned:* the signal on every target that can interrupt a thread
+(Linux arm64, Windows by suspending the thread), and the checks only
+where none can, as in WebAssembly and freestanding code. Seeded test
+runs and a program that makes local tasks keep the checks everywhere,
+since a seed's interleavings must not depend on time and local tasks
+take turns at the checks ([ROADMAP](../ROADMAP.md), "Concurrency").
+
+**One `&` for every kind of task.** A connection handler, an actor's
+method, a pipeline's stage, and a divide-and-conquer split are all
+`f()&` and `>t` on one scheduler. Rust needs two runtimes for these,
+Tokio's state machines and Rayon's thread stacks, which do not mix.
+*Planned:* fork-join at no cost under the same `&`. An unstarted task
+that its maker waits for, with no deadline, runs on the waiter's stack
+with its record in the maker's frame, as `rayon::join` runs its closure;
+a task taken by a thief, or waited for later, is a fiber as now
+([ROADMAP](../ROADMAP.md), "Tasks as small and as cheap as the best
+runtimes'").
+
 Zig 0.17's own evented backends are not a foundation:
 - each fiber reserves 60 MiB with no guard page;
 - their scheduling is a prototype;
