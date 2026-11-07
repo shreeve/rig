@@ -5402,7 +5402,11 @@ One `zig build-exe` compiles a program as one LLVM module, on one
 core, and LLVM's cost grows faster than the module. A split build
 compiles it as N units instead, each a `zig build-obj` on its own core
 with a Zig cache of its own, and links their objects with the entry
-(`main.buildSplit`). Trig's debug build on the Mac takes 291 s as one
+(`main.buildSplit`). Two builds of one package write the same objects,
+which Zig on Linux replaces by deleting the old one first, so a split
+build holds `rig-objects.lock` in its Zig cache, exclusively, from its
+check for a kept executable to its link (`main.lockObjects`); the build
+that waited copies the first one's executable. Trig's debug build on the Mac takes 291 s as one
 unit and 30 s of Zig as ten. `rig build`, `run`, and `test` split a
 debug build, which Zig builds with LLVM on every target, when the program's own modules hold
 at least two chunks of `units.chunk_lines` lines: one unit a chunk, up

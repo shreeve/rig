@@ -1085,6 +1085,8 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
         o.* = try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}-apart.o", .{k}) });
     };
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, try std.fs.path.join(allocator, &.{ dir, "__rig_entry.zig" }) }, linked, libc });
+    const lock = lockObjects(allocator, io, zig_cache);
+    defer if (lock) |f| f.close(io);
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, link, pkg.files.items);
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.keepsCodeApart()) keepDsym(allocator, io, exe);
 
@@ -1125,6 +1127,25 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
 }
 
+/// The lock a split or kept-apart build (`buildSplit`, `buildApart`)
+/// holds, exclusively, from the check for a kept executable to its link:
+/// `ZIG_CACHE/rig-objects.lock`. Two builds of one package write the same
+/// object files in its directory, and Zig on Linux replaces an object by
+/// deleting it before renaming the new one in, so one build's link could
+/// find gone the object another is writing. The build that waits copies
+/// the executable the first kept (`reuseBuild`). Null, and the build runs
+/// unlocked, where the lock cannot be taken.
+fn lockObjects(allocator: std.mem.Allocator, io: std.Io, zig_cache: []const u8) ?std.Io.File {
+    std.Io.Dir.cwd().createDirPath(io, zig_cache) catch return null;
+    const path = std.fs.path.join(allocator, &.{ zig_cache, "rig-objects.lock" }) catch return null;
+    const f = openLock(io, std.Io.Dir.cwd(), path) orelse return null;
+    f.lock(io, .exclusive) catch {
+        f.close(io);
+        return null;
+    };
+    return f;
+}
+
 /// Build a package built to be preempted on arm64 macOS into the
 /// executable `exe`: its root `root_zig` compiled to one object by `zig
 /// build-obj`, the object's program section kept apart
@@ -1139,6 +1160,8 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     const apart = try std.fs.path.join(allocator, &.{ dir, "__rig_program-apart.o" });
     const compile = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", zig_cache, root_zig, try allocator.print("-femit-bin={s}", .{object}) }, libc });
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, apart }, libc });
+    const lock = lockObjects(allocator, io, zig_cache);
+    defer if (lock) |f| f.close(io);
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, try std.mem.concat(allocator, []const u8, &.{ compile, link }), pkg.files.items);
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return keepDsym(allocator, io, exe);
     for ([_][]const []const u8{ compile, link }, 0..) |argv, step| {

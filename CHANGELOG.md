@@ -153,6 +153,12 @@ a bare number, and of `per:` of `task.supervise` and
   about a node with a classifier instead of a record.
 - Each name `as a, b` binds is a new name, checked as `as v`'s is: one
   that shadows a local, or a module-level declaration, is rejected.
+- Builds of one package at once no longer race on a split build's
+  objects: a split build holds a lock in the package's Zig cache from
+  its check for a kept executable to its link, so on Linux, where Zig
+  replaces an object by deleting it first, one build's link no longer
+  finds another's object gone (`failed to open object
+  __rig_unit_0.o: FileNotFound`).
 
 ### Tests
 
