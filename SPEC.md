@@ -7081,11 +7081,11 @@ function exits with an error, so it is written only where one can: in
 a `fun f() -> T!`, a `sub f()!`, `sub main()`, a closure whose type can
 fail, or a test. In a function, closure, or `drop` body that cannot
 fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
-outer bindings, or propagate with `!`. It runs after the values declared
+outer bindings, even one it assigns again (`defer x = f(<x)`), or propagate with `!`. It runs after the values declared
 after it are dropped, so it may not read one through a view. A
-one-line `defer` or `errdefer` cannot declare a name; a deferred block
-can. Nor is its statement a `defer` or an `errdefer` itself: it runs at
-the exit already.
+one-line `defer` or `errdefer` cannot declare a name, nor several
+results' names (`defer q, r = f()`); a deferred block can. Nor is its
+statement a `defer` or an `errdefer` itself: it runs at the exit already.
 
 ```rig reject
 sub main()
@@ -9817,7 +9817,9 @@ more and turns a plain `T` away. A `!^T` parameter stays: it may
 replace the box. A consuming
 (`<@`) method of the value, `<b.m()`, takes the value out of the box
 first. `T` may be a read view (`^?v`, a `^?List[Int]`): the box keeps
-`v` lent while it is used. `T` holds no write view. A box has no field
+`v` lent while it is used, and reaches the value only to read it, as
+`?v` does, so no consuming or write method, write lend, assignment, or
+`match !b` goes through it. `T` holds no write view. A box has no field
 of its own: `b.value` of a `^Int` names nothing, and the number is lent
 (`?b`) or taken apart. A List holds boxes as it holds handles: walked by
 viewed slot and moved out with `pop` ([List](#list)).

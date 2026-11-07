@@ -681,6 +681,80 @@ fail "box value access", "13:6: method `eat` consumes `self`; cannot consume thr
   print(a == b)
   print(c + 1)
 
+fail "box of a read view only reads", "22:9: method `eat` consumes `self`; cannot consume through a view", "26:6: method `eat` consumes `self`; cannot consume through a view", "30:4: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "31:6: method `bump` needs `self` lent to write; a read view cannot become a write view", "32:3: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate", "33:3: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate", "34:13: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "36:9: cannot lend to write through a read view `?E`, which the box holds; match it with `match m` to read it", errors: 8
+  # A box of a read view, `^?T`, reaches its value through the view, as
+  # a `?T` does: a consuming method of the value would take what the
+  # view's owner still holds (`^<b` of a `b: ?Bag` boxes the view), and
+  # nothing writes through it: not a write method, a field, a write lend,
+  # or a `match !m`. The box itself is owned and may be replaced.
+
+  obj Bag
+    v: List[Int]
+    n: Int
+
+    fun eat(<@) -> Int
+      @v.len
+
+    sub bump(!@)
+      @n += 1
+
+  enum E
+    a(l: List[Int])
+    z
+
+  fun eats(b: ?Bag) -> Int
+    (^<b).eat()
+
+  fun boxed(b: ?Bag) -> Int
+    x = ^?b
+    <x.eat()
+
+  sub writes(b: ?Bag, w: !^?Bag, e: ?E)
+    x = ^?b
+    !x.v.push(1)
+    !x.bump()
+    x.n = 2
+    w.n += 1
+    y = swap(!x.v, List[Int]())
+    m = ^?e
+    match !m
+      .a(l) => !l.push(1)
+      .z => pass
+
+  b = Bag(v: List(), n: 0)
+  print(eats(?b), boxed(?b), b.v)
+
+test "box of a read view reads", "8 [4]"
+  # Through a box of a read view, the value's fields and read methods are
+  # reached, a `match ?m` reads a boxed enum, and `<x.unbox()` gives the
+  # view back.
+
+  obj Bag
+    v: List[Int]
+    n: Int
+
+    fun size(?@) -> Int
+      @v.len + @n
+
+  enum E
+    a(l: List[Int])
+    z
+
+  fun reads(b: ?Bag, e: ?E) -> Int
+    x = ^?b
+    m = ^?e
+    k = match ?m
+      .a(l) => l.len
+      .z => 0
+    n = x.v.len
+    v = <x.unbox()
+    n + (^?b).size() + k + v.n
+
+  b = Bag(v: List(), n: 3)
+  !b.v.push(4)
+  e = E.a(l: List())
+  print(reads(?b, ?e), b.v)
+
 test "box vec elements", '''
   see 1
   see 2

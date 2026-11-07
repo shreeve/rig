@@ -10834,6 +10834,20 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
+/// The read view a box of `ty_id` holds on the way to its value
+/// (`?Bag` of a `^?Bag`, a `!^?Bag`, or a `^^?Bag`), through any views
+/// and boxes; null when no box on the way holds one. A box reaches its
+/// value as the view it holds does: through a `^?T` the value is only
+/// read, as through a `?T` (SPEC §10, "Box").
+pub fn boxedReadView(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
+    var id = unwrapViews(ctx, ty_id);
+    while (boxedType(ctx, id)) |inner| {
+        if (ctx.types.get(inner) == .read_view) return inner;
+        id = unwrapViews(ctx, inner);
+    }
+    return null;
+}
+
 /// One of the built-in enums, `Endian`, `Arch`, `Os`, `Feature`, and
 /// `Order`: the runtime's own type, one in every module.
 pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {

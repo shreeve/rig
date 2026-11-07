@@ -45,6 +45,25 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
+**Three ownership holes are closed**, each rejecting programs 0.3.0
+accepted:
+
+- a box of a read view, `^?T`, reaches its value only to read it, as
+  the view does: a consuming method through it (`(^<b).eat()` or
+  `<x.eat()` of an `x = ^?b`, which freed the value `b` viewed), a
+  write method, a write lend (`!x.v.push(1)`), an assignment (`x.n =
+  2`), and a `match !x` are rejected: "method `eat` consumes `self`;
+  cannot consume through a view", "cannot lend to write through a read
+  view". Take a write view, or own the value;
+- a `defer` body that moves an outer binding and assigns it again,
+  `defer head = ^Node(v: 1, next: <head)`, is rejected, as one that
+  only moves it was: "a `defer` body cannot move or drop `head`". Write
+  the deferred code in a block that owns what it moves;
+- a one-line `defer` that binds several results to new names, `defer
+  _, z = two()`, is rejected, as `defer z = one()` was ("a deferred
+  statement runs at scope exit and cannot declare `z`"), where `rig
+  check` crashed.
+
 **Programs `rig check` accepted and Zig then rejected** are rejected
 now, each with a Rig diagnostic; but for a builtin alone as a statement,
 none of these ever built:
@@ -170,6 +189,9 @@ none of these ever built:
   about a node with a classifier instead of a record.
 - Each name `as a, b` binds is a new name, checked as `as v`'s is: one
   that shadows a local, or a module-level declaration, is rejected.
+- A one-line `defer` that assigns several results to names declared
+  before it, `defer a, b = two()`, is emitted as a block, where Zig
+  rejected the statements it wrote.
 - A read lend copied out where a value goes adapts as the value it
   copies: `o: Item[K, V]? = ?none` of an optional held as a niche
   becomes its `none`, and `?B.y` where an error with fields goes widens
@@ -190,6 +212,11 @@ none of these ever built:
   a `drop` body, and a generic instance at a task or a set. Its floors
   rise by what it now decides (59 functions of the tests, 10 of the
   docs).
+- The reference ownership checker reads a value written through a write
+  view of plain data out of the view that gives it (`w = ?a` writes an
+  `Int`), where it reported a view leaving the function, and rejects a
+  consuming method called through a view or through a box of a read
+  view (C7).
 - The core suite, `swarm test/rig.rip`, runs the scripts of `test/cli`
   and the probes of past reviews (`test/rig/probes-*.rig.test`) too, so
   a change that breaks one fails its gate; `cli` and `probes` run them

@@ -2800,7 +2800,14 @@ pub const Emitter = struct {
             .@"defer", .@"errdefer" => {
                 try self.w.print("{s} ", .{@tagName(head)});
                 const body = ir.get(sexp, .body);
-                if (body.isKind(.block)) try self.emitBlock(body) else try self.emitStmt(body);
+                if (body.isKind(.block)) {
+                    try self.emitBlock(body);
+                } else if (body.isKind(.destructure)) {
+                    // Several results are bound in several Zig statements.
+                    try self.w.writeAll("{ ");
+                    try self.emitStmt(body);
+                    try self.w.writeAll(" }");
+                } else try self.emitStmt(body);
             },
             else => {
                 if (try self.discardsValue(sexp)) try self.w.writeAll("_ = ");

@@ -1161,9 +1161,11 @@ const Checker = struct {
                 }
                 try self.checkStmt(body);
                 // The statement runs at scope exit: a name it declared
-                // would be visible to code that runs before it.
-                if (body.isKind(.set) and ir.Set.target(body) == .src) if (self.ctx.symbolOf(ir.Set.target(body))) |id| {
-                    const target = ir.Set.target(body);
+                // would be visible to code that runs before it. So would
+                // each name several results bind (`defer q, r = f()`).
+                const sets: []const Sexp = if (body.isKind(.destructure)) ir.Destructure.targets(body).items() else &.{body};
+                for (sets) |set| if (set.isKind(.set) and ir.Set.target(set) == .src) if (self.ctx.symbolOf(ir.Set.target(set))) |id| {
+                    const target = ir.Set.target(set);
                     if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
                         self.ctx.symbols.items[id].ty = self.t().invalid_id;
                         try self.errAt(target, "a deferred statement runs at scope exit and cannot declare `{s}`; use an indented `{s}` block", .{ self.text(target), @tagName(stmt.kind().?) });
@@ -2260,6 +2262,15 @@ const Checker = struct {
                 .shared, .slice => place.indirect = true,
                 else => {},
             }
+            // A box of a read view (`^?T`, and a view of one) reaches its
+            // value through the view, as a `?T` does.
+            if (self.ctx.types.get(ty) != .read_view) if (sema.boxedReadView(self.ctx, ty)) |view| {
+                place.indirect = true;
+                place.block(.read_view, self.startOf(p));
+                place.leaf_blocked = true;
+                place.view_blocked = true;
+                place.view = .{ .ty = view, .pos = self.startOf(p) };
+            };
             if (sema.accessThroughShared(self.ctx, ty)) {
                 crossed = true;
                 place.crossed = true;
@@ -3730,7 +3741,12 @@ const Checker = struct {
         if (sema.boxedType(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != null) if (sema.boxedNominal(self.ctx, scrutinee)) |inner| {
             switch (self.ctx.types.get(scrutinee)) {
                 .read_view => scrutinee = try self.ctx.intern(.{ .read_view = inner }),
-                .write_view => if (sema.accessThroughShared(self.ctx, scrutinee) and !sema.changesByMark(self.ctx, inner)) {
+                // A box of a read view (`^?E`) reaches its value only to
+                // read it.
+                .write_view => if (sema.boxedReadView(self.ctx, scrutinee)) |view| {
+                    try self.errAt(subject, "cannot lend to write through a read view `{s}`, which the box holds; match it with `match {s}` to read it", .{ try self.tyName(view), self.sourceText(if (subject.isKind(.write)) ir.Write.operand(subject) else subject) });
+                    scrutinee = self.t().invalid_id;
+                } else if (sema.accessThroughShared(self.ctx, scrutinee) and !sema.changesByMark(self.ctx, inner)) {
                     const shown = self.sourceText(if (subject.isKind(.write)) ir.Write.operand(subject) else subject);
                     try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and to change a value that handles share, hold it in a `Cell[T]`", .{ shown, shown });
                     scrutinee = self.t().invalid_id;
@@ -20587,8 +20603,9 @@ const SelfTypeKind = enum { owned_nominal, read_view, write_view, shared, other 
 fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: SymbolId) SelfTypeKind {
     const matches = struct {
         fn f(c: *const SemContext, id: TypeId, sym: SymbolId) bool {
-            // A box's value is reached as the box is: owned, or viewed.
-            if (sym != c.box_sym_id) if (sema.boxedType(c, id)) |inner| return f(c, inner, sym);
+            // A box's value is reached as the box is: owned, or viewed,
+            // or through the read view it holds.
+            if (sym != c.box_sym_id) if (sema.boxedType(c, id)) |inner| return f(c, sema.unwrapViews(c, inner), sym);
             return switch (c.types.get(id)) {
                 .nominal => |s| s == sym,
                 .parameterized_nominal => |pn| pn.sym == sym,
@@ -20602,6 +20619,8 @@ fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: SymbolId
     // method of the value (not the box's own).
     if (ctx.types.get(sema.unwrapViews(ctx, ty_id)) == .shared) return .shared;
     if (nominal_sym != ctx.box_sym_id and sema.accessThroughShared(ctx, ty_id)) return .shared;
+    // A box of a read view (`^?T`) reaches its value through the view.
+    if (nominal_sym != ctx.box_sym_id and sema.boxedReadView(ctx, ty_id) != null) return if (matches(ctx, sema.unwrapViews(ctx, ty_id), nominal_sym)) .read_view else .other;
     return switch (ctx.types.get(ty_id)) {
         .read_view => |i| if (matches(ctx, i, nominal_sym)) .read_view else .other,
         .write_view => |i| if (matches(ctx, i, nominal_sym)) .write_view else .other,
