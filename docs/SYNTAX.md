@@ -201,7 +201,7 @@ not used.
 | Role | Keywords |
 |---|---|
 | declarations | `fun` `sub` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
-| control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` `panic` |
+| control | `if` `else` `while` `loop` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` `panic` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | boundaries | `raw` `zig` (in `extern zig`) |
 | reserved forms | `try`, and `zig` elsewhere |
@@ -1228,7 +1228,7 @@ A simple statement (a call, a binding or assignment, a drop, `return`,
 ```rig
 fun first_over(limit: Int) -> Int
   i = 0
-  while true
+  loop
     i += 1
     return i if i > limit
 
@@ -1320,26 +1320,29 @@ sub main()
     continue if i == 1
     break if i == 4
     print(i)
-  else
-    print("never: the loop broke")
   n = 3
   while n > 0
     n -= 1
-  else
-    print("done")
+  loop
+    n += 1
+    break if n == 2
+  print("done", n)
 ```
 
 ```output
 0
 2
 3
-done
+done 2
 ```
 
 `while cond : step` runs `step`, an assignment or a call, after each
-iteration. An `else` block runs when the loop ends without `break`.
-`while e as x` loops while the optional `e` has a value
-([Conditions that bind](#conditions-that-bind)).
+iteration. `while e as x` loops while the optional `e` has a value
+([Conditions that bind](#conditions-that-bind)). `loop` repeats its
+block until a `break` or another jump leaves it; `while true` is
+written `loop`. No loop has an `else`: to act when nothing matched,
+test first, `if not xs.any(f)`, or take a chain's result,
+`xs.find(f) ?? d`.
 
 ### for
 
@@ -1387,7 +1390,7 @@ sub main()
 | `for x in !it`, `for x in mk()` | each value an iterator gives, advancing `it` where it stands, or a value made here |
 
 A source made there (`for x in mk()`) is taken; [SPEC §6](../SPEC.md#for)
-has the rules. An `else` block runs when the loop ends without `break`.
+has the rules.
 
 ### Labels, break, and continue
 
@@ -1440,23 +1443,26 @@ done
 
 ### Loops as values
 
-A loop that `break`s with a value is an expression, and its `else`
-block gives the value when it ends without breaking (`while true` needs
-none).
+`loop` is the one loop that gives a value: `r = loop` ... `break v`,
+and every `break` that leaves it carries one. A `for` or `while` gives
+none, and a `break` in one carries none: a search is a chain
+(`xs.find(f) ?? d`), `xs.index_of(x)` on a List, or a function that
+returns from its loop.
 
 ```rig
 fun index_of(xs: ?[4]Int, target: Int) -> Int
   for x, i in xs
-    break i if x == target
-  else
-    -1
+    return i if x == target
+  -1
 
 sub main()
   xs = [3, 1, 4, 1]
   print(index_of(?xs, 4), index_of(?xs, 9))
+  ys = List[Int]([3, 1, 4, 1])
+  print(ys.index_of(1) ?? -1, ys.find(|y| y > 3) ?? -1)
   n = 27
   steps = 0
-  last = while true
+  last = loop
     break steps if n == 1
     n = n / 2 if n % 2 == 0 else 3 * n + 1
     steps += 1
@@ -1465,6 +1471,7 @@ sub main()
 
 ```output
 2 -1
+1 4
 111
 ```
 

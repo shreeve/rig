@@ -744,6 +744,10 @@ program; [INTERNALS](../internals/INTERNALS.md) describes it.
 | increment | `i++` | `i += 1` | `i++` | `i += 1` |
 | counting loop | `for (i = 0; i < n; i++)` | `for i in range(n)` / `n.times` | `for i := 0; i < n; i++` | `for i in 0..n` |
 | index and element | by hand | `for i, x in enumerate(xs)` | `for i, x := range xs` | `for x, i in xs` (element first) |
+| loop forever | `while (1)` | `while True:` / `loop do` | `while (true)` / `for {}` | `loop`, left by `break` (`r = loop` ... `break v` gives a value) |
+| first match | a loop | `next(x for x in xs if f(x))` / `xs.find` | `xs.find(f)` / a loop | `xs.find(f) ?? d`, `xs.index_of(x)` |
+| list comprehension | a loop | `[x * 2 for x in xs]` / `xs.map` | `xs.map(f)` / a loop | `xs.map(\|x\| x * 2).collect()` |
+| lambda | a function pointer | `lambda x: x * 2` / `->(x) { x * 2 }` | `x => x * 2` / `func(x int) int` | `\|x\| x * 2` |
 | class | `struct` + functions | `class` | `class` / `struct` + methods | `obj` with methods |
 | `this` / `@` | a pointer argument | `@` (implicit in Ruby) | `this` / a method's own parameter | `@`, always written |
 | switch | `switch` | `match` / `case` | `switch` | `match` |
@@ -1154,6 +1158,10 @@ You will reach for these and not find them:
   parallel loops, TCP and an HTTP server, and a terminal; TLS, an HTTP
   client, and DNS are not there yet;
 - **raw pointers**;
+- **a loop `else`** (Python's `for` ... `else`): test first,
+  `if not xs.any(f)`, or take `xs.find(f) ?? d`;
+- **list comprehensions**: a chain, `xs.filter(f).map(g).collect()`,
+  says the same and shows its one allocation;
 - **macros**, which Rig does not plan to have.
 
 [SPEC §19](../../SPEC.md#19-reserved-and-unsupported-forms) lists every form

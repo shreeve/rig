@@ -263,13 +263,10 @@ bare use of write view `v` in binding would copy a write view, which is unique
 
 ```rig
 fun first() -> List[Int]
-  e: List[Int] = List()
-  r = while true
+  r = loop
     v: List[Int] = List()
     !v.push(1)
     break v
-  else
-    <e
   r
 
 sub main()

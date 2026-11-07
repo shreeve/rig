@@ -532,8 +532,8 @@ wrapper also makes the only rewrites that need to inspect the tree:
   `(drop x)`, keeping its node id, and `(move e)` of anything else
   becomes `(drop (move e))`. Where the value is used (the last line of
   a `fun` or a closure, a binding's, `return`'s, or `break`'s value, or
-  the last line of a branch, arm, `catch` handler, labeled loop, `raw`
-  block, or loop `else` block whose value is used) it stays the move.
+  the last line of a branch, arm, `catch` handler, labeled loop, or
+  `raw` block whose value is used) it stays the move.
   So `(drop x)` is the only drop of a binding every pass knows, and
   `(drop (move e))` is read exactly as `_ = <e`: typecheck's
   `checkDiscard`, the ownership checker's discard binding, and emit's
@@ -1432,7 +1432,7 @@ and are no exemption. Leaves that are themselves lends stay allowed:
 What a context does with a value is recorded as its `Use`
 (`useOf(e)`): `read` (`readLeaf`), `take` (a binding, an argument, a
 stored field or element, `return`, a function's or a closure's value,
-a `break` value, a loop's `else`, a consuming self, a header that
+a `break` value, a consuming self, a header that
 binds the value), or `lend` (`?e`, `!e`, a write self), for a name
 and for a value that yields one of its parts. A value whose names own
 nothing needs no use (an `==` operand of plain data records none),
@@ -2240,7 +2240,7 @@ a fact emit and the ownership checker read too:
 |---|---|
 | block | its statements in order; at its end, the kills of its `defer`s |
 | `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
-| `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant, and `i`'s `nonneg(i)` and `below(i, k, b)` from `E` when every write of `i` in the loop is `i = e & m` with one mask `m` that holds in `L` (the `below` with no more room than `m` has in `L`, or 1 for `s.len - 1`): each write makes them again, and the loop writes neither `m` nor `b`; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
+| `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant, and `i`'s `nonneg(i)` and `below(i, k, b)` from `E` when every write of `i` in the loop is `i = e & m` with one mask `m` that holds in `L` (the `below` with no more room than `m` has in `L`, or 1 for `s.len - 1`): each write makes them again, and the loop writes neither `m` nor `b`; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; after it, `E - K(loop)` |
 | `for` | the source unit; then `L` as for `while`, a masked `i` kept as there, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration), or `b / c` with a literal `c >= 1` and `b` a length or `lo` a literal (`lo..hi` only: `b / c <= b` for `b >= 0`, and a body that runs has `0 <= k < b / c`, so `b > 0`; `k <= -1 / 2` holds at `k = 0`); any other `for` binding gets no facts |
 | statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
 | `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
@@ -3412,7 +3412,7 @@ round that settles is the final walk, so nested loops are not walked
 exponentially often. `return`, `break`, and `continue` make
 the rest of their block unreachable. A value's tail name (reached
 through the parts `sema.eachTailPart` lists: a block's last statement,
-branches, arms, a `catch` handler, `??`, a loop's `else`) is the name
+branches, arms, a `catch` handler, `??`) is the name
 emit takes; when the value is consumed, the checker moves it there, as
 `<x` would, before the scopes the value leaves run their defers (a name
 the value declares itself, or one the function returns). Which bindings
@@ -4096,34 +4096,35 @@ first.
 
 ### Loops
 
-Every loop, `while` and each form of `for`, is one desugaring, which
-the checker walks (`walkLoop`, `loopIteration`) and emit writes
+Every loop, `while`, `loop`, and each form of `for`, is one desugaring,
+which the checker walks (`walkLoop`, `loopIteration`) and emit writes
 (`emitLoop`), so a jump goes in the emitted Zig where the checker sent
-it. For `:L while a as x and c: step` with an `else`:
+it. `loop` is a `while` whose condition is a hidden `true`
+(`Parser.loopBlock`, `sema.isLoop`): the one loop with no condition to
+fail, and the one that gives a value. For `$L: while a as x and c :
+step`:
 
 ```text
-L_res: {                         // the loop's block: what its header holds, its `else`, its value
+L_res: {                         // the loop's block: what its header holds, a `loop`'s value
     L: while (true) : (step) {   // the step here when it reads no binding of the condition
         x = a or break           // one `if` per part of the condition, each `else break`
         c or break
         L_body: { body }         // the body's own scope
         step                     // here when it reads a binding (`StepPoint.after_body`)
     }
-    else                         // after the loop
 }
 ```
 
 | Step | The checker | The emitted Zig |
 |---|---|---|
-| condition | each guard part (`rig.eachGuardPart`) walked in order in the loop (`walkConditionParts`); a part failing exits to the `else` | `if (a) \|x\| { ... } else break;`, `if (!(c)) break;` |
+| condition | each guard part (`rig.eachGuardPart`) walked in order in the loop (`walkConditionParts`); a part failing exits the loop | `if (a) \|x\| { ... } else break;`, `if (!(c)) break;` |
 | binding | the parts' bindings in a scope around the body's | the `if`'s capture, and an owned binding's local and drop guard in its block |
 | body | its own scope (`pushScopeFor`), holding a `for`'s element | `L_body: { ... }`; for a `for`, the Zig loop's body block |
 | body end | the body's scope pops: its defers and drops run, its loans end | the end of `L_body` |
 | step | walked after the body scope pops (`walkStep`): in the bindings' scope when it reads a binding, else after it pops | a statement after `L_body` in the innermost `if`, or the loop's continue expression, which Zig runs after the `if`s end |
 | back edge | `exitTo` the loop's entry, joined into the head | the end of the Zig loop's body |
 | `continue` | where its `JumpDest` says: `step` from the body, to the step's point (`step_point`) when the step runs after the body, or else to the entry then the step; `head` from the step, to the entry; from the condition, `step`, to the entry through a step that is the continue expression (the type checker rejects one where the step runs after the body, which it would skip, leaving what the step reads unbound) | `break :L_body`; `break :L_step` out of the step's block; `continue :L` |
-| `break`, `break x` | joined after the `else`; `x` consumed like a returned value | `break :L_res x`, or `break :L` when the loop has no `else` and no value |
-| `else` | walked after the loop's iterations, with the enclosing loop as the jumps' target | statements after the loop in `L_res`, or `break :L_res value` for a loop used as a value |
+| `break`, `break x` | joined after the loop; `x`, a `loop`'s value, consumed like a returned value | `break :L_res x`, or `break :L` when the loop gives no value |
 
 **Where the step runs** is the decision `step_point`
 (`storage.stepPoint`, read by emit as `Facts.stepPoint`): `after_body`
@@ -4147,9 +4148,9 @@ checker walks it before `walkLoop`.
 lexical: an unlabeled jump names the innermost loop around it, a
 labeled one the innermost loop or block of its name, so a label may
 repeat an enclosing one; a closure's or a `defer`'s body is another
-body, and a `for` source and a loop's `else` are outside the loop, so a
-`break v` in a nested `for`'s source gives the loop around that `for`
-its value. The type checker records, as it enters each construct, the
+body, and a `for` source is outside the loop, so a `break v` in a
+nested `for`'s source gives the `loop` around that `for` its value.
+The type checker records, as it enters each construct, the
 jumps that name it, and resolves each jump once from that record
 (`Checker.resolveJump`) into its `JumpDest` (`SemContext.jumpDestOf`):
 the construct and the point it goes to, `exit` (past the construct, a
@@ -4164,7 +4165,7 @@ leave the step's binding unbound) are reported there.
 
 Emit and the ownership checker read the record. Each loop, and each
 labeled `match` or `raw` block, is a `JumpTarget` on `Emitter.targets`
-while it is emitted, popped before its `else`, and a jump finds its
+while it is emitted, and a jump finds its
 target by the construct its `JumpDest` names. The target knows which
 part of the loop is being emitted, which gives the Zig jump
 (`continue :L` from the condition, `break :L_body` from the body,
@@ -4332,7 +4333,7 @@ what it hands over (`sema.handsOver`), as every header does:
 | `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made
-there is held for the whole loop, dropped after the `else` (by `break`,
+there is held for the whole loop, dropped after it (by `break`,
 `return`, and failure too), and a place it takes is moved at the loop's
 start. A place is named by a name or fields from one, since the
 desugaring evaluates it for every `next`, and an element whose index
@@ -4784,15 +4785,14 @@ and a query that decides more than that is a recorded fact.
   items. A Zig `switch` has no guards, so a match with a guarded arm
   first picks its arm in a labeled block (one `if` per arm, testing the
   pattern with `==` or a range comparison, then the guard over the
-  bindings it names), then switches on the arm's index. A loop used as
-  a value (one a `break` leaves with a value) is its block `L_res` in an
-  `@as(T, ...)`: each `break v` leaves the block, and the `else` value
-  is the block's last `break`, reached only when no `break` gave one.
+  bindings it names), then switches on the arm's index. A `loop` used
+  as a value (one a `break` leaves with a value) is its block `L_res`
+  in an `@as(T, ...)`: each `break v` leaves the block.
 - **Loops** follow one desugaring ([Loops](#loops)): a `while` is a
   `while (true)` with one `if` per part of its condition inside, a `for`
   Zig's `for` or a `while` over an iterator or a range, the body is a
-  block a `continue` leaves, and the `else` follows the loop in a block
-  a `break` leaves.
+  block a `continue` leaves, and `loop` is a `while (true)` with no
+  condition to test.
 - **Compile-time parameters** are Zig `comptime` parameters, first in
   the signature, after a method's self (Zig's method call syntax
   needs self first): `fun times[n: Int](?@)` is

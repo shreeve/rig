@@ -12,6 +12,31 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ### Upgrading from v0.3.0
 
+**`loop` is a keyword, and the one loop that gives a value**:
+`loop` repeats its block until a `break` leaves it, and
+`r = loop` ... `break v` gives `v`. `tools/migrate-loops.py PATH`
+rewrites `while true` to `loop`, and flags each of the others below
+with a suggested rewrite (it changes no other code). These are rejected
+now, each with the Rig spelling in the message:
+
+- `while true`: "write `loop`: `while` takes a condition that can end
+  it". Only the literal `true`; `while cond` is unchanged;
+- an `else` on any loop: "a loop has no `else`; to act when nothing
+  matched, test first, as in `if not xs.any(f)` or `xs.find(f) ?? d`";
+- a `for` or `while` used as a value, and `break v` in one: "a `for` or
+  `while` loop gives no value; use `loop` with `break v`, a chain such
+  as `xs.find(f) ?? d`, or `return` from a function";
+- `loop` as a name, and `file.FileError.loop`, which is
+  `file.FileError.link_loop`.
+
+Trig has no loop `else`, no loop used as a value, and no `break v`; its
+`while true` lines are what the script rewrites. loco has one.
+`List.index_of(x)` gives the index of the first element equal to `x`,
+or `none`, as `slices.index_of` does. A block after `??`, a list
+comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an
+optional, `range(3)`, and `enumerate(xs)` are rejected with the Rig
+spelling, where each got a parse error or an unbound name.
+
 **`extend_from_bytes` and `$embed` records read only `exact` objects**
 (a change to main since 0.3.0, which had neither): an object made from
 bytes, a literal's, a `?String`'s, or an embedded file's, is declared
@@ -78,9 +103,6 @@ none of these ever built:
   `$size(T)` (which built and did nothing): "this expression does
   nothing as a statement". Remove it, or use its value. Neither Trig
   nor loco has one.
-- code in the `else` of `while true` that no other block may hold:
-  a statement after a `return`, a bare copy of an owned value. The
-  block never runs, and is checked as any block is.
 - a box where a type parameter bounded by `Iter` goes, `show(!w)` of a
   `w: ^Words`: name the iterator's type, `show[Words](!w)`.
 - a closure literal with an untyped parameter where a generic

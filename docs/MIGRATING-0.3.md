@@ -387,10 +387,10 @@ fun slot(a: !Int) -> !Int
 
 sub main()
   n = 12
-  copy: Int = while true
+  copy: Int = loop
     break slot(!n)
   copy = 1
-  held = while true
+  held = loop
     break slot(!n)
   held = 5
   print(n, copy)
@@ -869,3 +869,26 @@ nanoseconds (`time.sleep(5 * time.MS)`, rejected for `ms: 5`), and
 nanoseconds, so `t.elapsed() < 5 * time.MS` stays as it was, and a
 duration taken from one is passed on with `ns:`, `t.add(ns:
 t.since(u))`.
+
+### `loop` for `while true`, and no loop `else`
+
+`loop` is a keyword: the loop that repeats until a `break`, and the one
+that gives a value, `r = loop` ... `break v`. A `for` or `while` gives
+no value, a `break` in one carries none, and no loop has an `else`.
+`tools/migrate-loops.py` rewrites each `while true` to `loop`, and
+flags, without rewriting, each loop `else`, each `for` or `while` used
+as a value, and each `break v` outside a `loop`, with a suggested
+rewrite:
+
+```sh
+python3 tools/migrate-loops.py --dry-run src/   # what it would rewrite, and what it flags
+python3 tools/migrate-loops.py src/             # rewrite in place
+```
+
+| 0.3.0 | 0.3.1 |
+|---|---|
+| `while true` | `loop` |
+| `for x in xs` ... `else` (no `break` was taken) | `if not xs.any(f)`, or a name set before the `break` and tested after |
+| `r = for x in xs` ... `break x if f(x)` ... `else d` | `r = xs.find(f) ?? d`, or a function that returns from its loop |
+| `i = for x, j in xs` ... `break j if x == t` ... `else -1` | `i = xs.index_of(t) ?? -1` on a List |
+| a name `loop`, `file.FileError.loop` | another name, `file.FileError.link_loop` |

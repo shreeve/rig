@@ -134,6 +134,12 @@ with any error. A member may carry fields, `bad(at: Int)`, made as
 `E.bad(at: 3)` and matched as `.bad(at) =>`, and `error L = A | B`
 joins sets.
 
+**Loops.** `for x in xs` and `while c` repeat and give no value; `loop`
+repeats until a `break`, and is the one loop that gives one:
+`r = loop` ... `break v`. No loop has an `else`, and `??` takes one
+value or a jump, `o ?? return`, never a block. A search is a chain,
+`xs.find(|x| x > 3) ?? 0`, or `xs.index_of(x)` on a List.
+
 **Closures.** `|+n, x| x + n` names how it holds each outer value: `+n`
 copies or clones it, `?n` and `!n` lend it, `<n` takes it, `~n` holds
 it weakly. A capture may be one field, `|?@template, k| ...`, which
