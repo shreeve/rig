@@ -151,6 +151,13 @@ accepted:
 
 ### Compiler
 
+- A debug build on x86-64 is built by LLVM (`-fllvm`), as on arm64. Zig
+  0.17's own x86-64 backend, its default there, overwrote a compare's
+  result with an atomic's flags, so a function that returned a compare
+  and dropped a counted handle answered wrong in debug builds
+  (`docs/learn/04-concurrency.md`'s `*Frozen` example printed all
+  `true`). A debug panic's trace names the program's line on x86-64 too.
+
 - Emit decides nothing the checkers did not walk: whether a `match` arm
   takes every value, whether a `match` picks its arm first, whether a
   loop or `as` binds a String's bytes, whether `return a, b` makes its
@@ -168,6 +175,12 @@ accepted:
 - A one-line `defer` that assigns several results to names declared
   before it, `defer a, b = two()`, is emitted as a block, where Zig
   rejected the statements it wrote.
+- Builds of one package at once no longer race on a split build's
+  objects: a split build holds a lock in the package's Zig cache from
+  its check for a kept executable to its link, so on Linux, where Zig
+  replaces an object by deleting it first, one build's link no longer
+  finds another's object gone (`failed to open object
+  __rig_unit_0.o: FileNotFound`).
 
 ### Tests
 

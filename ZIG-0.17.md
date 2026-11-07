@@ -2801,6 +2801,22 @@ What found every regression in the ports above, in order:
   `@floor`, `@ceil`, `@round` with an integer result type, and the deprecated
   `@intFromFloat`, return 0 for NaN (aarch64-macos, debug and safe builds),
   while an out-of-range value panics. Guard with `std.math.isNan`.
+- The self-hosted x86_64 backend (the Debug default on x86_64-linux)
+  miscompiles a compare whose result is read after an atomic
+  read-modify-write: it leaves the result in EFLAGS, and the `lock`
+  instruction overwrites the flags before `setcc` reads them
+  (`cmp; lock sub; setge`). Five lines show it:
+
+  ```zig
+  noinline fn le(count: *usize, a: i64, b: i64) bool {
+      const r = a <= b;
+      _ = @atomicRmw(usize, count, .Add, 1, .monotonic);
+      return r;
+  }
+  ```
+
+  `le(&count, 4, 3)` returns `true`. LLVM is right. Build x86_64 Debug
+  code that mixes compares and atomics with `-fllvm`.
 - `Reader.allocRemaining` and `Dir.readFileAlloc` disagree on whether a
   limit of exactly the input size is allowed (§4.1.7).
 
