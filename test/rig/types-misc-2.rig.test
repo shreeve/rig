@@ -258,6 +258,18 @@ fail "self sigil without self", "14:5: `!` here reaches `Point`, a type, not the
   hooks = Hooks(on: *|n| n + 1)
   print(!hooks.on(1), a.x, b.x)
 
+fail "self sigil on a built-in type's call", "6:9: `!` here reaches `Slot[4]`, a type, not the value `Slot[4].of(1)` makes: write `!(Slot[4].of(1))` to lend that value, or remove the `!`", "7:9: `!` here reaches `B`, a type, not the value `B.of(2)` makes: write `!(B.of(2))` to lend that value, or remove the `!`", "8:9: `!Simd[U8, 4].splat(1)` here is read, not held: only its `Simd[U8, 4]` is read here. Write `Simd[U8, 4].splat(1)`", "9:9: `of` is called through its type or module and has no `self`; to lend the call's result, write `?(Slot[4].of(1))`", "10:9: `of` is called through its type or module and has no `self`; remove the `<`", errors: 5
+  # `Slot[n]` and `Simd[T, n]` are types, so a sigil before a call
+  # through one reaches no value, as it reaches none through an object.
+  type B = Slot[4]
+
+  sub main()
+    print(!Slot[4].of(1))
+    print(!B.of(2))
+    print(!Simd[U8, 4].splat(1))
+    print(?Slot[4].of(1))
+    print(<Slot[4].of(1))
+
 test "recursive type through handle", '''
   2 1
   12

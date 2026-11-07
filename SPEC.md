@@ -6244,7 +6244,9 @@ source sigils change that:
 - `for x in !xs` views each element of a `List` or array for writing:
   assigning `x` (or a field of it) writes the element in place, and a
   resource element that is replaced is dropped. `xs` must be a binding
-  or a field of one.
+  or a field of one, which no read view stands on: a binding that holds
+  a read view (`out = ?a`) is written through no more than `!out` lends
+  it to write.
 - `for x in <v` consumes the List: each element is handed to `x`, which
   owns it for one iteration and may move it on. Elements a `break` or
   `return` leaves behind are dropped with the buffer, and `v` is moved.
@@ -13585,7 +13587,9 @@ sub main()
 ```
 
 **The value.** A task is not copied, cloned, or compared, and it is not
-printed or formatted: what is meant is what it gives, `>t`. `Task[T]` holds a call's result, so its `T` may
+printed or formatted: what is meant is what it gives, `>t`. A task, or
+a set of them, is not boxed: `^f()&` is rejected, since a task is a
+handle to work the runtime holds already. `Task[T]` holds a call's result, so its `T` may
 be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs them on Rig's scheduler:

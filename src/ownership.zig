@@ -2637,7 +2637,10 @@ pub const Checker = struct {
         var result: Value = .{};
         for (stmts, 0..) |stmt, i| {
             try self.checkAfterJump(stmts, i);
-            if (!self.reachable) break;
+            if (!self.reachable) {
+                try self.checkRestAfterJump(stmts, i);
+                break;
+            }
             if (returns_value and i == stmts.len - 1 and self.isValue(stmt)) {
                 const saved_stmt = self.cur_stmt;
                 self.cur_stmt = stmt;
@@ -2851,7 +2854,10 @@ pub const Checker = struct {
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
             try self.checkAfterJump(stmts, i);
-            if (!self.reachable) break;
+            if (!self.reachable) {
+                try self.checkRestAfterJump(stmts, i);
+                break;
+            }
             if (i < stmts.len - 1) {
                 try self.walkStmt(s);
                 continue;
@@ -7931,6 +7937,32 @@ pub const Checker = struct {
         const prev = stmts[i - 1];
         if (!rig.leaves(prev)) return;
         try self.errSpan(self.stmtSpan(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.kind().?)});
+    }
+
+    /// Statements from `i` on, which are not walked: the one before `i`
+    /// never finishes (a `loop` no `break` leaves, or a jump, reported
+    /// already). Emit still writes them, so a statement right after a
+    /// jump among them, or in a block inside one, is reported as
+    /// `checkAfterJump` reports it.
+    fn checkRestAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
+        if (i > 0 and rig.leaves(stmts[i - 1])) return;
+        for (stmts[i..], i..) |s, j| {
+            if (j > i) try self.checkAfterJump(stmts, j);
+            try self.checkJumpsUnder(s);
+        }
+    }
+
+    /// `checkAfterJump` for each block under `e`, which is not walked.
+    fn checkJumpsUnder(self: *Checker, e: Sexp) Error!void {
+        if (e.isKind(.block)) {
+            const stmts = ir.Block.stmts(e);
+            for (stmts, 0..) |s, j| {
+                try self.checkAfterJump(stmts, j);
+                try self.checkJumpsUnder(s);
+            }
+            return;
+        }
+        for (rig.children(e)) |c| try self.checkJumpsUnder(c);
     }
 
     /// A statement's range: its span, or the last statement position

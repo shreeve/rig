@@ -5143,6 +5143,19 @@ fail "unreachable after jump", "unreachable code: this statement follows a `retu
     print("x")
   print(f())
 
+fail "unreachable after jump past an endless loop", "7:1: unreachable code: this statement follows a `return`", "11:5: unreachable code: this statement follows a `break`", errors: 2
+  # Code after a `loop` no `break` leaves never runs, and is not walked,
+  # but a statement right after a jump there is still reported.
+  n = 1
+  loop
+    n += 1
+  return
+  print(n)
+  for i in 0..3
+    if i > 1
+      break
+      print(i)
+
 fail "unterminated string", "4:5: unterminated string", errors: 1
   # A string literal with no closing quote is reported as unterminated at
   # its line and column.

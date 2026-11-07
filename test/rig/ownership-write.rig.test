@@ -2417,6 +2417,69 @@ fail "write view through read view", "cannot lend to write through a read view",
   h = Holder(c: Counter(n: 0), xs: [1, 2])
   f(?h)
 
+fail "write-iterate through a binding that holds a read view", "15:11: cannot write-iterate through a read view (`?T`); take a write view (`!T`) to mutate", "18:11: cannot write-iterate through a read view", "22:11: cannot write-iterate through a read view", "27:11: cannot write-iterate through a read view", "31:11: cannot write-iterate through a read view", "34:13: cannot write-iterate through a read view", "38:1: cannot lend to write through a read view (`?T`)", errors: 7
+  # A place that holds a read view, as a binding of `?a`, of a call
+  # that returns one, a field, or an element, writes nothing through it,
+  # as a step across one does not: each loop would drop the String that
+  # `first` views. Nor does a method that writes the elements.
+  fun same(xs: ?List[String]) -> ?List[String]
+    xs
+
+  obj H
+    r: ?List[Int]
+
+  a: List[String] = List()
+  !a.push(String("abc"))
+  first = ?a[0]
+  out = ?a
+  for x in !out
+    x = String("zz")
+  v = same(?a)
+  for x in !v
+    x = String("yy")
+  b = [String("q")]
+  w = ?b
+  for x in !w
+    x = String("r")
+  ns: List[Int] = List()
+  !ns.push(1)
+  h = H(r: ?ns)
+  for n in !h.r
+    n += 1
+  vs: List[?List[Int]] = List()
+  !vs.push(?ns)
+  for n in !vs[0]
+    n += 1
+  for _ in ?a
+    for y in !out
+      y = String("s")
+  nums = [1, 2]
+  seen = ?nums
+  seen.fill(0)
+  print(first)
+
+test "write-iterate through a write view a binding holds, and a read view pointed elsewhere", '''
+  1
+  2
+  3
+  4
+  [11, 12]
+'''
+  # A binding that holds a read view is assigned whole, pointed at
+  # other storage; one that holds a write view is written through.
+  a = [1, 2]
+  c = [3, 4]
+  out = ?a
+  for x in out
+    print(x)
+  out = ?c
+  for x in out
+    print(x)
+  w = !a
+  for x in !w
+    x += 10
+  print(a)
+
 fail "write view view in loop", "16:2: cannot drop `t` while it is lent", errors: 1
   # A view stored through a write view in a loop lands in what it
   # views, and a copy made on the next iteration keeps the Text viewed.
