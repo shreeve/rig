@@ -17,8 +17,8 @@ Markdown file only ```rig blocks are read. In a .rig.test file the
 multi-line results (`'''`) are skipped.
 
 usage: tools/migrate-loops.py [--dry-run] [--quiet] PATH...
-  Each PATH is a file or a directory searched for .rig, .rig.test, and
-  .md files. It prints each flag as PATH:LINE: what, then the
+  Each PATH is a file, read whatever its name, or a directory searched
+  for .rig, .rig.test, .rig.tmpl (a template of Rig code), and .md files. It prints each flag as PATH:LINE: what, then the
   suggestion; then each file it changes, with its count, and the totals.
   --dry-run changes no file; --quiet prints only the totals.
 """
@@ -232,7 +232,7 @@ def files(paths):
             for root, dirs, names in os.walk(p):
                 dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in ("zig-cache", ".zig-cache", "zig-out", "node_modules"))
                 for name in sorted(names):
-                    if name.endswith((".rig", ".rig.test", ".md")):
+                    if name.endswith((".rig", ".rig.test", ".rig.tmpl", ".md")):
                         yield os.path.join(root, name)
         else:
             yield p
