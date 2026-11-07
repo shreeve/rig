@@ -7856,7 +7856,11 @@ pub const Emitter = struct {
                 // which the pointer before it reaches; it points at the
                 // viewed value, and Zig follows only the last pointer.
                 if (ptr and self.isPtrViewTy(t)) try self.w.writeAll(".*");
-                ptr = ptr or self.isPtrViewTy(t);
+                const viewed_view = switch (self.facts.types.get(inner)) {
+                    .read_view, .write_view => true,
+                    else => false,
+                };
+                ptr = ptr or (viewed_view and self.isPtrViewTy(t));
                 t = inner;
             },
             .shared => |inner| {
