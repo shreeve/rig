@@ -2413,11 +2413,10 @@ test "review-seam2-q01 tail return", '''
 
   fun t3() -> Int
     i = 0
-    r = while i < 5
+    r = loop
+      break 0 if i == 5
       i += 1
       break (!mk(i * 10)).pop() if i == 2
-    else
-      0
     r
 
   print(t1(), t2(), t3())
