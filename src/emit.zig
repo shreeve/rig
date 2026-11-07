@@ -7947,7 +7947,11 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
             return self.derefToHandle(t);
         };
-        const needs_parens = movesCompound(o) or if (o.kind()) |h| switch (h) {
+        // A moved or cloned temporary is written as the value it moves
+        // (`(<User(age: 5)).age`), a struct literal Zig reads a field of
+        // only in parentheses.
+        const shown = if (o.isKind(.move)) ir.Move.operand(o) else if (o.isKind(.clone)) ir.get(o, .operand) else o;
+        const needs_parens = movesCompound(o) or if (shown.kind()) |h| switch (h) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;

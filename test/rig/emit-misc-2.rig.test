@@ -1794,3 +1794,16 @@ bomb "a read view of a module constant is read at run time", "integer overflow"
   sub main()
     p = ?top
     print(p[0] + 1)
+
+test "a field of a moved or cloned temporary", "5 6 7 1"
+  obj User
+    age: Int
+
+  fun mk() -> User
+    User(age: 6)
+
+  a = (<User(age: 5)).age
+  b = (<mk()).age
+  c = (+User(age: 7)).age
+  d = (<[1, 2])[0]
+  print(a, b, c, d)
