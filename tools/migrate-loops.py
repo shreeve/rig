@@ -2,6 +2,7 @@
 """Migrate a program to Rig's loop rules (SPEC "Loops"):
 
     while true      ->  loop
+    while (true)    ->  loop
 
 and flag, without rewriting, what has no one spelling to rewrite to,
 each with a suggested rewrite:
@@ -10,7 +11,9 @@ each with a suggested rewrite:
   - a `for` or `while` loop used as a value (only `loop` gives one);
   - `break v` in a `for` or `while` loop (it carries no value there);
   - `else` on a `while true`, which never runs (delete it);
-  - `while true : step`, which `loop` cannot write as a header.
+  - `while true : step`, which `loop` cannot write as a header;
+  - a name `loop` (a binding, parameter, field, label, function, or
+    enum variant), which the keyword takes.
 
 Only code changes: comments and strings are left alone, and in a
 Markdown file only ```rig blocks are read. In a .rig.test file the
@@ -54,7 +57,8 @@ def break_value(rest):
         i += 1
     value = "".join(out).strip()
     return "" if value.startswith(":") else value
-WHILE_TRUE = re.compile(r"\bwhile\s+true\b")
+WHILE_TRUE = re.compile(r"\bwhile\s+(?:true\b|\(\s*true\s*\))")
+LOOP_NAME = re.compile(r"(?<![\w$])loop(?!\w)")
 
 
 def mask(line):
@@ -123,8 +127,8 @@ class Loop:
     def __init__(self, idx, indent, kw, rest, label, value_site):
         self.idx, self.indent, self.kw, self.rest = idx, indent, kw, rest.strip()
         self.label, self.value_site = label, value_site
-        self.while_true = kw == "while" and re.fullmatch(r"true", self.rest) is not None
-        self.while_true_step = kw == "while" and re.match(r"true\s*:", self.rest) is not None
+        self.while_true = kw == "while" and re.fullmatch(r"true|\(\s*true\s*\)", self.rest) is not None
+        self.while_true_step = kw == "while" and re.match(r"(?:true|\(\s*true\s*\))\s*:", self.rest) is not None
 
 
 def analyze(path, text):
@@ -197,6 +201,17 @@ def analyze(path, text):
             if b and s.endswith(":"):
                 stack.append((ind, ("block", b.group("name"))))
         scan_breaks(i, [bm for bm in BREAK.finditer(c) if bm.start() not in {h.start() for h in header_breaks}])
+        # A name `loop`, which the keyword now takes.
+        keyword_at = len(c.rstrip()) - 4 if lm else -1
+        for nm in LOOP_NAME.finditer(c):
+            if nm.start() == keyword_at:
+                continue
+            if nm.start() > 0 and c[nm.start() - 1] == ".":
+                flags.append((i + 1, "`.loop`, a member named `loop`",
+                              "`loop` is a keyword: an enum variant `loop` is rejected (rename it, as `FileError.loop` is `link_loop`); a field may keep the name"))
+            else:
+                flags.append((i + 1, "a name `loop`",
+                              "`loop` is a keyword: rename the binding, parameter, field, label, or function (`looped`, `run`, `event_loop`)"))
 
     for lp in loops:
         ln = lp.idx + 1
