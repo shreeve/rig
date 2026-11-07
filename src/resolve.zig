@@ -5107,7 +5107,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
             try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t, &list_get),
-            try method(ctx, "index_of", .read, &.{ read_self, try ctx.intern(.{ .read_view = t }) }, try ctx.intern(.{ .optional = ctx.types.int_id }), &list_index_of),
+            // It compares, so it keeps nothing it is given.
+            copiesArgs(try method(ctx, "index_of", .read, &.{ read_self, try ctx.intern(.{ .read_view = t }) }, try ctx.intern(.{ .optional = ctx.types.int_id }), &list_index_of)),
             try method(ctx, "pop", .write, &.{write_self}, opt_t, null),
             try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, null),
             try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t, null),

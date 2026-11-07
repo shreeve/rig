@@ -1753,7 +1753,13 @@ pub const Lexer = struct {
         const touches = after.pos == endOf(&probe, name);
         if (after.cat == .lparen and touches) return .{ .cat = .dollar };
         const jump = isLabelJump(self.last_cat);
-        if (!jump and !self.labelStart()) return .{ .err = .dollar_stray };
+        // A `loop` a binding or `return` takes may be labeled:
+        // `r = $found: loop`.
+        const value_loop = switch (self.last_cat) {
+            .assign, .fixed_assign, .@"return" => after.cat == .colon and touches and probe.next().cat == .loop,
+            else => false,
+        };
+        if (!jump and !value_loop and !self.labelStart()) return .{ .err = .dollar_stray };
         if (name.cat != .ident) return .{ .err = .label_keyword };
         if (!jump and (after.cat != .colon or !touches)) return .{ .err = .label_decl };
         return .{ .cat = .label };
@@ -3058,6 +3064,21 @@ pub const Parser = struct {
         const prev = if (tok.len > 0) lexer.before_cat else lexer.prev_cat;
         const prev_pos = if (tok.len > 0) lexer.before_pos else lexer.prev_pos;
         const prev_text = wordAt(src, prev_pos);
+        // A keyword written as a name: `loop = 3`, `print(match)`. A
+        // keyword that ends an operand or a jump is no name.
+        if (prev_pos < src.len and keyword(prev_text) != null and prev_text.len > 0 and !std.mem.eql(u8, prev_text, "new")) {
+            const names_it = switch (tok.cat) {
+                .assign, .fixed_assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign => lexer.head_pos == prev_pos,
+                .rparen, .comma => true,
+                else => false,
+            };
+            const ends_operand = for ([_][]const u8{ "true", "false", "break", "continue", "return", "pass", "panic" }) |w| {
+                if (std.mem.eql(u8, prev_text, w)) break true;
+            } else false;
+            if (names_it and !ends_operand) {
+                return .{ .severity = .@"error", .pos = prev_pos, .end = prev_pos + @as(u32, @intCast(prev_text.len)), .message = self.format("`{s}` is a keyword; choose another name", .{prev_text}) };
+            }
+        }
         // `x = o ??` with a block below, or nothing after it.
         if ((tok.cat == .indent or tok.cat == .newline) and prev == .nullish) {
             return .{ .severity = .@"error", .pos = prev_pos, .end = prev_pos + 2, .message = "after `??` comes one value or a jump (`?? 0`, `?? return`); for several lines write `if o as x ... else ...`" };

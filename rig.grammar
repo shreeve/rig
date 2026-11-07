@@ -679,16 +679,16 @@ stmt     = use
 # `(drop ...)` where its value is not used.
 simple   = tail
          | assign
-         | target:postfix "=!" value:tail           → (set op:fixed)
-         | target:name ":" type:type "=" value:tail → (set)
-         | target:name ":" type:type "=!" value:tail → (set op:fixed)
-         | NEW target:name "=" value:tail           → (set op:shadow)
-         | NEW target:name ":" type:type "=" value:tail → (set op:shadow)
-         | NEW target:name "=!" value:tail          → (set op:shadow_fixed)
-         | NEW target:name ":" type:type "=!" value:tail → (set op:shadow_fixed)
+         | target:postfix "=!" value:vtail          → (set op:fixed)
+         | target:name ":" type:type "=" value:vtail → (set)
+         | target:name ":" type:type "=!" value:vtail → (set op:fixed)
+         | NEW target:name "=" value:vtail          → (set op:shadow)
+         | NEW target:name ":" type:type "=" value:vtail → (set op:shadow)
+         | NEW target:name "=!" value:vtail         → (set op:shadow_fixed)
+         | NEW target:name ":" type:type "=!" value:vtail → (set op:shadow_fixed)
          | PASS                                     → (pass)
          | RARELY                                   → (rarely)  # a block's first line (the Parser wrapper)
-         | RETURN [value:tail]                      → (return)
+         | RETURN [value:vtail]                     → (return)
          | RETURN rvals                             → (return value:(results ...2))
          | targets:dtargets "=" value:tail          → (destructure)
          | targets:dtargets "=" rvals               → (destructure value:(results ...3))
@@ -701,6 +701,12 @@ simple   = tail
          | ERRDEFER body:(block | simple)           → (errdefer)
          | RAW body:block                           → (raw_block)
 
+# The value a binding or `return` takes: an expression, or a labeled
+# `loop`, `r = $found: loop`, whose `break $found v` an inner loop may
+# give. A label stands here only before `loop`.
+vtail    = tail
+         | LABEL label:name LABEL_COLON stmt:loop   → (labeled)
+
 # `q, r = divmod(a, b)`: two or more targets, each a name or `_`. A
 # field or element parses, so that the checker can reject it.
 dtargets = postfix "," postfix                      → (1 3)
@@ -711,7 +717,7 @@ dtargets = postfix "," postfix                      → (1 3)
 rvals    = value "," value                          → (1 3)
          | rvals "," value                          → (...1 3)
 
-assign   = target:postfix "="   value:tail          → (set)
+assign   = target:postfix "="   value:vtail         → (set)
          | target:postfix
            op:("+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%=" | "*%=" | "+|=" | "-|=" | "&=" | "|=" | "^=" | "<<=" | "<<%=" | ">>=")
            value:tail                               → (set)
