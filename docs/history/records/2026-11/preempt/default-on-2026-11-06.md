@@ -48,7 +48,19 @@ This is what branch preempt-std built: the handler counts the workers that owe (
 
 **Measured:** the same loops wake at 20 ms (x86 and the Mac). A build without the option is the same code as main (one md5 of `__text`, `--release` and `--release=fast`).
 
-**Cost in a build with the option:** one load per call, plus a payment per owed signal. Per-call cost on `text.find` and `count` of 16 bytes, instructions and time, A against B against main: *pending, the Mac slot at load < 3*.
+**Cost in a build with the option:** one load per call, plus a payment per owed signal.
+
+**The cost of both, measured** (Mac, slot held, load 3-5): instructions per search of a 16-byte text, the least of 5 runs; the time is the fastest of 20 rounds.
+
+| | find, --release | count, --release | find, --release=fast | count, --release=fast |
+|---|---|---|---|---|
+| main, the option | 82.07 | 151.92 | 81.03 | 119.97 |
+| A, the option | 84.42 (2.9% more) | 155.19 (2.2% more) | 83.15 (2.6% more) | 123.41 (2.9% more) |
+| B, the option | 82.29 | 151.98 | 80.16 | 119.60 |
+
+- **Time:** 2.13-2.37 ns for `find` and 3.36-5.02 ns for `count` across all twelve programs, with no order between them beyond the run's spread.
+- **Without the option:** A and B are each the same code as main, one md5 of `__text` in both modes.
+- **In short:** A costs 2-3 instructions per call; B costs none.
 
 ## Uncovered, either way
 - **The allocator and the other runtime loops:** a task stops only where a signal lands in the program's code around them. A List of 2,000 Strings wakes the sleeper in 20-50 ms: late by a monitor period, never starved.
@@ -56,6 +68,6 @@ This is what branch preempt-std built: the handler counts the workers that owe (
 - **A single long call** in an ineligible function holds its worker for that call's length: one `file.read` of a huge file, which the pool takes, or one parse of a huge input.
 
 ## What the owner decides
-1. Take B for std.text now (it is ready), and add twins when a loop of a function is shown to hold its worker; or twin every eligible shim at once.
+1. Take B for std.text now (its PR), and add twins when a loop of a function is shown to hold its worker; or twin every eligible shim at once.
 2. Keep A unbuilt, or take it for code that cannot be placed.
 3. Default-on once B, pup's runs and the allocator's exit are in.
