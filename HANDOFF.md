@@ -106,6 +106,12 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The huge-page test follows the system's mode** (panel item 6): the
+  allocator reads Linux's THP mode once and counts only the asking
+  thread's node
+  ([records/2026-11/huge-pages/gate-modes.md](docs/history/records/2026-11/huge-pages/gate-modes.md));
+  no speed claim. Its Linux unit tests pass natively on x86 Linux in
+  debug, safe and fast.
 - **Parallel teardown at `os.exit` on the Mac** (draft PR, branch
   `exit-teardown`): a release build's `os.exit` stops the workers and
   unmaps Tables, segments and free stacks on four of them before

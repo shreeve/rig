@@ -237,6 +237,20 @@ none of these ever built:
 
 ### Runtime
 
+- The release allocator follows Linux's mode for transparent huge pages,
+  read once from /sys/kernel/mm/transparent_hugepage/: under `madvise`
+  it asks as before, and with no test of /proc/buddyinfo where `defrag`
+  is `defer` or `never`, as no fault compacts there; under `always`,
+  where every range gets huge pages unasked and asking only makes faults
+  compact, it asks for none, and what should keep small pages (a
+  segment of a heap that does not fault in ahead, a large block under
+  16 MiB, a Table's first 2 MiB) asks for small ones; under `never` it
+  asks for nothing and reads nothing. The test counts only the free
+  2 MiB blocks of the asking thread's NUMA node, so a host of two
+  sockets no longer asks on another node's blocks, and a reading cut
+  short before that node's lines counts none. A host of one node
+  under `madvise`, as pup, behaves as before
+  ([records/2026-11/huge-pages/gate-modes.md](docs/history/records/2026-11/huge-pages/gate-modes.md)).
 - On the Mac a release build's `os.exit` stops the other workers, when
   none runs a task and the blocking pool is idle, and unmaps the
   program's Tables, segments and free fiber stacks on four of them
