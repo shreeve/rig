@@ -83,6 +83,7 @@ pub const Tasks = tasks.Tasks;
 pub const waitTasksInto = tasks.waitTasksInto;
 pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
+pub const taskWorkerCount = tasks.workerCount;
 pub const taskSleep = tasks.sleep;
 pub const parMapInto = tasks.parMapInto;
 pub const Actor = tasks.Actor;
@@ -4243,8 +4244,15 @@ pub fn index(i: anytype, count: usize) usize {
 }
 
 /// `index` against a compile-time `n`, as an array's length or a
-/// table's is: one compare.
-pub inline fn indexBelow(i: anytype, comptime n: u64) usize {
+/// table's is: one compare. A debug build calls it, so a panic's trace
+/// names the program's line, which an inline function's would not.
+pub const indexBelow = if (builtin.mode == .debug) indexBelowCalled else indexBelowInline;
+
+fn indexBelowCalled(i: anytype, comptime n: u64) usize {
+    return indexBelowInline(i, n);
+}
+
+inline fn indexBelowInline(i: anytype, comptime n: u64) usize {
     if (comptime n > std.math.maxInt(usize)) @compileError("rig.indexBelow: a count past the address space");
     const info = @typeInfo(@TypeOf(i));
     if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64 and n <= 1 << 63) {
@@ -7843,11 +7851,15 @@ fn endProcess(status: u8) noreturn {
 /// `os.exit(code)`: write out what `print` has buffered, then end the
 /// process with status `code` at once, from any task. No drop, `defer`,
 /// or leak check runs, and the program's other tasks end with it. A
-/// `code` outside 0..255 panics, as `fun main() -> Int`'s does.
+/// `code` outside 0..255 panics, as `fun main() -> Int`'s does. On the
+/// Mac a release build may first stop the other workers and unmap the
+/// program's memory on all of them, which the kernel would otherwise
+/// free on one core as the process ends (`sched.tearDown`).
 pub fn exitNow(code: Int) noreturn {
     const status = exitStatus(code);
     lockOutput();
     flush();
+    if (scheduled and !pgo) sched.tearDown();
     endProcess(status);
 }
 

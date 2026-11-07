@@ -1,0 +1,54 @@
+=== twitter
+| share | innermost line | function |
+|---:|---|---|
+| 8.4% | json.zig:5886 | json.skip_plain_ascii |
+| 5.1% | json.zig:224 | json.Doc.document |
+| 4.0% | runtime.zig:4473 | json.Doc.document |
+| 4.0% | json.zig:0 | json.Doc.document |
+| 3.8% | json.zig:1003 | json.skip_plain_ascii |
+| 3.8% | json.zig:5886 | json.Doc.document |
+| 3.5% | runtime.zig:5803 | json.Doc.document |
+| 3.3% | runtime.zig:4523 | json.Doc.document |
+| 3.1% | runtime.zig:0 | json.Doc.document |
+| 3.1% | runtime.zig:3217 | rig.runtime.ListOf(i64,0).push |
+| 2.9% | runtime.zig:3360 | rig.runtime.ListOf(i64,0).push |
+| 2.9% | json.zig:843 | json.Doc.document |
+| 2.9% | json.zig:866 | json.Doc.document |
+| 2.9% | json.zig:943 | json.skip_plain_ascii |
+
+=== twitterescaped
+| share | innermost line | function |
+|---:|---|---|
+| 6.6% | json.zig:1034 | json.Doc.escaped |
+| 5.6% | json.zig:5886 | json.skip_plain_ascii |
+| 4.6% | runtime.zig:4473 | json.Doc.document |
+| 3.9% | json.zig:224 | json.Doc.document |
+| 3.9% | json.zig:1003 | json.skip_plain_ascii |
+| 3.9% | json.zig:0 | json.Doc.document |
+| 3.5% | json.zig:813 | json.Doc.escaped |
+| 3.3% | json.zig:5886 | json.Doc.escaped |
+| 2.9% | json.zig:608 | json.Doc.escaped |
+| 2.9% | runtime.zig:3360 | rig.runtime.ListOf(i64,0).push |
+| 2.9% | runtime.zig:4523 | json.Doc.document |
+| 2.3% | json.zig:963 | json.skip_plain_ascii |
+| 2.3% | runtime.zig:3849 | json.Doc.escaped |
+| 2.1% | json.zig:395 | json.Doc.document |
+
+=== github_events
+| share | innermost line | function |
+|---:|---|---|
+| 11.4% | json.zig:5886 | json.Doc.document |
+| 9.1% | json.zig:866 | json.Doc.document |
+| 6.8% | json.zig:1003 | json.skip_plain_ascii |
+| 6.8% | json.zig:963 | json.skip_plain_ascii |
+| 6.8% | json.zig:943 | json.skip_plain_ascii |
+| 6.8% | json.zig:837 | json.Doc.document |
+| 4.5% | math.zig:1074 | json.Doc.document |
+| 2.3% | ? | 0x10501270d |
+| 2.3% | ? | 0x19b4faeed |
+| 2.3% | json.zig:945 | json.skip_plain_ascii |
+| 2.3% | runtime.zig:4473 | json.Doc.document |
+| 2.3% | runtime.zig:4582 | json.Doc.document |
+| 2.3% | json.zig:259 | json.Doc.document |
+| 2.3% | runtime.zig:4523 | json.Doc.document |
+

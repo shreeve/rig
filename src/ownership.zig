@@ -7825,6 +7825,12 @@ pub const Checker = struct {
         self.loop = ctx.parent;
         var value = ctx.value;
         const e = ir.get(spec.node, .@"else");
+        // The `else` of `while true` never runs, but it is code, checked as
+        // if the condition failed at the loop's head; what it does is
+        // then undone, since nothing after the loop follows it.
+        const never = e != .nil and spec.cond_always_true;
+        const after = if (never) try self.here() else undefined;
+        if (never) try self.apply(head);
         if (e != .nil) {
             if (sema.hasValueBreaks(self.source, spec.node)) {
                 self.value_reads = ctx.reads;
@@ -7832,6 +7838,7 @@ pub const Checker = struct {
                 self.value_reads = false;
             } else try self.walkStmt(e);
         }
+        if (never) try self.rewind(after);
         try self.joinAt(ctx.point, ctx.breaks.items, self.resumeAt(.nil, spec.node));
         return value;
     }
@@ -8089,6 +8096,15 @@ pub const Checker = struct {
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
         if (!report_changes) return;
+        // A body that moves an outer binding and assigns it again
+        // (`defer x = f(<x)`) leaves it as it was, and still moved it.
+        if (self.movedInDefer(snap)) |m| {
+            if (m.part) {
+                try self.errAt(body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
+            } else try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
+            try self.rewind(snap);
+            return;
+        }
         const after = try self.leave(snap, null);
         for (after.changes) |e| {
             if (e.flow.status != self.flows.items[e.id].status) {
@@ -8100,6 +8116,24 @@ pub const Checker = struct {
                 break;
             }
         }
+    }
+
+    /// The first var in scope at `p` that the code walked since moved,
+    /// dropped, or moved a field out of at some point, whatever it
+    /// holds now: each change on the trail since `p` records the flow it
+    /// replaced, which is compared with the var's flow at `p`.
+    fn movedInDefer(self: *Checker, p: Point) ?struct { id: VarId, part: bool } {
+        const changes = self.trail.items[p.trail..];
+        for (changes, 0..) |c, i| {
+            if (c.id >= p.vars) continue;
+            const first = for (changes[0..i]) |d| {
+                if (d.id == c.id) break d.old;
+            } else continue;
+            if (first.status != .live) continue;
+            if (c.old.status != .live) return .{ .id = c.id, .part = false };
+            if (c.old.parts.len > first.parts.len) return .{ .id = c.id, .part = true };
+        }
+        return null;
     }
 
     /// Re-check the defers of scope `scope_idx` at an exit, with its

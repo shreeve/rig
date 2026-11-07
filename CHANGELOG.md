@@ -45,6 +45,49 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
+**Three ownership holes are closed**, each rejecting programs 0.3.0
+accepted:
+
+- a box of a read view, `^?T`, reaches its value only to read it, as
+  the view does: a consuming method through it (`(^<b).eat()` or
+  `<x.eat()` of an `x = ^?b`, which freed the value `b` viewed), a
+  write method, a write lend (`!x.v.push(1)`), an assignment (`x.n =
+  2`), and a `match !x` are rejected: "method `eat` consumes `self`;
+  cannot consume through a view", "cannot lend to write through a read
+  view". Take a write view, or own the value;
+- a `defer` body that moves an outer binding and assigns it again,
+  `defer head = ^Node(v: 1, next: <head)`, is rejected, as one that
+  only moves it was: "a `defer` body cannot move or drop `head`". Write
+  the deferred code in a block that owns what it moves;
+- a one-line `defer` that binds several results to new names, `defer
+  _, z = two()`, is rejected, as `defer z = one()` was ("a deferred
+  statement runs at scope exit and cannot declare `z`"), where `rig
+  check` crashed.
+
+**Programs `rig check` accepted and Zig then rejected** are rejected
+now, each with a Rig diagnostic; but for a builtin alone as a statement,
+none of these ever built:
+
+- `&` on a constructor typed by where it goes, `v: List[Int] =
+  List()&`, `m: Map[K, V] = Map()&`, `p: P[Int] = P(x: 1)&`, `e: E =
+  .v(x: 1)&`: "a task runs a call of a function or a method", as
+  `List[Int]()&` already said. Drop the `&`.
+- `defer defer s`, `errdefer defer s`: "a deferred statement cannot
+  itself be a `defer` or an `errdefer`". Write one.
+- a builtin alone as a statement, `$plain(T)` (which Zig rejected) or
+  `$size(T)` (which built and did nothing): "this expression does
+  nothing as a statement". Remove it, or use its value. Neither Trig
+  nor loco has one.
+- code in the `else` of `while true` that no other block may hold:
+  a statement after a `return`, a bare copy of an owned value. The
+  block never runs, and is checked as any block is.
+- a box where a type parameter bounded by `Iter` goes, `show(!w)` of a
+  `w: ^Words`: name the iterator's type, `show[Words](!w)`.
+- a closure literal with an untyped parameter where a generic
+  parameter that is no function goes, `app(|x| x)` for `xs: ?List[T]`:
+  "closure parameter `x` needs a type", or "cannot infer `T`", where
+  `rig build` reported an internal error.
+
 ### Added
 
 - **A large embedded table loads without a copy** in a Linux release
@@ -132,6 +175,13 @@ a bare number, and of `per:` of `task.supervise` and
 
 ### Compiler
 
+- A debug build on x86-64 is built by LLVM (`-fllvm`), as on arm64. Zig
+  0.17's own x86-64 backend, its default there, overwrote a compare's
+  result with an atomic's flags, so a function that returned a compare
+  and dropped a counted handle answered wrong in debug builds
+  (`docs/learn/04-concurrency.md`'s `*Frozen` example printed all
+  `true`). A debug panic's trace names the program's line on x86-64 too.
+
 - Emit decides nothing the checkers did not walk: whether a `match` arm
   takes every value, whether a `match` picks its arm first, whether a
   loop or `as` binds a String's bytes, whether `return a, b` makes its
@@ -146,6 +196,25 @@ a bare number, and of `per:` of `task.supervise` and
   about a node with a classifier instead of a record.
 - Each name `as a, b` binds is a new name, checked as `as v`'s is: one
   that shadows a local, or a module-level declaration, is rejected.
+- A one-line `defer` that assigns several results to names declared
+  before it, `defer a, b = two()`, is emitted as a block, where Zig
+  rejected the statements it wrote.
+- Builds of one package at once no longer race on a split build's
+  objects: a split build holds a lock in the package's Zig cache from
+  its check for a kept executable to its link, so on Linux, where Zig
+  replaces an object by deleting it first, one build's link no longer
+  finds another's object gone (`failed to open object
+  __rig_unit_0.o: FileNotFound`).
+- A read lend copied out where a value goes adapts as the value it
+  copies: `o: Item[K, V]? = ?none` of an optional held as a niche
+  becomes its `none`, and `?B.y` where an error with fields goes widens
+  as `B.y` does. `?wr(!x)` of a call giving a write view `!Int` reads
+  the `Int` through it. Each built, where Zig rejected the emitted code.
+- `e = +E.v(x: 9223372036854775807)`, a clone of a constant, and
+  `P(a: ?n)`, a constant copied out of a read lend, are run-time values,
+  as the value without `+` or `?` is: `x + 1` on one panics with an
+  overflow when it runs, where Zig failed the build. `_ = $plain(T)` in
+  a generic body builds.
 
 ### Tests
 
@@ -156,6 +225,11 @@ a bare number, and of `per:` of `task.supervise` and
   a `drop` body, and a generic instance at a task or a set. Its floors
   rise by what it now decides (59 functions of the tests, 10 of the
   docs).
+- The reference ownership checker reads a value written through a write
+  view of plain data out of the view that gives it (`w = ?a` writes an
+  `Int`), where it reported a view leaving the function, and rejects a
+  consuming method called through a view or through a box of a read
+  view (C7).
 - The core suite, `swarm test/rig.rip`, runs the scripts of `test/cli`
   and the probes of past reviews (`test/rig/probes-*.rig.test`) too, so
   a change that breaks one fails its gate; `cli` and `probes` run them
@@ -177,6 +251,53 @@ a bare number, and of `per:` of `task.supervise` and
   short before that node's lines counts none. A host of one node
   under `madvise`, as pup, behaves as before
   ([records/2026-11/huge-pages/gate-modes.md](docs/history/records/2026-11/huge-pages/gate-modes.md)).
+- On the Mac a release build's `os.exit` stops the other workers, when
+  none runs a task and the blocking pool is idle, and unmaps the
+  program's Tables, segments and free fiber stacks on four of them
+  before the process ends, where the kernel would free their page
+  tables on one core: Trig at four and eight checkers is 9-18% faster
+  on mitt, neverthrow and superstruct and 4-7% on tiny-invariant, and
+  level on zod3 and ts-pattern and at one checker, peak memory level. The work stays in the
+  process, so its time and CPU time count it. Tables take their ranges
+  from 32 GiB regions on the Mac, as from Linux's 256 GiB ones, which
+  the teardown unmaps; Linux, debug builds, and a return from `main`
+  end as before
+  ([records/2026-11/exit/](docs/history/records/2026-11/exit/parallel-teardown.md)).
+- std.text's search leaves out of optimized builds the bounds and
+  overflow checks its own tests prove (`rig.proven_checks`): built with
+  `--release`, `find`, `count`, and the functions on them are 12-44%
+  faster on needles of 3 to 40 bytes on the Mac, and 26% for one byte
+  over a long text, as fast as `--release=fast`, whose code is the same
+  as before. `bench/text` times std.text against the memchr crate and
+  Go's `bytes.Index` (`bench-text --rivals`): 17-30% faster than memchr
+  over a whole text, and about twice as slow for one byte in 16 B to
+  4 KiB
+  ([records/2026-11/text/](docs/history/records/2026-11/text/memchr-2026-11-06.md)).
+- `task.worker_count()` gives the number of workers tasks run on (one
+  per core, `RIG_WORKERS`, or what `task.workers(n)` set), before the
+  first task starts them or after; 1 in a deterministic run.
+- On the Mac a program built with `RIG_PREEMPT=signal` has `dsymutil`
+  write its `.dSYM` after the link, so a panic's trace shows the source
+  lines of the program's own frames; without Apple's command-line tools
+  a note says the lines are missing
+  ([mac-port-2026-11-05.md](docs/history/records/2026-11/preempt/mac-port-2026-11-05.md)).
+- std.json tests a string's first 8 bytes inline before scanning the
+  rest: 1.8-3.5% faster on the Mac on five files, canada level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/head-2026-11-06.md)).
+- std.json takes a key's `: ` at once when the value's first byte follows
+  it: 0.5-4.7% faster on the Mac on five files (citm_catalog 4.7%,
+  twitter 2.3%), canada level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/colon-2026-11-06.md)).
+- std.json parses a key after a comma inline, returns at once when a
+  key's colon is followed by its value, and puts an integer of up to 18
+  digits with no fraction or exponent on the tape as soon as its digits
+  end: 0.5-3.4% faster on the Mac on five files, twitterescaped level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/key-int-2026-11-06.md)).
+- std.json makes its tape entries with wrapping arithmetic, which the
+  2^32-byte input cap keeps from wrapping, so no overflow check runs:
+  0.5-4.4% faster on the Mac (citm_catalog 4.4%, canada 2.7%), every
+  file faster
+  ([records/2026-11/json/](docs/history/records/2026-11/json/tape-wrap-2026-11-06.md)).
 - A task that makes tasks keeps its worker while idle workers take what
   it makes, as Go's `go` leaves its maker running: a yield check leaves
   work another worker could take to an idle one, which it wakes, and
@@ -199,6 +320,22 @@ a bare number, and of `per:` of `task.supervise` and
   4.6-12.7% faster on indented input on the Mac (citm_catalog 12.7%,
   github_events 7.4%, twitter 6.5%), with minified input level
   ([records/2026-11/json/](docs/history/records/2026-11/json/indent-2026-11-05.md)).
+- In a build with `RIG_PREEMPT=signal`, std.text's searches (`find`,
+  `find_last`, `count`, and the code they call) are in the program's code
+  section, where a signal stops a task as in the program's own code: a
+  loop of searches over a long text held its worker and a 20 ms timer due
+  on it for up to 15.8 s on x86-64 and 2.1 s on the Mac, and now the timer
+  fires at 20 ms. No search costs an instruction more, and a build
+  without the option is the same code as before
+  ([default-on-2026-11-06.md](docs/history/records/2026-11/preempt/default-on-2026-11-06.md)).
+- In a build with `RIG_PREEMPT=signal`, a signal that finds a task in
+  a system call or the runtime, outside the program's code, leaves the
+  yield check it asked for owed, and the task's next waiting point (any
+  call that reaches the file system or a socket) runs it: eight tasks
+  looping on `file.read` held four workers, and a 20 ms timer due on
+  them, for up to 4.8 s on the Mac and 17.6 s on x86-64 Linux, and now
+  it fires at 21 ms
+  ([owed-2026-11-06.md](docs/history/records/2026-11/preempt/owed-2026-11-06.md)).
 - A prototype, off by default: a program that makes tasks, built with
   `RIG_PREEMPT=signal` for Linux x86-64 or arm64 macOS in an optimized
   build, has no

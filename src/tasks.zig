@@ -2647,6 +2647,7 @@ fn cancelFlag() ?*const std.atomic.Value(bool) {
 /// stopped waiting for it (`rt.sched.Waker`). Every retry loop of a
 /// blocking call in the runtime and std asks here.
 pub fn checkStop() Stop!void {
+    if (rt.preempt) rt.sched.atWaitingPoint();
     if (canceledHere()) return canceled_error;
     if (pastDeadline()) return timeout_error;
 }
@@ -2658,6 +2659,13 @@ pub fn checkStop() Stop!void {
 pub fn setWorkers(n: Int) bool {
     if (!rt.scheduled or n < 1) return false;
     return rt.sched.askWorkers(@intCast(n));
+}
+
+/// `task.worker_count()`: how many workers tasks run on, before the first
+/// task starts them or after; one in a program that makes none.
+pub fn workerCount() Int {
+    if (!rt.scheduled) return 1;
+    return @intCast(rt.sched.workerTotal());
 }
 
 /// `task.check()`: a waiting point that waits for nothing. It fails

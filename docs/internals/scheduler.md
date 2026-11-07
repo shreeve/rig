@@ -219,6 +219,40 @@ stack and its record: about 17 KiB on the Mac, whose pages are 16 KiB,
 and 5.2 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
 Go's about 3 KiB (`bench/tasks`, `memory`).
 
+## The teardown at `os.exit`
+
+On the Mac a process's exit is the kernel freeing its page-table pages,
+about 13 µs each, one for each Table written, each fiber stack touched,
+and each 32 MiB of segments, and its resident pages, all on one core.
+So a release build's `os.exit`, after it flushes the output, first has
+every worker unmap the program's memory in parallel when it can stop
+them all (`sched.tearDown`), and the process then ends as before. The
+work stays in the process, so its time, CPU time, and peak are counted
+as before.
+
+- **When.** The scheduler runs at least two workers, `main` has not
+  returned, no other worker runs a task, the blocking pool is idle, and
+  there is at least about 0.4 ms of kernel time to save. Otherwise, and
+  on Linux, whose parallel unmapping is unmeasured, and in debug builds,
+  the process ends at once, as it always did.
+- **Stopping.** A worker waiting in its poller is claimed there by a
+  compare-and-swap (`Poller.parked`) and stops as it wakes, before it
+  reads an event; an awake one stops at the top of its loop, before it
+  takes a fiber. A stopped worker never runs a fiber again, so a task
+  whose timer comes due is made ready but never runs. Seeing a worker run
+  a task, or waiting 2 ms, the exit gives up and ends as before. Then the
+  pool's lock is taken and never let go.
+- **Unmapping.** Up to four workers, the exiting one first (more gain
+  nothing on the Mac's kernel), unmap the free stacks on their own lists,
+  then take pieces of the segments' region and the Tables' regions, whole
+  (`alloc.exitRanges`: the kernel walks even a range never touched),
+  from one counter, cut on page-table boundaries. Stacks of parked tasks
+  and large blocks are left to the kernel.
+
+`RIG_SCHED_STATS=1` prints which path it took (`test/cli/exit_teardown.sh`).
+The design and its soundness argument are in
+docs/history/records/2026-11/exit/parallel-teardown.md.
+
 ## Waiting
 
 Every wait that something else ends (a task's end, a set's count, a

@@ -40,6 +40,51 @@ quiet window and time only within it: `bench-text` builds both with
 those builds take most of a 15-minute window. A change to std alone
 needs one rig for both, with `RIG_STD` set to each side's `std/`.
 
+## Against memchr and Go
+
+`bench-text --rivals RIG FILE ROUNDS` times std.text, built with
+`--release` and with `--release=fast`, against the memchr crate
+(`rust/`: memchr 2.8.3, pinned by `Cargo.lock` and built offline from
+the cargo cache) and Go's `bytes.Index` (`find.go`), on the same cases,
+each program in turn, each case's fastest time kept. memchr runs twice:
+`memmem::find`, which takes its needle at each call as `text.find` does,
+and a `memmem::Finder` built once per case, outside the timed loop, its
+best when one needle is searched for many times. Every program prints
+where it found each needle, and the run stops if two disagree.
+
+```sh
+tools/low bench/text/bench-text --rivals bin/rig lib.dom.d.ts 20
+```
+
+Apple M5, lib.dom.d.ts (2,349,483 bytes), 20 rounds, std.text built
+with `--release=fast`; nanoseconds per search:
+
+| text | needle | case | std.text | memchr | memchr Finder | Go |
+|---|---:|---|---:|---:|---:|---:|
+| 2.3 MB | 3 B | miss | 37,268 | 44,788 | 44,941 | 79,893 |
+| 2.3 MB | 12 B | miss | 37,315 | 45,961 | 45,849 | 564,200 |
+| 2.3 MB | 40 B | miss | 36,812 | 43,389 | 43,180 | 260,265 |
+| 2.3 MB | 12 B | early | 2,599 | 3,379 | 3,435 | 37,532 |
+| 2.3 MB | 1 B | miss | 19,864 | 19,764 | 19,547 | 21,930 |
+| 4 KiB | 12 B | miss | 120.1 | 106.1 | 89.4 | 1,132.0 |
+| 4 KiB | 40 B | miss | 121.9 | 294.9 | 86.6 | 4,794.5 |
+| 4 KiB | 1 B | miss | 67.0 | 34.2 | 34.1 | 41.6 |
+| 1 KiB | 3 B | miss | 21.8 | 25.3 | 21.0 | 363.0 |
+| 64 B | 40 B | late | 2.9 | 233.1 | 14.8 | 21.4 |
+| 64 B | 12 B | miss | 2.8 | 17.1 | 2.7 | 23.6 |
+| 16 B | 3 B | miss | 1.4 | 6.0 | 5.7 | 5.9 |
+| 16 B | 1 B | miss | 2.8 | 7.4 | 1.3 | 1.9 |
+
+Over the whole text std.text is 17-30% faster than memchr for needles
+of 3 to 40 bytes, and 1.3 to 17 times faster than Go; in texts of
+8 to 64 bytes, for those needles, it leads or is within 6% of the Finder. It trails where
+the Finder's work on the needle, done once, pays for itself (12 and 40
+bytes in 1 to 4 KiB), and for one byte in 16 B to 4 KiB, where Zig's
+`findScalar` searches and memchr is about twice as fast. Built with
+`--release`, std.text is as fast as with `--release=fast`: its search
+functions leave out the checks their own tests prove
+(`rig.proven_checks`), which cost it 12-44% in Zig's safe mode.
+
 ## Results
 
 Apple M5, arm64, lib.dom.d.ts (2,399,570 bytes), `rig build --release`,

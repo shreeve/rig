@@ -268,3 +268,21 @@ test "iter sum of items that view the iterator", "7"
   !l.push(4)
   n = Nums(xs: <l, at: 0)
   print((!n).sum())
+
+fail "a box meets no Iter bound", "`show[^text.Words]` cannot use `I = ^text.Words`: `^text.Words` is no iterator: a box holds an iterator but is none itself; name the iterator's type in brackets, `[text.Words]`, and the box is lent as it", errors: 1
+  use std.text
+
+  sub show[I: Iter](a: !I)
+    print((!a).count())
+
+  w = ^text.words("p q")
+  show(!w)
+
+test "a box lends the iterator it holds", "2"
+  use std.text
+
+  sub show[I: Iter](a: !I)
+    print((!a).count())
+
+  w = ^text.words("p q")
+  show[text.Words](!w)

@@ -1033,3 +1033,26 @@ fail "write call hint for source", "12:12: method `drain` needs `self` lent to w
     print(y)
   for z in (!b).drain()
     print(z)
+
+test "a read lend of a call that gives a write view", '''
+  7
+  12 6 6
+'''
+  # `?wr(!x)` reads the `Int` the write view reaches, where an `Int`
+  # goes and where a `?Int` does, and keeps `x` lent while it is held.
+  fun wr(a: !Int) -> !Int
+    a
+
+  fun r(a: ?Int) -> Int
+    a
+
+  fun slot(v: !List[Int], i: Int) -> !Int
+    !v[i]
+
+  x = 6
+  v: List[Int] = List()
+  !v.push(2)
+  slot(!v, 0) = ?slot(!v, 0) * 3
+  y = ?wr(!x)
+  print(y + 1)
+  print(?wr(!x) << 1, r(?wr(!x)), v[0])

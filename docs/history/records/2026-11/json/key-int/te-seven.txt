@@ -1,0 +1,7 @@
+m2    3135 MB/s  +0.00% vs m2
+m2A   3131 MB/s  -0.11% vs m2
+keyB  3069 MB/s  -2.08% vs m2
+keyC  3181 MB/s  +1.47% vs m2
+keyD  3157 MB/s  +0.71% vs m2
+intB  3121 MB/s  -0.45% vs m2
+intF  3140 MB/s  +0.17% vs m2

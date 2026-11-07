@@ -221,6 +221,20 @@ fail "task targets", "a task runs a call of a function or a method: `f(x)&`, `(!
   u = f(2)&
   v = Node(v: 3)&
 
+fail "task targets where the type is known", "a task runs a call of a function or a method", errors: 4
+  # A constructor typed by where it goes is no task's target either.
+  obj P[T]
+    x: T
+
+  enum E
+    v(x: Int)
+
+  v: List[Int] = List()&
+  m: Map[Int, Int] = Map()&
+  p: P[Int] = P(x: 1)&
+  e: E = .v(x: 1)&
+  print(v.len, m.len, p.x, e)
+
 test "task local", seeds: 20, '''
   1
   1
@@ -1671,6 +1685,27 @@ test "task.workers takes effect only before the first task", seeds: 20, '''
   print(task.workers(2))
   print(task.workers(0))
   print(>t)
+
+test "task.worker_count gives what task.workers set, before and after the first task", "3 3"
+  use std.task
+  fun one() -> Int
+    1
+  _ = task.workers(3)
+  before = task.worker_count()
+  t = one()&
+  _ = >t
+  print(before, task.worker_count())
+
+test "task.worker_count is at least one, deterministic runs among them", seeds: 20, "true true"
+  # A deterministic run counts its one thread, so the number itself
+  # differs between the runs `seeds` compares.
+  use std.task
+  fun one() -> Int
+    1
+  before = task.worker_count()
+  t = one()&
+  _ = >t
+  print(before >= 1, task.worker_count() >= 1)
 
 test "task function value given", seeds: 20, "42 9 4"
   # A function value is a named function's address and holds nothing, so

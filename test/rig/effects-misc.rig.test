@@ -132,6 +132,44 @@ fail "defer statement declares", "9:12: a deferred statement runs at scope exit 
     print(v)
   print(f(0) catch -1)
 
+fail "defer statement declares results", "14:12: a deferred statement runs at scope exit and cannot declare `z`; use an indented `defer` block", "15:13: cannot declare `a`", "15:16: cannot declare `b`", "16:15: cannot declare `q`; use an indented `errdefer` block", errors: 4
+  # Nor can a one-line `defer` bind several results to new names: each
+  # name it declared would be seen before the statement ran.
+
+  error E
+    bad
+
+  obj Name
+    s: String
+
+  fun two() -> (Name, Name)
+    return Name(s: String("a")), Name(s: String("b"))
+
+  sub run(k: Int)!
+    defer _, z = two()
+    defer new a, b = two()
+    errdefer _, q = two()
+    return E.bad if k > 0
+    print(1)
+
+  run(0) catch print("failed")
+
+test "defer assigns results", '''
+  0
+  1 2
+'''
+  # A one-line `defer` may assign several results to names declared
+  # before it: they are bound when the scope exits.
+
+  fun two() -> (Int, Int)
+    return 1, 2
+
+  a = 0
+  b = 0
+  defer print(a, b)
+  defer a, b = two()
+  print(a)
+
 fail "entry point call", "13:5: `main` is the program's entry point; it cannot be called or used as a value", "16:5: `main` is the program's entry point; it cannot be called or used as a value"
   # The root module's `main` is the program's entry point: it may
   # propagate a failure out of the program, so no Rig code calls it or
@@ -1532,3 +1570,8 @@ fail "zig builtin name outside raw", "10:7: write `$size(I64)`: Rig's builtin is
   x = 5
   print($sizeOf(I64), $alignOf(P), $typeName(Int))
   print($size($TypeOf(x)), $sizeOf($TypeOf(x)))
+
+fail "defer of a defer", "1:7: a deferred statement cannot itself be a `defer` or an `errdefer`: write one", "2:10: a deferred statement cannot itself be a `defer` or an `errdefer`: write one", errors: 2
+  defer defer print(1)
+  errdefer defer print(2)
+  print(0)

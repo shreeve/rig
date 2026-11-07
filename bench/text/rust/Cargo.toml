@@ -1,0 +1,18 @@
+[package]
+name = "find"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# The memchr crate's substring search, timed as bench/text/time.rig
+# times std.text's `find`: `memmem::find`, which takes the needle at
+# each call as `text.find` does, or, with the argument `finder`, a
+# `memmem::Finder` built once per case, its best when one needle is
+# searched for many times.
+[dependencies]
+memchr = "=2.8.3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"

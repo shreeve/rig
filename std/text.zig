@@ -11,17 +11,49 @@ const ParseError = error{
     @"std.text.ParseError.overflow",
 };
 
-pub fn find(s: []const u8, pat: []const u8) ?i64 {
+// `find`, `find_last`, and `count` are, in a build with signal
+// preemption, in the program's code section, as the searches they call
+// are (`byteRest`): `count`'s loop and a 1-byte search's first 4 KiB run
+// in their own bodies.
+pub const find = if (rig.preempt) findApart else findPlain;
+pub const find_last = if (rig.preempt) findLastApart else findLastPlain;
+pub const count = if (rig.preempt) countApart else countPlain;
+
+fn findPlain(s: []const u8, pat: []const u8) ?i64 {
+    return findIn(s, pat);
+}
+
+fn findApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) ?i64 {
+    return findIn(s, pat);
+}
+
+inline fn findIn(s: []const u8, pat: []const u8) ?i64 {
     return @intCast(search(s, pat) orelse return null);
 }
 
-pub fn find_last(s: []const u8, pat: []const u8) ?i64 {
+fn findLastPlain(s: []const u8, pat: []const u8) ?i64 {
+    return findLastIn(s, pat);
+}
+
+fn findLastApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) ?i64 {
+    return findLastIn(s, pat);
+}
+
+inline fn findLastIn(s: []const u8, pat: []const u8) ?i64 {
     if (pat.len == 0) return @intCast(s.len);
     const at = if (pat.len == 1) searchLast(s, pat, true) else searchLast(s, pat, false);
     return @intCast(found(at) orelse return null);
 }
 
-pub fn count(s: []const u8, pat: []const u8) i64 {
+fn countPlain(s: []const u8, pat: []const u8) i64 {
+    return countIn(s, pat);
+}
+
+fn countApart(s: []const u8, pat: []const u8) linksection(rig.preempt_section) i64 {
+    return countIn(s, pat);
+}
+
+inline fn countIn(s: []const u8, pat: []const u8) i64 {
     if (pat.len == 0) return @intCast(s.len + 1);
     var n: i64 = 0;
     var i: usize = 0;
@@ -39,6 +71,14 @@ pub fn count(s: []const u8, pat: []const u8) i64 {
 // is what Zig makes of it; past 4 KiB, on aarch64, `byteRest` tests 64
 // bytes a step, asking only whether any of them is the byte
 // (`rig.maskAny`), and elsewhere `findScalar` goes on.
+//
+// The searches index the text only where their own tests have put the
+// index in range (a step of 16 or 64 bytes taken while it fits, a
+// candidate confirmed only among the places a match may start at), so
+// each function holds `@setRuntimeSafety(rig.proven_checks)`: Zig's
+// bounds and overflow checks stay in a debug build and leave an
+// optimized one, where they cost a search 13 to 44% in
+// Zig's safe mode (`rig build --release`).
 //
 // A longer needle is searched out of line. A place a match may start at
 // is a candidate when two bytes of the needle match there, the bytes at
@@ -61,7 +101,10 @@ const Lanes = struct { bits: u64, shift: u6 };
 
 const Block = @Vector(16, u8);
 
+/// The 16 bytes of `h` from `i`: every caller has tested
+/// `i + 16 <= h.len`.
 inline fn load(h: []const u8, i: usize) Block {
+    @setRuntimeSafety(rig.proven_checks);
     return h[i..][0..16].*;
 }
 
@@ -70,7 +113,9 @@ inline fn lowest(i: usize, c: Lanes) usize {
     return i + (@as(usize, @ctz(c.bits)) >> c.shift);
 }
 
-/// Inline where `find` and `count` call it.
+/// Inline where `find` and `count` call it, with Zig's checks as the
+/// caller has them: proven checks inline changed the caller's code and
+/// made a 1-byte search of 64 bytes 6% slower in Zig's safe mode.
 inline fn search(h: []const u8, n: []const u8) ?usize {
     if (n.len == 1) {
         if (!steps_of_64) return std.mem.findScalar(u8, h, n[0]);
@@ -101,12 +146,28 @@ inline fn found(at: usize) ?usize {
     return if (at == missing) null else at;
 }
 
-noinline fn byteRest(h: []const u8, b: u8, start: usize) usize {
+/// In a build with signal preemption, the searches out of line are in
+/// the program's code section (`rig.preempt_section`), where a signal
+/// stops a task as it stops the program's own code: a loop of searches
+/// over a long text spends its time in them. They take no lock, read no
+/// thread-local, and call neither the scheduler nor the allocator, so a
+/// task may be stopped anywhere in them (test/cli/preempt_section.sh).
+/// In a build without it they are where they always were.
+const byteRest = if (rig.preempt) byteRestApart else byteRestPlain;
+
+noinline fn byteRestPlain(h: []const u8, b: u8, start: usize) usize {
+    return byteFrom(h, b, start) orelse missing;
+}
+
+noinline fn byteRestApart(h: []const u8, b: u8, start: usize) linksection(rig.preempt_section) usize {
     return byteFrom(h, b, start) orelse missing;
 }
 
 /// The first `b` in `h` from `start`, at least 16 bytes before its end.
+/// A step reads 64 bytes, or 16, only while they fit; the last 16 bytes
+/// are read from `h.len - 16`, which `start` is not past.
 inline fn byteFrom(h: []const u8, b: u8, start: usize) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
     const x: Block = @splat(b);
     var i = start;
     while (i + 64 <= h.len) : (i += 64) {
@@ -132,12 +193,21 @@ inline fn byteFrom(h: []const u8, b: u8, start: usize) ?usize {
     return lowest(i, c);
 }
 
-noinline fn searchMany(h: []const u8, n: []const u8) usize {
+const searchMany = if (rig.preempt) searchManyApart else searchManyPlain;
+
+noinline fn searchManyPlain(h: []const u8, n: []const u8) usize {
     return many(h, n) orelse missing;
 }
 
-/// A needle of two bytes or more.
+noinline fn searchManyApart(h: []const u8, n: []const u8) linksection(rig.preempt_section) usize {
+    return many(h, n) orelse missing;
+}
+
+/// A needle of two bytes or more. Each step tests places only while
+/// they are places (`i + 32 <= places`), and `head`, `short`, and `tail`
+/// take the texts and the ends the steps leave.
 inline fn many(h: []const u8, n: []const u8) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
     if (n.len > h.len) return null;
     if (n.len == 0) return 0;
     if (h.len < 16) return short(h, n);
@@ -168,12 +238,20 @@ const near_places = 256;
 /// bytes worth its cost.
 const rare_from = 1 << 16;
 
-noinline fn far(h: []const u8, n: []const u8, start: usize) usize {
+const far = if (rig.preempt) farApart else farPlain;
+
+noinline fn farPlain(h: []const u8, n: []const u8, start: usize) usize {
     return farFrom(h, n, start) orelse missing;
 }
 
-/// The places from `start` on, 64 at a time.
+noinline fn farApart(h: []const u8, n: []const u8, start: usize) linksection(rig.preempt_section) usize {
+    return farFrom(h, n, start) orelse missing;
+}
+
+/// The places from `start` on, 64 at a time, each step taken while its
+/// places are places.
 inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
     const places = h.len - n.len + 1;
     const p = if (places - start >= rare_from) rarest(n) else pairAt(n, 0, n.len - 1);
     var i = start;
@@ -202,14 +280,17 @@ fn pairAt(n: []const u8, a: usize, b: usize) Pair {
     return .{ .a = a, .b = b, .x = @splat(n[a]), .y = @splat(n[b]) };
 }
 
-/// The places `i` to `i + 15` where the pair matches.
+/// The places `i` to `i + 15` where the pair matches. They are places,
+/// so `i + 15 + b < h.len` for the pair's indexes `a` and `b`.
 inline fn candidates(h: []const u8, i: usize, p: Pair) @Vector(16, bool) {
+    @setRuntimeSafety(rig.proven_checks);
     return (load(h, i + p.a) == p.x) & (load(h, i + p.b) == p.y);
 }
 
 /// The first of the candidates `c`, places from `i`, where the whole
-/// needle matches.
+/// needle matches. A candidate is a place, so the needle fits there.
 inline fn confirm(h: []const u8, n: []const u8, i: usize, c: Lanes) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
     var bits = c.bits;
     while (bits != 0) : (bits &= bits - 1) {
         const at = i + (@as(usize, @ctz(bits)) >> c.shift);
@@ -219,8 +300,9 @@ inline fn confirm(h: []const u8, n: []const u8, i: usize, c: Lanes) ?usize {
 }
 
 /// Fewer than 16 places from `i` to `places`: the last 16 places again,
-/// without the lanes before `i`.
+/// without the lanes before `i`. Its callers have at least 16 places.
 inline fn tail(h: []const u8, n: []const u8, i: usize, places: usize, p: Pair) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
     if (i == places) return null;
     const base = places - 16;
     var c = rig.maskTrueLanes(Lanes, candidates(h, base, p));
@@ -231,6 +313,7 @@ inline fn tail(h: []const u8, n: []const u8, i: usize, places: usize, p: Pair) ?
 /// Fewer than 16 places in a text of 16 bytes or more: the places where
 /// the first byte matches, among the text's first 16 bytes.
 inline fn head(h: []const u8, n: []const u8, places: usize) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
     var c = rig.maskTrueLanes(Lanes, load(h, 0) == @as(Block, @splat(n[0])));
     c.bits &= (@as(u64, 1) << @intCast(places << c.shift)) - 1;
     return confirm(h, n, 0, c);
@@ -242,6 +325,10 @@ inline fn head(h: []const u8, n: []const u8, places: usize) ?usize {
 /// from two compares of 8 bytes, the first 8 bytes and the last, and in a
 /// shorter one from a walk.
 inline fn short(h: []const u8, n: []const u8) ?usize {
+    // `h` is at most 15 bytes and `n` no longer than it: each read below
+    // is of places, or of the 8 bytes at 0 or at `h.len - 8` when
+    // `h.len >= 8`.
+    @setRuntimeSafety(rig.proven_checks);
     if (same(h[0..n.len], n)) return 0;
     const places = h.len - n.len + 1;
     if (places == 1) return null;
@@ -278,7 +365,19 @@ inline fn short(h: []const u8, n: []const u8) ?usize {
 // left at the start are the first 16 places again, without those
 // tested. Fewer than 16 places in all are walked one at a time.
 
-noinline fn searchLast(h: []const u8, n: []const u8, comptime one: bool) usize {
+const searchLast = if (rig.preempt) searchLastApart else searchLastPlain;
+
+noinline fn searchLastPlain(h: []const u8, n: []const u8, comptime one: bool) usize {
+    return lastIn(h, n, one);
+}
+
+noinline fn searchLastApart(h: []const u8, n: []const u8, comptime one: bool) linksection(rig.preempt_section) usize {
+    return lastIn(h, n, one);
+}
+
+inline fn lastIn(h: []const u8, n: []const u8, comptime one: bool) usize {
+    // As `many`, from the end: each step's places are places.
+    @setRuntimeSafety(rig.proven_checks);
     if (n.len > h.len) return missing;
     const places = h.len - n.len + 1;
     if (places < 16) {
@@ -316,12 +415,14 @@ noinline fn searchLast(h: []const u8, n: []const u8, comptime one: bool) usize {
 /// The places `i` to `i + 15` where the pair matches; for a needle of
 /// one byte, where it does.
 inline fn hits(h: []const u8, i: usize, p: Pair, comptime one: bool) @Vector(16, bool) {
+    @setRuntimeSafety(rig.proven_checks);
     return if (one) load(h, i) == p.x else candidates(h, i, p);
 }
 
 /// The last of the candidates `c`, places from `i`, where the whole
 /// needle matches.
 inline fn confirmLast(h: []const u8, n: []const u8, i: usize, c: Lanes) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
     var bits = c.bits;
     while (bits != 0) {
         const lane = @as(usize, 63 - @clz(bits)) >> c.shift;
@@ -335,6 +436,7 @@ inline fn confirmLast(h: []const u8, n: []const u8, i: usize, c: Lanes) ?usize {
 /// bytes, the last one overlapping, or of 4, or 3 single bytes; inline,
 /// so a search that calls no function keeps its vectors in registers.
 inline fn same(a: []const u8, b: []const u8) bool {
+    @setRuntimeSafety(rig.proven_checks);
     const len = b.len;
     if (len >= 8) {
         var i: usize = 0;
@@ -347,7 +449,9 @@ inline fn same(a: []const u8, b: []const u8) bool {
     return a[0] == b[0] and a[len / 2] == b[len / 2] and a[len - 1] == b[len - 1];
 }
 
+/// The `T` at `i` in `s`: `same`'s indexes leave a whole word.
 inline fn word(comptime T: type, s: []const u8, i: usize) T {
+    @setRuntimeSafety(rig.proven_checks);
     return @bitCast(s[i..][0..@sizeOf(T)].*);
 }
 
