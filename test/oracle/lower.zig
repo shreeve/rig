@@ -555,7 +555,7 @@ const Lowerer = struct {
         const stmts = ir.Block.stmts(b);
         try self.regions.append(self.a, .{});
         for (stmts, 0..) |s, i| {
-            if (returns and i + 1 == stmts.len and isValue(s)) {
+            if (returns and i + 1 == stmts.len and self.isValue(s)) {
                 try self.reachable();
                 try self.retValue(s);
             } else try self.stmt(s);
@@ -665,14 +665,26 @@ const Lowerer = struct {
     }
 
     /// The last statement of a `fun` is its value unless it is a
-    /// statement form or a jump.
-    fn isValue(s: Sexp) bool {
+    /// statement form or a jump. A loop, labeled or not, is a value when
+    /// a `break` leaves it with one (SPEC "Loops as values"): the type
+    /// the checker gave it, which a loop that gives none has not.
+    fn isValue(self: *const Lowerer, s: Sexp) bool {
         const k = s.kind() orelse return true;
         return switch (k) {
-            .set, .destructure, .drop, .pass, .rarely, .@"while", .@"for", .@"return", .@"break", .@"continue", .panic, .@"defer", .@"errdefer", .labeled => false,
+            .@"while" => self.loopValueType(s) != null,
+            .labeled => self.loopValueType(ir.Labeled.stmt(s)) != null,
+            .set, .destructure, .drop, .pass, .rarely, .@"for", .@"return", .@"break", .@"continue", .panic, .@"defer", .@"errdefer" => false,
             .@"if" => ir.If.@"else"(s) != .nil,
             else => true,
         };
+    }
+
+    /// The type of the value loop `s` gives, or null for a loop that
+    /// gives none (or no loop).
+    fn loopValueType(self: *const Lowerer, s: Sexp) ?TypeId {
+        if (!s.isKind(.@"while") and !s.isKind(.@"for")) return null;
+        const ty = self.ctx.typeOf(s) orelse return null;
+        return if (ty == self.ctx.types.void_id) null else ty;
     }
 
     // ---- blocks and vars ------------------------------------------------
@@ -2284,7 +2296,7 @@ const Lowerer = struct {
                 try self.pushRegion();
                 for (stmts[0 .. stmts.len - 1]) |s| try self.stmt(s);
                 const last = stmts[stmts.len - 1];
-                if (isValue(last)) {
+                if (self.isValue(last)) {
                     try self.reachable();
                     const saved = self.tail_floor;
                     self.tail_floor = self.tail_floor orelse self.regions.items.len - 1;
@@ -2634,6 +2646,18 @@ const Lowerer = struct {
                 if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
                 const t = try self.temp(ty, pos);
                 if (k == .@"while") try self.whileStmt(e, t) else try self.forStmt(e, t);
+                return t;
+            },
+            // `$found: loop` as a value: the loop, with its label, which
+            // a `break $found v` from an inner loop names.
+            .labeled => {
+                const inner = ir.Labeled.stmt(e);
+                if (!inner.isKind(.@"while") and !inner.isKind(.@"for")) return abstain("a labeled value that is no loop");
+                var ty = try self.typeOf(inner);
+                if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
+                const t = try self.temp(ty, pos);
+                self.label = leafText(ir.Labeled.label(e), self.src);
+                if (inner.isKind(.@"while")) try self.whileStmt(inner, t) else try self.forStmt(inner, t);
                 return t;
             },
             else => return abstain(switch (k) {
@@ -3204,7 +3228,7 @@ const Lowerer = struct {
             .propagate, .propagate_none => self.madeEverywhere(ir.get(e, .value)),
             .block => blk: {
                 const stmts = ir.Block.stmts(e);
-                break :blk stmts.len > 0 and isValue(stmts[stmts.len - 1]) and self.madeEverywhere(stmts[stmts.len - 1]);
+                break :blk stmts.len > 0 and self.isValue(stmts[stmts.len - 1]) and self.madeEverywhere(stmts[stmts.len - 1]);
             },
             else => true,
         };
