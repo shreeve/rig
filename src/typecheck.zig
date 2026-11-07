@@ -7743,6 +7743,13 @@ const Checker = struct {
             try self.errAt(operand, "this value is already `{s}`; `^` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
+        // A task, or a set of them, is a handle to work the runtime holds,
+        // waited or canceled where it is held, never through a box.
+        const held = sema.unwrapOptionals(self.ctx, inner);
+        if (sema.isTask(self.ctx, held) or sema.isTaskSet(self.ctx, held)) {
+            try self.errAt(operand, "`^` boxes a value, and a `{s}` is a handle to work the runtime holds already: hold it as it is", .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
         var r = self.resolver();
         return r.boxOf(inner, self.startOf(e));
     }

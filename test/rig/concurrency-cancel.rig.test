@@ -379,3 +379,12 @@ test "cancel leaves the caller", seeds: 20, '''
   <u
   time.sleep(ms: 1)!
   print("ok")
+
+fail "a task in a box", "4:6: `^` boxes a value, and a `Task[Int!]` is a handle to work the runtime holds already: hold it as it is", "6:7: `^` boxes a value, and a `Tasks[Int!]` is a handle to work the runtime holds already: hold it as it is"
+  fun four() -> Int!
+    4
+
+  t = ^four()&
+  print(<t.cancel() catch -1)
+  ts = ^<Tasks[Int!]()
+  print(<ts.wait_first() catch -1)
