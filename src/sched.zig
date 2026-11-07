@@ -1175,13 +1175,19 @@ const run_next_slots = 4;
 
 /// Whether any of `w`'s "run next" slots holds a fiber.
 inline fn nextHeld(w: *Worker, comptime order: std.builtin.AtomicOrder) bool {
-    for (&w.lifo) |*slot| if (slot.load(order) != null) return true;
-    return false;
+    // All four read, and one test: no branch for each slot.
+    var any: usize = 0;
+    inline for (&w.lifo) |*slot| any |= @intFromPtr(slot.load(order));
+    return any != 0;
 }
 
 /// The slot of `w`'s "run next" circle that holds `f`, looked for by
 /// plain loads from the newest back, where a task just made sits.
 fn nextSlotOf(w: *Worker, f: *Fiber) ?u8 {
+    // Most waits find their task elsewhere: one test for all four.
+    var hit = false;
+    inline for (&w.lifo) |*slot| hit = hit or slot.load(.monotonic) == f;
+    if (!hit) return null;
     const head = w.lifo_head.load(.monotonic);
     var k: u8 = 0;
     while (k < run_next_slots) : (k += 1) {
@@ -3186,7 +3192,7 @@ fn next(w: *Worker) ?*Fiber {
         if (global.pop()) |f| return f;
     }
     // The newest first; the next made takes the slot it leaves.
-    var k: u8 = 0;
+    var k: u8 = if (nextHeld(w, .monotonic)) 0 else run_next_slots;
     while (k < run_next_slots) : (k += 1) {
         const i = (w.lifo_head.raw +% run_next_slots -% k) % run_next_slots;
         const slot = &w.lifo[i];
