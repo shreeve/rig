@@ -7808,6 +7808,8 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
             try self.w.writeAll("rig.lenOf(");
             try self.emitMemberBase(obj, obj_ty);
+            // A view of a view (`!?List[Int]`) is reached to the last.
+            try self.writeReach(obj_ty.?);
             return self.w.writeAll(")");
         }
         // The length of an array or List behind a shared handle or a box.
@@ -7849,9 +7851,12 @@ pub const Emitter = struct {
         var ptr = false;
         while (true) switch (self.facts.types.get(t)) {
             .read_view, .write_view => |inner| {
-                // A view held in a box is a pointer, which the box's
-                // pointer reaches; it points at the viewed value.
+                // A view held in a box, or viewed itself (an element of a
+                // `List[?T]` written in place, a `!?T`), is a pointer,
+                // which the pointer before it reaches; it points at the
+                // viewed value, and Zig follows only the last pointer.
                 if (ptr and self.isPtrViewTy(t)) try self.w.writeAll(".*");
+                ptr = ptr or self.isPtrViewTy(t);
                 t = inner;
             },
             .shared => |inner| {
