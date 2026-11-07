@@ -449,6 +449,18 @@ pub noinline fn atWaitingPoint() void {
     tick();
 }
 
+/// A slow path of the runtime's, the allocator's or a List's growth, about
+/// to return to `at`, in a build with signal preemption: if `at` is in
+/// the program's code, where a signal may stop the fiber at any
+/// instruction, run the yield check a signal left owed there
+/// (`atWaitingPoint`). A loop that allocates spends its time in the
+/// runtime, where signals stop nothing. Anywhere else the caller may hold
+/// the worker's state, so nothing runs. Called only on those rare paths.
+pub noinline fn settleAt(at: usize) void {
+    if (!preempt or !inCode(at)) return;
+    atWaitingPoint();
+}
+
 /// A recursive call that saw `waiting` set (`rt.tickCall`).
 pub noinline fn tickCall() void {
     @branchHint(.cold);
@@ -3771,7 +3783,7 @@ pub const SpinLock = struct {
 
 /// The address of the instruction it is inlined at, in a program built
 /// to be preempted (x86-64 or arm64).
-inline fn programCounter() usize {
+pub inline fn programCounter() usize {
     return switch (builtin.cpu.arch) {
         .x86_64 => asm volatile ("leaq (%%rip), %[at]"
             : [at] "=r" (-> usize),

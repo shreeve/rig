@@ -3354,7 +3354,12 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// leaves `len < buf.len`, so the slot at `len` exists, `len + 1`
         /// cannot overflow, and the store needs no bounds check.
         pub fn push(self: *Self, value: T) void {
-            if (self.len == self.mem().len) self.growTo(self.len +% 1);
+            if (self.len == self.mem().len) {
+                self.growTo(self.len +% 1);
+                // Grown: where `push` is inlined into the program's code,
+                // a yield check a signal left owed may run (`sched.settleAt`).
+                if (preempt) sched.settleAt(sched.programCounter());
+            }
             const m = self.mem();
             invariant(self.len < m.len);
             m.ptr[self.len] = value;
