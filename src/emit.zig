@@ -8274,6 +8274,15 @@ pub const Emitter = struct {
             try self.writePlainBit(bit);
             return self.w.writeAll(")");
         }
+        // A type of a type parameter answered for every instance alike
+        // (`$plain(~T)`, never plain) still names the parameter, which
+        // the generic may read nowhere else.
+        if (bit == .known and self.facts.containsTypeVar(ty)) {
+            const text = try self.typeText(ty);
+            try self.w.print("({s} == {s} and ", .{ text, text });
+            try self.writePlainBit(bit);
+            return self.w.writeAll(")");
+        }
         try self.writePlainBit(bit);
     }
 
