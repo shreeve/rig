@@ -237,6 +237,20 @@ none of these ever built:
 
 ### Runtime
 
+- The release allocator follows Linux's mode for transparent huge pages,
+  read once from /sys/kernel/mm/transparent_hugepage/: under `madvise`
+  it asks as before, and with no test of /proc/buddyinfo where `defrag`
+  is `defer` or `never`, as no fault compacts there; under `always`,
+  where every range gets huge pages unasked and asking only makes faults
+  compact, it asks for none, and what should keep small pages (a
+  segment of a heap that does not fault in ahead, a large block under
+  16 MiB, a Table's first 2 MiB) asks for small ones; under `never` it
+  asks for nothing and reads nothing. The test counts only the free
+  2 MiB blocks of the asking thread's NUMA node, so a host of two
+  sockets no longer asks on another node's blocks, and a reading cut
+  short before that node's lines counts none. A host of one node
+  under `madvise`, as pup, behaves as before
+  ([records/2026-11/huge-pages/gate-modes.md](docs/history/records/2026-11/huge-pages/gate-modes.md)).
 - On the Mac a release build's `os.exit` stops the other workers, when
   none runs a task and the blocking pool is idle, and unmaps the
   program's Tables, segments and free fiber stacks on four of them
@@ -306,6 +320,13 @@ none of these ever built:
   4.6-12.7% faster on indented input on the Mac (citm_catalog 12.7%,
   github_events 7.4%, twitter 6.5%), with minified input level
   ([records/2026-11/json/](docs/history/records/2026-11/json/indent-2026-11-05.md)).
+- In a build with `RIG_PREEMPT=signal`, the allocator's slow path and a
+  List's growth run a yield check a signal left owed when they return to
+  the program's own code: a loop that allocates, which spends its time in
+  the runtime where a signal stops nothing, let a 20 ms timer due on its
+  worker fire after up to 70 ms on the Mac, and now it fires at 20-21 ms.
+  A build without the option is the same code as before
+  ([default-on-2026-11-06.md](docs/history/records/2026-11/preempt/default-on-2026-11-06.md)).
 - In a build with `RIG_PREEMPT=signal`, std.text's searches (`find`,
   `find_last`, `count`, and the code they call) are in the program's code
   section, where a signal stops a task as in the program's own code: a

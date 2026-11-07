@@ -63,11 +63,21 @@ This is what branch preempt-std built: the handler counts the workers that owe (
 - **In short:** A costs 2-3 instructions per call; B costs none.
 
 ## Uncovered, either way
-- **The allocator and the other runtime loops:** a task stops only where a signal lands in the program's code around them. A List of 2,000 Strings wakes the sleeper in 20-50 ms: late by a monitor period, never starved.
-- **Rig's recommendation:** pay `owed` at the allocator's slow-path exit, once its heap is consistent, and after a List grows: rare paths, so no measurable cost. This is not built or measured yet.
+- **The allocator and List growth, settled (built after B):**
+  - After `allocSlow` returns, with its heap whole again, the allocator calls `sched.settleAt(@returnAddress())`. A List's growth, out of line (`growBy`, `growInline`), calls `settleAt(@returnAddress())` before it returns, so the inlined `push` holds no more code.
+  - `settleAt` runs the owed yield check only when that address is in the program's code section, where a signal may stop the fiber at any instruction. So it is safe exactly where a signal already is. Elsewhere the caller may hold the worker's state, and nothing runs.
+  - These are rare paths.
+  - **Measured** (Mac, a 20 ms sleeper beside Lists of 2,000 Strings): 20-21 ms in every run, where main woke in 20-70 ms with four loops on two workers and 21-46 ms with two on one.
+  - A build without the option is the same code as before (one md5 of `__text`, both modes).
+  - **The cost with the option** (Mac, slot held, about 1,000 million instructions between the two runs counted):
+    - A Int pushed into new Lists: 12.87 instructions against main's 12.71 (`--release=fast`: 11.56 against 11.42), 1.2-1.3% more.
+    - A String made and pushed: 426.36 against 421.29 (361.50 against 356.62), 1.2-1.4% more.
+    - Times are level (a push 0.42 ns on both).
+  - `settleAt` first reads a process-wide count of the workers that owe (`sched.owing`). Reading the worker at every growth instead had cost 4.8% more instructions per push.
+- **The other runtime loops** (Map growth, the String builders called out of line) still stop only where a signal lands in the program's code around them: late by a monitor period, never starved.
 - **A single long call** in an ineligible function holds its worker for that call's length: one `file.read` of a huge file, which the pool takes, or one parse of a huge input.
 
 ## What the owner decides
 1. Take B for std.text now (its PR), and add twins when a loop of a function is shown to hold its worker; or twin every eligible shim at once.
 2. Keep A unbuilt, or take it for code that cannot be placed.
-3. Default-on once B, pup's runs and the allocator's exit are in.
+3. Default-on once B, the allocator's and List's settling, and pup's runs are in.
