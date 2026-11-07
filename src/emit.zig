@@ -6042,8 +6042,13 @@ pub const Emitter = struct {
         }
         if (!sameNode(sexp, self.lending)) if (self.facts.lendOf(sexp)) |lend| {
             if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail, lend.implicit and want_ptr);
-            // A `!{Shape}` lent on to read: the read view it lends.
-            if (self.facts.objectView(lend.view) != null) {
+            // A `!{Shape}` lent on to read: the read view it lends, also
+            // where an optional of one goes, which Zig lifts it into.
+            var view = lend.view;
+            for (lend.steps()) |row| if (row == .lift) {
+                view = self.facts.types.get(view).optional;
+            };
+            if (self.facts.objectView(view) != null) {
                 const saved = self.lending;
                 defer self.lending = saved;
                 self.lending = sexp;

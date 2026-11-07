@@ -6767,3 +6767,24 @@ test "apis object a task's large optional result", seeds: 20, "12 true"
   y = >u
   if x as v
     print(v.c, y == none)
+
+test "a write API view returned as an optional read view", "4.0\ntrue"
+  # A `!{Shape}` narrows to the `?{Shape}` it lends where an optional of
+  # one goes, as it does where the view itself goes.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+    fun area(?@) -> Float
+      @side * @side
+
+  fun maybe(w: !{Shape}) -> (?{Shape})? from w
+    w
+
+  sub main()
+    sq = Square(side: 2.0)
+    if maybe(!sq) as r
+      print(r.area())
+    o: (?{Shape})? = maybe(!sq)
+    print(o != none)
