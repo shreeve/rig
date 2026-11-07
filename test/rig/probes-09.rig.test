@@ -2273,10 +2273,9 @@ test "h1-p", '''
   sub f(w2: !Int, w3: !Int, c: Bool)
     x = loop
       break w2
-    y = for _ in 0..3
+    y = loop
       break w3 if c
-    else
-      w2
+      break w2
     z: Int = loop
       break w3
     x += 1
