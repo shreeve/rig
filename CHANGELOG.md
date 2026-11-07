@@ -249,6 +249,19 @@ none of these ever built:
   as the value without `+` or `?` is: `x + 1` on one panics with an
   overflow when it runs, where Zig failed the build. `_ = $plain(T)` in
   a generic body builds.
+- `for x in !out`, where `out` itself holds a read view (`out = ?a`, a
+  call that returns one, a `?List` field or element), is rejected as
+  `!out.push(...)` is: "cannot write-iterate through a read view". It
+  was accepted and wrote through the read view, so a String another
+  view still read was dropped and then read (a use after free). A
+  method that writes the elements, `out.fill(0)`, says it cannot lend
+  to write through a read view, where it advised writing `!out.fill(0)`,
+  which is rejected too; `for x in !xs` over a `?` parameter says the
+  same, where it said parameters are immutable.
+- A code a handle or box made where a view of a wider set goes holds,
+  `look(*X.one)` with `look` taking `?error`, or `f(*B.z)` with `f`
+  taking `?L` of `error L = A | B`, has its handle or box dropped at
+  the end of its statement, where it leaked.
 
 ### Tests
 
