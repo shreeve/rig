@@ -235,7 +235,7 @@ pub obj Doc
         return -1 if i < 0
       # A value ended before `i`: a comma or a close comes next.
       loop
-        i = skip_space(src, i)
+        i = skip_indent(src, i)
         if top < 0
           return 0 if i == n
           return (!@).fail(.trailing(at: i))
@@ -428,7 +428,8 @@ pub obj Doc
         return i + 1
       if c != "\\"
         return (!@).fail(.control(at: i))
-      i = (!@).escape(src, i)
+      j = (!@).three_byte_run(src, i)
+      i = j if j != i else (!@).escape(src, i)
       return -1 if i < 0
       # Escapes back to back need no scan between them.
       continue if i < src.len and src[i] == "\\"
@@ -457,6 +458,30 @@ pub obj Doc
       !@text.push(block, keep: 16)
     i
 
+  # Decodes the run of `\u` escapes from `at` on whose characters each
+  # take three UTF-8 bytes (`is_three`), as escaped CJK text does: two
+  # at a time, each pair one read and one write of six bytes. Returns
+  # where the run ends, or `at` when the escape there is not one of
+  # them, for `escape` to decode.
+  inline fun three_byte_run(!@, src: ?String, at: Int) -> Int
+    return at if at < 0
+    i = at
+    while i + 16 <= src.len
+      # `\uXXXX\uXXXX`, the first byte in the low byte.
+      w = src.read[U128, .little](i)
+      break if U16.wrap(w) != BACKSLASH_U
+      c = hex4_of(U32.wrap(w >> 16))
+      break if not is_three(c)
+      if U16.wrap(w >> 48) == BACKSLASH_U
+        d = hex4_of(U32.wrap(w >> 64))
+        if is_three(d)
+          !@text.push[U64, .little](utf8_three(c) | utf8_three(d) <<% 24, keep: 6)
+          i += 12
+          continue
+      !@text.push[U32, .little](U32.wrap(utf8_three(c)), keep: 3)
+      return i + 6
+    i
+
   # Decodes the escape whose backslash is at `at`; returns the index after it.
   fun escape(!@, src: ?String, at: Int) -> Int
     return (!@).fail(.eof(at: at + 1)) if at + 1 >= src.len
@@ -467,18 +492,13 @@ pub obj Doc
     !@text.push(out)
     at + 2
 
-  # Decodes `\uXXXX`, or a surrogate pair of two, at `at`. Two
-  # three-byte characters back to back, as in escaped CJK text, are
-  # decoded together and written in two pushes, not four.
+  # Decodes `\uXXXX`, or a surrogate pair of two, at `at`. Runs of
+  # three-byte characters, as in escaped CJK text, go faster through
+  # `three_byte_run`.
   fun unicode(!@, src: ?String, at: Int) -> Int
     c = (!@).hex4(src, at + 2)
     return -1 if c < 0
     i = at + 6
-    if c >= 0x800 and (c < 0xD800 or c > 0xDFFF) and i + 6 <= src.len and src.read[U16, .little](i) == BACKSLASH_U
-      d = hex_value(src, i + 2)
-      if d >= 0x800 and (d < 0xD800 or d > 0xDFFF)
-        push_utf8_two3(!@text, c, d)
-        return i + 6
     if c >= 0xDC00 and c <= 0xDFFF
       return (!@).fail(.surrogate(at: at))
     if c >= 0xD800 and c <= 0xDBFF
@@ -613,8 +633,21 @@ fun is_digit(c: U8) -> Bool
 # drops only copies of its sign bit.)
 fun hex_value(s: ?String, at: Int) -> Int
   return -1 if at < 0 or at + 4 > s.len
-  w = s.read[U32, .big](at)
-  HEX[w >> 24] <<% 12 | HEX[(w >> 16) & 0xFF] <<% 8 | HEX[(w >> 8) & 0xFF] <<% 4 | HEX[w & 0xFF]
+  hex4_of(s.read[U32, .little](at))
+
+# `hex_value` of four bytes, the first in the low byte.
+fun hex4_of(w: U32) -> Int
+  HEX[w & 0xFF] <<% 12 | HEX[(w >> 8) & 0xFF] <<% 8 | HEX[(w >> 16) & 0xFF] <<% 4 | HEX[w >> 24]
+
+# Whether the code point `c` takes three bytes in UTF-8 and is no
+# surrogate: 0x800 to 0xFFFF, less 0xD800 to 0xDFFF.
+fun is_three(c: Int) -> Bool
+  c >= 0x800 and (c < 0xD800 or c > 0xDFFF)
+
+# The three UTF-8 bytes of `c` (`is_three`), the first in the low byte.
+# `c` is below 2^16, so the shifts drop no bit.
+fun utf8_three(c: Int) -> U64
+  U64.wrap(0xE0 | c >> 12 | (0x80 | (c >> 6) & 0x3F) <<% 8 | (0x80 | c & 0x3F) <<% 16)
 
 # Each byte's value as a hex digit, or -1.
 HEX: [256]Int = [
@@ -661,21 +694,55 @@ SPACES: U64 = 0x2020202020202020
 PAIR: U16 = 0x2020
 
 # The index of the first byte from `at` on that is not whitespace, after
-# a `,` or an opening bracket, where a pretty-printer puts a line break
-# and the next line's indentation: the break, then 8 spaces at a time,
-# then 2 at a time, each a test the processor predicts, and the rest by
-# `skip_space`. Minified input has none, and goes on at once.
+# a value, a `,`, or an opening bracket, where a pretty-printer puts a
+# line break and the next line's indentation: the break, then 8 spaces
+# at a time, then 2 at a time, each a test the processor predicts, and
+# the rest by `skip_space`. Minified input has none, and goes on at once.
 fun skip_indent(s: ?String, at: Int) -> Int
   return at if at < 0
   i = at
   return i if i < s.len and s[i] > ' '
   if i < s.len and s[i] == "\n"
     i += 1
-    while i + 8 <= s.len and s.read[U64, .little](i) == SPACES
-      i += 8
-    while i + 2 <= s.len and s.read[U16, .little](i) == PAIR
-      i += 2
+    if i + 32 <= s.len
+      i = skip_pairs(s, i)
+    else
+      while i + 8 <= s.len and s.read[U64, .little](i) == SPACES
+        i += 8
+      while i + 2 <= s.len and s.read[U16, .little](i) == PAIR
+        i += 2
   skip_space(s, i)
+
+# The index after the pairs of spaces from `at` on, up to 16 of them:
+# indentation, as yyjson takes it. Each pair is a test of its own, which
+# the processor predicts by the depth before it, where one loop's exit
+# would be mispredicted at every change of depth; deeper indentation
+# goes on through `skip_space`. The caller has `at + 32 <= s.len`.
+inline fun skip_pairs(s: ?String, at: Int) -> Int
+  if at >= 0 and at + 16 <= s.len
+    w = s.read[U128, .little](at)
+    return at if U16.wrap(w) != PAIR
+    return at + 2 if U16.wrap(w >> 16) != PAIR
+    return at + 4 if U16.wrap(w >> 32) != PAIR
+    return at + 6 if U16.wrap(w >> 48) != PAIR
+    return at + 8 if U16.wrap(w >> 64) != PAIR
+    return at + 10 if U16.wrap(w >> 80) != PAIR
+    return at + 12 if U16.wrap(w >> 96) != PAIR
+    return at + 14 if U16.wrap(w >> 112) != PAIR
+    i = at + 16
+    if i + 16 <= s.len
+      w = s.read[U128, .little](i)
+      return i if U16.wrap(w) != PAIR
+      return i + 2 if U16.wrap(w >> 16) != PAIR
+      return i + 4 if U16.wrap(w >> 32) != PAIR
+      return i + 6 if U16.wrap(w >> 48) != PAIR
+      return i + 8 if U16.wrap(w >> 64) != PAIR
+      return i + 10 if U16.wrap(w >> 80) != PAIR
+      return i + 12 if U16.wrap(w >> 96) != PAIR
+      return i + 14 if U16.wrap(w >> 112) != PAIR
+      return i + 16
+    return i
+  at
 
 # The index of the first byte from `at` on that is not whitespace. Runs
 # of spaces, as in indentation, go 8 at a time.
@@ -838,12 +905,6 @@ fun utf8_end(s: ?String, at: Int) -> Int
   n = utf8.rune_after(s, at).size
   return -1 if n == 1
   at + n
-
-# Appends two code points of three UTF-8 bytes each (0x800 to 0xFFFF,
-# no surrogate) in two writes, of four bytes and then two.
-sub push_utf8_two3(out: !String, c: Int, d: Int)
-  !out.push[U32, .big](U32(0xE08080E0 | (c >> 12) << 24 | ((c >> 6) & 0x3F) << 16 | (c & 0x3F) << 8 | d >> 12))
-  !out.push[U16, .big](U16(0x8080 | ((d >> 6) & 0x3F) << 8 | d & 0x3F))
 
 # ---- Decimal to binary ------------------------------------------------
 

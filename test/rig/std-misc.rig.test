@@ -1103,12 +1103,13 @@ test "json space blocks", "cases 31488 ok 1722 checksum 2873757600852398656"
           cases += 1
     print("cases", cases, "ok", ok, "checksum", sum)
 
-test "json indent blocks", "cases 64512 ok 2016 checksum 13438710349813566102"
-  # std.json's indentation step (`skip_indent`): after `[` and after `,`,
-  # no line break, `\n`, or `\r\n`, then 0 to 41 bytes of indentation,
-  # spaces with a tab every eleventh, then every byte, so a run ends at
-  # every offset of the 8- and 2-space steps and in the input's last
-  # bytes. The checksum is the one std.json gave before the step.
+test "json indent blocks", "cases 193536 ok 5052 checksum 10333299951239237604"
+  # std.json's indentation step (`skip_indent`): after `[`, after `,`,
+  # and after a value, no line break, `\n`, or `\r\n`, then 0 to 41
+  # bytes of indentation, spaces with a tab every eleventh, then every
+  # byte, then 36 spaces or none, so a run ends at every offset of the
+  # 8- and 2-space steps, of the 16 pair tests, and in the input's last
+  # bytes. The checksum is the one std.json gave before the steps.
   # The reason a load of `src` fails with and its offset, as
   # `JsonError.eof(at: 5)` prints them; `ok` and -1 when it loads.
   fun outcome(src: ?String) -> (String, Int)
@@ -1126,27 +1127,80 @@ test "json indent blocks", "cases 64512 ok 2016 checksum 13438710349813566102"
     cases = 0
     ok = 0
     sum: U64 = 0
-    for after in [0x5B, 0x2C]
+    for after in [0x5B, 0x2C, 0x31]
       for brk in [0, 1, 2]
         for p in 0..42
           for b in 0..256
-            s = String()
-            !s.push(0x5B)
-            if after == 0x2C
-              !s.push(0x31)
-              !s.push(0x2C)
-            !s.push(0x0D) if brk == 2
-            !s.push(0x0A) if brk > 0
-            for k in 0..p
-              !s.push(0x20 if k % 11 != 10 else 0x09)
-            !s.push(U8(b))
-            !s.push(0x5D) if b % 3 != 0
-            name, at = outcome(?s)
-            ok += 1 if at < 0
-            at = 0 if at < 0
-            sum = sum *% 1000003 +% U64(at) *% 31 +% U64(name.len) *% 7 +% U64((?name[..])[0])
-            cases += 1
+            for pad in [0, 36]
+              s = String()
+              !s.push(0x5B)
+              !s.push(0x31) if after != 0x5B
+              !s.push(0x2C) if after == 0x2C
+              !s.push(0x0D) if brk == 2
+              !s.push(0x0A) if brk > 0
+              for k in 0..p
+                !s.push(0x20 if k % 11 != 10 else 0x09)
+              !s.push(U8(b))
+              !s.push(0x5D) if b % 3 != 0
+              for _ in 0..pad
+                !s.push(0x20)
+              name, at = outcome(?s)
+              ok += 1 if at < 0
+              at = 0 if at < 0
+              sum = sum *% 1000003 +% U64(at) *% 31 +% U64(name.len) *% 7 +% U64((?name[..])[0])
+              cases += 1
     print("cases", cases, "ok", ok, "checksum", sum)
+
+test "json unicode runs", "cases 128908 checksum 8544942212870900873"
+  # std.json decodes a run of `\u` escapes of three-byte characters two
+  # at a time (`three_byte_run`). Runs of 0 to 9, then two of every kind
+  # of escape or byte that ends one, the input cut short at every byte
+  # near the run's end. The checksum is the one std.json gave before the
+  # step, folding each decoded string's bytes, or each error and offset.
+
+  # The escapes a run is made of, three-byte characters, upper and lower
+  # case, and what may follow it: other characters, surrogates, halves of
+  # them, bad hex digits, other escapes, plain bytes, and the quote. A
+  # second string follows, then the input is cut short at every byte up
+  # to it, so a run ends at every offset of the pair step and in the
+  # input's last 16 bytes.
+  RUN = ["\\u3042", "\\u65E5", "\\uffFD", "\\u0800", "\\ue000", "\\ud7ff", "\\uFFFF"]
+  TAILS = ["\\u3044", "\\u00e9", "\\u0041", "\\u07ff", "\\ud83d\\ude00", "\\ud83d", "\\ude00", "\\ud83d\\u3042", "\\u30zz", "\\u3z42", "\\u", "\\n", "\\/", "x", "zzABCD", "\\nffff", "\xe3\x81\x82", "\""]
+
+  # The reason a load of `src` fails with and its offset, or the bytes
+  # of the string it holds, folded into `sum`.
+  fun fold(sum: U64, src: ?String) -> U64
+    doc = json.Doc()
+    shown = String()
+    (!doc).load(src) catch |e| (!shown).add(String(e))
+    h = sum
+    if shown.len > 0
+      for b in shown
+        h = h *% 1000003 +% U64(b)
+      return h *% 31 +% 1
+    for b in doc.string(2)
+      h = h *% 1000003 +% U64(b)
+    h *% 31 +% 2
+
+  sub main()
+    cases = 0
+    sum: U64 = 0
+    for run in 0..10
+      for t1 in TAILS
+        for t2 in TAILS
+          s = String()
+          !s.add("[1,\"")
+          for k in 0..run
+            !s.add(RUN[k % RUN.len])
+          !s.add(t1)
+          !s.add(t2)
+          !s.add("\",\"0123456789abcdef\"]")
+          # Whole, and cut short by 1 to 40 bytes.
+          for cut in 0..41
+            continue if cut > s.len - 4
+            sum = fold(sum, s[..s.len - cut])
+            cases += 1
+    print("cases", cases, "checksum", sum)
 
 test "json utf8 blocks", "checked 864 mismatches 0"
   # std.json checks a string's non-ASCII text 16 bytes at a time: each

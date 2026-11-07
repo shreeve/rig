@@ -357,6 +357,12 @@ none of these ever built:
   lines of the program's own frames; without Apple's command-line tools
   a note says the lines are missing
   ([mac-port-2026-11-05.md](docs/history/records/2026-11/preempt/mac-port-2026-11-05.md)).
+- std.json decodes a run of `\u` escapes of three-byte characters two
+  at a time, and takes indentation after a value too, after a line
+  break as up to 16 pair tests in a row, as yyjson does: on the Mac
+  twitterescaped 11.4% faster, citm_catalog 5.2%, twitter and
+  github_events 4.8%, gsoc-2018 2.6%, canada level
+  ([records/2026-11/json/](docs/history/records/2026-11/json/runs-2026-11-07.md)).
 - std.json tests a string's first 8 bytes inline before scanning the
   rest: 1.8-3.5% faster on the Mac on five files, canada level
   ([records/2026-11/json/](docs/history/records/2026-11/json/head-2026-11-06.md)).
