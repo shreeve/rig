@@ -5222,6 +5222,40 @@ test "the other stacks of a new reservation stay untouched until a fiber runs on
     try std.testing.expectEqual(@as(usize, 0), Run.resident);
 }
 
+test "a worker's surplus of free stacks waits on the spare list, then goes back to the system but 64 a worker" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        const n = 200;
+        var stacks: [n]Stack = undefined;
+        var spare_before: u32 = 0;
+        var spare_after: u32 = 0;
+        var kept: u32 = 0;
+        var mapped: usize = 0;
+        fn first(_: *anyopaque) callconv(.c) void {
+            const w = me().?;
+            for (&stacks) |*s| s.* = takeStack();
+            // Released out of order, as tasks end.
+            var i: usize = 0;
+            while (i < n) : (i += 1) releaseStack(w, stacks[(i * 37) % n]);
+            spare_before = spare.count.load(.monotonic);
+            kept = w.free_count;
+            trimSpare();
+            spare_after = spare.count.load(.monotonic);
+            const page = std.heap.pageSize();
+            for (stacks) |s| {
+                const top: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(s.base + s.guard + s.len - page);
+                std.posix.msync(top[0..page], std.posix.MSF.ASYNC) catch continue;
+                mapped += 1;
+            }
+        }
+    };
+    runForTest(Run.first, 1);
+    try std.testing.expect(Run.kept <= keep_free);
+    try std.testing.expectEqual(@as(u32, Run.n), Run.spare_before + Run.kept);
+    try std.testing.expectEqual(@as(u32, spare_per_worker), Run.spare_after);
+    try std.testing.expectEqual(@as(usize, Run.kept + spare_per_worker), Run.mapped);
+}
+
 test "many workers run many fibers, each waited for, and their results add up" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
