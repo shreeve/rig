@@ -167,6 +167,24 @@ case "$(uname -s)/$(uname -m)" in
         grep -q 'preempted [1-9]' err-spin.txt || fail "spin.rig: no task preempted: $(cat err-spin.txt)" ;;
 esac
 
+# Each stop takes, from the stopped stack pointer to its switch to the
+# worker's stack, no more of the fiber's stack than `sched.preempt_room`
+# leaves above the guard: the trampoline's saves and the Zig frames
+# before the switch fit, in fast and safe builds.
+room() {
+    awk -v what="$2" '/deepest stop/ { for (i = 1; i <= NF; i++) if ($i == "preempted") p = $(i + 1) + 0
+        n = $(NF - 3) + 0; r = $(NF - 1) + 0
+        if (p > 0 && (n == 0 || n > r)) { print what ": a stop took " n " of " r " bytes: " $0; bad = 1 }
+        if (p > 0) seen = 1 }
+        END { if (!seen) print what ": no stop measured"; exit bad || !seen }' "$1"
+}
+case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64 | Darwin/arm64)
+        msg=$(room err-spin.txt "spin.rig, fast") || fail "$msg"
+        on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release=safe spin.rig 2>err-spin-safe.txt) || fail "spin.rig, safe (timeout 60 s): $on $(cat err-spin-safe.txt)"
+        msg=$(room err-spin-safe.txt "spin.rig, safe") || fail "$msg" ;;
+esac
+
 # Tasks that loop on `file.read`, which reads a regular file in the task
 # and spends its time in system calls, outside the program's code where
 # a signal stops nothing, hand over their workers at each read's waiting
