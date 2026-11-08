@@ -206,7 +206,9 @@ fn rejectedEnd(source: []const u8, pos: u32) u32 {
     var probe = parser.BaseLexer.init(source);
     probe.pos = pos;
     const t = probe.next();
-    return if (t.pos == pos and t.cat != .eof) rig.endOf(&probe, t) else pos;
+    // A comment where one may not stand (in a template's slot) is
+    // coloured as the comment it is (`Comments`).
+    return if (t.pos == pos and t.cat != .eof and t.cat != .comment) rig.endOf(&probe, t) else pos;
 }
 
 fn isLayout(cat: TokenCat) bool {

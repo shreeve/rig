@@ -1495,6 +1495,9 @@ pub const Lexer = struct {
 
     fn fail(self: *Lexer, e: LexError, pos: u32) Token {
         self.err = e;
+        // A template the error is in ends there, so a tolerant reader
+        // (the language server) goes on lexing code.
+        self.slot = null;
         return .{ .cat = .err, .pre = 0, .pos = pos, .len = 0 };
     }
 
