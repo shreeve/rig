@@ -41,10 +41,10 @@ sub main()
   r = random.Random.seeded(7)
   xs = List[Int]()
   for _ in 0..SLOTS
-    !xs.push((!r).int(0, Int.max))
+    !xs.push(!r.int(0, Int.max))
   keys = List[Int]()
   for _ in 0..LOOKUPS
-    !keys.push((!r).int(0, Int.max))
+    !keys.push(!r.int(0, Int.max))
   n = AHEAD.len
   best = [8 of Int.max]
   want = [flat(?xs, ?keys, 0), branchy(?xs, ?keys, 0)]

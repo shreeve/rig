@@ -371,9 +371,9 @@ fun digits(r: !random.Random, n: Int, hex: Bool) -> String
   out = String("0x") if hex else String()
   set = "0123456789abcdef"
   base = 16 if hex else 10
-  !out.push(set[(!r).int(1, base)])
+  !out.push(set[!r.int(1, base)])
   for 1..n
-    !out.push(set[(!r).int(0, base)])
+    !out.push(set[!r.int(0, base)])
   out
 
 K = 8

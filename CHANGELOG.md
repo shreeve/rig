@@ -118,6 +118,38 @@ none of these ever built:
 
 ### Added
 
+- **Text over several lines** (T1c): `"""` (with escapes) and `'''`
+  (raw) open fixed text over several lines, a `Static`, when the opener
+  ends its line, and a backtick that ends its line opens a template over
+  several lines. The closer's column is the margin: spaces past it are
+  text, a line less indented than a closer alone on its line is an
+  error, a line of only spaces is empty, the spaces ending a line are
+  dropped, and a tab in the margin is an error, so moving the text never
+  changes it. Mid-line, `'''abc'''` is still the raw string `'abc'`
+  (SPEC "Text over several lines").
+- **Backtick templates** (T1b): `` `{name} is {age}` `` builds text
+  from pieces and slots, and the place decides what it becomes. In
+  `print`, `warn`, and `panic` its pieces are written straight, with no
+  allocation and no separators; in `String(...)` and `!t.add(...)` they
+  are the call's arguments; where a `?String` goes it is a temporary of
+  its statement, built in 256 bytes of the caller's stack and then the
+  heap; where a `String` goes (a binding, a field, a return) it is a new
+  String of its length. A slot takes what a print argument takes;
+  `{=e}` shows the expression and its value; `\{`, `\}`, and
+  `` \` `` are literal, and a `"` needs no escape. A template of
+  constant slots is fixed text, a `Static`, so a module's constant may
+  be one. The strict rules (no slot, an empty slot, a literal slot, a
+  `:`, `#`, or template in a slot, a name touching a backtick, ``` `` ```,
+  a lone `}`, and `` s = `{s}…` ``) are errors with hints (SPEC
+  "Templates").
+- **A large embedded table loads without a copy on macOS too**: a
+  macOS release build maps 64 KiB or more of an embedded file added to
+  an empty List from the program's own file, as a Linux one does,
+  finding the run in the image's read-only segments (`LC_SEGMENT_64`)
+  at its slide. Trig's peak memory on the Mac is 9.2 to 9.5 MiB lower
+  on zod3 and ts-pattern at one, four, and its balanced checkers, with
+  no run slower (SPEC "List").
+
 - **A large embedded table loads without a copy** in a Linux release
   build: `!xs.extend_from_bytes($embed(path))` of 64 KiB or more into an
   empty List maps the file's pages from the program itself
@@ -311,6 +343,18 @@ none of these ever built:
   a change that breaks one fails its gate; `cli` and `probes` run them
   alone.
 
+### Docs
+
+- The docs, std, the examples, and the benchmarks write a self sigil
+  short wherever it applies, `!c.read(!buf, 4096)!`, `?p.dist(q)`,
+  `<conn.close()`; the long form stays only for a write call whose
+  `Bool` value is used and for an assignment's target, as SYNTAX "Self
+  sigils" asks. The emitted Zig is the same.
+  `tools/drop-write-parens.py` drops the parentheses of `?` and `<` as
+  well as `!`, and of a `for` source, leaves an assignment's target, and
+  with `--md` rewrites the ```` ```rig ```` blocks of Markdown files,
+  each program checked on its own.
+
 ### Runtime
 
 - On x86-64 Linux and arm64 macOS, a program that makes tasks and no
@@ -323,6 +367,30 @@ none of these ever built:
   programs with local tasks, `rig test`, and the test runner's batch
   packs keep their yield checks
   ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
+- stdout's flushes, a panic's report on stderr, and the deadlock walk
+  run on the worker's own stack, not the task's, through
+  `sched.onWorkerStack`. No signal stops the task meanwhile, and a safe
+  build panics if the call would park. With the clock bounded by each
+  host's own vDSO, `tools/stack-census.py` bounds 6 of bench/tasks' 9
+  task types on pup, where it bounded 1.
+- Free task stacks move between workers through a spare list all
+  workers share, and the surplus a burst of tasks leaves goes back to
+  the system once the workers are idle, in address order, each run of
+  neighbouring stacks in one call. Each stack past a worker's 64 was
+  returned on its own as its task ended, flushing every running core's
+  TLB: bench-scale's `alloc` as tasks on pup at 8 workers took 3,220
+  flushes a run and takes 24 to 58, and `tree` is 2-3% faster at every
+  worker count. On the Mac, bench/tasks' `spawn` is 47% faster
+  (7.3 ms, from 13.7). A program keeps at most 64 free stacks a worker,
+  as before, and holds less memory after a burst of 4,096 tasks: 21-23
+  MiB, from 25, on the Mac, and 9.5-10 MiB, from 11, on pup.
+- Stacks ask for small pages where Linux gives huge ones unasked
+  (`enabled=always`), so a sleeping task cannot take a 2 MiB page.
+- The deadlock walk runs on the worker's stack, not the task's.
+- The runtime's SIGPIPE, SIGINT and SIGTERM, and SIGALRM handlers run on
+  the thread's alternate signal stack, and a program that makes tasks
+  installs again with `SA_ONSTACK` any handler other code installed
+  without it.
 - A worker keeps four tasks to run next, in a circle, where it kept
   one. A task made and then waited for runs at once while it is still
   in a slot, ahead of older tasks in the ring, and a thief takes the

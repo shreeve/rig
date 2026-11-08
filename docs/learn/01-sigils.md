@@ -422,7 +422,7 @@ fun first(xs: ?List[Int]) -> Int?
 
 fun take(xs: !List[Int]) -> Int!
   return Stock.empty if xs.len == 0
-  (!xs).pop() ?? 0
+  !xs.pop() ?? 0
 
 fun next_price(xs: ?List[Int]) -> Int?
   first(?xs)? + 1

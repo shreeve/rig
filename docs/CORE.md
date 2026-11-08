@@ -138,7 +138,7 @@ sub bump(v: !Simd[U8, 4])
 
 sub main()
   s = String("abcd")
-  v = (?s).read[Simd[U8, 4]](0)
+  v = ?s.read[Simd[U8, 4]](0)
   !s.add("e")
   bump(!v)
   w = v.with(0, 0)
@@ -544,8 +544,8 @@ sub main()
   !v.push(Item(n: 1))
   !v.push(Item(n: 2))
   c = Cursor(items: ?v, i: 0)
-  a = (!c).next()
-  b = (!c).next()
+  a = !c.next()
+  b = !c.next()
   print(a.n, b.n)
 ```
 
@@ -575,8 +575,8 @@ sub main()
   !v.push(7)
   !v.push(8)
   r = Reader(text: String("hi there"), seen: ?v, at: 0)
-  a = (!r).next()
-  b = (!r).next()
+  a = !r.next()
+  b = !r.next()
   w = ?r.word()
   r.at = 0
   print(w, a, b)
@@ -653,7 +653,7 @@ obj Table
 sub main()
   t = Table(slots: List())
   !t.slots.push(Slot(key: 1, value: 2))
-  if (!t).edit(0) as v
+  if !t.edit(0) as v
     v += 40
   if t.slots[0] as s
     print(s.value)
@@ -795,7 +795,7 @@ obj Counter
 
 sub main()
   c = Counter(n: 0, m: 0)
-  w, big = (!c).bump(5)
+  w, big = !c.bump(5)
   w += 10
   print(big, c.m)
 ```
@@ -1080,9 +1080,9 @@ a
 
 - **Taking:** a binding, an argument to a parameter that owns it,
   `return`, a stored field or element, or `<`.
-- **Reading:** a `print` or `String(...)` argument, an `==` operand, `?e`,
-  `+e`, a `?@` self, a field or element read, or the value a
-  call calls.
+- **Reading:** a `print` or `String(...)` argument, or a template's slot,
+  an `==` operand, `?e`, `+e`, a `?@` self, a field or
+  element read, or the value a call calls.
 
 Reading never moves a name, whatever form reads it: `print(a if c else
 b)` moves nothing.
@@ -1093,7 +1093,9 @@ value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
 or leaves early. A temporary may be lent to read or to write (sentence
 4), and a view of it may be used only within its statement. A value
-made to be called (`(+h.f)(x)`) is a temporary too *(planned)*.
+made to be called (`(+h.f)(x)`) is a temporary too *(planned)*, and so
+is a template where a `?String` is expected, built in 256 bytes of the
+statement's stack, then on the heap.
 
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries
@@ -1147,6 +1149,24 @@ sub main()
 
 ```error
 a view of the temporary `String("k", "=v")` outlives its statement
+```
+
+A template where a `?String` goes is the same temporary:
+
+```rig reject
+use std.text
+
+sub main()
+  a = "x"
+  n = 2
+  if text.starts_with(`{a}y{n}`, "xy")
+    print("starts")
+  if text.cut(`k{n}=v`, "=") as kv
+    print(kv.after)
+```
+
+```error
+outlives its statement
 ```
 
 ```rig pending
@@ -1578,7 +1598,7 @@ after it, through what a write view the name holds sees, and through
 a box. It stops at an element, a handle, or an optional's value, and
 the loan is on the path so far: `?v[i]` and `!v[j]` are both loans on
 `v`, and `?h.f` with `h: *T` is a loan on `h`. A use touches the path
-it names: `?p.a`, `!p.a`, `<p.a`, `p.a = x`, `(!p.a).m()`, and
+it names: `?p.a`, `!p.a`, `<p.a`, `p.a = x`, `!p.a.m()`, and
 `swap(!p.a, !p.b)` touch `p.a` (and `p.b`); `p`, `<p`, `p = x`,
 `(!p).m()`, and `!p.m()` touch all of `p`. A value never holds a view
 of itself: storing in a part of `p` a value that carries a loan on a
@@ -1596,12 +1616,12 @@ obj Parser
   t: String
 
   sub step(!@)
-    (!@a).add(@t)
+    !@a.add(@t)
 
 sub main()
   p = Parser(a: Arena(names: List()), t: String("id"))
   !p.step()
-  (!p.a).add(p.t)
+  !p.a.add(p.t)
   print(p.a.names.len)
 ```
 
@@ -1803,7 +1823,7 @@ changes for it. *(built)*
 ```rig reject
 sub main()
   t: Table[Int, 4] = Table()
-  s = (!t).push(1)
+  s = !t.push(1)
   a = ?t[s]
   !t.push(2)
   print(a)
@@ -1817,9 +1837,9 @@ cannot lend `t` to write while a read loan is live
 V]` and `Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns
 a `(?V)?` view `from @`, which carries the loan on `m` and not on
-`k` (sentence 7); `(!m).edit(k)` returns a `(!V)?` that carries a write
+`k` (sentence 7); `!m.edit(k)` returns a `(!V)?` that carries a write
 loan on `m`; and
-`(!m).take(k)` hands the value back owned and drops the key. *(built)*
+`!m.take(k)` hands the value back owned and drops the key. *(built)*
 
 ## 6. Bindings and assignment
 
@@ -1911,7 +1931,7 @@ sub main()
   m: Map[String, Int] = Map()
   !m.put(String("a"), 1)
   it = ?m.items()
-  e = (!it).next() ?? return
+  e = !it.next() ?? return
   n = !m.take(+e.key) ?? 0
   print(n, m.len)
 ```
@@ -1925,7 +1945,7 @@ sub main()
   m: Map[String, Int] = Map()
   !m.put(String("a"), 1)
   it = ?m.items()
-  e = (!it).next() ?? return
+  e = !it.next() ?? return
   n = !m.take(e.key) ?? 0
   print(n, m.len)
 ```
@@ -2081,7 +2101,7 @@ obj Checker
 sub main()
   bump: *sub(!Checker) = *|k| k.n += 1
   c = Checker(n: 0, hook: <bump)
-  (!c).run()
+  !c.run()
 ```
 
 ```error

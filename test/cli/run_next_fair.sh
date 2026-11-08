@@ -4,8 +4,8 @@
 # (src/sched.zig, `next`), so a task that keeps making tasks cannot keep
 # an older one waiting there. A marker task made before a producer that
 # loops forever, making batches of eight tasks and waiting for them,
-# runs within 2 s on one worker and on two, with yield checks and, where
-# preemption is built, with RIG_PREEMPT=signal.
+# runs within 2 s on one worker and on two, preempted by signal where
+# that is built and with yield checks elsewhere.
 source "$ROOT/test/cli/_lib.sh"
 
 cat > fair.rig <<'RIG'
@@ -46,11 +46,6 @@ RIG
 
 "$RIG" build --release=fast -o fair-plain fair.rig >build.txt 2>&1 || fail "build fair.rig: $(cat build.txt)"
 builds="plain"
-case "$(uname -s)/$(uname -m)" in
-    Linux/x86_64 | Darwin/arm64)
-        RIG_PREEMPT=signal "$RIG" build --release=fast -o fair-signal fair.rig >build.txt 2>&1 || fail "build fair.rig with the option: $(cat build.txt)"
-        builds="plain signal" ;;
-esac
 for b in $builds; do
     for w in 1 2; do
         for i in 1 2 3; do

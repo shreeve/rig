@@ -25,13 +25,13 @@ obj Counter
 
 sub hammer(c: *Actor[Counter], n: Int)
   for 0..n
-    _ = (!c).add(1)
+    _ = !c.add(1)
 
 fun own(n: Int) -> Int
   c = *Actor(Counter(hits: 0))
   last = 0
   for 0..n
-    last = (!c).add(1)
+    last = !c.add(1)
   last
 
 called sub solo()
@@ -39,7 +39,7 @@ called sub solo()
   t = time.now()
   last = 0
   for 0..SOLO
-    last = (!c).add(1)
+    last = !c.add(1)
   print("solo", t.elapsed(), last)
 
 called sub contend()

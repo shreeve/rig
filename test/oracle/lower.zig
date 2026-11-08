@@ -2201,9 +2201,24 @@ const Lowerer = struct {
     fn panicStmt(self: *Lowerer, s: Sexp) Error!void {
         if (self.in_defer) return abstain("a `panic` in deferred code");
         var reads: std.ArrayList(VarId) = .empty;
-        for (ir.Panic.args(s)) |a| if (try self.eval(a, .read, null)) |v| try reads.append(self.a, v);
+        for (try self.flatArgs(ir.Panic.args(s))) |a| if (try self.eval(a, .read, null)) |v| try reads.append(self.a, v);
         try self.emit(.{ .pos = self.posOf(s), .what = .use, .reads = reads.items });
         self.cur = null;
+    }
+
+    /// The arguments of a call that formats them (`print`, `String(...)`,
+    /// `add`, `panic`), each template's slots in its place: a template's
+    /// slots are the call's arguments (SPEC "Templates").
+    fn flatArgs(self: *Lowerer, args: []const Sexp) Error![]const Sexp {
+        var out: std.ArrayList(Sexp) = .empty;
+        for (args) |a| {
+            if (!a.isKind(.template)) {
+                try out.append(self.a, a);
+                continue;
+            }
+            for (0..rig.Template.slotCount(a)) |i| try out.append(self.a, rig.Template.value(a, i));
+        }
+        return out.items;
     }
 
     /// Leave the function: every scope's drops and `defer`s, then the
@@ -2549,6 +2564,15 @@ const Lowerer = struct {
                 for (ir.rest(e, .elems)) |el| if (try self.eval(el, .take, elem)) |v| try parts.append(self.a, v);
                 const t = try self.temp(try self.typeOf(e), pos);
                 try self.emit(.{ .pos = pos, .what = .make, .moves = parts.items, .def = t });
+                return t;
+            },
+            // A template's value is a String made of its slots, each read
+            // as a `String(...)` argument is; it holds their text, no view.
+            .template => {
+                var reads: std.ArrayList(VarId) = .empty;
+                for (0..rig.Template.slotCount(e)) |i| if (try self.readOpt(rig.Template.value(e, i))) |v| try reads.append(self.a, v);
+                const t = try self.temp(try self.typeOf(e), pos);
+                try self.emit(.{ .pos = pos, .what = .make, .uses = reads.items, .def = t });
                 return t;
             },
             .array_fill => {
@@ -3851,9 +3875,10 @@ const Lowerer = struct {
         };
         // Where each argument's vars start in `reads` and `moves`.
         var spans: std.ArrayList(ArgSpan) = .empty;
-        // The arguments, left to right.
+        // The arguments, left to right; a template's slots are those of
+        // a call that formats them.
         const slots = self.ctx.callSlotsOf(e);
-        for (args, 0..) |arg, i| {
+        for (if (all_read) try self.flatArgs(args) else args, 0..) |arg, i| {
             const val = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
             var shape: Shape = .take;
             var keeps = false;

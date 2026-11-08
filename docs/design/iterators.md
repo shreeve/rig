@@ -51,7 +51,7 @@ reasons that are rules, not missing code:
 2. **An adapter whose items are views cannot be bounded.** `from
    @field`'s rule 4 judges a field of a type variable at the
    declaration. A `Take[I: Iter]` over a Map's keys builds and runs,
-   but `(!t).count()` of it, or a `Take` of a `Take`, is refused:
+   but `!t.count()` of it, or a `Take` of a `Take`, is refused:
    "`I.Item = ?Int`: a `?Int` may view memory `Take[Keys[Int, Int]]`
    owns". ROADMAP lists judging it per instance.
 
@@ -167,8 +167,7 @@ loop's and a closure argument's. Nothing is new:
 - **The source is lent for the statement**, as a `for` source is lent
   for its loop: read, with no mark, for a List, array, slice, or
   string. An iterator advances, so it is lent to write, with the mark
-  in parentheses, as for any write call whose result is used:
-  `(!it).map(f).sum()`.
+  of any write call: `!it.map(f).sum()`.
 - **Each closure is lent to the statement**, as one lent to `reduce`
   is: its captures conflict with the statement's other views, so
   `xs.map(|!xs, x| ...)` is rejected.

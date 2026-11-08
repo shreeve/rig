@@ -232,7 +232,7 @@ bob 1
 cy 5
 ```
 
-`(!units).ensure(o.who, 0)` puts `0` under a customer the first time,
+`!units.ensure(o.who, 0)` puts `0` under a customer the first time,
 and lends the value under that key to write, so one line counts every
 order. `(!items).add(o.item)` says whether the item was new. Both change
 their table, so both carry the `!` of chapter one. `get` and `has` only
@@ -396,8 +396,8 @@ sub main()
   !a.shuffle(!names)
   !b.shuffle(!twin)
   print("winners:", names[0], names[1], names[0] == twin[0] and names[1] == twin[1])
-  roll = (!a).int(1, 7)
-  print(roll >= 1 and roll <= 6, (!a).float() < 1.0)
+  roll = !a.int(1, 7)
+  print(roll >= 1 and roll <= 6, !a.float() < 1.0)
 ```
 
 ```output
@@ -413,7 +413,7 @@ from 1 up to but not including 7.
 
 A generator is *unique*: it moves and is never copied. A copy would
 draw the same numbers as the original, so `b = a` is refused. Make a
-second generator on purpose with `(!a).fork()`:
+second generator on purpose with `!a.fork()`:
 
 ```rig reject
 use std.random
@@ -421,7 +421,7 @@ use std.random
 sub main()
   a = random.Random.seeded(7)
   b = a
-  print((!a).next() == (!b).next())
+  print(!a.next() == !b.next())
 ```
 
 ```error
@@ -532,7 +532,7 @@ sub main()!
   http.serve(<l, |+body, +hits, req|
     match req.path
       "/" => http.text(body)
-      "/hits" => http.text(String("hits ", (!hits).add(1)))
+      "/hits" => http.text(String("hits ", !hits.add(1)))
       _ => http.not_found()
   )!
 ```
@@ -578,8 +578,8 @@ sub main()
   m = Map[String, Int].new()
   !m.put(String("ada"), 1)
   print((!m).put_new(String("ada"), 2), m.get("ada"))
-  print((!m).replace(String("ada"), 3), m.get("ada"))
-  print((!m).take("ada"), m.len)
+  print(!m.replace(String("ada"), 3), m.get("ada"))
+  print(!m.take("ada"), m.len)
   name = String("bob")
   !m.put(<name, 4)
   print(m.get("bob"))
@@ -628,7 +628,7 @@ policy. **Words name the policy; sigils mark the mechanics.**
 | write, read, remove a file | `file.write(p, s)!`, `file.read(p)!`, `file.remove(p)!` |
 | read JSON | `json.parse(?src)!`, then `doc.kind(i)`, `doc.string(i)`, `doc.next(i)` |
 | count by key | `(!m).ensure(k, 0) += 1` |
-| keep each key once | `(!s).add(k)` |
+| keep each key once | `!s.add(k)` |
 | put in order | `sort.sort(!xs)`, `sort.sort_by(!xs, less)` |
 | time a step | `time.now()`, `t.elapsed()`, `time.within(d, f)` |
 | draw at random | `random.Random.seeded(n)`, `!r.shuffle(!xs)` |

@@ -41,10 +41,16 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Calls.lean` | Calls checked against an API's `from` and `keeps`, and why they are sound for any implementation within them |
 | `LambdaRig/Erase.lean` | API objects: erasing a type keeps its loans, and programs whose objects only calls reach |
 | `LambdaRig/Examples.lean` | Programs, whether the checker accepts each, and how each run ends |
+| `LambdaRig/Mono.lean` | `check_mono`: fewer names used later forbid less; `check_moved_fv`: a name a program does not use, it does not move |
+| `LambdaRig/Temps.lean` | A statement's temporary lent to a call: its views die by the statement's end |
+| `LambdaRig/TaskLoans.lean` | A task given `?y` or `!y`: its loan holds at whatever moments it runs, until it is waited for |
+| `LambdaRig/Stores.lean` | Views kept and stored, over values: what a result and a holder carry, at any depth |
+| `LambdaRig/Fields.lean` | An owned object's fields, partial moves, and the drop of the fields still held |
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
 | `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
 | `LambdaRig/Crossing.lean` | API objects crossing tasks: erasing keeps what a crossing check reads |
+| `LRig.lean` | `lrig`, an executable of λRig's `check` and `run`, for the agreement test |
 | `Models/Explore.lean` | An explicit-state model checker: every state a system of atomic steps reaches |
 | `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, steal, and the overflow |
 | `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, and the pinned queue's `idle` flag |
@@ -161,6 +167,118 @@ rejects and which, run all the same, stops at `deadTag`; print an object
 in place, which it rejects; and move a box into a `^{Shape}`, which
 keeps it and drops it once.
 
+**Statement temporaries** (Temps.lean). CORE §3: a value made where it
+is only read is a temporary, "dropped when the statement ends", and "a
+view of it may be used only within its statement"; a backtick template
+where a `?String` goes is one. `TProg` adds to Calls.lean's programs a
+call whose first argument is a temporary, `r = f(?e, args)` and
+`print(f(?e, args))`. `elab` runs it as CORE says: `e`'s value is held
+in a hidden place whose scope is the statement alone (`tempIn`), lent to
+read as a hidden view, and dropped before the next statement. `checkT`
+reads only the API's clauses. Two results:
+
+- **`temps_run`**: if `checkT` accepts a program and every
+  implementation meets clauses within its API's, the program runs to
+  the end without a fault, by `accepts_runs`: each temporary is dropped
+  once, where its statement ends, and no view of it is used after. The
+  step is `check_tempIn`: the temporary's scope checks as its use does,
+  when what the use gives views neither hidden name.
+- **`temp_from_rejected`**: a binding whose call's API is `from` the
+  temporary's position is rejected, since its result would view the
+  temporary after the statement ("a view of the temporary ... outlives
+  its statement").
+
+The examples: `r = pick(?^5, ra)` with `pick` `from` its second
+parameter runs; with `pick` `from` the first it is rejected, and run all
+the same it stops at `freed`; `print(pick(?^5, ra))` `from` the first,
+the result used within its statement, runs. `#guard_msgs` pins
+`temps_run`'s axioms to Lean's three.
+
+**Views kept and stored, over values** (Stores.lean). `within_live`
+proves `from` and `keeps` by argument position; this proves them of
+values. A value `V` is plain, a `Static`, a view carrying its loan and
+seeing a value, or an object of parts (a field's holder, a List, an
+optional) at any depth; it carries the loans of every view it holds or
+reaches (CORE 6: "wherever that view went: a field, an array, an
+optional, a closure, a result"). A body `B` builds a value from its
+arguments, from literals, and by reading a part of a value, where a read
+view an object holds is itself, carrying its own loans and not the
+holder's (CORE 7; `part_read_view`). A `Body` is a result and the values
+it stores, each at a path in what a write view parameter sees, checked
+against its clauses by the parameters each is built from
+(`Body.Meets`, the compiler's body check). The results:
+
+- **`carried_eval`**: every loan a body's value carries is carried by
+  an argument the body read;
+- **`body_records`**: for a body within clauses within the API's, the
+  loans its result carries are among those the caller records for the
+  API's `from`, and those of what it stores among those for `keeps`;
+- **`stores_live`**: so whatever the caller then does that its record
+  allows (`After`, Calls.lean) keeps every loan the result carries live,
+  and every loan the holder it stored into carries: a kept loan lasts
+  while the holder is used.
+
+The examples are CORE's `Cursor`, whose `next` hands out a view carrying
+the List's loan and not the cursor's, and `watch(!@, s) keeps s`, whose
+store of `s` meets `keeps s` and not an empty `keeps`. `stores_live` is
+pinned to Lean's three axioms.
+
+**Fields and partial moves** (Fields.lean). CORE §5, "A field of an
+owned object moves like a name", and sentence 3, "A partly moved name
+drops only the fields it still holds". An owned object is a tree of
+owners of heap cells, plain data, and objects of two fields, each
+marked when its type has a `drop` body. A program on one local is uses
+(`p.f`, `?p.f`, `!p.f`, or all of `p`), moves out (`<p.f`, `<p`), and
+assignments (`p.f = x`, `p = x`). `check` keeps the local's type with
+each moved field marked, the moved state per path: a use or a move
+touches its path, so nothing in it may be moved; a field that copies
+takes no `<`; no field of an object with a `drop` body moves; and an
+assignment refills a moved or partly moved path, not one inside a moved
+field. The machine runs the program on the tree, a moved field left
+`gone`, and where the scope ends drops the local and each value moved
+out, by its new owner; a `drop` body reads every field.
+
+- **`fields_run`**: a program `check` accepts runs without a fault: no
+  use of a moved field, no cell freed twice, no `drop` body that finds a
+  field moved, and no cell left. The invariant `Inv` says the cells
+  allocated are, once each, those the local and the moved values own;
+  `cells_set` and `dropO_ok` carry it through a move and an assignment.
+
+The examples are CORE's `Entry` (`<e.value`, `e.key`, `e.value = ...`,
+`<e`), which runs; `<e` while `e.value` is moved, and a use of `e.value`
+after it moved, which are rejected and stop at `moved`; and `<f.name` of
+a `File` with a `drop` body, rejected, whose drop finds the field moved.
+`fields_run` is pinned to Lean's three axioms.
+
+**Loans lent to a task** (TaskLoans.lean). concurrency.md, "Loans and
+structure": "A task keeps the loans of its arguments until it ends", and
+a task's drop uses its loans, so a task is waited for before its scope
+ends. `spawn t m y ss` is `t = g(?y)&` (or `g(!y)&`) with the
+statements `ss` beside it: the task's action, a read or a write through
+its view, stands after the last statement, where the task is waited
+for, which is the program the checker reads. `spawnAt t m y ss runs` is
+the same task run at the moments `runs` picks: before any statement,
+after the last, at several, or at none, as a task canceled before it
+ran. Three results:
+
+- **`spawn_any_moment`**: if `check` accepts `spawn`, it accepts
+  `spawnAt` for every `runs`, with the same type and moves. So no
+  statement beside a task ends its loan: none writes, moves, or drops
+  `y` while a task reads it, and none touches `y` while a task writes
+  it. The step is `weave_check`, over `check_mono`;
+- **`task_runs`**: from any machine the checker's facts match, the task
+  run at any moments runs without a fault (`sound`);
+- **`owner_task_runs`**: a program `y = e` then such a task, accepted,
+  runs to the end without a fault whichever moments the task runs at.
+
+The moments are the points between the scope's statements, each
+statement taken whole, and a task holds one loan. The examples: a read
+task beside the owner's own read, run at every moment, ends well; the
+owner writing, or dropping, beside a read task, and reading beside a
+write task, are rejected, and each run stops at `deadTag`; a write task
+waited for before the owner reads ends well. `#guard_msgs` pins
+`task_runs` and `owner_task_runs` to Lean's three.
+
 **`Examples.lean`**: eleven programs, each with whether `check` accepts
 it and how its run ends. Four are accepted and end well; seven are
 rejected, and each stops at the fault its rejection prevents.
@@ -276,7 +394,9 @@ free task. `#guard_msgs` pins the axioms: Lean's three for
 Not yet: `Tasks` sets, actors and channels (whose contents the crossing
 rule restricts), that dropping a handle cancels and waits (the model
 has a task wait before it ends instead), the deadlock walk, and
-unwinding to a boundary.
+unwinding to a boundary. The task machine carries no loans; the loans a
+task holds are proved over λRig, in TaskLoans.lean, for a task waited
+for at its scope's end.
 
 ## Model checks of the runtime
 
@@ -361,23 +481,57 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
 "Yield checks"). That handshake is checked by unit tests in
 `src/sched.zig`, not here.
 
+## Agreement with bin/rig
+
+`test/cli/agree.sh`, in the suite, runs bin/rig's checker and λRig's
+side by side. `rig-oracle --lambda` (test/oracle/lambda.zig) writes each
+program λRig can express (one `sub main()` of bindings, assignments,
+`<x`, and `print`, over integers, names, `<x`, `+x`, `^e`, `?x`, `!x`,
+and `+`) as λRig's forms, with the compiler's verdict on it, and says
+why it leaves each other program out. `lrig` (LRig.lean, built by `lake
+build`) runs `accepts` and `run` on each. A program the compiler accepts
+whose λRig run faults always fails the test; one the two checkers
+decide differently fails unless `test/oracle/agreement` lists it with
+its kind and class. The corpus is the cases of test/rig and examples/.
+On 2026-11-07, 22 programs were in scope, 20 decided alike, 2 rejected
+by the compiler alone for rules λRig does not have (an unread local,
+`none` as a name), none rejected by λRig alone, and none unsound.
+
 ## What is not proved
 
 - **That `bin/rig` agrees with `check`.** `check` is written for
   λRig, not taken from `src/ownership.zig`. It is stricter than
   `rig check` in places: it rejects a bare name of a box, which Rig
-  reads in place. The link
-  is stage 3's validator, or running λRig beside the oracle (below).
+  reads in place. The agreement test (below) checks the two on every
+  program of the corpus λRig can express; it tests, it does not prove,
+  and the exporter that writes Rig as λRig is trusted. The proved link
+  is stage 3's validator.
 - **That the emitted Zig does what λRig does.** Zig has no formal
   semantics; the test suite and the sanitizer stand in for it.
 - **Anything outside the slice:** objects, optionals, `List`,
   functions, `*T`, `~T`, `Cell`, loops.
+- **Temporaries beyond Temps.lean.** A temporary is lent to read, as
+  the first argument of one call; one lent to write (`!mk().pop()`), a
+  temporary a call keeps (`!p.watch(?t)`, which needs stores, Next, 4),
+  a header's temporaries, and the drop order of several in one statement
+  are not modeled. That `src/storage.zig` gives each temporary the
+  statement's scope is the compiler's part, held by the suite.
+- **Tasks beyond TaskLoans.lean.** A task holds one loan, of an owner in
+  scope, and is waited for where its scope ends; it moves nowhere. A
+  task returned with `from`, held in a `Tasks` set, or given a
+  temporary (rejected by the compiler: "a task cannot keep it"), the
+  order of drops and `defer`s at a scope's end (rule 2), a panic's
+  boundary (rule 4), and interleaving within a statement are not
+  modeled. That a read task sees one value whichever moment it runs is
+  not proved as such: it follows from the loan staying live, since every
+  way the machine changes a cell's value ends its read loans
+  (Machine.lean), but no theorem states it.
 - **Calls beyond the slice (docs/design/apis.md, Stage 3).** In
   `api_calls_run`, a method's parameters and result are read views and
   its body reads parameters and returns one; there are no write views,
   owners passed by value, or bodies of their own. `keeps` is proved
-  only for loans (`within_live`), since λRig stores no view where a
-  caller reaches it. A view's type names one owner, so `checkCall`
+  for loans (`within_live`) and over values (`stores_live`), not for
+  λRig programs, since λRig stores no view where a caller reaches it. A view's type names one owner, so `checkCall`
   accepts a `from` of several positions only when their arguments view
   one owner; `within_live` has no such limit. A call runs in place, as
   inlining runs it, which is what binding each read-view parameter to
@@ -407,13 +561,20 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
   not atomic stays on one thread; atomic counts themselves, and a
   `*{A}` carrying its value's loans to its last count, are not modeled,
   since λRig has no counted handles (Next, 5).
-- **Partial moves (CORE §5, "A field of an owned object moves like a
-  name").** λRig has no fields, so a field moved out of an owned
-  object, the per-path moved state, and the drop of only the fields
-  still held are not modeled; the oracle (`test/oracle/flow.zig`) tracks
-  them per path, and the sanitizer runs each case. The lemma waits for
-  objects with fields (Next, 1): a partly moved name used only where no
-  moved path overlaps the use, and dropped field by field.
+- **Partial moves beyond Fields.lean.** Fields.lean has one local,
+  not λRig's expressions: it has no loans on paths (`?p.a` beside `!p.b`,
+  CORE sentence 5's places), no optional field taken to `none`, no
+  parameter or capture, no branches (a field moved on one path and not
+  another), and objects of two fields, nested for more. The oracle
+  (`test/oracle/flow.zig`) tracks these per path, and the sanitizer runs
+  each case.
+- **Stores beyond Stores.lean.** A `V` may hold a write view in a part,
+  which CORE forbids ("Write views are not stored"); the results hold
+  without that rule, which they do not use. A view's write lend ending
+  as the call returns, the caller recording a write loan as a read one
+  (sentence 7), a value never holding a view of itself, and a call
+  through a function value (whose type names no `keeps`) are not
+  modeled.
 - **Bounds (docs/design/apis.md, Stage 2).** A body may copy a type
   parameter bounded `Copy`, so a proof that generic bodies keep the
   Core needs `Copy` to hold only of the kinds that copy: plain data and

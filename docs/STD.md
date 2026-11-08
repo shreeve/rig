@@ -545,7 +545,7 @@ use std.io
 sub main()!
   file.write("out/sync/f", "kept\n", parents: true)!
   if file.open("out/sync/f", wait: false)! as f
-    (!f).sync_data()!
+    !f.sync_data()!
     print(f.is_terminal())
   print(io.stdout().is_terminal())
   _ = file.remove("out/sync/f")!
@@ -575,8 +575,8 @@ sub copy(from: ?String, to: ?String)!
   if file.open(from)! as src
     dst = file.create(to, parents: true)!
     buf = String()
-    while (!src).read(!buf, 65536)! > 0
-      (!dst).write(buf)!
+    while !src.read(!buf, 65536)! > 0
+      !dst.write(buf)!
       !buf.clear()
 
 sub main()!
@@ -710,12 +710,12 @@ use std.io
 sub main()!
   out = io.stdout()
   err = io.stderr()
-  (!out).write("1 + 1 = ")!
+  !out.write("1 + 1 = ")!
   print(1 + 1)
-  (!err).write("checked\n")!
-  (!out).write("done")!
-  (!out).write("\n")!
-  (!out).flush()!
+  !err.write("checked\n")!
+  !out.write("done")!
+  !out.write("\n")!
+  !out.flush()!
 ```
 
 ```output
@@ -1029,11 +1029,11 @@ sub main()!
 | `connect(addr)!` | a `Stream` connected to `addr`, once the connection is made |
 | `l.accept()!` | the next connection, a `Stream`, once one comes; tasks that share the listener may each wait for one |
 | `l.port()` | the port it listens on, the one the system chose for port 0 |
-| `(!s).read(!into, max)!` | read up to `max` bytes onto the end of the String `into`, once any come: how many, or 0 once the other end has closed |
+| `!s.read(!into, max)!` | read up to `max` bytes onto the end of the String `into`, once any come: how many, or 0 once the other end has closed |
 | `!s.write(bytes)!` | write all of `bytes`, a `?String` |
 | `!s.batch(on)` | with `on`, the system may hold small writes and send them together; with `on` false, each is sent at once again |
 | `r, w = <s.split()` | the stream in two halves, a `Reader` and a `Writer`, which two tasks may own |
-| `(!r).read(!into, max)!` | a `Reader`'s read, as a stream's |
+| `!r.read(!into, max)!` | a `Reader`'s read, as a stream's |
 | `!w.write(bytes)!`, `!w.batch(on)` | a `Writer`'s write and batch, as a stream's |
 | `<w.close()` | end this side's writing (a half-close): the other end reads the end of the connection, while the `Reader` still reads |
 
@@ -1066,11 +1066,11 @@ fun echo(l: net.Listener) -> Int!
   buf = String()
   total = 0
   loop
-    n = (!c).read(!buf, 4096)!
+    n = !c.read(!buf, 4096)!
     if n == 0
       break
     total += n
-    (!c).write(?buf)!
+    !c.write(?buf)!
     buf = String()
   total
 
@@ -1079,10 +1079,10 @@ sub main()!
   port = l.port()
   t = echo(<l)&
   c = net.connect(String("127.0.0.1:", port))!
-  (!c).write("hello")!
+  !c.write("hello")!
   got = String()
   while got.len < 5
-    _ = (!c).read(!got, 100)!
+    _ = !c.read(!got, 100)!
   print(got)
   _ = <c
   print(>t!)
@@ -1103,14 +1103,14 @@ fun answer(l: net.Listener) -> Int!
   s = l.accept()!
   got = String()
   loop
-    if (!s).read(!got, 64)! == 0
+    if !s.read(!got, 64)! == 0
       break
-  (!s).write(String("got ", got.len))!
+  !s.write(String("got ", got.len))!
   got.len
 
 fun send(w: net.Writer) -> Int!
   new w = <w
-  (!w).write("ping")!
+  !w.write("ping")!
   <w.close()
   4
 
@@ -1123,7 +1123,7 @@ sub main()!
   s = send(<w)&
   back = String()
   loop
-    if (!r).read(!back, 64)! == 0
+    if !r.read(!back, 64)! == 0
       break
   print(back, >s!, >t!)
 ```
@@ -1175,10 +1175,10 @@ sub main()!
   port = l.port()
   t = serve(<l)&
   c = net.connect(String("127.0.0.1:", port))!
-  (!c).write("GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
+  !c.write("GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
   got = String()
   loop
-    n = (!c).read(!got, 4096)!
+    n = !c.read(!got, 4096)!
     if n == 0
       break
   print(?got[..15])
@@ -1394,9 +1394,9 @@ use std.random
 sub main()
   r = random.Random.seeded(2024)
   again = random.Random.seeded(2024)
-  print((!r).next() == (!again).next())
-  roll = (!r).int(1, 7)
-  print(roll >= 1 and roll <= 6, (!r).float() < 1.0)
+  print(!r.next() == !again.next())
+  roll = !r.int(1, 7)
+  print(roll >= 1 and roll <= 6, !r.float() < 1.0)
   deck = [1, 2, 3, 4, 5]
   !r.shuffle(!deck)
   total = 0
@@ -1673,16 +1673,16 @@ a Set.
 | `m.len` | `pub ?len: Int` | the number of entries: a field any code reads and only the Map's own methods write |
 | `m.has(k)` | `fun has(?@, k: ?K) -> Bool` | reads |
 | `m.get(k)` | `fun get(?@, k: ?K) -> (?V)? from @` | the view keeps `m` lent to read, not `k` |
-| `(!m).edit(k)` | `fun edit(!@, k: ?K) -> (!V)? from @` | keeps `m` lent to write |
+| `!m.edit(k)` | `fun edit(!@, k: ?K) -> (!V)? from @` | keeps `m` lent to write |
 | `!m.put(k, v)` | `sub put(!@, k: K, v: V)` | puts `v` under `k`, inserting or overwriting; the old value is dropped, and a key already there keeps its place and `k` is dropped |
-| `(!m).replace(k, v)` | `fun replace(!@, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
+| `!m.replace(k, v)` | `fun replace(!@, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
 | `(!m).put_new(k, v)` | `fun put_new(!@, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
-| `(!m).ensure(k, v)` | `fun ensure(!@, k: K, v: V) -> !V from @, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
-| `(!m).ensure_with(k, make)` | `fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped. The value `make` gives may view the key or what `make` captured, so a `V` that can hold a view (`(?String)?`, `List[?String]`) is refused ([SPEC "Generic bodies"](../SPEC.md#generic-bodies)): use a `V` that owns what it holds, or `edit` and `put`; the Map keeps nothing of `make` |
-| `(!m).ensure_by(k, key, v)` | `fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key` | as `ensure`, with the key viewed: `key(k)` makes the key to put only when `k` is new, so a count by a viewed key, `(!m).ensure_by(word, \|w\| +w, 0) += 1`, makes no key for a word already there; otherwise `key` is not called and `v` is dropped. The key `key(k)` makes must equal `k`: one that differs panics, since the Map would hold it where `k` was looked up. Where a key may view memory (`Map[?String, V]`), the Map keeps `k` lent; a key that owns its memory, a String or an Int, keeps nothing, though a named `k` is written `?k` |
-| `w, added = (!m).ensure_added(k, v)` | `fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
+| `!m.ensure(k, v)` | `fun ensure(!@, k: K, v: V) -> !V from @, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
+| `!m.ensure_with(k, make)` | `fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped. The value `make` gives may view the key or what `make` captured, so a `V` that can hold a view (`(?String)?`, `List[?String]`) is refused ([SPEC "Generic bodies"](../SPEC.md#generic-bodies)): use a `V` that owns what it holds, or `edit` and `put`; the Map keeps nothing of `make` |
+| `!m.ensure_by(k, key, v)` | `fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key` | as `ensure`, with the key viewed: `key(k)` makes the key to put only when `k` is new, so a count by a viewed key, `(!m).ensure_by(word, \|w\| +w, 0) += 1`, makes no key for a word already there; otherwise `key` is not called and `v` is dropped. The key `key(k)` makes must equal `k`: one that differs panics, since the Map would hold it where `k` was looked up. Where a key may view memory (`Map[?String, V]`), the Map keeps `k` lent; a key that owns its memory, a String or an Int, keeps nothing, though a named `k` is written `?k` |
+| `w, added = !m.ensure_added(k, v)` | `fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
 | `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry is gone since the entries were last compacted; else it counts the live entries before it, 64 at a time |
-| `(!m).take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped at once |
+| `!m.take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped at once |
 | `!m.clear()` | `sub clear(!@)` | drops every entry |
 | `?m.items()` | `fun items(?@) -> Items[K, V] from @` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) views `m` (`next(!@) -> Item[?K, ?V]? from @map`), and keeps it lent to read while it lives |
 | `?m.keys()`, `?m.values()` | `fun keys(?@) -> Keys[K, V] from @` | likewise, each a `?K` or a `?V` |
@@ -1691,7 +1691,7 @@ a Set.
 
 `Set[K]` has `Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
-is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`,
+is new; otherwise `k` is dropped), `!s.take(k: ?K) -> K?`,
 `!s.retain(f)` with `f: ?fun(?K) -> Bool`, `clear()`, and
 `?s.items()`, each key a `?K`.
 
@@ -1732,11 +1732,11 @@ fun twice(k: ?String) -> String
 sub main()
   made = Map[String, String].new()
   for w in ["ab", "cd", "ab"]
-    s = (!made).ensure_with(String(w), twice)
+    s = !made.ensure_with(String(w), twice)
     !s.add("+")
   again = Map[String, String].new()
   for w in ["ab", "cd", "ab"]
-    if (!again).edit(w) as s
+    if !again.edit(w) as s
       !s.add("+")
     else
       !again.put(String(w), String(w, w, "+"))
@@ -1758,7 +1758,7 @@ and `at` reads the entries by index, in the order they were put in:
 sub main()
   counts = Map[String, Int].new()
   for w in ["to", "be", "to"]
-    c, added = (!counts).ensure_added(String(w), 0)
+    c, added = !counts.ensure_added(String(w), 0)
     c += 1
     print(w, "is new") if added
   i = 0
@@ -1796,9 +1796,9 @@ sub main()
   !ages.put(String("bob"), 41)
   !ages.put(String("ada"), 37)
   print(ages.len, ages.get("ada"), ages.get("cy"))
-  if (!ages).edit("bob") as a
+  if !ages.edit("bob") as a
     a += 1
-  print((!ages).take("bob"), ages.has("bob"))
+  print(!ages.take("bob"), ages.has("bob"))
   name = String("cy")
   !ages.put(<name, 5)
   for e in ?ages.items()
@@ -1924,13 +1924,13 @@ sub main()
   !ages.put(String("ada"), 36)
   !ages.put(String("bo"), 5)
   !ages.put(String("ada"), 37)
-  _ = (!ages).take("bo")
-  if (!ages).edit("ada") as a
+  _ = !ages.take("bo")
+  if !ages.edit("ada") as a
     a += 1
   print(ages.len, ages.get("ada"), ages.get("bo"), ages)
   seen = HashSet[Int]()
   for n in [3, 1, 3, 2]
-    _ = (!seen).add(n)
+    _ = !seen.add(n)
   order: List[Int] = List()
   for n in ?seen.items()
     !order.push(n)
@@ -2056,7 +2056,7 @@ differently, and the bytes are copied whole. A length that is not
 a whole number of `$size(T)` panics. Bytes written `$embed(path)` at
 the call may also make `Bool`s and plain enums, since the compiler
 reads the file and checks each record's values, rejecting the program
-at the first that no `Bool` or variant holds. In a Linux release build,
+at the first that no `Bool` or variant holds. In a Linux or macOS release build,
 64 KiB or more of an embedded file added to an empty List is mapped from
 the program's file instead of copied: each page is read when first
 touched and copied for the List when first written, so a large table
@@ -2156,13 +2156,13 @@ obj Store
     Store(types: Table())
 
   fun add(!@, flags: U32, base: TypeId) -> TypeId
-    (!@types).push(Type(flags: flags, base: base))
+    !@types.push(Type(flags: flags, base: base))
 
 sub main()
   st = Store.new()
-  nil = (!st).add(0, 0)
-  int = (!st).add(1, nil)
-  list = (!st).add(2, int)
+  nil = !st.add(0, 0)
+  int = !st.add(1, nil)
+  list = !st.add(2, int)
   print(st.types[st.types[list].base].flags, st.types.len, Int(nil))
 ```
 
@@ -2364,7 +2364,7 @@ sub main()
     match s
       :get, :put => k = s
       _ => pass
-    n = (!counts).ensure(k, 0)
+    n = !counts.ensure(k, 0)
     n += 1
   for e in ?counts.items()
     print(e.key, e.key.text, e.value)
@@ -2455,7 +2455,7 @@ rest of the `?String`, whose `next` gives each part in turn, and `none`
 after the last. A `for` walks one ([SPEC §6](../SPEC.md#for)): a call's
 result is held for the loop, and a name is advanced in place, so a loop
 that `break`s leaves the rest to resume. The same loop is
-`while (!fields).next() as field`.
+`while !fields.next() as field`.
 
 ```rig
 use std.text
@@ -2676,7 +2676,7 @@ copied once. It finds a string as a Map finds a key.
 | Member | Signature | Ownership |
 |---|---|---|
 | `text.Interner()` | | an empty one |
-| `(!names).intern(s)` | `fun intern(!@, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
+| `!names.intern(s)` | `fun intern(!@, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
 | `names.id(s)` | `fun id(?@, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
 | `names.text(id)` | `fun text(?@, id: U32) -> ?String from @` | the text of `id`, viewed where the table holds it |
 | `names.len` | `pub ?len: Int` | how many strings it holds |
@@ -2687,10 +2687,10 @@ use std.text
 
 sub main()
   names = text.Interner()
-  a = (!names).intern("width")
-  b = (!names).intern("height")
+  a = !names.intern("width")
+  b = !names.intern("height")
   w = String("wid", "th")
-  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
+  print(a, b, !names.intern(?w), names.id("depth"), names.text(b), names.len)
 ```
 
 ```output
@@ -2724,7 +2724,7 @@ how runes fit with bytes, units, and chars.
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 | `Decoder.new() -> Decoder` | a streaming decoder, fed a byte at a time, for text that arrives in pieces; an ill-formed sequence reads as one `REPLACEMENT` per maximal subpart, as Unicode recommends and terminals do (Ghostty's DFA), where `rune_after` reads one per bad byte, as Go does | |
-| `(!d).next(b: U8) -> Int?` | the rune byte `b` completes, `REPLACEMENT` where a sequence is ill-formed, or `none` while one is under way; after a `REPLACEMENT` with `d.retry` true, feed `b` again, as the start of what follows | |
+| `!d.next(b: U8) -> Int?` | the rune byte `b` completes, `REPLACEMENT` where a sequence is ill-formed, or `none` while one is under way; after a `REPLACEMENT` with `d.retry` true, feed `b` again, as the start of what follows | |
 | `d.pending() -> Bool` | whether a sequence is under way | |
 
 **Building blocks.** Two functions serve the text modules, which share
@@ -3118,7 +3118,7 @@ before it returns.
 |---|---|
 | `json.parse(src: ?String) -> Doc!JsonError` | the document `src` holds, read whole into a new Doc's tape; fails with the first error |
 | `json.Doc() -> Doc` | an empty Doc, for `load` to fill again and again |
-| `(!doc).load(src: ?String)!JsonError keeps src` | read all of `src` into `doc`'s tape, reusing its lists, so a load allocates only when a list must grow; fails with the first error, leaving the tape empty |
+| `!doc.load(src: ?String)!JsonError keeps src` | read all of `src` into `doc`'s tape, reusing its lists, so a load allocates only when a list must grow; fails with the first error, leaving the tape empty |
 | `doc.len: Int` | the number of tape entries, a field only std.json writes |
 | `doc.kind(i: Int) -> Kind` | the entry at `i`: `null`, `bool`, `int`, `float`, `string`, `array`, `array_end`, `object`, or `object_end` |
 | `doc.bool(i: Int) -> Bool`, `doc.int(i: Int) -> Int`, `doc.float(i: Int) -> Float` | the value of a `bool`, `int`, or `float` entry |
@@ -3206,7 +3206,7 @@ sub main()
   doc = json.Doc()
   total = 0
   for src in ["[1]", "{\"a\": [true, null]}", "[1,]"]
-    (!doc).load(src) catch |e|
+    !doc.load(src) catch |e|
       print(e)
       continue
     total += doc.len
