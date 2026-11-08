@@ -179,3 +179,51 @@ fail "template over several lines slot spans lines", "a slot ends on its templat
 fail "text block mid-line stays rejected", "unexpected `\"abc\"`"
   s = """abc"""
   print(s)
+
+test "text block escapes are Zig's", "say \"hi\" \\\"x\\\" \\ end"
+  t = """
+    say \"hi\" \\"x\\\" \\ end
+    """
+  print(t)
+
+test "text block escapes in a module constant", "a\"b \\ c", whole: true
+  T = """
+    a\"b \\ c
+    """
+
+  sub main()
+    print(T)
+
+code "text block escapes in a test name", ".name = \"say \\\"q\\\"\"", whole: true
+  test """
+    say \"q\"
+    """
+    print(1)
+
+  sub main()
+    print(2)
+
+fail "text block escapes in a compile-time panic", "cap: \"big\"", whole: true
+  fun cap[n: Int] -> Int
+    if n > 4
+      panic("""
+        cap: \"big\"
+        """)
+    n * 2
+  X = cap[9]
+
+  sub main()
+    print(X)
+
+fail "text block in a slot spans lines", "a slot ends on its template's line"
+  fun size(s: ?String) -> Int
+    s.len
+  print(`a{size("""
+    xyz
+    """)}b`)
+
+fail "text block tab past its margin", "control character in a string"
+  s = '''
+      	cc
+    '''
+  print(s)

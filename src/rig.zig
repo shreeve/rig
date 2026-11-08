@@ -624,12 +624,25 @@ pub fn zigLiteral(a: std.mem.Allocator, text: []const u8) ![]const u8 {
         const b = Block.of(text, 3, @intCast(text.len - 3));
         var raw: std.Io.Writer.Allocating = .init(a);
         try b.write(&raw.writer, text, b.body, b.textEnd(text), true);
-        for (raw.written()) |c| {
-            if (text[0] == '"') switch (c) {
+        const bytes = raw.written();
+        var i: usize = 0;
+        while (i < bytes.len) : (i += 1) {
+            const c = bytes[i];
+            if (text[0] != '"') {
+                try writeZigByte(w, c);
+                continue;
+            }
+            switch (c) {
+                // An escape is Zig's own: it and the byte it escapes go
+                // through as written (`\"` stays `\"`).
+                '\\' => if (i + 1 < bytes.len) {
+                    try w.writeAll(bytes[i .. i + 2]);
+                    i += 1;
+                } else try w.writeByte(c),
                 '"' => try w.writeAll("\\\""),
                 '\n' => try w.writeAll("\\n"),
                 else => try w.writeByte(c),
-            } else try writeZigByte(w, c);
+            }
         }
     } else {
         var i: usize = 1;
@@ -2431,6 +2444,8 @@ pub const Lexer = struct {
         const src = self.base.source;
         const q = src[tok.pos];
         if (tok.len != 2 or tok.pos + 3 > src.len or src[tok.pos + 2] != q or !endsLine(src, tok.pos + 3)) return null;
+        // A slot stays on its template's line, a string in it too.
+        if (self.slot) |slot| return self.fail(.slot_line, slot.open);
         var p = tok.pos + 3;
         const close: u32 = while (p + 2 < src.len) {
             if (src[p] == q and src[p + 1] == q and src[p + 2] == q) break p;
@@ -2458,7 +2473,9 @@ pub const Lexer = struct {
             var p = line;
             while (p < block.close and src[p] == ' ') p += 1;
             const blank = p >= block.close or src[p] == '\n' or src[p] == '\r';
-            if (p < block.close and src[p] == '\t') return .{ .err = .block_tab, .pos = p };
+            // A tab past the margin is a raw control character, as in any
+            // string.
+            if (p < block.close and src[p] == '\t') return .{ .err = if (p - line < block.margin) .block_tab else .control_in_string, .pos = p };
             if (!blank and block.alone and p - line < block.margin) return .{ .err = .block_shallow, .pos = p };
             while (p < block.close and src[p] != '\n') : (p += 1) {
                 const c = src[p];
