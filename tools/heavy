@@ -2,7 +2,8 @@
 # tools/heavy CMD...: run CMD holding one of the repository's heavy slots,
 # so builds and Swarm runs from several worktrees or agents on one machine
 # go at most RIG_HEAVY_SLOTS at a time (default 2), in the order they
-# asked. Each slot is a directory in the repository's shared git
+# asked. A slot past the first is taken only while the machine's load is
+# under its CPU count, so a second job never piles onto a full machine. Each slot is a directory in the repository's shared git
 # directory, which every worktree sees: slot 0 is the lock a single-slot
 # copy of this script takes, so old and new copies share it. A holder
 # that died leaves its slot, and the next waiter clears it. The
@@ -31,6 +32,18 @@ first() {
 slot() {
     if (($1 == 0)); then echo "$L"; else echo "$L.$1"; fi
 }
+# Whether the one-minute load is under the CPU count.
+loadRoom() {
+    local load cpus
+    if [[ -r /proc/loadavg ]]; then
+        read -r load _ </proc/loadavg
+        cpus=$(nproc)
+    else
+        load=$(sysctl -n vm.loadavg | awk '{print $2}')
+        cpus=$(sysctl -n hw.ncpu)
+    fi
+    awk -v l="$load" -v c="$cpus" 'BEGIN { exit !(l < c) }'
+}
 S=
 while :; do
     for ((i = 0; i < N; i++)); do
@@ -40,6 +53,7 @@ while :; do
     done
     if [[ "$(first)" == "$T" ]]; then
         for ((i = 0; i < N; i++)); do
+            if ((i > 0)) && ! loadRoom; then break; fi
             s=$(slot $i)
             if mkdir "$s" 2>/dev/null; then S=$s; break; fi
         done
