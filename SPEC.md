@@ -539,7 +539,7 @@ typed, its outer spaces trimmed, then ` = `, then the value as it prints
 inside another value, so text is quoted and `none` is visible. Inside
 backticks a `"` needs no escape, and a literal brace or backtick is
 `\{`, `\}`, or `` \` ``; the other escapes are a `"…"` string's, which
-takes these three too.
+is to take these three too *(planned)*.
 
 Where a template stands decides what it becomes:
 
