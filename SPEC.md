@@ -527,6 +527,99 @@ sub main()
 type mismatch: expected `Static`, got `?String`
 ```
 
+#### Templates
+
+*(planned)* A template builds text from pieces: `` `n = {n}, {=total}` ``
+is fixed text with **slots** between braces. A slot takes exactly what
+an argument of `print` takes ([§17](#17-printing-and-stopping)); each is
+evaluated once, left to right, before any byte is written, and its
+value is written as `print` writes it, with no separators: a template
+writes what is typed. The show form `{=e}` writes the expression as
+typed, its outer spaces trimmed, then ` = `, then the value as it prints
+inside another value, so text is quoted and `none` is visible. Inside
+backticks a `"` needs no escape, and a literal brace or backtick is
+`\{`, `\}`, or `` \` ``; the other escapes are a `"…"` string's, which
+takes these three too.
+
+Where a template stands decides what it becomes:
+
+- an argument of `print`, `warn`, or `panic`: its pieces, written
+  straight to the output, with nothing allocated;
+- an argument of `String(...)` or `!t.add(...)`: its pieces, as that
+  call's arguments;
+- where a `?String` is expected: a temporary of its statement
+  ([§7](#temporaries)), built in 256 bytes of the caller's stack and
+  then on the heap, and freed when the statement ends, so a view of it
+  cannot outlive the statement;
+- where a `String` is expected (a binding, a field, an element, a
+  return, an owning parameter): a new String, one allocation of its
+  length.
+
+Anywhere else, such as an operand of `==` or the object of `.len`, a
+template is rejected. A template whose every slot is a constant is
+built when the program is compiled.
+
+```rig pending
+use std.text
+
+obj User
+  name: String
+  age: Int
+
+fun label(u: ?User) -> String
+  `{u.name} ({u.age})`
+
+sub main()
+  first = "ada"
+  n = 3
+  print(`{first} has {n} tasks`, "!")
+  u = User(name: `{first} lovelace`, age: 36)
+  print(label(?u), text.trim(`  {u.age}  `).len)
+  t = String("[")
+  !t.add(`{n}, {n * 2}`, "]")
+  print(t, `{=first} {=n * 2}`)
+  o: Int? = none
+  print(`{=o} "quoted" \{braces\}`)
+```
+
+```output
+ada has 3 tasks !
+ada lovelace (36) 2
+[3, 6] first = "ada" n * 2 = 6
+o = none "quoted" {braces}
+```
+
+A template that reads the binding it assigns would copy all of its text
+on every step of a loop, so it is rejected; `!s.add(...)` appends in
+place. A view of a temporary template may not outlive its statement.
+
+```rig pending
+sub main()
+  s = `{1 + 1}`
+  for i in 0..3
+    s = `{s}{i}`
+  print(s)
+```
+
+```error
+this template reads `s`, the binding it assigns, so it copies all of `s` each time; append in place with `!s.add(...)`
+```
+
+A template has a slot: fixed text is written `"…"`. A slot holds an
+expression: an empty slot `{}`, a slot of only a literal (`{0}`), a `:`
+outside brackets (formatting is a method's job), a `#`, and a template
+in a slot are each rejected, as are a name touching a backtick and two
+backticks together, which are kept for later forms.
+
+```rig pending
+sub main()
+  print(`no slots here`)
+```
+
+```error
+a template has a slot; fixed text is written in double quotes, `"…"`
+```
+
 ### Arrays
 
 `[N]T` is a fixed-size array. Its length is known at compile time: an
@@ -10048,9 +10141,10 @@ String. A `?String` is the view of text; a String is where text is built.
 Each value is written as `print` writes it at the top level: a `?String`
 or a String as its text, a number as `print` shows it, an object, enum,
 optional, array, or List as `print` writes it, with the `?String` values inside
-it quoted. Rig has no `+` on text and no interpolation: text is built
-with `String(...)` and `!t.add(...)`, and every change to a String is
-written with `!`.
+it quoted. Rig has no `+` on text: text is built with `String(...)`,
+`!t.add(...)`, and *(planned)* a template where a String goes
+(`` u.name = `{first} {last}` ``, [Templates](#templates)), and every
+change to a String is written with `!`.
 
 ```rig
 obj Point
@@ -12935,7 +13029,9 @@ writes the same line to stderr, and `panic(a, b, ...)` writes it to
 stderr and ends the program ([below](#panic)). They take values by
 position only: a keyword argument is rejected. `print` and `warn` are
 only special as direct calls; they are not values, and a declaration
-may hide either. `panic` is a keyword.
+may hide either. `panic` is a keyword. *(planned)* A template argument,
+`` print(`{a}, {b}`) ``, is written as its pieces, with no spaces but
+those it holds and nothing allocated ([Templates](#templates)).
 
 | Value | Printed as |
 |---|---|
