@@ -127,6 +127,10 @@ const Worker = struct {
     sp: usize = 0,
     current: ?*Fiber = null,
     after: ?After = null,
+    /// The running fiber's code runs on this worker's own stack now
+    /// (`onWorkerStack`), and the fiber's stack pointer where it left.
+    on_own_stack: bool = false,
+    back_sp: usize = 0,
     ring: Ring = .{},
     /// The fibers to run next: the ones this worker's fibers last made
     /// ready, still in cache, in a circle whose newest is at `lifo_head`.
@@ -2925,6 +2929,7 @@ fn stopIn(after: After) void {
     // over waits for its end the usual way (`Header.wait`).
     f.handoff = null;
     w.after = after;
+    checkOffOwnStack(w);
     switchTo(&f.sp, w.sp);
     checkHome(f);
 }
@@ -4009,27 +4014,99 @@ pub fn block(b: *const Blocked) void {
     if (leadsOn(b)) walkFrom(f, b);
 }
 
-/// `block`'s walk, run on the worker's own stack (`walkOn`): its 16 KiB
-/// of waits, steps and message would otherwise sit on the fiber's, which
-/// only needs room for this frame. The worker's stack below the point it
-/// switched to the fiber is unused while the fiber runs. The walk holds
-/// the graph's lock, so no signal stops the fiber meanwhile (`lockGraph`).
-noinline fn walkFrom(f: *Fiber, b: *const Blocked) void {
-    const WalkCall = struct {
-        f: *Fiber,
-        b: *const Blocked,
-        text: ?[]const u8 = null,
+/// Call `f(args)` on the running fiber's worker's own stack, below the
+/// point it switched to the fiber (`Worker.sp`), unused while the fiber
+/// runs, as Go's `systemstack` does: code whose stack the fiber's could
+/// not bound runs there instead (docs/history/records/2026-11/task-memory/
+/// cold-paths.md). The rules:
+///
+/// 1. No signal stops the fiber while `f` runs (`holdOff`): a stop would
+///    save its context inside the worker's own frames.
+/// 2. `f` never parks, yields, or switches fibers: the worker's loop would
+///    reuse the stack under it. A safe build panics if it tries
+///    (`checkOffOwnStack`).
+/// 3. A panic in `f` goes back to the fiber's stack first and panics
+///    there (`panicOnFiberStack`).
+/// 4. Called from code already on the worker's stack, and off a worker
+///    or outside a fiber (an after-hook, `main` before the scheduler),
+///    `f` runs where it is.
+pub fn onWorkerStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
+    const w = me() orelse return @call(.auto, f, args);
+    if (w.current == null or w.on_own_stack) return @call(.auto, f, args);
+    const OnWorker = struct {
+        args: @TypeOf(args),
+        result: R = undefined,
 
         fn run(p: *anyopaque) callconv(.c) void {
             const c: *@This() = @ptrCast(@alignCast(p));
-            c.text = walkOn(c.f, c.b);
+            c.result = @call(.auto, f, c.args);
         }
     };
-    var call: WalkCall = .{ .f = f, .b = b };
+    var call: OnWorker = .{ .args = args };
+    if (preempt) holdOff();
+    w.back_sp = (stackPointer() - 256) & ~@as(usize, 15);
+    w.on_own_stack = true;
     // Below the worker's saved registers, past a red zone, 16-aligned.
-    const top = (me().?.sp - 256) & ~@as(usize, 15);
-    rt.switchStack(&call, &WalkCall.run, top);
-    if (call.text) |t| {
+    rt.switchStack(&call, &OnWorker.run, (w.sp - 256) & ~@as(usize, 15));
+    w.on_own_stack = false;
+    if (preempt) holdOn();
+    return call.result;
+}
+
+/// The stack pointer here.
+inline fn stackPointer() usize {
+    return switch (builtin.cpu.arch) {
+        .aarch64 => asm volatile ("mov %[sp], sp"
+            : [sp] "=r" (-> usize),
+        ),
+        .x86_64 => asm volatile ("mov %%rsp, %[sp]"
+            : [sp] "=r" (-> usize),
+        ),
+        else => @frameAddress(),
+    };
+}
+
+/// Rule 2 of `onWorkerStack`: in a safe build, a fiber that would switch
+/// away while its code runs on the worker's stack panics.
+inline fn checkOffOwnStack(w: *Worker) void {
+    if (std.debug.runtime_safety and w.on_own_stack) parkedOnOwnStack();
+}
+
+fn parkedOnOwnStack() noreturn {
+    @branchHint(.cold);
+    @panic("rig: a task waited or switched away while on its worker's stack (sched.onWorkerStack)");
+}
+
+/// Rule 3 of `onWorkerStack`: a panic that finds the running fiber's code
+/// on its worker's stack calls `f(args)` on the fiber's own stack instead,
+/// below where it left, never to come back: the worker's stack under
+/// `Worker.sp` is scratch, and the panic goes on as one on the fiber's
+/// stack would. Returns when the code is not on the worker's stack.
+pub fn panicOnFiberStack(comptime f: anytype, args: anytype) void {
+    const w = me() orelse return;
+    if (!w.on_own_stack) return;
+    w.on_own_stack = false;
+    if (preempt) holdOn();
+    const Again = struct {
+        args: @TypeOf(args),
+
+        fn run(p: *anyopaque) callconv(.c) void {
+            const c: *@This() = @ptrCast(@alignCast(p));
+            @call(.auto, f, c.args);
+        }
+    };
+    var call: Again = .{ .args = args };
+    rt.switchStack(&call, &Again.run, w.back_sp);
+    unreachable;
+}
+
+/// `block`'s walk, on the worker's own stack (`onWorkerStack`): its
+/// 16 KiB of waits, steps and message would otherwise sit on the
+/// fiber's. The walk holds the graph's lock, so no signal stops the fiber
+/// meanwhile (`lockGraph`).
+noinline fn walkFrom(f: *Fiber, b: *const Blocked) void {
+    if (onWorkerStack(walkOn, .{ f, b })) |t| {
         unblock();
         @panic(t);
     }
@@ -4479,6 +4556,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     w.current = f;
     w.ran += 1;
     if (f.home != null) w.ran_pinned += 1;
+    checkOffOwnStack(w);
     switchTo(&waiter.sp, f.sp);
     // Back: the task ended straight back here, or stopped and later ended
     // the usual way, or a cancel woke this fiber first.
@@ -5073,6 +5151,7 @@ noinline fn runApartApart(home: *usize, arg: *anyopaque, entry: *const fn (*anyo
 }
 
 fn runApartIn(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
+    if (me()) |w| checkOffOwnStack(w);
     const s = takeStack();
     const state = rt.task();
     const guard = state.stack_guard;
@@ -5254,6 +5333,117 @@ test "a worker's surplus of free stacks waits on the spare list, then goes back 
     try std.testing.expectEqual(@as(u32, Run.n), Run.spare_before + Run.kept);
     try std.testing.expectEqual(@as(u32, spare_per_worker), Run.spare_after);
     try std.testing.expectEqual(@as(usize, Run.kept + spare_per_worker), Run.mapped);
+}
+
+/// Run `run` in a child process: whether a signal ended it, its exit
+/// status, and what it wrote to stderr (into `err`).
+fn inChild(comptime run: fn () void, err: []u8) !struct { signaled: bool, code: u8, stderr: []u8 } {
+    const sys = std.posix.system;
+    var fds: [2]std.posix.fd_t = undefined;
+    if (std.posix.errno(sys.pipe(&fds)) != .SUCCESS) return error.PipeFailed;
+    const pid = sys.fork();
+    if (pid == 0) {
+        _ = sys.dup2(fds[1], std.posix.STDERR_FILENO);
+        run();
+        sys.exit(0);
+    }
+    _ = sys.close(fds[1]);
+    var n: usize = 0;
+    while (n < err.len) {
+        const got = std.posix.read(fds[0], err[n..]) catch break;
+        if (got == 0) break;
+        n += got;
+    }
+    _ = sys.close(fds[0]);
+    var status: if (builtin.target.os.tag == .linux) u32 else c_int = 0;
+    if (builtin.target.os.tag == .linux) {
+        if (std.posix.errno(sys.waitpid(@intCast(pid), &status, 0)) != .SUCCESS) return error.WaitFailed;
+    } else if (sys.waitpid(pid, &status, 0) != pid) return error.WaitFailed;
+    const st: u32 = @bitCast(@as(i32, @intCast(status)));
+    return .{ .signaled = st & 0x7f != 0, .code = @truncate(st >> 8), .stderr = err[0..n] };
+}
+
+test "onWorkerStack runs its function on the worker's stack, and in place when nested or off a worker" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var fiber_at: usize = 0;
+        var worker_at: usize = 0;
+        var nested_at: usize = 0;
+        var off_at: usize = 0;
+        fn nested() usize {
+            return @frameAddress();
+        }
+        fn onWorker(k: usize) usize {
+            nested_at = onWorkerStack(nested, .{});
+            return @frameAddress() + k;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            fiber_at = @frameAddress();
+            worker_at = onWorkerStack(onWorker, .{@as(usize, 0)});
+        }
+        fn here() usize {
+            return @frameAddress();
+        }
+    };
+    runForTest(Run.first, 1);
+    const apart = struct {
+        fn by(a: usize, b: usize) usize {
+            return if (a > b) a - b else b - a;
+        }
+    };
+    // A fiber's stack and its worker's are separate mappings, far apart.
+    try std.testing.expect(apart.by(Run.worker_at, Run.fiber_at) > 1 << 20);
+    try std.testing.expect(apart.by(Run.nested_at, Run.worker_at) < 64 << 10);
+    Run.off_at = onWorkerStack(Run.here, .{});
+    try std.testing.expect(apart.by(Run.off_at, @frameAddress()) < 64 << 10);
+}
+
+test "a task that would wait while on its worker's stack panics, in a safe build" {
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        fn waits() void {
+            yield();
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            onWorkerStack(waits, .{});
+        }
+        fn child() void {
+            runForTest(first, 1);
+        }
+    };
+    var buf: [4096]u8 = undefined;
+    const got = try inChild(Run.child, &buf);
+    try std.testing.expect(got.signaled);
+    try std.testing.expect(std.mem.indexOf(u8, got.stderr, "while on its worker's stack") != null);
+}
+
+test "a panic on the worker's stack goes on on the fiber's own" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var fiber_at: usize = 0;
+        fn goesOn() void {
+            const here = @frameAddress();
+            const d = if (here > fiber_at) here - fiber_at else fiber_at - here;
+            // Back on the fiber's stack, just below where it left; and no
+            // longer counted as on the worker's.
+            std.posix.system.exit(if (d < 64 << 10 and !me().?.on_own_stack) 42 else 43);
+        }
+        fn panics() void {
+            panicOnFiberStack(goesOn, .{});
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            fiber_at = @frameAddress();
+            onWorkerStack(panics, .{});
+        }
+        fn child() void {
+            runForTest(first, 1);
+        }
+    };
+    var buf: [256]u8 = undefined;
+    const got = try inChild(Run.child, &buf);
+    try std.testing.expect(!got.signaled);
+    try std.testing.expectEqual(@as(u8, 42), got.code);
 }
 
 test "many workers run many fibers, each waited for, and their results add up" {
