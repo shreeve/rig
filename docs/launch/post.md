@@ -231,10 +231,11 @@ and a 22-core Linux machine ([benchmarks.md](benchmarks.md)):
   second against 179,000). On Linux, 830,000 a second against hyper's
   297,000 and Go's 235,000, with the load generator on the same
   machine. We would like others to reproduce that one.
-- **Memory:** a task holds at least one page of stack, so it costs
-  17 KiB on the Mac and 5.2 KiB on Linux, against about 300 bytes in
-  Tokio. An idle HTTP connection holds no buffers, though, and costs
-  17.0 KiB on the Mac and 9.2 KiB on Linux, less than Tokio's or Go's.
+- **Memory:** a task holds at least one page of stack and a page
+  table for it, so it costs 32.7 KiB on the Mac and 8.9 KiB on Linux,
+  against about 300 bytes in Tokio and 2.9 KiB in Go. An idle HTTP
+  connection holds no buffers, so its resident memory is under hyper's
+  and Go's, but with its page table it costs more than hyper's.
 
 ## What is new, and what is not
 

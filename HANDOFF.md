@@ -106,6 +106,12 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Language review fixes** (draft PR, branch `language-review-fixes`):
+  from the 2026-11-08 language review, nothing is written through a
+  `!?T` (an element of `for x in !vv` over a `List[?T]`), a view of a
+  module constant held in an object or array is a run-time value, and
+  SPEC names the slots that make a template fixed text (Int, Bool,
+  `Static`). Gates green on the Mac; the owner merges.
 - **Small stacks, step 2: the cheap fixes** (draft PR, branch
   `cheap-fixes`; the panel's order is
   [records/2026-11/task-memory/small-stacks.md](docs/history/records/2026-11/task-memory/small-stacks.md)):
@@ -154,8 +160,10 @@ A new session, human or agent, takes these steps in order:
   arm64 macOS in this change, for a program that makes tasks and no
   local task (docs/internals/scheduler.md, "Preemption"). Yield checks
   stay on other targets, in Linux debug builds, for local tasks, in
-  `rig test`, and in the test runner's batch packs; a pack mode that
-  preempts packs with no seeded case comes before v0.3.1. The coverage
+  `rig test`, and in the test runner's packs of seeded cases; its
+  other packs are preempted, as each program would be built alone
+  (`rig batch build --preempt`; `RIG_PACK_PREEMPT=0` turns it off), at
+  no cost to the core's time on the Mac. The coverage
   gate is `test/cli/preempt_cover.sh`. On pup, signal against the
   yield checks on Trig is 1.3-3.3% faster with 3.8-4.6% fewer
   instructions at one checker, 4.0-6.4% fewer at many; fork-join's psum

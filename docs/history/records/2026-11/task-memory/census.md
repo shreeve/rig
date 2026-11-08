@@ -26,6 +26,10 @@ only: nothing in the runtime uses it yet. The tool is
   - macOS's thread-local getters, counted as an axiom of 256 bytes;
   - a global's function pointer, and a vtable that a global holds, by the global's value in the file;
   - x86-64 jump tables.
+- **The program's code** is `__text` and `rig_text` (`__rig_text` on Mach-O, a section with no instruction attributes, read by name), where a preempted build puts the program's functions, each called through `rig.runtime.inCode`.
+- **Spills.** A function's address spilled to the stack is kept by its place in the frame, and forgotten after any other store to the stack, and after any store or call once an address in the frame has left sp and the frame pointer.
+- **A call through a `FnRef`** (the innermost inlined frame `rig.runtime.FnRef(T).call`) takes the thunks of `FnRef(T)`'s `of`, `ofFn` and `ofClosure`. That rests on a fact checked in Rig's source (`--rig-src`, by default the tool's checkout): only those three set `call_fn`. Where the fact does not hold, or the source cannot be read, the call stays one through a pointer.
+- **`clone`** (Zig's, on Linux): the branch its syscall takes in the child runs on the new thread's stack, so the walk leaves it out, in that function's exact shape only.
 - **The two switch functions** (`switchNaked`, `switchStackNaked`) count only what they push before they leave the stack.
 - **The stack probe** (`zig_probe_stack`) counts 16 bytes, since its caller reserves the frame itself.
 - **Other calls through a vtable's slot** take every function at that slot or after in any run of function pointers in the data. That is sound over the data's vtables, and coarse. A call through a pointer with no slot takes every function whose address the program takes.
@@ -111,12 +115,44 @@ bench/tasks, release, on pup:
 
 So 6 of the 9 task types are bounded on pup, all of them by direct calls alone. The 2.3 KiB rows are the poller's service: `Poller.poll` is a 2,208 B frame, which item 1 moves.
 
+## Third pass: `__rig_text`, `FnRef` calls, and what blocks the rest (2026-11-08)
+
+With preemption by signal the default, the program's code on the Mac moved to `__rig_text`, which `objdump -d` passes over, and every task that called into it read as a call into the middle of a function: 1 of 9 bench/tasks types bounded, none in bench/http or bench/actors. Reading the section by name, and the rules above, give, in release builds (`--release=fast`):
+
+| task | Mac (arm64) | pup (x86-64) |
+|---|---|---|
+| spawn's tiny task | 704 B | 600 B |
+| `spin`, `even_chunk`, `skew_chunk`, `yielder` | 704 B | 616 B |
+| `nap` | 720 B | 616 B |
+| `alloc_chunk` | unknown: writers | unknown: writers |
+| a `par.map` closure's task (`FnRef`) | unknown: writers | unknown: writers |
+| `tree` | unknown: writers, then recursion | unknown: writers, then recursion |
+| bench/http's connection | unknown: writers | unknown: writers |
+| bench/actors' two | unknown: writers | unknown: writers |
+
+So 6 of bench/tasks' 9 types are bounded on each machine. The poller's service no longer runs on the task's stack: pup's 2,296 B rows of the second pass are 616 B.
+
+**Writers, and allocators, are what blocks every other task.** Formatting (`String(...)`, `print` of a value, `fmt.bufPrint`) calls `Io.Writer.writeSplat`, whose drain goes through the writer's vtable, and the type rule takes every `Io.Writer` vtable in the program. Two of those recurse in their own code, so no rule by type can bound them:
+- **`Io.File.Writer.drain` → `seekTo` → `defaultFlush` → `drain`,** on the same writer. Std's `Io.Threaded` holds a `File.Writer` for stderr in its own data, so the vtable is in every program, whatever Rig's stdout writer is. A vtable of Rig's own for stdout leaves every row as it is, which was measured, and is not built.
+- **`heap.ArenaAllocator.alloc` → its child's `alloc`,** through `mem.Allocator`'s vtable, which `Io.Writer.Allocating.drain` reaches.
+
+Bounding them needs the call resolved by its writer, not its type: which vtable the object passed to `writeSplat` holds, followed from where it is made (a `Spill` on `String.ofPieces`'s stack, `fmt.bufPrint`'s fixed writer) through the calls it is passed to. That rests on an axiom, that an object's `vtable` is written only when the object is made, which is the owner's decision. Two runtime changes go with it, since under it each still recurses: `Spill.drain` copying in place of calling `writeSplat`, and stdout's writer with a vtable of its own.
+
+The `par.map` row's `FnRef` resolves, and `tree`'s `clone` (pup); each row stays unknown through the writers alone. bench/tasks' three closures share one `FnRef` type, so the row takes `alloc_chunk`'s. A program whose closures format nothing has its `par.map` task bounded (`test/cli/stack_census.sh`).
+
+What the writers hide, as a what-if with them cut (`--cold` on `Io.Writer.writeSplat`, `Io.File.Writer.drain` and `Io.Writer.Allocating.drain`, on the Mac):
+- `alloc_chunk` 4,112 B and the `par.map` closure 4,192 B. `String(...)` renders into a 4 KiB buffer on the task's stack (`rendered_stack`), so a task that builds text takes at least the 8 KiB class while that buffer is there.
+- `tree` stays unknown: it calls itself (`tree` → `tree`), and an allocator through the arena's recursion. A task that waits on another also meets `sched.sortStacks`'s recursion, a merge sort, through `waitEndApart` → `endStack` → `trimSpare`, on its own stack.
+
+Trig was not measured in this pass: its checkers take the large class by their frames alone (125 KiB in one).
+
 ## Running it
 
 ```sh
 tools/stack-census.py EXE              # the table of task types, and the largest frames
 tools/stack-census.py EXE --json F     # also every function's frame, to F
 tools/stack-census.py EXE --cold RE    # what-if: functions matching RE run off the task's stack
+tools/stack-census.py EXE --rig-src D  # the Rig checkout whose runtime built EXE, for the FnRef fact
 ```
 
 It needs `llvm-objdump` (`/usr/lib/llvm-22/bin` on pup), and `atos` (macOS) or `llvm-symbolizer` (Linux) to name the tasks. bench/tasks takes under a second, and Trig about a minute.

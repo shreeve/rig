@@ -1795,6 +1795,64 @@ bomb "a read view of a module constant is read at run time", "integer overflow"
     p = ?top
     print(p[0] + 1)
 
+bomb "a read view of a module constant held in an object is read at run time", "integer overflow"
+  # A view held, not copied out, is the constant's address, which Zig
+  # knows when it compiles: the object holding it is a run-time value.
+  top = [9223372036854775807, 0]
+
+  obj P
+    a: ?[2]Int
+
+  sub main()
+    p = P(a: ?top)
+    print(p.a[0] + 1)
+
+bomb "a read view of a module constant held in an array is read at run time", "integer overflow"
+  top = [9223372036854775807, 0]
+
+  sub main()
+    p = [?top, ?top]
+    print(p[1][0] + 1)
+
+bomb "a read view of a module constant held in a nested object is read at run time", "integer overflow"
+  top = [9223372036854775807, 0]
+
+  obj P
+    a: ?[2]Int
+
+  obj Q
+    p: P
+
+  sub main()
+    r = Q(p: P(a: ?top))
+    print(r.p.a[0] + 1)
+
+bomb "a read view of a module constant in a temporary object is read at run time", "integer overflow"
+  top = [9223372036854775807, 0]
+
+  obj P
+    a: ?[2]Int
+
+  sub main()
+    print(P(a: ?top).a[0] + 1)
+
+bomb "a read view of a module constant in an optional is read at run time", "integer overflow"
+  top = [9223372036854775807, 0]
+
+  sub main()
+    o: (?[2]Int)? = ?top
+    print((o ?? ?top)[0] + 1)
+
+bomb "a read view of a module constant held in an object in an array is read at run time", "integer overflow"
+  top = [9223372036854775807, 0]
+
+  obj P
+    a: ?[2]Int
+
+  sub main()
+    xs = [P(a: ?top)]
+    print(xs[0].a[0] + 1)
+
 test "a field of a moved or cloned temporary", "5 6 7 1"
   obj User
     age: Int

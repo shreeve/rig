@@ -557,8 +557,15 @@ Where a template stands decides what it becomes:
   length.
 
 Anywhere else, such as an operand of `==` or the object of `.len`, a
-template is rejected. A template whose every slot is a constant is
-built when the program is compiled.
+template is rejected.
+
+A template whose every slot is an Int, a Bool, or a `Static` known when
+the program is compiled is **fixed text**, a `Static` built then: it
+may stand where a `Static` goes, where a `?String` goes it needs no
+temporary, and a module's constant may be one. A slot of any other
+kind, a Float, an enum, or a show slot `{=e}` among them, is written
+as the program runs, even when its value is a constant, so a template
+holding one is not fixed text.
 
 ```rig
 use std.text

@@ -7761,11 +7761,7 @@ pub fn start(init: std.process.Init.Minimal) void {
     }
     if (traps_sent) installTrapHandler();
     if (cancels_on_interrupt) cancelOnInterrupt();
-    if (makes_tasks) handlersOnAltStack();
-    // The backend that runs tasks, set up after that handler, which it
-    // saves and puts back when `finish` joins it. Its own allocations are
-    // outside the leak count.
-    if (makes_tasks) threaded.* = .init(std.heap.smp_allocator, .{ .argv0 = .init(init.args), .environ = init.environ });
+    if (makes_tasks) startBackend(threaded, .{ .argv0 = .init(init.args), .environ = init.environ });
     // `RIG_SEED=n`, as `rig test` sets it: run deterministically, with a
     // virtual clock and seed `n` (`sched.deterministic`).
     if (init.environ.getPosix("RIG_SEED")) |v| {
@@ -7821,6 +7817,31 @@ fn handlersOnAltStack() void {
     if (std.posix.Sigaction == void) return;
     inline for (.{ "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM", "CHLD", "CONT", "TSTP", "TTIN", "TTOU", "URG", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "SYS" }) |name| {
         if (@hasField(std.posix.SIG, name)) onAltStack(@field(std.posix.SIG, name));
+    }
+}
+
+/// Set up `t`, the backend that runs tasks (`threaded`), after the
+/// runtime's SIGPIPE handler, which it saves and puts back when `finish`
+/// joins it. Its own allocations are outside the leak count. It installs
+/// handlers of its own, for SIGIO and SIGPIPE, without `SA_ONSTACK`, so
+/// every handler is put on the alternate stack after it
+/// (`handlersOnAltStack`).
+fn startBackend(t: *std.Io.Threaded, options: std.Io.Threaded.InitOptions) void {
+    t.* = .init(std.heap.smp_allocator, options);
+    handlersOnAltStack();
+}
+
+test "the handlers the task backend installs run on the alternate stack" {
+    if (std.posix.Sigaction == void or builtin.single_threaded) return error.SkipZigTest;
+    var t: std.Io.Threaded = undefined;
+    startBackend(&t, .{});
+    defer t.deinit();
+    inline for (.{ "PIPE", "IO" }) |name| {
+        if (@hasField(std.posix.SIG, name)) {
+            var now: std.posix.Sigaction = undefined;
+            std.posix.sigaction(@field(std.posix.SIG, name), null, &now);
+            try std.testing.expect(now.flags & std.posix.SA.ONSTACK != 0);
+        }
     }
 }
 

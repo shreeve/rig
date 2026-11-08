@@ -728,8 +728,9 @@ views and loans of the earlier chapters keep tasks from racing.
 
 ## What is not there yet
 
-A task holds at least one page of stack, about 17 KiB on the Mac and
-5.2 KiB on Linux, against about 300 bytes in Tokio. A cycle through a
+A task holds at least one page of stack and a page table for it, about
+32.7 KiB on the Mac and 8.9 KiB on Linux, against about 300 bytes in
+Tokio and 2.9 KiB in Go. A cycle through a
 channel, or through a full mailbox, is not reported. Networking has no
 TLS or HTTP client yet.
 

@@ -248,9 +248,13 @@ overflow for frames that fit.
 
 A free stack's link in its worker's list is kept at its top, on the page
 the next fiber touches anyway, so a sleeping task holds one page of its
-stack and its record: about 17 KiB on the Mac, whose pages are 16 KiB,
-and 5.2 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
-Go's about 3 KiB (`bench/tasks`, `memory`).
+stack and its record: about 17 KiB of resident memory on the Mac, whose
+pages are 16 KiB, and 5.2 KiB on pup's Linux (`bench/tasks`, `memory`).
+Each stack's range of address space is far enough from the next that it
+also has a page table of its own, so counted as the kernel counts it a
+sleeping task holds 32.7 KiB on the Mac and 8.9 KiB on pup, where
+Tokio's task holds about 300 bytes and Go's about 3 KiB
+([SCALING.md](../../bench/tasks/SCALING.md)).
 
 ## The teardown at `os.exit`
 
@@ -405,7 +409,8 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   millisecond, or every 50 µs while work waits (`watchSlices`). A
   worker whose fiber has run a slice, 10 ms, while other work waits, or
   whose own queue held work at two looks in a row, or whose timer or
-  poller is due, gets SIGURG.
+  poller is due, gets SIGURG. As `main` ends, `runMain` wakes it and
+  waits for it to end before it frees the workers (`stopMonitor`).
 - **The handler** stops the fiber only where its program counter is in
   the program's own code, the section `rig_text` (`__TEXT,__rig_text` on
   the Mac), and its worker holds no lock: there the fiber is at a point
@@ -436,8 +441,10 @@ Everywhere else the yield checks run: on other targets, in a debug
 build for Linux (Zig's own backend, which preemption does not support),
 in a program that makes local tasks (`firstLocalTask`), whose tasks take
 turns on one thread at the checks, in `rig test`'s seeded runs, and in
-the test runner's batch packs, whose root declares no `__rig_preempt`,
-so a seed chooses among the same yields as `rig test` does. How the
+the test runner's packs of seeded cases, whose root declares no
+`__rig_preempt`, so a seed chooses among the same yields as `rig test`
+does. The runner's other packs are preempted, as each program would be
+built alone (`rig batch build --preempt`, docs/internals/tests.md). How the
 design was measured, and what it costs on Trig, is in
 [records/2026-11/preempt/](../history/records/2026-11/preempt/design.md).
 
