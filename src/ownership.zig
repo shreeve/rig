@@ -1764,11 +1764,13 @@ pub const Checker = struct {
     /// the statement.
     fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
         const name = self.vars.items[l.root].name;
+        // A template is written as it is, between its own backticks.
+        const temp = if (name.len > 0 and name[0] == '`') name else try std.fmt.allocPrint(self.arena(), "`{s}`", .{name});
         // A temporary made before it in the statement is dropped after
         // it, so holds the view past the temporary's drop.
         if (holder) |h| if (self.isStmtTemp(h) and self.vars.items[h].name.len > 0) {
             const hv = self.vars.items[h];
-            try self.err(l.pos, "a view of the temporary `{s}` is held by `{s}`, a temporary its statement drops after it; bind the value to a name first", .{ name, hv.name });
+            try self.err(l.pos, "a view of the temporary {s} is held by `{s}`, a temporary its statement drops after it; bind the value to a name first", .{ temp, hv.name });
             if (self.last_err_kept) try self.note(hv.decl, "`{s}` is made before `{s}`, so dropped after it", .{ hv.name, name });
             return;
         };
@@ -1777,7 +1779,7 @@ pub const Checker = struct {
         const is_view = if (self.vars.items[l.root].ty) |t| sema.isReadOrWriteView(self.sema, t) else false;
         if (is_view) {
             try self.err(l.pos, "a view reached through `{s}` outlives its statement, which holds `{s}`, itself a view, only while it runs; bind `{s}` to a name first", .{ name, name, name });
-        } else try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{name});
+        } else try self.err(l.pos, "a view of the temporary {s} outlives its statement, which drops it; bind the value to a name first", .{temp});
         if (!self.last_err_kept) return;
         const h = holder orelse return;
         const hv = self.vars.items[h];
@@ -3064,6 +3066,15 @@ pub const Checker = struct {
                     break :blk v;
                 },
                 .array_fill => self.walkConsumed(ir.ArrayFill.value(sexp), .element),
+                // A template's value is a String made of its slots, which
+                // it only reads, as `String(...)` reads its arguments: the
+                // String holds their text, not them.
+                .template => blk: {
+                    const temps_start = self.temps.items.len;
+                    try self.walkTemplateSlots(sexp);
+                    self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+                    break :blk .{};
+                },
                 .raw_block => self.walkTailPart(ir.RawBlock.body(sexp), self.takeTail(sexp)),
                 .enum_lit, .symbol, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results. A binary
@@ -8032,9 +8043,28 @@ pub const Checker = struct {
     /// be, and none is held past the call.
     fn walkReadArgs(self: *Checker, args: []const Sexp) Error!void {
         for (args) |a| {
+            // A template's slots are the call's arguments where it
+            // stands, read at the call as the others are.
+            if (a.isKind(.template)) {
+                try self.walkTemplateSlots(a);
+                continue;
+            }
+            try self.walkReadArg(a);
+        }
+    }
+
+    /// The slots of template `t`, in order, each read as an argument of
+    /// `print` is (`walkReadArgs`).
+    fn walkTemplateSlots(self: *Checker, t: Sexp) Error!void {
+        for (0..rig.Template.slotCount(t)) |i| try self.walkReadArg(rig.Template.value(t, i));
+    }
+
+    /// One argument `walkReadArgs` reads.
+    fn walkReadArg(self: *Checker, a: Sexp) Error!void {
+        {
             if (self.lendOf(a)) |lend| if (lend.implicit) {
                 _ = try self.walkImplicitLend(a, lend);
-                continue;
+                return;
             };
             _ = try self.walk(a);
             try self.holdRead(a, .argument);

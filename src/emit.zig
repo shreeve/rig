@@ -2674,9 +2674,11 @@ pub const Emitter = struct {
         try self.facts.stmtTemps(self.arena.allocator(), stmt, &temps);
         for (temps.items) |temp| {
             if (self.tempSlot(temp) != null) continue;
-            const name = try self.hiddenStorage(temp, .temp, .owned, .next);
+            // A template's temporary is a buffer of its text.
+            const buffer = if (self.facts.storageOf(temp, .temp)) |st| st.by == .buffer else false;
+            const name = try self.hiddenStorage(temp, .temp, if (buffer) .buffer else .owned, .next);
             try self.w.print("var {s}: ", .{name});
-            try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
+            if (buffer) try self.w.writeAll("rig.TextBuf") else try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
             try self.w.print(" = undefined; var {s}_live = false; ", .{name});
             if (self.poison) try self.w.print("defer rig.poison(&{s}); ", .{name});
             try self.w.print("defer if ({s}_live) rig.drop(&{s}); ", .{ name, name });
@@ -6030,6 +6032,12 @@ pub const Emitter = struct {
             // The slot holds the value: a view of it, the pointer a write
             // lend wants, is taken from the slot (`rig.keep`'s result).
             self.ptr_tail = false;
+            // A template's text is written into its slot's buffer.
+            if (self.facts.storageOf(sexp, .temp).?.by == .buffer) {
+                try self.w.print("rig.TextBuf.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
+                try self.emitPrintArgs(&.{sexp}, .{});
+                return self.w.writeAll(").*");
+            }
             try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
             self.bare = true;
             try self.emitValue(sexp, tail);
@@ -7186,6 +7194,24 @@ pub const Emitter = struct {
             },
             // A call Zig types as `noreturn`, which stands for any value.
             .panic => try self.emitPanic(sexp),
+            // A template whose value is used: a String of its pieces, as
+            // `String(...)` makes one. Where a `?String` reads it, its
+            // buffer holds it (`emitTemplateTemp`).
+            .template => {
+                // Fixed text (`Checker.templateFolds`): joined when Zig
+                // compiles it.
+                if (self.typeOf(sexp) == self.facts.types.static_id) {
+                    const saved = self.keep_comptime;
+                    defer self.keep_comptime = saved;
+                    self.keep_comptime = true;
+                    try self.w.writeAll("rig.fixedText(");
+                    try self.emitPrintArgs(&.{sexp}, .{});
+                    return self.w.writeAll(")");
+                }
+                try self.w.writeAll("rig.String.of(");
+                try self.emitPrintArgs(&.{sexp}, .{});
+                try self.w.writeAll(")");
+            },
             else => return self.unsupported(sexp, "this expression"),
         }
     }
@@ -10528,17 +10554,61 @@ pub const Emitter = struct {
         if (text.start) |start| try self.emitPiece(&n, start);
         for (args, 0..) |a, i| {
             if (i > 0) if (text.sep) |sep| try self.emitPiece(&n, sep);
-            try self.w.writeAll(if (n == 0) " " else ", ");
-            n += 1;
-            if (try self.printsByAddress(a)) {
-                const saved_read = self.read_place;
-                defer self.read_place = saved_read;
-                self.read_place = true;
-                try self.emitAddressOf(a);
-            } else try self.emitBare(a);
+            // A template is its pieces, with nothing between them.
+            if (a.isKind(.template)) {
+                try self.emitTemplatePieces(&n, a);
+                continue;
+            }
+            try self.emitPrintValue(&n, a);
         }
         if (text.end) |end| try self.emitPiece(&n, end);
         try self.w.writeAll(if (n > 0) " }" else "}");
+    }
+
+    /// One value of the tuple `emitPrintArgs` writes, after `n` others:
+    /// a place by its address (`printsByAddress`), any other value bare.
+    fn emitPrintValue(self: *Emitter, n: *usize, a: Sexp) Error!void {
+        try self.w.writeAll(if (n.* == 0) " " else ", ");
+        n.* += 1;
+        try self.emitPrintOperand(a);
+    }
+
+    fn emitPrintOperand(self: *Emitter, a: Sexp) Error!void {
+        if (try self.printsByAddress(a)) {
+            const saved_read = self.read_place;
+            defer self.read_place = saved_read;
+            self.read_place = true;
+            try self.emitAddressOf(a);
+        } else try self.emitBare(a);
+    }
+
+    /// Template `t`'s pieces in the tuple `emitPrintArgs` writes: each
+    /// piece of text that holds any as a Zig string literal, each slot's
+    /// value as an argument's, and a show slot `{=e}` as its label
+    /// (`e = `) and `rig.showSlot(v)`, which writes `v` as a part of another
+    /// value is written.
+    fn emitTemplatePieces(self: *Emitter, n: *usize, t: Sexp) Error!void {
+        const count = facts.syntax.Template.slotCount(t);
+        for (0..count + 1) |i| {
+            const body = facts.syntax.templateText(self.srcText(facts.syntax.Template.piece(t, i)));
+            if (body.len > 0) {
+                try self.w.writeAll(if (n.* == 0) " " else ", ");
+                n.* += 1;
+                try writeTemplateText(self.w, body);
+            }
+            if (i == count) break;
+            const slot = facts.syntax.Template.slot(t, i);
+            if (!slot.isKind(.show)) {
+                try self.emitPrintValue(n, slot);
+                continue;
+            }
+            const label = try self.fmt("{s} = ", .{facts.syntax.showLabel(self.source, t, i)});
+            try self.emitPiece(n, try self.fmt("\"{f}\"", .{std.zig.fmtString(label)}));
+            try self.w.writeAll(", rig.showSlot(");
+            n.* += 1;
+            try self.emitPrintOperand(ir.Show.value(slot));
+            try self.w.writeAll(")");
+        }
     }
 
     /// A piece of text in the tuple `emitPrintArgs` writes, after `n` others.
@@ -11757,6 +11827,27 @@ fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
         },
         else => {},
     }
+}
+
+/// A template's text `body` (`facts.syntax.templateText`) as a Zig string
+/// literal: `\{`, `\}`, and `\`` are their characters, a `"` takes a
+/// backslash, and every other escape is Zig's own (`checkEscapes`).
+fn writeTemplateText(w: *Writer, body: []const u8) Error!void {
+    try w.writeAll("\"");
+    var i: usize = 0;
+    while (i < body.len) : (i += 1) {
+        const c = body[i];
+        if (c == '"') {
+            try w.writeAll("\\\"");
+        } else if (c == '\\' and i + 1 < body.len) {
+            switch (body[i + 1]) {
+                '{', '}', '`' => try w.writeByte(body[i + 1]),
+                else => try w.writeAll(body[i .. i + 2]),
+            }
+            i += 1;
+        } else try w.writeByte(c);
+    }
+    try w.writeAll("\"");
 }
 
 /// A Rig single-quoted string as a Zig string literal, of the bytes

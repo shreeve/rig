@@ -1,0 +1,436 @@
+# Backtick templates (SPEC "Templates"): slots, the show form, what the
+# place makes of a template, folding, and every error.
+
+use std.text
+
+# ---- slots, text, and escapes ----------------------------------------------
+
+test "template slots and text", "ada is 36, ok"
+  name = "ada"
+  age = 36
+  print(`{name} is {age}, ok`)
+
+test "template has no separators", '''
+  1 2 3
+  1, 2, 3
+  123
+'''
+  a = 1
+  b = 2
+  c = 3
+  print(a, b, c)
+  print(`{a}, {b}, {c}`)
+  print(`{a}{b}{c}`)
+
+test "template beside other arguments keeps print's spaces", "[x1] y [2]"
+  n = 1
+  print(`[x{n}]`, "y", `[{n + 1}]`)
+
+test "template escapes and quotes", "say \"hi\" {not a slot} `tick` \\ A=B 1"
+  n = 1
+  print(`say "hi" \{not a slot\} \`tick\` \\ \x41=\u{42} {n}`)
+
+test "template text is fixed, a slot's value never read again for slots", "{x} is {x}"
+  t = "{x}"
+  print(`{t} is {t}`)
+
+test "template dollar is plain text", "$5 ${5}"
+  n = 5
+  print(`${n} $\{{n}\}`)
+
+test "template slot holds any expression", "7 [1, 2] yes 3 b"
+  xs = [1, 2]
+  o: Int? = 3
+  m: List[Int] = List()
+  !m.push(7)
+  print(`{m.get(0) ?? 0} {xs} {"yes" if xs.len == 2 else "no"} {o ?? 0} {text.trim(" b ")}`)
+
+test "template slot runs once, left to right, before anything is written", '''
+  a
+  b
+  [1 2]
+'''
+  fun step(s: ?String, n: Int) -> Int
+    print(s)
+    n
+  print(`[{step("a", 1)} {step("b", 2)}]`)
+
+test "template slot kinds by caller", '''
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+'''
+  # Each kind of slot, in each place a template stands: print,
+  # String(...), add, a ?String parameter, a String binding, a field,
+  # and an owning parameter its function returns.
+  obj P
+    n: Int
+  enum Color
+    red
+    blue
+  obj Box
+    s: String
+  fun made() -> Int
+    7
+  fun echo(s: String) -> String
+    s
+  i = 1
+  f = 2.5
+  b = true
+  st = "ab"
+  str = String("cd")
+  xs = [1, 2]
+  o: Int? = none
+  p = P(n: 1)
+  c = Color.red
+  print(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`)
+  print(String(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`))
+  t = String()
+  !t.add(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`)
+  print(t)
+  print(text.trim(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`))
+  s = `{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`
+  print(s)
+  bx = Box(s: `{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`)
+  print(bx.s)
+  print(echo(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`))
+
+# ---- the show form ---------------------------------------------------------
+
+test "template show form", '''
+  n = 3 n * 2 = 6 name = "ada" o = none xs = ["a", "b\n"]
+'''
+  n = 3
+  name = "ada"
+  o: Int? = none
+  xs = ["a", "b\n"]
+  print(`{=n} {= n * 2 } {=name} {=o} {=xs}`)
+
+test "template show form escapes control characters", "s = \"a\\tb\\u{202e}\" 4"
+  s = "a\tb\u{202e}"
+  print(`{=s} {s.len - 2}`)
+
+# ---- where it stands -------------------------------------------------------
+
+test "template in warn", "done", stderr: "w 1 x"
+  n = 1
+  warn(`w {n}`, "x")
+  print("done")
+
+bomb "template in panic", "bad 4 of 5"
+  n = 4
+  panic(`bad {n} of {n + 1}`)
+
+test "template in String", "<1>2"
+  n = 1
+  s = String(`<{n}>`, n + 1)
+  print(s)
+
+test "template in add", "[1, 2]"
+  n = 1
+  t = String("[")
+  !t.add(`{n}, {n + 1}`, "]")
+  print(t)
+
+test "template where a ?String goes is a temporary", "true 4 3"
+  a = "x"
+  n = 12
+  print(text.starts_with(`{a}y{n}`, "xy"), text.trim(` {a}y{n} `).len, text.trim(`  {n}x  `).len)
+
+test "template temporary past 256 bytes spills to the heap", "300 true"
+  fill = String()
+  for _ in 0..30
+    !fill.add("0123456789")
+  print(text.trim(`  {fill}  `).len, text.ends_with(`{fill}!`, "9!"))
+
+test "template where a String goes", '''
+  ada lovelace
+  ada (36)
+  ["n1", "n2"]
+  ok 4
+'''
+  obj User
+    name: String
+    age: Int
+
+  fun label(u: ?User) -> String
+    `{u.name} ({u.age})`
+
+  fun keep(s: String) -> Int
+    s.len
+
+  first = "ada"
+  u = User(name: `{first} lovelace`, age: 36)
+  print(u.name)
+  short = User(name: `{first}`, age: 36)
+  print(label(?short))
+  xs: List[String] = List()
+  for i in 1..3
+    !xs.push(`n{i}`)
+  print(xs)
+  print("ok", keep(`{first}!`))
+
+test "template assigned to a String", "a1 b2"
+  s = String("x")
+  n = 1
+  s = `a{n}`
+  t = `b{n + 1}`
+  print(s, t)
+
+test "template as an optional String", "x1 none"
+  fun f(k: Bool) -> String?
+    n = 1
+    return `x{n}` if k else none
+  print(f(true), f(false))
+
+test "template elements of an array", "[\"c5\", \"d5\"]"
+  n = 5
+  ys = [`c{n}`, `d{n}`]
+  print(ys)
+
+fail "template in a branch where a ?String goes", "a template is a `?String` only as an argument a parameter reads"
+  fun len_of(s: ?String) -> Int
+    s.len
+  n = 3
+  print(len_of(`yy{n}` if n > 2 else `z{n}`))
+
+fail "template in a compile-time function", "a compile-time function cannot use `cap: {n} is too big`: it runs only the forms of a compile-time function", whole: true
+  fun cap[n: Int] -> Int
+    if n > 4
+      panic(`cap: {n} is too big`)
+    n * 2
+  X = cap[9]
+
+  sub main()
+    print(X)
+
+# ---- folding ---------------------------------------------------------------
+
+test "template of constant slots is fixed text", ''', whole: true
+  usage: tool [3 flags] true
+  > usage: tool [3 flags] true
+  4 1
+'''
+  use std.text
+
+  N = 3
+  ON = true
+  NAME = "tool"
+  USAGE = `usage: {NAME} [{N} flags] {ON}`
+  LINE = `> {USAGE}`
+
+  fun size(s: Static) -> Int
+    s.len
+
+  sub main()
+    print(USAGE)
+    print(LINE)
+    print(size(`{NAME}`), text.trim(` {N} `).len)
+
+code "template of constant slots folds", "pub const USAGE: []const u8 = rig.fixedText(.{ \"usage: \", NAME, \" \", N });", whole: true
+  N = 3
+  NAME = "tool"
+  USAGE = `usage: {NAME} {N}`
+
+  sub main()
+    print(USAGE)
+
+code "template in print writes its pieces", "rig.print(.{ \"n = \", n, \"!\", \"\\n\" });"
+  n = 1
+  print(`n = {n}!`)
+
+code "template where a ?String goes uses a buffer", "var __rig_tmp_1: rig.TextBuf = undefined;", "rig.TextBuf.keep(&__rig_tmp_1, &__rig_tmp_1_live, .{ \" \", n, \" \" }).*.bytes()"
+  n = 1
+  print(text.trim(` {n} `))
+
+code "template where a String goes makes one", "var s = rig.String.of(.{ \"a\", n });"
+  n = 1
+  s = `a{n}`
+  print(s)
+
+code "template show slot", "rig.print(.{ \"n + 1 = \", rig.showSlot("
+  n = 1
+  print(`{=n + 1}`)
+
+# ---- ownership -------------------------------------------------------------
+
+fail "template view outlives its statement", "a view of the temporary `x{a}` outlives its statement"
+  a = 1
+  s = text.trim(`x{a}`)
+  print(s)
+
+fail "template view kept by a task", "a view of the temporary `x{a}` outlives its statement"
+  fun work(s: ?String) -> Int
+    s.len
+  a = 1
+  t = work(`x{a}`)&
+  print(>t)
+
+fail "template view bound", "a template is a `?String` only as an argument a parameter reads"
+  a = 1
+  s: ?String = `x{a}`
+  print(s)
+
+fail "template view in a header binding", "a view of the temporary `k{n}=v` outlives its statement"
+  n = 1
+  if text.cut(`k{n}=v`, "=") as kv
+    print(kv.after)
+
+fail "template slot read and lent to write later", "cannot lend `v` to write while an earlier argument's read of it is in use"
+  fun grow(v: !List[Int]) -> Int
+    !v.push(1)
+    v.len
+  v: List[Int] = List()
+  print(`{v} {grow(!v)}`)
+
+fail "template argument read and lent to write later", "cannot lend `v` to write while an earlier argument's read of it is in use"
+  fun grow(v: !List[Int]) -> Int
+    !v.push(1)
+    v.len
+  v: List[Int] = List()
+  print(`{v}`, grow(!v))
+
+fail "template slot of the String it adds to", "cannot lend `t` to write while an earlier argument's read of it is in use"
+  t = String("a")
+  !t.add(`{t}`)
+  print(t)
+
+test "template reads a name, never moves it", "ab ab"
+  s = String("ab")
+  t = `{s}`
+  print(s, t)
+
+fail "template that reads the binding it assigns", "this template reads `s`, the binding it assigns, so it copies all of `s` each time; append in place with `!s.add(...)`"
+  s = String("a")
+  for i in 0..3
+    s = `{s}{i}`
+  print(s)
+
+fail "template that reads the field it assigns", "this template reads `u.name`, the binding it assigns"
+  obj U
+    name: String
+  u = U(name: String("a"))
+  u.name = `{?u.name}!`
+  print(u.name)
+
+# ---- where it may not stand ------------------------------------------------
+
+fail "template as an operand", "a template stands where text is written"
+  a = 1
+  print(`x{a}` == "x1")
+
+fail "template as a member's object", "a template stands where text is written"
+  a = 1
+  print(`x{a}`.len)
+
+fail "template where a Static goes", "expected `Static`, got a template whose slots are not all constant"
+  fun f(s: Static) -> Int
+    s.len
+  a = 1
+  print(f(`{a}`))
+
+fail "template as a module constant of run-time slots", "a module's constant is fixed text, so a template there takes only constant slots", whole: true
+  fun f() -> Int
+    2
+  B = `x{f()}`
+
+  sub main()
+    print(B)
+
+fail "template where an Int goes", "a template stands where text is written"
+  fun f(n: Int) -> Int
+    n
+  a = 1
+  print(f(`{a}`))
+
+# ---- errors in the template itself -----------------------------------------
+
+fail "template without a slot", "1:7: a template has a slot; fixed text is written in double quotes"
+  print(`no slots`)
+
+fail "template empty", "an empty template ``` `` ``` is reserved"
+  print(``)
+
+fail "template of three backticks", "two backticks together are reserved"
+  print(```)
+
+fail "template touching a name", "a name touching a backtick is reserved for tagged templates"
+  a = 1
+  print(sql`x{a}`)
+
+fail "template empty slot", "an empty slot; a slot holds an expression"
+  print(`a{}`)
+
+fail "template empty show slot", "an empty slot; a slot holds an expression"
+  print(`a{=}`)
+
+fail "template unclosed", "unterminated template"
+  a = 1
+  print(`a{a}
+
+fail "template slot unclosed", "a template inside a slot is reserved"
+  a = 1
+  print(`a{a`)
+
+fail "template slot over a line", "a slot ends on its template's line"
+  a = 1
+  print(`a{a +
+    1}`)
+
+fail "template with a format", "a `:` in a slot is reserved for formatting"
+  a = 1
+  print(`a{a:5}`)
+
+test "template slot with a keyword argument inside brackets", "aP(n: 2)"
+  obj P
+    n: Int
+  print(`a{P(n: 2)}`)
+
+fail "template with a comment in a slot", "a slot holds no `#`"
+  a = 1
+  print(`a{a # c}`)
+
+fail "template in a slot", "a template inside a slot is reserved"
+  a = 1
+  print(`a{`b{a}`}`)
+
+fail "template show form apart", "the show form is written `{=x}`, the `=` touching the `{`"
+  a = 1
+  print(`{ =a}`)
+
+fail "template show form last", "a slot shows its expression as `{=x}`, with the `=` first"
+  a = 1
+  print(`{a=}`)
+
+fail "template lone brace", "a lone `}` in a template; write a brace as `\\}`"
+  a = 1
+  print(`a}{a}`)
+
+fail "template bad escape", "invalid escape `\\q` in a template"
+  a = 1
+  print(`\q{a}`)
+
+fail "template joins lines", "a `\\` at the end of a template's line is reserved for joining lines"
+  a = 1
+  print(`{a}\
+  `)
+
+fail "template literal slots", "2:9: a slot holds only a literal", "2:13: a slot holds only a literal", "2:19: a slot holds only a literal", "2:26: a slot holds only a literal", "2:31: a slot holds only a literal", errors: 5
+  a = 1
+  print(`{0} {"a"} {true} {-1} {:sym} {a}`)
+
+fail "template raw control character", "control character in a template"
+  a = 1
+  print(`a	{a}`)
+
+fail "template raw bidirectional control", "a bidirectional control character in a template"
+  a = 1
+  print(`a‮{a}`)
+
+fail "template keyword argument to print", "`print` takes no keyword arguments"
+  a = 1
+  print(`{a}`, end: "")

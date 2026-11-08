@@ -125,8 +125,7 @@ appends one byte. `shout` takes a `?String`, so it reads `name` without
 copying it, and a literal or a `String` both fit. It returns a `String`
 because it built text of its own, and the owner of the result frees it.
 
-You may have noticed what is missing. Rig has no `+` on text, and no
-string interpolation:
+You may have noticed what is missing. Rig has no `+` on text:
 
 ```rig reject
 sub main()
@@ -142,6 +141,31 @@ Rig has no `+` on text: build it with `String(a, b)` or `!t.add(...)`
 A `+` that allocates reads like arithmetic and hides a cost, which
 grows quadratically when it sits in a loop. `String(a, b)` and `!t.add` allocate in
 sight, and the String that results has an owner.
+
+Text made of values and words is easiest to read as a **template**:
+backticks around the text, and each value in braces, a slot. Where it
+stands decides what it costs. In `print` its pieces are written
+straight out, nothing allocated; given to a function that reads a
+`?String`, it is built on the stack for that one statement; bound to a
+name, it is a new String.
+
+```rig
+use std.text
+
+sub main()
+  name = "Ada"
+  n = 3
+  print(`{name} has {n} tasks`)
+  print(text.starts_with(`{name}!`, "Ad"))
+  line = `{name}: {n * 2}`
+  print(line, line.len)
+```
+
+```output
+Ada has 3 tasks
+true
+Ada: 6 6
+```
 
 A view follows the rules from the chapter on ownership. It carries a
 loan on the String it came from, so that String cannot change while the

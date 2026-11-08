@@ -529,7 +529,7 @@ type mismatch: expected `Static`, got `?String`
 
 #### Templates
 
-*(planned)* A template builds text from pieces: `` `n = {n}, {=total}` ``
+A template builds text from pieces: `` `n = {n}, {=total}` ``
 is fixed text with **slots** between braces. A slot takes exactly what
 an argument of `print` takes ([§17](#17-printing-and-stopping)); each is
 evaluated once, left to right, before any byte is written, and its
@@ -559,7 +559,7 @@ Anywhere else, such as an operand of `==` or the object of `.len`, a
 template is rejected. A template whose every slot is a constant is
 built when the program is compiled.
 
-```rig pending
+```rig
 use std.text
 
 obj User
@@ -593,7 +593,7 @@ A template that reads the binding it assigns would copy all of its text
 on every step of a loop, so it is rejected; `!s.add(...)` appends in
 place. A view of a temporary template may not outlive its statement.
 
-```rig pending
+```rig reject
 sub main()
   s = `{1 + 1}`
   for i in 0..3
@@ -611,7 +611,7 @@ outside brackets (formatting is a method's job), a `#`, and a template
 in a slot are each rejected, as are a name touching a backtick and two
 backticks together, which are kept for later forms.
 
-```rig pending
+```rig reject
 sub main()
   print(`no slots here`)
 ```
@@ -10142,7 +10142,7 @@ Each value is written as `print` writes it at the top level: a `?String`
 or a String as its text, a number as `print` shows it, an object, enum,
 optional, array, or List as `print` writes it, with the `?String` values inside
 it quoted. Rig has no `+` on text: text is built with `String(...)`,
-`!t.add(...)`, and *(planned)* a template where a String goes
+`!t.add(...)`, and a template where a String goes
 (`` u.name = `{first} {last}` ``, [Templates](#templates)), and every
 change to a String is written with `!`.
 
@@ -13029,7 +13029,7 @@ writes the same line to stderr, and `panic(a, b, ...)` writes it to
 stderr and ends the program ([below](#panic)). They take values by
 position only: a keyword argument is rejected. `print` and `warn` are
 only special as direct calls; they are not values, and a declaration
-may hide either. `panic` is a keyword. *(planned)* A template argument,
+may hide either. `panic` is a keyword. A template argument,
 `` print(`{a}, {b}`) ``, is written as its pieces, with no spaces but
 those it holds and nothing allocated ([Templates](#templates)).
 
@@ -14333,6 +14333,11 @@ not parse, and their words and sigils stay reserved:
 | `async fun f()`, `await t` | `` Rig has no `async`; any function runs as a task with `&`: `t = f(x)&` starts one, and `>t` waits for its result ``, and `await`'s toward `>t` |
 | `trait Shape`, `impl Shape for Square` | `` Rig has no `trait`; write `api`: `api Shape` declares the methods a type provides ``, and `impl`'s toward `add` ([APIs](#apis)) |
 | float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
+| three backticks together, or a template touching another | `` two backticks together are reserved `` |
+| a name touching a template's backtick, ``sql`x{a}` `` | `` a name touching a backtick is reserved for tagged templates; put a space or a bracket between them `` |
+| a `:` at the top of a slot, `{x:5}` | `` a `:` in a slot is reserved for formatting; format with a method, or put the expression in parentheses `` |
+| a template in a slot | `` a template inside a slot is reserved; build the inner text first `` |
+| a `\` ending a template's line | `` a `\` at the end of a template's line is reserved for joining lines `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):

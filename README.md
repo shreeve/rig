@@ -88,7 +88,7 @@ with an associated type, storing or returning a stack closure, and
 `drop` bodies on enums and generic objects;
 [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms) lists each form
 the compiler rejects, with what to write instead. Rig has no macros,
-which are not planned, and no string interpolation.
+which are not planned.
 [HANDOFF.md](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists the plans.
 

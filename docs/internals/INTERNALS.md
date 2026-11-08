@@ -2000,7 +2000,9 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 `owned` storage holds a value of its own, made there or taken; `copy`
 holds a copy of a value still held where it was, so a view of the
 storage views the copy; `pointer` holds the address of a place, or of
-storage another fact records. How storage and bindings drop what they
+storage another fact records; `buffer` is a template's `temp` where a
+`?String` reads it, its text in a `rig.TextBuf`, 256 bytes in the slot
+and a heap block past them, which its drop frees. How storage and bindings drop what they
 hold is recorded by the plan too, from `sema.resourceKind`: for each
 parameter, local, and capture, `Symbol.hold`, which gives the binding
 `var` storage and a drop guard of its kind, and which the ownership
@@ -6094,6 +6096,53 @@ pass owns one part.
   which a generic instance may make optional itself (`E[Int?]`).
 - **Tests.** `test/rig/types-matches.rig.test`, the `matches` cases of
   `types-match`, and the examples of docs/design/matches.md.
+
+## How templates are built
+
+A template, `` `a{x}b{=y}c` ``, is text made from pieces and slots; the
+rules are SPEC "Templates", and the design is
+[docs/history/records/2026-11/templates-t1.md](../history/records/2026-11/templates-t1.md).
+Each pass owns one part.
+
+- **Lexer.** The base lexer reads a backtick as `backtick`, which the
+  wrapper never hands on: it reads the template's text itself
+  (`Lexer.templatePiece`), to a slot's `{` (`TPL_HEAD`, `TPL_MID`) or the
+  closing backtick (`TPL_TAIL`), each token its delimiters included, and
+  between them lexes the slot as any code, with one slot open at most
+  (`Lexer.slot`). A `=` touching a slot's `{` is `TPL_SHOW`. The text's
+  strict rules (no slot, ``` `` ```, a name touching the backtick, a lone
+  `}`, a raw control or bidirectional character, a `\` ending the line)
+  and the slot's (a newline, `#`, a template, a `:` or `=` at its top)
+  are lexer errors.
+- **Parser.** `(template piece slot piece ... piece)`, a piece first and
+  last, and `(show eq value)` for `{=e}` (`rig.Template` reads them). A
+  piece is a leaf that reads as a string literal (`isStringLiteralText`);
+  its escapes are checked with a string's (`Checker.checkEscapes`).
+- **Type checker.** Where the template stands decides it. An argument of
+  `print`, `warn`, `panic`, `String(...)`, or `!t.add(...)` is its slots,
+  each checked as one of the call's arguments (`checkFormatArgs`,
+  `checkTemplateSlots`). Where a `String` or `?String` goes
+  (`checkTemplateAgainst`) and as an unannotated local's value
+  (`template_ok`), it is a `String`, which a `?String` reads as a
+  temporary of its statement: the lend and the temporary are the ones
+  `String(...)` gets there. With every slot an Int, a Bool, or a
+  `Static` Zig knows when it compiles (`templateFolds`), a template where
+  a `?String` or a `Static` goes, and a module's constant, is a `Static`.
+  Anywhere else it is rejected (`synthTemplate`), and so is `` s =
+  `{s}…` `` (`checkTemplateGrows`).
+- **Ownership checker.** A template's slots are read as `print` reads its
+  arguments, flat among the call's (`walkReadArgs`), so a later argument
+  that lends one to write is rejected as it would be beside a plain
+  argument; a template's value reads its slots and holds none of them.
+  The oracle lowers the same (`flatArgs`).
+- **Storage.** A template's `temp` is held `by` `buffer` (`storageOf`);
+  each slot's value is read by address or copied as a print argument is
+  (`printsByAddress`).
+- **Emit.** The pieces join the tuple a print, `String.of`, or `add`
+  takes (`emitTemplatePieces`), a show slot as its label and
+  `rig.showSlot(v)`; a `String` is `rig.String.of(...)`, a buffered
+  temporary `rig.TextBuf.keep(...)`, and fixed text `rig.fixedText(...)`,
+  which Zig joins when it compiles.
 
 ## Where Rig meets Zig 0.17
 
