@@ -319,6 +319,18 @@ none of these ever built:
   a change that breaks one fails its gate; `cli` and `probes` run them
   alone.
 
+### Docs
+
+- The docs, std, the examples, and the benchmarks write a self sigil
+  short wherever it applies, `!c.read(!buf, 4096)!`, `?p.dist(q)`,
+  `<conn.close()`; the long form stays only for a write call whose
+  `Bool` value is used and for an assignment's target, as SYNTAX "Self
+  sigils" asks. The emitted Zig is the same.
+  `tools/drop-write-parens.py` drops the parentheses of `?` and `<` as
+  well as `!`, and of a `for` source, leaves an assignment's target, and
+  with `--md` rewrites the ```` ```rig ```` blocks of Markdown files,
+  each program checked on its own.
+
 ### Runtime
 
 - A worker keeps four tasks to run next, in a circle, where it kept

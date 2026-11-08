@@ -90,7 +90,7 @@ states each.
 
 **Form.** A `&` touching the `)` of a call, with no operand touching it
 on the right, makes the call a task: `parse(f)&`,
-`(!rooms).join(r, w)&`. It is a postfix sigil under Rig's spacing rule,
+`!rooms.join(r, w)&`. It is a postfix sigil under Rig's spacing rule,
 so `a & b` and `f()&b` stay bitwise and. Only a call takes `&`.
 
 **Meaning.** The call is guaranteed to run concurrently with what
@@ -378,7 +378,7 @@ into `Cell`: a counter or a flag is a Cell of one word.)
     `*Actor(Rooms(...))`;
   - each holder has a handle of its own, made with `+`;
   - a change is a marked call through a handle you hold: `!hits.add(1)`,
-    `!jobs.send(<j)!`, `(!rooms).join(r, w)`;
+    `!jobs.send(<j)!`, `!rooms.join(r, w)`;
   - a read view, `?hits`, only reads: `hits.get()`. `?` changes nothing
     here as everywhere.
 - **The difference:** a `*` over a synchronized value counts its handles
@@ -418,7 +418,7 @@ message, and the call waits for the answer.
 - A `?@` method is called bare, through a handle or a read view of one:
   `rooms.count()`.
 - A `!@` method is marked, and needs a handle you hold:
-  `!rooms.leave(r, w)`, or `(!rooms).join(r, w)` where the value is used.
+  `!rooms.leave(r, w)`, or `(!rooms).join(r, w)` where its `Bool` value is used.
   Through `?rooms` it is rejected, since `?` changes nothing.
 - A `<@` method cannot be called through a handle.
 - A method whose signature has `keeps` or `from` cannot be called through

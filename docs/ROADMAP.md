@@ -29,7 +29,7 @@ decided are kept in [IDEAS](IDEAS.md) until he approves or rejects them.
 - **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
 - **Text over several lines**: a literal that spans lines, for help text and templates; today each line is a literal and `String(a, b, c)` joins them (SPEC "Strings").
 - **Not waiting, `task.poll(...)`**: the named select's arms, given at once to whichever can complete now, or `none` when none can, matched as `none =>` (records/2026-11/revamp-compiler/panel-select-designer.md).
-- **The closure arms of `task.select` go**: the old spelling, `(!ch).on_recv(f)`, is removed in the release after 0.3; `tools/migrate-select.py` rewrites it to named arms (SPEC "Channels").
+- **The closure arms of `task.select` go**: the old spelling, `!ch.on_recv(f)`, is removed in the release after 0.3; `tools/migrate-select.py` rewrites it to named arms (SPEC "Channels").
 - **Several results**, after their first form (SPEC "Several results"):
   in registers when small, `from` per result, and a `for` that binds
   them each step.

@@ -66,7 +66,7 @@ pub obj Map[K: Hash, V]
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
   pub inline fun edit(!@, k: ?K) -> (!V)? from @
-    (!@t).edit(k)
+    !@t.edit(k)
 
   # Put `v` under `k`, inserting or overwriting; the old value is
   # dropped. A key already there keeps its place, and `k` is dropped.
@@ -76,7 +76,7 @@ pub obj Map[K: Hash, V]
   # Put `v` under `k`, inserting or overwriting, and hand back the old
   # value, or `none` when `k` is new.
   pub inline fun replace(!@, k: K, v: V) -> V?
-    old = (!@t).replace(<k, <v)
+    old = !@t.replace(<k, <v)
     @len = @t.count()
     old
 
@@ -90,18 +90,18 @@ pub obj Map[K: Hash, V]
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
   pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
-    j = (!@t).ensure(<k, <v)
+    j = !@t.ensure(<k, <v)
     @len = @t.count()
-    (!@t).value_mut(j)
+    !@t.value_mut(j)
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
   pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     was = @len
-    j = (!@t).ensure(<k, <v)
+    j = !@t.ensure(<k, <v)
     @len = @t.count()
-    return (!@t).value_mut(j), @len > was
+    return !@t.value_mut(j), @len > was
 
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
@@ -112,8 +112,8 @@ pub obj Map[K: Hash, V]
       <k
       j = at
     else
-      j = (!@).add_made(<k, make)
-    (!@t).value_mut(j)
+      j = !@add_made(<k, make)
+    !@t.value_mut(j)
 
   # Add the entry of `k`, whose key is new, with the value `make(k)`, and
   # give its index; out of line, so a lookup that finds its key stays
@@ -122,7 +122,7 @@ pub obj Map[K: Hash, V]
     rarely
     v = make(?k)
     @len += 1
-    (!@t).insert_new(<k, <v)
+    !@t.insert_new(<k, <v)
 
   # As `ensure`, with the key viewed, not given: `key(k)` makes the key
   # to put only when `k` is new, so a count by a viewed key,
@@ -140,9 +140,9 @@ pub obj Map[K: Hash, V]
     else
       made = key(k)
       panic("Map: `ensure_by`'s `key(k)` made a key other than `k`") if made != k
-      j = (!@t).insert_new(<made, <v)
+      j = !@t.insert_new(<made, <v)
       @len += 1
-    (!@t).value_mut(j)
+    !@t.value_mut(j)
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
   # to read and its value to write, in order, and an entry it rejects is
@@ -154,7 +154,7 @@ pub obj Map[K: Hash, V]
   # Take the entry of the key `k` out: its value is handed back, and its
   # key dropped. `none` when the Map has no such key.
   pub inline fun take(!@, k: ?K) -> V?
-    v = (!@t).take(k)
+    v = !@t.take(k)
     @len = @t.count()
     v
 
@@ -230,7 +230,7 @@ pub obj Set[K: Hash]
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
   pub inline fun take(!@, k: ?K) -> K?
-    key = (!@t).take(k)
+    key = !@t.take(k)
     @len = @t.count()
     key
 
@@ -359,7 +359,7 @@ pub obj HashMap[K: Hash, V]
   # The value of the key `k`, lent to write where the HashMap holds it,
   # or `none`.
   pub inline fun edit(!@, k: ?K) -> (!V)? from @
-    (!@t).edit(k)
+    !@t.edit(k)
 
   # Put `v` under `k`, inserting or overwriting; the old value is
   # dropped. A key already there stays, and `k` is dropped.
@@ -369,7 +369,7 @@ pub obj HashMap[K: Hash, V]
   # Put `v` under `k`, inserting or overwriting, and hand back the old
   # value, or `none` when `k` is new.
   pub inline fun replace(!@, k: K, v: V) -> V?
-    old = (!@t).replace(<k, <v)
+    old = !@t.replace(<k, <v)
     @len = @t.count()
     old
 
@@ -383,25 +383,25 @@ pub obj HashMap[K: Hash, V]
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
   pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
-    (!@t).ensure(<k, <v, !@len)
+    !@t.ensure(<k, <v, !@len)
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
   pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     was = @len
-    w = (!@t).ensure(<k, <v, !@len)
+    w = !@t.ensure(<k, <v, !@len)
     return w, @len > was
 
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
   pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k
-    if (!@t).edit(?k) as w
+    if !@t.edit(?k) as w
       <k
       return w
-    j = (!@).add_made(<k, make)
-    (!@t).value_mut(j)
+    j = !@add_made(<k, make)
+    !@t.value_mut(j)
 
   # Add the entry of `k`, whose key is new, with the value `make(k)`, and
   # give its slot; out of line, so a lookup that finds its key stays
@@ -410,7 +410,7 @@ pub obj HashMap[K: Hash, V]
     rarely
     v = make(?k)
     @len += 1
-    (!@t).insert_new(<k, <v)
+    !@t.insert_new(<k, <v)
 
   # As `ensure`, with the key viewed, not given: `key(k)` makes the key
   # to put only when `k` is new, so a count by a viewed key,
@@ -421,14 +421,14 @@ pub obj HashMap[K: Hash, V]
   # HashMap would hold another key where `k` was looked up, perhaps one
   # it holds already: a key that differs panics.
   pub inline fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key
-    if (!@t).edit(k) as w
+    if !@t.edit(k) as w
       <v
       return w
     made = key(k)
     panic("HashMap: `ensure_by`'s `key(k)` made a key other than `k`") if made != k
-    j = (!@t).insert_new(<made, <v)
+    j = !@t.insert_new(<made, <v)
     @len += 1
-    (!@t).value_mut(j)
+    !@t.value_mut(j)
 
   # Keep the entries for which `f` is true. `f` gets each key to read
   # and its value to write, and an entry it rejects is dropped then. The
@@ -440,7 +440,7 @@ pub obj HashMap[K: Hash, V]
   # Take the entry of the key `k` out: its value is handed back, and its
   # key dropped. `none` when the HashMap has no such key.
   pub inline fun take(!@, k: ?K) -> V?
-    v = (!@t).take(k)
+    v = !@t.take(k)
     @len = @t.count()
     v
 
@@ -501,7 +501,7 @@ pub obj HashSet[K: Hash]
   # Take the key `k` out and hand it back, or `none` when the HashSet
   # has no such key.
   pub inline fun take(!@, k: ?K) -> K?
-    key = (!@t).take(k)
+    key = !@t.take(k)
     @len = @t.count()
     key
 

@@ -292,7 +292,7 @@ sub numbers(out: *Chan[Int], n: Int)!
   !out.close()
 
 sub squares(src: *Chan[Int], out: *Chan[Int])!
-  while (!src).recv()! as v
+  while !src.recv()! as v
     !out.send(v * v)!
   !out.close()
 
@@ -301,7 +301,7 @@ sub main()!
   b = *Chan[Int](2)
   p = numbers(+a, 5)&
   q = squares(+a, +b)&
-  while (!b).recv()! as v
+  while !b.recv()! as v
     print(v)
   >p!
   >q!
@@ -315,7 +315,7 @@ sub main()!
 25
 ```
 
-`!out.send(i)!` waits for room, then sends. `(!src).recv()!` waits for
+`!out.send(i)!` waits for room, then sends. `!src.recv()!` waits for
 a value and gives it as `Int?`, or `none` once the channel is closed
 and empty, which ends each `while`. Both change the channel, so both
 are marked with `!`, and both can fail, because a canceled task stops
@@ -342,7 +342,7 @@ obj Bank
 
   fun pay(!@, ledger: *Actor[Ledger], me: *Actor[Bank]) -> Int
     @money -= 1
-    (!ledger).post(<me)
+    !ledger.post(<me)
 
   fun balance(?@) -> Int
     @money
@@ -351,7 +351,7 @@ sub main()
   bank = *Actor(Bank(money: 10))
   ledger = *Actor(Ledger(n: 0))
   print("paying")
-  print((!bank).pay(+ledger, +bank))
+  print(!bank.pay(+ledger, +bank))
 ```
 
 `Bank.pay` calls `Ledger.post`, which calls `Bank.balance`, which
@@ -662,7 +662,7 @@ sub main()
   jobs: List[^{Job + Sends}] = List()
   !jobs.push(^Sum(xs: List([1, 2, 3])))
   !jobs.push(^Fixed(n: 7))
-  while (!jobs).pop() as j
+  while !jobs.pop() as j
     !ts.add(work(<j)&)
   print(>ts)
 ```
@@ -712,7 +712,7 @@ sub main()
 | count across tasks | `*Cell(0)`, `!c.add(1)` |
 | share larger state | `*Actor(x)`, `!a.method()` |
 | share what never changes | `*Frozen(x)`, `+f` to any task |
-| pass values along | `*Chan[T](n)`, `!ch.send(<v)!`, `(!ch).recv()!`, `task.select` |
+| pass values along | `*Chan[T](n)`, `!ch.send(<v)!`, `!ch.recv()!`, `task.select` |
 | stop a bug at a boundary | `task.isolate(f)`, `*Actor.supervised(make)` |
 | stop a task | `<t.cancel()` |
 | give work a deadline | `time.within(d, f)` |

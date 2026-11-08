@@ -353,7 +353,7 @@ doc/SPEC/741bb9be7063 main
 doc/SPEC/5dde915751d9 main
 doc/SPEC/8931c260eeec main
 doc/SPEC/22d04ccb03bd Scanner.number
-doc/SPEC/83490aaf037e Parser.step
+doc/SPEC/fdd067614d72 Parser.step
 doc/SPEC/258578549b23 main
 doc/SPEC/dfa907146602 make
 doc/SPEC/745b84c60a9d main
@@ -4560,7 +4560,7 @@ doc/CORE/df75b74aab6c main
 doc/CORE/1dff2d6d139b main
 doc/CORE/55a54ded4c07 Binder.set_src
 doc/SPEC/75c715adfdce main
-doc/SPEC/538b7f317eef main
+doc/SPEC/73be8c219912 main
 doc/SPEC/018c07bd1110 main
 doc/learn-00-welcome/c938e81e644d main
 doc/learn-01-sigils/07b5d800b3fb main
@@ -4578,7 +4578,7 @@ doc/learn-02-ownership/da0926a793e5 main
 doc/learn-02-ownership/f760280c2daa main
 doc/learn-03-errors/a1bf4f2ba34f main
 doc/learn-05-text/2ee81974a525 main
-doc/learn-06-stdlib/5909f4c068da main
+doc/learn-06-stdlib/4d14925cf046 main
 doc/learn-07-generics/274f4dcba7fe largest
 doc/learn-08-apis/89c4a4a2aec8 main
 doc/learn-10-safety/cff47cdac207 main
@@ -4922,7 +4922,7 @@ test/reject/probes/review258-p134_summary_method.rig Bag.set
 test/reject/probes/review258-p140_callable_summary.rig go
 test/reject/probes/review258-p30_gbody_int.rig setit
 test/reject/probes/review258-p90_view_param_into_local_ok.rig put
-doc/CORE/f1979318878b main
+doc/CORE/52b2468a0228 main
 test/reject/table/table_push_while_a_slot_is_viewed.rig main
 test/reject/probes/audit-ownership-f08b_closure_returns_a_view_of_a_temporary,_called.rig main
 test/reject/probes/rev255-m01 main
@@ -5039,7 +5039,7 @@ test/reject/ownership/generic_value_through_an_owned_closure.rig main
 test/reject/ownership/generic_value_of_an_API_object.rig main
 test/reject/ownership/generic_value_of_an_enum_payload.rig main
 test/reject/ownership/generic_value_of_optionals_of_a_view.rig main
-doc/CORE/de4c477c6213 main
+doc/CORE/4025e423233f main
 test/reject/ownership/a_view_handed_to_a_call_that_writes_what_it_views.rig main
 test/reject/ownership/a_chain_in_a_block_keeps_its_scope's_end_in_the_source.rig main
 test/reject/ownership/collected_views_do_not_outlive_their_source's_block.rig main

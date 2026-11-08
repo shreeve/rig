@@ -1348,7 +1348,7 @@ test first, `if not xs.any(f)`, or take a chain's result,
 
 `for x in source` walks a range `a..b` or `a..=b`, an array, a slice, a `?String`
 (its bytes), a `List`, or an iterator, a value whose type has
-`next(!@) -> T?` (`for x in !it` is `while (!it).next() as x`).
+`next(!@) -> T?` (`for x in !it` is `while !it.next() as x`).
 `for x, i in xs` also binds the index, after the element (not for an
 iterator). A sigil on the source says how the loop holds it.
 
@@ -1572,7 +1572,7 @@ An `if` or `while` condition binds the value inside an optional with
 | `if ?a as x`, `if !a as x` | a read or write view of the value inside `a` |
 | `if <p.f as x` | the value taken out of a field, which is left `none` |
 | `while a as x` | each value `a` produces |
-| `while (!q).pop() as x` | what a call that lends its self to write returns |
+| `while !q.pop() as x` | what a call that lends its self to write returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
 | `if f() as a, b`, `while f() as a, b` | each of the several results inside the optional a call gives, `-> (A, B)?` |
@@ -1810,8 +1810,8 @@ type Held = *(Node?)
 sub main()
   a = *Cell[*Node?](none)
   b = *Cell[Held](*none)
-  print((!a).swap(none) == none)
-  old = (!b).swap(*none)
+  print(!a.swap(none) == none)
+  old = !b.swap(*none)
   <old
 ```
 

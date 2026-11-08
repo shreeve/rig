@@ -30,7 +30,7 @@ called fun corpus() -> String
   !s.reserve(SIZE + 64)
   rnd = Rand(x: 5)
   while s.len < SIZE
-    for b in WORDS[(!rnd).next() % WORDS.len]
+    for b in WORDS[!rnd.next() % WORDS.len]
       !s.push(b)
   for b in "interface Last { end: never; }\n"
     !s.push(b)

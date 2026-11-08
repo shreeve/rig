@@ -20,11 +20,11 @@ fun echo(c: net.Stream) -> Int!
   total = 0
   buf = String()
   loop
-    n = (!s).read(!buf, 4096)!
+    n = !s.read(!buf, 4096)!
     if n == 0
       break
     total += n
-    (!s).write(?buf)!
+    !s.write(?buf)!
     buf = String()
   total
 
@@ -44,10 +44,10 @@ fun client(port: Int, msg: ?String, trips: Int) -> Int!
   c = net.connect(String("127.0.0.1:", port))!
   back = 0
   for 0..trips
-    (!c).write(msg)!
+    !c.write(msg)!
     got = String()
     while got.len < SIZE
-      _ = (!c).read(!got, 4096)!
+      _ = !c.read(!got, 4096)!
     back += got.len
   back
 

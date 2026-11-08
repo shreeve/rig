@@ -71,8 +71,8 @@ use std.net
 fun echo(l: net.Listener) -> Int!
   c = l.accept()!
   buf = String()
-  n = (!c).read(!buf, 4096)!
-  (!c).write(?buf)!
+  n = !c.read(!buf, 4096)!
+  !c.write(?buf)!
   n
 
 sub main()!
@@ -80,10 +80,10 @@ sub main()!
   port = l.port()
   t = echo(<l)&
   c = net.connect(String("127.0.0.1:", port))!
-  (!c).write("ping")!
+  !c.write("ping")!
   got = String()
   while got.len < 4
-    _ = (!c).read(!got, 100)!
+    _ = !c.read(!got, 100)!
   print(got, >t!)
 ```
 
@@ -92,6 +92,10 @@ ping 4
 ```
 
 `echo` waits on `accept` and `read` with no mark and no future to poll.
+`net.listen` and `write` take a `?String`, and a literal is fixed text,
+lent with no allocation. `net.connect(String("127.0.0.1:", port))`
+builds its address from parts, since Rig has no `+` on text: an owned
+`String`, allocated where the reader sees it and lent for the call.
 
 **Underneath,** each worker sleeps in a poller of its own, kqueue on
 macOS and epoll on Linux, which also serves its tasks' timers. A socket

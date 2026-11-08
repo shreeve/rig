@@ -36,7 +36,7 @@ sub main()
   # lists; a failure names its reason and the byte where reading stopped.
   bad = "[1, 2"
   again = json.Doc()
-  (!again).load(?bad) catch |e|
+  !again.load(?bad) catch |e|
     match e
       .eof(at) => print("cut short at byte", at)
       _ => print(e)

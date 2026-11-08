@@ -676,7 +676,7 @@ called fun run[ip: Bool, arch: Arch](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U
     short4[ip](!dst, src, x)
     if not opening
       !p.blocks(dst)
-    return (!p).final(aad.len, n)
+    return !p.final(aad.len, n)
   return run_long[ip, arch](!dst, src, aad, s, opening)
 
 # `run` past 192 bytes, with the MAC `arch` chooses at compile time.
@@ -744,4 +744,4 @@ fun long[ip: Bool, M](dst: ![]U8, src: []U8, aad: []U8, s: ?[16]U32, opening: Bo
       !p.blocks(?dst[i..])
   else if pending and not opening
     !p.blocks(?dst[prev..prev + 512])
-  return (!p).final(aad.len, n)
+  return !p.final(aad.len, n)
