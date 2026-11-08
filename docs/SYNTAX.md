@@ -324,12 +324,12 @@ sub main()
   name = "ada"
   age = 36
   print(`{name} is {age}; {=age + 1}`)
-  print(`say "hi" \{not a slot\}`)
+  print(`say "hi" to {name} \{not a slot\}`)
 ```
 
 ```output
 ada is 36; age + 1 = 37
-say "hi" {not a slot}
+say "hi" to ada {not a slot}
 ```
 
 ```rig

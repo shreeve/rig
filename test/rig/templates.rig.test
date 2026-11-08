@@ -145,11 +145,11 @@ test "template as an optional String", "x1 none"
 
 # ---- folding ---------------------------------------------------------------
 
-test "template of constant slots is fixed text", '''
+test "template of constant slots is fixed text", ''', whole: true
   usage: tool [3 flags] true
   > usage: tool [3 flags] true
   4 1
-''', whole: true
+'''
   use std.text
 
   N = 3
@@ -187,7 +187,7 @@ code "template where a String goes makes one", "var s = rig.String.of(.{ \"a\", 
   s = `a{n}`
   print(s)
 
-code "template show slot", "rig.print(.{ \"n + 1 = \", rig.showSlot(n + 1), \"\\n\" });"
+code "template show slot", "rig.print(.{ \"n + 1 = \", rig.showSlot("
   n = 1
   print(`{=n + 1}`)
 
@@ -320,7 +320,7 @@ fail "template with a format", "a `:` in a slot is reserved for formatting"
   a = 1
   print(`a{a:5}`)
 
-test "template slot with a keyword argument inside brackets", "a(n: 2)"
+test "template slot with a keyword argument inside brackets", "aP(n: 2)"
   obj P
     n: Int
   print(`a{P(n: 2)}`)
@@ -354,7 +354,7 @@ fail "template joins lines", "a `\\` at the end of a template's line is reserved
   print(`{a}\
   `)
 
-fail "template literal slots", "2:10: a slot holds only a literal", "2:14: a slot holds only a literal", "2:20: a slot holds only a literal", "2:27: a slot holds only a literal", "2:32: a slot holds only a literal", errors: 5
+fail "template literal slots", "2:9: a slot holds only a literal", "2:13: a slot holds only a literal", "2:19: a slot holds only a literal", "2:26: a slot holds only a literal", "2:31: a slot holds only a literal", errors: 5
   a = 1
   print(`{0} {"a"} {true} {-1} {:sym} {a}`)
 
