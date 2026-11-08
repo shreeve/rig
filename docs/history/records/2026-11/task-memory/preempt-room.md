@@ -47,6 +47,29 @@ A slab stack's size is then the program's proven bound plus that room. So preemp
 2. **Save only the vector state in use** (`xsavec`, or XINUSE from `xgetbv`). This shortens the save, but not the room, which must hold the largest save. It stays as a speed-up for the switch-first path if its saves show in profiles.
 3. **No preemption on small stacks:** those tasks would keep their yield checks. This splits the one way to stop a long computation per target that the owner set (ROADMAP, "Concurrency"), so it is rejected.
 
+## Measured (2026-11-07)
+**Memory per sleeping task** (`bench/tasks/bench-scale`, the kernel's own count, reps 3; Swift is the new `bench/tasks/swift`, memory only):
+
+| runtime | Mac (`footprint`) | of it, page tables | pup x86-64 (VmRSS + VmPTE) | of it, page tables |
+|---|---|---|---|---|
+| Rig | 32.7 KiB | 16.1 KiB | 8.9 KiB | 4.3 KiB |
+| Tokio | 265 B | 0 | 386 B | 0 |
+| Go | 2.9 KiB | 3 B | 2.8 KiB | 7 B |
+| Swift | 2.1 KiB | 3 B | | |
+
+On the Mac a sleeping task holds one 16 KiB stack page and one 16 KiB page-table page, since each stack is a mapping of its own.
+
+**A parked task's live stack**, measured by a probe at `stopIn` (the distance from the stack's top to the frame there):
+- **bench/tasks:** a sleeping task 544 B in a fast release build, 2,160 B in debug. Over the whole bench's 1.5 million parks, mean 612 B and max 1,424 B.
+- **Trig 3ca350b**, release, preempted, at 4 checkers: ts-pattern's checker tasks park at a mean of 24 to 30 KiB and a max of 39 KiB, zod3's at about 19 KiB. At one checker nothing parks.
+
+So stacks a few to a page fit tasks like bench/tasks' in under 1 KiB plus this room. Trig's checker tasks need growth by segments, or a larger class.
+
+**Declined stops:** the monitor's "signaled" counts sends, and the kernel merges a SIGURG sent while one is pending, so the counts below are deliveries, from the probe.
+- **bench/tasks:** 2 to 6% of the trampolines entered end without a stop.
+- **Trig at 4 checkers:** 6 to 9 entries a run, 4 to 6 of them stopping; at one checker none.
+
+Switch-first's two extra switches are paid that rarely.
+
 ## To measure before building
-- How often the monitor's signals end in a declined stop, on `bench/tasks` and Trig. That rate sets what the two switches cost.
 - The switch-first room on each target, checked by a test that preempts a task whose stack has exactly `preempt_room` above its guard. On x86-64 that means AVX-512, on burst.

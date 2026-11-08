@@ -5,7 +5,8 @@ measure the memory a sleeping task takes in the kernel's own count
 
 usage: bench/tasks/bench-scale [options]
 
-  --variants a,b  what to build and time (default: rig-fast,tokio,rayon,go)
+  --variants a,b  what to build and time (default: rig-fast,tokio,rayon,go;
+                  swift, on macOS, has the memory row only)
   --workers LIST  worker counts, comma-separated (default: 1,2,4 and
                   every CPU on macOS; 1,2,4,8,16 elsewhere)
   --cpus LIST     for each worker count, the cores to run on, as
@@ -257,6 +258,9 @@ def main():
                 for bench in benches:
                     events = None if MAC else (a.events or BASE_EVENTS + ("," + ALLOC_EVENTS if bench == "alloc" else ""))
                     for v in variants:
+                        # Swift's pool takes no worker count: memory only.
+                        if v == "swift":
+                            continue
                         for name in ways(v, bench):
                             key = (bench, label(v, name), n)
                             r = run(exes[v], name, 1, n, cpus[wi], events)
