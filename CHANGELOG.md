@@ -141,9 +141,10 @@ none of these ever built:
   heap; where a `String` goes (a binding, a field, a return) it is a new
   String of its length. A slot takes what a print argument takes;
   `{=e}` shows the expression and its value; `\{`, `\}`, and
-  `` \` `` are literal, and a `"` needs no escape. A template of
-  constant slots is fixed text, a `Static`, so a module's constant may
-  be one. The strict rules (no slot, an empty slot, a literal slot, a
+  `` \` `` are literal, and a `"` needs no escape. A template whose
+  slots are all constant Ints, Bools, and `Static`s is fixed text, a
+  `Static`, so a module's constant may be one; a Float, an enum, or a
+  show slot is written as the program runs. The strict rules (no slot, an empty slot, a literal slot, a
   `:`, `#`, or template in a slot, a name touching a backtick, ``` `` ```,
   a lone `}`, and `` s = `{s}…` ``) are errors with hints (SPEC
   "Templates").

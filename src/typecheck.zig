@@ -10634,7 +10634,7 @@ const Checker = struct {
                 return self.checkActual(tpl, self.t().static_id, expected);
             }
             try self.ctx.recordType(tpl, self.t().invalid_id);
-            return self.errAt(tpl, "type mismatch: expected `Static`, got a template whose slots are not all constant; a `Static` is text fixed when the program is compiled", .{});
+            return self.errAt(tpl, "type mismatch: expected `Static`, got a template built as the program runs; a `Static` is text fixed when the program is compiled, which a template is when each slot is an Int, a Bool, or a `Static` known then", .{});
         }
         const saved = self.template_ok;
         defer self.template_ok = saved;

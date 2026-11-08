@@ -327,11 +327,33 @@ fail "template as a member's object", "a template stands where text is written"
   a = 1
   print(`x{a}`.len)
 
-fail "template where a Static goes", "expected `Static`, got a template whose slots are not all constant"
+fail "template where a Static goes", "expected `Static`, got a template built as the program runs"
   fun f(s: Static) -> Int
     s.len
   a = 1
   print(f(`{a}`))
+
+fail "template of a constant Float, enum, or show slot is no Static", "16:8: expected `Static`, got a template built as the program runs; a `Static` is text fixed when the program is compiled, which a template is when each slot is an Int, a Bool, or a `Static` known then", "17:8: expected `Static`, got a template built as the program runs", "18:8: expected `Static`, got a template built as the program runs", "20:5: a module's constant is fixed text, so a template there takes only constant slots: an Int, a Bool, or a `Static`", errors: 4, whole: true
+  # Only an Int, a Bool, or a `Static` slot is written as text when the
+  # program is compiled (SPEC "Templates"); any other slot is written
+  # as it runs, even when its value is a constant.
+  PI = 3.14
+  N = 7
+
+  enum Color
+    red
+
+  C = Color.red
+
+  sub take(s: Static)
+    print(s)
+
+  sub main()
+    take(`pi={PI}`)
+    take(`c={C}`)
+    take(`n={=N}`)
+    take(`n={N}`)
+  Y = `pi={PI}`
 
 fail "template as a module constant of run-time slots", "a module's constant is fixed text, so a template there takes only constant slots", whole: true
   fun f() -> Int
