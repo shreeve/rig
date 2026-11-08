@@ -256,3 +256,18 @@ owner's Nexus work; each PR says what it needs.
   buffer, then the heap; `"""` and `'''` only when the opener ends its
   line, `'''abc'''` unchanged mid-line; `String(...)` and `!t.add(...)`
   kept through the release; build T1 next.
+
+## Defaults taken, 2026-11-08
+
+Questions the build raised, answered with the defaults the PRs proposed
+(relayed by the lead, not yet seen by the owner, who may change them):
+
+- **A template whose slots are all constant is a `Static`** (#1014): an
+  Int, a Bool, or a `Static` Zig knows when it compiles, in every slot,
+  makes fixed text, which goes where a `Static` goes and may be a
+  module's constant. A Float or an enum slot runs; enum slots may fold
+  later.
+- **`'''` text over several lines is raw exactly as written** (#1017):
+  no escapes, and no `''` read as one `'` inside it.
+- `\{`, `\}`, and `` \` `` in a plain `"…"` string (October decision 11)
+  come in a small PR after T1c.
