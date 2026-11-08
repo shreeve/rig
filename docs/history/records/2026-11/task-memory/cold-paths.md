@@ -1,6 +1,6 @@
 # Cold paths off task stacks: the design (2026-11-08)
 
-The panel's step 3, item (b) of the census ([census.md](census.md)): the code that keeps a task's stack bound unknown, or large, run on the worker's stack instead. A design for review; nothing is built.
+The panel's step 3, item (b) of the census ([census.md](census.md)): the code that keeps a task's stack bound unknown, or large, run on the worker's stack instead. Reviewed by Rig, who approved the five defaults below with two conditions, which are marked where they apply. Nothing is built yet.
 
 ## The primitive: `sched.onWorkerStack(f, args)`
 
@@ -10,6 +10,7 @@ This is Go's `systemstack`. It calls `f(args)` with the stack pointer below the 
 1. **No preemption while it runs.** It holds off stops (`holdOff`). A signal stop on the worker's stack would save a fiber context inside the worker's own frames.
 2. **No park, yield or task switch in `f`.** A switch would save the fiber's sp on the worker's stack, and the worker's loop would then reuse that region. `f` must be runtime code that waits on nothing: no lock that parks, no I/O through the blocking pool.
    - Safe builds count it in a per-worker flag that every switch checks, and panic with the function's name.
+   - **Condition (Rig):** a test, in a safe build, of the flag catching a park attempted inside `onWorkerStack`.
 3. **A panic in `f`** goes back to the fiber's stack first, then panics there.
    - The handler sees the worker's flag, restores the fiber's sp saved by the switch, and calls the panic's continuation (`tasks.panicked`) on the fiber's stack. Everything below `w.sp` is scratch, so nothing is lost.
    - Without this, `abandon` would switch away from inside the worker's own stack.
@@ -26,8 +27,10 @@ This is Go's `systemstack`. It calls `f(args)` with the stack pointer below the 
 | `flushBeforeWait`, `flushQuietly`, `print`'s final flush of stdout | yes: the drain, under the output lock it already takes or tries | `write(2)` on this thread, which never parks |
 | the panic report (`panicWith`, `reportPanic`, `rendered_stack` of 4 KiB) | yes: the report only; `tasks.panicked` stays on the fiber's stack | formatting the message runs the user's `print` methods: see below |
 | `print`'s formatting of the user's values | **no** | it runs the user's `print` methods, which may wait on a task, park, or panic. Rule 2 forbids that |
-| the clock through the vDSO (`clock_gettime`) | **no** for now: an axiom, checked per machine | it is hot (timers, `alloc.readNow`), and the switch would cost a fifth of a read. Linux's vDSO uses a few hundred bytes. The census can disassemble the running kernel's vDSO image and prove the axiom on each host |
+| the clock through the vDSO (`clock_gettime`) | **no** for now: an axiom, checked per machine | it is hot (timers, `alloc.readNow`), and the switch would cost a fifth of a read. Linux's vDSO uses a few hundred bytes. The census can disassemble the running kernel's vDSO image and prove the axiom on each host. **Condition (Rig):** the check fails closed. A host whose vDSO image the census cannot read, or in which it finds a frame it cannot account for, leaves the bound unknown, and the task takes the large class. census.md records the check for each host |
 | libSystem calls (macOS) | later, per call, after the census lists them per task | most are syscall wrappers with small frames. A blanket rule would put a switch on every `write` |
+
+**A full pipe.** A `write(2)` to a full pipe or a slow terminal blocks the worker's thread, and while it does, stops are held off. That is no worse than today, where the same write blocks the thread on the task's stack, but it is worth saying: a reader that stops reading stalls one worker.
 
 ## What this leaves for the census
 
