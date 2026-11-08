@@ -82,6 +82,35 @@ Every task type is unknown. The `std.Io` vtable calls in the allocator and the c
 
 The go/no-go for classes waits on items 1 and 2: without them, no Linux task in these programs has a bound.
 
+## Second pass: the flushes on the worker's stack, and the vDSO measured (2026-11-08)
+
+The changes measured:
+- **The flushes:** `sched.onWorkerStack` (branch `worker-stack`) runs stdout's flushes and a panic's report on the worker's stack. The census counts only `onWorkerStack`'s own frame, since each call it makes runs on a worker's stack or outside any task.
+- **The vDSO, measured per host (Rig's condition), failing closed:**
+  - On Linux the census reads the host's vDSO image from `/proc/self/mem`.
+  - It splits the image's unnamed functions at every call and outside jump.
+  - It bounds `clock_gettime` by the same rules as the program.
+  - An image it cannot read, or any frame in it it cannot account for, leaves every bound through the clock unknown.
+
+| host | kernel | vDSO `clock_gettime` |
+|---|---|---|
+| pup (x86-64) | 7.0.0-38-generic | 200 B |
+| the Mac (arm64) | none: the clock is a libSystem call, listed as foreign | |
+
+bench/tasks, release, on pup:
+
+| task | first pass | second pass |
+|---|---|---|
+| spawn's tiny task | 584 B | 584 B |
+| `nap` | unknown | 616 B |
+| `spin`, `even_chunk`, `skew_chunk` | unknown | 2,296 B |
+| `yielder` | unknown | 2,344 B |
+| `alloc_chunk` | unknown | unknown: a buffer-full drain inside `print`'s formatting (`Io.Writer.writeSplat`) |
+| `tree` | unknown | unknown: recursion, and `clone` through a pointer |
+| a closure's task | unknown | unknown: through a pointer |
+
+So 6 of the 9 task types are bounded on pup, all of them by direct calls alone. The 2.3 KiB rows are the poller's service: `Poller.poll` is a 2,208 B frame, which item 1 moves.
+
 ## Running it
 
 ```sh

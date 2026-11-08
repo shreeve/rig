@@ -38,10 +38,19 @@ UNKNOWN = None
 # as it starts).
 TLV = -1
 TLV_BOUND = 256
+# A call into the kernel's vDSO (Linux: the clock): bounded by this host's
+# own vDSO image, read and analysed as the program is (`vdso_bound`), or
+# unknown when it cannot be.
+VDSO = -2
+VDSO_BOUND = [None, "not measured"]
 # The functions that leave the stack they run on, for another: what they
 # push before the switch is all they take of it.
 SWITCHES = re.compile(r"^rig\.(sched\.switchNaked|runtime\.switchStackNaked)$")
 EXTRA_COLD = None
+# `sched.onWorkerStack`: each call it makes runs on the worker's stack, or
+# outside any task (its rules 4 and 5), so a task's bound counts its own
+# frame alone.
+ON_WORKER = re.compile(r"^rig\.sched\.onWorkerStack(__\w+)?$")
 # Zig's stack probe (x86-64): it touches each page of the frame its caller
 # is about to reserve, moving rsp down and back; the caller then reserves
 # the frame itself (`mov eax, N; call; sub rsp, rax`).
@@ -768,6 +777,70 @@ def data_words(exe, fmt, starts):
     return words, fptr
 
 
+def vdso_bound(arch):
+    """This host's vDSO `clock_gettime`, bounded as a program's function is:
+    the image read from this process's memory (/proc/self/maps, `[vdso]`),
+    disassembled and walked. (bytes, None), or (None, why)."""
+    try:
+        lo = hi = None
+        for l in open("/proc/self/maps"):
+            if l.rstrip().endswith("[vdso]"):
+                a, b = l.split()[0].split("-")
+                lo, hi = int(a, 16), int(b, 16)
+        if lo is None:
+            return (None, "no [vdso] in /proc/self/maps")
+        with open("/proc/self/mem", "rb") as m:
+            m.seek(lo)
+            image = m.read(hi - lo)
+    except OSError as e:
+        return (None, "cannot read it: %s" % e)
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".so", delete=False) as f:
+        f.write(image)
+        path = f.name
+    try:
+        fns = disassemble(path, arch)
+        fns.sort(key=lambda f: f.start)
+        # The image names only its exported functions: each other call's
+        # target starts a function of its own, split from the one it is in.
+        targets = set()
+        for fn in fns:
+            last = fn.ins[-1].addr if fn.ins else fn.start
+            for i in fn.ins:
+                if i.op in ("call", "bl", "jmp", "b"):
+                    t = target(i.args)
+                    if t is not None and (i.op in ("call", "bl") or not fn.start <= t <= last):
+                        targets.add(t)
+        for t in sorted(targets):
+            for fn in fns:
+                if fn.start < t and fn.ins and fn.ins[-1].addr >= t:
+                    k = next((j for j, i in enumerate(fn.ins) if i.addr == t), None)
+                    if k is not None:
+                        g = Fn("vdso+%#x" % t, t)
+                        g.ins, fn.ins = fn.ins[k:], fn.ins[:k]
+                        fns.append(g)
+                    break
+        fns.sort(key=lambda f: f.start)
+        starts = {f.start for f in fns}
+        code = code_sections(path) or [(fns[0].start, fns[-1].start + 4096)] if fns else []
+        for k, fn in enumerate(fns):
+            end = fns[k + 1].start if k + 1 < len(fns) else fn.start + 4 * len(fn.ins) + 16
+            analyse(fn, end, arch, code, starts)
+        b = bounds(fns, arch, None)
+        best, why = 0, None
+        found = [fn for fn in fns if fn.name.endswith("clock_gettime")]
+        if not found:
+            return (None, "no clock_gettime in the image")
+        for fn in found:
+            c, w, fo = b(fn.start)
+            if c is UNKNOWN or fo:
+                return (None, w or "it calls out: %s" % ", ".join(sorted(fo)))
+            best = max(best, c)
+        return (best, None)
+    finally:
+        os.unlink(path)
+
+
 def zig_lib():
     """Zig's lib directory, from `zig env`."""
     z = shutil.which("zig")
@@ -883,6 +956,9 @@ def bounds(fns, arch, resolved, by_slot=None):
     def b(addr):
         if addr == TLV:
             return (TLV_BOUND, None, frozenset())
+        if addr == VDSO:
+            vb, vw = VDSO_BOUND
+            return (vb, None if vb is not None else "the vDSO: " + vw, frozenset())
         if addr in cold:
             return (0, None, frozenset(["(panic) " + by[addr].name]))
         if addr in memo:
@@ -894,6 +970,9 @@ def bounds(fns, arch, resolved, by_slot=None):
             return (UNKNOWN, "a cycle of calls through %s" % fn.name, frozenset())
         if fn.why:
             memo[addr] = (UNKNOWN, "%s: %s" % (fn.name, fn.why), frozenset())
+            return memo[addr]
+        if ON_WORKER.search(fn.name):
+            memo[addr] = (fn.own + RED_ZONE, None, frozenset())
             return memo[addr]
         onpath.add(addr)
         best, why, foreign = fn.own + RED_ZONE, None, set(fn.foreign)
@@ -1018,7 +1097,7 @@ def main():
     # The interface of each call through a slot: the innermost frame of the
     # call's inlined code that names a std namespace with a `VTable`.
     lib = zig_lib()
-    slot_calls = [at for fn in fns for _, at, how in fn.icalls_how if how and how[0] in ("global", "slot")]
+    slot_calls = [at for fn in fns for _, at, how in fn.icalls_how]
     frames = inline_frames(a.exe, fmt, slot_calls)
     iface = {}
     for at, fr in frames.items():
@@ -1052,9 +1131,15 @@ def main():
     # Calls through a vtable a global holds: the global's value in the file
     # names the vtable, and the slot the function. Calls through a slot of
     # an unknown vtable: every function at that slot or after in any run.
+    if fmt == "elf" and any(v == "vdso" for v in iface.values()):
+        VDSO_BOUND[:] = list(vdso_bound(arch))
+        print("the vDSO's clock_gettime on this host: %s" % ("%d B" % VDSO_BOUND[0] if VDSO_BOUND[0] is not None else "unknown: " + VDSO_BOUND[1]))
     for fn in fns:
         exact, slots, rest = [], [], []
         for d, at, how in fn.icalls_how:
+            if iface.get(at) == "vdso":
+                exact.append((d, VDSO))
+                continue
             if how and how[0] == "mem":
                 # A function pointer a global holds: its value in the file.
                 t = words.get(how[1])
@@ -1068,9 +1153,6 @@ def main():
                     exact.append((d, t))
                     continue
             if how and how[0] in ("global", "slot"):
-                if iface.get(at) == "vdso":
-                    fn.foreign.append("vDSO clock_gettime")
-                    continue
                 slots.append((d, how[-1], at))
                 continue
             rest.append((d, at))
