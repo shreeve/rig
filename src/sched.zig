@@ -126,6 +126,9 @@ const Worker = struct {
     sp: usize = 0,
     current: ?*Fiber = null,
     after: ?After = null,
+    /// A fiber a stop found nothing to yield to (`afterPreempt`): run
+    /// next, before anything `next` would give.
+    resume_next: ?*Fiber = null,
     ring: Ring = .{},
     /// The fibers to run next: the ones this worker's fibers last made
     /// ready, still in cache, in a circle whose newest is at `lifo_head`.
@@ -518,7 +521,7 @@ fn claimWaiting(w: *Worker) void {
 /// Take into `w`'s ring work that waits for another busy worker, as
 /// `claimWaiting` does: half of another's ring, or the fiber in another's
 /// "run next" slot; whether any was taken. A preempted fiber's
-/// (`preempted`), which then holds the fiber rather than yield.
+/// (`afterPreempt`), which then holds the fiber rather than yield.
 fn stealWaiting(w: *Worker) bool {
     if (workers.*.len < 2) return false;
     for (workers.*) |*v| {
@@ -566,9 +569,12 @@ fn hasOwnWork(w: *Worker) bool {
 // with room for the trampoline. It then makes the fiber return into
 // `preemptEntry`, as if called there: the trampoline saves every
 // register the interrupted code may hold, the flags, and the vector and
-// x87 state, calls `preempted`, which runs what `tick` would and puts
-// the fiber in the global queue, and returns to the instruction it
-// stopped at with all of them restored.
+// x87 state, and switches to the worker's own stack (`preemptSwitch`),
+// where `afterPreempt` runs what `tick` would and puts the fiber in the
+// global queue, or runs it again next; when the fiber runs again, the
+// trampoline returns to the instruction it stopped at with all of them
+// restored. So a stop needs only the trampoline's save on the fiber's
+// stack (`preempt_room`).
 //
 // Any worker may take a fiber stopped so: the program's own code keeps
 // nothing of its worker in a register, since the scheduler's code that
@@ -717,9 +723,18 @@ pub noinline fn holdOn() void {
 /// program that does not handle it ignores it.
 const preempt_signal: std.posix.SIG = .URG;
 
-/// The room below the stack pointer the trampoline needs: the red zone,
-/// its own frame, and `preempted`'s calls.
-const preempt_room = 32 << 10;
+/// The room below the stack pointer a stop needs on the fiber's stack:
+/// the red zone, the trampoline's save of the registers, and the few
+/// frames that switch to the worker's stack (`preemptSwitch`, `stopIn`,
+/// `switchTo`), which decides there (`afterPreempt`). A debug build's
+/// frames are larger, and `RIG_PREEMPT_TRACE`'s walk runs on the fiber's
+/// stack, so those keep the old 32 KiB.
+const trampoline_room: usize = switch (builtin.cpu.arch) {
+    .x86_64 => 136 + 96 + 64 + std.mem.alignForward(usize, vector_state.size, 64),
+    .aarch64 => 144 + 720,
+    else => 0,
+};
+const preempt_room: usize = if (builtin.mode == .debug) 32 << 10 else trampoline_room + (2 << 10);
 
 fn installPreempt() void {
     findCode();
@@ -780,7 +795,8 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     // own stack, not below the fiber's stack pointer.
     const guard = f.state.stack_guard;
     const here = @frameAddress();
-    if ((guard.hi != 0 and sp < guard.hi + preempt_room) or (here < sp and here > sp -| (8 << 20))) {
+    const room: usize = if (preempt_trace) 32 << 10 else preempt_room;
+    if ((guard.hi != 0 and sp < guard.hi + room) or (here < sp and here > sp -| (8 << 20))) {
         preOf(w).cramped += 1;
         return;
     }
@@ -825,7 +841,7 @@ const vector_state: struct { size: usize, mask: u32, save: []const u8, restore: 
 /// making the frame record a call would leave, saves the flags and the
 /// registers a call may change, clears the direction flag, saves the
 /// vector state on a 64-byte boundary (its header zeroed, as `xrstor`
-/// needs), calls `preempted`, restores all of it, and returns past the
+/// needs), calls `preemptSwitch`, restores all of it, and returns past the
 /// red zone. A walk of frame pointers, and one by its unwind information,
 /// goes on from it into the stopped code: its frame's canonical address
 /// is the stopped stack pointer, and its return address the stopped pc.
@@ -909,7 +925,7 @@ inline fn preemptEntryX86() void {
 /// registers a call may change (x0-x17 but x15, x18 being Darwin's), the
 /// frame pointer and link register, the flags, the floating-point status
 /// and control, and all of q0-q31, points the frame pointer at the
-/// record, calls `preempted`, restores them and the red zone, and returns
+/// record, calls `preemptSwitch`, restores them and the red zone, and returns
 /// by x15, which code built to be preempted never uses (`+reserve_x15`).
 /// A walk of frame pointers, and one by its unwind information, goes on
 /// from it into the stopped code: its frame's canonical address is the
@@ -1002,30 +1018,51 @@ inline fn preemptEntryArm() void {
 }
 
 fn preemptedC() callconv(.c) void {
-    preempted();
+    preemptSwitch();
 }
 
 /// A fiber the monitor's signal stopped (`preemptEntry`): do what a loop's
 /// yield check does (`tick`), wake what its worker's timers and poller
 /// make ready, and if work waits, for this worker or for another busy
 /// one, go back in line behind it, in the global queue.
-fn preempted() void {
+fn preemptSwitch() void {
     const w = me() orelse return;
     // A flag set once, not a lock: uncounted for preemption.
     if (preempt_trace and !preempt_traced.swap(true, .monotonic)) std.debug.dumpCurrentStackTrace(.{ .allow_unsafe_unwind = true });
-    serviceBusy(w);
-    if (!hasOwnWork(w)) {
-        if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !othersWait(w)) return;
-        if (leftToIdle(w)) return waiting.store(1, .monotonic);
-        if (!stealWaiting(w)) return;
-    } else if (leftToIdle(w)) return;
     // A program built to be preempted makes no local task (`bin/rig`
     // keeps the yield checks of one that does), so no fiber is pinned;
     // one that were is never stopped, since its siblings share counts
     // that are not atomic and may run only at its waiting points.
     if (w.current.?.home != null) return;
+    stopIn(.{ .run = afterPreempt });
+}
+
+/// On the worker's stack, after the stop (`preemptSwitch`): do what a
+/// loop's yield check does (`tick`), wake what the worker's timers and
+/// poller make ready, and if work waits, for this worker or for another
+/// busy one, queue `f` behind it (`behind`); else run `f` again next
+/// (`Worker.resume_next`), where its trampoline returns into the
+/// stopped code.
+fn afterPreempt(f: *Fiber, _: ?*anyopaque) void {
+    const w = me().?;
+    serviceBusy(w);
+    const yields = blk: {
+        if (!hasOwnWork(w)) {
+            if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !othersWait(w)) break :blk false;
+            if (leftToIdle(w)) {
+                waiting.store(1, .monotonic);
+                break :blk false;
+            }
+            if (!stealWaiting(w)) break :blk false;
+        } else if (leftToIdle(w)) break :blk false;
+        break :blk true;
+    };
+    if (!yields) {
+        w.resume_next = f;
+        return;
+    }
     preOf(w).preempts += 1;
-    stopIn(.{ .run = behind });
+    behind(f, null);
 }
 
 /// Queue the fiber `f` just preempted in the global queue, as Go does:
@@ -1068,7 +1105,7 @@ fn envUs(comptime name: []const u8, default: u32) i96 {
 }
 
 /// `RIG_PREEMPT_TRACE=1`: the first fiber preempted prints the stack it
-/// was stopped on, from `preempted` through the trampoline.
+/// was stopped on, from `preemptSwitch` through the trampoline.
 var preempt_trace = false;
 var preempt_traced: std.atomic.Value(bool) = .init(false);
 
@@ -1128,7 +1165,7 @@ fn watchSlices(slice: i96, wait: i96) void {
 /// Whether work waits in `w`'s own queues: its "run next" slot, its
 /// ring, and its pinned fibers, where fibers made or woken wait. Fibers
 /// that were preempted wait in the global queue, which only the slice
-/// hurries (`preempted`).
+/// hurries (`afterPreempt`).
 fn queuedHere(w: *Worker) bool {
     return nextHeld(w, .monotonic) or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0;
 }
@@ -3161,6 +3198,11 @@ fn loop(w: *Worker) void {
                 advanceClock();
                 continue;
             };
+            runFiber(w, f);
+            continue;
+        }
+        if (w.resume_next) |f| {
+            w.resume_next = null;
             runFiber(w, f);
             continue;
         }
