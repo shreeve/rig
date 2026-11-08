@@ -1,0 +1,229 @@
+# Text over several lines (SPEC "Text over several lines"): `"""`,
+# `'''`, and a backtick, each ending its line; the closer's column is
+# the margin.
+
+test "text block escaped", '''
+  usage: tool [flags] FILE
+    -v  say "more" A
+  end
+'''
+  s = """
+    usage: tool [flags] FILE
+      -v  say "more" \x41
+    end
+    """
+  print(s)
+
+test "text block raw", '''
+  a\nb ''x''
+    c
+'''
+  s = '''
+    a\nb ''x''
+      c
+    '''
+  print(s)
+
+test "text block is a Static", "true 9"
+  fun size(s: Static) -> Int
+    s.len
+  s = """
+    abc
+    def
+    """
+  print(s == "abc\ndef", size(s) + 2)
+
+test "text block keeps a deeper first line", '''
+  [    deep
+    mid
+  edge]
+'''
+  s = """
+        deep
+      mid
+    edge
+    """
+  print(`[{s}]`)
+
+test "text block closer inline sets no margin", '''
+  [a
+    b]
+'''
+  s = """
+    a
+      b"""
+  print(`[{s}]`)
+
+test "text block blank lines and trailing spaces", "true 10"
+  s = """
+    a
+      
+    b c \x20
+    d   
+    """
+  print(s == "a\n\nb c  \nd", s.len)
+
+test "text block empty", "[]"
+  s = """
+    """
+  print(`[{s}]`)
+
+test "text block shifted keeps its value", "true"
+  a = """
+    x
+      y
+    """
+  b = """
+            x
+              y
+            """
+  print(a == b)
+
+test "raw string with doubled quotes mid-line is unchanged", "'abc' 5"
+  s = '''abc'''
+  print(s, s.len)
+
+test "template over several lines", '''
+  name: ada
+    age: 36
+  done
+'''
+  name = "ada"
+  age = 36
+  print(`
+    name: {name}
+      age: {age}
+    done
+    `)
+
+test "template over several lines then code", '''
+  [1
+  2] x
+'''
+  n = 1
+  print(`
+    [{n}
+    {n + 1}]
+    `, "x")
+
+test "template over several lines where a ?String goes", "7"
+  use std.text
+  n = 4
+  print(text.trim(`
+      {n}
+    and {n}
+    `).len)
+
+test "template over several lines as a String", '''
+  - ada
+  - bob
+'''
+  a = "ada"
+  b = "bob"
+  s = `
+    - {a}
+    - {b}
+    `
+  print(s)
+
+test "template over several lines shifted keeps its value", "true"
+  n = 1
+  a = `
+    {n}
+      x
+    `
+  b = `
+          {n}
+            x
+          `
+  print(a == b)
+
+fail "text block line less indented than its closer", "this line is less indented than the text's closer"
+  s = """
+    a
+   b
+    """
+  print(s)
+
+fail "template line less indented than its closer", "this line is less indented than the text's closer"
+  n = 1
+  s = `
+    {n}
+   b
+    `
+  print(s)
+
+fail "text block tab in its margin", "a tab in the margin of text over several lines"
+  s = """
+  	a
+    """
+  print(s)
+
+fail "text block unterminated", "unterminated text"
+  s = """
+    a
+
+fail "text block joins lines", "a `\\` at the end of a line of text is reserved for joining lines"
+  s = """
+    a\
+    """
+  print(s)
+
+fail "template over several lines slot spans lines", "a slot ends on its template's line"
+  n = 1
+  print(`
+    {n +
+    1}
+    `)
+
+fail "text block mid-line stays rejected", "unexpected `\"abc\"`"
+  s = """abc"""
+  print(s)
+
+test "text block escapes are Zig's", "say \"hi\" \\\"x\\\" \\ end"
+  t = """
+    say \"hi\" \\"x\\\" \\ end
+    """
+  print(t)
+
+test "text block escapes in a module constant", "a\"b \\ c", whole: true
+  T = """
+    a\"b \\ c
+    """
+
+  sub main()
+    print(T)
+
+code "text block escapes in a test name", ".name = \"say \\\"q\\\"\"", whole: true
+  test """
+    say \"q\"
+    """
+    print(1)
+
+  sub main()
+    print(2)
+
+fail "text block escapes in a compile-time panic", "cap: \"big\"", whole: true
+  fun cap[n: Int] -> Int
+    if n > 4
+      panic("""
+        cap: \"big\"
+        """)
+    n * 2
+  X = cap[9]
+
+  sub main()
+    print(X)
+
+fail "text block in a slot spans lines", "a slot ends on its template's line"
+  fun size(s: ?String) -> Int
+    s.len
+  print(`a{size("""
+    xyz
+    """)}b`)
+
+fail "text block tab past its margin", "control character in a string"
+  s = '''
+      	cc
+    '''
+  print(s)

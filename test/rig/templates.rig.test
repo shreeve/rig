@@ -414,7 +414,7 @@ fail "template bad escape", "invalid escape `\\q` in a template"
   a = 1
   print(`\q{a}`)
 
-fail "template joins lines", "a `\\` at the end of a template's line is reserved for joining lines"
+fail "template joins lines", "a `\\` at the end of a line of text is reserved for joining lines"
   a = 1
   print(`{a}\
   `)

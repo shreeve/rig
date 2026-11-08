@@ -27,7 +27,6 @@ decided are kept in [IDEAS](IDEAS.md) until he approves or rejects them.
 - **std's I/O sets in its signatures**: `FileError` and `NetError` exist (`std.file`, `std.net`), but std's I/O functions and its other fallible ones (`text.parse_int -> Int!`, `std.io`) still fail with any error, so a caller cannot match their members, and a function that declares a set cannot pass their failures on with `!` rather than catch them ([SPEC §13](../SPEC.md#declared-sets-and-fields)). Declaring them in the signatures waits for the owner's names for the rest.
 - **Per-server `http.serve` limits**: arguments to `http.serve` that set the header, body, and timeout limits for one server; the environment sets them for the whole process today ([STD, std.http](STD.md#stdhttp)).
 - **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
-- **Text over several lines**: a literal that spans lines, for help text and templates; today each line is a literal and `String(a, b, c)` joins them (SPEC "Strings").
 - **Not waiting, `task.poll(...)`**: the named select's arms, given at once to whichever can complete now, or `none` when none can, matched as `none =>` (records/2026-11/revamp-compiler/panel-select-designer.md).
 - **The closure arms of `task.select` go**: the old spelling, `!ch.on_recv(f)`, is removed in the release after 0.3; `tools/migrate-select.py` rewrites it to named arms (SPEC "Channels").
 - **Several results**, after their first form (SPEC "Several results"):

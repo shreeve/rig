@@ -118,6 +118,15 @@ none of these ever built:
 
 ### Added
 
+- **Text over several lines** (T1c): `"""` (with escapes) and `'''`
+  (raw) open fixed text over several lines, a `Static`, when the opener
+  ends its line, and a backtick that ends its line opens a template over
+  several lines. The closer's column is the margin: spaces past it are
+  text, a line less indented than a closer alone on its line is an
+  error, a line of only spaces is empty, the spaces ending a line are
+  dropped, and a tab in the margin is an error, so moving the text never
+  changes it. Mid-line, `'''abc'''` is still the raw string `'abc'`
+  (SPEC "Text over several lines").
 - **Backtick templates** (T1b): `` `{name} is {age}` `` builds text
   from pieces and slots, and the place decides what it becomes. In
   `print`, `warn`, and `panic` its pieces are written straight, with no
