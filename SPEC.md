@@ -9556,7 +9556,7 @@ names the field that is not. A literal or an embedded file
 rejected where the call is written. The List keeps no view of `s`: its
 bytes are copied. A large run of the program's own bytes, 64 KiB or
 more of an embedded file or a literal, added to an empty List may be
-mapped rather than copied, in a Linux release build: its pages are read
+mapped rather than copied, in a Linux or macOS release build: its pages are read
 from the program's file when first touched and copied when first
 written, so a table the program only reads costs no copy and no memory
 it does not touch. The List owns its elements as any List does, and

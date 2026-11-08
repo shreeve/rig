@@ -966,16 +966,23 @@ gives each plain enum an `exact` object holds its tag type (`enum(u8)`,
 (`SemContext.exact_enums`). `bytesRecord` admits only `exact` objects,
 so every record is flat and copies with one `memcpy`.
 
-**Mapped runs.** In a Linux build that takes the release allocator
-(`runtime.maps_runs`: no leak checker, heap profile, or sanitizer),
-`List.extend_from_bytes` of 64 KiB or more (`alloc.map_min`) into an
-empty List with no buffer, of an `exact` record or a number, maps the
-run where it lies rather than copying it (`alloc.mapRun`): the address
-less the image's load bias (`PT_PHDR` in the auxiliary vector) falls in
-a loaded segment without `PF_W`, whose file bytes are the image's, and
-`mmap` of `/proc/self/exe` (opened once) with `MAP_PRIVATE` at that
-file offset gives pages the kernel reads on first touch and copies for
-this mapping on first write. The List's buffer is the mapped run, its
+**Mapped runs.** In a Linux or macOS build that takes the release
+allocator (`runtime.maps_runs`: no leak checker, heap profile, or
+sanitizer), `List.extend_from_bytes` of 64 KiB or more (`alloc.map_min`)
+into an empty List with no buffer, of an `exact` record or a number,
+maps the run where it lies rather than copying it (`alloc.mapRun`): the
+address falls in a read-only loaded part of the image, whose file bytes
+are the image's, and `mmap` of the program's own file (opened once) with
+`MAP_PRIVATE` at that file offset gives pages the kernel reads on first
+touch and copies for this mapping on first write. `openExe` finds those
+parts once (`alloc.Load`): on Linux the loaded segments without `PF_W`,
+at their addresses plus the image's load bias (`PT_PHDR` in the
+auxiliary vector), in `/proc/self/exe`; on macOS the main image's
+`LC_SEGMENT_64` commands whose initial protection has no write
+(`__TEXT`, where `$embed` and literals lie), at their addresses plus the
+image's slide (`_dyld_get_image_header`, `_dyld_get_image_vmaddr_slide`),
+in the file `_NSGetExecutablePath` names, opened only when its first
+bytes are the image's own header, so a universal binary is copied. The List's buffer is the mapped run, its
 capacity its length; everything else about the List is unchanged. The
 allocator's `freeSlow` gives such a buffer's mapping back, and its
 `remap` declines to grow one, so the List copies it into a heap block
@@ -986,7 +993,9 @@ functions out of its PGO profile). A table of 256 mappings under a spin
 lock records them (`mapped_spans`); past it, or where anything fails, the
 run is copied. Measured on Trig (records/2026-11/zero-copy): mitt 17.3%
 fewer cycles, neverthrow 14.5%, the four larger 0.9-2.9%, none slower,
-anonymous memory lower on all six.
+anonymous memory lower on all six. On macOS, where the lib trees were
+copied, Trig's peak memory is 9.2 to 9.5 MiB lower on zod3 and
+ts-pattern at every checker count, with no run slower.
 
 **Records from embedded files.** `sema.bytesRecord` answers whether
 bytes make values of a type, and gives a record its `checks`: the

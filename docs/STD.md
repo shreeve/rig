@@ -2056,7 +2056,7 @@ differently, and the bytes are copied whole. A length that is not
 a whole number of `$size(T)` panics. Bytes written `$embed(path)` at
 the call may also make `Bool`s and plain enums, since the compiler
 reads the file and checks each record's values, rejecting the program
-at the first that no `Bool` or variant holds. In a Linux release build,
+at the first that no `Bool` or variant holds. In a Linux or macOS release build,
 64 KiB or more of an embedded file added to an empty List is mapped from
 the program's file instead of copied: each page is read when first
 touched and copied for the List when first written, so a large table

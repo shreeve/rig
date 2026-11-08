@@ -1790,17 +1790,26 @@ const mapped_spans = split.cell(&mapped_spans_var, "alloc.mapped_spans");
 var mapped_count_var: std.atomic.Value(usize) = .init(0);
 const mapped_count = split.cell(&mapped_count_var, "alloc.mapped_count");
 
-/// The executable's own file, opened once, read-only, and the program
-/// headers of its running image: `fd` is -2 before the first run and -1
-/// where it cannot be read.
+/// The executable's own file, opened once, read-only, and where the
+/// read-only parts of its running image lie in it: `fd` is -2 before the
+/// first run and -1 where it cannot be read.
 const ExeFile = struct {
     fd: i32 = -2,
-    bias: usize = 0,
-    phdrs: []const Phdr = &.{},
+    loads: [max_loads]Load = undefined,
+    load_count: usize = 0,
 };
+/// A read-only part of the running image the file holds whole: `len`
+/// bytes from `addr`, which are the file's from `offset` (a `PT_LOAD`
+/// without `PF_W` on Linux, an `LC_SEGMENT_64` without write in its
+/// initial protection on macOS).
+const Load = struct { addr: usize, len: usize, offset: u64 };
+const max_loads = 8;
 const Phdr = extern struct { type: u32, flags: u32, offset: u64, vaddr: u64, paddr: u64, filesz: u64, memsz: u64, @"align": u64 };
 var exe_file_var: ExeFile = .{};
 const exe_file = split.cell(&exe_file_var, "alloc.exe_file");
+
+/// Whether `mapRun` maps runs on this target: Linux and macOS.
+pub const maps_files = builtin.os.tag == .linux or builtin.os.tag == .macos;
 
 /// The pages of the executable's file that hold `bytes`, a run of a
 /// read-only part of the running image (an `$embed`, a literal), mapped
@@ -1809,54 +1818,98 @@ const exe_file = split.cell(&exe_file_var, "alloc.exe_file");
 /// for this mapping alone when it is first written: a List over them
 /// owns its elements as any List does, and no other value sees its
 /// writes. Its address within a page is the run's, so it keeps the run's
-/// alignment. Null, and the caller copies, off Linux, where the file
-/// cannot be opened (`/proc/self/exe`), for a run not in a read-only
-/// loaded segment, when `map_spans_max` runs are mapped, or when the
-/// system refuses. The mapping is given back by `free` or by growing
-/// the List past it, which copies (`releaseMapped`, `remap`).
+/// alignment. Null, and the caller copies, off Linux and macOS, where the
+/// file cannot be opened (`/proc/self/exe`, `_NSGetExecutablePath`) or is
+/// not the image (a universal binary's file begins with its own header),
+/// for a run not in a read-only loaded part, when `map_spans_max` runs are
+/// mapped, or when the system refuses. The mapping is given back by
+/// `free` or by growing the List past it, which copies (`releaseMapped`,
+/// `remap`).
 pub fn mapRun(bytes: []const u8) ?[*]u8 {
-    if (builtin.os.tag != .linux or bytes.len < map_min) return null;
-    const linux = std.os.linux;
+    if (!maps_files or bytes.len < map_min) return null;
     mapped_lock.lock();
     defer mapped_lock.unlock();
     const exe = exe_file;
     if (exe.fd == -2) openExe(exe);
     if (exe.fd < 0 or mapped_count.load(.monotonic) == map_spans_max) return null;
-    const at = @intFromPtr(bytes.ptr) -% exe.bias;
-    for (exe.phdrs) |ph| {
-        // PT_LOAD, without PF_W: what the file holds is what the image does.
-        if (ph.type != 1 or ph.flags & 2 != 0) continue;
-        if (at < ph.vaddr or at + bytes.len > ph.vaddr + ph.filesz) continue;
-        const off = at - ph.vaddr + ph.offset;
+    const at = @intFromPtr(bytes.ptr);
+    for (exe.loads[0..exe.load_count]) |l| {
+        if (at < l.addr or at + bytes.len > l.addr + l.len) continue;
+        const off = at - l.addr + l.offset;
         const page = std.heap.pageSize();
         const start = off - off % page;
         const len = off - start + bytes.len;
-        const rc = linux.mmap(null, len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE }, exe.fd, @intCast(start));
-        if (linux.errno(rc) != .SUCCESS) return null;
+        const m = std.posix.mmap(null, len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE }, exe.fd, @intCast(start)) catch return null;
         const n = mapped_count.load(.monotonic);
-        mapped_spans[n] = .{ .start = rc, .len = len };
+        mapped_spans[n] = .{ .start = @intFromPtr(m.ptr), .len = len };
         mapped_count.store(n + 1, .release);
-        return @ptrFromInt(rc + (off - start));
+        return m.ptr + (off - start);
     }
     return null;
 }
 
-/// Open the executable's file and find the program headers of the
-/// running image, and how far the image is loaded from the addresses
-/// they give (`PT_PHDR`), once (`mapRun`, under its lock).
+/// Open the executable's file and find the read-only parts of the
+/// running image it holds, once (`mapRun`, under its lock).
 fn openExe(exe: *ExeFile) void {
-    const linux = std.os.linux;
     exe.fd = -1;
-    const ph: usize = linux.getauxval(std.elf.AT.PHDR);
-    const num: usize = linux.getauxval(std.elf.AT.PHNUM);
-    if (ph == 0 or num == 0) return;
-    exe.phdrs = @as([*]const Phdr, @ptrFromInt(ph))[0..num];
-    for (exe.phdrs) |p| if (p.type == 6) {
-        exe.bias = ph -% p.vaddr;
-    };
-    const rc = linux.open("/proc/self/exe", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    if (linux.errno(rc) != .SUCCESS) return;
-    exe.fd = @intCast(rc);
+    exe.load_count = 0;
+    if (builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+        const ph: usize = linux.getauxval(std.elf.AT.PHDR);
+        const num: usize = linux.getauxval(std.elf.AT.PHNUM);
+        if (ph == 0 or num == 0) return;
+        const phdrs = @as([*]const Phdr, @ptrFromInt(ph))[0..num];
+        // How far the image is loaded from the addresses the headers
+        // give (`PT_PHDR`).
+        var bias: usize = 0;
+        for (phdrs) |p| if (p.type == 6) {
+            bias = ph -% p.vaddr;
+        };
+        for (phdrs) |p| {
+            // PT_LOAD, without PF_W: what the file holds is what the image does.
+            if (p.type != 1 or p.flags & 2 != 0) continue;
+            if (exe.load_count == max_loads) break;
+            exe.loads[exe.load_count] = .{ .addr = @intCast(p.vaddr +% bias), .len = @intCast(p.filesz), .offset = p.offset };
+            exe.load_count += 1;
+        }
+        const rc = linux.open("/proc/self/exe", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        if (linux.errno(rc) != .SUCCESS) return;
+        exe.fd = @intCast(rc);
+    } else if (builtin.os.tag == .macos) {
+        const macho = std.macho;
+        const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(std.c._dyld_get_image_header(0) orelse return));
+        if (hdr.magic != macho.MH_MAGIC_64) return;
+        const slide = std.c._dyld_get_image_vmaddr_slide(0);
+        var cmd: [*]const u8 = @ptrCast(hdr);
+        cmd += @sizeOf(macho.mach_header_64);
+        for (0..hdr.ncmds) |_| {
+            const lc: *align(1) const macho.load_command = @ptrCast(cmd);
+            if (lc.cmd == .SEGMENT_64) {
+                const seg: *align(1) const macho.segment_command_64 = @ptrCast(cmd);
+                // Not written as the image loads: what the file holds is
+                // what the image does.
+                if (!seg.initprot.WRITE and seg.filesize > 0 and exe.load_count < max_loads) {
+                    exe.loads[exe.load_count] = .{ .addr = @intCast(seg.vmaddr +% slide), .len = @intCast(seg.filesize), .offset = seg.fileoff };
+                    exe.load_count += 1;
+                }
+            }
+            cmd += lc.cmdsize;
+        }
+        var path: [4096]u8 = undefined;
+        var size: u32 = path.len - 1;
+        if (std.c._NSGetExecutablePath(&path, &size) != 0) return;
+        const fd = std.c.open(@ptrCast(&path), .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
+        if (fd < 0) return;
+        // The file is the image only if it begins with the image's own
+        // header: a universal binary begins with its list of slices.
+        var head: [@sizeOf(macho.mach_header_64)]u8 = undefined;
+        const got = std.c.pread(fd, &head, head.len, 0);
+        if (got != head.len or !std.mem.eql(u8, &head, std.mem.asBytes(hdr))) {
+            _ = std.c.close(fd);
+            return;
+        }
+        exe.fd = fd;
+    }
 }
 
 /// Whether `p` lies in a run `mapRun` mapped. Out of line, as `freeSlow`
@@ -2919,8 +2972,8 @@ const mapped_blob: [80_000]u8 = blk: {
     break :blk b;
 };
 
-test "on Linux a run of the executable maps privately: it reads the run's bytes, its writes are its own, and freeing it unmaps it" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+test "on Linux and macOS a run of the executable maps privately: it reads the run's bytes, its writes are its own, and freeing it unmaps it" {
+    if (!maps_files) return error.SkipZigTest;
     // Zig's own backend (a debug build) places the constant in writable
     // data, which `mapRun` copies, as it should; a debug build never maps.
     if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;

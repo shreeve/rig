@@ -118,6 +118,14 @@ none of these ever built:
 
 ### Added
 
+- **A large embedded table loads without a copy on macOS too**: a
+  macOS release build maps 64 KiB or more of an embedded file added to
+  an empty List from the program's own file, as a Linux one does,
+  finding the run in the image's read-only segments (`LC_SEGMENT_64`)
+  at its slide. Trig's peak memory on the Mac is 9.2 to 9.5 MiB lower
+  on zod3 and ts-pattern at one, four, and its balanced checkers, with
+  no run slower (SPEC "List").
+
 - **A large embedded table loads without a copy** in a Linux release
   build: `!xs.extend_from_bytes($embed(path))` of 64 KiB or more into an
   empty List maps the file's pages from the program itself
