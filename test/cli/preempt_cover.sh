@@ -203,6 +203,33 @@ fun cpu() -> Int
   n
 RIG
 
+# where BIN: the functions the signals a run of BIN declined found its
+# fiber in (`RIG_SCHED_STATS=1`'s "declined at"), each with how
+# test/cli/preempt_calls.txt reads it: named there, a function that stays
+# outside the program's section for a reason, or a system library;
+# otherwise unclassified, a function a signal cannot stop in that should
+# be in the section.
+where() {
+    local name reading
+    for a in $(grep -o 'declined at.*' err.txt | sed 's/declined at//' | tr ' ' '\n' | sort -u); do
+        case $a in
+            0x*) if [[ $(uname -s) == Darwin ]]; then name=$(atos -o "$1" "$a" 2>/dev/null | sed 's/ (in .*//'); else name=$(addr2line -f -e "$1" "$a" 2>/dev/null | head -1); fi ;;
+            *) echo "$a (a system library)"; continue ;;
+        esac
+        name=${name#_}
+        reading=unclassified
+        while read -r pattern _; do
+            [[ -z $pattern || $pattern == \#* ]] && continue
+            [[ $name == $pattern ]] && { reading="named in preempt_calls.txt as $pattern"; break; }
+        done < "$ROOT/test/cli/preempt_calls.txt"
+        echo "$name ($reading)"
+    done
+}
+
+# A run past 25 ms is run again, and fails only if it misses again, as
+# the suite's load alone can delay a sleeper; the second run names where
+# its declined signals were. PREEMPT_COVER_STRICT=1, the quiet gate
+# before a release, takes no second run.
 for k in closure sort map iter actor par raw zig divrem strcmp hash slice; do
     cat head.rig "k-$k.rig" tail.rig > "$k.rig"
     "$RIG" build --release=fast -o "$k" "$k.rig" >build.txt 2>&1 || fail "build $k.rig: $(cat build.txt)"
@@ -210,7 +237,12 @@ for k in closure sort map iter actor par raw zig divrem strcmp hash slice; do
         out=$("$TIMEOUT_CMD" 60 "./$k" 2>&1) || fail "$k.rig, run $i (timeout 60 s): $out"
         set -- $out
         [ "$1" = woke ] && [ "$3" = true ] || fail "$k.rig, run $i: $out"
-        [ "$2" -le 25 ] || fail "$k.rig, run $i: the 20 ms sleeper woke after $2 ms, beside a computation in $k"
+        [ "$2" -le 25 ] && continue
+        first=$2
+        [ "${PREEMPT_COVER_STRICT:-}" = 1 ] && fail "$k.rig, run $i: the 20 ms sleeper woke after $first ms, beside a computation in $k"
+        out=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "./$k" 2>err.txt) || fail "$k.rig, run $i again (timeout 60 s): $out"
+        set -- $out
+        [ "$2" -le 25 ] || fail "$k.rig, run $i: the 20 ms sleeper woke after $first ms, and again after $2 ms, beside a computation in $k; its signals were declined in: $(where "./$k" | tr '\n' ';')"
     done
 done
 exit 0

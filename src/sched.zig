@@ -681,7 +681,19 @@ const Preempt = struct {
     /// waiting point runs it (`atWaitingPoint`). Set and cleared on the
     /// worker's own thread, by the handler and by the fiber.
     owed: std.atomic.Value(bool) = .init(false),
+    /// Where the last signals it declined found the fiber, in turn, for
+    /// `RIG_SCHED_STATS=1` to name: a long wait for a stop is traced to
+    /// the function that held it (test/cli/preempt_cover.sh).
+    declined_at: [8]usize = @splat(0),
+    declined_n: u32 = 0,
 };
+
+/// Note that a signal to `w` was declined at `pc`.
+fn declined(w: *Worker, pc: usize) void {
+    const pre = preOf(w);
+    pre.declined_at[pre.declined_n % pre.declined_at.len] = pc;
+    pre.declined_n +%= 1;
+}
 
 /// A lock is taken on this thread: no signal stops its fiber until it is
 /// let go (`holdOn`). Every spin lock and the output lock count. The
@@ -754,11 +766,13 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     const sp = sp_at.*;
     if (!inCode(pc)) {
         preOf(w).outside += 1;
+        declined(w, pc);
         owe(w);
         return;
     }
     if (preOf(w).no_preempt != 0) {
         preOf(w).held_off += 1;
+        declined(w, pc);
         owe(w);
         return;
     }
@@ -3012,6 +3026,36 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     registered.* = null;
 }
 
+/// Where the last signals `w` declined found its fiber, as addresses in
+/// the executable's file (less the slide the loader gave it on macOS),
+/// so `atos` or `addr2line` names their functions.
+fn printDeclined(w: *Worker, i: usize) void {
+    const pre = preOf(w);
+    const n = @min(pre.declined_n, pre.declined_at.len);
+    if (n == 0) return;
+    const slide: usize = if (macho) @bitCast(_dyld_get_image_vmaddr_slide(0)) else 0;
+    var buf: [1024]u8 = undefined;
+    var len = (std.fmt.bufPrint(&buf, "rig: worker {d}: declined at", .{i}) catch return).len;
+    const exe: usize = if (macho) @intFromPtr(_dyld_get_image_header(0)) else 0;
+    for (pre.declined_at[0..n]) |pc| {
+        // On macOS a library's code, the system's above all, is named by
+        // its file.
+        if (macho) {
+            var info: std.c.dl_info = undefined;
+            if (std.c.dladdr(@ptrFromInt(pc), &info) != 0 and @intFromPtr(info.fbase) != exe) {
+                const file = std.mem.span(info.fname);
+                len += (std.fmt.bufPrint(buf[len .. buf.len - 1], " {s}", .{std.fs.path.basename(file)}) catch return).len;
+                continue;
+            }
+        }
+        len += (std.fmt.bufPrint(buf[len .. buf.len - 1], " 0x{x}", .{pc -% slide}) catch return).len;
+    }
+    buf[len] = '\n';
+    _ = std.posix.system.write(2, &buf, len + 1);
+}
+
+extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) isize;
+
 /// With `RIG_SCHED_STATS=1` set, print what each worker did to stderr,
 /// as `main` ends: so a test can check where work ran without timing it.
 fn printStats() void {
@@ -3020,6 +3064,7 @@ fn printStats() void {
     if (!std.mem.eql(u8, v, "1")) return;
     var buf: [256]u8 = undefined;
     for (workers.*, 0..) |*w, i| {
+        if (preempt) printDeclined(w, i);
         const line = (if (preempt)
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room)\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped })
         else
