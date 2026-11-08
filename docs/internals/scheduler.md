@@ -204,7 +204,17 @@ A task that waits on another task or an actor touches little of its
 stack: `sched.block` reserves under a page, and its deadlock walk, which
 few waits run, runs on the worker's own stack (`walkFrom`, about 16 KiB
 of waits, steps and message), below the point the worker switched to
-the task, unused while the task runs. Each
+the task, unused while the task runs. So do stdout's flushes and a
+panic's report on stderr, whose frames, through the writer's vtable,
+are no task's to bound. They all go through `sched.onWorkerStack`, as
+Go's `systemstack` does, under its rules:
+- no signal stops the task while the call runs;
+- the call never parks or switches tasks, which a safe build checks;
+- a panic in it goes on on the task's own stack;
+- a nested call, or one off a worker, runs in place.
+
+A full pipe still blocks the worker's thread, as it blocked it before
+([cold-paths.md](../history/records/2026-11/task-memory/cold-paths.md)). Each
 thread's alternate signal stack is a
 mapping of its own, untouched until a signal runs on it (`rt.AltStack`):
 the root turns off Zig's, a 256 KiB thread-local array every worker and
