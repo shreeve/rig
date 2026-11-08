@@ -409,7 +409,11 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   millisecond, or every 50 µs while work waits (`watchSlices`). A
   worker whose fiber has run a slice, 10 ms, while other work waits, or
   whose own queue held work at two looks in a row, or whose timer or
-  poller is due, gets SIGURG. As `main` ends, `runMain` wakes it and
+  poller is due, gets SIGURG, and again at each look until it stops.
+  After four in a row that it declined, each signal waits twice as long
+  as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
+  system call, as a write to a full pipe blocks, took one every 50 µs,
+  each interrupting the call. As `main` ends, `runMain` wakes it and
   waits for it to end before it frees the workers (`stopMonitor`).
 - **The handler** stops the fiber only where its program counter is in
   the program's own code, the section `rig_text` (`__TEXT,__rig_text` on

@@ -1158,6 +1158,10 @@ fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
     var had: [max_workers]bool = @splat(false);
+    // Signals sent to each worker since it last switched, and when it is
+    // signaled next once it has declined `resignal_free` of them.
+    var tries: [max_workers]u32 = @splat(0);
+    var next_at: [max_workers]i96 = @splat(0);
     var period: i96 = std.time.ns_per_ms;
     while (true) {
         const word = watch_word.load(.seq_cst);
@@ -1176,14 +1180,21 @@ fn watchSlices(slice: i96, wait: i96) void {
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
                 since[i] = now;
+                tries[i] = 0;
                 busy = busy or running;
                 continue;
             }
             busy = true;
             const waited = work and had[i];
             if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
-            // Again every period until it stops: a signal that finds the
-            // fiber outside the program's code does nothing.
+            // Again until it stops: a signal that finds the fiber outside
+            // the program's code does nothing. After `resignal_free` in a
+            // row, each waits twice as long as the one before, up to
+            // `resignal_most`, so a worker in a long system call, or in
+            // the runtime's code, is not interrupted every period.
+            if (tries[i] >= resignal_free and now < next_at[i]) continue;
+            tries[i] += 1;
+            if (tries[i] >= resignal_free) next_at[i] = now + resignalAfter(tries[i], wait);
             _ = preOf(w).signals.fetchAdd(1, .monotonic);
             const pre = preOf(w);
             pre.signaling.lockApart();
@@ -1192,6 +1203,23 @@ fn watchSlices(slice: i96, wait: i96) void {
         }
         period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
+}
+
+/// How many signals in a row the monitor sends a worker that declines
+/// them, one a period, before it backs off (`watchSlices`).
+const resignal_free = 4;
+
+/// The longest the monitor waits between signals to a worker that keeps
+/// declining them: a computation stopped late waits this long at most
+/// past its slice, well inside what `test/cli/preempt_cover.sh` allows.
+const resignal_most: i96 = std.time.ns_per_ms;
+
+/// The wait before the signal after the `tries`th in a row to a worker
+/// that declines them: `wait` doubled for each past `resignal_free`, up
+/// to `resignal_most`.
+fn resignalAfter(tries: u32, wait: i96) i96 {
+    const shift: u6 = @intCast(@min(tries - resignal_free + 1, 16));
+    return @min(wait << shift, resignal_most);
 }
 
 /// Whether work waits in `w`'s own queues: its "run next" slot, its
