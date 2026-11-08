@@ -390,7 +390,7 @@ sub main()
   low = fold(line)
   seen = Map[?String, Int].new()
   for w in text.words(?low)
-    n = (!seen).ensure(w, 0)
+    n = !seen.ensure(w, 0)
     n += 1
   for e in ?seen.items()
     print(e.key, e.value)

@@ -147,7 +147,7 @@ leaves the rest of the object free. `?fun(Int) -> Int` is a view of a
 closure for a call; `*fun` owns one.
 
 **Tables.** `Table[T, n]` holds `n` slots, each `T()` until written;
-`s = (!t).push(x)` gives the slot as a `Slot[n]`, and `t[s]` reads or
+`s = !t.push(x)` gives the slot as a `Slot[n]`, and `t[s]` reads or
 writes it with no bounds test, in any table of that `n`.
 
 **Tasks.** A function value, `fun(Int) -> Int`, holds nothing and goes
@@ -159,7 +159,7 @@ that can fail: its `defer`s and drops run, and it ends with status 130.
 two, with `return a / b, a % b`, and `q, r = divmod(17, 5)` binds each
 by name; `_` discards one. They never form a value: a group of values
 kept past its statement is an object. One result may be a write view,
-`w, added = (!m).ensure_added(k, 0)`, which keeps `m` lent to write as
+`w, added = !m.ensure_added(k, 0)`, which keeps `m` lent to write as
 `w` lives, while `added` keeps nothing.
 
 **`not`** negates: `not done`. A comparison under it takes parentheses,
@@ -209,7 +209,7 @@ sub main()
   v: List[Int] = List()
   !v.push(a.balance())
   w = +v
-  print(size(v), (!w).pop() ?? 0, w.len, not (a.balance() > 50))
+  print(size(v), !w.pop() ?? 0, w.len, not (a.balance() > 50))
   print(<a.close())
 ```
 

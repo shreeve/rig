@@ -190,7 +190,7 @@ obj Countdown
     @n + 1
 
 fun largest[I: Iter, I.Item: Ord + Copy](it: !I) -> I.Item?
-  best = (!it).next() ?? return none
+  best = !it.next() ?? return none
   for x in !it
     best = x if x > best else best
   best
@@ -199,7 +199,7 @@ sub main()
   for x in Countdown(n: 3)
     print(x)
   c = Countdown(n: 4)
-  print((!c).sum())
+  print(!c.sum())
   d = Countdown(n: 5)
   print(largest(!d) ?? -1)
 ```
@@ -215,7 +215,7 @@ sub main()
 `Countdown` names no API. Declaring `next` is enough, so a `for` loop
 walks it. `I.Item` is the item type of whatever iterator `largest` is
 given, and `I.Item: Ord + Copy` bounds it as its own entry in the
-brackets. A chain's `sum`, `(!c).sum()`, adds what any iterator gives
+brackets. A chain's `sum`, `!c.sum()`, adds what any iterator gives
 when its items are numbers. An API of a program's own declares such a
 type with `type Item` ([SPEC, APIs](../../SPEC.md#apis)).
 

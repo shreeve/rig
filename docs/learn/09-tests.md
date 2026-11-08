@@ -436,7 +436,7 @@ run panics:
 
 ```rig
 sub stuck(c: *Chan[Int])!
-  v = (!c).recv()!
+  v = !c.recv()!
   print(v ?? 0)
 
 test "a wait with no sender"

@@ -3210,7 +3210,7 @@ ends with its statement; the loans of a moved value stay in force
 until the call or statement that consumes it ends, so a later argument
 of the same call cannot lend or move their roots, and so does a write
 loan any argument's value carries (a write view a method's result keeps
-of its self: `both((!b).firstw(), ?b)` is rejected). Likewise, an
+of its self: `both(!b.firstw(), ?b)` is rejected). Likewise, an
 argument that reads a place by value whose value shares storage the
 place owns (a List, a box, a handle, an object holding one, or what a
 write view reaches: `print(v, grow(!v))`) leaves a read loan of the
@@ -3637,7 +3637,7 @@ and so are a `for` source's loan and a `match` payload's.
 
 **Desugaring.** For loans, an object binding, a write view's referent,
 and a box's value are each a group of bindings, one per field, nested;
-using the whole uses every binding in the group. `(!@a).mk(@t)`
+using the whole uses every binding in the group. `!@a.mk(@t)`
 is `w = !@a; t = ?@t; w.mk(t)`, a write loan on one binding
 beside a read loan on another, which sentence 5 already allows. Emit is
 unchanged: it passes `&self.a` and `self.t`, adds no temporary, and
@@ -4324,7 +4324,7 @@ place and a take as `*<x`'s make.
 
 ### Loops over an iterator
 
-`for x in !it` is `while (!it).next() as x`, and nothing else: no pass
+`for x in !it` is `while !it.next() as x`, and nothing else: no pass
 has a form of its own for it. A `for` source is an iterator when its
 type, past views, is an object or enum (not a `List`, array, slice,
 `?String`, or range, which keep their own meaning) that declares
@@ -4335,10 +4335,10 @@ what it hands over (`sema.handsOver`), as every header does:
 
 | The source | It desugars to |
 |---|---|
-| a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
-| a made value `e` | `{ h = e; while (!h).next() as x }` |
-| `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
-| a method call whose sigil the self-sigil rule put on its self (`?b.each()`, `!b.drain()`): a made value | `{ h = (?b).each(); while (!h).next() as x }` |
+| a name or field path, written `!it` (a bare `it` is rejected) | `while !it.next() as x` |
+| a made value `e` | `{ h = e; while !h.next() as x }` |
+| `<it`, a name or field path | `{ h = <it; while !h.next() as x }` |
+| a method call whose sigil the self-sigil rule put on its self (`?b.each()`, `!b.drain()`): a made value | `{ h = ?b.each(); while !h.next() as x }` |
 | `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made
@@ -4369,7 +4369,7 @@ keyword, which holds no leaf, whose `id` says which name they are
 `new` so an enclosing loop's does not clash with it, and is quoted in the
 emitted Zig. So every position the checkers order by (liveness, scope
 ends, loop extents) lies in the loop, as it does in the `h = …; while
-(!h).next() as x` written by hand, and the ownership checker walks the
+!h.next() as x` written by hand, and the ownership checker walks the
 same thing: a view of `h` that outlives the block is reported where the
 block ends. A node keeps its id and span (the `while` has the `for`'s).
 The result is an ordinary `while` with an `as` header, which the

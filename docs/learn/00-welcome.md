@@ -241,7 +241,7 @@ fun peek(v: ?List[Int]) -> Int?
 
 fun pop(v: !List[Int]) -> Int!
   return Stack.empty if v.len == 0
-  (!v).pop() ?? 0
+  !v.pop() ?? 0
 
 fun next(v: ?List[Int]) -> Int?
   peek(?v)? + 1
@@ -407,7 +407,7 @@ sub main()!
   l = net.listen("127.0.0.1:8080")!
   http.serve(<l, |+hits, req|
     match req.path
-      "/hit" => http.text(String("hits ", (!hits).add(1)))
+      "/hit" => http.text(String("hits ", !hits.add(1)))
       "/boom" => http.text(String(pick(List([1, 2, 3]), 7)))
       _ => http.not_found()
   )!
