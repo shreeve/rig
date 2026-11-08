@@ -1,5 +1,32 @@
 # Small stacks: a design for the panel (2026-11-07)
 
+**Revised by the panel (2026-11-08):** both reviewers said ship with changes; the synthesis, safety's review and the runtime engineer's are in `~/Data/Code/Claude/rig/rig/small-stacks-panel/`. The order that replaces "The order of PRs" below:
+
+1. **Switch-first preemption, with the vector state off the stack.** The handler copies what the kernel saved in the signal frame into a slot per worker, so the room is about 0.5 KiB.
+   - No Zig code runs before the state is saved.
+   - A slot is freed through a deferred word per worker.
+   - A stop is declined when the pool is empty.
+2. **The cheap fixes**, which matter for today's stacks too:
+   - surplus free stacks released with alloc's `madvise` advice (`MADV_DONTNEED`, `MADV_FREE_REUSABLE`) instead of `munmap`, which removes the shootdowns;
+   - `MADV_NOHUGEPAGE` on stacks;
+   - `SA_ONSTACK`, with an alternate stack per worker, for the SIGPIPE, SIGINT, SIGTERM and SIGALRM handlers. Today these run on the task's stack, where a small class would let the kernel's signal frame overwrite a neighbour.
+   - Workers block the other asynchronous signals.
+   - The deadlock walk moves off task stacks.
+3. **Cold paths run on the worker's stack,** as Go's `systemstack` does: the panic path, message formatting, and foreign calls (libSystem, the first touch of a thread-local, the vDSO).
+4. **A census, the go/no-go:** a fail-closed bound analysis of the final executable, recording each `&` site's bound in release and debug.
+   - It follows sp through whole functions by a positive list of instructions, counting pushes, the red zone, and both program sections.
+   - Indirect calls resolve through address-taken sets or by type, and anything unknown counts as large.
+   - Emit writes a placeholder table, and `bin/rig` fills it after the link, re-signing on macOS.
+   - `frames.zig`'s heuristic undercounts, so it is no proof.
+5. **Classes chosen by the census** (2/4/16 or 2/8/32 KiB), each including the red zone, the preemption room and a panic stub.
+   - A page is released only when all its stacks are free: a locked pool per class behind the per-worker caches.
+   - A canary is checked at every switch-out and before reuse. It detects, it does not protect.
+   - Under `RIG_SANITIZE` each classed stack takes its own page over a guard and panics past its proven bound, so the class code is still exercised there.
+6. **Segments: not now.** Recursive tasks take the large class, and recursive fork-join is better served by running unstarted tasks on the waiter's stack.
+
+**Target:** about 2.6 KiB per sleeping task, since the record is about 0.6 KiB, if every sleeper lands in the 2 KiB class. **Riskiest rows:** bench/tasks' `many` memory on both machines, and bench-scale `alloc` on pup.
+
+
 A draft for the small-stacks design round (ROADMAP, "Tasks as small and as cheap as the best runtimes'"). It builds on the measurements in [preempt-room.md](preempt-room.md). Nothing here is built.
 
 ## The problem, in numbers
