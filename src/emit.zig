@@ -524,7 +524,7 @@ pub const Emitter = struct {
     /// the others waiting for long.
     yield_checks: bool = false,
     /// The program is built to be preempted by a signal
-    /// (`RIG_PREEMPT=signal`), in place of its yield checks: every
+    /// (`Package.preempting` in main.zig), in place of its yield checks: every
     /// function it writes for the program's own code is placed in the
     /// section the runtime may stop a task in (`rig.preempt_section`).
     code_section: bool = false,

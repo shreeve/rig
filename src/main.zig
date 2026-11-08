@@ -313,10 +313,6 @@ const Env = struct {
         return env.flag("RIG_SANITIZE");
     }
 
-    fn preempt(env: Env) bool {
-        return std.mem.eql(u8, env.get("RIG_PREEMPT") orelse "", "signal");
-    }
-
     fn verifyProofs(env: Env) bool {
         return env.flag("RIG_VERIFY_PROOFS");
     }
@@ -1906,7 +1902,8 @@ const Package = struct {
     links_libc: bool,
     /// How many units it is built as (`PackageKind.units`).
     units: u16 = 1,
-    /// It is built to be preempted (`RIG_PREEMPT=signal`).
+    /// It is built to be preempted by signal: it makes tasks and no local
+    /// task, for a target with the preemption (`sched.preempt_built`).
     preempting: bool = false,
 
     /// The flags after the mode's for this package (`Mode.releaseFlags`),
@@ -1927,6 +1924,12 @@ const Package = struct {
 };
 
 const PackageFile = struct { path: []const u8, contents: []const u8 };
+
+/// Whether a program built here may be preempted by signal: on x86-64
+/// Linux and arm64 macOS (`sched.preempt_built` decides for the build
+/// itself, which a debug build for Linux, on Zig's own backend, is not).
+/// Elsewhere a program keeps its yield checks.
+const preempt_host = (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) or (builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos);
 
 /// Module `m`'s files, each by its path from the package root: the
 /// directory of the root module, which the program's own modules are
@@ -2064,11 +2067,9 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     const task_guard = taskGuardOf(graph);
     const reads = readsOf(graph);
     const glue = declaresErrorFields(graph);
-    // `RIG_PREEMPT=signal`: preemption for a program that makes tasks and
-    // no local task, whose turns are taken at its yield checks.
-    const local = if (tasks and env.preempt()) firstLocalTask(graph) else null;
-    const preempting = tasks and env.preempt() and local == null;
-    if (local) |at| std.debug.print("rig: RIG_PREEMPT=signal ignored: this program makes local tasks ({s}:{d}), which take turns at yield checks\n", .{ at.path, at.line });
+    // Preemption by signal, where it is built, for a program that makes
+    // tasks and no local task: local tasks take turns at yield checks.
+    const preempting = preempt_host and tasks and firstLocalTask(graph) == null;
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RIG_PREEMPT=signal keeps the scheduler's code out of the program's own
+# Preemption by signal keeps the scheduler's code out of the program's own
 # code section, where a signal may stop it (docs/history/records/2026-11/
 # preempt/design.md, "TLS and the worker"): every scheduler entry the
 # program reaches is a call never inlined into it, and `me()` panics when
@@ -14,6 +14,14 @@
 # 2026-11/preempt/locks-2026-11-05.md), nor any read of a thread-local
 # (`%fs:`), whose address a fiber resumed on another worker would still
 # hold.
+#
+# It also checks what the section calls outside it: a preempted task is
+# stopped only in the section, so a function the program calls that runs
+# outside it holds the task past its slice. Each call from the section
+# to a function defined elsewhere must match a line of
+# test/cli/preempt_calls.txt, which says why that function stays out;
+# calls.rig, below, reaches the runtime's helpers of each kind (`%` and
+# `/`, comparisons of text, Map and HashMap, closures, slices, sorting).
 #
 # Preemption is built for Linux x86-64 and arm64 macOS. On Linux x86-64
 # the benches are built as `rig build` builds them; elsewhere `rig emit`
@@ -71,29 +79,112 @@ check() {
     done
 }
 
-for p in tasks actors; do
+cat > calls.rig <<'RIG'
+use std.sort
+use std.text
+use std.task
+
+obj P
+  a: Int
+  b: Int
+
+fun work(n: Int) -> Int
+  s = 0
+  xs: List[Int] = List()
+  for i in 0..n
+    !xs.push(i * 7 % 1003)
+  for i in 0..n
+    s += xs[i] % 7 + xs[i] / 3 + xs[(i * 13) % xs.len]
+  ys = ?xs[1..n / 2]
+  for y in ys
+    s += y
+  sort.sort_by(!xs[..], |a, b| a % 100 < b % 100)
+  m: Map[Int, Int] = Map()
+  for i in 0..1000
+    !m.put(i, i)
+  s += m.len
+  hm: HashMap[String, Int] = HashMap()
+  !hm.put(String("k"), 1)
+  t = String("hello world")
+  u = String("hello there")
+  for 0..1000
+    if t < u
+      s += 1
+    if t == u
+      s += 1
+    s += text.width(?t)
+  f = |x: Int| x * 3 % 11
+  for i in 0..1000
+    s += f(i)
+  p = P(a: 1, b: 2)
+  s += p.a
+  fl = 1.5
+  for 0..100
+    fl = fl * 1.0001 + 0.5
+  s += 1 if fl > 2.0 else 0
+  s
+
+sub main()
+  t = work(10000)&
+  print(>t > 0)
+RIG
+
+# calls BIN SECTION NAME: every call from BIN's SECTION to a function
+# defined outside it is named in test/cli/preempt_calls.txt.
+calls() {
+    python3 - "$1" "$2" "$ROOT/test/cli/preempt_calls.txt" >"$3.calls" <<'PY' || fail "$3: the program's section calls outside it, unnamed in test/cli/preempt_calls.txt: $(tr '\n' ' ' <"$3.calls")"
+import fnmatch, re, subprocess, sys
+binary, section, rules = sys.argv[1:4]
+allowed = [l.split()[0] for l in open(rules) if l.strip() and not l.startswith("#")]
+macho = "mach-o" in subprocess.run(["objdump", "-h", binary], capture_output=True, text=True).stdout.lower()
+def name(sym):
+    sym = re.sub(r"\+0x[0-9a-f]+$", "", sym).removesuffix("@plt")
+    if macho: sym = sym.removeprefix("_")
+    return re.sub(r"__func_[0-9]+", "", sym)
+inside = set()
+for line in subprocess.run(["objdump", "-t", binary], capture_output=True, text=True).stdout.splitlines():
+    f = line.split()
+    if any(t == section or t.endswith("," + section) for t in f[:-1]):
+        inside.add(name(f[-1]))
+dis = subprocess.run(["objdump", "-d", "-r", "--section=" + section, binary], capture_output=True, text=True).stdout
+called = set()
+for line in dis.splitlines():
+    m = re.search(r"(?:BRANCH26|R_X86_64_PLT32|R_X86_64_PC32)\s+(\S+)", line) or re.search(r"\b(?:bl|call)q?\s+(?:0x)?[0-9a-f]+\s+<([^>]+)>", line)
+    if m: called.add(name(m.group(1).split("-")[0]))
+bad = sorted(c for c in called - inside if not c.startswith("ltmp") and not any(fnmatch.fnmatchcase(c, a) for a in allowed))
+print("\n".join(bad))
+sys.exit(1 if bad else 0)
+PY
+}
+
+# src NAME: the program built: a bench, or calls.rig.
+src() { if [[ $1 == calls ]]; then echo "$PWD/calls.rig"; else echo "$ROOT/bench/$1/$1.rig"; fi; }
+
+for p in tasks actors calls; do
     if [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]]; then
-        RIG_OUT_DIR="$PWD/mac-$p" RIG_PREEMPT=signal "$RIG" build --release=fast -o "mac-$p.bin" "$ROOT/bench/$p/$p.rig" >/dev/null 2>build.err ||
-            fail "build bench/$p with RIG_PREEMPT=signal: $(cat build.err)"
+        RIG_OUT_DIR="$PWD/mac-$p" "$RIG" build --release=fast -o "mac-$p.bin" "$(src $p)" >/dev/null 2>build.err ||
+            fail "build bench/$p: $(cat build.err)"
         obj="mac-$p/__rig_program-apart.o"
         [[ -f $obj ]] || fail "bench/$p: no object $obj"
         objdump -h "mac-$p.bin" | grep -q ' __rig_text ' || fail "bench/$p: the executable has no __rig_text section"
         check "$obj" __rig_text "$p"
+        calls "$obj" __rig_text "mac-$p"
         x15='[[:space:],[](x15|w15)([[:space:],]|]|$)'
         ! grep -qE "$x15" "${p}__rig_text.dis" || fail "bench/$p: the program's section uses x15: $(grep -m1 -E "$x15" "${p}__rig_text.dis")"
         objdump -r --section=__rig_text "$obj" >"$p.relocs"
         ! grep -q TLVP "$p.relocs" || fail "bench/$p: the program's section reads a thread-local: $(grep -m1 TLVP "$p.relocs")"
     fi
     if [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]]; then
-        RIG_PREEMPT=signal "$RIG" build --release=fast -o "$p" "$ROOT/bench/$p/$p.rig" >/dev/null 2>build.err ||
-            fail "build bench/$p with RIG_PREEMPT=signal: $(cat build.err)"
+        "$RIG" build --release=fast -o "$p" "$(src $p)" >/dev/null 2>build.err ||
+            fail "build bench/$p: $(cat build.err)"
     else
-        RIG_OUT_DIR="$PWD/pkg-$p" RIG_PREEMPT=signal "$RIG" emit "$ROOT/bench/$p/$p.rig" >/dev/null 2>build.err ||
-            fail "emit bench/$p with RIG_PREEMPT=signal: $(cat build.err)"
+        RIG_OUT_DIR="$PWD/pkg-$p" "$RIG" emit "$(src $p)" >/dev/null 2>build.err ||
+            fail "emit bench/$p: $(cat build.err)"
         (cd "pkg-$p" && "$ZIG" build-exe -OReleaseFast -fomit-frame-pointer -fno-stack-protector -target x86_64-linux \
             --cache-dir "$RIG_OUT_DIR/preempt-section-cache" __rig_main.zig -femit-bin="../$p") >build.err 2>&1 ||
-            fail "build bench/$p for x86-64 Linux with RIG_PREEMPT=signal: $(cat build.err)"
+            fail "build bench/$p for x86-64 Linux: $(cat build.err)"
     fi
     check "$p" rig_text "$p"
+    calls "$p" rig_text "$p"
     ! grep -q '%fs:' "${p}rig_text.dis" || fail "bench/$p: the program's section reads a thread-local: $(grep -m1 '%fs:' "${p}rig_text.dis")"
 done

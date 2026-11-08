@@ -13317,6 +13317,15 @@ sub main()
 25 7
 ```
 
+**Taking turns.** Tasks share the cores, and a task that computes for
+long without waiting does not keep the others waiting behind it. On
+x86-64 Linux and arm64 macOS the runtime stops such a task with a
+signal once it has run a slice (10 ms) while other work waits. Elsewhere,
+for local tasks ([Local tasks](#local-tasks)), and in `rig test`'s
+seeded runs, the task yields at checks the compiler puts in its loops
+and on its cycles of recursive calls. A program never chooses which:
+the code is the same either way.
+
 **Loans.** A task keeps the loans of its arguments and its self
 until it ends: `total(?xs)&` lends `xs` to read for the task's whole
 life, so the task reads it in place and nothing changes it meanwhile.

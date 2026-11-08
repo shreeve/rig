@@ -573,6 +573,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// Room for one more entry, and room in the index for it.
         noinline fn reserveOne(self: *Self) void {
+            // Grown, out of line: a caller in the program's code pays a yield
+            // check a signal left owed meanwhile (`sched.settleAt`).
+            defer if (rt.preempt) rt.sched.settleAt(@returnAddress());
             if (self.live >= self.u.ix.max_load) {
                 self.rebuild(@max(groupsFor(@as(usize, self.live) + 1), self.groupCount()));
             }
@@ -734,6 +737,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// room up to `small_lanes` or compacted; or one with `small` live
         /// entries, given its index, sized for the entries' next room.
         noinline fn insertSmallSlow(self: *Self, k: K, v: V, h: u64) usize {
+            // Grown, out of line: a caller in the program's code pays a yield
+            // check a signal left owed meanwhile (`sched.settleAt`).
+            defer if (rt.preempt) rt.sched.settleAt(@returnAddress());
             if (self.cap == 0) {
                 self.resizeEntries(first_cap);
             } else if (self.live < small and self.len == self.cap and self.cap < small_lanes) {
@@ -928,6 +934,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// An insert out of line, so a lookup that finds its key stays
         /// short.
         noinline fn addNew(self: *Self, k: K, v: V, h: u64) usize {
+            // Grown, out of line: a caller in the program's code pays a yield
+            // check a signal left owed meanwhile (`sched.settleAt`).
+            defer if (rt.preempt) rt.sched.settleAt(@returnAddress());
             return self.insertHashed(k, v, h);
         }
 

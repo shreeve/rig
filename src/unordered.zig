@@ -229,7 +229,7 @@ inline fn textHash(s: []const u8) u64 {
         const d = read64(p + n - 8);
         return fold(a ^ k0, c ^ k1) ^ fold(b ^ k2, d ^ k3 ^ n);
     }
-    return std.hash.Wyhash.hash(0, s);
+    return rt.wyhash(0, s);
 }
 
 /// The multiplier of the table's integer hash: odd, and not the golden
@@ -672,6 +672,9 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// The table grown, then a slot claimed in it.
         noinline fn claimGrown(self: *Self, hash: u64) usize {
+            // Grown, out of line: a caller in the program's code pays a yield
+            // check a signal left owed meanwhile (`sched.settleAt`).
+            defer if (rt.preempt) rt.sched.settleAt(@returnAddress());
             if (self.size >= max_entries) tooMany();
             self.rehash(self.growthSlots());
             self.size += 1;

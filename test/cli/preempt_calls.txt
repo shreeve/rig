@@ -1,0 +1,60 @@
+# The functions outside the program's section that its code may call,
+# for test/cli/preempt_section.sh. A preempted task is stopped only in
+# the program's section (docs/internals/scheduler.md, "Preemption"), so
+# a function the program calls that runs long outside it holds the task
+# past its slice. Each function here stays outside for the reason given;
+# any other the section calls fails the check, so a new runtime helper
+# is placed in the section (`rt.program_section`) or made inline, or
+# named here with its reason.
+#
+# One pattern per line (`*` matches any run of characters), then the
+# reason. Names are as the symbol table gives them, without a leading
+# `_` and without Zig's `__func_N` suffixes.
+
+rig.sched.*                 the scheduler: its entries change the worker's state, which a signal must not stop halfway
+rig.tasks.*                 tasks, sets of tasks, and actors: they enter the scheduler or take an actor's lock
+rig.alloc.*                 the allocator: its locks; settleAt pays a check a signal left owed as it returns
+rig.runtime.*.growBy        a List's growth allocates
+rig.runtime.*.growInline    a List's growth allocates
+rig.runtime.String.ofPieces builds a String: allocates
+rig.runtime.Counted(*).dropLast  the last handle of a shared value: frees it
+rig.ordered.*.reserveOne    a table's growth allocates
+rig.ordered.*.insertSmallSlow  may grow the table: allocates
+rig.ordered.*.addNew        may grow the table: allocates
+rig.ordered.*.rebuild       rebuilds the table in new memory: allocates
+rig.unordered.*.claimGrown  grows the table: allocates
+rig.runtime.out*            output: takes the output lock
+rig.runtime.stdoutFailed    output failed: ends the program
+rig.runtime.*Panic*         a panic ends the task
+rig.runtime.panicWith       a panic ends the task
+rig.runtime.panicAfterFlush a panic ends the task
+rig.runtime.oom             out of memory ends the program
+rig.runtime.threadTask      reads a thread-local, whose address a task resumed on another worker would still hold
+process.exit                ends the program
+debug.print                 a panic's report
+memcpy                      copies bytes: bounded by what it copies, and a C function, which no section holds
+memmove                     copies bytes: as memcpy
+memset                      fills bytes: as memcpy
+strlen                      a C string's length, of the program's arguments
+__error                     the C library's errno
+__ulock_wait2               a lock's wait (Darwin)
+__ulock_wake                a lock's wake (Darwin)
+sigaction                   installs a signal handler, once
+sigemptyset                 a signal set, for sigaction
+pthread_kill                sends a signal
+clock_gettime               reads the clock
+close*                      a system call
+sched_yield                 a system call
+sysctlbyname                a system call, once at start
+__rig_std_time.sleep        a wait: enters the scheduler (a std function written in Zig)
+mem.eql                     the runtime's start, once (an environment variable's value); the program's comparisons are inline (rig.eql)
+compiler_rt.*memcpy*        copies bytes, in Zig's compiler-rt where no C library is linked: as memcpy
+compiler_rt.*Memset*        fills bytes, in compiler-rt: as memset
+compiler_rt.*memset*        fills bytes, in compiler-rt: as memset
+compiler_rt.*memmove*       copies bytes, in compiler-rt: as memcpy
+compiler_rt.strlen          a C string's length, in compiler-rt: as strlen
+Thread.getCpuCount          the runtime's start, once: how many workers to run
+rig.ordered.*.probePastHome a Map's probe past its home group: a few groups at most, bounded by the table's load, and kept beside the table's code, where bench/hash's speed holds
+rig.ordered.*.placePast     a Map's placing past its home group: as probePastHome
+rig.ordered.*.live_from     a Map's iteration step to its next entry: a short scan, kept beside the table's code
+rig.ordered.*.gone_from     as live_from, for removed entries

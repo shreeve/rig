@@ -148,7 +148,7 @@ left margin, then an indented body run as `main`'s statements:
 | `test "name", RESULT` | it runs, prints what `print(RESULT)` prints, and exits clean (no leak, no panic) |
 | `bomb "name", "TEXT"` | it panics with a message containing TEXT |
 | `fail "name", "L:C: TEXT"` | `rig` rejects it with each error given (position optional) |
-| `code "name", "ZIG"` | the emitted Zig contains ZIG, spacing ignored |
+| `code "name", "ZIG"` | the emitted Zig contains ZIG, spacing and `linksection(rig.preempt_section)` ignored |
 
 A body that prints nothing has its last line printed; `'''` opens a
 result of several lines. Options follow as `key: value`: `seeds: 20`,

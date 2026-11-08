@@ -5,6 +5,7 @@
 # RIG_SCHED_STATS=1 it says which path it took. Elsewhere, and in a
 # debug build, `os.exit` ends the process as before, and says nothing.
 # builds: shared
+# timeout: 240
 source "$ROOT/test/cli/_lib.sh"
 
 # Tables of 24 MiB: on 4 workers their regions' pieces are 96 MiB, a
@@ -121,7 +122,7 @@ fi
 
 # Preempted by signal, the stopped workers and the exiting task are never
 # stopped by one mid-teardown.
-RIG_PREEMPT=signal rig build --release -o parked_pre parked.rig >build.log 2>&1 || fail "build parked_pre: $(cat build.log)"
+rig build --release -o parked_pre parked.rig >build.log 2>&1 || fail "build parked_pre: $(cat build.log)"
 for round in 1 2 3; do
     RIG_SCHED_STATS=1 RIG_WORKERS=4 ./parked_pre >out.txt 2>err.txt; expect_rc $? 4 "parked, preempted"
     expect_eq "$(cat out.txt)" "exiting 64" "parked's output, preempted"

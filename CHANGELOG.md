@@ -357,6 +357,16 @@ none of these ever built:
 
 ### Runtime
 
+- On x86-64 Linux and arm64 macOS, a program that makes tasks and no
+  local task is preempted by signal: a monitor thread stops a task that
+  has run 10 ms while other work waits, in the program's own code, and
+  its loops run with no yield checks. `RIG_PREEMPT` is gone. Trig on pup
+  is 1.3-3.3% faster at one checker, with 3.8-4.6% fewer instructions,
+  and a fork-join's sum is 5 times faster on the Mac (14.1 ms to 2.7 ms
+  on ten workers; Rayon 2.4 ms). Other targets, Linux debug builds,
+  programs with local tasks, `rig test`, and the test runner's batch
+  packs keep their yield checks
+  ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
 - stdout's flushes, a panic's report on stderr, and the deadlock walk
   run on the worker's own stack, not the task's, through
   `sched.onWorkerStack`. No signal stops the task meanwhile, and a safe

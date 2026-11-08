@@ -45,20 +45,17 @@ first task. Each worker keeps its ready tasks in a ring and a few "run
 next" slots, and an idle worker steals from a busy one.
 
 A task pauses only where it waits, so a long computation would hold its
-core. So in a program that makes tasks, the compiler adds a yield check
-to every loop nest, which calls the scheduler every 1,024 turns, and to
-every cycle of recursive calls, where one function reads a flag on
-entry. A check never fails, and yields only when other work waits, so
-a task queued behind a long computation waits for a slice of it, not
-all of it.
-
-Preemption by signal is built for Linux x86-64 and arm64 macOS, as a
-prototype that is off by default: a program built with
-`RIG_PREEMPT=signal`, in an optimized build, has no yield checks.
-Instead a monitor thread sends SIGURG to a worker whose task has run a
-slice (10 ms by default) while other work waits, and the handler stops
-the task only in the program's own code and only while its worker holds
-no lock. Seeded test runs and a program that makes local tasks keep the
+core. On x86-64 Linux and arm64 macOS, a program that makes tasks is
+preempted by signal and its loops have no checks: a monitor thread
+sends SIGURG to a worker whose task has run a slice (10 ms by default)
+while other work waits, and the handler stops the task only in the
+program's own code and only while its worker holds no lock. Elsewhere
+the compiler adds a yield check to every loop nest, which calls the
+scheduler every 1,024 turns, and to every cycle of recursive calls,
+where one function reads a flag on entry. A check never fails, and
+yields only when other work waits. Either way a task queued behind a
+long computation waits for a slice of it, not all of it. Seeded test
+runs, Linux debug builds, and a program that makes local tasks keep the
 yield checks ([ROADMAP](ROADMAP.md), "Concurrency").
 
 ### 2. Async I/O, as in Tokio

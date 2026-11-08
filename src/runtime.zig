@@ -2073,7 +2073,9 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             if (comptime isStringView(T)) return bytesEql(a, b);
             if (comptime isShared(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
-            if (comptime isScalar(p.child)) return if (comptime std.meta.hasUniqueRepresentation(p.child)) bytesEql(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b)) else std.mem.eql(p.child, a, b);
+            // Scalars by their bytes where those are all of the value; any
+            // other slice by element, inline, in the code that compares.
+            if (comptime isScalar(p.child) and std.meta.hasUniqueRepresentation(p.child)) return bytesEql(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
             if (a.len != b.len) return false;
             for (a, b) |x, y| if (!eqlAs(p.child, x, y)) return false;
             return true;
@@ -2238,7 +2240,7 @@ const hash_mul: u64 = 0x4b33a62ed433d4a3;
 
 /// Wyhash of `bytes`, seed 0, as Zig's `StringHashMap` hashes text.
 fn hashBytes(bytes: []const u8) u64 {
-    return std.hash.Wyhash.hash(0, bytes);
+    return wyhash(0, bytes);
 }
 
 /// An integer by its value, whatever its width or signedness: a value
@@ -3021,6 +3023,20 @@ const Callback = Closure(&.{}, void);
 // stack closure's environment, a function, an owned closure) for as long
 // as the ownership checker lets the view live, and owns nothing.
 
+/// Wyhash of `s`, as the tables and `hash` take it, in the program's
+/// section (`program_section`): a loop that hashes long text is stopped
+/// by a signal there as in the program's own code.
+pub fn wyhash(seed: u64, s: []const u8) linksection(program_section) u64 {
+    return @call(.always_inline, std.hash.Wyhash.hash, .{ seed, s });
+}
+
+/// The section a function the program's code calls through a pointer is
+/// placed in: the program's own in a build preempted by signal, where a
+/// signal stops a task only in that section (`sched.preempt_section`),
+/// so a task in a loop of calls through a closure is stopped there too;
+/// the usual one otherwise.
+pub const program_section = if (preempt) sched.preempt_section else if (builtin.object_format == .macho) "__TEXT,__text" else ".text";
+
 pub fn FnRef(comptime params: []const type, comptime R: type) type {
     return struct {
         ctx: *anyopaque,
@@ -3043,7 +3059,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         pub fn of(comptime Env: type, env: *Env) Self {
             const n = @typeInfo(@TypeOf(Env.__rig_invoke)).@"fn".param_types.len - 1;
             const thunk = struct {
-                fn call(ctx: *anyopaque, args: Args) R {
+                fn call(ctx: *anyopaque, args: Args) linksection(program_section) R {
                     const e: *Env = ctxAs(*Env, ctx);
                     return @call(.auto, Env.__rig_invoke, .{e} ++ argsFor(n, args));
                 }
@@ -3057,7 +3073,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             const F = @TypeOf(f);
             const n = @typeInfo(@typeInfo(F).pointer.child).@"fn".param_types.len;
             const thunk = struct {
-                fn call(ctx: *anyopaque, args: Args) R {
+                fn call(ctx: *anyopaque, args: Args) linksection(program_section) R {
                     const g: F = ctxAs(F, ctx);
                     return @call(.auto, g, argsFor(n, args));
                 }
@@ -3072,7 +3088,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             const C = @TypeOf(box.value);
             const n = @typeInfo(C.Args).@"struct".field_types.len;
             const thunk = struct {
-                fn call(ctx: *anyopaque, args: Args) R {
+                fn call(ctx: *anyopaque, args: Args) linksection(program_section) R {
                     const c: *C = ctxAs(*C, ctx);
                     return c.invoke(argsFor(n, args));
                 }
@@ -4813,7 +4829,7 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
 /// `!s.swap(i, j)`: panics unless both indexes are in range. An element
 /// swapped with itself stays, as `std.mem.swap` may not be given one
 /// place twice.
-pub fn swap(items: anytype, i: anytype, j: anytype) void {
+pub fn swap(items: anytype, i: anytype, j: anytype) linksection(program_section) void {
     const a = index(i, items.len);
     const b = index(j, items.len);
     if (a == b) return;
@@ -5869,7 +5885,7 @@ fn slicePanic() noreturn {
 
 /// `a / b` on a type parameter's values: exact for floats, truncating
 /// toward zero for integers.
-pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {
+pub fn div(a: anytype, b: anytype) linksection(program_section) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return if (@typeInfo(T) == .float) @as(T, a) / @as(T, b) else @divTrunc(@as(T, a), @as(T, b));
 }
@@ -5877,7 +5893,7 @@ pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {
 /// `a % b`: the remainder with the dividend's sign, for integers and
 /// floats. A signed integer's remainder by -1 is 0, `Int.min % -1`
 /// included, where the machine's division would trap.
-pub fn rem(a: anytype, b: anytype) @TypeOf(a, b) {
+pub fn rem(a: anytype, b: anytype) linksection(program_section) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     switch (@typeInfo(T)) {
         .int => |int| if (int.signedness == .signed and b == -1) return 0,
@@ -6002,7 +6018,7 @@ const concurrent = builtin.is_test or makes_tasks;
 /// A program that makes tasks runs them on the scheduler (`sched.zig`).
 pub const scheduled = makes_tasks;
 
-/// Built with `RIG_PREEMPT=signal`, a program that makes tasks declares
+/// Built to be preempted, a program that makes tasks declares
 /// `__rig_preempt` in its root: where the system has the preemption it
 /// needs (`sched.preempt_built`), a task that runs a slice without
 /// waiting is stopped by a signal (`sched.zig`, "Preemption"), and its

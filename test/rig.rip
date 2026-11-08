@@ -786,7 +786,11 @@ checkCode = (c) ->
   r = run([rig, 'emit', c.path], { RIG_OUT_DIR: outDirOf(c, '.out') }, 120)
   throw new Error("rejected: #{firstLine(r.err)}") unless r.code is 0
   norm = (l) -> l.replace(/\s+/g, ' ').trim()
-  got = r.out.split('\n').map(norm).filter((l) -> l isnt '').join('\n')
+  # The section a preempted program's functions are placed in depends on
+  # the host (docs/internals/scheduler.md, "Preemption"), so a function's
+  # line reads the same with it or without.
+  unplaced = (l) -> l.replace('linksection(rig.preempt_section) ', '')
+  got = r.out.split('\n').map(norm).map(unplaced).filter((l) -> l isnt '').join('\n')
   for a in c.args
     if a.regex?
       throw new Error("the emitted Zig has nothing matching /#{a.regex}/") unless new RegExp(a.regex, a.flags).test(r.out)
