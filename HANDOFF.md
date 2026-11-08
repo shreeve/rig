@@ -142,7 +142,8 @@ A new session, human or agent, takes these steps in order:
   gate is `test/cli/preempt_cover.sh`. On pup, signal against the
   yield checks on Trig is 1.3-3.3% faster with 3.8-4.6% fewer
   instructions at one checker, 4.0-6.4% fewer at many; fork-join's psum
-  is 5 times faster on the Mac, near Rayon's
+  is 5 times faster on the Mac, near Rayon's; #1001 (four run-next
+  slots) ended `hog`'s wait behind preempted tasks
   ([records/2026-11/preempt/](docs/history/records/2026-11/preempt/design.md)).
 
 - **The revamp of the runtime and std**

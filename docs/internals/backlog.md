@@ -248,6 +248,17 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   stores and gives no view of a parameter; it would accept that call,
   `retain(|k| k.len == 5)` on a `Map[?String, ?String]`, and
   `update(|k, v| v = "lit")`.
+- **Seeded runs never use the "run next" slots.** With `RIG_SEED`,
+  `sched.wakeIn` appends every woken fiber to the one ready list, so
+  `seeds: 20` covers none of the slots' paths: the circle's displacement
+  of the oldest, the streak limit, `handoff` from a slot, and a thief's
+  take of the oldest. Only `test/cli/run_next_lost.sh` and
+  `run_next_fair.sh`, real runs on several workers, catch a lost or
+  starved fiber there, and not the same way twice. Model the slots in a
+  seeded run: each simulated worker keeps its own circle and ring, the
+  seed picks which worker runs and when one steals, so a fiber lost or
+  left waiting fails under the same seed every time. Source: Rig,
+  reviewing #1001.
 - **A scheduler unit test fails under load** in a debug build.
   `src/sched.zig`'s "two tasks that answer each other over a socket stay
   on one worker" counts the answers a side reads on a worker other than

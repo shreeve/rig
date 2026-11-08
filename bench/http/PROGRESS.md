@@ -104,3 +104,7 @@ which is why that row reads faster.
 | 2026-10-31 | #832: Tables take ranges of one address space (pup core 6) | rig-fast | 212576 | 174 us | 3393 us | 8.6 KiB |
 | 2026-10-31 | main caa6f8560 before #832, alternated (Mac, load 12-16) | rig-fast | 169051 | 358 us | 1138 us | 16.6 KiB |
 | 2026-10-31 | #832: Tables take ranges of one address space; its code is Linux-only (Mac, load 12-16) | rig-fast | 166656 | 364 us | 1180 us | 16.6 KiB |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (pup core 3) | rig-fast | 153642 | 329 us | 2810 us | 8.7 KiB |
+| 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 155873 | 345 us | 2761 us | 8.7 KiB |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 164277 | 376 us | 795 us | 16.8 KiB |
+| 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 163212 | 378 us | 786 us | 16.8 KiB |
