@@ -20955,6 +20955,7 @@ const isText = sema.isText;
 /// read as Zig reads them, a single-quoted one as `sema.SingleQuoted`
 /// reads it. Null for an escape the checker rejects.
 fn textLiteralBytes(a: std.mem.Allocator, lit: []const u8) ?[]const u8 {
+    if (rig.isBlockText(lit)) return rig.literalBytes(a, lit);
     if (lit[0] == '"') return std.zig.string_literal.parseAlloc(a, lit) catch null;
     var bytes: std.ArrayList(u8) = .empty;
     var it = sema.SingleQuoted.init(lit);

@@ -6138,6 +6138,15 @@ Each pass owns one part.
 - **Storage.** A template's `temp` is held `by` `buffer` (`storageOf`);
   each slot's value is read by address or copied as a print argument is
   (`printsByAddress`).
+- **Over several lines.** A backtick ending its line, and `"""` or
+  `'''` ending it (`Lexer.textBlock`), is text over several lines: the
+  lexer finds the closer first (`templateCloser`, past each slot on its
+  line), and checks every line against the margin (`rig.Block`,
+  `checkBlockLines`), so inner line breaks never reach layout. `"""` and
+  `'''` text is one string token; a template's pieces are its tokens
+  still. One function lays out the text past the margin
+  (`Block.write`), which emit (`rig.writeTemplatePiece`,
+  `rig.zigLiteral`) and the checker (`rig.literalBytes`) read through.
 - **Emit.** The pieces join the tuple a print, `String.of`, or `add`
   takes (`emitTemplatePieces`), a show slot as its label and
   `rig.showSlot(v)`; a `String` is `rig.String.of(...)`, a buffered

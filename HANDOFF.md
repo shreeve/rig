@@ -110,7 +110,9 @@ A new session, human or agent, takes these steps in order:
   [records/2026-11/templates-t1.md](docs/history/records/2026-11/templates-t1.md)):
   T1a, the record and pending rules (draft PR); T1b, lexing, parsing,
   the places, the `?String` buffer, and folding (draft PR, branch
-  `templates-t1b`); T1c, `"""`, `'''`, and multi-line backticks, next.
+  `templates-t1b`); T1c, `"""`, `'''`, and multi-line backticks (draft
+  PR, branch `templates-t1c`). After T1: test files' `'''` results move
+  to the closer's-column rule by a script.
 - **`loop`, and loops that give no value** (draft PR, branch
   `loop-keyword`, owner-approved 2026-11-06): `loop` is a keyword and
   the one loop that gives a value; `while true`, a loop `else`, a `for`

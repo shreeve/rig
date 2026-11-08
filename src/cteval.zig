@@ -1714,7 +1714,9 @@ pub const Eval = struct {
             // A literal's bytes, its escapes read as the run time reads them.
             if (isStringLiteral(self.ctx.source, arg)) {
                 const lit = self.text(arg);
-                if (lit[0] == '"') {
+                if (rig.isBlockText(lit)) {
+                    w.writeAll(rig.literalBytes(self.a(), lit) orelse "") catch return error.OutOfMemory;
+                } else if (lit[0] == '"') {
                     _ = std.zig.string_literal.parseWrite(w, lit) catch return error.OutOfMemory;
                 } else {
                     var it = sema.SingleQuoted.init(lit);

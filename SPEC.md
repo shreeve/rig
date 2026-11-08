@@ -373,8 +373,9 @@ it yields its bytes as `U8`. `s.is_empty()` is `s.len == 0`; it works
 the same on a List, an array, a slice, and a `Cell[List[T]]`, and a
 type's own `is_empty` method wins on that type.
 
-A string literal, in either quotes, ends on its line. A text longer than
-a line is made of several, `String(a, b, c)`, one String of their bytes
+A string literal, in either quotes, ends on its line, but for text over
+several lines ([below](#text-over-several-lines)). A String may also be
+made of several literals, `String(a, b, c)`, one String of their bytes
 in order.
 
 ```rig
@@ -618,6 +619,62 @@ sub main()
 
 ```error
 a template has a slot; fixed text is written in double quotes, `"…"`
+```
+
+#### Text over several lines
+
+`"""` (with escapes) and `'''` (raw) open fixed text over several lines
+when the opener ends its line, and a backtick that ends its line opens a
+template over several lines. The text starts on the next line and runs to
+the same three quotes, or the closing backtick. The closer's column is
+the **margin**: each line's spaces up to it are layout, and the spaces
+past it are text, the first line's too. A line with text less indented
+than a closer that stands alone on its line is rejected. When the closer
+follows text on its last line, the margin is the shallowest line's
+indentation. The line break after the opener, and the one before a
+closer alone on its line, are not text; a line of only spaces is empty,
+the spaces ending a line are dropped (`\x20` keeps one), a CRLF is a line
+feed, and a tab in the margin is rejected. So moving the whole text
+deeper or shallower never changes it. A slot stays on one line, and code
+goes on after the closer. `"""` and `'''` text is a `Static`.
+Mid-line, `'''abc'''` is the raw string `'abc'`, as always, and
+`"""abc"""` is rejected.
+
+```rig
+sub main()
+  usage = """
+    usage: tool [flags] FILE
+      -v  say more
+    """
+  path = '''
+    C:\new
+    '''
+  name = "tool"
+  print(usage)
+  print(`
+    {name}: {usage.len} bytes
+      in {path}
+    `)
+```
+
+```output
+usage: tool [flags] FILE
+  -v  say more
+tool: 39 bytes
+  in C:\new
+```
+
+```rig reject
+sub main()
+  s = """
+    a
+   b
+    """
+  print(s)
+```
+
+```error
+this line is less indented than the text's closer, whose column is the margin
 ```
 
 ### Arrays
@@ -14337,7 +14394,7 @@ not parse, and their words and sigils stay reserved:
 | a name touching a template's backtick, ``sql`x{a}` `` | `` a name touching a backtick is reserved for tagged templates; put a space or a bracket between them `` |
 | a `:` at the top of a slot, `{x:5}` | `` a `:` in a slot is reserved for formatting; format with a method, or put the expression in parentheses `` |
 | a template in a slot | `` a template inside a slot is reserved; build the inner text first `` |
-| a `\` ending a template's line | `` a `\` at the end of a template's line is reserved for joining lines `` |
+| a `\` ending a template's line or a line of text over several | `` a `\` at the end of a line of text is reserved for joining lines `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):

@@ -319,6 +319,11 @@ template's line, and `{=e}` shows the expression with its value. A slot
 holds no `:` outside brackets, no `#`, and no template; a name may not
 touch a backtick, and two backticks together are reserved.
 
+Text over several lines opens with `"""` (escapes), `'''` (raw), or a
+backtick (a template), the opener ending its line; the closer's column
+is the margin every line is read past
+([SPEC](../SPEC.md#text-over-several-lines)).
+
 ```rig
 sub main()
   name = "ada"

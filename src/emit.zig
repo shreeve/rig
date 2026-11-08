@@ -901,7 +901,7 @@ pub const Emitter = struct {
         try self.w.writeAll("\npub const __rig_tests = [_]rig.Test{\n");
         for (self.tests.items) |t| {
             try self.w.writeAll("    .{ .name = ");
-            if (t.name[0] == '\'') try writeSingleQuoted(self.w, t.name) else try self.w.writeAll(t.name);
+            try self.w.writeAll(try facts.syntax.zigLiteral(self.arena.allocator(), t.name));
             try self.w.print(", .func = {s} }},\n", .{t.func});
         }
         try self.w.writeAll("};\n");
@@ -6321,6 +6321,7 @@ pub const Emitter = struct {
             if (self_check) if (self.typeOf(sexp)) |t| if (self.isEnumTy(t)) return self.unsupported(sexp, "`none` with an enum type");
             return self.w.writeAll("null");
         }
+        if (facts.syntax.isBlockText(name)) return self.w.writeAll(try facts.syntax.zigLiteral(self.arena.allocator(), name));
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
         if (facts.syntax.isFloatLiteralText(name)) {
             // Typed, so arithmetic on literals rounds like run-time Float math.
@@ -9940,7 +9941,7 @@ pub const Emitter = struct {
         }
         if (isDefaultLiteralNode(decl.source, e)) {
             if (self_check and e == .src) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t) != null and decl.isNoneLeaf(e)) return self.unsupported(e, "`none` with an enum type");
-            return writeLiteral(self.w, decl.source, e);
+            return writeLiteral(self.w, self.arena.allocator(), decl.source, e);
         }
         if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll("rig.String.empty");
         if (decl.same(self.facts)) {
@@ -10589,8 +10590,11 @@ pub const Emitter = struct {
     /// value is written.
     fn emitTemplatePieces(self: *Emitter, n: *usize, t: Sexp) Error!void {
         const count = facts.syntax.Template.slotCount(t);
+        const block = facts.syntax.templateBlock(self.source, t);
         for (0..count + 1) |i| {
-            const body = facts.syntax.templateText(self.srcText(facts.syntax.Template.piece(t, i)));
+            var text: std.Io.Writer.Allocating = .init(self.arena.allocator());
+            facts.syntax.writeTemplatePiece(&text.writer, self.source, t, block, i) catch return error.OutOfMemory;
+            const body = text.written();
             if (body.len > 0) {
                 try self.w.writeAll(if (n.* == 0) " " else ", ");
                 n.* += 1;
@@ -11806,11 +11810,12 @@ fn isDefaultLiteralNode(source: []const u8, e: Sexp) bool {
 
 /// A default argument value: a literal, written from the source of the
 /// module that declares it.
-fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
+fn writeLiteral(w: *Writer, a: std.mem.Allocator, source: []const u8, e: Sexp) Error!void {
     switch (e) {
         .src => |s| {
             const t = rig.leafText(source, s);
             if (std.mem.eql(u8, t, "none")) return w.writeAll("null");
+            if (facts.syntax.isBlockText(t)) return w.writeAll(try facts.syntax.zigLiteral(a, t));
             if (t[0] == '\'') return writeSingleQuoted(w, t);
             // Zig has no `.5`.
             if (t[0] == '.') try w.writeAll("0");
@@ -11823,7 +11828,7 @@ fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
         } else {
             // `-1`: the sign, then the number.
             try w.writeAll("-");
-            try writeLiteral(w, source, ir.Neg.operand(e));
+            try writeLiteral(w, a, source, ir.Neg.operand(e));
         },
         else => {},
     }
@@ -11839,6 +11844,8 @@ fn writeTemplateText(w: *Writer, body: []const u8) Error!void {
         const c = body[i];
         if (c == '"') {
             try w.writeAll("\\\"");
+        } else if (c == '\n') {
+            try w.writeAll("\\n");
         } else if (c == '\\' and i + 1 < body.len) {
             switch (body[i + 1]) {
                 '{', '}', '`' => try w.writeByte(body[i + 1]),
