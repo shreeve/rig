@@ -157,7 +157,14 @@ a program that makes none starts no workers.
   and waited for at once runs by handoff on its maker's worker; and
   fork-join (`t = f()&; g(); >t`) spreads at `g`'s first yield check,
   which wakes an idle worker for `f` and lets `g` run on, as Go's `go`
-  leaves its maker running. A worker with nothing else to steal
+  leaves its maker running. A build preempted by signal has no yield
+  checks: there a worker that switches to a task, at its loop or by a
+  handoff, while others still wait in its slots or ring, wakes an idle
+  worker for them when none is looking (`sched.spread`). So tasks made
+  in turn and waited for in order, as Trig makes its checkers, start at
+  once on the idle workers, where they waited about 1 ms for the
+  monitor's stop; a maker that makes one task and goes on computing
+  hands it on at that stop. A worker with nothing else to steal
   also takes the oldest task left in another's slots 3 µs
   (`sched.stealNext`), as Go takes a `runnext`. A global queue takes overflow and work from
   outside the workers.
