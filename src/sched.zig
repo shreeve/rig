@@ -126,9 +126,6 @@ const Worker = struct {
     sp: usize = 0,
     current: ?*Fiber = null,
     after: ?After = null,
-    /// A fiber a stop found nothing to yield to (`afterPreempt`): run
-    /// next, before anything `next` would give.
-    resume_next: ?*Fiber = null,
     ring: Ring = .{},
     /// The fibers to run next: the ones this worker's fibers last made
     /// ready, still in cache, in a circle whose newest is at `lifo_head`.
@@ -1040,9 +1037,9 @@ fn preemptSwitch() void {
 /// On the worker's stack, after the stop (`preemptSwitch`): do what a
 /// loop's yield check does (`tick`), wake what the worker's timers and
 /// poller make ready, and if work waits, for this worker or for another
-/// busy one, queue `f` behind it (`behind`); else run `f` again next
-/// (`Worker.resume_next`), where its trampoline returns into the
-/// stopped code.
+/// busy one, queue `f` behind it (`behind`); else run `f` again next,
+/// from the worker's newest "run next" slot (`wakeIn`), where its
+/// trampoline returns into the stopped code.
 fn afterPreempt(f: *Fiber, _: ?*anyopaque) void {
     const w = me().?;
     serviceBusy(w);
@@ -1057,10 +1054,9 @@ fn afterPreempt(f: *Fiber, _: ?*anyopaque) void {
         } else if (leftToIdle(w)) break :blk false;
         break :blk true;
     };
-    if (!yields) {
-        w.resume_next = f;
-        return;
-    }
+    // Nothing to yield to: the fiber runs again next, from the newest of
+    // the worker's "run next" slots, as one just woken would.
+    if (!yields) return wakeIn(f);
     preOf(w).preempts += 1;
     behind(f, null);
 }
@@ -3198,11 +3194,6 @@ fn loop(w: *Worker) void {
                 advanceClock();
                 continue;
             };
-            runFiber(w, f);
-            continue;
-        }
-        if (w.resume_next) |f| {
-            w.resume_next = null;
             runFiber(w, f);
             continue;
         }
