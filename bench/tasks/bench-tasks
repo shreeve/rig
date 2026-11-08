@@ -107,6 +107,8 @@ def build(v, out, tokio):
         shutil.copy(os.path.join(target, "release", "tasks-rayon"), tmp)
     elif v == "go":
         subprocess.run(["go", "build", "-o", tmp, "."], check=True, cwd=os.path.join(HERE, "go"))
+    elif v == "swift":
+        subprocess.run(["swiftc", "-O", "-parse-as-library", "-o", tmp, os.path.join(HERE, "swift", "tasks.swift")], check=True)
     else:
         sys.exit("bench-tasks: no variant `%s`" % v)
     os.rename(tmp, exe)
