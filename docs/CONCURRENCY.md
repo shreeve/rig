@@ -425,35 +425,43 @@ timer set panics too, which covers waits on channels.
 ## Where it stands
 
 **Built:** the design doc's whole model, every style above, and
-`std.net` and `std.http` on a poller per worker.
+`std.net` and `std.http` on a poller per worker. On x86-64 Linux and
+arm64 macOS a long computation is stopped by signal, and a stop
+switches to the worker's own stack before the scheduler decides
+anything, so a task keeps about 3 KiB free below its stack pointer
+for a stop (`preempt_room` in src/sched.zig). Other targets keep the
+yield checks.
 
-**Measured** on an Apple M5 with 10 cores: Rig's rows of 2026-11-07
-(#1001) against Tokio's and Go's reference rows, taken on the same
-machine when each benchmark began (2026-10-19 for tasks, 2026-10-20 for
-actors and HTTP), so not interleaved with Rig's.
+**Measured** on an Apple M5 with 10 cores, interleaved, best of 5
+(2026-11-08, main 0d1c64647; `bench/tasks/PROGRESS.md`):
 
-| `bench/tasks/PROGRESS.md` | Rig | Tokio | Go |
+| `bench/tasks` | Rig | Tokio | Go |
 |---|---|---|---|
-| spawn, per task | 163 ns | 171 ns | 232 ns |
-| chain (start one, wait), per task | 47 ns | 167 ns | 223 ns |
-| yield, per yield | 5 ns | 40 ns | 233 ns |
-| fanout, 10 CPU-bound tasks | 89.0 ms | 69.0 ms | 69.6 ms |
-| memory, per sleeping task | 16.6 KiB | 270 B | 2.9 KiB |
+| spawn, per task | 151 ns | 176 ns | 227 ns |
+| chain (start one, wait), per task | 42 ns | 182 ns | 226 ns |
+| yield, per yield | 4 ns | 41 ns | 248 ns |
+| fanout, 10 CPU-bound tasks | 81.1 ms | 66.5 ms | 67.0 ms |
+| hog, a task waiting behind a long computation | 162 ns | 4.0 ms | 4.2 ms |
+| produce, tasks made while others take them | 6.7 ms | 5.6 ms | 6.1 ms |
+| memory, per sleeping task | 16.6 KiB | 262 B | 2.9 KiB |
 
-Starting a task costs about what Tokio's does and less than Go's; a
-chain is 3.6 times as fast as Tokio's, and a yield 8 times. `fanout` is
-29% slower than Tokio's, a gap in the compiled loop
-([launch/benchmarks.md](launch/benchmarks.md)) that the ROADMAP's
-strip-mined yield checks aim at. Behind a long computation (`hog`), a
-task has waited at most 0.12 ms in every Mac row since #355, against
-Tokio's 2.9 ms and Go's 3.2 ms. On pup (x86-64 Linux, 2026-11-07) a
-sleeping task holds 4.5 KiB, against Tokio's 372 B and Go's 2.9 KiB.
+Starting a task costs less than Tokio's and Go's; a chain is 4.3 times
+as fast as Tokio's, and a yield 9 times. `fanout` is 22% slower than
+Tokio's, a gap in the compiled loop ([launch/benchmarks.md](launch/benchmarks.md)).
+A task behind a long computation waits for a slice of it, not all of it:
+162 ns, against Tokio's 4.0 ms and Go's 4.2 ms. On pup (x86-64 Linux,
+2026-11-07) a sleeping task holds 4.5 KiB, against Tokio's 372 B and
+Go's 2.9 KiB.
 
-In the same rows, `bench/actors/PROGRESS.md` has a counter called from
-one task at 5.2 ns a call, against 3.7 ns behind Go's `sync.Mutex` and
-134 ns for a Tokio actor; `bench/http/PROGRESS.md` has `http.serve` at
-163,212 requests a second (p99 786 µs), 9.5% fewer than hyper's 180,339
-(p99 614 µs) and about Go's 163,675 (p99 1,071 µs), and 16.8 KiB per idle
+Divide and conquer with `f()&` and `>t`, fastest of 20 on ten workers
+on the Mac: a parallel sum takes 2.74 ms, against Rayon's 2.43 ms, and
+a quicksort 85.8 ms, against Rayon's 48.7 ms.
+
+`bench/actors/PROGRESS.md` has a counter called from one task at 5.2
+ns a call, against 3.7 ns behind Go's `sync.Mutex` and 134 ns for a
+Tokio actor; `bench/http/PROGRESS.md` has `http.serve` at 163,212
+requests a second (p99 786 µs), 9.5% fewer than hyper's 180,339 (p99
+614 µs) and about Go's 163,675 (p99 1,071 µs), and 16.8 KiB per idle
 connection against hyper's 18.6 KiB and Go's 18.5 KiB. Its load
 generator is closed-loop, which understates p99, so no claim against
 Tokio or Go rests on these before the mixed-workload benchmark.
@@ -461,14 +469,20 @@ Tokio or Go rests on these before the mixed-workload benchmark.
 **The gaps,** from the [ROADMAP](ROADMAP.md)'s "Concurrency":
 
 - **Task memory:** a sleeping task's 16.6 KiB brought under Go's
-  2.9 KiB on the Mac, through small stacks sized by a proven bound.
+  2.9 KiB on the Mac, through small stacks sized by a proven bound
+  ([records/2026-11/task-memory/](history/records/2026-11/task-memory/small-stacks.md)).
+- **Free fork-join,** for the quicksort's gap: an awaited unstarted
+  task run on the waiter's own stack, its record in the maker's frame,
+  as `rayon::join` does, where its frames are proven to fit, and `par`
+  splitting its work by what is left; the program still writes `f()&`
+  and `>t`.
 - **Files and I/O:** one `read`/`write` shape for files, sockets, and
-  HTTP bodies; then DNS, TLS, and an HTTP client, which `std` lacks.
+  HTTP bodies; then DNS, TLS, and an HTTP client, which `std` lacks;
+  and connections shaped as actors, so an idle one holds no stack.
 - **A mixed-workload benchmark,** open-loop, with requests that compute
   and thousands of idle connections, before any claim against Tokio or Go.
-- **Free fork-join:** an awaited unstarted task run on the waiter's own
-  stack, its record in the maker's frame, as `rayon::join` does, where
-  its frames are proven to fit; the program still writes `f()&` and `>t`.
+- **Preemption by signal on Linux arm64 and on Windows**, where the
+  yield checks run today.
 
 ## Where to read more
 
