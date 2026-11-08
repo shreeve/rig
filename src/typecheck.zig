@@ -9478,10 +9478,10 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const elem_tys = try self.ctx.arena.allocator().alloc(TypeId, elems.len);
-        var elem = try self.synthExpr(elems[0]);
+        var elem = try self.synthElem(elems[0]);
         elem_tys[0] = elem;
         for (elems[1..], 1..) |e, i| {
-            const ty = try self.synthExpr(e);
+            const ty = try self.synthElem(e);
             elem_tys[i] = ty;
             elem = (try self.unify(elem, ty, self.startOf(e))) orelse return self.t().invalid_id;
         }
@@ -9499,6 +9499,15 @@ const Checker = struct {
         const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
         if (self.under_poison) return ty;
         return if (try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) ty else self.t().invalid_id;
+    }
+
+    /// An array literal's element: a template there is a String the
+    /// array holds, as one bound to a name is (SPEC "Templates").
+    fn synthElem(self: *Checker, e: Sexp) Error!TypeId {
+        const saved = self.template_ok;
+        defer self.template_ok = saved;
+        if (e.isKind(.template)) self.template_ok = e;
+        return self.synthExpr(e);
     }
 
     fn checkArray(self: *Checker, node: Sexp, expected: TypeId) Error!?TypeId {
@@ -17875,7 +17884,7 @@ const Checker = struct {
         };
         if (!is_text) return false;
         if (e.isKind(.template)) {
-            try self.errAt(e, "a template where a `?String` goes is a temporary of its statement, so its view cannot be kept: bind its String, with no `?String` type", .{});
+            try self.errAt(e, "a template is a `?String` only as an argument a parameter reads, a temporary of its statement; elsewhere bind its String to a name first", .{});
             return true;
         }
         const shown = try self.plainText(stripSigil(e));

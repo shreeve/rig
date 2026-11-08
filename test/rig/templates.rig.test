@@ -187,6 +187,27 @@ test "template as an optional String", "x1 none"
     return `x{n}` if k else none
   print(f(true), f(false))
 
+test "template elements of an array", "[\"c5\", \"d5\"]"
+  n = 5
+  ys = [`c{n}`, `d{n}`]
+  print(ys)
+
+fail "template in a branch where a ?String goes", "a template is a `?String` only as an argument a parameter reads"
+  fun len_of(s: ?String) -> Int
+    s.len
+  n = 3
+  print(len_of(`yy{n}` if n > 2 else `z{n}`))
+
+fail "template in a compile-time function", "a compile-time function cannot use `cap: {n} is too big`: it runs only the forms of a compile-time function", whole: true
+  fun cap[n: Int] -> Int
+    if n > 4
+      panic(`cap: {n} is too big`)
+    n * 2
+  X = cap[9]
+
+  sub main()
+    print(X)
+
 # ---- folding ---------------------------------------------------------------
 
 test "template of constant slots is fixed text", ''', whole: true
@@ -249,7 +270,7 @@ fail "template view kept by a task", "a view of the temporary `x{a}` outlives it
   t = work(`x{a}`)&
   print(>t)
 
-fail "template view bound", "a template where a `?String` goes is a temporary of its statement"
+fail "template view bound", "a template is a `?String` only as an argument a parameter reads"
   a = 1
   s: ?String = `x{a}`
   print(s)
