@@ -2380,6 +2380,10 @@ pub const StorageBy = enum {
     copy,
     /// The address of a place, or of storage another fact records.
     pointer,
+    /// Text a template makes where a `?String` reads it, held in the
+    /// storage itself while it fits 256 bytes, and in a heap block the
+    /// storage frees past them (`rig.TextBuf`): no String is made.
+    buffer,
 };
 
 /// How long a hidden storage location lives.
@@ -5600,7 +5604,9 @@ pub const SemContext = struct {
     /// (`Storage`).
     pub fn storageOf(self: *const SemContext, node: Sexp, kind: StorageKind) ?Storage {
         return switch (kind) {
-            .temp => if (self.dropsTemp(node)) .{ .kind = .temp, .by = .owned, .life = .statement } else null,
+            // A template's temporary is its text, in a buffer (SPEC
+            // "Templates"); any other is the value itself.
+            .temp => if (self.dropsTemp(node)) .{ .kind = .temp, .by = if (node.isKind(.template)) .buffer else .owned, .life = .statement } else null,
             .header_copy => if (self.copiesHeader(node)) .{ .kind = .header_copy, .by = .copy, .life = .construct } else null,
             else => self.storage.get(.{ .node = exprKey(node) orelse return null, .kind = kind }),
         };
@@ -15718,7 +15724,10 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // temporary, whole, as a binding takes a call's result.
         // A compile-time call is a value made where it is written, as an
         // array literal is.
-        .call, .builtin, .inst, .ct_call, .lambda, .match, .block, .raw_block, .enum_lit, .symbol, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
+        // A template is text made where it stands (SPEC "Templates").
+        .call, .builtin, .inst, .ct_call, .lambda, .match, .block, .raw_block, .enum_lit, .symbol, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak, .template => .made,
+        // A template's show slot, `{=e}`, is a part of the template.
+        .show => .none,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
@@ -16519,7 +16528,7 @@ pub fn captureList(captures: Sexp) []const Sexp {
 
 /// Whether literal text `text` is a string's, double- or single-quoted.
 pub fn isStringLiteralText(text: []const u8) bool {
-    return text.len > 0 and (text[0] == '"' or text[0] == '\'');
+    return text.len > 0 and (text[0] == '"' or text[0] == '\'' or rig.isTemplateText(text));
 }
 
 /// The bytes a single-quoted string holds, one at a time: its body as

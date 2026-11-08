@@ -8516,6 +8516,67 @@ fn writeArgs(w: *std.Io.Writer, pieces: anytype) std.Io.Writer.Error!void {
     };
 }
 
+/// A template whose slots are all known when the program compiles: its
+/// pieces joined there into one constant (`piecesOf`), a `Static`.
+pub inline fn fixedText(comptime pieces: anytype) []const u8 {
+    const plan = comptime piecesOf(@TypeOf(pieces));
+    comptime std.debug.assert(plan.len <= 1);
+    return if (plan.len == 0) "" else comptime plan[0].text;
+}
+
+/// The value of a template's show slot, `{=e}`: written as a part of
+/// another value is (`writeValue` not at the top), so text is quoted and
+/// escaped and `none` shows.
+pub fn Shown(comptime T: type) type {
+    return struct {
+        value: T,
+        pub const __rig_shown = {};
+    };
+}
+
+/// `{=e}`'s value, `v` (`Shown`).
+pub inline fn showSlot(v: anytype) Shown(@TypeOf(v)) {
+    return .{ .value = v };
+}
+
+/// The text of a template that a `?String` reads, a temporary of its
+/// statement: written into the slot's own `stack` while it fits, and
+/// into one heap block past it, which `__rig_drop` frees. The slot lives
+/// in the caller's frame, so the view `bytes` gives lives until the
+/// statement drops it. No String is made.
+pub const TextBuf = struct {
+    stack: [size]u8,
+    heap: String,
+    len: usize,
+
+    pub const size = 256;
+
+    /// Write `pieces` (as `String.of` takes them) into `slot`, mark it
+    /// live, and give it.
+    pub inline fn keep(slot: *TextBuf, live: *bool, pieces: anytype) *TextBuf {
+        slot.fill(pieces);
+        live.* = true;
+        return slot;
+    }
+
+    noinline fn fill(self: *TextBuf, pieces: anytype) void {
+        var out: Spill = .init(&self.stack);
+        writeArgs(&out.writer, pieces) catch unreachable;
+        self.len = out.writer.end;
+        self.heap = out.heap;
+    }
+
+    /// The text: in the stack, or in the heap block it spilled into.
+    pub fn bytes(self: *const TextBuf) []const u8 {
+        if (self.heap.list.capacity != 0) return self.heap.list.items.ptr[0..self.len];
+        return self.stack[0..self.len];
+    }
+
+    pub fn __rig_drop(self: *TextBuf) void {
+        self.heap.__rig_drop();
+    }
+};
+
 /// A writer whose bytes go into a buffer on the stack until it is full,
 /// then into `heap`, a String's block that grows as `add` grows one:
 /// what a rendered `print` or `warn` line, an error's report, and
@@ -8924,6 +8985,8 @@ const max_print_depth = 64;
 /// is, and quoted everywhere else.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
+    // A template's show slot, `{=e}`: the value as a part of another.
+    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_shown")) return writeValue(w, value.value, false);
     if (comptime ownsApi(T, "__rig_own_print")) {
         var out: Printer = .{ .w = w };
         T.__rig_own_print(&value, &out);

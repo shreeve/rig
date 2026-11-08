@@ -1911,6 +1911,11 @@ const Planner = struct {
             .panic => for (ir.Panic.args(e)) |a| {
                 _ = printsByAddress(ctx, a);
             },
+            // A template's slots are read as `print` reads its arguments,
+            // wherever it stands.
+            .template => for (0..rig.Template.slotCount(e)) |i| {
+                _ = printsByAddress(ctx, rig.Template.value(e, i));
+            },
             .set => {
                 _ = laneChecked(ctx, e);
                 _ = fillsInPlace(ctx, e);

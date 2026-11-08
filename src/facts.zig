@@ -1206,6 +1206,11 @@ pub const syntax = struct {
     pub const contains = storage.contains;
     pub const isStringLiteralText = sema.isStringLiteralText;
     pub const SingleQuoted = sema.SingleQuoted;
+    /// A template's slots and pieces, its pieces' text, and a show slot's
+    /// label (SPEC "Templates").
+    pub const Template = rig.Template;
+    pub const templateText = rig.templateText;
+    pub const showLabel = rig.showLabel;
     pub const isLiteralText = storage.isLiteralText;
     pub const valueParts = sema.valueParts;
     pub const tailOf = sema.tailOf;

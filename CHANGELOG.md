@@ -118,6 +118,21 @@ none of these ever built:
 
 ### Added
 
+- **Backtick templates** (T1b): `` `{name} is {age}` `` builds text
+  from pieces and slots, and the place decides what it becomes. In
+  `print`, `warn`, and `panic` its pieces are written straight, with no
+  allocation and no separators; in `String(...)` and `!t.add(...)` they
+  are the call's arguments; where a `?String` goes it is a temporary of
+  its statement, built in 256 bytes of the caller's stack and then the
+  heap; where a `String` goes (a binding, a field, a return) it is a new
+  String of its length. A slot takes what a print argument takes;
+  `{=e}` shows the expression and its value; `\{`, `\}`, and
+  `` \` `` are literal, and a `"` needs no escape. A template of
+  constant slots is fixed text, a `Static`, so a module's constant may
+  be one. The strict rules (no slot, an empty slot, a literal slot, a
+  `:`, `#`, or template in a slot, a name touching a backtick, ``` `` ```,
+  a lone `}`, and `` s = `{s}…` ``) are errors with hints (SPEC
+  "Templates").
 - **A large embedded table loads without a copy on macOS too**: a
   macOS release build maps 64 KiB or more of an embedded file added to
   an empty List from the program's own file, as a Linux one does,

@@ -299,8 +299,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box, .template => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive, .show => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
         // whose `paren` is dropped; `loop`, rewritten to a `while`: each
@@ -522,6 +522,61 @@ pub fn isRangeIndex(e: Sexp) bool {
 pub fn children(node: Sexp) []const Sexp {
     if (node.kind() == null) return &.{};
     return node.items()[1..];
+}
+
+// =============================================================================
+// Templates
+// =============================================================================
+
+/// A template, `(template text slot text ... text)`: its text pieces and
+/// its slots alternate, first and last a piece (SPEC "Templates").
+pub const Template = struct {
+    /// How many slots `t` has.
+    pub fn slotCount(t: Sexp) usize {
+        return ir.Template.parts(t).len / 2;
+    }
+
+    /// Slot `i` of `t`: an expression, or a show slot `(show eq value)`.
+    pub fn slot(t: Sexp, i: usize) Sexp {
+        return ir.Template.parts(t)[2 * i + 1];
+    }
+
+    /// Text piece `i` of `t`, of `slotCount(t) + 1`: the token, its
+    /// delimiters included (`templateText` gives what it holds).
+    pub fn piece(t: Sexp, i: usize) Sexp {
+        return ir.Template.parts(t)[2 * i];
+    }
+
+    /// The value slot `i` writes: its expression, or a show slot's.
+    pub fn value(t: Sexp, i: usize) Sexp {
+        return slotValue(slot(t, i));
+    }
+};
+
+/// The expression a slot writes: itself, or a show slot's value.
+pub fn slotValue(s: Sexp) Sexp {
+    return if (s.isKind(.show)) ir.Show.value(s) else s;
+}
+
+/// Whether `text` is a template's text piece: a token from a backtick or
+/// a slot's `}` to a slot's `{` or the closing backtick.
+pub fn isTemplateText(text: []const u8) bool {
+    return text.len >= 2 and (text[0] == '`' or text[0] == '}');
+}
+
+/// What a template piece's token holds between its delimiters, escapes
+/// as written.
+pub fn templateText(text: []const u8) []const u8 {
+    return text[1 .. text.len - 1];
+}
+
+/// The label a show slot `{=e}` of template `t` writes: `e` as written,
+/// its outer spaces trimmed, from the `=` to the slot's `}` (the next
+/// piece's start).
+pub fn showLabel(source: []const u8, t: Sexp, i: usize) []const u8 {
+    const eq = ir.Show.eq(Template.slot(t, i));
+    const next = Template.piece(t, i + 1);
+    return std.mem.trim(u8, diag.textBetween(source, eq.src.pos + 1, next.src.pos), " ");
 }
 
 // =============================================================================
@@ -925,6 +980,11 @@ pub const Lexer = struct {
     /// The index in `ends` of the end of the file being read.
     file: u32 = 0,
 
+    /// The slot of a template being lexed (`` `a{x}b` ``): the bracket
+    /// nesting outside it, where its `}` closes it and the template's
+    /// text goes on. Templates do not nest, so one is open at most.
+    slot: ?Slot = null,
+
     /// Why the last `.err` token was produced.
     err: LexError = .none,
 
@@ -938,6 +998,10 @@ pub const Lexer = struct {
     /// line the closure starts on, and the layout state to restore is
     /// `depth` / `outer_column`.
     const Island = struct { nesting: u32, depth: u32, column: u32, outer_column: u32 };
+
+    /// An open slot: `open` is its `{`, `nesting` the bracket nesting
+    /// around it.
+    const Slot = struct { open: u32, nesting: u32 };
 
     /// An operator whose spacing, or a closure body whose layout, breaks
     /// the rule, at `pos`.
@@ -1017,6 +1081,23 @@ pub const Lexer = struct {
         marker_before_pub,
         matches_paren,
         matches_list,
+        template_no_slot,
+        template_unclosed,
+        template_empty,
+        template_ticks,
+        template_tagged,
+        template_brace,
+        template_control,
+        template_bidi,
+        template_join,
+        slot_empty,
+        slot_line,
+        slot_colon,
+        slot_comment,
+        slot_template,
+        slot_show_space,
+        slot_show_after,
+        template_long,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -1059,6 +1140,23 @@ pub const Lexer = struct {
                 .two_markers => "a function takes one marker: `inline` (inline it at every call) or `called` (keep every call a call), which contradict each other",
                 .matches_paren => "write `matches (`: alternatives follow `matches` after a space",
                 .matches_list => "put alternatives in parentheses: `matches (.a, .b)`",
+                .template_no_slot => "a template has a slot; fixed text is written in double quotes, `\"…\"`",
+                .template_unclosed => "unterminated template: it ends with a backtick on its line",
+                .template_empty => "an empty template ``` `` ``` is reserved; empty text is `\"\"`",
+                .template_ticks => "two backticks together are reserved; a backtick in a template is written `\\``",
+                .template_tagged => "a name touching a backtick is reserved for tagged templates; put a space or a bracket between them",
+                .template_brace => "a lone `}` in a template; write a brace as `\\}`",
+                .template_control => "control character in a template; write it as an escape (`\\t`, `\\n`)",
+                .template_bidi => "a bidirectional control character in a template; write it as an escape, `\\u{202e}`",
+                .template_join => "a `\\` at the end of a template's line is reserved for joining lines",
+                .slot_empty => "an empty slot; a slot holds an expression, `{x}`, or `{=x}` to show it",
+                .slot_line => "a slot ends on its template's line: close it with `}`",
+                .slot_colon => "a `:` in a slot is reserved for formatting; format with a method, or put the expression in parentheses",
+                .slot_comment => "a slot holds no `#`; a template's text ends with its backtick",
+                .slot_template => "a template inside a slot is reserved; build the inner text first",
+                .slot_show_space => "the show form is written `{=x}`, the `=` touching the `{`",
+                .slot_show_after => "a slot shows its expression as `{=x}`, with the `=` first",
+                .template_long => "a template's text between two slots is longer than 65534 bytes",
             };
         }
     };
@@ -1171,6 +1269,11 @@ pub const Lexer = struct {
 
         while (true) {
             const tok = self.base.next();
+            if (self.slot != null) switch (tok.cat) {
+                .comment => return self.fail(.slot_comment, tok.pos),
+                .skip, .newline, .eof => return self.fail(.slot_line, self.slot.?.open),
+                else => {},
+            };
             switch (tok.cat) {
                 .comment => continue,
                 .skip => continue, // `\` line continuation
@@ -1378,8 +1481,15 @@ pub const Lexer = struct {
             self.recordLayout(.{ .pos = tok.pos, .len = 1, .kind = kind, .column = self.lineIndent(self.brackets[self.nesting - 1]) });
             if (self.closeIsland(tok.pos, tok)) |outdent| return outdent;
         }
+        if (tok.cat == .backtick) return self.templateHead(tok);
+        if (tok.cat == .rbrace) if (self.slot) |slot| if (self.nesting == slot.nesting) return self.templateText(tok.pos);
+        if (self.slot) |slot| if (self.nesting == slot.nesting) if (self.slotError(tok)) |e| return self.fail(e, tok.pos);
         const after_value = self.after_value;
         var out = tok;
+        if (tok.cat == .assign and self.slot != null and (self.last_cat == .tpl_head or self.last_cat == .tpl_mid) and tok.pos == self.prev_end) {
+            out.cat = .tpl_show;
+            return out;
+        }
         out.cat = switch (tok.cat) {
             .ident => if (self.misplacedMarker(tok)) |bad| return self.fail(bad.err, bad.pos) else if (self.isMatches(tok)) blk: {
                 if (self.misplacedMatches(tok)) |bad| return self.fail(bad.err, bad.pos);
@@ -2003,6 +2113,121 @@ pub const Lexer = struct {
         return t.cat == .ident and !std.mem.eql(u8, probe.text(t), "new");
     }
 
+    // -------------------------------------------------------------------------
+    // Templates
+    // -------------------------------------------------------------------------
+
+    /// What may not stand at the top of a slot, outside its own
+    /// brackets: a `:` (formatting is a method's), a `=` apart from the
+    /// `{` (`{ =x}`) or last (`{x=}`).
+    fn slotError(self: *const Lexer, tok: Token) ?LexError {
+        return switch (tok.cat) {
+            .colon => if (self.symbolColonAt(tok)) null else .slot_colon,
+            .assign => if (self.last_cat == .tpl_head or self.last_cat == .tpl_mid) (if (tok.pos == self.prev_end) null else .slot_show_space) else if (self.closesSlot(tok)) .slot_show_after else null,
+            else => null,
+        };
+    }
+
+    /// A `:` touching a name where an operand starts: a symbol's
+    /// (`{x ?? :a}`), not a format's.
+    fn symbolColonAt(self: *const Lexer, tok: Token) bool {
+        if (self.after_value) return false;
+        const end = tok.pos + 1;
+        const src = self.base.source;
+        return end < src.len and isIdentStart(src[end]);
+    }
+
+    /// Only spaces stand between `tok` and a `}`.
+    fn closesSlot(self: *const Lexer, tok: Token) bool {
+        const src = self.base.source;
+        var p = endOf(&self.base, tok);
+        while (p < src.len and src[p] == ' ') p += 1;
+        return p < src.len and src[p] == '}';
+    }
+
+    /// A backtick opens a template: its text up to the first slot's `{`
+    /// is the head (`` `a{ ``).
+    fn templateHead(self: *Lexer, tok: Token) Token {
+        const src = self.base.source;
+        if (self.slot != null) return self.fail(.slot_template, tok.pos);
+        if (tok.pos > 0 and src[tok.pos - 1] == '`') return self.fail(.template_ticks, tok.pos - 1);
+        if (tok.pos + 1 < src.len and src[tok.pos + 1] == '`') {
+            const run = tok.pos + 2 < src.len and src[tok.pos + 2] == '`';
+            return self.fail(if (run) .template_ticks else .template_empty, tok.pos);
+        }
+        if (tok.pos > 0 and isIdentCont(src[tok.pos - 1])) return self.fail(.template_tagged, tok.pos);
+        return self.templatePiece(tok.pos, .tpl_head);
+    }
+
+    /// A slot's `}` at `pos`: the template's text goes on to the next
+    /// slot's `{` (`}b{`) or to its closing backtick (`` }c` ``).
+    fn templateText(self: *Lexer, pos: u32) Token {
+        return self.templatePiece(pos, .tpl_mid);
+    }
+
+    /// The piece of text starting at `start` (a backtick or a slot's
+    /// `}`), through the `{` that opens the next slot or the closing
+    /// backtick. Escapes are checked with a string's (typecheck); here
+    /// the piece must end on its line and hold no raw control.
+    fn templatePiece(self: *Lexer, start: u32, kind: TokenCat) Token {
+        const src = self.base.source;
+        var p: u32 = start + 1;
+        while (p < src.len) {
+            const c = src[p];
+            switch (c) {
+                '\\' => {
+                    if (p + 1 >= src.len or src[p + 1] == '\n' or src[p + 1] == '\r') return self.fail(.template_join, p);
+                    if (src[p + 1] < 0x20 or src[p + 1] == 0x7f) return self.fail(.template_control, p + 1);
+                    // `\u{e9}`: its braces are the escape's, not a slot's.
+                    if (src[p + 1] == 'u' and p + 2 < src.len and src[p + 2] == '{') {
+                        var q = p + 3;
+                        while (q < src.len and std.ascii.isHex(src[q])) q += 1;
+                        if (q < src.len and src[q] == '}') {
+                            p = q + 1;
+                            continue;
+                        }
+                    }
+                    p += 2;
+                    continue;
+                },
+                '{' => {
+                    if (p + 1 - start >= std.math.maxInt(u16)) return self.fail(.template_long, start);
+                    self.base.pos = p + 1;
+                    if (p + 1 < src.len and src[p + 1] == '}') return self.fail(.slot_empty, p);
+                    if (p + 2 < src.len and src[p + 1] == '=' and src[p + 2] == '}') return self.fail(.slot_empty, p);
+                    self.slot = .{ .open = p, .nesting = self.nesting };
+                    return .{ .cat = kind, .pre = 0, .pos = start, .len = @intCast(p + 1 - start) };
+                },
+                '`' => {
+                    if (kind == .tpl_head) return self.fail(.template_no_slot, start);
+                    if (p + 1 - start >= std.math.maxInt(u16)) return self.fail(.template_long, start);
+                    self.base.pos = p + 1;
+                    self.slot = null;
+                    return .{ .cat = .tpl_tail, .pre = 0, .pos = start, .len = @intCast(p + 1 - start) };
+                },
+                '}' => return self.fail(.template_brace, p),
+                '\n', '\r' => return self.fail(.template_unclosed, if (kind == .tpl_head) start else self.templateStart(start)),
+                else => {
+                    if (c < 0x20 or c == 0x7f) return self.fail(.template_control, p);
+                    if (bidiAt(src, p)) return self.fail(.template_bidi, p);
+                },
+            }
+            p += 1;
+        }
+        return self.fail(.template_unclosed, if (kind == .tpl_head) start else self.templateStart(start));
+    }
+
+    /// The opening backtick of the template whose text goes on at `pos`:
+    /// the last one before it on its line.
+    fn templateStart(self: *const Lexer, pos: u32) u32 {
+        const src = self.base.source;
+        var p = pos;
+        while (p > 0 and src[p - 1] != '\n') : (p -= 1) {
+            if (src[p - 1] == '`') return p - 1;
+        }
+        return pos;
+    }
+
     /// Why the grammar produced an `err` token.
     fn lexError(self: *Lexer, tok: Token) Token {
         const t = self.base.text(tok);
@@ -2059,6 +2284,7 @@ fn isValue(cat: TokenCat) bool {
         .rbracket,
         .rbrace,
         .task_amp,
+        .tpl_tail,
         => true,
         else => false,
     };
@@ -2069,7 +2295,7 @@ fn isValue(cat: TokenCat) bool {
 /// not touch a jump's label (`break $outer-1`, `break $outer.red`).
 fn startsOperand(cat: TokenCat) bool {
     return isSigil(cat) or switch (cat) {
-        .lparen, .lbracket, .dot, .dotdot, .dotdot_eq, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq => true,
+        .lparen, .lbracket, .dot, .dotdot, .dotdot_eq, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq, .tpl_head => true,
         else => false,
     };
 }
@@ -2118,6 +2344,18 @@ fn isSpace(c: u8) bool {
         ' ', '\t', '\r', '\n', '\\', '#', 0 => true,
         else => false,
     };
+}
+
+/// A bidirectional control character starts at `p` (U+061C, U+200E,
+/// U+200F, U+202A to U+202E, U+2066 to U+2069): written raw it can make
+/// text read otherwise than it runs, so a template takes it only as an
+/// escape.
+fn bidiAt(src: []const u8, p: usize) bool {
+    if (p + 1 < src.len and src[p] == 0xD8 and src[p + 1] == 0x9C) return true;
+    if (p + 2 >= src.len or src[p] != 0xE2) return false;
+    const b = src[p + 1];
+    const c = src[p + 2];
+    return (b == 0x80 and (c == 0x8E or c == 0x8F or (c >= 0xAA and c <= 0xAE))) or (b == 0x81 and c >= 0xA6 and c <= 0xA9);
 }
 
 pub fn isIdentStart(c: u8) bool {
