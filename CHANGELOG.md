@@ -314,6 +314,10 @@ none of these ever built:
   and a read view of a module constant's part, `row = ?grid[1]`, are
   run-time values: `x + 1` past the maximum, or a division by zero,
   panics when it runs, where Zig failed the build.
+- A read view of a module constant held in an object, an array, or an
+  optional, `p = P(a: ?top)`, `[?top, ?top]`, `Q(p: P(a: ?top))`, or
+  `P(a: ?top).a[0]`, is a run-time value, as `p = ?top` is: `p.a[0] + 1`
+  past the maximum panics when it runs, where Zig failed the build.
 - `<none` and `+none` become the optional they go into as `none` does,
   one held as a niche or beside a flag too: a binding, an argument, a
   push, and a return built. `print(?none)` is a bare `none`, reported.

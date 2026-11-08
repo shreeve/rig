@@ -11877,7 +11877,8 @@ fn isPlainIdent(name: []const u8) bool {
 /// literal, a name of a constant (a module-level binding, a compile-time
 /// parameter, a function or a type), a constructor or variant, and an
 /// operator, index, field, propagation, `??`, `catch`, ternary, `match`,
-/// or clone whose parts all are, and a read lend of one copied out.
+/// or clone whose parts all are, and a read lend of one, copied out or
+/// held.
 /// A loop used as a value is taken as one too: Zig folds the loop when
 /// what it breaks with is constant, and a `var` costs nothing when it
 /// is not. Any other form (a call, a write lend, a move, a closure, an
@@ -11903,9 +11904,11 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
         .list => {
             const h = e.kind() orelse return false;
             switch (h) {
-                // `?v` copied out where a value goes is `v` (a binding of
-                // the view itself holds a view).
-                .read => return em.facts.readsThrough(e) and isZigComptimeIn(em, ir.Read.operand(e), depth + 1),
+                // `?v` copied out where a value goes is `v`; a view held
+                // (`P(a: ?top)`, `[?top]`) is `&v`, an address Zig knows
+                // when it compiles when `v` is a constant's, and reads
+                // through there.
+                .read => return isZigComptimeIn(em, ir.Read.operand(e), depth + 1),
                 .call => {
                     // A constructor or variant of constant arguments is
                     // constant; a function call is not. A member callee
