@@ -1498,6 +1498,7 @@ pub const Lexer = struct {
         // A template the error is in ends there, so a tolerant reader
         // (the language server) goes on lexing code.
         self.slot = null;
+        self.block = null;
         return .{ .cat = .err, .pre = 0, .pos = pos, .len = 0 };
     }
 
