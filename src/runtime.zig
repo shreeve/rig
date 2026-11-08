@@ -8197,7 +8197,21 @@ fn stdout() *std.Io.Writer {
 /// Write out everything `print` has buffered. A write that fails ends
 /// the program (`stdoutFailed`).
 fn flush() void {
-    if (stdout_writer.*) |*w| w.interface.flush() catch stdoutFailed();
+    if (stdout_writer.*) |*w| flushOff(&w.interface) catch stdoutFailed();
+}
+
+/// Write out `w`'s buffer on the worker's stack (`sched.onWorkerStack`),
+/// not the task's: the writer's drain and the system's `write` wait on no
+/// fiber, only on the thread (a full pipe blocks it, as before), and their
+/// frames, through the writer's vtable, are not the task's stack to bound
+/// (docs/history/records/2026-11/task-memory/cold-paths.md).
+fn flushOff(w: *std.Io.Writer) std.Io.Writer.Error!void {
+    if (scheduled) return sched.onWorkerStack(flushWriter, .{w});
+    return w.flush();
+}
+
+fn flushWriter(w: *std.Io.Writer) std.Io.Writer.Error!void {
+    return w.flush();
 }
 
 /// Write out what `print` has buffered before a thread blocks, waiting
@@ -8209,7 +8223,7 @@ fn flush() void {
 pub fn flushBeforeWait() void {
     if (concurrent and !tryLockOutput()) return;
     defer unlockOutput();
-    if (stdout_writer.*) |*w| if (w.interface.end != 0) w.interface.flush() catch {};
+    if (stdout_writer.*) |*w| if (w.interface.end != 0) flushOff(&w.interface) catch {};
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -8217,7 +8231,7 @@ pub fn flushBeforeWait() void {
 /// `main`, a fault): a write that fails is dropped, so the report still
 /// comes.
 fn flushQuietly() void {
-    if (stdout_writer.*) |*w| w.interface.flush() catch {};
+    if (stdout_writer.*) |*w| flushOff(&w.interface) catch {};
 }
 
 /// One `print`: its pieces in order, the spaces between its arguments and
@@ -8817,6 +8831,7 @@ pub noinline fn fail(pieces: anytype) noreturn {
 /// death answers the calls queued on it, and a caller that panics at
 /// that answer, on another worker, must not be the one reported.
 fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
+    if (scheduled) sched.panicOnFiberStack(panicWith, .{ what, write, trace });
     const ends = if (comptime printRunsCode(@TypeOf(what), print_code_depth)) rendered: {
         var stack: [rendered_stack]u8 = undefined;
         var report: Spill = .init(&stack);
@@ -8840,11 +8855,19 @@ fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
 fn reportPanic(what: anytype, comptime write: anytype) bool {
     const ends = panicEnds();
     if (ends) beginPanic() else flushForPanic();
-    var buf: [1024]u8 = undefined;
-    const ls = std.debug.lockStderr(&buf);
-    defer std.debug.unlockStderr();
-    write(&ls.file_writer.interface, what) catch {};
-    ls.file_writer.interface.flush() catch {};
+    // The report itself on the worker's stack (`sched.onWorkerStack`):
+    // `what` is text, or a value whose writing runs no program code
+    // (`panicWith` renders one that does first, on the task's stack).
+    const Report = struct {
+        fn run(w: @TypeOf(what)) void {
+            var buf: [1024]u8 = undefined;
+            const ls = std.debug.lockStderr(&buf);
+            defer std.debug.unlockStderr();
+            write(&ls.file_writer.interface, w) catch {};
+            ls.file_writer.interface.flush() catch {};
+        }
+    };
+    if (scheduled) sched.onWorkerStack(Report.run, .{what}) else Report.run(what);
     return ends;
 }
 

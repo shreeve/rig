@@ -357,6 +357,12 @@ none of these ever built:
 
 ### Runtime
 
+- stdout's flushes, a panic's report on stderr, and the deadlock walk
+  run on the worker's own stack, not the task's, through
+  `sched.onWorkerStack`. No signal stops the task meanwhile, and a safe
+  build panics if the call would park. With the clock bounded by each
+  host's own vDSO, `tools/stack-census.py` bounds 6 of bench/tasks' 9
+  task types on pup, where it bounded 1.
 - Free task stacks move between workers through a spare list all
   workers share, and the surplus a burst of tasks leaves goes back to
   the system once the workers are idle, in address order, each run of
