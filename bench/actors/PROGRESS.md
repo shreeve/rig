@@ -109,3 +109,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-03 | #904 at f848b716e: panics leave no lock, slot, or stack behind; waits park (pup core 6) | rig-fast | 11 ns | 11 ns | 12 ns |
 | 2026-11-03 | #910: an actor's answer is the task's completion, sched.Done (pup core 6, main level at 11/11/11 ns) | rig-fast | 11 ns | 11 ns | 11 ns |
 | 2026-11-03 | #912: emit calls each wait's slot-taking form (pup core 6, main level) | rig-fast | 11 ns | 11 ns | 12 ns |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (pup core 3) | rig-fast | 11 ns | 11 ns | 11 ns |
+| 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 11 ns | 11 ns | 11 ns |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 5.2 ns | 28 ns | 0.9 ns |
+| 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 5.2 ns | 16 ns | 0.9 ns |

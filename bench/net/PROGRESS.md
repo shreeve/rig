@@ -100,3 +100,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-03 | #904 at f848b716e: several tasks wait on one socket; waits park (pup core 6) | rig-fast | 4.77 us | 4.62 us | 28.77 us |
 | 2026-11-03 | #911: a wait on a socket waits for an edge after its own call; http.serve registers at accept (pup core 6, against main d63367d42: 4.81/4.61/28.93 us) | rig-fast | 4.84 us | 4.67 us | 28.97 us |
 | 2026-11-03 | #912: emit calls each wait's slot-taking form (pup core 6, against main 2189f6bd9: 4.81/4.65/28.92 us) | rig-fast | 4.80 us | 4.60 us | 28.85 us |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (pup core 3) | rig-fast | 4.65 us | 4.44 us | 28.06 us |
+| 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 4.69 us | 4.47 us | 28.21 us |
+| 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 15.40 us | 6.22 us | 58.48 us |
+| 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 15.12 us | 6.21 us | 56.12 us |

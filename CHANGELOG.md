@@ -321,6 +321,16 @@ none of these ever built:
 
 ### Runtime
 
+- A worker keeps four tasks to run next, in a circle, where it kept
+  one. A task made and then waited for runs at once while it is still
+  in a slot, ahead of older tasks in the ring, and a thief takes the
+  oldest. `bench/tasks`' `hog` waited 19-134 ms on its first step on the
+  Mac with `RIG_PREEMPT=signal`, behind tasks that ran until the monitor
+  stopped them, and now waits 0.1-0.7 ms. With yield checks, `hog` takes
+  157 ns where it took 73 µs on the Mac, and 192 ns where it took 166 µs
+  on pup. `bench/actors`' `contend` is 43% faster on the Mac, and `spawn`
+  is 9% faster on the Mac and level on pup
+  ([run-next-2026-11-07.md](docs/history/records/2026-11/preempt/run-next-2026-11-07.md)).
 - The release allocator follows Linux's mode for transparent huge pages,
   read once from /sys/kernel/mm/transparent_hugepage/: under `madvise`
   it asks as before, and with no test of /proc/buddyinfo where `defrag`
