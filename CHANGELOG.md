@@ -326,6 +326,10 @@ none of these ever built:
 
 ### Tests
 
+- `test/cli/agree.sh` fails on macOS when `lake` is missing, and says
+  it skipped on stderr elsewhere; it fails, too, when fewer programs
+  than its floor (22) are in λRig's scope, or when lrig writes a line it
+  does not know.
 - The reference ownership checker (`bin/rig-oracle`) agrees with the
   compiler on a closure literal lent to a call, whose result carries the
   loans of what the closure captured, and decides the flow of sets of
@@ -401,7 +405,14 @@ none of these ever built:
 - The runtime's SIGPIPE, SIGINT and SIGTERM, and SIGALRM handlers run on
   the thread's alternate signal stack, and a program that makes tasks
   installs again with `SA_ONSTACK` any handler other code installed
-  without it.
+  without it, the SIGPIPE and SIGIO handlers of Zig's task backend
+  among them.
+- As `main` returns, the preemption monitor is woken and ended before
+  the workers it reads are freed; it read them after the free.
+- A macOS release build maps an embedded run from its file only when the
+  file's header and load commands, its LC_UUID among them, are the
+  running image's: a build renamed over the file while the program ran
+  had the program read the new build's bytes.
 - A worker keeps four tasks to run next, in a circle, where it kept
   one. A task made and then waited for runs at once while it is still
   in a slot, ahead of older tasks in the ring, and a thief takes the
