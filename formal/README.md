@@ -493,6 +493,10 @@ build`) runs `accepts` and `run` on each. A program the compiler accepts
 whose λRig run faults always fails the test; one the two checkers
 decide differently fails unless `test/oracle/agreement` lists it with
 its kind and class. The corpus is the cases of test/rig and examples/.
+The test also fails when fewer programs than its floor are in scope, so
+an exporter that leaves them all out cannot pass it, and on macOS when
+`lake` is missing; elsewhere, without `lake`, it is skipped and says so
+on stderr.
 On 2026-11-07, 22 programs were in scope, 20 decided alike, 2 rejected
 by the compiler alone for rules λRig does not have (an unread local,
 `none` as a name), none rejected by λRig alone, and none unsound.
