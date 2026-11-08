@@ -13,3 +13,6 @@ import LambdaRig.Wait
 import LambdaRig.Tasks
 import LambdaRig.TasksSound
 import LambdaRig.Crossing
+import LambdaRig.Mono
+import LambdaRig.TaskLoans
+import LambdaRig.Temps
