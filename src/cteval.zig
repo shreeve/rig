@@ -582,6 +582,8 @@ const Pure = struct {
             .move, .read, .write, .clone, .share, .weak, .box => return self.reject(e, "use `{s}`", .{self.text(e)}, "its values are plain, and copied where they go, so nothing is lent, moved, or shared", .{}),
             .propagate, .propagate_none, .@"catch", .@"??" => return self.reject(e, "use `{s}`", .{self.text(e)}, "its values are never optional and nothing fails, so there is nothing to pass on or handle", .{}),
             .builtin => return self.reject(e, "use `{s}`", .{self.text(e)}, "it runs only the forms of a compile-time function", .{}),
+            // A template is written as it is, between its own backticks.
+            .template => return self.reject(e, "use {s}", .{self.text(e)}, "it runs only the forms of a compile-time function", .{}),
             else => return self.reject(e, "use `{s}`", .{self.text(e)}, "it runs only the forms of a compile-time function", .{}),
         }
     }
