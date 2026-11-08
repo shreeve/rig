@@ -17,6 +17,7 @@ and [DESIGN](DESIGN.md) say why; [SYNTAX](SYNTAX.md),
 | How is memory freed with no collector? | [learn/02-ownership.md](learn/02-ownership.md), then [CORE.md](CORE.md) |
 | How do errors and optionals work? | [learn/03-errors.md](learn/03-errors.md), then [SPEC §12 and §13](../SPEC.md#12-optionals) |
 | How do I run things concurrently? | [learn/04-concurrency.md](learn/04-concurrency.md), then [SPEC §18](../SPEC.md#18-tasks) |
+| How does concurrency work behind `f()&` and `>t`? | [CONCURRENCY.md](CONCURRENCY.md), then [design/concurrency.md](design/concurrency.md) and [internals/scheduler.md](internals/scheduler.md) |
 | How do I handle text? | [learn/05-text.md](learn/05-text.md), then [design/text.md](design/text.md) and the text modules of [STD.md](STD.md) |
 | What is in the standard library? | [learn/06-stdlib.md](learn/06-stdlib.md) for a tour, [STD.md](STD.md) for each module |
 | How do I write a form? | [SYNTAX.md](SYNTAX.md) |
